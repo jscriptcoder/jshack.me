@@ -1,9 +1,11 @@
 # Plan: D10 — polish + the long tail
 
 **Status**: Active — **slice 1 is SHIPPED**: `dd1cc5cf` (PR #481) at **v0.201.0**, all thirteen
-acceptance criteria met, every gate passed, and its close-out written up at the bottom of the
-slice. Trunk is at v0.201.0 and level with origin. **The next action is to plan slice 2**
-(`author` + `xterm`), which starts from the `CommandEnv` → UI capability seam slice 1 laid.
+acceptance criteria met, every gate passed, and its close-out written up below it. **Slice 2 is
+planned and not started**: twelve acceptance criteria confirmed 2026-09-02, twelve RED steps, and
+three implementation choices the grill left open, resolved and confirmed at the top of its
+section. Trunk is at
+v0.201.0 and level with origin; the slice 2 branch is not cut yet.
 **Epic**: [`legacy-parity-epic.md`](legacy-parity-epic.md) → "D10 — resolved scope & decisions
 (grill-me, 2026-09-02)", fifteen locked decisions.
 
@@ -11,12 +13,13 @@ slice. Trunk is at v0.201.0 and level with origin. **The next action is to plan 
 
 1. Read the epic's D10 section — the fifteen decisions, the four forced-rather-than-chosen entries,
    and the "Deliberately NOT built" list. **`bash` is refused, not deferred**; do not port it.
-2. **Slice 1 is shipped and merged.** Read its close-out at the bottom of this file before planning
-   slice 2 — it records the seam slice 2 builds on, the three tests that passed on arrival and how
-   they were proven, what the mutation gate found, and one gap left open on purpose.
-3. **The next action is to plan slice 2** (`author` + `xterm`) with `/plan`. Its decisions are
-   already locked in the epic; what it needs is acceptance criteria, a RED order and a GREEN
-   sequence. Do not re-grill the door.
+2. **Slice 1 is shipped and merged.** Read its close-out before starting slice 2 — it records the
+   seam slice 2 builds on, the three tests that passed on arrival and how they were proven, what
+   the mutation gate found, and one gap left open on purpose.
+3. **The next action is to build slice 2** (`author` + `xterm`), planned at the bottom of this
+   file. Its twelve acceptance criteria and its three implementation resolutions are confirmed, so
+   cut the branch and start at RED 1. The product decisions are locked in the epic; do not
+   re-grill the door.
 4. Cut a fresh `feat/…` branch per slice off an up-to-date `main` — check `git status -sb` for
    ahead/behind, per conventions §8, which distinguishes ahead from level where
    `git pull --ff-only` does not.
@@ -49,14 +52,14 @@ want found — nine commands that legacy had and v2 has been missing since the r
 | # | Slice | Observable | Status |
 |---|-------|-----------|--------|
 | 1 | the terminal is yours | `clear` + Ctrl-L, four themes that survive a reload, `whoami` | ✅ **shipped** — `dd1cc5cf` (PR #481), v0.201.0 |
-| 2 | the card and the second window | `author` opens the card; `xterm` opens a FRESH tab | not planned |
+| 2 | the card and the second window | `author` opens the card; `xterm` opens a FRESH tab | 📋 **planned** — not started |
 | 3 | the box answers questions | `find / passwd` finds it; `strings /bin/ls` reads the stub | not planned |
 | 4 | permissions change hands | `chmod o+r` opens a file to a tier that could not read it | not planned |
 | 5 | a file nobody else can read | `gpg -c` then `-d` round-trips; a wrong passphrase fails clean | not planned |
 
-Only slice 1 has been planned and built. Plan each later slice when its predecessor lands — D7, D8 and D9
-all found later slices cost far less than their plans assumed, because the seams they needed had
-already generalized.
+Slice 1 is built; slice 2 is planned and not started. Plan each remaining slice when its
+predecessor lands — D7, D8 and D9 all found later slices cost far less than their plans assumed,
+because the seams they needed had already generalized.
 
 **No `api/` change in any slice, so the wire-check is `N/A` throughout** (epic §"Forced rather than
 chosen"). Every close-out proof is a browser run — the vantage conventions §7 warns a green
@@ -229,7 +232,7 @@ refused for `author`.
 `author` and `xterm` (slice 2 — they need the same capability seam this slice lays, which is the
 argument for landing this one first); `find`, `strings`, `chmod`, `gpg`; a cross-tab `storage`
 listener so an open tab repaints when another switches theme (epic decision 9 — a new tab inherits
-at boot, and that is enough); legacy's five unpainted palette tokens (epic decision 8) — the two
+at boot, and that is enough); legacy's six unpainted palette tokens (epic decision 8) — the two
 the author card needs arrive **with** the card, in slice 2.
 
 ### REFACTOR
@@ -417,10 +420,222 @@ landing this slice first, and it held.
 grouping before slice 2's two exist would mean either forcing them into a shape chosen without
 them or reshaping it twice. Judge it again at six, with the code in front of you.
 
-Legacy's five unpainted palette tokens stay out (epic decision 8) — **but the author card needs
+Legacy's six unpainted palette tokens stay out (epic decision 8) — **but the author card needs
 two of them**, so they arrive WITH the card in slice 2, and `applyTheme.test.ts`'s hardcoded token
 list is the file that must grow alongside `ThemeColors`.
 
+
+---
+
+## Slice 2: the card and the second window
+
+**Value**: Two commands legacy had that make the terminal feel like somewhere rather than
+something. `author` is the game's only human voice — the person who wrote it, in his own words —
+and it is the one screen a player reaches for on purpose rather than because a mission sent them.
+`xterm` is what anybody does when they want two of a terminal: keep a shell on their own box while
+the other one is three hops deep. Both answer `command not found` today.
+
+`xterm` also pays off a hazard that already exists. A second tab opened by hand lands inside
+whatever box the first tab is ssh'd into, and `exit` in one ends a row the other still believes it
+holds. Nobody has hit it because nobody opens a second tab, which is precisely what this command
+invites — so it ships with the fix, not after it.
+
+**Path**: `author` → registry (an ungated game command) → returns a `mode_change` → `executeLine`
+sets `overlayMode` → `Terminal`'s `Switch` matches a third variant → the `Author` screen takes the
+keyboard, and ESC or `q` hands the terminal back. `xterm` → registry → `env.openTerminal()` →
+`ui/state.ts` opens a tab at the origin carrying the fresh flag → that tab's `main.tsx` consumes
+the flag and `startGame` skips hop rehydration.
+
+**Class**: Behavior change.
+
+**Delivery**: Independent PR against trunk, cut from `main` at v0.201.0. No stack: slice 3 is
+`find` + `strings`, which touches none of this.
+
+**Required implementation skills**: `tdd`, `testing`, `refactoring`. Load `mutation-testing` at PR
+readiness for the accumulated scope.
+
+**Reduction program**: `N/A`.
+**Transition/terminal evidence**: `N/A`.
+
+### The three things this plan decides that the grill left open
+
+None of these reopens a locked decision; each is the implementation choice that decision implies.
+
+**1. The fresh flag is one-shot.** Decision 13 records its own residual as *"if the fresh tab later
+elevates, a RELOAD of either tab rebuilds one stack from both tabs' rows"* — which is only true if
+the flag does not survive that reload. `window.open` sends the tab to `…?fresh`, and that URL is
+what a reload re-requests. So the flag is **consumed at boot**: read it, strip it with
+`history.replaceState`, then start the game. Leave it in place and a fresh tab that elevated and
+reloaded would come back demoted with its own `su` row still open on the server — a worse outcome
+than the residual the decision knowingly accepted, arrived at by accident.
+
+**2. The `author` mode carries no payload.** `{ kind: 'author' }`, not
+`{ kind: 'author', profile }`. `nano` and `lynx` carry content because theirs is different every
+time; the card's copy is one constant, and piping it through the mode would leave `author.test.ts`
+asserting only that a constant travelled. The copy lives with the screen that paints it — and
+therefore **not** beside `themes.ts`, because nothing in `core/` reads it. (`theme` genuinely lists
+its palettes, which is why those live in `core/`; the parallel is misleading and worth naming
+before someone draws it.)
+
+**3. Two new palette tokens, not three.** Legacy's card paints `--theme-link`,
+`--theme-link-hover` and `--theme-avatar-border`. Decision 8 names two, and the third is avoidable:
+the hover state uses `--theme-text-bright`, which all four palettes already define and half the
+tree already paints. A `linkHover` token would be a ninth value whose whole job is to be a slightly
+different shade of one we have — in four palettes, forever, with a test pinning each.
+
+### Acceptance criteria — CONFIRMED 2026-09-02, before any code
+
+- [ ] **AC-1** `author` opens a full-screen card carrying the author's name, the bio paragraphs and
+      the avatar image, plus **real anchors** for LinkedIn and GitHub — each with its `href`,
+      `target="_blank"` and `rel="noopener noreferrer"`.
+- [ ] **AC-2** ESC or `q` closes the card and hands back the terminal with the scrollback intact.
+      The card leaves **no line behind** — like `nano` and `lynx`, it was a screen, not output.
+- [ ] **AC-3** The card takes the keyboard the moment it opens: a player can quit without clicking
+      into it first.
+- [ ] **AC-4** The copy is legacy's, verbatim — name, six paragraphs, avatar URL and both links.
+- [ ] **AC-5** `--theme-link` and `--theme-avatar-border` are painted on `document.documentElement`
+      for **all four** palettes, and the card's links and avatar border read them: `theme green`
+      while the card is open recolours it.
+- [ ] **AC-6** `xterm` opens a new browser tab at the game's origin, prints one line saying so, and
+      exits **0**.
+- [ ] **AC-7** The new tab boots at the player's **own workstation as their own user**, even when
+      the opening tab is inside an `ssh` hop or holding a `su` elevation — hop rehydration is
+      skipped for that boot.
+- [ ] **AC-8** The flag is one-shot: after the fresh tab boots, the URL no longer carries it, so a
+      **reload of that tab rehydrates normally**.
+- [ ] **AC-9** An ordinary boot — no flag — still rehydrates. A `su` elevation surviving a refresh
+      is existing behaviour and this slice must not cost it.
+- [ ] **AC-10** From a backdoor session (`nc`, no tty) **and** from inside a `node` script, `author`
+      and `xterm` each refuse in their own words at exit **1** (decision 12: an act on a terminal
+      needs one that exists and one the player is looking at).
+- [ ] **AC-11** Both are **ungated game commands**: no `/bin/author` or `/bin/xterm` exists on a
+      generated machine, and both work anyway — there is nothing to `rm`.
+- [ ] **AC-12** `man author` and `man xterm` render; `help` lists both under **general**.
+
+### RED
+
+Behavior tests in this order. Each must fail for the right reason before any production change —
+and where one passes on arrival, prove it with the mutant it exists to catch and write that down
+(slice 1's close-out has the shape).
+
+1. **`author` opens the card** (AC-1). Sharpest RED available: no command exists, so the line is
+   `command not found`. Assert through the rendered terminal — the name, a bio paragraph, and both
+   anchors by `href`. Not by reading `overlayMode()`: a signal holding the right value with nothing
+   on screen is the failure this test exists to catch.
+2. **ESC and `q` hand the terminal back** (AC-2), and the scrollback still holds what it held. Two
+   keys, one test body — `lynx`'s `quits()` already treats them as one question.
+3. **The card has the keyboard on open** (AC-3) — assert `document.activeElement`, the claim
+   `onMount(() => screen?.focus())` actually makes.
+4. **The palette paints the two new tokens** (AC-5) — extend `applyTheme.test.ts`'s **hardcoded**
+   `PAINTED_TOKENS` list. That list is deliberately not derived from `ThemeColors` (slice 1's
+   close-out says why), so growing it by hand is the point, not an oversight.
+5. **The card reads the tokens** (AC-5, second half) — the avatar's border colour and the anchors'
+   colour resolve through `var(--theme-…)`, so a card hard-coding amber fails.
+6. **`xterm` opens a tab and says so** (AC-6) — spy on the capability at the `CommandEnv` seam and
+   assert the printed line and exit 0. `core/` never touches `window`.
+7. **The capability opens the origin with the fresh flag** (AC-6/AC-7) — at the `ui/state.ts`
+   layer, with `window.open` spied. This is the only test that knows the flag's spelling.
+8. **A fresh boot skips rehydration** (AC-7). The behaviour claim: with server session rows saying
+   the player is three hops deep, a fresh-flagged boot leaves them standing on their own
+   workstation as their own user. Drive it through `startGame`, assert the prompt.
+9. **An ordinary boot still rehydrates** (AC-9) — the same fixture without the flag, opposite
+   outcome. Written second on purpose: it is the regression this slice can most easily cause.
+10. **The flag is consumed** (AC-8) — after boot the location no longer carries it. Test the
+    read-and-strip step over injected `location`/`history` fakes, the way `themePersistence` takes
+    an injected `StorageLike`.
+11. **Both refuse without a tty and inside a script** (AC-10) — the two arms `clear` and `theme`
+    already have; follow their tests exactly.
+12. **`help` and `man` pick both up** (AC-12), and **neither is stamped into `/bin`** (AC-11) — the
+    inverse of slice 1's AC-11, and the assertion that keeps `GAME_COMMANDS` honest.
+
+### GREEN — the minimum, in dependency order
+
+1. `ModeChange` gains `{ kind: 'author' }`. This **breaks the build on purpose**: `OverlayMode` in
+   `ui/state.ts` is `Extract<ModeChange, { kind: 'nano' | 'lynx' }>` and `setOverlayMode(result.mode)`
+   stops compiling — the tripwire that comment claims. Widen the `Extract` and add the `Match`.
+2. `core/commands/author.ts` — returns the mode change, `withoutTty` + `withoutScript`, category
+   `general`, full manual. Register it; add `author` to `GAME_COMMANDS`.
+3. `ui/screens/Author.tsx` — the card, holding legacy's copy, `tabIndex={-1}` + `onMount` focus +
+   the `quits()` key handling, painted from CSS variables. `Lynx.tsx` is the template for all four.
+4. `ThemeColors` gains `link` and `avatarBorder`; the four palettes gain their values (legacy's
+   `theme/themes.ts` has all four, verbatim). `applyTheme` needs no change — it walks the object.
+   Add the two to `index.css`'s pre-JS `:root` fallback so the frame before any script agrees.
+5. `CommandEnv` gains `openTerminal: () => void`; `ui/env.ts` maps `onOpenTerminal` with a
+   `notWired` stub; the test factory gets a default. Slice 1's `clearScreen` is the exact template.
+6. `core/commands/xterm.ts` — calls it, prints the line, both refusals, category `general`, full
+   manual. Register it; add `xterm` to `GAME_COMMANDS`.
+7. `ui/state.ts` — `openTerminal()` opens `${origin}?fresh` in a new tab, and `startGame` takes an
+   option that skips `rehydrateSessions`.
+8. `ui/freshTab.ts` — read-and-strip over injected `location`/`history`. `main.tsx` calls it before
+   `render` and hands the answer to `<App>`, which hands it to `startGame`. Same boot-step shape as
+   `adoptStoredTheme()`, and for the same reason: it must happen before anything renders.
+
+### Three things GREEN must get right
+
+- **The avatar is a remote image.** `https://avatars.githubusercontent.com/u/613724` is the only
+  outbound request the game makes for a decoration. It must not be able to break the card: give the
+  `img` fixed dimensions so a slow or failed load does not reflow the text beside it, and let a
+  broken image be a broken image — no fallback machinery for a picture.
+- **`startGame`'s new option must default to rehydrating.** Every existing caller and every
+  existing test passes nothing, and the behaviour they pin is the one that must not move. An option
+  that defaults the other way turns AC-9 into a test nobody wrote.
+- **Strip the flag before `startGame`, not after.** The strip is a `replaceState` on the same tick;
+  ordering it after the boot leaves a window where a reload lands on the flag again. It reads like
+  a nit and it is the whole of AC-8.
+
+### Deliberately not in slice 2
+
+`find`, `strings`, `chmod`, `gpg` (slices 3–5). The remaining four unpainted legacy tokens —
+`accent`, `accentText`, `border`, `linkHover` — which still paint nothing here (decision 8). A
+`storage`-event listener so an open tab repaints when another switches theme (decision 9: a new tab
+inherits at boot, and that is enough) — worth re-reading now that `xterm` makes second tabs
+ordinary, and still correct. Any attempt to make the two tabs share one session stack: decision 13
+keeps them independent, and the reload lossiness is recorded, not solved.
+
+Also inherited rather than decided: `author | grep` feeds `grep` nothing, because
+`collectStageOutput` gives every `mode_change` an empty stdout. That is `runLine`'s existing answer
+for `nano` and `lynx` and this slice neither changes nor tests it.
+
+### REFACTOR
+
+**The `env.ui.*` grouping comes up for judgement here, at five members.** `resetGame`,
+`clearScreen`, `currentTheme`, `setTheme` and now `openTerminal` are all "the command asks the UI to
+do something and gets nothing back". Slice 1 declined the grouping at four on the grounds that
+grouping before the fifth existed would mean choosing a shape without it. The fifth now exists —
+so make the call with the code in front of you, and note that `currentTheme` is the odd one (it
+reads, the others act), which is an argument about what the group would actually be called.
+
+Second candidate: `Author.tsx` and `Lynx.tsx` will both hold a `quits()` predicate and a
+focus-on-mount. Two is not a pattern; judge it, do not pre-empt it.
+
+### PRE-PR MUTATION
+
+Focused on the changed production files: `core/commands/author.ts`, `core/commands/xterm.ts`,
+`core/theme/themes.ts`, `ui/freshTab.ts`, and the `startGame` option. `registry.ts` and
+`availability.ts`'s sets are declaration lists with their own invariant tests. Read survivors from
+`reports/mutation/mutation.json`, never the console (conventions §4). Expect the two manual pages
+to dominate the count, and expect `themes.ts` to need its new tokens covered the way slice 1's gate
+had to cover the old ones — every colour of every palette survived until a test required each
+painted token to be non-blank.
+
+### Browser close-out
+
+`vercel dev` + local supabase, banner version checked before driving anything. The beat worth
+targeting: **`ssh` three hops deep, then `xterm`** — the new tab must come up on the player's own
+workstation while the first tab stays where it was, and neither tab's `exit` may end the other's
+row. Then `author` in the fresh tab, `theme cyan`, and confirm the card recoloured; ESC; reload the
+fresh tab and confirm it rehydrates (AC-8) and keeps cyan (slice 1's AC-7, still true with a second
+tab in play). Two sessions via `--session`, per the E2E runbook, so both tabs stay alive.
+
+### PR-ready when
+
+- All 12 ACs met, each by a test that has been seen to fail.
+- `npm run typecheck`, `npm run lint`, and the full non-watch suite pass from `v2/`.
+- Mutation gate closed: every survivor killed or classified in the close-out.
+- Wire-check **`N/A`** — no `api/` path changes; both commands are pure client (epic "Forced rather
+  than chosen").
+- Browser close-out run and written up, including the two-tab beat.
+- Version bumped in **both** `v2/package.json` and `v2/package-lock.json`.
 
 ---
 *Delete this file at D10 close-out and fold the durable rules into
