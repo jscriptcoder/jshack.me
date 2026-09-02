@@ -277,6 +277,11 @@ export type BuildCommandEnvArgs = {
   /** The theme-switching seam — backs `env.setTheme`. The UI wires it to paint the
    *  palette AND remember the choice, in one place. Optional, same reason. */
   readonly onSetTheme?: (id: ThemeId) => void;
+  /** The second-terminal seam — backs `env.openTerminal`. The UI wires it to open
+   *  a tab that boots fresh. Optional, same reason: only `xterm` fires it, and a
+   *  stray call should be loud rather than quietly do nothing — a player told a
+   *  terminal was opening and given none has no way to tell which half failed. */
+  readonly onOpenTerminal?: () => void;
   readonly onChildCommand?: (name: string | null) => void;
 };
 
@@ -469,6 +474,7 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
   clearScreen: args.onClearScreen ?? notWired('clearScreen'),
   currentTheme: args.onCurrentTheme ?? notWired('currentTheme'),
   setTheme: args.onSetTheme ?? notWired('setTheme'),
+  openTerminal: args.onOpenTerminal ?? notWired('openTerminal'),
   // A no-op default rather than `notWired`: the label is cosmetic, so an env
   // built without it should simply show no child, not throw part-way through
   // somebody's script.

@@ -96,7 +96,12 @@ export type ModeChange =
   // The browser opens on a page that already came back: the command does the
   // fetching, so a refused connection is reported in the terminal rather than on a
   // screen that has nothing to show.
-  | { readonly kind: 'lynx'; readonly url: string; readonly content: string };
+  | { readonly kind: 'lynx'; readonly url: string; readonly content: string }
+  // Carries nothing. The card's copy is ONE constant this codebase owns, unlike a
+  // file being edited or a page that came back off the wire, so threading it
+  // through the mode would prove only that a constant travelled. The screen that
+  // paints it holds it.
+  | { readonly kind: 'author' };
   // No `nc` variant. A backdoor is a HOP, not a screen: `nc` pushes an ordinary
   // session and the shell answers on the far box, minus what needs a terminal. The
   // overlay this once declared was never produced and the UI narrows `OverlayMode`
@@ -1169,6 +1174,14 @@ export type CommandEnv = {
    *  remembering the choice), and does them in ONE place, so the screen and the
    *  stored value cannot disagree. `core/` only knows a valid id went out. */
   readonly setTheme: (id: ThemeId) => void;
+
+  /** Open another terminal — `xterm`'s seam. The UI owns what a second terminal
+   *  IS (a browser tab, told at boot not to rehydrate the hop chain so it comes
+   *  up on the player's own box rather than inside whatever this one is ssh'd
+   *  into). `core/` only knows another one was asked for. Fire-and-forget: the
+   *  new terminal is a whole separate boot, so there is no result to hand back
+   *  and nothing here to await. */
+  readonly openTerminal: () => void;
 
   /** Name the command running INSIDE another one, or `null` when none is —
    *  sibling to `setCwd`/`setInterface`, and the UI owns the signal as it does

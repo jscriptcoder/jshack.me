@@ -188,7 +188,7 @@ describe('man', () => {
     expect(contents).toContain('    ls -la sub');
   });
 
-  it.each(['clear', 'theme', 'whoami'])(
+  it.each(['clear', 'theme', 'whoami', 'author', 'xterm'])(
     'renders a real manual page for %s, not the no-manual fallback',
     async (name) => {
       const result = await man.execute(mockCommandEnv(), [name], NO_FLAGS);
@@ -203,6 +203,13 @@ describe('man', () => {
       // presence is what separates a written manual from a generated stub.
       expect(contents).toContain('SYNOPSIS');
       expect(contents).toContain('EXAMPLES');
+      // And both sections have to be about THIS command. Presence alone passes
+      // for a page whose synopsis is a blank line and whose only example is an
+      // empty one — a stub wearing the headings of a manual, which is what a
+      // reader is left with when a command is added by copying another.
+      expect(contents[contents.indexOf('SYNOPSIS') + 1]).toContain(name);
+      const examples = contents.slice(contents.indexOf('EXAMPLES') + 1);
+      expect(examples.some((line) => line.startsWith(`    ${name}`))).toBe(true);
     },
   );
 

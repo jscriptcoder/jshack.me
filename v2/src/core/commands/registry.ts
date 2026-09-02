@@ -16,6 +16,7 @@ import { aircrackNg } from './aircrackNg';
 import { airodumpNg } from './airodumpNg';
 import { airmonNg } from './airmonNg';
 import { apt } from './apt';
+import { author } from './author';
 import { cat } from './cat';
 import { cd } from './cd';
 import { clear } from './clear';
@@ -58,6 +59,7 @@ import { systemctl } from './systemctl';
 import { theme } from './theme';
 import { touch } from './touch';
 import { whoami } from './whoami';
+import { xterm } from './xterm';
 import { isAlwaysAvailable, wrapWithBinaryCheck } from './availability';
 import { wrapWithLibraryCheck } from './libraryDeps';
 import type { Command } from './types';
@@ -68,6 +70,7 @@ const builtins: readonly Command[] = [
   airmonNg,
   apache2,
   apt,
+  author,
   cat,
   cd,
   clear,
@@ -114,6 +117,7 @@ const builtins: readonly Command[] = [
   theme,
   touch,
   whoami,
+  xterm,
 ];
 
 /** Gate a command behind its binary + linked libraries, unless it's a

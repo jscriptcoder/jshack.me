@@ -70,6 +70,7 @@ import type {
 } from '../core/commands/types';
 import { DEFAULT_THEME_ID, type ThemeId } from '../core/theme/themes';
 import { applyTheme } from './theme/applyTheme';
+import { FRESH_TAB_FLAG } from './freshTab';
 import { readStoredTheme, storeTheme } from './themePersistence';
 import type { GameConfig } from '../core/gameConfig/gameConfig';
 import type { Directory } from '../core/filesystem/types';
@@ -277,7 +278,7 @@ const [historyNav, setHistoryNav] = createSignal<HistoryNav>(idleNav());
 // and two apps open at once is a state nothing should be able to represent. The
 // `Extract` keeps it honest about which apps have a screen — a `mode_change`
 // kind with no overlay yet cannot be assigned here.
-type OverlayMode = Extract<ModeChange, { readonly kind: 'nano' | 'lynx' }>;
+type OverlayMode = Extract<ModeChange, { readonly kind: 'nano' | 'lynx' | 'author' }>;
 
 const [overlayMode, setOverlayMode] = createSignal<OverlayMode | null>(null);
 
@@ -1360,11 +1361,20 @@ export const resolveBootCheck = async (): Promise<BootCheck> => {
   return canBoot(applyPatches(seedFs(config, identity), ownPatches));
 };
 
+export type StartGameOptions = {
+  /** Come up on the player's own box rather than wherever the server says they
+   *  are standing. Set only by a terminal `xterm` opened: two tabs sharing one
+   *  hop chain means `exit` in either ends a row the other still believes it
+   *  holds. Defaults to rehydrating, because every other boot is a reload and a
+   *  reload is meant to put the player back where they were. */
+  readonly fresh: boolean;
+};
+
 /** Start (or restart) the game for a given config. Builds identity, session,
  *  the patch API, and cross-tab sync; sets the cwd to the player's home; and
  *  hydrates the patch journal so reload-durable writes show up immediately.
  *  Idempotent enough for tests: a second call rebuilds cleanly. */
-export const startGame = (gameConfig: GameConfig): void => {
+export const startGame = (gameConfig: GameConfig, options?: StartGameOptions): void => {
   config = gameConfig;
   identity = getPlayerIdentity();
   const seed = seedSession(identity, gameConfig);
@@ -1422,8 +1432,9 @@ export const startGame = (gameConfig: GameConfig): void => {
   // Hydrate the journal so reload-durable writes show up immediately.
   void refetchPatches();
 
-  // Rebuild the hop chain so a `su` elevation survives a refresh.
-  void rehydrateSessions(seed);
+  // Rebuild the hop chain so a `su` elevation survives a refresh — unless this
+  // terminal was opened by `xterm`, which is meant to start at home.
+  if (options?.fresh !== true) void rehydrateSessions(seed);
 };
 
 /** ArrowUp recall — recall an older command, capturing the live draft first. */
@@ -1467,6 +1478,18 @@ export const setTheme = (id: ThemeId): void => {
 export const clearScreen = (): void => {
   setScrollback([]);
   setBannerVisible(false);
+};
+
+/** Open another terminal (backs `env.openTerminal`). A new tab at the same game,
+ *  carrying the flag that tells it to boot on the player's own box instead of
+ *  rebuilding this terminal's hop chain — without which two tabs would share one
+ *  session stack, and `exit` in either would end a row the other still believes
+ *  it holds.
+ *
+ *  `_blank` rather than a named target: two `xterm`s are two terminals, and a
+ *  name would have the second replace the first. */
+export const openTerminal = (): void => {
+  window.open(`${window.location.origin}?${FRESH_TAB_FLAG}`, '_blank');
 };
 
 /** Build a completion adapter over the current FS view + command registry.
@@ -1677,6 +1700,7 @@ const executeLine = async (line: string): Promise<void> => {
     onClearScreen: clearScreen,
     onCurrentTheme: currentTheme,
     onSetTheme: setTheme,
+    onOpenTerminal: openTerminal,
     // `reset` prints its danger warning mid-command via `env.output`, before the
     // confirm prompt — append it straight to scrollback.
     onOutputLine: (line) => setScrollback((previous) => [...previous, line]),

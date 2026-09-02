@@ -4,11 +4,14 @@
  * Pure data, no DOM: `core/` stays framework-agnostic, so the `theme` command
  * can list what exists while the UI alone knows how to paint it.
  *
- * EIGHT tokens, which is exactly what the app paints today (see `index.css`).
- * Legacy carried fourteen; the extra six described chrome this rewrite has not
- * built yet, and a token nothing reads is a value free to drift from the design
- * forever without a single test noticing. They arrive with the screens that
- * need them.
+ * TEN tokens, which is exactly what the app paints today. Legacy carried
+ * fourteen; the rest describe chrome this rewrite has not built, and a token
+ * nothing reads is a value free to drift from the design forever without a
+ * single test noticing. They arrive with the screens that need them — `link` and
+ * `avatarBorder` did, with the author card. Legacy's `linkHover` did not: the
+ * card's hover uses `textBright`, which every palette already defines and half
+ * the app already paints, rather than adding a ninth value whose only job is to
+ * be a slightly different shade of one we have.
  */
 
 export type ThemeId = 'amber' | 'green' | 'cyan' | 'light';
@@ -22,6 +25,8 @@ export type ThemeColors = {
   readonly caret: string;
   readonly scrollThumb: string;
   readonly scrollThumbHover: string;
+  readonly link: string;
+  readonly avatarBorder: string;
 };
 
 /** No `id` field: the record key IS the id, and `THEME_IDS` is the order. A
@@ -49,6 +54,8 @@ export const THEMES: Readonly<Record<ThemeId, ThemeDefinition>> = {
       caret: '#fbbf24',
       scrollThumb: 'rgba(120, 53, 15, 0.5)',
       scrollThumbHover: 'rgba(146, 64, 14, 0.7)',
+      link: '#fbbf24',
+      avatarBorder: '#f59e0b',
     },
   },
   green: {
@@ -62,6 +69,8 @@ export const THEMES: Readonly<Record<ThemeId, ThemeDefinition>> = {
       caret: '#4ade80',
       scrollThumb: 'rgba(20, 83, 45, 0.5)',
       scrollThumbHover: 'rgba(22, 101, 52, 0.7)',
+      link: '#4ade80',
+      avatarBorder: '#22c55e',
     },
   },
   cyan: {
@@ -75,6 +84,8 @@ export const THEMES: Readonly<Record<ThemeId, ThemeDefinition>> = {
       caret: '#22d3ee',
       scrollThumb: 'rgba(21, 94, 117, 0.5)',
       scrollThumbHover: 'rgba(14, 116, 144, 0.7)',
+      link: '#22d3ee',
+      avatarBorder: '#06b6d4',
     },
   },
   light: {
@@ -88,6 +99,8 @@ export const THEMES: Readonly<Record<ThemeId, ThemeDefinition>> = {
       caret: '#292524',
       scrollThumb: 'rgba(168, 162, 158, 0.5)',
       scrollThumbHover: 'rgba(120, 113, 108, 0.7)',
+      link: '#2563eb',
+      avatarBorder: '#57534e',
     },
   },
 };

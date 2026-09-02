@@ -38,9 +38,15 @@ import { packageForBinary } from '../packages/aptPackages';
 const SHELL_BUILTINS: ReadonlySet<string> = new Set(['cd', 'echo', 'exit', 'pwd', 'help']);
 
 /** Game-specific commands — always available, not real Linux tools. Same
- *  match-what-exists rule (legacy also had missions/accept/abort/mail/author/
- *  xterm — re-add each as it ships). */
-const GAME_COMMANDS: ReadonlySet<string> = new Set(['identity', 'new-game', 'theme']);
+ *  match-what-exists rule (legacy also had missions/accept/abort/mail — re-add
+ *  each as it ships). */
+const GAME_COMMANDS: ReadonlySet<string> = new Set([
+  'identity',
+  'new-game',
+  'theme',
+  'author',
+  'xterm',
+]);
 
 /** True for commands that need no binary (builtins + game commands); the
  *  registry leaves these unwrapped. */

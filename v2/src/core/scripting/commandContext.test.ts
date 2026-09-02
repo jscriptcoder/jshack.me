@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import { buildCommandContext, scriptIdentifier } from './commandContext';
 import { cat } from '../commands/cat';
+import { author } from '../commands/author';
 import { clear } from '../commands/clear';
 import { theme } from '../commands/theme';
+import { xterm } from '../commands/xterm';
 import { echo } from '../commands/echo';
 import { ls } from '../commands/ls';
 import { nc } from '../commands/nc';
@@ -349,6 +351,8 @@ describe('a script calling the machine commands', () => {
   it.each([
     [clear, 'clear: cannot be run from a script'],
     [theme, 'theme: cannot be run from a script'],
+    [author, 'author: cannot be run from a script'],
+    [xterm, 'xterm: cannot be run from a script'],
   ])('refuses to let a script act on a terminal nobody is watching: %#', async (command, refusal) => {
     // A DIFFERENT fact from needing a tty. A script run from a real terminal has
     // one — but the player is watching the script's output scroll past, and a

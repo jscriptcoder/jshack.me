@@ -28,6 +28,7 @@ import {
   submitPrompt,
   tabComplete,
 } from '../state';
+import { Author } from './Author';
 import { Lynx } from './Lynx';
 import { Nano } from './Nano';
 import { TerminalLoading } from './TerminalLoading';
@@ -39,6 +40,7 @@ const LINE_BASE = 'whitespace-pre-wrap break-words';
  *  RETURN type that carries the narrowing into each screen's props. */
 const asNano = (mode: ModeChange) => (mode.kind === 'nano' ? mode : null);
 const asLynx = (mode: ModeChange) => (mode.kind === 'lynx' ? mode : null);
+const asAuthor = (mode: ModeChange) => (mode.kind === 'author' ? mode : null);
 
 /** Every full-screen app leaves the same way: hand the screen back. */
 const closeOverlay = () => setOverlayMode(null);
@@ -245,6 +247,9 @@ export const Terminal = () => {
                 onFollow={followLink}
               />
             )}
+          </Match>
+          <Match when={asAuthor(mode())}>
+            <Author onExit={closeOverlay} />
           </Match>
         </Switch>
       )}
