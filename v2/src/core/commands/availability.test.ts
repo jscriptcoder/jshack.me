@@ -163,7 +163,7 @@ describe('commandRegistry gating (registry wiring)', () => {
   // binary on the filesystem — that IS the "always available" contract. Driving
   // each through the registry against an empty /bin kills the set-membership
   // literals: drop one from the set and that command gets gated → not-found.
-  it.each(['cd', 'echo', 'pwd', 'help', 'identity'])(
+  it.each(['cd', 'echo', 'pwd', 'help', 'identity', 'theme'])(
     'runs the always-available command %s with no binary on the filesystem',
     async (name) => {
       const command = commandRegistry.get(name);
@@ -185,6 +185,45 @@ describe('commandRegistry gating (registry wiring)', () => {
       expect(hitGate).toBe(false);
     },
   );
+
+  // `clear` and `whoami` are real tools here, not shell builtins as legacy had
+  // them — a builtin is a tool no `/bin` listing can account for and `rm` cannot
+  // touch. Proven in BOTH directions, so the gate is shown live rather than
+  // merely absent.
+  it.each(['clear', 'whoami'])('gates %s behind its /bin binary', async (name) => {
+    const command = commandRegistry.get(name);
+    if (command === undefined) throw new Error(`${name} not registered`);
+    const env = mockCommandEnv({
+      fs: mockFsViewFromTree(buildDirectory({ tmp: buildDirectory({}) }), {
+        userType: 'user',
+        cwd: asAbsPath('/tmp'),
+      }),
+    });
+
+    const result = await command.execute(env, [], NO_FLAGS);
+
+    expect(errorLines(result)).toEqual([`bash: ${name}: command not found`]);
+    expect(result.kind === 'sync' && result.exitCode).toBe(127);
+  });
+
+  it.each(['clear', 'whoami'])('runs %s once its /bin binary is back', async (name) => {
+    const command = commandRegistry.get(name);
+    if (command === undefined) throw new Error(`${name} not registered`);
+    const tree = buildDirectory({
+      bin: buildDirectory({
+        [name]: buildFile('', { owner: 'root', perms: { execute: ['root', 'user', 'guest'] } }),
+      }),
+      tmp: buildDirectory({}),
+    });
+    const env = mockCommandEnv({
+      fs: mockFsViewFromTree(tree, { userType: 'user', cwd: asAbsPath('/tmp') }),
+    });
+
+    const result = await command.execute(env, [], NO_FLAGS);
+
+    expect(errorLines(result)).toEqual([]);
+    expect(result.kind === 'sync' && result.exitCode).toBe(0);
+  });
 
   it('gates ls behind /bin/ls — command-not-found when the binary is absent', async () => {
     const ls = commandRegistry.get('ls');

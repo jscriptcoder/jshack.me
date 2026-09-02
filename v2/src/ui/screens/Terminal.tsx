@@ -4,7 +4,9 @@ import { formatPrompt } from '../../core/shell/prompt';
 import { BANNER } from '../banner';
 import {
   abortRunning,
+  bannerVisible,
   cancelPrompt,
+  clearScreen,
   cwd,
   historyDown,
   followLink,
@@ -137,6 +139,18 @@ export const Terminal = () => {
       if (abortRunning()) event.preventDefault();
       return;
     }
+    // Ctrl-L clears the screen from under whatever is half-typed. It acts on the
+    // SCREEN, not the shell, so it never reaches the registry: no line is
+    // submitted, the draft stays in the box, and nothing joins the history.
+    // Handled up here beside Ctrl-C rather than below the pending-prompt guard
+    // because a screen a player can't read is no easier to read while su is
+    // waiting on a password. preventDefault keeps the browser from taking the
+    // keystroke for its address bar.
+    if (event.key === 'l' && event.ctrlKey) {
+      event.preventDefault();
+      clearScreen();
+      return;
+    }
     // While a prompt is pending, history recall and tab-complete are disabled.
     if (pendingPrompt()) {
       if (event.key === 'ArrowUp' || event.key === 'ArrowDown' || event.key === 'Tab') {
@@ -173,12 +187,14 @@ export const Terminal = () => {
           onClick={refocusPrompt}
         >
           <div ref={output} class="flex-1 overflow-y-auto">
-            <pre
-              data-testid="terminal-banner"
-              class="whitespace-pre leading-none text-[var(--theme-text-bright)]"
-            >
-              {BANNER}
-            </pre>
+            <Show when={bannerVisible()}>
+              <pre
+                data-testid="terminal-banner"
+                class="whitespace-pre leading-none text-[var(--theme-text-bright)]"
+              >
+                {BANNER}
+              </pre>
+            </Show>
             <For each={scrollback()}>
               {(line) => <div class={`${LINE_BASE} ${LINE_COLOR[line.kind]}`}>{line.content}</div>}
             </For>

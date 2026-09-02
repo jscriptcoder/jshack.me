@@ -32,13 +32,15 @@ import { packageForBinary } from '../packages/aptPackages';
  *  builtins v2 actually implements: adding a speculative entry for an
  *  unimplemented command is dead data, and a forgotten one fails loudly
  *  (`command not found`) the moment that command ships. Grow this as builtins
- *  land (legacy also had exit/clear/whoami/bash). */
+ *  land — but not with `clear` or `whoami`, which legacy made builtins and v2
+ *  ships as real `/bin` binaries, so `rm /bin/clear` takes the tool away like
+ *  any other. */
 const SHELL_BUILTINS: ReadonlySet<string> = new Set(['cd', 'echo', 'exit', 'pwd', 'help']);
 
 /** Game-specific commands — always available, not real Linux tools. Same
  *  match-what-exists rule (legacy also had missions/accept/abort/mail/author/
- *  theme/xterm — re-add each as it ships). */
-const GAME_COMMANDS: ReadonlySet<string> = new Set(['identity', 'new-game']);
+ *  xterm — re-add each as it ships). */
+const GAME_COMMANDS: ReadonlySet<string> = new Set(['identity', 'new-game', 'theme']);
 
 /** True for commands that need no binary (builtins + game commands); the
  *  registry leaves these unwrapped. */

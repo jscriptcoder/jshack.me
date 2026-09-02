@@ -188,6 +188,24 @@ describe('man', () => {
     expect(contents).toContain('    ls -la sub');
   });
 
+  it.each(['clear', 'theme', 'whoami'])(
+    'renders a real manual page for %s, not the no-manual fallback',
+    async (name) => {
+      const result = await man.execute(mockCommandEnv(), [name], NO_FLAGS);
+
+      expect(result.kind).toBe('sync');
+      if (result.kind !== 'sync') return;
+      expect(result.exitCode).toBe(0);
+
+      const contents = contentsOf(result.lines);
+      expect(contents).toContain(`${name.toUpperCase()}(1)`);
+      // SYNOPSIS is the section the fallback page has no way to produce, so its
+      // presence is what separates a written manual from a generated stub.
+      expect(contents).toContain('SYNOPSIS');
+      expect(contents).toContain('EXAMPLES');
+    },
+  );
+
   it('errors with a usage message and exit 2 when no command name is given', async () => {
     const result = await man.execute(mockCommandEnv(), [], NO_FLAGS);
 

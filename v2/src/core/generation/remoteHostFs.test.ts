@@ -1605,6 +1605,12 @@ describe('buildRemoteHostFs', () => {
       expect(bin.perms.execute).toEqual(['root', 'user', 'guest']);
     });
 
+    it('ships /bin/clear and /bin/whoami, so the terminal tools work on a box you hop to', () => {
+      const bin = dirAt(fs(), 'bin');
+      expect(bin.entries.has('clear')).toBe(true);
+      expect(bin.entries.has('whoami')).toBe(true);
+    });
+
     it('ships /lib and /usr/sbin/sshd so linked commands + the daemon resolve', () => {
       expect(dirAt(fs(), 'lib').entries.has('libpcre.so')).toBe(true);
       expect(dirAt(fs(), 'usr', 'sbin').entries.has('sshd')).toBe(true);

@@ -585,13 +585,13 @@ describe('Terminal', () => {
 
     it('lists candidates when several commands match the prefix', async () => {
       renderTerminal();
-      typeInput('c'); // matches `cat`, `cd` and `curl`
+      typeInput('c'); // matches `cat`, `cd`, `clear` and `curl`
       pressTab();
 
       // Common prefix is just `c`, so the input is unchanged; the candidates
       // are printed on one scrollback line.
       expect(inputField()).toHaveValue('c');
-      expect(await screen.findByText('cat, cd, curl')).toBeInTheDocument();
+      expect(await screen.findByText('cat, cd, clear, curl')).toBeInTheDocument();
     });
 
     it('completes a path argument against the current filesystem', () => {
@@ -629,6 +629,127 @@ describe('Terminal', () => {
       pressTab();
 
       expect(inputField()).toHaveValue('zzz');
+    });
+  });
+
+  describe('clearing the screen', () => {
+    it('empties the scrollback and takes the banner down', async () => {
+      renderTerminal();
+      runCommand('cat /etc/passwd');
+      await screen.findByText(/^alice::1000:1000:alice/);
+
+      runCommand('clear');
+
+      // The banner is boot chrome rather than a scrollback line, so it survives
+      // an emptied scrollback unless the clear takes it down deliberately —
+      // hence asserting its absence separately from the output's.
+      await vi.waitFor(() =>
+        expect(screen.queryByTestId('terminal-banner')).not.toBeInTheDocument(),
+      );
+      expect(screen.queryByText(/^alice::1000:1000:alice/)).not.toBeInTheDocument();
+      // The echo of `clear` itself goes with everything else: the screen is
+      // empty AFTER the command ran, not merely up to the moment it was typed.
+      expect(
+        screen.queryByText('alice@workstation:/home/alice$ clear'),
+      ).not.toBeInTheDocument();
+    });
+
+    it('leaves the command history recallable after the screen is cleared', async () => {
+      renderTerminal();
+      runCommand('pwd');
+      await screen.findByText('/home/alice');
+
+      runCommand('clear');
+      await vi.waitFor(() =>
+        expect(screen.queryByTestId('terminal-banner')).not.toBeInTheDocument(),
+      );
+
+      // A cleared screen is not a forgotten one. The tempting implementation is
+      // one "reset the terminal" that empties the scrollback and the history
+      // together, which would leave the player unable to recall the line they
+      // ran a moment ago — so both entries are asserted, not just the newest.
+      fireEvent.keyDown(inputField(), { key: 'ArrowUp' });
+      expect(inputField()).toHaveValue('clear');
+      fireEvent.keyDown(inputField(), { key: 'ArrowUp' });
+      expect(inputField()).toHaveValue('pwd');
+    });
+
+    it('clears on Ctrl-L without submitting, keeping the half-typed line', async () => {
+      renderTerminal();
+      runCommand('pwd');
+      await screen.findByText('/home/alice');
+
+      // A line the player is midway through typing when they reach for Ctrl-L.
+      fireEvent.input(inputField(), { target: { value: 'cat /etc/pas' } });
+      fireEvent.keyDown(inputField(), { key: 'l', ctrlKey: true });
+
+      await vi.waitFor(() =>
+        expect(screen.queryByTestId('terminal-banner')).not.toBeInTheDocument(),
+      );
+      expect(screen.queryByText('/home/alice')).not.toBeInTheDocument();
+      // Ctrl-L wipes the screen from under the draft rather than sending it —
+      // the player carries on typing the same line against a clean screen.
+      expect(inputField()).toHaveValue('cat /etc/pas');
+      // And nothing ran: the newest recallable line is still the one before it,
+      // which is what separates this from routing Ctrl-L through the shell.
+      fireEvent.keyDown(inputField(), { key: 'ArrowUp' });
+      expect(inputField()).toHaveValue('pwd');
+    });
+
+    it('paints the banner again on the next boot, never persisting the clear', async () => {
+      renderTerminal();
+      runCommand('clear');
+      await vi.waitFor(() =>
+        expect(screen.queryByTestId('terminal-banner')).not.toBeInTheDocument(),
+      );
+
+      // `startGame` is what a reload runs. The cleared screen is per-session, so
+      // the banner comes back with it: a player who cleared once should still
+      // meet the game's name the next time they open it, and nothing about a
+      // real terminal's cleared screen survives a reload either.
+      startGame(SEED_CONFIG);
+
+      expect(screen.getByTestId('terminal-banner')).toBeInTheDocument();
+    });
+  });
+
+  describe('colouring the terminal', () => {
+    const painted = (token: string) => document.documentElement.style.getPropertyValue(token);
+
+    it('repaints the terminal to the named palette', async () => {
+      renderTerminal();
+      runCommand('theme green');
+      await screen.findByText('Switched to Green Phosphor theme');
+
+      // What a player sees is the custom properties, not a signal: an
+      // implementation that moved the signal and never wrote the document would
+      // report the switch to a terminal that had not changed colour.
+      expect(painted('--theme-text')).toBe('#22c55e');
+      expect(painted('--theme-text-bright')).toBe('#86efac');
+      // A multi-word token, because it is the only kind that can catch a broken
+      // camelCase-to-kebab-case mapping.
+      expect(painted('--theme-scroll-thumb-hover')).toBe('rgba(22, 101, 52, 0.7)');
+    });
+
+    it('leaves the palette standing when the name is not a theme', async () => {
+      renderTerminal();
+      runCommand('theme cyan');
+      await screen.findByText('Switched to Cyan theme');
+
+      runCommand('theme nope');
+      await screen.findByText(/unknown theme 'nope'/);
+
+      expect(painted('--theme-text')).toBe('#06b6d4');
+    });
+
+    it('marks the theme it switched to when the list is asked for again', async () => {
+      renderTerminal();
+      runCommand('theme light');
+      await screen.findByText('Switched to Light theme');
+
+      runCommand('theme');
+
+      expect(await screen.findByText(/\* light\s+Light/)).toBeInTheDocument();
     });
   });
 

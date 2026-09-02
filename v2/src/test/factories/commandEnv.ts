@@ -35,6 +35,7 @@ import type {
 import { basename, dirname } from '../../core/filesystem/path';
 import { canWrite } from '../../core/filesystem/walker';
 import { createFsView } from '../../core/filesystem/fsView';
+import { DEFAULT_THEME_ID } from '../../core/theme/themes';
 import { isOnline, type ConnectivityState } from '../../core/network/interfaces';
 import { buildDirectory } from './filesystem';
 
@@ -298,6 +299,9 @@ export const mockCommandEnv = (overrides: Partial<CommandEnv> = {}): CommandEnv 
   pushSession: () => undefined,
   popSession: () => undefined,
   resetGame: () => undefined,
+  clearScreen: () => undefined,
+  currentTheme: () => DEFAULT_THEME_ID,
+  setTheme: () => undefined,
   setChildCommand: () => undefined,
   sleep: () => Promise.resolve(),
   signal: new AbortController().signal,

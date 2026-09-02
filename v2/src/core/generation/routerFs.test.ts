@@ -653,7 +653,9 @@ describe('buildRouterBaseFsFromIdentity', () => {
   it('ships the full toolchain so nano/ls/cat and sshd resolve', () => {
     const fs = routerFs();
     expect([...dirAt(fs, 'bin').entries.keys()].sort()).toEqual([...SYSTEM_UTILITY_NAMES].sort());
-    ['nano', 'ls', 'cat'].forEach((name) => expect(dirAt(fs, 'bin').entries.has(name)).toBe(true));
+    ['nano', 'ls', 'cat', 'clear', 'whoami'].forEach((name) =>
+      expect(dirAt(fs, 'bin').entries.has(name)).toBe(true),
+    );
     expect([...dirAt(fs, 'usr', 'bin').entries.keys()].sort()).toEqual(
       [...LOCALHOST_PREINSTALLED_TOOLS, ...SERVICE_CONTROL_TOOLS].sort(),
     );
