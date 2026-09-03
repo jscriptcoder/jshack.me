@@ -32,6 +32,7 @@
 import type { AbsPath } from '../types';
 import type { Command, CommandEnv, CommandResult, FsReadResult } from './types';
 import { resolveAbsPath } from '../filesystem/path';
+import { walkTree } from '../filesystem/walkTree';
 import { splitContentLines } from './contentHelpers';
 
 const USAGE = 'grep: usage: grep <pattern> <path> [-l]';
@@ -78,24 +79,14 @@ type Match = {
 const matchesInFile = (content: string, pattern: RegExp): readonly string[] =>
   splitContentLines(content).filter((line) => pattern.test(line));
 
-/** Recursively walk `dir`, returning matches across all readable
- *  non-binary files. Permission-denied dirs and files are silently
- *  skipped — no error surfaces. Children at each level are visited
- *  in alphabetical order, which yields a filepath-sorted result. */
-const walkAndSearch = (env: CommandEnv, dir: AbsPath, pattern: RegExp): readonly Match[] => {
-  const listing = env.fs.list(dir);
-  if (!listing.ok) return [];
-
-  const sortedNames = [...listing.entries].sort();
-
-  return sortedNames.flatMap((name) => {
-    const childPath = resolveAbsPath(dir, name);
-    const node = env.fs.stat(childPath);
-    if (node === null) return [];
-
-    if (node.kind === 'directory') {
-      return walkAndSearch(env, childPath, pattern);
-    }
+/** Matches across all readable non-binary files under `dir`. Directories
+ *  contribute nothing of their own — they are where the walk goes, not what it
+ *  reports — and an unreadable file is skipped in silence, so a sweep over a
+ *  mixed tree still answers for the part it can read. Alphabetical at each
+ *  level, which yields a filepath-sorted result. */
+const walkAndSearch = (env: CommandEnv, dir: AbsPath, pattern: RegExp): readonly Match[] =>
+  walkTree(env.fs, dir, (childPath, node) => {
+    if (node.kind === 'directory') return [];
 
     const readResult = env.fs.read(childPath);
     if (!readResult.ok) return [];
@@ -106,7 +97,6 @@ const walkAndSearch = (env: CommandEnv, dir: AbsPath, pattern: RegExp): readonly
       line,
     }));
   });
-};
 
 const grepStdin = async (
   stdin: AsyncIterable<string>,
@@ -186,16 +176,20 @@ export const grep: Command = {
   availability: { kind: 'any-machine' },
   flags: { '-l': 'boolean' },
   manual: {
-    synopsis: 'grep <pattern> <path> [-l]',
+    synopsis: 'grep <pattern> [path] [-l]',
     description:
-      'Search for lines matching a case-insensitive regex pattern. With a file target, prints matching lines verbatim. With a directory target, recursively walks the tree and prints `<filepath>:<line>` for each match, sorted by filepath. Binary files and permission-denied files/dirs are silently skipped during recursion. (Slice 3 will add stdin support.)',
+      'Search for lines matching a case-insensitive regex pattern. With a file target, prints matching lines verbatim. With a directory target, recursively walks the tree and prints `<filepath>:<line>` for each match, sorted by filepath. Binary files and permission-denied files/dirs are silently skipped during recursion. With no path at all, reads stdin, so it can sit downstream of a pipe.',
     arguments: [
       {
         name: 'pattern',
         description: 'Case-insensitive regular expression to match',
         required: true,
       },
-      { name: 'path', description: 'File or directory to search', required: true },
+      {
+        name: 'path',
+        description: 'File or directory to search; with none, read stdin',
+        required: false,
+      },
       {
         name: '-l',
         description: 'Print only the names of files containing a match (deduped, sorted)',

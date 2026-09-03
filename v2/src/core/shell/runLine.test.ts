@@ -6,6 +6,8 @@ import { clear } from '../commands/clear';
 import { echo } from '../commands/echo';
 import { ftp } from '../commands/ftp';
 import { grep } from '../commands/grep';
+import { find } from '../commands/find';
+import { strings } from '../commands/strings';
 import { lynx } from '../commands/lynx';
 import { nano } from '../commands/nano';
 import { scp } from '../commands/scp';
@@ -47,11 +49,14 @@ const aliceEnv = () =>
 
 const commands: ReadonlyMap<string, Command> = new Map([['cat', cat]]);
 
-/** cat + echo + grep — the set exercised by the pipeline tests. */
+/** cat + echo + grep + the two search tools — the set exercised by the
+ *  pipeline tests. */
 const pipeCommands: ReadonlyMap<string, Command> = new Map([
   ['cat', cat],
   ['echo', echo],
   ['grep', grep],
+  ['find', find],
+  ['strings', strings],
 ]);
 
 const baseFixture = (
@@ -239,6 +244,28 @@ describe('runCommandLine', () => {
 
       expect(result.exitCode).toBe(0);
       expect(result.lines).toEqual([{ kind: 'text', content: 'hello' }]);
+    });
+
+    it('feeds the paths find reports into the next stage', async () => {
+      const result = expectSync(
+        await runCommandLine(aliceEnv(), "find . '*.txt' | grep todo", pipeCommands),
+      );
+
+      // A search is most useful narrowed by another search. Nothing about
+      // `find` makes this work beyond emitting text lines — which is the
+      // point: it composes because it is ordinary.
+      expect(result.lines).toEqual([{ kind: 'text', content: '/home/alice/todo.txt' }]);
+    });
+
+    it('feeds each line strings pulled out of a file into the next stage', async () => {
+      const result = expectSync(
+        await runCommandLine(aliceEnv(), 'strings notes.txt | grep alice', pipeCommands),
+      );
+
+      // The end-to-end form of why a run is split before it leaves: the file
+      // is one printable run, and a downstream `grep` reads LINES. Emitted
+      // whole, this would hand back both lines or neither.
+      expect(result.lines).toEqual([{ kind: 'text', content: 'from alice' }]);
     });
 
     it('filters a file through grep via a pipe', async () => {
@@ -616,6 +643,22 @@ describe('a shell with no terminal behind it', () => {
   const throughABackdoor = (env: CommandEnv): CommandEnv => ({
     ...env,
     session: mockSession({ kind: 'nc' }),
+  });
+
+  it.each([
+    ["find . '*.txt'", '/home/alice/todo.txt'],
+    ['strings notes.txt', 'from alice'],
+  ])('runs %s with no terminal behind the shell', async (line, expected) => {
+    const env = throughABackdoor(aliceEnv());
+
+    const result = expectSync(await runCommandLine(env, line, pipeCommands));
+
+    // Searching a box you have just opened a listener on is most of what the
+    // listener is FOR. These two need a filesystem, not a terminal — so the
+    // absence of a tty rule on them is a decision, and this is where it is
+    // written down.
+    expect(result.exitCode).toBe(0);
+    expect(result.lines).toContainEqual({ kind: 'text', content: expected });
   });
 
   /** A command that cannot work without a terminal, and reports whether it was

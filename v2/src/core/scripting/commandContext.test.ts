@@ -5,6 +5,8 @@ import { author } from '../commands/author';
 import { clear } from '../commands/clear';
 import { theme } from '../commands/theme';
 import { xterm } from '../commands/xterm';
+import { find } from '../commands/find';
+import { strings } from '../commands/strings';
 import { echo } from '../commands/echo';
 import { ls } from '../commands/ls';
 import { nc } from '../commands/nc';
@@ -361,6 +363,22 @@ describe('a script calling the machine commands', () => {
     const { context } = contextOf([command]);
 
     await expect(context[command.name]()).rejects.toThrow(refusal);
+  });
+
+  it('lets a script search a box and read what it finds', async () => {
+    const env = envWithFile('notes.txt', 'hello world\nfrom alice\n');
+
+    const found = await contextOf([find], env).context.find('/home/alice', '*.txt');
+    const read = await contextOf([strings], env).context.strings('/home/alice/notes.txt');
+
+    // The other side of the refusal table above. These two act on a
+    // filesystem, not on a terminal — a script that sweeps a box for a
+    // filename and reads what it turns up is the reason the scripting door
+    // exists, so a refusal here would be the bug.
+    expect(found.exitCode).toBe(0);
+    expect([...found]).toContain('/home/alice/notes.txt');
+    expect(read.exitCode).toBe(0);
+    expect([...read]).toContain('from alice');
   });
 
   it("carries a failed command's own exit code, so a sweep can branch on it", async () => {

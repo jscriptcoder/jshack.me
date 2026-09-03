@@ -21,9 +21,16 @@ import { splitContentLines } from './contentHelpers';
 type FsReadError = Extract<FsReadResult, { readonly ok: false }>['error'];
 
 /** Format a `cat: <target>: <reason>` error line for a failed FS read.
- *  Inlined here (rather than in a shared helper) because cat is currently
- *  the only command reading files — when `tail`/`grep` arrive, re-extract
- *  into `core/commands/fsReadHelpers.ts` (cf. git history through PR #175). */
+ *
+ *  Deliberately NOT shared, and this note replaces an earlier one that expected
+ *  the opposite once a second file-reading command arrived. Five of them now
+ *  map an FS failure to a line — cat, cd, grep, find, strings — and no two
+ *  agree: grep and find quote the path, cat and strings do not; grep exits 2
+ *  and the rest exit 1; each reaches a different subset of the error union, so
+ *  each switch is exhaustive over a different set. The differences are legacy
+ *  parity rather than drift, so a helper reconciling them would take the
+ *  prefix, the quoting and the reachable errors as parameters in order to
+ *  replace one switch statement apiece. */
 const formatReadError = (target: string, error: FsReadError): string => {
   switch (error) {
     case 'not_found':

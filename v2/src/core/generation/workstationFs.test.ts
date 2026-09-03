@@ -254,9 +254,15 @@ describe('buildWorkstationBaseFs', () => {
       const lsBin = dirAt(baseFs(), 'bin').entries.get('ls');
       if (lsBin?.kind !== 'file') throw new Error('missing /bin/ls');
       expect(lsBin.owner).toBe('root');
-      // A system binary is a real (non-empty) stub file — `ls -l /bin` shows a
-      // non-zero size, `cat`/`strings` show ELF-ish bytes.
-      expect(lsBin.content.length).toBeGreaterThan(0);
+      // A system binary is a real stub file, and two invariants ride on its
+      // content. It must carry a printable run of at least four characters,
+      // because that is `strings`' fixed minimum and a binary is the first
+      // file anyone points that at — a stub below it makes the tool look
+      // broken on every machine. And it must hold no NUL: `apt install`
+      // persists this same content to a Postgres TEXT column that rejects
+      // one, so the install would fail as an unexplained network error.
+      expect(lsBin.content).toMatch(/[\x20-\x7e]{4,}/);
+      expect(lsBin.content).not.toContain(String.fromCharCode(0));
       expect(lsBin.perms.execute).toEqual(['root', 'user', 'guest']);
       // World-readable, root-only writable (you can't tamper with a system binary).
       expect(lsBin.perms.read).toEqual(['root', 'user', 'guest']);
