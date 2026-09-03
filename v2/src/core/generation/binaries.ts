@@ -20,13 +20,24 @@
 import type { UserType } from '../types';
 import type { FileNode, FilePermissions } from '../filesystem/types';
 
-/** Looks like an ELF header (magic `\x7fELF`) — what `cat`/`strings` would show.
- *  The content is never executed; presence + perms are all that gate dispatch.
+/** Looks like an ELF header (magic `\x7fELF`) followed by the readable tail a
+ *  dynamically linked binary carries — what `cat`/`strings` show.
+ *
+ *  The header alone is not enough. `strings` reports runs of four or more
+ *  printable characters, and the longest run in a bare ELF header is `ELF` —
+ *  three — so every binary on every machine would answer nothing, and the
+ *  first thing anyone points that tool at would look broken. The interpreter
+ *  path and libc version are what a real `strings /bin/ls` prints first.
+ *
+ *  Identical on every machine and every library, deliberately: this is
+ *  cosmetic parity, not world content. Nothing here is worth finding, so
+ *  nothing here is loot.
+ *
  *  MUST be NUL-free: `apt install` persists this content to the patch store's
  *  Postgres TEXT column, which rejects the NUL byte (U+0000) — a real ELF
- *  header's padding NULs would fail the write with a network_error. The bytes
- *  here are cosmetic, so a NUL-free ELF-ish prefix suffices. */
-export const BINARY_STUB = '\x7fELF\x02\x01\x01\x03\x3e\x01';
+ *  header's padding NULs would fail the write with a network_error. */
+export const BINARY_STUB =
+  '\x7fELF\x02\x01\x01\x03\x3e\x01' + '/lib64/ld-linux-x86-64.so.2' + '\x01' + 'GLIBC_2.2.5';
 
 /** Default execute set for a system binary — world-executable. */
 const WORLD_EXECUTABLE: readonly UserType[] = ['root', 'user', 'guest'];

@@ -24,6 +24,7 @@ import { curl } from './curl';
 import { apache2, mysqld, nginx, redisServer, sshd, vsftpd } from './daemon';
 import { echo } from './echo';
 import { exit } from './exit';
+import { find } from './find';
 import { grep } from './grep';
 import { help } from './help';
 import { identity } from './identity';
@@ -54,6 +55,7 @@ import { snmpset } from './snmpset';
 import { snmpwalk } from './snmpwalk';
 import { scp } from './scp';
 import { ssh } from './ssh';
+import { strings } from './strings';
 import { su } from './su';
 import { systemctl } from './systemctl';
 import { theme } from './theme';
@@ -77,6 +79,7 @@ const builtins: readonly Command[] = [
   curl,
   echo,
   exit,
+  find,
   gobuster,
   grep,
   help,
@@ -106,6 +109,7 @@ const builtins: readonly Command[] = [
   redisCli,
   snmpset,
   snmpwalk,
+  strings,
   mysqld,
   redisServer,
   scp,

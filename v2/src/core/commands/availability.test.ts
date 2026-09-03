@@ -188,23 +188,28 @@ describe('commandRegistry gating (registry wiring)', () => {
 
   // `clear` and `whoami` are real tools here, not shell builtins as legacy had
   // them — a builtin is a tool no `/bin` listing can account for and `rm` cannot
-  // touch. Proven in BOTH directions, so the gate is shown live rather than
-  // merely absent.
-  it.each(['clear', 'whoami'])('gates %s behind its /bin binary', async (name) => {
-    const command = commandRegistry.get(name);
-    if (command === undefined) throw new Error(`${name} not registered`);
-    const env = mockCommandEnv({
-      fs: mockFsViewFromTree(buildDirectory({ tmp: buildDirectory({}) }), {
-        userType: 'user',
-        cwd: asAbsPath('/tmp'),
-      }),
-    });
+  // touch. `find` and `strings` are the same kind of thing and have had their
+  // binaries stamped since generation shipped, so the promise in `ls /bin` and
+  // the answer at the prompt have to agree. Proven in BOTH directions, so the
+  // gate is shown live rather than merely absent.
+  it.each(['clear', 'whoami', 'find', 'strings'])(
+    'gates %s behind its /bin binary',
+    async (name) => {
+      const command = commandRegistry.get(name);
+      if (command === undefined) throw new Error(`${name} not registered`);
+      const env = mockCommandEnv({
+        fs: mockFsViewFromTree(buildDirectory({ tmp: buildDirectory({}) }), {
+          userType: 'user',
+          cwd: asAbsPath('/tmp'),
+        }),
+      });
 
-    const result = await command.execute(env, [], NO_FLAGS);
+      const result = await command.execute(env, [], NO_FLAGS);
 
-    expect(errorLines(result)).toEqual([`bash: ${name}: command not found`]);
-    expect(result.kind === 'sync' && result.exitCode).toBe(127);
-  });
+      expect(errorLines(result)).toEqual([`bash: ${name}: command not found`]);
+      expect(result.kind === 'sync' && result.exitCode).toBe(127);
+    },
+  );
 
   it.each(['clear', 'whoami'])('runs %s once its /bin binary is back', async (name) => {
     const command = commandRegistry.get(name);
@@ -222,6 +227,36 @@ describe('commandRegistry gating (registry wiring)', () => {
     const result = await command.execute(env, [], NO_FLAGS);
 
     expect(errorLines(result)).toEqual([]);
+    expect(result.kind === 'sync' && result.exitCode).toBe(0);
+  });
+
+  // The restore direction for the two that need operands: `clear` and `whoami`
+  // answer to a bare call, these do not, so a shared row would be asserting a
+  // usage error rather than a working tool.
+  it.each([
+    ['find', ['/tmp', '*.txt']],
+    ['strings', ['/tmp/notes.txt']],
+  ])('runs %s against a real tree once its /bin binary is back', async (name, args) => {
+    const command = commandRegistry.get(name);
+    if (command === undefined) throw new Error(`${name} not registered`);
+    const tree = buildDirectory({
+      bin: buildDirectory({
+        [name]: buildFile('', { owner: 'root', perms: { execute: ['root', 'user', 'guest'] } }),
+      }),
+      // Both link libpcre — the dependency map named these two long before the
+      // commands existed, so a tool that clears the binary gate still has a
+      // second one to pass.
+      lib: buildDirectory({ 'libpcre.so': libFile() }),
+      tmp: buildDirectory({ 'notes.txt': buildFile('readable text\n', { owner: 'alice' }) }),
+    });
+    const env = mockCommandEnv({
+      fs: mockFsViewFromTree(tree, { userType: 'user', cwd: asAbsPath('/tmp') }),
+    });
+
+    const result = await command.execute(env, args, NO_FLAGS);
+
+    expect(errorLines(result)).toEqual([]);
+    expect(textLines(result).length).toBeGreaterThan(0);
     expect(result.kind === 'sync' && result.exitCode).toBe(0);
   });
 
