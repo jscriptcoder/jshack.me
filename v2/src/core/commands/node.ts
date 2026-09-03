@@ -30,9 +30,11 @@ const execute = async (env: CommandEnv, args: readonly string[]): Promise<Comman
 
   // READ permission is the whole gate, deliberately — the execute bit is not
   // consulted and adding it would be a regression, not a fix. `nano` stamps
-  // `execute: ['root']` on everything a user writes and the game has no
-  // `chmod`, so an execute check would stop every non-root player running the
-  // script they just wrote. Real node opens a script for reading too.
+  // `execute: ['root']` on everything a user writes, so an execute check would
+  // stop every non-root player running the script they just wrote until they
+  // chmod'd it. `chmod` exists now, which changes nothing here: demanding it
+  // would be a chore this command invented, and real node opens a script for
+  // reading too.
   const scriptPath = resolveAbsPath(env.fs.cwd(), target);
   const source = env.fs.read(scriptPath);
   if (!source.ok) {

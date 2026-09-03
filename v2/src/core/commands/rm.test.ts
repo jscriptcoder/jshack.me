@@ -45,6 +45,7 @@ const rmEnv = (
     write: async () => ({ ok: true }),
     remove: removeFn,
     mkdir: async () => ({ ok: true }),
+    setDirectoryPermissions: async () => ({ ok: true }),
   };
   const env = mockCommandEnv({
     fs: mockFsViewFromTree(options.tree ?? homeTree(), {

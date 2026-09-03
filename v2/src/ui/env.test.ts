@@ -11,6 +11,7 @@ const noopPatches: PatchApi = {
   write: async () => ({ ok: true }),
   remove: async () => ({ ok: true }),
   mkdir: async () => ({ ok: true }),
+  setDirectoryPermissions: async () => ({ ok: true }),
 };
 
 const noopLog: LogApi = {

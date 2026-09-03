@@ -7,6 +7,8 @@ import { theme } from '../commands/theme';
 import { xterm } from '../commands/xterm';
 import { find } from '../commands/find';
 import { strings } from '../commands/strings';
+import { chmod } from '../commands/chmod';
+import type { PatchApi } from '../commands/types';
 import { echo } from '../commands/echo';
 import { ls } from '../commands/ls';
 import { nc } from '../commands/nc';
@@ -379,6 +381,38 @@ describe('a script calling the machine commands', () => {
     expect([...found]).toContain('/home/alice/notes.txt');
     expect(read.exitCode).toBe(0);
     expect([...read]).toContain('from alice');
+  });
+
+  it('lets a script change what a file permits', async () => {
+    const write = vi.fn<PatchApi['write']>(async () => ({ ok: true }));
+    const env = mockCommandEnv({
+      fs: mockFsViewFromTree(
+        buildDirectory({
+          home: buildDirectory({
+            alice: buildDirectory(
+              { 'sweep.js': buildFile('console.log(1)\n', { owner: 'alice' }) },
+              { owner: 'alice' },
+            ),
+          }),
+        }),
+        { userType: 'user', cwd: asAbsPath('/home/alice') },
+      ),
+      session: mockSession({ username: 'alice', userType: 'user' }),
+      patches: {
+        write,
+        remove: async () => ({ ok: true }),
+        mkdir: async () => ({ ok: true }),
+        setDirectoryPermissions: async () => ({ ok: true }),
+      },
+    });
+
+    const result = await contextOf([chmod], env).context.chmod('a+x', 'sweep.js');
+
+    // The bulk tool the -R refusal points at: a script that walks a list and
+    // chmods each entry is the supported way to do a tree, so a chmod that
+    // refused to run from one would leave the refusal with nothing to offer.
+    expect(result.exitCode).toBe(0);
+    expect(write).toHaveBeenCalledTimes(1);
   });
 
   it("carries a failed command's own exit code, so a sweep can branch on it", async () => {

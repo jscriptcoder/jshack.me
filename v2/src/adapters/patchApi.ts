@@ -148,6 +148,23 @@ export const createPatchApi = (deps: PatchClientDeps): PatchApi => ({
       is_new: true,
       node_type: 'directory',
     }),
+
+  // Same row shape as `mkdir`, minus `is_new` and minus the tier defaults: this
+  // one never creates, so claiming the directory is new would rewrite whether a
+  // later removal deletes the row or leaves a tombstone.
+  setDirectoryPermissions: (
+    path: AbsPath,
+    permissions: FilePermissions,
+    options: { readonly owner: string },
+  ) =>
+    upsert(deps, {
+      machine_id: deps.machineId,
+      path,
+      content: null,
+      owner: options.owner,
+      permissions,
+      node_type: 'directory',
+    }),
 });
 
 /** Record an `su` user-switch to the caller's own `/var/log/auth.log`. Sends

@@ -246,3 +246,67 @@ describe('applyPatches', () => {
     expect(applyPatches(base, [])).toBe(base);
   });
 });
+
+describe('applyPatches — a directory whose permissions changed', () => {
+  it('replaces the permissions of a directory that is already there', () => {
+    const locked: FilePermissions = { read: ['root'], write: ['root'], execute: ['root'] };
+    const base = buildDirectory({
+      root: buildDirectory({ 'notes.private': buildFile('mine\n', { owner: 'root' }) }, {
+        owner: 'root',
+        perms: locked,
+      }),
+    });
+    const opened: FilePermissions = {
+      read: ['root', 'user', 'guest'],
+      write: ['root'],
+      execute: ['root', 'user', 'guest'],
+    };
+
+    const result = applyPatches(base, [dirPatch('/root', 'root', opened)]);
+
+    // Without this, a directory chmod is a row the server stores, the journal
+    // keeps, and every reader ignores — a change that looks applied at the
+    // prompt and is gone on the next materialisation.
+    expect(rootView(result).stat(asAbsPath('/root'))?.perms).toEqual(opened);
+  });
+
+  it('keeps the entries and the owner of the directory it re-permissions', () => {
+    const base = buildDirectory({
+      root: buildDirectory({ 'notes.private': buildFile('mine\n', { owner: 'root' }) }, {
+        owner: 'root',
+        perms: { read: ['root'], write: ['root'], execute: ['root'] },
+      }),
+    });
+
+    const result = applyPatches(base, [
+      dirPatch('/root', 'intruder', {
+        read: ['root', 'user', 'guest'],
+        write: ['root'],
+        execute: ['root', 'user', 'guest'],
+      }),
+    ]);
+
+    // A permission change is not a re-creation: emptying the directory or
+    // handing it to whoever sent the patch would lose a whole subtree to a
+    // command that only ever moves one bit.
+    expect(rootView(result).list(asAbsPath('/root'))).toEqual({
+      ok: true,
+      entries: ['notes.private'],
+    });
+    expect(rootView(result).stat(asAbsPath('/root'))?.owner).toBe('root');
+  });
+
+  it('leaves an existing directory untouched when the patch names no permissions', () => {
+    const locked: FilePermissions = { read: ['root'], write: ['root'], execute: ['root'] };
+    const base = buildDirectory({
+      root: buildDirectory({}, { owner: 'root', perms: locked }),
+    });
+
+    const result = applyPatches(base, [dirPatch('/root', 'alice')]);
+
+    // A bare directory row is a `mkdir` that lost its race, and mkdir refuses a
+    // directory that exists. Nothing about it should reshape what is there.
+    expect(rootView(result).stat(asAbsPath('/root'))?.perms).toEqual(locked);
+    expect(rootView(result).stat(asAbsPath('/root'))?.owner).toBe('root');
+  });
+});

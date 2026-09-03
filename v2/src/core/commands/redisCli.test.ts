@@ -105,6 +105,7 @@ const onLan = (over: Partial<RedisApi> = {}, envOver: Partial<CommandEnv> = {}) 
     patches: {
       write: async () => ({ ok: true }),
       mkdir: async () => ({ ok: true }),
+      setDirectoryPermissions: async () => ({ ok: true }),
       remove: async () => ({ ok: true }),
     },
     ...envOver,
@@ -433,6 +434,7 @@ describe('the player own box, once it runs a store', () => {
           return { ok: true };
         },
         mkdir: async () => ({ ok: true }),
+        setDirectoryPermissions: async () => ({ ok: true }),
         remove: async () => ({ ok: true }),
       },
     });

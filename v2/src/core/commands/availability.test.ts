@@ -1,11 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { wrapWithBinaryCheck } from './availability';
 import { wrapWithLibraryCheck } from './libraryDeps';
 import { commandRegistry } from './registry';
 import { buildDirectory, buildFile } from '../../test/factories/filesystem';
-import { mockCommandEnv, mockFsViewFromTree } from '../../test/factories/commandEnv';
+import { mockCommandEnv, mockFsViewFromTree, mockSession } from '../../test/factories/commandEnv';
 import { asAbsPath } from '../types';
-import type { Command, CommandEnv, CommandResult, TerminalLine } from './types';
+import type { Command, CommandEnv, CommandResult, PatchApi, TerminalLine } from './types';
 
 /**
  * Slice 1 of the binary/availability model: a command only runs when its
@@ -192,7 +192,7 @@ describe('commandRegistry gating (registry wiring)', () => {
   // binaries stamped since generation shipped, so the promise in `ls /bin` and
   // the answer at the prompt have to agree. Proven in BOTH directions, so the
   // gate is shown live rather than merely absent.
-  it.each(['clear', 'whoami', 'find', 'strings'])(
+  it.each(['clear', 'whoami', 'find', 'strings', 'chmod'])(
     'gates %s behind its /bin binary',
     async (name) => {
       const command = commandRegistry.get(name);
@@ -228,6 +228,38 @@ describe('commandRegistry gating (registry wiring)', () => {
 
     expect(errorLines(result)).toEqual([]);
     expect(result.kind === 'sync' && result.exitCode).toBe(0);
+  });
+
+  it('runs chmod against a real tree once its /bin binary is back', async () => {
+    const command = commandRegistry.get('chmod');
+    if (command === undefined) throw new Error('chmod not registered');
+    const tree = buildDirectory({
+      bin: buildDirectory({
+        chmod: buildFile('', { owner: 'root', perms: { execute: ['root', 'user', 'guest'] } }),
+      }),
+      // chmod links libpcre too, so the binary gate is not the only one.
+      lib: buildDirectory({ 'libpcre.so': libFile() }),
+      tmp: buildDirectory({ 'notes.txt': buildFile('readable text\n', { owner: 'alice' }) }),
+    });
+    const write = vi.fn<PatchApi['write']>(async () => ({ ok: true }));
+    const env = mockCommandEnv({
+      fs: mockFsViewFromTree(tree, { userType: 'user', cwd: asAbsPath('/tmp') }),
+      session: mockSession({ username: 'alice', userType: 'user' }),
+      patches: {
+        write,
+        remove: async () => ({ ok: true }),
+        mkdir: async () => ({ ok: true }),
+        setDirectoryPermissions: async () => ({ ok: true }),
+      },
+    });
+
+    const result = await command.execute(env, ['o+r', '/tmp/notes.txt'], NO_FLAGS);
+
+    // Its own restore row, because a working chmod says NOTHING — the shared
+    // one asserts output, which would fail here for the wrong reason.
+    expect(errorLines(result)).toEqual([]);
+    expect(result.kind === 'sync' && result.exitCode).toBe(0);
+    expect(write).toHaveBeenCalledTimes(1);
   });
 
   // The restore direction for the two that need operands: `clear` and `whoami`

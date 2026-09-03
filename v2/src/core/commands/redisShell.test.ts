@@ -520,6 +520,7 @@ describe('the store on your own box', () => {
           return { ok: true };
         },
         mkdir: async () => ({ ok: true }),
+        setDirectoryPermissions: async () => ({ ok: true }),
         remove: async () => ({ ok: true }),
       },
     });
@@ -644,6 +645,7 @@ describe('the store on your own box', () => {
         write: async (path) =>
           path === DATADIR_PATH ? { ok: false, error: 'network_error' } : { ok: true },
         mkdir: async () => ({ ok: true }),
+        setDirectoryPermissions: async () => ({ ok: true }),
         remove: async () => ({ ok: true }),
       },
     });

@@ -37,6 +37,7 @@ const touchEnv = (
     write: writeFn,
     remove: async () => ({ ok: true }),
     mkdir: async () => ({ ok: true }),
+    setDirectoryPermissions: async () => ({ ok: true }),
   };
   const env = mockCommandEnv({
     fs: mockFsViewFromTree(options.tree ?? homeTree(), {

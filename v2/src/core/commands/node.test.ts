@@ -169,7 +169,12 @@ const scriptEnv = (
         : { onReload: async () => homeTree(source, notesOnReload) }),
     }),
     session: mockSession({ username: 'alice', userType: options.userType ?? 'user' }),
-    patches: { write: writeFn, remove: async () => ({ ok: true }), mkdir: async () => ({ ok: true }) },
+    patches: {
+      write: writeFn,
+      remove: async () => ({ ok: true }),
+      mkdir: async () => ({ ok: true }),
+      setDirectoryPermissions: async () => ({ ok: true }),
+    },
   });
   return { env, writeFn };
 };
@@ -383,9 +388,9 @@ describe('node', () => {
 
   it('runs a script the session may read but may not execute', async () => {
     // The execute bit is deliberately not consulted. `nano` stamps
-    // execute: ['root'] on everything a user writes and the game has no
-    // chmod, so gating on it would stop a player running the script they just
-    // wrote — and real node opens a script for reading, not for execution.
+    // execute: ['root'] on everything a user writes, so gating on it would stop
+    // a player running the script they just wrote until they chmod'd it — and
+    // real node opens a script for reading, not for execution.
     const tree = buildDirectory({
       home: buildDirectory({
         alice: buildDirectory(

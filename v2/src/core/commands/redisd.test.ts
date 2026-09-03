@@ -52,6 +52,7 @@ const envFor = (tree: ReturnType<typeof boxWith>, userType: UserType = 'root') =
         return { ok: true };
       },
       mkdir: async () => ({ ok: true }),
+      setDirectoryPermissions: async () => ({ ok: true }),
       remove: async () => ({ ok: true }),
     },
   });

@@ -333,6 +333,82 @@ check(
   `status=${rm12.status} error=${errorOf(rm12.body)} rows=${rows12?.length ?? 0}`,
 );
 
+// 13. B changes what a DIRECTORY on A's box permits — the row shape a file
+//     write cannot express (content null + node_type directory + permissions,
+//     and no is_new, because the directory is not new). /tmp is world-writable,
+//     so B's guest session may change it.
+const narrowedTmp = {
+  read: ['root', 'user'],
+  write: ['root', 'user', 'guest'],
+  execute: ['root', 'user', 'guest'],
+};
+const w13 = await post(
+  PATCHES,
+  signRequest(bob, 'upsertPatch', {
+    machine_id: A_MACHINE,
+    path: '/tmp',
+    content: null,
+    owner: 'root',
+    permissions: narrowedTmp,
+    node_type: 'directory',
+  }),
+);
+check(
+  'B changes /tmp’s permissions on A’s box → 200',
+  w13.status === 200,
+  `status=${w13.status} error=${errorOf(w13.body) ?? '-'}`,
+);
+
+// 14. And the SERVER's own materialization replays it. This is the half no unit
+//     test reaches: `applyPatches` is shared client + server, and until it
+//     learned that an existing directory's permissions can change, a row like
+//     this was stored, replayed, and ignored by every reader.
+//
+//     The observable is B's own view of the box. A cross-player read shows only
+//     what the viewing session may see, so taking guest READ off /tmp takes the
+//     whole directory out of B's tree — B locked itself out with its own chmod.
+const r14 = await post(NETWORK, signRequest(bob, 'resolveCrossPlayerFs', { machine_id: A_MACHINE }));
+const tree14 =
+  r14.status === 200 ? deserializeTree((r14.body as { tree: SerializedDirectory }).tree) : null;
+check(
+  'after B narrows /tmp, /tmp is gone from B’s own materialized view',
+  r14.status === 200 && tree14 !== null && get(tree14, 'tmp') === undefined,
+  `status=${r14.status} tmp=${tree14 && get(tree14, 'tmp') ? 'visible' : 'absent'}`,
+);
+
+// 15. Restore guest read and the directory comes back WITH its contents — a
+//     permission change is not a re-creation, so nothing inside it was lost
+//     while it was invisible.
+const restoredTmp = {
+  read: ['root', 'user', 'guest'],
+  write: ['root', 'user', 'guest'],
+  execute: ['root', 'user', 'guest'],
+};
+const w15 = await post(
+  PATCHES,
+  signRequest(bob, 'upsertPatch', {
+    machine_id: A_MACHINE,
+    path: '/tmp',
+    content: null,
+    owner: 'root',
+    permissions: restoredTmp,
+    node_type: 'directory',
+  }),
+);
+const r15 = await post(NETWORK, signRequest(bob, 'resolveCrossPlayerFs', { machine_id: A_MACHINE }));
+const tree15 =
+  r15.status === 200 ? deserializeTree((r15.body as { tree: SerializedDirectory }).tree) : null;
+const tmp15 = tree15 ? get(tree15, 'tmp') : undefined;
+const pwned15 = tree15 ? get(tree15, 'tmp', 'pwned') : undefined;
+check(
+  'restoring the permission brings /tmp back, contents intact',
+  w15.status === 200 &&
+    tmp15?.kind === 'directory' &&
+    tmp15.perms.read.includes('guest') &&
+    pwned15?.kind === 'file',
+  `write=${w15.status} tmp=${tmp15?.kind ?? 'absent'} pwned=${pwned15?.kind === 'file' ? 'present' : 'absent'}`,
+);
+
 // Cleanup.
 await clearPublicIps(sr, [{ essid: 'BEAN-THERE-WIFI', publicIp: A_PUBLIC_IP }]);
 await sr.from('home_network_occupants').delete().eq('essid', 'BEAN-THERE-WIFI');

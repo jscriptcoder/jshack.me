@@ -469,3 +469,67 @@ describe('fetchOwnPatches', () => {
     expect(await fetchOwnPatches(deps)).toEqual([]);
   });
 });
+
+describe('createPatchApi.setDirectoryPermissions', () => {
+  const OPENED = {
+    read: ['root', 'user', 'guest'],
+    write: ['root'],
+    execute: ['root', 'user', 'guest'],
+  } as const;
+
+  it('POSTs a signed directory envelope carrying the new permissions and the existing owner', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    const result = await createPatchApi(deps).setDirectoryPermissions(asAbsPath('/root'), OPENED, {
+      owner: 'root',
+    });
+
+    expect(result).toEqual({ ok: true });
+    const verified = await verifyPayload(sentEnvelope(fetchSpy));
+    expect(verified.ok).toBe(true);
+    if (!verified.ok) return;
+    expect(verified.payload).toMatchObject({
+      action: 'upsertPatch',
+      machine_id: deps.machineId,
+      path: '/root',
+      content: null,
+      // The directory still belongs to whoever owned it — the session's own
+      // username is what `mkdir` sends, and this is not a creation.
+      owner: 'root',
+      node_type: 'directory',
+      permissions: OPENED,
+    });
+  });
+
+  it('does not stamp is_new on a directory it did not create', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    await createPatchApi(deps).setDirectoryPermissions(asAbsPath('/root'), OPENED, {
+      owner: 'root',
+    });
+
+    const verified = await verifyPayload(sentEnvelope(fetchSpy));
+    expect(verified.ok).toBe(true);
+    if (!verified.ok) return;
+    // `is_new` decides whether a later removal deletes the row or leaves a
+    // tombstone. Claiming it for a directory that shipped with the box would
+    // rewrite that history on the strength of a permission change.
+    expect(verified.payload).not.toHaveProperty('is_new');
+  });
+
+  it.each([
+    [403, 'no_session'],
+    [500, 'network_error'],
+  ] as const)('maps a %d response to %s', async (status, error) => {
+    const fetchSpy = vi.fn(async () => jsonResponse(status, { error }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    const result = await createPatchApi(deps).setDirectoryPermissions(asAbsPath('/root'), OPENED, {
+      owner: 'root',
+    });
+
+    expect(result).toEqual({ ok: false, error });
+  });
+});
