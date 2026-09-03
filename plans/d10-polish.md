@@ -1,11 +1,10 @@
 # Plan: D10 — polish + the long tail
 
-**Status**: Active — **two of five slices SHIPPED**. Slice 1: `dd1cc5cf` (PR #481) at
-**v0.201.0**, thirteen acceptance criteria. Slice 2: `dc1e294c` (PR #482) at **v0.202.0**, twelve
-acceptance criteria and ten hand-applied mutants, all killed. Both close-outs are written up below
-their sections. Trunk is at v0.202.0 and level with origin. **Slice 3 is planned, its thirteen
-acceptance criteria are confirmed, and its branch is cut** — `find` + `strings`, plus the fix for
-one finding the planning pass turned up: `strings /bin/ls` prints nothing today, on every machine.
+**Status**: Active — **three of five slices SHIPPED**. Slice 1: `dd1cc5cf` (PR #481) at
+**v0.201.0**. Slice 2: `dc1e294c` (PR #482) at **v0.202.0**. Slice 3: `ed71cee1` (PR #484) at
+**v0.203.0**, thirteen acceptance criteria and ~30 hand-applied mutants. Every close-out is written
+up below its section. Trunk is at v0.203.0 and level with origin. **The next action is to plan
+slice 4** (`chmod`) — the first of these that writes.
 **Epic**: [`legacy-parity-epic.md`](legacy-parity-epic.md) → "D10 — resolved scope & decisions
 (grill-me, 2026-09-02)", fifteen locked decisions.
 
@@ -16,10 +15,11 @@ one finding the planning pass turned up: `strings /bin/ls` prints nothing today,
 2. **Slices 1 and 2 are shipped and merged.** Read slice 2's close-out before planning slice 3 —
    it settles the `env.ui.*` question for good, records what the mutation gate found, and names the
    one thing slice 3's RED order should start from.
-3. **The next action is slice 3's RED 1** on `feat/d10-the-box-answers-questions`. Its plan and
-   thirteen confirmed ACs are below, including the decision that `BINARY_STUB` grows a readable
-   tail so `strings` has something to print. Its scope is locked in the epic; do not re-grill
-   the door.
+3. **The next action is to plan slice 4** (`chmod`) with `/plan`. Read slice 3's close-out first:
+   it records that `/bin/chmod` and its `libpcre` dependency are BOTH already declared, that
+   `walkTree` now exists and slice 4 must not reach for it (`chmod -R` is refused by decision 7),
+   and that this is the first slice here that writes. Its scope is locked in the epic; do not
+   re-grill the door.
 4. Cut a fresh `feat/…` branch per slice off an up-to-date `main` — check `git status -sb` for
    ahead/behind, per conventions §8, which distinguishes ahead from level where
    `git pull --ff-only` does not.
@@ -53,13 +53,15 @@ want found — nine commands that legacy had and v2 has been missing since the r
 |---|-------|-----------|--------|
 | 1 | the terminal is yours | `clear` + Ctrl-L, four themes that survive a reload, `whoami` | ✅ **shipped** — `dd1cc5cf` (PR #481), v0.201.0 |
 | 2 | the card and the second window | `author` opens the card; `xterm` opens a FRESH tab | ✅ **shipped** — `dc1e294c` (PR #482), v0.202.0 |
-| 3 | the box answers questions | `find / passwd` finds it; `strings /bin/ls` reads the stub | 📋 **planned** — 13 ACs confirmed, branch cut |
+| 3 | the box answers questions | `find / passwd` finds it; `strings /bin/ls` reads the stub | ✅ **shipped** — `ed71cee1` (PR #484), v0.203.0 |
 | 4 | permissions change hands | `chmod o+r` opens a file to a tier that could not read it | not planned |
 | 5 | a file nobody else can read | `gpg -c` then `-d` round-trips; a wrong passphrase fails clean | not planned |
 
-Slices 1 and 2 are built. Plan each remaining slice when its
-predecessor lands — D7, D8 and D9 all found later slices cost far less than their plans assumed,
-because the seams they needed had already generalized.
+Slices 1, 2 and 3 are built. Plan each remaining slice when its predecessor lands — D7, D8 and D9
+all found later slices cost far less than their plans assumed, because the seams they needed had
+already generalized, and D10 has now said the same three times: `clear`/`whoami` were stampable
+with one list entry, `author` needed no capability at all, and `find`/`strings` arrived to find
+both their binaries and their library dependencies already declared.
 
 **No `api/` change in any slice, so the wire-check is `N/A` throughout** (epic §"Forced rather than
 chosen"). Every close-out proof is a browser run — the vantage conventions §7 warns a green
@@ -891,38 +893,38 @@ exactly one operand.
 
 ### Acceptance criteria — CONFIRMED 2026-09-02, before any code
 
-- [ ] **AC-1** `find <path> <pattern>` walks `<path>` recursively and prints every entry whose
+- [x] **AC-1** `find <path> <pattern>` walks `<path>` recursively and prints every entry whose
       **name** matches, as an absolute path, one per line, **alphabetically**. Directories print
       with a trailing `/`; files do not.
-- [ ] **AC-2** The pattern is a glob, not a regex: `*` is any run, `?` is one character, and every
+- [x] **AC-2** The pattern is a glob, not a regex: `*` is any run, `?` is one character, and every
       other regex metacharacter is **literal** — `find / *.txt` must not match `axtxt`.
-- [ ] **AC-3** An optional third positional filters results by the file's `owner` string. It is a
+- [x] **AC-3** An optional third positional filters results by the file's `owner` string. It is a
       **display filter, never an authorization input** (decision 14): it changes what is listed and
       can never widen it.
-- [ ] **AC-4** **A directory the session cannot enter contributes nothing** — no descendant names,
+- [x] **AC-4** **A directory the session cannot enter contributes nothing** — no descendant names,
       no error, no exit-code change. What `find` shows at each level is exactly what `ls` there
       would show; a `user`-tier session finds nothing inside a root-only directory, while the
       directory's own name stays visible from its readable parent.
-- [ ] **AC-5** Errors, each exit **1**: fewer than two operands →
+- [x] **AC-5** Errors, each exit **1**: fewer than two operands →
       `find: usage: find <path> <pattern> [user]`; a start path that does not exist →
       `find: '<path>': No such file or directory`; a start path that is a file →
       `find: '<path>': Not a directory`.
-- [ ] **AC-6** Relative starts resolve against the session's cwd (`find . passwd` from `/home/alice`
+- [x] **AC-6** Relative starts resolve against the session's cwd (`find . passwd` from `/home/alice`
       searches `/home/alice`), and results are absolute regardless.
-- [ ] **AC-7** No matches is not an error: no output, exit **0**.
-- [ ] **AC-8** `strings <file>` prints every run of **four or more** printable characters, one
+- [x] **AC-7** No matches is not an error: no output, exit **0**.
+- [x] **AC-8** `strings <file>` prints every run of **four or more** printable characters, one
       terminal line per line, with `\n` and `\t` counted as printable so a text file reads back
       as itself.
-- [ ] **AC-9** `strings /bin/ls` prints the binary stub's readable strings on any machine — the
+- [x] **AC-9** `strings /bin/ls` prints the binary stub's readable strings on any machine — the
       tool is demonstrable on a fresh box with no content work.
-- [ ] **AC-10** `strings` errors, each exit **1**: no operand → `strings: missing file operand`;
+- [x] **AC-10** `strings` errors, each exit **1**: no operand → `strings: missing file operand`;
       then `strings: <file>: No such file or directory`, `: Is a directory`, `: Permission denied`.
-- [ ] **AC-11** Both are gated by their binaries like every other real tool: `rm /bin/find` makes
+- [x] **AC-11** Both are gated by their binaries like every other real tool: `rm /bin/find` makes
       `find` report `command not found`, and the same for `strings`. Neither joins `GAME_COMMANDS`.
-- [ ] **AC-12** Both compose: `find / '*.conf' | grep etc` filters `find`'s lines, and both run
+- [x] **AC-12** Both compose: `find / '*.conf' | grep etc` filters `find`'s lines, and both run
       inside a `node` script and from a no-tty backdoor session — unlike slice 2's pair, these are
       ordinary tools with **no `withoutTty` and no `withoutScript`**.
-- [ ] **AC-13** `man find` and `man strings` render with a synopsis and examples that name the
+- [x] **AC-13** `man find` and `man strings` render with a synopsis and examples that name the
       command; `help` lists both under **filesystem**.
 
 ### RED
@@ -1039,6 +1041,207 @@ promise-in-`ls /bin` closing the loop.
   (epic "Forced rather than chosen").
 - Browser close-out run and written up, including the remote-box beat.
 - Version bumped in **both** `v2/package.json` and `v2/package-lock.json`.
+
+---
+
+## Slice 3 close-out — SHIPPED `ed71cee1` (PR #484), v0.203.0
+
+### What actually went RED, and what did not
+
+Six of the twelve RED steps failed first. The other six passed on arrival and were proven the
+documented way — the mutant each exists to catch, applied alone, reverted in a `finally`. **Roughly
+thirty hand-applied mutants across the slice; one survived, and it was dead code.**
+
+| Step | First run | How the claim was pinned |
+|---|---|---|
+| 1 — a locked directory leaks nothing | red (`Failed to resolve import "./find"`) | the `list` gate swapped for a `stat` shortcut → the leak test fails, the door-is-visible test does not |
+| 2 — depth, order, trailing `/` | green | recursion removed → 4 dead; `.sort()` removed → **exactly** the order test; match/recurse swapped → **exactly** the container test |
+| 3 — globs and their literals | green | escape removed, anchors removed, `*`→one char, `?` unexpanded → 4 dead |
+| 4 — the owner filter | **red ×3** | — |
+| 5 — the three errors, and the empty result | **red ×2** (not-found, not-a-directory) | usage guard defaulted to `*`; no-match exits 1; unreadable start becomes an error → 3 dead |
+| 6 — relative and `.` starts | green | start read as absolute; results reported relative → 2 dead |
+| 7 — printable runs of four | red (`Failed to resolve import "./strings"`) | boundary at each flush path, newline unprintable, run un-split → 4 dead, **1 survived** |
+| 8 — the four refusals | **red ×4** | — |
+| 9 — `strings` on a stamped binary | **red** — the planning finding, as a failing test | — |
+| 10 — binary gating | **red** (`find not registered`), then red again on the linker gate | — |
+| 11 — pipes, scripts, no tty | green (all three are ABSENCES) | a tty rule and a script rule added to each command → 4 dead; the run left unsplit → 5 dead across 3 files |
+| 12 — `man` and `help` | **red** on `man`, green on `help` | — |
+
+**The sharpest REDs were the two the slice exists for.** `expected [] to not deeply equal []` —
+`strings` on a real generated binary, printing nothing. And at the generation layer,
+`expected 'ELF…' to match /[\x20-\x7e]{4,}/`.
+
+### A process observation worth keeping
+
+**Steps 2, 3 and 6 passed on arrival, and that was my doing, not the plan's.** RED 1's test used the
+pattern `passwd*`, which pulled the entire glob translator into GREEN 1 — "just enough glob" for one
+pattern would have been `name.startsWith('passwd')`, which nobody would keep. Had RED 1 used a
+literal name, the glob would have arrived driven by its own failing tests. The claims are equally
+well pinned either way — ten mutants say so — but the sequencing was a choice, and the cheap fix
+next time is to pick the first test's fixture so it needs the least machinery, not the most natural
+one.
+
+**Twice, a test that passed on arrival was too weak to notice its own bug.** RED 6's three cwd tests
+originally ran against a tree whose only matching files lived under `/home/alice`, so a `find` that
+ignored the cwd entirely would find the same files and every assertion would still pass. And RED 4's
+"naming an owner opens nothing" asks for `root`-owned entries while the hidden file belongs to
+alice, so it passes under the very bug it is named for. Both were caught by applying the mutant
+BEFORE writing the step up — which is the argument for doing that on every green-on-arrival step,
+not only the suspicious ones. The fixes were a tree with decoys at the root, and a fourth test that
+names the hidden file and its owner together.
+
+### The three decisions the plan made, and how they held
+
+- **The stub grows a readable tail.** Confirmed before deciding, by running legacy's extraction over
+  the real constant. Now proven twice more: at the generation layer, and live in the browser.
+- **`find` decides from `list`, never from `stat`.** Held, and became the reason for the one
+  refactor this slice made.
+- **`strings` loses legacy's `minLength` positional**, and its `must be between 1 and 100` error
+  with it. Recorded so it does not later read as an omission.
+
+**One correction the plan made to slice 2's close-out, and it was right to.** That close-out said
+the invariant was *"what `find` reports and what `cat` will then open must not differ."* It
+overstates: an unreadable file inside a readable directory is visible to `ls` and refused by `cat`,
+and `find` naming it is correct Unix. The narrower claim — **`find` reports nothing from behind a
+door the session cannot open** — is what AC-4 pins and what the browser proved.
+
+### What the codebase had already reserved
+
+**Both binaries were stamped and both were already in `COMMAND_LIBRARY_DEPS`.** `find: ['libpcre']`
+and `strings: ['libpcre']` were declared for the library-CVE chain long before either command
+existed, so RED 10 went red a second time after registration:
+`find: error while loading shared libraries: libpcre.so`. Nothing was wrong; the test tree was
+missing `/lib`. Two gates, not one — and it makes `rm /lib/libpcre.so` a second and more
+interesting way to break `find`, which takes `ls`, `cat` and `grep` with it.
+
+That is the third slice in a row where the later work cost less than its plan assumed, and for the
+same reason each time: the seam was already there.
+
+### What the mutation gate found
+
+| File | Before | After |
+|---|---|---|
+| `core/commands/strings.ts` | 52.2%¹ → 76.5% | **79.6%** |
+| `core/filesystem/walkTree.ts` | — | **88.2%** |
+| `core/commands/find.ts` | — | **70.2%** |
+
+¹ pre-gate figures are from the hand-mutant runs during RED, not a full battery.
+
+**Three real gaps, all in `strings`, all boundaries:**
+
+- `code <= 126` → `code < 126`. `~` is the top of the printable range and appeared nowhere in the
+  test data. One short and a character vanishes from the middle of a word.
+- `code <= 126` → `true`. No upper bound at all, splicing unrelated runs into one line of nonsense.
+- the **end-of-file** `trim()`. Padding was only ever silenced *between* fields; a file ending in
+  whitespace was untested. Exactly the in-loop-versus-EOF split the four-character boundary had at
+  RED 7, hit a second time on a different property — that function has two flush paths and every
+  property of it needs testing at both.
+
+**One survivor was dead code I had written.** `runs.filter((run) => run.length > 0)` cannot affect
+the output: a padding run trims to `''`, and `splitContentLines('')` already returns `[]`. Nothing
+observable distinguished the two, so no test could ever have failed for it. Removed, with the
+reasoning moved into the comment — the *trim* is what silences padding, and a run that trims away
+contributes nothing on its own.
+
+**And one FALSE survivor, which is the finding to carry forward.** Stryker reported `find.ts`'s
+usage guard as surviving. Applied by hand, the suite kills it outright with
+`TypeError: Cannot read properties of undefined (reading 'startsWith')`. `coverageAnalysis: perTest`
+under-reported it. A non-manual survivor is a hypothesis, not a hole — hand-check it before writing
+a test for a gap that is not there. Now in conventions §4.
+
+Everything else classified: the manual pages (§4 — a command's mutation score is mostly its manual);
+`strings`' loop bound `index < length` → `<=`, genuinely equivalent because `charCodeAt` past the
+end gives `NaN`, which flushes there instead of after the loop; and both `walkTree` survivors,
+unreachable or equivalent and now saying so in the code.
+
+### REFACTOR — one extraction taken, one note deleted, one bug found in passing
+
+**`walkTree` extracted, and this is the argument.** Slice 2 declined a two-caller extraction
+(`quits()`) and this is also two callers, so the distinction has to carry the decision. `quits()`
+was keyboard boilerplate with no invariant behind it, and a third screen was expected to
+legitimately differ. Here the duplicated thing is **a permission boundary** — descend only where
+`list` succeeds, because `stat` has none — and there is no legitimate variant of it. Two loops
+enforcing one boundary is how it drifts in one caller and not the other, silently, with the walk
+still returning plausible results. The plan's own criterion was met exactly: one visitor callback
+reconciles `find`'s name-matching with `grep`'s binary-skipping, with no options to reconcile them.
+Preservation evidence: 4243 tests before, 4243 after, `grep`'s 59 included.
+
+**`cat.ts`'s `fsReadHelpers` note deleted.** It predicted the dialects would converge once a second
+file-reading command arrived. Five commands later they have not: `grep`/`find` quote the path,
+`cat`/`strings` do not; `grep` exits 2 and the rest exit 1; each switch is exhaustive over a
+different subset of the error union. The note is replaced by the decision, so nobody re-derives it.
+
+**A player-facing bug found while in `grep.ts`.** Its manual said *"(Slice 3 will add stdin
+support.)"* — a slice tag in text `man grep` prints, for a feature that shipped months ago, breaking
+the repo's own no-slice-tags rule in the one place players can read it. Fixed, with the synopsis
+corrected to `grep <pattern> [path] [-l]`.
+
+### Browser close-out — seventeen beats
+
+Against `vercel dev` + local supabase, banner checked at **v0.203.0** before driving anything.
+
+| Beat | Result |
+|---|---|
+| `ls /bin` | `find` and `strings` listed — and now they run |
+| `find / passwd` | `/etc/passwd` |
+| `find / '*.txt'` | nothing, exit 0 |
+| **`strings /bin/ls`** | `/lib64/ld-linux-x86-64.so.2`, `GLIBC_2.2.5` — the finding, fixed |
+| `cat /bin/ls` beside it | one line of unreadable bytes — the contrast the tool exists for |
+| `ls /root` as alice | `Permission denied` |
+| **`find / '*' \| grep root` as alice** | **`/root/` and nothing under it** |
+| **the same command as root** | **`/root/` and `/root/notes.private`** |
+| `find / '*' root` | the whole box, root-owned, directories with `/` and files without |
+| `strings /etc/passwd` | reads back as itself, three lines |
+| `cd /etc` → `find . passwd` | `/etc/passwd` — relative start, absolute result |
+| `find .. '*.html'` from `/etc` | `/var/www/html/index.html` |
+| `find / '*' \| grep -l log` | `(standard input)` |
+| `rm /bin/find` → `find / passwd` | `command not found`, while `strings` still works |
+| `rm /lib/libpcre.so` → `strings` | `error while loading shared libraries: libpcre.so` |
+| `man find` with its binary deleted | the full page renders — `man` reads the registry, not `/bin` |
+| the six refusals, on a fresh box | correct, **including the quoting split**: `find: '/nope'` vs `strings: /nope.bin` |
+
+**The `/root` pair is the beat that matters**, and it only works because I planted
+`notes.private` behind the door first. The earlier root run showed `/root/` alone — an empty
+directory lets a leaky `find` pass. A permission test whose secret does not exist proves nothing.
+
+**One beat worth keeping that was not planned**: `man find` still renders after `rm /bin/find`. That
+is correct — the page is registry data, not a property of the binary — and it is exactly the sort of
+thing that arrives as a bug report.
+
+### Recorded rather than papered over
+
+**An unreadable START path is not an error, and no AC says so.** `find /vault '*'` answers nothing
+at exit 0 rather than `Permission denied` the way `ls` does. It fell out of the code rather than
+being chosen, so it now has a test and an argument: one rule about an unreadable directory, applied
+wherever the walk meets it, and naming it on the command line buys no different answer than walking
+into it. Legacy did the same. If it should change, it is a small change and one AC.
+
+**`grep`'s USAGE string still reads `grep <pattern> <path> [-l]`** while its manual now says
+`[path]`. Left alone deliberately: that error only fires when there is no path AND no stdin, where
+demanding a path is correct advice. Noted so the mismatch is not read as a missed edit.
+
+### PR-ready checklist
+
+- [x] All 13 ACs met; six by tests seen to fail, seven by a mutant seen to kill.
+- [x] `npm run typecheck`, `npm run lint`, full non-watch suite: **4244 passed**, from `v2/`.
+- [x] Mutation gate closed; three real gaps fixed, one dead-code survivor removed, one false
+      survivor identified, the rest classified above.
+- [x] Wire-check **`N/A`** — no `api/` changes; both commands read through the existing `FsView`.
+- [x] Browser close-out run and written up, including the two-tier `/root` pair.
+- [x] Version bumped in both files to **0.203.0**.
+- [x] Squash-merged as `ed71cee1` (PR #484); branch deleted, trunk level with origin.
+
+### For slice 4
+
+`chmod` — and the pattern holds a third time: **`/bin/chmod` is already stamped and
+`chmod: ['libpcre']` is already in the dependency map**, so it inherits both gates for free. Do not
+re-derive them; do check the test tree carries `/lib`, which is what cost RED 10 a second red here.
+
+Two things carry forward. `walkTree` exists now and `chmod -R` is refused (decision 7), so slice 4
+should NOT reach for it — a recursive chmod is the thing the decision rules out, and a shared walker
+sitting there is an invitation. And slice 4 is the first of these that WRITES: conventions §7's rule
+that `env.fs` is a point-in-time snapshot, and that a gate re-reading it after `env.patches.*` reads
+stale state, is the one to read before starting.
 
 ---
 *Delete this file at D10 close-out and fold the durable rules into

@@ -673,6 +673,16 @@ sat in the changed lines. Run scoped batteries as
 every mutant's file, line, mutator and status. Note it overwrites the previous report in place, so
 copy one you still need first.
 
+**A surviving mutant is a hypothesis, not a hole — hand-check it before writing a test.**
+`coverageAnalysis: "perTest"` decides which specs to run per mutant from an instrumented dry run,
+and it can get that wrong: D10 slice 3 reported `find.ts`'s usage guard
+(`startArg === undefined || patternArg === undefined` → `false`) as SURVIVED, while applying the
+same edit by hand killed the suite outright with
+`TypeError: Cannot read properties of undefined (reading 'startsWith')`. Believing the report
+would have meant writing a second test for a gap that did not exist, and — worse — concluding the
+existing one was weak when it was not. The check costs one scripted run. Do it for every survivor
+outside the manual-prose family before treating it as work.
+
 **A hand-mutation harness owns the files it snapshots — don't edit them while it runs.** The
 house pattern (a Python script that applies one mutant, runs the spec, restores) reads every target
 file ONCE at startup and restores from that snapshot. Run it in the background and edit one of those
@@ -692,12 +702,29 @@ battery. The verdicts stay CORRECT, because `returncode` comes from the process 
 buffer, which is exactly what makes it dangerous: the run looks broken, the transcript is shredded,
 and the control's verdict scrolls away in stack traces. Pass `encoding='utf-8', errors='replace'`.
 
+**And the other half of that: Python's own stdout ENCODER dies on the same characters.** Decoding
+the child correctly only to `print` it raises `UnicodeEncodeError: 'charmap' codec can't encode`,
+because Python's stdout on Windows is cp1252 too — so a harness can read a verdict correctly and
+then crash reporting it. The `finally` still restores, which is the whole reason it is a `finally`,
+but the run reads as a failure. Strip the output to ASCII before printing
+(`re.sub(r'[^\x20-\x7e]', '.', line)`) or set `PYTHONIOENCODING=utf-8`; either way, do not assume
+that decoding the subprocess was the end of it.
+
 **A large quoted heredoc silently writes nothing.** `cat > file <<'EOF'` with a body of roughly 150
 lines or more fails the whole command with ``unexpected EOF while looking for matching `'`` and
 leaves the target untouched — so the next command runs against stale content and the failure reads
 as a logic bug in code that was never written. Hit twice in one session, on a test file and on a
 patch script. Write the body to a file by other means and `cat` it into place, or keep heredocs
 short; either way, check the line count before trusting the write.
+
+**`python -c "…"` through bash is the same trap wearing a different hat.** A `\n` inside the
+double-quoted argument is consumed by bash, so Python receives a REAL newline and writes it into
+whatever string it was building. In D10 slice 3 that turned four `buildFile('decoy\n', …)` literals
+into unterminated strings, and the failure surfaced as `Tests: no tests` with a transform error —
+not a test failure, and nothing pointing at the edit that caused it. Hit twice in one slice, the
+second time producing `not.toContain(\\0)` with no quotes at all. Put the patch in a `.py` file and
+run that file. The rule generalises: **any string that has to survive bash AND python AND
+TypeScript should travel in a file, not through three layers of quoting.**
 
 **An inline heredoc also EATS backslash escapes, at any length.** A `\n` inside the body arrives in
 the file as a real newline, so `join('\n')` in a patch script becomes `join('` + linebreak + `')`
@@ -1711,6 +1738,15 @@ state costs you more than one wrong attempt.
   `SYSTEM_UTILITY_NAMES` (`/bin`), and note it **also links `libpcre`** in the legacy-inherited
   `libraryDeps` map, so it sits behind the linker gate as well as the binary one. Both are
   world-executable and gate on root at RUNTIME where a rule exists at all.
+- **A command whose name predates its implementation inherits gates it never declared — check
+  BOTH lists before writing its tests.** `find`, `strings` and `chmod` were stamped into
+  `SYSTEM_UTILITY_NAMES` and listed in `COMMAND_LIBRARY_DEPS` long before any of them existed,
+  because generation and the library-CVE chain were ported from legacy's full command set. So the
+  moment `find` was registered its tests went red a second time with
+  `find: error while loading shared libraries: libpcre.so` — nothing wrong with the command, a
+  `/lib` missing from the test tree. Two consequences worth knowing up front: a test tree for one of
+  these needs `/bin/<name>` AND `/lib/<dep>.so`, and `rm /lib/libpcre.so` is a live way to break
+  `ls`, `cat`, `grep`, `find`, `strings`, `chmod` and `ps` in one stroke.
 - **`env.fs` is a POINT-IN-TIME SNAPSHOT. A command that patches and then re-reads sees the
   world as it was before its own write.** `buildCommandEnv` calls `createFsView(args.root, …)`
   once, with `root: activeRoot()` evaluated at build time — the comment on `commandChain` in
