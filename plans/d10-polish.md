@@ -6,7 +6,8 @@
 hand-applied mutants and a wire-check that fails against the pre-slice materializer. Every close-out
 is written up below its section. Trunk is at v0.204.0 and level with origin. **The next action is to
 plan slice 5** (`gpg`) — the last of the nine, and the only one gated behind `apt install` rather
-than a stamped binary.
+than a stamped binary. **Its branch `feat/d10-a-file-nobody-else-can-read` is cut from trunk at
+v0.204.0** — nothing is planned or built on it yet.
 **Epic**: [`legacy-parity-epic.md`](legacy-parity-epic.md) → "D10 — resolved scope & decisions
 (grill-me, 2026-09-02)", fifteen locked decisions.
 
@@ -14,10 +15,11 @@ than a stamped binary.
 
 1. Read the epic's D10 section — the fifteen decisions, the four forced-rather-than-chosen entries,
    and the "Deliberately NOT built" list. **`bash` is refused, not deferred**; do not port it.
-2. **Slices 1, 2 and 3 are shipped and merged**, each with a close-out below its own section.
-   Slice 2's settles the `env.ui.*` question for good; slice 3's is the one step 3 sends you
+2. **Slices 1 to 4 are shipped and merged**, each with a close-out below its own section.
+   Slice 2's settles the `env.ui.*` question for good; slice 4's is the one step 3 sends you
    to, and it is the one that matters before writing anything here.
-3. **The next action is to plan slice 5** (`gpg`) with `/plan`. Read slice 4's close-out first:
+3. **The next action is to plan slice 5** (`gpg`) with `/plan`, on the branch already cut for it —
+   `feat/d10-a-file-nobody-else-can-read`, from trunk at `1d04b197`. Read slice 4's close-out first:
    it records that `gpg` is the one command in this door NOT stamped into `/bin` — it is an apt
    package like `node`, so the browser proof needs WiFi, a connection and root before the command
    can be typed — and that everything slice 4 learned about writing (the `reload()` rule, the
@@ -58,7 +60,7 @@ want found — nine commands that legacy had and v2 has been missing since the r
 | 2 | the card and the second window | `author` opens the card; `xterm` opens a FRESH tab | ✅ **shipped** — `dc1e294c` (PR #482), v0.202.0 |
 | 3 | the box answers questions | `find / passwd` finds it; `strings /bin/ls` reads the stub | ✅ **shipped** — `ed71cee1` (PR #484), v0.203.0 |
 | 4 | permissions change hands | `chmod o+r` opens a file to a tier that could not read it | ✅ **shipped** — `190e7e05` (PR #485), v0.204.0 |
-| 5 | a file nobody else can read | `gpg -c` then `-d` round-trips; a wrong passphrase fails clean | not planned |
+| 5 | a file nobody else can read | `gpg -c` then `-d` round-trips; a wrong passphrase fails clean | 🌱 branch cut — not planned |
 
 Slices 1 to 4 are built. Plan each remaining slice when its predecessor lands — D7, D8 and D9 all
 found later slices cost far less than their plans assumed, because the seams they needed had already
