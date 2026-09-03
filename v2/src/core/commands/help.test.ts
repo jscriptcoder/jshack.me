@@ -158,5 +158,6 @@ describe('help', () => {
     // too — they belong with `ls` and `cat`, not with the shell's own controls.
     expect(rowOf('find')).toBeGreaterThan(filesystem);
     expect(rowOf('strings')).toBeGreaterThan(filesystem);
+    expect(rowOf('chmod')).toBeGreaterThan(filesystem);
   });
 });

@@ -594,13 +594,13 @@ describe('Terminal', () => {
 
     it('lists candidates when several commands match the prefix', async () => {
       renderTerminal();
-      typeInput('c'); // matches `cat`, `cd`, `clear` and `curl`
+      typeInput('c'); // matches `cat`, `cd`, `chmod`, `clear` and `curl`
       pressTab();
 
       // Common prefix is just `c`, so the input is unchanged; the candidates
       // are printed on one scrollback line.
       expect(inputField()).toHaveValue('c');
-      expect(await screen.findByText('cat, cd, clear, curl')).toBeInTheDocument();
+      expect(await screen.findByText('cat, cd, chmod, clear, curl')).toBeInTheDocument();
     });
 
     it('completes a path argument against the current filesystem', () => {

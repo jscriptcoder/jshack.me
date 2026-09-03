@@ -1157,6 +1157,7 @@ const wrapWithRefetch = (inner: PatchApi): PatchApi => {
     write: afterWrite(inner.write),
     remove: afterWrite(inner.remove),
     mkdir: afterWrite(inner.mkdir),
+    setDirectoryPermissions: afterWrite(inner.setDirectoryPermissions),
   };
 };
 

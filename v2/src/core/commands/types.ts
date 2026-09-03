@@ -190,6 +190,16 @@ export type PatchApi = {
   ) => Promise<PatchResult>;
   readonly remove: (path: AbsPath) => Promise<PatchResult>;
   readonly mkdir: (path: AbsPath) => Promise<PatchResult>;
+  /** Change what an EXISTING directory permits. A directory carries no content,
+   *  so this is exact where a file's permission change has to be a whole-file
+   *  rewrite: neither `write` (which stamps `node_type: 'file'`) nor `mkdir`
+   *  (which stamps the tier defaults and `is_new`) can express it. The owner
+   *  travels because the directory keeps belonging to whoever owned it. */
+  readonly setDirectoryPermissions: (
+    path: AbsPath,
+    permissions: FilePermissions,
+    options: { readonly owner: string },
+  ) => Promise<PatchResult>;
 };
 
 export type PatchResult =

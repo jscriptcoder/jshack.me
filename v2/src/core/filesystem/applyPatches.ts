@@ -96,7 +96,18 @@ const applyOne = (tree: Directory, patch: Patch): Directory => {
   const segments = segmentsOf(patch.path);
 
   if (patch.nodeType === 'directory') {
-    if (nodeAt(tree, segments) !== null) return tree;
+    const existingDir = nodeAt(tree, segments);
+    if (existingDir !== null) {
+      // A directory that is already here plus a patch naming permissions is a
+      // chmod: a directory carries no content, so there is nothing to compose
+      // and the row is exact. Entries and owner are kept — a permission change
+      // is not a re-creation, and emptying the node would lose a whole subtree.
+      // A row with no permissions is a `mkdir` that lost its race, and mkdir
+      // refuses a directory that exists, so it changes nothing.
+      return patch.permissions === undefined || existingDir.kind !== 'directory'
+        ? tree
+        : insertNode(tree, segments, { ...existingDir, perms: patch.permissions });
+    }
     const newDir: Directory = {
       kind: 'directory',
       owner: patch.owner,

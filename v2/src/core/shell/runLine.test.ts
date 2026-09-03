@@ -8,6 +8,7 @@ import { ftp } from '../commands/ftp';
 import { grep } from '../commands/grep';
 import { find } from '../commands/find';
 import { strings } from '../commands/strings';
+import { chmod } from '../commands/chmod';
 import { lynx } from '../commands/lynx';
 import { nano } from '../commands/nano';
 import { scp } from '../commands/scp';
@@ -57,6 +58,7 @@ const pipeCommands: ReadonlyMap<string, Command> = new Map([
   ['grep', grep],
   ['find', find],
   ['strings', strings],
+  ['chmod', chmod],
 ]);
 
 const baseFixture = (
@@ -439,6 +441,43 @@ describe('runCommandLine', () => {
     });
   });
 
+  describe('a command that writes and says nothing', () => {
+    it('pipes as an empty stream without breaking the line', async () => {
+      const write = vi.fn<PatchApi['write']>(async () => ({ ok: true }));
+      const env = mockCommandEnv({
+        fs: mockFsViewFromTree(
+          buildDirectory({
+            home: buildDirectory({
+              alice: buildDirectory(
+                { 'notes.txt': buildFile('hello\n', { owner: 'alice' }) },
+                { owner: 'alice' },
+              ),
+            }),
+          }),
+          { userType: 'user', cwd: asAbsPath('/home/alice') },
+        ),
+        session: mockSession({ username: 'alice', userType: 'user' }),
+        patches: {
+          write,
+          remove: async () => ({ ok: true }),
+          mkdir: async () => ({ ok: true }),
+          setDirectoryPermissions: async () => ({ ok: true }),
+        },
+      });
+
+      const result = expectSync(
+        await runCommandLine(env, 'chmod o+r notes.txt | cat', pipeCommands),
+      );
+
+      // Silence is a valid stream. A pipeline that treated "no stdout" as a
+      // failure, or that skipped the upstream command because nothing would
+      // come of it, would make every writer unpipeable.
+      expect(result.lines).toEqual([]);
+      expect(result.exitCode).toBe(0);
+      expect(write).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe('output redirection (`>`)', () => {
     /** user-tier in /home/alice (alice-owned, writable); /etc is root-only
      *  write; /home/alice/docs is an existing directory. */
@@ -450,6 +489,7 @@ describe('runCommandLine', () => {
         write,
         remove: async () => ({ ok: true }),
         mkdir: async () => ({ ok: true }),
+        setDirectoryPermissions: async () => ({ ok: true }),
       };
       const env = mockCommandEnv({
         fs: mockFsViewFromTree(

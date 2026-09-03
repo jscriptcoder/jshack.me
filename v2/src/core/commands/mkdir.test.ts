@@ -37,6 +37,7 @@ const mkdirEnv = (
     write: async () => ({ ok: true }),
     remove: async () => ({ ok: true }),
     mkdir: mkdirFn,
+    setDirectoryPermissions: async () => ({ ok: true }),
   };
   const env = mockCommandEnv({
     fs: mockFsViewFromTree(options.tree ?? homeTree(), {

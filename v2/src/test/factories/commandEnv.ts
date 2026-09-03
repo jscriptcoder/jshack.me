@@ -79,6 +79,7 @@ export const mockPatchApi = (overrides: Partial<PatchApi> = {}): PatchApi => ({
   write: NOT_IMPLEMENTED('patches.write'),
   remove: NOT_IMPLEMENTED('patches.remove'),
   mkdir: NOT_IMPLEMENTED('patches.mkdir'),
+  setDirectoryPermissions: NOT_IMPLEMENTED('patches.setDirectoryPermissions'),
   ...overrides,
 });
 
