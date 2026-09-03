@@ -3307,7 +3307,8 @@ are now resolved. **A door is not proven by its wire-checks alone** — the wire
 green and could not see any of this, because the defects live in the one vantage no endpoint
 answers. One session's browsing produced four findings, three of them invisible to a green suite.
 
-**➡️ NEXT: D10 slice 4 — permissions change hands (`chmod`). Not yet planned.**
+**➡️ NEXT: D10 slice 4 — permissions change hands (`chmod`). Planned, fourteen ACs
+confirmed, branch cut — not yet built.**
 
 **D10 slice 1 SHIPPED at v0.201.0 (`dd1cc5cf`, PR #481)** — the terminal is the player's: `clear`
 empties the screen and takes the banner with it while leaving the history alone, Ctrl-L does the

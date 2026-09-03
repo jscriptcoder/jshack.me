@@ -3,8 +3,10 @@
 **Status**: Active — **three of five slices SHIPPED**. Slice 1: `dd1cc5cf` (PR #481) at
 **v0.201.0**. Slice 2: `dc1e294c` (PR #482) at **v0.202.0**. Slice 3: `ed71cee1` (PR #484) at
 **v0.203.0**, thirteen acceptance criteria and ~30 hand-applied mutants. Every close-out is written
-up below its section. Trunk is at v0.203.0 and level with origin. **The next action is to plan
-slice 4** (`chmod`) — the first of these that writes.
+up below its section. Trunk is at v0.203.0 and level with origin. **Slice 4 is planned, its
+fourteen acceptance criteria are confirmed, and its branch is cut** — `chmod`, the first of these
+that writes, plus the fix for one finding the planning pass turned up: a directory chmod is a
+silent no-op today, on every machine.
 **Epic**: [`legacy-parity-epic.md`](legacy-parity-epic.md) → "D10 — resolved scope & decisions
 (grill-me, 2026-09-02)", fifteen locked decisions.
 
@@ -12,14 +14,14 @@ slice 4** (`chmod`) — the first of these that writes.
 
 1. Read the epic's D10 section — the fifteen decisions, the four forced-rather-than-chosen entries,
    and the "Deliberately NOT built" list. **`bash` is refused, not deferred**; do not port it.
-2. **Slices 1 and 2 are shipped and merged.** Read slice 2's close-out before planning slice 3 —
-   it settles the `env.ui.*` question for good, records what the mutation gate found, and names the
-   one thing slice 3's RED order should start from.
-3. **The next action is to plan slice 4** (`chmod`) with `/plan`. Read slice 3's close-out first:
-   it records that `/bin/chmod` and its `libpcre` dependency are BOTH already declared, that
-   `walkTree` now exists and slice 4 must not reach for it (`chmod -R` is refused by decision 7),
-   and that this is the first slice here that writes. Its scope is locked in the epic; do not
-   re-grill the door.
+2. **Slices 1, 2 and 3 are shipped and merged**, each with a close-out below its own section.
+   Slice 2's settles the `env.ui.*` question for good; slice 3's is the one step 3 sends you
+   to, and it is the one that matters before writing anything here.
+3. **The next action is slice 4's RED 1** on `feat/d10-permissions-change-hands`. Its plan and
+   fourteen confirmed ACs are below, including the two findings that changed its scope and the
+   decision that `applyPatches` grows a directory-permissions branch so a directory chmod is not
+   dropped. `walkTree` exists now and slice 4 must NOT reach for it — `chmod -R` is refused by
+   decision 7. Its scope is locked in the epic; do not re-grill the door.
 4. Cut a fresh `feat/…` branch per slice off an up-to-date `main` — check `git status -sb` for
    ahead/behind, per conventions §8, which distinguishes ahead from level where
    `git pull --ff-only` does not.
@@ -54,7 +56,7 @@ want found — nine commands that legacy had and v2 has been missing since the r
 | 1 | the terminal is yours | `clear` + Ctrl-L, four themes that survive a reload, `whoami` | ✅ **shipped** — `dd1cc5cf` (PR #481), v0.201.0 |
 | 2 | the card and the second window | `author` opens the card; `xterm` opens a FRESH tab | ✅ **shipped** — `dc1e294c` (PR #482), v0.202.0 |
 | 3 | the box answers questions | `find / passwd` finds it; `strings /bin/ls` reads the stub | ✅ **shipped** — `ed71cee1` (PR #484), v0.203.0 |
-| 4 | permissions change hands | `chmod o+r` opens a file to a tier that could not read it | not planned |
+| 4 | permissions change hands | `chmod o+r` opens a file to a tier that could not read it | 📋 **planned** — 14 ACs confirmed, branch cut |
 | 5 | a file nobody else can read | `gpg -c` then `-d` round-trips; a wrong passphrase fails clean | not planned |
 
 Slices 1, 2 and 3 are built. Plan each remaining slice when its predecessor lands — D7, D8 and D9
@@ -1242,6 +1244,246 @@ should NOT reach for it — a recursive chmod is the thing the decision rules ou
 sitting there is an invitation. And slice 4 is the first of these that WRITES: conventions §7's rule
 that `env.fs` is a point-in-time snapshot, and that a gate re-reading it after `env.patches.*` reads
 stale state, is the one to read before starting.
+
+---
+
+## Slice 4: permissions change hands
+
+**Value**: Every permission in the game is decided at generation time and has never moved since.
+A file is root-only or it is not; the only way a player has ever changed what a box permits is to
+delete a file or overwrite it. `chmod` makes permissions something players hand back and forth — a
+defender opening their web root to the guest tier, a player making the script they just wrote
+executable, an intruder holding root on a stranger's box quietly stripping `x` off `/bin/ls` so the
+owner's own tools stop running.
+
+That last one is not a metaphor: `availability.ts` reads each binary's own `perms.execute` before
+dispatching, so a chmod against `/bin/*` on someone else's machine is a real and reversible way to
+break their shell. The epic named it three doors ago as the reason `chmod` is an independent
+capability rather than part of D4.
+
+And the advertising gap is the same one slice 3 closed: **`/bin/chmod` is stamped on every
+generated machine and `chmod: ['libpcre']` is already declared** in `libraryDeps.ts`. `ls /bin`
+promises it; running it denies it.
+
+**Path**: `chmod` → registry (binary-gated + library-gated, both already declared) → symbolic mode
+parsed → `env.fs.reload()` → `stat` the target → the owner's tier resolved through `/etc/passwd`
+for `u` → new `FilePermissions` computed → for a file, `env.patches.write` carrying the same
+content, explicit permissions, the node's existing owner and the re-read content as its base; for a
+directory, a directory-shaped patch carrying permissions and owner → server upsert → the machine's
+journal → every later materialisation of that box, for every reader of it.
+
+**Class**: Behavior change.
+
+**Delivery**: Independent PR against trunk, cut from `main` at v0.203.0. No stack: slice 5 (`gpg`)
+rewrites file CONTENT and shares nothing with the permission model.
+
+**Required implementation skills**: `tdd`, `testing`, `refactoring`. Load `mutation-testing` at PR
+readiness for the accumulated scope.
+
+**Reduction program**: `N/A`.
+**Transition/terminal evidence**: `N/A`.
+
+### Two findings from the planning pass, both of which change the work
+
+**1. A directory chmod is a silent no-op today.** Probed against the real `applyPatches` with a
+chmod-shaped patch over a tree that already holds the node:
+
+```
+DIR  perms after chmod-style patch: {"read":["root"],...}                  <- unchanged
+FILE perms after chmod-style patch: {"read":["root","user","guest"],...}   <- applied
+```
+
+`applyOne`'s directory branch opens `if (nodeAt(tree, segments) !== null) return tree;` — an
+existing directory swallows its own patch. So `chmod o+x /root` would send a row the server
+validates, the journal keeps, and **every reader ignores**. Epic decision 5 already reasoned about
+the directory case ("a directory carries no content, so a directory chmod is exact rather than a
+rewrite"), so the assumption was there; it was just never true.
+
+Two things have to change, and neither touches `api/`:
+
+- **`applyPatches`** — an existing directory plus a patch carrying `permissions` replaces its
+  `perms`, keeping `entries` and `owner`. This module is shared client + server
+  (`materializeMachineFs`, `remoteWritePermission`), so the server's cross-player authorization
+  replay honours a directory chmod too, which is what AC-14 wants.
+- **`PatchApi`** — `write` hardcodes `node_type: 'file'` and `mkdir` hardcodes default permissions
+  plus `is_new: true`, so no existing method can send "this directory now has these permissions".
+  A third narrow method does it. The server already accepts the payload: `upsertPatch`'s schema
+  takes `permissions` beside `node_type: 'directory'`, and has a test for exactly that row.
+
+**2. `patches.write` re-owns the file unless the caller says otherwise, and resets its permissions
+unless the caller passes them.** The adapter defaults are `owner: options?.owner ?? deps.owner` and
+`permissions: options?.permissions ?? defaultFilePermissions(deps.tier)`. Every existing caller
+wants that — a player's `nano` save is the player's file. For `chmod` it is a trap in both
+directions: root changing one bit on alice's file would silently transfer it to root, and a write
+that forgot `permissions` would reset the whole node to tier defaults while claiming to add one
+bit. AC-8 pins the owner half; the permissions half is the command's entire purpose, so it cannot
+be forgotten silently, but the RED step asserts on the write's shape rather than only its effect.
+
+### The decisions
+
+**1. `u` is the tier of the account that owns the node.** CONFIRMED. Resolved through
+`accountIn(fs, owner)` in `core/sessions/passwdAccount.ts` — the same `/etc/passwd` reader both ssh
+auth gates use, classifying rows with the same `userTypeFromPasswdFields` that `su` uses (uid 0 →
+root, the literal `guest` → guest, everyone else → user). It reads the tree directly rather than
+through the walker, so a guest-tier caller can still resolve `u` on a box whose `/etc/passwd` it
+could not `cat`. **An owner with no passwd row is an "other": `u` = guest.** That covers `mysql`,
+`redis` and the ssh run-user, which own files on generated boxes but are not accounts on them.
+`g` = user, `o` = guest, `a` and the empty who = all three.
+
+This is legacy's rule with v2's lookup. Legacy could resolve `u` per node because its `owner` field
+*was* a `UserType`; v2's is a username string, and `filesystem/types.ts` says outright that the
+walker never reads it. The letter `u` now gives that string one job — deciding which tier a mode
+letter names — and that job is **not** authorization, which decision 6 keeps in `canWrite`.
+
+**2. `-` never strips the root tier.** CONFIRMED, and it matters more in v2 than it did in legacy.
+`canRead`/`canWrite` return `ALLOWED` for root before they ever look at the arrays, so a cleared
+root bit would change no access at all — it would only make `ls -l` print a lie. Legacy's
+`current.filter((tier) => tier === 'root' || …)` carries straight over, and the manual says so.
+
+**3. The directory fix is in scope.** CONFIRMED — see finding 1.
+
+**4. Symbolic modes only. No octal.** `chmod 644 x` answers `chmod: invalid mode: '644'`. Legacy
+refused octal for the same reason v2 should: nine bits over three tiers would have to decide what
+`6` means for a tier that bypasses the walker, and the game's model is an allowlist, not a bitmask.
+
+**5. `-R` is refused at the prompt, not silently ignored** (epic decision 7). The error names the
+alternative — a loop in a `node` script, which D9 shipped for exactly this — and the manual
+documents the refusal rather than pretending the flag was never considered.
+
+**6. One mode, one path.** Real `chmod` takes many paths; every v2 synopsis simplifies the same way
+(`hydra`, `john`, `snmpwalk`, `redis-cli`), and the epic's grounding records that house style
+explicitly. `chmod o+r a b` reports usage rather than half-applying.
+
+**7. The error vocabulary is legacy's, which is also GNU's**, and the house `<command>: cannot
+<verb> '<arg>': <reason>` shape `rm` and `mkdir` already use. The argument is reported **as typed**,
+never as resolved — the rule slice 3 followed.
+
+**8. `chmod` composes against the machine, not against its own memory of it.** `env.fs.reload()`
+first (conventions §7 — `env.fs` is a point-in-time snapshot, and this is the first D10 slice that
+writes), and the file write carries the re-read content as `baseContent`, so a file a fellow
+occupant changed in the gap is refused as `modified_since_open` rather than reverted.
+
+### Acceptance criteria — CONFIRMED 2026-09-03, before any code
+
+- [ ] **AC-1** `chmod o+r <file>` on a file the session may write changes what `ls -l` prints AND
+      what the guest tier may actually read — proven through the walker, not only the display.
+- [ ] **AC-2** The change survives a reload: it is a journal row, not local state.
+- [ ] **AC-3** The mode grammar is `[ugoa]*[+-][rwx]+`. Octal, an empty permission set, an unknown
+      letter or a missing operator answer `chmod: invalid mode: '<mode>'`, exit 1, nothing written.
+- [ ] **AC-4** `u` names the tier of the account that owns the node — root row → root, the box's
+      user account → user, `guest` → guest, an owner with no passwd row → guest. `g` = user,
+      `o` = guest, `a` and the empty who = all three tiers.
+- [ ] **AC-5** `-` never strips root: `chmod a-rwx` leaves the root triplet intact, and `ls -l`
+      says so, because the walker would have ignored the removal anyway.
+- [ ] **AC-6** Whoever may write the node may chmod it — authorization is `env.fs.canWrite`. A
+      session that may not write is refused with
+      `chmod: changing permissions of '<arg>': Operation not permitted`, exit 1, nothing written.
+- [ ] **AC-7** A file the caller cannot READ is refused with
+      `chmod: cannot access '<arg>': Permission denied`, because the rewrite carries content it
+      cannot see. Never bites root; never bites a player on their own file.
+- [ ] **AC-8** The rewrite preserves the node's owner: root changing one bit on alice's file leaves
+      it owned by alice.
+- [ ] **AC-9** `chmod` reloads the machine before composing, and its write carries the re-read
+      content as the base — so a file changed underneath it is refused, not reverted.
+- [ ] **AC-10** A directory chmod applies, survives a reload, and leaves the directory's entries
+      and owner untouched.
+- [ ] **AC-11** `chmod -R <mode> <path>` is refused with an error naming the alternative, and the
+      manual documents the refusal.
+- [ ] **AC-12** No operands → `chmod: missing operand` plus usage, exit 1. A path that does not
+      exist → `chmod: cannot access '<arg>': No such file or directory`, exit 1, the argument
+      reported as typed.
+- [ ] **AC-13** Gated twice like its neighbours: no `/bin/chmod` → `command not found`; no
+      `/lib/libpcre.so` → `error while loading shared libraries`. `help` lists it under Filesystem,
+      `man chmod` renders its page, and it runs in a pipe and from a `node` script.
+- [ ] **AC-14** Cross-player: a session holding write access on another player's box can chmod
+      there — file or directory — and the box's owner sees the change on their next materialisation.
+
+### RED — twelve steps
+
+| # | Step | The claim |
+|---|---|---|
+| 1 | a file opens to a tier that could not read it | end to end on the happy path: `chmod o+r`, then a guest-tier read of the same node succeeds |
+| 2 | the who letters and the perm letters | `g`, `o`, `a`, the empty who, `a+rx`, and `-` as the inverse of `+` |
+| 3 | `u` is the owner's tier | four owners on one box: root, the box's user, `guest`, and `mysql` (no passwd row → guest) |
+| 4 | the grammar refuses what it does not understand | `644`, `a+q`, `a+`, `+`, `rwx`, `o=r` — each `invalid mode`, nothing written |
+| 5 | root is never stripped | `a-rwx` and `u-r` both leave every root bit set |
+| 6 | authorization is `canWrite` | a session that may not write is refused in the documented words, and `patches.write` is never called |
+| 7 | a file it cannot read is refused | the guest-tier caller on a root-only file — and root, who is never bitten |
+| 8 | the write's shape | owner preserved, permissions explicit, base content carried: three assertions on the spy, not on the tree |
+| 9 | it composes against the machine | a view whose `reload()` answers a DIFFERENT tree is the one chmod reads and rewrites |
+| 10 | a directory chmod applies and survives | the command sends the directory-shaped patch; `applyPatches` folds it over an existing directory; entries and owner survive |
+| 11 | `-R`, missing operands, missing path | the three refusals, each with the argument as typed |
+| 12 | registration, gates, `man`, `help`, pipe, script | the slice-3 battery, extended by one command |
+
+### GREEN — the minimum, in dependency order
+
+1. `core/commands/chmod.ts` — the whole command, including mode parsing and owner-tier resolution.
+   **No new shared module.** Mode parsing has one caller and owner-tier resolution has one caller;
+   both stay private until something else needs them. (Slice 3's `walkTree` earned extraction by
+   having a second caller and a permission boundary to protect. Neither is true here.)
+2. `core/filesystem/applyPatches.ts` — the directory branch learns to replace `perms` on an
+   existing directory when the patch carries them.
+3. `adapters/patchApi.ts` — one narrow method that sends a directory patch carrying permissions and
+   owner, without `is_new` (a base-FS directory keeps whatever the row already stores).
+4. `core/commands/registry.ts` + the manual, then the gate/help/man/pipe/script tests.
+
+### Deliberately not in slice 4
+
+Octal modes; `-R` (decision 7); multiple paths; `--reference`; a perms-only patch state for files
+(epic decision 5 weighed and refused it, and the reasoning is recorded there rather than here);
+making `owner` an authority over WHO may chmod (decision 6 chose `canWrite`); teaching `node` an
+execute check — `node.ts` explains why read permission is the whole gate, and that argument
+survives this slice intact.
+
+### REFACTOR — one candidate known before the code is written
+
+`node.ts`'s comment says *"`nano` stamps `execute: ['root']` on everything a user writes and the
+game has no `chmod`, so an execute check would stop every non-player running the script they just
+wrote."* The premise stops being true the moment this ships. The DECISION is still right — real
+`node` opens a script for reading — so the fix is the sentence, not the gate. Exactly the shape of
+slice 3's stale `grep` manual line, found the same way: by reading the file the slice touches.
+
+### PRE-PR MUTATION
+
+Run once at PR readiness over `core/commands/chmod.ts` plus the two changed shared modules, never
+with the dev server up. Expect the manual to dominate the survivor list (conventions §4) and expect
+`applyPatches`'s new branch to be cheap to kill. Hand-check every non-manual survivor before
+writing a test for it — slice 3's false survivor is why that rule is in §4.
+
+### Browser close-out
+
+Against `vercel dev` + local supabase, banner checked at v0.204.0 first.
+
+| Beat | Expect |
+|---|---|
+| `ls -l /etc/shadow` | root-only row |
+| `chmod o+r /etc/shadow`, then `ls -l` | the guest triplet gains `r` |
+| a guest-tier session `cat /etc/shadow` | reads it — the walker agrees with the display |
+| reload the tab, `ls -l` again | still open: the change is a journal row |
+| `chmod o-r`, then the guest read | denied again |
+| `chmod a-rwx /etc/shadow` | user and guest stripped, **root triplet intact** |
+| `chmod 644 /etc/shadow` | `invalid mode: '644'` |
+| `chmod -R o+r /etc` | refused, naming the `node` alternative |
+| `chmod u+w /var/run/mysqld.pid` | `u` resolves to guest — the no-passwd-row rule, visible |
+| **`chmod o+x /root`, then `ls -l /`** | **the directory row changes — finding 1, fixed** |
+| a guest-tier `cd /root` | now traverses |
+| reload, `ls -l /` | the directory change survived |
+| root chmods alice's file, `ls -l` | still owned by **alice** |
+| **`chmod o-x /bin/ls` on another player's box** | that tier gets `command not found` for `ls` |
+| a non-root session on a file it may not write | `Operation not permitted`, nothing changes |
+| `man chmod`, `help` | the page renders; the row sits under Filesystem |
+| `chmod('o+r', '/tmp/x')` from a `node` script | exit 0, and the change is there afterwards |
+
+### PR-ready when
+
+- [ ] All 14 ACs met, each by a test seen to fail or a mutant seen to kill.
+- [ ] `npm run typecheck`, `npm run lint`, full non-watch suite green, from `v2/`.
+- [ ] Mutation gate closed for the accumulated scope, survivors classified.
+- [ ] Wire-check: **`N/A` for `api/` shape** — no `api/` file changes and no payload the server did
+      not already accept. But `applyPatches` is shared, so the cross-player beat is proven in the
+      browser, two identities, including a directory.
+- [ ] Version bumped to **0.204.0** in `v2/package.json` and `v2/package-lock.json`.
+- [ ] Browser close-out run and written up.
 
 ---
 *Delete this file at D10 close-out and fold the durable rules into
