@@ -673,6 +673,13 @@ sat in the changed lines. Run scoped batteries as
 every mutant's file, line, mutator and status. Note it overwrites the previous report in place, so
 copy one you still need first.
 
+**Run `npm run encode` before `npx stryker run`, or lose ten minutes to a blank error.**
+The `test:mutation` script has a `pretest:mutation` hook that runs it; invoking Stryker directly to
+pass `--mutate` skips the hook, and the run then dies with `Error: Something went wrong in the
+initial test run` and NOTHING else — no failing spec, no missing-file message. The cause is
+`src/core/secrets/__encoded.ts`, which is generated and gitignored. Either use the npm script or run
+`npm run encode` first.
+
 **A surviving mutant is a hypothesis, not a hole — hand-check it before writing a test.**
 `coverageAnalysis: "perTest"` decides which specs to run per mutant from an instrumented dry run,
 and it can get that wrong: D10 slice 3 reported `find.ts`'s usage guard
@@ -682,6 +689,11 @@ same edit by hand killed the suite outright with
 would have meant writing a second test for a gap that did not exist, and — worse — concluding the
 existing one was weak when it was not. The check costs one scripted run. Do it for every survivor
 outside the manual-prose family before treating it as work.
+
+**Twice now, in consecutive slices.** D10 slice 4 reported `applyPatches`'s new directory guard
+(`patch.permissions === undefined || existingDir.kind !== 'directory'` → `false`) as SURVIVED; by
+hand it kills the suite outright. Two occurrences in two slices is a rate, not an anomaly — treat a
+non-manual survivor as unproven until a hand run agrees with the report.
 
 **A hand-mutation harness owns the files it snapshots — don't edit them while it runs.** The
 house pattern (a Python script that applies one mutant, runs the spec, restores) reads every target
@@ -1738,6 +1750,27 @@ state costs you more than one wrong attempt.
   `SYSTEM_UTILITY_NAMES` (`/bin`), and note it **also links `libpcre`** in the legacy-inherited
   `libraryDeps` map, so it sits behind the linker gate as well as the binary one. Both are
   world-executable and gate on root at RUNTIME where a rule exists at all.
+- **A cross-player read is a PROJECTION of what the viewing session may see, not the box.**
+  `resolveCrossPlayerFs` returns a tree filtered by the viewer's tier: `/root` is simply absent for a
+  guest, and taking guest read off a directory removes that directory from that viewer's tree
+  entirely. So "absent from a cross-player tree" means "invisible to this tier", NEVER "not on the
+  machine" — and a wire-check asserting absence has to say which tier is looking. D10 slice 4 lost an
+  hour to a check that read `tmp=absent` and looked exactly like a dropped patch; the patch had
+  worked, and B had locked itself out with its own `chmod`. The disappearance is now the assertion,
+  with a restore step proving the contents were there all along.
+- **`patches.write` stamps the SESSION as owner unless the caller names one, and resets permissions
+  to the tier defaults unless the caller passes them.** Right for every writer that means "this is
+  mine" — `nano`, `touch`, a `>` redirect — and a trap for any writer that edits somebody else's
+  file: root moving one bit on a user's file would silently transfer it, and a rewrite that omitted
+  `permissions` would reset the node while claiming to change one thing. Any new writer over an
+  EXISTING node must pass `owner: node.owner` and explicit `permissions`, and name `baseContent` so a
+  fellow occupant's edit is refused rather than reverted.
+- **Adding a method to `PatchApi` is a dozen-file change, and one of them is production.** The type
+  is implemented by ad-hoc object literals in ~11 test files (each a type error until it gains the
+  method) plus `mockPatchApi` in the factory — but the one that matters is `ui/state.ts`, where every
+  method is wrapped in `afterWrite`. Miss that wrapper and the write persists while the local
+  journal, the served root and the other tabs never hear about it, so the change appears only after
+  a reload.
 - **A command whose name predates its implementation inherits gates it never declared — check
   BOTH lists before writing its tests.** `find`, `strings` and `chmod` were stamped into
   `SYSTEM_UTILITY_NAMES` and listed in `COMMAND_LIBRARY_DEPS` long before any of them existed,
@@ -1747,6 +1780,10 @@ state costs you more than one wrong attempt.
   `/lib` missing from the test tree. Two consequences worth knowing up front: a test tree for one of
   these needs `/bin/<name>` AND `/lib/<dep>.so`, and `rm /lib/libpcre.so` is a live way to break
   `ls`, `cat`, `grep`, `find`, `strings`, `chmod` and `ps` in one stroke.
+  **But the reservation is not universal — check, do not pattern-match.** `node` and `gpg` are
+  deliberately absent from `SYSTEM_UTILITY_NAMES` (`binaries.ts` says so in a comment) and live in
+  the apt catalog instead, so they install rather than ship. Three slices in a row finding their
+  binaries pre-stamped made that look like a rule; it is not.
 - **`env.fs` is a POINT-IN-TIME SNAPSHOT. A command that patches and then re-reads sees the
   world as it was before its own write.** `buildCommandEnv` calls `createFsView(args.root, …)`
   once, with `root: activeRoot()` evaluated at build time — the comment on `commandChain` in

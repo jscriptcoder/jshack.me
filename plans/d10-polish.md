@@ -1,12 +1,12 @@
 # Plan: D10 — polish + the long tail
 
-**Status**: Active — **three of five slices SHIPPED**. Slice 1: `dd1cc5cf` (PR #481) at
+**Status**: Active — **four of five slices SHIPPED**. Slice 1: `dd1cc5cf` (PR #481) at
 **v0.201.0**. Slice 2: `dc1e294c` (PR #482) at **v0.202.0**. Slice 3: `ed71cee1` (PR #484) at
-**v0.203.0**, thirteen acceptance criteria and ~30 hand-applied mutants. Every close-out is written
-up below its section. Trunk is at v0.203.0 and level with origin. **Slice 4 is planned, its
-fourteen acceptance criteria are confirmed, and its branch is cut** — `chmod`, the first of these
-that writes, plus the fix for one finding the planning pass turned up: a directory chmod is a
-silent no-op today, on every machine.
+**v0.203.0**. Slice 4: `190e7e05` (PR #485) at **v0.204.0**, fourteen acceptance criteria, eleven
+hand-applied mutants and a wire-check that fails against the pre-slice materializer. Every close-out
+is written up below its section. Trunk is at v0.204.0 and level with origin. **The next action is to
+plan slice 5** (`gpg`) — the last of the nine, and the only one gated behind `apt install` rather
+than a stamped binary.
 **Epic**: [`legacy-parity-epic.md`](legacy-parity-epic.md) → "D10 — resolved scope & decisions
 (grill-me, 2026-09-02)", fifteen locked decisions.
 
@@ -17,11 +17,12 @@ silent no-op today, on every machine.
 2. **Slices 1, 2 and 3 are shipped and merged**, each with a close-out below its own section.
    Slice 2's settles the `env.ui.*` question for good; slice 3's is the one step 3 sends you
    to, and it is the one that matters before writing anything here.
-3. **The next action is slice 4's RED 1** on `feat/d10-permissions-change-hands`. Its plan and
-   fourteen confirmed ACs are below, including the two findings that changed its scope and the
-   decision that `applyPatches` grows a directory-permissions branch so a directory chmod is not
-   dropped. `walkTree` exists now and slice 4 must NOT reach for it — `chmod -R` is refused by
-   decision 7. Its scope is locked in the epic; do not re-grill the door.
+3. **The next action is to plan slice 5** (`gpg`) with `/plan`. Read slice 4's close-out first:
+   it records that `gpg` is the one command in this door NOT stamped into `/bin` — it is an apt
+   package like `node`, so the browser proof needs WiFi, a connection and root before the command
+   can be typed — and that everything slice 4 learned about writing (the `reload()` rule, the
+   owner-defaulting trap, `baseContent`) applies again. Its scope is locked in the epic; do not
+   re-grill the door.
 4. Cut a fresh `feat/…` branch per slice off an up-to-date `main` — check `git status -sb` for
    ahead/behind, per conventions §8, which distinguishes ahead from level where
    `git pull --ff-only` does not.
@@ -56,14 +57,16 @@ want found — nine commands that legacy had and v2 has been missing since the r
 | 1 | the terminal is yours | `clear` + Ctrl-L, four themes that survive a reload, `whoami` | ✅ **shipped** — `dd1cc5cf` (PR #481), v0.201.0 |
 | 2 | the card and the second window | `author` opens the card; `xterm` opens a FRESH tab | ✅ **shipped** — `dc1e294c` (PR #482), v0.202.0 |
 | 3 | the box answers questions | `find / passwd` finds it; `strings /bin/ls` reads the stub | ✅ **shipped** — `ed71cee1` (PR #484), v0.203.0 |
-| 4 | permissions change hands | `chmod o+r` opens a file to a tier that could not read it | 📋 **planned** — 14 ACs confirmed, branch cut |
+| 4 | permissions change hands | `chmod o+r` opens a file to a tier that could not read it | ✅ **shipped** — `190e7e05` (PR #485), v0.204.0 |
 | 5 | a file nobody else can read | `gpg -c` then `-d` round-trips; a wrong passphrase fails clean | not planned |
 
-Slices 1, 2 and 3 are built. Plan each remaining slice when its predecessor lands — D7, D8 and D9
-all found later slices cost far less than their plans assumed, because the seams they needed had
-already generalized, and D10 has now said the same three times: `clear`/`whoami` were stampable
-with one list entry, `author` needed no capability at all, and `find`/`strings` arrived to find
-both their binaries and their library dependencies already declared.
+Slices 1 to 4 are built. Plan each remaining slice when its predecessor lands — D7, D8 and D9 all
+found later slices cost far less than their plans assumed, because the seams they needed had already
+generalized, and D10 said the same three times running: `clear`/`whoami` were stampable with one
+list entry, `author` needed no capability at all, and `find`/`strings`/`chmod` each arrived to find
+both their binaries and their library dependencies already declared. **Slice 4 is where that stopped
+being free** — the seam it needed (a directory's permissions surviving replay) existed in name only,
+and slice 5's binary is not stamped at all. Check, do not assume.
 
 **No `api/` change in any slice, so the wire-check is `N/A` throughout** (epic §"Forced rather than
 chosen"). Every close-out proof is a browser run — the vantage conventions §7 warns a green
@@ -1365,37 +1368,37 @@ occupant changed in the gap is refused as `modified_since_open` rather than reve
 
 ### Acceptance criteria — CONFIRMED 2026-09-03, before any code
 
-- [ ] **AC-1** `chmod o+r <file>` on a file the session may write changes what `ls -l` prints AND
+- [x] **AC-1** `chmod o+r <file>` on a file the session may write changes what `ls -l` prints AND
       what the guest tier may actually read — proven through the walker, not only the display.
-- [ ] **AC-2** The change survives a reload: it is a journal row, not local state.
-- [ ] **AC-3** The mode grammar is `[ugoa]*[+-][rwx]+`. Octal, an empty permission set, an unknown
+- [x] **AC-2** The change survives a reload: it is a journal row, not local state.
+- [x] **AC-3** The mode grammar is `[ugoa]*[+-][rwx]+`. Octal, an empty permission set, an unknown
       letter or a missing operator answer `chmod: invalid mode: '<mode>'`, exit 1, nothing written.
-- [ ] **AC-4** `u` names the tier of the account that owns the node — root row → root, the box's
+- [x] **AC-4** `u` names the tier of the account that owns the node — root row → root, the box's
       user account → user, `guest` → guest, an owner with no passwd row → guest. `g` = user,
       `o` = guest, `a` and the empty who = all three tiers.
-- [ ] **AC-5** `-` never strips root: `chmod a-rwx` leaves the root triplet intact, and `ls -l`
+- [x] **AC-5** `-` never strips root: `chmod a-rwx` leaves the root triplet intact, and `ls -l`
       says so, because the walker would have ignored the removal anyway.
-- [ ] **AC-6** Whoever may write the node may chmod it — authorization is `env.fs.canWrite`. A
+- [x] **AC-6** Whoever may write the node may chmod it — authorization is `env.fs.canWrite`. A
       session that may not write is refused with
       `chmod: changing permissions of '<arg>': Operation not permitted`, exit 1, nothing written.
-- [ ] **AC-7** A file the caller cannot READ is refused with
+- [x] **AC-7** A file the caller cannot READ is refused with
       `chmod: cannot access '<arg>': Permission denied`, because the rewrite carries content it
       cannot see. Never bites root; never bites a player on their own file.
-- [ ] **AC-8** The rewrite preserves the node's owner: root changing one bit on alice's file leaves
+- [x] **AC-8** The rewrite preserves the node's owner: root changing one bit on alice's file leaves
       it owned by alice.
-- [ ] **AC-9** `chmod` reloads the machine before composing, and its write carries the re-read
+- [x] **AC-9** `chmod` reloads the machine before composing, and its write carries the re-read
       content as the base — so a file changed underneath it is refused, not reverted.
-- [ ] **AC-10** A directory chmod applies, survives a reload, and leaves the directory's entries
+- [x] **AC-10** A directory chmod applies, survives a reload, and leaves the directory's entries
       and owner untouched.
-- [ ] **AC-11** `chmod -R <mode> <path>` is refused with an error naming the alternative, and the
+- [x] **AC-11** `chmod -R <mode> <path>` is refused with an error naming the alternative, and the
       manual documents the refusal.
-- [ ] **AC-12** No operands → `chmod: missing operand` plus usage, exit 1. A path that does not
+- [x] **AC-12** No operands → `chmod: missing operand` plus usage, exit 1. A path that does not
       exist → `chmod: cannot access '<arg>': No such file or directory`, exit 1, the argument
       reported as typed.
-- [ ] **AC-13** Gated twice like its neighbours: no `/bin/chmod` → `command not found`; no
+- [x] **AC-13** Gated twice like its neighbours: no `/bin/chmod` → `command not found`; no
       `/lib/libpcre.so` → `error while loading shared libraries`. `help` lists it under Filesystem,
       `man chmod` renders its page, and it runs in a pipe and from a `node` script.
-- [ ] **AC-14** Cross-player: a session holding write access on another player's box can chmod
+- [x] **AC-14** Cross-player: a session holding write access on another player's box can chmod
       there — file or directory — and the box's owner sees the change on their next materialisation.
 
 ### RED — twelve steps
@@ -1484,6 +1487,229 @@ Against `vercel dev` + local supabase, banner checked at v0.204.0 first.
       browser, two identities, including a directory.
 - [ ] Version bumped to **0.204.0** in `v2/package.json` and `v2/package-lock.json`.
 - [ ] Browser close-out run and written up.
+
+---
+
+## Slice 4 close-out — SHIPPED `190e7e05` (PR #485), v0.204.0
+
+### What actually went RED, and what did not
+
+Ten of the twelve steps failed first — the highest proportion of any slice in this door, because
+almost every claim here is a rule about who may do what rather than a shape the parser already had.
+The two that arrived green were proven the documented way, with the mutant each exists to catch
+applied alone and reverted in a `finally`.
+
+| Step | First run | How the claim was pinned |
+|---|---|---|
+| 1 — a file opens to a tier that could not read it | red (`Failed to resolve import "./chmod"`) | — |
+| 2 — the who and permission letters | green | `g` remapped to guest, `a` cut to root alone, the empty who emptied, every op read as `+`, only the first permission letter applied, removal made a no-op → 6 dead |
+| 3 — `u` is the owner's tier | **red ×5** | — |
+| 4 — the grammar refuses what it cannot parse | green | permission letters made optional, the pattern unanchored, an unparseable mode falling through as `a+`, the refusal exiting 0, the refusal not naming the mode → 5 dead |
+| 5 — root survives every removal | **red ×3** | — |
+| 6 — authorization is `canWrite` | **red ×3** | — |
+| 7 — a file it cannot read is refused | **red** | — |
+| 8 — what the write carries | **red ×2** (owner, base content) | — |
+| 9 — it composes against the machine | **red ×3** | — |
+| 10 — a directory | **red ×9, across three suites** | — |
+| 11 — `-R`, missing operands, missing path | **red ×5** | — |
+| 12 — registration, gates, `man`, `help`, pipe, script | **red** on the manual | the gates and `help` came green the moment the registry entry landed, which is what registration means |
+
+The PR description split these 7/5; the accurate count is 10/2, taken from the run logs.
+
+**The sharpest RED was step 10**, because it failed in three places at once for one reason: the
+command had nowhere to send a directory's permissions, the patch layer could not express the row,
+and the materializer would have ignored it if it had.
+
+### The two findings, and what they cost
+
+**1. A directory chmod was a silent no-op.** Found by probing the real `applyPatches` with a
+chmod-shaped patch before writing any code:
+
+```
+DIR  perms after chmod-style patch: {"read":["root"],...}                  <- unchanged
+FILE perms after chmod-style patch: {"read":["root","user","guest"],...}   <- applied
+```
+
+`applyOne`'s directory branch opened `if (nodeAt(tree, segments) !== null) return tree;`, so a row
+for a directory that already existed was stored by the server, kept by the journal, and ignored by
+every reader. Epic decision 5 had already reasoned about the directory case and assumed it worked.
+
+The fix was **two** changes, not the one the plan first estimated. `PatchApi` could not express the
+row either: `write` stamps `node_type: 'file'` and `mkdir` stamps the tier defaults plus
+`is_new: true`, and a chmod is neither. So a third narrow method sends `content: null` +
+`node_type: 'directory'` + permissions + the existing owner, and no `is_new` — claiming a base-FS
+directory is new would rewrite whether a later removal deletes its row or leaves a tombstone.
+
+**2. `patches.write` re-owns a file unless the caller names the owner.** The adapter defaults are
+`owner: options?.owner ?? deps.owner` and `permissions: options?.permissions ?? defaultFilePermissions(deps.tier)`.
+Both are right for every caller that existed — a `nano` save is the saver's file — and both are
+traps for this one. Root moving a single bit on alice's file would have transferred it to root, and
+a write that forgot `permissions` would have reset the node to tier defaults while claiming to add
+one bit. AC-8 pins the first; the second is the command's whole purpose, but the RED step asserts on
+the write's SHAPE rather than only its effect, so an omission fails as itself.
+
+### The decisions the grill settled, and how they held
+
+- **`u` is the tier of the account that owns the node.** The alternative — `u` = the root tier,
+  lining up with `ls -l`'s first triplet — was cheaper and was refused: the owner is what a player
+  reading `-rwxrw---- alice` actually sees. It resolves through `accountIn`, the same `/etc/passwd`
+  reader both ssh auth gates use, which reads the tree directly rather than through the walker, so a
+  guest-tier caller can still resolve `u` on a box whose `/etc/passwd` it could not `cat`. An owner
+  with no account row is an other. Proven live: root ran `chmod u+x` on alice's file and the SECOND
+  triplet moved.
+- **A removal never strips root.** Legacy's rule, and it matters more here than it did there,
+  because `canRead`/`canWrite` answer ALLOWED for root before reading a single array. Live,
+  `chmod a-rwx /etc/passwd` left `-rwx------` and root went on `cat`-ing the file.
+- **The directory fix is in scope.** See above.
+- Symbolic modes only; `-R` refused in words that name the `node`-script alternative; one mode and
+  one path; legacy's error vocabulary, which is also GNU's, with the argument reported as typed.
+
+### What the mutation gate found
+
+| File | Score | Survivors |
+|---|---|---|
+| `core/commands/chmod.ts` | 80.4% | 33 — 29 manual/metadata, 2 real, 2 equivalent |
+| `core/filesystem/applyPatches.ts` | 90.3% | 11 — 10 pre-existing, 1 FALSE |
+| `adapters/patchApi.ts` | 93.6% | 7 — all pre-existing; every mutant of the new method died |
+
+Scores are from the gate run before the two gap tests below; both gaps were then closed and the
+mutants re-applied by hand to confirm they die.
+
+**Two real gaps, both in code the tests had walked past:**
+
+- `[...current, ...targets.filter((tier) => !current.includes(tier))]` → `[...current, ...targets]`.
+  Granting a tier that already holds the permission would append it again. Nothing observable
+  changes — `includes` does not care — but the array is persisted and travels, so
+  `['root','user','guest']` becomes `['root','user','guest','root','user','guest']` and grows by
+  three every time anyone runs the command. Killed now by a test that runs `a+r` against a file
+  every tier can already read.
+- The DIRECTORY branch's `return { kind: 'sync', lines: [], exitCode: 0 }`. The file path was held
+  to being silent by its own test; the directory path is a separate return, and nothing held it to
+  anything. A mutant printing "mode changed" survived.
+
+**And a second FALSE survivor, one slice after the first.** `applyPatches`'s new
+`patch.permissions === undefined || existingDir.kind !== 'directory'` was reported as surviving;
+applied by hand it kills the suite immediately. That is twice in two slices that `coverageAnalysis:
+"perTest"` has under-reported — the rule in conventions §4 now has a second citation rather than a
+single anecdote.
+
+Classified and left: the manual (§4 — a command's mutation score is mostly its manual); the two
+equivalents, both narrowing artifacts the pattern has already guaranteed (`op` can only be `+` or
+`-`, and every `[rwx]` is a key in `PERM_KEYS`), now saying so in a comment; and ten pre-existing
+survivors in `applyPatches`'s node helpers that this slice neither introduced nor touched.
+
+### REFACTOR
+
+**One comment fixed, exactly as the plan predicted.** `node.ts` argued that read permission is the
+whole gate partly because *"the game has no `chmod`"*. The decision survives — real node opens a
+script for reading — so the fix was the premise, not the gate: an execute check would now be a chore
+this command invented. Its matching test comment said the same thing and got the same fix.
+
+**Two comments had drifted from the code they described**, both inside `chmod.ts`, because the
+directory branch landed between them and the lines they explained. Found by reading the finished
+file rather than the diff, which is the only way that kind of rot shows up.
+
+**No new shared module.** Mode parsing and owner-tier resolution have one caller each and stayed
+private. Slice 3's `walkTree` earned extraction by having a second caller AND a permission boundary
+worth protecting from drift; neither is true here, and a `modes.ts` would have been structure with
+no test that could fail.
+
+### Browser close-out — nineteen beats
+
+Against `vercel dev` + local supabase, banner checked at **v0.204.0** before driving anything.
+
+| Beat | Result |
+|---|---|
+| `ls -l /etc` | `-rwxr----- root 185 passwd` |
+| `chmod o+r /etc/passwd` as alice | `Operation not permitted` |
+| `chmod 644 /etc/passwd` | `invalid mode: '644'` |
+| `chmod -R o+r /etc` | refused, naming the node-script alternative |
+| `su root`, then `chmod o+r /etc/passwd` | silent |
+| `ls -l /etc/passwd` | `-rwxr-----` → **`-rwxr--r--`** |
+| `chmod a-rwx /etc/passwd` | **`-rwx------`** — user and guest stripped, root intact |
+| `cat /etc/passwd` as root | still reads it: the row and the walker agree |
+| `chmod g+r` | back to `-rwxr-----` |
+| **`chmod go+rx /root`** | **`drwx------` → `drwxr-xr-x`** — the finding, fixed |
+| `exit`, then `ls -l /root` as alice | lists `notes.private`, planted behind the door as root |
+| `cat /root/notes.private` as alice | `Permission denied` — the room opened, not the safe |
+| reload, `ls -l /` and `ls -l /etc/passwd` | both survive: `drwxr-xr-x`, `-rwxr-----` |
+| **`chmod go-x /bin/ls`, then `ls` as alice** | **`bash: ls: Permission denied`** |
+| `chmod go+x /bin/ls` | alice's `ls` works again |
+| `chmod u+w /home/alice/notes.txt` (absent) | `cannot access '…': No such file or directory` |
+| **root's `chmod u+x` on alice's file** | **`-rwxrw----` → `-rwxrwx---`**, owner still `alice` |
+| `man chmod`, `help` | the page renders; the row sits under Filesystem |
+| `chmod` with no operands | `missing operand` + usage |
+
+**The `/bin/ls` beat is the one the epic promised three doors ago** — `availability.ts` reads each
+binary's own execute bit, so root stripping it leaves the box's own user unable to run their tools.
+It is reversible, which is what keeps it a move rather than a brick.
+
+### The wire-check, and the thing it taught
+
+`testCrossPlayerWrite.ts` gains the cross-player directory case: B (a guest session on A's box)
+changes `/tmp`'s permissions through the real `/api/patches`, and the server's own materialization
+answers accordingly. **15/15.**
+
+It is a real discriminator, not decoration: reverting `applyPatches` to its pre-slice behaviour by
+hand makes that check fail with `tmp=visible`, then passes again on revert.
+
+**And it cost an hour by being right when I thought it was wrong.** The first version asserted that
+B's view showed `/tmp` with its new permissions; it came back `absent`, which reads exactly like a
+dropped patch. `/root` was missing from that tree too — and that is the tell. **A cross-player read
+is a projection of what the VIEWING session may see, not the box.** B had just taken guest read off
+`/tmp`, so B's own view lost the directory: it locked itself out with its own chmod. The check now
+asserts that disappearance, then restores the bit and finds the directory back with its contents
+intact — a better pair of claims than the one I set out to write. In conventions §7 now.
+
+### Recorded rather than papered over
+
+**`chmod` refuses a file it cannot read, and no generated box can demonstrate it.** The refusal
+needs a file that is writable but not readable at the caller's tier, and nothing in generation
+produces one — everywhere else, a caller who cannot read also cannot write, and authorization
+answers first. It is unit-tested and it stayed out of the browser table rather than being faked with
+a hand-built fixture.
+
+**`chmod -R` is refused, and `-r` with it.** Real chmod treats them as the same flag; so does this,
+so a player who types the lowercase one gets the explanation rather than `unrecognized option`.
+
+**The completion list changed.** `c` now completes to `cat, cd, chmod, clear, curl`, and a UI test
+asserted the old set. Updated, and worth knowing that registering any command edits that expectation.
+
+### PR-ready checklist
+
+- [x] All 14 ACs met; ten by tests seen to fail, four by mutants seen to kill.
+- [x] `npm run typecheck`, `npm run lint`, full non-watch suite: **4308 passed**, from `v2/`.
+- [x] Mutation gate closed; two real gaps fixed, two equivalents documented, one false survivor
+      identified, the rest classified above.
+- [x] Wire-check **15/15**, extended with the cross-player directory case and shown to fail against
+      the pre-slice materializer.
+- [x] Browser close-out run and written up, including the two-tier `/root` and `/bin/ls` beats.
+- [x] Version bumped in both files to **0.204.0**.
+- [x] Squash-merged as `190e7e05` (PR #485); branch deleted, trunk level with origin.
+
+### For slice 5
+
+`gpg -c` / `-d` — the last of the nine, and the only one that leaves an intruder holding root with
+nothing readable. Three things carry forward.
+
+**It writes, so everything slice 4 learned about writing applies**: `env.fs` is a snapshot and a
+composer must `reload()` first; `patches.write` re-owns unless told otherwise, which matters
+doubly for a command that writes a NEW file beside an existing one; and `baseContent` is what keeps
+a whole-file write from reverting somebody else's edit.
+
+**The pattern that held for three slices BREAKS here, and checking beat assuming.** `find`,
+`strings` and `chmod` were each stamped into `SYSTEM_UTILITY_NAMES` and declared in
+`COMMAND_LIBRARY_DEPS` before they existed. `gpg` is neither. `binaries.ts` excludes it on purpose —
+*"a fresh box ships neither a JS runtime nor GPG, so they stay apt-installable"* — and its only
+declaration anywhere is `{ name: 'gpg' }` in `aptPackages.ts`. So slice 5 is gated like `node`, not
+like its three predecessors: **`apt install gpg` first**, which in the browser means WiFi, a
+connection and root before the command can be typed at all. Budget the close-out accordingly, and
+expect the availability tests to look like `node`'s rather than `chmod`'s.
+
+**Its masked prompt already ships** (`env.prompt({ masked: true })`, used by `mysql`, `ftp` and
+`scp`), and decision 4 fixes the codec as legacy's, keyed by md5 — which keeps a future
+`john`-cracks-a-`.gpg` arc reachable instead of shipping the one secret in the game that cannot be
+cracked.
 
 ---
 *Delete this file at D10 close-out and fold the durable rules into
