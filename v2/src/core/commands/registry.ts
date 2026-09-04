@@ -20,6 +20,7 @@ import { author } from './author';
 import { cat } from './cat';
 import { cd } from './cd';
 import { chmod } from './chmod';
+import { gpg } from './gpg';
 import { clear } from './clear';
 import { curl } from './curl';
 import { apache2, mysqld, nginx, redisServer, sshd, vsftpd } from './daemon';
@@ -77,6 +78,7 @@ const builtins: readonly Command[] = [
   cat,
   cd,
   chmod,
+  gpg,
   clear,
   curl,
   echo,

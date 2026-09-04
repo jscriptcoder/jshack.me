@@ -21,7 +21,7 @@
 
 import type { Command, CommandEnv, TerminalLine } from '../commands/types';
 import type { FlagSpec } from '../shell/bindFlags';
-import { collectStageOutput, hasTty } from '../shell/runLine';
+import { collectStageOutput, hasTty, refuseWithoutTty } from '../shell/runLine';
 
 /** The JS identifier a command is reachable by inside a script.
  *
@@ -189,8 +189,11 @@ export const buildCommandContext = (
         // sub-shell — but it prompts for a password, and a shell reached
         // through a planted listener has nobody to ask. Without this, a script
         // is the one way to reach a masked prompt over a pty-less session.
-        if (!hasTty(env.session) && command.withoutTty !== undefined) {
-          throw shellError(command.withoutTty);
+        const noTerminal = hasTty(env.session)
+          ? undefined
+          : refuseWithoutTty(command, positional, flags);
+        if (noTerminal !== undefined) {
+          throw shellError(noTerminal);
         }
 
         // Claimed only once every refusal has passed, so a command that never
