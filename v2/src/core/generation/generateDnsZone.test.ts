@@ -115,6 +115,32 @@ describe('the zone file a name server publishes', () => {
     const addressColumns = lines.map((line) => line.indexOf('192.168'));
     expect(new Set(addressColumns).size).toBe(1);
   });
+
+  it('renders the whole file, line for line, as a resolver would be handed it', () => {
+    // The golden vector. Every other test in this block asks the file ONE question and
+    // stays green while the rest of it drifts — a header emptying, the SOA block losing
+    // its alignment, the record column collapsing. Nothing here is generated from the
+    // formatter: it is written out as BIND syntax and the formatter has to match it.
+    expect(zoneOf()).toEqual([
+      '; Zone file for acme-corp.lan',
+      '$ORIGIN acme-corp.lan.',
+      '$TTL 3600',
+      '',
+      '@  IN SOA ns-20.acme-corp.lan. hostmaster.acme-corp.lan. (',
+      '     2024030101 ; serial',
+      '     3600       ; refresh',
+      '     1800       ; retry',
+      '     604800     ; expire',
+      '     86400      ; minimum',
+      ')',
+      '@  IN NS  ns-20.acme-corp.lan.',
+      '',
+      '; A records',
+      'ns-20           3600  IN  A  192.168.42.20',
+      'web-4           3600  IN  A  192.168.42.4',
+      'switch-core     3600  IN  A  192.168.42.48',
+    ]);
+  });
 });
 
 /** The sample every generation-time distribution in this repository is measured
@@ -223,6 +249,23 @@ describe('which of a network the zone speaks for', () => {
 
       for (const { name, ip } of homeLanRecordsOn(essid)) expect(ip).toBe(addresses.get(name));
     }
+  });
+
+  it('lists the name server itself, on the two networks that keep one on this segment', () => {
+    // The role that makes the whole door work was the one role never checked here: only
+    // two of the fifty crackable networks put their name server on Layer 1, and neither
+    // is in the sample above. A zone whose NS line names a host it carries no address
+    // for is a broken zone — the player reads the file ON the box and cannot find the
+    // box. Everywhere else the server is deep, where nothing is filtered by role at all,
+    // which is exactly why the gap could sit here unnoticed.
+    expect(homeLanRecordsOn('OSCORP-GUEST')).toContainEqual({
+      name: 'bind-224',
+      ip: '192.168.118.224',
+    });
+    expect(homeLanRecordsOn('DEFCON-VILLAGE')).toContainEqual({
+      name: 'resolver-69',
+      ip: '192.168.97.69',
+    });
   });
 });
 
@@ -413,6 +456,28 @@ describe('the config a name server publishes about itself', () => {
     // this file to find.
     expect(confFor(true)).toContain('  allow-transfer { any; };');
     expect(confFor(false)).toContain('  allow-transfer { none; };');
+  });
+
+  it('renders the whole config, line for line, as bind9 would be handed it', () => {
+    // The other golden vector, and the same argument: the questions above are about
+    // single lines, and a config can be wrong in the space between them. Written as
+    // named.conf syntax first — `options` then one `zone` block, every statement
+    // semicolon-terminated — with the formatter required to match.
+    expect(confFor(true)).toEqual([
+      '// named.conf — ns-20',
+      'options {',
+      '  directory "/var/cache/bind";',
+      '  listen-on port 53 { any; };',
+      '  recursion no;',
+      '  allow-query { any; };',
+      '};',
+      '',
+      'zone "acme-corp.lan" {',
+      '  type master;',
+      '  file "/etc/bind/zones/db.acme-corp.lan";',
+      '  allow-transfer { any; };',
+      '};',
+    ]);
   });
 
   it('leaves the transfer open on roughly three name servers in four', () => {

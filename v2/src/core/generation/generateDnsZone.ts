@@ -196,11 +196,6 @@ export const formatDnsZone = ({
  *  reads as a real one to anybody who has seen a Debian box. */
 const ZONE_DIR = '/etc/bind/zones';
 
-/** The config file itself, under `/etc/bind` rather than loose in `/etc` — which is
- *  where a Debian bind9 really puts it, and what keeps the zone file beside it instead
- *  of two unrelated paths a player has to learn separately. */
-export const NAMED_CONF_PATH: AbsPath = asAbsPath('/etc/bind/named.conf');
-
 /** What the file holding `zone`'s records is CALLED. Split from the path below because
  *  the tree that places the file names it directly, while the config names the whole
  *  path — one spelling, so the two cannot drift apart. */

@@ -260,6 +260,10 @@ describe('a door on a generated box can be shut, and opened again', () => {
     const serving = namedBoxServing('ns', SERVICE_CATALOG.dns.service);
 
     const before = await on(serving, systemctl, ['status', 'named']);
+    // The whole header, not just the state: the unit answers to `named` and calls
+    // itself a name server, which is how a player scanning `systemctl` output finds
+    // the door they are looking for among the five other daemons a box can run.
+    expect(before.text).toContain('named.service - name server');
     expect(before.text).toContain('active (running) on port 53');
 
     const stopped = await on(before.box, systemctl, ['stop', 'named']);

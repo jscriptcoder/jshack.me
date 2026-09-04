@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   baseFsForLanHost,
+  chainGatewayBaseFsForMachineId,
   machineIdForLanHost,
   generatedBaseFsForMachineId,
   resolveDeepGatewayIdentity,
@@ -188,5 +189,24 @@ describe('the boxes the world never leaves a backdoor on', () => {
     );
 
     expect(carrying.length).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * One walk yields both kinds of chain gateway — the Layer-1 inner gateways standing on
+ * the home LAN, and the deep children hanging behind them — and which tree each resolves
+ * to turns on a single field. Two consumers depend on getting it right: the pivot scan a
+ * player runs from a gateway they have rooted, and the `rules.v4` they write through it.
+ */
+describe('the tree a chain gateway resolves to', () => {
+  it('builds a Layer-1 inner gateway from the LAN it stands on, having no parent to hang behind', () => {
+    const gateway = innerGatewayOn(ESSID);
+
+    // A Layer-1 gateway names no parent, and resolving it as though it did would hand a
+    // player who rooted it a tree belonging to a box somewhere else in the chain — with
+    // nothing on screen to say so, because a gateway's tree looks like a gateway's tree.
+    expect(chainGatewayBaseFsForMachineId(ESSID, machineIdForLanHost(gateway, ESSID))).toEqual(
+      baseFsForLanHost(gateway, ESSID),
+    );
   });
 });
