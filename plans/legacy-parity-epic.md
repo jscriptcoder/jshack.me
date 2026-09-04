@@ -376,12 +376,12 @@ PHASE 1 — THE DOORS  (near-term focus)
       D9 slice 2b a script speaks while it works      ✔ SHIPPED v0.198.0 (#477)
       D9 slice 3 a script keeps what it found         ✔ SHIPPED v0.199.0 (#478)
       D9 slice 4 a script is reusable and can be stopped  ✔ SHIPPED v0.200.0 (#480)
-  D10 polish (comfort commands + the whole long tail)  🚧 IN PROGRESS — 2 of 5 slices shipped
+  D10 polish (comfort commands + the whole long tail)  ✔ SHIPPED — all 5 slices (#481-#486)
       D10 slice 1 the terminal is yours               ✅ SHIPPED v0.201.0 (#481)
       D10 slice 2 the card and the second window      ✅ SHIPPED v0.202.0 (#482)
       D10 slice 3 the box answers questions  ✔ SHIPPED — find, strings
       D10 slice 4 permissions change hands   ✔ SHIPPED — chmod
-      D10 slice 5 a file nobody else can read         — gpg -c / -d
+      D10 slice 5 a file nobody else can read ✔ SHIPPED — gpg -c / -d
 PHASE 2 — DISCOVERY
   X1  DNS + nslookup / dig
   X2  findit.io + common website-bearing networks
@@ -412,7 +412,7 @@ POST-SHIP — MISSIONS
 | **D7** ✅ | **A player reads a machine's key-value store** — **SHIPPED v0.174.0-v0.182.0 (#452-#461)**; twelve locked decisions in ["D7 — resolved scope & decisions"](#d7--resolved-scope--decisions-grill-me-2026-08-24) | `redis` catalog row + placement (flat 0.05, webserver 0.35, database 0.3); generated data (`generateRedisData.ts`, `pools/redis.ts`); `rediscli <host> [pw]` → `redis>` sub-shell, seven verbs; `requirepass` as an md5 in the root-only datadir; hydra `redis` service against the 60% that are locked | Redis 6 ACLs (they arrive as a VERSION difference in Phase 3, not as a door decision); `FLUSHALL`; `CONFIG GET`; `TYPE`/`SCAN`/`INFO` | B `rediscli <host>` → `KEYS *` / `GET` on the 40% that are open; `hydra <host> redis` → password (no login field) on the rest; an open store's arrival line is the defender's whole view |
 | **D8** ✅ | **A player reconfigures a device without holding a shell on it** — **SHIPPED v0.185.0-v0.193.0 (#465-#473)**; eleven locked decisions in ["D8 — resolved scope & decisions"](#d8--resolved-scope--decisions-grill-me-2026-08-27), as-built in [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §7/§9 | `snmp` catalog row at `161/udp` (a new `protocol` column) placed on routers + switches only; `snmpwalk <host> [community]` (public = identity, RW = + the port table); `snmpset <host> <community> <oid=value>` with parity to `nano`; **the OIDs are a VIEW over the `rules.v4` / `acl.conf` v2 already parses**, never a second copy; the RW community as an md5 in a root-only file, swept by `hydra snmp` via `secretOn`; its own `/var/log/snmpd.log`; `snmpd` installable, planting a `deny <port>` local firewall on a workstation | legacy's `snmpFirewallParser` / `snmpAclParser` and the `firewall*`/`acl*` OIDs inside `snmpd.conf` — REFUSED, not deferred: they are a third and fourth authority over a fact v2 already owns; `nmap -sU`; NAT on a workstation | B `snmpwalk` with `public` → identity only; B cracks the RW community → the forward table renders as OIDs → `snmpset` opens a port **without B ever logging in**, and A's `snmpd.log` names B |
 | **D9** ✅ | **A player automates an attack with a script** — **SHIPPED v0.196.0-v0.200.0 (#475-#480)** as slices 1, 2a, 2b, 3 and 4; eleven locked decisions in ["D9 — resolved scope & decisions"](#d9--resolved-scope--decisions-grill-me-2026-09-01) plus six more made at slice 4, as-built in [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §2/§4/§7/§9 | `apt install node` → `node <path> [args]`; ONE always-async mode (`execute` returns a promise, so legacy's sync mode cannot port); every command as a camelCase global returning `string[]` with `.exitCode`; a trailing flags object with dashed keys; ambient `fs` (`readFile`/`writeFile`/`appendFile`); `console.log`; real `process.argv`; `sleep(ms)`; Ctrl-C at every await | **programmatic auth — REFUSED, not deferred** (`env` is a per-line snapshot, so a script that hopped would answer about the box it left); `chmod`; world content and an example script; an `sh()` escape hatch; a Web Worker sandbox; `script_exec` as a CVE effect (Phase 3) | A writes `/root/sweep.js` chaining `hydra` across many hosts, runs `node /root/sweep.js`, and captures the results to a file; `ssh(…)` from a script refuses in the same words the prompt would |
-| **D10** 🚧 | **The terminal feels like legacy's** — **slices 1-4 of 5 SHIPPED, latest v0.204.0 (#485)**; fifteen locked decisions in ["D10 — resolved scope & decisions"](#d10--resolved-scope--decisions-grill-me-2026-09-02); five slices, not one | `clear` (banner + scrollback, Ctrl-L) via a new `env.clearScreen()`; `theme` — legacy's four palettes over the eight tokens v2 paints, `localStorage`-persisted and applied pre-render; `author` as a third `ModeChange` overlay; `xterm` opening a genuinely FRESH tab (skips hop rehydration); `whoami`; **plus locked decision 9's whole long tail** — `find` (legacy's positional shape), `strings`, `chmod` (read-modify-write, write-tier authz, no `-R`) and `gpg -c`/`-d` (legacy's codec keyed by md5, masked prompt, `.gpg`). `clear`/`whoami` join `SYSTEM_UTILITY_NAMES` | **`bash` — REFUSED, not deferred** (it ran binaries by path for a PATH-less NC shell v2 does not have, and `availability.ts` already resolves the search path and the execute bit); world content for `strings`/`gpg` (the loot rule owns it); a perms-only patch state; `chmod -R`; legacy's six unpainted theme tokens; a renderable `TerminalLine` kind | A player clears the screen, switches to green phosphor and it survives a reload; `author` opens the card and ESC returns; `xterm` from inside an ssh hop lands on the player's OWN box; `chmod` opens a root-only file to their tier and the change survives a reload; `gpg -c` leaves an intruder holding root with nothing readable |
+| **D10** ✅ | **The terminal feels like legacy's** — **SHIPPED COMPLETE v0.201.0-v0.205.0 (#481-#486)**, all five slices; fifteen locked decisions in ["D10 — resolved scope & decisions"](#d10--resolved-scope--decisions-grill-me-2026-09-02); five slices, not one | `clear` (banner + scrollback, Ctrl-L) via a new `env.clearScreen()`; `theme` — legacy's four palettes over the eight tokens v2 paints, `localStorage`-persisted and applied pre-render; `author` as a third `ModeChange` overlay; `xterm` opening a genuinely FRESH tab (skips hop rehydration); `whoami`; **plus locked decision 9's whole long tail** — `find` (legacy's positional shape), `strings`, `chmod` (read-modify-write, write-tier authz, no `-R`) and `gpg -c`/`-d` (legacy's codec keyed by md5, masked prompt, `.gpg`). `clear`/`whoami` join `SYSTEM_UTILITY_NAMES` | **`bash` — REFUSED, not deferred** (it ran binaries by path for a PATH-less NC shell v2 does not have, and `availability.ts` already resolves the search path and the execute bit); world content for `strings`/`gpg` (the loot rule owns it); a perms-only patch state; `chmod -R`; legacy's six unpainted theme tokens; a renderable `TerminalLine` kind | A player clears the screen, switches to green phosphor and it survives a reload; `author` opens the card and ESC returns; `xterm` from inside an ssh hop lands on the player's OWN box; `chmod` opens a root-only file to their tier and the change survives a reload; `gpg -c` leaves an intruder holding root with nothing readable |
 
 ## Phase 2 — discovery
 
@@ -3307,8 +3307,11 @@ are now resolved. **A door is not proven by its wire-checks alone** — the wire
 green and could not see any of this, because the defects live in the one vantage no endpoint
 answers. One session's browsing produced four findings, three of them invisible to a green suite.
 
-**➡️ NEXT: D10 slice 5 — a file nobody else can read (`gpg -c` / `-d`). Planned, sixteen ACs
-confirmed, branch cut — not yet built. The LAST slice of the last door in the locked order.**
+**➡️ NEXT: Phase 2 — discovery. X1 (DNS + `nslookup`/`dig`), then X2 (`findit.io` and networks
+a player was never told about). Not yet grilled or planned.**
+
+**🏁 PHASE 1 IS COMPLETE.** Every door in the locked order has shipped: web, hydra, ftp, scp,
+daemons, nc, machine kinds, mysql, redis, snmp, node and the terminal itself.
 
 **D10 slice 1 SHIPPED at v0.201.0 (`dd1cc5cf`, PR #481)** — the terminal is the player's: `clear`
 empties the screen and takes the banner with it while leaving the history alone, Ctrl-L does the
@@ -3317,14 +3320,14 @@ the choice, and `whoami` names the session you are standing in — proven live t
 elevation and an `ssh` hop onto an AP gateway. `clear` and `whoami` ship as real `/bin` binaries
 rather than legacy's builtins, so `rm /bin/whoami` takes the tool away and putting it back
 restores it. The stored palette is applied in an explicit boot step before `render`, and the
-browser's own first-paint timing proves there is no frame of amber on the way to it. Close-out,
-mutation triage and the one recorded gap are in
-[`d10-polish.md`](d10-polish.md) → "Slice 1 close-out".
+browser's own first-paint timing proves there is no frame of amber on the way to it. The per-slice plan file carrying its RED
+table, mutation triage and recorded gap was retired at D10 close-out, as D3-D9 each were; the
+durable rules it produced live in [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md).
 
-One slice remains: `gpg`. Plan it when its predecessor lands. After D10 **Phase 1
-is complete**: every door — web, hydra, ftp, scp, daemons, nc, machine kinds, mysql, redis, snmp
-and node — has shipped. Then Phase 2 (discovery: DNS/`nslookup`/`dig`, then `findit.io` and
-networks a player was never told about).
+All five slices have now shipped, and with them **Phase 1 is complete**: every door — web,
+hydra, ftp, scp, daemons, nc, machine kinds, mysql, redis, snmp, node and the terminal itself.
+Next is Phase 2 (discovery: DNS/`nslookup`/`dig`, then `findit.io` and networks a player was never
+told about).
 
 **D10 slice 2 SHIPPED at v0.202.0 (`dc1e294c`, PR #482)** — the card and the second window.
 `author` opens a full-screen card, ESC or `q` hands the terminal back with the scrollback
@@ -3336,8 +3339,9 @@ changes behaviour. `author` needed no capability at all (a `mode_change` travels
 and `lynx` already use), so the slice added exactly one, `openTerminal`. Two of legacy's six
 unpainted tokens (`link`, `avatarBorder`) arrived with the card and a third was argued down. The
 slice also paid off the two-tabs-one-session-stack hazard named in the grounding, because `xterm`
-is the command that makes anyone hit it. Close-out, mutation triage and the settled `env.ui.*`
-verdict are in [`d10-polish.md`](d10-polish.md) → "Slice 2 close-out".
+is the command that makes anyone hit it. Its plan and close-out were retired with the D10 plan file; the
+`env.ui.*` verdict it settled is in
+[`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §7.
 
 **D10 slice 3 SHIPPED at v0.203.0 (`ed71cee1`, PR #484)** — the box answers questions. `find`
 searches a tree by glob and `strings` reads the text inside something that is not text, and both
@@ -3350,9 +3354,9 @@ loop. Proven live with a file planted behind a root-only door: the same command 
 shows root `/root/` and `/root/notes.private`, and the user tier `/root/` alone. Planning turned up
 one finding that changed the scope — **`strings /bin/ls` printed nothing on every machine**, the
 stub's longest printable run being `ELF` against a four-character minimum — so decision 2 is amended
-above and the stub now carries a real ELF's readable tail. Close-out, mutation triage (including a
-FALSE survivor from Stryker's `perTest` analysis) and the `walkTree` argument are in
-[`d10-polish.md`](d10-polish.md) → "Slice 3 close-out".
+above and the stub now carries a real ELF's readable tail. Its plan and close-out were retired with the D10 plan file; the
+`perTest` false-survivor rule it opened, now carrying three citations, is in
+[`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §4.
 
 **D10 slice 4 SHIPPED at v0.204.0 (`190e7e05`, PR #485)** — permissions change hands. `chmod`
 makes a permission something players hand back and forth: symbolic modes over the three tiers, `u`
@@ -3371,19 +3375,34 @@ on any chmod root ran over it. Both fixed. The first is the one place this door 
 client+server code, so it carries a wire-check (15/15) that fails against the pre-slice materializer
 rather than the browser-only proof the other slices used.
 
-**D10 slice 5 is PLANNED** (sixteen ACs confirmed 2026-09-04, branch cut, not yet built) — the
-last slice of the last door. `gpg -c`/`-d`, and the "its seam is already declared" pattern that held
-for slices 1-3 does NOT hold here: `gpg` is deliberately absent from `SYSTEM_UTILITY_NAMES` and
-lives in the apt catalog, so it installs like `node` and the browser proof starts with WiFi. The
-grill settled five things the locked decisions left open: `withoutTty` grows the function form
-`withoutScript` already has (gpg prompts only when the passphrase is absent, and the positional form
-has to survive a pty-less shell); the installed binary is world-executable, deliberately NOT porting
-legacy's root-only `RESTRICTED_EXECUTE` entry, because real `/usr/bin/gpg` is 0755 and decision 3
-wants a user-tier player able to hide a file; an existing `<file>.gpg` is refused rather than
-overwritten; both halves answer instantly rather than pacing as legacy did; and the codec stays
-private to the command until the content generator needs it. Slice 4's close-out, its mutation
-triage (including a SECOND `perTest` false survivor) and the cross-player projection finding are in
-[`d10-polish.md`](d10-polish.md) → "Slice 4 close-out"; slice 5's plan is in the same file.
+**D10 SHIPPED COMPLETE at v0.205.0 (`bc414895`, PR #486)** — five slices, #481-#486, and with it
+the last door in the locked order. Slice 5 gave the game its first protection that survives being
+rooted: `gpg -c` writes `<file>.gpg` and `gpg -d` reads it back, under legacy's own codec keyed by
+md5 of the passphrase, so what lands in the machine's journal is base64 to an intruder holding root
+and to the server storing it alike. Proven live end to end — installed over cracked WiFi, encrypted
+at a masked prompt, piped through `grep` with the passphrase on the line, still ciphertext after a
+reload, and refused with `bash: gpg: Permission denied` once `chmod g-x` took its execute bit away.
+The strongest beat was cross-machine: `gpg` answers `command not found` on an AP gateway until
+installed THERE, and the ciphertext written on it survived a full session teardown and a fresh
+`ssh`.
+
+Five things the grill settled beyond the locked decisions. **`withoutTty` grew the function form
+`withoutScript` already had for `nc`** — the need for a terminal belongs to the FORM, since
+`gpg -d loot.gpg hunter2` asks nobody anything and must work in a planted backdoor shell. **The
+installed binary is world-executable**, deliberately NOT porting legacy's root-only
+`RESTRICTED_EXECUTE` entry: real `/usr/bin/gpg` is 0755, and the encrypt half exists so a user-tier
+player can hide something from whoever roots them. An existing `<file>.gpg` is **refused rather than
+overwritten**; both halves **answer instantly** where legacy paced its decrypt; and the codec stays
+private to the command until the content generator needs it.
+
+Two findings worth carrying. The mutation run measured that **`Command.availability`, `tier` and
+`description` are documentation** — nothing reads them at runtime, since the gate resolves binaries
+by command NAME and the install hint comes from the apt catalog. And a journal query during the
+close-out found the plaintext original still sitting beside the ciphertext, which is correct by
+decision but was not something the manual said; it says it now. Both are folded into
+[`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §4/§5/§7, along with the third
+`perTest` false survivor in three slices, the golden-vector rule for any ported codec, and the fact
+that two players never share a WiFi neighbourhood.
 
 **D9 SHIPPED COMPLETE at v0.200.0 (#480)** — the seventh and last door in the locked order
 (ftp → daemons → nc → mysql → redis → snmp → node), across five slices

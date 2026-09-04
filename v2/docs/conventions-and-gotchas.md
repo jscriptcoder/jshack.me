@@ -157,11 +157,16 @@ Shipped so far (each milestone is in git history + its as-built doc/plan):
   the editor open); a refused one leaves it alone. Wire-check `scripts/testModifiedSinceOpen.ts`;
   three-player browser verification in `e2e-shared-network-verification.md` §6.
 
-**Current version: 0.200.0.**
+**Current version: 0.205.0.**
 
-**Current epic — legacy parity, IN PROGRESS:** `plans/legacy-parity-epic.md` — every remaining
-way into a machine (doors → discovery → CVE vulnerabilities), grilled to nine locked
-decisions. The ship gate is legacy parity **minus missions**; missions are a post-ship epic.
+**Current epic — legacy parity:** `plans/legacy-parity-epic.md` — every remaining way into a
+machine (doors → discovery → CVE vulnerabilities), grilled to nine locked decisions. The ship gate
+is legacy parity **minus missions**; missions are a post-ship epic.
+
+**🏁 PHASE 1 (the doors) IS COMPLETE at v0.205.0.** Every door in the locked order has shipped —
+web, hydra, ftp, scp, daemons, nc, machine kinds, mysql, redis, snmp, node, and the terminal
+itself. **Next is Phase 2 — discovery** (X1: DNS + `nslookup`/`dig`; X2: `findit.io` and networks a
+player was never told about), which is not yet grilled or planned.
 
 - **D1 (the web surface) ✅ COMPLETE (v0.109.0).** Five slices — v0.104.0 #344, v0.105.0 #345,
   v0.106.0 #346, v0.107.0 #347, v0.108.0 #348 — plus the v0.109.0 close-out. The plan file is
@@ -483,6 +488,37 @@ decisions. The ship gate is legacy parity **minus missions**; missions are a pos
     generated NPC's `/usr` holds only `bin` and `sbin`, so without it the `scp` fails on the
     missing containing directory. `scp` does not create parents, as real scp does not.
 
+- **D10 (the terminal feels like legacy's) ✅ COMPLETE (v0.205.0).** Five slices — v0.201.0
+  #481, v0.202.0 #482, v0.203.0 #484, v0.204.0 #485, v0.205.0 #486 — and the last door in the
+  locked order. Nine commands: `clear` (+ Ctrl-L), `theme`, `whoami`, `author`, `xterm`, `find`,
+  `strings`, `chmod`, `gpg`. `bash` was **refused, not deferred**. The plan file is deleted; the
+  durable rules are in §2, §4, §5 and §7, and the shape worth knowing here:
+  - **Two of the nine carry real mechanism, and they landed last and alone.** `chmod` makes a
+    permission something players hand back and forth — symbolic modes over the three tiers, `u`
+    resolved to the tier of the account that OWNS the node, a removal that never strips root, and
+    authorization through `canWrite`. It also fixed a defect it uncovered: **a directory chmod was
+    a silent no-op**, because `applyPatches` dropped a permissions patch for a directory that
+    already existed. `gpg -c`/`-d` gives the game its **first protection that survives being
+    rooted** — legacy's codec keyed by `md5(passphrase)`, so what the journal stores is base64 to
+    root and to the server alike.
+  - **The rest were comfort, and cost about what comfort costs.** `clear` and `whoami` ship as real
+    `/bin` binaries rather than shell builtins, so `rm /bin/whoami` takes the tool away. `theme`
+    persists to `localStorage` and is applied in an explicit boot step BEFORE render, so there is
+    no frame of amber on the way to green. `author` is a third `ModeChange` overlay and needed no
+    new capability; `xterm` needed exactly one (`openTerminal`) and opens a tab standing on the
+    player's OWN box, however many hops deep they were.
+  - **`strings` shipped with a fix to what it reads.** `BINARY_STUB`'s longest printable run was
+    `ELF` — three characters against the four-character minimum — so every binary on every machine
+    printed nothing. The stub now carries a real ELF's readable tail.
+  - **`gpg` is the one command here that installs rather than ships**, deliberately absent from
+    `SYSTEM_UTILITY_NAMES` like `node`, and its binary is world-executable — legacy's root-only
+    entry was NOT ported, because real `/usr/bin/gpg` is 0755 and the encrypt half exists so a
+    user-tier player can hide something from whoever roots them.
+  - **Wire-check:** `N/A` for four of five slices (no `api/` change, browser proof only, per the
+    door's own recorded decision). Slice 4 is the exception: it touched `applyPatches`, the one
+    shared client+server module in the door, so `testCrossPlayerWrite` grew checks 13-15 (15/15)
+    and was shown to fail against the pre-slice materializer.
+
 To pick up the next slice: read the relevant `plans/*.md` TOP BLOCK (live status +
 as-built), then the cross-player architecture doc if the work touches cross-player paths.
 
@@ -690,10 +726,20 @@ would have meant writing a second test for a gap that did not exist, and — wor
 existing one was weak when it was not. The check costs one scripted run. Do it for every survivor
 outside the manual-prose family before treating it as work.
 
-**Twice now, in consecutive slices.** D10 slice 4 reported `applyPatches`'s new directory guard
-(`patch.permissions === undefined || existingDir.kind !== 'directory'` → `false`) as SURVIVED; by
-hand it kills the suite outright. Two occurrences in two slices is a rate, not an anomaly — treat a
-non-manual survivor as unproven until a hand run agrees with the report.
+**Three times now, in three consecutive slices.** D10 slice 4 reported `applyPatches`'s new
+directory guard (`patch.permissions === undefined || existingDir.kind !== 'directory'` → `false`)
+as SURVIVED; slice 5 reported `gpg`'s `if (encrypted === null || encrypted.length < 4)` → `false`
+the same way. Both kill the suite outright by hand. Three occurrences in three slices is a rate,
+not an anomaly — treat a non-manual survivor as unproven until a hand run agrees with the report.
+
+**A codec tested only through its own round trip cannot see format drift — pin it with a vector
+from the OTHER implementation.** Every encrypt/decrypt test writes and reads with the same code, so
+a change to the key schedule, the checksum or the byte order round-trips perfectly and stays green
+while locking every file the other implementation produced out of the game. D10 slice 5 generated
+one ciphertext by running LEGACY's `src/utils/crypto.ts` with the md5-derived key and pasted it in
+as a constant; it is the only test in that file that can fail on a format change, and the same
+applies to any ported serializer, hash or wire encoding. Generate the vector from the source of
+truth, never from the code under test.
 
 **A hand-mutation harness owns the files it snapshots — don't edit them while it runs.** The
 house pattern (a Python script that applies one mutant, runs the spec, restores) reads every target
@@ -1420,6 +1466,15 @@ test's own bug. Applies to any module-level signal a test can leave set.
     parameter: a generic cannot flow into supabase's `insert`, and a function accepting the union is
     assignable to each narrower dep by parameter contravariance — so it needs no cast.
 
+**Two players NEVER share a WiFi neighbourhood, so they never meet on a gateway.** Each player's
+scan is generated for them: D10 slice 5's close-out minted a second identity and its `airodump-ng`
+returned seven ESSIDs with not one in common with the first player's six. Since the AP gateway's
+machine id derives from the ESSID, two players connected to "their" networks are on different
+gateway machines. The ONLY cross-player route is the public-IP path — the other player's public IP,
+a forward, a service, a cracked credential — which is the whole D1/D2/D5 loop. Budget for that
+before promising a close-out beat that needs one player to see another's box, and reach for a direct
+journal query (§6) when what the beat actually proves is what got STORED.
+
 ## 6. Wire-check infrastructure
 
 `api/` runtime correctness (DB columns, constraints, the signed-envelope path) is not
@@ -1784,6 +1839,23 @@ state costs you more than one wrong attempt.
   deliberately absent from `SYSTEM_UTILITY_NAMES` (`binaries.ts` says so in a comment) and live in
   the apt catalog instead, so they install rather than ship. Three slices in a row finding their
   binaries pre-stamped made that look like a rule; it is not.
+- **A need that belongs to a FORM rather than to a command is declared as a function, not a
+  string.** `withoutScript` (since `nc`) and `withoutTty` (since `gpg`) both accept
+  `(args, flags) => string | undefined`, answering `undefined` for the form they permit. `nc -l`
+  plants a listener and returns, so a script may run it while the connect form hops; `gpg -c f pass`
+  asks nobody anything, so a pty-less backdoor shell may run it while the prompting form cannot.
+  Both rules are evaluated by ONE shared helper each — `refuseFromScript` in `commandContext.ts`,
+  `refuseWithoutTty` beside `hasTty` in `runLine.ts` — because the shell and the script path both
+  enforce them, and two copies would let a script reach a prompt a player could not.
+- **`Command.availability`, `Command.tier` and `Command.description` are DOCUMENTATION — nothing
+  reads them at runtime.** The binary gate resolves `/bin`, `/usr/bin`, `/usr/sbin` by the command's
+  NAME, and the `apt install <pkg>` hint comes from `packageForBinary(name)` reading the apt
+  catalog, so `availability: { kind: 'installed-package', packageName: 'gpg' }` changes nothing if
+  it is deleted. `types.ts` already admits this happened to `AvailabilityRule`; D10 slice 5's
+  mutation run measured it (five survivors, all on those three fields, all unkillable by any
+  behaviour test). Two consequences: do not write tests asserting those literals — that is coverage
+  theatre — and do not trust a declaration to enforce anything. Gating is filesystem-driven, by
+  design, so removing a binary is what makes a command not-found.
 - **`env.fs` is a POINT-IN-TIME SNAPSHOT. A command that patches and then re-reads sees the
   world as it was before its own write.** `buildCommandEnv` calls `createFsView(args.root, …)`
   once, with `root: activeRoot()` evaluated at build time — the comment on `commandChain` in

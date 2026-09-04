@@ -73,6 +73,14 @@ agent-browser snapshot -i                              # interactive refs (@e1, 
 - **Two players = two sessions.** `--session alice` / `--session bob` give isolated
   `localStorage`, so both identities stay alive and you switch with the flag. Prefer this over
   the `localStorage.clear()` recipe in §5, which destroys the first player and cannot alternate.
+- **`close --all` is GLOBAL, whatever `--session` you put in front of it — and it destroys the
+  identity.** `agent-browser --session bob close --all` closed the default session too, and the
+  reopened page came up on NEW GAME: the owner key lives in that profile's `localStorage`, so an
+  identity closed this way is unreachable even though its data is still server-side. Mid-run, close
+  ONE session (`--session bob close`) and never `--all`. Name every player explicitly
+  (`--session alice`) rather than leaving one on `default`, so no session is the one you forget you
+  are holding. D10 slice 5's close-out lost a fully set-up player — WiFi cracked, connected, gpg
+  installed — to this at the last beat.
 - **`eval` reuses ONE execution context, so `const`/`let` leak across calls.** A second `eval`
   declaring the same name dies with `SyntaxError: Identifier 'x' has already been declared` —
   and if you redirected output, it looks like the command silently did nothing. Wrap every
