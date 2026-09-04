@@ -1,8 +1,8 @@
 # Plan: X1 — DNS, `nslookup` and `dig`
 
-**Status**: Active — **slice 1 has SHIPPED** (v0.206.0, #487) and **slice 2 is planned, its
-acceptance criteria are confirmed, and its branch is cut**: `feat/x1-a-box-answers`, from trunk at
-v0.206.0. Nothing of it is built yet. Slices 3-4 are grilled but unplanned. This is the first door
+**Status**: Active — **slice 1 has SHIPPED** (v0.206.0, #487) and **slice 2 is IN PROGRESS** on
+`feat/x1-a-box-answers`, cut from trunk at v0.206.0. Increments 0-2 are done, committed and green
+(4398 tests); **increment 3 is next**. Slices 3-4 are grilled but unplanned. This is the first door
 of **Phase 2 — discovery**, and the first whose world legacy could not hand over.
 **Epic**: [`legacy-parity-epic.md`](legacy-parity-epic.md) → "X1 — resolved scope & decisions
 (grill-me, 2026-09-04)", fourteen locked decisions.
@@ -18,10 +18,11 @@ of **Phase 2 — discovery**, and the first whose world legacy could not hand ov
    (`generateDnsZoneContent`, `generateDnsNamedConf`) ports for the FILE format. Legacy's
    `resolveDomain`/`dnsRecords` do **not** port — they are mission scaffolding for a mechanic v2
    does not have.
-3. **The next action is slice 2's increment 0** on `feat/x1-a-box-answers` — the preparatory
-   refactor that breaks the import cycle, before any RED. Read slice 1's as-built first: the
-   resolver it left behind is what slice 2's zone is written against, and its `essidSlug` is the
-   zone's own origin.
+3. **The next action is slice 2's increment 3** on `feat/x1-a-box-answers` — the `dependsOn`
+   column, so `apt install bind9` also lays down `dig` and `nslookup`. Increments 0-2 are committed
+   there (`41a14d22`, `0508270b`); the per-increment record is under "RED-GREEN increments" below.
+   Read slice 1's as-built first: the resolver it left behind is what the zone is written against,
+   and its `essidSlug` is the zone's own origin.
 4. Cut a fresh `feat/…` branch per slice off an up-to-date `main` — check `git status -sb` for
    ahead/behind, per conventions §8, which distinguishes ahead from level where
    `git pull --ff-only` does not.
@@ -62,7 +63,7 @@ them.
 | # | Slice | Observable | Status |
 |---|-------|-----------|--------|
 | 1 | a name resolves | `nslookup web-04` answers, and `ssh root@web-04` lands | ✅ **SHIPPED** v0.206.0 (#487) |
-| 2 | a box answers as a name server | `nmap` finds `53 open`; rooting it and `cat`-ing the zone shows the deep layers | 📋 **planned** — ACs confirmed, branch cut |
+| 2 | a box answers as a name server | `nmap` finds `53 open`; rooting it and `cat`-ing the zone shows the deep layers | 🚧 **IN PROGRESS** — increments 0-2 of 9 done |
 | 3 | the zone transfers | `dig @<server> axfr` hands over the whole address plan | — |
 | 4 | the transfer leaves a trace | `named.log` names whoever transferred it | — |
 
@@ -359,9 +360,12 @@ Planning's, open to veto at AC confirmation:
 11. **`essidSlug` is exported from `resolveName.ts`.** Slice 1 left it private on purpose rather than
     guess at this moment; the zone's origin is that same slug, and a second implementation of it
     would be two spellings of one name.
-12. **The banner is `DNS/53 FORMERR`** — a protocol identifier plus the code a name server actually
-    returns for a query it cannot parse, which is what a raw connection is. Exactly parallel to the
-    web row's `HTTP/1.1 400 Bad Request`, and version-free as the column requires.
+12. ~~**The banner is `DNS/53 FORMERR`**~~ — **OVERTURNED at increment 1 by a test that already
+    existed.** `nc.test.ts`'s "name the protocol and the daemon, never the build" rejects it on
+    sight: `DNS/53` wears the shape of `SSH-2.0`, a version-shaped identifier where DNS has no
+    version, which is the dating that column forbids in the one syntax that looks most like it
+    isn't. The agent row had already settled the case — a door with no greeting to quote names its
+    daemon and stops. **The banner is `DNS name server`.**
 13. **`generateDeepLayer.ts`'s stale `pubkey` comment is corrected** while the module is open — the
     epic asked for it, and the claim that deep layers are viewer-keyed is exactly the claim this
     slice's one-zone-per-network design depends on being false.
@@ -405,6 +409,9 @@ Planning's, open to veto at AC confirmation:
 
 ### RED-GREEN increments
 
+**Increments 0-2 are DONE** — committed on the branch as `41a14d22` (0) and `0508270b`
+(1-2), with the whole suite green at 4398. What each one actually cost is recorded beneath it.
+
 **0. Preparatory refactor, no behaviour change.** Give the zone generator a walk it can use: extract
 `lanTopology` (`lanHostOctet`, `isInnerGateway`, `machineIdForLanHost` and a new filesystem-free
 `chainLinks`), leaving `lanHostIdentity` to project trees onto it and re-export the two helpers so
@@ -413,13 +420,28 @@ no call site moves. Move `buildDeepHostFs` and `FORCE_SSHD_PATCH` into `deepHost
 Preservation evidence: the full non-watch suite green before and after. No RED — there is no
 behaviour to fail.
 
-1. **RED — the port.** A dns-role host reports `53/tcp open domain`; a webserver never does. GREEN:
-   the `dns` row in `SERVICE_CATALOG`, the `dns: { domain: 0.9 }` cell, flat `placement: 0`.
-2. **RED — the daemon a player can act on.** The two catalog-wide invariants go red the moment the
-   row lands; `systemctl stop named` then `start named` is the behaviour test in front of them.
-   GREEN: the `NAMED` daemon spec, its `DAEMONS`/`UNITS` entries, its registry row, and the `bind9`
-   package.
-3. **RED — the dependency.** `apt install bind9` lays down `named`, `dig` and `nslookup`;
+1. ✅ **RED — the port.** A dns-role host reports `53/tcp open domain`; a webserver never does.
+   GREEN: the `dns` row in `SERVICE_CATALOG`, the `dns: { domain: 0.9 }` cell, flat `placement: 0`.
+   Three tests in a new *name-service surface* block in `remoteHostFs.test.ts`.
+   - **A worry that turned out not to apply**: a new catalog row does NOT shift the per-host PRNG.
+     `hostServices` seeds a stream per service (`svc-<service>-<essid>-<ip>`), so a row can go
+     anywhere in the catalog without moving one existing roll — 4392 tests were unmoved by adding a
+     door. Position in `SERVICE_CATALOG` is a readability choice, nothing more.
+   - **A third failure appeared that the plan did not predict**, and it was right to:
+     `nc.test.ts`'s banner golden vector. See decision 12 above — the banner was wrong, and an
+     existing invariant caught it.
+2. ✅ **RED — the daemon a player can act on.** The two catalog-wide invariants went red exactly
+   when the row landed, as predicted; `systemctl stop named` then `start named` on a generated
+   `ns-*` box is the behaviour test in front of them, in `generatedBoxDoors.test.ts`. GREEN: the
+   `NAMED` daemon spec, its `DAEMONS`/`UNITS` entries, the `bind9` package, and — driven by its own
+   RED in `availability.test.ts` — the registry row plus an `APT_HINT_PAIRS` entry.
+   - `namedBoxServing(prefix, service)` is new in that file: the existing `boxServing` builds
+     `host-<octet>`, a name no role claims, so with a flat placement of zero it can never produce a
+     name server to shut.
+   - **Found and deliberately not fixed**: `snmpd` is in `DAEMONS` but NOT in the registry, so
+     `apt install snmp` lays a binary that answers `command not found`. Backlogged in conventions
+     §9; it is not this door's bug.
+3. ⬅️ **NEXT — RED — the dependency.** `apt install bind9` lays down `named`, `dig` and `nslookup`;
    `apt install dnsutils` still lays down exactly two; `packageForBinary('dig')` still answers
    `dnsutils`. GREEN: the `dependsOn` column and its union in `binariesForService`.
 4. **RED — the zone's shape.** A generated zone parses as a zone: origin, TTL, SOA with five timers,

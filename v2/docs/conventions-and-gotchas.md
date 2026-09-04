@@ -2389,6 +2389,14 @@ state costs you more than one wrong attempt.
 
 Forward-looking direction not yet built (preserved as pointers; design when actually built).
 
+- **`snmpd` is a daemon nobody can run by name.** `apt install snmp` lays it in `/usr/sbin`
+  and typing `snmpd` answers `command not found` — the binary is right there. Every other
+  daemon in `DAEMONS` is registered as a command; only this one is not, so it is reachable
+  through `systemctl start snmpd` alone. Found at X1 slice 2's increment 2, where `named`
+  was registered deliberately for the reason slice 1 pulled `dig` forward: a binary the
+  world installs that no command answers to reads as a broken install. One line in
+  `registry.ts` plus a gating test; left alone because it is not the DNS door's bug.
+
 - **An interrupted REDIRECT is silent — no `^C`, no error.** `state.ts` prints the marker
   inside its `if (result.kind === 'async')` branch, but a redirect collects the stream
   first, so the abort's rejection escapes `runCommandLine` during collection and never
