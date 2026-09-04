@@ -41,6 +41,15 @@ const LOCAL_ZONE = 'lan';
 const essidSlug = (essid: string): string =>
   essid.toLowerCase().replace(/[^a-z0-9]+/g, '-');
 
+/** The domain a network's own names live under — `acme-corp.lan` for `ACME-CORP`.
+ *
+ *  Exported as the whole answer rather than as the slug it is built from, because the
+ *  slug alone is never what a caller wants: a zone file's origin, its SOA, its NS and
+ *  the `zone "…"` line of a `named.conf` all name this. Handing out the piece would
+ *  invite a second spelling of `.lan` to grow beside the one here, and two spellings
+ *  of one name is exactly the bug a name server exists to not have. */
+export const lanZoneName = (essid: string): string => `${essidSlug(essid)}.${LOCAL_ZONE}`;
+
 /** The name as this network knows it: its own domain stripped off, so the bare and
  *  fully qualified forms are one question. A name carrying ANY other domain is left
  *  whole on purpose — it then matches no hostname and resolves to nothing, which is
