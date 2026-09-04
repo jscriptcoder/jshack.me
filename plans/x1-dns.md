@@ -298,9 +298,14 @@ Measured by walking all 50 crackable ESSIDs through `generateHomeLan` + the deep
 - **`roleOfHostname` returns `undefined` for routers and switches** (their `kind` already says what
   they are), so the Layer-1 rule is *not a machine, OR a machine whose role is one of the five
   server roles* — never a lookup that expects `router` back from a name.
-- **There is an import cycle waiting.** `generateDeepLayer.ts` imports `buildRemoteHostFs`, so a
-  zone generator called FROM `remoteHostFs.ts` closes the loop. The single blocking edge is
-  `buildDeepHostFs` — two lines, imported by 11 files.
+- **The chain walk is private and eager.** `chainGateways` is not exported, and it builds a base
+  filesystem for every gateway as it walks — so a zone generator cannot reuse it, and the epic
+  forbids writing a second traversal. An exported, filesystem-free walk is required work.
+- **⚠️ The repo already contains an import cycle, and it is fine.** `remoteHostFs → serviceCatalog →
+  passwordSweep → upsertPatch → remoteWritePermission → lanHostIdentity → remoteHostFs`, unchanged
+  for as long as it has existed. Planning first read this as a cycle the zone generator would
+  CREATE, and that was wrong — every call across the loop happens at runtime, nothing evaluates at
+  module init, and the suite has never noticed. Do not justify a refactor here by cycle-avoidance.
 - **Two catalog-wide invariants already guard this** (`systemctl.test.ts`): every row's daemon must
   exist as a startable unit, and must be obtainable from a package unless it ships in the base
   image. A `dns` row that skipped either fails an existing test rather than shipping broken.
@@ -400,10 +405,13 @@ Planning's, open to veto at AC confirmation:
 
 ### RED-GREEN increments
 
-**0. Preparatory refactor, no behaviour change.** Move `buildDeepHostFs` (and its `FORCE_SSHD_PATCH`)
-out of `generateDeepLayer.ts` so that module holds topology alone, and update the 11 importers.
-Correct the stale `pubkey` comment in the same pass. Preservation evidence: the full non-watch suite
-green before and after, byte-identical. No RED — there is no behaviour to fail.
+**0. Preparatory refactor, no behaviour change.** Give the zone generator a walk it can use: extract
+`lanTopology` (`lanHostOctet`, `isInnerGateway`, `machineIdForLanHost` and a new filesystem-free
+`chainLinks`), leaving `lanHostIdentity` to project trees onto it and re-export the two helpers so
+no call site moves. Move `buildDeepHostFs` and `FORCE_SSHD_PATCH` into `deepHostFs` so
+`generateDeepLayer` holds topology alone. Correct the stale `pubkey` comment in the same pass.
+Preservation evidence: the full non-watch suite green before and after. No RED — there is no
+behaviour to fail.
 
 1. **RED — the port.** A dns-role host reports `53/tcp open domain`; a webserver never does. GREEN:
    the `dns` row in `SERVICE_CATALOG`, the `dns: { domain: 0.9 }` cell, flat `placement: 0`.
