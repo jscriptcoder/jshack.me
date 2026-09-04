@@ -1,10 +1,11 @@
 # Plan: X1 — DNS, `nslookup` and `dig`
 
-**Status**: Active — **slice 1 has SHIPPED** (v0.206.0, #487) and **slice 2 is CODE-COMPLETE** on
-`feat/x1-a-box-answers`, cut from trunk at v0.206.0. All ten increments are done and green and
-the mutation gate has run (4433 tests); **the browser close-out is all that is left**. Slices 3-4
-are grilled but unplanned. This is the first door of **Phase 2 — discovery**, and the first whose
-world legacy could not hand over.
+**Status**: Active — **slice 1 has SHIPPED** (v0.206.0, #487) and **slice 2 is DONE and ready for
+its PR** on `feat/x1-a-box-answers`, cut from trunk at v0.206.0. All ten increments green
+(4433 tests), the mutation gate run, and the browser close-out complete — it confirmed the whole
+beat live on a deep name server and surfaced one write-gate finding (below, logged to the backlog).
+Slices 3-4 are grilled but unplanned. This is the first door of **Phase 2 — discovery**, and the
+first whose world legacy could not hand over.
 **Epic**: [`legacy-parity-epic.md`](legacy-parity-epic.md) → "X1 — resolved scope & decisions
 (grill-me, 2026-09-04)", fourteen locked decisions.
 
@@ -19,12 +20,12 @@ world legacy could not hand over.
    (`generateDnsZoneContent`, `generateDnsNamedConf`) ports for the FILE format. Legacy's
    `resolveDomain`/`dnsRecords` do **not** port — they are mission scaffolding for a mechanic v2
    does not have.
-3. **The next action is slice 2's browser close-out**, specified at the end of "Pre-PR gate" below.
-   Everything else in that gate is done: typecheck, lint, 4433 tests, v0.207.0, and four scoped
-   mutation batteries whose findings and accepted survivors are recorded there. Increments 0-9 are
-   committed on `feat/x1-a-box-answers`; the per-increment record is under "RED-GREEN increments —
-   as run". Read slice 1's as-built too — the resolver it left behind is what the zone is written
-   against, and its `lanZoneName` is the zone's own origin.
+3. **The next action is to open slice 2's PR** (`feat/x1-a-box-answers` → trunk). The whole gate is
+   done: typecheck, lint, 4433 tests, v0.207.0, four scoped mutation batteries, and a live browser
+   close-out — all recorded under "Pre-PR gate" below, including the deep-terminal-NPC write-gate
+   FINDING the close-out surfaced. Increments 0-9 are committed; the per-increment record is under
+   "RED-GREEN increments — as run". Read slice 1's as-built too — the resolver it left behind is
+   what the zone is written against, and its `lanZoneName` is the zone's own origin.
 4. Cut a fresh `feat/…` branch per slice off an up-to-date `main` — check `git status -sb` for
    ahead/behind, per conventions §8, which distinguishes ahead from level where
    `git pull --ff-only` does not.
@@ -65,7 +66,7 @@ them.
 | # | Slice | Observable | Status |
 |---|-------|-----------|--------|
 | 1 | a name resolves | `nslookup web-04` answers, and `ssh root@web-04` lands | ✅ **SHIPPED** v0.206.0 (#487) |
-| 2 | a box answers as a name server | `nmap` finds `53 open`; rooting it and `cat`-ing the zone shows the deep layers | 🚧 **CODE-COMPLETE** — mutation gate run, browser close-out left |
+| 2 | a box answers as a name server | `nmap` finds `53 open`; rooting it and `cat`-ing the zone shows the deep layers | ✅ **DONE** — gate + live close-out complete, ready for PR |
 | 3 | the zone transfers | `dig @<server> axfr` hands over the whole address plan | — |
 | 4 | the transfer leaves a trace | `named.log` names whoever transferred it | — |
 
@@ -686,3 +687,62 @@ than given a test.
 cross-check in a single pass, where a Layer-1 one exercises only the first. Sweep it, find `53/tcp
 open domain`, root the box, read both files, check a deep address in the zone against a pivot scan
 of that layer, and stop the daemon to prove the port closes and the files stay.
+
+#### ✅ Browser close-out — run on GRAD-STUDENT-WIFI (deep `ns-116`)
+
+A per-player neighbourhood, so none of the four candidate ESSIDs were in the first scan;
+re-scanning re-rolls the draw (`scanIndex` seeds the wifi PRNG) and `GRAD-STUDENT-WIFI`
+came up on the first re-scan — the best of the four, being both the open-transfer demo
+network and increment 9's duplicate-name network. Cracked in (`aircrack-ng` →
+`football99`), connected at `192.168.112.201`, rooted the workstation.
+
+Everything the slice ships, confirmed against the running game:
+
+- **The duplicate is live.** `nmap 192.168.112.1-254` lists `router01` at BOTH `.1` and
+  `.18` — increment 9's test predicted this exact network, and the sweep shows it.
+- **The chain walk and the pivot cross-check (AC 12), in one pass.** Rooted the inner
+  gateway at `.18` (credential derived offline: `thornfield2`), installed `nmap` on it,
+  and pivot-scanned its deep segment: `10.165.42.116 ns-116` and `10.165.42.204
+  edge-rtr-204` — the scan the zone is written against, agreeing with the zone's deep
+  records live rather than by a shared seed.
+- **The door, on a deep box.** `nmap 10.165.42.116` from the gateway → `53/tcp open
+  domain`. Reached `ns-116` through a NAT forward the player writes on the gateway
+  (`nano rules.v4` → `forward 2222 to 10.165.42.116:22`, which the scan then shows as
+  `2222/tcp open ssh`), then `ssh -p 2222 root@192.168.112.18` with the deep host's root
+  password (`oxide_flux`, cracked offline against the game's own pools).
+- **Both files, read off the rooted box, match the generator.** `named.conf`:
+  `recursion no`, `allow-query { any; }`, `allow-transfer { any; }` (open, as the offline
+  probe predicted). The zone: `$ORIGIN grad-student-wifi.lan.`, the full SOA block,
+  `@ IN NS ns-116.…` naming a host that HAS an A record (the broken-zone case the
+  `ZONED_ROLES` mutant would have produced — not present), `router01` at both addresses,
+  and four deep records across three `10.x` prefixes.
+- **`systemctl status named`** shows the header the mutation gate strengthened:
+  `● named.service - name server` / `active (running) on port 53`.
+
+⚠️ **FINDING — a deep terminal NPC box is READ-ONLY when rooted, so `systemctl stop
+named` could not run there.** `stop` is a `patches.remove`, and the cross-player/deep
+write gate (`remoteWritePermission` L2) resolves a target only as the AP gateway, a
+home-LAN NPC sibling (`lanBaseFsForMachineId`), a deep chain GATEWAY
+(`chainGatewayBaseFsForMachineId`), or an occupant workstation. `ns-116` is a deep
+TERMINAL NPC — a `machine` at the end of the chain — so it matches no arm and the write
+fails closed with `403 permission_denied` (`Password:`… `whoami` → `root`, yet
+`systemctl stop named` → `Permission denied`). Verified by resolving its id against every
+arm: `ns-116-6ba015ee` matches none. The `nano rules.v4` write on the gateway in this
+same run succeeded precisely because a gateway DOES match an arm.
+
+- **Not slice 2's, and not DNS-specific.** The write-gate asymmetry predates this door;
+  every write verb (`systemctl`, `nano`) is denied on any deep terminal NPC, whatever it
+  runs. Slice 2 places the files correctly; the box it lands on happens to be unwritable
+  to a visitor.
+- **The daemon-stop mechanism itself is proven** by `generatedBoxDoors.test.ts` ("closes
+  the name-service port of a box named for one, and reopens it"), which drives `systemctl
+  stop/start named` against a box's own journal and asserts port 53 leaves and returns
+  with the files untouched. Owner decision (2026-09-04): accept that unit evidence for the
+  stop rather than hunt a Layer-1 dns box live.
+- **The story the code tells still holds, with a boundary now named.** `daemon.ts`'s NAMED
+  comment — "an owner who roots their own name server can take name service off the
+  network without losing the zone" — is about a box the player can WRITE. A deep NPC name
+  server on a cracked network is read-only to a visitor, so the stop is unreachable there;
+  a Layer-1 NPC name server (only `bind-224`/OSCORP-GUEST and `resolver-69`/DEFCON-VILLAGE
+  world-wide) IS writable via the LAN-NPC arm. Depth alone decides it. Logged to the
+  backlog in `conventions-and-gotchas.md` as a candidate, since it is broader than DNS.

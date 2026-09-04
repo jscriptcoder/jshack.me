@@ -2389,6 +2389,24 @@ state costs you more than one wrong attempt.
 
 Forward-looking direction not yet built (preserved as pointers; design when actually built).
 
+- **A deep TERMINAL NPC box is read-only when rooted — depth alone decides whether you can
+  write to an NPC.** The cross-player/deep write gate (`remoteWritePermission` L2,
+  `resolveTargetBaseFs`) authorizes a write only when the target resolves as the AP gateway, a
+  home-LAN NPC sibling (`lanBaseFsForMachineId`), a deep chain GATEWAY
+  (`chainGatewayBaseFsForMachineId`), or an occupant workstation. A deep TERMINAL NPC — a
+  `machine` at the end of a chain — matches none, so every write verb (`systemctl stop/start`,
+  `nano`) fails closed with `403 permission_denied` even from a root shell reached through a
+  forward. Read verbs (`ssh` in, `cat`, `ls`) all work, so it presents as a box you can root and
+  inspect but not change. A Layer-1 NPC sibling with the same role IS writable via the LAN arm, so
+  the asymmetry is purely positional. Found at X1 slice 2's browser close-out: `systemctl stop
+  named` on the deep `ns-116` (GRAD-STUDENT-WIFI) refused while `whoami` returned `root`; its id
+  `ns-116-6ba015ee` matched no arm. Not DNS-specific and not slice 2's — slice 2 places the files
+  correctly on a box that happens to be a deep terminal NPC. Decide, when a write to a deep NPC is
+  actually wanted, whether visitors should be able to reconfigure an NPC's deep box at all, or
+  whether the "stop your own name server" story is meant only for boxes the player owns/can write
+  (the daemon-stop mechanism itself is proven in `generatedBoxDoors.test.ts` against a box's own
+  journal).
+
 - **`snmpd` is a daemon nobody can run by name.** `apt install snmp` lays it in `/usr/sbin`
   and typing `snmpd` answers `command not found` — the binary is right there. Every other
   daemon in `DAEMONS` is registered as a command; only this one is not, so it is reachable
