@@ -129,3 +129,15 @@ export const generateDeepLayer = (
       : null;
   return { subnet, host, childGateway };
 };
+
+/**
+ * The hosts STANDING ON a layer: its one machine, plus the gateway fronting the next
+ * layer down when there is one.
+ *
+ * One fact with several readers — the pivot scan lists these, and the zone a name
+ * server publishes names them — so it is answered once. Two spellings of who is on a
+ * layer could disagree, and a zone disagreeing with the scan a player checks it
+ * against is worse than a zone that named nothing.
+ */
+export const hostsOnLayer = (layer: DeepLayer): readonly LanHost[] =>
+  layer.childGateway === null ? [layer.host] : [layer.host, layer.childGateway];

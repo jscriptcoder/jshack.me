@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { lanZoneName } from '../network/resolveName';
-import { generateHomeLan } from './generateHomeLan';
+import { buildDirectory } from '../../test/factories/filesystem';
+import { resolveDeepScanHosts } from '../scan/deepScanHosts';
+import { generateHomeLan, type LanHost } from './generateHomeLan';
+import { chainLinks } from './lanTopology';
 import { roleOfHostname } from './pools/hostnames';
 import { formatDnsZone, zoneRecordsFor, type ZoneRecord } from './generateDnsZone';
 
@@ -134,8 +137,17 @@ const hostnamesOf = (hosts: readonly { readonly hostname: string }[]): readonly 
 const machinesOn = (essid: string) =>
   generateHomeLan(essid).hosts.filter((host) => host.kind === 'machine');
 
+/** The zone's home-LAN records only, picked out by subnet. The deep half answers to a
+ *  different rule and is asserted separately; selecting by address rather than by
+ *  position also means a deep host that happened to share a name with a dropped one
+ *  cannot make an exclusion look satisfied. */
+const homeLanRecordsOn = (essid: string): readonly ZoneRecord[] => {
+  const { subnet } = generateHomeLan(essid);
+  return zoneRecordsFor(essid).filter(({ ip }) => ip.startsWith(`${subnet}.`));
+};
+
 const listedNamesOn = (essid: string): ReadonlySet<string> =>
-  new Set(zoneRecordsFor(essid).map(({ name }) => name));
+  new Set(homeLanRecordsOn(essid).map(({ name }) => name));
 
 /**
  * A home LAN is more than half phones and cameras, and every one of them holds its
@@ -149,7 +161,7 @@ describe('which of a network the zone speaks for', () => {
     // ACME-CORP, measured: three infrastructure hosts, three servers, one phone
     // (`iphone-62`) and one camera (`cam-138`). Written out rather than derived, so
     // that a change to the draw surfaces here instead of quietly agreeing with itself.
-    expect(zoneRecordsFor('ACME-CORP')).toEqual([
+    expect(homeLanRecordsOn('ACME-CORP')).toEqual([
       { name: 'switch-core', ip: '192.168.45.1' },
       { name: 'mikrotik01', ip: '192.168.45.40' },
       { name: 'records-52', ip: '192.168.45.52' },
@@ -201,7 +213,83 @@ describe('which of a network the zone speaks for', () => {
         generateHomeLan(essid).hosts.map((host) => [host.hostname, host.ip] as const),
       );
 
-      for (const { name, ip } of zoneRecordsFor(essid)) expect(ip).toBe(addresses.get(name));
+      for (const { name, ip } of homeLanRecordsOn(essid)) expect(ip).toBe(addresses.get(name));
     }
+  });
+});
+
+/** A vantage tree with nothing in it. The scan resolver reads a switch's `acl.conf`
+ *  from here to filter PORTS, and ports are not what is being compared — the zone
+ *  carries addresses, and an absent ACL denies nothing. */
+const NO_VANTAGE_TREE = buildDirectory();
+
+const scannedHostsOn = (essid: string): readonly LanHost[] =>
+  chainLinks(essid).flatMap((link) =>
+    resolveDeepScanHosts(
+      essid,
+      { machineId: link.machineId, kind: link.host.kind, hangsChild: link.hangsChild },
+      NO_VANTAGE_TREE,
+    ).hosts.map(({ host }) => host),
+  );
+
+/**
+ * The half of the zone that is worth crossing a network for. A deep layer holds exactly
+ * one machine, at a fixed address, behind a gateway an administrator configured — that
+ * is infrastructure however the role dice named it, so nothing down here is filtered.
+ * It is also the half no scan of the player's own segment could have shown them.
+ */
+describe('what the zone says about the layers behind the gateways', () => {
+  it('carries every host a pivot scan of each layer would report', () => {
+    let compared = 0;
+
+    for (const essid of POPULATION_ESSIDS) {
+      const listed = zoneRecordsFor(essid);
+
+      // Compared against the resolver the pivot scan itself renders from, not against a
+      // second reading of the generator. A zone naming an address the scan of that same
+      // layer does not is worse than one naming nothing: a player acts on it.
+      for (const host of scannedHostsOn(essid)) {
+        expect(listed).toContainEqual({ name: host.hostname, ip: host.ip });
+        compared += 1;
+      }
+    }
+
+    expect(compared).toBeGreaterThan(POPULATION_ESSIDS.length);
+  });
+
+  it('lists the home LAN first and then each layer in the order the chain reaches it', () => {
+    // ACME-CORP, measured end to end. Six on the home LAN by address, then four deep
+    // layers in chain order: two behind `mikrotik01` (the NPC and the gateway to the
+    // next layer), two behind that gateway, one behind ITS gateway where the depth
+    // bound stops the chain, and one behind the switch, which forwards nothing and so
+    // fronts no child. Four distinct `10.x` prefixes is what depth looks like from
+    // outside — and the whole point of the file is that the last six lines are the part
+    // no scan of the player's own segment could have told them.
+    expect(zoneRecordsFor('ACME-CORP').map(({ ip }) => ip)).toEqual([
+      '192.168.45.1',
+      '192.168.45.40',
+      '192.168.45.52',
+      '192.168.45.192',
+      '192.168.45.221',
+      '192.168.45.223',
+      '10.207.205.87',
+      '10.207.205.94',
+      '10.56.37.65',
+      '10.56.37.179',
+      '10.35.196.137',
+      '10.34.191.189',
+    ]);
+  });
+
+  it('keeps the cameras down here that it left off the home LAN', () => {
+    const names = zoneRecordsFor('ACME-CORP').map(({ name }) => name);
+
+    // The same kind of device, in on one layer and out on another, and the difference is
+    // the network rather than the box: a home LAN hands its phones and cameras DHCP
+    // leases, while a deep host sits at an address somebody chose. Three of ACME-CORP's
+    // four deep hosts are cameras and doorbells and televisions, and dropping them would
+    // empty most of the file.
+    expect(names).not.toContain('cam-138');
+    expect(names).toEqual(expect.arrayContaining(['doorbell-87', 'tv-137', 'cam-189']));
   });
 });

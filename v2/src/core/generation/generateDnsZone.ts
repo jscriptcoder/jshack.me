@@ -19,7 +19,9 @@
  */
 
 import type { Ipv4 } from '../network/interfaces';
+import { generateDeepLayer, hostsOnLayer } from './generateDeepLayer';
 import { generateHomeLan, type LanHost } from './generateHomeLan';
+import { chainLinks } from './lanTopology';
 import type { DrawnRole } from './machineRole';
 import { roleOfHostname } from './pools/hostnames';
 
@@ -67,18 +69,51 @@ const belongsInZone = (host: LanHost): boolean => {
   return role !== undefined && ZONED_ROLES.includes(role);
 };
 
+const asRecord = ({ hostname, ip }: LanHost): ZoneRecord => ({ name: hostname, ip });
+
 /**
- * The records the zone for `essid` carries from the home LAN itself.
+ * Every host standing on the layers behind `essid`'s gateways, in the order the chain
+ * reaches them: each layer's own machine, then the gateway that fronts the next one
+ * down, all the way to the network's seeded depth.
  *
- * In the order `generateHomeLan` returns its hosts, which is by address — so the file
- * reads as a walk up the subnet, and a reader can find a host in it the way they would
- * find a line in a scan. No sort of its own: a second ordering here would be a second
- * claim about the same thing, free to disagree with the first.
+ * NOTHING is filtered here, and the same camera the home LAN drops is kept. A deep
+ * layer holds exactly one machine, at a fixed address, behind a gateway an
+ * administrator configured — that is infrastructure however the role dice named it,
+ * and it is the intelligence a player crosses a network to get.
+ *
+ * Walked through `chainLinks`, which is the network's ONE traversal — the pivot scan's
+ * vantage and the deep write target come off the same walk. A second one here would be
+ * a second opinion about the shape of the network, free to disagree with the scan a
+ * player checks the zone against.
  */
-export const zoneRecordsFor = (essid: string): readonly ZoneRecord[] =>
-  generateHomeLan(essid)
-    .hosts.filter(belongsInZone)
-    .map(({ hostname, ip }) => ({ name: hostname, ip }));
+const deepRecordsFor = (essid: string): readonly ZoneRecord[] =>
+  chainLinks(essid).flatMap((link) =>
+    hostsOnLayer(
+      generateDeepLayer(
+        essid,
+        { machineId: link.machineId, kind: link.host.kind },
+        { hangsChild: link.hangsChild },
+      ),
+    ).map(asRecord),
+  );
+
+/**
+ * Every record the zone for `essid` carries: the home LAN's configured half first, then
+ * the layers behind it.
+ *
+ * The home LAN keeps `generateHomeLan`'s own order, which is by address — so the file
+ * opens as a walk up the subnet, readable the way a scan is. No sort of its own: a
+ * second ordering would be a second claim about one thing, free to disagree with the
+ * first.
+ *
+ * The `10.x` block comes last because it is the file's argument. Everything above it a
+ * player could have found by scanning the segment they are standing on; everything
+ * below it they could not.
+ */
+export const zoneRecordsFor = (essid: string): readonly ZoneRecord[] => [
+  ...generateHomeLan(essid).hosts.filter(belongsInZone).map(asRecord),
+  ...deepRecordsFor(essid),
+];
 
 /** Seconds a resolver may cache an answer for. One hour, on every record and as the
  *  zone default, which is what a home network's own zone really looks like. */
