@@ -1,8 +1,8 @@
 # Plan: X1 — DNS, `nslookup` and `dig`
 
 **Status**: Active — **slice 1 has SHIPPED** (v0.206.0, #487) and **slice 2 is IN PROGRESS** on
-`feat/x1-a-box-answers`, cut from trunk at v0.206.0. Increments 0-5 are done and green
-(4410 tests); **increment 6 is next**. Slices 3-4 are grilled but unplanned. This is the first door
+`feat/x1-a-box-answers`, cut from trunk at v0.206.0. Increments 0-6 are done and green
+(4413 tests); **increment 7 is next**. Slices 3-4 are grilled but unplanned. This is the first door
 of **Phase 2 — discovery**, and the first whose world legacy could not hand over.
 **Epic**: [`legacy-parity-epic.md`](legacy-parity-epic.md) → "X1 — resolved scope & decisions
 (grill-me, 2026-09-04)", fourteen locked decisions.
@@ -18,9 +18,10 @@ of **Phase 2 — discovery**, and the first whose world legacy could not hand ov
    (`generateDnsZoneContent`, `generateDnsNamedConf`) ports for the FILE format. Legacy's
    `resolveDomain`/`dnsRecords` do **not** port — they are mission scaffolding for a mechanic v2
    does not have.
-3. **The next action is slice 2's increment 6** on `feat/x1-a-box-answers` — the deep-layer half
-   of `zoneRecordsFor`. Increments 0-5 are committed there (`41a14d22`, `0508270b`, `83873320`,
-   `faa31b77`, and increment 5's); the per-increment record is under "RED-GREEN increments" below.
+3. **The next action is slice 2's increment 7** on `feat/x1-a-box-answers` — the `named.conf`
+   generator, ported from legacy. Increments 0-6 are committed there (`41a14d22`, `0508270b`,
+   `83873320`, `faa31b77`, `f436ee5f` and increment 6's); the per-increment record is under
+   "RED-GREEN increments" below.
    Read slice 1's as-built first: the resolver it left behind is what the zone is written against,
    and its `lanZoneName` is the zone's own origin. **Then read increment 8 — the two files land on
    deep dns boxes as well as Layer-1 ones, which is where two thirds of them are.**
@@ -64,7 +65,7 @@ them.
 | # | Slice | Observable | Status |
 |---|-------|-----------|--------|
 | 1 | a name resolves | `nslookup web-04` answers, and `ssh root@web-04` lands | ✅ **SHIPPED** v0.206.0 (#487) |
-| 2 | a box answers as a name server | `nmap` finds `53 open`; rooting it and `cat`-ing the zone shows the deep layers | 🚧 **IN PROGRESS** — increments 0-5 of 9 done |
+| 2 | a box answers as a name server | `nmap` finds `53 open`; rooting it and `cat`-ing the zone shows the deep layers | 🚧 **IN PROGRESS** — increments 0-6 of 9 done |
 | 3 | the zone transfers | `dig @<server> axfr` hands over the whole address plan | — |
 | 4 | the transfer leaves a trace | `named.log` names whoever transferred it | — |
 
@@ -501,10 +502,24 @@ behaviour to fail.
      decision 9's ordering for free; a second sort here would be a second claim about one thing.
    - Rendered live for OSCORP-GUEST, served by `bind-224`: seven records from `192.168.118.1` to
      `.253`, `iphone`/`cam` absent.
-6. ⬅️ **NEXT — RED — what the deep layers contribute.** Every deep host and child gateway present, IoT
-   included, to the seeded depth; addresses matching the pivot scan's. GREEN: the chain walk,
-   reusing `lanHostIdentity`'s.
-7. **RED — the config file.** One zone stanza, the right file path, `allow-transfer` open on about
+6. ✅ **RED — what the deep layers contribute.** Three tests: every host the pivot scan of each
+   layer reports is in the zone, ACME-CORP's whole twelve-record address list in order, and the
+   cameras dropped on Layer 1 kept down here. GREEN: `deepRecordsFor` over `chainLinks`.
+   - **AC 12 is checked against `resolveDeepScanHosts`, the resolver `nmap` renders from** — not
+     against a second reading of the generator. That is the difference between proving the zone
+     agrees with the scan and merely sharing a seed with it.
+   - **REFACTOR: `hostsOnLayer(layer)` moved into `generateDeepLayer`.** The rule "a layer holds its
+     machine, plus the child gateway when one hangs" was about to exist in two places — the scan
+     had it, and the zone was writing it again. Who stands on a layer is one fact, and a zone
+     disagreeing with the scan a player checks it against is worse than a zone naming nothing.
+   - **Two of increment 5's tests had to be narrowed**, correctly: they asserted over the WHOLE
+     record list when their claim was about the home LAN, so the deep half broke them. Both now
+     select the home-LAN slice by subnet, which also stops a deep host that shares a name with a
+     dropped one from making an exclusion look satisfied.
+   - Rendered live for APERTURE-WIFI, served by the DEEP `dns-29`: four Layer-1 records, then six
+     deep ones across four `10.x` prefixes — and the box writes its own name into the SOA and NS of
+     a zone for the whole network while standing three hops inside it.
+7. ⬅️ **NEXT — RED — the config file.** One zone stanza, the right file path, `allow-transfer` open on about
    three boxes in four and closed on the rest, stable across reloads. GREEN: the `named.conf`
    generator, ported from legacy's `generateDnsNamedConf`.
 8. **RED — placement on BOTH kinds of box.** Both files present on a Layer-1 dns-role box and on a
