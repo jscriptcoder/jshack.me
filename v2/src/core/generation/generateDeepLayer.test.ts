@@ -1,10 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import {
-  buildDeepHostFs,
-  generateDeepLayer,
-  seedNetworkDepth,
-  type FrontingGateway,
-} from './generateDeepLayer';
+import { generateDeepLayer, seedNetworkDepth, type FrontingGateway } from './generateDeepLayer';
+import { buildDeepHostFs } from './deepHostFs';
 import { generateHomeLan, type LanHost } from './generateHomeLan';
 import { buildRemoteHostFs } from './remoteHostFs';
 import type { DrawnRole } from './machineRole';

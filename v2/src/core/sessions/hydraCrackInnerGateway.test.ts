@@ -9,11 +9,8 @@ import { computeWorkstationId } from '../identity/workstation';
 import { computeDeepGatewayId, computeInnerGatewayId } from '../identity/router';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
 import { crackableEssidPool } from '../generation/generateWifi';
-import {
-  buildDeepHostFs,
-  generateDeepLayer,
-  seedNetworkDepth,
-} from '../generation/generateDeepLayer';
+import { generateDeepLayer, seedNetworkDepth } from '../generation/generateDeepLayer';
+import { buildDeepHostFs } from '../generation/deepHostFs';
 import { seedDeepGatewayAdminPw, seedInnerGatewayAdminPw } from '../generation/routerFs';
 import { accountIn } from './passwdAccount';
 import { md5 } from '../generation/md5';

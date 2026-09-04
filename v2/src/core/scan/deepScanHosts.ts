@@ -20,7 +20,8 @@
  * journal — so this layer never reads the world itself.
  */
 
-import { buildDeepHostFs, generateDeepLayer } from '../generation/generateDeepLayer';
+import { generateDeepLayer } from '../generation/generateDeepLayer';
+import { buildDeepHostFs } from '../generation/deepHostFs';
 import { resolveDeepGatewayIdentity, type PivotVantage } from '../generation/lanHostIdentity';
 import { hostMachineId } from '../generation/remoteHostId';
 import { parseAclDenies, readAclConf } from '../network/switchAcl';

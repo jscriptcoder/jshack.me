@@ -11,11 +11,8 @@ import {
 import { applyPatches, type Patch } from '../filesystem/applyPatches';
 import { defaultFilePermissions } from '../filesystem/defaultPermissions';
 import { buildRemoteHostFs, hostServices } from '../generation/remoteHostFs';
-import {
-  buildDeepHostFs,
-  generateDeepLayer,
-  type FrontingGateway,
-} from '../generation/generateDeepLayer';
+import { generateDeepLayer, type FrontingGateway } from '../generation/generateDeepLayer';
+import { buildDeepHostFs } from '../generation/deepHostFs';
 import type { LanHost } from '../generation/generateHomeLan';
 import { apt } from '../commands/apt';
 import { systemctl } from '../commands/systemctl';

@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { isCrossPlayerHop, resolveActiveRoot } from './activeRoot';
 import { generateHomeLan } from '../core/generation/generateHomeLan';
-import { generateDeepLayer, buildDeepHostFs } from '../core/generation/generateDeepLayer';
+import { generateDeepLayer } from '../core/generation/generateDeepLayer';
+import { buildDeepHostFs } from '../core/generation/deepHostFs';
 import { resolveDeepGatewayIdentity } from '../core/generation/lanHostIdentity';
 import { buildRemoteHostFs } from '../core/generation/remoteHostFs';
 import { hostMachineId } from '../core/generation/remoteHostId';
