@@ -4,10 +4,11 @@
 **v0.201.0**. Slice 2: `dc1e294c` (PR #482) at **v0.202.0**. Slice 3: `ed71cee1` (PR #484) at
 **v0.203.0**. Slice 4: `190e7e05` (PR #485) at **v0.204.0**, fourteen acceptance criteria, eleven
 hand-applied mutants and a wire-check that fails against the pre-slice materializer. Every close-out
-is written up below its section. Trunk is at v0.204.0 and level with origin. **The next action is to
-plan slice 5** (`gpg`) — the last of the nine, and the only one gated behind `apt install` rather
-than a stamped binary. **Its branch `feat/d10-a-file-nobody-else-can-read` is cut from trunk at
-v0.204.0** — nothing is planned or built on it yet.
+is written up below its section. Trunk is at v0.204.0 and level with origin. **Slice 5 is planned,
+its sixteen acceptance criteria are confirmed, and its branch is cut** —
+`feat/d10-a-file-nobody-else-can-read`, from trunk at v0.204.0. `gpg` is the last of the nine and
+the only one gated behind `apt install` rather than a stamped binary, so its close-out run starts
+with WiFi and a crack.
 **Epic**: [`legacy-parity-epic.md`](legacy-parity-epic.md) → "D10 — resolved scope & decisions
 (grill-me, 2026-09-02)", fifteen locked decisions.
 
@@ -18,11 +19,11 @@ v0.204.0** — nothing is planned or built on it yet.
 2. **Slices 1 to 4 are shipped and merged**, each with a close-out below its own section.
    Slice 2's settles the `env.ui.*` question for good; slice 4's is the one step 3 sends you
    to, and it is the one that matters before writing anything here.
-3. **The next action is to plan slice 5** (`gpg`) with `/plan`, on the branch already cut for it —
-   `feat/d10-a-file-nobody-else-can-read`, from trunk at `1d04b197`. Read slice 4's close-out first:
-   it records that `gpg` is the one command in this door NOT stamped into `/bin` — it is an apt
-   package like `node`, so the browser proof needs WiFi, a connection and root before the command
-   can be typed — and that everything slice 4 learned about writing (the `reload()` rule, the
+3. **The next action is slice 5's RED 1** on `feat/d10-a-file-nobody-else-can-read`. Its plan and
+   sixteen confirmed ACs are below, including the five decisions the grill settled — the widened
+   `withoutTty`, the world-executable binary that deliberately drops legacy's root-only entry, the
+   refusal to overwrite an existing `.gpg`, instant rather than paced output, and the codec staying
+   private to the command. Everything slice 4 learned about writing (the `reload()` rule, the
    owner-defaulting trap, `baseContent`) applies again. Its scope is locked in the epic; do not
    re-grill the door.
 4. Cut a fresh `feat/…` branch per slice off an up-to-date `main` — check `git status -sb` for
@@ -60,7 +61,7 @@ want found — nine commands that legacy had and v2 has been missing since the r
 | 2 | the card and the second window | `author` opens the card; `xterm` opens a FRESH tab | ✅ **shipped** — `dc1e294c` (PR #482), v0.202.0 |
 | 3 | the box answers questions | `find / passwd` finds it; `strings /bin/ls` reads the stub | ✅ **shipped** — `ed71cee1` (PR #484), v0.203.0 |
 | 4 | permissions change hands | `chmod o+r` opens a file to a tier that could not read it | ✅ **shipped** — `190e7e05` (PR #485), v0.204.0 |
-| 5 | a file nobody else can read | `gpg -c` then `-d` round-trips; a wrong passphrase fails clean | 🌱 branch cut — not planned |
+| 5 | a file nobody else can read | `gpg -c` then `-d` round-trips; a wrong passphrase fails clean | 📋 **planned** — 16 ACs confirmed, branch cut |
 
 Slices 1 to 4 are built. Plan each remaining slice when its predecessor lands — D7, D8 and D9 all
 found later slices cost far less than their plans assumed, because the seams they needed had already
@@ -1712,6 +1713,239 @@ expect the availability tests to look like `node`'s rather than `chmod`'s.
 `scp`), and decision 4 fixes the codec as legacy's, keyed by md5 — which keeps a future
 `john`-cracks-a-`.gpg` arc reachable instead of shipping the one secret in the game that cannot be
 cracked.
+
+## Slice 5: a file nobody else can read
+
+**Value**: Every secret in the game is currently protected by ONE thing — a permission bit the
+walker checks. Root passes that check before it reads a single array, so the moment somebody roots
+your box they read everything on it: your notes, your scripts, the credentials you wrote down.
+There is no second layer, and nothing a player can do about it.
+
+`gpg -c` adds the second layer, and it is the only one that survives being rooted. A file a player
+encrypts is base64 in the journal, base64 to the intruder holding root, and base64 to the server
+that stores it — the passphrase never leaves the player's head. It also closes the door's last
+advertising gap from the other side: `apt list` has offered `gpg` since the package catalog
+shipped, and installing it today lays down a binary whose command does not exist.
+
+**Path**: `apt install gpg` → `/usr/bin/gpg` stamped world-executable → `gpg` resolves through the
+binary check → flags decide the half → passphrase from the line or the masked prompt →
+`md5(passphrase)` → 16 key bytes → for `-c`: `env.fs.reload()` → read the plaintext →
+`<file>.gpg` must not exist → `env.patches.write` with `isNew` → server upsert → the machine's
+journal → every later materialisation, for every reader of that box, as base64; for `-d`: read the
+ciphertext → checksum verified → plaintext to stdout, and nothing written anywhere.
+
+**Class**: Behavior change.
+
+**Delivery**: Independent PR against trunk, cut from `main` at v0.204.0 on
+`feat/d10-a-file-nobody-else-can-read`. No stack, and nothing follows it — this is the last slice
+of the last door in the locked order.
+
+**Required implementation skills**: `tdd`, `testing`, `refactoring`. Load `mutation-testing` at PR
+readiness for the accumulated scope.
+
+**Reduction program**: `N/A`.
+**Transition/terminal evidence**: `N/A`.
+
+### What the planning pass verified, including one thing slice 4's close-out got wrong
+
+Slice 4 ended by warning that this door's "the seam is already declared" pattern breaks here. It
+does, and checking beat assuming again — in both directions.
+
+- **`{ name: 'gpg' }` is in `APT_PACKAGES` with no `binaries` list**, so one binary named after the
+  package lands in `/usr/bin`. `availability: { kind: 'installed-package', packageName: 'gpg' }` is
+  the whole wiring, and `availability.test.ts`'s `APT_HINT_PAIRS` **already carries
+  `['gpg','gpg']`** — the not-found hint is proven before the command exists.
+- **No `libraryDeps` entry, and legacy has none either.** That map is ported verbatim because those
+  links are the future privilege-escalation surface; inventing `gpg: ['libssl']` would fabricate a
+  CVE target. gpg links nothing.
+- **`core/secrets/contentCodec.ts` is NOT this codec.** It is build-time spoiler obfuscation: one
+  baked-in key in the shipped bundle, no checksum, and its own header says it is obfuscation and
+  not secrecy. The codec this slice needs is legacy `src/utils/crypto.ts`.
+- **Correction to slice 4's close-out.** It read `binaries.ts`'s *"gpg/vsftpd/systemctl live in
+  `/usr/bin` or `/usr/sbin`, deferred to later slices"* as reserving the root-only execute bit for
+  this slice. That comment is about **where the binary lives**, not what it permits. The real
+  divergence is legacy's `RESTRICTED_EXECUTE`, decided below.
+
+### The five things this plan decides that the grill left open
+
+**1. `withoutTty` grows the function form `withoutScript` already has, and `gpg` is its first
+caller.** Every prompting command today declares a flat string, which is right for `mysql`, `ftp`,
+`scp` and `su` — they always prompt. `gpg` prompts only when the passphrase is absent, and decision
+3 gives the positional form its whole purpose: usable from a pipeline or a script. A flat string
+would refuse `gpg -d loot.gpg hunter2` in a planted backdoor shell, which is the one vantage where
+reading somebody's encrypted file matters most.
+
+So `withoutTty` becomes `string | ((args, flags) => string | undefined)`, mirroring `withoutScript`
+exactly — same shape, same reason, and `nc` is the precedent that it earns its keep. Two sites read
+it (`runLine.ts:117`, `commandContext.ts:192`) and both get the same treatment `refuseFromScript`
+already gives the other rule.
+
+**2. The installed binary is world-executable; legacy's root-only entry is deliberately NOT
+ported.** Real `/usr/bin/gpg` is 0755 — GnuPG is a per-user tool, and a real box's `apt` shells out
+to it as the unprivileged `_apt` user to check repository signatures. Legacy's `gpg: ['root']` fits
+the tool legacy actually shipped (decrypt-only, for opening loot on a box you had already rooted);
+decision 3 reverses that premise. v2's `RESTRICTED_EXECUTE` holds exactly one name — `reboot` — and
+the line it draws is "acts on the machine", which gpg does not.
+
+This also costs nothing: `apt` stamps every installed binary from one `INSTALLED_BINARY_PERMS`
+constant, so honouring legacy would mean threading a per-package permissions override from the
+catalog through the install path for a single entry. And the restriction is now reachable in-game
+anyway — slice 4 shipped `chmod o-x /usr/bin/gpg`.
+
+**3. `gpg -c` refuses when `<file>.gpg` already exists.** `gpg: notes.txt.gpg: File exists`, exit 1,
+checked against the reloaded tree before anything is written. It is what the real tool does when it
+cannot ask (`--batch` without `--yes`), and the file it would otherwise destroy is ciphertext — no
+undo, and no way to tell afterwards that the passphrase you typed was not the one it was made with.
+The cost is honest: the edit-then-re-encrypt loop needs an `rm` in the middle, which is the same
+beat real gpg's `(y/N)` costs.
+
+**4. Both halves answer instantly.** Legacy paced its decrypt — `Decrypting...`, a 500 ms jittered
+wait, then the plaintext. The commands v2 paces are the ones doing work the player is meant to
+feel: `nmap` sweeping, `aircrack-ng` testing keys, `apt` fetching. A local XOR over a file already
+in hand is not that, the masked prompt supplies the beat, and instant keeps a loop in a node script
+quick. The drama belongs to the future arc where `john` cracks a `.gpg`, not to the codec.
+
+**5. The codec stays private to `gpg.ts` until a second caller exists.** Decision 3 names the later
+content generator as that caller, but it is post-ship, and the same call was made for `chmod`'s
+symbolic-mode parser one slice ago. The functions are fully exercised through `gpg -c` then
+`gpg -d` — round-trip, wrong passphrase, non-ASCII, empty — so extracting now buys a file, not a
+test that can fail.
+
+### Acceptance criteria — CONFIRMED 2026-09-04, before any code
+
+- [ ] **AC-1** `gpg -c notes.txt hunter2` writes `notes.txt.gpg` beside it, says nothing and exits
+      0. `notes.txt` is left exactly as it was — encryption never removes the plaintext.
+- [ ] **AC-2** `cat notes.txt.gpg` shows base64. The plaintext appears nowhere in it, and neither
+      does the passphrase.
+- [ ] **AC-3** `gpg -d notes.txt.gpg hunter2` prints the original content to stdout, byte for byte,
+      including multi-line and non-ASCII text, and writes no file anywhere.
+- [ ] **AC-4** A wrong passphrase fails clean:
+      `gpg: decryption failed: bad passphrase or corrupted data`, exit 1, and not one line of
+      garbage. Same for a file that was never ciphertext.
+- [ ] **AC-5** With the passphrase omitted, both halves ask at a masked prompt
+      (`Enter passphrase: `) and use the answer. An aborted prompt writes nothing and prints
+      nothing; an empty answer is refused with `gpg: no passphrase given`.
+- [ ] **AC-6** Over a session with no tty, `gpg -d loot.gpg hunter2` RUNS, and `gpg -d loot.gpg`
+      refuses in gpg's own words — from the shell and from a script alike.
+- [ ] **AC-7** `gpg -c notes.txt` with `notes.txt.gpg` already present refuses with
+      `gpg: notes.txt.gpg: File exists`, exit 1, and leaves the existing file untouched.
+- [ ] **AC-8** Neither `-c` nor `-d`, or both at once, refuses by naming the two halves, with the
+      usage line — the file is never touched on a mode mistake.
+- [ ] **AC-9** No file operand refuses with `gpg: missing operand` plus the usage line.
+- [ ] **AC-10** A missing target says `No such file or directory`; a directory says `Is a
+      directory`; a file the session may not read says `Permission denied` — all three naming the
+      path AS THE PLAYER TYPED IT, and all three before any write.
+- [ ] **AC-11** `gpg -c` in a directory the session cannot write refuses with
+      `gpg: can't create 'notes.txt.gpg': Permission denied`, before composing anything.
+- [ ] **AC-12** The new `.gpg` belongs to the session that made it with default new-file
+      permissions, and is marked new — so `rm` deletes its row rather than leaving a tombstone.
+- [ ] **AC-13** `gpg -c` re-reads the machine before it composes, so a fellow occupant's writes are
+      visible to both the existence check and the read; a refused patch reports in gpg's voice
+      instead of exiting 0 on a write that never landed.
+- [ ] **AC-14** Before `apt install gpg`, the command answers
+      `bash: gpg: command not found. Install with: apt install gpg`. After it, `/usr/bin/gpg` is
+      world-executable and a user-tier player runs both halves without `su`.
+- [ ] **AC-15** `gpg -d secret.gpg hunter2 | grep -i alice` pipes, and a node script calls both
+      halves with positional passphrases and reads back what it wrote.
+- [ ] **AC-16** The same passphrase and the same plaintext always produce the same ciphertext —
+      there is no salt — and `help`/`man` carry gpg under `filesystem` with both halves documented.
+
+### RED
+
+Twelve steps. The codec is first because everything else is a message about it.
+
+1. **A round trip.** `gpg -c` then `gpg -d` returns the original — multi-line, non-ASCII, and empty
+   content in the same step, since UTF-8 through `btoa` is where a naive port breaks.
+2. **The ciphertext is base64 and hides the plaintext** — asserted on what `cat` shows, not on the
+   codec's return.
+3. **A wrong passphrase is a clean refusal**, exit 1, no garbage; and so is a file that never was
+   ciphertext.
+4. **The plaintext survives encryption**, and `-d` writes nothing.
+5. **The masked prompt** — both halves, `{ masked: true }`, abort and empty-answer arms.
+6. **The tty rule**, at both enforcement sites: the shell refuses `gpg -c f` on an nc session and
+   runs `gpg -c f pass`; a script gets the same two answers. This is the step that widens the type.
+7. **`<file>.gpg` exists** → refusal, existing file untouched.
+8. **Mode flags** — neither, both.
+9. **Missing operand.**
+10. **The three read failures** — missing, directory, unreadable — each naming the typed path.
+11. **The unwritable parent**, refused before composing.
+12. **The write's shape** — new file, session owner, default permissions, `isNew`, composed after a
+    `reload()`, and a rejected patch reported rather than swallowed.
+
+### GREEN — the minimum, in dependency order
+
+1. **The codec, private to `gpg.ts`** — `fnv1a`, `xorWithKey`, encrypt, decrypt, ported from legacy
+   `utils/crypto.ts`, with `md5(passphrase)` where legacy took a hex key.
+2. **`withoutTty`'s function form** — the union in `types.ts`, then one shared helper beside
+   `hasTty` in `runLine.ts` that both call sites use, exactly as `refuseFromScript` serves the
+   script rule.
+3. **The command** — flags, operands, passphrase resolution, the two halves, the refusals.
+4. **Registration** — `registry.ts`, the manual page, and the completion list.
+
+### Three things GREEN must get right
+
+- **No spread over the byte array.** Legacy's `btoa(String.fromCharCode(...combined))` blows the
+  stack on a large file; v2's own `contentCodec.ts` already avoids it with
+  `Array.from(bytes, byte => String.fromCharCode(byte)).join('')`. Port the fix, not the hazard.
+- **`-c` reloads, `-d` does not.** The reload rule is about writing: a composer working from a
+  stale snapshot reverts a fellow occupant's edit. `-d` only reads, and `cat` does not reload
+  either.
+- **The existence check is best-effort, and the plan says so.** There is no create-exclusive write
+  in the patch layer, so two clients encrypting the same file at the same instant can still race.
+  Record it rather than inventing a lock.
+
+### Deliberately not in slice 5
+
+Asymmetric keys, keyrings, `--armor`, signing, `-o`, stdin, recursive encryption, and any `.gpg`
+content in the generated world (decision 2 — the loot rule owns that). `john` against a `.gpg` is
+the future arc the md5 keying keeps reachable, not this slice.
+
+### REFACTOR
+
+The one candidate is the tty helper: two call sites read `withoutTty`, and after this slice both
+have to evaluate a union. If the second site ends up copying the first, fold it into one exported
+function next to `hasTty` — which is where `collectStageOutput` already lives for the same reason.
+
+### PRE-PR MUTATION
+
+Run once at PR readiness over `gpg.ts` plus the two enforcement sites, from `v2/`, with
+`npm run encode` first and the dev server DOWN. Expect the manual-prose family to dominate as it
+did in slices 3 and 4; hand-check any non-manual survivor before writing a test for it, because
+`perTest` has now under-reported twice in two slices.
+
+### Wire-check — `N/A`, with the reason
+
+No `api/` change. `-c` writes an ordinary file patch through the same `patches.write` that `nano`,
+`touch` and `>` use and that slice 4 proved cross-player; `-d` reads. The one shared client+server
+module in the door — `applyPatches` — is untouched here, which is exactly why slice 4 carried a
+wire-check and this one does not.
+
+### Browser close-out
+
+Longer than the other four, because this command has to be installed before it can be typed: WiFi,
+a crack, a connection and root all come first. Budget for it.
+
+1. `gpg` on a fresh box → `command not found`, with the install hint.
+2. `airmon-ng start wlan0` → `airodump-ng` → `aircrack-ng <BSSID>` → `airmon-ng stop wlan0` →
+   `nmcli connect`.
+3. `su root` → `apt install gpg` → `exit`, back to the user tier.
+4. `ls -l /usr/bin/gpg` shows it world-executable — the decision, visible.
+5. As the USER tier: write a file, `gpg -c` it at the masked prompt, `cat` the `.gpg` and see
+   base64, `gpg -d` it back, then get a wrong passphrase refused cleanly.
+6. `gpg -c` the same file again → `File exists`.
+7. `gpg -d secret.gpg hunter2 | grep` — the positional form in a pipeline.
+8. Reload the page: the `.gpg` is still there, because it is a patch like any other.
+9. **The beat the epic named**: `ssh` into a box already rooted, `gpg -c` something there, then read
+   it from the OWNER's side — the defender finds ciphertext on their own machine.
+10. `chmod o-x /usr/bin/gpg`, then run it from the guest tier → denied. Slices 4 and 5 in one line,
+    and proof the divergence from legacy is reversible in-game.
+
+### PR-ready when
+
+Sixteen ACs met; `npm run typecheck`, `npm run lint` and the full suite green from `v2/`; the
+mutation gate closed with survivors classified; the browser close-out run and written up; the
+version bumped to **0.205.0** in both `v2/package.json` and `v2/package-lock.json`; wire-check
+recorded `N/A` with the reason above.
 
 ---
 *Delete this file at D10 close-out and fold the durable rules into

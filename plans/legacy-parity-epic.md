@@ -3307,8 +3307,8 @@ are now resolved. **A door is not proven by its wire-checks alone** — the wire
 green and could not see any of this, because the defects live in the one vantage no endpoint
 answers. One session's browsing produced four findings, three of them invisible to a green suite.
 
-**➡️ NEXT: D10 slice 5 — a file nobody else can read (`gpg -c` / `-d`). Not yet planned. The
-LAST slice of the last door in the locked order.**
+**➡️ NEXT: D10 slice 5 — a file nobody else can read (`gpg -c` / `-d`). Planned, sixteen ACs
+confirmed, branch cut — not yet built. The LAST slice of the last door in the locked order.**
 
 **D10 slice 1 SHIPPED at v0.201.0 (`dd1cc5cf`, PR #481)** — the terminal is the player's: `clear`
 empties the screen and takes the banner with it while leaving the history alone, Ctrl-L does the
@@ -3371,11 +3371,19 @@ on any chmod root ran over it. Both fixed. The first is the one place this door 
 client+server code, so it carries a wire-check (15/15) that fails against the pre-slice materializer
 rather than the browser-only proof the other slices used.
 
-**Plan D10 slice 5 next** (`/plan`), the last slice of the last door. `gpg -c`/`-d` — and the
-"its seam is already declared" pattern that held for slices 1-3 does NOT hold here: `gpg` is
-deliberately absent from `SYSTEM_UTILITY_NAMES` and lives in the apt catalog, so it installs like
-`node`. Close-out, mutation triage (including a SECOND `perTest` false survivor) and the
-cross-player projection finding are in [`d10-polish.md`](d10-polish.md) → "Slice 4 close-out".
+**D10 slice 5 is PLANNED** (sixteen ACs confirmed 2026-09-04, branch cut, not yet built) — the
+last slice of the last door. `gpg -c`/`-d`, and the "its seam is already declared" pattern that held
+for slices 1-3 does NOT hold here: `gpg` is deliberately absent from `SYSTEM_UTILITY_NAMES` and
+lives in the apt catalog, so it installs like `node` and the browser proof starts with WiFi. The
+grill settled five things the locked decisions left open: `withoutTty` grows the function form
+`withoutScript` already has (gpg prompts only when the passphrase is absent, and the positional form
+has to survive a pty-less shell); the installed binary is world-executable, deliberately NOT porting
+legacy's root-only `RESTRICTED_EXECUTE` entry, because real `/usr/bin/gpg` is 0755 and decision 3
+wants a user-tier player able to hide a file; an existing `<file>.gpg` is refused rather than
+overwritten; both halves answer instantly rather than pacing as legacy did; and the codec stays
+private to the command until the content generator needs it. Slice 4's close-out, its mutation
+triage (including a SECOND `perTest` false survivor) and the cross-player projection finding are in
+[`d10-polish.md`](d10-polish.md) → "Slice 4 close-out"; slice 5's plan is in the same file.
 
 **D9 SHIPPED COMPLETE at v0.200.0 (#480)** — the seventh and last door in the locked order
 (ftp → daemons → nc → mysql → redis → snmp → node), across five slices
