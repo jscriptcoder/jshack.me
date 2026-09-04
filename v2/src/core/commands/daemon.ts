@@ -379,6 +379,34 @@ const SNMPD: Daemon = {
   consumeConfig: consumeRwCommunity,
 };
 
+/** The name server, and the only door here that hands over KNOWLEDGE rather than
+ *  access. Starting it opens the port a zone transfer crosses; what a caller who
+ *  crosses it gets is the network's address plan — every layer of it — and not one
+ *  credential, one file or one shell. The route and the password behind each of those
+ *  addresses are exactly as expensive as they were before.
+ *
+ *  Its zone lives on disk either way, so stopping it takes name service off the
+ *  network without taking the intelligence off the box. */
+const NAMED: Daemon = {
+  name: 'named',
+  spec: SERVICE_CATALOG.dns,
+  banner: 'name server',
+  alreadyRunning: 'already running',
+  description: 'Start the BIND name server',
+  availability: { kind: 'installed-package', packageName: 'bind9' },
+  manualDescription:
+    'Start the BIND name server, opening port 53 on this machine so it answers zone ' +
+    'transfers for the network it is authoritative for. There are no accounts: what a ' +
+    "caller may take is decided by the allow-transfer line in this box's own " +
+    '/etc/bind/named.conf, which root can edit. Ordinary name lookups never reach it — ' +
+    "the network's gateway answers those. Must be run as root (run \"su\" first). " +
+    'Refuses to start if a name server is already running.',
+  examples: [
+    { command: 'named', description: 'Start the name server on the default port 53' },
+    { command: 'named 5353', description: 'Start it on port 5353 instead' },
+  ],
+};
+
 export const sshd = daemonCommand(SSHD);
 export const vsftpd = daemonCommand(VSFTPD);
 export const nginx = daemonCommand(NGINX);
@@ -386,6 +414,7 @@ export const apache2 = daemonCommand(APACHE2);
 export const mysqld = daemonCommand(MYSQLD);
 export const redisServer = daemonCommand(REDIS);
 export const snmpd = daemonCommand(SNMPD);
+export const named = daemonCommand(NAMED);
 
 /** Each daemon keyed by the command name that starts it. `systemctl` reads this
  *  to bring a unit up through `bringUp` once it has established the port is
@@ -399,4 +428,5 @@ export const DAEMONS: Readonly<Record<string, Daemon>> = {
   mysqld: MYSQLD,
   'redis-server': REDIS,
   snmpd: SNMPD,
+  named: NAMED,
 };

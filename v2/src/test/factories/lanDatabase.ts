@@ -13,11 +13,8 @@
 
 import { generateHomeLan, type LanHost } from '../../core/generation/generateHomeLan';
 import { crackableEssidPool } from '../../core/generation/generateWifi';
-import {
-  buildDeepHostFs,
-  generateDeepLayer,
-  type DeepLayer,
-} from '../../core/generation/generateDeepLayer';
+import { generateDeepLayer, type DeepLayer } from '../../core/generation/generateDeepLayer';
+import { buildDeepHostFs } from '../../core/generation/deepHostFs';
 import { computeInnerGatewayId } from '../../core/identity/router';
 import { hostMachineId } from '../../core/generation/remoteHostId';
 import { databaseIn } from '../../core/mysql/datadir';

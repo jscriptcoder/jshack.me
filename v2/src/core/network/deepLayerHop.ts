@@ -20,7 +20,7 @@
 
 import { canBoot } from '../boot/bootFiles';
 import { resolveDeepGatewayIdentity } from '../generation/lanHostIdentity';
-import { buildDeepHostFs } from '../generation/generateDeepLayer';
+import { buildDeepHostFs } from '../generation/deepHostFs';
 import { hostMachineId } from '../generation/remoteHostId';
 import { materializeMachineFs, type OwnerPatchRow } from './materializeMachineFs';
 import type { Directory } from '../filesystem/types';

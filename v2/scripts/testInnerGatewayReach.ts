@@ -27,11 +27,8 @@ import { computeDeepGatewayId, computeInnerGatewayId } from '../src/core/identit
 import { seedDeepGatewayAdminPw, seedInnerGatewayAdminPw } from '../src/core/generation/routerFs';
 import { generateHomeLan } from '../src/core/generation/generateHomeLan';
 import { crackableEssidPool } from '../src/core/generation/generateWifi';
-import {
-  generateDeepLayer,
-  buildDeepHostFs,
-  seedNetworkDepth,
-} from '../src/core/generation/generateDeepLayer';
+import { generateDeepLayer, seedNetworkDepth } from '../src/core/generation/generateDeepLayer';
+import { buildDeepHostFs } from '../src/core/generation/deepHostFs';
 import { hostMachineId } from '../src/core/generation/remoteHostId';
 import { accountIn } from '../src/core/sessions/passwdAccount';
 import { md5 } from '../src/core/generation/md5';

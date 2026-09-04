@@ -332,6 +332,44 @@ export const SERVICE_CATALOG = {
     // whatever wordlist a player happened to be holding.
     secretOn: readRwCommunityHash,
   },
+  // The name server, and the second row whose flat rate is zero: roughly one network
+  // in seven draws a box named for one, and that scarcity is what makes the zone
+  // behind this port worth crossing a network for. At any non-zero flat rate a player
+  // would meet name servers on laptops and cameras, and the find would stop being one.
+  //
+  // Keyed `dns` because that is the world's own word for the role and the hostnames
+  // drawn from it; LABELLED `domain` because that is what a default nmap prints for
+  // 53, and the SERVICE column is the only place a player meets either name. The first
+  // row where the two differ.
+  dns: {
+    service: 'domain',
+    pidfile: 'named.pid',
+    defaultPort: 53,
+    // TCP, not UDP, though real lookups are datagrams. In this game the port serves
+    // exactly one operation — the zone transfer, which is TCP in reality too. Ordinary
+    // lookups never reach a box at all: the access point's gateway answers those.
+    runUser: 'bind',
+    // The agent's lesson applied twice: a name server speaks only when spoken to, so a
+    // raw connection that sends no length-prefixed query gets nothing to quote. What is
+    // left is to name the daemon and stop. `DNS/53` was the first draft and was wrong —
+    // a port is not a version, and a banner shaped like `SSH-2.0` where no version
+    // exists is the dating this column forbids, wearing the syntax of the thing it
+    // forbids.
+    banner: 'DNS name server',
+    placement: 0,
+    // No alternate ports. A resolver that moved would be a resolver nothing could find,
+    // and the zone stanza in the box's own named.conf names 53 as a literal.
+    altPorts: [],
+    altPortChance: 0,
+    // Nowhere, in practice: this door has neither accounts nor a secret, so no attempt
+    // is ever formatted to be written. The column has no optional form, and inventing a
+    // named.log destination here would put a second author on the file slice 4 writes.
+    sweepLog: SYSLOG_AUTH_SWEEP,
+    // Nothing — BIND authenticates nobody. A zone is handed to whoever asks or to no
+    // one, which is the transfer's own gate rather than a credential, so a sweep of
+    // this port finds nothing because there is nothing there to find.
+    accountsOn: () => [],
+  },
 } as const satisfies Record<string, ServiceSpec>;
 
 /** The service a caller named (`ssh`, `ftp`), or undefined for one the world has no

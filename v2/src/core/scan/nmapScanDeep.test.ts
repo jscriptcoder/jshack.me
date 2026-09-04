@@ -4,7 +4,8 @@ import { signRequest } from '../signedRequest/sign';
 import { generateIdentity } from '../identity/identity';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
 import { crackableEssidPool } from '../generation/generateWifi';
-import { buildDeepHostFs, generateDeepLayer } from '../generation/generateDeepLayer';
+import { generateDeepLayer } from '../generation/generateDeepLayer';
+import { buildDeepHostFs } from '../generation/deepHostFs';
 import {
   machineIdForLanHost,
   pivotVantageForMachineId,

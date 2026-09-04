@@ -24,7 +24,7 @@ import { gpg } from './gpg';
 import { clear } from './clear';
 import { curl } from './curl';
 import { dig } from './dig';
-import { apache2, mysqld, nginx, redisServer, sshd, vsftpd } from './daemon';
+import { apache2, mysqld, named, nginx, redisServer, sshd, vsftpd } from './daemon';
 import { echo } from './echo';
 import { exit } from './exit';
 import { find } from './find';
@@ -120,6 +120,7 @@ const builtins: readonly Command[] = [
   strings,
   mysqld,
   redisServer,
+  named,
   scp,
   ssh,
   sshd,

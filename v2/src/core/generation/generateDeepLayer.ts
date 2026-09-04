@@ -3,33 +3,31 @@
  * inner gateway hangs a hidden `10.x.y.0/24` segment carrying one reachable NPC
  * machine; the player exposes it by forwarding a port on the gateway.
  *
- * Pure + deterministic from `(pubkey, essid, frontingGateway)`, so the same world
- * re-rolls identically every reload. The `10.x` addressing is deliberately
- * disjoint from the home `192.168.x` LAN (and varies per fronting gateway), so a deep
- * host's address can never be confused with a Layer-1 one — the dual-homed inner
- * gateway sits at `.1` of this subnet (the downstream interface a later pivot
- * scans).
+ * Pure + deterministic from `(essid, frontingGateway)`, so the same world re-rolls
+ * identically every reload — and identically for EVERY OCCUPANT, since neither of
+ * those is keyed by a player. Two people walking down from one inner gateway find
+ * the same chain.
+ *
+ * The `10.x` addressing is deliberately disjoint from the home `192.168.x` LAN (and
+ * varies per fronting gateway), so a deep host's address can never be confused with
+ * a Layer-1 one — the dual-homed inner gateway sits at `.1` of this subnet (the
+ * downstream interface a later pivot scans).
  *
  * A router-fronted layer hangs a CHILD GATEWAY (the door to the next layer down)
  * UNLESS the layer is terminal (`hangsChild: false`) — the bound that keeps a chain
  * finite. The NPC is drawn from the same PRNG stream regardless, so flipping a layer
  * terminal never re-rolls its reachable host.
  *
- * The deep host is a `buildRemoteHostFs` NPC with one guarantee the probabilistic
- * service roll doesn't give: `sshd` is always up on :22, so a deep layer is a
- * RELIABLE target to reach through a forward (the same "reachable by design" stance
- * the inner gateway takes with `hasSsh: true`).
+ * This module answers what a layer IS, never what a box on it holds — the deep
+ * host's tree is `deepHostFs`'s, and keeping it there is what leaves this one free
+ * of filesystem imports. Anything that needs only the network's SHAPE can then walk
+ * the chain without dragging a filesystem generator in behind it.
  */
 
 import { createPrng } from './prng';
-import { buildRemoteHostFs } from './remoteHostFs';
 import { ROUTER_HOSTNAMES } from './routerFs';
 import { machineRole } from './machineRole';
 import { HOSTNAME_PREFIXES } from './pools/hostnames';
-import { applyPatches, type Patch } from '../filesystem/applyPatches';
-import { formatPidfileContent, PIDFILE_PERMISSIONS } from '../services/pidfile';
-import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import type { Directory } from '../filesystem/types';
 import type { LanHost, LanHostKind } from './generateHomeLan';
 
 /** The gateway that FRONTS a deep layer — the seed for that layer's `/24`. Its
@@ -132,25 +130,14 @@ export const generateDeepLayer = (
   return { subnet, host, childGateway };
 };
 
-/** Force `sshd:22` onto the generated NPC tree: a deep host is a reachable target
- *  by design, not by the catalog's probabilistic placement roll. */
-const FORCE_SSHD_PATCH: Patch = {
-  path: '/var/run/sshd.pid',
-  content: formatPidfileContent(SERVICE_CATALOG.ssh, 22),
-  owner: SERVICE_CATALOG.ssh.runUser,
-  permissions: PIDFILE_PERMISSIONS,
-};
-
-/** The deep host's full operable filesystem — the shared NPC box skeleton
- *  (`buildRemoteHostFs`: `/etc/passwd`, toolchain, `/boot`) with `sshd:22`
- *  guaranteed up, so it is always reachable through a forward (and, later,
- *  loggable into via its own `/etc/passwd`).
+/**
+ * The hosts STANDING ON a layer: its one machine, plus the gateway fronting the next
+ * layer down when there is one.
  *
- *  Keyed by `(essid, deep ip)` like the skeleton it builds on — which is also what
- *  keys this host's machine_id (`hostMachineId`). The tree and the id now agree on
- *  what identifies the box; while the tree was seeded per viewer they did not, and a
- *  journal could be replayed over a different machine than the one it was written on.
- *  WHICH deep hosts a player reaches is still private: the layer they hang off is
- *  owner-seeded until the deep chain is shared. */
-export const buildDeepHostFs = (essid: string, host: LanHost): Directory =>
-  applyPatches(buildRemoteHostFs(essid, host), [FORCE_SSHD_PATCH]);
+ * One fact with several readers — the pivot scan lists these, and the zone a name
+ * server publishes names them — so it is answered once. Two spellings of who is on a
+ * layer could disagree, and a zone disagreeing with the scan a player checks it
+ * against is worse than a zone that named nothing.
+ */
+export const hostsOnLayer = (layer: DeepLayer): readonly LanHost[] =>
+  layer.childGateway === null ? [layer.host] : [layer.host, layer.childGateway];

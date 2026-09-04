@@ -5,11 +5,8 @@ import {
 } from './resolveInnerGatewayTarget';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
 import { crackableEssidPool } from '../generation/generateWifi';
-import {
-  buildDeepHostFs,
-  generateDeepLayer,
-  seedNetworkDepth,
-} from '../generation/generateDeepLayer';
+import { generateDeepLayer, seedNetworkDepth } from '../generation/generateDeepLayer';
+import { buildDeepHostFs } from '../generation/deepHostFs';
 import { computeDeepGatewayId, computeInnerGatewayId } from '../identity/router';
 import { hostMachineId } from '../generation/remoteHostId';
 import { accountIn } from '../sessions/passwdAccount';

@@ -59,11 +59,16 @@ const PLACEMENT_BY_ROLE: Readonly<Record<MachineRole, Partial<Record<ServiceName
   // for a role with no door of its own, and that job is over — it stays above the flat
   // rate only because a dump still has to leave the box somehow.
   database: { mysql: 0.9, ftp: 0.4, redis: 0.3 },
-  // Nothing to say yet — the doors that would distinguish these two (smtp, dns)
-  // are not in the catalog, and inventing an ftp or http rate for them would be
-  // flavour dressed up as a rule.
+  // Nothing to say yet — the door that would distinguish it (smtp) is not in the
+  // catalog, and inventing an ftp or http rate for it would be flavour dressed up as
+  // a rule.
   mailserver: {},
-  dns: {},
+  // What the box is FOR, and the whole story for this door: the catalog's flat rate is
+  // zero, so a name server exists exactly where the world named one. Not pinned at 1 —
+  // a box called `ns-12` that answers nothing is a decommissioned one, and its zone
+  // file is still on disk for whoever roots it, which is where the intelligence lives
+  // anyway.
+  dns: { domain: 0.9 },
   // Every gateway bears sshd — the reachability a forward, a pivot and the whole
   // chain behind an inner gateway all rest on. Pinned at 1 rather than guaranteed
   // in code, so a later world can make it vary without reshaping any caller.

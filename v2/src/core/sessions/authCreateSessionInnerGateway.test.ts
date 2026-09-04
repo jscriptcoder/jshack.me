@@ -8,11 +8,8 @@ import { signRequest } from '../signedRequest/sign';
 import { generateIdentity } from '../identity/identity';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
 import { crackableEssidPool } from '../generation/generateWifi';
-import {
-  generateDeepLayer,
-  buildDeepHostFs,
-  seedNetworkDepth,
-} from '../generation/generateDeepLayer';
+import { generateDeepLayer, seedNetworkDepth } from '../generation/generateDeepLayer';
+import { buildDeepHostFs } from '../generation/deepHostFs';
 import { computeDeepGatewayId, computeInnerGatewayId } from '../identity/router';
 import { seedDeepGatewayAdminPw, seedInnerGatewayAdminPw } from '../generation/routerFs';
 import { hostMachineId } from '../generation/remoteHostId';

@@ -1,9 +1,11 @@
 # Plan: X1 — DNS, `nslookup` and `dig`
 
-**Status**: Active — **slice 1 has SHIPPED** (v0.206.0, #487) and **slice 2 is planned, its
-acceptance criteria are confirmed, and its branch is cut**: `feat/x1-a-box-answers`, from trunk at
-v0.206.0. Nothing of it is built yet. Slices 3-4 are grilled but unplanned. This is the first door
-of **Phase 2 — discovery**, and the first whose world legacy could not hand over.
+**Status**: Active — **slice 1 has SHIPPED** (v0.206.0, #487) and **slice 2 is DONE and ready for
+its PR** on `feat/x1-a-box-answers`, cut from trunk at v0.206.0. All ten increments green
+(4433 tests), the mutation gate run, and the browser close-out complete — it confirmed the whole
+beat live on a deep name server and surfaced one write-gate finding (below, logged to the backlog).
+Slices 3-4 are grilled but unplanned. This is the first door of **Phase 2 — discovery**, and the
+first whose world legacy could not hand over.
 **Epic**: [`legacy-parity-epic.md`](legacy-parity-epic.md) → "X1 — resolved scope & decisions
 (grill-me, 2026-09-04)", fourteen locked decisions.
 
@@ -18,10 +20,12 @@ of **Phase 2 — discovery**, and the first whose world legacy could not hand ov
    (`generateDnsZoneContent`, `generateDnsNamedConf`) ports for the FILE format. Legacy's
    `resolveDomain`/`dnsRecords` do **not** port — they are mission scaffolding for a mechanic v2
    does not have.
-3. **The next action is slice 2's increment 0** on `feat/x1-a-box-answers` — the preparatory
-   refactor that breaks the import cycle, before any RED. Read slice 1's as-built first: the
-   resolver it left behind is what slice 2's zone is written against, and its `essidSlug` is the
-   zone's own origin.
+3. **The next action is to open slice 2's PR** (`feat/x1-a-box-answers` → trunk). The whole gate is
+   done: typecheck, lint, 4433 tests, v0.207.0, four scoped mutation batteries, and a live browser
+   close-out — all recorded under "Pre-PR gate" below, including the deep-terminal-NPC write-gate
+   FINDING the close-out surfaced. Increments 0-9 are committed; the per-increment record is under
+   "RED-GREEN increments — as run". Read slice 1's as-built too — the resolver it left behind is
+   what the zone is written against, and its `lanZoneName` is the zone's own origin.
 4. Cut a fresh `feat/…` branch per slice off an up-to-date `main` — check `git status -sb` for
    ahead/behind, per conventions §8, which distinguishes ahead from level where
    `git pull --ff-only` does not.
@@ -62,7 +66,7 @@ them.
 | # | Slice | Observable | Status |
 |---|-------|-----------|--------|
 | 1 | a name resolves | `nslookup web-04` answers, and `ssh root@web-04` lands | ✅ **SHIPPED** v0.206.0 (#487) |
-| 2 | a box answers as a name server | `nmap` finds `53 open`; rooting it and `cat`-ing the zone shows the deep layers | 📋 **planned** — ACs confirmed, branch cut |
+| 2 | a box answers as a name server | `nmap` finds `53 open`; rooting it and `cat`-ing the zone shows the deep layers | ✅ **DONE** — gate + live close-out complete, ready for PR |
 | 3 | the zone transfers | `dig @<server> axfr` hands over the whole address plan | — |
 | 4 | the transfer leaves a trace | `named.log` names whoever transferred it | — |
 
@@ -287,7 +291,8 @@ every other generated file. Slice 4 is the door's only `api/` work.
 Measured by walking all 50 crackable ESSIDs through `generateHomeLan` + the deep chain:
 
 - **6 of 50 networks carry a dns-role box** (Layer 1 or deep) — the epic's "roughly one in seven"
-  holds, at 1 in 8.3. The rarity is real without tuning anything.
+  holds, at 1 in 8.3. The rarity is real without tuning anything. **Re-measured at increment 5: the
+  split is 2 Layer-1 and 4 deep-only, which is why increment 8 places the files on both.**
 - **A zone runs 5-14 records, mean 9.3.** Long enough to be worth a command, short enough to read.
 - **The deep half is mostly IoT.** ACME-CORP's four deep hosts are `doorbell-87` (iot), `smtp-65`
   (mailserver), `tv-137` (iot), `cam-189` (iot). This is the measurement that forced the first
@@ -298,9 +303,14 @@ Measured by walking all 50 crackable ESSIDs through `generateHomeLan` + the deep
 - **`roleOfHostname` returns `undefined` for routers and switches** (their `kind` already says what
   they are), so the Layer-1 rule is *not a machine, OR a machine whose role is one of the five
   server roles* — never a lookup that expects `router` back from a name.
-- **There is an import cycle waiting.** `generateDeepLayer.ts` imports `buildRemoteHostFs`, so a
-  zone generator called FROM `remoteHostFs.ts` closes the loop. The single blocking edge is
-  `buildDeepHostFs` — two lines, imported by 11 files.
+- **The chain walk is private and eager.** `chainGateways` is not exported, and it builds a base
+  filesystem for every gateway as it walks — so a zone generator cannot reuse it, and the epic
+  forbids writing a second traversal. An exported, filesystem-free walk is required work.
+- **⚠️ The repo already contains an import cycle, and it is fine.** `remoteHostFs → serviceCatalog →
+  passwordSweep → upsertPatch → remoteWritePermission → lanHostIdentity → remoteHostFs`, unchanged
+  for as long as it has existed. Planning first read this as a cycle the zone generator would
+  CREATE, and that was wrong — every call across the loop happens at runtime, nothing evaluates at
+  module init, and the suite has never noticed. Do not justify a refactor here by cycle-avoidance.
 - **Two catalog-wide invariants already guard this** (`systemctl.test.ts`): every row's daemon must
   exist as a startable unit, and must be obtainable from a package unless it ships in the base
   image. A `dns` row that skipped either fails an existing test rather than shipping broken.
@@ -354,9 +364,12 @@ Planning's, open to veto at AC confirmation:
 11. **`essidSlug` is exported from `resolveName.ts`.** Slice 1 left it private on purpose rather than
     guess at this moment; the zone's origin is that same slug, and a second implementation of it
     would be two spellings of one name.
-12. **The banner is `DNS/53 FORMERR`** — a protocol identifier plus the code a name server actually
-    returns for a query it cannot parse, which is what a raw connection is. Exactly parallel to the
-    web row's `HTTP/1.1 400 Bad Request`, and version-free as the column requires.
+12. ~~**The banner is `DNS/53 FORMERR`**~~ — **OVERTURNED at increment 1 by a test that already
+    existed.** `nc.test.ts`'s "name the protocol and the daemon, never the build" rejects it on
+    sight: `DNS/53` wears the shape of `SSH-2.0`, a version-shaped identifier where DNS has no
+    version, which is the dating that column forbids in the one syntax that looks most like it
+    isn't. The agent row had already settled the case — a door with no greeting to quote names its
+    daemon and stops. **The banner is `DNS name server`.**
 13. **`generateDeepLayer.ts`'s stale `pubkey` comment is corrected** while the module is open — the
     epic asked for it, and the claim that deep layers are viewer-keyed is exactly the claim this
     slice's one-zone-per-network design depends on being false.
@@ -365,13 +378,18 @@ Planning's, open to veto at AC confirmation:
 
 **Finding the box**
 
-1. A dns-role host runs `named` on `53/tcp`, and `nmap` reports it as `53/tcp open domain`.
+1. A dns-role host runs `named` on `53/tcp`, and `nmap` reports it as `53/tcp open domain`. 🚧 — the
+   open port is tested; the rendered line is assembled but not asserted anywhere (the row omits
+   `protocol`, which defaults to `tcp`, and `nmap` prints `service` verbatim). Browser close-out
+   owns it.
 2. No box of any other role runs it — a `domain` port appears only where the world put a name
-   server.
-3. `nc <dns-box> 53` answers `DNS/53 FORMERR`.
-4. `systemctl stop named` on a rooted dns box closes 53; `systemctl start named` reopens it.
+   server. ✅
+3. `nc <dns-box> 53` answers `DNS name server`. ✅ — **amended at increment 1**: confirmed reading
+   `DNS/53 FORMERR`, which decision 12 records `nc.test.ts` rejecting on sight. The criterion is the
+   banner, not that string.
+4. `systemctl stop named` on a rooted dns box closes 53; `systemctl start named` reopens it. ✅
 5. `apt install bind9` on the player's own box installs `named`, plus `dig` and `nslookup` through
-   the dependency — and `apt install dnsutils` still installs exactly the two it did in slice 1.
+   the dependency — and `apt install dnsutils` still installs exactly the two it did in slice 1. ✅
 
 **Reading what it knows**
 
@@ -400,44 +418,331 @@ Planning's, open to veto at AC confirmation:
 
 ### RED-GREEN increments
 
-**0. Preparatory refactor, no behaviour change.** Move `buildDeepHostFs` (and its `FORCE_SSHD_PATCH`)
-out of `generateDeepLayer.ts` so that module holds topology alone, and update the 11 importers.
-Correct the stale `pubkey` comment in the same pass. Preservation evidence: the full non-watch suite
-green before and after, byte-identical. No RED — there is no behaviour to fail.
+**Increments 0-2 are DONE** — committed on the branch as `41a14d22` (0) and `0508270b`
+(1-2), with the whole suite green at 4398. What each one actually cost is recorded beneath it.
 
-1. **RED — the port.** A dns-role host reports `53/tcp open domain`; a webserver never does. GREEN:
-   the `dns` row in `SERVICE_CATALOG`, the `dns: { domain: 0.9 }` cell, flat `placement: 0`.
-2. **RED — the daemon a player can act on.** The two catalog-wide invariants go red the moment the
-   row lands; `systemctl stop named` then `start named` is the behaviour test in front of them.
-   GREEN: the `NAMED` daemon spec, its `DAEMONS`/`UNITS` entries, its registry row, and the `bind9`
-   package.
-3. **RED — the dependency.** `apt install bind9` lays down `named`, `dig` and `nslookup`;
-   `apt install dnsutils` still lays down exactly two; `packageForBinary('dig')` still answers
-   `dnsutils`. GREEN: the `dependsOn` column and its union in `binariesForService`.
-4. **RED — the zone's shape.** A generated zone parses as a zone: origin, TTL, SOA with five timers,
-   NS. GREEN: the zone formatter, ported from legacy's `generateDnsZoneContent`.
-5. **RED — what Layer 1 contributes.** Servers and infrastructure in; a workstation and an IoT host
-   out, named explicitly on a network measured to have both. GREEN: the Layer-1 filter.
-6. **RED — what the deep layers contribute.** Every deep host and child gateway present, IoT
-   included, to the seeded depth; addresses matching the pivot scan's. GREEN: the chain walk,
-   reusing `lanHostIdentity`'s.
-7. **RED — the config file.** One zone stanza, the right file path, `allow-transfer` open on about
-   three boxes in four and closed on the rest, stable across reloads. GREEN: the `named.conf`
-   generator, ported from legacy's `generateDnsNamedConf`.
-8. **RED — placement on the box.** Both files present on a dns-role box with `named` stopped; absent
-   everywhere else; `/etc/named.conf` gone from the world. GREEN: the role branch in
-   `buildRemoteHostFs`, and the `dns` entry deleted from `CONFIG_BY_ROLE`.
-9. **RED — the duplicate name.** A network whose routers collide lists both records. GREEN: expected
-   to be free; the test pins it so a later "fix" cannot silently drop a record.
+**0. Preparatory refactor, no behaviour change.** Give the zone generator a walk it can use: extract
+`lanTopology` (`lanHostOctet`, `isInnerGateway`, `machineIdForLanHost` and a new filesystem-free
+`chainLinks`), leaving `lanHostIdentity` to project trees onto it and re-export the two helpers so
+no call site moves. Move `buildDeepHostFs` and `FORCE_SSHD_PATCH` into `deepHostFs` so
+`generateDeepLayer` holds topology alone. Correct the stale `pubkey` comment in the same pass.
+Preservation evidence: the full non-watch suite green before and after. No RED — there is no
+behaviour to fail.
+
+1. ✅ **RED — the port.** A dns-role host reports `53/tcp open domain`; a webserver never does.
+   GREEN: the `dns` row in `SERVICE_CATALOG`, the `dns: { domain: 0.9 }` cell, flat `placement: 0`.
+   Three tests in a new *name-service surface* block in `remoteHostFs.test.ts`.
+   - **A worry that turned out not to apply**: a new catalog row does NOT shift the per-host PRNG.
+     `hostServices` seeds a stream per service (`svc-<service>-<essid>-<ip>`), so a row can go
+     anywhere in the catalog without moving one existing roll — 4392 tests were unmoved by adding a
+     door. Position in `SERVICE_CATALOG` is a readability choice, nothing more.
+   - **A third failure appeared that the plan did not predict**, and it was right to:
+     `nc.test.ts`'s banner golden vector. See decision 12 above — the banner was wrong, and an
+     existing invariant caught it.
+2. ✅ **RED — the daemon a player can act on.** The two catalog-wide invariants went red exactly
+   when the row landed, as predicted; `systemctl stop named` then `start named` on a generated
+   `ns-*` box is the behaviour test in front of them, in `generatedBoxDoors.test.ts`. GREEN: the
+   `NAMED` daemon spec, its `DAEMONS`/`UNITS` entries, the `bind9` package, and — driven by its own
+   RED in `availability.test.ts` — the registry row plus an `APT_HINT_PAIRS` entry.
+   - `namedBoxServing(prefix, service)` is new in that file: the existing `boxServing` builds
+     `host-<octet>`, a name no role claims, so with a flat placement of zero it can never produce a
+     name server to shut.
+   - **Found and deliberately not fixed**: `snmpd` is in `DAEMONS` but NOT in the registry, so
+     `apt install snmp` lays a binary that answers `command not found`. Backlogged in conventions
+     §9; it is not this door's bug.
+3. ✅ **RED — the dependency.** Two tests went red: `apt install bind9` laid down only
+   `/usr/sbin/named`, and a generated name server carried only `named`. GREEN: the `dependsOn`
+   column, `bind9` declaring `['dnsutils']`, and one resolver both callers share.
+   - **The union belongs to the catalog, not to `apt`.** The plan named `binariesForService` as the
+     site, but `apt install` never went through it — it had its own private `contentsOf`. Rather
+     than teach two readers the same rule, `contentsOf` MOVED to `aptPackages.ts` as
+     `packageContents`, and both it and `binariesForService` now compose `withDependencies` with
+     `binariesLaidDownBy`. What a package contains was always the catalog's question.
+   - **Daemon-ness is paired WITHIN a package, not unioned across the install.** The old code took
+     one package's `daemons` list; a flat union across several would file a tool in `/usr/sbin`
+     the moment any package beside it shipped a daemon of that name. No such collision exists
+     today, which is exactly when the guard is free.
+   - **The announce line names every package**, `  bind9 dnsutils`, as real apt does. A tool that
+     appears on the box with nothing on screen accounting for it reads as the game acting behind
+     the player's back — the rule `installExtraFiles` already states for shipped files.
+   - **`dependsOn` resolves ONE level.** No catalog row depends on a package that itself depends on
+     something; a walk for the chain that does not exist is a walk no test could fail.
+   - **A generated name server now carries the clients too**, verified against a real
+     `buildRemoteHostFs`: `/usr/bin` gained `dig` and `nslookup` beside `/usr/sbin/named`. It is
+     what makes the box look like one somebody ran `apt install bind9` on, and it makes a rooted
+     name server a place to resolve FROM.
+4. ✅ **RED — the zone's shape.** Six tests against a module that did not exist. GREEN:
+   `generation/generateDnsZone.ts` — `formatDnsZone({ zone, nameserver, records })`, the file format
+   ported from legacy's `generateDnsZoneContent`.
+   - **Decision 11 amended: `lanZoneName(essid)` is exported from `resolveName.ts`, not
+     `essidSlug`.** Every caller wants `acme-corp.lan` whole — the origin, the SOA, the NS and the
+     `zone "…"` line of the config all name it, and not one of them wants the bare slug. Exporting
+     the piece would have invited a second spelling of `.lan` to grow beside the existing one,
+     which is the bug decision 11 exists to prevent, arrived at from the other side.
+   - **A formatter ONLY.** Which hosts belong in a zone is a question about the network; this
+     module is handed records and writes them down. That is what lets increments 5 and 6 apply two
+     different selection rules without either relearning zone syntax.
+   - **`ZoneRecord` is `{ name, ip }`, deliberately not a `LanHost`.** A zone knows nothing about
+     what kind of device answers a name, and the deep-layer records come from elsewhere entirely.
+   - **The SOA comment column is derived from the widest timer**, not hand-aligned as legacy's was.
+     A drifting comment column is the first thing a reader notices and the last thing anyone meant.
+   - Verified by rendering a real one: `$ORIGIN acme-corp.lan.`, the five timers, and a 15-wide name
+     column that holds `192.168.42.1` and `10.14.7.87` in the same place.
+5. ✅ **RED — what Layer 1 contributes.** Four tests: ACME-CORP's exact record list, the
+   keep/drop rule swept over the eight-network population sample, routing gear kept despite naming
+   no role, and every address agreeing with the LAN's. GREEN: `zoneRecordsFor(essid)` beside the
+   formatter.
+   - **ACME-CORP is the case that punishes reading names for roles.** Its `.1` is CALLED
+     `switch-core` and is a `router`; its `firewall01` is a `switch`. Routing gear is read off
+     `kind`; machines are read off the NAME, which is the rule the whole world already follows.
+   - **The role list is an ALLOW-list**, though the seven drawn roles make allow and deny
+     equivalent today. A zone is a thing an administrator wrote, so a role nobody has decided
+     about belongs outside it until somebody does. The test states the same rule the other way
+     round — drop `workstation` and `iot` — so neither is a mirror of the other.
+   - **No sort of its own.** `generateHomeLan` already returns hosts by ascending octet, which is
+     decision 9's ordering for free; a second sort here would be a second claim about one thing.
+   - Rendered live for OSCORP-GUEST, served by `bind-224`: seven records from `192.168.118.1` to
+     `.253`, `iphone`/`cam` absent.
+6. ✅ **RED — what the deep layers contribute.** Three tests: every host the pivot scan of each
+   layer reports is in the zone, ACME-CORP's whole twelve-record address list in order, and the
+   cameras dropped on Layer 1 kept down here. GREEN: `deepRecordsFor` over `chainLinks`.
+   - **AC 12 is checked against `resolveDeepScanHosts`, the resolver `nmap` renders from** — not
+     against a second reading of the generator. That is the difference between proving the zone
+     agrees with the scan and merely sharing a seed with it.
+   - **REFACTOR: `hostsOnLayer(layer)` moved into `generateDeepLayer`.** The rule "a layer holds its
+     machine, plus the child gateway when one hangs" was about to exist in two places — the scan
+     had it, and the zone was writing it again. Who stands on a layer is one fact, and a zone
+     disagreeing with the scan a player checks it against is worse than a zone naming nothing.
+   - **Two of increment 5's tests had to be narrowed**, correctly: they asserted over the WHOLE
+     record list when their claim was about the home LAN, so the deep half broke them. Both now
+     select the home-LAN slice by subnet, which also stops a deep host that shares a name with a
+     dropped one from making an exclusion look satisfied.
+   - Rendered live for APERTURE-WIFI, served by the DEEP `dns-29`: four Layer-1 records, then six
+     deep ones across four `10.x` prefixes — and the box writes its own name into the SOA and NS of
+     a zone for the whole network while standing three hops inside it.
+7. ✅ **RED — the config file.** Six tests: one zone stanza, the zone file's path, the query and
+   recursion lines, both transfer lines, the rate across a 2024-sample population, and one answer
+   per box. GREEN: `formatNamedConf` + `allowsZoneTransfer` + `zoneFilePathFor`, in the same module
+   as the zone.
+   - **`recursion no`, where legacy's templates varied.** This box is authoritative for one zone
+     and there is no DNS in this world beyond the LAN it stands on, so a config advertising
+     recursion invites a player to ask it a question nothing can answer. It is also what a real
+     authoritative server says, and the pooled template being deleted at increment 8 already had
+     it — not a coinage.
+   - **Both files in ONE module, because the config names where the zone file goes.** Two modules
+     would be two statements of one path, free to disagree.
+   - **`/etc/bind/named.conf` and `/etc/bind/zones/db.<zone>`** — Debian's real locations, and they
+     keep the two files beside each other instead of two paths a player learns separately.
+
+   ⚠️ **Measured after green, and it affects slice 3's demo more than this slice.** The rate is
+   right — 63% open across the 19 name servers in the whole world, 70-80% over the test's 2024-pair
+   sample. But the six a player can actually REACH drew badly: only **`GRAD-STUDENT-WIFI`
+   (`ns-116`) and `CAMPUS-GUEST-OPEN` (`ns-196`) are open**; `OSCORP-GUEST`, `APERTURE-WIFI`,
+   `ROBOVAC-AP` and `DEFCON-VILLAGE` all refuse. That is a 1-in-30 draw, not a bug, and re-seeding
+   to get a prettier one would be fitting the world to a wanted result. Two consequences: **slice
+   3's transfer demo must use one of those two**, and this slice's close-out on `APERTURE-WIFI`
+   exercises the CLOSED branch — which is the right thing for slice 2, whose payout is reading the
+   files off a rooted box rather than transferring them.
+8. ✅ **RED — placement on BOTH kinds of box.** Five tests: the pair on a Layer-1 name server, the
+   pair on a DEEP one, both kept on a box whose daemon is stopped, neither anywhere else with
+   `/etc/named.conf` gone, and the config's `file "…"` line resolving to a file the tree really
+   holds. GREEN: `nameServerFilesFor` + one role branch in `buildRemoteHostFs`, and the `dns` entry
+   deleted from the pool.
+
+   ⚠️ **CORRECTION to increment 5's finding — the deep half needed no second branch.** The
+   measurement was right (2 Layer-1, 4 deep-only) and the owner's decision was right, but the
+   mechanism I inferred was wrong: **`buildDeepHostFs` is a thin wrapper over `buildRemoteHostFs`**,
+   adding only a forced `sshd` pidfile. A deep box's tree has always been built by the same
+   function, keyed on `roleOfHostname(host.hostname)`, so a deep `dns-29` already carried the OLD
+   pooled `/etc/named.conf`. One branch reaches every name server at any depth; the claim that
+   `buildRemoteHostFs` alone would ship the door at 1 in 25 was false. Verified by building both
+   boxes and reading `/etc` off each.
+
+   - **The pool's `dns` entry is deleted, and the deletion is enforced by the TYPE.**
+     `PooledConfigRole = Exclude<DrawnRole, 'dns'>` — so a caller reaching for a drawn template for
+     a name server fails to compile rather than silently getting nothing, or worse getting a second
+     file contradicting the generated one. Three of the five templates contradicted locked
+     decisions: one logged every query, two forwarded to public resolvers.
+   - **The strongest test is the one that reads the path back OUT of the config** and goes looking
+     for it in the tree. The config states where the zone lives and the tree decides where it goes;
+     that is the one drift a player would meet as a broken box, and now neither side can move alone.
+   - **`ROLE_FILES` in the pooled-config block loses its `dns` row**, which is what broke three
+     existing tests — correctly. That block is about the drawn pool, and dns has left it.
+   - Read off a real deep name server: `/etc` is `['passwd', 'bind']`, and `/etc/bind/named.conf`
+     names `/etc/bind/zones/db.aperture-wifi.lan`, which is there and holds all ten records.
+9. ✅ **GREEN-on-arrival — the duplicate name.** Three tests: `GRAD-STUDENT-WIFI` listing `router01`
+   at both `192.168.112.1` and `.18` in the rendered file; the resolver answering with one of the
+   two addresses the zone lists; and a sweep of all fifty crackable networks proving no ADDRESS is
+   ever listed twice while eight networks still list a NAME twice. No production change, as planned.
+
+   **A test that arrives passing proves nothing until it is shown to fail**, so the guard was
+   demonstrated rather than asserted: deduping `zoneRecordsFor` by name — the obvious "fix" for what
+   looks like a bug — breaks two of the three, and **the other twenty tests in the file all still
+   pass under it**. Before this increment a name-keyed zone would have shipped silently, dropping an
+   address a player can reach and leaving nothing else in the file looking wrong.
+
+   - **Eight of fifty, measured — the planning figure holds.** `INITECH-5G`, `DUNDER-LAN`,
+     `ABSTERGO-NET`, `VANDELAY-INDUSTRIES`, `GRAD-STUDENT-WIFI`, `TRAIN-STATION-FREE`,
+     `DOORBELL-CAM-OPEN` and `HACKERSPACE-2600`. Seven collide on the gateway at `.1`; only
+     `HACKERSPACE-2600` collides between two non-gateway routers.
+   - **The address is the identity; the name is not.** 467 records across the pool, not one repeated
+     address. That pairing is the claim: a name may appear twice, an address never does — and it is
+     what lets one sweep tell a dedupe apart from a double-listing bug.
+   - **Two A records under one name is round-robin, not a defect**, which is why the resolver test is
+     the third. `resolveLanName` finds by hostname and `generateHomeLan` sorts by ascending octet, so
+     the gateway at `.1` wins — one answer out of two listed, exactly what a real resolver gives. The
+     `.18` is the address the file is worth crossing a network to read.
+   - `GRAD-STUDENT-WIFI` over the other seven because it is also one of the two networks whose name
+     server accepts a transfer: slice 3's demo network and this collision are the same network.
 
 ### Pre-PR gate
 
-Typecheck, lint, the full non-watch suite, and the version bumped to **0.207.0** in `package.json`
-and `package-lock.json`. Mutation testing over the accumulated scope — the zone formatter is
-string-shaped, so expect the golden-vector rule to matter and expect `manual`/`description` metadata
-survivors, which conventions §7 accepts. Wire-check `N/A`.
+✅ **Typecheck, lint and the full non-watch suite pass at 4433 tests**, with the version bumped to
+**0.207.0** in `package.json` and `package-lock.json`. Wire-check `N/A` — no `api/` change; the zone
+is generated client-side from the ESSID like every other generated file, and slice 4 is the door's
+only `api/` work.
 
-**Browser close-out**: crack a network that HAS a dns box (one of the six — pick it by measurement
-before the run rather than hunting for it in-game), sweep it, find `53/tcp open domain`, root the
-box, read both files, check a deep address in the zone against a pivot scan of that layer, and stop
-the daemon to prove the port closes and the files stay.
+#### ✅ Mutation gate — four scoped batteries
+
+One battery per group of changed production files, each with a throwaway vitest config narrowing
+`include` to the covering tests (conventions §4 — a whole-suite dry run never finishes here). Scored
+against the lines this branch actually changed; the rest of each file is pre-existing scope.
+
+| Battery | Files | In changed lines |
+|---|---|---|
+| A — the zone | `generateDnsZone.ts` | 87 killed / 2 equivalent (was 74/16) |
+| B — placement | `remoteHostFs.ts`, `configFiles.ts`, `rolePlacement.ts` | **22 killed / 0 survived** |
+| C — packages | `aptPackages.ts`, `apt.ts`, `serviceCatalog.ts` | 49 killed / 4 accepted |
+| D — daemon control | `daemon.ts`, `systemctl.ts`, `registry.ts` | 6 killed (was 2) / 12 metadata + 3 write-only + 1 artifact |
+| E — the topology refactor | `lanTopology.ts`, `lanHostIdentity.ts`, `generateDeepLayer.ts`, `deepHostFs.ts`, `deepScanHosts.ts`, `deepLayerHop.ts`, `resolveName.ts` | 70 killed / 1 real, 4 artifacts |
+
+**Six tests written, and every one of them came from a survivor rather than from a guess:**
+
+1. **Two golden vectors** — the whole zone file and the whole `named.conf`, line for line. Twelve
+   survivors were single string literals and two were the SOA column width, and none of the
+   one-question tests above them could see any of it. Written as BIND syntax first and the formatter
+   required to match, not pasted out of its output.
+2. **A Layer-1 name server appears in its own zone.** `'dns'` in `ZONED_ROLES` survived, and
+   hand-applying it left **all 4427 tests green** while a name server vanished from the zone it
+   publishes — an NS line naming a host with no A record, which is a broken zone. Only
+   `OSCORP-GUEST` (`bind-224`) and `DEFCON-VILLAGE` (`resolver-69`) put one on Layer 1 and neither is
+   in the sample; everywhere else the server is deep, where nothing is filtered by role at all. That
+   is exactly why the gap could sit there.
+3. **The name server's own announcements** — a new `named.test.ts`, the per-daemon file every other
+   daemon already had and this slice skipped. It covers only what is NAMED's own (`Starting name
+   server...`, `named: already running on port 53`); the shared `daemonCommand` machinery is proven
+   six times over in `sshd.test.ts` and is not repeated.
+4. **`systemctl status named` names its unit** — the existing assertion read only the state, so
+   `named.service - name server` was free to drift.
+5. **A Layer-1 chain gateway resolves the LAN's tree, not a parent's.** Increment 0 collapsed two
+   separate call sites into one ternary on `link.parentMachineId === null`, and the Layer-1 arm was
+   never taken in a test: forcing it to `false` left the **full 4433-test suite green** while a
+   rooted Layer-1 gateway's pivot scan and its `rules.v4` write path both resolved somebody else's
+   tree. The only genuine hole the refactor introduced, and the clearest argument for gating a
+   refactor rather than trusting that it moved code.
+
+**One dead export removed**: `NAMED_CONF_PATH` was read by nothing — not production, not tests. The
+tree names `named.conf` directly as a directory key, so the constant had no caller. Deleted rather
+than given a test.
+
+#### Survivors accepted, with the evidence for each
+
+- **`role !== undefined` → `true`** (`generateDnsZone.ts`). Redundant before
+  `ZONED_ROLES.includes(role)`, which is `false` for `undefined` anyway. The documented
+  type-narrowing class.
+- **`next() < 0.75` → `<=`** (`allowsZoneTransfer`). Enumerated rather than assumed, as conventions
+  §4 requires: **12,700 (network, address) pairs across the whole crackable pool, none landing
+  exactly on 0.75**, closest approach 6.8e-5. The two operators cannot disagree anywhere in the
+  reachable world.
+- **The apt → library path in `installPackage`** (three mutants, one of them `NoCoverage`).
+  **Zero of the catalog's package binaries appear in `libraryDeps`** — the utilities that have
+  libraries (`su`, `systemctl`, `ls`, …) are preinstalled, not apt-installed — so `libraries` is
+  always `[]` and the `!libResult.ok` arm is unreachable through a package install. The function
+  itself is directly tested with an injected dep map, which is what its injectable parameter is for.
+- **`?? []` fallbacks → `["Stryker was here"]`** (`dependsOn`, `daemons`). The next step filters by
+  name and finds nothing; the guard itself still dies. Documented equivalent class.
+- **`manual`, `description` and `examples` metadata** (12 in `NAMED`, 31 pre-existing in `apt`).
+  Conventions §7 accepts these.
+- **`availability: { kind, packageName }` on `NAMED`** (3 mutants). Not a gap and not this slice's:
+  **nothing in the codebase reads `availability.kind` or `.packageName`.** The install hint comes
+  from `packageForBinary` (the apt catalog) and the gate from `isAlwaysAvailable` (name sets). Ten
+  other commands carry the same write-only field — a reduction candidate, not a test to write.
+
+#### Two findings worth carrying forward
+
+- **A fifth and sixth instance of the false-survivor pattern**, both proved by hand. Emptying
+  `remoteHostFs`'s `/etc` object and emptying the whole `NAMED` literal both report SURVIVED and both
+  take files down at MODULE LOAD — the second one killed four test files outright, and Vitest's
+  "no tests" is what Stryker scores as a survivor. Four more (`lanTopology` ×3, `lanHostIdentity`'s
+  deep-host loop) were narrow-include artifacts that the FULL suite kills. Of eleven non-metadata
+  survivors hand-checked in this gate, **six were tooling and one was real** — the check is the
+  cheapest step in the triage and it stayed cheap.
+- **A flaky test outside this slice.** `hydraCrackPublic.test.ts` → "a database published through a
+  forward … earns an account in a stranger's database" failed once under a 97-file `vitest related`
+  run and passed on an identical re-run, and passes alone. Two full-suite runs since are green. Not
+  slice 2's code and not reproduced; recorded so the next person to see it knows it has been seen.
+
+**Browser close-out**: crack a network whose dns box is DEEP — `APERTURE-WIFI`, `GRAD-STUDENT-WIFI`,
+`CAMPUS-GUEST-OPEN` or `ROBOVAC-AP`. A deep one exercises placement, the chain walk and the pivot
+cross-check in a single pass, where a Layer-1 one exercises only the first. Sweep it, find `53/tcp
+open domain`, root the box, read both files, check a deep address in the zone against a pivot scan
+of that layer, and stop the daemon to prove the port closes and the files stay.
+
+#### ✅ Browser close-out — run on GRAD-STUDENT-WIFI (deep `ns-116`)
+
+A per-player neighbourhood, so none of the four candidate ESSIDs were in the first scan;
+re-scanning re-rolls the draw (`scanIndex` seeds the wifi PRNG) and `GRAD-STUDENT-WIFI`
+came up on the first re-scan — the best of the four, being both the open-transfer demo
+network and increment 9's duplicate-name network. Cracked in (`aircrack-ng` →
+`football99`), connected at `192.168.112.201`, rooted the workstation.
+
+Everything the slice ships, confirmed against the running game:
+
+- **The duplicate is live.** `nmap 192.168.112.1-254` lists `router01` at BOTH `.1` and
+  `.18` — increment 9's test predicted this exact network, and the sweep shows it.
+- **The chain walk and the pivot cross-check (AC 12), in one pass.** Rooted the inner
+  gateway at `.18` (credential derived offline: `thornfield2`), installed `nmap` on it,
+  and pivot-scanned its deep segment: `10.165.42.116 ns-116` and `10.165.42.204
+  edge-rtr-204` — the scan the zone is written against, agreeing with the zone's deep
+  records live rather than by a shared seed.
+- **The door, on a deep box.** `nmap 10.165.42.116` from the gateway → `53/tcp open
+  domain`. Reached `ns-116` through a NAT forward the player writes on the gateway
+  (`nano rules.v4` → `forward 2222 to 10.165.42.116:22`, which the scan then shows as
+  `2222/tcp open ssh`), then `ssh -p 2222 root@192.168.112.18` with the deep host's root
+  password (`oxide_flux`, cracked offline against the game's own pools).
+- **Both files, read off the rooted box, match the generator.** `named.conf`:
+  `recursion no`, `allow-query { any; }`, `allow-transfer { any; }` (open, as the offline
+  probe predicted). The zone: `$ORIGIN grad-student-wifi.lan.`, the full SOA block,
+  `@ IN NS ns-116.…` naming a host that HAS an A record (the broken-zone case the
+  `ZONED_ROLES` mutant would have produced — not present), `router01` at both addresses,
+  and four deep records across three `10.x` prefixes.
+- **`systemctl status named`** shows the header the mutation gate strengthened:
+  `● named.service - name server` / `active (running) on port 53`.
+
+⚠️ **FINDING — a deep terminal NPC box is READ-ONLY when rooted, so `systemctl stop
+named` could not run there.** `stop` is a `patches.remove`, and the cross-player/deep
+write gate (`remoteWritePermission` L2) resolves a target only as the AP gateway, a
+home-LAN NPC sibling (`lanBaseFsForMachineId`), a deep chain GATEWAY
+(`chainGatewayBaseFsForMachineId`), or an occupant workstation. `ns-116` is a deep
+TERMINAL NPC — a `machine` at the end of the chain — so it matches no arm and the write
+fails closed with `403 permission_denied` (`Password:`… `whoami` → `root`, yet
+`systemctl stop named` → `Permission denied`). Verified by resolving its id against every
+arm: `ns-116-6ba015ee` matches none. The `nano rules.v4` write on the gateway in this
+same run succeeded precisely because a gateway DOES match an arm.
+
+- **Not slice 2's, and not DNS-specific.** The write-gate asymmetry predates this door;
+  every write verb (`systemctl`, `nano`) is denied on any deep terminal NPC, whatever it
+  runs. Slice 2 places the files correctly; the box it lands on happens to be unwritable
+  to a visitor.
+- **The daemon-stop mechanism itself is proven** by `generatedBoxDoors.test.ts` ("closes
+  the name-service port of a box named for one, and reopens it"), which drives `systemctl
+  stop/start named` against a box's own journal and asserts port 53 leaves and returns
+  with the files untouched. Owner decision (2026-09-04): accept that unit evidence for the
+  stop rather than hunt a Layer-1 dns box live.
+- **The story the code tells still holds, with a boundary now named.** `daemon.ts`'s NAMED
+  comment — "an owner who roots their own name server can take name service off the
+  network without losing the zone" — is about a box the player can WRITE. A deep NPC name
+  server on a cracked network is read-only to a visitor, so the stop is unreachable there;
+  a Layer-1 NPC name server (only `bind-224`/OSCORP-GUEST and `resolver-69`/DEFCON-VILLAGE
+  world-wide) IS writable via the LAN-NPC arm. Depth alone decides it. Logged to the
+  backlog in `conventions-and-gotchas.md` as a candidate, since it is broader than DNS.

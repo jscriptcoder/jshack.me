@@ -11,11 +11,8 @@ import {
 import { applyPatches, type Patch } from '../filesystem/applyPatches';
 import { defaultFilePermissions } from '../filesystem/defaultPermissions';
 import { buildRemoteHostFs, hostServices } from '../generation/remoteHostFs';
-import {
-  buildDeepHostFs,
-  generateDeepLayer,
-  type FrontingGateway,
-} from '../generation/generateDeepLayer';
+import { generateDeepLayer, type FrontingGateway } from '../generation/generateDeepLayer';
+import { buildDeepHostFs } from '../generation/deepHostFs';
 import type { LanHost } from '../generation/generateHomeLan';
 import { apt } from '../commands/apt';
 import { systemctl } from '../commands/systemctl';
@@ -74,6 +71,25 @@ const servingOctet = (service: string): number => {
 /** A generated box that serves `service`, as it stands before anyone touches it. */
 const boxServing = (service: string): Directory =>
   buildRemoteHostFs(ESSID, host(servingOctet(service)));
+
+/** A host NAMED for a role, as against the role-less `host-<octet>` above. */
+const namedHost = (prefix: string, octet: number): LanHost => ({
+  ip: `${SUBNET}.${octet}`,
+  hostname: `${prefix}-${octet}`,
+  kind: 'machine',
+});
+
+/** A generated box called `<prefix>-<octet>` that serves `service`, before anyone
+ *  touches it. Some doors have a flat placement of zero and exist only where the
+ *  world NAMED a box for them, so no `host-<octet>` box can ever produce one to
+ *  shut. Throws rather than skipping, for the reason `servingOctet` does. */
+const namedBoxServing = (prefix: string, service: string): Directory => {
+  const octet = OCTETS.find((candidate) =>
+    hostServices(ESSID, namedHost(prefix, candidate)).some(({ spec }) => spec.service === service),
+  );
+  if (octet === undefined) throw new Error(`no ${prefix}-* host on ${ESSID} serves ${service}`);
+  return buildRemoteHostFs(ESSID, namedHost(prefix, octet));
+};
 
 /** One step taken while standing on a box: what the terminal printed, what it
  *  exited with, and the box AS IT NOW IS — the step's own patches replayed over
@@ -235,6 +251,28 @@ describe('a door on a generated box can be shut, and opened again', () => {
 
     const shut = await on(stopped.box, systemctl, ['status', 'mysqld']);
     expect(shut.text).toContain('○');
+  });
+
+  it('closes the name-service port of a box named for one, and reopens it', async () => {
+    // The door a whole network's address plan sits behind, and the reason it must be
+    // stoppable like any other: an owner who roots their own name server can take name
+    // service off the network without losing the zone, which stays on disk either way.
+    const serving = namedBoxServing('ns', SERVICE_CATALOG.dns.service);
+
+    const before = await on(serving, systemctl, ['status', 'named']);
+    // The whole header, not just the state: the unit answers to `named` and calls
+    // itself a name server, which is how a player scanning `systemctl` output finds
+    // the door they are looking for among the five other daemons a box can run.
+    expect(before.text).toContain('named.service - name server');
+    expect(before.text).toContain('active (running) on port 53');
+
+    const stopped = await on(before.box, systemctl, ['stop', 'named']);
+    expect(stopped.exitCode).toBe(0);
+    expect(openPorts(stopped.box)).not.toContain(53);
+
+    const restarted = await on(stopped.box, systemctl, ['start', 'named']);
+    expect(restarted.exitCode).toBe(0);
+    expect(openPorts(restarted.box)).toContain(53);
   });
 
   it('keeps a door shut across a reboot, because the pidfile is a journal row', async () => {

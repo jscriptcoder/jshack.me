@@ -108,6 +108,18 @@ export type AptPackage = {
    *  both halves names each binary once: `mysql` provides the client and the
    *  daemon, and only the second is admin's. */
   readonly daemons?: readonly string[];
+  /** Packages apt pulls in alongside this one, the way a real bind9 pulls in the
+   *  client tools it would be useless without.
+   *
+   *  A dependency rather than a longer `binaries` list because `binaryToPackage`
+   *  keeps the LAST row claiming a name: a server row claiming `dig` outright would
+   *  quietly take over the install hint from the package that really ships it, and
+   *  start telling players to buy a server when they wanted a client.
+   *
+   *  Resolved ONE level deep. Nothing here depends on a package that itself depends
+   *  on something, and a walk written for a chain that does not exist is a walk no
+   *  test could ever fail. */
+  readonly dependsOn?: readonly string[];
   /** Data files this package ships. Omitted by packages that ship only code. */
   readonly extraFiles?: readonly AptExtraFile[];
 };
@@ -119,6 +131,12 @@ export const APT_PACKAGES: readonly AptPackage[] = [
   // `apt install dig`, and a player who tried would be right to expect it to fail
   // the way it fails on a real box.
   { name: 'dnsutils', binaries: ['dig', 'nslookup'] },
+  // The server behind those clients, and the one box in the world that runs it. Its
+  // daemon is what a `dns` role box carries and what `systemctl start named` brings
+  // up. It claims neither client binary of its own — it DEPENDS on the package that
+  // ships them, so buying the server gets you the pair while `apt install dig` still
+  // points at the two-tool package a player who only wants to ask questions needs.
+  { name: 'bind9', binaries: ['named'], daemons: ['named'], dependsOn: ['dnsutils'] },
   { name: 'john' },
   { name: 'netcat', binaries: ['nc'] },
   { name: 'ftp' },
@@ -283,6 +301,15 @@ const binariesOf = (pkg: AptPackage): readonly string[] => pkg.binaries ?? [pkg.
  *  tool. Paired with `binariesOf` so neither default has to be remembered twice. */
 const daemonsOf = (pkg: AptPackage): readonly string[] => pkg.daemons ?? [];
 
+/** A package together with everything it pulls in, in the order apt lays them down:
+ *  the named one first, then its dependencies. One level deep, as `dependsOn` says. */
+const withDependencies = (pkg: AptPackage): readonly AptPackage[] => [
+  pkg,
+  ...(pkg.dependsOn ?? []).flatMap((name) =>
+    APT_PACKAGES.filter((candidate) => candidate.name === name),
+  ),
+];
+
 /** One binary a box carries, and whether apt would file it as a daemon — which is
  *  the whole of what decides `/usr/sbin` over `/usr/bin`. */
 export type ServiceBinary = {
@@ -290,9 +317,45 @@ export type ServiceBinary = {
   readonly isDaemon: boolean;
 };
 
+/** One package's binaries, each paired with whether apt files it as a daemon. Paired
+ *  WITHIN the package rather than against a union across the whole install, so a tool
+ *  can never land in `/usr/sbin` merely because a package beside it ships a daemon of
+ *  the same name. */
+const binariesLaidDownBy = (pkg: AptPackage): readonly ServiceBinary[] =>
+  binariesOf(pkg).map((binary) => ({ binary, isDaemon: daemonsOf(pkg).includes(binary) }));
+
+/**
+ * What `apt install <packageName>` really puts on a box — every package the install
+ * covers, the binaries they lay down, and the data files they ship — or `undefined`
+ * when the catalog sells no such package.
+ *
+ * Answered in ONE lookup so a caller cannot end up asking about a package it has
+ * already failed to find, and answered HERE rather than inside `apt` because what a
+ * package contains is the catalog's own question: the world generator asks a version
+ * of it too.
+ */
+export const packageContents = (
+  packageName: string,
+):
+  | {
+      readonly packageNames: readonly string[];
+      readonly binaries: readonly ServiceBinary[];
+      readonly extraFiles: readonly AptExtraFile[];
+    }
+  | undefined => {
+  const pkg = APT_PACKAGES.find((candidate) => candidate.name === packageName);
+  if (pkg === undefined) return undefined;
+  const installing = withDependencies(pkg);
+  return {
+    packageNames: installing.map((installed) => installed.name),
+    binaries: installing.flatMap(binariesLaidDownBy),
+    extraFiles: installing.flatMap((installed) => installed.extraFiles ?? []),
+  };
+};
+
 /**
  * The binaries a machine RUNNING `service` carries: every package that either
- * shares the service's name or ships its daemon.
+ * shares the service's name or ships its daemon, plus whatever those depend on.
  *
  * Read off the same catalog `apt install` installs from rather than restated
  * wherever a box is built, so a package that grows a binary grows it on every box
@@ -315,11 +378,9 @@ export const binariesForService = ({
   readonly service: string;
   readonly daemon: string;
 }): readonly ServiceBinary[] =>
-  APT_PACKAGES.filter(
-    (pkg) => pkg.name === service || daemonsOf(pkg).includes(daemon),
-  ).flatMap((pkg) =>
-    binariesOf(pkg).map((binary) => ({
-      binary,
-      isDaemon: daemonsOf(pkg).includes(binary),
-    })),
-  );
+  APT_PACKAGES.filter((pkg) => pkg.name === service || daemonsOf(pkg).includes(daemon))
+    // Dependencies included, so a generated box looks like one somebody really ran
+    // `apt install` on — which is the only way it could have come to run the service
+    // at all. Root a name server and its client tools are there to resolve FROM.
+    .flatMap(withDependencies)
+    .flatMap(binariesLaidDownBy);

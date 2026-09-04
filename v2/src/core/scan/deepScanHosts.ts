@@ -20,7 +20,8 @@
  * journal — so this layer never reads the world itself.
  */
 
-import { buildDeepHostFs, generateDeepLayer } from '../generation/generateDeepLayer';
+import { generateDeepLayer, hostsOnLayer } from '../generation/generateDeepLayer';
+import { buildDeepHostFs } from '../generation/deepHostFs';
 import { resolveDeepGatewayIdentity, type PivotVantage } from '../generation/lanHostIdentity';
 import { hostMachineId } from '../generation/remoteHostId';
 import { parseAclDenies, readAclConf } from '../network/switchAcl';
@@ -63,7 +64,7 @@ export const resolveDeepScanHosts = (
     { hangsChild: vantage.hangsChild },
   );
   const deniedPorts = deniedPortsFor(vantage, vantageFs);
-  const layerHosts = deep.childGateway === null ? [deep.host] : [deep.host, deep.childGateway];
+  const layerHosts = hostsOnLayer(deep);
   const hosts = layerHosts.map((host) => {
     // The terminal NPC is a coordinate-keyed box with sshd forced up; a child gateway
     // (router OR switch) takes its octet-keyed deep-gateway identity, so a switch child

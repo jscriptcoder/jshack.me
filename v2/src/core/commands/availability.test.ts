@@ -281,6 +281,37 @@ describe('commandRegistry gating (registry wiring)', () => {
     },
   );
 
+  it('gates named behind an apt install, then reaches it once /usr/sbin/named is there', async () => {
+    // A binary the world installs that no command answers to reads as a broken install
+    // — the reason `dig` shipped a slice early rather than sit in /usr/bin saying
+    // `command not found`. The same claim, for the daemon behind it.
+    const command = commandRegistry.get('named');
+    if (command === undefined) throw new Error('named not registered');
+
+    const fresh = mockCommandEnv({
+      fs: mockFsViewFromTree(buildDirectory({ tmp: buildDirectory({}) }), {
+        userType: 'user',
+        cwd: asAbsPath('/tmp'),
+      }),
+    });
+    const before = await command.execute(fresh, [], NO_FLAGS);
+    expect(errorLines(before)).toEqual([
+      'bash: named: command not found. Install with: apt install bind9',
+    ]);
+    expect(before.kind === 'sync' && before.exitCode).toBe(127);
+
+    const installed = mockCommandEnv({
+      fs: mockFsViewFromTree(treeWithSbinBinary('named'), {
+        userType: 'user',
+        cwd: asAbsPath('/'),
+      }),
+    });
+    const after = await command.execute(installed, [], NO_FLAGS);
+
+    // Its own refusal, not the gate's — the command was reached.
+    expect(errorLines(after)).toEqual(['named: must be run as root']);
+  });
+
   it.each(['clear', 'whoami'])('runs %s once its /bin binary is back', async (name) => {
     const command = commandRegistry.get(name);
     if (command === undefined) throw new Error(`${name} not registered`);
@@ -474,6 +505,7 @@ describe('wrapWithBinaryCheck — /usr/bin resolution + apt-install hint (slice 
     ['lynx', 'lynx'],
     ['apache2', 'apache2'],
     ['nginx', 'nginx'],
+    ['named', 'bind9'],
   ];
 
   it.each(APT_HINT_PAIRS)(

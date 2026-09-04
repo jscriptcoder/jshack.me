@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { lanZoneName } from '../network/resolveName';
+import { buildDeepHostFs } from './deepHostFs';
 import { buildRemoteHostFs, hostServices } from './remoteHostFs';
 import { md5 } from './md5';
 import { DEFAULT_WORDLIST } from '../wordlist/defaultWordlist';
@@ -7,6 +9,7 @@ import { createFsView } from '../filesystem/fsView';
 import {
   formatListenerContent,
   PIDFILE_PERMISSIONS,
+  readOpenPorts,
   readRunningProcesses,
   type Listener,
 } from '../services/pidfile';
@@ -2383,7 +2386,10 @@ describe('buildRemoteHostFs', () => {
       { prefix: 'nas', filename: 'vsftpd.conf' },
       { prefix: 'db', filename: 'mysql.cnf' },
       { prefix: 'mail', filename: 'postfix.conf' },
-      { prefix: 'dns', filename: 'named.conf' },
+      // No `dns` row: a name server's config describes the network it stands on — its
+      // zone, that zone's file, whether it will hand the whole thing over — and no
+      // drawn template could have written any of that. It is generated instead, under
+      // `/etc/bind`, and the name-service block below owns it.
     ];
 
     /** The one file in `/etc` that is not `passwd`, or null where the box keeps
@@ -2551,6 +2557,142 @@ describe('buildRemoteHostFs', () => {
       // what every test above this block stands on: their boxes are named that way,
       // so an unconditional config file would have moved all of them.
       expect(roleConfigOf(buildRemoteHostFs(ESSID, host(42)))).toBeNull();
+    });
+  });
+
+  describe('the name-service surface (a box named for one answers on 53)', () => {
+    /** What one generated box says about the name-service door, read off the box while
+     *  it is being built so the box itself can be discarded. */
+    type NameServerBox = {
+      readonly prefix: string;
+      readonly octet: number;
+      readonly pidfile: FileEntry | undefined;
+      readonly openPorts: readonly { readonly port: number; readonly service: string }[];
+    };
+
+    const inspect = (prefix: string, octet: number): NameServerBox => {
+      const fs = buildRemoteHostFs(ESSID, namedHost(prefix, octet));
+      return {
+        prefix,
+        octet,
+        pidfile: fileAt(fs, 'var', 'run', 'named.pid'),
+        openPorts: readOpenPorts(fs),
+      };
+    };
+
+    /** Five kinds of box over a LAN's worth of addresses, generated once for the whole
+     *  block — a placement rate is a property of the world, so one box proves nothing
+     *  about it, and regenerating per assertion is slow enough under mutation
+     *  instrumentation to race the timeout. */
+    const population = lazily(() =>
+      ['ns', 'www', 'db', 'host', 'cam'].flatMap((prefix) =>
+        OCTETS.map((octet) => inspect(prefix, octet)),
+      ),
+    );
+
+    const boxesOn = (prefix: string): readonly NameServerBox[] =>
+      population().filter((box) => box.prefix === prefix);
+
+    const namedRateOn = (prefix: string): number =>
+      boxesOn(prefix).filter((box) => box.pidfile !== undefined).length / boxesOn(prefix).length;
+
+    it('plants a named.pid on a box named for a name server, and a scan reads it as domain', () => {
+      // `domain` rather than `dns`: it is what a default nmap prints for 53, and the
+      // SERVICE column is the only place a player meets this name.
+      const running = boxesOn('ns').find((box) => box.pidfile !== undefined);
+
+      expect(running?.pidfile?.content).toBe('named:port=53');
+      expect(running?.pidfile?.owner).toBe('bind');
+      expect(running?.openPorts).toContainEqual({ port: 53, service: 'domain' });
+    });
+
+    it('runs a name server on nearly every box named for one, so the name is worth reading', () => {
+      expect(namedRateOn('ns')).toBeGreaterThan(0.8);
+      expect(namedRateOn('ns')).toBeLessThan(1);
+    });
+
+    it('runs one NOWHERE else, because the rarity is the whole balance of the door', () => {
+      // Roughly one network in seven draws a dns box at all, and that scarcity is what
+      // makes a zone worth crossing a network for. A flat rate above zero would put a
+      // name server on laptops and cameras and dissolve it.
+      const elsewhere = ['www', 'db', 'host', 'cam'].filter((prefix) => namedRateOn(prefix) > 0);
+
+      expect(elsewhere).toEqual([]);
+    });
+
+    /** The two files a name server keeps, read off a built box. */
+    const dnsFilesOf = (fs: Directory) => ({
+      conf: fileAt(fs, 'etc', 'bind', 'named.conf'),
+      zone: fileAt(fs, 'etc', 'bind', 'zones', `db.${lanZoneName(ESSID)}`),
+      pooled: fileAt(fs, 'etc', 'named.conf'),
+    });
+
+    it('gives a box named for a name server the config and the zone it describes', () => {
+      const { conf, zone } = dnsFilesOf(buildRemoteHostFs(ESSID, namedHost('ns', 42)));
+
+      expect(conf?.content).toContain(`zone "${lanZoneName(ESSID)}" {`);
+      expect(zone?.content).toContain(`$ORIGIN ${lanZoneName(ESSID)}.`);
+      // The box writes ITSELF into the zone it serves — the SOA and the NS both name
+      // the machine the file is sitting on, not the network in the abstract.
+      expect(zone?.content).toContain(`@  IN NS  ns-42.${lanZoneName(ESSID)}.`);
+    });
+
+    it('names, in the config, a path the box really has a file at', () => {
+      // The one drift this door can suffer that a player would meet as a broken box:
+      // the config states where the zone lives, and the tree decides where it is put.
+      // Read the path back OUT of the config and go looking for it, so neither can be
+      // changed alone.
+      const fs = buildRemoteHostFs(ESSID, namedHost('ns', 42));
+      const declared = /file "([^"]+)"/.exec(dnsFilesOf(fs).conf?.content ?? '')?.[1] ?? '';
+
+      expect(declared).not.toBe('');
+      expect(fileAt(fs, ...declared.split('/').filter((segment) => segment !== ''))?.content)
+        .toContain('$ORIGIN');
+    });
+
+    it('gives them to a name server DEEP in the chain too, where two thirds of them are', () => {
+      // A deep layer is where most of the world's name servers actually stand, and a
+      // deep one is the better find: its zone describes the layers a player has not
+      // reached, because the zone belongs to the NETWORK rather than to a segment.
+      const deep = buildDeepHostFs(ESSID, {
+        ip: '10.52.186.29',
+        hostname: 'ns-29',
+        kind: 'machine',
+      });
+
+      expect(dnsFilesOf(deep).conf?.content).toContain(`zone "${lanZoneName(ESSID)}" {`);
+      expect(dnsFilesOf(deep).zone?.content).toContain(`@  IN NS  ns-29.${lanZoneName(ESSID)}.`);
+    });
+
+    it('keeps both on a box whose daemon is stopped, because a config is not a symptom', () => {
+      // The files follow the ROLE, not the service. `systemctl stop named` closes the
+      // port and leaves the intelligence exactly where it was, which is what a file on
+      // a disk does — and what makes stopping the daemon a defence rather than a
+      // deletion.
+      const stopped = boxesOn('ns').find((box) => box.pidfile === undefined);
+      const fs = buildRemoteHostFs(ESSID, namedHost('ns', stopped?.octet ?? 2));
+
+      expect(readOpenPorts(fs).some(({ port }) => port === 53)).toBe(false);
+      expect(dnsFilesOf(fs).conf).toBeDefined();
+      expect(dnsFilesOf(fs).zone).toBeDefined();
+    });
+
+    it('gives them to no other box, and leaves the old pooled config nowhere in the world', () => {
+      // `/etc/named.conf` was five drawn templates, three of which contradicted locked
+      // decisions — one logging every query, two forwarding to public resolvers in a
+      // world with no DNS beyond the LAN. One authority per fact: the generated pair
+      // replaces them outright rather than sitting beside them.
+      const elsewhere = ['www', 'db', 'host', 'cam'].map((prefix) =>
+        dnsFilesOf(buildRemoteHostFs(ESSID, namedHost(prefix, 42))),
+      );
+
+      for (const files of elsewhere) {
+        expect(files.conf).toBeUndefined();
+        expect(files.zone).toBeUndefined();
+      }
+      for (const octet of [2, 42, 254]) {
+        expect(dnsFilesOf(buildRemoteHostFs(ESSID, namedHost('ns', octet))).pooled).toBeUndefined();
+      }
     });
   });
 });
