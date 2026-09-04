@@ -27,6 +27,7 @@ import { createFsView } from '../filesystem/fsView';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import { parseHttpUrl, resolveWebPath } from '../network/http';
 import { isPublicIp } from '../generation/ip';
+import { addressForTarget } from '../network/resolveName';
 import { connectedWlan0 } from '../network/interfaces';
 import { reachWebHost } from './webHost';
 import { fetchPageAcrossNetwork } from './webPage';
@@ -81,8 +82,8 @@ const execute: Command['execute'] = async (env, args, flags) => {
     return error(USAGE);
   }
 
-  const url = parseHttpUrl(raw);
-  if (url === null) {
+  const requested = parseHttpUrl(raw);
+  if (requested === null) {
     return error(`curl: (3) URL rejected: ${raw}`);
   }
 
@@ -90,6 +91,19 @@ const execute: Command['execute'] = async (env, args, flags) => {
   if (wlan0 === null) {
     return error(UNREACHABLE);
   }
+
+  // A name becomes the address before anything routes on it, so every path below
+  // sees the target it already knows how to reach. A name nothing answers to is left
+  // exactly as typed, and falls through to the same unknown-target path an unknown
+  // address takes.
+  const url = {
+    ...requested,
+    host: await addressForTarget({
+      essid: wlan0.association.essid,
+      target: requested.host,
+      resolveOccupants: env.scan.resolveOccupants,
+    }),
+  };
 
   // A public address is not on this LAN by construction, so it can only be reached the
   // way the internet is reached — through the server. Gated on being online first: the

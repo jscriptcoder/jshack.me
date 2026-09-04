@@ -121,6 +121,16 @@ describe('nc against a port on someone else’s box', () => {
     expect(exitCode).toBe(0);
   });
 
+  it('reaches a host typed as a NAME exactly as it reaches it by address', async () => {
+    const host = lanHostServing(22, 'ssh');
+
+    const byAddress = await drain(await nc.execute(onlineEnv(), [host.ip, '22'], NO_FLAGS));
+    const byName = await drain(await nc.execute(onlineEnv(), [host.hostname, '22'], NO_FLAGS));
+
+    expect(byAddress.exitCode).toBe(0);
+    expect(byName).toEqual(byAddress);
+  });
+
   it('refuses a port nothing is serving, naming the port asked for', async () => {
     const host = lanHostServing(22, 'ssh');
 

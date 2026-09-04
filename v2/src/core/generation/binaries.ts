@@ -62,8 +62,6 @@ export const SYSTEM_UTILITY_NAMES = [
   'ping',
   'ifconfig',
   'curl',
-  'nslookup',
-  'dig',
   'nmcli',
   'apt',
   'rm',

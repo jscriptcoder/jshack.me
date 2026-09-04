@@ -39,6 +39,7 @@ import {
   type PivotVantage,
 } from '../generation/lanHostIdentity';
 import { connectedWlan0 } from '../network/interfaces';
+import { addressForTarget } from '../network/resolveName';
 
 const error = (message: string): CommandResult => ({
   kind: 'sync',
@@ -276,6 +277,16 @@ const execute: Command['execute'] = async (env, args) => {
 
   const essid = wlan0.association.essid;
 
+  // A name becomes the address before anything routes on it, so every path below
+  // sees the target it already knows how to reach. A name nothing answers to is left
+  // exactly as typed, and falls through to the same unknown-target path an unknown
+  // address takes.
+  const target = await addressForTarget({
+    essid,
+    target: rawTarget,
+    resolveOccupants: env.scan.resolveOccupants,
+  });
+
   // Reachability pivot: when the active shell sits on a gateway that fronts a deep
   // layer — an inner gateway on the home LAN, or a deep child gateway one hop down —
   // that gateway's downstream deep `/24` is directly scannable from here. A deep-subnet
@@ -283,7 +294,7 @@ const execute: Command['execute'] = async (env, args) => {
   // — so the upstream segment stays visible from the gateway too.
   const pivotVantage = pivotVantageForMachineId(essid, env.session.machineId);
   if (pivotVantage !== null) {
-    const pivotScan = resolveDeepPivotScan(env, essid, rawTarget, pivotVantage);
+    const pivotScan = resolveDeepPivotScan(env, essid, target, pivotVantage);
     if (pivotScan !== null) {
       return pivotScan;
     }
@@ -296,9 +307,9 @@ const execute: Command['execute'] = async (env, args) => {
   // workstation name the registry holds. A per-ESSID derivation would give one machine
   // two names — a cover only its owner is behind, which nobody else is fooled by.
   const baseLan = withSelfHost(generateHomeLan(essid), wlan0.ipv4, env.workstationName);
-  const parsed = parseScanTarget(rawTarget, baseLan.subnet);
+  const parsed = parseScanTarget(target, baseLan.subnet);
   if (!parsed.ok) {
-    return error(parsed.reason === 'usage' ? USAGE : outOfRange(rawTarget, baseLan.subnet));
+    return error(parsed.reason === 'usage' ? USAGE : outOfRange(target, baseLan.subnet));
   }
 
   // Merge the ESSID's other live occupants over the generated NPC siblings, so a real
@@ -316,7 +327,7 @@ const execute: Command['execute'] = async (env, args) => {
   // real round-trip runs alongside the streamed display rather than delaying it,
   // and so a logging failure — or an unwired seam — never breaks the scan.
   try {
-    void env.scan.record({ essid, target: rawTarget, sourceIp: wlan0.ipv4 }).catch(() => undefined);
+    void env.scan.record({ essid, target, sourceIp: wlan0.ipv4 }).catch(() => undefined);
   } catch {
     // best-effort: logging must not surface to the scan.
   }
@@ -369,8 +380,8 @@ const execute: Command['execute'] = async (env, args) => {
 
   const lines =
     parsed.target.kind === 'range'
-      ? scanRange(env, rawTarget, hosts)
-      : scanSingle(env, rawTarget, hosts[0], resolveHostPorts);
+      ? scanRange(env, target, hosts)
+      : scanSingle(env, target, hosts[0], resolveHostPorts);
   return { kind: 'async', lines, exitCode: async () => 0 };
 };
 

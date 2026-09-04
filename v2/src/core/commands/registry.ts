@@ -23,6 +23,7 @@ import { chmod } from './chmod';
 import { gpg } from './gpg';
 import { clear } from './clear';
 import { curl } from './curl';
+import { dig } from './dig';
 import { apache2, mysqld, nginx, redisServer, sshd, vsftpd } from './daemon';
 import { echo } from './echo';
 import { exit } from './exit';
@@ -42,6 +43,7 @@ import { nano } from './nano';
 import { nc } from './nc';
 import { nmap } from './nmap';
 import { nmcli } from './nmcli';
+import { nslookup } from './nslookup';
 import { node } from './node';
 import { ping } from './ping';
 import { ps } from './ps';
@@ -81,6 +83,7 @@ const builtins: readonly Command[] = [
   gpg,
   clear,
   curl,
+  dig,
   echo,
   exit,
   find,
@@ -101,6 +104,7 @@ const builtins: readonly Command[] = [
   nmap,
   nmcli,
   node,
+  nslookup,
   ping,
   ps,
   pwd,

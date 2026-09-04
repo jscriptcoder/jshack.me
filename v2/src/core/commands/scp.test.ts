@@ -217,6 +217,25 @@ const download = (
 ): readonly string[] => [`root@${host.ip}:${source}`, destination];
 
 describe('scp', () => {
+  it('carries a file to a host typed as a NAME, onto the same box', async () => {
+    const { sshHost } = pickHosts();
+    const write = vi.fn<NonNullable<EnvOver['write']>>(async () => ({ ok: true }));
+
+    const { exitCode } = await drain(
+      await scp.execute(
+        scpEnv({ write }),
+        [SOURCE, `root@${sshHost.hostname}:${REMOTE_DEST}`],
+        new Map(),
+      ),
+    );
+
+    expect(exitCode).toBe(0);
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(write.mock.calls[0]![0]).toMatchObject({
+      machineId: hostMachineId(sshHost, ESSID),
+    });
+  });
+
   it('carries a file onto the target and reports the transfer once it has landed', async () => {
     const { sshHost } = pickHosts();
     const write = vi.fn<NonNullable<EnvOver['write']>>(async () => ({ ok: true }));

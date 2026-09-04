@@ -238,6 +238,18 @@ describe('ftp', () => {
     expect(failure).toContain('Connection refused');
   });
 
+  it('logs in to a host typed as a NAME exactly as it does by address', async () => {
+    const { ftpHost } = pickHosts();
+    const entered = vi.fn();
+
+    const result = await ftp.execute(ftpEnv({ onEnter: entered }), [ftpHost.hostname], new Map());
+
+    expect(linesOf(result)).toContain('230 Login successful');
+    expect(entered.mock.calls[0]![0]).toMatchObject({
+      machineId: hostMachineId(ftpHost, ESSID),
+    });
+  });
+
   it('refuses to connect at all while the machine is offline', async () => {
     const prompt = vi.fn(async () => 'hunter2');
     const env = mockCommandEnv({

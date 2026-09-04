@@ -21,6 +21,7 @@ import { asMachineId } from '../types';
 import { generateHomeLan } from '../generation/generateHomeLan';
 import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
 import { isPublicIp } from '../generation/ip';
+import { addressForTarget } from '../network/resolveName';
 import { readOpenPorts } from '../services/pidfile';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import type { Command, CommandEnv, CommandResult, PublicAuthResult, Session } from './types';
@@ -187,14 +188,24 @@ const publicLogin = async (
 };
 
 const execute: Command['execute'] = async (env, args, flags) => {
-  const target = args[0];
-  if (target === undefined) return errorResult(USAGE);
+  const requested = args[0];
+  if (requested === undefined) return errorResult(USAGE);
 
   const essid = env.network.interfaces().find((iface) => iface.kind === 'wireless')?.association
     ?.essid;
   if (essid === undefined || !env.network.isOnline()) {
     return errorResult('ftp: connect: Network is unreachable');
   }
+
+  // A name becomes the address before anything routes on it, so every path below
+  // sees the target it already knows how to reach. A name nothing answers to is left
+  // exactly as typed, and falls through to the same unknown-target path an unknown
+  // address takes.
+  const target = await addressForTarget({
+    essid,
+    target: requested,
+    resolveOccupants: env.scan.resolveOccupants,
+  });
 
   return isPublicIp(target)
     ? publicLogin(env, target, parsePort(flags.get('-p')), args[1])

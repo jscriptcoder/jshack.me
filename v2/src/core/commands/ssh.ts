@@ -19,6 +19,7 @@ import { asMachineId } from '../types';
 import { generateHomeLan } from '../generation/generateHomeLan';
 import { isInnerGateway, resolveLanHostIdentity } from '../generation/lanHostIdentity';
 import { isPublicIp } from '../generation/ip';
+import { addressForTarget } from '../network/resolveName';
 import { parsePidfilePort } from '../services/pidfile';
 import type { Command, CommandEnv, CommandResult, Session } from './types';
 import type { Directory } from '../filesystem/types';
@@ -249,8 +250,8 @@ const executeForwardLogin = async (
 const execute: Command['execute'] = async (env, args, flags) => {
   const rawTarget = args[0];
   if (rawTarget === undefined) return errorResult(USAGE);
-  const target = parseTarget(rawTarget);
-  if (target === null) return errorResult(USAGE);
+  const requested = parseTarget(rawTarget);
+  if (requested === null) return errorResult(USAGE);
   const port = parsePort(flags.get('-p'));
 
   const wlan0 = env.network.interfaces().find((iface) => iface.name === 'wlan0');
@@ -260,21 +261,36 @@ const execute: Command['execute'] = async (env, args, flags) => {
     wlan0.kind !== 'wireless' ||
     wlan0.association === null
   ) {
-    return connectError(target.host, port, 'Network is unreachable');
+    return connectError(requested.host, port, 'Network is unreachable');
   }
   const essid = wlan0.association.essid;
   const sourceIp = wlan0.ipv4;
 
   // A public IP isn't on the player's own LAN — route it cross-player (server-side lookup
-  // resolution + cross-player auth) instead of the deterministic own-LAN path.
-  if (isPublicIp(target.host)) {
-    return executePublicLogin(env, target, port, sourceIp);
+  // resolution + cross-player auth) instead of the deterministic own-LAN path. Checked on
+  // what the player TYPED: a name only ever resolves to somewhere on this LAN.
+  if (isPublicIp(requested.host)) {
+    return executePublicLogin(env, requested, port, sourceIp);
   }
 
   // A private IP that belongs to a FELLOW OCCUPANT of this ESSID is reached directly
   // over the shared LAN. Checked BEFORE the generated-LAN path so a real occupant wins
   // an octet collision with a generated NPC — the same precedence the nmap merge uses.
   const occupants = await env.scan.resolveOccupants(essid);
+
+  // A name becomes an address before anything routes on it, so every path below sees
+  // the target it already knows how to reach. Resolved against the occupant list read
+  // just above: one round trip answers both what a box is called and whether it is a
+  // real player's. A name nothing answers to is left exactly as typed and falls
+  // through to `No route to host`, the same as an address nothing answers to.
+  const target = {
+    ...requested,
+    host: await addressForTarget({
+      essid,
+      target: requested.host,
+      resolveOccupants: async () => occupants,
+    }),
+  };
   if (occupants.some((occupant) => occupant.localIp === target.host)) {
     return executeSameLanLogin(env, target, port, sourceIp, essid);
   }

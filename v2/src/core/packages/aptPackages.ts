@@ -114,6 +114,11 @@ export type AptPackage = {
 
 export const APT_PACKAGES: readonly AptPackage[] = [
   { name: 'nmap' },
+  // The other half of recon: `nmap` asks what is at an address, these ask what an
+  // address is called. Both under the name the tools really ship as — nobody types
+  // `apt install dig`, and a player who tried would be right to expect it to fail
+  // the way it fails on a real box.
+  { name: 'dnsutils', binaries: ['dig', 'nslookup'] },
   { name: 'john' },
   { name: 'netcat', binaries: ['nc'] },
   { name: 'ftp' },

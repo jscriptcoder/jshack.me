@@ -301,6 +301,42 @@ describe('ssh', () => {
     expect(onCwd).toHaveBeenCalledWith('/root');
   });
 
+  it('reaches a host typed as a NAME exactly as it reaches the same host by address', async () => {
+    // The whole point of the name: a player reads `web-04` off a scan and uses it,
+    // without ever looking up the address in the row beside it. Same box, same
+    // authorisation, same session — the address is what the server is told.
+    const { sshHost } = pickHosts();
+    const authenticate = vi.fn<(params: RemoteAuthParams) => Promise<RemoteAuthResult>>(
+      async () => ({ ok: true, userType: 'root' }),
+    );
+    const onPush = vi.fn<(session: Session) => void>();
+
+    const result = sync(
+      await ssh.execute(
+        sshEnv({ authenticate, onPush }),
+        [`root@${sshHost.hostname}`],
+        new Map(),
+      ),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(authenticate.mock.calls[0]![0]).toMatchObject({ targetIp: sshHost.ip });
+    expect(onPush.mock.calls[0]![0]).toMatchObject({
+      machineId: hostMachineId(sshHost, ESSID),
+    });
+  });
+
+  it('reports No route to host for a name nothing on the network answers to', async () => {
+    // An unresolvable name is left exactly as typed, so it lands on the same
+    // unknown-target path an unknown ADDRESS lands on. No new error to learn.
+    const result = sync(await ssh.execute(sshEnv(), ['root@nosuchbox'], new Map()));
+
+    expect(result.exitCode).toBe(255);
+    expect(result.lines.map((line) => line.content)).toEqual([
+      'ssh: connect to host nosuchbox port 22: No route to host',
+    ]);
+  });
+
   it('lands a non-root login in /home/<user>', async () => {
     const { sshHost } = pickHosts();
     const onCwd = vi.fn<(path: string) => void>();
