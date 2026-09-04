@@ -1,8 +1,8 @@
 # Plan: X1 — DNS, `nslookup` and `dig`
 
 **Status**: Active — **slice 1 has SHIPPED** (v0.206.0, #487) and **slice 2 is IN PROGRESS** on
-`feat/x1-a-box-answers`, cut from trunk at v0.206.0. Increments 0-7 are done and green
-(4419 tests); **increment 8 is next**. Slices 3-4 are grilled but unplanned. This is the first door
+`feat/x1-a-box-answers`, cut from trunk at v0.206.0. Increments 0-8 are done and green
+(4424 tests); **increment 9 is next**. Slices 3-4 are grilled but unplanned. This is the first door
 of **Phase 2 — discovery**, and the first whose world legacy could not hand over.
 **Epic**: [`legacy-parity-epic.md`](legacy-parity-epic.md) → "X1 — resolved scope & decisions
 (grill-me, 2026-09-04)", fourteen locked decisions.
@@ -18,13 +18,11 @@ of **Phase 2 — discovery**, and the first whose world legacy could not hand ov
    (`generateDnsZoneContent`, `generateDnsNamedConf`) ports for the FILE format. Legacy's
    `resolveDomain`/`dnsRecords` do **not** port — they are mission scaffolding for a mechanic v2
    does not have.
-3. **The next action is slice 2's increment 8** — placement, and read its entry in full before
-   touching anything: the two files land on **deep** dns boxes as well as Layer-1 ones, which is
-   where two thirds of them are. Increments 0-7 are committed on `feat/x1-a-box-answers`
-   (`41a14d22`, `0508270b`, `83873320`, `faa31b77`, `f436ee5f`, `99433467` and increment 7's); the
-   per-increment record is under "RED-GREEN increments" below. Read slice 1's as-built too — the
-   resolver it left behind is what the zone is written against, and its `lanZoneName` is the zone's
-   own origin.
+3. **The next action is slice 2's increment 9** — the duplicate name, then the pre-PR gate below.
+   Increments 0-8 are committed on `feat/x1-a-box-answers` (`41a14d22`, `0508270b`, `83873320`,
+   `faa31b77`, `f436ee5f`, `99433467`, `9cd4d3db` and increment 8's); the per-increment record is
+   under "RED-GREEN increments" below. Read slice 1's as-built too — the resolver it left behind is
+   what the zone is written against, and its `lanZoneName` is the zone's own origin.
 4. Cut a fresh `feat/…` branch per slice off an up-to-date `main` — check `git status -sb` for
    ahead/behind, per conventions §8, which distinguishes ahead from level where
    `git pull --ff-only` does not.
@@ -65,7 +63,7 @@ them.
 | # | Slice | Observable | Status |
 |---|-------|-----------|--------|
 | 1 | a name resolves | `nslookup web-04` answers, and `ssh root@web-04` lands | ✅ **SHIPPED** v0.206.0 (#487) |
-| 2 | a box answers as a name server | `nmap` finds `53 open`; rooting it and `cat`-ing the zone shows the deep layers | 🚧 **IN PROGRESS** — increments 0-7 of 9 done |
+| 2 | a box answers as a name server | `nmap` finds `53 open`; rooting it and `cat`-ing the zone shows the deep layers | 🚧 **IN PROGRESS** — increments 0-8 of 9 done |
 | 3 | the zone transfers | `dig @<server> axfr` hands over the whole address plan | — |
 | 4 | the transfer leaves a trace | `named.log` names whoever transferred it | — |
 
@@ -542,31 +540,34 @@ behaviour to fail.
    3's transfer demo must use one of those two**, and this slice's close-out on `APERTURE-WIFI`
    exercises the CLOSED branch — which is the right thing for slice 2, whose payout is reading the
    files off a rooted box rather than transferring them.
-8. ⬅️ **NEXT — RED — placement on BOTH kinds of box.** Both files present on a Layer-1 dns-role box and on a
-   DEEP dns-role box, with `named` stopped; absent everywhere else; `/etc/named.conf` gone from the
-   world. GREEN: the role branch in `buildRemoteHostFs` **and the matching one in
-   `buildDeepHostFs`**, and the `dns` entry deleted from `CONFIG_BY_ROLE`.
+8. ✅ **RED — placement on BOTH kinds of box.** Five tests: the pair on a Layer-1 name server, the
+   pair on a DEEP one, both kept on a box whose daemon is stopped, neither anywhere else with
+   `/etc/named.conf` gone, and the config's `file "…"` line resolving to a file the tree really
+   holds. GREEN: `nameServerFilesFor` + one role branch in `buildRemoteHostFs`, and the `dns` entry
+   deleted from the pool.
 
-   **Why both — measured at increment 5, decided by the owner 2026-09-04.** The "6 of 50" this plan
-   records is Layer 1 **or deep**, and the split is lopsided: only **2 of 50** crackable networks
-   carry a Layer-1 dns box (`OSCORP-GUEST`, `DEFCON-VILLAGE`); the other **4 are deep-only**
-   (`APERTURE-WIFI`, `GRAD-STUDENT-WIFI`, `CAMPUS-GUEST-OPEN`, `ROBOVAC-AP`). A branch in
-   `buildRemoteHostFs` alone would have shipped the door at **1 in 25** against the 1 in 8.3 this
-   plan and the epic's "roughly one in seven" both promise — two thirds of the name servers in the
-   game running `named`, answering on 53, and holding no zone at all.
+   ⚠️ **CORRECTION to increment 5's finding — the deep half needed no second branch.** The
+   measurement was right (2 Layer-1, 4 deep-only) and the owner's decision was right, but the
+   mechanism I inferred was wrong: **`buildDeepHostFs` is a thin wrapper over `buildRemoteHostFs`**,
+   adding only a forced `sshd` pidfile. A deep box's tree has always been built by the same
+   function, keyed on `roleOfHostname(host.hostname)`, so a deep `dns-29` already carried the OLD
+   pooled `/etc/named.conf`. One branch reaches every name server at any depth; the claim that
+   `buildRemoteHostFs` alone would ship the door at 1 in 25 was false. Verified by building both
+   boxes and reading `/etc` off each.
 
-   It is also the better find. A deep name server hands over the layers a player has NOT reached,
-   which is precisely what decision 1's one-zone-per-network design exists to make possible: the
-   zone is the network's, not the layer's, so a box three hops in describes the whole thing.
-   `buildDeepHostFs` is increment 0's extraction, and this is the second caller it was split out
-   for.
-
-   Two consequences downstream. The **nameserver name** in the SOA and NS lines is the box's own
-   hostname either way, so nothing there branches. The **browser close-out** should run against a
-   DEEP one — `APERTURE-WIFI` and the three beside it — because a deep name server exercises the
-   placement, the chain walk and the pivot cross-check in a single pass, where a Layer-1 one
-   exercises only the first.
-9. **RED — the duplicate name.** A network whose routers collide lists both records. GREEN: expected
+   - **The pool's `dns` entry is deleted, and the deletion is enforced by the TYPE.**
+     `PooledConfigRole = Exclude<DrawnRole, 'dns'>` — so a caller reaching for a drawn template for
+     a name server fails to compile rather than silently getting nothing, or worse getting a second
+     file contradicting the generated one. Three of the five templates contradicted locked
+     decisions: one logged every query, two forwarded to public resolvers.
+   - **The strongest test is the one that reads the path back OUT of the config** and goes looking
+     for it in the tree. The config states where the zone lives and the tree decides where it goes;
+     that is the one drift a player would meet as a broken box, and now neither side can move alone.
+   - **`ROLE_FILES` in the pooled-config block loses its `dns` row**, which is what broke three
+     existing tests — correctly. That block is about the drawn pool, and dns has left it.
+   - Read off a real deep name server: `/etc` is `['passwd', 'bind']`, and `/etc/bind/named.conf`
+     names `/etc/bind/zones/db.aperture-wifi.lan`, which is there and holds all ten records.
+9. ⬅️ **NEXT — RED — the duplicate name.** A network whose routers collide lists both records. GREEN: expected
    to be free; the test pins it so a later "fix" cannot silently drop a record.
 
 ### Pre-PR gate
