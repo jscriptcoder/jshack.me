@@ -66,6 +66,7 @@ import { md5 } from './md5';
 import { CRACK_CHANCE, drawPassword } from './passwordPools';
 import { pickWebPage } from './pools/webPages';
 import { roleConfigFile } from './pools/configFiles';
+import { nameServerFilesFor } from './generateDnsZone';
 import { roleOfHostname } from './pools/hostnames';
 import { pickUsername } from './pools/usernames';
 import { placementOf } from './rolePlacement';
@@ -217,10 +218,20 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
       : { [listenerPidfileName(backdoor.port)]: pidfile(formatListenerContent(backdoor), 'root') }),
   };
 
+  // A name server's two files are GENERATED rather than drawn from the pool — they
+  // describe this network, so no template could have written them. Keyed by the role,
+  // not by the service: `systemctl stop named` closes the port and leaves the
+  // intelligence exactly where it was, which is what a file on a disk does.
+  //
+  // Reached by deep boxes too, because `buildDeepHostFs` builds on this function — and
+  // most of the world's name servers stand on a deep layer.
+  const nameServer = role === 'dns' ? nameServerFilesFor(essid, host) : null;
+
   // A name no role claims keeps no config: there is nothing for such a box to admit
-  // to.
+  // to. `dns` is excluded at the type level rather than here — the pool has nothing
+  // for it, so a caller that forgot the branch above would not compile.
   const config =
-    role === undefined
+    role === undefined || role === 'dns'
       ? null
       : roleConfigFile({
           role,
@@ -328,6 +339,28 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
         {
           passwd: file(passwd, PASSWD_FILE),
           ...(config === null ? {} : { [config.name]: file(config.content, SERVICE_CONFIG_FILE) }),
+          // Under `/etc/bind` rather than loose in `/etc`, which is where a real bind9
+          // puts them — and it keeps the config beside the zone it names instead of two
+          // unrelated paths a player has to learn separately.
+          ...(nameServer === null
+            ? {}
+            : {
+                bind: dir(
+                  {
+                    'named.conf': file(nameServer.conf, SERVICE_CONFIG_FILE),
+                    zones: dir(
+                      {
+                        [nameServer.zoneFileName]: file(
+                          nameServer.zoneFile,
+                          SERVICE_CONFIG_FILE,
+                        ),
+                      },
+                      TRAVERSABLE_DIR,
+                    ),
+                  },
+                  TRAVERSABLE_DIR,
+                ),
+              }),
           // The one /etc file that follows a SERVICE rather than a role. A store is
           // likeliest on a webserver, whose role slot is already spoken for by its httpd
           // config, so a conf keyed by role would leave most stores undescribed — and a

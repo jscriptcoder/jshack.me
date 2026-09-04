@@ -27,6 +27,7 @@
 
 import { asAbsPath, type AbsPath } from '../types';
 import type { Ipv4 } from '../network/interfaces';
+import { lanZoneName } from '../network/resolveName';
 import { createPrng } from './prng';
 import { generateDeepLayer, hostsOnLayer } from './generateDeepLayer';
 import { generateHomeLan, type LanHost } from './generateHomeLan';
@@ -200,10 +201,16 @@ const ZONE_DIR = '/etc/bind/zones';
  *  of two unrelated paths a player has to learn separately. */
 export const NAMED_CONF_PATH: AbsPath = asAbsPath('/etc/bind/named.conf');
 
+/** What the file holding `zone`'s records is CALLED. Split from the path below because
+ *  the tree that places the file names it directly, while the config names the whole
+ *  path — one spelling, so the two cannot drift apart. */
+export const zoneFileName = (zone: string): string => `db.${zone}`;
+
 /** The file holding `zone`'s records. Stated HERE, once, because the config names this
  *  path and whatever writes the zone out must write it to the same place — a server
  *  describing a file that is not there is worse than one describing nothing. */
-export const zoneFilePathFor = (zone: string): AbsPath => asAbsPath(`${ZONE_DIR}/db.${zone}`);
+export const zoneFilePathFor = (zone: string): AbsPath =>
+  asAbsPath(`${ZONE_DIR}/${zoneFileName(zone)}`);
 
 /** How often a name server will hand its whole zone to anyone who asks.
  *
@@ -263,3 +270,35 @@ export const formatNamedConf = ({
     `  allow-transfer { ${allowsTransfer ? 'any' : 'none'}; };`,
     '};',
   ].join('\n');
+
+/** Both files a name server carries, and the name the zone file goes under. */
+export type NameServerFiles = {
+  readonly conf: string;
+  readonly zoneFileName: string;
+  readonly zoneFile: string;
+};
+
+/**
+ * What the box at `host` on `essid` keeps, if it is a name server: the config, the zone
+ * it declares, and what to call the zone file.
+ *
+ * Composed HERE so the caller placing the files never has to know that a network's zone
+ * is named after its ESSID, or that the server writes its own hostname into the SOA. It
+ * asks for a name server's files and gets a name server's files.
+ *
+ * Works for a box at any depth. The zone belongs to the NETWORK, not to the segment the
+ * server stands on — which is what lets a name server three hops inside a chain hand
+ * over the layers a player has not reached.
+ */
+export const nameServerFilesFor = (essid: string, host: LanHost): NameServerFiles => {
+  const zone = lanZoneName(essid);
+  return {
+    conf: formatNamedConf({
+      hostname: host.hostname,
+      zone,
+      allowsTransfer: allowsZoneTransfer(essid, host.ip),
+    }),
+    zoneFileName: zoneFileName(zone),
+    zoneFile: formatDnsZone({ zone, nameserver: host.hostname, records: zoneRecordsFor(essid) }),
+  };
+};

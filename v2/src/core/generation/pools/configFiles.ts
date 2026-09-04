@@ -46,7 +46,19 @@ type RoleConfig = {
   readonly templates: readonly string[];
 };
 
-const CONFIG_BY_ROLE: Readonly<Record<DrawnRole, RoleConfig>> = {
+/** Every role a template is DRAWN for — which is every role but `dns`.
+ *
+ *  A name server's `/etc/bind/named.conf` describes the network it stands on: which
+ *  zone it is authoritative for, where that zone file is, and whether it will hand the
+ *  whole thing over. No template could have written any of that, so it is generated
+ *  (`generateDnsZone`) rather than picked from five guesses.
+ *
+ *  Stated in the TYPE rather than left to a runtime check, so a caller that reached for
+ *  a pooled config for a name server would fail to compile instead of silently getting
+ *  nothing — or, worse, getting a second file contradicting the generated one. */
+export type PooledConfigRole = Exclude<DrawnRole, 'dns'>;
+
+const CONFIG_BY_ROLE: Readonly<Record<PooledConfigRole, RoleConfig>> = {
   workstation: {
     filename: 'ssh_config',
     templates: [
@@ -118,16 +130,6 @@ const CONFIG_BY_ROLE: Readonly<Record<DrawnRole, RoleConfig>> = {
       'myhostname = {{hostname}}\nvirtual_mailbox_domains = /etc/postfix/vdomains\nvirtual_mailbox_base = /var/mail/vhosts\nmessage_size_limit = 20480000\nmaximal_queue_lifetime = 5d',
     ],
   },
-  dns: {
-    filename: 'named.conf',
-    templates: [
-      '// {{hostname}}\noptions {\n  listen-on port 53 { any; };\n  directory "/var/cache/bind";\n  recursion yes;\n  allow-recursion { 10.0.0.0/8; 192.168.0.0/16; };\n  forwarders { 8.8.8.8; 8.8.4.4; };\n};',
-      '// {{hostname}}\noptions {\n  listen-on port 53 { any; };\n  directory "/var/cache/bind";\n  recursion yes;\n  allow-query { any; };\n  max-cache-size 256M;\n  version "not disclosed";\n};',
-      '// {{hostname}}\noptions {\n  listen-on port 53 { any; };\n  directory "/var/cache/bind";\n  recursion no;\n  allow-query { any; };\n  rate-limit {\n    responses-per-second 10;\n  };\n};',
-      '// {{hostname}}\noptions {\n  listen-on port 53 { any; };\n  directory "/var/cache/bind";\n  forwarders { 1.1.1.1; 9.9.9.9; };\n  forward only;\n  max-cache-ttl 3600;\n  max-ncache-ttl 300;\n};',
-      '// {{hostname}}\noptions {\n  listen-on port 53 { any; };\n  directory "/var/cache/bind";\n  dnssec-validation yes;\n  auth-nxdomain no;\n  listen-on-v6 { none; };\n  querylog yes;\n};',
-    ],
-  },
 };
 
 /**
@@ -149,7 +151,7 @@ export const roleConfigFile = ({
   seed,
   ports,
 }: {
-  readonly role: DrawnRole;
+  readonly role: PooledConfigRole;
   readonly hostname: string;
   readonly seed: string;
   readonly ports: ReadonlyMap<string, number>;
