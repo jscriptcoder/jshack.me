@@ -1,8 +1,8 @@
 # Plan: X1 — DNS, `nslookup` and `dig`
 
 **Status**: Active — **slice 1 has SHIPPED** (v0.206.0, #487) and **slice 2 is IN PROGRESS** on
-`feat/x1-a-box-answers`, cut from trunk at v0.206.0. Increments 0-4 are done and green
-(4406 tests); **increment 5 is next**. Slices 3-4 are grilled but unplanned. This is the first door
+`feat/x1-a-box-answers`, cut from trunk at v0.206.0. Increments 0-5 are done and green
+(4410 tests); **increment 6 is next**. Slices 3-4 are grilled but unplanned. This is the first door
 of **Phase 2 — discovery**, and the first whose world legacy could not hand over.
 **Epic**: [`legacy-parity-epic.md`](legacy-parity-epic.md) → "X1 — resolved scope & decisions
 (grill-me, 2026-09-04)", fourteen locked decisions.
@@ -18,11 +18,12 @@ of **Phase 2 — discovery**, and the first whose world legacy could not hand ov
    (`generateDnsZoneContent`, `generateDnsNamedConf`) ports for the FILE format. Legacy's
    `resolveDomain`/`dnsRecords` do **not** port — they are mission scaffolding for a mechanic v2
    does not have.
-3. **The next action is slice 2's increment 5** on `feat/x1-a-box-answers` — the Layer-1 record
-   filter, feeding `formatDnsZone`. Increments 0-4 are committed there (`41a14d22`, `0508270b`,
-   `83873320`, and increment 4's); the per-increment record is under "RED-GREEN increments" below.
+3. **The next action is slice 2's increment 6** on `feat/x1-a-box-answers` — the deep-layer half
+   of `zoneRecordsFor`. Increments 0-5 are committed there (`41a14d22`, `0508270b`, `83873320`,
+   `faa31b77`, and increment 5's); the per-increment record is under "RED-GREEN increments" below.
    Read slice 1's as-built first: the resolver it left behind is what the zone is written against,
-   and its `lanZoneName` is the zone's own origin.
+   and its `lanZoneName` is the zone's own origin. **Then read increment 8 — the two files land on
+   deep dns boxes as well as Layer-1 ones, which is where two thirds of them are.**
 4. Cut a fresh `feat/…` branch per slice off an up-to-date `main` — check `git status -sb` for
    ahead/behind, per conventions §8, which distinguishes ahead from level where
    `git pull --ff-only` does not.
@@ -63,7 +64,7 @@ them.
 | # | Slice | Observable | Status |
 |---|-------|-----------|--------|
 | 1 | a name resolves | `nslookup web-04` answers, and `ssh root@web-04` lands | ✅ **SHIPPED** v0.206.0 (#487) |
-| 2 | a box answers as a name server | `nmap` finds `53 open`; rooting it and `cat`-ing the zone shows the deep layers | 🚧 **IN PROGRESS** — increments 0-4 of 9 done |
+| 2 | a box answers as a name server | `nmap` finds `53 open`; rooting it and `cat`-ing the zone shows the deep layers | 🚧 **IN PROGRESS** — increments 0-5 of 9 done |
 | 3 | the zone transfers | `dig @<server> axfr` hands over the whole address plan | — |
 | 4 | the transfer leaves a trace | `named.log` names whoever transferred it | — |
 
@@ -288,7 +289,8 @@ every other generated file. Slice 4 is the door's only `api/` work.
 Measured by walking all 50 crackable ESSIDs through `generateHomeLan` + the deep chain:
 
 - **6 of 50 networks carry a dns-role box** (Layer 1 or deep) — the epic's "roughly one in seven"
-  holds, at 1 in 8.3. The rarity is real without tuning anything.
+  holds, at 1 in 8.3. The rarity is real without tuning anything. **Re-measured at increment 5: the
+  split is 2 Layer-1 and 4 deep-only, which is why increment 8 places the files on both.**
 - **A zone runs 5-14 records, mean 9.3.** Long enough to be worth a command, short enough to read.
 - **The deep half is mostly IoT.** ACME-CORP's four deep hosts are `doorbell-87` (iot), `smtp-65`
   (mailserver), `tv-137` (iot), `cam-189` (iot). This is the measurement that forced the first
@@ -484,17 +486,51 @@ behaviour to fail.
      A drifting comment column is the first thing a reader notices and the last thing anyone meant.
    - Verified by rendering a real one: `$ORIGIN acme-corp.lan.`, the five timers, and a 15-wide name
      column that holds `192.168.42.1` and `10.14.7.87` in the same place.
-5. ⬅️ **NEXT — RED — what Layer 1 contributes.** Servers and infrastructure in; a workstation and an IoT host
-   out, named explicitly on a network measured to have both. GREEN: the Layer-1 filter.
-6. **RED — what the deep layers contribute.** Every deep host and child gateway present, IoT
+5. ✅ **RED — what Layer 1 contributes.** Four tests: ACME-CORP's exact record list, the
+   keep/drop rule swept over the eight-network population sample, routing gear kept despite naming
+   no role, and every address agreeing with the LAN's. GREEN: `zoneRecordsFor(essid)` beside the
+   formatter.
+   - **ACME-CORP is the case that punishes reading names for roles.** Its `.1` is CALLED
+     `switch-core` and is a `router`; its `firewall01` is a `switch`. Routing gear is read off
+     `kind`; machines are read off the NAME, which is the rule the whole world already follows.
+   - **The role list is an ALLOW-list**, though the seven drawn roles make allow and deny
+     equivalent today. A zone is a thing an administrator wrote, so a role nobody has decided
+     about belongs outside it until somebody does. The test states the same rule the other way
+     round — drop `workstation` and `iot` — so neither is a mirror of the other.
+   - **No sort of its own.** `generateHomeLan` already returns hosts by ascending octet, which is
+     decision 9's ordering for free; a second sort here would be a second claim about one thing.
+   - Rendered live for OSCORP-GUEST, served by `bind-224`: seven records from `192.168.118.1` to
+     `.253`, `iphone`/`cam` absent.
+6. ⬅️ **NEXT — RED — what the deep layers contribute.** Every deep host and child gateway present, IoT
    included, to the seeded depth; addresses matching the pivot scan's. GREEN: the chain walk,
    reusing `lanHostIdentity`'s.
 7. **RED — the config file.** One zone stanza, the right file path, `allow-transfer` open on about
    three boxes in four and closed on the rest, stable across reloads. GREEN: the `named.conf`
    generator, ported from legacy's `generateDnsNamedConf`.
-8. **RED — placement on the box.** Both files present on a dns-role box with `named` stopped; absent
-   everywhere else; `/etc/named.conf` gone from the world. GREEN: the role branch in
-   `buildRemoteHostFs`, and the `dns` entry deleted from `CONFIG_BY_ROLE`.
+8. **RED — placement on BOTH kinds of box.** Both files present on a Layer-1 dns-role box and on a
+   DEEP dns-role box, with `named` stopped; absent everywhere else; `/etc/named.conf` gone from the
+   world. GREEN: the role branch in `buildRemoteHostFs` **and the matching one in
+   `buildDeepHostFs`**, and the `dns` entry deleted from `CONFIG_BY_ROLE`.
+
+   **Why both — measured at increment 5, decided by the owner 2026-09-04.** The "6 of 50" this plan
+   records is Layer 1 **or deep**, and the split is lopsided: only **2 of 50** crackable networks
+   carry a Layer-1 dns box (`OSCORP-GUEST`, `DEFCON-VILLAGE`); the other **4 are deep-only**
+   (`APERTURE-WIFI`, `GRAD-STUDENT-WIFI`, `CAMPUS-GUEST-OPEN`, `ROBOVAC-AP`). A branch in
+   `buildRemoteHostFs` alone would have shipped the door at **1 in 25** against the 1 in 8.3 this
+   plan and the epic's "roughly one in seven" both promise — two thirds of the name servers in the
+   game running `named`, answering on 53, and holding no zone at all.
+
+   It is also the better find. A deep name server hands over the layers a player has NOT reached,
+   which is precisely what decision 1's one-zone-per-network design exists to make possible: the
+   zone is the network's, not the layer's, so a box three hops in describes the whole thing.
+   `buildDeepHostFs` is increment 0's extraction, and this is the second caller it was split out
+   for.
+
+   Two consequences downstream. The **nameserver name** in the SOA and NS lines is the box's own
+   hostname either way, so nothing there branches. The **browser close-out** should run against a
+   DEEP one — `APERTURE-WIFI` and the three beside it — because a deep name server exercises the
+   placement, the chain walk and the pivot cross-check in a single pass, where a Layer-1 one
+   exercises only the first.
 9. **RED — the duplicate name.** A network whose routers collide lists both records. GREEN: expected
    to be free; the test pins it so a later "fix" cannot silently drop a record.
 
@@ -505,7 +541,8 @@ and `package-lock.json`. Mutation testing over the accumulated scope — the zon
 string-shaped, so expect the golden-vector rule to matter and expect `manual`/`description` metadata
 survivors, which conventions §7 accepts. Wire-check `N/A`.
 
-**Browser close-out**: crack a network that HAS a dns box (one of the six — pick it by measurement
-before the run rather than hunting for it in-game), sweep it, find `53/tcp open domain`, root the
-box, read both files, check a deep address in the zone against a pivot scan of that layer, and stop
-the daemon to prove the port closes and the files stay.
+**Browser close-out**: crack a network whose dns box is DEEP — `APERTURE-WIFI`, `GRAD-STUDENT-WIFI`,
+`CAMPUS-GUEST-OPEN` or `ROBOVAC-AP`. A deep one exercises placement, the chain walk and the pivot
+cross-check in a single pass, where a Layer-1 one exercises only the first. Sweep it, find `53/tcp
+open domain`, root the box, read both files, check a deep address in the zone against a pivot scan
+of that layer, and stop the daemon to prove the port closes and the files stay.
