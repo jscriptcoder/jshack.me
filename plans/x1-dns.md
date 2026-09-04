@@ -1,8 +1,8 @@
 # Plan: X1 — DNS, `nslookup` and `dig`
 
 **Status**: Active — **slice 1 has SHIPPED** (v0.206.0, #487) and **slice 2 is IN PROGRESS** on
-`feat/x1-a-box-answers`, cut from trunk at v0.206.0. Increments 0-3 are done and green
-(4400 tests); **increment 4 is next**. Slices 3-4 are grilled but unplanned. This is the first door
+`feat/x1-a-box-answers`, cut from trunk at v0.206.0. Increments 0-4 are done and green
+(4406 tests); **increment 5 is next**. Slices 3-4 are grilled but unplanned. This is the first door
 of **Phase 2 — discovery**, and the first whose world legacy could not hand over.
 **Epic**: [`legacy-parity-epic.md`](legacy-parity-epic.md) → "X1 — resolved scope & decisions
 (grill-me, 2026-09-04)", fourteen locked decisions.
@@ -18,11 +18,11 @@ of **Phase 2 — discovery**, and the first whose world legacy could not hand ov
    (`generateDnsZoneContent`, `generateDnsNamedConf`) ports for the FILE format. Legacy's
    `resolveDomain`/`dnsRecords` do **not** port — they are mission scaffolding for a mechanic v2
    does not have.
-3. **The next action is slice 2's increment 4** on `feat/x1-a-box-answers` — the zone formatter,
-   ported from legacy's `generateDnsZoneContent`. Increments 0-3 are committed there (`41a14d22`,
-   `0508270b`, and increment 3's); the per-increment record is under "RED-GREEN increments" below.
+3. **The next action is slice 2's increment 5** on `feat/x1-a-box-answers` — the Layer-1 record
+   filter, feeding `formatDnsZone`. Increments 0-4 are committed there (`41a14d22`, `0508270b`,
+   `83873320`, and increment 4's); the per-increment record is under "RED-GREEN increments" below.
    Read slice 1's as-built first: the resolver it left behind is what the zone is written against,
-   and its `essidSlug` is the zone's own origin.
+   and its `lanZoneName` is the zone's own origin.
 4. Cut a fresh `feat/…` branch per slice off an up-to-date `main` — check `git status -sb` for
    ahead/behind, per conventions §8, which distinguishes ahead from level where
    `git pull --ff-only` does not.
@@ -63,7 +63,7 @@ them.
 | # | Slice | Observable | Status |
 |---|-------|-----------|--------|
 | 1 | a name resolves | `nslookup web-04` answers, and `ssh root@web-04` lands | ✅ **SHIPPED** v0.206.0 (#487) |
-| 2 | a box answers as a name server | `nmap` finds `53 open`; rooting it and `cat`-ing the zone shows the deep layers | 🚧 **IN PROGRESS** — increments 0-3 of 9 done |
+| 2 | a box answers as a name server | `nmap` finds `53 open`; rooting it and `cat`-ing the zone shows the deep layers | 🚧 **IN PROGRESS** — increments 0-4 of 9 done |
 | 3 | the zone transfers | `dig @<server> axfr` hands over the whole address plan | — |
 | 4 | the transfer leaves a trace | `named.log` names whoever transferred it | — |
 
@@ -467,9 +467,24 @@ behaviour to fail.
      `buildRemoteHostFs`: `/usr/bin` gained `dig` and `nslookup` beside `/usr/sbin/named`. It is
      what makes the box look like one somebody ran `apt install bind9` on, and it makes a rooted
      name server a place to resolve FROM.
-4. ⬅️ **NEXT — RED — the zone's shape.** A generated zone parses as a zone: origin, TTL, SOA with five timers,
-   NS. GREEN: the zone formatter, ported from legacy's `generateDnsZoneContent`.
-5. **RED — what Layer 1 contributes.** Servers and infrastructure in; a workstation and an IoT host
+4. ✅ **RED — the zone's shape.** Six tests against a module that did not exist. GREEN:
+   `generation/generateDnsZone.ts` — `formatDnsZone({ zone, nameserver, records })`, the file format
+   ported from legacy's `generateDnsZoneContent`.
+   - **Decision 11 amended: `lanZoneName(essid)` is exported from `resolveName.ts`, not
+     `essidSlug`.** Every caller wants `acme-corp.lan` whole — the origin, the SOA, the NS and the
+     `zone "…"` line of the config all name it, and not one of them wants the bare slug. Exporting
+     the piece would have invited a second spelling of `.lan` to grow beside the existing one,
+     which is the bug decision 11 exists to prevent, arrived at from the other side.
+   - **A formatter ONLY.** Which hosts belong in a zone is a question about the network; this
+     module is handed records and writes them down. That is what lets increments 5 and 6 apply two
+     different selection rules without either relearning zone syntax.
+   - **`ZoneRecord` is `{ name, ip }`, deliberately not a `LanHost`.** A zone knows nothing about
+     what kind of device answers a name, and the deep-layer records come from elsewhere entirely.
+   - **The SOA comment column is derived from the widest timer**, not hand-aligned as legacy's was.
+     A drifting comment column is the first thing a reader notices and the last thing anyone meant.
+   - Verified by rendering a real one: `$ORIGIN acme-corp.lan.`, the five timers, and a 15-wide name
+     column that holds `192.168.42.1` and `10.14.7.87` in the same place.
+5. ⬅️ **NEXT — RED — what Layer 1 contributes.** Servers and infrastructure in; a workstation and an IoT host
    out, named explicitly on a network measured to have both. GREEN: the Layer-1 filter.
 6. **RED — what the deep layers contribute.** Every deep host and child gateway present, IoT
    included, to the seeded depth; addresses matching the pivot scan's. GREEN: the chain walk,
