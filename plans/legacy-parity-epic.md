@@ -383,7 +383,11 @@ PHASE 1 — THE DOORS  (near-term focus)
       D10 slice 4 permissions change hands   ✔ SHIPPED — chmod
       D10 slice 5 a file nobody else can read ✔ SHIPPED — gpg -c / -d
 PHASE 2 — DISCOVERY
-  X1  DNS + nslookup / dig
+  X1  DNS + nslookup / dig                            📋 GRILLED — 4 slices, slice 1 planned
+      X1 slice 1 a name resolves                      — dnsutils, nslookup, names as targets
+      X1 slice 2 a box answers as a name server       — dns row + named.conf/zone generation
+      X1 slice 3 the zone transfers                   — dig, dig @server axfr
+      X1 slice 4 the transfer leaves a trace          — named.log + wire-check
   X2  findit.io + common website-bearing networks
 PHASE 3 — VULNERABILITIES
   V1  service versions (dpkg + nmap -sV)
@@ -418,7 +422,7 @@ POST-SHIP — MISSIONS
 
 | # | Slice | Includes | Acceptance |
 |---|---|---|---|
-| **X1** | **A player resolves a name to an address** | DNS records per machine; `nslookup`; `dig` (+ `axfr` zone transfer as a recon reward) | `nslookup <domain>` → IP; `dig <server> axfr` → the zone |
+| **X1** 📋 | **A player resolves a name to an address** — **GRILLED 2026-09-04**, fourteen locked decisions in ["X1 — resolved scope & decisions"](#x1--resolved-scope--decisions-grill-me-2026-09-04); four slices | `apt install dnsutils`; the AP gateway as every network's resolver (its own LAN) + an occupant fallback; a name accepted anywhere an address is, through ONE shared client-side resolve step; a `dns` catalog row at `53/tcp` with `named` on the rare (3%) dns-role box; generated `named.conf` (`allow-transfer` open ~3 in 4) and a zone file spanning the WHOLE network — Layer 1's servers and infrastructure plus every deep layer; `nslookup`; `dig` + `dig @<server> axfr` reading that file as the authority; `/var/log/named.log` on transfers | Public/world domains (→ X2, which inherits a per-network name to index); a zone authoritative for RESOLUTION (poisoning `ssh`) — refused, it needs a round-trip per lookup; occupants in the zone; MX/CNAME/TXT; `dig -x`; `host`; dual-protocol port rows | `nslookup web-04` → IP on any network, and `ssh root@web-04` lands without the player ever reading an address; `nmap` finds `53 open` on `ns-12`, `dig @192.168.4.12 axfr` returns the zone — including `10.x` hosts on layers behind gateways the player has never rooted — and the box's `named.log` names them for whoever roots it next |
 | **X2** | **A player finds a network they were never told about** | `world_networks` + themed-network registry; **common networks that run websites** (the owner's shape — they are findable *because* they serve something); `findit.io` search handler over peer networks' metadata; registration/indexing | `curl "http://findit.io?q=<term>"` → ranked results → `nmap` that network → real ports. The player never learned the address out-of-band |
 
 ## Phase 3 — vulnerabilities
@@ -2690,6 +2694,260 @@ cross-tab theme `storage` listener (decision 9); `-name`-parsed find (decision 1
   `[ugoa][+-][rwx]` today, so it starts private to the command and only moves if a second caller
   appears.
 
+## X1 — resolved scope & decisions (grill-me, 2026-09-04)
+
+Fourteen locked decisions, and the first section in this file for a slice legacy could not simply
+hand over. Legacy HAS `nslookup` and `dig` — but its DNS is mission scaffolding: `resolveDomain`
+answers out of `dnsRecords` built by `generation/topology.ts` for `.mission` domains, and both
+themed networks ship `dnsRecords: []`. v2 has no missions, so the commands port and **the world
+behind them is designed here**.
+
+The purpose is the owner's, from legacy, and it survived being tested against reality: a player
+discovers the machines in a network, **including the ones behind the deep layers**, through a DNS
+box and `dig`. Zone transfer is the genuine article — `allow-transfer` is the textbook
+misconfiguration, and a real internal zone spans every subnet an organisation runs, because DNS is
+a naming layer and not a topology one. What the grill changed is WHERE the value sits: not in the
+transfer itself, but in the boundary it crosses.
+
+### Grounding that reshaped the scope before any decision
+
+- **`nmap` already sweeps what you can stand on.** `nmap x.y.z.1-254` enumerates the LAN you are
+  on, and `deepScanHosts` makes a layer behind an inner gateway scannable — but only from a
+  **pivot vantage**, which `nmap.ts:279` defines as the active shell's own machine. Mapping Layer 3
+  means rooting Layer 2's gateway first, in order, all the way down. That ordered cost is the only
+  thing a zone transfer removes, and it removes it for RECON alone: knowing an address is not
+  reaching it, so the NAT forward and the credential are untouched.
+- **A zone transfer against a network you are inside is nearly a duplicate scan.** This is why the
+  reward had to be scoped to what scanning cannot reach, and why the zone spans layers.
+- **v2 already left the door open.** `network/http.ts:29` — *"The host as written — an IP address
+  today; a name once DNS lands."* `nslookup` and `dig` are two of the six phantom binaries in
+  `SYSTEM_UTILITY_NAMES` (D10 closed three; `ldd` is V4's).
+- **The `dns` role exists with nothing behind it** — 3% per drawn machine in `machineRole.ts`,
+  prefixes `dns`/`ns`/`resolver`/`bind`. D5b's close-out named X1 as what makes it answer. A LAN
+  draws 3-8 machines, so **roughly one network in seven has a DNS box** — the rarity is the
+  balance, and it is why decision 2 exists.
+- **AP gateways forward nothing by default.** `routerFs.ts:148` — *"Opt-in default: NO active
+  forward (it parses to an empty table)."* Every forward in the game is player-authored or D5's
+  backdoor auto-append, so "transfer a stranger's zone from outside" is a scope addition this world
+  cannot serve today. X1 is therefore an INSIDE-the-network door: you crack the WiFi first.
+- **Deep layers are viewer-independent.** `generateDeepLayer`'s header claims a `pubkey` in its seed
+  tuple; the signature is `(essid, frontingGateway, options)` and the PRNG key is
+  `deep-layer-${essid}-${machineId}`. Every player walks the same chain — which is what lets ONE
+  generated zone describe the whole network. **The comment is stale and slice 2 should correct it.**
+- **The chain walk already exists.** `lanHostIdentity.ts` walks every inner gateway and every deep
+  child gateway to `seedNetworkDepth(essid)`, deliberately as one walk with several consumers. The
+  zone generator is another consumer, not a second traversal.
+- **`APT_PACKAGES` already ships multi-binary packages** (`apt.ts:88`: a package whose `binaries` is
+  omitted ships one named after itself; one that declares them ships several), and the binary gate
+  resolves by command NAME across `/bin`, `/usr/bin`, `/usr/sbin`. So the install path costs one row
+  and two deletions.
+
+### Locked decisions
+
+#### 1. One zone per ESSID, covering the whole network, every layer
+
+A DNS box is authoritative for the entire address plan: Layer 1's hosts plus every deep layer's NPC
+and gateway, down the chain to the seeded depth. Not per-layer — a deep layer carries exactly ONE
+reachable NPC plus a child gateway (`generateDeepLayer.ts`), so a layer-scoped zone would name two
+hosts and be worth nobody's command.
+
+The payoff is bounded by construction: a transfer changes what a player KNOWS, never what they can
+touch. The route and the credential are still the pivot chain's price.
+
+#### 2. The AP gateway always resolves its own LAN; the DNS box holds the authoritative zone
+
+Six networks in seven have no DNS box, so name service cannot depend on one. The gateway answers
+lookups for the hosts on its own LAN — which is precisely what a real home router does, because
+dnsmasq knows the names it handed DHCP leases to.
+
+That produces the door's information gradient, and it is a real one rather than a designed one: the
+**gateway knows its own subnet**, the **BIND box knows what the admin wrote** — the whole plan,
+deep layers included. `nslookup` is useful on the first network a player cracks; the zone is the
+jackpot.
+
+#### 3. `<host>.<essid-slug>.lan`, with the bare hostname resolving too
+
+`web-04.acme-corp.lan`, `cam-31.apt-3b-wifi.lan`. The suffix is what a real consumer router serves
+(dnsmasq's `domain=`; OpenWrt defaults to `.lan`), and the per-network label makes a name carry
+WHERE it belongs — so a name found in a config file or a zone names a place, and X2 inherits a
+per-network name to index. A bare `web-04` resolves as well, the way a resolver appends its search
+domain, so nothing is long to type in practice.
+
+#### 4. A name works anywhere an address does — ONE shared resolve step
+
+Legacy threaded `resolveDomain` into ten command contexts. v2 does it once: a small shared helper
+turns a name into an IP at each command's target parse (`ssh`, `curl`, `nmap`, `ftp`, `nc`, `scp` —
+about six call sites), and the existing IP path runs untouched. No command learns what DNS is.
+
+It needs no round-trip, because a generated LAN is deterministic from its ESSID: `web-04.acme-corp.lan`
+to `192.168.x.y` is a pure client-side function. `env.scan.resolvePublic` stays what it is — a
+server call about a PUBLIC target, not a name lookup.
+
+#### 5. The zone lists what an admin would name
+
+Webserver, database, mailserver, fileserver and dns, plus the gateway, the inner gateway and the
+switch, plus every deep layer's NPC and gateway. **Workstations and IoT stay out** — 58% of the
+drawn population, and DHCP clients that no authoritative zone would carry.
+
+Nothing is lost by the omission: those names already resolve through the gateway (decision 2) and
+already appear in `nmap`. And it answers a question a static generated zone otherwise could not —
+fellow PLAYERS are dynamic occupants, so "DHCP clients are not in the zone" keeps the file
+generated, offline and free of a cross-player round-trip.
+
+#### 6. Roughly three DNS boxes in four allow the transfer
+
+BIND's own default for `allow-transfer` is open; restricting it is something an admin goes and
+does, which is exactly why the finding is so common. A coin flip on top of a one-in-seven find
+would put the whole door behind a door. The locked minority is real and answers `; Transfer
+failed.`, and because `named.conf` is a file the journal owns, a player who roots the box can
+restrict it themselves — the same authority `rules.v4` and `acl.conf` already have.
+
+#### 7. A full `dns` row in `SERVICE_CATALOG`
+
+`named.pid`, port 53, a banner, placement on dns-role boxes. This is what closes the loop: `nmap`
+reports `53 open`, which is HOW a player finds the box worth transferring — without it they would
+be guessing at hostnames. It inherits D4 for free, so `systemctl stop named` takes name service off
+a network and `dig` gets the refusal a dead daemon earns.
+
+#### 8. The row is `tcp`
+
+A default `nmap` (no `-sU`) reports exactly `53/tcp open domain`, and in this game the port serves
+exactly one operation — the zone transfer, which is TCP in reality. Ordinary lookups never touch
+it; decision 2 sends those to the gateway. Dual-protocol rows are refused in "Deliberately NOT
+built": one open port emitting two scan rows would touch the `OpenPort` shape the client render,
+the deep resolver and the server-side `kern.log` trace all share.
+
+#### 9. The zone FILE is the authority for the transfer
+
+`dig` parses `/etc/bind/zones/db.<zone>`, as legacy's did. One authority, not two — the rule D8
+enforced when it refused SNMP's parsers for a fact the game already owned.
+
+Three things follow at no cost: rooting the box yields the same intelligence with `cat`; the owner
+can edit or delete records; and because a rooted NPC's edits persist server-side, **an edited zone
+is what the next player's transfer returns** — a poisoned zone, with no new machinery. Resolution
+stays with the gateway, so a lie in the zone misleads whoever reads the zone, not the resolver.
+
+#### 10. Transfers are logged; lookups are silent
+
+`/var/log/named.log` takes the transfer and the refused attempt, naming the source. Ordinary
+lookups write nothing — BIND's real defaults exactly (querylog off, AXFR logged on the default
+channel), and the game's own asymmetry: a scan is loud, a backdoor is silent, a transfer is
+attributable. Since every name-target now resolves through DNS, a query log would fill with the
+traffic of ordinary play.
+
+One signed fire-and-forget action plus its wire-check, mirroring `nmapScanDeep`. It is the ONLY
+`api/` work in the door, which is why it is its own slice.
+
+#### 11. An unmatched name falls back to the occupant seam
+
+Generated hosts resolve purely client-side (the common case, no round-trip). A name that matches
+nothing generated asks `resolveOccupants`, which already returns `machineName` + `localIp` and is
+already how `nmap` shows a fellow player as a real host. A player you can SEE in a scan is a player
+you can name — and the alternative is `nmap` listing a host by a name `nslookup` denies exists.
+
+#### 12. Nothing in this door paces
+
+`nslookup` and both forms of `dig` answer instantly. This is the REALISTIC behaviour, not a
+concession: a lookup answered by your own router from its DHCP table is local memory (0-2 ms), and
+the 20-100 ms figure people associate with DNS is a cold recursive lookup out across the internet.
+Every name here is local. A transfer of fifteen records is milliseconds too.
+
+It is also forced on the query side — resolution now runs inside every command that takes a host,
+so a paced lookup would make `ssh web-04` measurably slower than `ssh 192.168.1.4` and train
+players to type addresses. The flavour comes from `;; Query time: N msec` and `;; XFR size: N
+records`: output that REPORTS speed instead of spending it, the same trick decision 14 uses. X1
+having no paced command is a fact about DNS — every other network command paces because its real
+counterpart genuinely takes time.
+
+#### 13. `apt install dnsutils` ships both binaries
+
+A Debian-family server does not have `dig` or `nslookup`; they come from `dnsutils` /
+`bind9-dnsutils` (`bind-utils` on the RHEL side, `bind-tools` on Alpine), and `dig: command not
+found` on a fresh box is one of the most familiar frictions in Linux administration. One
+`APT_PACKAGES` row with `binaries: ['dig','nslookup']`, and both names come OUT of
+`SYSTEM_UTILITY_NAMES` — free before launch.
+
+It lands in the groove the game already teaches (crack WiFi, `nmcli connect`, `su root`,
+`apt install nmap`) and earns a realistic asymmetry: the DNS box runs BIND, so it ships the
+utilities as a dependency — the one machine in the world that could have interrogated its
+neighbours.
+
+#### 14. A records in the output; the zone file keeps its full SOA header
+
+Legacy solved simplicity-versus-realism here without paying for it, and it ports verbatim:
+`generateDnsZoneContent` writes a real zone file — `$ORIGIN`, `$TTL`, a proper SOA block with
+serial/refresh/retry/expire/minimum, an NS record — and `dig` prints only the A records. Realism
+lives in static text the player can `cat`; simplicity lives in a one-line filter.
+
+MX, CNAME and TXT are refused rather than deferred, and for the game's own reason: an MX would name
+the mailserver that decision 5 already lists as an A record, and a CNAME would say what a box is
+for when D5b's role-driven hostnames and `/etc` role config already say it twice. Each is a second
+authority over a fact the world already hands the player another way.
+
+### Forced rather than chosen (planning should not re-litigate)
+
+- **Resolution is client-side because generation is deterministic.** Nothing about decision 4 is a
+  performance choice; the world is a pure function of the ESSID, so a lookup that needed the server
+  would be inventing a dependency.
+- **X1 is an inside-the-network door.** AP gateways forward nothing by default, so a foreign
+  network's DNS box is unreachable from outside. Public naming belongs to X2.
+- **Removing a binary is what makes a command not-found** — the gate is filesystem-driven
+  (conventions §7), so decision 13's two deletions from `SYSTEM_UTILITY_NAMES` ARE the gating.
+- **The zone reuses the existing chain walk** to `seedNetworkDepth(essid)`; a second traversal would
+  be the drift D8 warned about in a new place.
+
+### Folded in as routine (recorded so they are not re-decided)
+
+- `dig`'s `@server` prefix and flexible argument order port from legacy verbatim, as do the NXDOMAIN
+  and `; Transfer failed.` wordings and the `; <<>> DiG 9.16.0 <<>>` header.
+- Offline, both commands say what every network command says; a bricked gateway takes name service
+  with it, because it takes the whole address dark already.
+- The `essid-slug` is the ESSID lowercased with its existing hyphens kept — `SHINRA-5G` to
+  `shinra-5g`. No new vocabulary.
+- The player's own workstation resolves like any other occupant (decision 11), not as a special case.
+
+### Slice spine (each vertical + observable)
+
+X1 is a door in the ordinary sense — a service, a port, generated content and a defender-side
+trace — but it inverts the usual order: the CLIENT half is useful before the world half exists,
+because the gateway resolver needs no DNS box.
+
+| # | Slice | Observable |
+|---|---|---|
+| **1** | **A name resolves** | `apt install dnsutils`, `nslookup <name>` through the gateway resolver with the occupant fallback, and the shared resolve step wired into `ssh`/`curl`/`nmap`/`ftp`/`nc`/`scp`. A player connects, types `ssh root@web-04` and lands — never having read an address |
+| **2** | **A box answers as a name server** | The `dns` catalog row, placement, `named.conf` + zone-file generation across the whole chain, `53 open` in a scan, `systemctl stop named`. Rooting the box and `cat`-ing the zone already pays out the deep-layer intelligence — before `dig` exists |
+| **3** | **The zone transfers** | `dig <name>` and `dig @<server> axfr`, the `allow-transfer` gate read from the box's own `named.conf`, A records only, instant with a reported query time. One command hands over addresses on layers the player has never reached; a locked box says `; Transfer failed.` |
+| **4** | **The transfer leaves a trace** | `/var/log/named.log` on the DNS box, naming who transferred the zone and when — refusals included, lookups absent. Readable by whoever roots the box next. The only `api/` work in the door: one signed action plus its wire-check |
+
+**Slices 1 and 2 are independent of each other** (the resolver needs no DNS box; the DNS box needs
+no resolver), so either could go first; 1 leads because it is the half a player meets on every
+network. 3 needs 2. 4 needs 3.
+
+### Deliberately NOT built (recorded so nobody re-opens them)
+
+Public and world domains (X2's, and X2 inherits a per-network name to index for free); a zone
+authoritative for RESOLUTION as well, so a poisoned record misdirects `ssh` — **refused, not
+deferred**, because it would need a server round-trip on every lookup and reopens decision 2;
+occupants inside the zone (reverses decision 5); dual-protocol port rows (decision 8); query
+logging (decision 10); MX, CNAME and TXT records (decision 14); `dig -x` reverse lookups and
+`host`; pacing of any kind (decision 12).
+
+### Open for planning (named, deliberately not decided)
+
+- **What the gateway's resolver IS, structurally.** It answers for its own LAN by construction, but
+  whether that is a function, a seam on `env`, or a fact the shared helper computes directly is a
+  shape question for slice 1 — and the answer decides how slice 3's `dig <name>` reuses it.
+- **Whether the DNS box's own zone contributes to resolution on its network.** Decision 2 gives the
+  gateway the answer and decision 9 keeps the file authoritative for the TRANSFER; the case where
+  both could answer (a name on a network that has a DNS box) is one line either way and should be
+  picked deliberately in slice 3, not drifted into.
+- **The zone's exact host-name column width and record ordering.** Legacy sorted A records
+  numerically by octet and padded names to 15; worth keeping unless the deep layers' `10.x` addresses
+  make the sort read oddly beside the `192.168.x` ones.
+- **Whether `named` belongs in `SYSTEM_DAEMON_NAMES`** the way the other daemons do, and what a
+  dns-role box's `/etc` role config file (D5b slice 3) should say now that the box has a real
+  service behind it.
+
 ## Open branches (named, not yet decided)
 
 1. ~~**`nc -l` semantics (D5)**~~ — **RESOLVED 2026-08-16 at D5's grill.** A session with no
@@ -3307,8 +3565,13 @@ are now resolved. **A door is not proven by its wire-checks alone** — the wire
 green and could not see any of this, because the defects live in the one vantage no endpoint
 answers. One session's browsing produced four findings, three of them invisible to a green suite.
 
-**➡️ NEXT: Phase 2 — discovery. X1 (DNS + `nslookup`/`dig`), then X2 (`findit.io` and networks
-a player was never told about). Not yet grilled or planned.**
+**➡️ NEXT: X1 slice 1 — a name resolves (`apt install dnsutils`, `nslookup`, and a name accepted
+anywhere an address is). GRILLED 2026-09-04 — fourteen locked decisions and a four-slice spine in
+["X1 — resolved scope & decisions"](#x1--resolved-scope--decisions-grill-me-2026-09-04), PLANNED in
+[`x1-dns.md`](x1-dns.md), branch cut. The first slice of Phase 2, and the first door whose world
+legacy could not hand over — its DNS was mission scaffolding, so the commands port and the world
+behind them is designed. X2 (`findit.io` and networks a player was never told about) is still
+ungrilled.**
 
 **🏁 PHASE 1 IS COMPLETE.** Every door in the locked order has shipped: web, hydra, ftp, scp,
 daemons, nc, machine kinds, mysql, redis, snmp, node and the terminal itself.
