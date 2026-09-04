@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { lanZoneName } from '../network/resolveName';
+import { lanZoneName, resolveLanName } from '../network/resolveName';
 import { buildDirectory } from '../../test/factories/filesystem';
 import { resolveDeepScanHosts } from '../scan/deepScanHosts';
 import { generateHomeLan, type LanHost } from './generateHomeLan';
+import { crackableEssidPool } from './generateWifi';
 import { chainLinks } from './lanTopology';
 import { roleOfHostname } from './pools/hostnames';
 import {
@@ -298,6 +299,69 @@ describe('what the zone says about the layers behind the gateways', () => {
     // empty most of the file.
     expect(names).not.toContain('cam-138');
     expect(names).toEqual(expect.arrayContaining(['doorbell-87', 'tv-137', 'cam-189']));
+  });
+});
+
+/** The network slice 3 will demo on, and one of the eight in the crackable pool whose
+ *  draw put a single name on two hosts. Named rather than searched for, so a change to
+ *  the draw surfaces here instead of quietly picking a different network. */
+const COLLIDING_ESSID = 'GRAD-STUDENT-WIFI';
+
+/**
+ * One name, two hosts. It reads like a bug and it is not: two A records under a single
+ * name is round-robin, which is ordinary DNS and which real networks run deliberately.
+ * The risk is the FIX — a later pass that treats the name as a key would drop an address
+ * a player can reach, silently, with nothing else in the file looking wrong.
+ */
+describe('a name that two hosts on one network answer to', () => {
+  it('lists both addresses instead of choosing between them', () => {
+    const zone = lanZoneName(COLLIDING_ESSID);
+    const lines = formatDnsZone({
+      zone,
+      nameserver: 'ns-116',
+      records: zoneRecordsFor(COLLIDING_ESSID),
+    }).split('\n');
+
+    // GRAD-STUDENT-WIFI, measured: the gateway at .1 and another router at .18 both drew
+    // `router01`. The second address is the one a player could not have reached any other
+    // way, and it is only in the file because the name was not used to key the zone.
+    expect(aRecords(lines).filter(({ name }) => name === 'router01')).toEqual([
+      { name: 'router01', ip: '192.168.112.1' },
+      { name: 'router01', ip: '192.168.112.18' },
+    ]);
+  });
+
+  it('resolves the shared name to one of the addresses the zone lists', () => {
+    const listed = zoneRecordsFor(COLLIDING_ESSID)
+      .filter(({ name }) => name === 'router01')
+      .map(({ ip }) => ip);
+
+    // A resolver answering with an address the zone does not carry would make the file
+    // worthless to read: the player would have crossed a network for a second opinion.
+    // One answer out of two listed is what a round-robin name is SUPPOSED to give.
+    expect(listed).toContain(resolveLanName(COLLIDING_ESSID, 'router01')?.ip);
+  });
+
+  it('never collapses two hosts into one record, on any network in the pool', () => {
+    const collided: string[] = [];
+
+    for (const essid of crackableEssidPool) {
+      const records = zoneRecordsFor(essid);
+      const addresses = records.map(({ ip }) => ip);
+
+      // The address is what identifies a host here; the name is not. Every host the zone
+      // speaks for gets its own line, whatever it happens to be called.
+      expect(new Set(addresses).size).toBe(addresses.length);
+
+      if (new Set(records.map(({ name }) => name)).size !== records.length) {
+        collided.push(essid);
+      }
+    }
+
+    // The sweep is only worth running because the world produces the case: eight of the
+    // fifty crackable networks put one name on two hosts. A zone keyed by name would
+    // empty this list while every assertion above it still passed.
+    expect(collided.length).toBeGreaterThan(4);
   });
 });
 
