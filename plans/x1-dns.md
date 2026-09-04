@@ -1,9 +1,10 @@
 # Plan: X1 — DNS, `nslookup` and `dig`
 
 **Status**: Active — **slice 1 has SHIPPED** (v0.206.0, #487) and **slice 2 is CODE-COMPLETE** on
-`feat/x1-a-box-answers`, cut from trunk at v0.206.0. All ten increments are done and green
-(4427 tests); **the pre-PR gate is next**. Slices 3-4 are grilled but unplanned. This is the first
-door of **Phase 2 — discovery**, and the first whose world legacy could not hand over.
+`feat/x1-a-box-answers`, cut from trunk at v0.206.0. All ten increments are done and green and
+the mutation gate has run (4433 tests); **the browser close-out is all that is left**. Slices 3-4
+are grilled but unplanned. This is the first door of **Phase 2 — discovery**, and the first whose
+world legacy could not hand over.
 **Epic**: [`legacy-parity-epic.md`](legacy-parity-epic.md) → "X1 — resolved scope & decisions
 (grill-me, 2026-09-04)", fourteen locked decisions.
 
@@ -18,11 +19,12 @@ door of **Phase 2 — discovery**, and the first whose world legacy could not ha
    (`generateDnsZoneContent`, `generateDnsNamedConf`) ports for the FILE format. Legacy's
    `resolveDomain`/`dnsRecords` do **not** port — they are mission scaffolding for a mechanic v2
    does not have.
-3. **The next action is slice 2's pre-PR gate** — the version bump to 0.207.0, mutation over the
-   accumulated scope, and the browser close-out, all specified under "Pre-PR gate" below. Increments
-   0-9 are committed on `feat/x1-a-box-answers`; the per-increment record is under "RED-GREEN
-   increments — as run". Read slice 1's as-built too — the resolver it left behind is what the zone
-   is written against, and its `lanZoneName` is the zone's own origin.
+3. **The next action is slice 2's browser close-out**, specified at the end of "Pre-PR gate" below.
+   Everything else in that gate is done: typecheck, lint, 4433 tests, v0.207.0, and four scoped
+   mutation batteries whose findings and accepted survivors are recorded there. Increments 0-9 are
+   committed on `feat/x1-a-box-answers`; the per-increment record is under "RED-GREEN increments —
+   as run". Read slice 1's as-built too — the resolver it left behind is what the zone is written
+   against, and its `lanZoneName` is the zone's own origin.
 4. Cut a fresh `feat/…` branch per slice off an up-to-date `main` — check `git status -sb` for
    ahead/behind, per conventions §8, which distinguishes ahead from level where
    `git pull --ff-only` does not.
@@ -63,7 +65,7 @@ them.
 | # | Slice | Observable | Status |
 |---|-------|-----------|--------|
 | 1 | a name resolves | `nslookup web-04` answers, and `ssh root@web-04` lands | ✅ **SHIPPED** v0.206.0 (#487) |
-| 2 | a box answers as a name server | `nmap` finds `53 open`; rooting it and `cat`-ing the zone shows the deep layers | 🚧 **CODE-COMPLETE** — all ten increments done, pre-PR gate next |
+| 2 | a box answers as a name server | `nmap` finds `53 open`; rooting it and `cat`-ing the zone shows the deep layers | 🚧 **CODE-COMPLETE** — mutation gate run, browser close-out left |
 | 3 | the zone transfers | `dig @<server> axfr` hands over the whole address plan | — |
 | 4 | the transfer leaves a trace | `named.log` names whoever transferred it | — |
 
@@ -594,10 +596,90 @@ behaviour to fail.
 
 ### Pre-PR gate
 
-Typecheck, lint, the full non-watch suite, and the version bumped to **0.207.0** in `package.json`
-and `package-lock.json`. Mutation testing over the accumulated scope — the zone formatter is
-string-shaped, so expect the golden-vector rule to matter and expect `manual`/`description` metadata
-survivors, which conventions §7 accepts. Wire-check `N/A`.
+✅ **Typecheck, lint and the full non-watch suite pass at 4433 tests**, with the version bumped to
+**0.207.0** in `package.json` and `package-lock.json`. Wire-check `N/A` — no `api/` change; the zone
+is generated client-side from the ESSID like every other generated file, and slice 4 is the door's
+only `api/` work.
+
+#### ✅ Mutation gate — four scoped batteries
+
+One battery per group of changed production files, each with a throwaway vitest config narrowing
+`include` to the covering tests (conventions §4 — a whole-suite dry run never finishes here). Scored
+against the lines this branch actually changed; the rest of each file is pre-existing scope.
+
+| Battery | Files | In changed lines |
+|---|---|---|
+| A — the zone | `generateDnsZone.ts` | 87 killed / 2 equivalent (was 74/16) |
+| B — placement | `remoteHostFs.ts`, `configFiles.ts`, `rolePlacement.ts` | **22 killed / 0 survived** |
+| C — packages | `aptPackages.ts`, `apt.ts`, `serviceCatalog.ts` | 49 killed / 4 accepted |
+| D — daemon control | `daemon.ts`, `systemctl.ts`, `registry.ts` | 6 killed (was 2) / 12 metadata + 3 write-only + 1 artifact |
+| E — the topology refactor | `lanTopology.ts`, `lanHostIdentity.ts`, `generateDeepLayer.ts`, `deepHostFs.ts`, `deepScanHosts.ts`, `deepLayerHop.ts`, `resolveName.ts` | 70 killed / 1 real, 4 artifacts |
+
+**Six tests written, and every one of them came from a survivor rather than from a guess:**
+
+1. **Two golden vectors** — the whole zone file and the whole `named.conf`, line for line. Twelve
+   survivors were single string literals and two were the SOA column width, and none of the
+   one-question tests above them could see any of it. Written as BIND syntax first and the formatter
+   required to match, not pasted out of its output.
+2. **A Layer-1 name server appears in its own zone.** `'dns'` in `ZONED_ROLES` survived, and
+   hand-applying it left **all 4427 tests green** while a name server vanished from the zone it
+   publishes — an NS line naming a host with no A record, which is a broken zone. Only
+   `OSCORP-GUEST` (`bind-224`) and `DEFCON-VILLAGE` (`resolver-69`) put one on Layer 1 and neither is
+   in the sample; everywhere else the server is deep, where nothing is filtered by role at all. That
+   is exactly why the gap could sit there.
+3. **The name server's own announcements** — a new `named.test.ts`, the per-daemon file every other
+   daemon already had and this slice skipped. It covers only what is NAMED's own (`Starting name
+   server...`, `named: already running on port 53`); the shared `daemonCommand` machinery is proven
+   six times over in `sshd.test.ts` and is not repeated.
+4. **`systemctl status named` names its unit** — the existing assertion read only the state, so
+   `named.service - name server` was free to drift.
+5. **A Layer-1 chain gateway resolves the LAN's tree, not a parent's.** Increment 0 collapsed two
+   separate call sites into one ternary on `link.parentMachineId === null`, and the Layer-1 arm was
+   never taken in a test: forcing it to `false` left the **full 4433-test suite green** while a
+   rooted Layer-1 gateway's pivot scan and its `rules.v4` write path both resolved somebody else's
+   tree. The only genuine hole the refactor introduced, and the clearest argument for gating a
+   refactor rather than trusting that it moved code.
+
+**One dead export removed**: `NAMED_CONF_PATH` was read by nothing — not production, not tests. The
+tree names `named.conf` directly as a directory key, so the constant had no caller. Deleted rather
+than given a test.
+
+#### Survivors accepted, with the evidence for each
+
+- **`role !== undefined` → `true`** (`generateDnsZone.ts`). Redundant before
+  `ZONED_ROLES.includes(role)`, which is `false` for `undefined` anyway. The documented
+  type-narrowing class.
+- **`next() < 0.75` → `<=`** (`allowsZoneTransfer`). Enumerated rather than assumed, as conventions
+  §4 requires: **12,700 (network, address) pairs across the whole crackable pool, none landing
+  exactly on 0.75**, closest approach 6.8e-5. The two operators cannot disagree anywhere in the
+  reachable world.
+- **The apt → library path in `installPackage`** (three mutants, one of them `NoCoverage`).
+  **Zero of the catalog's package binaries appear in `libraryDeps`** — the utilities that have
+  libraries (`su`, `systemctl`, `ls`, …) are preinstalled, not apt-installed — so `libraries` is
+  always `[]` and the `!libResult.ok` arm is unreachable through a package install. The function
+  itself is directly tested with an injected dep map, which is what its injectable parameter is for.
+- **`?? []` fallbacks → `["Stryker was here"]`** (`dependsOn`, `daemons`). The next step filters by
+  name and finds nothing; the guard itself still dies. Documented equivalent class.
+- **`manual`, `description` and `examples` metadata** (12 in `NAMED`, 31 pre-existing in `apt`).
+  Conventions §7 accepts these.
+- **`availability: { kind, packageName }` on `NAMED`** (3 mutants). Not a gap and not this slice's:
+  **nothing in the codebase reads `availability.kind` or `.packageName`.** The install hint comes
+  from `packageForBinary` (the apt catalog) and the gate from `isAlwaysAvailable` (name sets). Ten
+  other commands carry the same write-only field — a reduction candidate, not a test to write.
+
+#### Two findings worth carrying forward
+
+- **A fifth and sixth instance of the false-survivor pattern**, both proved by hand. Emptying
+  `remoteHostFs`'s `/etc` object and emptying the whole `NAMED` literal both report SURVIVED and both
+  take files down at MODULE LOAD — the second one killed four test files outright, and Vitest's
+  "no tests" is what Stryker scores as a survivor. Four more (`lanTopology` ×3, `lanHostIdentity`'s
+  deep-host loop) were narrow-include artifacts that the FULL suite kills. Of eleven non-metadata
+  survivors hand-checked in this gate, **six were tooling and one was real** — the check is the
+  cheapest step in the triage and it stayed cheap.
+- **A flaky test outside this slice.** `hydraCrackPublic.test.ts` → "a database published through a
+  forward … earns an account in a stranger's database" failed once under a 97-file `vitest related`
+  run and passed on an identical re-run, and passes alone. Two full-suite runs since are green. Not
+  slice 2's code and not reproduced; recorded so the next person to see it knows it has been seen.
 
 **Browser close-out**: crack a network whose dns box is DEEP — `APERTURE-WIFI`, `GRAD-STUDENT-WIFI`,
 `CAMPUS-GUEST-OPEN` or `ROBOVAC-AP`. A deep one exercises placement, the chain walk and the pivot
