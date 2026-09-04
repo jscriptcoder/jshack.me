@@ -7,6 +7,7 @@ import { createFsView } from '../filesystem/fsView';
 import {
   formatListenerContent,
   PIDFILE_PERMISSIONS,
+  readOpenPorts,
   readRunningProcesses,
   type Listener,
 } from '../services/pidfile';
@@ -2551,6 +2552,67 @@ describe('buildRemoteHostFs', () => {
       // what every test above this block stands on: their boxes are named that way,
       // so an unconditional config file would have moved all of them.
       expect(roleConfigOf(buildRemoteHostFs(ESSID, host(42)))).toBeNull();
+    });
+  });
+
+  describe('the name-service surface (a box named for one answers on 53)', () => {
+    /** What one generated box says about the name-service door, read off the box while
+     *  it is being built so the box itself can be discarded. */
+    type NameServerBox = {
+      readonly prefix: string;
+      readonly octet: number;
+      readonly pidfile: FileEntry | undefined;
+      readonly openPorts: readonly { readonly port: number; readonly service: string }[];
+    };
+
+    const inspect = (prefix: string, octet: number): NameServerBox => {
+      const fs = buildRemoteHostFs(ESSID, namedHost(prefix, octet));
+      return {
+        prefix,
+        octet,
+        pidfile: fileAt(fs, 'var', 'run', 'named.pid'),
+        openPorts: readOpenPorts(fs),
+      };
+    };
+
+    /** Five kinds of box over a LAN's worth of addresses, generated once for the whole
+     *  block — a placement rate is a property of the world, so one box proves nothing
+     *  about it, and regenerating per assertion is slow enough under mutation
+     *  instrumentation to race the timeout. */
+    const population = lazily(() =>
+      ['ns', 'www', 'db', 'host', 'cam'].flatMap((prefix) =>
+        OCTETS.map((octet) => inspect(prefix, octet)),
+      ),
+    );
+
+    const boxesOn = (prefix: string): readonly NameServerBox[] =>
+      population().filter((box) => box.prefix === prefix);
+
+    const namedRateOn = (prefix: string): number =>
+      boxesOn(prefix).filter((box) => box.pidfile !== undefined).length / boxesOn(prefix).length;
+
+    it('plants a named.pid on a box named for a name server, and a scan reads it as domain', () => {
+      // `domain` rather than `dns`: it is what a default nmap prints for 53, and the
+      // SERVICE column is the only place a player meets this name.
+      const running = boxesOn('ns').find((box) => box.pidfile !== undefined);
+
+      expect(running?.pidfile?.content).toBe('named:port=53');
+      expect(running?.pidfile?.owner).toBe('bind');
+      expect(running?.openPorts).toContainEqual({ port: 53, service: 'domain' });
+    });
+
+    it('runs a name server on nearly every box named for one, so the name is worth reading', () => {
+      expect(namedRateOn('ns')).toBeGreaterThan(0.8);
+      expect(namedRateOn('ns')).toBeLessThan(1);
+    });
+
+    it('runs one NOWHERE else, because the rarity is the whole balance of the door', () => {
+      // Roughly one network in seven draws a dns box at all, and that scarcity is what
+      // makes a zone worth crossing a network for. A flat rate above zero would put a
+      // name server on laptops and cameras and dissolve it.
+      const elsewhere = ['www', 'db', 'host', 'cam'].filter((prefix) => namedRateOn(prefix) > 0);
+
+      expect(elsewhere).toEqual([]);
     });
   });
 });

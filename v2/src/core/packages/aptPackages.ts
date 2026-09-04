@@ -119,6 +119,11 @@ export const APT_PACKAGES: readonly AptPackage[] = [
   // `apt install dig`, and a player who tried would be right to expect it to fail
   // the way it fails on a real box.
   { name: 'dnsutils', binaries: ['dig', 'nslookup'] },
+  // The server behind those clients, and the one box in the world that runs it. Its
+  // daemon is what a `dns` role box carries and what `systemctl start named` brings
+  // up; it claims no client binary of its own, so `apt install dig` still points at
+  // the package that really ships it.
+  { name: 'bind9', binaries: ['named'], daemons: ['named'] },
   { name: 'john' },
   { name: 'netcat', binaries: ['nc'] },
   { name: 'ftp' },

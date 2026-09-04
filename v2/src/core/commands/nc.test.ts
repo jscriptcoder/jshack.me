@@ -351,6 +351,13 @@ describe('the banners the world’s doors answer with', () => {
   // greeting to quote and no handshake to refuse — a raw connection to it gets silence.
   // What is left is the plainest reading of the rule the others were bent to fit: name
   // the daemon, and stop there.
+  //
+  // The name server takes the same reading for a different reason: it is a TCP door,
+  // but it speaks only when spoken to, and a raw connection sends none of the
+  // length-prefixed query it waits for. Its first draft read `DNS/53 FORMERR`, which
+  // this rule should reject on sight — a port is not a version, and a banner wearing
+  // the shape of `SSH-2.0` where no version exists dates a box in the one syntax that
+  // looks most like it isn't.
   it('name the protocol and the daemon, never the build', () => {
     const banners = Object.values(SERVICE_CATALOG).map((spec) => spec.banner);
 
@@ -361,6 +368,7 @@ describe('the banners the world’s doors answer with', () => {
       'ERROR 1043 (08S01): Bad handshake',
       '-ERR unknown command',
       'SNMP agent',
+      'DNS name server',
     ]);
   });
 });

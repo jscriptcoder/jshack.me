@@ -51,6 +51,7 @@ import {
   redisServer,
   runningPort,
   snmpd,
+  named,
   sshd,
   vsftpd,
   type Daemon,
@@ -135,6 +136,13 @@ const UNITS: Readonly<Record<string, Unit>> = {
     spec: SERVICE_CATALOG.snmp,
     start: snmpd,
     daemon: DAEMONS.snmpd,
+  },
+  named: {
+    name: 'named',
+    title: 'name server',
+    spec: SERVICE_CATALOG.dns,
+    start: named,
+    daemon: DAEMONS.named,
   },
 };
 
