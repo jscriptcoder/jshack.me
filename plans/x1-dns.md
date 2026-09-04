@@ -1,8 +1,8 @@
 # Plan: X1 — DNS, `nslookup` and `dig`
 
 **Status**: Active — **slice 1 has SHIPPED** (v0.206.0, #487) and **slice 2 is IN PROGRESS** on
-`feat/x1-a-box-answers`, cut from trunk at v0.206.0. Increments 0-2 are done, committed and green
-(4398 tests); **increment 3 is next**. Slices 3-4 are grilled but unplanned. This is the first door
+`feat/x1-a-box-answers`, cut from trunk at v0.206.0. Increments 0-3 are done and green
+(4400 tests); **increment 4 is next**. Slices 3-4 are grilled but unplanned. This is the first door
 of **Phase 2 — discovery**, and the first whose world legacy could not hand over.
 **Epic**: [`legacy-parity-epic.md`](legacy-parity-epic.md) → "X1 — resolved scope & decisions
 (grill-me, 2026-09-04)", fourteen locked decisions.
@@ -18,9 +18,9 @@ of **Phase 2 — discovery**, and the first whose world legacy could not hand ov
    (`generateDnsZoneContent`, `generateDnsNamedConf`) ports for the FILE format. Legacy's
    `resolveDomain`/`dnsRecords` do **not** port — they are mission scaffolding for a mechanic v2
    does not have.
-3. **The next action is slice 2's increment 3** on `feat/x1-a-box-answers` — the `dependsOn`
-   column, so `apt install bind9` also lays down `dig` and `nslookup`. Increments 0-2 are committed
-   there (`41a14d22`, `0508270b`); the per-increment record is under "RED-GREEN increments" below.
+3. **The next action is slice 2's increment 4** on `feat/x1-a-box-answers` — the zone formatter,
+   ported from legacy's `generateDnsZoneContent`. Increments 0-3 are committed there (`41a14d22`,
+   `0508270b`, and increment 3's); the per-increment record is under "RED-GREEN increments" below.
    Read slice 1's as-built first: the resolver it left behind is what the zone is written against,
    and its `essidSlug` is the zone's own origin.
 4. Cut a fresh `feat/…` branch per slice off an up-to-date `main` — check `git status -sb` for
@@ -63,7 +63,7 @@ them.
 | # | Slice | Observable | Status |
 |---|-------|-----------|--------|
 | 1 | a name resolves | `nslookup web-04` answers, and `ssh root@web-04` lands | ✅ **SHIPPED** v0.206.0 (#487) |
-| 2 | a box answers as a name server | `nmap` finds `53 open`; rooting it and `cat`-ing the zone shows the deep layers | 🚧 **IN PROGRESS** — increments 0-2 of 9 done |
+| 2 | a box answers as a name server | `nmap` finds `53 open`; rooting it and `cat`-ing the zone shows the deep layers | 🚧 **IN PROGRESS** — increments 0-3 of 9 done |
 | 3 | the zone transfers | `dig @<server> axfr` hands over the whole address plan | — |
 | 4 | the transfer leaves a trace | `named.log` names whoever transferred it | — |
 
@@ -374,13 +374,18 @@ Planning's, open to veto at AC confirmation:
 
 **Finding the box**
 
-1. A dns-role host runs `named` on `53/tcp`, and `nmap` reports it as `53/tcp open domain`.
+1. A dns-role host runs `named` on `53/tcp`, and `nmap` reports it as `53/tcp open domain`. 🚧 — the
+   open port is tested; the rendered line is assembled but not asserted anywhere (the row omits
+   `protocol`, which defaults to `tcp`, and `nmap` prints `service` verbatim). Browser close-out
+   owns it.
 2. No box of any other role runs it — a `domain` port appears only where the world put a name
-   server.
-3. `nc <dns-box> 53` answers `DNS/53 FORMERR`.
-4. `systemctl stop named` on a rooted dns box closes 53; `systemctl start named` reopens it.
+   server. ✅
+3. `nc <dns-box> 53` answers `DNS name server`. ✅ — **amended at increment 1**: confirmed reading
+   `DNS/53 FORMERR`, which decision 12 records `nc.test.ts` rejecting on sight. The criterion is the
+   banner, not that string.
+4. `systemctl stop named` on a rooted dns box closes 53; `systemctl start named` reopens it. ✅
 5. `apt install bind9` on the player's own box installs `named`, plus `dig` and `nslookup` through
-   the dependency — and `apt install dnsutils` still installs exactly the two it did in slice 1.
+   the dependency — and `apt install dnsutils` still installs exactly the two it did in slice 1. ✅
 
 **Reading what it knows**
 
@@ -441,10 +446,28 @@ behaviour to fail.
    - **Found and deliberately not fixed**: `snmpd` is in `DAEMONS` but NOT in the registry, so
      `apt install snmp` lays a binary that answers `command not found`. Backlogged in conventions
      §9; it is not this door's bug.
-3. ⬅️ **NEXT — RED — the dependency.** `apt install bind9` lays down `named`, `dig` and `nslookup`;
-   `apt install dnsutils` still lays down exactly two; `packageForBinary('dig')` still answers
-   `dnsutils`. GREEN: the `dependsOn` column and its union in `binariesForService`.
-4. **RED — the zone's shape.** A generated zone parses as a zone: origin, TTL, SOA with five timers,
+3. ✅ **RED — the dependency.** Two tests went red: `apt install bind9` laid down only
+   `/usr/sbin/named`, and a generated name server carried only `named`. GREEN: the `dependsOn`
+   column, `bind9` declaring `['dnsutils']`, and one resolver both callers share.
+   - **The union belongs to the catalog, not to `apt`.** The plan named `binariesForService` as the
+     site, but `apt install` never went through it — it had its own private `contentsOf`. Rather
+     than teach two readers the same rule, `contentsOf` MOVED to `aptPackages.ts` as
+     `packageContents`, and both it and `binariesForService` now compose `withDependencies` with
+     `binariesLaidDownBy`. What a package contains was always the catalog's question.
+   - **Daemon-ness is paired WITHIN a package, not unioned across the install.** The old code took
+     one package's `daemons` list; a flat union across several would file a tool in `/usr/sbin`
+     the moment any package beside it shipped a daemon of that name. No such collision exists
+     today, which is exactly when the guard is free.
+   - **The announce line names every package**, `  bind9 dnsutils`, as real apt does. A tool that
+     appears on the box with nothing on screen accounting for it reads as the game acting behind
+     the player's back — the rule `installExtraFiles` already states for shipped files.
+   - **`dependsOn` resolves ONE level.** No catalog row depends on a package that itself depends on
+     something; a walk for the chain that does not exist is a walk no test could fail.
+   - **A generated name server now carries the clients too**, verified against a real
+     `buildRemoteHostFs`: `/usr/bin` gained `dig` and `nslookup` beside `/usr/sbin/named`. It is
+     what makes the box look like one somebody ran `apt install bind9` on, and it makes a rooted
+     name server a place to resolve FROM.
+4. ⬅️ **NEXT — RED — the zone's shape.** A generated zone parses as a zone: origin, TTL, SOA with five timers,
    NS. GREEN: the zone formatter, ported from legacy's `generateDnsZoneContent`.
 5. **RED — what Layer 1 contributes.** Servers and infrastructure in; a workstation and an IoT host
    out, named explicitly on a network measured to have both. GREEN: the Layer-1 filter.
