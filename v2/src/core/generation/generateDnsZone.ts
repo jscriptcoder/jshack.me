@@ -7,10 +7,10 @@
  * Legacy's zone described a mission that v2 does not have; the shape it wrote is the
  * part worth keeping, because it is the shape a real zone has.
  *
- * A FORMATTER only. Which hosts belong in a zone is a question about the network, and
- * it is answered where the network is known; this module is handed the records and
- * writes them down. Keeping the two apart is what lets the selection rules change —
- * and they differ per layer — without anything relearning zone syntax.
+ * Two questions, kept apart INSIDE the module: which of a network's hosts belong in
+ * its zone, and how a zone is written down. `formatDnsZone` knows only the second, so
+ * the selection rules — which differ between the home LAN and the layers behind it —
+ * can change without anything relearning zone syntax.
  *
  * The file is the payout of this whole door. A player who transfers or reads one gets
  * the addresses of machines no scan of their own layer could have shown them, which is
@@ -19,6 +19,9 @@
  */
 
 import type { Ipv4 } from '../network/interfaces';
+import { generateHomeLan, type LanHost } from './generateHomeLan';
+import type { DrawnRole } from './machineRole';
+import { roleOfHostname } from './pools/hostnames';
 
 /** One name in the zone and the address it answers with. Deliberately NOT a `LanHost`:
  *  a zone knows nothing about what kind of device is behind a name, and deep-layer
@@ -28,6 +31,54 @@ export type ZoneRecord = {
   readonly name: string;
   readonly ip: Ipv4;
 };
+
+/**
+ * The machine roles a home LAN's zone carries. An ALLOW-list rather than a list of the
+ * two it drops, though the seven drawn roles make the two formulations equivalent
+ * today: a zone is a thing an administrator wrote, so a role nobody has decided about
+ * belongs outside it until somebody does.
+ *
+ * What is missing is the half of a home network that is somebody's phone and somebody's
+ * camera. Those hold their addresses on DHCP leases, and an authoritative zone that
+ * named them would be describing a network that does not stay still. What remains is
+ * the part of the address plan that was configured on purpose — and the part worth
+ * crossing a network to read.
+ */
+const ZONED_ROLES: readonly DrawnRole[] = [
+  'webserver',
+  'fileserver',
+  'database',
+  'mailserver',
+  'dns',
+];
+
+/** Routing gear is in whatever it is called, and a machine is in if its name says it
+ *  serves something.
+ *
+ *  Read off `kind` for the first, because a router's name is drawn from its own pool
+ *  and claims no role at all — one network's `.1` is CALLED `switch-core` and is a
+ *  router, and its `firewall01` is a switch, so a filter reading names would file both
+ *  wrongly. Read off the NAME for the second, which is the rule the whole world
+ *  follows: a deep box is named from its fronting gateway's stream, and re-deriving a
+ *  role from coordinates would contradict the name a player just read off a scan. */
+const belongsInZone = (host: LanHost): boolean => {
+  if (host.kind !== 'machine') return true;
+  const role = roleOfHostname(host.hostname);
+  return role !== undefined && ZONED_ROLES.includes(role);
+};
+
+/**
+ * The records the zone for `essid` carries from the home LAN itself.
+ *
+ * In the order `generateHomeLan` returns its hosts, which is by address — so the file
+ * reads as a walk up the subnet, and a reader can find a host in it the way they would
+ * find a line in a scan. No sort of its own: a second ordering here would be a second
+ * claim about the same thing, free to disagree with the first.
+ */
+export const zoneRecordsFor = (essid: string): readonly ZoneRecord[] =>
+  generateHomeLan(essid)
+    .hosts.filter(belongsInZone)
+    .map(({ hostname, ip }) => ({ name: hostname, ip }));
 
 /** Seconds a resolver may cache an answer for. One hour, on every record and as the
  *  zone default, which is what a home network's own zone really looks like. */
