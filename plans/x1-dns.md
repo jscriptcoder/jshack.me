@@ -1,8 +1,8 @@
 # Plan: X1 — DNS, `nslookup` and `dig`
 
 **Status**: Active — **slice 1 has SHIPPED** (v0.206.0, #487) and **slice 2 is IN PROGRESS** on
-`feat/x1-a-box-answers`, cut from trunk at v0.206.0. Increments 0-6 are done and green
-(4413 tests); **increment 7 is next**. Slices 3-4 are grilled but unplanned. This is the first door
+`feat/x1-a-box-answers`, cut from trunk at v0.206.0. Increments 0-7 are done and green
+(4419 tests); **increment 8 is next**. Slices 3-4 are grilled but unplanned. This is the first door
 of **Phase 2 — discovery**, and the first whose world legacy could not hand over.
 **Epic**: [`legacy-parity-epic.md`](legacy-parity-epic.md) → "X1 — resolved scope & decisions
 (grill-me, 2026-09-04)", fourteen locked decisions.
@@ -18,13 +18,13 @@ of **Phase 2 — discovery**, and the first whose world legacy could not hand ov
    (`generateDnsZoneContent`, `generateDnsNamedConf`) ports for the FILE format. Legacy's
    `resolveDomain`/`dnsRecords` do **not** port — they are mission scaffolding for a mechanic v2
    does not have.
-3. **The next action is slice 2's increment 7** on `feat/x1-a-box-answers` — the `named.conf`
-   generator, ported from legacy. Increments 0-6 are committed there (`41a14d22`, `0508270b`,
-   `83873320`, `faa31b77`, `f436ee5f` and increment 6's); the per-increment record is under
-   "RED-GREEN increments" below.
-   Read slice 1's as-built first: the resolver it left behind is what the zone is written against,
-   and its `lanZoneName` is the zone's own origin. **Then read increment 8 — the two files land on
-   deep dns boxes as well as Layer-1 ones, which is where two thirds of them are.**
+3. **The next action is slice 2's increment 8** — placement, and read its entry in full before
+   touching anything: the two files land on **deep** dns boxes as well as Layer-1 ones, which is
+   where two thirds of them are. Increments 0-7 are committed on `feat/x1-a-box-answers`
+   (`41a14d22`, `0508270b`, `83873320`, `faa31b77`, `f436ee5f`, `99433467` and increment 7's); the
+   per-increment record is under "RED-GREEN increments" below. Read slice 1's as-built too — the
+   resolver it left behind is what the zone is written against, and its `lanZoneName` is the zone's
+   own origin.
 4. Cut a fresh `feat/…` branch per slice off an up-to-date `main` — check `git status -sb` for
    ahead/behind, per conventions §8, which distinguishes ahead from level where
    `git pull --ff-only` does not.
@@ -65,7 +65,7 @@ them.
 | # | Slice | Observable | Status |
 |---|-------|-----------|--------|
 | 1 | a name resolves | `nslookup web-04` answers, and `ssh root@web-04` lands | ✅ **SHIPPED** v0.206.0 (#487) |
-| 2 | a box answers as a name server | `nmap` finds `53 open`; rooting it and `cat`-ing the zone shows the deep layers | 🚧 **IN PROGRESS** — increments 0-6 of 9 done |
+| 2 | a box answers as a name server | `nmap` finds `53 open`; rooting it and `cat`-ing the zone shows the deep layers | 🚧 **IN PROGRESS** — increments 0-7 of 9 done |
 | 3 | the zone transfers | `dig @<server> axfr` hands over the whole address plan | — |
 | 4 | the transfer leaves a trace | `named.log` names whoever transferred it | — |
 
@@ -519,10 +519,30 @@ behaviour to fail.
    - Rendered live for APERTURE-WIFI, served by the DEEP `dns-29`: four Layer-1 records, then six
      deep ones across four `10.x` prefixes — and the box writes its own name into the SOA and NS of
      a zone for the whole network while standing three hops inside it.
-7. ⬅️ **NEXT — RED — the config file.** One zone stanza, the right file path, `allow-transfer` open on about
-   three boxes in four and closed on the rest, stable across reloads. GREEN: the `named.conf`
-   generator, ported from legacy's `generateDnsNamedConf`.
-8. **RED — placement on BOTH kinds of box.** Both files present on a Layer-1 dns-role box and on a
+7. ✅ **RED — the config file.** Six tests: one zone stanza, the zone file's path, the query and
+   recursion lines, both transfer lines, the rate across a 2024-sample population, and one answer
+   per box. GREEN: `formatNamedConf` + `allowsZoneTransfer` + `zoneFilePathFor`, in the same module
+   as the zone.
+   - **`recursion no`, where legacy's templates varied.** This box is authoritative for one zone
+     and there is no DNS in this world beyond the LAN it stands on, so a config advertising
+     recursion invites a player to ask it a question nothing can answer. It is also what a real
+     authoritative server says, and the pooled template being deleted at increment 8 already had
+     it — not a coinage.
+   - **Both files in ONE module, because the config names where the zone file goes.** Two modules
+     would be two statements of one path, free to disagree.
+   - **`/etc/bind/named.conf` and `/etc/bind/zones/db.<zone>`** — Debian's real locations, and they
+     keep the two files beside each other instead of two paths a player learns separately.
+
+   ⚠️ **Measured after green, and it affects slice 3's demo more than this slice.** The rate is
+   right — 63% open across the 19 name servers in the whole world, 70-80% over the test's 2024-pair
+   sample. But the six a player can actually REACH drew badly: only **`GRAD-STUDENT-WIFI`
+   (`ns-116`) and `CAMPUS-GUEST-OPEN` (`ns-196`) are open**; `OSCORP-GUEST`, `APERTURE-WIFI`,
+   `ROBOVAC-AP` and `DEFCON-VILLAGE` all refuse. That is a 1-in-30 draw, not a bug, and re-seeding
+   to get a prettier one would be fitting the world to a wanted result. Two consequences: **slice
+   3's transfer demo must use one of those two**, and this slice's close-out on `APERTURE-WIFI`
+   exercises the CLOSED branch — which is the right thing for slice 2, whose payout is reading the
+   files off a rooted box rather than transferring them.
+8. ⬅️ **NEXT — RED — placement on BOTH kinds of box.** Both files present on a Layer-1 dns-role box and on a
    DEEP dns-role box, with `named` stopped; absent everywhere else; `/etc/named.conf` gone from the
    world. GREEN: the role branch in `buildRemoteHostFs` **and the matching one in
    `buildDeepHostFs`**, and the `dns` entry deleted from `CONFIG_BY_ROLE`.
