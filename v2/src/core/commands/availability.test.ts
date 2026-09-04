@@ -247,6 +247,40 @@ describe('commandRegistry gating (registry wiring)', () => {
     ]);
   });
 
+  // The DNS tools are the second family bought rather than shipped, and the pair
+  // that changes what the OTHER commands accept — so the gate is worth showing on
+  // the real registry entry rather than on a stand-in. Both directions, as gpg's.
+  it.each(['nslookup', 'dig'])(
+    'gates %s behind an apt install, then runs it once its /usr/bin binary is there',
+    async (name) => {
+      const command = commandRegistry.get(name);
+      if (command === undefined) throw new Error(`${name} not registered`);
+
+      const fresh = mockCommandEnv({
+        fs: mockFsViewFromTree(buildDirectory({ tmp: buildDirectory({}) }), {
+          userType: 'user',
+          cwd: asAbsPath('/tmp'),
+        }),
+      });
+      const before = await command.execute(fresh, [], NO_FLAGS);
+      expect(errorLines(before)).toEqual([
+        `bash: ${name}: command not found. Install with: apt install dnsutils`,
+      ]);
+      expect(before.kind === 'sync' && before.exitCode).toBe(127);
+
+      const installed = mockCommandEnv({
+        fs: mockFsViewFromTree(treeWithUsrBinary(name), {
+          userType: 'user',
+          cwd: asAbsPath('/'),
+        }),
+      });
+      const after = await command.execute(installed, [], NO_FLAGS);
+
+      // Its own answer, not the gate's — the command was reached.
+      expect(errorLines(after)).toEqual([`${name}: usage: ${name} <name>`]);
+    },
+  );
+
   it.each(['clear', 'whoami'])('runs %s once its /bin binary is back', async (name) => {
     const command = commandRegistry.get(name);
     if (command === undefined) throw new Error(`${name} not registered`);
@@ -419,6 +453,8 @@ describe('wrapWithBinaryCheck — /usr/bin resolution + apt-install hint (slice 
   // without exposing the internal map. The pairs ARE the spec (legacy parity).
   const APT_HINT_PAIRS: readonly (readonly [string, string])[] = [
     ['nmap', 'nmap'],
+    ['dig', 'dnsutils'],
+    ['nslookup', 'dnsutils'],
     ['john', 'john'],
     ['nc', 'netcat'],
     ['ftp', 'ftp'],

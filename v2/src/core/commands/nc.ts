@@ -35,6 +35,7 @@ import {
 } from '../services/pidfile';
 import { serviceByName, type ServiceSpec } from '../services/serviceCatalog';
 import { connectedWlan0, LOOPBACK_IPV4 } from '../network/interfaces';
+import { addressForTarget } from '../network/resolveName';
 import { errorLine, streamedResult, text } from './streaming';
 import {
   PATCH_ERROR_REASON,
@@ -278,20 +279,30 @@ const listen = async (env: CommandEnv, rawPort: string | undefined): Promise<Com
 const execute: Command['execute'] = async (env, args, flags) => {
   if (flags.get(LISTEN_FLAG) === true) return listen(env, args[0]);
 
-  const host = args[0];
+  const requested = args[0];
   const rawPort = args[1];
-  if (host === undefined || rawPort === undefined) return error(USAGE);
+  if (requested === undefined || rawPort === undefined) return error(USAGE);
   const port = parsePort(rawPort);
   if (port === null) return error(PORT_RANGE);
 
   const wlan0 = connectedWlan0(env.network);
   if (wlan0 === null) return error(UNREACHABLE);
 
-  if (host === 'localhost' || host === LOOPBACK_IPV4 || host === wlan0.ipv4) {
+  if (requested === 'localhost' || requested === LOOPBACK_IPV4 || requested === wlan0.ipv4) {
     return error(OWN_BOX);
   }
 
   const essid = wlan0.association.essid;
+
+  // A name becomes the address before anything routes on it, so every path below
+  // sees the target it already knows how to reach. A name nothing answers to is left
+  // exactly as typed, and falls through to the same unknown-target path an unknown
+  // address takes.
+  const host = await addressForTarget({
+    essid,
+    target: requested,
+    resolveOccupants: env.scan.resolveOccupants,
+  });
   const target = await resolveTarget(env, host, essid);
   if (target.kind === 'nowhere') return connectError(host, port, 'Connection timed out');
 

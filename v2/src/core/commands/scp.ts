@@ -32,6 +32,7 @@ import { asAbsPath, asMachineId } from '../types';
 import { generateHomeLan } from '../generation/generateHomeLan';
 import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
 import { isPublicIp } from '../generation/ip';
+import { addressForTarget } from '../network/resolveName';
 import { basename, dirname, resolveAbsPath } from '../filesystem/path';
 import { homeDirectory } from '../sessions/homeDirectory';
 import { readOpenPorts } from '../services/pidfile';
@@ -357,13 +358,26 @@ const connectAndTransfer = async (params: {
   readonly portFlag: string | true | undefined;
   readonly transfer: (session: Session, remotePath: AbsPath) => Promise<Transfer>;
 }): Promise<CommandResult> => {
-  const { env, remote } = params;
+  const { env } = params;
 
   const essid = env.network.interfaces().find((iface) => iface.kind === 'wireless')?.association
     ?.essid;
   if (essid === undefined || !env.network.isOnline()) {
     return failure('scp: Network is unreachable');
   }
+
+  // A name becomes the address before anything routes on it, so every path below
+  // sees the target it already knows how to reach. A name nothing answers to is left
+  // exactly as typed, and falls through to the same unknown-target path an unknown
+  // address takes.
+  const remote = {
+    ...params.remote,
+    host: await addressForTarget({
+      essid,
+      target: params.remote.host,
+      resolveOccupants: env.scan.resolveOccupants,
+    }),
+  };
 
   const reached = isPublicIp(remote.host)
     ? await reachPublic(env, remote, params.portFlag)

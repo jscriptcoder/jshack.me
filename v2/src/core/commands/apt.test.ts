@@ -320,6 +320,14 @@ describe('apt', () => {
       expect(writes.map((write) => write.path)).toEqual(['/usr/bin/nc']);
     });
 
+    it('installs both DNS tools into /usr/bin — neither half of the pair is a daemon', async () => {
+      const { env, writes } = aptEnv();
+
+      await streamResult(await apt.execute(env, ['install', 'dnsutils'], NO_FLAGS));
+
+      expect(writes.map((write) => write.path)).toEqual(['/usr/bin/dig', '/usr/bin/nslookup']);
+    });
+
     it('installs a daemon into /usr/sbin, where the admin binaries already live', async () => {
       // A web server is a daemon on any real box, and /usr/sbin is where a daemon
       // belongs — the directory the pre-installed sshd and vsftpd already occupy.

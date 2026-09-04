@@ -250,6 +250,17 @@ describe('buildWorkstationBaseFs', () => {
       );
     });
 
+    it('stamps no binary for the apt-installable tools, which are bought not shipped', () => {
+      // The mirror of the rule above: a real tool has a binary and is gated by it,
+      // but a tool you buy from apt must be ABSENT until you buy it, or the purchase
+      // is a no-op and the box answers questions it was never equipped to answer.
+      // `dig` and `nslookup` are the DNS pair; `gpg` and `node` were already here.
+      const binKeys = [...dirAt(baseFs(), 'bin').entries.keys()];
+      ['dig', 'nslookup', 'gpg', 'node'].forEach((name) =>
+        expect(binKeys).not.toContain(name),
+      );
+    });
+
     it('makes binaries root-owned and world-executable by default', () => {
       const lsBin = dirAt(baseFs(), 'bin').entries.get('ls');
       if (lsBin?.kind !== 'file') throw new Error('missing /bin/ls');

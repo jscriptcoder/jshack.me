@@ -169,6 +169,38 @@ const runReporting = async (
   return { drained: await drain(await curl.execute(env, args, new Map())), reported };
 };
 
+describe('curl at a name instead of an address', () => {
+  it('fetches by NAME exactly what it fetches by address', async () => {
+    // The name is what the scan printed. Nothing about the request changes when the
+    // player uses it — same page, same status, same everything on screen.
+    const { host, port } = webHostOnLan();
+
+    const byAddress = await run(`http://${host.ip}:${port}/index.html`);
+    const byName = await run(`http://${host.hostname}:${port}/index.html`);
+
+    expect(byAddress.exitCode).toBe(0);
+    expect(byName).toEqual(byAddress);
+  });
+
+  it('leaves a name nothing answers to exactly as typed, for curl own answer', async () => {
+    // No new error to learn: the name reaches the same unknown-host path an address
+    // off this LAN reaches, and curl says what curl has always said.
+    const { text } = await run('http://nosuchbox/index.html');
+
+    expect(text).toBe('curl: (6) Could not resolve host: nosuchbox');
+  });
+
+  it('keeps the path a named URL carries, down to the miss', async () => {
+    const { host, port } = webHostOnLan();
+
+    const byAddress = await run(`http://${host.ip}:${port}/nothing-here`);
+    const byName = await run(`http://${host.hostname}:${port}/nothing-here`);
+
+    expect(byAddress.exitCode).not.toBe(0);
+    expect(byName).toEqual(byAddress);
+  });
+});
+
 describe('curl leaves a trace on the box it fetched', () => {
   it('reports the fetch so the server can write that box access.log', async () => {
     const { host, port } = webHostOnLan();

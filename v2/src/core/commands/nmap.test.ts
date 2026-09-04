@@ -66,6 +66,35 @@ const drain = async (result: CommandResult): Promise<{ text: string; exitCode: n
   return { text: lines.join('\n'), exitCode: await result.exitCode() };
 };
 
+describe('nmap at a name instead of an address', () => {
+  it('leaves a name nothing answers to exactly as typed, for nmap own answer', async () => {
+    // Unresolved, the name is still just a word — which is what nmap already tells a
+    // player who types one. No new error was invented to cover the case.
+    const result = await nmap.execute(onlineEnv(), ['nosuchbox'], new Map());
+    if (result.kind !== 'sync') throw new Error('expected sync result');
+
+    expect(result.exitCode).toBe(1);
+    expect(result.lines.map((line) => line.content)).toEqual([
+      'nmap: usage: nmap <target> (e.g. 192.168.1.5 or 192.168.1.1-254)',
+    ]);
+  });
+
+  it('scans a host typed as a NAME exactly as it scans it by address', async () => {
+    // A sweep prints names beside addresses; the follow-up single scan should take
+    // either of them, and answer the same way.
+    const target = generateHomeLan('BEAN-THERE-WIFI').hosts.find(
+      (host) => host.kind === 'machine',
+    );
+    if (target === undefined) throw new Error('expected a generated host on the LAN');
+
+    const byAddress = await drain(await nmap.execute(onlineEnv(), [target.ip], new Map()));
+    const byName = await drain(await nmap.execute(onlineEnv(), [target.hostname], new Map()));
+
+    expect(byAddress.text).toContain(target.ip);
+    expect(byName.text).toEqual(byAddress.text);
+  });
+});
+
 describe('nmap', () => {
   it('reports command-not-found with an apt hint before install (registry gate)', async () => {
     // The default mock FS has no /usr/bin/nmap, so the binary gate fires first.
