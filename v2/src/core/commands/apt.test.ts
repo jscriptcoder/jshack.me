@@ -328,6 +328,27 @@ describe('apt', () => {
       expect(writes.map((write) => write.path)).toEqual(['/usr/bin/dig', '/usr/bin/nslookup']);
     });
 
+    it('lays down the client tools a server package depends on, each in its own directory', async () => {
+      // Debian's bind9 pulls in the dnsutils it is useless without, and so does this
+      // one. The pair cannot come from bind9's own `binaries` instead: the binary→package
+      // map keeps the LAST row claiming a name, so a bind9 row claiming `dig` would
+      // silently take over the install hint and start telling players to buy the server
+      // when all they wanted was the client.
+      const { env, writes } = aptEnv();
+
+      const { lines } = await streamResult(await apt.execute(env, ['install', 'bind9'], NO_FLAGS));
+
+      expect(writes.map((write) => write.path)).toEqual([
+        '/usr/sbin/named',
+        '/usr/bin/dig',
+        '/usr/bin/nslookup',
+      ]);
+      // Both names in the line apt prints BEFORE it writes anything. A tool that appears
+      // on the box with nothing on screen accounting for it reads as the game doing
+      // something behind the player's back.
+      expect(lines).toContainEqual({ kind: 'text', content: '  bind9 dnsutils' });
+    });
+
     it('installs a daemon into /usr/sbin, where the admin binaries already live', async () => {
       // A web server is a daemon on any real box, and /usr/sbin is where a daemon
       // belongs — the directory the pre-installed sshd and vsftpd already occupy.
@@ -1614,6 +1635,22 @@ describe('the package catalogue every box is built from', () => {
     });
 
     expect(carried).toEqual([{ binary: 'nginx', isDaemon: true }]);
+  });
+
+  it('carries a dependency of the package that ships the daemon, filed as the tool it is', () => {
+    // A generated name server has to look like a box somebody installed bind9 on,
+    // because that is the only way it could have come to be running one. Root it and
+    // the clients are there — which is also what makes it a place to resolve FROM.
+    const carried = binariesForService({
+      service: SERVICE_CATALOG.dns.service,
+      daemon: daemonName(SERVICE_CATALOG.dns),
+    });
+
+    expect(carried).toEqual([
+      { binary: 'named', isDaemon: true },
+      { binary: 'dig', isDaemon: false },
+      { binary: 'nslookup', isDaemon: false },
+    ]);
   });
 
   it('names every package it sells, and points every binary back at the one that ships it', () => {

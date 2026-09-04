@@ -28,7 +28,7 @@ import type { Command, CommandEnv, CommandResult, PatchResult, TerminalLine } fr
 import { BINARY_STUB } from '../generation/binaries';
 import { LIBRARY_PERMS } from '../generation/libraries';
 import type { SystemLibrary } from '../generation/libraries';
-import { APT_PACKAGES, type AptExtraFile } from '../packages/aptPackages';
+import { APT_PACKAGES, packageContents, type AptExtraFile } from '../packages/aptPackages';
 import { libraryDeps } from './libraryDeps';
 import { binaryExists } from './availability';
 import { errorLine, streamedResult, text } from './streaming';
@@ -83,28 +83,6 @@ const offlineError = (): CommandResult =>
     "Err: http://deb.debian.org/debian Temporary failure resolving 'deb.debian.org'",
     'E: Failed to fetch — are you connected to a network?',
   ]);
-
-/** What a package installs, or undefined if it isn't in the catalog. A package
- *  whose `binaries` is omitted ships a single binary matching its name; one whose
- *  `extraFiles` is omitted ships no data files. Resolved in ONE lookup so the
- *  caller cannot end up asking about a package it has already failed to find. */
-const contentsOf = (
-  packageName: string,
-):
-  | {
-      readonly binaries: readonly string[];
-      readonly daemons: readonly string[];
-      readonly extraFiles: readonly AptExtraFile[];
-    }
-  | undefined => {
-  const pkg = APT_PACKAGES.find((candidate) => candidate.name === packageName);
-  if (pkg === undefined) return undefined;
-  return {
-    binaries: pkg.binaries ?? [pkg.name],
-    daemons: pkg.daemons ?? [],
-    extraFiles: pkg.extraFiles ?? [],
-  };
-};
 
 /**
  * Install the shared libraries a package's binaries link (`libraryDeps`) that
@@ -239,20 +217,23 @@ async function* installPackage(
   yield text('Building dependency tree...');
   await env.sleep(STEP_DELAY_MS);
 
-  const contents = contentsOf(packageName);
+  const contents = packageContents(packageName);
   if (contents === undefined) {
     yield errorLine(`E: Unable to locate package ${packageName}`);
     return APT_ERROR;
   }
-  const { binaries, daemons, extraFiles } = contents;
+  const { packageNames, binaries, extraFiles } = contents;
 
   yield text('The following NEW packages will be installed:');
-  yield text(`  ${packageName}`);
+  // Every package the install covers, not just the one that was asked for. A tool
+  // that appears on the box with nothing on screen accounting for it reads as the
+  // game doing something behind the player's back.
+  yield text(`  ${packageNames.join(' ')}`);
   await env.sleep(STEP_DELAY_MS);
   yield text(`Setting up ${packageName} ...`);
 
-  for (const binary of binaries) {
-    const directory = daemons.includes(binary) ? DAEMON_DIR : TOOL_DIR;
+  for (const { binary, isDaemon } of binaries) {
+    const directory = isDaemon ? DAEMON_DIR : TOOL_DIR;
     const result = await env.patches.write(asAbsPath(`${directory}/${binary}`), BINARY_STUB, {
       isNew: true,
       permissions: INSTALLED_BINARY_PERMS,
@@ -263,7 +244,10 @@ async function* installPackage(
     }
   }
 
-  const libResult = await installPackageLibraries(env, binaries);
+  const libResult = await installPackageLibraries(
+    env,
+    binaries.map(({ binary }) => binary),
+  );
   if (!libResult.ok) {
     yield installFailureLine(packageName, libResult.error);
     return APT_ERROR;
