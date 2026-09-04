@@ -157,7 +157,7 @@ Shipped so far (each milestone is in git history + its as-built doc/plan):
   the editor open); a refused one leaves it alone. Wire-check `scripts/testModifiedSinceOpen.ts`;
   three-player browser verification in `e2e-shared-network-verification.md` §6.
 
-**Current version: 0.205.0.**
+**Current version: 0.206.0.**
 
 **Current epic — legacy parity:** `plans/legacy-parity-epic.md` — every remaining way into a
 machine (doors → discovery → CVE vulnerabilities), grilled to nine locked decisions. The ship gate
@@ -165,8 +165,34 @@ is legacy parity **minus missions**; missions are a post-ship epic.
 
 **🏁 PHASE 1 (the doors) IS COMPLETE at v0.205.0.** Every door in the locked order has shipped —
 web, hydra, ftp, scp, daemons, nc, machine kinds, mysql, redis, snmp, node, and the terminal
-itself. **Next is Phase 2 — discovery** (X1: DNS + `nslookup`/`dig`; X2: `findit.io` and networks a
-player was never told about), which is not yet grilled or planned.
+itself. **Phase 2 — discovery is now IN PROGRESS**: X1 (DNS) is grilled to fourteen decisions with
+its first slice shipped at v0.206.0; X2 (`findit.io` and networks a player was never told about) is
+still ungrilled.
+
+- **X1 (a name resolves) 🚧 IN PROGRESS — slice 1 shipped (v0.206.0, #487).** Plan and per-slice
+  status in `plans/x1-dns.md`; the fourteen decisions are in the epic. The durable shape:
+  - **A name is an address everywhere an address was.** `core/network/resolveName.ts` owns it:
+    `resolveLanName` is pure over `generateHomeLan`, `resolveName` adds the fellow-occupant step,
+    and `addressForTarget` is the ONE call `ssh`, `curl`, `nmap`, `ftp`, `nc` and `scp` each make
+    before their existing address path. Not a seam on `env` — resolution is deterministic from the
+    ESSID, so it needs no round trip and no injection.
+  - **The AP gateway resolves, so no DNS box is required.** Names arrive on the first network a
+    player cracks rather than the one in seven that draws a `dns` role. A network answers for its
+    own names only: `<host>.<essid-slug>.lan`, with a foreign slug answering NXDOMAIN.
+  - **An unresolvable name passes through UNCHANGED**, so each command reaches its own existing
+    unknown-target path. There is deliberately no seventh error message. Note `ssh` exits **255**
+    there, not 1.
+  - **`addressForTarget` only resolves a target with a LETTER in it.** An address, an octet range
+    and a CIDR block are digits and separators, and without that guard every ordinary `ssh <ip>` or
+    `nmap <range>` would pay an occupant round trip per run. `ssh` reuses the occupant list it was
+    already fetching, so a name costs it no extra request.
+  - **`dnsutils` ships BOTH binaries and both commands exist** — `dig`'s plain lookup was pulled
+    forward from slice 3 rather than leave an installed binary answering `command not found`.
+    `dig` REPORTS a query time instead of spending one, seeded off the name.
+  - **⚠️ Two routers on one LAN can share a hostname** — both draw from `ROUTER_HOSTNAMES`, and it
+    happens on **8 of the 50 crackable ESSIDs**. `nslookup` answers with the lower octet. It
+    predates DNS (`nmap` already prints both rows under one name), but slice 2's zone file will
+    list the name twice, so decide there rather than rediscovering it.
 
 - **D1 (the web surface) ✅ COMPLETE (v0.109.0).** Five slices — v0.104.0 #344, v0.105.0 #345,
   v0.106.0 #346, v0.107.0 #347, v0.108.0 #348 — plus the v0.109.0 close-out. The plan file is

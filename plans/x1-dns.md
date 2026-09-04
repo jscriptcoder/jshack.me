@@ -1,8 +1,9 @@
 # Plan: X1 — DNS, `nslookup` and `dig`
 
-**Status**: Active — **slice 1 is planned, its acceptance criteria are confirmed, and its branch is
-cut**: `feat/x1-a-name-resolves`, from trunk at v0.205.0. Nothing is built yet. This is the first
-slice of **Phase 2 — discovery**, and the first door whose world legacy could not hand over.
+**Status**: Active — **slice 1 has SHIPPED** (v0.206.0, #487). A name is an address everywhere an
+address was. Slices 2-4 are grilled but unplanned; **the next action is planning slice 2**, which
+is independent of slice 1 and needs no re-grilling. This is the first door of **Phase 2 —
+discovery**, and the first whose world legacy could not hand over.
 **Epic**: [`legacy-parity-epic.md`](legacy-parity-epic.md) → "X1 — resolved scope & decisions
 (grill-me, 2026-09-04)", fourteen locked decisions.
 
@@ -17,8 +18,9 @@ slice of **Phase 2 — discovery**, and the first door whose world legacy could 
    (`generateDnsZoneContent`, `generateDnsNamedConf`) ports for the FILE format. Legacy's
    `resolveDomain`/`dnsRecords` do **not** port — they are mission scaffolding for a mechanic v2
    does not have.
-3. **The next action is slice 1's RED 1** on `feat/x1-a-name-resolves`. Its plan and confirmed
-   acceptance criteria are below.
+3. **The next action is planning slice 2** — a box answers as a name server. Slice 1's as-built is
+   below and is the thing to read first: the resolver it left behind is what slice 2 writes a zone
+   file against.
 4. Cut a fresh `feat/…` branch per slice off an up-to-date `main` — check `git status -sb` for
    ahead/behind, per conventions §8, which distinguishes ahead from level where
    `git pull --ff-only` does not.
@@ -58,7 +60,7 @@ them.
 
 | # | Slice | Observable | Status |
 |---|-------|-----------|--------|
-| 1 | a name resolves | `nslookup web-04` answers, and `ssh root@web-04` lands | 📋 **planned** — ACs confirmed, branch cut |
+| 1 | a name resolves | `nslookup web-04` answers, and `ssh root@web-04` lands | ✅ **SHIPPED** v0.206.0 (#487) |
 | 2 | a box answers as a name server | `nmap` finds `53 open`; rooting it and `cat`-ing the zone shows the deep layers | — |
 | 3 | the zone transfers | `dig @<server> axfr` hands over the whole address plan | — |
 | 4 | the transfer leaves a trace | `named.log` names whoever transferred it | — |
@@ -74,7 +76,11 @@ exception** and the only `api/` work in the door — one signed fire-and-forget 
 
 ---
 
-## Slice 1: a name resolves
+## Slice 1: a name resolves — ✅ SHIPPED (v0.206.0, #487)
+
+All fifteen acceptance criteria met, plus `dig`'s plain lookup, which was pulled forward from slice
+3 during the build (see "What changed against the plan"). The **as-built** is at the end of this
+section; the plan above it is kept because slices 2-4 build on the same reasoning.
 
 **Value**: Every target in this game is typed as an address. The scan prints `web-04` and the
 player types `192.168.188.37` — the name is decoration, and the game says so in its own source:
@@ -104,7 +110,7 @@ readiness for the accumulated scope.
 **Reduction program**: `N/A`.
 **Transition/terminal evidence**: `N/A`.
 
-### What planning verified before writing any of this
+### What planning verified before any of it was written
 
 - **`APT_PACKAGES` needs no extension.** `{ name: 'aircrack-ng', binaries: [...] }` and
   `{ name: 'snmp', binaries: ['snmpwalk','snmpset','snmpd'] }` already ship several binaries from
@@ -122,7 +128,7 @@ readiness for the accumulated scope.
   `network/http.ts`), `nmap` (`parseScanTarget`), plus `ftp`, `nc` and `scp`. Legacy threaded
   `resolveDomain` through ten command contexts; this is one helper called six times.
 
-### The decision this plan makes that the grill left open
+### The decision this plan made that the grill left open
 
 **An unresolvable name is passed through unchanged, and the existing target path answers.** The
 helper resolves or returns its input, so `ssh root@nosuchbox` gives ssh's own `No route to host`
@@ -131,7 +137,7 @@ consistent across six commands. `nslookup` remains the one place a resolution fa
 as a resolution failure (`** server can't find <name>: NXDOMAIN`), which is also true of a real
 shell. Revisit only if a distinct `Could not resolve hostname` proves worth six messages.
 
-### Acceptance criteria (confirmed)
+### Acceptance criteria — all fifteen met
 
 1. Before installing, `nslookup` and `dig` answer `command not found` with an
    `apt install dnsutils` hint, on the player's box and on every generated machine.
@@ -162,40 +168,85 @@ shell. Revisit only if a distinct `Could not resolve hostname` proves worth six 
     root@nosuchbox` answers exactly as it does today.
 15. `nslookup` answers instantly — no pacing, no abort seam (epic decision 12).
 
-### RED-GREEN increments
+### RED-GREEN increments — as run
 
-1. **RED 1** — `nslookup` is not found before install and found after (`availability.test.ts`'s
-   `APT_HINT_PAIRS` gains `['dig','dnsutils']` and `['nslookup','dnsutils']`; the row and the two
-   `SYSTEM_UTILITY_NAMES` deletions are GREEN).
-2. **RED 2** — a bare hostname on the connected LAN resolves to its address (the resolver function,
-   against `generateHomeLan`).
-3. **RED 3** — the fully qualified form resolves identically; a foreign slug does not.
-4. **RED 4** — an unknown name resolves to nothing, and the gateway/inner-gateway names resolve.
-5. **RED 5** — `nslookup`'s rendered block, verbatim to legacy's shape (AC 4).
-6. **RED 6** — `NXDOMAIN` output (ACs 6, 7).
-7. **RED 7** — the occupant fallback resolves a fellow player, and a failing seam degrades to
-   `NXDOMAIN` (AC 9).
-8. **RED 8** — offline refusal (AC 10).
-9. **RED 9** — `ssh` accepts a name (AC 11), then one RED per remaining command: `curl`, `nmap`,
-   `ftp`, `nc`, `scp` (ACs 12, 13).
-10. **RED 10** — an unresolvable name falls through to the existing path in at least two of the six
-    (AC 14).
+Ten increments, in the planned order. Two deviations, both recorded honestly:
 
-**REFACTOR**: assess after each green. The likely candidate is where the resolver lives — a pure
-function over `(essid, name)` plus an async occupant step, kept in `core/network/` and called by
-both `nslookup` and the six target parses, rather than a seam on `env` that six commands would each
-have to be handed.
+1. **RED 1** — `nslookup`/`dig` not-found before install, found after. `APT_HINT_PAIRS` gained both
+   rows, `/bin` lost both names, and `apt.test.ts` gained the two-binary install. GREEN was the
+   catalog row plus the two deletions.
+2. **RED 2-3** — the resolver: a bare hostname resolves against `generateHomeLan`; the fully
+   qualified form resolves identically; a foreign slug does not.
+3. **Increment 4 had no RED.** Unknown names answering nothing, and the gateways resolving by their
+   own seeded names, both fell out of increments 2-3 already. The tests were written and passed on
+   arrival; they pin the behaviour rather than having driven it.
+4. **RED 5-6, 8** — `nslookup`'s rendered block, `NXDOMAIN`, the offline refusal, usage, and the
+   sync result that is the whole of "instant".
+5. **RED 7** — the occupant fallback, and the generated population winning a name tie.
+6. **Registration** — proven through the real registry, both directions, mirroring how `gpg` is
+   proven: gated with the `apt install dnsutils` hint, reached once `/usr/bin/<tool>` exists.
+7. **RED 9-10** — one per command for `ssh`, `curl`, `nmap`, `ftp`, `nc`, `scp`, then the
+   fall-through for a name nothing answers to.
 
-**PRE-PR MUTATION**: run once for the accumulated scope at PR readiness. Expect survivors on the
-rendered strings (conventions §4: *"a command's mutation score is mostly its manual"*) and on the
-apt row's metadata (§7: `availability`/`tier`/`description` are documentation — do not write
-assertions on them). Treat any non-manual survivor as unproven until a hand run agrees: three of
-the last three slices reported a false `perTest` survivor.
+**REFACTOR**: the resolver landed where the plan predicted — `core/network/resolveName.ts`, a pure
+function plus an async occupant step, called by both commands and by the six target parses. No seam
+on `env`. The only change made after green was reading order (the caller moved below what it calls),
+and `essidSlug` was left PRIVATE rather than exported for slice 2 — an export nothing outside uses
+is a guess about the future.
 
-**Wire-check**: `N/A` — no `api/` change. Resolution is client-side because generation is
-deterministic; the only server touch is the existing `resolveOccupants` seam, unchanged.
+### As built
 
-**Done when**: all fifteen acceptance criteria pass, the three gates are green, the version is
-bumped in both files, the mutation gate is run and its survivors triaged, and a browser run proves
-the beat end to end — crack WiFi, connect, `su root`, `apt install dnsutils`, `nslookup` a host
-from the scan, then reach it with `ssh` by name having never typed its address.
+**What shipped.** `core/network/resolveName.ts` (`resolveLanName` pure over `generateHomeLan`,
+`resolveName` adding the occupant step, `addressForTarget` for the six commands), `nslookup`, `dig`,
+a `dnsutils` row in `APT_PACKAGES` carrying both binaries, both names removed from
+`SYSTEM_UTILITY_NAMES`, and one resolve step each in `ssh`, `curl`, `nmap`, `ftp`, `nc`, `scp`.
+
+**The open decision resolved as planned**: an unresolvable name is passed through unchanged and the
+command's existing unknown-target path answers. Proven live for three of the six — `ssh` keeps
+`No route to host` (exit 255, not 1: the test expectation was wrong and the existing behaviour was
+right), `curl` keeps `(6) Could not resolve host`, and `nmap` answers with its USAGE line rather
+than out-of-range, because an unresolved name is not a target shape it can parse.
+
+**One thing the plan did not anticipate: a guard on whether the target could be a name at all.**
+Without it every `ssh <ip>`, `nmap <range>` and `curl http://<ip>/` would pay an occupant round trip
+per invocation to learn nothing. The rule is a letter in the string — an address, an octet range and
+a CIDR block are digits and separators. `ssh` goes further and resolves against the occupant list it
+was already fetching, so a name costs it no request at all.
+
+**What changed against the plan: `dig` shipped here rather than in slice 3.** Building the package
+exactly as specified would have installed `/usr/bin/dig` with no command behind it for two slices,
+so `dig` answered a flat `command not found` while the binary sat in plain sight. Owner's call, taken
+mid-build: ship the plain A lookup now, leaving slice 3 to add only `@<server> axfr`. Its query time
+is REPORTED rather than spent, seeded off the name so it is a property of the lookup;
+`;; global options: +cmd`, not legacy's `+short`, which contradicted the full output above it.
+
+**The mutation gate found a real defect.** 313 mutants, 264 killed. The occupant fallback matched on
+PRESENCE rather than on the name, so any unknown name would have resolved to whichever player
+happened to be first on the LAN — a typo would have handed the player somebody else's box. Also
+killed on the way: `dig`'s blank separator lines (a `toContain` spot-check agreed with a build that
+ran every line together), its zero-padding (the fixture clock had no single-digit fields until it
+was moved to `Fri Jan 05 09:07:03`), and the query-time seed.
+
+**Accepted survivors, and why.** 40 are the two commands' `manual`/`description` metadata —
+documentation, per conventions §7. 8 sit in `BINARY_STUB` and the `binaryToPackage`/`daemonsOf`
+helpers, pre-existing and untouched here. 1 is the `+` in the slug regex, which collapses runs of
+non-alphanumerics: **verified unreachable** — 0 of the 90 pool ESSIDs carry two in a row.
+
+**A world-generation wart this door made visible.** Two routers on one LAN can draw the same name
+from `ROUTER_HOSTNAMES` — **8 of the 50 crackable networks** — and the lookup answers with the lower
+octet. It predates this work (`nmap` already prints both rows under one name) and fixing it means
+moving seeded world data, so it was left alone. Worth a decision before the zone file in slice 2
+lists the same names twice.
+
+**Wire-check**: `N/A` as planned — no `api/` change; the only server touch is the existing
+`resolveOccupants` seam, unchanged.
+
+**Browser run (v0.206.0, SHINRA-5G).** Cracked, connected at `192.168.167.63`, `su root`. Both tools
+answered `command not found. Install with: apt install dnsutils` and `ls /bin` listed neither.
+After `apt install dnsutils` both stood in `/usr/bin`. `nslookup warehouse-28` →
+`192.168.167.28` under `warehouse-28.shinra-5g.lan`; the fully qualified form identical;
+`warehouse-28.acme-corp.lan` → NXDOMAIN. `dig` both ways. **`nslookup loot-rig` resolved a real
+fellow player's box** at `.164` through the occupant fallback. `ssh root@gw-main` landed on the
+gateway — its prompt reading `root@192.168.167.1's password:`, the same as the address form — and
+`cat /etc/passwd` there returned the server-served single root line. `nmap gw-main` reported
+`Starting Nmap scan — 192.168.167.1`.
