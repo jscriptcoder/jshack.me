@@ -1,9 +1,9 @@
 # Plan: X1 — DNS, `nslookup` and `dig`
 
-**Status**: Active — **slice 1 has SHIPPED** (v0.206.0, #487) and **slice 2 is IN PROGRESS** on
-`feat/x1-a-box-answers`, cut from trunk at v0.206.0. Increments 0-8 are done and green
-(4424 tests); **increment 9 is next**. Slices 3-4 are grilled but unplanned. This is the first door
-of **Phase 2 — discovery**, and the first whose world legacy could not hand over.
+**Status**: Active — **slice 1 has SHIPPED** (v0.206.0, #487) and **slice 2 is CODE-COMPLETE** on
+`feat/x1-a-box-answers`, cut from trunk at v0.206.0. All ten increments are done and green
+(4427 tests); **the pre-PR gate is next**. Slices 3-4 are grilled but unplanned. This is the first
+door of **Phase 2 — discovery**, and the first whose world legacy could not hand over.
 **Epic**: [`legacy-parity-epic.md`](legacy-parity-epic.md) → "X1 — resolved scope & decisions
 (grill-me, 2026-09-04)", fourteen locked decisions.
 
@@ -18,11 +18,11 @@ of **Phase 2 — discovery**, and the first whose world legacy could not hand ov
    (`generateDnsZoneContent`, `generateDnsNamedConf`) ports for the FILE format. Legacy's
    `resolveDomain`/`dnsRecords` do **not** port — they are mission scaffolding for a mechanic v2
    does not have.
-3. **The next action is slice 2's increment 9** — the duplicate name, then the pre-PR gate below.
-   Increments 0-8 are committed on `feat/x1-a-box-answers` (`41a14d22`, `0508270b`, `83873320`,
-   `faa31b77`, `f436ee5f`, `99433467`, `9cd4d3db` and increment 8's); the per-increment record is
-   under "RED-GREEN increments" below. Read slice 1's as-built too — the resolver it left behind is
-   what the zone is written against, and its `lanZoneName` is the zone's own origin.
+3. **The next action is slice 2's pre-PR gate** — the version bump to 0.207.0, mutation over the
+   accumulated scope, and the browser close-out, all specified under "Pre-PR gate" below. Increments
+   0-9 are committed on `feat/x1-a-box-answers`; the per-increment record is under "RED-GREEN
+   increments — as run". Read slice 1's as-built too — the resolver it left behind is what the zone
+   is written against, and its `lanZoneName` is the zone's own origin.
 4. Cut a fresh `feat/…` branch per slice off an up-to-date `main` — check `git status -sb` for
    ahead/behind, per conventions §8, which distinguishes ahead from level where
    `git pull --ff-only` does not.
@@ -63,7 +63,7 @@ them.
 | # | Slice | Observable | Status |
 |---|-------|-----------|--------|
 | 1 | a name resolves | `nslookup web-04` answers, and `ssh root@web-04` lands | ✅ **SHIPPED** v0.206.0 (#487) |
-| 2 | a box answers as a name server | `nmap` finds `53 open`; rooting it and `cat`-ing the zone shows the deep layers | 🚧 **IN PROGRESS** — increments 0-8 of 9 done |
+| 2 | a box answers as a name server | `nmap` finds `53 open`; rooting it and `cat`-ing the zone shows the deep layers | 🚧 **CODE-COMPLETE** — all ten increments done, pre-PR gate next |
 | 3 | the zone transfers | `dig @<server> axfr` hands over the whole address plan | — |
 | 4 | the transfer leaves a trace | `named.log` names whoever transferred it | — |
 
@@ -567,8 +567,30 @@ behaviour to fail.
      existing tests — correctly. That block is about the drawn pool, and dns has left it.
    - Read off a real deep name server: `/etc` is `['passwd', 'bind']`, and `/etc/bind/named.conf`
      names `/etc/bind/zones/db.aperture-wifi.lan`, which is there and holds all ten records.
-9. ⬅️ **NEXT — RED — the duplicate name.** A network whose routers collide lists both records. GREEN: expected
-   to be free; the test pins it so a later "fix" cannot silently drop a record.
+9. ✅ **GREEN-on-arrival — the duplicate name.** Three tests: `GRAD-STUDENT-WIFI` listing `router01`
+   at both `192.168.112.1` and `.18` in the rendered file; the resolver answering with one of the
+   two addresses the zone lists; and a sweep of all fifty crackable networks proving no ADDRESS is
+   ever listed twice while eight networks still list a NAME twice. No production change, as planned.
+
+   **A test that arrives passing proves nothing until it is shown to fail**, so the guard was
+   demonstrated rather than asserted: deduping `zoneRecordsFor` by name — the obvious "fix" for what
+   looks like a bug — breaks two of the three, and **the other twenty tests in the file all still
+   pass under it**. Before this increment a name-keyed zone would have shipped silently, dropping an
+   address a player can reach and leaving nothing else in the file looking wrong.
+
+   - **Eight of fifty, measured — the planning figure holds.** `INITECH-5G`, `DUNDER-LAN`,
+     `ABSTERGO-NET`, `VANDELAY-INDUSTRIES`, `GRAD-STUDENT-WIFI`, `TRAIN-STATION-FREE`,
+     `DOORBELL-CAM-OPEN` and `HACKERSPACE-2600`. Seven collide on the gateway at `.1`; only
+     `HACKERSPACE-2600` collides between two non-gateway routers.
+   - **The address is the identity; the name is not.** 467 records across the pool, not one repeated
+     address. That pairing is the claim: a name may appear twice, an address never does — and it is
+     what lets one sweep tell a dedupe apart from a double-listing bug.
+   - **Two A records under one name is round-robin, not a defect**, which is why the resolver test is
+     the third. `resolveLanName` finds by hostname and `generateHomeLan` sorts by ascending octet, so
+     the gateway at `.1` wins — one answer out of two listed, exactly what a real resolver gives. The
+     `.18` is the address the file is worth crossing a network to read.
+   - `GRAD-STUDENT-WIFI` over the other seven because it is also one of the two networks whose name
+     server accepts a transfer: slice 3's demo network and this collision are the same network.
 
 ### Pre-PR gate
 
