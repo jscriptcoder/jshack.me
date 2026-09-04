@@ -159,5 +159,7 @@ describe('help', () => {
     expect(rowOf('find')).toBeGreaterThan(filesystem);
     expect(rowOf('strings')).toBeGreaterThan(filesystem);
     expect(rowOf('chmod')).toBeGreaterThan(filesystem);
+    // Encrypting a file is a thing done TO a file, whatever it protects it from.
+    expect(rowOf('gpg')).toBeGreaterThan(filesystem);
   });
 });

@@ -1293,7 +1293,12 @@ export type Command = {
    *  is written. `apt` deliberately has none: it genuinely works over a
    *  pty-less shell, which is why installing tools on a box you have opened is
    *  the real reflex. */
-  readonly withoutTty?: string;
+  readonly withoutTty?:
+    | string
+    | ((
+        args: readonly string[],
+        flags: ReadonlyMap<string, string | true>,
+      ) => string | undefined);
   /** What this command says when a SCRIPT calls it instead of a player typing
    *  it. Present means it cannot be scripted; absent means it can.
    *

@@ -211,6 +211,42 @@ describe('commandRegistry gating (registry wiring)', () => {
     },
   );
 
+  // The apt half of the same contract, and the one place this door leaves the
+  // pre-stamped family: `gpg` ships on no box, so the promise `apt list` makes
+  // has to be the thing that fulfils it. Both directions, through the real
+  // registry — the hint names the package, and the binary alone lifts the gate.
+  it('gates gpg behind an apt install, then runs it once /usr/bin/gpg is there', async () => {
+    const command = commandRegistry.get('gpg');
+    if (command === undefined) throw new Error('gpg not registered');
+
+    const fresh = mockCommandEnv({
+      fs: mockFsViewFromTree(buildDirectory({ tmp: buildDirectory({}) }), {
+        userType: 'user',
+        cwd: asAbsPath('/tmp'),
+      }),
+    });
+    const before = await command.execute(fresh, [], NO_FLAGS);
+    expect(errorLines(before)).toEqual([
+      'bash: gpg: command not found. Install with: apt install gpg',
+    ]);
+    expect(before.kind === 'sync' && before.exitCode).toBe(127);
+
+    const installed = mockCommandEnv({
+      fs: mockFsViewFromTree(treeWithUsrBinary('gpg'), {
+        userType: 'user',
+        cwd: asAbsPath('/'),
+      }),
+    });
+    const after = await command.execute(installed, [], new Map([['-c', true]]));
+
+    // Its own refusal, not the gate's: a user-tier session reaches the command
+    // itself, which is the whole point of not restricting the execute bit.
+    expect(errorLines(after)).toEqual([
+      'gpg: missing operand',
+      'gpg: usage: gpg -c|-d <file> [passphrase]',
+    ]);
+  });
+
   it.each(['clear', 'whoami'])('runs %s once its /bin binary is back', async (name) => {
     const command = commandRegistry.get(name);
     if (command === undefined) throw new Error(`${name} not registered`);

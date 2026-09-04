@@ -73,6 +73,22 @@ type PrepareResult =
  *  you look and break, and only a real login can be pivoted onward from. */
 export const hasTty = (session: Session): boolean => session.kind !== 'nc';
 
+/** The command's own refusal for a session with no terminal, or `undefined`
+ *  when it can run there. The function form asks the CALL, because the need can
+ *  belong to a form rather than to the whole command: `gpg` reaches for a
+ *  masked prompt only when no passphrase was typed, and refusing the form that
+ *  asks nobody would shut the tool out of the vantage it is most wanted in.
+ *
+ *  Shared with the script path, which enforces the same rule from the other
+ *  side — one evaluation, so a prompt cannot be reached through a script that a
+ *  player could not have reached at the prompt. */
+export const refuseWithoutTty = (
+  command: Command,
+  args: readonly string[],
+  flags: ReadonlyMap<string, string | true>,
+): string | undefined =>
+  typeof command.withoutTty === 'function' ? command.withoutTty(args, flags) : command.withoutTty;
+
 /** What netcat prints when the far side is gone. */
 const CONNECTION_CLOSED = 'nc: connection closed by foreign host';
 
@@ -114,8 +130,9 @@ const prepareStage = (
   // is found, parses its arguments, and only then reaches for a terminal that
   // is not there. The command speaks for itself — one voice per program, not a
   // shell-wide sentence about someone else's tool.
-  if (!tty && command.withoutTty !== undefined) {
-    return { ok: false, error: syncError(command.withoutTty, 1) };
+  const noTerminal = tty ? undefined : refuseWithoutTty(command, bound.positional, bound.flags);
+  if (noTerminal !== undefined) {
+    return { ok: false, error: syncError(noTerminal, 1) };
   }
 
   return { ok: true, prepared: { command, positional: bound.positional, flags: bound.flags } };

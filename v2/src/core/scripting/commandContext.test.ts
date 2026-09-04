@@ -8,6 +8,7 @@ import { xterm } from '../commands/xterm';
 import { find } from '../commands/find';
 import { strings } from '../commands/strings';
 import { chmod } from '../commands/chmod';
+import { gpg } from '../commands/gpg';
 import type { PatchApi } from '../commands/types';
 import { echo } from '../commands/echo';
 import { ls } from '../commands/ls';
@@ -263,6 +264,57 @@ describe('a script calling the machine commands', () => {
     await expect(context.scp('file.txt', 'root@10.0.0.5:/root/')).rejects.toThrow(
       'scp: must be run from a terminal',
     );
+  });
+
+  it('encrypts and reads back what it wrote, both halves from the script', async () => {
+    const written = vi.fn<PatchApi['write']>(async () => ({ ok: true }));
+    const author = mockCommandEnv({
+      ...envWithFile('notes.txt', 'the passphrase is hunter2\n'),
+      patches: { ...mockPatchApi(), write: written },
+    });
+
+    const encrypted = await contextOf([gpg], author).context.gpg('notes.txt', 'hunter2', {
+      '-c': true,
+    });
+    expect([...encrypted]).toEqual([]);
+    const [, ciphertext] = written.mock.calls[0] as Parameters<PatchApi['write']>;
+
+    const reader = envWithFile('notes.txt.gpg', ciphertext);
+    const opened = await contextOf([gpg], reader).context.gpg('notes.txt.gpg', 'hunter2', {
+      '-d': true,
+    });
+
+    // A script is the other reason the passphrase is positional: this whole
+    // loop is unreachable if the only way to supply one is a masked prompt.
+    expect([...opened]).toEqual(['the passphrase is hunter2']);
+  });
+
+  it('holds the tty rule per FORM, so the form that asks nobody still runs', async () => {
+    // The other side of `gpg`'s split rule, from the surface that reaches it
+    // most: a script running inside a planted shell. With the passphrase on the
+    // call there is nothing to ask for, so the work goes through; without one,
+    // the script hits the same refusal a player would.
+    const throughABackdoor = mockCommandEnv({
+      session: mockSession({ kind: 'nc' }),
+      fs: mockFsViewFromTree(
+        buildDirectory({
+          home: buildDirectory({
+            alice: buildDirectory({ 'notes.txt': buildFile('secret\n', { owner: 'alice' }) }, { owner: 'alice' }),
+          }),
+        }),
+        { userType: 'user', cwd: asAbsPath('/home/alice') },
+      ),
+      patches: { ...mockPatchApi(), write: async () => ({ ok: true }) },
+    });
+
+    const encrypted = await contextOf([gpg], throughABackdoor).context.gpg('notes.txt', 'hunter2', {
+      '-c': true,
+    });
+    expect([...encrypted]).toEqual([]);
+
+    await expect(
+      contextOf([gpg], throughABackdoor).context.gpg('notes.txt', { '-c': true }),
+    ).rejects.toThrow('gpg: cannot open tty: pass the passphrase as an argument');
   });
 
   it('leaves a command that needs no terminal alone on a pty-less session', async () => {

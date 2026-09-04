@@ -6,6 +6,7 @@ import { clear } from '../commands/clear';
 import { echo } from '../commands/echo';
 import { ftp } from '../commands/ftp';
 import { grep } from '../commands/grep';
+import { gpg } from '../commands/gpg';
 import { find } from '../commands/find';
 import { strings } from '../commands/strings';
 import { chmod } from '../commands/chmod';
@@ -24,7 +25,12 @@ import type {
   PatchResult,
   TerminalLine,
 } from '../commands/types';
-import { mockCommandEnv, mockFsViewFromTree, mockSession } from '../../test/factories/commandEnv';
+import {
+  mockCommandEnv,
+  mockFsViewFromTree,
+  mockPatchApi,
+  mockSession,
+} from '../../test/factories/commandEnv';
 import { buildDirectory, buildFile } from '../../test/factories/filesystem';
 import { formatListenerContent } from '../services/pidfile';
 import { asAbsPath } from '../types';
@@ -59,6 +65,7 @@ const pipeCommands: ReadonlyMap<string, Command> = new Map([
   ['find', find],
   ['strings', strings],
   ['chmod', chmod],
+  ['gpg', gpg],
 ]);
 
 const baseFixture = (
@@ -275,6 +282,40 @@ describe('runCommandLine', () => {
         await runCommandLine(aliceEnv(), 'cat notes.txt | grep alice', pipeCommands),
       );
 
+      expect(result.exitCode).toBe(0);
+      expect(contentOf(result.lines)).toContain('from alice');
+      expect(contentOf(result.lines)).not.toContain('hello world');
+    });
+
+    it('pipes what an encrypted file says, without leaving a decrypted copy', async () => {
+      // Encrypt first, through the same shell, so the ciphertext under test is
+      // one the game actually produced.
+      const written = vi.fn<PatchApi['write']>(async () => ({ ok: true }));
+      const author = { ...aliceEnv(), patches: { ...mockPatchApi(), write: written } };
+      expectSync(await runCommandLine(author, 'gpg -c notes.txt hunter2', pipeCommands));
+      const [, ciphertext] = written.mock.calls[0] as Parameters<PatchApi['write']>;
+
+      const withCiphertext = mockCommandEnv({
+        fs: mockFsViewFromTree(
+          buildDirectory({
+            home: buildDirectory({
+              alice: buildDirectory(
+                { 'notes.txt.gpg': buildFile(ciphertext, { owner: 'alice' }) },
+                { owner: 'alice' },
+              ),
+            }),
+          }),
+          { userType: 'user', cwd: asAbsPath('/home/alice') },
+        ),
+      });
+
+      const result = expectSync(
+        await runCommandLine(withCiphertext, 'gpg -d notes.txt.gpg hunter2 | grep alice', pipeCommands),
+      );
+
+      // The passphrase on the line is what makes this possible at all: a
+      // pipeline cannot answer a prompt, so a command that always asked could
+      // never be searched through.
       expect(result.exitCode).toBe(0);
       expect(contentOf(result.lines)).toContain('from alice');
       expect(contentOf(result.lines)).not.toContain('hello world');
@@ -757,6 +798,28 @@ describe('a shell with no terminal behind it', () => {
     expect(result.lines).toEqual([errorLine(NEEDS_TTY)]);
     expect(result.exitCode).toBe(1);
     expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('refuses only the FORM that needs a terminal, and runs the one that does not', async () => {
+    // `gpg` is the first command whose need for a terminal depends on what was
+    // typed: with the passphrase on the line there is nobody to ask, and
+    // reading an encrypted file off a box you have just opened a listener on is
+    // exactly what a backdoor is for. A flat rule would refuse both forms.
+    const written = vi.fn<PatchApi['write']>(async () => ({ ok: true }));
+    const backdoor = { ...throughABackdoor(aliceEnv()), patches: { ...mockPatchApi(), write: written } };
+
+    const supplied = expectSync(
+      await runCommandLine(backdoor, 'gpg -c notes.txt hunter2', only(gpg)),
+    );
+    expect(written).toHaveBeenCalledTimes(1);
+    expect(supplied.exitCode).toBe(0);
+    expect(supplied.lines).toEqual([]);
+
+    const asked = expectSync(await runCommandLine(backdoor, 'gpg -c notes.txt', only(gpg)));
+    expect(asked.lines).toEqual([
+      errorLine('gpg: cannot open tty: pass the passphrase as an argument'),
+    ]);
+    expect(asked.exitCode).toBe(1);
   });
 
   it('says so in each real command’s own voice', async () => {
