@@ -5,7 +5,14 @@ import { resolveDeepScanHosts } from '../scan/deepScanHosts';
 import { generateHomeLan, type LanHost } from './generateHomeLan';
 import { chainLinks } from './lanTopology';
 import { roleOfHostname } from './pools/hostnames';
-import { formatDnsZone, zoneRecordsFor, type ZoneRecord } from './generateDnsZone';
+import {
+  allowsZoneTransfer,
+  formatDnsZone,
+  formatNamedConf,
+  zoneFilePathFor,
+  zoneRecordsFor,
+  type ZoneRecord,
+} from './generateDnsZone';
 
 const ESSID = 'ACME-CORP';
 const ZONE = lanZoneName(ESSID);
@@ -291,5 +298,77 @@ describe('what the zone says about the layers behind the gateways', () => {
     // empty most of the file.
     expect(names).not.toContain('cam-138');
     expect(names).toEqual(expect.arrayContaining(['doorbell-87', 'tv-137', 'cam-189']));
+  });
+});
+
+/** Enough (network, address) pairs to see a rate rather than a run of luck — the same
+ *  shape every other generation-time probability in this repository is measured over. */
+const TRANSFER_POPULATION: readonly boolean[] = POPULATION_ESSIDS.flatMap((essid) =>
+  Array.from({ length: 253 }, (_unused, index) =>
+    allowsZoneTransfer(essid, `192.168.1.${index + 2}`),
+  ),
+);
+
+const confFor = (allowsTransfer: boolean): readonly string[] =>
+  formatNamedConf({ hostname: 'ns-20', zone: ZONE, allowsTransfer }).split('\n');
+
+/**
+ * The file beside the zone: what the box is CONFIGURED to serve, as against what it
+ * happens to be serving. A player reads it first because it is shorter, and it tells
+ * them two things the zone cannot — the path of the zone file, and whether this server
+ * will hand the whole thing over to anyone who asks.
+ */
+describe('the config a name server publishes about itself', () => {
+  it('declares exactly one zone, the network of the box it sits on', () => {
+    const lines = confFor(true);
+
+    expect(lines.filter((line) => line.startsWith('zone '))).toEqual([`zone "${ZONE}" {`]);
+    expect(lines).toContain('  type master;');
+  });
+
+  it('points at the file that actually holds the zone', () => {
+    // Stated once, here, and read by whatever writes the zone out. A config naming a
+    // path nothing wrote would be a name server describing a file that is not there.
+    expect(confFor(true)).toContain(`  file "${zoneFilePathFor(ZONE)}";`);
+    expect(zoneFilePathFor(ZONE)).toBe('/etc/bind/zones/db.acme-corp.lan');
+  });
+
+  it('answers for its own zone and refuses to go looking further', () => {
+    const lines = confFor(true);
+
+    // Authoritative, not a resolver. There is no DNS in this world beyond the LAN a
+    // box stands on, so a config advertising recursion would invite a player to ask it
+    // a question nothing can answer.
+    expect(lines).toContain('  recursion no;');
+    expect(lines).toContain('  allow-query { any; };');
+    expect(lines).toContain('  listen-on port 53 { any; };');
+  });
+
+  it('says in one line whether the whole zone is there for the asking', () => {
+    // The single line slice 3 turns into a mechanic, and the one a player is reading
+    // this file to find.
+    expect(confFor(true)).toContain('  allow-transfer { any; };');
+    expect(confFor(false)).toContain('  allow-transfer { none; };');
+  });
+
+  it('leaves the transfer open on roughly three name servers in four', () => {
+    const open = TRANSFER_POPULATION.filter(Boolean).length;
+
+    // Open is the common case on purpose: a server locked down every time would make the
+    // door a coin flip a player cannot influence, and the point of the misconfigured
+    // majority is that it is the misconfiguration real networks actually have.
+    expect(open / TRANSFER_POPULATION.length).toBeGreaterThan(0.7);
+    expect(open / TRANSFER_POPULATION.length).toBeLessThan(0.8);
+  });
+
+  it('gives one box one answer, on every reload and for every occupant', () => {
+    // Seeded from the network and the address and nothing else — the signature carries
+    // no identity, so two players standing on one ESSID cannot be told different things
+    // about the same server. A box that opened on one reload and closed on the next
+    // would make the find unrepeatable and the failure unexplainable.
+    expect(allowsZoneTransfer('ACME-CORP', '192.168.45.52')).toBe(
+      allowsZoneTransfer('ACME-CORP', '192.168.45.52'),
+    );
+    expect(new Set(TRANSFER_POPULATION).size).toBe(2);
   });
 });

@@ -1,16 +1,23 @@
 /**
- * generateDnsZone — the zone file a name server keeps on disk.
+ * generateDnsZone — the two files a name server keeps on disk: the zone, and the
+ * config that declares it.
  *
  * Ported from legacy `src/generation/filesystem/networkConfig.ts`
- * (`generateDnsZoneContent`) for its FILE FORMAT: the origin, the SOA block and its
- * five timers, and the fifteen-column names that make a wall of records readable.
- * Legacy's zone described a mission that v2 does not have; the shape it wrote is the
- * part worth keeping, because it is the shape a real zone has.
+ * (`generateDnsZoneContent`, `generateDnsNamedConf`) for their FILE FORMAT: the origin,
+ * the SOA block and its five timers, the fifteen-column names that make a wall of
+ * records readable, and the one zone stanza the config carries. Legacy's zone described
+ * a mission that v2 does not have; the shape it wrote is the part worth keeping,
+ * because it is the shape a real zone has.
  *
- * Two questions, kept apart INSIDE the module: which of a network's hosts belong in
- * its zone, and how a zone is written down. `formatDnsZone` knows only the second, so
- * the selection rules — which differ between the home LAN and the layers behind it —
- * can change without anything relearning zone syntax.
+ * BOTH files here because the config names where the zone file goes. Two modules would
+ * be two statements of one path, free to disagree — and a server describing a file that
+ * is not there is worse than one describing nothing.
+ *
+ * Three questions, kept apart INSIDE the module: which of a network's hosts belong in
+ * its zone, how a zone is written down, and what the config says about it. The
+ * formatters know only their own file, so the selection rules — which differ between
+ * the home LAN and the layers behind it — can change without anything relearning zone
+ * syntax.
  *
  * The file is the payout of this whole door. A player who transfers or reads one gets
  * the addresses of machines no scan of their own layer could have shown them, which is
@@ -18,7 +25,9 @@
  * part of the reward.
  */
 
+import { asAbsPath, type AbsPath } from '../types';
 import type { Ipv4 } from '../network/interfaces';
+import { createPrng } from './prng';
 import { generateDeepLayer, hostsOnLayer } from './generateDeepLayer';
 import { generateHomeLan, type LanHost } from './generateHomeLan';
 import { chainLinks } from './lanTopology';
@@ -181,3 +190,76 @@ export const formatDnsZone = ({
     ),
   ].join('\n');
 };
+
+/** Where a name server keeps its zone files. BIND's own default location, so the path
+ *  reads as a real one to anybody who has seen a Debian box. */
+const ZONE_DIR = '/etc/bind/zones';
+
+/** The config file itself, under `/etc/bind` rather than loose in `/etc` — which is
+ *  where a Debian bind9 really puts it, and what keeps the zone file beside it instead
+ *  of two unrelated paths a player has to learn separately. */
+export const NAMED_CONF_PATH: AbsPath = asAbsPath('/etc/bind/named.conf');
+
+/** The file holding `zone`'s records. Stated HERE, once, because the config names this
+ *  path and whatever writes the zone out must write it to the same place — a server
+ *  describing a file that is not there is worse than one describing nothing. */
+export const zoneFilePathFor = (zone: string): AbsPath => asAbsPath(`${ZONE_DIR}/db.${zone}`);
+
+/** How often a name server will hand its whole zone to anyone who asks.
+ *
+ *  Open is the COMMON case deliberately. A server locked down every time would make
+ *  the door a coin flip a player cannot influence and cannot learn to read; leaving it
+ *  open on most is both the misconfiguration real networks actually have, and what
+ *  makes the closed one worth noticing when it turns up. */
+const TRANSFER_OPEN_CHANCE = 0.75;
+
+/**
+ * Whether the name server at `ip` on `essid` allows a zone transfer.
+ *
+ * Seeded from the network and the address and NOTHING else — no identity in the
+ * signature, so two occupants of one access point can never be told different things
+ * about the same server, and no reload can change its answer. A find that did not
+ * repeat would be one a player could neither confirm nor explain.
+ *
+ * Its own stream, as every generated draw is: appending to another would move every
+ * value picked after it, including the octets the lease allocator excludes.
+ */
+export const allowsZoneTransfer = (essid: string, ip: Ipv4): boolean =>
+  createPrng(`dns-axfr-${essid}-${ip}`).next() < TRANSFER_OPEN_CHANCE;
+
+/**
+ * The `named.conf` a name server publishes about itself.
+ *
+ * Ported from legacy `generateDnsNamedConf` with one line changed: `recursion no`,
+ * where legacy's varied. This box is authoritative for one zone and there is no DNS in
+ * this world beyond the LAN it stands on, so a config advertising recursion would
+ * invite a player to ask it a question nothing can answer — and it is what a real
+ * authoritative server says besides.
+ *
+ * Shorter than the zone and read first. It gives a player two things the zone cannot:
+ * where the zone file is, and whether they need to root the box at all.
+ */
+export const formatNamedConf = ({
+  hostname,
+  zone,
+  allowsTransfer,
+}: {
+  readonly hostname: string;
+  readonly zone: string;
+  readonly allowsTransfer: boolean;
+}): string =>
+  [
+    `// named.conf — ${hostname}`,
+    'options {',
+    '  directory "/var/cache/bind";',
+    '  listen-on port 53 { any; };',
+    '  recursion no;',
+    '  allow-query { any; };',
+    '};',
+    '',
+    `zone "${zone}" {`,
+    '  type master;',
+    `  file "${zoneFilePathFor(zone)}";`,
+    `  allow-transfer { ${allowsTransfer ? 'any' : 'none'}; };`,
+    '};',
+  ].join('\n');
