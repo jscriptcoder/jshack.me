@@ -22,6 +22,7 @@
 import { asAbsPath, type AbsPath, type GameTime } from '../types';
 import type { FilePermissions } from '../filesystem/types';
 import type { CredentialAttempt } from './authLog';
+import type { ExploitEvent } from './exploitLog';
 import { MONTHS } from './syslog';
 
 /** The canonical `/var/log/vsftpd.log` storage identity — single source of truth shared
@@ -105,3 +106,12 @@ export const formatVsftpdTransferLine = ({
   bytes,
 }: TransferRecord): string =>
   `${formatVsftpdTimestamp(time)} [pid ${pid}] [${user}] OK ${direction.toUpperCase()}: Client "${fromIp}", "${path}", ${bytes} bytes`;
+
+/** Render a break-in as its `/var/log/vsftpd.log` line, in the daemon's own `OK`/`FAIL`
+ *  idiom so it sits beside the logins rather than reading as something bolted on. A
+ *  refusal names no account for the same reason it names no CVE: nothing was granted,
+ *  so there is no one to name. */
+export const formatVsftpdExploitLine = (event: ExploitEvent): string =>
+  event.outcome === 'success'
+    ? `${formatVsftpdTimestamp(event.time)} [pid ${event.pid}] [${event.user}] OK EXPLOIT: Client "${event.fromIp}", ${event.cve}`
+    : `${formatVsftpdTimestamp(event.time)} [pid ${event.pid}] FAIL EXPLOIT: Client "${event.fromIp}"`;

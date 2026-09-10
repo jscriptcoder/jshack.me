@@ -26,6 +26,7 @@
 import { asAbsPath, type AbsPath, type GameTime } from '../types';
 import type { FilePermissions } from '../filesystem/types';
 import type { CredentialAttempt } from './authLog';
+import type { ExploitEvent } from './exploitLog';
 
 /** The canonical `/var/log/redis.log` storage identity — single source of truth shared
  *  by the boot seed (`generation/remoteHostFs`) and every server-side appender, so the
@@ -108,3 +109,11 @@ export const formatRedisAttemptLine = ({ outcome, fromIp, time, pid }: Credentia
   outcome === 'success'
     ? `${pid}:M ${formatRedisTimestamp(time)} * Client ${fromIp} authenticated successfully`
     : `${pid}:M ${formatRedisTimestamp(time)} # Client ${fromIp} authentication failed`;
+
+/** Render a break-in as its `/var/log/redis.log` line. The store's own severity marks
+ *  carry the outcome — `*` for a notice, `#` for a warning — which is the convention
+ *  the connect and auth lines above already follow. */
+export const formatRedisExploitLine = (event: ExploitEvent): string =>
+  event.outcome === 'success'
+    ? `${event.pid}:M ${formatRedisTimestamp(event.time)} * Client ${event.fromIp} exploited ${event.cve}; shell opened as ${event.user}`
+    : `${event.pid}:M ${formatRedisTimestamp(event.time)} # Client ${event.fromIp} exploit attempt failed`;
