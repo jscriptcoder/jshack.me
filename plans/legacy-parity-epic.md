@@ -391,12 +391,12 @@ PHASE 2 — DISCOVERY
       X1 slice 3 the zone transfers                   ✅ SHIPPED v0.208.0 (#489)
       X1 slice 4 the transfer leaves a trace          ✅ SHIPPED v0.209.0 (#490)
   X2  findit.io + common website-bearing networks     ⏸ DEFERRED — Phase 3 prioritized
-PHASE 3 — VULNERABILITIES                             GRILLED 2026-09-09 + 09-10 (30 decisions)
+PHASE 3 — VULNERABILITIES                             GRILLED 09-09/09-10 + PLANNED (35 decisions)
       V slice 1 a version is visible          ✔ SHIPPED v0.210.0-v0.211.0 (#491, #494)
         1a every box carries a manifest       ✅ SHIPPED v0.210.0 (#491)
         1b nmap -sV prints the version        ✅ SHIPPED v0.211.0 (#494)
       V slice 2 a CVE is visible              ✔ SHIPPED v0.212.0 (#496)
-      V slice 3 a door opens                  msfconsole shells + the trace
+      V slice 3 a door opens                  ◐ PLANNED 2026-09-10 (decisions 31-35)
       V slice 4 the defender patches          apt upgrade + list -u  <- LOOP CLOSES
       V slice 5 six more effects              read/list/write/reset/backdoor/script
       V slice 6 the exploit crosses networks  public IP, forwards, deep chain
@@ -3446,6 +3446,79 @@ patch-delay ETA (slice 4). No library or firmware RENDERING: the derivation is a
 tested with a library key, but nothing displays either axis until slices 8 and 9. Nothing is
 exploitable — the player can only watch it happen.
 
+### Slice 3 — resolved decisions (planning, 2026-09-10)
+
+Five questions the phase grill did not reach, settled before any code was written. Numbering
+continues the phase's own sequence.
+
+#### 31. An effect slice 5 has not built yet collapses to a LIMITED shell
+
+The full eight-kind pools ship in slice 3 and **the roll is final**: slice 5 changes what a rolled
+effect DOES, never which effect a CVE has. That is the same discipline slice 2 applied to the
+timeline walk — draw on the stream you will keep drawing on, so extending the code republishes
+nothing a player has written down.
+
+The cost is recorded rather than discovered: for slices 3 and 4 every exploitable service hands
+over a shell, so the world is far more generous than decision 8 intends and `hydra` is temporarily
+out of a job. It is accepted because the alternative — an unbuilt effect reading as a module that
+failed — would bury the attack → patch → inert signal under refusals that mean nothing, at exactly
+the slice the loop-first ordering exists to make provable. Under this rule, every refusal in slices
+3 and 4 means one thing: **the CVE is not live on that box.**
+
+#### 32. `formatExploit` is a REQUIRED column on every catalog row
+
+All seven rows (ssh, http, ftp, mysql, redis, snmp, dns) get one when the column lands, and the
+type makes a service row impossible to add without deciding where its exploits show up. An optional
+column with a generic syslog fallback would let a future door quietly file its break-ins somewhere
+the defender does not look — a second authority over where a service logs, which is the drift
+decision 15 cites D8 for refusing.
+
+**A follow-up comes with it.** Decision 15's own example says an http CVE leaves its trace in
+`access.log`, but the rule in the same paragraph — reuse that row's `sweepLog` destination — puts it
+in `auth.log`, because the http row's sweep destination is auth.log by INHERITANCE (the catalog row
+says so in its own comment: *"a real HTTP brute-force belongs in access.log as a run of 401s — that
+is the web door's call to make"*). The rule wins: one service's evidence stays in one file. Moving
+the web door's evidence to `access.log` would move its credential sweeps too, and that is its own
+correction — **left open, not smuggled into slice 3.**
+
+#### 33. `shell_full` is an ssh hop, `shell_limited` is an nc backdoor shell, and the row says which
+
+The behaviour ports from legacy unchanged: a full shell has a TTY, lands in the account's home and
+can pivot onward; a limited one has none, so `ssh`, `nano` and every prompting command refuse it —
+a room you can search but not a door you can pivot onward through, which is already the shipped
+comment on the `nc` backdoor.
+
+What does NOT port is the absence of a row. Legacy minted no session for either and trusted the
+client's envelope for the tier, which is the hole decision 18 exists to close. v2 records
+`kind: 'exploit'` for a full shell and a new `exploit_limited` for a limited one, because three
+places already read that field per kind: `hasTty` (`shell/runLine.ts`), the refresh allowlist
+`HOP_KINDS` (`ui/sessionRehydrate.ts` — a full shell survives a refresh, a limited one is ended like
+any other parallel session), and `isCrossPlayerHop` (`ui/activeRoot.ts`). Reusing `ssh` would show a
+defender running `ps` a login that `auth.log` never recorded — contradicting the very trace decision
+15 requires — and reusing `nc` would report a CVE-granted shell as a backdoor somebody planted.
+
+#### 34. Slice 3 targets generated NPC hosts only
+
+The edge router and every seeded sibling `ssh` already reaches through `resolveLanHostIdentity`. A
+fellow occupant on the same ESSID is deliberately OUT even though they are on the same LAN: every
+cross-player question — whose journal, whose log, whose source IP — is answered once, in slice 6,
+for the public, forward and deep routes together. It also means the first player rooted by a CVE
+happens after the trace has been exercised against NPCs for two slices rather than before.
+
+#### 35. Slice 3 is ONE PR
+
+About twenty files, comparable to slice 2's twenty-one. Splitting the derivation (effect pools,
+tier ladder, the seven formatters) into a lower PR would make it a horizontal layer with no
+observable behaviour — the thing the epic's own slicing rule rejects. One mutation gate, one
+wire-check, one review of the whole door.
+
+**Narrowed at planning, and needing the same sign-off slice 2's deferrals got: decision 23's script
+grammar moves to slice 5.** `msfconsole` carries `withoutScript` until then. The grammar exists so a
+scripted exploit still changes state while a shell effect merely reports — but under decision 31
+every effect in slice 3 IS a shell, so a scripted run could only report, would mint a session row
+nobody enters, and would write a trace for an exploit the player must then fire again from the
+prompt. It earns its keep the moment a non-shell effect exists.
+
 ### Forced rather than chosen (planning should not re-litigate)
 
 - **`/var/lib/dpkg/status` is THE version source.** Settled by the catalog's own shipped comment,
@@ -3485,7 +3558,7 @@ central mechanic unplayable until slice 6.
 |---|---|---|
 | **1** ✅ | **A version is visible** — **SHIPPED v0.210.0-v0.211.0 (#491, #494)** | `/var/lib/dpkg/status` generated on every box from the daemon binaries it CARRIES (not what it runs — see the close-out) + eight libraries (+ firmware on routers); `nmap -sV` gains a VERSION column; the file reads on your own box and on one you hold. No CVEs yet |
 | **2** ✅ | **A CVE is visible** — **SHIPPED v0.212.0 (#496)** | `WORLD_EPOCH` + each package's FIRST publication + the severity roll (the forward walk moved to slice 4, where `apt upgrade` is what first reaches past it); `nmap -sV` prints a CVE id and severity for a live one. The world is clean for three days and then starts moving. Nothing is exploitable yet — the player can only watch it happen |
-| **3** | **A door opens** | `msfconsole <host> <port>` on your own LAN; `shell_full` and `shell_limited`; the exploit session row; the `formatExploit` catalog column with BOTH outcomes traced. A stale NPC service hands over a shell with no credential, and the box records it |
+| **3** ◐ | **A door opens** — **PLANNED 2026-09-10 (decisions 31-35)** | `msfconsole <host> <port>` against a generated NPC host on your own LAN; `shell_full` and `shell_limited`; the exploit session row; the `formatExploit` catalog column with BOTH outcomes traced. A stale NPC service hands over a shell with no credential, and the box records it |
 | **4** | **The defender patches** | `apt upgrade [package]`, `apt list -u` with the ETA status, install sharing the upgrade resolver, and **the forward timeline walk + `findLatestSafeVersion`** deferred here from slice 2. **The loop closes**: A upgrades, B's working exploit now fails, and inside the delay window A is told no fix exists |
 | **5** | **Six more effects** | `file_read`, `dir_list`, `file_write`, `password_reset`, `backdoor_port_open`, `script_exec` — the third-argument grammar, the CVE-authorized write and exec paths, and D5's backdoor chain forwarding reused whole |
 | **6** | **The exploit crosses networks** | Public IPs, NAT forwards, inner gateways and the deep chain, through the resolvers `ssh` and `hydra` already share. The first real route to rooting another player |
@@ -3534,9 +3607,12 @@ libc window?*.
   other shared pure resolvers the client renders from and the server authorizes with. **One
   axis-blind entry point** — `liveCve(key, version, gameDay)` — serves all three axes, so slices 8
   and 9 attach per-axis INTERPRETATION rather than growing a second derivation.
-- **Whether `formatExploit` is a required or optional catalog column.** Every row needs one
-  eventually; whether a row without one is a type error or falls back to a generic syslog line
-  decides how slice 3 lands against seven rows at once.
+- ~~**Whether `formatExploit` is a required or optional catalog column**~~ — **RESOLVED 2026-09-10
+  at slice 3 planning** (decision 32). REQUIRED, on all seven rows at once, so a service cannot be
+  added without deciding where its exploits show up. It carries one follow-up of its own: the http
+  row's trace lands in `auth.log` rather than decision 15's example `access.log`, because that is
+  where its credential sweeps already land — moving the web door's evidence is a correction of its
+  own and stays open.
 
 ## Open branches (named, not yet decided)
 
@@ -4359,11 +4435,13 @@ would leak NAT forwards to anyone inside the LAN — still survives. It predates
 **➡️ NEXT: Phase 3 slice 3 — a door opens.** `msfconsole <host> <port>` on your own LAN;
 `shell_full` and `shell_limited`; the exploit session row; the `formatExploit` catalog column with
 BOTH outcomes traced. A stale NPC service hands over a shell with no credential, and the box
-records it. **It was grilled 2026-09-09 as part of the phase's twenty-three decisions, so it needs
-`planning`, not another grill** — the one question planning must settle first is the last open item
-below: whether `formatExploit` is a required or optional catalog column, which decides how slice 3
-lands against seven rows at once. It is the slice that makes everything slice 2 renders *matter*:
-until it exists, the player can only watch the world get worse.
+records it. **PLANNED 2026-09-10** — grilled 2026-09-09 with the phase's other twenty-three
+decisions, so it needed `planning` rather than another grill; the plan is
+[`phase3-3-a-door-opens.md`](./phase3-3-a-door-opens.md) and the five questions planning had to
+settle are decisions 31-35 in
+["Slice 3 — resolved decisions"](#slice-3--resolved-decisions-planning-2026-09-10). It is the slice
+that makes everything slice 2 renders *matter*: until it exists, the player can only watch the
+world get worse.
 
 **X1 slice 1 SHIPPED at v0.206.0 (PR #487)** — a name resolves. `apt install dnsutils` installs
 `nslookup` and `dig`, and a name is now accepted anywhere an address was, through ONE shared
