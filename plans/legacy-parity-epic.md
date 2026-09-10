@@ -395,7 +395,7 @@ PHASE 3 — VULNERABILITIES                             GRILLED 2026-09-09 + 09-
       V slice 1 a version is visible          ✔ SHIPPED v0.210.0-v0.211.0 (#491, #494)
         1a every box carries a manifest       ✅ SHIPPED v0.210.0 (#491)
         1b nmap -sV prints the version        ✅ SHIPPED v0.211.0 (#494)
-      V slice 2 a CVE is visible              ◐ GRILLED 2026-09-10, ready to plan
+      V slice 2 a CVE is visible              ✔ SHIPPED v0.212.0 (#496)
       V slice 3 a door opens                  msfconsole shells + the trace
       V slice 4 the defender patches          apt upgrade + list -u  <- LOOP CLOSES
       V slice 5 six more effects              read/list/write/reset/backdoor/script
@@ -438,7 +438,7 @@ POST-SHIP — MISSIONS
 
 | # | Slice | Includes | Acceptance |
 |---|---|---|---|
-| **V1** ◐ | **A scanner reads what version a service runs** — **GRILLED**, now slices 1-2; **slice 1 SHIPPED v0.210.0-v0.211.0 (#491, #494)** — the version half is done, the CVE half is slice 2 | `/var/lib/dpkg/status` generated on every box (services + the 8 libraries + firmware on routers); `nmap -sV` VERSION column; `WORLD_EPOCH` + the timeline walker + the severity roll; a CVE id and severity on a live one | `nmap -sV <host>` → real versions; the world is clean for ~3 days, then CVEs start landing; tier-3 readable (already allowlisted) |
+| **V1** ✅ | **A scanner reads what version a service runs** — **GRILLED**, delivered as slices 1-2; **SHIPPED v0.210.0-v0.212.0 (#491, #494, #496)** | `/var/lib/dpkg/status` generated on every box (services + the 8 libraries + firmware on routers); `nmap -sV` VERSION column; `WORLD_EPOCH` + each package's first publication + the severity roll (the forward walk moved to slice 4); a CVE id and severity on a live one | `nmap -sV <host>` → real versions; the world is clean for ~3 days, then CVEs start landing; tier-3 readable (already allowlisted) |
 | **V2** ✔ | **A player breaks in with no credentials** — **GRILLED**, now slices 3, 5, 6 | `msfconsole <host> <port> [arg]`; all 8 effect kinds; the exploit session row; the `formatExploit` catalog column tracing BOTH outcomes; **server-side CVE recomputation** through the one shared module the client renders from | B finds a vulnerable version → `msfconsole` → `shell_full` with no password; a patched version refuses and the target logs the bounce |
 | **V3** ✔ | **A defender patches and the exploit goes inert** — **GRILLED**, now slices 4 and 7 | `apt upgrade [pkg]`; `apt list -u` with the ETA status; `apt install pkg=<version>` downgrade-only; install sharing the upgrade resolver; `reboot` ending every session on the machine | A upgrades → B's working exploit now fails; inside the delay window A is told no fix exists; A reboots and B's shell drops |
 | **V4** ✔ | **A player escalates locally through a vulnerable library** — **GRILLED**, now slices 8 and 9 | Library timelines; `ldd`; `msfconsole --local`; the syslog trace; the extended dependency map + its effect pools; `metadata.libraryLinks` deleted; firmware as the third axis | B (guest) `msfconsole --local su` → root without the root password; `ldd /bin/su` shows the vulnerable lib; A upgrades to close it |
@@ -3484,7 +3484,7 @@ central mechanic unplayable until slice 6.
 | # | Slice | Observable |
 |---|---|---|
 | **1** ✅ | **A version is visible** — **SHIPPED v0.210.0-v0.211.0 (#491, #494)** | `/var/lib/dpkg/status` generated on every box from the daemon binaries it CARRIES (not what it runs — see the close-out) + eight libraries (+ firmware on routers); `nmap -sV` gains a VERSION column; the file reads on your own box and on one you hold. No CVEs yet |
-| **2** ◐ | **A CVE is visible** — **GRILLED 2026-09-10 (decisions 24-30), ready to plan** | `WORLD_EPOCH` + each package's FIRST publication + the severity roll (the forward walk moves to slice 4, where `apt upgrade` is what first reaches past it); `nmap -sV` prints a CVE id and severity for a live one. The world is clean for three days and then starts moving. Nothing is exploitable yet — the player can only watch it happen |
+| **2** ✅ | **A CVE is visible** — **SHIPPED v0.212.0 (#496)** | `WORLD_EPOCH` + each package's FIRST publication + the severity roll (the forward walk moved to slice 4, where `apt upgrade` is what first reaches past it); `nmap -sV` prints a CVE id and severity for a live one. The world is clean for three days and then starts moving. Nothing is exploitable yet — the player can only watch it happen |
 | **3** | **A door opens** | `msfconsole <host> <port>` on your own LAN; `shell_full` and `shell_limited`; the exploit session row; the `formatExploit` catalog column with BOTH outcomes traced. A stale NPC service hands over a shell with no credential, and the box records it |
 | **4** | **The defender patches** | `apt upgrade [package]`, `apt list -u` with the ETA status, install sharing the upgrade resolver, and **the forward timeline walk + `findLatestSafeVersion`** deferred here from slice 2. **The loop closes**: A upgrades, B's working exploit now fails, and inside the delay window A is told no fix exists |
 | **5** | **Six more effects** | `file_read`, `dir_list`, `file_write`, `password_reset`, `backdoor_port_open`, `script_exec` — the third-argument grammar, the CVE-authorized write and exec paths, and D5's backdoor chain forwarding reused whole |
@@ -3513,9 +3513,12 @@ libc window?*.
 
 ### Open for planning (named, deliberately not decided)
 
-- **The exact `WORLD_EPOCH` date.** It is one constant, but it is the only irreversible number in
-  the phase — every CVE id, publication date and severity in the game derives from it, and moving
-  it later re-rolls the world's whole history.
+- ~~**The exact `WORLD_EPOCH` date**~~ — **RESOLVED 2026-09-10 at slice 2** (decision 24). It is
+  `2026-09-01`, an openly-labelled DEVELOPMENT anchor guarded by a dated tripwire test that fails
+  once it is ~90 days stale. Freely movable until launch — nothing is persisted and every box is
+  frozen at its starting version — and irreversible after, because every CVE id, publication date
+  and severity derives from it. **Shipping the development value would begin the world months deep
+  in CVEs**; re-stamping it is the tripwire's whole job.
 - **The effect pools for the newly-mapped commands** (decision 12). `nmap`, `node`, `hydra`, `gpg`
   and `lynx` each need a `SYSTEM_COMMAND_EFFECT_POOLS` entry, and what a `node` CVE should yield is
   a content question with real reach — `script_exec` through the script runner is close to circular.
@@ -3526,10 +3529,11 @@ libc window?*.
   indistinguishable in it by construction. One package name, `firmware`, per decision 10;
   revisit `<vendor>-firmware` only if slice 9 finds the vendor unreadable from the manifest
   alone.
-- **Where the CVE derivation module lives and what it is called.** It is called by the client to
-  render and by the server to authorize, so it belongs beside the other shared pure resolvers —
-  but whether services, libraries and firmware share one entry point or three is a shape question
-  for slice 2 that decides how slices 8 and 9 attach.
+- ~~**Where the CVE derivation module lives and what it is called**~~ — **RESOLVED 2026-09-10 at
+  slice 2** (decision 25). `src/core/cve/worldClock.ts` and `src/core/cve/liveCve.ts`, beside the
+  other shared pure resolvers the client renders from and the server authorizes with. **One
+  axis-blind entry point** — `liveCve(key, version, gameDay)` — serves all three axes, so slices 8
+  and 9 attach per-axis INTERPRETATION rather than growing a second derivation.
 - **Whether `formatExploit` is a required or optional catalog column.** Every row needs one
   eventually; whether a row without one is a type error or falls back to a generic syslog line
   decides how slice 3 lands against seven rows at once.
@@ -4223,11 +4227,11 @@ Left open in `nmap.ts` and named rather than fixed: nothing pins the host-discov
 `external` — which would leak NAT forwards to anyone inside the LAN — survives. It predates the
 slice.
 
-**➡️ NEXT: Phase 3 slice 2 — a CVE is visible. GRILLED 2026-09-10, ready for `planning`.**
-`WORLD_EPOCH`, the timeline walker and the severity roll; `nmap -sV` gains a CVE id and severity on
-a live one. Nothing is exploitable yet — the player can only watch it happen. It carries the
-server-owned world epoch that replaces legacy's `localStorage`-anchored per-browser clock, which is
-the larger of the two known deltas the grill went in with.
+**Slice 2 followed and SHIPPED at v0.212.0 (#496) — its close-out is the next section.**
+`WORLD_EPOCH` and the severity roll; `nmap -sV` gained a CVE id and severity on a live one (the
+forward walk moved to slice 4). Nothing is exploitable yet — the player can only watch it happen.
+It carried the server-owned world epoch that replaces legacy's `localStorage`-anchored per-browser
+clock, which was the larger of the two known deltas the grill went in with.
 
 Both opens slice 1 carried forward are **SETTLED** in
 ["Slice 2 — resolved decisions"](#slice-2--resolved-decisions-grill-me-2026-09-10): the epoch is
@@ -4259,6 +4263,107 @@ left to be rediscovered as bugs. From ~day 14 any shell on any NPC escalates to 
 upgrading, and `apt upgrade` closes it completely (decision 6). And `password_reset` can
 permanently cost a player root on their own box if they never learn the convention (decision 21),
 which is why decision 15 requires the exploit trace to name the CVE.
+
+### Phase 3 slice 2 — a CVE is visible ✅ SHIPPED v0.212.0 (#496)
+
+Retired here from `phase3-2-a-cve-is-visible.md`, the way D3–D10, X1 and slice 1 each were. One PR,
+21 files, +855/−79. The world has a clock now, and every package on every box has a vulnerability
+derived from it rather than from a table somebody wrote by hand.
+
+```
+$ nmap -sV 192.168.29.1
+PORT     STATE SERVICE  VERSION         CVE               SEVERITY
+22/tcp   open  ssh      OpenSSH 9.7.0   CVE-2026-0149031  medium
+161/udp  open  snmp     net-snmp 5.9.4  CVE-2026-0712758  medium
+4444/tcp open  unknown
+```
+
+**`WORLD_EPOCH` is a DEVELOPMENT anchor and has to be re-stamped before launch.** It is
+`2026-09-01`, set in the past so the treadmill is already running while the phase is built.
+Shipping that value would hand the first players a world months deep in CVEs — the exact state
+decision 2 dropped legacy's hand-authored day-0 table to avoid. It is freely movable until launch,
+because nothing is persisted and every box is frozen at its starting version, and irreversible
+after, because every CVE id, publication date and severity in the game derives from it. The dated
+tripwire in `worldClock.test.ts` fails once the anchor is ~90 days stale, and its failure asks a
+question rather than reporting a fault: **launching, or extending the runway?** It is the only
+thing standing between a forgotten constant and a world that begins already lost.
+
+**One derivation, and the axis is not a parameter.** `liveCve(key, version, gameDay)` answers
+identically for a daemon, a shared object and a router's firmware image, because
+`/var/lib/dpkg/status` is one flat namespace in which the three are indistinguishable. What a CVE
+*grants* differs per axis — the library privilege floor, the per-service effect pools — and is
+deliberately absent from this module: it belongs with the tool that fires an exploit. Slices 3, 8
+and 9 attach interpretation to one derivation rather than each growing a second one.
+
+**No clock override exists anywhere, in any environment.** `gameDay` is a plain number below
+exactly two entry points: a command's `env.now()`, and the server's own clock at the three scan
+actions in `api/network.ts`. To move the world you edit `WORLD_EPOCH` and restart, so client and
+server shift together — and a forged client clock can only mislead the client, because the server
+recomputes the same number from its own.
+
+**Two flaws in legacy's CVE id are fixed rather than ported.** Legacy numbered packages by an
+alphabetical sort, so adding one renumbered every CVE after it; each `VersionTemplate` row now
+carries a permanent hand-assigned `cveNumber`, required by the type so a package cannot be added
+without one, and the doc comment says it must never be derived from file order or a sort. And
+legacy's serial ended every package's FIRST CVE in `0000` — with decision 21 keying the reset
+password on those four digits and every NPC frozen on its first CVE forever, `pwned-0000-<tier>`
+would have been a master key for a player who never read a log. A per-package scatter fixes it:
+`9031`, `9486`, `8750`, `7580`.
+
+**`readOpenPorts` takes the day as an OPTIONAL parameter.** Thirty callers — `ftp`, `scp`, `nc`,
+`hydra`, the login gates — ask only whether a port is open and have no opinion about time. A caller
+that names no day gets no answer about holes rather than a default one. The hazard is the same one
+slice 1 named about the wire: a new scan path can forget to pass it and silently drop the CVE, and
+the wire-check is what catches that, not the type system.
+
+**The mutation gate found three real gaps**, each closed and each verified by hand to fail without
+its fix. `assertCveTimingInvariants` — the guard that keeps the treadmill winnable by forbidding a
+config where a fix arrives at or after the next vulnerability — had zero coverage. No package in
+the world rolls exactly 10, 60 or 90, so all three severity band boundaries were unpinned and a
+band shifting by one would have quietly changed what a whole class of targets is worth. And
+dropping the day from `scanResult`'s `sameLAN` branch survived: the router `.1`, the first thing
+anyone scans from inside their own LAN, would have read permanently clean.
+
+**Two survivors were justified rather than killed, and one was a mis-report.** Both year-arithmetic
+mutants on `WORLD_EPOCH + publishedAt * DAY_MS` still produce `2026`, because every publication day
+is ≤ 14 by configuration and therefore inside the epoch's own year — no test written against the
+public interface can distinguish them, and they become reachable when slice 4's walk reaches
+versions a year out. The `ConditionalExpression → false` on `liveCve`'s early return is killed by
+two tests, confirmed by applying the edit by hand: the `coverageAnalysis: perTest` failure mode
+§4 of the conventions doc documents.
+
+**The wire-check is the only proof the `api/` half is right**, because all three client paths cast
+the response body rather than parsing it — nothing at the type or schema level could catch a server
+that stopped sending the field. 46/46 across six scan scripts, live against `vercel dev` +
+supabase, with B reading A's CVE off A's own manifest. It compares the wire against what `core`
+derives locally rather than against a hardcoded id, so it asserts the field survived the round trip
+instead of re-asserting the derivation — and stays true whatever day the world stands on.
+
+**Two debts move forward**, both recorded above under
+["Carried forward from slice 2's implementation"](#carried-forward-from-slice-2s-implementation):
+
+- **The forward timeline walk is slice 4's**, with `findLatestSafeVersion`. Nothing in slice 2 can
+  reach past entry 0, because every box is frozen at its starting version until `apt upgrade`
+  exists. Slice 2 draws only the first gap — on the walk's own FIRST PRNG draw, so extending it
+  into a loop republishes nothing that players have already written down.
+- **A root player can hide a CVE by hand-editing `/var/lib/dpkg/status`.** The manifest is the
+  version authority and is root-writable, so an unrecognised version reads as "no CVE" on the
+  server too. Harmless while nothing is exploitable; free immunity from slice 3 on. It is the
+  pinning mechanic pointed the other way and wants the same answer — slices 3 and 4 own deciding
+  whether an unknown version reads as clean, as its nearest known ancestor, or as unpatchable.
+
+Left open and named rather than fixed, unchanged from slice 1: nothing pins `nmap`'s host-discovery
+table or the router `.1` `sameLAN` vantage, so a mutant swapping that vantage to `external` — which
+would leak NAT forwards to anyone inside the LAN — still survives. It predates both slices.
+
+**➡️ NEXT: Phase 3 slice 3 — a door opens.** `msfconsole <host> <port>` on your own LAN;
+`shell_full` and `shell_limited`; the exploit session row; the `formatExploit` catalog column with
+BOTH outcomes traced. A stale NPC service hands over a shell with no credential, and the box
+records it. **It was grilled 2026-09-09 as part of the phase's twenty-three decisions, so it needs
+`planning`, not another grill** — the one question planning must settle first is the last open item
+below: whether `formatExploit` is a required or optional catalog column, which decides how slice 3
+lands against seven rows at once. It is the slice that makes everything slice 2 renders *matter*:
+until it exists, the player can only watch the world get worse.
 
 **X1 slice 1 SHIPPED at v0.206.0 (PR #487)** — a name resolves. `apt install dnsutils` installs
 `nslookup` and `dig`, and a name is now accepted anywhere an address was, through ONE shared
