@@ -225,35 +225,35 @@ describe('the PID a listener answers to', () => {
  * off its starting version, and a scan that answered from the table would keep reporting
  * the vulnerable one long after the defender had patched it.
  */
-describe('the version a scanned port advertises', () => {
-  /** A box running `pidfiles`, carrying `packages` in its manifest. */
-  const boxRunning = (
-    pidfiles: Readonly<Record<string, string>>,
-    packages: Readonly<Record<string, string>> = {},
-  ) =>
-    buildDirectory({
-      var: buildDirectory({
-        run: buildDirectory(
-          Object.fromEntries(
-            Object.entries(pidfiles).map(([name, content]) => [
-              name,
-              buildFile(content, { owner: 'root' }),
-            ]),
-          ),
+/** A box running `pidfiles`, carrying `packages` in its manifest. */
+const boxRunning = (
+  pidfiles: Readonly<Record<string, string>>,
+  packages: Readonly<Record<string, string>> = {},
+) =>
+  buildDirectory({
+    var: buildDirectory({
+      run: buildDirectory(
+        Object.fromEntries(
+          Object.entries(pidfiles).map(([name, content]) => [
+            name,
+            buildFile(content, { owner: 'root' }),
+          ]),
         ),
-        lib: buildDirectory({
-          dpkg: buildDirectory({
-            status: buildFile(
-              formatDpkgStatus(
-                Object.entries(packages).map(([pkg, version]) => buildEntry(pkg, version)),
-              ),
-              { owner: 'root' },
+      ),
+      lib: buildDirectory({
+        dpkg: buildDirectory({
+          status: buildFile(
+            formatDpkgStatus(
+              Object.entries(packages).map(([pkg, version]) => buildEntry(pkg, version)),
             ),
-          }),
+            { owner: 'root' },
+          ),
         }),
       }),
-    });
+    }),
+  });
 
+describe('the version a scanned port advertises', () => {
   it('names the version of the package behind the daemon that is running', () => {
     const ports = boxRunning({ 'sshd.pid': 'sshd:port=22' }, { 'openssh-server': '9.7.0' });
 
@@ -335,5 +335,84 @@ describe('the version a scanned port advertises', () => {
     // Every generated box has one, but a tree assembled by a test or a half-built patch
     // may not, and a missing file is a missing answer rather than a crash.
     expect(readOpenPorts(varRun({ 'sshd.pid': 'sshd:port=22' }))[0]?.version).toBeUndefined();
+  });
+});
+
+/**
+ * The vulnerability rides beside the version because it is derived from it — one read
+ * of one box answers both, so a scan can never name a version and a CVE that belong to
+ * different software.
+ *
+ * The day is a PARAMETER and an optional one. Most readers here only ask whether a port
+ * is open — the login gates, `ftp`, `scp`, `hydra` — and have no opinion about time; a
+ * caller that never asked about a clock gets no CVE, which is the honest answer rather
+ * than a default.
+ */
+describe('the vulnerability a scanned port advertises', () => {
+  /** Long after every package in the world has published its first CVE. */
+  const LATE = 9999;
+  /** `openssh-server` publishes on day 8 in this world; the suite pins that world. */
+  const SSH_PUBLISHES_ON = 8;
+  const runningSshd = { 'sshd.pid': 'sshd:port=22' };
+  const shippingSsh = { 'openssh-server': '9.7.0' };
+
+  it('names the CVE live against the version the box is actually running', () => {
+    const ports = readOpenPorts(boxRunning(runningSshd, shippingSsh), {
+      gameDay: SSH_PUBLISHES_ON,
+    });
+
+    expect(ports).toEqual([
+      {
+        port: 22,
+        service: 'ssh',
+        version: 'OpenSSH 9.7.0',
+        cve: 'CVE-2026-0149031',
+        severity: 'medium',
+      },
+    ]);
+  });
+
+  it('says nothing while the package is still inside its safe window', () => {
+    // The version is public from the first day; the hole is not, because it does not
+    // exist yet. A scan that leaked tomorrow's CVE would let a player queue up an
+    // attack on a box nobody could yet defend.
+    const ports = readOpenPorts(boxRunning(runningSshd, shippingSsh), {
+      gameDay: SSH_PUBLISHES_ON - 1,
+    });
+
+    expect(ports).toEqual([{ port: 22, service: 'ssh', version: 'OpenSSH 9.7.0' }]);
+  });
+
+  it('answers nothing about vulnerability to a caller that asked nothing about time', () => {
+    expect(readOpenPorts(boxRunning(runningSshd, shippingSsh))).toEqual([
+      { port: 22, service: 'ssh', version: 'OpenSSH 9.7.0' },
+    ]);
+  });
+
+  it('has none for a listener the world cannot even name', () => {
+    // No package behind it means no version, and no version means nothing a CVE could
+    // be keyed on. A planted backdoor is a hole with no published number.
+    const ports = readOpenPorts(
+      boxRunning({ 'nc-4444.pid': 'nc:port=4444,user=mallory,userType=root' }),
+      { gameDay: LATE },
+    );
+
+    expect(ports).toEqual([{ port: 4444, service: 'unknown' }]);
+  });
+
+  it('has none for a daemon its own manifest does not list', () => {
+    const ports = readOpenPorts(boxRunning(runningSshd), { gameDay: LATE });
+
+    expect(ports).toEqual([{ port: 22, service: 'ssh' }]);
+  });
+
+  it('has none for a version the package never shipped', () => {
+    // Reachable by hand: the manifest is root-writable, so this is a line a player can
+    // type. It reads as clean today, when nothing is exploitable either way.
+    const ports = readOpenPorts(boxRunning(runningSshd, { 'openssh-server': '9.9.9' }), {
+      gameDay: LATE,
+    });
+
+    expect(ports).toEqual([{ port: 22, service: 'ssh', version: 'OpenSSH 9.9.9' }]);
   });
 });

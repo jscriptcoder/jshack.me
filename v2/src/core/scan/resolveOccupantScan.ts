@@ -41,6 +41,11 @@ import type { NonceStore } from '../signedRequest/nonceStore';
 
 export type ResolveOccupantScanDeps = {
   readonly nonceStore: NonceStore;
+  /** The day the world stands on, computed once from the server's own clock at the
+   *  endpoint. Absent for a caller asking only what is open — the scan then reports
+   *  ports and versions with no vulnerability against them. */
+  readonly gameDay?: number | undefined;
+
   /** Who is currently ON the ESSID. Both halves of the reach: the caller's own row is
    *  the LAN boundary, and the target's row carries the identity their tree rebuilds
    *  from. Occupancy is the reachability test, so a player who ran `nmcli disconnect`
@@ -132,6 +137,10 @@ export const handleResolveOccupantScan = async (
         // What the box answers to the NETWORK, which is what a scan of it can see. A
         // port its owner filtered is simply absent: a DROP is invisible, and a port
         // listed here but refused at every door would be an open port that lies.
-        body: { ok: true, found: true, ports: portsOpenToNetwork(occupantFs) },
+        body: {
+          ok: true,
+          found: true,
+          ports: portsOpenToNetwork(occupantFs, { gameDay: deps.gameDay }),
+        },
       };
 };

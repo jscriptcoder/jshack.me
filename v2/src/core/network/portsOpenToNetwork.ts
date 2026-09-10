@@ -22,7 +22,10 @@ import { parseInputDenies, readRulesV4 } from './iptablesRules';
 import { readOpenPorts, type OpenPort } from '../services/pidfile';
 import type { Directory } from '../filesystem/types';
 
-export const portsOpenToNetwork = (hostFs: Directory): readonly OpenPort[] => {
+export const portsOpenToNetwork = (
+  hostFs: Directory,
+  options: { readonly gameDay?: number | undefined } = {},
+): readonly OpenPort[] => {
   const denied = new Set(parseInputDenies(readRulesV4(hostFs)));
-  return readOpenPorts(hostFs).filter((open) => !denied.has(open.port));
+  return readOpenPorts(hostFs, options).filter((open) => !denied.has(open.port));
 };

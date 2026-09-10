@@ -31,6 +31,9 @@ import { computeApGatewayId } from '../src/core/identity/router';
 import { md5 } from '../src/core/generation/md5';
 import { seedApGatewayHostname } from '../src/core/generation/routerFs';
 import { clearPublicIps, seedPublicIps } from './networkFixture';
+import { liveCve } from '../src/core/cve/liveCve';
+import { gameDayAt } from '../src/core/cve/worldClock';
+import { asEpochMs } from '../src/core/types';
 
 const NETWORK = process.env.NETWORK_ENDPOINT ?? 'http://localhost:3100/api/network';
 const url = process.env.SUPABASE_URL;
@@ -64,7 +67,13 @@ const post = async (
 
 const foundOf = (body: unknown): boolean => (body as { found?: boolean } | null)?.found === true;
 
-type WirePort = { readonly port: number; readonly service: string; readonly version?: string };
+type WirePort = {
+  readonly port: number;
+  readonly service: string;
+  readonly version?: string;
+  readonly cve?: string;
+  readonly severity?: string;
+};
 
 const portsOf = (body: unknown): readonly WirePort[] =>
   (body as { ports?: readonly WirePort[] } | null)?.ports ?? [];
@@ -166,6 +175,26 @@ check(
   ),
   portsOf(s1.body)
     .map((openPort) => `${openPort.port}=${openPort.version ?? '-'}`)
+    .join(' '),
+);
+
+// The VULNERABILITY, on the same wire. The server derives it from the SAME manifest read
+// that produced the version, on its OWN clock — nothing the client sent about time is
+// consulted. Compared against what core says rather than a hardcoded id, so this asserts
+// the field survived the round trip rather than re-asserting the derivation, and stays
+// true whatever day the world stands on.
+const expected = liveCve('openssh-server', '9.7.0', gameDayAt(asEpochMs(Date.now())));
+check(
+  'the resolved :22 carries the CVE the server derived from A’s own manifest',
+  routerSsh?.cve === expected?.cve && routerSsh?.severity === expected?.severity,
+  `wire=${routerSsh?.cve ?? '(absent)'}/${routerSsh?.severity ?? '-'} ` +
+    `core=${expected?.cve ?? '(none yet)'}/${expected?.severity ?? '-'}`,
+);
+check(
+  'no port claims a vulnerability without the version it is keyed on',
+  portsOf(s1.body).every((openPort) => openPort.cve === undefined || openPort.version !== undefined),
+  portsOf(s1.body)
+    .map((openPort) => `${openPort.port}=${openPort.version ?? '-'}/${openPort.cve ?? '-'}`)
     .join(' '),
 );
 

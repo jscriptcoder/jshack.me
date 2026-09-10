@@ -23,6 +23,13 @@
 import type { SystemLibrary } from '../generation/libraries';
 
 export type VersionTemplate = {
+  /** This package's permanent number in the CVE serial, hand-assigned and never
+   *  reused. It must NEVER be derived from this file's order or from a sort: a CVE
+   *  id lands in players' log files and is the only route back from a password
+   *  reset, so renumbering one when the catalog grows would silently rewrite ids
+   *  already written down. Adding a package means picking the next unused number,
+   *  and the field being required is what stops one being added without a number. */
+  readonly cveNumber: number;
   /** What a version scan prints in front of the tuple. Trailing space or slash is
    *  part of the name as the product writes it (`nginx/1.26.0`, `OpenSSH 9.7.0`). */
   readonly displayPrefix: string;
@@ -38,12 +45,12 @@ export type FirmwareVendor = 'cisco' | 'mikrotik' | 'ddwrt' | 'openwrt' | 'pfsen
 export const FIRMWARE_PACKAGE = 'firmware';
 
 export const FIRMWARE_TEMPLATES: Readonly<Record<FirmwareVendor, VersionTemplate>> = {
-  cisco: { displayPrefix: 'Cisco IOS ', startTuple: [15, 9, 3] },
-  mikrotik: { displayPrefix: 'MikroTik RouterOS ', startTuple: [7, 14, 2] },
-  ddwrt: { displayPrefix: 'DD-WRT v', startTuple: [24, 0, 1] },
-  openwrt: { displayPrefix: 'OpenWRT ', startTuple: [23, 5, 0] },
-  pfsense: { displayPrefix: 'pfSense ', startTuple: [2, 7, 2] },
-  ubiquiti: { displayPrefix: 'EdgeOS ', startTuple: [2, 0, 9] },
+  cisco: { cveNumber: 16, displayPrefix: 'Cisco IOS ', startTuple: [15, 9, 3] },
+  mikrotik: { cveNumber: 17, displayPrefix: 'MikroTik RouterOS ', startTuple: [7, 14, 2] },
+  ddwrt: { cveNumber: 18, displayPrefix: 'DD-WRT v', startTuple: [24, 0, 1] },
+  openwrt: { cveNumber: 19, displayPrefix: 'OpenWRT ', startTuple: [23, 5, 0] },
+  pfsense: { cveNumber: 20, displayPrefix: 'pfSense ', startTuple: [2, 7, 2] },
+  ubiquiti: { cveNumber: 21, displayPrefix: 'EdgeOS ', startTuple: [2, 0, 9] },
 };
 
 export const FIRMWARE_VENDORS: readonly FirmwareVendor[] = Object.keys(
@@ -51,26 +58,26 @@ export const FIRMWARE_VENDORS: readonly FirmwareVendor[] = Object.keys(
 ) as readonly FirmwareVendor[];
 
 const LIBRARY_TEMPLATES: Readonly<Record<SystemLibrary, VersionTemplate>> = {
-  libpam: { displayPrefix: 'libpam ', startTuple: [1, 5, 3] },
-  libcrypt: { displayPrefix: 'libcrypt ', startTuple: [4, 4, 36] },
-  libsystemd: { displayPrefix: 'libsystemd ', startTuple: [255, 4, 0] },
-  libreadline: { displayPrefix: 'libreadline ', startTuple: [8, 2, 10] },
-  libssl: { displayPrefix: 'OpenSSL ', startTuple: [3, 2, 1] },
-  libz: { displayPrefix: 'zlib ', startTuple: [1, 3, 1] },
-  libxml2: { displayPrefix: 'libxml2 ', startTuple: [2, 12, 5] },
-  libpcre: { displayPrefix: 'PCRE2 ', startTuple: [10, 43, 0] },
+  libpam: { cveNumber: 8, displayPrefix: 'libpam ', startTuple: [1, 5, 3] },
+  libcrypt: { cveNumber: 9, displayPrefix: 'libcrypt ', startTuple: [4, 4, 36] },
+  libsystemd: { cveNumber: 10, displayPrefix: 'libsystemd ', startTuple: [255, 4, 0] },
+  libreadline: { cveNumber: 11, displayPrefix: 'libreadline ', startTuple: [8, 2, 10] },
+  libssl: { cveNumber: 12, displayPrefix: 'OpenSSL ', startTuple: [3, 2, 1] },
+  libz: { cveNumber: 13, displayPrefix: 'zlib ', startTuple: [1, 3, 1] },
+  libxml2: { cveNumber: 14, displayPrefix: 'libxml2 ', startTuple: [2, 12, 5] },
+  libpcre: { cveNumber: 15, displayPrefix: 'PCRE2 ', startTuple: [10, 43, 0] },
 };
 
 /** Keyed by APT package name — the same name `/var/lib/dpkg/status` records and
  *  `apt upgrade` takes, never the service label a scan prints. */
 const SERVICE_PACKAGE_TEMPLATES: Readonly<Record<string, VersionTemplate>> = {
-  'openssh-server': { displayPrefix: 'OpenSSH ', startTuple: [9, 7, 0] },
-  nginx: { displayPrefix: 'nginx/', startTuple: [1, 26, 0] },
-  vsftpd: { displayPrefix: 'vsftpd ', startTuple: [3, 0, 6] },
-  mysql: { displayPrefix: 'MySQL ', startTuple: [8, 0, 36] },
-  redis: { displayPrefix: 'Redis ', startTuple: [7, 2, 5] },
-  bind9: { displayPrefix: 'BIND ', startTuple: [9, 18, 22] },
-  snmp: { displayPrefix: 'net-snmp ', startTuple: [5, 9, 4] },
+  'openssh-server': { cveNumber: 1, displayPrefix: 'OpenSSH ', startTuple: [9, 7, 0] },
+  nginx: { cveNumber: 2, displayPrefix: 'nginx/', startTuple: [1, 26, 0] },
+  vsftpd: { cveNumber: 3, displayPrefix: 'vsftpd ', startTuple: [3, 0, 6] },
+  mysql: { cveNumber: 4, displayPrefix: 'MySQL ', startTuple: [8, 0, 36] },
+  redis: { cveNumber: 5, displayPrefix: 'Redis ', startTuple: [7, 2, 5] },
+  bind9: { cveNumber: 6, displayPrefix: 'BIND ', startTuple: [9, 18, 22] },
+  snmp: { cveNumber: 7, displayPrefix: 'net-snmp ', startTuple: [5, 9, 4] },
 };
 
 /** Every package that carries a version, across all three axes. Firmware is keyed

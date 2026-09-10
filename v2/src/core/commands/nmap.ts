@@ -30,6 +30,7 @@ import { isPublicIp } from '../generation/ip';
 import { parseScanTarget, hostsInScanTarget } from '../network/scanTarget';
 import { mergeLanOccupants, withSelfHost } from '../network/mergeLanOccupants';
 import { readOpenPorts, type OpenPort } from '../services/pidfile';
+import { gameDayAt } from '../cve/worldClock';
 import { serviceByName } from '../services/serviceCatalog';
 import { scanResult } from '../scan/scanResult';
 import { resolveDeepScanHosts } from '../scan/deepScanHosts';
@@ -80,16 +81,24 @@ const SCAN_DELAY_MS = 200;
 const PORT_COL = 9;
 const STATE_COL = 6;
 const SERVICE_COL = 9;
+/** Wide enough for the longest version a port table can hold. Firmware never appears
+ *  here — a router's image answers to no port — so the ceiling is a service's own name
+ *  and tuple (`net-snmp 5.9.4`), not `MikroTik RouterOS 7.14.2`. Fixed rather than sized
+ *  to the widest row present, so two scans of different boxes line up with each other. */
+const VERSION_COL = 16;
+/** `CVE-2026-0149031` plus a gutter. Every id is exactly this wide by construction. */
+const CVE_COL = 18;
 
-/** The scan table's header. SERVICE is the last column until `-sV` asks for a version,
- *  so it is only padded when something follows it — a header trailing into whitespace
- *  is a column a player would have to select to discover was empty. */
+/** The scan table's header. Whichever column is last goes unpadded — a header trailing
+ *  into whitespace is a column a player would have to select to discover was empty. */
 const portHeader = (withVersion: boolean): string =>
   [
     padRight('PORT', PORT_COL),
     padRight('STATE', STATE_COL),
     padRight('SERVICE', SERVICE_COL),
-    withVersion ? 'VERSION' : '',
+    ...(withVersion
+      ? [padRight('VERSION', VERSION_COL), padRight('CVE', CVE_COL), 'SEVERITY']
+      : []),
   ]
     .join('')
     .trimEnd();
@@ -102,15 +111,23 @@ const portHeader = (withVersion: boolean): string =>
  *  only thing that reaches here unnamed, and `nc -l` is TCP. */
 const protocolOf = (service: string): string => serviceByName(service)?.protocol ?? 'tcp';
 
-/** One scan row. A port whose box cannot answer for a version — a planted listener, or
- *  a daemon the manifest does not list — ends after its service rather than trailing the
- *  spaces the empty column would leave. */
+/** One scan row. A row stops at its last ANSWERED cell rather than trailing the spaces
+ *  the empty ones would leave: a planted listener the box cannot name ends after its
+ *  service, and a package still inside its safe window ends after its version. The blank
+ *  is the finding in both cases — an open port belonging to no software the box admits
+ *  to installing, or software with no hole published against it yet. */
 const formatPortLine = (entry: OpenPort, withVersion: boolean): string =>
   [
     padRight(`${entry.port}/${protocolOf(entry.service)}`, PORT_COL),
     padRight('open', STATE_COL),
     padRight(entry.service, SERVICE_COL),
-    withVersion ? (entry.version ?? '') : '',
+    ...(withVersion
+      ? [
+          padRight(entry.version ?? '', VERSION_COL),
+          padRight(entry.cve ?? '', CVE_COL),
+          entry.severity ?? '',
+        ]
+      : []),
   ]
     .join('')
     .trimEnd();
@@ -263,8 +280,9 @@ const resolveDeepPivotScan = (
   rawTarget: string,
   vantage: PivotVantage,
   withVersion: boolean,
+  gameDay: number,
 ): CommandResult | null => {
-  const resolution = resolveDeepScanHosts(essid, vantage, env.fs.root());
+  const resolution = resolveDeepScanHosts(essid, vantage, env.fs.root(), gameDay);
   const parsed = parseScanTarget(rawTarget, resolution.subnet);
   if (!parsed.ok) {
     return null;
@@ -302,6 +320,10 @@ const execute: Command['execute'] = async (env, args, flags) => {
   // from is readable to anyone who can scan at all, so withholding it here would hide
   // nothing a second scan would not hand over, and would cost the server a second mode.
   const withVersion = flags.get(VERSION_FLAG) === true;
+  // The day this scan stands on, read ONCE from the environment's clock and passed down
+  // as a plain number. The server recomputes the same day from its own clock for anything
+  // it resolves, so a client standing on a forged day can only mislead itself.
+  const gameDay = gameDayAt(env.now());
   const rawTarget = args[0];
   if (rawTarget === undefined) {
     return error(USAGE);
@@ -344,7 +366,7 @@ const execute: Command['execute'] = async (env, args, flags) => {
   // — so the upstream segment stays visible from the gateway too.
   const pivotVantage = pivotVantageForMachineId(essid, env.session.machineId);
   if (pivotVantage !== null) {
-    const pivotScan = resolveDeepPivotScan(env, essid, target, pivotVantage, withVersion);
+    const pivotScan = resolveDeepPivotScan(env, essid, target, pivotVantage, withVersion, gameDay);
     if (pivotScan !== null) {
       return pivotScan;
     }
@@ -427,13 +449,14 @@ const execute: Command['execute'] = async (env, args, flags) => {
         vantage: 'sameLAN',
         routerFs: buildApGatewayBaseFs(essid),
         resolveTargetPorts: () => [],
+        gameDay,
       });
     }
     const hostFs =
       host.ip === selfIp
         ? env.fs.root()
         : buildRemoteHostFs(essid, host);
-    return readOpenPorts(hostFs);
+    return readOpenPorts(hostFs, { gameDay });
   };
 
   const lines =
@@ -453,12 +476,12 @@ export const nmap: Command = {
   manual: {
     synopsis: 'nmap [-sV] <target>',
     description:
-      'Network exploration tool. Discovers hosts on your network, listing the ones that are up with their IP, hostname, and kind. Scan a single host (e.g. "192.168.1.5") or a range of hosts (e.g. "192.168.1.1-254"). With -sV, a single-host scan also names the software and version behind each open port, read from the target\u2019s package manifest. Only your own network is reachable. Requires a network connection; install with "apt install nmap".',
+      'Network exploration tool. Discovers hosts on your network, listing the ones that are up with their IP, hostname, and kind. Scan a single host (e.g. "192.168.1.5") or a range of hosts (e.g. "192.168.1.1-254"). With -sV, a single-host scan also names the software and version behind each open port, read from the target\u2019s package manifest, and reports any known vulnerability published against that version — its CVE number and how severe it is. A blank CVE column means no vulnerability is known against what that port is running today. Only your own network is reachable. Requires a network connection; install with "apt install nmap".',
     arguments: [
       {
         name: '-sV',
         description:
-          'Version scan: add a VERSION column naming the software behind each open port',
+          'Version scan: add VERSION, CVE and SEVERITY columns — the software behind each open port, and any known vulnerability published against it',
       },
       {
         name: 'target',
@@ -469,7 +492,10 @@ export const nmap: Command = {
     examples: [
       { command: 'nmap 192.168.1.5', description: 'Scan a single host' },
       { command: 'nmap 192.168.1.1-254', description: 'Discover hosts in an IP range' },
-      { command: 'nmap -sV 192.168.1.5', description: 'Scan a host and name its software versions' },
+      {
+        command: 'nmap -sV 192.168.1.5',
+        description: 'Scan a host, naming its software versions and any known vulnerabilities',
+      },
     ],
   },
   execute,

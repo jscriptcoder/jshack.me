@@ -104,6 +104,10 @@ export type ResolvePublicScanDeps = {
    *  key — the truthful source IP of the scan, server-derived so a client cannot
    *  forge it or frame another network. `null` (no home network) → source unknown. */
   readonly findHomeNetworkByOwnerKey: FindHomeNetworkByOwnerKey;
+  /** The day the world stands on, computed once from the server's own clock at the
+   *  endpoint. Absent for a caller asking only what is open — the scan then reports
+   *  ports and versions with no vulnerability against them. */
+  readonly gameDay?: number | undefined;
 };
 
 export type HandlerResponse = {
@@ -176,7 +180,7 @@ const resolveForwardTargets = async (
       return occupantFs === null ? [] : [[lanIp, occupantFs] as const];
     }),
   );
-  return { ok: true, resolveTargetPorts: natPortResolver(trees) };
+  return { ok: true, resolveTargetPorts: natPortResolver(trees, deps.gameDay) };
 };
 
 /** Stamp the scan onto the TARGET gateway's `/var/log/kern.log` via the shared
@@ -266,6 +270,7 @@ export const handleResolvePublicScan = async (
     vantage: 'external',
     routerFs: gatewayFs,
     resolveTargetPorts: forwards.resolveTargetPorts,
+    gameDay: deps.gameDay,
   });
 
   // Host-up: leave a truthful kern.log trace on the gateway's shared record. The source

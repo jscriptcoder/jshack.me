@@ -16,6 +16,8 @@ import {
   type NatOccupantRow,
   type ApNetworkLookup,
 } from '../src/core/scan/resolvePublicScan';
+import { gameDayAt } from '../src/core/cve/worldClock';
+import { asEpochMs } from '../src/core/types';
 import {
   handleResolveHttpFetch,
   type ApNetworkLookup as HttpApNetworkLookup,
@@ -383,6 +385,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     };
     const { status, body } = await handleResolvePublicScan(req.body, {
       nonceStore: noopNonceStore,
+      gameDay: gameDayAt(asEpochMs(Date.now())),
       findNetworkByPublicIp,
       findPatches,
       listOccupantsByEssid,
@@ -455,6 +458,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     };
     const { status, body } = await handleResolveInnerGatewayScan(req.body, {
       nonceStore: noopNonceStore,
+      gameDay: gameDayAt(asEpochMs(Date.now())),
       findPatches,
     });
     res.status(status).json(body);
@@ -624,6 +628,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     };
     const { status, body } = await handleResolveOccupantScan(req.body, {
       nonceStore: noopNonceStore,
+      gameDay: gameDayAt(asEpochMs(Date.now())),
       listOccupantsByEssid,
       listLeasesByEssid,
       findPatches,

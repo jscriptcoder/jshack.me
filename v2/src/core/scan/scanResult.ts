@@ -43,6 +43,9 @@ export type ScanResultArgs = {
   /** The open ports of the host an internal forward targets — used to keep a
    *  forward only while its target port is actually up. */
   readonly resolveTargetPorts: (internalIp: string) => readonly OpenPort[];
+  /** The day the scan stands on, when the caller wants vulnerabilities reported.
+   *  Absent for callers asking only what is open. */
+  readonly gameDay?: number | undefined;
 };
 
 /** Drop later entries that repeat an already-seen port (own ports win). */
@@ -56,8 +59,9 @@ export const scanResult = ({
   vantage,
   routerFs,
   resolveTargetPorts,
+  gameDay,
 }: ScanResultArgs): readonly OpenPort[] => {
-  const own = portsOpenToNetwork(routerFs);
+  const own = portsOpenToNetwork(routerFs, { gameDay });
   if (vantage === 'sameLAN') return own;
 
   // What the box RUNS, not what it answers — the two differ under a filter, and only

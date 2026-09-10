@@ -57,6 +57,7 @@ export const resolveDeepScanHosts = (
   essid: string,
   vantage: PivotVantage,
   vantageFs: Directory,
+  gameDay?: number | undefined,
 ): DeepScanResolution => {
   const deep = generateDeepLayer(
     essid,
@@ -73,7 +74,9 @@ export const resolveDeepScanHosts = (
       host.kind === 'machine'
         ? { machineId: hostMachineId(host, essid), baseFs: buildDeepHostFs(essid, host) }
         : resolveDeepGatewayIdentity(vantage.machineId, host.ip, host.kind);
-    const ports = readOpenPorts(identity.baseFs).filter((openPort) => !deniedPorts.has(openPort.port));
+    const ports = readOpenPorts(identity.baseFs, { gameDay }).filter(
+      (openPort) => !deniedPorts.has(openPort.port),
+    );
     return { host, machineId: identity.machineId, ports };
   });
   return { subnet: deep.subnet, sourceIp: `${deep.subnet}.1`, hosts };
