@@ -3424,6 +3424,21 @@ threaded the version through all five vantages at once for the same reason.
 - **A player-installed package still has no CVE**, because `apt install` writes a binary patch with
   no manifest row beside it. Slice 1's recorded debt to slice 4, unchanged by this slice.
 
+### Carried forward from slice 2's implementation
+
+- **The forward timeline walk lands in slice 4, not slice 2.** Every box is frozen at `startTuple`
+  (decisions 4 and 5) and nothing moves a version until `apt upgrade`, so `liveCve` is only ever
+  called with index-0 versions and the walk past entry 0 has no caller and no observable. Slice 2
+  draws the first gap on the same PRNG stream the walk will use, so extending it is purely additive
+  and republishes nothing. Deferred by owner decision 2026-09-10, mid-implementation.
+- **A root player can hide a CVE by hand-editing `/var/lib/dpkg/status`.** The manifest is the
+  version authority by design, and it is a world-readable, root-WRITABLE file — so writing
+  `Version: 9.9.9` makes a scan report no CVE at all, on the server's own recomputation as much as
+  the client's. Harmless while nothing is exploitable, and free immunity from slice 3 on. It is
+  decision 22's pinning mechanic pointed the other way, and it wants the same answer: **slices 3 and
+  4 own deciding whether an unrecognised version is treated as clean, as its nearest known
+  ancestor, or as unpatchable.** Do not let it default silently.
+
 ### Out of scope for slice 2
 
 No effect and no tier — decision 13 keeps both off the wire until slice 3. No `apt list -u` and no
@@ -3469,9 +3484,9 @@ central mechanic unplayable until slice 6.
 | # | Slice | Observable |
 |---|---|---|
 | **1** ✅ | **A version is visible** — **SHIPPED v0.210.0-v0.211.0 (#491, #494)** | `/var/lib/dpkg/status` generated on every box from the daemon binaries it CARRIES (not what it runs — see the close-out) + eight libraries (+ firmware on routers); `nmap -sV` gains a VERSION column; the file reads on your own box and on one you hold. No CVEs yet |
-| **2** ◐ | **A CVE is visible** — **GRILLED 2026-09-10 (decisions 24-30), ready to plan** | `WORLD_EPOCH` + the timeline walker + the severity roll; `nmap -sV` prints a CVE id and severity for a live one. The world is clean for three days and then starts moving. Nothing is exploitable yet — the player can only watch it happen |
+| **2** ◐ | **A CVE is visible** — **GRILLED 2026-09-10 (decisions 24-30), ready to plan** | `WORLD_EPOCH` + each package's FIRST publication + the severity roll (the forward walk moves to slice 4, where `apt upgrade` is what first reaches past it); `nmap -sV` prints a CVE id and severity for a live one. The world is clean for three days and then starts moving. Nothing is exploitable yet — the player can only watch it happen |
 | **3** | **A door opens** | `msfconsole <host> <port>` on your own LAN; `shell_full` and `shell_limited`; the exploit session row; the `formatExploit` catalog column with BOTH outcomes traced. A stale NPC service hands over a shell with no credential, and the box records it |
-| **4** | **The defender patches** | `apt upgrade [package]`, `apt list -u` with the ETA status, install sharing the upgrade resolver. **The loop closes**: A upgrades, B's working exploit now fails, and inside the delay window A is told no fix exists |
+| **4** | **The defender patches** | `apt upgrade [package]`, `apt list -u` with the ETA status, install sharing the upgrade resolver, and **the forward timeline walk + `findLatestSafeVersion`** deferred here from slice 2. **The loop closes**: A upgrades, B's working exploit now fails, and inside the delay window A is told no fix exists |
 | **5** | **Six more effects** | `file_read`, `dir_list`, `file_write`, `password_reset`, `backdoor_port_open`, `script_exec` — the third-argument grammar, the CVE-authorized write and exec paths, and D5's backdoor chain forwarding reused whole |
 | **6** | **The exploit crosses networks** | Public IPs, NAT forwards, inner gateways and the deep chain, through the resolvers `ssh` and `hydra` already share. The first real route to rooting another player |
 | **7** | **Reboot evicts** | `reboot` ends every session row on that machine server-side, not just the rebooter's stack. The defender gets an answer; the intruder who deleted `/boot/vmlinuz` gets the last laugh |
