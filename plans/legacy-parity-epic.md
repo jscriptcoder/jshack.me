@@ -391,11 +391,11 @@ PHASE 2 — DISCOVERY
       X1 slice 3 the zone transfers                   ✅ SHIPPED v0.208.0 (#489)
       X1 slice 4 the transfer leaves a trace          ✅ SHIPPED v0.209.0 (#490)
   X2  findit.io + common website-bearing networks     ⏸ DEFERRED — Phase 3 prioritized
-PHASE 3 — VULNERABILITIES                             GRILLED 2026-09-09 (23 decisions)
+PHASE 3 — VULNERABILITIES                             GRILLED 2026-09-09 + 09-10 (30 decisions)
       V slice 1 a version is visible          ✔ SHIPPED v0.210.0-v0.211.0 (#491, #494)
         1a every box carries a manifest       ✅ SHIPPED v0.210.0 (#491)
         1b nmap -sV prints the version        ✅ SHIPPED v0.211.0 (#494)
-      V slice 2 a CVE is visible              WORLD_EPOCH + walker + severity
+      V slice 2 a CVE is visible              ◐ GRILLED 2026-09-10, ready to plan
       V slice 3 a door opens                  msfconsole shells + the trace
       V slice 4 the defender patches          apt upgrade + list -u  <- LOOP CLOSES
       V slice 5 six more effects              read/list/write/reset/backdoor/script
@@ -3286,6 +3286,151 @@ D9's per-line-snapshot rule intact, and makes mass exploitation scriptable, whic
 decided this: two of the eight effects push a session and which one fires is unknowable until the
 exploit runs.
 
+### Slice 2 — resolved decisions (grill-me, 2026-09-10)
+
+Seven more, continuing the numbering. This grill was narrow by design: it settled the two opens
+slice 1 carried forward (24 and 25) and the five consequences that fall out of them. It did not
+reopen 1-23.
+
+#### 24. `WORLD_EPOCH = Date.UTC(2026, 8, 1)`, shipped as a development anchor
+
+The epic calls this the only irreversible number in the phase, and it is — but only from announce.
+No CVE is ever persisted, every NPC box is frozen at `startTuple`, and the
+**no-backward-compat-until-launch** rule has not sunset, so moving it today rewrites nothing. It
+becomes irreversible the moment real players exist, because shifting it would retroactively rewrite
+every published CVE and every player's exposure.
+
+The alternative considered was stamping the merge date, which is truest to decision 2: development
+would live through the same three clean days the first players will. It was declined because it
+buys that fidelity at the cost of every slice after it — slice 4's "A upgrades, B's exploit now
+fails" needs a world with published CVEs and shipped fixes, and a world at day 0 has neither. A
+guessed launch date was rejected outright: game time would be negative through all of Phase 3,
+nothing would publish, and no part of the loop would be playable end to end.
+
+Ship day lands near game day 11-14. Under decision 3's 3-14 day first gap that means most packages
+already carry a live CVE the moment the slice merges, which is what makes it E2E-verifiable on the
+day it lands rather than a fortnight later.
+
+#### 25. One axis-blind derivation; interpretation attaches per axis
+
+`liveCve(key, version, gameDay)` returning `{ cve, severity, publishedAt } | undefined` is the whole
+shared half, and it is identical for a daemon, a shared object and a firmware image. What differs
+per axis is what a CVE *grants* — decision 9 floors libraries at user where services floor at guest,
+and decision 12 has libraries rolling from per-command pools where services roll per-service — and
+every bit of that lands in slices 3, 8 and 9 as a separate small interpreter.
+
+This is what lets slice 2 derive for all three axes while rendering only one: decision 13 keeps the
+effect and the tier off the wire entirely, so the axis-aware half has no caller yet and none of it
+is written speculatively.
+
+`key` is the apt package name, or the **firmware vendor** on the third axis. The manifest records
+`Package: firmware` with a bare tuple and no vendor, but `pickFirmwareVendor(identity.firmwareSeed)`
+(`routerFs.ts:177`) means the server can always re-derive which of the six a box runs — which
+settles slice 1's "revisit `<vendor>-firmware` only if slice 9 finds the vendor unreadable from the
+manifest alone". It is readable, from the seed rather than the file.
+
+The rejected alternative was three entry points, one per axis. It would have written the walk, the
+id scheme and the severity roll once and then copied them twice — the drift decision 11 refused when
+it made `libraryDeps` the single authority for what a command links.
+
+#### 26. The CVE serial is a stable package number plus a scrambled index
+
+`serial = packageNo * 100000 + scramble(pkg, index)`, where `scramble` is a per-package affine
+bijection on `[0, 100000)` — unique by construction, collisions impossible rather than unlikely. The
+year comes from the real calendar date of `WORLD_EPOCH + publishedAt`, not legacy's
+`2026 + floor(days / 365)`, which with a September epoch would stamp `CVE-2026` on CVEs publishing
+well into 2027.
+
+Two flaws in legacy's scheme are fixed rather than ported:
+
+- **`TEMPLATE_KEY_IDS` sorts every template key alphabetically and assigns positions**
+  (`generatedVuln.ts:16`), so adding one package renumbers every CVE alphabetically after it.
+  Harmless in legacy, whose own comment notes ids are regenerated each run and never persisted; here
+  it would silently rewrite ids already sitting in players' log files. Package numbers are
+  hand-assigned in the template row and never move.
+- **The last four digits were the timeline index.** Decision 21 keys the reset password on
+  `md5("pwned-<last4-of-cve>-<tier>")`, and legacy's packing ends every package's first CVE in
+  `0000`. Under decision 4 every NPC in the world is frozen on its first CVE forever, so
+  `pwned-0000-<tier>` would have been a near-universal password for a player who never read a log —
+  and reading the log is the entire recovery mechanic decision 21 built.
+
+#### 27. Five columns, fixed widths, severity in its own
+
+`PORT 9 · STATE 6 · SERVICE 9 · VERSION 16 · CVE 18 · SEVERITY` unpadded last: 66 characters at the
+widest a table can get. `VERSION` becomes a padded column for the first time, which is the one real
+cost — slice 1 put it last precisely so it needed no padding.
+
+Sixteen is enough because **firmware has no port**. The widest version a port table can hold is
+`net-snmp 5.9.4` at fourteen characters, not a router's `MikroTik RouterOS 7.14.2`; firmware
+surfaces in `apt list -u` (slice 4) and in the manifest, never in a scan.
+
+Severity gets its own column rather than trailing the id inside one, so it lines up vertically —
+which is the job decision 9 gave it when it made severity forecast the privilege. Content-sized
+columns, the way real nmap sizes its own, were rejected: two scans of different boxes would stop
+lining up with each other, and slice 1 established fixed constants.
+
+A port has exactly **0 or 1** CVE, ever: one installed version is one timeline entry is one CVE.
+
+#### 28. There is no clock override, in any environment
+
+`gameDay` is a plain parameter through every `core/` function. Tests name a day directly; to
+playtest a future world you edit `WORLD_EPOCH` and restart, which moves client and server together
+because there is only one number and neither can override it. The constant is the dial.
+
+A dev-only client override was rejected as an active liar: from slice 3 on it would render a CVE and
+an exploit door that the server, on its own clock, refuses — producing playtest failures that are
+not bugs. A client-and-server override was rejected as the one environment variable that, left set,
+hands every player an arbitrary world clock in the phase where time *is* the authorization.
+
+#### 29. A dated tripwire test guards the anchor
+
+One test fails once `WORLD_EPOCH` is ~90 days stale, with a message naming the choice: re-stamp it
+for launch, or move the runway forward deliberately. It cannot be forgotten, only answered, and it
+is deleted at launch.
+
+The cost is real and accepted — one red CI run on a PR that has nothing to do with it. A checklist
+line was rejected because it is exactly the mitigation this repo has already watched fail twice:
+`ldd` and `msfconsole` sit stamped as binaries with no command behind them, "the `dig` situation X1
+called out, standing open for two more slices", and `metadata.libraryLinks` was declared,
+round-tripped by the codec, and never populated or read.
+
+#### 30. Slice 2 delivers as one PR
+
+Clock, derivation, the two new columns, the two wire fields and the extended
+`testCrossPlayerScanTrace.ts` land together — roughly slice 1b's size. The split considered was
+local vantages first and the cross-player wire second; it was declined because in between, a
+stranger's box would show a version with a blank CVE cell while your own LAN showed both. Slice 1
+threaded the version through all five vantages at once for the same reason.
+
+### Slice 2 — forced rather than chosen
+
+- **The CVE rides the same wire as the version, and `OpenPort` grows two optional fields.** Slice 1
+  deliberately put only the RENDERED string on the wire — "not a package and a tuple to be joined
+  later" — so a client cannot re-derive a CVE from what it receives without reversing the render.
+  The derivation therefore happens where the package name and the raw tuple live, and this extends
+  slice 1's existing wire-check rather than adding a new one.
+- **`gameDay` is an integer** — `floor((now − WORLD_EPOCH) / 86400000)`, ported from legacy's
+  `getGameTime`. The whole world turns over at one instant each day rather than CVEs trickling in at
+  odd hours.
+- **A CVE is global.** Every box in the world running `openssh-server 9.7.0` carries the same id and
+  the same severity, because that is what a CVE is — legacy seeds its timeline on the package name
+  alone, and nothing about v2's per-machine or ESSID-shared seeding changes that. Recon compounds:
+  learn a version's CVE once and you know it everywhere. Under decision 21 it also makes a reset
+  password portable across every box ever reset through that CVE.
+- **By game day 14 every NPC service and library carries a permanent live CVE.** The first gap is
+  3-14 days and decisions 4 and 5 freeze NPCs at `startTuple`, so the world reads as near-uniformly
+  vulnerable rather than as a mix. Accepted there already, and already named as what NPC maintainer
+  actors will close.
+- **A player-installed package still has no CVE**, because `apt install` writes a binary patch with
+  no manifest row beside it. Slice 1's recorded debt to slice 4, unchanged by this slice.
+
+### Out of scope for slice 2
+
+No effect and no tier — decision 13 keeps both off the wire until slice 3. No `apt list -u` and no
+patch-delay ETA (slice 4). No library or firmware RENDERING: the derivation is axis-blind and gets
+tested with a library key, but nothing displays either axis until slices 8 and 9. Nothing is
+exploitable — the player can only watch it happen.
+
 ### Forced rather than chosen (planning should not re-litigate)
 
 - **`/var/lib/dpkg/status` is THE version source.** Settled by the catalog's own shipped comment,
@@ -3324,7 +3469,7 @@ central mechanic unplayable until slice 6.
 | # | Slice | Observable |
 |---|---|---|
 | **1** ✅ | **A version is visible** — **SHIPPED v0.210.0-v0.211.0 (#491, #494)** | `/var/lib/dpkg/status` generated on every box from the daemon binaries it CARRIES (not what it runs — see the close-out) + eight libraries (+ firmware on routers); `nmap -sV` gains a VERSION column; the file reads on your own box and on one you hold. No CVEs yet |
-| **2** | **A CVE is visible** | `WORLD_EPOCH` + the timeline walker + the severity roll; `nmap -sV` prints a CVE id and severity for a live one. The world is clean for three days and then starts moving. Nothing is exploitable yet — the player can only watch it happen |
+| **2** ◐ | **A CVE is visible** — **GRILLED 2026-09-10 (decisions 24-30), ready to plan** | `WORLD_EPOCH` + the timeline walker + the severity roll; `nmap -sV` prints a CVE id and severity for a live one. The world is clean for three days and then starts moving. Nothing is exploitable yet — the player can only watch it happen |
 | **3** | **A door opens** | `msfconsole <host> <port>` on your own LAN; `shell_full` and `shell_limited`; the exploit session row; the `formatExploit` catalog column with BOTH outcomes traced. A stale NPC service hands over a shell with no credential, and the box records it |
 | **4** | **The defender patches** | `apt upgrade [package]`, `apt list -u` with the ETA status, install sharing the upgrade resolver. **The loop closes**: A upgrades, B's working exploit now fails, and inside the delay window A is told no fix exists |
 | **5** | **Six more effects** | `file_read`, `dir_list`, `file_write`, `password_reset`, `backdoor_port_open`, `script_exec` — the third-argument grammar, the CVE-authorized write and exec paths, and D5's backdoor chain forwarding reused whole |
@@ -4063,17 +4208,21 @@ Left open in `nmap.ts` and named rather than fixed: nothing pins the host-discov
 `external` — which would leak NAT forwards to anyone inside the LAN — survives. It predates the
 slice.
 
-**➡️ NEXT: Phase 3 slice 2 — a CVE is visible.** `WORLD_EPOCH`, the timeline walker and the
-severity roll; `nmap -sV` gains a CVE id and severity on a live one. The world stays clean for
-three days and then starts moving, and nothing is exploitable yet — the player can only watch it
-happen. It needs the server-owned world epoch that replaces legacy's `localStorage`-anchored
-per-browser clock, which is the larger of the two known deltas the grill went in with. Slice 1's
-carried-forward opens that slice 2 must settle: **the exact `WORLD_EPOCH` date** (one constant, and
-the only irreversible number in the phase) and **where the CVE derivation module lives** — whether
-services, libraries and firmware share one entry point or three, which decides how slices 8 and 9
-attach. Phase 3 was **grilled 2026-09-09**: twenty-three locked decisions and a nine-slice,
-loop-first spine in
-["Phase 3 — resolved scope & decisions"](#phase-3--resolved-scope--decisions-grill-me-2026-09-09).
+**➡️ NEXT: Phase 3 slice 2 — a CVE is visible. GRILLED 2026-09-10, ready for `planning`.**
+`WORLD_EPOCH`, the timeline walker and the severity roll; `nmap -sV` gains a CVE id and severity on
+a live one. Nothing is exploitable yet — the player can only watch it happen. It carries the
+server-owned world epoch that replaces legacy's `localStorage`-anchored per-browser clock, which is
+the larger of the two known deltas the grill went in with.
+
+Both opens slice 1 carried forward are **SETTLED** in
+["Slice 2 — resolved decisions"](#slice-2--resolved-decisions-grill-me-2026-09-10): the epoch is
+`2026-09-01` as an openly-labelled development anchor guarded by a dated tripwire test (24), and the
+three CVE axes share **one axis-blind derivation** with per-axis interpretation attached in slices
+3, 8 and 9 (25). Five more decisions came with them — the CVE serial, the column layout, the absence
+of any clock override, the tripwire, and one-PR delivery.
+
+Phase 3 was **grilled 2026-09-09**: twenty-three locked decisions and a nine-slice, loop-first spine
+in ["Phase 3 — resolved scope & decisions"](#phase-3--resolved-scope--decisions-grill-me-2026-09-09).
 X2 (`findit.io` and networks a player was never told about) stays **deferred by decision** and
 ungrilled — see the X2 rows in the spine and the acceptance table.
 
