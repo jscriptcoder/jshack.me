@@ -43,6 +43,11 @@ import type { NonceStore } from '../signedRequest/nonceStore';
 
 export type ResolveInnerGatewayScanDeps = {
   readonly nonceStore: NonceStore;
+  /** The day the world stands on, computed once from the server's own clock at the
+   *  endpoint. Absent for a caller asking only what is open — the scan then reports
+   *  ports and versions with no vulnerability against them. */
+  readonly gameDay?: number | undefined;
+
   /** The inner gateway's FULL patch journal (scoped to its `machine_id`, server
    *  order) so the scan can replay it over the seeded gateway base — both to ask
    *  `canBoot` and to read the live `rules.v4` forward off the materialized tree. */
@@ -82,6 +87,9 @@ type ChainContext = {
   readonly essid: string;
   readonly depth: number;
   readonly findPatches: ResolveInnerGatewayScanDeps['findPatches'];
+  /** Carried down the chain so every layer answers on the SAME day — a walk that
+   *  re-read a clock could cross a midnight partway down and report two worlds. */
+  readonly gameDay?: number | undefined;
 };
 
 /**
@@ -127,7 +135,10 @@ const resolveGatewayExposedPorts = async (
   // refuses a filtered port as though nothing served it, and a scan reading the raw
   // pidfiles would advertise a door the chain would then refuse.
   const targets = new Map<string, readonly OpenPort[]>([
-    [deep.host.ip, deepHost.kind === 'box' ? portsOpenToNetwork(deepHost.fs) : []],
+    [
+      deep.host.ip,
+      deepHost.kind === 'box' ? portsOpenToNetwork(deepHost.fs, { gameDay: context.gameDay }) : [],
+    ],
   ]);
   // Resolve the child gateway's exposed ports only when a forward actually points at it,
   // recursing one layer deeper so a chained forward is live only while the chain below is.
@@ -162,6 +173,7 @@ const resolveGatewayExposedPorts = async (
       vantage: 'external',
       routerFs: gatewayFs,
       resolveTargetPorts: (internalIp) => targets.get(internalIp) ?? [],
+      gameDay: context.gameDay,
     }),
   };
 };
@@ -212,6 +224,7 @@ export const handleResolveInnerGatewayScan = async (
       essid: payload.essid,
       depth: seedNetworkDepth(payload.essid),
       findPatches: deps.findPatches,
+      gameDay: deps.gameDay,
     },
     gatewayFs,
     { machineId, kind: gateway.kind },

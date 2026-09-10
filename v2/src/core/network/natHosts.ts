@@ -42,8 +42,8 @@ export const bootableOccupantFs = (
  *  the gateway's own filter leaves that forward alone. Without this the scan would go
  *  on advertising a port every door already refuses. */
 export const natPortResolver =
-  (treesByAddress: ReadonlyMap<string, Directory>) =>
+  (treesByAddress: ReadonlyMap<string, Directory>, gameDay?: number | undefined) =>
   (internalIp: string): readonly OpenPort[] => {
     const occupantFs = treesByAddress.get(internalIp);
-    return occupantFs === undefined ? [] : portsOpenToNetwork(occupantFs);
+    return occupantFs === undefined ? [] : portsOpenToNetwork(occupantFs, { gameDay });
   };

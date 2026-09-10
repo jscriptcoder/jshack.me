@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { nmap } from './nmap';
 import { commandRegistry } from './registry';
-import type { CommandResult, ScanApi } from './types';
+import type { CommandEnv, CommandResult, ScanApi } from './types';
 import {
   mockCommandEnv,
   mockFsViewFromTree,
@@ -26,7 +26,8 @@ import { crackableEssidPool } from '../generation/generateWifi';
 import { computeDeepGatewayId } from '../identity/router';
 import type { Directory } from '../filesystem/types';
 import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces';
-import { asMachineId, asPlayerKeyHex } from '../types';
+import { asEpochMs, asMachineId, asPlayerKeyHex } from '../types';
+import { WORLD_EPOCH } from '../cve/worldClock';
 
 /**
  * `nmap <target>` host-discovery (generator epic, Story 2). Online on a home LAN
@@ -2310,6 +2311,98 @@ describe('nmap -sV — the version scan', () => {
     expect(nmap.manual?.examples?.map((entry) => entry.command)).toContain(
       'nmap -sV 192.168.1.5',
     );
+  });
+
+  const DAY_MS = 86_400_000;
+  /** The day `openssh-server` publishes its first CVE in this world. */
+  const SSH_PUBLISHES_ON = 8;
+
+  /** The same box, standing on a chosen day of the world. Every other test in this
+   *  file runs on the env factory's default 1970 clock — before the world began — so
+   *  they all scan a world in which nothing has been discovered yet, which is what
+   *  keeps them about the thing they were written for. */
+  const sshdBoxOn = (gameDay: number): CommandEnv => ({
+    ...sshdBox(),
+    now: () => asEpochMs(WORLD_EPOCH + gameDay * DAY_MS),
+  });
+
+  it('names the CVE and severity live against the version each port is running', async () => {
+    const { text } = await drain(
+      await nmap.execute(sshdBoxOn(SSH_PUBLISHES_ON), [SELF_IP], VERSION_SCAN),
+    );
+
+    expect(text).toContain('PORT     STATE SERVICE  VERSION         CVE               SEVERITY');
+    expect(text).toContain('22/tcp   open  ssh      OpenSSH 9.7.0   CVE-2026-0149031  medium');
+  });
+
+  it('leaves both cells empty while the package is still inside its safe window', async () => {
+    // The version is public from the first day; the hole is not, because it does not
+    // exist yet. A scan that leaked tomorrow's CVE would let a player line up an attack
+    // on a box nobody could yet defend.
+    const { text } = await drain(
+      await nmap.execute(sshdBoxOn(SSH_PUBLISHES_ON - 1), [SELF_IP], VERSION_SCAN),
+    );
+
+    expect(text).toContain('22/tcp   open  ssh      OpenSSH 9.7.0');
+    // The row STOPS at the version rather than trailing the empty columns' padding.
+    expect(text).not.toContain('OpenSSH 9.7.0 ');
+  });
+
+  it('reports no vulnerability for a port nothing can even name', async () => {
+    // A planted backdoor is not a package, so there is no version for a CVE to be keyed
+    // on. Its row ends at `unknown` even while the box's real daemon carries one.
+    const env: CommandEnv = {
+      ...ownBox(
+        {
+          'sshd.pid': 'sshd:port=22',
+          'nc-4444.pid': 'nc:port=4444,user=mallory,userType=root',
+        },
+        { 'openssh-server': '9.7.0' },
+      ),
+      now: () => asEpochMs(WORLD_EPOCH + SSH_PUBLISHES_ON * DAY_MS),
+    };
+
+    const { text } = await drain(await nmap.execute(env, [SELF_IP], VERSION_SCAN));
+
+    expect(text).toContain('22/tcp   open  ssh      OpenSSH 9.7.0   CVE-2026-0149031  medium');
+    expect(text).toContain('\n4444/tcp open  unknown\n');
+  });
+
+  it('says nothing about vulnerabilities without the flag, however live they are', async () => {
+    const { text } = await drain(
+      await nmap.execute(sshdBoxOn(SSH_PUBLISHES_ON), [SELF_IP], new Map()),
+    );
+
+    expect(text).toContain('PORT     STATE SERVICE');
+    expect(text).not.toContain('SEVERITY');
+    expect(text).not.toContain('CVE-2026');
+  });
+
+  it('reports the CVE a CROSS-PLAYER scan resolved, not one it derived locally', async () => {
+    // Another player's box cannot be regenerated here, and the wire carries the RENDERED
+    // version — so there is nothing this side could key a CVE off even if it tried. The
+    // server resolves it from that box's own manifest and sends it.
+    const resolvePublic = vi.fn(async () => ({
+      found: true,
+      ports: [
+        {
+          port: 2222,
+          service: 'ssh',
+          version: 'OpenSSH 8.1.0',
+          cve: 'CVE-2026-0100777',
+          severity: 'critical' as const,
+        },
+      ],
+    }));
+    const env = mockCommandEnv({
+      identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
+      network: mockNetworkViewFromConnectivity(onlineConnectivity('BEAN-THERE-WIFI')),
+      scan: mockScanApi({ resolvePublic }),
+    });
+
+    const { text } = await drain(await nmap.execute(env, [PUBLIC_IP], VERSION_SCAN));
+
+    expect(text).toContain('2222/tcp open  ssh      OpenSSH 8.1.0   CVE-2026-0100777  critical');
   });
 
   it('is not a target: the flag alone leaves nothing to scan', async () => {

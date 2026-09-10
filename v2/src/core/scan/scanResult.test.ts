@@ -3,6 +3,7 @@ import type { Directory, FilePermissions } from '../filesystem/types';
 import type { OpenPort } from '../services/pidfile';
 import { dir, file, TRAVERSABLE_DIR } from '../generation/baseFs';
 import { scanResult } from './scanResult';
+import { buildEntry, formatDpkgStatus } from '../packages/dpkgStatus';
 
 const FILE_PERMS: FilePermissions = {
   read: ['root', 'user', 'guest'],
@@ -18,6 +19,7 @@ const FILE_PERMS: FilePermissions = {
 const makeRouterFs = (
   rulesV4: string,
   ownPidfiles: Readonly<Record<string, string>> = { 'sshd.pid': 'sshd:port=22' },
+  ownPackages: Readonly<Record<string, string>> = {},
 ): Directory =>
   dir(
     {
@@ -34,6 +36,22 @@ const makeRouterFs = (
                 file(content, FILE_PERMS),
               ]),
             ),
+            TRAVERSABLE_DIR,
+          ),
+          lib: dir(
+            {
+              dpkg: dir(
+                {
+                  status: file(
+                    formatDpkgStatus(
+                      Object.entries(ownPackages).map(([pkg, version]) => buildEntry(pkg, version)),
+                    ),
+                    FILE_PERMS,
+                  ),
+                },
+                TRAVERSABLE_DIR,
+              ),
+            },
             TRAVERSABLE_DIR,
           ),
         },
@@ -257,6 +275,27 @@ describe('the version a NAT forward carries', () => {
     ).toEqual([
       { port: 22, service: 'ssh' },
       { port: 4444, service: 'unknown' },
+    ]);
+  });
+});
+
+describe('the vulnerability a router reports for its own ports', () => {
+  it('names the CVE live against the version the router itself is running', () => {
+    // The `.1` is the first thing a player scans from inside their own LAN, and at this
+    // vantage the router's OWN services are the entire answer — no forward is involved.
+    // A day that stopped short of them would leave that box looking permanently clean.
+    const fs = makeRouterFs('', { 'sshd.pid': 'sshd:port=22' }, { 'openssh-server': '9.7.0' });
+
+    expect(
+      scanResult({ vantage: 'sameLAN', routerFs: fs, resolveTargetPorts: noOpenPorts, gameDay: 8 }),
+    ).toEqual([
+      {
+        port: 22,
+        service: 'ssh',
+        version: 'OpenSSH 9.7.0',
+        cve: 'CVE-2026-0149031',
+        severity: 'medium',
+      },
     ]);
   });
 });

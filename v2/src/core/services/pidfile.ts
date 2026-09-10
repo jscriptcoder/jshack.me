@@ -25,6 +25,7 @@ import { asAbsPath, type AbsPath, type MachineId, type UserType } from '../types
 import type { Directory, FilePermissions } from '../filesystem/types';
 import { SERVICE_CATALOG, type ServiceSpec } from './serviceCatalog';
 import { parseDpkgVersions, readDpkgStatus } from '../packages/dpkgStatus';
+import { liveCve, type CveSeverity } from '../cve/liveCve';
 import { displayVersion } from '../packages/packageVersions';
 
 /** The directory holding every running service's pidfile. */
@@ -160,6 +161,13 @@ export type OpenPort = {
   readonly port: number;
   readonly service: string;
   readonly version?: string;
+  /** The vulnerability live against that version today, when the reader asked
+   *  about a day and one exists. Derived server-side from the same manifest read
+   *  that produced `version`, and sent rather than re-derived, because the wire
+   *  carries the RENDERED version and a client cannot key a CVE off a product
+   *  name it would have to parse back apart. */
+  readonly cve?: string;
+  readonly severity?: CveSeverity;
 };
 
 /** One thing found running on a machine — everything a reader can learn from
@@ -228,7 +236,10 @@ export const listenerOn = (fs: Directory, port: number | undefined): Listener | 
  *  reader (the `nmap` display + the server scan action) so the ports a scan SHOWS
  *  and the ports it LOGS can never drift. A listener projects as `unknown` — open,
  *  and unaccounted for. */
-export const readOpenPorts = (root: Directory): readonly OpenPort[] => {
+export const readOpenPorts = (
+  root: Directory,
+  options: { readonly gameDay?: number | undefined } = {},
+): readonly OpenPort[] => {
   const installed = parseDpkgVersions(readDpkgStatus(root));
   return readRunningProcesses(root).map((running) => {
     if (running.kind !== 'service') {
@@ -238,12 +249,19 @@ export const readOpenPorts = (root: Directory): readonly OpenPort[] => {
     // version it shipped with, and a scan answering from the table would keep pointing
     // at a hole the defender had already closed.
     const version = installed.get(running.spec.package);
+    if (version === undefined) return { port: running.port, service: running.spec.service };
+    // Answered from the SAME read as the version, so a scan can never name a version and
+    // a vulnerability belonging to different software. A caller that named no day is
+    // asking only what is open, and gets no answer about holes rather than a default one.
+    const live =
+      options.gameDay === undefined
+        ? undefined
+        : liveCve(running.spec.package, version, options.gameDay);
     return {
       port: running.port,
       service: running.spec.service,
-      ...(version === undefined
-        ? {}
-        : { version: displayVersion(running.spec.package, version) }),
+      version: displayVersion(running.spec.package, version),
+      ...(live === undefined ? {} : { cve: live.cve, severity: live.severity }),
     };
   });
 };
