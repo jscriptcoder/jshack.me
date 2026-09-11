@@ -20,6 +20,11 @@
  * is touched, so they refuse sync with no preamble, while an unknown package is
  * only discoverable by reading the lists — so it reports beneath the preamble,
  * as real apt does.
+ *
+ * `list -u` is the defender's view of the manifest a version scan reads: which
+ * packages on this box are exposed, and whether the release that fixes each has
+ * shipped yet. It writes nothing and the manifest is world-readable, so it needs no
+ * root — only the network, like `list` beside it.
  */
 
 import { asAbsPath, type AbsPath } from '../types';
@@ -29,6 +34,9 @@ import { BINARY_STUB } from '../generation/binaries';
 import { LIBRARY_PERMS } from '../generation/libraries';
 import type { SystemLibrary } from '../generation/libraries';
 import { APT_PACKAGES, packageContents, type AptExtraFile } from '../packages/aptPackages';
+import { parseDpkgVersions, readDpkgStatus } from '../packages/dpkgStatus';
+import { upgradeStatusFor, type UpgradeStatus } from '../cve/packageTimeline';
+import { gameDayAt } from '../cve/worldClock';
 import { libraryDeps } from './libraryDeps';
 import { binaryExists } from './availability';
 import { errorLine, streamedResult, text } from './streaming';
@@ -204,6 +212,42 @@ async function* listPackages(
   return 0;
 }
 
+/** One package's row, or none. Only a package that needs a move is listed, as real
+ *  `apt list --upgradable` does; a package with no timeline — a router's firmware —
+ *  has nothing to offer and is left out rather than given a version it does not have.
+ *  The version shown is the one the FILE claims, as a scan shows it, so a hand-edited
+ *  manifest reads back exactly as its owner wrote it. */
+const upgradableRow = (
+  pkg: string,
+  version: string,
+  status: UpgradeStatus,
+): readonly TerminalLine[] => {
+  if (status.kind === 'upgradable') {
+    return [text(`  ${pkg} ${version} [upgradable → ${status.target}]`)];
+  }
+  if (status.kind === 'no-fix-yet') {
+    const days = `${status.etaDays} day${status.etaDays === 1 ? '' : 's'}`;
+    return [text(`  ${pkg} ${version} [vulnerable, no fix yet — ETA ~${days}]`)];
+  }
+  return [];
+};
+
+/** Every package in the manifest of the box the player is STANDING on, against today's
+ *  world. A clean box says so in one line: on a box of several services and eight
+ *  libraries a row per package would be a wall of mostly-green noise, and "up to date"
+ *  said plainly is the better reward. */
+async function* listUpgradable(env: CommandEnv): AsyncGenerator<TerminalLine, number> {
+  yield text('Listing...');
+  await env.sleep(STEP_DELAY_MS);
+
+  const gameDay = gameDayAt(env.now());
+  const rows = Array.from(parseDpkgVersions(readDpkgStatus(env.fs.root())), ([pkg, version]) =>
+    upgradableRow(pkg, version, upgradeStatusFor(pkg, version, gameDay)),
+  ).flat();
+  yield* rows.length > 0 ? rows : [text('All packages are up to date.')];
+  return 0;
+}
+
 /** The repo half of `install`, once the caller has cleared the root and
  *  connectivity gates. Every step is announced before it happens; a failure
  *  lands beneath the announcements the player has already seen rather than
@@ -266,6 +310,11 @@ const handleList = (env: CommandEnv, flags: ReadonlyMap<string, string | true>):
   if (!env.network.isOnline()) {
     return offlineError();
   }
+  // Ahead of `--installed`, which it already implies: a package has to be on the box
+  // before it can need upgrading.
+  if (flags.has('--upgradable') || flags.has('-u')) {
+    return streamedResult(listUpgradable(env));
+  }
   return streamedResult(listPackages(env, flags));
 };
 
@@ -305,7 +354,7 @@ export const apt: Command = {
   category: 'network',
   tier: 'root',
   availability: { kind: 'localhost-only' },
-  flags: { '--installed': 'boolean', '-i': 'boolean' },
+  flags: { '--installed': 'boolean', '-i': 'boolean', '--upgradable': 'boolean', '-u': 'boolean' },
   manual: {
     synopsis: 'apt <install|list> [args]',
     description:

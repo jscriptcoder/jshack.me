@@ -2,8 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { BINARY_STUB } from '../generation/binaries';
 import type { SystemLibrary } from '../generation/libraries';
 import type { Directory, FilePermissions } from '../filesystem/types';
-import { asAbsPath, asPlayerKeyHex, type UserType } from '../types';
-import type { CommandResult, PatchResult, TerminalLine } from './types';
+import { asAbsPath, asEpochMs, asPlayerKeyHex, type UserType } from '../types';
+import type { CommandEnv, CommandResult, PatchResult, TerminalLine } from './types';
+import { CVE_TIMING, packageTimeline } from '../cve/packageTimeline';
+import { WORLD_EPOCH } from '../cve/worldClock';
+import { buildEntry, formatDpkgStatus } from '../packages/dpkgStatus';
+import { FIRMWARE_PACKAGE, startingVersionOf } from '../packages/packageVersions';
+import { bindFlags } from '../shell/bindFlags';
 import {
   mockCommandEnv,
   mockFsViewFromTree,
@@ -944,6 +949,172 @@ describe('apt list', () => {
     expect(exitCode).toBe(100);
     expect(text).toContain('are you connected to a network');
     expect(text).not.toContain('nmap');
+  });
+});
+
+/**
+ * `apt list -u` — the first time the game tells a player about a hole in their OWN box
+ * rather than one they found through a scan of somebody else's.
+ *
+ * It reads the manifest of the box the player is standing on and prints only the
+ * packages that need a move, as real `apt list --upgradable` does: a released fix, or a
+ * CVE whose fix has not shipped yet and how long until it does. A box with nothing
+ * exposed says so in one line — on a box of several services and eight libraries, a
+ * row per package would be a wall of mostly-green noise, and a clean box saying so
+ * plainly is the better reward.
+ */
+describe('apt list --upgradable', () => {
+  const SSH = 'openssh-server';
+  const DAY_MS = 86_400_000;
+  const UPGRADABLE = new Map<string, string | true>([['-u', true]]);
+
+  /** A box carrying `packages` in its manifest, standing on `gameDay` of the world. A
+   *  plain user unless told otherwise — reading the manifest needs no root. */
+  const manifestBox = (
+    packages: Readonly<Record<string, string>>,
+    opts: { readonly gameDay?: number; readonly online?: boolean; readonly userType?: UserType } = {},
+  ): CommandEnv => {
+    const userType = opts.userType ?? 'user';
+    const status = formatDpkgStatus(
+      Object.entries(packages).map(([pkg, version]) => buildEntry(pkg, version)),
+    );
+    const tree = buildDirectory({
+      var: buildDirectory({
+        lib: buildDirectory({ dpkg: buildDirectory({ status: buildFile(status, { owner: 'root' }) }) }),
+      }),
+    });
+    return mockCommandEnv({
+      session: mockSession({ userType }),
+      network: mockNetworkView({ isOnline: () => opts.online ?? true }),
+      fs: mockFsViewFromTree(tree, { userType }),
+      now: () => asEpochMs(WORLD_EPOCH + (opts.gameDay ?? 0) * DAY_MS),
+    });
+  };
+
+  /** An openssh release whose fix takes the longest the config allows, the release
+   *  that fix is, and the day it ships — so a box can be stood inside the gap or past
+   *  it. */
+  const sshSlowFix = () => {
+    const timeline = packageTimeline(SSH, 400);
+    const vulnerable = timeline.find(
+      (entry) => entry.index >= 1 && entry.patchDelay === CVE_TIMING.maxPatchDelayDays,
+    )!;
+    return {
+      vulnerable,
+      fix: timeline[vulnerable.index + 1]!,
+      shipsOn: vulnerable.publishedAt + vulnerable.patchDelay,
+    };
+  };
+
+  const listUpgradable = async (env: CommandEnv) =>
+    streamResult(await apt.execute(env, ['list'], UPGRADABLE));
+
+  it('names a package whose fix has shipped, the version it is on and the one it can move to', async () => {
+    const { fix, shipsOn } = sshSlowFix();
+    const env = manifestBox({ [SSH]: startingVersionOf(SSH)! }, { gameDay: shipsOn });
+
+    const { lines, exitCode } = await listUpgradable(env);
+
+    expect(lines).toEqual([
+      { kind: 'text', content: 'Listing...' },
+      { kind: 'text', content: `  ${SSH} ${startingVersionOf(SSH)} [upgradable → ${fix.version}]` },
+    ]);
+    expect(exitCode).toBe(0);
+  });
+
+  it('says no fix exists yet inside the patch delay, counting down the days until one ships', async () => {
+    // The state the whole patch-delay mechanic exists to create: the player is told
+    // the truth and can do nothing about it — yet. The count is the real days
+    // remaining, so "come back tomorrow" is a plan rather than a guess.
+    const { vulnerable, shipsOn } = sshSlowFix();
+    const rowOn = async (gameDay: number) =>
+      (await listUpgradable(manifestBox({ [SSH]: vulnerable.version }, { gameDay }))).lines[1];
+
+    expect(await rowOn(shipsOn - 2)).toEqual({
+      kind: 'text',
+      content: `  ${SSH} ${vulnerable.version} [vulnerable, no fix yet — ETA ~2 days]`,
+    });
+    expect(await rowOn(shipsOn - 1)).toEqual({
+      kind: 'text',
+      content: `  ${SSH} ${vulnerable.version} [vulnerable, no fix yet — ETA ~1 day]`,
+    });
+  });
+
+  it('leaves out every package that needs nothing, rather than listing it as fine', async () => {
+    const { fix, shipsOn } = sshSlowFix();
+    const env = manifestBox(
+      {
+        [SSH]: startingVersionOf(SSH)!,
+        // Past everything published, so up to date; and the router's firmware, which
+        // has no timeline a player moves along through apt.
+        nginx: '999.0.0',
+        [FIRMWARE_PACKAGE]: '1.0.0',
+      },
+      { gameDay: shipsOn },
+    );
+
+    const { lines } = await listUpgradable(env);
+
+    expect(lines).toEqual([
+      { kind: 'text', content: 'Listing...' },
+      { kind: 'text', content: `  ${SSH} ${startingVersionOf(SSH)} [upgradable → ${fix.version}]` },
+    ]);
+  });
+
+  it('says so in one line when nothing on the box needs a move', async () => {
+    // A world on its first day has published nothing, so every box in it is clean.
+    const env = manifestBox({ [SSH]: startingVersionOf(SSH)!, libz: startingVersionOf('libz')! });
+
+    const { lines, exitCode } = await listUpgradable(env);
+
+    expect(lines).toEqual([
+      { kind: 'text', content: 'Listing...' },
+      { kind: 'text', content: 'All packages are up to date.' },
+    ]);
+    expect(exitCode).toBe(0);
+  });
+
+  it('answers to -u and --upgradable alike, and the shell knows both', async () => {
+    const { shipsOn } = sshSlowFix();
+    const env = manifestBox({ [SSH]: startingVersionOf(SSH)! }, { gameDay: shipsOn });
+    const longForm = new Map<string, string | true>([['--upgradable', true]]);
+
+    expect(await streamResult(await apt.execute(env, ['list'], longForm))).toEqual(
+      await listUpgradable(env),
+    );
+    // Declared rather than parsed, which is the difference between the shell binding
+    // the flag and rejecting it as an option apt does not have.
+    for (const flag of ['-u', '--upgradable']) {
+      expect(bindFlags(['list', flag], apt.flags ?? {})).toEqual({
+        ok: true,
+        positional: ['list'],
+        flags: new Map([[flag, true]]),
+      });
+    }
+  });
+
+  it('reads the manifest at any tier, since it is a file every tier can already read', async () => {
+    const { fix, shipsOn } = sshSlowFix();
+    const env = manifestBox(
+      { [SSH]: startingVersionOf(SSH)! },
+      { gameDay: shipsOn, userType: 'guest' },
+    );
+
+    const { text, exitCode } = await listUpgradable(env);
+
+    expect(exitCode).toBe(0);
+    expect(text).toContain(`[upgradable → ${fix.version}]`);
+  });
+
+  it('refuses offline in the words apt list already uses, and lists nothing', async () => {
+    const { shipsOn } = sshSlowFix();
+    const env = manifestBox({ [SSH]: startingVersionOf(SSH)! }, { gameDay: shipsOn, online: false });
+
+    const { text, exitCode } = syncResult(await apt.execute(env, ['list'], UPGRADABLE));
+
+    expect(exitCode).toBe(100);
+    expect(text).toContain('are you connected to a network');
+    expect(text).not.toContain(SSH);
   });
 });
 
