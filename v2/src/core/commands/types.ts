@@ -36,7 +36,13 @@ export type Identity = {
 export type SessionKind =
   | 'ssh'
   | 'su'
+  /** A shell a CVE opened. `exploit` is an ssh hop in everything but how it was
+   *  reached; `exploit_limited` is the weaker grant — a shell with no terminal
+   *  behind it, like the backdoor it resembles. Which one a player gets is the
+   *  effect's to decide, and the row records it so a defender reading `ps` is
+   *  never shown a login that no auth log ever recorded. */
   | 'exploit'
+  | 'exploit_limited'
   | 'effect_one_shot'
   | 'effect_password_reset'
   | 'nc'

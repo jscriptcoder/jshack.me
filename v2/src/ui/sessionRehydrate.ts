@@ -38,7 +38,14 @@ export type RehydratedStack = {
  *  later parallel session (`nc`, `mysql`, `redis`) is wrong on the stack for the
  *  same reason — a replay would put the player in a shell they never had, on a box
  *  they only ever held a transfer to. */
-const HOP_KINDS: readonly SessionKind[] = ['ssh', 'su'];
+const HOP_KINDS: readonly SessionKind[] = [
+  'ssh',
+  'su',
+  // A full exploit shell is a rung the player walked up and is still standing on. Its
+  // weaker sibling is not: it has no terminal, so it could never have been pivoted
+  // into, and replaying it would put the player in a shell they could not have reached.
+  'exploit',
+];
 
 const isHop = (session: Session): boolean => HOP_KINDS.includes(session.kind);
 

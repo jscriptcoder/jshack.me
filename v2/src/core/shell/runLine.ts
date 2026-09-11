@@ -40,6 +40,7 @@ import {
   type CommandResult,
   type FsView,
   type Session,
+  type SessionKind,
   type TerminalLine,
 } from '../commands/types';
 import { listenerOn } from '../services/pidfile';
@@ -65,13 +66,18 @@ type PrepareResult =
   | { readonly ok: true; readonly prepared: PreparedStage }
   | { readonly ok: false; readonly error: CommandResult };
 
+/** The shells with no pty behind them: a planted listener, because netcat is a
+ *  pipe and nobody allocated it one, and the weaker of the two grants a CVE can
+ *  hand over, which is modelled on it deliberately. */
+const PTY_LESS_KINDS: readonly SessionKind[] = ['nc', 'exploit_limited'];
+
 /** Whether the shell running this session has a terminal behind it. Everything
- *  reached by LOGGING IN does; a session reached through a planted listener
- *  does not, because netcat is a pipe and nobody allocated it a pty. It is the
- *  difference every writeup opens by fixing (`python3 -c 'import pty;…'`), and
- *  here it is what separates the three doors: ftp moves files, a backdoor lets
- *  you look and break, and only a real login can be pivoted onward from. */
-export const hasTty = (session: Session): boolean => session.kind !== 'nc';
+ *  reached by LOGGING IN does. It is the difference every writeup opens by fixing
+ *  (`python3 -c 'import pty;…'`), and here it is what separates the doors: ftp
+ *  moves files, a backdoor and a weak exploit let you look and break, and only a
+ *  real login — or the full grant, which is one in all but name — can be pivoted
+ *  onward from. */
+export const hasTty = (session: Session): boolean => !PTY_LESS_KINDS.includes(session.kind);
 
 /** The command's own refusal for a session with no terminal, or `undefined`
  *  when it can run there. The function form asks the CALL, because the need can

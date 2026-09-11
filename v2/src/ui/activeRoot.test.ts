@@ -295,6 +295,17 @@ describe('isCrossPlayerHop', () => {
     expect(isCrossPlayerHop(session(FOREIGN_ID, 'nc'), ESSID, PUBKEY)).toBe(true);
   });
 
+  it.each(['exploit', 'exploit_limited'] as const)(
+    'is true for a %s session on a foreign machine',
+    (kind) => {
+      // Both grants stand the player in a shell ON the target, so both must read that
+      // box's tree. The weaker one is limited in what it can RUN, never in whose
+      // filesystem it is looking at — and getting that wrong is the defect the backdoor
+      // above already paid for once.
+      expect(isCrossPlayerHop(session(FOREIGN_ID, kind), ESSID, PUBKEY)).toBe(true);
+    },
+  );
+
   it('is false for an nc session on a host that IS on your own LAN', () => {
     // The own-LAN backdoor was never broken: the target is generated from the essid,
     // so it rebuilds locally. Serving it would buy a round trip per read and nothing else.
