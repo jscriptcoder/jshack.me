@@ -46,14 +46,16 @@ import {
   type AptExtraFile,
 } from '../packages/aptPackages';
 import {
+  buildEntry,
   DPKG_STATUS_OWNER,
   DPKG_STATUS_PATH,
   DPKG_STATUS_PERMISSIONS,
   parseDpkgVersions,
   readDpkgStatus,
+  withPackageEntries,
   withPackageVersion,
 } from '../packages/dpkgStatus';
-import { upgradeStatusFor, type UpgradeStatus } from '../cve/packageTimeline';
+import { newestReleaseOn, upgradeStatusFor, type UpgradeStatus } from '../cve/packageTimeline';
 import { gameDayAt } from '../cve/worldClock';
 import { libraryDeps } from './libraryDeps';
 import { binaryExists } from './availability';
@@ -391,6 +393,10 @@ async function* installPackage(
   yield text('Building dependency tree...');
   await env.sleep(STEP_DELAY_MS);
 
+  const gameDay = gameDayAt(env.now());
+  const manifest = readDpkgStatus(env.fs.root());
+  const carried = parseDpkgVersions(manifest);
+
   // Shipped with the box, so there is nothing to lay down: no binary for software that
   // came with the image, no `.so` for a library everything already links. The VERSION is
   // still the resolver's to answer, and real apt upgrades a package it already has
@@ -398,11 +404,8 @@ async function* installPackage(
   // "already the newest version" on a box `apt list -u` calls exposed would be apt
   // contradicting apt.
   if (BASE_IMAGE_PACKAGES.includes(packageName)) {
-    const version = parseDpkgVersions(readDpkgStatus(env.fs.root())).get(packageName);
-    if (
-      version !== undefined &&
-      nothingNewerThan(upgradeStatusFor(packageName, version, gameDayAt(env.now())))
-    ) {
+    const version = carried.get(packageName);
+    if (version !== undefined && nothingNewerThan(upgradeStatusFor(packageName, version, gameDay))) {
       yield text(`${packageName} is already the newest version.`);
     }
     return yield* applyUpgrades(env, packageName);
@@ -415,11 +418,16 @@ async function* installPackage(
   }
   const { packageNames, binaries, extraFiles } = contents;
 
-  yield text('The following NEW packages will be installed:');
   // Every package the install covers, not just the one that was asked for. A tool
   // that appears on the box with nothing on screen accounting for it reads as the
-  // game doing something behind the player's back.
-  yield text(`  ${packageNames.join(' ')}`);
+  // game doing something behind the player's back. Only the ones that are actually
+  // new: on a reinstall nothing here is new, and the version half below says what
+  // really happened.
+  const arriving = packageNames.filter((name) => !carried.has(name));
+  if (arriving.length > 0) {
+    yield text('The following NEW packages will be installed:');
+    yield text(`  ${arriving.join(' ')}`);
+  }
   await env.sleep(STEP_DELAY_MS);
   yield text(`Setting up ${packageName} ...`);
 
@@ -447,6 +455,32 @@ async function* installPackage(
   const extraResult = yield* installExtraFiles(env, extraFiles);
   if (!extraResult.ok) {
     yield installFailureLine(packageName, extraResult.error);
+    return APT_ERROR;
+  }
+
+  // The version half. A package the box already carried moves exactly as `apt upgrade`
+  // moves it — one rule for everything apt touches, and a reinstall that stamped today's
+  // release onto a box still running last year's binary would hand out a patch nobody
+  // applied.
+  if (carried.has(packageName)) {
+    return yield* applyUpgrades(env, packageName);
+  }
+  // Anything genuinely new is BORN at what the repo holds today, in a manifest row of its
+  // own. Without it a bought daemon has a binary and no version, and a scan of the box
+  // that bought it sees a service with nothing behind it. A package this world keeps no
+  // history for gets no row rather than an invented version.
+  const born = packageNames.flatMap((name) => {
+    const version = carried.has(name) ? undefined : newestReleaseOn(name, gameDay);
+    return version === undefined ? [] : [buildEntry(name, version)];
+  });
+  if (born.length === 0) return 0;
+  const recorded = await env.patches.write(
+    asAbsPath(DPKG_STATUS_PATH),
+    withPackageEntries(manifest, born),
+    { owner: DPKG_STATUS_OWNER, permissions: DPKG_STATUS_PERMISSIONS },
+  );
+  if (!recorded.ok) {
+    yield installFailureLine(packageName, recorded.error);
     return APT_ERROR;
   }
 

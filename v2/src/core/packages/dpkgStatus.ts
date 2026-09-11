@@ -96,6 +96,14 @@ export const withPackageVersion = (content: string, pkg: string, version: string
 export const formatDpkgStatus = (entries: readonly DpkgEntry[]): string =>
   `${entries.map((entry) => entry.rawBlock).join('\n\n')}\n`;
 
+/** The manifest with rows appended for packages it does not name yet, in dpkg's own
+ *  shape — a blank line between blocks — and every existing byte left where it was. */
+export const withPackageEntries = (content: string, entries: readonly DpkgEntry[]): string => {
+  if (entries.length === 0) return content;
+  const appended = formatDpkgStatus(entries);
+  return content.trim() === '' ? appended : `${content}\n${appended}`;
+};
+
 /** The manifest text off a box's tree, or '' for a box that carries no manifest —
  *  which parses to no packages, so a missing file is a missing answer rather than a
  *  crash. Walks the tree the way the port readers do; this layer has no path

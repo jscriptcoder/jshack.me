@@ -4,7 +4,12 @@ import type { SystemLibrary } from '../generation/libraries';
 import type { Directory, FilePermissions } from '../filesystem/types';
 import { asAbsPath, asEpochMs, asPlayerKeyHex, type UserType } from '../types';
 import type { CommandEnv, CommandResult, PatchResult, TerminalLine } from './types';
-import { CVE_TIMING, packageTimeline, upgradeStatusFor } from '../cve/packageTimeline';
+import {
+  CVE_TIMING,
+  newestReleaseOn,
+  packageTimeline,
+  upgradeStatusFor,
+} from '../cve/packageTimeline';
 import { WORLD_EPOCH } from '../cve/worldClock';
 import {
   buildEntry,
@@ -14,6 +19,7 @@ import {
   readDpkgStatus,
 } from '../packages/dpkgStatus';
 import {
+  displayVersion,
   FIRMWARE_PACKAGE,
   PACKAGE_TEMPLATES,
   startingVersionOf,
@@ -48,7 +54,13 @@ import {
   SNMPD_STATE_PATH,
   SNMPD_STATE_PERMISSIONS,
 } from '../snmp/rwCommunity';
-import { daemonName } from '../services/pidfile';
+import {
+  daemonName,
+  formatPidfileContent,
+  PIDFILE_PERMISSIONS,
+  pidfilePath,
+  readOpenPorts,
+} from '../services/pidfile';
 import { parseMysqlDatabase } from '../mysql/types';
 import { DATADIR_DIR as STORE_DIR, DATADIR_PATH as STORE_PATH } from '../redis/datadir';
 import { parseRedisStore } from '../redis/types';
@@ -136,6 +148,9 @@ type AptEnvOpts = {
   /** The day of the world the box is standing on. Left out, the clock sits before the
    *  world began, where nothing has published and every package is quiet. */
   readonly gameDay?: number;
+  /** Packages this box already carries beyond its base image, at the versions given —
+   *  the box of a player who has bought a daemon before. */
+  readonly carries?: Readonly<Record<string, string>>;
 };
 
 /** One filesystem operation apt performed, in the order it performed them.
@@ -161,13 +176,23 @@ const workstationFs = (): Directory =>
     rootPassword: 'hunter2',
   });
 
+/** What a box's manifest reads: the base image every generated workstation records,
+ *  plus anything its owner has bought since. */
+const boxManifest = (carries: Readonly<Record<string, string>> = {}): string => {
+  const base = readDpkgStatus(workstationFs());
+  const bought = Object.entries(carries).map(([pkg, version]) => buildEntry(pkg, version));
+  return bought.length === 0 ? base : `${base}\n${formatDpkgStatus(bought)}`;
+};
+
 const installedBoxTree = (opts: AptEnvOpts = {}): Directory =>
   buildDirectory({
     // The manifest a real box carries, byte for byte: apt answers version questions out
     // of it, so a fixture without one would be a box no generator can produce.
     var: buildDirectory({
       lib: buildDirectory({
-        dpkg: buildDirectory({ status: buildFile(readDpkgStatus(workstationFs()), { owner: 'root' }) }),
+        dpkg: buildDirectory({
+          status: buildFile(boxManifest(opts.carries), { owner: 'root' }),
+        }),
       }),
     }),
     usr: buildDirectory({
@@ -386,7 +411,11 @@ describe('apt', () => {
         '/usr/sbin/named',
         '/usr/bin/dig',
         '/usr/bin/nslookup',
+        // The server carries a version a scan can read; the client pair does not, because
+        // this world keeps no history for a tool nothing can be exploited through.
+        DPKG_STATUS_PATH,
       ]);
+      expect(parseDpkgVersions(writes.at(-1)?.content ?? '').has('dnsutils')).toBe(false);
       // Both names in the line apt prints BEFORE it writes anything. A tool that appears
       // on the box with nothing on screen accounting for it reads as the game doing
       // something behind the player's back.
@@ -405,7 +434,12 @@ describe('apt', () => {
       await streamResult(await apt.execute(nginxInstall.env, ['install', 'nginx'], NO_FLAGS));
       await streamResult(await apt.execute(apacheInstall.env, ['install', 'apache2'], NO_FLAGS));
 
-      expect(nginxInstall.writes.map((write) => write.path)).toEqual(['/usr/sbin/nginx']);
+      expect(nginxInstall.writes.map((write) => write.path)).toEqual([
+        '/usr/sbin/nginx',
+        DPKG_STATUS_PATH,
+      ]);
+      // Apache is the one web daemon this world keeps no versions for, so it lands with
+      // no row rather than with a version invented for it.
       expect(apacheInstall.writes.map((write) => write.path)).toEqual(['/usr/sbin/apache2']);
     });
 
@@ -544,6 +578,107 @@ describe('apt', () => {
       expect(text).not.toContain('already the newest version');
       expect(exitCode).toBe(0);
       expect(writes).toEqual([]);
+    });
+
+    it('records a daemon it just laid down in the manifest, at the release the repo holds today', async () => {
+      // Until now a bought daemon had a binary and no version, so a scan of the box that
+      // bought it saw a service with nothing behind it. The row is what makes a player's
+      // own service the same kind of thing as a generated box's.
+      const gameDay = 300;
+      const { env, writes } = aptEnv({ gameDay });
+      const born = newestReleaseOn(REDIS, gameDay);
+
+      await streamResult(await apt.execute(env, ['install', REDIS], NO_FLAGS));
+
+      const written = writes.find(({ path }) => path === DPKG_STATUS_PATH);
+      expect(written?.options).toEqual({ owner: 'root', permissions: SERVICE_CONFIG_FILE });
+      expect(parseDpkgVersions(written?.content ?? '').get(REDIS)).toBe(born);
+      // The release the repo holds, not the one the world opened with: a box that buys a
+      // daemon today is not handed a version everybody else has already left behind.
+      expect(born).not.toBe(startingVersionOf(REDIS));
+      // And every row the box already carried is still there, as it was.
+      expect([...parseDpkgVersions(written?.content ?? '')].slice(0, -1)).toEqual([
+        ...parseDpkgVersions(boxManifest()),
+      ]);
+    });
+
+    it('hands a scan the version it installed, and the hole that version catches later', async () => {
+      const gameDay = 300;
+      const { env, writes } = aptEnv({ gameDay });
+      const born = newestReleaseOn(REDIS, gameDay)!;
+
+      await streamResult(await apt.execute(env, ['install', REDIS], NO_FLAGS));
+
+      // The box as it stands after the install, with the daemon the player then started.
+      const spec = SERVICE_CATALOG.redis;
+      const running = applyPatches(installedBoxTree(), [
+        {
+          path: DPKG_STATUS_PATH,
+          content: writes.find(({ path }) => path === DPKG_STATUS_PATH)?.content ?? '',
+          owner: 'root',
+          permissions: SERVICE_CONFIG_FILE,
+        },
+        {
+          path: pidfilePath(spec),
+          content: formatPidfileContent(spec, spec.defaultPort),
+          owner: 'root',
+          permissions: PIDFILE_PERMISSIONS,
+        },
+      ]);
+
+      expect(readOpenPorts(running, { gameDay })).toContainEqual({
+        port: spec.defaultPort,
+        service: spec.service,
+        version: displayVersion(REDIS, born),
+      });
+      // Bought today, exposed the day its own hole lands — the same treadmill every
+      // generated box is on, which is the whole point of writing the row.
+      const opens = packageTimeline(REDIS, 10_000).find((entry) => entry.version === born);
+      expect(readOpenPorts(running, { gameDay: opens?.publishedAt })[0]).toMatchObject({
+        cve: opens?.cve,
+        severity: opens?.severity,
+      });
+    });
+
+    it('reports a version row the box refused, rather than leaving a daemon that claims one', async () => {
+      const { env } = aptEnv({ gameDay: 300, failWritesTo: DPKG_STATUS_PATH });
+
+      const { text, exitCode } = await streamResult(
+        await apt.execute(env, ['install', REDIS], NO_FLAGS),
+      );
+
+      expect(text).toContain(`E: Failed to install ${REDIS} (permission_denied)`);
+      expect(exitCode).toBe(100);
+    });
+
+    it('writes no row for a tool this world keeps no version for, installing it exactly as before', async () => {
+      const { env, writes } = aptEnv({ gameDay: 300 });
+
+      await streamResult(await apt.execute(env, ['install', 'nmap'], NO_FLAGS));
+
+      expect(writes.map(({ path }) => path)).toEqual(['/usr/bin/nmap']);
+    });
+
+    it('patches a daemon the box already runs rather than re-registering it at a newer version', async () => {
+      // The same rule the base image gets: install leaves a package at the release the
+      // resolver names. A reinstall that quietly stamped today's version onto a box
+      // still running last year's binary would hand out a patch nobody applied.
+      const carried = startingVersionOf(REDIS)!;
+      // A day redis' fix is actually out. The patch delay is at most two days, so one of
+      // any three in a row stands outside it.
+      const gameDay = [300, 301, 302].find(
+        (day) => upgradeStatusFor(REDIS, carried, day).kind === 'upgradable',
+      )!;
+      const { env, writes } = aptEnv({ gameDay, carries: { [REDIS]: carried } });
+
+      const { text } = await streamResult(await apt.execute(env, ['install', REDIS], NO_FLAGS));
+
+      const written = writes.find(({ path }) => path === DPKG_STATUS_PATH);
+      expect(parseDpkgVersions(written?.content ?? '').get(REDIS)).toBe(
+        newestReleaseOn(REDIS, gameDay),
+      );
+      expect(text).toContain(`Unpacking ${REDIS} (`);
+      expect(text).toContain(`over (${carried}) ...`);
     });
 
     it('errors with usage when no package is given', async () => {
@@ -1115,6 +1250,7 @@ describe('apt list', () => {
  * plainly is the better reward.
  */
 const SSH = 'openssh-server';
+const REDIS = 'redis';
 const DAY_MS = 86_400_000;
 
 /** An openssh release whose fix takes the longest the config allows, the release that
@@ -1627,6 +1763,9 @@ describe('the database a player buys', () => {
       { kind: 'write', path: '/usr/sbin/mysqld' },
       { kind: 'mkdir', path: '/var/lib/mysql' },
       { kind: 'write', path: DATADIR_PATH },
+      // Last of all, the row that gives the daemon a version: the box is a database
+      // server only once everything it serves with is actually on it.
+      { kind: 'write', path: DPKG_STATUS_PATH },
     ]);
   });
 
@@ -1682,7 +1821,7 @@ describe('the database a player buys', () => {
     expect(names[0]).toBe(CONFIG.username);
   });
 
-  it('writes the two binaries and the datadir, and nothing else at all', async () => {
+  it('writes the two binaries, the datadir and its version row, and nothing else at all', async () => {
     // No /etc/mysql.cnf: nothing in the game reads one, and a static `port=3306` would
     // be contradicted the first time the player runs `mysqld 3307`. No `mysql` line in
     // /etc/passwd either — NPC database boxes carry no such account, so adding one here
@@ -1693,6 +1832,7 @@ describe('the database a player buys', () => {
       '/usr/bin/mysql',
       '/usr/sbin/mysqld',
       DATADIR_PATH,
+      DPKG_STATUS_PATH,
     ]);
   });
 
@@ -1741,7 +1881,11 @@ describe('the database a player buys', () => {
 
     const again = await buyMysql({ onto: livedIn });
 
-    expect(again.writes.map((write) => write.path)).toEqual(['/usr/bin/mysql', '/usr/sbin/mysqld']);
+    expect(again.writes.map((write) => write.path)).toEqual([
+      '/usr/bin/mysql',
+      '/usr/sbin/mysqld',
+      DPKG_STATUS_PATH,
+    ]);
     expect(again.streamed.text).toContain(`${DATADIR_PATH} already exists, keeping your copy`);
   });
 
@@ -1906,6 +2050,7 @@ describe('the store a player buys', () => {
       { kind: 'write', path: STORE_PATH },
       { kind: 'mkdir', path: '/etc/redis' },
       { kind: 'write', path: REDIS_CONF_PATH },
+      { kind: 'write', path: DPKG_STATUS_PATH },
     ]);
   });
 
