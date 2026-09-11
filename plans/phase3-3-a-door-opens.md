@@ -7,7 +7,7 @@ locked; decisions 31-35 were settled at this planning session and are recorded i
 plan implements them and does not reopen them.
 **Delivery**: ONE independent PR against `main` (decision 35). Behaviour change, TDD.
 
-## Progress — increments 1-6 of 7 are committed (2026-09-11)
+## Progress — all seven increments are committed (2026-09-11)
 
 Branch `feat/phase3-a-door-opens`, cut from `main` at `60a07a09`. Every commit below is green on
 the complete non-watch suite, `npm run typecheck` and `npm run lint`. Nothing is pushed yet and no
@@ -20,20 +20,37 @@ PR is open.
 | 3 | Two session kinds | `e72bb0df` | `SessionKind` += `exploit_limited`; `hasTty` → `PTY_LESS_KINDS`; `HOP_KINDS` += `exploit`; `isCrossPlayerHop` → `SHELL_KINDS` with both |
 | 4 | The server action | `165cb3a0` | `core/sessions/exploitCreateSession.ts` + its route in `api/sessions.ts`. 12 tests |
 | 5 | The command | `0e24656e` | `core/commands/msfconsole.ts` + registry; `ExploitApi` on `CommandEnv`; the `runExploit` adapter; `ui/env.ts` + `ui/state.ts` wiring. 21 tests |
-| 6 | Nothing leaks into the scan | _pending_ | Two characterisation locks — the rendered `-sV` table and the `readOpenPorts` payload a cross-player scan sends. 2 tests |
+| 6 | Nothing leaks into the scan | `fcb55b1a` | Two characterisation locks — the rendered `-sV` table and the `readOpenPorts` payload a cross-player scan sends. 2 tests |
+| 7 | The wire | _pending_ | `scripts/testExploitOwnLan.ts` — **18/18 green live** against `vercel dev` + supabase on 2026-09-11 |
 
-**Suite at increment 6: 4648 tests / 216 files.**
+**Suite at increment 7: 4648 tests / 216 files** (the wire-check is not part of it, and not in CI).
 
-### What increment 7 has to do next
+### What the wire-check proved, and what it found
 
-`scripts/testExploitOwnLan.ts`, live against `vercel dev` + supabase — the row lands with the tier
-the client showed, the target's log gains a line naming the CVE, and a port with no live CVE
-bounces and is written up. **Its full-shell case must target a store, a database or a name server**
-(see below). Conventions §5 has the stack-up sequence and the 3100 orphan trap.
+Run on world day 10, ESSID `EXPLOIT-LAB-WIFI`: the full-shell door was `192.168.78.85:6379`
+(redis, critical → root) and the limited one `192.168.78.18:22` (ssh, `file_read` → guest).
 
-Then the pre-PR gate: the mutation run over the four production files this slice added, the version
-bump to `0.213.0` in both `package.json` and `package-lock.json`, and the owner's ruling on
-`withoutTty`.
+Everything is **derived from the world at the server's own game day** rather than hardcoded — the
+doors, the expected CVE, severity, tier and account all come from `exploitOutcome` at
+`gameDayAt(Date.now())` — so the file does not rot as the world publishes more CVEs. It exits 2
+with guidance if the chosen ESSID stops offering a door of each kind.
+
+The load-bearing check is the **manifest**: a patch row over `/var/lib/dpkg/status` moves the box
+off the version it shipped with, and the door that opened a moment earlier refuses. Journal replay
+is exactly what `tsc` cannot see, and a handler reading the template table would pass every other
+check in the file. It also fires the acceptance criterion directly — a moved version, a filtered
+port, a bare listener and silence were captured and compared, and all four bodies are byte-identical.
+
+**Found live, and only live: a tombstone keeps its `owner` and its `node_type`.** The first run
+died on `null value in column "owner" violates not-null constraint`. `content: null` alone is the
+deletion marker; the other columns are NOT NULL in the table. The increment-4 unit test's
+in-memory `tombstoneOf` helper nulls `node_type` too, which the in-memory replay tolerates and the
+database does not — worth knowing before the next script writes one.
+
+### What remains before the PR
+
+The mutation gate over the four production files this slice added, the version bump to `0.213.0`
+in both `package.json` and `package-lock.json`, and the owner's ruling on `withoutTty`.
 
 ### Increment 6 was a lock, not a change — and it was verified by breaking it
 
