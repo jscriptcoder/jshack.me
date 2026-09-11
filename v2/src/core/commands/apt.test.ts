@@ -1625,6 +1625,20 @@ describe('the package catalogue every box is built from', () => {
     expect(carried).toEqual([{ binary: 'ftp', isDaemon: false }]);
   });
 
+  it('carries nothing for a service whose daemon arrives with the base image', () => {
+    // ssh matches NEITHER rule: no package is named `ssh`, and nothing in the
+    // catalogue claims `sshd`. Pinned rather than left implied, because the manifest
+    // names `openssh-server` and the catalogue does not — and a row added to close
+    // that gap would start matching this rule and change what every generated box
+    // carries, with nothing else in the suite to notice.
+    const carried = binariesForService({
+      service: SERVICE_CATALOG.ssh.service,
+      daemon: daemonName(SERVICE_CATALOG.ssh),
+    });
+
+    expect(carried).toEqual([]);
+  });
+
   it('carries a daemon shipped by a package named after something else entirely', () => {
     // The other half of the union: http matches on its DAEMON, because the package is
     // called `nginx` and no player ever types `apt install http`.

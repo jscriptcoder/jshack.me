@@ -58,22 +58,46 @@ describe('a package with a published CVE', () => {
 
 /**
  * The world is a pure function of the epoch and these seeds, so it can be pinned
- * exactly. These four are a lock against SILENT drift: reordering a PRNG draw,
- * renaming a seed string or renumbering a package would republish CVEs that
- * players already have written down in their logs, and nothing else in the suite
- * would notice. Changing them is a deliberate act, not a passing detail.
+ * exactly. This is a lock against SILENT drift: reordering a PRNG draw, renaming
+ * a seed string or renumbering a package would republish CVEs that players
+ * already have written down in their logs, and nothing else in the suite would
+ * notice. Changing any row here is a deliberate act, not a passing detail.
  *
- * They also cover all four severity bands, which is the honest way to prove every
- * one is reachable — a distribution assertion over fifteen packages would not be.
+ * EVERY package, not a sample. The derivation is about to learn to walk forward
+ * to the versions `apt upgrade` reaches, and the one thing that walk must not do
+ * is disturb the entry every box in the world currently sits on — so the lock has
+ * to cover the whole table the walk could disturb, libraries included. The
+ * coverage case below is what stops a new package slipping in BESIDE the lock
+ * instead of under it.
+ *
+ * All four severity bands appear here, which is the honest way to show each one
+ * is reachable — a distribution assertion over fifteen packages would not be.
  */
+const WORLD_PINS = [
+  ['openssh-server', 'CVE-2026-0149031', 'medium', 8],
+  ['nginx', 'CVE-2026-0269486', 'high', 9],
+  ['vsftpd', 'CVE-2026-0378750', 'low', 5],
+  ['mysql', 'CVE-2026-0458876', 'medium', 14],
+  ['redis', 'CVE-2026-0597580', 'critical', 9],
+  ['bind9', 'CVE-2026-0666363', 'medium', 14],
+  ['snmp', 'CVE-2026-0712758', 'medium', 4],
+  ['libpam', 'CVE-2026-0833104', 'medium', 3],
+  ['libcrypt', 'CVE-2026-0900028', 'high', 8],
+  ['libsystemd', 'CVE-2026-1027505', 'high', 4],
+  ['libreadline', 'CVE-2026-1130181', 'high', 8],
+  ['libssl', 'CVE-2026-1212003', 'low', 14],
+  ['libz', 'CVE-2026-1396234', 'medium', 10],
+  ['libxml2', 'CVE-2026-1466733', 'medium', 6],
+  ['libpcre', 'CVE-2026-1544019', 'high', 9],
+] as const;
+
 describe('the world these seeds actually produce', () => {
-  it.each([
-    ['openssh-server', 'CVE-2026-0149031', 'medium', 8],
-    ['nginx', 'CVE-2026-0269486', 'high', 9],
-    ['vsftpd', 'CVE-2026-0378750', 'low', 5],
-    ['redis', 'CVE-2026-0597580', 'critical', 9],
-  ])('pins %s', (key, cve, severity, publishedAt) => {
+  it.each(WORLD_PINS)('pins %s', (key, cve, severity, publishedAt) => {
     expect(liveCve(key, startOf(key), LATE)).toEqual({ cve, severity, publishedAt });
+  });
+
+  it('covers every package the world ships', () => {
+    expect([...WORLD_PINS].map(([key]) => key).sort()).toEqual([...KEYS].sort());
   });
 });
 
