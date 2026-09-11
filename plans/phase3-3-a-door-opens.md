@@ -108,10 +108,17 @@ naming the command, which is the part that can actually be wrong.
 
 **Suite after the gate: 4664 tests / 216 files.**
 
-### What remains before the PR
+### Pre-PR gate — complete
 
-The version bump to `0.213.0` in both `package.json` and `package-lock.json`, and the owner's ruling
-on `withoutTty`.
+1. ✅ Implementation complete; refactor assessment recorded (the effect pools did NOT earn their own
+   module — they are one table read by one function, and splitting them would move data away from
+   the only code that reads it).
+2. ✅ Mutation gate run; valuable survivors addressed, the rest hand-accounted above.
+3. ✅ `npm run typecheck` and `npm run lint` pass.
+4. ✅ Complete non-watch suite green (4664 / 216); no watchers left running.
+5. ✅ Wire-check run live against `vercel dev` + local supabase, 18/18.
+6. ✅ Version bumped to `0.213.0` in `package.json` and `package-lock.json`.
+7. ✅ `withoutTty` ruled by the owner — see above.
 
 ### Increment 6 was a lock, not a change — and it was verified by breaking it
 
@@ -182,10 +189,17 @@ both fail, and reverting. They bite.
   jitter helper and every streamed command (`hydra`, `aircrack-ng`, `airodump-ng`) paces on a fixed
   `env.sleep`, which is already abort-aware — so Ctrl-C came free and the random spread did not
   come at all. Cosmetic, and adding a PRNG to pacing would make the output untestable for nothing.
-- **`msfconsole` has no `withoutTty`, so a LIMITED shell can still fire one.** Deliberate, and
-  consistent with `hydra` (a box you have opened is a place to attack FROM), but it does mean the
-  weak grant pivots onward through the exploit door even though it cannot through `ssh`. **Worth an
-  owner ruling before the PR** — adding `withoutTty` would close it in one line.
+- **`msfconsole` has no `withoutTty`, so a LIMITED shell can still fire one. RULED 2026-09-11:
+  leave it.** Tools run where you stand — the same rule that lifted `hydra`'s own-machine gate,
+  because a box you have opened is a place to attack FROM. The weak grant stays weaker where it was
+  designed to be (no credential login, no editor, no prompting command of any kind); what it keeps
+  is the ability to keep moving. A `nc` backdoor can fire one too, and for the same reason.
+
+  The rejected alternative was one line — `withoutTty: 'msfconsole: must be run from a terminal'` —
+  on the argument that decision 31 collapses six unbuilt effects to a limited shell precisely to
+  make them weaker, and the one door needing no prompt hands most of the full shell's value back.
+  Declined: it would also cost the `nc` backdoor its exploit reach, and pivoting is the point of
+  opening a box at all. **Carry this into the epic as a resolved decision at retirement.**
 
 ## Goal
 
