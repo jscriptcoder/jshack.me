@@ -21,11 +21,15 @@ import { generateDeepLayer, seedNetworkDepth } from '../generation/generateDeepL
 import { computeDeepGatewayId, computeInnerGatewayId } from '../identity/router';
 import { hostMachineId } from '../generation/remoteHostId';
 import { md5 } from '../generation/md5';
+import { buildEntry, DPKG_STATUS_PATH, formatDpkgStatus } from '../packages/dpkgStatus';
+import { packageTimeline } from '../cve/packageTimeline';
 import type { UserType } from '../types';
 import type { NonceStore } from '../signedRequest/nonceStore';
 
 const freshStore: NonceStore = async () => ({ fresh: true });
 const ESSID = 'BEAN-THERE-WIFI';
+/** The package behind the door every generated box opens. */
+const SSH_PACKAGE = 'openssh-server';
 
 /** A REAL remote host on the signer's deterministic LAN — so the L2 regeneration
  *  (`hostForMachineId` → `buildRemoteHostFs`) resolves the same FS the perms are
@@ -358,6 +362,43 @@ describe('handleUpsertPatch', () => {
 
     expect(result).toEqual({ status: 403, body: { error: 'permission_denied' } });
     expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
+  it('keeps a session that came in through a hole writing after the box is patched', async () => {
+    // A patch shuts the door on the NEXT attacker; it does not throw out the one already
+    // inside. Otherwise upgrading would be an eviction tool — a defender who noticed an
+    // intruder could remove them without ever learning how they got in, and the trace the
+    // break-in left would stop being the thing worth reading.
+    const id = generateIdentity();
+    const { machineId } = remoteTarget();
+    // The manifest the defender left behind: the one package this box's door rested on,
+    // moved onto a release whose own hole has not published yet. Nothing here is
+    // exploitable on this day, which is the state the intruder has to survive.
+    const day = 400;
+    const safe = packageTimeline(SSH_PACKAGE, day).find((entry) => entry.publishedAt > day);
+    const patchedManifest = [
+      {
+        path: DPKG_STATUS_PATH,
+        content: formatDpkgStatus([buildEntry(SSH_PACKAGE, safe?.version ?? '')]),
+        owner: 'root',
+        permissions: { read: ['root', 'user', 'guest'], write: ['root'], execute: [] },
+      } as const,
+    ];
+    const envelope = signRequest(id, 'upsertPatch', {
+      machine_id: machineId,
+      path: '/tmp/still-here',
+      content: 'the door I came through is closed now',
+      owner: 'root',
+    });
+    const { deps, upsertPatch } = makeDeps({
+      findActiveSession: remoteSession('root'),
+      listMachinePatches: async () => ({ data: patchedManifest, error: null }),
+    });
+
+    const result = await handleUpsertPatch(envelope, deps);
+
+    expect(result.status).toBe(200);
+    expect(upsertPatch).toHaveBeenCalled();
   });
 
   it('does not consult the prior-patch journal for an own-workstation write (L2 bypass)', async () => {

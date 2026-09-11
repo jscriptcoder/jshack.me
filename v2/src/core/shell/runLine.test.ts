@@ -982,6 +982,21 @@ describe('a backdoor whose listener was killed underneath it', () => {
     expect(popSession).not.toHaveBeenCalled();
   });
 
+  // A patch shuts the door on the NEXT attacker; it does not throw out the one already
+  // inside. Upgrading is a defence, not an eviction tool — and the shell an intruder
+  // holds was forked when they came in, exactly like a login's.
+  it('never closes a session that came in through a hole, whatever the box did about it since', async () => {
+    const { env, popSession } = standingOn(
+      { 'sshd.pid': servicePidfile() },
+      { kind: 'exploit', username: 'alice', userType: 'root', port: 22 },
+    );
+
+    const result = expectSync(await runCommandLine(env, 'cat notes.txt', commands));
+
+    expect(contentOf(result.lines)).toContain('hello world');
+    expect(popSession).not.toHaveBeenCalled();
+  });
+
   it('closes before any stage of a pipeline runs', async () => {
     const { env } = standingOn({});
 
