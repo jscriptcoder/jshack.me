@@ -7,7 +7,7 @@ locked; decisions 31-35 were settled at this planning session and are recorded i
 plan implements them and does not reopen them.
 **Delivery**: ONE independent PR against `main` (decision 35). Behaviour change, TDD.
 
-## Progress — increments 1-5 of 7 are committed (2026-09-11)
+## Progress — increments 1-6 of 7 are committed (2026-09-11)
 
 Branch `feat/phase3-a-door-opens`, cut from `main` at `60a07a09`. Every commit below is green on
 the complete non-watch suite, `npm run typecheck` and `npm run lint`. Nothing is pushed yet and no
@@ -19,22 +19,38 @@ PR is open.
 | 2 | The seven formatters | `76ded1b5` | `formatExploit` REQUIRED on `ServiceSpec`; `core/logging/exploitLog.ts` (`ExploitEvent`, `syslogExploitLine`) plus one formatter each in `vsftpdLog`/`mysqlLog`/`redisLog`. 42 tests, driven through the catalog rows |
 | 3 | Two session kinds | `e72bb0df` | `SessionKind` += `exploit_limited`; `hasTty` → `PTY_LESS_KINDS`; `HOP_KINDS` += `exploit`; `isCrossPlayerHop` → `SHELL_KINDS` with both |
 | 4 | The server action | `165cb3a0` | `core/sessions/exploitCreateSession.ts` + its route in `api/sessions.ts`. 12 tests |
-| 5 | The command | _pending_ | `core/commands/msfconsole.ts` + registry; `ExploitApi` on `CommandEnv`; the `runExploit` adapter; `ui/env.ts` + `ui/state.ts` wiring. 21 tests |
+| 5 | The command | `0e24656e` | `core/commands/msfconsole.ts` + registry; `ExploitApi` on `CommandEnv`; the `runExploit` adapter; `ui/env.ts` + `ui/state.ts` wiring. 21 tests |
+| 6 | Nothing leaks into the scan | _pending_ | Two characterisation locks — the rendered `-sV` table and the `readOpenPorts` payload a cross-player scan sends. 2 tests |
 
-**Suite at increment 5: 4646 tests / 216 files.**
+**Suite at increment 6: 4648 tests / 216 files.**
 
-### What increment 6 has to do next
+### What increment 7 has to do next
 
-Assert `nmap -sV` output is **byte-identical** to today for a host whose CVE now has an effect and a
-tier. The scan's answer and the exploit's answer are two functions (decision 13), and only firing
-may reveal the second — so this increment is a characterisation lock, not new behaviour. Nothing
-under `src/core/scan/` or `liveCve.ts` was touched by increments 1-5, so the expected result is a
-test that passes on the first run; if it does not, something leaked.
+`scripts/testExploitOwnLan.ts`, live against `vercel dev` + supabase — the row lands with the tier
+the client showed, the target's log gains a line naming the CVE, and a port with no live CVE
+bounces and is written up. **Its full-shell case must target a store, a database or a name server**
+(see below). Conventions §5 has the stack-up sequence and the 3100 orphan trap.
 
-Then increment 7: `scripts/testExploitOwnLan.ts`, live against `vercel dev` + supabase — the row
-lands with the tier the client showed, the target's log gains a line naming the CVE, and a port
-with no live CVE bounces and is written up. **Its full-shell case must target a store, a database
-or a name server** — see below.
+Then the pre-PR gate: the mutation run over the four production files this slice added, the version
+bump to `0.213.0` in both `package.json` and `package-lock.json`, and the owner's ruling on
+`withoutTty`.
+
+### Increment 6 was a lock, not a change — and it was verified by breaking it
+
+No RED, because nothing changed: the scan's answer and the exploit's answer are two functions
+(decision 13), and increments 1-5 touched neither `liveCve` nor `readOpenPorts` nor the renderer.
+Both tests passed on their first run, which proves nothing on its own — so each was checked by
+temporarily leaking a `TIER` column into `nmap.ts` and a `tier` field into `readOpenPorts`, seeing
+both fail, and reverting. They bite.
+
+- **The render lock asserts whole LINES, not substrings.** A sixth column appended after SEVERITY
+  still satisfies a `toContain` of the five before it, which is how this kind of pin usually rots
+  into decoration.
+- **The payload lock is on `readOpenPorts`**, because that row is what a cross-player scan SENDS to
+  somebody else's client. A field added there would have to be produced by every server path and
+  trusted from each one — the leak that reaches furthest for the least effort.
+- Both derive `exploitOutcome` from the same package and day the scan is reading, so the test
+  demonstrates the answer was available and withheld rather than merely absent.
 
 ### What increment 5 actually shipped
 
