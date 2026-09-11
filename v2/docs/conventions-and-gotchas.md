@@ -2778,9 +2778,11 @@ blocks the live PvP loop; each was a scoped owner decision, not a gap.
   concealed a PASSING behaviour that nothing else covered. A wire-check that selects its own
   fixture must select one per CLAIM, not one per script; sharing a host across two claims silently
   couples them.
-- **Wire-checks are not in CI** — all 43 run only by hand against a local `vercel dev` +
-  supabase, and they are the ONLY thing that proves `api/` runtime correctness (`tsc` cannot
-  see DB columns or constraints). A regression there ships green. Raised repeatedly and
+- **Wire-checks are not in CI** — every `scripts/test*.ts` runs only by hand against a local
+  `vercel dev` + supabase, and they are the ONLY thing that proves `api/` runtime correctness
+  (`tsc` cannot see DB columns or constraints). A regression there ships green. (This line used to
+  carry a count. It said 43 while the directory held 66, because nothing updates a number in prose
+  — `ls v2/scripts/test*.ts | wc -l` is the answer that cannot go stale.) Raised repeatedly and
   deliberately not taken on yet; it needs a CI supabase + a way to boot the functions
   headlessly, which is a piece of work in its own right rather than a config tweak.
 - **Four tools cannot pivot: `ssh`, `nmap`, `curl`, `lynx`.** They carry no `caller_machine_id`,
