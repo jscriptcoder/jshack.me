@@ -128,6 +128,9 @@ describe('msfconsole', () => {
 
     expect(text).toContain(`[*] Targeting ${TARGET.ip}:${PORT}`);
     expect(text).toContain('[*] Sending exploit payload...');
+    // The line that stands while the round trip is in flight — the only thing on screen
+    // during the wait, so its absence reads as a tool that hung.
+    expect(text).toContain('[*] Payload delivered, waiting for callback...');
     expect(text).toContain('[*] Vulnerability: CVE-2026-0184 (critical)');
     expect(text).toContain('[+] Exploit successful!');
     expect(text).toContain(`[+] Full shell as root@${TARGET.ip}`);
@@ -268,6 +271,40 @@ describe('msfconsole', () => {
     expect(syncText(await msfconsole.execute(env, [TARGET.ip, 'ssh'], NO_FLAGS))).toBe(usage);
     expect(syncText(await msfconsole.execute(env, [TARGET.ip, '70000'], NO_FLAGS))).toBe(usage);
     expect(run).not.toHaveBeenCalled();
+  });
+
+  it('fires at either end of the port range, and at neither address beyond it', async () => {
+    // Both ends are real ports somebody can serve on, and both sit one step from a
+    // number that is not a port at all — so the bound decides between a door and a
+    // usage error, which is exactly where an off-by-one hides.
+    const { env, run } = exploitEnv();
+
+    for (const port of ['1', '65535']) {
+      const result = await msfconsole.execute(env, [TARGET.ip, port], NO_FLAGS);
+      expect(result.kind).toBe('async');
+      await drain(result);
+    }
+    expect(run).toHaveBeenCalledTimes(2);
+
+    for (const port of ['0', '65536']) {
+      expect(syncText(await msfconsole.execute(env, [TARGET.ip, port], NO_FLAGS))).toBe(
+        'usage: msfconsole <host> <port>',
+      );
+    }
+    expect(run).toHaveBeenCalledTimes(2);
+  });
+
+  it('pushes the session the server was asked to mint, under that same id', async () => {
+    // The id is the only thing tying the row on the server to the hop on the stack. If
+    // they differ, `exit` unwinds something the server never ended and a refresh
+    // restores a shell nobody is standing in.
+    const { env, run, pushed } = exploitEnv();
+
+    await drain(await msfconsole.execute(env, [TARGET.ip, String(PORT)], NO_FLAGS));
+
+    const asked = run.mock.calls[0]?.[0].sessionId;
+    expect(asked).toBeTruthy();
+    expect(pushed[0]?.id).toBe(asked);
   });
 
   it('refuses when the box it is run from is on no network', async () => {
