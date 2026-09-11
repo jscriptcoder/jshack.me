@@ -8,6 +8,7 @@ import { CVE_TIMING, packageTimeline } from '../cve/packageTimeline';
 import { WORLD_EPOCH } from '../cve/worldClock';
 import {
   buildEntry,
+  DPKG_STATUS_PATH,
   formatDpkgStatus,
   parseDpkgVersions,
   readDpkgStatus,
@@ -108,7 +109,7 @@ type WriteCall = {
   readonly path: string;
   readonly content: string;
   readonly options?:
-    | { readonly isNew?: boolean; readonly permissions?: FilePermissions }
+    | { readonly isNew?: boolean; readonly permissions?: FilePermissions; readonly owner?: string }
     | undefined;
 };
 
@@ -1061,9 +1062,24 @@ describe('apt list', () => {
  * row per package would be a wall of mostly-green noise, and a clean box saying so
  * plainly is the better reward.
  */
+const SSH = 'openssh-server';
+const DAY_MS = 86_400_000;
+
+/** An openssh release whose fix takes the longest the config allows, the release that
+ *  fix is, and the day it ships — so a box can be stood inside the gap or past it. */
+const sshSlowFix = () => {
+  const timeline = packageTimeline(SSH, 400);
+  const vulnerable = timeline.find(
+    (entry) => entry.index >= 1 && entry.patchDelay === CVE_TIMING.maxPatchDelayDays,
+  )!;
+  return {
+    vulnerable,
+    fix: timeline[vulnerable.index + 1]!,
+    shipsOn: vulnerable.publishedAt + vulnerable.patchDelay,
+  };
+};
+
 describe('apt list --upgradable', () => {
-  const SSH = 'openssh-server';
-  const DAY_MS = 86_400_000;
   const UPGRADABLE = new Map<string, string | true>([['-u', true]]);
 
   /** A box carrying `packages` in its manifest, standing on `gameDay` of the world. A
@@ -1087,21 +1103,6 @@ describe('apt list --upgradable', () => {
       fs: mockFsViewFromTree(tree, { userType }),
       now: () => asEpochMs(WORLD_EPOCH + (opts.gameDay ?? 0) * DAY_MS),
     });
-  };
-
-  /** An openssh release whose fix takes the longest the config allows, the release
-   *  that fix is, and the day it ships — so a box can be stood inside the gap or past
-   *  it. */
-  const sshSlowFix = () => {
-    const timeline = packageTimeline(SSH, 400);
-    const vulnerable = timeline.find(
-      (entry) => entry.index >= 1 && entry.patchDelay === CVE_TIMING.maxPatchDelayDays,
-    )!;
-    return {
-      vulnerable,
-      fix: timeline[vulnerable.index + 1]!,
-      shipsOn: vulnerable.publishedAt + vulnerable.patchDelay,
-    };
   };
 
   const listUpgradable = async (env: CommandEnv) =>
@@ -1213,6 +1214,93 @@ describe('apt list --upgradable', () => {
     expect(exitCode).toBe(100);
     expect(text).toContain('are you connected to a network');
     expect(text).not.toContain(SSH);
+  });
+});
+
+/**
+ * `apt upgrade` — the defender's first move. Everything else in the world makes a box
+ * worse for its owner; this is the answer.
+ *
+ * It moves a package onto the release that fixes it by rewriting that package's version
+ * in the manifest of the box the player is standing on. That file is what a scan reads
+ * and what an exploit is keyed on, so rewriting it is the whole of the patch.
+ */
+describe('apt upgrade', () => {
+  /** The box the player is standing on: its manifest reads exactly `status`, the world
+   *  is on `gameDay`, and every write apt makes is recorded rather than sent. Root and
+   *  online, which is what an upgrade asks for. */
+  const upgradeBox = (status: string, opts: { readonly gameDay: number }) => {
+    const writes: WriteCall[] = [];
+    const tree = buildDirectory({
+      var: buildDirectory({
+        lib: buildDirectory({ dpkg: buildDirectory({ status: buildFile(status, { owner: 'root' }) }) }),
+      }),
+    });
+    const env = mockCommandEnv({
+      session: mockSession({ userType: 'root' }),
+      network: mockNetworkView({ isOnline: () => true }),
+      fs: mockFsViewFromTree(tree, { userType: 'root' }),
+      now: () => asEpochMs(WORLD_EPOCH + opts.gameDay * DAY_MS),
+      patches: {
+        ...mockPatchApi(),
+        write: async (path, content, options) => {
+          writes.push({ path, content, options });
+          return { ok: true };
+        },
+      },
+    });
+    return { env, writes };
+  };
+
+  const upgrade = async (env: CommandEnv, ...packages: readonly string[]) =>
+    streamResult(await apt.execute(env, ['upgrade', ...packages], NO_FLAGS));
+
+  it('moves a package onto the release that fixes it, in the manifest of the box the player is standing on', async () => {
+    const { fix, shipsOn } = sshSlowFix();
+    const from = startingVersionOf(SSH)!;
+    // Written by hand rather than generated: a field apt knows nothing about, a block it
+    // cannot read, and spacing no generator produces. An upgrade that re-serialised the
+    // file would tidy all three away; the only thing allowed to change is the version.
+    const manifestOn = (version: string) =>
+      [
+        `Package: ${SSH}`,
+        'Status: install ok installed',
+        'Architecture: amd64',
+        `Version: ${version}`,
+        '',
+        '',
+        'Description: kept by hand',
+        '',
+        'Package: libz',
+        'Status: install ok installed',
+        `Version: ${startingVersionOf('libz')}`,
+        '',
+      ].join('\n');
+    const { env, writes } = upgradeBox(manifestOn(from), { gameDay: shipsOn });
+
+    const { lines, exitCode } = await upgrade(env, SSH);
+
+    expect(lines).toEqual([
+      { kind: 'text', content: 'Reading package lists...' },
+      { kind: 'text', content: 'Building dependency tree...' },
+      { kind: 'text', content: 'Calculating upgrade...' },
+      { kind: 'text', content: 'The following packages will be upgraded:' },
+      { kind: 'text', content: `  ${SSH}` },
+      { kind: 'text', content: '1 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.' },
+      { kind: 'text', content: `Unpacking ${SSH} (${fix.version}) over (${from}) ...` },
+      { kind: 'text', content: `Setting up ${SSH} (${fix.version}) ...` },
+    ]);
+    // Owner and permissions restated, because a rewrite that left them to the session
+    // would hand the file root-only permissions: the manifest would vanish from every
+    // scan and every `apt list -u` below root.
+    expect(writes).toEqual([
+      {
+        path: DPKG_STATUS_PATH,
+        content: manifestOn(fix.version),
+        options: { owner: 'root', permissions: SERVICE_CONFIG_FILE },
+      },
+    ]);
+    expect(exitCode).toBe(0);
   });
 });
 

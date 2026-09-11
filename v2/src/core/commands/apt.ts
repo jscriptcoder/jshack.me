@@ -39,7 +39,14 @@ import {
   packageContents,
   type AptExtraFile,
 } from '../packages/aptPackages';
-import { parseDpkgVersions, readDpkgStatus } from '../packages/dpkgStatus';
+import {
+  DPKG_STATUS_OWNER,
+  DPKG_STATUS_PATH,
+  DPKG_STATUS_PERMISSIONS,
+  parseDpkgVersions,
+  readDpkgStatus,
+  withPackageVersion,
+} from '../packages/dpkgStatus';
 import { upgradeStatusFor, type UpgradeStatus } from '../cve/packageTimeline';
 import { gameDayAt } from '../cve/worldClock';
 import { libraryDeps } from './libraryDeps';
@@ -257,6 +264,49 @@ async function* listUpgradable(env: CommandEnv): AsyncGenerator<TerminalLine, nu
   return 0;
 }
 
+/** One package leaving the release it is on for the one that fixes it. */
+type Upgrade = { readonly pkg: string; readonly from: string; readonly to: string };
+
+/** `apt upgrade <package>`: the named package moved onto the release that fixes it, by
+ *  rewriting its version in the manifest of the box the player is standing on. Every
+ *  package is unpacked before any is set up, as real apt orders it, and the manifest is
+ *  written once between the two. */
+async function* upgradePackages(
+  env: CommandEnv,
+  packageName: string,
+): AsyncGenerator<TerminalLine, number> {
+  yield text('Reading package lists...');
+  await env.sleep(STEP_DELAY_MS);
+  yield text('Building dependency tree...');
+  await env.sleep(STEP_DELAY_MS);
+  yield text('Calculating upgrade...');
+  await env.sleep(STEP_DELAY_MS);
+
+  const gameDay = gameDayAt(env.now());
+  const manifest = readDpkgStatus(env.fs.root());
+  const upgrades = Array.from(parseDpkgVersions(manifest))
+    .filter(([pkg]) => pkg === packageName)
+    .flatMap(([pkg, version]): readonly Upgrade[] => {
+      const status = upgradeStatusFor(pkg, version, gameDay);
+      return status.kind === 'upgradable' ? [{ pkg, from: version, to: status.target }] : [];
+    });
+
+  yield text('The following packages will be upgraded:');
+  yield text(`  ${upgrades.map(({ pkg }) => pkg).join(' ')}`);
+  yield text(`${upgrades.length} upgraded, 0 newly installed, 0 to remove and 0 not upgraded.`);
+  await env.sleep(STEP_DELAY_MS);
+  yield* upgrades.map(({ pkg, from, to }) => text(`Unpacking ${pkg} (${to}) over (${from}) ...`));
+  await env.patches.write(
+    asAbsPath(DPKG_STATUS_PATH),
+    upgrades.reduce((content, { pkg, to }) => withPackageVersion(content, pkg, to), manifest),
+    // Restated rather than left to the session: a rewrite at the session's defaults would
+    // leave the manifest root-only, and hide it from every scan and every `list -u`.
+    { owner: DPKG_STATUS_OWNER, permissions: DPKG_STATUS_PERMISSIONS },
+  );
+  yield* upgrades.map(({ pkg, to }) => text(`Setting up ${pkg} (${to}) ...`));
+  return 0;
+}
+
 /** The repo half of `install`, once the caller has cleared the root and
  *  connectivity gates. Every step is announced before it happens; a failure
  *  lands beneath the announcements the player has already seen rather than
@@ -361,6 +411,9 @@ const execute: Command['execute'] = async (env, args, flags) => {
   }
   if (subcommand === 'list') {
     return handleList(env, flags);
+  }
+  if (subcommand === 'upgrade' && packageName !== undefined) {
+    return streamedResult(upgradePackages(env, packageName));
   }
   return errorResult([`E: Invalid operation ${subcommand}`]);
 };

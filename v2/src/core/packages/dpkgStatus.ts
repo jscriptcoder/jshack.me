@@ -18,9 +18,18 @@
  * cannot lose data it does not understand.
  */
 
-import type { Directory } from '../filesystem/types';
+import type { Directory, FilePermissions } from '../filesystem/types';
+import { SERVICE_CONFIG_FILE } from '../generation/baseFs';
 
+/** Where the manifest lives, who owns it and what it permits — shared by the generator
+ *  that stamps it and every command that rewrites it, so a patched manifest and a
+ *  generated one cannot disagree. World-readable, root-write, never executable: real
+ *  dpkg's 644 root:root, and the same rung `/etc/*.conf` sits on, because what software
+ *  a box runs is the lowest tier of recon and costs no credential. The tier-3 allowlist
+ *  already publishes it, so this permission and that allowlist entry have to agree. */
 export const DPKG_STATUS_PATH = '/var/lib/dpkg/status';
+export const DPKG_STATUS_OWNER = 'root';
+export const DPKG_STATUS_PERMISSIONS: FilePermissions = SERVICE_CONFIG_FILE;
 
 export type DpkgEntry = {
   readonly pkg: string;
@@ -66,6 +75,21 @@ export const buildEntry = (pkg: string, version: string): DpkgEntry => ({
   version,
   rawBlock: `Package: ${pkg}\nStatus: install ok installed\nVersion: ${version}`,
 });
+
+/** The manifest with one package's version changed and every other byte left where it
+ *  was: fields nothing here understands, blocks the parser skips, the blank lines
+ *  between them. An upgrade moves a version; it does not get to tidy a file its owner
+ *  may have written by hand. Split on the parser's own separator, so the block rewritten
+ *  is the block a reader reads. */
+export const withPackageVersion = (content: string, pkg: string, version: string): string =>
+  content
+    .split(/(\n\s*\n)/)
+    .map((block) =>
+      PACKAGE_FIELD.exec(block)?.[1]?.trim() === pkg
+        ? block.replace(VERSION_FIELD, `Version: ${version}`)
+        : block,
+    )
+    .join('');
 
 /** Serialize entries back to file content: one blank line between blocks, and a
  *  trailing newline, as dpkg writes it. */
