@@ -5,6 +5,7 @@ import {
   assertCveTimingInvariants,
   CVE_TIMING,
   MAX_TIMELINE_ENTRIES,
+  installedRelease,
   packageTimeline,
   severityForRoll,
 } from './packageTimeline';
@@ -167,6 +168,59 @@ describe("a package's version timeline", () => {
     // `gameDayAt` floors at zero and has no ceiling, so a clock set to the wrong
     // century asks for a walk nobody wants to wait for.
     expect(packageTimeline(SSH, 10_000_000).length).toBe(MAX_TIMELINE_ENTRIES);
+  });
+});
+
+/**
+ * Which release a box is ACTUALLY running, given whatever its manifest says.
+ *
+ * The manifest is the version authority and it is root-WRITABLE, so a player can type
+ * anything into it. A version the world never published resolves DOWN to the newest
+ * release at or below it, which makes typing a high number buy exactly what being
+ * fully patched buys and nothing more — lying is pointless rather than punished.
+ * Anything that is not a version at all falls to the release the box was born on, so
+ * nonsense costs rather than protects. One rule, total, no carve-out.
+ */
+describe('the release a box is running', () => {
+  it('takes a version the world published at its word', () => {
+    const timeline = packageTimeline(SSH, 400);
+    expect(installedRelease(SSH, timeline[3]!.version, 400)).toEqual(timeline[3]);
+  });
+
+  it('resolves a version the world never published down to the newest release below it', () => {
+    const timeline = packageTimeline(SSH, 400);
+    // Nothing ever shipped a 9.7.99 — the 9.7 line stopped somewhere short of it and
+    // the next release opened 9.8. A box claiming it gets the newest 9.7 there was.
+    const newestOn97 = timeline.findLast((entry) => entry.tuple[0] === 9 && entry.tuple[1] === 7);
+    expect(newestOn97).toBeDefined();
+    expect(installedRelease(SSH, '9.7.99', 400)).toEqual(newestOn97);
+  });
+
+  it('gives a version beyond everything published exactly what a fully patched box has', () => {
+    const timeline = packageTimeline(SSH, 400);
+    expect(installedRelease(SSH, '999.0.0', 400)).toEqual(timeline.at(-1));
+  });
+
+  it.each(['banana', '', '9.9.9-never-shipped', 'v9.7.0', '9..7', '  '])(
+    'falls back to the version the box was born on for %j, which is not a version at all',
+    (typed) => {
+      expect(installedRelease(SSH, typed, 400)).toEqual(packageTimeline(SSH, 400)[0]);
+    },
+  );
+
+  it('falls back to the version the box was born on for one below anything ever released', () => {
+    expect(installedRelease(SSH, '1.0.0', 400)).toEqual(packageTimeline(SSH, 400)[0]);
+  });
+
+  it('reads a shorter spelling of a released version as that release', () => {
+    // `9.7` and `9.7.0` are the same release written two ways; a manifest a player has
+    // edited by hand is where the short spelling turns up.
+    const [first] = packageTimeline(SSH, 400);
+    expect(installedRelease(SSH, '9.7', 400)).toEqual(first);
+  });
+
+  it('has nothing for a package the world has no timeline for', () => {
+    expect(installedRelease('metasploit', '1.0.0', 400)).toBeUndefined();
   });
 });
 

@@ -107,13 +107,32 @@ describe('a package with no live CVE', () => {
     expect(liveCve(SSH, startOf(SSH), 0)).toBeUndefined();
   });
 
-  it('has none for a version the package never shipped', () => {
-    // The manifest is root-WRITABLE, so this is a line a player can type.
-    expect(liveCve(SSH, '9.9.9', LATE)).toBeUndefined();
+  it('has none for a hand-typed version beyond everything the world has released', () => {
+    // The manifest is root-WRITABLE, so this is a line a player can type — and it
+    // resolves DOWN to the newest release, which is clean until its own day comes.
+    // Typing a high number therefore buys exactly what upgrading buys and nothing
+    // more: the lie is pointless rather than punished.
+    expect(liveCve(SSH, '999.0.0', LATE)).toBeUndefined();
   });
 
   it('has none for a package the world has no version template for', () => {
     expect(liveCve('metasploit', '1.0.0', LATE)).toBeUndefined();
+  });
+});
+
+describe('a manifest that has been written on by hand', () => {
+  it('reads a version that is not a version at all as the one the box was born on', () => {
+    // Nonsense in the file is not a defence — it drops the box back to the release it
+    // shipped with, whose hole published long ago and is still open.
+    expect(liveCve(SSH, 'banana', LATE)).toEqual(liveCve(SSH, startOf(SSH), LATE));
+  });
+
+  it('reads a version from further up the package\'s own history as that release', () => {
+    // The other direction, and the one an attacker wants: pinning a box back to a
+    // release whose hole is open is a backdoor that looks like nothing at all.
+    const older = liveCve(SSH, startOf(SSH), LATE);
+    expect(older).toBeDefined();
+    expect(liveCve(SSH, '9.7', LATE)).toEqual(older);
   });
 });
 

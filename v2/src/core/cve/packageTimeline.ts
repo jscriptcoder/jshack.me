@@ -207,3 +207,62 @@ export const packageTimeline = (key: string, throughDay: number): readonly Timel
 
   return entries;
 };
+
+/** A version string as a tuple, or undefined when it is not a version at all — which
+ *  a root-writable manifest makes a thing a player can type. Strict on purpose:
+ *  `9.9.9-never-shipped` and `v9.7.0` are not versions this world has a history for,
+ *  and reading past the parts that do not parse would be inventing one. */
+const VERSION_TUPLE = /^\d+(?:\.\d+)*$/;
+
+const parsedTuple = (version: string): readonly number[] | undefined =>
+  VERSION_TUPLE.test(version) ? version.split('.').map(Number) : undefined;
+
+/** Component-wise order over tuples of any length, a missing component counting as
+ *  zero — `9.7` and `9.7.0` are one release written two ways. */
+const compareTuples = (left: readonly number[], right: readonly number[]): number =>
+  Array.from(
+    { length: Math.max(left.length, right.length) },
+    (_, index) => (left[index] ?? 0) - (right[index] ?? 0),
+  ).find((difference) => difference !== 0) ?? 0;
+
+/**
+ * Which release a box claiming `version` is ACTUALLY running.
+ *
+ * The manifest is the version authority and it is root-writable, so the string here
+ * is whatever a player last wrote. A version this world published is taken at its
+ * word. A version it never published resolves DOWN to the newest release at or below
+ * it, so typing a high number buys exactly what being fully patched buys and nothing
+ * more — the lie is pointless rather than punished, and the treadmill cannot be
+ * stepped off with one line in one file. Anything that is not a version at all, or
+ * one below the release the package was born on, falls back to that first release:
+ * nonsense in the file costs rather than protects.
+ *
+ * One rule, total, no carve-out — which is also what keeps a DOWNGRADE honest. Pinning
+ * a box back to a release whose hole is open is a backdoor that looks like nothing,
+ * and it works here because that release is a real entry that resolves to itself.
+ */
+export const installedRelease = (
+  key: string,
+  version: string,
+  gameDay: number,
+): TimelineEntry | undefined => {
+  const timeline = packageTimeline(key, gameDay);
+  const typed = parsedTuple(version);
+  const resolved =
+    typed === undefined
+      ? undefined
+      : timeline.findLast((entry) => compareTuples(entry.tuple, typed) <= 0);
+  return resolved ?? timeline[0];
+};
+
+/** The release a box is running, but only once its hole has actually landed. One
+ *  definition of "exposed", so a scan and the exploit that follows it can never
+ *  disagree about whether a box is open. */
+export const liveRelease = (
+  key: string,
+  version: string,
+  gameDay: number,
+): TimelineEntry | undefined => {
+  const release = installedRelease(key, version, gameDay);
+  return release === undefined || gameDay < release.publishedAt ? undefined : release;
+};

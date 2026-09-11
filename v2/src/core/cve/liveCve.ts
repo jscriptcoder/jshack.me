@@ -22,7 +22,7 @@
  * from the table would keep pointing at a hole its owner had already closed.
  */
 
-import { packageTimeline, type CveSeverity } from './packageTimeline';
+import { liveRelease, type CveSeverity } from './packageTimeline';
 
 export type LiveCve = {
   /** `CVE-YYYY-NNNNNNN`, where the year is the calendar year it published in. */
@@ -34,18 +34,17 @@ export type LiveCve = {
 
 /**
  * The CVE live against `key` at `version` on `gameDay`, or undefined when there
- * is none — the package is still inside its safe window, or the version is one
- * this world never shipped.
+ * is none — the release this box is on has not published its hole yet, or the
+ * package has no history in this world at all.
  *
- * An unrecognised version reads as clean, which is reachable today: the manifest
- * is root-writable, so a player can type a version nothing has a timeline for.
- * Harmless while nothing is exploitable; the exploit and upgrade paths own
- * deciding whether that should stay a free defence.
+ * What `version` MEANS is `installedRelease`'s rule, not this one's: the manifest
+ * is root-writable, so the string is whatever a player last wrote there, and it
+ * resolves to the nearest release at or below it. A hand-typed future version is
+ * therefore worth exactly what upgrading is worth, and no more.
  */
 export const liveCve = (key: string, version: string, gameDay: number): LiveCve | undefined => {
-  const [entry] = packageTimeline(key, gameDay);
-  if (entry === undefined || entry.version !== version || gameDay < entry.publishedAt) {
-    return undefined;
-  }
-  return { cve: entry.cve, severity: entry.severity, publishedAt: entry.publishedAt };
+  const release = liveRelease(key, version, gameDay);
+  return release === undefined
+    ? undefined
+    : { cve: release.cve, severity: release.severity, publishedAt: release.publishedAt };
 };
