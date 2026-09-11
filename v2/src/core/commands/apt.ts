@@ -33,7 +33,12 @@ import type { Command, CommandEnv, CommandResult, PatchResult, TerminalLine } fr
 import { BINARY_STUB } from '../generation/binaries';
 import { LIBRARY_PERMS } from '../generation/libraries';
 import type { SystemLibrary } from '../generation/libraries';
-import { APT_PACKAGES, packageContents, type AptExtraFile } from '../packages/aptPackages';
+import {
+  APT_PACKAGES,
+  BASE_IMAGE_PACKAGES,
+  packageContents,
+  type AptExtraFile,
+} from '../packages/aptPackages';
 import { parseDpkgVersions, readDpkgStatus } from '../packages/dpkgStatus';
 import { upgradeStatusFor, type UpgradeStatus } from '../cve/packageTimeline';
 import { gameDayAt } from '../cve/worldClock';
@@ -47,8 +52,9 @@ const STEP_DELAY_MS = 300;
 
 const USAGE = [
   'apt: usage:',
-  '  apt install <package>   Install a package',
-  '  apt list [--installed]  List packages (optionally only installed ones)',
+  '  apt install <package>     Install a package',
+  '  apt list [--installed]    List packages (optionally only installed ones)',
+  '  apt list --upgradable     List the packages on this box with a vulnerability',
 ];
 
 /** Apt's exit code for a failed operation (permission, fetch, locate, …). */
@@ -209,6 +215,9 @@ async function* listPackages(
     if (installedOnly && !installed) return [];
     return [text(`  ${pkg.name}${installed ? ' [installed]' : ''}`)];
   });
+  // Installed on every box, whatever /usr/bin holds: half of them are libraries, which
+  // have no binary to look for, and the rest arrived with the box rather than with apt.
+  yield* BASE_IMAGE_PACKAGES.map((name) => text(`  ${name} [installed]`));
   return 0;
 }
 
@@ -260,6 +269,14 @@ async function* installPackage(
   await env.sleep(STEP_DELAY_MS);
   yield text('Building dependency tree...');
   await env.sleep(STEP_DELAY_MS);
+
+  // True on every box in the world, so it is not a fiction — and there is nothing to
+  // write: no binary for software that came with the box, no `.so` for a library
+  // everything already links.
+  if (BASE_IMAGE_PACKAGES.includes(packageName)) {
+    yield text(`${packageName} is already the newest version.`);
+    return 0;
+  }
 
   const contents = packageContents(packageName);
   if (contents === undefined) {
@@ -356,9 +373,9 @@ export const apt: Command = {
   availability: { kind: 'localhost-only' },
   flags: { '--installed': 'boolean', '-i': 'boolean', '--upgradable': 'boolean', '-u': 'boolean' },
   manual: {
-    synopsis: 'apt <install|list> [args]',
+    synopsis: 'apt <install|list> [--installed|--upgradable] [package]',
     description:
-      'Advanced Package Tool. "install" downloads a package and places its binaries where they belong — tools in /usr/bin, service daemons in /usr/sbin — making them available to run (requires root — run "su" first). "list" shows the installable catalog; "list --installed" shows only the packages already present. Both need a network connection.',
+      'Advanced Package Tool. "install" downloads a package and places its binaries where they belong — tools in /usr/bin, service daemons in /usr/sbin — making them available to run (requires root — run "su" first). "list" shows the installable catalog; "list --installed" shows only the packages already present. "list --upgradable" (or -u) reads this box\'s package manifest and names every package with a published vulnerability: the version that fixes it, or — while the fix has not been released yet — how many days until it is. It needs no root. All of them need a network connection.',
     arguments: [
       {
         name: 'operation',
@@ -367,10 +384,19 @@ export const apt: Command = {
         values: ['install', 'list'],
       },
       { name: 'package', description: 'The package to install (for "install")' },
+      { name: '--installed', description: 'With "list": only the packages already present (-i)' },
+      {
+        name: '--upgradable',
+        description: 'With "list": only the packages on this box that are vulnerable (-u)',
+      },
     ],
     examples: [
       { command: 'apt install nmap', description: 'Install the nmap network scanner' },
       { command: 'apt list --installed', description: 'List the packages already installed' },
+      {
+        command: 'apt list --upgradable',
+        description: 'See which packages on this box are exposed, and when their fixes land',
+      },
     ],
   },
   execute,

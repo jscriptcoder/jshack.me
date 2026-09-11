@@ -6,8 +6,17 @@ import { asAbsPath, asEpochMs, asPlayerKeyHex, type UserType } from '../types';
 import type { CommandEnv, CommandResult, PatchResult, TerminalLine } from './types';
 import { CVE_TIMING, packageTimeline } from '../cve/packageTimeline';
 import { WORLD_EPOCH } from '../cve/worldClock';
-import { buildEntry, formatDpkgStatus } from '../packages/dpkgStatus';
-import { FIRMWARE_PACKAGE, startingVersionOf } from '../packages/packageVersions';
+import {
+  buildEntry,
+  formatDpkgStatus,
+  parseDpkgVersions,
+  readDpkgStatus,
+} from '../packages/dpkgStatus';
+import {
+  FIRMWARE_PACKAGE,
+  PACKAGE_TEMPLATES,
+  startingVersionOf,
+} from '../packages/packageVersions';
 import { bindFlags } from '../shell/bindFlags';
 import {
   mockCommandEnv,
@@ -229,6 +238,21 @@ const streamResult = async (
   };
 };
 
+/** Every package a freshly generated workstation's manifest names: its base image, and
+ *  nothing a player has bought yet. Read off a real box rather than restated, so the
+ *  list apt has to agree with is the one the world actually stamps. */
+const baseImagePackages = (): readonly string[] => [
+  ...parseDpkgVersions(
+    readDpkgStatus(
+      buildWorkstationBaseFs('e'.repeat(64), {
+        machineName: 'workstation',
+        username: 'alice',
+        rootPassword: 'hunter2',
+      }),
+    ),
+  ).keys(),
+];
+
 /** The FIRST streamed line, pulled without draining the rest — leaving the
  *  command suspended mid-flight so the world it hasn't touched yet is
  *  inspectable. */
@@ -441,6 +465,32 @@ describe('apt', () => {
       ]);
       expect(exitCode).toBe(100);
       expect(writes).toEqual([]);
+    });
+
+    it('answers that a package the base image ships is already the newest version, and lays nothing down', async () => {
+      // The manifest names these and `apt list -u` prints them, so apt has to know
+      // them — a row a player cannot type back at apt would be a dead end. But they
+      // are on every box in the world already, so there is nothing to install: no
+      // binary for software that arrived with the box, and no `.so` for a library
+      // everything already links.
+      const baseImage = baseImagePackages();
+      expect(baseImage).toContain(SERVICE_CATALOG.ssh.package);
+
+      for (const pkg of baseImage) {
+        const { env, operations } = aptEnv();
+
+        const { lines, exitCode } = await streamResult(
+          await apt.execute(env, ['install', pkg], NO_FLAGS),
+        );
+
+        expect(lines).toEqual([
+          { kind: 'text', content: 'Reading package lists...' },
+          { kind: 'text', content: 'Building dependency tree...' },
+          { kind: 'text', content: `${pkg} is already the newest version.` },
+        ]);
+        expect(exitCode).toBe(0);
+        expect(operations).toEqual([]);
+      }
     });
 
     it('errors with usage when no package is given', async () => {
@@ -718,6 +768,21 @@ describe('apt', () => {
     expect(description).toContain('/usr/sbin');
   });
 
+  it('documents list --upgradable, so a player can find out their own box is exposed', async () => {
+    // Nothing on screen hints that apt can say which of a box's packages are open, so
+    // the manual and the usage line are the only places the flag is discoverable. The
+    // prose, its own ARGUMENTS row and a worked EXAMPLE — the places a reader looks.
+    expect(apt.manual?.synopsis).toContain('--upgradable');
+    expect(apt.manual?.description).toContain('--upgradable');
+    expect(apt.manual?.arguments?.map((entry) => entry.name)).toContain('--upgradable');
+    expect(apt.manual?.examples?.map((entry) => entry.command)).toContain(
+      'apt list --upgradable',
+    );
+
+    const { text } = syncResult(await apt.execute(aptEnv().env, [], NO_FLAGS));
+    expect(text).toContain('--upgradable');
+  });
+
   it('writes no libraries for a real apt package (none map to a library today)', async () => {
     // Drives the REAL libraryDeps via apt.execute: installing nmap writes its
     // binary but no /lib/*.so — locking the wiring as a present-day no-op that
@@ -914,13 +979,41 @@ describe('apt list', () => {
       await apt.execute(env, ['list'], installedFlags),
     );
 
-    // The whole output: the announcement, then the one installed package. An
-    // excluded package contributes NOTHING — not an empty or placeholder row.
+    // The whole output: the announcement, the one installed package, and what the box
+    // shipped with. An excluded package contributes NOTHING — not an empty or
+    // placeholder row.
     expect(lines).toEqual([
       { kind: 'text', content: 'Listing...' },
       { kind: 'text', content: '  nmap [installed]' },
+      ...baseImagePackages().map((pkg) => ({ kind: 'text', content: `  ${pkg} [installed]` })),
     ]);
     expect(exitCode).toBe(0);
+  });
+
+  it('lists what every box ships with as installed, whatever /usr/bin holds', async () => {
+    // Judged by the base image rather than by a binary, because half of it has no
+    // binary at all — a library is linked, never run — and the other half's daemon
+    // lives where apt never put it.
+    const { env } = listEnv({ installed: [] });
+
+    const { lines } = await streamResult(await apt.execute(env, ['list'], installedFlags));
+
+    for (const pkg of baseImagePackages()) {
+      expect(lines).toContainEqual({ kind: 'text', content: `  ${pkg} [installed]` });
+    }
+  });
+
+  it('lists every package a box can carry a version of, so it never names one it then denies exists', async () => {
+    // The manifest and apt share one namespace. Every package a box's manifest can
+    // name is one apt lists — except `firmware`, which is synthetic: a router's owner
+    // does not upgrade its firmware through apt, and nothing here pretends otherwise.
+    const { env } = listEnv();
+
+    const { lines } = await streamResult(await apt.execute(env, ['list'], NO_FLAGS));
+    const listed = lines.slice(1).map((line) => line.content.trim().split(' ')[0]);
+
+    expect(listed).toEqual(expect.arrayContaining(Object.keys(PACKAGE_TEMPLATES)));
+    expect(listed).not.toContain(FIRMWARE_PACKAGE);
   });
 
   it('treats -i as an alias for --installed', async () => {
@@ -932,13 +1025,18 @@ describe('apt list', () => {
     expect(text).not.toContain('john');
   });
 
-  it('reflects filesystem state: with nothing installed, --installed lists no packages', async () => {
+  it('reflects filesystem state: with nothing bought, --installed lists only what the box shipped with', async () => {
     const { env } = listEnv({ installed: [] });
 
-    const { text, exitCode } = await streamResult(await apt.execute(env, ['list'], installedFlags));
+    const { lines, exitCode } = await streamResult(await apt.execute(env, ['list'], installedFlags));
 
     expect(exitCode).toBe(0);
-    for (const pkg of APT_PACKAGES) expect(text).not.toContain(pkg.name);
+    // Exact rows rather than substrings: `ftp` is a package a player buys, and it is
+    // also the middle of `vsftpd`, which the box shipped with.
+    expect(lines).toEqual([
+      { kind: 'text', content: 'Listing...' },
+      ...baseImagePackages().map((pkg) => ({ kind: 'text', content: `  ${pkg} [installed]` })),
+    ]);
   });
 
   it('errors offline and lists nothing', async () => {
