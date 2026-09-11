@@ -1,7 +1,7 @@
 # Plan: Phase 3 slice 4 — the defender patches
 
 **Branch**: `feat/phase3-a-fix-is-visible` (4a), then `feat/phase3-the-defender-patches` (4b)
-**Status**: Active
+**Status**: Active — slice 4a landed (PR #498); slice 4b not started.
 **Epic**: [`legacy-parity-epic.md`](./legacy-parity-epic.md) — Phase 3 slice 4. Decisions 1-35 are
 locked; decisions 36-39 were settled at this planning session and are recorded in the epic. This
 plan implements them and does not reopen them.
@@ -87,28 +87,28 @@ Owed to slice 5 or 6, recorded in the epic. It gets the resolver this slice buil
 
 **4a — a fix is visible**
 
-- [ ] A package's timeline walks FORWARD: each entry bumps the tuple (80% patch / 15% minor / 5%
+- [x] A package's timeline walks FORWARD: each entry bumps the tuple (80% patch / 15% minor / 5%
       major) and accumulates a 3-14 day gap, exactly as legacy's walker does.
-- [ ] **Nothing already published moves.** Slice 2's four golden CVE pins, and every CVE id, day,
+- [x] **Nothing already published moves.** Slice 2's four golden CVE pins, and every CVE id, day,
       severity and effect a box on its starting version currently derives, are byte-identical after
       the walk lands.
-- [ ] A box on a later version gets that version's OWN CVE — a different id and an independently
+- [x] A box on a later version gets that version's OWN CVE — a different id and an independently
       rolled severity from the one its starting version had.
-- [ ] A version the world never published resolves to its nearest known ancestor; a version below
+- [x] A version the world never published resolves to its nearest known ancestor; a version below
       the starting tuple, or one that is not a tuple, resolves to the starting version (decision
       36). The resolution is total — every string gets an answer.
-- [ ] `apt list -u` (and `--upgradable`) reads the CURRENT box's manifest and prints one row per
+- [x] `apt list -u` (and `--upgradable`) reads the CURRENT box's manifest and prints one row per
       package that needs action: `[upgradable → <version>]` when the fix is out, or
       `[vulnerable, no fix yet — ETA ~N days]` when the CVE published and its fix has not.
-- [ ] The ETA counts down: it is the days remaining until that fix is released, not an average.
-- [ ] A box with nothing exposed says so in one line rather than printing an empty list.
-- [ ] `apt list -u` is online-gated and needs no root, like `apt list` beside it.
-- [ ] Every package name the manifest can emit is one apt knows, `firmware` excepted (decision 38),
+- [x] The ETA counts down: it is the days remaining until that fix is released, not an average.
+- [x] A box with nothing exposed says so in one line rather than printing an empty list.
+- [x] `apt list -u` is online-gated and needs no root, like `apt list` beside it.
+- [x] Every package name the manifest can emit is one apt knows, `firmware` excepted (decision 38),
       and `apt install openssh-server` answers "already the newest version".
-- [ ] `man apt` documents the new operation.
-- [ ] `scripts/testExploitOwnLan.ts`'s door-closing case is rewritten to close the door with a REAL
+- [x] `man apt` documents the new operation.
+- [x] `scripts/testExploitOwnLan.ts`'s door-closing case is rewritten to close the door with a REAL
       later version — under decision 36 its `9.9.9-never-shipped` fixture now proves the opposite.
-- [ ] Version bumped in `v2/package.json` **and** `v2/package-lock.json`.
+- [x] Version bumped in `v2/package.json` **and** `v2/package-lock.json`.
 
 **4b — the defender patches**
 
@@ -163,11 +163,19 @@ module under `core/cve/` once the walk is written and green.
 timeout column** — a timeout counts as killed and inflates the score.
 **Expect `exploitEffect.ts`'s score to CLIMB on its own** as the effect index widens past the first
 entry, and do not "fix" it with a test that restates the pool table. The epic's slice 3 close-out
-accounts for all 45 of those survivors as currently-unreachable pool entries.
+accounts for all 45 of those survivors as currently-unreachable pool entries. — **Not borne out:**
+it held at 41.56% with the same 45, because every one is `StringLiteral → ""` on a
+`readonly ExploitEffectKind[]` literal — a compile error (`TS2322`) that Stryker, running no type
+checker here, scores as survived. Reachability never kept them alive; the class is now in the
+conventions doc's equivalent-mutant list.
 **PR-ready when**: every 4a criterion is met, the mutation gate is run and its valuable survivors
 addressed, `npm run typecheck` and `npm run lint` pass, the complete non-watch suite is green, and
 the rewritten `testExploitOwnLan.ts` passes live. Owner approves the commit.
-**Slice complete when**: the PR lands.
+**Slice complete when**: the PR lands. — **DONE**, PR #498 merged 2026-09-11 at v0.214.0 (squash
+`1af4f513`). Mutation: `packageTimeline.ts` 98.68% alone, `liveCve.ts` and the base-image lines
+100%; five real survivors killed at the gate, one of which had inverted the 80/15/5 bump weighting
+with every covering test still green. Wire-checks live: `testExploitOwnLan.ts` 18/18,
+`testCrossPlayerScanTrace.ts` 10/10.
 
 ### Slice 4b: the defender patches, and the exploit goes inert
 
@@ -199,6 +207,26 @@ Same §4 rules.
 addressed, `npm run typecheck` and `npm run lint` pass, the complete non-watch suite is green, and
 the extended `testExploitOwnLan.ts` proves the loop live. Owner approves the commit.
 **Slice complete when**: the PR lands.
+
+**What 4b inherits from 4a's as-built** (read before increment 1):
+
+- **The resolver is `upgradeStatusFor(key, version, gameDay)`** in `core/cve/packageTimeline.ts`,
+  returning `up-to-date` | `upgradable { target }` | `no-fix-yet { etaDays }` | `no-timeline`.
+  `apt upgrade` reads it per manifest row: `upgradable` writes `target`, `no-fix-yet` becomes the
+  warning line, the other two are skipped. The warning should reuse `list -u`'s count and its
+  `day`/`days` wording, so the two surfaces cannot disagree about when a fix ships.
+- **`findLatestSafeVersion` was NOT ported as an export.** Increment 4 (install through the
+  resolver) is its first real caller, and it needs the one case `upgradeStatusFor` never reaches:
+  before a package's first hole publishes, the release a box is born on is itself the latest safe
+  one. "One function for install and upgrade" (decision 7) is still owed there.
+- **The ten base-image packages are `BASE_IMAGE_PACKAGES` in `core/packages/aptPackages.ts`, not
+  rows in `APT_PACKAGES`.** Decision 38 said "catalog rows"; what a player sees is identical, and
+  keeping them out means neither the install hint nor `binariesForService` can match them.
+  Increment 3's "a package the box does not carry" reads the box's manifest, in which all ten
+  always appear.
+- **Open for the owner at increment 4:** `apt install openssh-server` answers "already the newest
+  version" even on a box where `apt list -u` shows it upgradable. Real apt would upgrade it there.
+  Decide whether install on an exposed, already-installed package routes to the upgrade path.
 
 ## Increments
 

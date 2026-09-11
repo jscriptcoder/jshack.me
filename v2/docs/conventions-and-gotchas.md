@@ -1549,6 +1549,12 @@ real endpoints against `vercel dev` + local supabase.
 - Prereqs: local supabase (`http://127.0.0.1:54421`, per `supabase/config.toml`) + `vercel dev`
   (port 3100) both up (see the 3100 gotcha above). "Serving" = an empty `{}` POST returns 400
   (not 502/000).
+- **Send that probe with `curl.exe`, not Windows PowerShell's `Invoke-WebRequest`.** On
+  2026-09-11 `Invoke-WebRequest -Method POST -Body '{}'` got an empty-bodied **500** from every
+  endpoint while `curl.exe -X POST -d "{}"` got the healthy `400 {"error":"envelope_invalid"}`
+  from the same server. GET answered 405 either way, which is the tell that the handler is up and
+  only the POST is wrong. A 500 there reads exactly like the `not_configured` fault below, and
+  restarting a stack that was never broken is the cost of believing it.
 - **Start it with `npm run vercel:dev`, never a bare `npx vercel dev`.** That script is
   `dotenv -e .env.development.local -- vercel dev --listen 3100`, and the dotenv wrapper is
   load-bearing: `vercel dev` does NOT read `.env.development.local` into the function runtime by
