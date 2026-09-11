@@ -6,6 +6,10 @@ import {
   type AuthSessionRow,
 } from '../src/core/sessions/authCreateSession';
 import { handleAuthCreateSessionPublic } from '../src/core/sessions/authCreateSessionPublic';
+import {
+  handleExploitCreateSession,
+  type ExploitSessionRow,
+} from '../src/core/sessions/exploitCreateSession';
 import type { NatOccupantRow, ApNetworkLookup } from '../src/core/network/resolvePublicTarget';
 import { computeApGatewayId } from '../src/core/identity/router';
 import {
@@ -50,11 +54,12 @@ import type { NonceStore } from '../src/core/signedRequest/nonceStore';
 
 // Vercel adapter for POST /api/sessions.
 //
-// Ten signed actions share this endpoint, routed on the (unverified) payload
+// Eighteen signed actions share this endpoint, routed on the (unverified) payload
 // `action` — each handler re-verifies the envelope itself, so routing on the
 // raw action is safe. They span session creation (own machine, own LAN, same
-// LAN, cross-player public, inner gateway), su elevation, the three credential
-// sweeps (own LAN, public, deep), and the two session reads.
+// LAN, cross-player public, inner gateway), the exploit door that asks for no
+// credential at all, su elevation, the three credential sweeps (own LAN, public,
+// deep), the database, store and agent conversations, and the two session reads.
 //
 // Replay protection uses a noop nonce store locally (Upstash wiring lands when
 // cross-player flows need it). Same posture as /api/patches.
@@ -98,7 +103,7 @@ const logFailure = (label: string, error: unknown) => {
 /** Every row shape this endpoint persists into `sessions`. They differ in `kind` and in
  *  whether an `essid` rides along; the insert itself does not care, and each handler has
  *  already validated the row it hands over. */
-type PersistedSessionRow = SessionRow | AuthSessionRow | SuSessionRow;
+type PersistedSessionRow = SessionRow | AuthSessionRow | SuSessionRow | ExploitSessionRow;
 
 const insertSessionVia =
   ({ supabase, label }: QuerySpec) =>
@@ -387,6 +392,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       findPatches: findPatchesVia({ supabase, label: 'own-lan boot-state lookup' }),
       readAuthLog: readAuthLogVia({ supabase, label: 'ssh auth-log read' }),
       upsertPatch: upsertPatchVia({ supabase, label: 'ssh auth-log upsert' }),
+    });
+    res.status(status).json(body);
+    return;
+  }
+
+  if (actionOf(req.body) === 'exploitCreateSession') {
+    // A CVE fired at a generated host on the caller's OWN LAN. No credential is sent or
+    // asked for: the handler recomputes the game day from THIS clock, regenerates the
+    // target, reads its manifest, and decides what is published there and what it
+    // grants. The break-in lands in that daemon's own log on the remote host.
+    const { status, body } = await handleExploitCreateSession(req.body, {
+      nonceStore: noopNonceStore,
+      now: () => Date.now(),
+      insertSession: insertSessionVia({ supabase, label: 'exploit insert' }),
+      findPatches: findPatchesVia({ supabase, label: 'exploit boot-state lookup' }),
+      readLog: readAuthLogVia({ supabase, label: 'exploit trace read' }),
+      upsertPatch: upsertPatchVia({ supabase, label: 'exploit trace upsert' }),
     });
     res.status(status).json(body);
     return;
