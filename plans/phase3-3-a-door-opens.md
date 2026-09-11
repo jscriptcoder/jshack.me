@@ -47,10 +47,71 @@ deletion marker; the other columns are NOT NULL in the table. The increment-4 un
 in-memory `tombstoneOf` helper nulls `node_type` too, which the in-memory replay tolerates and the
 database does not — worth knowing before the next script writes one.
 
+## Mutation gate — run 2026-09-11, **0 timeouts in all three runs**
+
+Scoped battery over the four production files, through a throwaway vitest config listing only the
+nine test files that cover them (321 tests in 47s, per conventions §4 — a whole-suite dry run does
+not finish here). Both throwaway configs were deleted afterwards; their `mutate`/`include` lists
+are per-slice and would rot.
+
+| File | Mutants | Start | After | Survivors left |
+|---|---|---|---|---|
+| `sessions/exploitCreateSession.ts` | 104 | 86.3% | **97.1%** | 3, all equivalent |
+| `logging/exploitLog.ts` | 9 | 88.9% | **100%** | 0 |
+| `commands/msfconsole.ts` | 110 | 63.6% | 68.2% | 35 = 30 manual-page prose + 4 equivalent + 1 cosmetic |
+| `cve/exploitEffect.ts` | 77 | 41.6% | 41.6% | 45, all undrawn pool data |
+
+**Excluding the effect pools and the manual page: 197/205 = 96.1%**, and every one of the eight
+remaining survivors is hand-accounted: seven equivalent, one a blank output line.
+
+### Why `exploitEffect.ts` reads 41.6% — and why no test was written for it
+
+The arithmetic settles it. The pool block holds **52 entries**; exactly **7 died** — one per service,
+the entry each seed actually draws — and exactly **45 survived**, with **zero survivors anywhere
+outside the pool block**. Every survivor is a pool entry the world cannot draw while the roll is
+pinned at `FIRST_INDEX`. They become reachable in slice 4, when `apt upgrade` moves a package to a
+later CVE and the index widens. Counting only reachable mutants the file is **32/32**. This is the
+unreachable-code case the working policy names: proportionate evidence, not a fabricated test.
+
+### Equivalent mutants, hand-checked rather than assumed
+
+- `outcome === undefined` → `false` — the `||`'s second operand still catches it, because `account`
+  is only computed when `outcome` exists.
+- `version === undefined` → `false` — `exploitOutcome(key, undefined, day)` returns undefined
+  anyway, since `startingVersionOf(key) !== undefined`.
+- `'failure'` → `""` — every formatter branches on `=== 'success'`, so an empty string still takes
+  the failure arm.
+- `msfconsole`'s whole argument guard (4 mutants) — the port guard below it is a superset:
+  `Number(undefined)` is `NaN`, so the usage error comes out either way.
+
+### What the survivors earned — ten tests for claims nothing checked
+
+The server's two 500 paths were the real find. A journal it could not read answered `not_vulnerable`
+with nothing to prove otherwise, and an insert that failed had a code comment claiming no trace is
+written that **nothing verified**. Also new: `findPatches` is aimed at the right machine id (the
+wrong one replays an empty journal and makes every box look pristine); the row carries its parent
+and source; a payload naming its own `player_key` is refused; a malformed payload is a **400**, not
+the 404 a real miss gets; and a caller with no address is written up as `unknown` rather than blank.
+
+`syslogExploitLine`'s failure branch was the sharpest one: forced down the success arm it prints
+`opened as undefined` into the defender's log — a break-in they never had, which is exactly the lie
+the two-formatter split exists to prevent. One assertion across all seven rows now forbids it.
+
+`msfconsole` gained its port bounds (0/1/65535/65536 — the bound decides between a door and a usage
+error) and session-id continuity: the id pushed onto the stack is the id the server was asked to
+mint, or `exit` unwinds something the server never ended.
+
+**Manual-page prose is deliberately not pinned.** Thirty survivors are the description, the
+arguments and the examples. A test that fixed that wording to the character would fail on every copy
+edit and catch no defect; `man.test.ts` already asserts the page has a real SYNOPSIS and EXAMPLES
+naming the command, which is the part that can actually be wrong.
+
+**Suite after the gate: 4664 tests / 216 files.**
+
 ### What remains before the PR
 
-The mutation gate over the four production files this slice added, the version bump to `0.213.0`
-in both `package.json` and `package-lock.json`, and the owner's ruling on `withoutTty`.
+The version bump to `0.213.0` in both `package.json` and `package-lock.json`, and the owner's ruling
+on `withoutTty`.
 
 ### Increment 6 was a lock, not a change — and it was verified by breaking it
 
