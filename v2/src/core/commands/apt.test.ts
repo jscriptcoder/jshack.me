@@ -4,7 +4,7 @@ import type { SystemLibrary } from '../generation/libraries';
 import type { Directory, FilePermissions } from '../filesystem/types';
 import { asAbsPath, asEpochMs, asPlayerKeyHex, type UserType } from '../types';
 import type { CommandEnv, CommandResult, PatchResult, TerminalLine } from './types';
-import { CVE_TIMING, packageTimeline } from '../cve/packageTimeline';
+import { CVE_TIMING, packageTimeline, upgradeStatusFor } from '../cve/packageTimeline';
 import { WORLD_EPOCH } from '../cve/worldClock';
 import {
   buildEntry,
@@ -1255,6 +1255,29 @@ describe('apt upgrade', () => {
   const upgrade = async (env: CommandEnv, ...packages: readonly string[]) =>
     streamResult(await apt.execute(env, ['upgrade', ...packages], NO_FLAGS));
 
+  const manifestOf = (versions: Readonly<Record<string, string>>): string =>
+    formatDpkgStatus(Object.entries(versions).map(([pkg, version]) => buildEntry(pkg, version)));
+
+  /** Every package a box can carry that, on `gameDay` and from the version a box is born
+   *  on, has a released fix — with the version that fix is. Read off the world rather
+   *  than written down, so the fixture cannot drift from it. */
+  const fixedOn = (gameDay: number) =>
+    Object.keys(PACKAGE_TEMPLATES).flatMap((pkg) => {
+      const from = startingVersionOf(pkg)!;
+      const status = upgradeStatusFor(pkg, from, gameDay);
+      return status.kind === 'upgradable' ? [{ pkg, from, to: status.target }] : [];
+    });
+
+  /** The day openssh's newest hole publishes, two days short of its fix — the longest a
+   *  fix is ever held back — and two other packages whose fixes are already out: the
+   *  mixed box bare `apt upgrade` exists for. */
+  const mixedBox = () => {
+    const { vulnerable, shipsOn } = sshSlowFix();
+    const gameDay = shipsOn - 2;
+    const [first, second] = fixedOn(gameDay).filter(({ pkg }) => pkg !== SSH);
+    return { gameDay, waiting: vulnerable.version, first: first!, second: second! };
+  };
+
   it('moves a package onto the release that fixes it, in the manifest of the box the player is standing on', async () => {
     const { fix, shipsOn } = sshSlowFix();
     const from = startingVersionOf(SSH)!;
@@ -1301,6 +1324,60 @@ describe('apt upgrade', () => {
       },
     ]);
     expect(exitCode).toBe(0);
+  });
+
+  it('with no package named, moves every exposed package at once and warns about the one whose fix has not shipped', async () => {
+    const { gameDay, waiting, first, second } = mixedBox();
+    const { env, writes } = upgradeBox(
+      manifestOf({ [SSH]: waiting, [first.pkg]: first.from, [second.pkg]: second.from }),
+      { gameDay },
+    );
+
+    const { lines, exitCode } = await upgrade(env);
+
+    expect(lines).toEqual([
+      { kind: 'text', content: 'Reading package lists...' },
+      { kind: 'text', content: 'Building dependency tree...' },
+      { kind: 'text', content: 'Calculating upgrade...' },
+      { kind: 'text', content: 'The following packages will be upgraded:' },
+      { kind: 'text', content: `  ${first.pkg} ${second.pkg}` },
+      // The count adds up to every package `apt list -u` would have shown: the ones this
+      // run moved, and the one it could not.
+      { kind: 'text', content: '2 upgraded, 0 newly installed, 0 to remove and 1 not upgraded.' },
+      { kind: 'text', content: `Unpacking ${first.pkg} (${first.to}) over (${first.from}) ...` },
+      { kind: 'text', content: `Unpacking ${second.pkg} (${second.to}) over (${second.from}) ...` },
+      { kind: 'text', content: `Setting up ${first.pkg} (${first.to}) ...` },
+      { kind: 'text', content: `Setting up ${second.pkg} (${second.to}) ...` },
+      // Last, where it is read, and in the words `apt list -u` uses for the same state —
+      // two surfaces must not disagree about when a fix ships.
+      { kind: 'error', content: `W: ${SSH} ${waiting} is vulnerable, no fix yet — ETA ~2 days` },
+    ]);
+    expect(writes).toEqual([
+      {
+        path: DPKG_STATUS_PATH,
+        content: manifestOf({ [SSH]: waiting, [first.pkg]: first.to, [second.pkg]: second.to }),
+        options: { owner: 'root', permissions: SERVICE_CONFIG_FILE },
+      },
+    ]);
+    // A warning is not a failure: everything that could move, moved.
+    expect(exitCode).toBe(0);
+  });
+
+  it('moves only the package it is told to, leaving every other exposed one where it is', async () => {
+    const { gameDay, waiting, first, second } = mixedBox();
+    const { env, writes } = upgradeBox(
+      manifestOf({ [SSH]: waiting, [first.pkg]: first.from, [second.pkg]: second.from }),
+      { gameDay },
+    );
+
+    const { text } = await upgrade(env, second.pkg);
+
+    expect(writes.map(({ content }) => content)).toEqual([
+      manifestOf({ [SSH]: waiting, [first.pkg]: first.from, [second.pkg]: second.to }),
+    ]);
+    expect(text).toContain('1 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.');
+    expect(text).not.toContain(first.pkg);
+    expect(text).not.toContain(SSH);
   });
 });
 

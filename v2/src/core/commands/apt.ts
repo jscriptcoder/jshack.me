@@ -228,6 +228,11 @@ async function* listPackages(
   return 0;
 }
 
+/** A package inside its patch-delay gap, in the words `list -u` and `upgrade` both use —
+ *  one phrase, so the two cannot disagree about when a fix ships. */
+const noFixYet = (etaDays: number): string =>
+  `vulnerable, no fix yet — ETA ~${etaDays} day${etaDays === 1 ? '' : 's'}`;
+
 /** One package's row, or none. Only a package that needs a move is listed, as real
  *  `apt list --upgradable` does; a package with no timeline — a router's firmware —
  *  has nothing to offer and is left out rather than given a version it does not have.
@@ -242,8 +247,7 @@ const upgradableRow = (
     return [text(`  ${pkg} ${version} [upgradable → ${status.target}]`)];
   }
   if (status.kind === 'no-fix-yet') {
-    const days = `${status.etaDays} day${status.etaDays === 1 ? '' : 's'}`;
-    return [text(`  ${pkg} ${version} [vulnerable, no fix yet — ETA ~${days}]`)];
+    return [text(`  ${pkg} ${version} [${noFixYet(status.etaDays)}]`)];
   }
   return [];
 };
@@ -267,13 +271,16 @@ async function* listUpgradable(env: CommandEnv): AsyncGenerator<TerminalLine, nu
 /** One package leaving the release it is on for the one that fixes it. */
 type Upgrade = { readonly pkg: string; readonly from: string; readonly to: string };
 
-/** `apt upgrade <package>`: the named package moved onto the release that fixes it, by
- *  rewriting its version in the manifest of the box the player is standing on. Every
- *  package is unpacked before any is set up, as real apt orders it, and the manifest is
- *  written once between the two. */
+/** `apt upgrade [package]`: every exposed package on the box the player is standing on —
+ *  or only the one named — moved onto the release that fixes it, by rewriting its
+ *  version in that box's manifest. Every package is unpacked before any is set up, as
+ *  real apt orders it, and the manifest is written once between the two.
+ *
+ *  A package whose fix has not shipped cannot move, and says so last, where it is read:
+ *  the count of what did not move adds up with what did to every row `list -u` shows. */
 async function* upgradePackages(
   env: CommandEnv,
-  packageName: string,
+  packageName: string | undefined,
 ): AsyncGenerator<TerminalLine, number> {
   yield text('Reading package lists...');
   await env.sleep(STEP_DELAY_MS);
@@ -284,16 +291,23 @@ async function* upgradePackages(
 
   const gameDay = gameDayAt(env.now());
   const manifest = readDpkgStatus(env.fs.root());
-  const upgrades = Array.from(parseDpkgVersions(manifest))
-    .filter(([pkg]) => pkg === packageName)
-    .flatMap(([pkg, version]): readonly Upgrade[] => {
-      const status = upgradeStatusFor(pkg, version, gameDay);
-      return status.kind === 'upgradable' ? [{ pkg, from: version, to: status.target }] : [];
-    });
+  const rows = Array.from(parseDpkgVersions(manifest))
+    .filter(([pkg]) => packageName === undefined || pkg === packageName)
+    .map(([pkg, version]) => ({ pkg, version, status: upgradeStatusFor(pkg, version, gameDay) }));
+  const upgrades = rows.flatMap(({ pkg, version, status }): readonly Upgrade[] =>
+    status.kind === 'upgradable' ? [{ pkg, from: version, to: status.target }] : [],
+  );
+  const warnings = rows.flatMap(({ pkg, version, status }) =>
+    status.kind === 'no-fix-yet'
+      ? [errorLine(`W: ${pkg} ${version} is ${noFixYet(status.etaDays)}`)]
+      : [],
+  );
 
   yield text('The following packages will be upgraded:');
   yield text(`  ${upgrades.map(({ pkg }) => pkg).join(' ')}`);
-  yield text(`${upgrades.length} upgraded, 0 newly installed, 0 to remove and 0 not upgraded.`);
+  yield text(
+    `${upgrades.length} upgraded, 0 newly installed, 0 to remove and ${warnings.length} not upgraded.`,
+  );
   await env.sleep(STEP_DELAY_MS);
   yield* upgrades.map(({ pkg, from, to }) => text(`Unpacking ${pkg} (${to}) over (${from}) ...`));
   await env.patches.write(
@@ -304,6 +318,7 @@ async function* upgradePackages(
     { owner: DPKG_STATUS_OWNER, permissions: DPKG_STATUS_PERMISSIONS },
   );
   yield* upgrades.map(({ pkg, to }) => text(`Setting up ${pkg} (${to}) ...`));
+  yield* warnings;
   return 0;
 }
 
@@ -412,7 +427,7 @@ const execute: Command['execute'] = async (env, args, flags) => {
   if (subcommand === 'list') {
     return handleList(env, flags);
   }
-  if (subcommand === 'upgrade' && packageName !== undefined) {
+  if (subcommand === 'upgrade') {
     return streamedResult(upgradePackages(env, packageName));
   }
   return errorResult([`E: Invalid operation ${subcommand}`]);
