@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { PACKAGE_TEMPLATES, startingVersionOf } from '../packages/packageVersions';
+import {
+  FIRMWARE_PACKAGE,
+  PACKAGE_TEMPLATES,
+  startingVersionOf,
+} from '../packages/packageVersions';
 import { liveCve } from './liveCve';
 import {
   assertCveTimingInvariants,
@@ -8,6 +12,7 @@ import {
   installedRelease,
   packageTimeline,
   severityForRoll,
+  upgradeStatusFor,
 } from './packageTimeline';
 import { WORLD_EPOCH } from './worldClock';
 
@@ -221,6 +226,84 @@ describe('the release a box is running', () => {
 
   it('has nothing for a package the world has no timeline for', () => {
     expect(installedRelease('metasploit', '1.0.0', 400)).toBeUndefined();
+  });
+});
+
+/** A release whose fix takes the longest the config allows, so the gap before it spans
+ *  more than one day and a countdown has somewhere to count from — plus the release
+ *  that fix IS. Never the first release, so a box born on entry zero is at least two
+ *  steps behind the fix. */
+const slowFix = () => {
+  const timeline = packageTimeline(SSH, 400);
+  const vulnerable = timeline.find(
+    (entry) => entry.index >= 1 && entry.patchDelay === CVE_TIMING.maxPatchDelayDays,
+  )!;
+  return {
+    timeline,
+    vulnerable,
+    fix: timeline[vulnerable.index + 1]!,
+    shipsOn: vulnerable.publishedAt + vulnerable.patchDelay,
+  };
+};
+
+/**
+ * Where a box can move to, and whether it can yet.
+ *
+ * "Up to date" means not exposed rather than on the newest version: the treadmill only
+ * asks a player to move once the hole in the release they are on has actually landed,
+ * which keeps a quiet box quiet. Once it has, the answer is the newest release whose own
+ * hole has NOT — but only after that fix has shipped. Between a CVE publishing and its
+ * fix, the honest answer is that there is nothing to install yet, and exactly how long
+ * until there is.
+ */
+describe('what a box can upgrade to', () => {
+  it('is up to date while the release it is on is still clean, however old that release is', () => {
+    const { fix, shipsOn } = slowFix();
+    const [first] = packageTimeline(SSH, 400);
+    expect(upgradeStatusFor(SSH, startingVersionOf(SSH)!, first!.publishedAt - 1)).toEqual({
+      kind: 'up-to-date',
+    });
+    expect(upgradeStatusFor(SSH, fix.version, shipsOn)).toEqual({ kind: 'up-to-date' });
+  });
+
+  it('says no fix exists yet while one is on its way, counting the days down until it ships', () => {
+    // The true days remaining rather than an average: the timeline is deterministic and
+    // the client already walks it, so a midpoint would be the game withholding a number
+    // it has already handed over — and a real countdown makes "come back tomorrow" a
+    // plan rather than a guess.
+    const { vulnerable, fix, shipsOn } = slowFix();
+    const statusOn = (day: number) => upgradeStatusFor(SSH, vulnerable.version, day);
+    expect(statusOn(shipsOn - 2)).toEqual({ kind: 'no-fix-yet', etaDays: 2 });
+    expect(statusOn(shipsOn - 1)).toEqual({ kind: 'no-fix-yet', etaDays: 1 });
+    expect(statusOn(shipsOn)).toEqual({ kind: 'upgradable', target: fix.version });
+  });
+
+  it('moves a box straight to the newest safe release rather than one step along', () => {
+    // The step after a box's own release is usually vulnerable too by the time anybody
+    // looks, and an upgrade that lands on an open hole is not a fix.
+    const { timeline, fix, shipsOn } = slowFix();
+    expect(fix.version).not.toBe(timeline[1]!.version);
+    expect(upgradeStatusFor(SSH, startingVersionOf(SSH)!, shipsOn)).toEqual({
+      kind: 'upgradable',
+      target: fix.version,
+    });
+  });
+
+  it('reads a hand-written version as the release it resolves to', () => {
+    const { fix, shipsOn } = slowFix();
+    expect(upgradeStatusFor(SSH, '999.0.0', shipsOn)).toEqual({ kind: 'up-to-date' });
+    expect(upgradeStatusFor(SSH, 'banana', shipsOn)).toEqual({
+      kind: 'upgradable',
+      target: fix.version,
+    });
+  });
+
+  it('has no timeline to offer for firmware, which a player does not move through apt', () => {
+    expect(upgradeStatusFor(FIRMWARE_PACKAGE, '1.0.0', LATE)).toEqual({ kind: 'no-timeline' });
+  });
+
+  it('offers nothing past the last release the walk will reach, rather than inventing one', () => {
+    expect(upgradeStatusFor(SSH, '999.0.0', 10_000_000)).toEqual({ kind: 'no-timeline' });
   });
 });
 

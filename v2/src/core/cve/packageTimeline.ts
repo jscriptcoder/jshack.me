@@ -255,14 +255,63 @@ export const installedRelease = (
   return resolved ?? timeline[0];
 };
 
-/** The release a box is running, but only once its hole has actually landed. One
- *  definition of "exposed", so a scan and the exploit that follows it can never
- *  disagree about whether a box is open. */
+/** Whether a release's hole has landed by `gameDay` — from its publication day on, and
+ *  for good: a CVE never expires, so a box sitting here stays exposed until it MOVES.
+ *  The one definition of "exposed", so a scan, the exploit that follows it and apt's
+ *  own advice can never disagree about whether a box is open. */
+const hasLanded = (release: TimelineEntry, gameDay: number): boolean =>
+  release.publishedAt <= gameDay;
+
+/** The release a box is running, but only once its hole has actually landed. */
 export const liveRelease = (
   key: string,
   version: string,
   gameDay: number,
 ): TimelineEntry | undefined => {
   const release = installedRelease(key, version, gameDay);
-  return release === undefined || gameDay < release.publishedAt ? undefined : release;
+  return release !== undefined && hasLanded(release, gameDay) ? release : undefined;
+};
+
+/**
+ * What apt can do for one package on a box.
+ *
+ * `up-to-date` means NOT EXPOSED rather than on the newest release: the treadmill only
+ * asks a player to move once the hole in the release they are on has landed, which
+ * keeps a quiet box quiet.
+ */
+export type UpgradeStatus =
+  | { readonly kind: 'up-to-date' }
+  /** Exposed, and a release whose own hole has not landed is installable now. */
+  | { readonly kind: 'upgradable'; readonly target: string }
+  /** Exposed, and the fix is still inside its patch delay. The days REMAINING until it
+   *  ships — the timeline is deterministic and the client already walks it, so an
+   *  average would be the game withholding a number it has already handed over. */
+  | { readonly kind: 'no-fix-yet'; readonly etaDays: number }
+  /** Nothing to move along: a package this world keeps no history for (a router's
+   *  firmware, which its owner does not upgrade through apt), or a clock set past the
+   *  last release the walk will reach. */
+  | { readonly kind: 'no-timeline' };
+
+/**
+ * Where a box claiming `version` of `key` can move to on `gameDay`.
+ *
+ * The target is the newest release whose own hole has NOT landed, never merely the
+ * step after the box's own: by the time anybody looks, that step is usually open too,
+ * and an upgrade that lands on a live hole is not a fix. And it is only offered once
+ * the fix has shipped — the patch delay is the window in which a defender is told the
+ * truth and can do nothing about it, which is why nobody is ever immune.
+ */
+export const upgradeStatusFor = (key: string, version: string, gameDay: number): UpgradeStatus => {
+  const release = installedRelease(key, version, gameDay);
+  if (release === undefined) return { kind: 'no-timeline' };
+  if (!hasLanded(release, gameDay)) return { kind: 'up-to-date' };
+  const timeline = packageTimeline(key, gameDay);
+  // The box's own release has landed, so the newest to have done so is it or later.
+  const newest = timeline.findLast((entry) => hasLanded(entry, gameDay)) ?? release;
+  const fix = timeline[newest.index + 1];
+  if (fix === undefined) return { kind: 'no-timeline' };
+  const shipsOn = newest.publishedAt + newest.patchDelay;
+  return gameDay < shipsOn
+    ? { kind: 'no-fix-yet', etaDays: shipsOn - gameDay }
+    : { kind: 'upgradable', target: fix.version };
 };
