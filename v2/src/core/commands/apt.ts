@@ -25,6 +25,12 @@
  * packages on this box are exposed, and whether the release that fixes each has
  * shipped yet. It writes nothing and the manifest is world-readable, so it needs no
  * root — only the network, like `list` beside it.
+ *
+ * `upgrade` is the answer to what `list -u` shows, and takes `install`'s two gates for
+ * the same reasons. It rewrites the versions of the exposed packages in that same
+ * manifest — the file a scan reads and an exploit is keyed on — so a patch is one write
+ * to one file. A package whose fix has not shipped yet is reported rather than moved:
+ * the patch delay is the window nobody can buy their way out of.
  */
 
 import { asAbsPath, type AbsPath } from '../types';
@@ -60,6 +66,7 @@ const STEP_DELAY_MS = 300;
 const USAGE = [
   'apt: usage:',
   '  apt install <package>     Install a package',
+  '  apt upgrade [package]     Patch the packages on this box whose fixes have shipped',
   '  apt list [--installed]    List packages (optionally only installed ones)',
   '  apt list --upgradable     List the packages on this box with a vulnerability',
 ];
@@ -103,6 +110,15 @@ const offlineError = (): CommandResult =>
   errorResult([
     "Err: http://deb.debian.org/debian Temporary failure resolving 'deb.debian.org'",
     'E: Failed to fetch — are you connected to a network?',
+  ]);
+
+/** The apt-style "you are not root" failure, shared by the two operations that write:
+ *  real apt cannot take the dpkg lock as a normal user, whichever of them was asked
+ *  for. */
+const lockError = (): CommandResult =>
+  errorResult([
+    'E: Could not open lock file /var/lib/dpkg/lock-frontend - open (13: Permission denied)',
+    'E: Unable to acquire the dpkg frontend lock (/var/lib/dpkg/lock-frontend), are you root?',
   ]);
 
 /**
@@ -291,7 +307,14 @@ async function* upgradePackages(
 
   const gameDay = gameDayAt(env.now());
   const manifest = readDpkgStatus(env.fs.root());
-  const rows = Array.from(parseDpkgVersions(manifest))
+  const installed = parseDpkgVersions(manifest);
+  // Only discoverable by reading the box's own manifest, so it reports beneath the
+  // preamble — where an unknown package reports for `install`, and for the same reason.
+  if (packageName !== undefined && !installed.has(packageName)) {
+    yield errorLine(`E: Package '${packageName}' is not installed, so not upgraded`);
+    return APT_ERROR;
+  }
+  const rows = Array.from(installed)
     .filter(([pkg]) => packageName === undefined || pkg === packageName)
     .map(([pkg, version]) => ({ pkg, version, status: upgradeStatusFor(pkg, version, gameDay) }));
   const upgrades = rows.flatMap(({ pkg, version, status }): readonly Upgrade[] =>
@@ -303,20 +326,36 @@ async function* upgradePackages(
       : [],
   );
 
-  yield text('The following packages will be upgraded:');
-  yield text(`  ${upgrades.map(({ pkg }) => pkg).join(' ')}`);
+  if (upgrades.length > 0) {
+    yield text('The following packages will be upgraded:');
+    yield text(`  ${upgrades.map(({ pkg }) => pkg).join(' ')}`);
+  }
+  // Printed even when it is all zeroes: a box with nothing to do has to SAY nothing to
+  // do, or the player cannot tell a clean box from a command that broke.
   yield text(
     `${upgrades.length} upgraded, 0 newly installed, 0 to remove and ${warnings.length} not upgraded.`,
   );
+  if (upgrades.length === 0) {
+    yield* warnings;
+    return 0;
+  }
+
   await env.sleep(STEP_DELAY_MS);
   yield* upgrades.map(({ pkg, from, to }) => text(`Unpacking ${pkg} (${to}) over (${from}) ...`));
-  await env.patches.write(
+  const written = await env.patches.write(
     asAbsPath(DPKG_STATUS_PATH),
     upgrades.reduce((content, { pkg, to }) => withPackageVersion(content, pkg, to), manifest),
     // Restated rather than left to the session: a rewrite at the session's defaults would
     // leave the manifest root-only, and hide it from every scan and every `list -u`.
     { owner: DPKG_STATUS_OWNER, permissions: DPKG_STATUS_PERMISSIONS },
   );
+  // Nothing moved, so nothing may claim to have been set up — the manifest IS the
+  // upgrade, and a box that reported one it never made would be lying about its own
+  // exposure.
+  if (!written.ok) {
+    yield errorLine(`E: Failed to write ${DPKG_STATUS_PATH} (${written.error})`);
+    return APT_ERROR;
+  }
   yield* upgrades.map(({ pkg, to }) => text(`Setting up ${pkg} (${to}) ...`));
   yield* warnings;
   return 0;
@@ -402,10 +441,7 @@ const handleList = (env: CommandEnv, flags: ReadonlyMap<string, string | true>):
 
 const handleInstall = (env: CommandEnv, packageName: string | undefined): CommandResult => {
   if (env.session.userType !== 'root') {
-    return errorResult([
-      'E: Could not open lock file /var/lib/dpkg/lock-frontend - open (13: Permission denied)',
-      'E: Unable to acquire the dpkg frontend lock (/var/lib/dpkg/lock-frontend), are you root?',
-    ]);
+    return lockError();
   }
   if (!env.network.isOnline()) {
     return offlineError();
@@ -414,6 +450,19 @@ const handleInstall = (env: CommandEnv, packageName: string | undefined): Comman
     return errorResult(['E: No package specified.', ...USAGE]);
   }
   return streamedResult(installPackage(env, packageName));
+};
+
+/** `upgrade` takes the same two gates `install` does, in the same order and for the same
+ *  reasons: the dpkg lock is root's, and a release cannot be fetched from a repo the box
+ *  cannot reach. Both refuse before the repo is touched, so neither prints a preamble. */
+const handleUpgrade = (env: CommandEnv, packageName: string | undefined): CommandResult => {
+  if (env.session.userType !== 'root') {
+    return lockError();
+  }
+  if (!env.network.isOnline()) {
+    return offlineError();
+  }
+  return streamedResult(upgradePackages(env, packageName));
 };
 
 const execute: Command['execute'] = async (env, args, flags) => {
@@ -428,7 +477,7 @@ const execute: Command['execute'] = async (env, args, flags) => {
     return handleList(env, flags);
   }
   if (subcommand === 'upgrade') {
-    return streamedResult(upgradePackages(env, packageName));
+    return handleUpgrade(env, packageName);
   }
   return errorResult([`E: Invalid operation ${subcommand}`]);
 };
@@ -441,17 +490,21 @@ export const apt: Command = {
   availability: { kind: 'localhost-only' },
   flags: { '--installed': 'boolean', '-i': 'boolean', '--upgradable': 'boolean', '-u': 'boolean' },
   manual: {
-    synopsis: 'apt <install|list> [--installed|--upgradable] [package]',
+    synopsis: 'apt <install|list|upgrade> [--installed|--upgradable] [package]',
     description:
-      'Advanced Package Tool. "install" downloads a package and places its binaries where they belong — tools in /usr/bin, service daemons in /usr/sbin — making them available to run (requires root — run "su" first). "list" shows the installable catalog; "list --installed" shows only the packages already present. "list --upgradable" (or -u) reads this box\'s package manifest and names every package with a published vulnerability: the version that fixes it, or — while the fix has not been released yet — how many days until it is. It needs no root. All of them need a network connection.',
+      'Advanced Package Tool. "install" downloads a package and places its binaries where they belong — tools in /usr/bin, service daemons in /usr/sbin — making them available to run (requires root — run "su" first). "upgrade" closes the holes "list --upgradable" names: it moves every package on this box whose fix has been released onto that release, or only the package you name, and reports the ones whose fix has not shipped yet rather than moving them (requires root). "list" shows the installable catalog; "list --installed" shows only the packages already present. "list --upgradable" (or -u) reads this box\'s package manifest and names every package with a published vulnerability: the version that fixes it, or — while the fix has not been released yet — how many days until it is. It needs no root. All of them need a network connection.',
     arguments: [
       {
         name: 'operation',
-        description: '"install" or "list"',
+        description: '"install", "list" or "upgrade"',
         required: true,
-        values: ['install', 'list'],
+        values: ['install', 'list', 'upgrade'],
       },
-      { name: 'package', description: 'The package to install (for "install")' },
+      {
+        name: 'package',
+        description:
+          'The package to install (for "install"), or the single package to upgrade (for "upgrade", which otherwise covers them all)',
+      },
       { name: '--installed', description: 'With "list": only the packages already present (-i)' },
       {
         name: '--upgradable',
@@ -460,6 +513,10 @@ export const apt: Command = {
     ],
     examples: [
       { command: 'apt install nmap', description: 'Install the nmap network scanner' },
+      {
+        command: 'apt upgrade',
+        description: 'Patch every package on this box whose fix has been released',
+      },
       { command: 'apt list --installed', description: 'List the packages already installed' },
       {
         command: 'apt list --upgradable',

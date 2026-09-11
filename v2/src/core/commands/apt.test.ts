@@ -1229,23 +1229,32 @@ describe('apt upgrade', () => {
   /** The box the player is standing on: its manifest reads exactly `status`, the world
    *  is on `gameDay`, and every write apt makes is recorded rather than sent. Root and
    *  online, which is what an upgrade asks for. */
-  const upgradeBox = (status: string, opts: { readonly gameDay: number }) => {
+  const upgradeBox = (
+    status: string,
+    opts: {
+      readonly gameDay: number;
+      readonly userType?: UserType;
+      readonly online?: boolean;
+      readonly writeResult?: PatchResult;
+    },
+  ) => {
     const writes: WriteCall[] = [];
+    const userType = opts.userType ?? 'root';
     const tree = buildDirectory({
       var: buildDirectory({
         lib: buildDirectory({ dpkg: buildDirectory({ status: buildFile(status, { owner: 'root' }) }) }),
       }),
     });
     const env = mockCommandEnv({
-      session: mockSession({ userType: 'root' }),
-      network: mockNetworkView({ isOnline: () => true }),
-      fs: mockFsViewFromTree(tree, { userType: 'root' }),
+      session: mockSession({ userType }),
+      network: mockNetworkView({ isOnline: () => opts.online ?? true }),
+      fs: mockFsViewFromTree(tree, { userType }),
       now: () => asEpochMs(WORLD_EPOCH + opts.gameDay * DAY_MS),
       patches: {
         ...mockPatchApi(),
         write: async (path, content, options) => {
           writes.push({ path, content, options });
-          return { ok: true };
+          return opts.writeResult ?? { ok: true };
         },
       },
     });
@@ -1378,6 +1387,100 @@ describe('apt upgrade', () => {
     expect(text).toContain('1 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.');
     expect(text).not.toContain(first.pkg);
     expect(text).not.toContain(SSH);
+  });
+
+  it('refuses a player who is not root in the words the dpkg lock uses, before reading anything', async () => {
+    const { gameDay, first } = mixedBox();
+    const { env, writes } = upgradeBox(manifestOf({ [first.pkg]: first.from }), {
+      gameDay,
+      userType: 'user',
+    });
+
+    const { text, exitCode } = syncResult(await apt.execute(env, ['upgrade'], NO_FLAGS));
+
+    expect(exitCode).toBe(100);
+    expect(text).toContain('are you root?');
+    expect(writes).toEqual([]);
+  });
+
+  it('refuses offline in the words apt already uses for a repo it cannot reach', async () => {
+    const { gameDay, first } = mixedBox();
+    const { env, writes } = upgradeBox(manifestOf({ [first.pkg]: first.from }), {
+      gameDay,
+      online: false,
+    });
+
+    const { text, exitCode } = syncResult(await apt.execute(env, ['upgrade'], NO_FLAGS));
+
+    expect(exitCode).toBe(100);
+    expect(text).toContain('are you connected to a network');
+    expect(writes).toEqual([]);
+  });
+
+  it('refuses a package the box does not carry, naming it, beneath the lists it just read', async () => {
+    const { gameDay, first, second } = mixedBox();
+    const { env, writes } = upgradeBox(manifestOf({ [first.pkg]: first.from }), { gameDay });
+
+    const { lines, exitCode } = await upgrade(env, second.pkg);
+
+    expect(lines.at(-1)).toEqual({
+      kind: 'error',
+      content: `E: Package '${second.pkg}' is not installed, so not upgraded`,
+    });
+    expect(exitCode).toBe(100);
+    expect(writes).toEqual([]);
+  });
+
+  it('says plainly that nothing moved on a box with nothing exposed, and writes no journal row', async () => {
+    // A world on its first day has published nothing, so every box in it is clean — and
+    // a clean box must still answer, or the player cannot tell it from a broken command.
+    const { env, writes } = upgradeBox(manifestOf({ [SSH]: startingVersionOf(SSH)! }), {
+      gameDay: 0,
+    });
+
+    const { lines, exitCode } = await upgrade(env);
+
+    expect(lines).toEqual([
+      { kind: 'text', content: 'Reading package lists...' },
+      { kind: 'text', content: 'Building dependency tree...' },
+      { kind: 'text', content: 'Calculating upgrade...' },
+      { kind: 'text', content: '0 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.' },
+    ]);
+    expect(exitCode).toBe(0);
+    expect(writes).toEqual([]);
+  });
+
+  it('reports a manifest write the box rejected, and sets nothing up on top of it', async () => {
+    const { gameDay, first } = mixedBox();
+    const { env } = upgradeBox(manifestOf({ [first.pkg]: first.from }), {
+      gameDay,
+      writeResult: { ok: false, error: 'network_error' },
+    });
+
+    const { lines, text, exitCode } = await upgrade(env);
+
+    // Beneath the unpack the player has already been shown, as a failed install reports
+    // beneath its own announcements — and nothing claims to have been set up.
+    expect(lines.at(-1)).toEqual({
+      kind: 'error',
+      content: `E: Failed to write ${DPKG_STATUS_PATH} (network_error)`,
+    });
+    expect(text).toContain(`Unpacking ${first.pkg}`);
+    expect(text).not.toContain('Setting up');
+    expect(exitCode).toBe(100);
+  });
+
+  it('documents upgrading, so a player shown an exposed package can find the way out of it', async () => {
+    // `list -u` names the hole and stops there. The manual and the usage line are the
+    // only places the operation that closes it is discoverable: the prose, its own
+    // OPERATION values and a worked EXAMPLE — the places a reader looks.
+    expect(apt.manual?.synopsis).toContain('upgrade');
+    expect(apt.manual?.description).toContain('upgrade');
+    expect(apt.manual?.arguments?.[0]?.values).toContain('upgrade');
+    expect(apt.manual?.examples?.map((entry) => entry.command)).toContain('apt upgrade');
+
+    const { text } = syncResult(await apt.execute(aptEnv().env, [], NO_FLAGS));
+    expect(text).toContain('apt upgrade');
   });
 });
 
