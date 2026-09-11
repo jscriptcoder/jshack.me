@@ -7,7 +7,7 @@ locked; decisions 31-35 were settled at this planning session and are recorded i
 plan implements them and does not reopen them.
 **Delivery**: ONE independent PR against `main` (decision 35). Behaviour change, TDD.
 
-## Progress — increments 1-4 of 7 are committed (2026-09-11)
+## Progress — increments 1-5 of 7 are committed (2026-09-11)
 
 Branch `feat/phase3-a-door-opens`, cut from `main` at `60a07a09`. Every commit below is green on
 the complete non-watch suite, `npm run typecheck` and `npm run lint`. Nothing is pushed yet and no
@@ -19,32 +19,56 @@ PR is open.
 | 2 | The seven formatters | `76ded1b5` | `formatExploit` REQUIRED on `ServiceSpec`; `core/logging/exploitLog.ts` (`ExploitEvent`, `syslogExploitLine`) plus one formatter each in `vsftpdLog`/`mysqlLog`/`redisLog`. 42 tests, driven through the catalog rows |
 | 3 | Two session kinds | `e72bb0df` | `SessionKind` += `exploit_limited`; `hasTty` → `PTY_LESS_KINDS`; `HOP_KINDS` += `exploit`; `isCrossPlayerHop` → `SHELL_KINDS` with both |
 | 4 | The server action | `165cb3a0` | `core/sessions/exploitCreateSession.ts` + its route in `api/sessions.ts`. 12 tests |
+| 5 | The command | _pending_ | `core/commands/msfconsole.ts` + registry; `ExploitApi` on `CommandEnv`; the `runExploit` adapter; `ui/env.ts` + `ui/state.ts` wiring. 21 tests |
 
-**Suite at increment 4: 4625 tests / 215 files.**
+**Suite at increment 5: 4646 tests / 216 files.**
 
-### What increment 5 has to do next
+### What increment 6 has to do next
 
-`core/commands/msfconsole.ts` + registry + `env.exploit` wiring, with reachability mirroring
-`ssh`'s dispatch in `core/commands/ssh.ts`. The server half is finished and typechecked, so the
-command's whole job is: parse `<host> <port>`, resolve the name through `addressForTarget`, call the
-new seam, print, and push the session at the kind the server returned.
+Assert `nmap -sV` output is **byte-identical** to today for a host whose CVE now has an effect and a
+tier. The scan's answer and the exploit's answer are two functions (decision 13), and only firing
+may reveal the second — so this increment is a characterisation lock, not new behaviour. Nothing
+under `src/core/scan/` or `liveCve.ts` was touched by increments 1-5, so the expected result is a
+test that passes on the first run; if it does not, something leaked.
 
-- **The response body is** `{ ok, cve, severity, username, userType, kind }` where `kind` is
-  `'exploit' | 'exploit_limited'`. Push a `Session` with that kind — `hasTty` already does the rest.
-- **Both refusals are** `404`: `{ error: 'not_vulnerable' }` and `{ error: 'host_unreachable' }`.
-  The first must print the SAME message whether the port was closed, filtered, listener-only or
-  merely unpublished — that uniformity is an acceptance criterion, not an accident.
-- **Wire `env.exploit`** the way `env.ssh.authenticateSameLan` is wired: seam declared in
-  `core/commands/types.ts`, implementation in `ui/env.ts` (~line 369) and `ui/state.ts` (~line 626).
-- **`msfconsole` carries `withoutScript`** this slice — decision 23's script grammar moves to slice 5
-  and the epic records why.
-- **`apt install metasploit` already installs the binary** (`core/packages/aptPackages.ts:143`), and
-  the install hint already maps `msfconsole → metasploit`. Only the command is missing.
-- **Tools run where you stand**: no `localhost-only` availability. `hydra`'s gate was lifted for
-  exactly this reason.
+Then increment 7: `scripts/testExploitOwnLan.ts`, live against `vercel dev` + supabase — the row
+lands with the tier the client showed, the target's log gains a line naming the CVE, and a port
+with no live CVE bounces and is written up. **Its full-shell case must target a store, a database
+or a name server** — see below.
 
-Then increment 6 (assert `nmap -sV` output is byte-identical, so the capability never leaks into the
-scan) and increment 7 (`scripts/testExploitOwnLan.ts`, live against `vercel dev` + supabase).
+### What increment 5 actually shipped
+
+`msfconsole <host> <port>`, streamed through `env.sleep` in the phase style legacy used:
+
+```
+[*] Targeting 192.168.1.31:22
+[*] Sending exploit payload...
+[*] Payload delivered, waiting for callback...
+[*] Vulnerability: CVE-2026-0184 (critical)
+[+] Exploit successful!
+[+] Full shell as root@192.168.1.31
+```
+
+- **Every sleep happens BEFORE the round trip.** A Ctrl-C after the server minted the row would
+  otherwise leave a session standing on a box the player was never put on.
+- **The CVE is named on the way in, not up front.** The client never worked out which hole this
+  was; printing it before the callback would be the tool claiming knowledge only the target could
+  have given it. Legacy printed it first because legacy computed it client-side.
+- **Two sentences for two doors**: `[+] Full shell as …` for `exploit`, `[+] Got shell as …` for
+  `exploit_limited` — the wording `nc` earns.
+- **The refusal is one sentence**: `[-] Exploit failed — no known vulnerability on <ip>:<port>`,
+  for every 404 that is not `host_unreachable`. An unreachable box gets `ssh`'s own wording,
+  `msfconsole: connect to host <ip> port <n>: No route to host`, and so does an address the
+  generated LAN has no host for — which is answered locally, without spending a round trip.
+- **The adapter parses rather than casts.** `runExploit` validates the grant with a zod schema,
+  because its `kind` decides whether the player gets a terminal and its `userType` decides what the
+  box will let them do. It is the first of the sessions adapters to do so beside `crackCredentials`.
+  A 500 or a rejected envelope maps to `network_error`, never to `not_vulnerable` — a server fault
+  must not read as a patch that beat the exploit.
+- **`ExploitShellKind` is `Extract<SessionKind, 'exploit' | 'exploit_limited'>`**, declared once in
+  `core/commands/types.ts`. Increment 4's local `ExploitSessionKind` was deleted and
+  `exploitCreateSession.ts` now imports the narrowed one, so the server that mints the row and the
+  command that pushes it cannot drift.
 
 ### Found during implementation — affects what comes next
 
@@ -60,6 +84,14 @@ scan) and increment 7 (`scripts/testExploitOwnLan.ts`, live against `vercel dev`
   every row, no carve-out (decision 32's follow-up).
 - **Version bump is still owed** — `v2/package.json` + `v2/package-lock.json` to `0.213.0` at PR
   readiness, not before.
+- **No jitter.** The epic says legacy's phase output ports "jitter and Ctrl-C included". v2 has no
+  jitter helper and every streamed command (`hydra`, `aircrack-ng`, `airodump-ng`) paces on a fixed
+  `env.sleep`, which is already abort-aware — so Ctrl-C came free and the random spread did not
+  come at all. Cosmetic, and adding a PRNG to pacing would make the output untestable for nothing.
+- **`msfconsole` has no `withoutTty`, so a LIMITED shell can still fire one.** Deliberate, and
+  consistent with `hydra` (a box you have opened is a place to attack FROM), but it does mean the
+  weak grant pivots onward through the exploit door even though it cannot through `ssh`. **Worth an
+  owner ruling before the PR** — adding `withoutTty` would close it in one line.
 
 ## Goal
 
