@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { PACKAGE_TEMPLATES, startingVersionOf } from '../packages/packageVersions';
-import { assertCveTimingInvariants, CVE_TIMING, liveCve, severityForRoll } from './liveCve';
+import { liveCve, severityForRoll } from './liveCve';
+import { CVE_TIMING } from './packageTimeline';
 
 const KEYS = Object.keys(PACKAGE_TEMPLATES);
 const SSH = 'openssh-server';
@@ -149,25 +150,6 @@ describe('a CVE id', () => {
     // same way, one guess would open most of the world without reading anything.
     const lastFour = new Set(KEYS.map((key) => liveCve(key, startOf(key), LATE)?.cve.slice(-4)));
     expect(lastFour.size).toBe(KEYS.length);
-  });
-});
-
-/**
- * The guard on the config itself. A fix that arrives at or after the NEXT version's own
- * vulnerability leaves no safe window at all — the treadmill stops being demanding and
- * becomes unwinnable — so a config that allows it must never reach a player.
- */
-describe('the timing config', () => {
-  it('refuses a config that would leave no safe window after a fix', () => {
-    expect(() =>
-      assertCveTimingInvariants({ ...CVE_TIMING, maxPatchDelayDays: CVE_TIMING.minSafeWindowDays }),
-      // Both halves of the message: the guard's whole job is telling a developer WHICH
-      // two numbers conflict, so a message that named neither would be a silent throw.
-    ).toThrow(/maxPatchDelayDays \(3\).*strictly less than.*minSafeWindowDays \(3\).*safe window/s);
-  });
-
-  it('accepts the config the world actually ships with', () => {
-    expect(() => assertCveTimingInvariants(CVE_TIMING)).not.toThrow();
   });
 });
 

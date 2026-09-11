@@ -22,6 +22,7 @@
 
 import { createPrng } from '../generation/prng';
 import { PACKAGE_TEMPLATES, startingVersionOf, type VersionTemplate } from '../packages/packageVersions';
+import { CVE_TIMING } from './packageTimeline';
 import { WORLD_EPOCH } from './worldClock';
 
 const DAY_MS = 86_400_000;
@@ -46,51 +47,6 @@ export type LiveCve = {
   /** Game day it published on — before this, the package is genuinely clean. */
   readonly publishedAt: number;
 };
-
-/**
- * How fast the treadmill turns. All four numbers in one place so retuning after
- * playtest is a one-line change.
- *
- * On a box running two or three services plus the eight libraries, an 8.5-day
- * average gap is a new CVE roughly every 0.8 days — often enough that daily
- * attention is the price of safety, rare enough that a clean box is a real state
- * rather than a theoretical one.
- */
-type CveTiming = {
-  readonly minSafeWindowDays: number;
-  readonly maxSafeWindowDays: number;
-  readonly minPatchDelayDays: number;
-  readonly maxPatchDelayDays: number;
-};
-
-export const CVE_TIMING = {
-  /** Shortest gap in game days between one CVE for a package and the next. */
-  minSafeWindowDays: 3,
-  /** Longest such gap. */
-  maxSafeWindowDays: 14,
-  /** Days between a CVE publishing and its fix becoming installable. Consumed by
-   *  the upgrade resolver; the window is the reason nobody is ever immune. */
-  minPatchDelayDays: 1,
-  maxPatchDelayDays: 2,
-} as const;
-
-/**
- * The worst-case wait for a fix must stay strictly shorter than the shortest gap
- * to the next CVE, or a fix could arrive at or after the next version's own
- * vulnerability and a player would have no safe window at all — the treadmill
- * would be unwinnable rather than demanding. Throws at module load, because a
- * config that cannot be defended against should never reach a player.
- */
-export const assertCveTimingInvariants = (timing: CveTiming): void => {
-  if (timing.maxPatchDelayDays >= timing.minSafeWindowDays) {
-    throw new Error(
-      `CVE_TIMING: maxPatchDelayDays (${timing.maxPatchDelayDays}) must be strictly less than ` +
-        `minSafeWindowDays (${timing.minSafeWindowDays}) to guarantee a safe window after a fix.`,
-    );
-  }
-};
-
-assertCveTimingInvariants(CVE_TIMING);
 
 /**
  * The day a package's first CVE publishes, seeded on the package alone so every
