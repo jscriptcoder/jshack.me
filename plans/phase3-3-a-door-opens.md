@@ -7,6 +7,60 @@ locked; decisions 31-35 were settled at this planning session and are recorded i
 plan implements them and does not reopen them.
 **Delivery**: ONE independent PR against `main` (decision 35). Behaviour change, TDD.
 
+## Progress — increments 1-4 of 7 are committed (2026-09-11)
+
+Branch `feat/phase3-a-door-opens`, cut from `main` at `60a07a09`. Every commit below is green on
+the complete non-watch suite, `npm run typecheck` and `npm run lint`. Nothing is pushed yet and no
+PR is open.
+
+| # | Increment | Commit | What landed |
+|---|---|---|---|
+| 1 | What a CVE grants | `df625920` | `core/cve/exploitEffect.ts` — the eight kinds, seven per-package pools, `tierForSeverity`, `shellFor`, `exploitOutcome(key, version, gameDay)`. 20 tests including the world pin |
+| 2 | The seven formatters | `76ded1b5` | `formatExploit` REQUIRED on `ServiceSpec`; `core/logging/exploitLog.ts` (`ExploitEvent`, `syslogExploitLine`) plus one formatter each in `vsftpdLog`/`mysqlLog`/`redisLog`. 42 tests, driven through the catalog rows |
+| 3 | Two session kinds | `e72bb0df` | `SessionKind` += `exploit_limited`; `hasTty` → `PTY_LESS_KINDS`; `HOP_KINDS` += `exploit`; `isCrossPlayerHop` → `SHELL_KINDS` with both |
+| 4 | The server action | `165cb3a0` | `core/sessions/exploitCreateSession.ts` + its route in `api/sessions.ts`. 12 tests |
+
+**Suite at increment 4: 4625 tests / 215 files.**
+
+### What increment 5 has to do next
+
+`core/commands/msfconsole.ts` + registry + `env.exploit` wiring, with reachability mirroring
+`ssh`'s dispatch in `core/commands/ssh.ts`. The server half is finished and typechecked, so the
+command's whole job is: parse `<host> <port>`, resolve the name through `addressForTarget`, call the
+new seam, print, and push the session at the kind the server returned.
+
+- **The response body is** `{ ok, cve, severity, username, userType, kind }` where `kind` is
+  `'exploit' | 'exploit_limited'`. Push a `Session` with that kind — `hasTty` already does the rest.
+- **Both refusals are** `404`: `{ error: 'not_vulnerable' }` and `{ error: 'host_unreachable' }`.
+  The first must print the SAME message whether the port was closed, filtered, listener-only or
+  merely unpublished — that uniformity is an acceptance criterion, not an accident.
+- **Wire `env.exploit`** the way `env.ssh.authenticateSameLan` is wired: seam declared in
+  `core/commands/types.ts`, implementation in `ui/env.ts` (~line 369) and `ui/state.ts` (~line 626).
+- **`msfconsole` carries `withoutScript`** this slice — decision 23's script grammar moves to slice 5
+  and the epic records why.
+- **`apt install metasploit` already installs the binary** (`core/packages/aptPackages.ts:143`), and
+  the install hint already maps `msfconsole → metasploit`. Only the command is missing.
+- **Tools run where you stand**: no `localhost-only` availability. `hydra`'s gate was lifted for
+  exactly this reason.
+
+Then increment 6 (assert `nmap -sV` output is byte-identical, so the capability never leaks into the
+scan) and increment 7 (`scripts/testExploitOwnLan.ts`, live against `vercel dev` + supabase).
+
+### Found during implementation — affects what comes next
+
+- **Full shells are RARE.** `openssh-server` rolls `file_read`, `nginx` `script_exec`, `vsftpd`
+  `dir_list`, `snmp` `file_write` — all limited shells under decision 31. Only `mysql`, `redis` and
+  `bind9` roll `shell_full`. So the common doors give the weaker shell and the wire-check's
+  full-shell case needs a store, a database or a name server. The pinned mapping is in
+  `exploitEffect.test.ts` and must not move.
+- **A box with no account at the granted tier refuses and logs**, rather than inventing a name. It
+  is the root-writable-manifest hole pointed at `/etc/passwd`, and slices 3-4 already own that
+  question.
+- **The dns row traces into `auth.log`**, its sweep placeholder, tagged `named[pid]:`. One rule for
+  every row, no carve-out (decision 32's follow-up).
+- **Version bump is still owed** — `v2/package.json` + `v2/package-lock.json` to `0.213.0` at PR
+  readiness, not before.
+
 ## Goal
 
 `msfconsole <host> <port>` fires the CVE `nmap -sV` already names, and a stale NPC service hands
