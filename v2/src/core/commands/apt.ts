@@ -287,24 +287,20 @@ async function* listUpgradable(env: CommandEnv): AsyncGenerator<TerminalLine, nu
 /** One package leaving the release it is on for the one that fixes it. */
 type Upgrade = { readonly pkg: string; readonly from: string; readonly to: string };
 
-/** `apt upgrade [package]`: every exposed package on the box the player is standing on —
- *  or only the one named — moved onto the release that fixes it, by rewriting its
- *  version in that box's manifest. Every package is unpacked before any is set up, as
- *  real apt orders it, and the manifest is written once between the two.
+/** The upgrade itself, once a preamble has been printed: every exposed package on the box
+ *  the player is standing on — or only the one named — moved onto the release that fixes
+ *  it, by rewriting its version in that box's manifest. Every package is unpacked before
+ *  any is set up, as real apt orders it, and the manifest is written once between the two.
  *
  *  A package whose fix has not shipped cannot move, and says so last, where it is read:
- *  the count of what did not move adds up with what did to every row `list -u` shows. */
-async function* upgradePackages(
+ *  the count of what did not move adds up with what did to every row `list -u` shows.
+ *
+ *  Shared with `install`, which does this to a package the box already carries — one
+ *  resolver behind both verbs, so they cannot disagree about what the repo holds. */
+async function* applyUpgrades(
   env: CommandEnv,
   packageName: string | undefined,
 ): AsyncGenerator<TerminalLine, number> {
-  yield text('Reading package lists...');
-  await env.sleep(STEP_DELAY_MS);
-  yield text('Building dependency tree...');
-  await env.sleep(STEP_DELAY_MS);
-  yield text('Calculating upgrade...');
-  await env.sleep(STEP_DELAY_MS);
-
   const gameDay = gameDayAt(env.now());
   const manifest = readDpkgStatus(env.fs.root());
   const installed = parseDpkgVersions(manifest);
@@ -361,6 +357,27 @@ async function* upgradePackages(
   return 0;
 }
 
+/** The `upgrade` operation: apt's own preamble, then the work. */
+async function* upgradePackages(
+  env: CommandEnv,
+  packageName: string | undefined,
+): AsyncGenerator<TerminalLine, number> {
+  yield text('Reading package lists...');
+  await env.sleep(STEP_DELAY_MS);
+  yield text('Building dependency tree...');
+  await env.sleep(STEP_DELAY_MS);
+  yield text('Calculating upgrade...');
+  await env.sleep(STEP_DELAY_MS);
+  return yield* applyUpgrades(env, packageName);
+}
+
+/** True when the repo holds nothing this box does not already have: a package that is not
+ *  exposed at all, or one with no history to move along. Inside a patch delay it is
+ *  FALSE — the hole is real, the warning says so, and calling that the newest version
+ *  would be the reassuring half of the truth. */
+const nothingNewerThan = (status: UpgradeStatus): boolean =>
+  status.kind === 'up-to-date' || status.kind === 'no-timeline';
+
 /** The repo half of `install`, once the caller has cleared the root and
  *  connectivity gates. Every step is announced before it happens; a failure
  *  lands beneath the announcements the player has already seen rather than
@@ -374,12 +391,21 @@ async function* installPackage(
   yield text('Building dependency tree...');
   await env.sleep(STEP_DELAY_MS);
 
-  // True on every box in the world, so it is not a fiction — and there is nothing to
-  // write: no binary for software that came with the box, no `.so` for a library
-  // everything already links.
+  // Shipped with the box, so there is nothing to lay down: no binary for software that
+  // came with the image, no `.so` for a library everything already links. The VERSION is
+  // still the resolver's to answer, and real apt upgrades a package it already has
+  // rather than declining it — so this goes exactly where `apt upgrade` goes. Saying
+  // "already the newest version" on a box `apt list -u` calls exposed would be apt
+  // contradicting apt.
   if (BASE_IMAGE_PACKAGES.includes(packageName)) {
-    yield text(`${packageName} is already the newest version.`);
-    return 0;
+    const version = parseDpkgVersions(readDpkgStatus(env.fs.root())).get(packageName);
+    if (
+      version !== undefined &&
+      nothingNewerThan(upgradeStatusFor(packageName, version, gameDayAt(env.now())))
+    ) {
+      yield text(`${packageName} is already the newest version.`);
+    }
+    return yield* applyUpgrades(env, packageName);
   }
 
   const contents = packageContents(packageName);

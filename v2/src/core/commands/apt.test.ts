@@ -133,6 +133,9 @@ type AptEnvOpts = {
   /** Whose box this is. Only matters for the files an install DRAWS rather than ships
    *  the same copy of to everyone. */
   readonly ownerKey?: string;
+  /** The day of the world the box is standing on. Left out, the clock sits before the
+   *  world began, where nothing has published and every package is quiet. */
+  readonly gameDay?: number;
 };
 
 /** One filesystem operation apt performed, in the order it performed them.
@@ -149,8 +152,24 @@ type Operation =
  *  exists on every box; `/usr/share` does NOT (asserted in `workstationFs.test`,
  *  where `/usr` holds exactly `bin` and `sbin`), which is why a data file's
  *  ancestors have to be created and a binary's do not. */
+/** A real generated workstation, read for the things a box carries whatever a fixture
+ *  says: the manifest text and the packages it names. */
+const workstationFs = (): Directory =>
+  buildWorkstationBaseFs('e'.repeat(64), {
+    machineName: 'workstation',
+    username: 'alice',
+    rootPassword: 'hunter2',
+  });
+
 const installedBoxTree = (opts: AptEnvOpts = {}): Directory =>
   buildDirectory({
+    // The manifest a real box carries, byte for byte: apt answers version questions out
+    // of it, so a fixture without one would be a box no generator can produce.
+    var: buildDirectory({
+      lib: buildDirectory({
+        dpkg: buildDirectory({ status: buildFile(readDpkgStatus(workstationFs()), { owner: 'root' }) }),
+      }),
+    }),
     usr: buildDirectory({
       bin: buildDirectory(
         Object.fromEntries((opts.installedBinaries ?? []).map((name) => [name, buildFile('#!bin')])),
@@ -186,6 +205,9 @@ const aptEnv = (opts: AptEnvOpts = {}) => {
       : { identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(opts.ownerKey) }) }),
     fs: mockFsViewFromTree(installedBoxTree(opts)),
     network: mockNetworkView({ isOnline: () => opts.online ?? true }),
+    ...(opts.gameDay === undefined
+      ? {}
+      : { now: () => asEpochMs(WORLD_EPOCH + opts.gameDay! * DAY_MS) }),
     patches: {
       ...mockPatchApi(),
       write: async (path, content, options) => {
@@ -243,15 +265,7 @@ const streamResult = async (
  *  nothing a player has bought yet. Read off a real box rather than restated, so the
  *  list apt has to agree with is the one the world actually stamps. */
 const baseImagePackages = (): readonly string[] => [
-  ...parseDpkgVersions(
-    readDpkgStatus(
-      buildWorkstationBaseFs('e'.repeat(64), {
-        machineName: 'workstation',
-        username: 'alice',
-        rootPassword: 'hunter2',
-      }),
-    ),
-  ).keys(),
+  ...parseDpkgVersions(readDpkgStatus(workstationFs())).keys(),
 ];
 
 /** The FIRST streamed line, pulled without draining the rest — leaving the
@@ -488,10 +502,48 @@ describe('apt', () => {
           { kind: 'text', content: 'Reading package lists...' },
           { kind: 'text', content: 'Building dependency tree...' },
           { kind: 'text', content: `${pkg} is already the newest version.` },
+          {
+            kind: 'text',
+            content: '0 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.',
+          },
         ]);
         expect(exitCode).toBe(0);
         expect(operations).toEqual([]);
       }
+    });
+
+    it('patches a package the box already carries rather than declining it, as real apt does', async () => {
+      // "Already the newest version" was true of these on every box in the world until
+      // the day a fix shipped for one. Saying it on a box `apt list -u` calls exposed
+      // would be apt contradicting apt, so install goes where upgrade goes — through the
+      // one resolver, which is what keeps the two verbs from disagreeing.
+      const { fix, shipsOn } = sshSlowFix();
+      const { env, writes } = aptEnv({ gameDay: shipsOn });
+
+      const { text, exitCode } = await streamResult(
+        await apt.execute(env, ['install', SSH], NO_FLAGS),
+      );
+
+      expect(text).toContain(`Setting up ${SSH} (${fix.version}) ...`);
+      expect(text).not.toContain('already the newest version');
+      expect(writes.map(({ path }) => path)).toEqual([DPKG_STATUS_PATH]);
+      expect(parseDpkgVersions(writes[0]?.content ?? '').get(SSH)).toBe(fix.version);
+      expect(exitCode).toBe(0);
+    });
+
+    it('tells a player installing inside a patch-delay window that the hole is open, rather than calling it newest', async () => {
+      const { shipsOn } = sshSlowFix();
+      const { env, writes } = aptEnv({ gameDay: shipsOn - 1 });
+
+      const { text, exitCode } = await streamResult(
+        await apt.execute(env, ['install', SSH], NO_FLAGS),
+      );
+
+      expect(text).toContain(`W: ${SSH} `);
+      expect(text).toContain('no fix yet — ETA ~1 day');
+      expect(text).not.toContain('already the newest version');
+      expect(exitCode).toBe(0);
+      expect(writes).toEqual([]);
     });
 
     it('errors with usage when no package is given', async () => {
