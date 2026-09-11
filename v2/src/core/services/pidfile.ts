@@ -25,7 +25,8 @@ import { asAbsPath, type AbsPath, type MachineId, type UserType } from '../types
 import type { Directory, FilePermissions } from '../filesystem/types';
 import { SERVICE_CATALOG, type ServiceSpec } from './serviceCatalog';
 import { parseDpkgVersions, readDpkgStatus } from '../packages/dpkgStatus';
-import { liveCve, type CveSeverity } from '../cve/liveCve';
+import { liveCve } from '../cve/liveCve';
+import type { CveSeverity } from '../cve/packageTimeline';
 import { displayVersion } from '../packages/packageVersions';
 
 /** The directory holding every running service's pidfile. */

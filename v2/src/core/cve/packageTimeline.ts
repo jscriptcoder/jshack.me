@@ -15,7 +15,21 @@
  */
 
 import { createPrng, type Prng } from '../generation/prng';
-import { formatVersion, PACKAGE_TEMPLATES } from '../packages/packageVersions';
+import {
+  formatVersion,
+  PACKAGE_TEMPLATES,
+  type VersionTemplate,
+} from '../packages/packageVersions';
+import { WORLD_EPOCH } from './worldClock';
+
+const DAY_MS = 86_400_000;
+
+/** How many serials each package owns. The package number takes the leading
+ *  digits and the scattered part takes the trailing five, so two packages can
+ *  never mint the same id however many CVEs either accumulates. */
+const SERIAL_SPACE = 100_000;
+
+export type CveSeverity = 'critical' | 'high' | 'medium' | 'low';
 
 /**
  * How fast the treadmill turns, and how far each step moves. Every number that
@@ -77,6 +91,44 @@ const BUMP_WEIGHTS = { major: 5, minor: 15 } as const;
  *  centuries of play. */
 export const MAX_TIMELINE_ENTRIES = 10_000;
 
+/**
+ * Severity, which forecasts the privilege an exploit would land — critical
+ * reaches root, high reaches a user, and the weak ones reach a guest. Coupling
+ * the two gives the field a job: a player reads the severity and knows what the
+ * door is worth before spending a move on it, while the draw stays random enough
+ * that a rich target is a find rather than a routine.
+ *
+ * 10% critical, 50% high, 30% medium, 10% low. Split from the draw so the bands
+ * can be pinned at their exact boundaries: no package in the world happens to roll
+ * a 10, a 60 or a 90, so nothing else would notice a band shifting by one.
+ */
+export const severityForRoll = (roll: number): CveSeverity => {
+  if (roll < 10) return 'critical';
+  if (roll < 60) return 'high';
+  if (roll < 90) return 'medium';
+  return 'low';
+};
+
+/**
+ * The id, built so it can never collide and never be renumbered.
+ *
+ * The year is the real calendar year the vulnerability published in, which only
+ * starts varying once the walk reaches versions published a year or more out.
+ *
+ * The package's own permanent number takes the leading digits; the trailing five
+ * are scattered per release rather than counting up from zero. That scatter is
+ * load-bearing, not decoration: those last digits key the password a
+ * `password_reset` leaves behind, and a serial that simply counted would end
+ * every package's first CVE identically — one guess would then open most of the
+ * world to somebody who never read a log, when reading the log is the entire
+ * route back.
+ */
+const cveIdOf = (template: VersionTemplate, publishedAt: number, scattered: number): string => {
+  const serial = template.cveNumber * SERIAL_SPACE + scattered;
+  const year = new Date(WORLD_EPOCH + publishedAt * DAY_MS).getUTCFullYear();
+  return `CVE-${year}-${String(serial).padStart(7, '0')}`;
+};
+
 export type TimelineEntry = {
   /** The bare tuple a manifest records, `9.7.0`. */
   readonly version: string;
@@ -84,6 +136,9 @@ export type TimelineEntry = {
   /** Position in the walk. Seeds the severity and the effect, so it must never be
    *  derived from anything but the order releases actually happened in. */
   readonly index: number;
+  /** `CVE-YYYY-NNNNNNN`, the id a scan prints and a defender's log records. */
+  readonly cve: string;
+  readonly severity: CveSeverity;
   /** Game day this version's CVE publishes. Before it, this version is genuinely
    *  clean; after it, a box sitting here is exposed until it MOVES. */
   readonly publishedAt: number;
@@ -120,12 +175,14 @@ export const packageTimeline = (key: string, throughDay: number): readonly Timel
   const template = PACKAGE_TEMPLATES[key];
   if (template === undefined) return [];
 
-  // Two streams. The releases stream draws a gap and then a bump per step, so its
-  // first draw is the day entry 0 publishes and always will be. The fixes stream is
-  // separate for the same reason: when the patch delay was added, the gaps and bumps
-  // already published could not be allowed to shift under it.
+  // Three streams, each separate so that adding one never shifted the others. The
+  // releases stream draws a gap and then a bump per step, so its first draw is the
+  // day entry 0 publishes and always will be. The serials stream is WALKED rather
+  // than re-seeded per release, for the same reason: entry 0's scatter is its first
+  // draw, and re-seeding would renumber every CVE already written into a log file.
   const releases = createPrng(`timeline:${key}`);
   const fixes = createPrng(`timeline:${key}:patchDelay`);
+  const serials = createPrng(`cve-id:${key}`);
 
   const entries: TimelineEntry[] = [];
   let tuple: readonly number[] = template.startTuple;
@@ -133,10 +190,15 @@ export const packageTimeline = (key: string, throughDay: number): readonly Timel
 
   while (publishedAt <= throughDay && entries.length < MAX_TIMELINE_ENTRIES) {
     publishedAt += releases.nextInt(CVE_TIMING.minSafeWindowDays, CVE_TIMING.maxSafeWindowDays);
+    const index = entries.length;
     entries.push({
       version: formatVersion(tuple),
       tuple,
-      index: entries.length,
+      index,
+      cve: cveIdOf(template, publishedAt, serials.nextInt(0, SERIAL_SPACE - 1)),
+      // Re-seeded per release where the serial is walked, because THIS seed already
+      // carries the index — entry 0's severity is `cve:<package>:0` either way.
+      severity: severityForRoll(createPrng(`cve:${key}:${index}`).nextInt(0, 99)),
       publishedAt,
       patchDelay: fixes.nextInt(CVE_TIMING.minPatchDelayDays, CVE_TIMING.maxPatchDelayDays),
     });

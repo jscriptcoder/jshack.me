@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { PACKAGE_TEMPLATES, startingVersionOf } from '../packages/packageVersions';
-import { liveCve, severityForRoll } from './liveCve';
+import { liveCve } from './liveCve';
 import { CVE_TIMING } from './packageTimeline';
 
 const KEYS = Object.keys(PACKAGE_TEMPLATES);
@@ -150,25 +150,5 @@ describe('a CVE id', () => {
     // same way, one guess would open most of the world without reading anything.
     const lastFour = new Set(KEYS.map((key) => liveCve(key, startOf(key), LATE)?.cve.slice(-4)));
     expect(lastFour.size).toBe(KEYS.length);
-  });
-});
-
-/**
- * The published distribution, pinned at every boundary on both sides. No package in the
- * world rolls exactly 10, 60 or 90, so a band silently shifting by one would change what
- * a whole class of targets is worth and nothing else here would see it.
- */
-describe('the severity a roll lands on', () => {
-  it.each([
-    [0, 'critical'],
-    [9, 'critical'],
-    [10, 'high'],
-    [59, 'high'],
-    [60, 'medium'],
-    [89, 'medium'],
-    [90, 'low'],
-    [99, 'low'],
-  ])('rolls %i as %s', (roll, severity) => {
-    expect(severityForRoll(roll)).toBe(severity);
   });
 });

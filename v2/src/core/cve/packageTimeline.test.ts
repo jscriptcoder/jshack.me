@@ -6,12 +6,17 @@ import {
   CVE_TIMING,
   MAX_TIMELINE_ENTRIES,
   packageTimeline,
+  severityForRoll,
 } from './packageTimeline';
+import { WORLD_EPOCH } from './worldClock';
 
 const KEYS = Object.keys(PACKAGE_TEMPLATES);
 const SSH = 'openssh-server';
 /** Far past any package's first publication, so its CVE is certainly live. */
 const LATE = 1000;
+const DAY_MS = 86_400_000;
+
+const yearOfDay = (day: number): number => new Date(WORLD_EPOCH + day * DAY_MS).getUTCFullYear();
 
 /** Which component a release bumped — 0 major, 1 minor, 2 patch — or -1 for a
  *  release that changed nothing, which is a release that never happened. */
@@ -108,6 +113,56 @@ describe("a package's version timeline", () => {
     expect(packageTimeline('metasploit', LATE)).toEqual([]);
   });
 
+  it('gives each version its own vulnerability rather than the last one wearing a new number', () => {
+    const [first, second] = packageTimeline(SSH, 400);
+    expect(second?.cve).not.toBe(first?.cve);
+  });
+
+  it('never mints the same id twice along a package\'s own history', () => {
+    const timeline = packageTimeline(SSH, 5000);
+    expect(new Set(timeline.map((entry) => entry.cve)).size).toBe(timeline.length);
+  });
+
+  it('keeps every id inside the package\'s own permanent block', () => {
+    // The leading digits are the package's number and the trailing five are scattered
+    // within it, so two packages can never collide however many CVEs either
+    // accumulates — and a serial that simply counted would end every package's first
+    // CVE identically, which is the guess that would open the world to somebody who
+    // never read a log.
+    for (const entry of packageTimeline(SSH, 5000)) {
+      expect(entry.cve).toMatch(/^CVE-\d{4}-0[01]\d{5}$/);
+    }
+  });
+
+  it("names the calendar year the version's vulnerability published in", () => {
+    // Unreachable until the walk went past entry 0: every FIRST publication lands
+    // inside the epoch's own year by configuration, which left a hardcoded year
+    // indistinguishable from a computed one.
+    const timeline = packageTimeline(SSH, 400);
+    expect(new Set(timeline.map((entry) => yearOfDay(entry.publishedAt))).size).toBeGreaterThan(1);
+    for (const entry of timeline) {
+      expect(entry.cve.slice(0, 8)).toBe(`CVE-${yearOfDay(entry.publishedAt)}`);
+    }
+  });
+
+  it('rolls a severity per version rather than one for the package', () => {
+    const severities = new Set(packageTimeline(SSH, 5000).map((entry) => entry.severity));
+    expect(severities).toEqual(new Set(['critical', 'high', 'medium', 'low']));
+  });
+
+  it('carries the exact vulnerability the world has already published for entry zero', () => {
+    // The other half of the lock above. A box sitting on its starting version must
+    // read the same id and the same severity after the walk as before it.
+    for (const key of KEYS) {
+      const published = liveCve(key, startingVersionOf(key) ?? '', LATE);
+      const [first] = packageTimeline(key, LATE);
+      expect({ cve: first?.cve, severity: first?.severity }).toEqual({
+        cve: published?.cve,
+        severity: published?.severity,
+      });
+    }
+  });
+
   it('stops walking rather than running away when asked about a day absurdly far out', () => {
     // `gameDayAt` floors at zero and has no ceiling, so a clock set to the wrong
     // century asks for a walk nobody wants to wait for.
@@ -131,5 +186,25 @@ describe('the timing config', () => {
 
   it('accepts the config the world actually ships with', () => {
     expect(() => assertCveTimingInvariants(CVE_TIMING)).not.toThrow();
+  });
+});
+
+/**
+ * The published distribution, pinned at every boundary on both sides. No package in the
+ * world rolls exactly 10, 60 or 90, so a band silently shifting by one would change what
+ * a whole class of targets is worth and nothing else here would see it.
+ */
+describe('the severity a roll lands on', () => {
+  it.each([
+    [0, 'critical'],
+    [9, 'critical'],
+    [10, 'high'],
+    [59, 'high'],
+    [60, 'medium'],
+    [89, 'medium'],
+    [90, 'low'],
+    [99, 'low'],
+  ])('rolls %i as %s', (roll, severity) => {
+    expect(severityForRoll(roll)).toBe(severity);
   });
 });
