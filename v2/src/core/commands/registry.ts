@@ -52,6 +52,7 @@ import { reboot } from './reboot';
 import { newGame } from './newGame';
 import { rm } from './rm';
 import { hydra } from './hydra';
+import { msfconsole } from './msfconsole';
 import { ftp } from './ftp';
 import { mysql } from './mysql';
 import { redisCli } from './redisCli';
@@ -112,6 +113,7 @@ const builtins: readonly Command[] = [
   newGame,
   rm,
   hydra,
+  msfconsole,
   ftp,
   mysql,
   redisCli,

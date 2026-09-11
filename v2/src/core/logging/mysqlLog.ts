@@ -22,6 +22,7 @@
 import { asAbsPath, type AbsPath, type GameTime } from '../types';
 import type { FilePermissions } from '../filesystem/types';
 import type { CredentialAttempt } from './authLog';
+import type { ExploitEvent } from './exploitLog';
 
 /** The canonical `/var/log/mysql.log` storage identity — single source of truth shared
  *  by the boot seed (`generation/remoteHostFs`) and every server-side appender, so the
@@ -105,3 +106,11 @@ export const formatMysqlAttemptLine = ({
       // accept, so a success here always arrived with one.
       formatMysqlConnectLine({ user, fromIp, time, pid, database: database ?? '' })
     : `${formatMysqlTimestamp(time)}\t${pid} Connect\tAccess denied for user '${user}'@'${fromIp}' (using password: YES)`;
+
+/** Render a break-in as its `/var/log/mysql.log` line. `Denied` is the tag the file
+ *  already uses for a refusal, so a defender greps one word and finds both the
+ *  credential that bounced and the exploit that did. */
+export const formatMysqlExploitLine = (event: ExploitEvent): string =>
+  event.outcome === 'success'
+    ? `${formatMysqlTimestamp(event.time)}\t${event.pid} Exploit\t${event.user}@${event.fromIp} using ${event.cve}`
+    : `${formatMysqlTimestamp(event.time)}\t${event.pid} Denied\texploit attempt from ${event.fromIp}`;

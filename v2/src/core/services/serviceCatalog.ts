@@ -31,6 +31,7 @@ import {
   VSFTPD_LOG_PATH,
   VSFTPD_LOG_PERMISSIONS,
   formatVsftpdConnectLine,
+  formatVsftpdExploitLine,
   formatVsftpdLoginLine,
 } from '../logging/vsftpdLog';
 import {
@@ -38,6 +39,7 @@ import {
   MYSQL_LOG_PATH,
   MYSQL_LOG_PERMISSIONS,
   formatMysqlAttemptLine,
+  formatMysqlExploitLine,
 } from '../logging/mysqlLog';
 import {
   REDIS_LOG_OWNER,
@@ -45,6 +47,7 @@ import {
   REDIS_LOG_PERMISSIONS,
   formatRedisAttemptLine,
   formatRedisConnectLine,
+  formatRedisExploitLine,
 } from '../logging/redisLog';
 import {
   SNMPD_LOG_OWNER,
@@ -53,6 +56,7 @@ import {
   formatSnmpdArrivalLine,
   formatSnmpdAttemptLine,
 } from '../logging/snmpdLog';
+import { syslogExploitLine, type ExploitEvent } from '../logging/exploitLog';
 import { readRwCommunityHash } from '../snmp/rwCommunity';
 
 /** Where a credential sweep against this service is recorded on the target, and how
@@ -119,6 +123,18 @@ export type ServiceSpec = {
   readonly altPortChance: number;
   /** Where a wordlist attack on this service lands in the target's logs. */
   readonly sweepLog: SweepLog;
+  /** How this daemon writes up a BREAK-IN — one that asked for no credential at all.
+   *
+   *  A sibling to `formatAttempt` rather than a variant of it, because the two events
+   *  are not the same shape: writing "Failed password" for something that never
+   *  offered one would mislead the only person who reads the file. The DESTINATION is
+   *  still `sweepLog`'s, so one service's evidence stays in one file and a defender
+   *  greps it once.
+   *
+   *  Required, on every row. A door that could be forced without leaving a line the
+   *  defender would find is a door that silently costs them the box — and an optional
+   *  column is how one gets added. */
+  readonly formatExploit: (event: ExploitEvent) => string;
   /** Which of a box's accounts this door authenticates, and so which ones a sweep of
    *  it attacks.
    *
@@ -167,6 +183,7 @@ export const SERVICE_CATALOG = {
     altPorts: [2222, 8022],
     altPortChance: 0.2,
     sweepLog: SYSLOG_AUTH_SWEEP,
+    formatExploit: syslogExploitLine('sshd'),
     accountsOn: accountsIn,
   },
   // One row for the web, not one per server program: `nginx` and `apache2` are two
@@ -190,6 +207,9 @@ export const SERVICE_CATALOG = {
     // deciding it here. A real HTTP brute-force belongs in access.log as a run of
     // 401s — that is the web door's call to make, not the ftp door's.
     sweepLog: SYSLOG_AUTH_SWEEP,
+    // Its own tag, though the file is shared: on the three rows that land in auth.log
+    // the daemon name is the only thing telling a defender which door was forced.
+    formatExploit: syslogExploitLine('nginx'),
     accountsOn: accountsIn,
   },
   // As common as the web and below ssh: a box you can log into is ordinary, and a
@@ -215,6 +235,7 @@ export const SERVICE_CATALOG = {
       formatAttempt: formatVsftpdLoginLine,
       formatArrival: formatVsftpdConnectLine,
     },
+    formatExploit: formatVsftpdExploitLine,
     accountsOn: accountsIn,
   },
   // The only door whose credential is not the box's own: mysql accounts live in the
@@ -248,6 +269,7 @@ export const SERVICE_CATALOG = {
       permissions: MYSQL_LOG_PERMISSIONS,
       formatAttempt: formatMysqlAttemptLine,
     },
+    formatExploit: formatMysqlExploitLine,
     // The one row that does not read `/etc/passwd`: a database's accounts live in its
     // datadir, drawn on their own stream, so cracking this box's shell and cracking its
     // database are two locks with two keys.
@@ -289,6 +311,7 @@ export const SERVICE_CATALOG = {
       // the whole of what the defender ever sees.
       formatArrival: formatRedisConnectLine,
     },
+    formatExploit: formatRedisExploitLine,
     // Nothing. A store has no accounts to attack — the secret is the service's, and a
     // username invented to fill this column would be the right name against the wrong
     // secret, which reads to a player as a working credential until they spend it.
@@ -333,6 +356,7 @@ export const SERVICE_CATALOG = {
       formatArrival: formatSnmpdArrivalLine,
       formatAttempt: formatSnmpdAttemptLine,
     },
+    formatExploit: syslogExploitLine('snmpd'),
     // Nothing, as the store has nothing: a community string is the SERVICE's secret and
     // names no person. A username invented to fill this column would be the right name
     // against the wrong secret.
@@ -379,6 +403,13 @@ export const SERVICE_CATALOG = {
     // transfer trace (recordZoneTransfer → appendMachineLog), and routing a credential
     // sweep here too would put a second, wrong author on it.
     sweepLog: SYSLOG_AUTH_SWEEP,
+    // Which is where a break-in through this door lands too, placeholder and all. It is
+    // the one row whose exploit trace is genuinely reachable while its sweep line is
+    // not, so auth.log carries a `named[pid]:` entry a defender of a name server has no
+    // particular reason to read. One rule for every row was chosen over a carve-out
+    // here: the destination follows the sweep, and the daemon tag is what keeps the
+    // line honest about which door was forced.
+    formatExploit: syslogExploitLine('named'),
     // Nothing — BIND authenticates nobody. A zone is handed to whoever asks or to no
     // one, which is the transfer's own gate rather than a credential, so a sweep of
     // this port finds nothing because there is nothing there to find.

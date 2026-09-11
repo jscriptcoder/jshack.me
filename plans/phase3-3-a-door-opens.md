@@ -7,6 +7,200 @@ locked; decisions 31-35 were settled at this planning session and are recorded i
 plan implements them and does not reopen them.
 **Delivery**: ONE independent PR against `main` (decision 35). Behaviour change, TDD.
 
+## Progress — all seven increments are committed (2026-09-11)
+
+Branch `feat/phase3-a-door-opens`, cut from `main` at `60a07a09`. Every commit below is green on
+the complete non-watch suite, `npm run typecheck` and `npm run lint`. Nothing is pushed yet and no
+PR is open.
+
+| # | Increment | Commit | What landed |
+|---|---|---|---|
+| 1 | What a CVE grants | `df625920` | `core/cve/exploitEffect.ts` — the eight kinds, seven per-package pools, `tierForSeverity`, `shellFor`, `exploitOutcome(key, version, gameDay)`. 20 tests including the world pin |
+| 2 | The seven formatters | `76ded1b5` | `formatExploit` REQUIRED on `ServiceSpec`; `core/logging/exploitLog.ts` (`ExploitEvent`, `syslogExploitLine`) plus one formatter each in `vsftpdLog`/`mysqlLog`/`redisLog`. 42 tests, driven through the catalog rows |
+| 3 | Two session kinds | `e72bb0df` | `SessionKind` += `exploit_limited`; `hasTty` → `PTY_LESS_KINDS`; `HOP_KINDS` += `exploit`; `isCrossPlayerHop` → `SHELL_KINDS` with both |
+| 4 | The server action | `165cb3a0` | `core/sessions/exploitCreateSession.ts` + its route in `api/sessions.ts`. 12 tests |
+| 5 | The command | `0e24656e` | `core/commands/msfconsole.ts` + registry; `ExploitApi` on `CommandEnv`; the `runExploit` adapter; `ui/env.ts` + `ui/state.ts` wiring. 21 tests |
+| 6 | Nothing leaks into the scan | `fcb55b1a` | Two characterisation locks — the rendered `-sV` table and the `readOpenPorts` payload a cross-player scan sends. 2 tests |
+| 7 | The wire | _pending_ | `scripts/testExploitOwnLan.ts` — **18/18 green live** against `vercel dev` + supabase on 2026-09-11 |
+
+**Suite at increment 7: 4648 tests / 216 files** (the wire-check is not part of it, and not in CI).
+
+### What the wire-check proved, and what it found
+
+Run on world day 10, ESSID `EXPLOIT-LAB-WIFI`: the full-shell door was `192.168.78.85:6379`
+(redis, critical → root) and the limited one `192.168.78.18:22` (ssh, `file_read` → guest).
+
+Everything is **derived from the world at the server's own game day** rather than hardcoded — the
+doors, the expected CVE, severity, tier and account all come from `exploitOutcome` at
+`gameDayAt(Date.now())` — so the file does not rot as the world publishes more CVEs. It exits 2
+with guidance if the chosen ESSID stops offering a door of each kind.
+
+The load-bearing check is the **manifest**: a patch row over `/var/lib/dpkg/status` moves the box
+off the version it shipped with, and the door that opened a moment earlier refuses. Journal replay
+is exactly what `tsc` cannot see, and a handler reading the template table would pass every other
+check in the file. It also fires the acceptance criterion directly — a moved version, a filtered
+port, a bare listener and silence were captured and compared, and all four bodies are byte-identical.
+
+**Found live, and only live: a tombstone keeps its `owner` and its `node_type`.** The first run
+died on `null value in column "owner" violates not-null constraint`. `content: null` alone is the
+deletion marker; the other columns are NOT NULL in the table. The increment-4 unit test's
+in-memory `tombstoneOf` helper nulls `node_type` too, which the in-memory replay tolerates and the
+database does not — worth knowing before the next script writes one.
+
+## Mutation gate — run 2026-09-11, **0 timeouts in all three runs**
+
+Scoped battery over the four production files, through a throwaway vitest config listing only the
+nine test files that cover them (321 tests in 47s, per conventions §4 — a whole-suite dry run does
+not finish here). Both throwaway configs were deleted afterwards; their `mutate`/`include` lists
+are per-slice and would rot.
+
+| File | Mutants | Start | After | Survivors left |
+|---|---|---|---|---|
+| `sessions/exploitCreateSession.ts` | 104 | 86.3% | **97.1%** | 3, all equivalent |
+| `logging/exploitLog.ts` | 9 | 88.9% | **100%** | 0 |
+| `commands/msfconsole.ts` | 110 | 63.6% | 68.2% | 35 = 30 manual-page prose + 4 equivalent + 1 cosmetic |
+| `cve/exploitEffect.ts` | 77 | 41.6% | 41.6% | 45, all undrawn pool data |
+
+**Excluding the effect pools and the manual page: 197/205 = 96.1%**, and every one of the eight
+remaining survivors is hand-accounted: seven equivalent, one a blank output line.
+
+### Why `exploitEffect.ts` reads 41.6% — and why no test was written for it
+
+The arithmetic settles it. The pool block holds **52 entries**; exactly **7 died** — one per service,
+the entry each seed actually draws — and exactly **45 survived**, with **zero survivors anywhere
+outside the pool block**. Every survivor is a pool entry the world cannot draw while the roll is
+pinned at `FIRST_INDEX`. They become reachable in slice 4, when `apt upgrade` moves a package to a
+later CVE and the index widens. Counting only reachable mutants the file is **32/32**. This is the
+unreachable-code case the working policy names: proportionate evidence, not a fabricated test.
+
+### Equivalent mutants, hand-checked rather than assumed
+
+- `outcome === undefined` → `false` — the `||`'s second operand still catches it, because `account`
+  is only computed when `outcome` exists.
+- `version === undefined` → `false` — `exploitOutcome(key, undefined, day)` returns undefined
+  anyway, since `startingVersionOf(key) !== undefined`.
+- `'failure'` → `""` — every formatter branches on `=== 'success'`, so an empty string still takes
+  the failure arm.
+- `msfconsole`'s whole argument guard (4 mutants) — the port guard below it is a superset:
+  `Number(undefined)` is `NaN`, so the usage error comes out either way.
+
+### What the survivors earned — ten tests for claims nothing checked
+
+The server's two 500 paths were the real find. A journal it could not read answered `not_vulnerable`
+with nothing to prove otherwise, and an insert that failed had a code comment claiming no trace is
+written that **nothing verified**. Also new: `findPatches` is aimed at the right machine id (the
+wrong one replays an empty journal and makes every box look pristine); the row carries its parent
+and source; a payload naming its own `player_key` is refused; a malformed payload is a **400**, not
+the 404 a real miss gets; and a caller with no address is written up as `unknown` rather than blank.
+
+`syslogExploitLine`'s failure branch was the sharpest one: forced down the success arm it prints
+`opened as undefined` into the defender's log — a break-in they never had, which is exactly the lie
+the two-formatter split exists to prevent. One assertion across all seven rows now forbids it.
+
+`msfconsole` gained its port bounds (0/1/65535/65536 — the bound decides between a door and a usage
+error) and session-id continuity: the id pushed onto the stack is the id the server was asked to
+mint, or `exit` unwinds something the server never ended.
+
+**Manual-page prose is deliberately not pinned.** Thirty survivors are the description, the
+arguments and the examples. A test that fixed that wording to the character would fail on every copy
+edit and catch no defect; `man.test.ts` already asserts the page has a real SYNOPSIS and EXAMPLES
+naming the command, which is the part that can actually be wrong.
+
+**Suite after the gate: 4664 tests / 216 files.**
+
+### Pre-PR gate — complete
+
+1. ✅ Implementation complete; refactor assessment recorded (the effect pools did NOT earn their own
+   module — they are one table read by one function, and splitting them would move data away from
+   the only code that reads it).
+2. ✅ Mutation gate run; valuable survivors addressed, the rest hand-accounted above.
+3. ✅ `npm run typecheck` and `npm run lint` pass.
+4. ✅ Complete non-watch suite green (4664 / 216); no watchers left running.
+5. ✅ Wire-check run live against `vercel dev` + local supabase, 18/18.
+6. ✅ Version bumped to `0.213.0` in `package.json` and `package-lock.json`.
+7. ✅ `withoutTty` ruled by the owner — see above.
+
+### Increment 6 was a lock, not a change — and it was verified by breaking it
+
+No RED, because nothing changed: the scan's answer and the exploit's answer are two functions
+(decision 13), and increments 1-5 touched neither `liveCve` nor `readOpenPorts` nor the renderer.
+Both tests passed on their first run, which proves nothing on its own — so each was checked by
+temporarily leaking a `TIER` column into `nmap.ts` and a `tier` field into `readOpenPorts`, seeing
+both fail, and reverting. They bite.
+
+- **The render lock asserts whole LINES, not substrings.** A sixth column appended after SEVERITY
+  still satisfies a `toContain` of the five before it, which is how this kind of pin usually rots
+  into decoration.
+- **The payload lock is on `readOpenPorts`**, because that row is what a cross-player scan SENDS to
+  somebody else's client. A field added there would have to be produced by every server path and
+  trusted from each one — the leak that reaches furthest for the least effort.
+- Both derive `exploitOutcome` from the same package and day the scan is reading, so the test
+  demonstrates the answer was available and withheld rather than merely absent.
+
+### What increment 5 actually shipped
+
+`msfconsole <host> <port>`, streamed through `env.sleep` in the phase style legacy used:
+
+```
+[*] Targeting 192.168.1.31:22
+[*] Sending exploit payload...
+[*] Payload delivered, waiting for callback...
+[*] Vulnerability: CVE-2026-0184 (critical)
+[+] Exploit successful!
+[+] Full shell as root@192.168.1.31
+```
+
+- **Every sleep happens BEFORE the round trip.** A Ctrl-C after the server minted the row would
+  otherwise leave a session standing on a box the player was never put on.
+- **The CVE is named on the way in, not up front.** The client never worked out which hole this
+  was; printing it before the callback would be the tool claiming knowledge only the target could
+  have given it. Legacy printed it first because legacy computed it client-side.
+- **Two sentences for two doors**: `[+] Full shell as …` for `exploit`, `[+] Got shell as …` for
+  `exploit_limited` — the wording `nc` earns.
+- **The refusal is one sentence**: `[-] Exploit failed — no known vulnerability on <ip>:<port>`,
+  for every 404 that is not `host_unreachable`. An unreachable box gets `ssh`'s own wording,
+  `msfconsole: connect to host <ip> port <n>: No route to host`, and so does an address the
+  generated LAN has no host for — which is answered locally, without spending a round trip.
+- **The adapter parses rather than casts.** `runExploit` validates the grant with a zod schema,
+  because its `kind` decides whether the player gets a terminal and its `userType` decides what the
+  box will let them do. It is the first of the sessions adapters to do so beside `crackCredentials`.
+  A 500 or a rejected envelope maps to `network_error`, never to `not_vulnerable` — a server fault
+  must not read as a patch that beat the exploit.
+- **`ExploitShellKind` is `Extract<SessionKind, 'exploit' | 'exploit_limited'>`**, declared once in
+  `core/commands/types.ts`. Increment 4's local `ExploitSessionKind` was deleted and
+  `exploitCreateSession.ts` now imports the narrowed one, so the server that mints the row and the
+  command that pushes it cannot drift.
+
+### Found during implementation — affects what comes next
+
+- **Full shells are RARE.** `openssh-server` rolls `file_read`, `nginx` `script_exec`, `vsftpd`
+  `dir_list`, `snmp` `file_write` — all limited shells under decision 31. Only `mysql`, `redis` and
+  `bind9` roll `shell_full`. So the common doors give the weaker shell and the wire-check's
+  full-shell case needs a store, a database or a name server. The pinned mapping is in
+  `exploitEffect.test.ts` and must not move.
+- **A box with no account at the granted tier refuses and logs**, rather than inventing a name. It
+  is the root-writable-manifest hole pointed at `/etc/passwd`, and slices 3-4 already own that
+  question.
+- **The dns row traces into `auth.log`**, its sweep placeholder, tagged `named[pid]:`. One rule for
+  every row, no carve-out (decision 32's follow-up).
+- **Version bump is still owed** — `v2/package.json` + `v2/package-lock.json` to `0.213.0` at PR
+  readiness, not before.
+- **No jitter.** The epic says legacy's phase output ports "jitter and Ctrl-C included". v2 has no
+  jitter helper and every streamed command (`hydra`, `aircrack-ng`, `airodump-ng`) paces on a fixed
+  `env.sleep`, which is already abort-aware — so Ctrl-C came free and the random spread did not
+  come at all. Cosmetic, and adding a PRNG to pacing would make the output untestable for nothing.
+- **`msfconsole` has no `withoutTty`, so a LIMITED shell can still fire one. RULED 2026-09-11:
+  leave it.** Tools run where you stand — the same rule that lifted `hydra`'s own-machine gate,
+  because a box you have opened is a place to attack FROM. The weak grant stays weaker where it was
+  designed to be (no credential login, no editor, no prompting command of any kind); what it keeps
+  is the ability to keep moving. A `nc` backdoor can fire one too, and for the same reason.
+
+  The rejected alternative was one line — `withoutTty: 'msfconsole: must be run from a terminal'` —
+  on the argument that decision 31 collapses six unbuilt effects to a limited shell precisely to
+  make them weaker, and the one door needing no prompt hands most of the full shell's value back.
+  Declined: it would also cost the `nc` backdoor its exploit reach, and pivoting is the point of
+  opening a box at all. **Carry this into the epic as a resolved decision at retirement.**
+
 ## Goal
 
 `msfconsole <host> <port>` fires the CVE `nmap -sV` already names, and a stale NPC service hands

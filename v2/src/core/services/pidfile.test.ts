@@ -14,6 +14,7 @@ import {
 import { buildDirectory, buildFile } from '../../test/factories/filesystem';
 import type { Directory } from '../filesystem/types';
 import { buildEntry, formatDpkgStatus } from '../packages/dpkgStatus';
+import { exploitOutcome } from '../cve/exploitEffect';
 import { asMachineId } from '../types';
 
 const ssh = SERVICE_CATALOG.ssh;
@@ -370,6 +371,25 @@ describe('the vulnerability a scanned port advertises', () => {
         severity: 'medium',
       },
     ]);
+  });
+
+  it('carries what the hole IS and nothing about what firing it would get you', () => {
+    // The effect and the tier are derivable right here, from the same package and the
+    // same day this projection already has. They stay out of it because this row is
+    // what a cross-player scan SENDS to somebody else's client — a field added here
+    // would have to be produced by every server path and trusted from each one, to
+    // hand over an answer the player is supposed to have to fire for.
+    const granted = exploitOutcome('openssh-server', '9.7.0', SSH_PUBLISHES_ON);
+    if (granted === undefined) throw new Error('this world stopped publishing the hole');
+
+    const [port] = readOpenPorts(boxRunning(runningSshd, shippingSsh), {
+      gameDay: SSH_PUBLISHES_ON,
+    });
+    if (port === undefined) throw new Error('the box stopped advertising its daemon');
+
+    expect(Object.keys(port).sort()).toEqual(['cve', 'port', 'service', 'severity', 'version']);
+    expect(Object.values(port)).not.toContain(granted.effect);
+    expect(Object.values(port)).not.toContain(granted.tier);
   });
 
   it('says nothing while the package is still inside its safe window', () => {

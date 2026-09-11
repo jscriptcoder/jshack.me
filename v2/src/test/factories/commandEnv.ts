@@ -31,6 +31,7 @@ import type {
   NcApi,
   SuApi,
   HydraApi,
+  ExploitApi,
 } from '../../core/commands/types';
 import { basename, dirname } from '../../core/filesystem/path';
 import { canWrite } from '../../core/filesystem/walker';
@@ -243,6 +244,14 @@ export const mockHydraApi = (overrides: Partial<HydraApi> = {}): HydraApi => ({
   ...overrides,
 });
 
+/** The exploit seam. Load-bearing — what a fired CVE opens is the server's answer
+ *  and `msfconsole` has none of its own, so an unstubbed call must be loud rather
+ *  than quietly refusing, which reads as a target that was never vulnerable. */
+export const mockExploitApi = (overrides: Partial<ExploitApi> = {}): ExploitApi => ({
+  run: NOT_IMPLEMENTED('exploit.run'),
+  ...overrides,
+});
+
 /** A scan seam whose `record` no-ops by default (logging is best-effort and
  *  fire-and-forget, so it must not throw the way a load-bearing seam does) and
  *  whose `resolvePublic` throws unless overridden (it is load-bearing — its result
@@ -296,6 +305,7 @@ export const mockCommandEnv = (overrides: Partial<CommandEnv> = {}): CommandEnv 
   scp: mockScpApi(),
   su: mockSuApi(),
   hydra: mockHydraApi(),
+  exploit: mockExploitApi(),
   scan: mockScanApi(),
   setCwd: () => undefined,
   setInterface: () => undefined,

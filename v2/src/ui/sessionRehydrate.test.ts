@@ -126,6 +126,36 @@ describe('rehydrateSessionStack', () => {
     expect(result.activeCwd).toBe('/root');
   });
 
+  it('rebuilds a full exploit shell onto the stack and abandons a weak one', () => {
+    // The two grants differ here exactly as they differ at the prompt. A full shell is
+    // a rung the player walked up and stands on after a refresh; the weaker one is a
+    // parallel session like a backdoor, and replaying it would put the player in a
+    // shell they could never have pivoted into. Neither may be left active and
+    // unowned — an open row is a standing write grant on somebody else's box.
+    const forced = session({
+      id: 'exploit-root-1',
+      machineId: asMachineId('darkstar-12345678'),
+      username: 'root',
+      userType: 'root',
+      kind: 'exploit',
+      createdAt: asEpochMs(10),
+    });
+    const weak = session({
+      id: 'exploit-guest-1',
+      machineId: asMachineId('vault-87654321'),
+      username: 'guest',
+      userType: 'guest',
+      kind: 'exploit_limited',
+      createdAt: asEpochMs(20),
+    });
+
+    const result = rehydrateSessionStack(seed, [weak, forced]);
+
+    expect(result.sessionStack).toEqual([seed, forced]);
+    expect(result.abandoned).toEqual([weak]);
+    expect(result.activeCwd).toBe('/root');
+  });
+
   it('rebuilds the stack without an active ftp session, and names it abandoned', () => {
     const remote = session({
       id: 'ssh-admin-1',

@@ -24,7 +24,7 @@ import { generatedBaseFsForMachineId } from '../core/generation/lanHostIdentity'
 import { isCrossPlayerWorkstation } from '../core/network/crossPlayerHop';
 import { applyPatches, type Patch } from '../core/filesystem/applyPatches';
 import type { Directory } from '../core/filesystem/types';
-import type { Session } from '../core/commands/types';
+import type { Session, SessionKind } from '../core/commands/types';
 
 const baseFsFor = (args: {
   readonly session: Session;
@@ -78,10 +78,21 @@ export const resolveActiveRoot = (args: {
  * are two machines at once — so widening this to every kind would claim a served
  * tree for a session that reads none.
  */
+const SHELL_KINDS: readonly SessionKind[] = [
+  'ssh',
+  'su',
+  'nc',
+  // Both exploit grants stand you in a shell ON the target. The weaker one is
+  // limited in what it can RUN, never in whose filesystem it is looking at —
+  // leaving it out would reprise the backdoor's own defect exactly.
+  'exploit',
+  'exploit_limited',
+];
+
 export const isCrossPlayerHop = (
   session: Session,
   essid: string | null,
   publicKeyHex: string,
 ): boolean =>
-  (session.kind === 'ssh' || session.kind === 'su' || session.kind === 'nc') &&
+  SHELL_KINDS.includes(session.kind) &&
   isCrossPlayerWorkstation({ machineId: session.machineId, publicKeyHex, essid });

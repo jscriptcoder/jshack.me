@@ -726,6 +726,19 @@ describe('a shell with no terminal behind it', () => {
     session: mockSession({ kind: 'nc' }),
   });
 
+  /** Reached by forcing a daemon rather than by logging into it. What the CVE
+   *  granted decides which of these two the player gets, and it is the whole
+   *  difference between them. */
+  const throughAWeakExploit = (env: CommandEnv): CommandEnv => ({
+    ...env,
+    session: mockSession({ kind: 'exploit_limited' }),
+  });
+
+  const throughAFullExploit = (env: CommandEnv): CommandEnv => ({
+    ...env,
+    session: mockSession({ kind: 'exploit' }),
+  });
+
   it.each([
     ["find . '*.txt'", '/home/alice/todo.txt'],
     ['strings notes.txt', 'from alice'],
@@ -772,6 +785,34 @@ describe('a shell with no terminal behind it', () => {
     const command = needsTerminal(execute);
 
     const result = expectSync(await runCommandLine(mockCommandEnv(), 'needy', only(command)));
+
+    expect(result.exitCode).toBe(0);
+    expect(execute).toHaveBeenCalled();
+  });
+
+  it('refuses it in a shell a weak exploit opened, which is what makes that shell weak', async () => {
+    // A CVE that grants only the lesser shell buys a room to search, never a door to
+    // pivot onward through. Nothing else distinguishes the two grants, so this is the
+    // whole of what the weaker one costs the attacker.
+    const execute = ran();
+    const command = needsTerminal(execute);
+
+    const result = expectSync(
+      await runCommandLine(throughAWeakExploit(mockCommandEnv()), 'needy', only(command)),
+    );
+
+    expect(result.lines).toEqual([errorLine(NEEDS_TTY)]);
+    expect(result.exitCode).toBe(1);
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('runs it in a shell a full exploit opened, which is an ssh hop in all but how it was opened', async () => {
+    const execute = ran();
+    const command = needsTerminal(execute);
+
+    const result = expectSync(
+      await runCommandLine(throughAFullExploit(mockCommandEnv()), 'needy', only(command)),
+    );
 
     expect(result.exitCode).toBe(0);
     expect(execute).toHaveBeenCalled();

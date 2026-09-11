@@ -33,6 +33,7 @@ import type {
   SshApi,
   NcApi,
   HydraApi,
+  ExploitApi,
   SuApi,
   TerminalLine,
 } from '../core/commands/types';
@@ -207,6 +208,10 @@ export type BuildCommandEnvArgs = {
   readonly onHydraCrack?: HydraApi['crack'];
   readonly onHydraCrackPublic?: HydraApi['crackPublic'];
   readonly onHydraCrackInnerGateway?: HydraApi['crackInnerGateway'];
+  /** The exploit seam — backs `env.exploit.run`. The UI wires it to the `runExploit`
+   *  adapter (signed `exploitCreateSession` round-trip). Optional here for terse test
+   *  setups; the UI always passes the real one. */
+  readonly onExploitRun?: ExploitApi['run'];
   /** The cross-player `su`-elevation seam — backs `env.su.elevate`. The UI wires it
    *  to the `authElevateServerSession` adapter (signed `suElevate` round-trip).
    *  Optional here: only a cross-player hop's `su` calls it, so own-box/test setups
@@ -457,6 +462,12 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
     crackPublic: args.onHydraCrackPublic ?? notWired('hydra.crackPublic'),
     crackInnerGateway:
       args.onHydraCrackInnerGateway ?? notWired('hydra.crackInnerGateway'),
+  },
+  exploit: {
+    // Loud when unwired: an exploit that answered on its own would either open a
+    // shell the server never authorized, or report a hardened target for a door
+    // nobody ever knocked on. Both are the client deciding the one thing it must not.
+    run: args.onExploitRun ?? notWired('exploit.run'),
   },
   scan: {
     record: args.onScanRecord ?? notWired('scan.record'),

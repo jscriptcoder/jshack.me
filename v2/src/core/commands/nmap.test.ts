@@ -28,6 +28,7 @@ import type { Directory } from '../filesystem/types';
 import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces';
 import { asEpochMs, asMachineId, asPlayerKeyHex } from '../types';
 import { WORLD_EPOCH } from '../cve/worldClock';
+import { exploitOutcome } from '../cve/exploitEffect';
 
 /**
  * `nmap <target>` host-discovery (generator epic, Story 2). Online on a home LAN
@@ -2333,6 +2334,32 @@ describe('nmap -sV — the version scan', () => {
 
     expect(text).toContain('PORT     STATE SERVICE  VERSION         CVE               SEVERITY');
     expect(text).toContain('22/tcp   open  ssh      OpenSSH 9.7.0   CVE-2026-0149031  medium');
+  });
+
+  it('says nothing about what firing that CVE would get you', async () => {
+    // Severity forecasts the privilege; only firing reveals the capability. Both halves
+    // are derivable from the same package and day — the effect and the tier are computed
+    // right here — and the scan carries neither, because a scan that did would turn the
+    // exploit from an act into a confirmation of what the player had already read.
+    const granted = exploitOutcome('openssh-server', '9.7.0', SSH_PUBLISHES_ON);
+    if (granted === undefined) throw new Error('this world stopped publishing the hole');
+
+    const { text } = await drain(
+      await nmap.execute(sshdBoxOn(SSH_PUBLISHES_ON), [SELF_IP], VERSION_SCAN),
+    );
+
+    // Whole lines, not substrings: a sixth column appended after SEVERITY would still
+    // satisfy a `toContain` of the five that came before it.
+    const lines = text.split('\n');
+    const header = lines.findIndex((line) => line.startsWith('PORT'));
+    expect(lines[header]).toBe(
+      'PORT     STATE SERVICE  VERSION         CVE               SEVERITY',
+    );
+    expect(lines[header + 1]).toBe(
+      '22/tcp   open  ssh      OpenSSH 9.7.0   CVE-2026-0149031  medium',
+    );
+    expect(text).not.toContain(granted.effect);
+    expect(text).not.toContain(granted.tier);
   });
 
   it('leaves both cells empty while the package is still inside its safe window', async () => {
