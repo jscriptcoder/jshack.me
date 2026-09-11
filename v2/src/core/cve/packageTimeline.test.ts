@@ -7,6 +7,7 @@ import {
 import { liveCve } from './liveCve';
 import {
   assertCveTimingInvariants,
+  bumpForRoll,
   CVE_TIMING,
   MAX_TIMELINE_ENTRIES,
   installedRelease,
@@ -94,6 +95,19 @@ describe("a package's version timeline", () => {
       expect(entry.patchDelay).toBeGreaterThanOrEqual(CVE_TIMING.minPatchDelayDays);
       expect(entry.patchDelay).toBeLessThanOrEqual(CVE_TIMING.maxPatchDelayDays);
     }
+  });
+
+  it('gives each package a fix schedule of its own rather than one the whole world shares', () => {
+    // Seeded on the package, as its releases are. One schedule for everybody would ship
+    // every package's Nth fix the same number of days after its hole — a pattern a
+    // player watching two packages at once would learn to read.
+    const schedules = KEYS.map((key) =>
+      packageTimeline(key, 400)
+        .slice(0, 20)
+        .map((entry) => entry.patchDelay)
+        .join(','),
+    );
+    expect(new Set(schedules).size).toBeGreaterThan(1);
   });
 
   it('reaches past the day it was asked about, so a patched box still has somewhere to go', () => {
@@ -206,7 +220,9 @@ describe('the release a box is running', () => {
     expect(installedRelease(SSH, '999.0.0', 400)).toEqual(timeline.at(-1));
   });
 
-  it.each(['banana', '', '9.9.9-never-shipped', 'v9.7.0', '9..7', '  '])(
+  // `+999.0.0` is the one that reads a number out of a prefix: parsed loosely it becomes
+  // 999, and a sign in front of a lie would buy what the lie without one is refused.
+  it.each(['banana', '', '9.9.9-never-shipped', 'v9.7.0', '9..7', '  ', '+999.0.0'])(
     'falls back to the version the box was born on for %j, which is not a version at all',
     (typed) => {
       expect(installedRelease(SSH, typed, 400)).toEqual(packageTimeline(SSH, 400)[0]);
@@ -343,5 +359,24 @@ describe('the severity a roll lands on', () => {
     [99, 'low'],
   ])('rolls %i as %s', (roll, severity) => {
     expect(severityForRoll(roll)).toBe(severity);
+  });
+});
+
+/**
+ * How far each release moves, pinned at every boundary on both sides for the reason the
+ * severity bands are. A walk only sees the kinds it happens to draw, so a band shifting by
+ * one — or the weighting turning over until most releases are minors — would still walk
+ * forward one bumped component at a time, and nothing else here would notice.
+ */
+describe('the bump a roll lands on', () => {
+  it.each([
+    [0, 'major'],
+    [4, 'major'],
+    [5, 'minor'],
+    [19, 'minor'],
+    [20, 'patch'],
+    [99, 'patch'],
+  ])('rolls %i as a %s', (roll, bump) => {
+    expect(bumpForRoll(roll)).toBe(bump);
   });
 });

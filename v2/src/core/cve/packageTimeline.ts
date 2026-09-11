@@ -147,14 +147,21 @@ export type TimelineEntry = {
   readonly patchDelay: number;
 };
 
+export type ReleaseBump = 'major' | 'minor' | 'patch';
+
+/** 5% major, 15% minor, 80% patch. Split from the draw for the reason `severityForRoll`
+ *  is: the bands can then be pinned at their exact boundaries, where nothing that only
+ *  walks a timeline would notice one shifting — or a weighting inverted outright. */
+export const bumpForRoll = (roll: number): ReleaseBump => {
+  if (roll < BUMP_WEIGHTS.major) return 'major';
+  if (roll < BUMP_WEIGHTS.major + BUMP_WEIGHTS.minor) return 'minor';
+  return 'patch';
+};
+
 /** Which component the next release bumps. Major and minor are the leading two; a
  *  patch is always the last, whatever the tuple's length. */
-const releasedComponent = (prng: Prng, tuple: readonly number[]): number => {
-  const roll = prng.nextInt(0, 99);
-  if (roll < BUMP_WEIGHTS.major) return 0;
-  if (roll < BUMP_WEIGHTS.major + BUMP_WEIGHTS.minor) return 1;
-  return tuple.length - 1;
-};
+const releasedComponent = (prng: Prng, tuple: readonly number[]): number =>
+  ({ major: 0, minor: 1, patch: tuple.length - 1 })[bumpForRoll(prng.nextInt(0, 99))];
 
 /** Bump one component and zero everything below it — `1.26.4` minor-bumps to
  *  `1.27.0`, never to `1.27.4`. */
