@@ -11,6 +11,7 @@ import {
   createServerSession,
   endServerSession,
   listServerSessions,
+  runExploit,
   type SessionsClientDeps,
 } from './sessionsApi';
 import { generateIdentity } from '../core/identity/identity';
@@ -547,6 +548,148 @@ describe('authCreateServerSessionInnerGateway', () => {
       ok: false,
       error: 'network_error',
     });
+  });
+});
+
+/**
+ * The exploit door sends no credential and gets a capability back, so what this
+ * adapter must not do is let a SERVER fault read as a hardened target. The server's
+ * two 404s are two different facts — one says the box was not there, the other says
+ * nothing there opened — and everything else is a fault, not an answer about the box.
+ */
+describe('runExploit', () => {
+  const params = {
+    sessionId: 'exploit-22-1700000000000',
+    essid: 'BEAN-THERE-WIFI',
+    targetIp: '192.168.1.31',
+    port: 22,
+    parentSessionId: 'shell-1',
+    sourceIp: '192.168.1.50',
+  };
+
+  it('POSTs a signed exploitCreateSession envelope carrying an address and a port and no credential', async () => {
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse(200, {
+        ok: true,
+        cve: 'CVE-2026-0184',
+        severity: 'critical',
+        username: 'root',
+        userType: 'root',
+        kind: 'exploit',
+      }),
+    );
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    const result = await runExploit(deps, params);
+
+    expect(result).toEqual({
+      ok: true,
+      cve: 'CVE-2026-0184',
+      severity: 'critical',
+      username: 'root',
+      userType: 'root',
+      kind: 'exploit',
+    });
+    const verified = await verifyPayload(sentEnvelope(fetchSpy));
+    if (!verified.ok) throw new Error('expected a verified envelope');
+    expect(verified.payload).toMatchObject({
+      action: 'exploitCreateSession',
+      session_id: 'exploit-22-1700000000000',
+      essid: 'BEAN-THERE-WIFI',
+      target_ip: '192.168.1.31',
+      port: 22,
+      parent_session_id: 'shell-1',
+      source_ip: '192.168.1.50',
+    });
+    // Nothing about the hole travels outward: the server derives all of it.
+    expect(verified.payload).not.toHaveProperty('username');
+    expect(verified.payload).not.toHaveProperty('password');
+    expect(verified.payload).not.toHaveProperty('cve');
+  });
+
+  it('carries back the weaker grant as its own kind', async () => {
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse(200, {
+        ok: true,
+        cve: 'CVE-2026-0912',
+        severity: 'medium',
+        username: 'guest',
+        userType: 'guest',
+        kind: 'exploit_limited',
+      }),
+    );
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await runExploit(deps, params)).toMatchObject({ kind: 'exploit_limited' });
+  });
+
+  it('maps the refusal 404 to not_vulnerable', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(404, { error: 'not_vulnerable' }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await runExploit(deps, params)).toEqual({ ok: false, error: 'not_vulnerable' });
+  });
+
+  it('keeps the unreachable 404 apart from the refusal', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(404, { error: 'host_unreachable' }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await runExploit(deps, params)).toEqual({ ok: false, error: 'host_unreachable' });
+  });
+
+  it('maps a server fault to network_error rather than to a target that held', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(500, { error: 'insert_failed' }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await runExploit(deps, params)).toEqual({ ok: false, error: 'network_error' });
+  });
+
+  it('maps a rejected envelope to network_error', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(401, { error: 'bad_signature' }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await runExploit(deps, params)).toEqual({ ok: false, error: 'network_error' });
+  });
+
+  it('refuses to open a shell on a 200 whose body is not a grant', async () => {
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse(200, {
+        ok: true,
+        cve: 'CVE-2026-0184',
+        severity: 'catastrophic',
+        username: 'root',
+        userType: 'root',
+        kind: 'exploit',
+      }),
+    );
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await runExploit(deps, params)).toEqual({ ok: false, error: 'network_error' });
+  });
+
+  it('refuses a 200 that names a session kind no exploit can mint', async () => {
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse(200, {
+        ok: true,
+        cve: 'CVE-2026-0184',
+        severity: 'critical',
+        username: 'root',
+        userType: 'root',
+        kind: 'ssh',
+      }),
+    );
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await runExploit(deps, params)).toEqual({ ok: false, error: 'network_error' });
+  });
+
+  it('maps a thrown fetch (offline) to network_error', async () => {
+    const fetchSpy = vi.fn(async () => {
+      throw new Error('offline');
+    });
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await runExploit(deps, params)).toEqual({ ok: false, error: 'network_error' });
   });
 });
 

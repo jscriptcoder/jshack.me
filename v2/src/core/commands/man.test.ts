@@ -188,7 +188,18 @@ describe('man', () => {
     expect(contents).toContain('    ls -la sub');
   });
 
-  it.each(['clear', 'theme', 'whoami', 'author', 'xterm', 'find', 'strings', 'chmod', 'gpg'])(
+  it.each([
+    'clear',
+    'theme',
+    'whoami',
+    'author',
+    'xterm',
+    'find',
+    'strings',
+    'chmod',
+    'gpg',
+    'msfconsole',
+  ])(
     'renders a real manual page for %s, not the no-manual fallback',
     async (name) => {
       const result = await man.execute(mockCommandEnv(), [name], NO_FLAGS);

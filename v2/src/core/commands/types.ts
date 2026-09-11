@@ -19,6 +19,7 @@ import type { NetworkInterface } from '../network/interfaces';
 import type { HomeNetworkAssignment } from '../network/homeNetwork';
 import type { OccupantProjection } from '../network/resolveOccupants';
 import type { WifiNetwork } from '../network/wifi';
+import type { CveSeverity } from '../cve/liveCve';
 import type { OpenPort } from '../services/pidfile';
 import type { SnmpIdentity, SnmpPortTable } from '../snmp/walk';
 import type { SnmpSetRefusal } from '../snmp/set';
@@ -999,6 +1000,57 @@ export type HydraApi = {
   ) => Promise<HydraCrackResult>;
 };
 
+/** The two kinds of shell a fired CVE can hand over. Narrowed from `SessionKind`
+ *  rather than spelled out again, so the server that mints the row and the command
+ *  that pushes it cannot drift into disagreeing about what an exploit may open. */
+export type ExploitShellKind = Extract<SessionKind, 'exploit' | 'exploit_limited'>;
+
+/** What `msfconsole` hands the exploit action: an address and a port, and nothing
+ *  else. There is no version, CVE, effect or tier field because none of those are
+ *  the client's to claim — the server recomputes every one of them from its own
+ *  clock and the target's own manifest, so a door that asks for nothing has nothing
+ *  for a caller to lie about. */
+export type ExploitRunParams = {
+  readonly sessionId: string;
+  readonly essid: string;
+  readonly targetIp: string;
+  /** Required, unlike an ssh login's optional port: an exploit is aimed at ONE
+   *  listener, and which daemon answers there is the whole of what decides the
+   *  outcome. */
+  readonly port: number;
+  readonly parentSessionId: string | null;
+  /** The address the target's own log records the attempt from, or null. */
+  readonly sourceIp: string | null;
+};
+
+/** What came back. On success the CVE is the attacker's to keep — they earned it,
+ *  it is what names the hole in the defender's log, and later effects key on it —
+ *  and the username is there because only the box knew who it was going to admit.
+ *
+ *  `not_vulnerable` is the ONE refusal for everything that did not open: nothing
+ *  listening, a filtered port, a planted listener with no package behind it, and a
+ *  daemon still inside its safe window. A bounce must tell an attacker only that
+ *  they did not get in, or a failed exploit becomes a free scan. */
+export type ExploitRunResult =
+  | {
+      readonly ok: true;
+      readonly cve: string;
+      readonly severity: CveSeverity;
+      readonly username: string;
+      readonly userType: UserType;
+      readonly kind: ExploitShellKind;
+    }
+  | {
+      readonly ok: false;
+      readonly error: 'not_vulnerable' | 'host_unreachable' | 'network_error';
+    };
+
+/** The exploit seam, backed by the signed `exploitCreateSession` endpoint. One
+ *  method, because there is one question: fire at this port and see what opens. */
+export type ExploitApi = {
+  readonly run: (params: ExploitRunParams) => Promise<ExploitRunResult>;
+};
+
 /** What `nmap` hands to the scan action so the server can record the scan on each
  *  host it touched. The server regenerates the LAN + hosts from the verified
  *  pubkey + essid and writes `/var/log/kern.log` itself — the client never names a
@@ -1142,6 +1194,7 @@ export type CommandEnv = {
   readonly su: SuApi;
   readonly scan: ScanApi;
   readonly hydra: HydraApi;
+  readonly exploit: ExploitApi;
 
   /** Mutate the shell's cwd. UI layer owns the underlying signal; commands
    *  call this when they need to move (`cd`). FsView's `cwd()` reflects

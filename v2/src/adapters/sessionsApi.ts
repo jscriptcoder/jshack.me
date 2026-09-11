@@ -58,6 +58,8 @@ import type {
   HydraCrackInnerGatewayParams,
   HydraCrackPublicParams,
   HydraCrackResult,
+  ExploitRunParams,
+  ExploitRunResult,
 } from '../core/commands/types';
 import type { SessionSummary } from '../core/sessions/listSessions';
 import type { EndReason } from '../core/sessions/endSession';
@@ -243,6 +245,58 @@ export const authCreateServerSessionSameLan = async (
     }
     if (response.status === 401) return { ok: false, error: 'invalid_credentials' };
     if (response.status === 404) return { ok: false, error: 'host_unreachable' };
+    return { ok: false, error: 'network_error' };
+  } catch {
+    return { ok: false, error: 'network_error' };
+  }
+};
+
+/** The grant, validated at the trust boundary rather than cast: its `kind` decides
+ *  whether the player gets a terminal and its `userType` decides what the box will
+ *  let them do, so a malformed body must never become a session. */
+const exploitGrantSchema = z.object({
+  ok: z.literal(true),
+  cve: z.string().min(1),
+  severity: z.enum(['critical', 'high', 'medium', 'low']),
+  username: z.string().min(1),
+  userType: z.enum(['guest', 'user', 'root']),
+  kind: z.enum(['exploit', 'exploit_limited']),
+});
+
+/** Fire a CVE at a port on a host on the caller's own LAN. No credential goes out —
+ *  the server recomputes the game day from its own clock, regenerates the target, and
+ *  answers from that box's own manifest what is published there and what it grants.
+ *
+ *  The two 404s stay apart because they are two different facts: `host_unreachable`
+ *  is a box that was not there, `not_vulnerable` is the ONE answer for everything
+ *  that was there and did not open. Every other status is a fault rather than an
+ *  answer about the target, and collapsing one into `not_vulnerable` would tell a
+ *  player their exploit was beaten by a patch it never reached. */
+export const runExploit = async (
+  deps: SessionsClientDeps,
+  params: ExploitRunParams,
+): Promise<ExploitRunResult> => {
+  try {
+    const response = await post(deps, 'exploitCreateSession', {
+      session_id: params.sessionId,
+      essid: params.essid,
+      target_ip: params.targetIp,
+      port: params.port,
+      parent_session_id: params.parentSessionId,
+      source_ip: params.sourceIp,
+    });
+    const body: unknown = await response.json();
+    if (response.ok) {
+      const grant = exploitGrantSchema.safeParse(body);
+      return grant.success ? grant.data : { ok: false, error: 'network_error' };
+    }
+    if (response.status === 404) {
+      const refusal = (body as { error?: unknown } | null)?.error;
+      return {
+        ok: false,
+        error: refusal === 'host_unreachable' ? 'host_unreachable' : 'not_vulnerable',
+      };
+    }
     return { ok: false, error: 'network_error' };
   } catch {
     return { ok: false, error: 'network_error' };
