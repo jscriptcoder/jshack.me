@@ -397,7 +397,7 @@ PHASE 3 — VULNERABILITIES                             GRILLED 09-09/09-10 + PL
         1b nmap -sV prints the version        ✅ SHIPPED v0.211.0 (#494)
       V slice 2 a CVE is visible              ✔ SHIPPED v0.212.0 (#496)
       V slice 3 a door opens                  ✔ SHIPPED v0.213.0 (#497)
-      V slice 4 the defender patches          apt upgrade + list -u  <- LOOP CLOSES
+      V slice 4 the defender patches          ◐ PLANNED 2026-09-11 (4a+4b) <- LOOP CLOSES
       V slice 5 six more effects              read/list/write/reset/backdoor/script
       V slice 6 the exploit crosses networks  public IP, forwards, deep chain
       V slice 7 reboot evicts                 server-side session end
@@ -3519,6 +3519,70 @@ every effect in slice 3 IS a shell, so a scripted run could only report, would m
 nobody enters, and would write a trace for an exploit the player must then fire again from the
 prompt. It earns its keep the moment a non-shell effect exists.
 
+### Slice 4 — resolved decisions (planning, 2026-09-11)
+
+Four more, continuing the numbering. Slice 4 was grilled with the phase's other twenty-three
+decisions, so it needed `planning` rather than another grill; these are the four questions planning
+had to settle before slices could be written. The plan is
+[`phase3-4-the-defender-patches.md`](./phase3-4-the-defender-patches.md).
+
+#### 36. An off-timeline version resolves to its nearest known ancestor
+
+The manifest is the version authority and it is root-writable, so a player can type a version the
+world never published. Until now that read as clean everywhere — free immunity since slice 3, and
+the debt slices 3 and 4 were told to decide rather than let default.
+
+The rule is total and has no carve-out: a version resolves to the newest timeline entry at or below
+it; a version below the starting tuple, or one that is not a tuple at all, resolves to the starting
+version. `Version: 9.9.9` therefore buys exactly what being fully patched buys and nothing more —
+lying becomes **pointless** rather than punished — while `Version: banana` drops the box to birth
+exposure. Decision 22's downgrade-pin is untouched, because the version an attacker pins to is a
+real entry and resolves to itself.
+
+The rejected alternatives were leaving it clean (one line in one file makes a box permanently
+unexploitable and `apt upgrade` optional — the phase loses its pressure), and resolving every
+unrecognised version to the starting tuple (harsher than honesty: typing a real future version
+would backfire, teaching the player that touching the file is dangerous rather than futile).
+
+#### 37. Slice 4 delivers as two PRs — a fix is visible, then the defender patches
+
+4a ships the forward walk, the resolver and `apt list -u`: read-only, and the first time a CVE
+appears on the player's OWN box rather than through a scan of somebody else's. 4b ships
+`apt upgrade`, install through the same resolver, the manifest patch on install, and the live loop.
+
+The pair mirrors slices 1 and 2 for the same reason those were split: a read surface is
+independently useful and independently wrong-able. Slice 3 was one PR (decision 35) and this slice
+is larger — two command surfaces, a rewritten derivation core, a write path and a wire-check
+rewrite. Splitting at the walk instead was rejected: the walk alone renders nothing, which makes it
+a horizontal slice with no observable.
+
+#### 38. The manifest's ten base-image packages become apt rows that apt never lays down
+
+Slice 1 left the two namespaces disagreeing: the manifest emits `openssh-server`, `vsftpd` and the
+eight library names, and `apt install` has never heard of any of them — so `apt list -u` would
+print rows a player cannot type back at apt.
+
+They become catalog rows marked as shipped with the image. `apt install openssh-server` answers
+*"openssh-server is already the newest version"*, which is **true on every box in the world** and so
+is not a fiction, while `apt upgrade` and `apt list -u` work on them normally. Apt never lays down a
+binary or a `.so` for them, so no install path is invented for software that is already everywhere.
+This closes slice 1's check — every package name the manifest can emit is one apt knows — with
+`firmware` as the single declared exception, synthetic by design and owned by slice 9.
+
+The rejected alternatives were making them fully installable (libraries would need apt to write
+`/lib/*.so`, and `binariesForService` would start matching `sshd` and `vsftpd`, shifting world
+generation for no player-visible gain) and leaving the split (keeps the wart that
+`apt upgrade openssh-server` works while `apt install openssh-server` denies the package exists).
+
+#### 39. `apt install pkg=<version>` pinning is deferred to the attacker slices
+
+Decision 22's apt surface includes downgrade-only pinning and the slice spine does not name it here.
+It stays out. This slice is the DEFENDER's loop and is already the phase's biggest; pinning is pure
+attacker persistence with no defender value, so it does nothing for the playtest slice 4 exists to
+enable. It also needs its own surface — `pkg=version` parsing, downgrade-only validation, and a
+refusal for a version the world has not published yet. Owed to slice 5 or 6, and it gets the
+resolver this slice builds for free.
+
 ### Forced rather than chosen (planning should not re-litigate)
 
 - **`/var/lib/dpkg/status` is THE version source.** Settled by the catalog's own shipped comment,
@@ -3559,7 +3623,7 @@ central mechanic unplayable until slice 6.
 | **1** ✅ | **A version is visible** — **SHIPPED v0.210.0-v0.211.0 (#491, #494)** | `/var/lib/dpkg/status` generated on every box from the daemon binaries it CARRIES (not what it runs — see the close-out) + eight libraries (+ firmware on routers); `nmap -sV` gains a VERSION column; the file reads on your own box and on one you hold. No CVEs yet |
 | **2** ✅ | **A CVE is visible** — **SHIPPED v0.212.0 (#496)** | `WORLD_EPOCH` + each package's FIRST publication + the severity roll (the forward walk moved to slice 4, where `apt upgrade` is what first reaches past it); `nmap -sV` prints a CVE id and severity for a live one. The world is clean for three days and then starts moving. Nothing is exploitable yet — the player can only watch it happen |
 | **3** ✅ | **A door opens** — **SHIPPED v0.213.0 (#497)** | `msfconsole <host> <port>` against a generated NPC host on your own LAN; `shell_full` and `shell_limited`; the exploit session row; the `formatExploit` catalog column with BOTH outcomes traced. A stale NPC service hands over a shell with no credential, and the box records it |
-| **4** | **The defender patches** | `apt upgrade [package]`, `apt list -u` with the ETA status, install sharing the upgrade resolver, and **the forward timeline walk + `findLatestSafeVersion`** deferred here from slice 2. **The loop closes**: A upgrades, B's working exploit now fails, and inside the delay window A is told no fix exists |
+| **4** ◐ | **The defender patches** — **PLANNED 2026-09-11 (decisions 36-39)** | `apt upgrade [package]`, `apt list -u` with the ETA status, install sharing the upgrade resolver, and **the forward timeline walk + `findLatestSafeVersion`** deferred here from slice 2. **The loop closes**: A upgrades, B's working exploit now fails, and inside the delay window A is told no fix exists |
 | **5** | **Six more effects** | `file_read`, `dir_list`, `file_write`, `password_reset`, `backdoor_port_open`, `script_exec` — the third-argument grammar, the CVE-authorized write and exec paths, and D5's backdoor chain forwarding reused whole |
 | **6** | **The exploit crosses networks** | Public IPs, NAT forwards, inner gateways and the deep chain, through the resolvers `ssh` and `hydra` already share. The first real route to rooting another player |
 | **7** | **Reboot evicts** | `reboot` ends every session row on that machine server-side, not just the rebooter's stack. The defender gets an answer; the intruder who deleted `/boot/vmlinuz` gets the last laugh |
@@ -4557,13 +4621,23 @@ the ETA status, install sharing the upgrade resolver, and **the forward timeline
 exploit now fails, and inside the delay window A is told no fix exists. It is the first slice worth
 playtesting — until it lands, the world only ever gets worse and a defender has no move at all.
 
-Not yet planned. It is grilled (decisions 1-30) but has had no planning pass, and it inherits three
-things this slice found: the effect index widens past the first entry, which makes 45 currently
-unreachable pool entries live; `apt upgrade` is what first reaches past a package's starting
-version, so `liveCve`'s "no CVE for a version the package never shipped" becomes the ordinary case
-rather than a hand-edit; and the root-writable-manifest question — whether an unknown version reads
-as clean, as its nearest known ancestor, or as unpatchable — is now load-bearing rather than
-theoretical, because immunity is free until it is answered.
+**PLANNED 2026-09-11** as TWO PRs (decision 37) — **4a a fix is visible**, then **4b the defender
+patches**. The plan is [`phase3-4-the-defender-patches.md`](./phase3-4-the-defender-patches.md) and
+the four questions planning had to settle are decisions 36-39 in
+["Slice 4 — resolved decisions"](#slice-4--resolved-decisions-planning-2026-09-11). The three
+things slice 3 handed it are all accounted for there: the effect index widens past the first entry,
+making 45 currently unreachable pool entries live (so `exploitEffect.ts`'s mutation score climbs on
+its own and must not be "fixed" with a test restating the table); `apt upgrade` is what first
+reaches past a package's starting version, so a version off the timeline stops being exotic; and the
+root-writable-manifest question is answered by decision 36 — **nearest known ancestor**, which makes
+lying pointless rather than free.
+
+Planning also found a fourth, which only running slice 3's own evidence could surface: the CVE id is
+seeded on `cve-id:${key}` with **no index**, so entry 1 would mint entry 0's serial. It has to take
+the index by drawing that stream FORWARD rather than re-seeding it, because entry-0 ids are already
+written into real journal rows by slice 3's traces. And `testExploitOwnLan.ts` closes its door with
+`9.9.9-never-shipped` — under decision 36 that string resolves to the starting version and leaves
+the door OPEN, so a shipped wire-check inverts and is rewritten in 4a.
 
 **X1 slice 1 SHIPPED at v0.206.0 (PR #487)** — a name resolves. `apt install dnsutils` installs
 `nslookup` and `dig`, and a name is now accepted anywhere an address was, through ONE shared
