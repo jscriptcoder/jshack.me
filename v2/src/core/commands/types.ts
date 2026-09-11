@@ -19,7 +19,7 @@ import type { NetworkInterface } from '../network/interfaces';
 import type { HomeNetworkAssignment } from '../network/homeNetwork';
 import type { OccupantProjection } from '../network/resolveOccupants';
 import type { WifiNetwork } from '../network/wifi';
-import type { CveSeverity } from '../cve/liveCve';
+import type { CveSeverity } from '../cve/packageTimeline';
 import type { OpenPort } from '../services/pidfile';
 import type { SnmpIdentity, SnmpPortTable } from '../snmp/walk';
 import type { SnmpSetRefusal } from '../snmp/set';

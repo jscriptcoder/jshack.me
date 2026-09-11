@@ -25,6 +25,8 @@
 import type { AbsPath, PlayerKeyHex } from '../types';
 import type { Directory, FilePermissions } from '../filesystem/types';
 import { DATADIR_FILE, SERVICE_CONFIG_FILE } from '../generation/baseFs';
+import { SYSTEM_DAEMON_NAMES } from '../generation/binaries';
+import { SYSTEM_LIBRARIES } from '../generation/libraries';
 import { DATADIR_PATH } from '../mysql/datadir';
 import { ownDatabase } from '../mysql/ownDatabase';
 import { DATADIR_PATH as STORE_PATH } from '../redis/datadir';
@@ -35,7 +37,7 @@ import {
   RULES_V4_PATH,
   RULES_V4_PERMISSIONS,
 } from '../network/iptablesRules';
-import { pidfilePath } from '../services/pidfile';
+import { daemonName, pidfilePath } from '../services/pidfile';
 import { md5 } from '../generation/md5';
 import { SNMPD_CONF_PATH, SNMPD_CONF_PERMISSIONS, SNMPD_CONF_SEED } from '../snmp/conf';
 import { ownAgentCommunity } from '../snmp/ownAgent';
@@ -281,6 +283,28 @@ export const APT_PACKAGES: readonly AptPackage[] = [
   { name: 'lynx' },
   { name: 'apache2', daemons: ['apache2'] },
   { name: 'nginx', daemons: ['nginx'] },
+];
+
+const systemDaemons: ReadonlySet<string> = new Set(SYSTEM_DAEMON_NAMES);
+
+/**
+ * The packages every box already carries from its base image: the ones behind the two
+ * daemons that ship everywhere, and the shared libraries everything links.
+ *
+ * apt knows their names because the manifest records them and `apt list -u` prints
+ * them, and a row a player cannot type back at apt would be a dead end. But it never
+ * lays them down: software already on every box in the world has nothing to install.
+ *
+ * Kept OUT of `APT_PACKAGES` on purpose. Everything that reads that list would start
+ * matching these names — the install hint would offer to sell `libz` to a player who
+ * typed it at the shell, and the world generator would change what every box running
+ * ssh or ftp carries — for software no player can buy.
+ */
+export const BASE_IMAGE_PACKAGES: readonly string[] = [
+  ...Object.values(SERVICE_CATALOG)
+    .filter((spec) => systemDaemons.has(daemonName(spec)))
+    .map((spec) => spec.package),
+  ...SYSTEM_LIBRARIES,
 ];
 
 /** Binary name → package name, for the install hint. Derived from

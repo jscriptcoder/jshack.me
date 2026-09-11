@@ -888,6 +888,16 @@ Provably-equivalent mutant classes — accept (don't chase) when they recur:
   string does not have: `rows ?? []` then `.at(-1)?.content` yields `undefined` either way. The
   GUARD is still tested (the `??` → `&&` mutant dies); only the fallback's contents are
   unobservable. (`hydraCrack.ts` `wordlistOn`.)
+- **A `StringLiteral → ""` on a literal typed as a string UNION is a compile error, not a
+  survivor.** `stryker.config.json` runs no TypeScript checker, so Stryker executes mutants
+  `tsc -b` would reject and scores them Survived. `exploitEffect.ts`'s effect pools are
+  `readonly ExploitEffectKind[]`, and all 45 of their survivors are this class — applying one
+  by hand fails with `TS2322: Type '""' is not assignable to type 'ExploitEffectKind'`. They
+  were first written off as pool entries no box could reach; once the timeline walked past
+  entry 0 they became reachable, and the score still did not move, because reachability was
+  never what kept them alive. Hand-check one with `npx tsc -b` and accept the family. A test
+  that killed them would restate the type, and a test that pinned each package's rolls would
+  restate the pool.
 - Plus per-slice equivalents documented in the relevant plan (e.g. discriminant-by-exclusion
   arms, a default value washed out downstream).
 

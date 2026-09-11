@@ -15,6 +15,7 @@ import { buildDirectory, buildFile } from '../../test/factories/filesystem';
 import type { Directory } from '../filesystem/types';
 import { buildEntry, formatDpkgStatus } from '../packages/dpkgStatus';
 import { exploitOutcome } from '../cve/exploitEffect';
+import { installedRelease } from '../cve/packageTimeline';
 import { asMachineId } from '../types';
 
 const ssh = SERVICE_CATALOG.ssh;
@@ -426,13 +427,27 @@ describe('the vulnerability a scanned port advertises', () => {
     expect(ports).toEqual([{ port: 22, service: 'ssh' }]);
   });
 
-  it('has none for a version the package never shipped', () => {
-    // Reachable by hand: the manifest is root-writable, so this is a line a player can
-    // type. It reads as clean today, when nothing is exploitable either way.
+  it('advertises the version the FILE claims and the hole the box actually has', () => {
+    // Reachable by hand: the manifest is root-writable, so a version the world never
+    // published is a line a player can type. The port keeps advertising what the file
+    // says — a scanner reports what it read — while the CVE is the one the release
+    // below it carries. Writing a number into the file is not a way out, and the
+    // mismatch a scan then shows is itself the tell.
+    const claimed = installedRelease('openssh-server', '9.9.9', LATE);
+    if (claimed === undefined) throw new Error('this world stopped publishing openssh');
+
     const ports = readOpenPorts(boxRunning(runningSshd, { 'openssh-server': '9.9.9' }), {
       gameDay: LATE,
     });
 
-    expect(ports).toEqual([{ port: 22, service: 'ssh', version: 'OpenSSH 9.9.9' }]);
+    expect(ports).toEqual([
+      {
+        port: 22,
+        service: 'ssh',
+        version: 'OpenSSH 9.9.9',
+        cve: claimed.cve,
+        severity: claimed.severity,
+      },
+    ]);
   });
 });

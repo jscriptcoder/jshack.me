@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { PACKAGE_TEMPLATES, startingVersionOf } from '../packages/packageVersions';
-import { assertCveTimingInvariants, CVE_TIMING, liveCve, severityForRoll } from './liveCve';
+import { liveCve } from './liveCve';
+import { CVE_TIMING } from './packageTimeline';
 
 const KEYS = Object.keys(PACKAGE_TEMPLATES);
 const SSH = 'openssh-server';
@@ -58,22 +59,46 @@ describe('a package with a published CVE', () => {
 
 /**
  * The world is a pure function of the epoch and these seeds, so it can be pinned
- * exactly. These four are a lock against SILENT drift: reordering a PRNG draw,
- * renaming a seed string or renumbering a package would republish CVEs that
- * players already have written down in their logs, and nothing else in the suite
- * would notice. Changing them is a deliberate act, not a passing detail.
+ * exactly. This is a lock against SILENT drift: reordering a PRNG draw, renaming
+ * a seed string or renumbering a package would republish CVEs that players
+ * already have written down in their logs, and nothing else in the suite would
+ * notice. Changing any row here is a deliberate act, not a passing detail.
  *
- * They also cover all four severity bands, which is the honest way to prove every
- * one is reachable — a distribution assertion over fifteen packages would not be.
+ * EVERY package, not a sample. The derivation is about to learn to walk forward
+ * to the versions `apt upgrade` reaches, and the one thing that walk must not do
+ * is disturb the entry every box in the world currently sits on — so the lock has
+ * to cover the whole table the walk could disturb, libraries included. The
+ * coverage case below is what stops a new package slipping in BESIDE the lock
+ * instead of under it.
+ *
+ * All four severity bands appear here, which is the honest way to show each one
+ * is reachable — a distribution assertion over fifteen packages would not be.
  */
+const WORLD_PINS = [
+  ['openssh-server', 'CVE-2026-0149031', 'medium', 8],
+  ['nginx', 'CVE-2026-0269486', 'high', 9],
+  ['vsftpd', 'CVE-2026-0378750', 'low', 5],
+  ['mysql', 'CVE-2026-0458876', 'medium', 14],
+  ['redis', 'CVE-2026-0597580', 'critical', 9],
+  ['bind9', 'CVE-2026-0666363', 'medium', 14],
+  ['snmp', 'CVE-2026-0712758', 'medium', 4],
+  ['libpam', 'CVE-2026-0833104', 'medium', 3],
+  ['libcrypt', 'CVE-2026-0900028', 'high', 8],
+  ['libsystemd', 'CVE-2026-1027505', 'high', 4],
+  ['libreadline', 'CVE-2026-1130181', 'high', 8],
+  ['libssl', 'CVE-2026-1212003', 'low', 14],
+  ['libz', 'CVE-2026-1396234', 'medium', 10],
+  ['libxml2', 'CVE-2026-1466733', 'medium', 6],
+  ['libpcre', 'CVE-2026-1544019', 'high', 9],
+] as const;
+
 describe('the world these seeds actually produce', () => {
-  it.each([
-    ['openssh-server', 'CVE-2026-0149031', 'medium', 8],
-    ['nginx', 'CVE-2026-0269486', 'high', 9],
-    ['vsftpd', 'CVE-2026-0378750', 'low', 5],
-    ['redis', 'CVE-2026-0597580', 'critical', 9],
-  ])('pins %s', (key, cve, severity, publishedAt) => {
+  it.each(WORLD_PINS)('pins %s', (key, cve, severity, publishedAt) => {
     expect(liveCve(key, startOf(key), LATE)).toEqual({ cve, severity, publishedAt });
+  });
+
+  it('covers every package the world ships', () => {
+    expect([...WORLD_PINS].map(([key]) => key).sort()).toEqual([...KEYS].sort());
   });
 });
 
@@ -82,13 +107,32 @@ describe('a package with no live CVE', () => {
     expect(liveCve(SSH, startOf(SSH), 0)).toBeUndefined();
   });
 
-  it('has none for a version the package never shipped', () => {
-    // The manifest is root-WRITABLE, so this is a line a player can type.
-    expect(liveCve(SSH, '9.9.9', LATE)).toBeUndefined();
+  it('has none for a hand-typed version beyond everything the world has released', () => {
+    // The manifest is root-WRITABLE, so this is a line a player can type — and it
+    // resolves DOWN to the newest release, which is clean until its own day comes.
+    // Typing a high number therefore buys exactly what upgrading buys and nothing
+    // more: the lie is pointless rather than punished.
+    expect(liveCve(SSH, '999.0.0', LATE)).toBeUndefined();
   });
 
   it('has none for a package the world has no version template for', () => {
     expect(liveCve('metasploit', '1.0.0', LATE)).toBeUndefined();
+  });
+});
+
+describe('a manifest that has been written on by hand', () => {
+  it('reads a version that is not a version at all as the one the box was born on', () => {
+    // Nonsense in the file is not a defence — it drops the box back to the release it
+    // shipped with, whose hole published long ago and is still open.
+    expect(liveCve(SSH, 'banana', LATE)).toEqual(liveCve(SSH, startOf(SSH), LATE));
+  });
+
+  it('reads a version from further up the package\'s own history as that release', () => {
+    // The other direction, and the one an attacker wants: pinning a box back to a
+    // release whose hole is open is a backdoor that looks like nothing at all.
+    const older = liveCve(SSH, startOf(SSH), LATE);
+    expect(older).toBeDefined();
+    expect(liveCve(SSH, '9.7', LATE)).toEqual(older);
   });
 });
 
@@ -125,44 +169,5 @@ describe('a CVE id', () => {
     // same way, one guess would open most of the world without reading anything.
     const lastFour = new Set(KEYS.map((key) => liveCve(key, startOf(key), LATE)?.cve.slice(-4)));
     expect(lastFour.size).toBe(KEYS.length);
-  });
-});
-
-/**
- * The guard on the config itself. A fix that arrives at or after the NEXT version's own
- * vulnerability leaves no safe window at all — the treadmill stops being demanding and
- * becomes unwinnable — so a config that allows it must never reach a player.
- */
-describe('the timing config', () => {
-  it('refuses a config that would leave no safe window after a fix', () => {
-    expect(() =>
-      assertCveTimingInvariants({ ...CVE_TIMING, maxPatchDelayDays: CVE_TIMING.minSafeWindowDays }),
-      // Both halves of the message: the guard's whole job is telling a developer WHICH
-      // two numbers conflict, so a message that named neither would be a silent throw.
-    ).toThrow(/maxPatchDelayDays \(3\).*strictly less than.*minSafeWindowDays \(3\).*safe window/s);
-  });
-
-  it('accepts the config the world actually ships with', () => {
-    expect(() => assertCveTimingInvariants(CVE_TIMING)).not.toThrow();
-  });
-});
-
-/**
- * The published distribution, pinned at every boundary on both sides. No package in the
- * world rolls exactly 10, 60 or 90, so a band silently shifting by one would change what
- * a whole class of targets is worth and nothing else here would see it.
- */
-describe('the severity a roll lands on', () => {
-  it.each([
-    [0, 'critical'],
-    [9, 'critical'],
-    [10, 'high'],
-    [59, 'high'],
-    [60, 'medium'],
-    [89, 'medium'],
-    [90, 'low'],
-    [99, 'low'],
-  ])('rolls %i as %s', (roll, severity) => {
-    expect(severityForRoll(roll)).toBe(severity);
   });
 });

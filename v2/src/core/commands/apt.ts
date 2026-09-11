@@ -20,6 +20,11 @@
  * is touched, so they refuse sync with no preamble, while an unknown package is
  * only discoverable by reading the lists — so it reports beneath the preamble,
  * as real apt does.
+ *
+ * `list -u` is the defender's view of the manifest a version scan reads: which
+ * packages on this box are exposed, and whether the release that fixes each has
+ * shipped yet. It writes nothing and the manifest is world-readable, so it needs no
+ * root — only the network, like `list` beside it.
  */
 
 import { asAbsPath, type AbsPath } from '../types';
@@ -28,7 +33,15 @@ import type { Command, CommandEnv, CommandResult, PatchResult, TerminalLine } fr
 import { BINARY_STUB } from '../generation/binaries';
 import { LIBRARY_PERMS } from '../generation/libraries';
 import type { SystemLibrary } from '../generation/libraries';
-import { APT_PACKAGES, packageContents, type AptExtraFile } from '../packages/aptPackages';
+import {
+  APT_PACKAGES,
+  BASE_IMAGE_PACKAGES,
+  packageContents,
+  type AptExtraFile,
+} from '../packages/aptPackages';
+import { parseDpkgVersions, readDpkgStatus } from '../packages/dpkgStatus';
+import { upgradeStatusFor, type UpgradeStatus } from '../cve/packageTimeline';
+import { gameDayAt } from '../cve/worldClock';
 import { libraryDeps } from './libraryDeps';
 import { binaryExists } from './availability';
 import { errorLine, streamedResult, text } from './streaming';
@@ -39,8 +52,9 @@ const STEP_DELAY_MS = 300;
 
 const USAGE = [
   'apt: usage:',
-  '  apt install <package>   Install a package',
-  '  apt list [--installed]  List packages (optionally only installed ones)',
+  '  apt install <package>     Install a package',
+  '  apt list [--installed]    List packages (optionally only installed ones)',
+  '  apt list --upgradable     List the packages on this box with a vulnerability',
 ];
 
 /** Apt's exit code for a failed operation (permission, fetch, locate, …). */
@@ -201,6 +215,45 @@ async function* listPackages(
     if (installedOnly && !installed) return [];
     return [text(`  ${pkg.name}${installed ? ' [installed]' : ''}`)];
   });
+  // Installed on every box, whatever /usr/bin holds: half of them are libraries, which
+  // have no binary to look for, and the rest arrived with the box rather than with apt.
+  yield* BASE_IMAGE_PACKAGES.map((name) => text(`  ${name} [installed]`));
+  return 0;
+}
+
+/** One package's row, or none. Only a package that needs a move is listed, as real
+ *  `apt list --upgradable` does; a package with no timeline — a router's firmware —
+ *  has nothing to offer and is left out rather than given a version it does not have.
+ *  The version shown is the one the FILE claims, as a scan shows it, so a hand-edited
+ *  manifest reads back exactly as its owner wrote it. */
+const upgradableRow = (
+  pkg: string,
+  version: string,
+  status: UpgradeStatus,
+): readonly TerminalLine[] => {
+  if (status.kind === 'upgradable') {
+    return [text(`  ${pkg} ${version} [upgradable → ${status.target}]`)];
+  }
+  if (status.kind === 'no-fix-yet') {
+    const days = `${status.etaDays} day${status.etaDays === 1 ? '' : 's'}`;
+    return [text(`  ${pkg} ${version} [vulnerable, no fix yet — ETA ~${days}]`)];
+  }
+  return [];
+};
+
+/** Every package in the manifest of the box the player is STANDING on, against today's
+ *  world. A clean box says so in one line: on a box of several services and eight
+ *  libraries a row per package would be a wall of mostly-green noise, and "up to date"
+ *  said plainly is the better reward. */
+async function* listUpgradable(env: CommandEnv): AsyncGenerator<TerminalLine, number> {
+  yield text('Listing...');
+  await env.sleep(STEP_DELAY_MS);
+
+  const gameDay = gameDayAt(env.now());
+  const rows = Array.from(parseDpkgVersions(readDpkgStatus(env.fs.root())), ([pkg, version]) =>
+    upgradableRow(pkg, version, upgradeStatusFor(pkg, version, gameDay)),
+  ).flat();
+  yield* rows.length > 0 ? rows : [text('All packages are up to date.')];
   return 0;
 }
 
@@ -216,6 +269,14 @@ async function* installPackage(
   await env.sleep(STEP_DELAY_MS);
   yield text('Building dependency tree...');
   await env.sleep(STEP_DELAY_MS);
+
+  // True on every box in the world, so it is not a fiction — and there is nothing to
+  // write: no binary for software that came with the box, no `.so` for a library
+  // everything already links.
+  if (BASE_IMAGE_PACKAGES.includes(packageName)) {
+    yield text(`${packageName} is already the newest version.`);
+    return 0;
+  }
 
   const contents = packageContents(packageName);
   if (contents === undefined) {
@@ -266,6 +327,11 @@ const handleList = (env: CommandEnv, flags: ReadonlyMap<string, string | true>):
   if (!env.network.isOnline()) {
     return offlineError();
   }
+  // Ahead of `--installed`, which it already implies: a package has to be on the box
+  // before it can need upgrading.
+  if (flags.has('--upgradable') || flags.has('-u')) {
+    return streamedResult(listUpgradable(env));
+  }
   return streamedResult(listPackages(env, flags));
 };
 
@@ -305,11 +371,11 @@ export const apt: Command = {
   category: 'network',
   tier: 'root',
   availability: { kind: 'localhost-only' },
-  flags: { '--installed': 'boolean', '-i': 'boolean' },
+  flags: { '--installed': 'boolean', '-i': 'boolean', '--upgradable': 'boolean', '-u': 'boolean' },
   manual: {
-    synopsis: 'apt <install|list> [args]',
+    synopsis: 'apt <install|list> [--installed|--upgradable] [package]',
     description:
-      'Advanced Package Tool. "install" downloads a package and places its binaries where they belong — tools in /usr/bin, service daemons in /usr/sbin — making them available to run (requires root — run "su" first). "list" shows the installable catalog; "list --installed" shows only the packages already present. Both need a network connection.',
+      'Advanced Package Tool. "install" downloads a package and places its binaries where they belong — tools in /usr/bin, service daemons in /usr/sbin — making them available to run (requires root — run "su" first). "list" shows the installable catalog; "list --installed" shows only the packages already present. "list --upgradable" (or -u) reads this box\'s package manifest and names every package with a published vulnerability: the version that fixes it, or — while the fix has not been released yet — how many days until it is. It needs no root. All of them need a network connection.',
     arguments: [
       {
         name: 'operation',
@@ -318,10 +384,19 @@ export const apt: Command = {
         values: ['install', 'list'],
       },
       { name: 'package', description: 'The package to install (for "install")' },
+      { name: '--installed', description: 'With "list": only the packages already present (-i)' },
+      {
+        name: '--upgradable',
+        description: 'With "list": only the packages on this box that are vulnerable (-u)',
+      },
     ],
     examples: [
       { command: 'apt install nmap', description: 'Install the nmap network scanner' },
       { command: 'apt list --installed', description: 'List the packages already installed' },
+      {
+        command: 'apt list --upgradable',
+        description: 'See which packages on this box are exposed, and when their fixes land',
+      },
     ],
   },
   execute,
