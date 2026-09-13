@@ -397,7 +397,7 @@ PHASE 3 — VULNERABILITIES                             GRILLED 09-09/09-10 + PL
         1b nmap -sV prints the version        ✅ SHIPPED v0.211.0 (#494)
       V slice 2 a CVE is visible              ✔ SHIPPED v0.212.0 (#496)
       V slice 3 a door opens                  ✔ SHIPPED v0.213.0 (#497)
-      V slice 4 the defender patches          ◐ PLANNED 2026-09-11 (4a+4b) <- LOOP CLOSES
+      V slice 4 the defender patches          ✔ SHIPPED v0.214.0-v0.215.0 (#498, #499) <- LOOP CLOSED
       V slice 5 six more effects              read/list/write/reset/backdoor/script
       V slice 6 the exploit crosses networks  public IP, forwards, deep chain
       V slice 7 reboot evicts                 server-side session end
@@ -440,7 +440,7 @@ POST-SHIP — MISSIONS
 |---|---|---|---|
 | **V1** ✅ | **A scanner reads what version a service runs** — **GRILLED**, delivered as slices 1-2; **SHIPPED v0.210.0-v0.212.0 (#491, #494, #496)** | `/var/lib/dpkg/status` generated on every box (services + the 8 libraries + firmware on routers); `nmap -sV` VERSION column; `WORLD_EPOCH` + each package's first publication + the severity roll (the forward walk moved to slice 4); a CVE id and severity on a live one | `nmap -sV <host>` → real versions; the world is clean for ~3 days, then CVEs start landing; tier-3 readable (already allowlisted) |
 | **V2** ◐ | **A player breaks in with no credentials** — **GRILLED**, now slices 3, 5, 6; **slice 3 SHIPPED v0.213.0 (#497)**, slices 5-6 remain | `msfconsole <host> <port> [arg]`; all 8 effect kinds; the exploit session row; the `formatExploit` catalog column tracing BOTH outcomes; **server-side CVE recomputation** through the one shared module the client renders from | B finds a vulnerable version → `msfconsole` → `shell_full` with no password; a patched version refuses and the target logs the bounce |
-| **V3** ✔ | **A defender patches and the exploit goes inert** — **GRILLED**, now slices 4 and 7 | `apt upgrade [pkg]`; `apt list -u` with the ETA status; `apt install pkg=<version>` downgrade-only; install sharing the upgrade resolver; `reboot` ending every session on the machine | A upgrades → B's working exploit now fails; inside the delay window A is told no fix exists; A reboots and B's shell drops |
+| **V3** ◐ | **A defender patches and the exploit goes inert** — **GRILLED**, now slices 4 and 7; **slice 4 SHIPPED v0.214.0-v0.215.0 (#498, #499)**, slice 7 remains; `pkg=<version>` pinning moved to the attacker slices by decision 39 | `apt upgrade [pkg]`; `apt list -u` with the ETA status; `apt install pkg=<version>` downgrade-only; install sharing the upgrade resolver; `reboot` ending every session on the machine | A upgrades → B's working exploit now fails; inside the delay window A is told no fix exists; A reboots and B's shell drops |
 | **V4** ✔ | **A player escalates locally through a vulnerable library** — **GRILLED**, now slices 8 and 9 | Library timelines; `ldd`; `msfconsole --local`; the syslog trace; the extended dependency map + its effect pools; `metadata.libraryLinks` deleted; firmware as the third axis | B (guest) `msfconsole --local su` → root without the root password; `ldd /bin/su` shows the vulnerable lib; A upgrades to close it |
 
 **Phase 3 is GRILLED — twenty-three locked decisions and a nine-slice spine** in
@@ -3523,8 +3523,9 @@ prompt. It earns its keep the moment a non-shell effect exists.
 
 Four more, continuing the numbering. Slice 4 was grilled with the phase's other twenty-three
 decisions, so it needed `planning` rather than another grill; these are the four questions planning
-had to settle before slices could be written. The plan is
-[`phase3-4-the-defender-patches.md`](./phase3-4-the-defender-patches.md).
+had to settle before slices could be written. Both PRs have landed and the plan file is deleted;
+the as-built is
+["Phase 3 slice 4 — the defender patches"](#phase-3-slice-4--the-defender-patches--shipped-v02140v02150-498-499).
 
 #### 36. An off-timeline version resolves to its nearest known ancestor
 
@@ -3623,7 +3624,7 @@ central mechanic unplayable until slice 6.
 | **1** ✅ | **A version is visible** — **SHIPPED v0.210.0-v0.211.0 (#491, #494)** | `/var/lib/dpkg/status` generated on every box from the daemon binaries it CARRIES (not what it runs — see the close-out) + eight libraries (+ firmware on routers); `nmap -sV` gains a VERSION column; the file reads on your own box and on one you hold. No CVEs yet |
 | **2** ✅ | **A CVE is visible** — **SHIPPED v0.212.0 (#496)** | `WORLD_EPOCH` + each package's FIRST publication + the severity roll (the forward walk moved to slice 4, where `apt upgrade` is what first reaches past it); `nmap -sV` prints a CVE id and severity for a live one. The world is clean for three days and then starts moving. Nothing is exploitable yet — the player can only watch it happen |
 | **3** ✅ | **A door opens** — **SHIPPED v0.213.0 (#497)** | `msfconsole <host> <port>` against a generated NPC host on your own LAN; `shell_full` and `shell_limited`; the exploit session row; the `formatExploit` catalog column with BOTH outcomes traced. A stale NPC service hands over a shell with no credential, and the box records it |
-| **4** ◐ | **The defender patches** — **PLANNED 2026-09-11 (decisions 36-39)** | `apt upgrade [package]`, `apt list -u` with the ETA status, install sharing the upgrade resolver, and **the forward timeline walk + `findLatestSafeVersion`** deferred here from slice 2. **The loop closes**: A upgrades, B's working exploit now fails, and inside the delay window A is told no fix exists |
+| **4** ✅ | **The defender patches** — **SHIPPED v0.214.0-v0.215.0 (#498, #499)** | `apt upgrade [package]`, `apt list -u` with the ETA status, install through the SAME resolver, a manifest row written on install, and **the forward timeline walk + the nearest-ancestor rule** deferred here from slice 2. **The loop closed**: A upgrades, B's working exploit now refuses, the session B already holds survives it, and inside the delay window A is told plainly that no fix exists |
 | **5** | **Six more effects** | `file_read`, `dir_list`, `file_write`, `password_reset`, `backdoor_port_open`, `script_exec` — the third-argument grammar, the CVE-authorized write and exec paths, and D5's backdoor chain forwarding reused whole |
 | **6** | **The exploit crosses networks** | Public IPs, NAT forwards, inner gateways and the deep chain, through the resolvers `ssh` and `hydra` already share. The first real route to rooting another player |
 | **7** | **Reboot evicts** | `reboot` ends every session row on that machine server-side, not just the rebooter's stack. The defender gets an answer; the intruder who deleted `/boot/vmlinuz` gets the last laugh |
@@ -4621,9 +4622,9 @@ the ETA status, install sharing the upgrade resolver, and **the forward timeline
 exploit now fails, and inside the delay window A is told no fix exists. It is the first slice worth
 playtesting — until it lands, the world only ever gets worse and a defender has no move at all.
 
-**PLANNED 2026-09-11** as TWO PRs (decision 37) — **4a a fix is visible**, then **4b the defender
-patches**. The plan is [`phase3-4-the-defender-patches.md`](./phase3-4-the-defender-patches.md) and
-the four questions planning had to settle are decisions 36-39 in
+**SHIPPED as TWO PRs** (decision 37) — **4a a fix is visible** (v0.214.0, #498), then **4b the
+defender patches** (v0.215.0, #499). Its plan file is deleted and its close-out is the next
+section; the four questions planning had to settle are decisions 36-39 in
 ["Slice 4 — resolved decisions"](#slice-4--resolved-decisions-planning-2026-09-11). The three
 things slice 3 handed it are all accounted for there: the effect index widens past the first entry,
 making 45 currently unreachable pool entries live (so `exploitEffect.ts`'s mutation score climbs on
@@ -4638,6 +4639,129 @@ the index by drawing that stream FORWARD rather than re-seeding it, because entr
 written into real journal rows by slice 3's traces. And `testExploitOwnLan.ts` closes its door with
 `9.9.9-never-shipped` — under decision 36 that string resolves to the starting version and leaves
 the door OPEN, so a shipped wire-check inverts and is rewritten in 4a.
+
+### Phase 3 slice 4 — the defender patches ✅ SHIPPED v0.214.0–v0.215.0 (#498, #499)
+
+Retired here from `phase3-4-the-defender-patches.md`, the way D3–D10, X1 and slices 1–3 each were.
+Two PRs as decision 37 required — **4a a fix is visible** (v0.214.0, #498) then **4b the defender
+patches** (v0.215.0, #499), seven RED-first increments each, the second cut from trunk after the
+first landed rather than stacked on it. **The loop closes here.** Until this slice the world only
+ever got worse at the player; this is the first move a defender has, and the first slice worth
+playtesting.
+
+```
+$ apt list -u
+Listing...
+  openssh-server 9.7.0 [upgradable → 9.7.1]
+  libpcre 10.43.0 [vulnerable, no fix yet — ETA ~2 days]
+
+$ apt upgrade openssh-server
+Reading package lists...
+Building dependency tree...
+Calculating upgrade...
+The following packages will be upgraded:
+  openssh-server
+1 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.
+Unpacking openssh-server (9.7.1) over (9.7.0) ...
+Setting up openssh-server (9.7.1) ...
+```
+
+...and the exploit that opened that door a moment ago now answers `not_vulnerable`, while the
+session it already granted keeps working.
+
+**"No fix yet" is a one-or-two-day state, and that is the treadmill's whole pace.** `CVE_TIMING`
+holds a 3–14 day safe window and a **1–2 day** patch delay, so the ETA line a player meets is
+always `~1 day` or `~2 days`. The window is real pressure but never a wall: waiting it out is a
+plan rather than a gamble, which is what makes a true countdown better than legacy's config
+midpoint. Anything later that assumes a wide gap — a mission that wants a package stuck open, a
+fixture built on a three-day delay — is wrong about this world and will fail against it.
+
+**One resolver answers both of apt's version questions** (decision 7), as one shared private
+frontier walk rather than one verb calling the other's public surface. `upgradeStatusFor(key,
+version, gameDay)` answers *where can this version move to* — `up-to-date` | `upgradable{target}` |
+`no-fix-yet{etaDays}` | `no-timeline`. `newestReleaseOn(key, gameDay)`, added in 4b, answers *what
+does the repo hold today*: the birth version before the first hole publishes, the fix once it has
+shipped, and — the case that matters — **the exposed release itself while its fix is still inside
+the patch delay**, so installing into a window leaves you exposed exactly as everyone else is
+rather than buying immunity by arriving late. A package with no history at all answers `undefined`
+and apt lays down no row.
+
+**`apt install` on a package the box already carries routes to the upgrade path.** The owner's call
+mid-build, and it narrows decision 38: real apt upgrades a package it already has, and saying
+*"already the newest version"* on a box that `apt list -u` calls exposed would be apt contradicting
+itself one command later. The line survives only where it is **true**. This is also what keeps a
+reinstall honest — it moves the box exactly as far as `apt upgrade` would and no further, instead
+of stamping today's release onto a box still running last year's binary.
+
+**A manifest patch must restate owner and permissions, or it hides the file it just wrote.** A
+write left at the session's defaults lands root-only, and the one file the whole phase trusts
+vanishes from every version scan and from `apt list -u` below root — a patch that reads as a
+disappearance. `DPKG_STATUS_PATH`, `DPKG_STATUS_OWNER` and `DPKG_STATUS_PERMISSIONS` are now shared
+constants that the generator stamping the file and every command rewriting it both read, so a
+patched manifest and a generated one cannot drift apart.
+
+**Decision 19 holds by construction, which is why increment 6 is a test-only commit.** Nothing in
+the patch path touches sessions: the shell re-checks only `nc` sockets through `socketAlive`, and
+the server's `authorizeMachineAccess` consults the session row rather than the box's exposure. Two
+guard tests pin it from both ends — one at the shell, one at the patch endpoint — so an exposure
+check added to either later fails loudly instead of quietly evicting whoever is already inside.
+Upgrading is a defence, not an eviction tool; `reboot` is the eviction tool and it is slice 7's.
+
+**Entry 0 still has not moved.** The walk grows forward from the version every box already sits on:
+gap and bump draw from `timeline:${key}`, the patch delay from its own `:patchDelay` side stream,
+and the CVE id stream is **walked** rather than re-seeded per index, because entry-0 ids are
+already written into real journal rows by slice 3's traces. Severity goes the other way — re-seeded
+per index, because its seed already carried one. Each stream got whatever left entry 0 exactly
+where the world had published it. The fifteen world pins prove it in the suite, and
+`testCrossPlayerScanTrace` proves it on the wire: `openssh-server 9.7.0` still derives
+`CVE-2026-0149031` through the server path.
+
+**`withPackageVersion` rewrites the block the parser hands back**, spliced in where that block was
+read from — the last of its name, which is the one a reader reads. It had carried its own rule for
+where a manifest block begins and ends, a second copy of what the parser already knows; the
+mutation gate found the two agreeing only by luck. A manifest apt rewrote somewhere nobody looks is
+a patch that never happened.
+
+**`apache2` is still the one apt daemon with no version template.** It installs as it always did
+and writes no row. Flagged for the content pass — giving it a template is a world-data decision,
+not this slice's.
+
+### Evidence
+
+Suite **4762 / 217 green**; `npm run typecheck`, `npm run lint` and `npm run build` clean at
+v0.215.0.
+
+`scripts/testExploitOwnLan.ts` **19/19 live** against `vercel dev` + supabase, and it is the proof
+the whole slice exists for: at game day 10 the ssh door on `192.168.78.18:22` opens on
+`CVE-2026-0149031`, `apt upgrade` moves the box 9.7.0 → 9.7.1, the same exploit refuses, the
+defender's log holds **both** the break-in and the bounce, and the session opened before the patch
+still writes to the box afterwards. `testRemoteAptInstall` 5/5 and `testCrossPlayerScanTrace` 10/10
+beside it.
+
+Mutation, both gates: 4a took `packageTimeline.ts` to **98.68%** measured alone with `liveCve.ts`
+and the base-image lines at 100%, and killed five real survivors — one of which had **inverted the
+80/15/5 bump weighting with every covering test still green**, a hole in an acceptance criterion
+rather than a missing assertion. 4b ran 663 mutants, 57 → 45 survivors: `apt.ts` 89.90% → **91.41%**,
+`dpkgStatus.ts` 82.29% → **87.91%**, `packageTimeline.ts` **98.83%**. What survives is hand-classified
+— manual and usage prose, the load-time `CVE_TIMING` invariant that throws at import, the
+library-install path no package reaches yet, and regex anchors and optional-chaining forms that
+change nothing.
+
+**`exploitEffect.ts`'s score did NOT climb, and slice 5 must not chase it.** Slice 3 predicted its
+45 survivors would die here once `apt upgrade` widened the effect index past entry 0. They did not:
+every one is `StringLiteral → ""` on a `readonly ExploitEffectKind[]` literal — a compile error
+(`TS2322`) that Stryker, running no type checker in this configuration, scores as survived.
+Reachability was never what kept them alive. The class is in the conventions doc's equivalent-mutant
+list; do not "fix" it with a test that restates the pool table.
+
+**➡️ NEXT: Phase 3 slice 5 — six more effects.** `file_read`, `dir_list`, `file_write`,
+`password_reset`, `backdoor_port_open` and `script_exec`, with decision 23's third-argument grammar
+that slice 3 deferred (`msfconsole` still carries `withoutScript`) — it earns its keep the moment an
+effect reports instead of opening a shell. Decision 39's `apt install pkg=<version>` downgrade-only
+pinning is owed to slice 5 or 6 and inherits this slice's resolver for free. Two things slice 4
+hands it: a version off the timeline is now **ordinary** rather than exotic — every path that
+resolves one meets them routinely and the server agrees with the client about all of them — and
+`newestReleaseOn` already answers what a pin must be validated against.
 
 **X1 slice 1 SHIPPED at v0.206.0 (PR #487)** — a name resolves. `apt install dnsutils` installs
 `nslookup` and `dig`, and a name is now accepted anywhere an address was, through ONE shared

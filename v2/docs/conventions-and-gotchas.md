@@ -157,8 +157,6 @@ Shipped so far (each milestone is in git history + its as-built doc/plan):
   the editor open); a refused one leaves it alone. Wire-check `scripts/testModifiedSinceOpen.ts`;
   three-player browser verification in `e2e-shared-network-verification.md` §6.
 
-**Current version: 0.206.0.**
-
 **Current epic — legacy parity:** `plans/legacy-parity-epic.md` — every remaining way into a
 machine (doors → discovery → CVE vulnerabilities), grilled to nine locked decisions. The ship gate
 is legacy parity **minus missions**; missions are a post-ship epic.
