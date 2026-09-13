@@ -4691,13 +4691,22 @@ first landed rather than stacked on it. **The loop closes here.** Until this sli
 ever got worse at the player; this is the first move a defender has, and the first slice worth
 playtesting.
 
+Captured verbatim from the close-out browser run, on a fresh box at game day 10:
+
 ```
-$ apt list -u
+root@skylab:/root# apt list -u
 Listing...
   openssh-server 9.7.0 [upgradable → 9.7.1]
-  libpcre 10.43.0 [vulnerable, no fix yet — ETA ~2 days]
+  vsftpd 3.0.6 [upgradable → 3.0.7]
+  libpam 1.5.3 [vulnerable, no fix yet — ETA ~1 day]
+  libcrypt 4.4.36 [upgradable → 4.4.37]
+  libsystemd 255.4.0 [vulnerable, no fix yet — ETA ~1 day]
+  libreadline 8.2.10 [upgradable → 8.2.11]
+  libz 1.3.1 [upgradable → 1.3.2]
+  libxml2 2.12.5 [upgradable → 2.13.0]
+  libpcre 10.43.0 [upgradable → 10.43.1]
 
-$ apt upgrade openssh-server
+root@skylab:/root# apt upgrade openssh-server
 Reading package lists...
 Building dependency tree...
 Calculating upgrade...
@@ -4707,6 +4716,12 @@ The following packages will be upgraded:
 Unpacking openssh-server (9.7.1) over (9.7.0) ...
 Setting up openssh-server (9.7.1) ...
 ```
+
+**Nine of the base image's ten packages need a move on day 10, and two of them cannot make it** —
+which is the treadmill arriving at the right weight. A bare `apt upgrade` then reports
+`6 upgraded, 0 newly installed, 0 to remove and 2 not upgraded.` with a `W:` line for each package
+still inside its window, and running it again says `0 upgraded … and 2 not upgraded` rather than
+nothing at all.
 
 ...and the exploit that opened that door a moment ago now answers `not_vulnerable`, while the
 session it already granted keeps working.
@@ -4795,6 +4810,39 @@ every one is `StringLiteral → ""` on a `readonly ExploitEffectKind[]` literal 
 (`TS2322`) that Stryker, running no type checker in this configuration, scores as survived.
 Reachability was never what kept them alive. The class is in the conventions doc's equivalent-mutant
 list; do not "fix" it with a test that restates the pool table.
+
+### Proven in the browser, and what it caught
+
+Run headless on close-out day, one identity, the whole loop through the real terminal: crack
+`VANDELAY-INDUSTRIES` → `192.168.211.38` → `apt list -u` (the nine rows above) → `apt upgrade
+openssh-server` → the package leaves the list → bare `apt upgrade` (6 moved, 2 warned) → run it
+again (`0 upgraded`) → `apt install metasploit` → `msfconsole 192.168.211.90 6379` against a critical
+redis → **full root shell with no credential** → `apt upgrade redis` **from inside that shell**
+(7.2.5 → 7.3.0) → `whoami` still answers `root` → `exit` → the same exploit answers
+`[-] Exploit failed — no known vulnerability`. The offline gate refuses in apt's own words before any
+of it, and `nmap -sV` of the player's own patched box reads `OpenSSH 9.7.1` with the CVE column
+empty.
+
+**Decision 19 is no longer only an argument from construction.** The session that patched the very
+hole it came through kept working, in the UI, with the patch landing on the box the player was
+standing on. That is the claim the two guard tests pin and the browser is where it was watched.
+
+**It also caught the fourth face of a defect older than this slice.** `nmap -sV` of the NPC we had
+just patched still advertised `Redis 7.2.5 / CVE-2026-0597580 critical`, one command before
+`msfconsole` refused it — the scan and the server disagreeing about the same box, with the journal
+reading `Version: 7.3.0`. The cause is the own-LAN scan's journal blindness recorded in the
+conventions doc since D5: a sibling resolves from `buildRemoteHostFs`, seeded and journal-free,
+while a public-IP scan is server-resolved. **Nothing in slice 4 caused it and nothing in slice 4
+regressed** — the own box reads correctly, the server refuses correctly, and this slice is simply
+the first thing that could move a neighbour's version. It is planned as its own two-PR fix in
+[`own-lan-scan-replays-the-journal.md`](./own-lan-scan-replays-the-journal.md) under decisions
+40-43, with the runbook act as
+[Act 16](../v2/docs/e2e-shared-network-verification.md).
+
+The honest reading of 4b's *"after the upgrade, `nmap -sV` reports the new version with no CVE"*:
+**true** for the player's own box and for the server's own recomputation, **false** for a client-side
+scan of an NPC they patched — the half no wire-check can see, which is exactly why the browser act
+exists.
 
 **➡️ NEXT: Phase 3 slice 5 — six more effects.** `file_read`, `dir_list`, `file_write`,
 `password_reset`, `backdoor_port_open` and `script_exec`, with decision 23's third-argument grammar

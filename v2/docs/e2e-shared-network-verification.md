@@ -1079,6 +1079,44 @@ time it has been shown across two.
 
 ---
 
+### Act 16 — the defender patches, and the scan that does not notice (Phase 3 slice 4)
+
+**One identity, headless.** The only act that needs no second player: the target is an NPC, so the
+whole attack → patch → inert loop runs from one session. First run 2026-09-13 at v0.215.0.
+
+Act 1's arc to get online, then `su root`, then:
+
+| # | Command | Expect | Proves |
+|---|---|---|---|
+| 1 | `apt list -u` **before `nmcli connect`** | `E: Failed to fetch — are you connected to a network?` | the online gate, in apt's own words |
+| 2 | `apt list -u` | ~9 of 10 base packages; at least one `[vulnerable, no fix yet — ETA ~N day(s)]` | the defender's view of their own box |
+| 3 | `apt upgrade openssh-server` | `Unpacking … (9.7.1) over (9.7.0)` then `Setting up …` | the patch, streamed |
+| 4 | `apt list -u` | that package is **gone** from the list | the patch persisted through the journal |
+| 5 | `apt upgrade` | `N upgraded … and M not upgraded` + one `W:` per in-window package | the mixed outcome |
+| 6 | `apt upgrade` again | `0 upgraded, 0 newly installed, 0 to remove and M not upgraded` | a box with nothing to do says so |
+| 7 | `apt install nmap`, `nmap <subnet>.1-254` | host table, **no PORT column** | a range scan resolves no ports (decision 43) |
+| 8 | `nmap -sV <npc>` on several hosts | find one running **redis, mysql or bind9** | only those three roll `shell_full` |
+| 9 | `apt install metasploit`, `msfconsole <npc> 6379` | `[+] Full shell as root@<npc>` | the door, with no credential |
+| 10 | `apt upgrade redis` **inside that shell** | `Unpacking redis (7.3.0) over (7.2.5) ...` | the patch lands on the box you STAND on |
+| 11 | `whoami` | `root` | **decision 19** — the patch did not evict its own session |
+| 12 | `exit`, `msfconsole <npc> 6379` | `[-] Exploit failed — no known vulnerability` | the loop closes |
+| 13 | `sshd`, `nmap -sV <own ip>` | new version, **CVE column empty** | your own patch reads back |
+| 14 | `nmap -sV <npc>` | ⚠️ **still the OLD version and a live CVE** | the open defect below |
+
+**Step 14 is a KNOWN FAILURE until `resolveSameLanScan` lands.** The scan contradicts step 12 one
+command apart. It is the fourth face of the own-LAN journal blindness in
+`conventions-and-gotchas.md`, planned in `plans/own-lan-scan-replays-the-journal.md`. **When that
+fix ships, step 14 flips to the new version with no CVE and becomes this act's headline assertion** —
+re-run steps 9-14 as its close-out, and delete this paragraph.
+
+**Traps.** `apt upgrade` needs root AND a network, so do step 1 before connecting or you cannot see
+the gate. The patch delay is 1-2 days, so in-window packages are common but never the majority — an
+act that assumes a specific package is in its window will rot. `nmap` takes a range, not CIDR. A
+LIMITED shell cannot run `apt` (not root), which is why step 8 hunts for one of the three full-shell
+services rather than taking the first CVE it sees.
+
+---
+
 ## 6. What a failure means
 
 | Symptom | Look at |
@@ -1091,6 +1129,7 @@ time it has been shown across two.
 | Empty foreign tree after a successful `ssh` | the hop resolved but the fetch did not — check `/api/network` in `agent-browser console` |
 | Everything 502s | port squatter — the skill's §1 kill, then restart |
 | Results contradict the code you just read | version banner ≠ `v2/package.json` — stale orphaned server |
+| A scan of an own-LAN NPC disagrees with what you just did to it | **known open defect** — the own-LAN scan replays no journal (`conventions-and-gotchas.md`); not a regression, see Act 16 step 14 |
 
 ### Fixed at v0.101.0 + v0.102.0: saving a shared file deleted another occupant's edits
 

@@ -252,9 +252,11 @@ is the assertion D8 could not make.
   The refactor step exists to stop that becoming three subtly different postures.
 - **Wire-check first, browser act second.** The lesson this defect has already taught twice is that
   a green wire-check cannot see a client-rendered tree. `testSameLanScan.ts` proves the endpoint;
-  only a browser act proves the scan a player reads. Add one to
-  [`e2e-shared-network-verification.md`](../v2/docs/e2e-shared-network-verification.md) at S1
-  close-out, re-running slice 4's own journey as its fixture.
+  only a browser act proves the scan a player reads. **The act already exists**:
+  [Act 16](../v2/docs/e2e-shared-network-verification.md) in the runbook, whose step 14 is written
+  as a KNOWN FAILURE against today's build. S1's close-out re-runs steps 9-14, flips step 14 into
+  the act's headline assertion, and deletes the paragraph that explains why it fails. S2's close-out
+  adds the gateway case beside it.
 
 ---
 *Retire this plan into [`legacy-parity-epic.md`](./legacy-parity-epic.md) when both PRs have landed,
