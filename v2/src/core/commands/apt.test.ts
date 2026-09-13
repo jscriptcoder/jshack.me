@@ -15,6 +15,7 @@ import {
   buildEntry,
   DPKG_STATUS_PATH,
   formatDpkgStatus,
+  parseDpkgStatus,
   parseDpkgVersions,
   readDpkgStatus,
 } from '../packages/dpkgStatus';
@@ -151,6 +152,10 @@ type AptEnvOpts = {
   /** Packages this box already carries beyond its base image, at the versions given —
    *  the box of a player who has bought a daemon before. */
   readonly carries?: Readonly<Record<string, string>>;
+  /** Rows cut out of the manifest, which root can do with an editor. */
+  readonly withoutPackages?: readonly string[];
+  /** No manifest on the box at all — root deleted the file. */
+  readonly withoutManifest?: boolean;
 };
 
 /** One filesystem operation apt performed, in the order it performed them.
@@ -176,10 +181,17 @@ const workstationFs = (): Directory =>
     rootPassword: 'hunter2',
   });
 
-/** What a box's manifest reads: the base image every generated workstation records,
- *  plus anything its owner has bought since. */
-const boxManifest = (carries: Readonly<Record<string, string>> = {}): string => {
-  const base = readDpkgStatus(workstationFs());
+/** What a box's manifest reads: the base image every generated workstation records, less
+ *  any row its owner has cut out, plus anything they have bought since. */
+const boxManifest = (
+  carries: Readonly<Record<string, string>> = {},
+  without: readonly string[] = [],
+): string => {
+  const base = formatDpkgStatus(
+    [...parseDpkgStatus(readDpkgStatus(workstationFs())).values()].filter(
+      (entry) => !without.includes(entry.pkg),
+    ),
+  );
   const bought = Object.entries(carries).map(([pkg, version]) => buildEntry(pkg, version));
   return bought.length === 0 ? base : `${base}\n${formatDpkgStatus(bought)}`;
 };
@@ -190,9 +202,15 @@ const installedBoxTree = (opts: AptEnvOpts = {}): Directory =>
     // of it, so a fixture without one would be a box no generator can produce.
     var: buildDirectory({
       lib: buildDirectory({
-        dpkg: buildDirectory({
-          status: buildFile(boxManifest(opts.carries), { owner: 'root' }),
-        }),
+        dpkg: buildDirectory(
+          opts.withoutManifest === true
+            ? {}
+            : {
+                status: buildFile(boxManifest(opts.carries, opts.withoutPackages), {
+                  owner: 'root',
+                }),
+              },
+        ),
       }),
     }),
     usr: buildDirectory({
@@ -565,6 +583,65 @@ describe('apt', () => {
       expect(exitCode).toBe(0);
     });
 
+    it('calls a package the newest version when the box really is on the release the repo holds', async () => {
+      // The other side of the line above, and the reason the sentence is allowed to exist
+      // at all: on a box already carrying the newest release there IS nothing newer, and
+      // apt says so rather than reporting an upgrade it did not make.
+      const { fix, shipsOn } = sshSlowFix();
+      const { env, writes } = aptEnv({ gameDay: shipsOn, carries: { [SSH]: fix.version } });
+
+      const { lines, exitCode } = await streamResult(
+        await apt.execute(env, ['install', SSH], NO_FLAGS),
+      );
+
+      expect(lines).toContainEqual({
+        kind: 'text',
+        content: `${SSH} is already the newest version.`,
+      });
+      expect(exitCode).toBe(0);
+      expect(writes).toEqual([]);
+    });
+
+    it('tells a player whose manifest no longer names a shipped package that the box does not have it', async () => {
+      // The manifest is root-writable, so a player can delete the row for software that
+      // came with the box. apt answers from the file rather than from the image: there is
+      // no binary to lay down for it, and no version to move — and above all it does not
+      // reassure them about a package the box has no record of.
+      const { env, writes } = aptEnv({ withoutPackages: [SSH] });
+
+      const { lines, exitCode } = await streamResult(
+        await apt.execute(env, ['install', SSH], NO_FLAGS),
+      );
+
+      expect(lines).toEqual([
+        { kind: 'text', content: 'Reading package lists...' },
+        { kind: 'text', content: 'Building dependency tree...' },
+        {
+          kind: 'error',
+          content: `E: Package '${SSH}' is not installed, so not upgraded`,
+        },
+      ]);
+      expect(exitCode).toBe(100);
+      expect(writes).toEqual([]);
+    });
+
+    it('calls a package the newest version on a clock past the end of its history', async () => {
+      // A world running long enough to exhaust the walk still has to answer: there is no
+      // later release to name, so what the box holds is the newest there is.
+      const { env, writes } = aptEnv({ gameDay: 10_000_000 });
+
+      const { lines, exitCode } = await streamResult(
+        await apt.execute(env, ['install', SSH], NO_FLAGS),
+      );
+
+      expect(lines).toContainEqual({
+        kind: 'text',
+        content: `${SSH} is already the newest version.`,
+      });
+      expect(exitCode).toBe(0);
+      expect(writes).toEqual([]);
+    });
+
     it('tells a player installing inside a patch-delay window that the hole is open, rather than calling it newest', async () => {
       const { shipsOn } = sshSlowFix();
       const { env, writes } = aptEnv({ gameDay: shipsOn - 1 });
@@ -679,6 +756,23 @@ describe('apt', () => {
       );
       expect(text).toContain(`Unpacking ${REDIS} (`);
       expect(text).toContain(`over (${carried}) ...`);
+      // And it does not call it new. Nothing arrived that was not already there; what
+      // happened was an upgrade, and the lines above are the ones that say so.
+      expect(text).not.toContain('NEW packages');
+    });
+
+    it('writes the whole manifest when the box carries none at all', async () => {
+      // Root can delete `/var/lib/dpkg/status`. What lands then is the file itself rather
+      // than rows appended to nothing, so the box is not left with a manifest that opens
+      // on a blank line no parser would read past.
+      const gameDay = 300;
+      const { env, writes } = aptEnv({ gameDay, withoutManifest: true });
+
+      await streamResult(await apt.execute(env, ['install', REDIS], NO_FLAGS));
+
+      expect(writes.find(({ path }) => path === DPKG_STATUS_PATH)?.content).toBe(
+        formatDpkgStatus([buildEntry(REDIS, newestReleaseOn(REDIS, gameDay)!)]),
+      );
     });
 
     it('errors with usage when no package is given', async () => {

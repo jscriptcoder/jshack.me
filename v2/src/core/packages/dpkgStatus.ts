@@ -79,17 +79,23 @@ export const buildEntry = (pkg: string, version: string): DpkgEntry => ({
 /** The manifest with one package's version changed and every other byte left where it
  *  was: fields nothing here understands, blocks the parser skips, the blank lines
  *  between them. An upgrade moves a version; it does not get to tidy a file its owner
- *  may have written by hand. Split on the parser's own separator, so the block rewritten
- *  is the block a reader reads. */
-export const withPackageVersion = (content: string, pkg: string, version: string): string =>
-  content
-    .split(/(\n\s*\n)/)
-    .map((block) =>
-      PACKAGE_FIELD.exec(block)?.[1]?.trim() === pkg
-        ? block.replace(VERSION_FIELD, `Version: ${version}`)
-        : block,
-    )
-    .join('');
+ *  may have written by hand.
+ *
+ *  The block it rewrites is the one the PARSER hands back, spliced in at the place that
+ *  block was read from — the last of its name, where a file naming a package twice is
+ *  read. A second rule for where a block starts and ends is a second rule that could
+ *  disagree with the first, and a manifest apt rewrote somewhere a reader does not look
+ *  is a patch that never happened. */
+export const withPackageVersion = (content: string, pkg: string, version: string): string => {
+  const entry = parseDpkgStatus(content).get(pkg);
+  if (entry === undefined) return content;
+  const at = content.lastIndexOf(entry.rawBlock);
+  return (
+    content.slice(0, at) +
+    entry.rawBlock.replace(VERSION_FIELD, `Version: ${version}`) +
+    content.slice(at + entry.rawBlock.length)
+  );
+};
 
 /** Serialize entries back to file content: one blank line between blocks, and a
  *  trailing newline, as dpkg writes it. */
@@ -97,9 +103,13 @@ export const formatDpkgStatus = (entries: readonly DpkgEntry[]): string =>
   `${entries.map((entry) => entry.rawBlock).join('\n\n')}\n`;
 
 /** The manifest with rows appended for packages it does not name yet, in dpkg's own
- *  shape — a blank line between blocks — and every existing byte left where it was. */
+ *  shape — a blank line between blocks — and every existing byte left where it was. A
+ *  box carrying no manifest at all gets one holding just these rows, rather than a file
+ *  that opens with a blank line.
+ *
+ *  Call it with rows to add: whether there is anything to add is the caller's question,
+ *  and it is the caller that decides whether to write at all. */
 export const withPackageEntries = (content: string, entries: readonly DpkgEntry[]): string => {
-  if (entries.length === 0) return content;
   const appended = formatDpkgStatus(entries);
   return content.trim() === '' ? appended : `${content}\n${appended}`;
 };
