@@ -18,9 +18,18 @@
  * cannot lose data it does not understand.
  */
 
-import type { Directory } from '../filesystem/types';
+import type { Directory, FilePermissions } from '../filesystem/types';
+import { SERVICE_CONFIG_FILE } from '../generation/baseFs';
 
+/** Where the manifest lives, who owns it and what it permits — shared by the generator
+ *  that stamps it and every command that rewrites it, so a patched manifest and a
+ *  generated one cannot disagree. World-readable, root-write, never executable: real
+ *  dpkg's 644 root:root, and the same rung `/etc/*.conf` sits on, because what software
+ *  a box runs is the lowest tier of recon and costs no credential. The tier-3 allowlist
+ *  already publishes it, so this permission and that allowlist entry have to agree. */
 export const DPKG_STATUS_PATH = '/var/lib/dpkg/status';
+export const DPKG_STATUS_OWNER = 'root';
+export const DPKG_STATUS_PERMISSIONS: FilePermissions = SERVICE_CONFIG_FILE;
 
 export type DpkgEntry = {
   readonly pkg: string;
@@ -67,10 +76,43 @@ export const buildEntry = (pkg: string, version: string): DpkgEntry => ({
   rawBlock: `Package: ${pkg}\nStatus: install ok installed\nVersion: ${version}`,
 });
 
+/** The manifest with one package's version changed and every other byte left where it
+ *  was: fields nothing here understands, blocks the parser skips, the blank lines
+ *  between them. An upgrade moves a version; it does not get to tidy a file its owner
+ *  may have written by hand.
+ *
+ *  The block it rewrites is the one the PARSER hands back, spliced in at the place that
+ *  block was read from — the last of its name, where a file naming a package twice is
+ *  read. A second rule for where a block starts and ends is a second rule that could
+ *  disagree with the first, and a manifest apt rewrote somewhere a reader does not look
+ *  is a patch that never happened. */
+export const withPackageVersion = (content: string, pkg: string, version: string): string => {
+  const entry = parseDpkgStatus(content).get(pkg);
+  if (entry === undefined) return content;
+  const at = content.lastIndexOf(entry.rawBlock);
+  return (
+    content.slice(0, at) +
+    entry.rawBlock.replace(VERSION_FIELD, `Version: ${version}`) +
+    content.slice(at + entry.rawBlock.length)
+  );
+};
+
 /** Serialize entries back to file content: one blank line between blocks, and a
  *  trailing newline, as dpkg writes it. */
 export const formatDpkgStatus = (entries: readonly DpkgEntry[]): string =>
   `${entries.map((entry) => entry.rawBlock).join('\n\n')}\n`;
+
+/** The manifest with rows appended for packages it does not name yet, in dpkg's own
+ *  shape — a blank line between blocks — and every existing byte left where it was. A
+ *  box carrying no manifest at all gets one holding just these rows, rather than a file
+ *  that opens with a blank line.
+ *
+ *  Call it with rows to add: whether there is anything to add is the caller's question,
+ *  and it is the caller that decides whether to write at all. */
+export const withPackageEntries = (content: string, entries: readonly DpkgEntry[]): string => {
+  const appended = formatDpkgStatus(entries);
+  return content.trim() === '' ? appended : `${content}\n${appended}`;
+};
 
 /** The manifest text off a box's tree, or '' for a box that carries no manifest —
  *  which parses to no packages, so a missing file is a missing answer rather than a

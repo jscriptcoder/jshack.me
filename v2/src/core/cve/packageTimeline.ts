@@ -280,6 +280,50 @@ export const liveRelease = (
 };
 
 /**
+ * Where a package's history stands on `gameDay`: the newest release whose hole has
+ * LANDED, the release that fixes that one, and how many days until the fix reaches the
+ * repo — zero once it is there.
+ *
+ * The single walk both of apt's version questions are answered from: what a fresh
+ * install lands on, and where an installed box can move to. `exposed` is undefined only
+ * while a package has published nothing at all, when every box alive is still on the
+ * release it was born with.
+ */
+const frontierOn = (key: string, gameDay: number) => {
+  const timeline = packageTimeline(key, gameDay);
+  const exposed = timeline.findLast((entry) => hasLanded(entry, gameDay));
+  const fix = exposed === undefined ? undefined : timeline[exposed.index + 1];
+  return {
+    timeline,
+    exposed,
+    fix,
+    etaDays:
+      exposed === undefined
+        ? 0
+        : Math.max(exposed.publishedAt + exposed.patchDelay - gameDay, 0),
+  };
+};
+
+/**
+ * The newest release of `key` the repo actually holds on `gameDay` — the version a fresh
+ * install lands on, and the version an upgrade moves a box to.
+ *
+ * Before the package's first hole lands that is the release it was born on. Once one
+ * has, it is the release that fixes it — but only after the patch delay, because until
+ * then that fix does not exist. Inside the delay the newest thing the repo has is the
+ * exposed release itself, so installing into a window leaves a box open exactly as every
+ * box already standing is: nobody buys immunity by arriving late.
+ *
+ * Undefined for a package this world keeps no history for — nothing to install a version
+ * of, rather than a version invented for it.
+ */
+export const newestReleaseOn = (key: string, gameDay: number): string | undefined => {
+  const { timeline, exposed, fix, etaDays } = frontierOn(key, gameDay);
+  if (exposed === undefined) return timeline[0]?.version;
+  return fix !== undefined && etaDays === 0 ? fix.version : exposed.version;
+};
+
+/**
  * What apt can do for one package on a box.
  *
  * `up-to-date` means NOT EXPOSED rather than on the newest release: the treadmill only
@@ -312,13 +356,10 @@ export const upgradeStatusFor = (key: string, version: string, gameDay: number):
   const release = installedRelease(key, version, gameDay);
   if (release === undefined) return { kind: 'no-timeline' };
   if (!hasLanded(release, gameDay)) return { kind: 'up-to-date' };
-  const timeline = packageTimeline(key, gameDay);
-  // The box's own release has landed, so the newest to have done so is it or later.
-  const newest = timeline.findLast((entry) => hasLanded(entry, gameDay)) ?? release;
-  const fix = timeline[newest.index + 1];
+  // The box's own release has landed, so the frontier's exposed release is it or later.
+  const { fix, etaDays } = frontierOn(key, gameDay);
   if (fix === undefined) return { kind: 'no-timeline' };
-  const shipsOn = newest.publishedAt + newest.patchDelay;
-  return gameDay < shipsOn
-    ? { kind: 'no-fix-yet', etaDays: shipsOn - gameDay }
+  return etaDays > 0
+    ? { kind: 'no-fix-yet', etaDays }
     : { kind: 'upgradable', target: fix.version };
 };

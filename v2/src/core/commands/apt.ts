@@ -25,6 +25,12 @@
  * packages on this box are exposed, and whether the release that fixes each has
  * shipped yet. It writes nothing and the manifest is world-readable, so it needs no
  * root — only the network, like `list` beside it.
+ *
+ * `upgrade` is the answer to what `list -u` shows, and takes `install`'s two gates for
+ * the same reasons. It rewrites the versions of the exposed packages in that same
+ * manifest — the file a scan reads and an exploit is keyed on — so a patch is one write
+ * to one file. A package whose fix has not shipped yet is reported rather than moved:
+ * the patch delay is the window nobody can buy their way out of.
  */
 
 import { asAbsPath, type AbsPath } from '../types';
@@ -39,8 +45,17 @@ import {
   packageContents,
   type AptExtraFile,
 } from '../packages/aptPackages';
-import { parseDpkgVersions, readDpkgStatus } from '../packages/dpkgStatus';
-import { upgradeStatusFor, type UpgradeStatus } from '../cve/packageTimeline';
+import {
+  buildEntry,
+  DPKG_STATUS_OWNER,
+  DPKG_STATUS_PATH,
+  DPKG_STATUS_PERMISSIONS,
+  parseDpkgVersions,
+  readDpkgStatus,
+  withPackageEntries,
+  withPackageVersion,
+} from '../packages/dpkgStatus';
+import { newestReleaseOn, upgradeStatusFor, type UpgradeStatus } from '../cve/packageTimeline';
 import { gameDayAt } from '../cve/worldClock';
 import { libraryDeps } from './libraryDeps';
 import { binaryExists } from './availability';
@@ -53,6 +68,7 @@ const STEP_DELAY_MS = 300;
 const USAGE = [
   'apt: usage:',
   '  apt install <package>     Install a package',
+  '  apt upgrade [package]     Patch the packages on this box whose fixes have shipped',
   '  apt list [--installed]    List packages (optionally only installed ones)',
   '  apt list --upgradable     List the packages on this box with a vulnerability',
 ];
@@ -96,6 +112,15 @@ const offlineError = (): CommandResult =>
   errorResult([
     "Err: http://deb.debian.org/debian Temporary failure resolving 'deb.debian.org'",
     'E: Failed to fetch — are you connected to a network?',
+  ]);
+
+/** The apt-style "you are not root" failure, shared by the two operations that write:
+ *  real apt cannot take the dpkg lock as a normal user, whichever of them was asked
+ *  for. */
+const lockError = (): CommandResult =>
+  errorResult([
+    'E: Could not open lock file /var/lib/dpkg/lock-frontend - open (13: Permission denied)',
+    'E: Unable to acquire the dpkg frontend lock (/var/lib/dpkg/lock-frontend), are you root?',
   ]);
 
 /**
@@ -221,6 +246,11 @@ async function* listPackages(
   return 0;
 }
 
+/** A package inside its patch-delay gap, in the words `list -u` and `upgrade` both use —
+ *  one phrase, so the two cannot disagree about when a fix ships. */
+const noFixYet = (etaDays: number): string =>
+  `vulnerable, no fix yet — ETA ~${etaDays} day${etaDays === 1 ? '' : 's'}`;
+
 /** One package's row, or none. Only a package that needs a move is listed, as real
  *  `apt list --upgradable` does; a package with no timeline — a router's firmware —
  *  has nothing to offer and is left out rather than given a version it does not have.
@@ -235,8 +265,7 @@ const upgradableRow = (
     return [text(`  ${pkg} ${version} [upgradable → ${status.target}]`)];
   }
   if (status.kind === 'no-fix-yet') {
-    const days = `${status.etaDays} day${status.etaDays === 1 ? '' : 's'}`;
-    return [text(`  ${pkg} ${version} [vulnerable, no fix yet — ETA ~${days}]`)];
+    return [text(`  ${pkg} ${version} [${noFixYet(status.etaDays)}]`)];
   }
   return [];
 };
@@ -257,6 +286,100 @@ async function* listUpgradable(env: CommandEnv): AsyncGenerator<TerminalLine, nu
   return 0;
 }
 
+/** One package leaving the release it is on for the one that fixes it. */
+type Upgrade = { readonly pkg: string; readonly from: string; readonly to: string };
+
+/** The upgrade itself, once a preamble has been printed: every exposed package on the box
+ *  the player is standing on — or only the one named — moved onto the release that fixes
+ *  it, by rewriting its version in that box's manifest. Every package is unpacked before
+ *  any is set up, as real apt orders it, and the manifest is written once between the two.
+ *
+ *  A package whose fix has not shipped cannot move, and says so last, where it is read:
+ *  the count of what did not move adds up with what did to every row `list -u` shows.
+ *
+ *  Shared with `install`, which does this to a package the box already carries — one
+ *  resolver behind both verbs, so they cannot disagree about what the repo holds. */
+async function* applyUpgrades(
+  env: CommandEnv,
+  packageName: string | undefined,
+): AsyncGenerator<TerminalLine, number> {
+  const gameDay = gameDayAt(env.now());
+  const manifest = readDpkgStatus(env.fs.root());
+  const installed = parseDpkgVersions(manifest);
+  // Only discoverable by reading the box's own manifest, so it reports beneath the
+  // preamble — where an unknown package reports for `install`, and for the same reason.
+  if (packageName !== undefined && !installed.has(packageName)) {
+    yield errorLine(`E: Package '${packageName}' is not installed, so not upgraded`);
+    return APT_ERROR;
+  }
+  const rows = Array.from(installed)
+    .filter(([pkg]) => packageName === undefined || pkg === packageName)
+    .map(([pkg, version]) => ({ pkg, version, status: upgradeStatusFor(pkg, version, gameDay) }));
+  const upgrades = rows.flatMap(({ pkg, version, status }): readonly Upgrade[] =>
+    status.kind === 'upgradable' ? [{ pkg, from: version, to: status.target }] : [],
+  );
+  const warnings = rows.flatMap(({ pkg, version, status }) =>
+    status.kind === 'no-fix-yet'
+      ? [errorLine(`W: ${pkg} ${version} is ${noFixYet(status.etaDays)}`)]
+      : [],
+  );
+
+  if (upgrades.length > 0) {
+    yield text('The following packages will be upgraded:');
+    yield text(`  ${upgrades.map(({ pkg }) => pkg).join(' ')}`);
+  }
+  // Printed even when it is all zeroes: a box with nothing to do has to SAY nothing to
+  // do, or the player cannot tell a clean box from a command that broke.
+  yield text(
+    `${upgrades.length} upgraded, 0 newly installed, 0 to remove and ${warnings.length} not upgraded.`,
+  );
+  if (upgrades.length === 0) {
+    yield* warnings;
+    return 0;
+  }
+
+  await env.sleep(STEP_DELAY_MS);
+  yield* upgrades.map(({ pkg, from, to }) => text(`Unpacking ${pkg} (${to}) over (${from}) ...`));
+  const written = await env.patches.write(
+    asAbsPath(DPKG_STATUS_PATH),
+    upgrades.reduce((content, { pkg, to }) => withPackageVersion(content, pkg, to), manifest),
+    // Restated rather than left to the session: a rewrite at the session's defaults would
+    // leave the manifest root-only, and hide it from every scan and every `list -u`.
+    { owner: DPKG_STATUS_OWNER, permissions: DPKG_STATUS_PERMISSIONS },
+  );
+  // Nothing moved, so nothing may claim to have been set up — the manifest IS the
+  // upgrade, and a box that reported one it never made would be lying about its own
+  // exposure.
+  if (!written.ok) {
+    yield errorLine(`E: Failed to write ${DPKG_STATUS_PATH} (${written.error})`);
+    return APT_ERROR;
+  }
+  yield* upgrades.map(({ pkg, to }) => text(`Setting up ${pkg} (${to}) ...`));
+  yield* warnings;
+  return 0;
+}
+
+/** The `upgrade` operation: apt's own preamble, then the work. */
+async function* upgradePackages(
+  env: CommandEnv,
+  packageName: string | undefined,
+): AsyncGenerator<TerminalLine, number> {
+  yield text('Reading package lists...');
+  await env.sleep(STEP_DELAY_MS);
+  yield text('Building dependency tree...');
+  await env.sleep(STEP_DELAY_MS);
+  yield text('Calculating upgrade...');
+  await env.sleep(STEP_DELAY_MS);
+  return yield* applyUpgrades(env, packageName);
+}
+
+/** True when the repo holds nothing this box does not already have: a package that is not
+ *  exposed at all, or one with no history to move along. Inside a patch delay it is
+ *  FALSE — the hole is real, the warning says so, and calling that the newest version
+ *  would be the reassuring half of the truth. */
+const nothingNewerThan = (status: UpgradeStatus): boolean =>
+  status.kind === 'up-to-date' || status.kind === 'no-timeline';
+
 /** The repo half of `install`, once the caller has cleared the root and
  *  connectivity gates. Every step is announced before it happens; a failure
  *  lands beneath the announcements the player has already seen rather than
@@ -270,12 +393,22 @@ async function* installPackage(
   yield text('Building dependency tree...');
   await env.sleep(STEP_DELAY_MS);
 
-  // True on every box in the world, so it is not a fiction — and there is nothing to
-  // write: no binary for software that came with the box, no `.so` for a library
-  // everything already links.
+  const gameDay = gameDayAt(env.now());
+  const manifest = readDpkgStatus(env.fs.root());
+  const carried = parseDpkgVersions(manifest);
+
+  // Shipped with the box, so there is nothing to lay down: no binary for software that
+  // came with the image, no `.so` for a library everything already links. The VERSION is
+  // still the resolver's to answer, and real apt upgrades a package it already has
+  // rather than declining it — so this goes exactly where `apt upgrade` goes. Saying
+  // "already the newest version" on a box `apt list -u` calls exposed would be apt
+  // contradicting apt.
   if (BASE_IMAGE_PACKAGES.includes(packageName)) {
-    yield text(`${packageName} is already the newest version.`);
-    return 0;
+    const version = carried.get(packageName);
+    if (version !== undefined && nothingNewerThan(upgradeStatusFor(packageName, version, gameDay))) {
+      yield text(`${packageName} is already the newest version.`);
+    }
+    return yield* applyUpgrades(env, packageName);
   }
 
   const contents = packageContents(packageName);
@@ -285,11 +418,16 @@ async function* installPackage(
   }
   const { packageNames, binaries, extraFiles } = contents;
 
-  yield text('The following NEW packages will be installed:');
   // Every package the install covers, not just the one that was asked for. A tool
   // that appears on the box with nothing on screen accounting for it reads as the
-  // game doing something behind the player's back.
-  yield text(`  ${packageNames.join(' ')}`);
+  // game doing something behind the player's back. Only the ones that are actually
+  // new: on a reinstall nothing here is new, and the version half below says what
+  // really happened.
+  const arriving = packageNames.filter((name) => !carried.has(name));
+  if (arriving.length > 0) {
+    yield text('The following NEW packages will be installed:');
+    yield text(`  ${arriving.join(' ')}`);
+  }
   await env.sleep(STEP_DELAY_MS);
   yield text(`Setting up ${packageName} ...`);
 
@@ -320,6 +458,32 @@ async function* installPackage(
     return APT_ERROR;
   }
 
+  // The version half. A package the box already carried moves exactly as `apt upgrade`
+  // moves it — one rule for everything apt touches, and a reinstall that stamped today's
+  // release onto a box still running last year's binary would hand out a patch nobody
+  // applied.
+  if (carried.has(packageName)) {
+    return yield* applyUpgrades(env, packageName);
+  }
+  // Anything genuinely new is BORN at what the repo holds today, in a manifest row of its
+  // own. Without it a bought daemon has a binary and no version, and a scan of the box
+  // that bought it sees a service with nothing behind it. A package this world keeps no
+  // history for gets no row rather than an invented version.
+  const born = packageNames.flatMap((name) => {
+    const version = carried.has(name) ? undefined : newestReleaseOn(name, gameDay);
+    return version === undefined ? [] : [buildEntry(name, version)];
+  });
+  if (born.length === 0) return 0;
+  const recorded = await env.patches.write(
+    asAbsPath(DPKG_STATUS_PATH),
+    withPackageEntries(manifest, born),
+    { owner: DPKG_STATUS_OWNER, permissions: DPKG_STATUS_PERMISSIONS },
+  );
+  if (!recorded.ok) {
+    yield installFailureLine(packageName, recorded.error);
+    return APT_ERROR;
+  }
+
   return 0;
 }
 
@@ -337,10 +501,7 @@ const handleList = (env: CommandEnv, flags: ReadonlyMap<string, string | true>):
 
 const handleInstall = (env: CommandEnv, packageName: string | undefined): CommandResult => {
   if (env.session.userType !== 'root') {
-    return errorResult([
-      'E: Could not open lock file /var/lib/dpkg/lock-frontend - open (13: Permission denied)',
-      'E: Unable to acquire the dpkg frontend lock (/var/lib/dpkg/lock-frontend), are you root?',
-    ]);
+    return lockError();
   }
   if (!env.network.isOnline()) {
     return offlineError();
@@ -349,6 +510,19 @@ const handleInstall = (env: CommandEnv, packageName: string | undefined): Comman
     return errorResult(['E: No package specified.', ...USAGE]);
   }
   return streamedResult(installPackage(env, packageName));
+};
+
+/** `upgrade` takes the same two gates `install` does, in the same order and for the same
+ *  reasons: the dpkg lock is root's, and a release cannot be fetched from a repo the box
+ *  cannot reach. Both refuse before the repo is touched, so neither prints a preamble. */
+const handleUpgrade = (env: CommandEnv, packageName: string | undefined): CommandResult => {
+  if (env.session.userType !== 'root') {
+    return lockError();
+  }
+  if (!env.network.isOnline()) {
+    return offlineError();
+  }
+  return streamedResult(upgradePackages(env, packageName));
 };
 
 const execute: Command['execute'] = async (env, args, flags) => {
@@ -362,6 +536,9 @@ const execute: Command['execute'] = async (env, args, flags) => {
   if (subcommand === 'list') {
     return handleList(env, flags);
   }
+  if (subcommand === 'upgrade') {
+    return handleUpgrade(env, packageName);
+  }
   return errorResult([`E: Invalid operation ${subcommand}`]);
 };
 
@@ -373,17 +550,21 @@ export const apt: Command = {
   availability: { kind: 'localhost-only' },
   flags: { '--installed': 'boolean', '-i': 'boolean', '--upgradable': 'boolean', '-u': 'boolean' },
   manual: {
-    synopsis: 'apt <install|list> [--installed|--upgradable] [package]',
+    synopsis: 'apt <install|list|upgrade> [--installed|--upgradable] [package]',
     description:
-      'Advanced Package Tool. "install" downloads a package and places its binaries where they belong — tools in /usr/bin, service daemons in /usr/sbin — making them available to run (requires root — run "su" first). "list" shows the installable catalog; "list --installed" shows only the packages already present. "list --upgradable" (or -u) reads this box\'s package manifest and names every package with a published vulnerability: the version that fixes it, or — while the fix has not been released yet — how many days until it is. It needs no root. All of them need a network connection.',
+      'Advanced Package Tool. "install" downloads a package and places its binaries where they belong — tools in /usr/bin, service daemons in /usr/sbin — making them available to run (requires root — run "su" first). "upgrade" closes the holes "list --upgradable" names: it moves every package on this box whose fix has been released onto that release, or only the package you name, and reports the ones whose fix has not shipped yet rather than moving them (requires root). "list" shows the installable catalog; "list --installed" shows only the packages already present. "list --upgradable" (or -u) reads this box\'s package manifest and names every package with a published vulnerability: the version that fixes it, or — while the fix has not been released yet — how many days until it is. It needs no root. All of them need a network connection.',
     arguments: [
       {
         name: 'operation',
-        description: '"install" or "list"',
+        description: '"install", "list" or "upgrade"',
         required: true,
-        values: ['install', 'list'],
+        values: ['install', 'list', 'upgrade'],
       },
-      { name: 'package', description: 'The package to install (for "install")' },
+      {
+        name: 'package',
+        description:
+          'The package to install (for "install"), or the single package to upgrade (for "upgrade", which otherwise covers them all)',
+      },
       { name: '--installed', description: 'With "list": only the packages already present (-i)' },
       {
         name: '--upgradable',
@@ -392,6 +573,10 @@ export const apt: Command = {
     ],
     examples: [
       { command: 'apt install nmap', description: 'Install the nmap network scanner' },
+      {
+        command: 'apt upgrade',
+        description: 'Patch every package on this box whose fix has been released',
+      },
       { command: 'apt list --installed', description: 'List the packages already installed' },
       {
         command: 'apt list --upgradable',

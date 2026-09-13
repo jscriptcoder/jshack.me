@@ -11,6 +11,7 @@ import {
   CVE_TIMING,
   MAX_TIMELINE_ENTRIES,
   installedRelease,
+  newestReleaseOn,
   packageTimeline,
   severityForRoll,
   upgradeStatusFor,
@@ -320,6 +321,49 @@ describe('what a box can upgrade to', () => {
 
   it('offers nothing past the last release the walk will reach, rather than inventing one', () => {
     expect(upgradeStatusFor(SSH, '999.0.0', 10_000_000)).toEqual({ kind: 'no-timeline' });
+  });
+});
+
+/**
+ * What the repo holds today — the version a fresh install lands on.
+ *
+ * The same question `upgrade` asks, answered from the same walk: a box that installs a
+ * package and a box that upgrades one must end up on the same release, or the world
+ * would hold two opinions about what it published.
+ */
+describe('the release the repo holds today', () => {
+  it('is the release a package is born on, until its first hole lands', () => {
+    const [first] = packageTimeline(SSH, 400);
+    expect(newestReleaseOn(SSH, first!.publishedAt - 1)).toBe(startingVersionOf(SSH));
+  });
+
+  it('is the fix once that fix has shipped — the very release an upgrade moves a box to', () => {
+    const { fix, shipsOn } = slowFix();
+    expect(newestReleaseOn(SSH, shipsOn)).toBe(fix.version);
+    expect(upgradeStatusFor(SSH, startingVersionOf(SSH)!, shipsOn)).toEqual({
+      kind: 'upgradable',
+      target: newestReleaseOn(SSH, shipsOn),
+    });
+  });
+
+  it('is the exposed release itself inside the patch delay, since the fix does not exist yet', () => {
+    // Installing into the window buys nothing: the newest thing the repo has is the open
+    // one, so a box built today is exposed exactly as every box already standing is.
+    const { vulnerable, shipsOn } = slowFix();
+    expect(newestReleaseOn(SSH, shipsOn - 1)).toBe(vulnerable.version);
+    expect(upgradeStatusFor(SSH, newestReleaseOn(SSH, shipsOn - 1)!, shipsOn - 1)).toEqual({
+      kind: 'no-fix-yet',
+      etaDays: 1,
+    });
+  });
+
+  it('is the last release the walk reaches on a clock set past the end of it', () => {
+    const timeline = packageTimeline(SSH, 10_000_000);
+    expect(newestReleaseOn(SSH, 10_000_000)).toBe(timeline.at(-1)?.version);
+  });
+
+  it('is nothing at all for a package this world keeps no history for', () => {
+    expect(newestReleaseOn(FIRMWARE_PACKAGE, LATE)).toBeUndefined();
   });
 });
 

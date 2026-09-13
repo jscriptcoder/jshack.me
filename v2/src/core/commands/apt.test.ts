@@ -4,15 +4,23 @@ import type { SystemLibrary } from '../generation/libraries';
 import type { Directory, FilePermissions } from '../filesystem/types';
 import { asAbsPath, asEpochMs, asPlayerKeyHex, type UserType } from '../types';
 import type { CommandEnv, CommandResult, PatchResult, TerminalLine } from './types';
-import { CVE_TIMING, packageTimeline } from '../cve/packageTimeline';
+import {
+  CVE_TIMING,
+  newestReleaseOn,
+  packageTimeline,
+  upgradeStatusFor,
+} from '../cve/packageTimeline';
 import { WORLD_EPOCH } from '../cve/worldClock';
 import {
   buildEntry,
+  DPKG_STATUS_PATH,
   formatDpkgStatus,
+  parseDpkgStatus,
   parseDpkgVersions,
   readDpkgStatus,
 } from '../packages/dpkgStatus';
 import {
+  displayVersion,
   FIRMWARE_PACKAGE,
   PACKAGE_TEMPLATES,
   startingVersionOf,
@@ -47,7 +55,13 @@ import {
   SNMPD_STATE_PATH,
   SNMPD_STATE_PERMISSIONS,
 } from '../snmp/rwCommunity';
-import { daemonName } from '../services/pidfile';
+import {
+  daemonName,
+  formatPidfileContent,
+  PIDFILE_PERMISSIONS,
+  pidfilePath,
+  readOpenPorts,
+} from '../services/pidfile';
 import { parseMysqlDatabase } from '../mysql/types';
 import { DATADIR_DIR as STORE_DIR, DATADIR_PATH as STORE_PATH } from '../redis/datadir';
 import { parseRedisStore } from '../redis/types';
@@ -108,7 +122,7 @@ type WriteCall = {
   readonly path: string;
   readonly content: string;
   readonly options?:
-    | { readonly isNew?: boolean; readonly permissions?: FilePermissions }
+    | { readonly isNew?: boolean; readonly permissions?: FilePermissions; readonly owner?: string }
     | undefined;
 };
 
@@ -132,6 +146,16 @@ type AptEnvOpts = {
   /** Whose box this is. Only matters for the files an install DRAWS rather than ships
    *  the same copy of to everyone. */
   readonly ownerKey?: string;
+  /** The day of the world the box is standing on. Left out, the clock sits before the
+   *  world began, where nothing has published and every package is quiet. */
+  readonly gameDay?: number;
+  /** Packages this box already carries beyond its base image, at the versions given —
+   *  the box of a player who has bought a daemon before. */
+  readonly carries?: Readonly<Record<string, string>>;
+  /** Rows cut out of the manifest, which root can do with an editor. */
+  readonly withoutPackages?: readonly string[];
+  /** No manifest on the box at all — root deleted the file. */
+  readonly withoutManifest?: boolean;
 };
 
 /** One filesystem operation apt performed, in the order it performed them.
@@ -148,8 +172,47 @@ type Operation =
  *  exists on every box; `/usr/share` does NOT (asserted in `workstationFs.test`,
  *  where `/usr` holds exactly `bin` and `sbin`), which is why a data file's
  *  ancestors have to be created and a binary's do not. */
+/** A real generated workstation, read for the things a box carries whatever a fixture
+ *  says: the manifest text and the packages it names. */
+const workstationFs = (): Directory =>
+  buildWorkstationBaseFs('e'.repeat(64), {
+    machineName: 'workstation',
+    username: 'alice',
+    rootPassword: 'hunter2',
+  });
+
+/** What a box's manifest reads: the base image every generated workstation records, less
+ *  any row its owner has cut out, plus anything they have bought since. */
+const boxManifest = (
+  carries: Readonly<Record<string, string>> = {},
+  without: readonly string[] = [],
+): string => {
+  const base = formatDpkgStatus(
+    [...parseDpkgStatus(readDpkgStatus(workstationFs())).values()].filter(
+      (entry) => !without.includes(entry.pkg),
+    ),
+  );
+  const bought = Object.entries(carries).map(([pkg, version]) => buildEntry(pkg, version));
+  return bought.length === 0 ? base : `${base}\n${formatDpkgStatus(bought)}`;
+};
+
 const installedBoxTree = (opts: AptEnvOpts = {}): Directory =>
   buildDirectory({
+    // The manifest a real box carries, byte for byte: apt answers version questions out
+    // of it, so a fixture without one would be a box no generator can produce.
+    var: buildDirectory({
+      lib: buildDirectory({
+        dpkg: buildDirectory(
+          opts.withoutManifest === true
+            ? {}
+            : {
+                status: buildFile(boxManifest(opts.carries, opts.withoutPackages), {
+                  owner: 'root',
+                }),
+              },
+        ),
+      }),
+    }),
     usr: buildDirectory({
       bin: buildDirectory(
         Object.fromEntries((opts.installedBinaries ?? []).map((name) => [name, buildFile('#!bin')])),
@@ -185,6 +248,9 @@ const aptEnv = (opts: AptEnvOpts = {}) => {
       : { identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(opts.ownerKey) }) }),
     fs: mockFsViewFromTree(installedBoxTree(opts)),
     network: mockNetworkView({ isOnline: () => opts.online ?? true }),
+    ...(opts.gameDay === undefined
+      ? {}
+      : { now: () => asEpochMs(WORLD_EPOCH + opts.gameDay! * DAY_MS) }),
     patches: {
       ...mockPatchApi(),
       write: async (path, content, options) => {
@@ -242,15 +308,7 @@ const streamResult = async (
  *  nothing a player has bought yet. Read off a real box rather than restated, so the
  *  list apt has to agree with is the one the world actually stamps. */
 const baseImagePackages = (): readonly string[] => [
-  ...parseDpkgVersions(
-    readDpkgStatus(
-      buildWorkstationBaseFs('e'.repeat(64), {
-        machineName: 'workstation',
-        username: 'alice',
-        rootPassword: 'hunter2',
-      }),
-    ),
-  ).keys(),
+  ...parseDpkgVersions(readDpkgStatus(workstationFs())).keys(),
 ];
 
 /** The FIRST streamed line, pulled without draining the rest — leaving the
@@ -371,7 +429,11 @@ describe('apt', () => {
         '/usr/sbin/named',
         '/usr/bin/dig',
         '/usr/bin/nslookup',
+        // The server carries a version a scan can read; the client pair does not, because
+        // this world keeps no history for a tool nothing can be exploited through.
+        DPKG_STATUS_PATH,
       ]);
+      expect(parseDpkgVersions(writes.at(-1)?.content ?? '').has('dnsutils')).toBe(false);
       // Both names in the line apt prints BEFORE it writes anything. A tool that appears
       // on the box with nothing on screen accounting for it reads as the game doing
       // something behind the player's back.
@@ -390,7 +452,12 @@ describe('apt', () => {
       await streamResult(await apt.execute(nginxInstall.env, ['install', 'nginx'], NO_FLAGS));
       await streamResult(await apt.execute(apacheInstall.env, ['install', 'apache2'], NO_FLAGS));
 
-      expect(nginxInstall.writes.map((write) => write.path)).toEqual(['/usr/sbin/nginx']);
+      expect(nginxInstall.writes.map((write) => write.path)).toEqual([
+        '/usr/sbin/nginx',
+        DPKG_STATUS_PATH,
+      ]);
+      // Apache is the one web daemon this world keeps no versions for, so it lands with
+      // no row rather than with a version invented for it.
       expect(apacheInstall.writes.map((write) => write.path)).toEqual(['/usr/sbin/apache2']);
     });
 
@@ -487,10 +554,225 @@ describe('apt', () => {
           { kind: 'text', content: 'Reading package lists...' },
           { kind: 'text', content: 'Building dependency tree...' },
           { kind: 'text', content: `${pkg} is already the newest version.` },
+          {
+            kind: 'text',
+            content: '0 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.',
+          },
         ]);
         expect(exitCode).toBe(0);
         expect(operations).toEqual([]);
       }
+    });
+
+    it('patches a package the box already carries rather than declining it, as real apt does', async () => {
+      // "Already the newest version" was true of these on every box in the world until
+      // the day a fix shipped for one. Saying it on a box `apt list -u` calls exposed
+      // would be apt contradicting apt, so install goes where upgrade goes — through the
+      // one resolver, which is what keeps the two verbs from disagreeing.
+      const { fix, shipsOn } = sshSlowFix();
+      const { env, writes } = aptEnv({ gameDay: shipsOn });
+
+      const { text, exitCode } = await streamResult(
+        await apt.execute(env, ['install', SSH], NO_FLAGS),
+      );
+
+      expect(text).toContain(`Setting up ${SSH} (${fix.version}) ...`);
+      expect(text).not.toContain('already the newest version');
+      expect(writes.map(({ path }) => path)).toEqual([DPKG_STATUS_PATH]);
+      expect(parseDpkgVersions(writes[0]?.content ?? '').get(SSH)).toBe(fix.version);
+      expect(exitCode).toBe(0);
+    });
+
+    it('calls a package the newest version when the box really is on the release the repo holds', async () => {
+      // The other side of the line above, and the reason the sentence is allowed to exist
+      // at all: on a box already carrying the newest release there IS nothing newer, and
+      // apt says so rather than reporting an upgrade it did not make.
+      const { fix, shipsOn } = sshSlowFix();
+      const { env, writes } = aptEnv({ gameDay: shipsOn, carries: { [SSH]: fix.version } });
+
+      const { lines, exitCode } = await streamResult(
+        await apt.execute(env, ['install', SSH], NO_FLAGS),
+      );
+
+      expect(lines).toContainEqual({
+        kind: 'text',
+        content: `${SSH} is already the newest version.`,
+      });
+      expect(exitCode).toBe(0);
+      expect(writes).toEqual([]);
+    });
+
+    it('tells a player whose manifest no longer names a shipped package that the box does not have it', async () => {
+      // The manifest is root-writable, so a player can delete the row for software that
+      // came with the box. apt answers from the file rather than from the image: there is
+      // no binary to lay down for it, and no version to move — and above all it does not
+      // reassure them about a package the box has no record of.
+      const { env, writes } = aptEnv({ withoutPackages: [SSH] });
+
+      const { lines, exitCode } = await streamResult(
+        await apt.execute(env, ['install', SSH], NO_FLAGS),
+      );
+
+      expect(lines).toEqual([
+        { kind: 'text', content: 'Reading package lists...' },
+        { kind: 'text', content: 'Building dependency tree...' },
+        {
+          kind: 'error',
+          content: `E: Package '${SSH}' is not installed, so not upgraded`,
+        },
+      ]);
+      expect(exitCode).toBe(100);
+      expect(writes).toEqual([]);
+    });
+
+    it('calls a package the newest version on a clock past the end of its history', async () => {
+      // A world running long enough to exhaust the walk still has to answer: there is no
+      // later release to name, so what the box holds is the newest there is.
+      const { env, writes } = aptEnv({ gameDay: 10_000_000 });
+
+      const { lines, exitCode } = await streamResult(
+        await apt.execute(env, ['install', SSH], NO_FLAGS),
+      );
+
+      expect(lines).toContainEqual({
+        kind: 'text',
+        content: `${SSH} is already the newest version.`,
+      });
+      expect(exitCode).toBe(0);
+      expect(writes).toEqual([]);
+    });
+
+    it('tells a player installing inside a patch-delay window that the hole is open, rather than calling it newest', async () => {
+      const { shipsOn } = sshSlowFix();
+      const { env, writes } = aptEnv({ gameDay: shipsOn - 1 });
+
+      const { text, exitCode } = await streamResult(
+        await apt.execute(env, ['install', SSH], NO_FLAGS),
+      );
+
+      expect(text).toContain(`W: ${SSH} `);
+      expect(text).toContain('no fix yet — ETA ~1 day');
+      expect(text).not.toContain('already the newest version');
+      expect(exitCode).toBe(0);
+      expect(writes).toEqual([]);
+    });
+
+    it('records a daemon it just laid down in the manifest, at the release the repo holds today', async () => {
+      // Until now a bought daemon had a binary and no version, so a scan of the box that
+      // bought it saw a service with nothing behind it. The row is what makes a player's
+      // own service the same kind of thing as a generated box's.
+      const gameDay = 300;
+      const { env, writes } = aptEnv({ gameDay });
+      const born = newestReleaseOn(REDIS, gameDay);
+
+      await streamResult(await apt.execute(env, ['install', REDIS], NO_FLAGS));
+
+      const written = writes.find(({ path }) => path === DPKG_STATUS_PATH);
+      expect(written?.options).toEqual({ owner: 'root', permissions: SERVICE_CONFIG_FILE });
+      expect(parseDpkgVersions(written?.content ?? '').get(REDIS)).toBe(born);
+      // The release the repo holds, not the one the world opened with: a box that buys a
+      // daemon today is not handed a version everybody else has already left behind.
+      expect(born).not.toBe(startingVersionOf(REDIS));
+      // And every row the box already carried is still there, as it was.
+      expect([...parseDpkgVersions(written?.content ?? '')].slice(0, -1)).toEqual([
+        ...parseDpkgVersions(boxManifest()),
+      ]);
+    });
+
+    it('hands a scan the version it installed, and the hole that version catches later', async () => {
+      const gameDay = 300;
+      const { env, writes } = aptEnv({ gameDay });
+      const born = newestReleaseOn(REDIS, gameDay)!;
+
+      await streamResult(await apt.execute(env, ['install', REDIS], NO_FLAGS));
+
+      // The box as it stands after the install, with the daemon the player then started.
+      const spec = SERVICE_CATALOG.redis;
+      const running = applyPatches(installedBoxTree(), [
+        {
+          path: DPKG_STATUS_PATH,
+          content: writes.find(({ path }) => path === DPKG_STATUS_PATH)?.content ?? '',
+          owner: 'root',
+          permissions: SERVICE_CONFIG_FILE,
+        },
+        {
+          path: pidfilePath(spec),
+          content: formatPidfileContent(spec, spec.defaultPort),
+          owner: 'root',
+          permissions: PIDFILE_PERMISSIONS,
+        },
+      ]);
+
+      expect(readOpenPorts(running, { gameDay })).toContainEqual({
+        port: spec.defaultPort,
+        service: spec.service,
+        version: displayVersion(REDIS, born),
+      });
+      // Bought today, exposed the day its own hole lands — the same treadmill every
+      // generated box is on, which is the whole point of writing the row.
+      const opens = packageTimeline(REDIS, 10_000).find((entry) => entry.version === born);
+      expect(readOpenPorts(running, { gameDay: opens?.publishedAt })[0]).toMatchObject({
+        cve: opens?.cve,
+        severity: opens?.severity,
+      });
+    });
+
+    it('reports a version row the box refused, rather than leaving a daemon that claims one', async () => {
+      const { env } = aptEnv({ gameDay: 300, failWritesTo: DPKG_STATUS_PATH });
+
+      const { text, exitCode } = await streamResult(
+        await apt.execute(env, ['install', REDIS], NO_FLAGS),
+      );
+
+      expect(text).toContain(`E: Failed to install ${REDIS} (permission_denied)`);
+      expect(exitCode).toBe(100);
+    });
+
+    it('writes no row for a tool this world keeps no version for, installing it exactly as before', async () => {
+      const { env, writes } = aptEnv({ gameDay: 300 });
+
+      await streamResult(await apt.execute(env, ['install', 'nmap'], NO_FLAGS));
+
+      expect(writes.map(({ path }) => path)).toEqual(['/usr/bin/nmap']);
+    });
+
+    it('patches a daemon the box already runs rather than re-registering it at a newer version', async () => {
+      // The same rule the base image gets: install leaves a package at the release the
+      // resolver names. A reinstall that quietly stamped today's version onto a box
+      // still running last year's binary would hand out a patch nobody applied.
+      const carried = startingVersionOf(REDIS)!;
+      // A day redis' fix is actually out. The patch delay is at most two days, so one of
+      // any three in a row stands outside it.
+      const gameDay = [300, 301, 302].find(
+        (day) => upgradeStatusFor(REDIS, carried, day).kind === 'upgradable',
+      )!;
+      const { env, writes } = aptEnv({ gameDay, carries: { [REDIS]: carried } });
+
+      const { text } = await streamResult(await apt.execute(env, ['install', REDIS], NO_FLAGS));
+
+      const written = writes.find(({ path }) => path === DPKG_STATUS_PATH);
+      expect(parseDpkgVersions(written?.content ?? '').get(REDIS)).toBe(
+        newestReleaseOn(REDIS, gameDay),
+      );
+      expect(text).toContain(`Unpacking ${REDIS} (`);
+      expect(text).toContain(`over (${carried}) ...`);
+      // And it does not call it new. Nothing arrived that was not already there; what
+      // happened was an upgrade, and the lines above are the ones that say so.
+      expect(text).not.toContain('NEW packages');
+    });
+
+    it('writes the whole manifest when the box carries none at all', async () => {
+      // Root can delete `/var/lib/dpkg/status`. What lands then is the file itself rather
+      // than rows appended to nothing, so the box is not left with a manifest that opens
+      // on a blank line no parser would read past.
+      const gameDay = 300;
+      const { env, writes } = aptEnv({ gameDay, withoutManifest: true });
+
+      await streamResult(await apt.execute(env, ['install', REDIS], NO_FLAGS));
+
+      expect(writes.find(({ path }) => path === DPKG_STATUS_PATH)?.content).toBe(
+        formatDpkgStatus([buildEntry(REDIS, newestReleaseOn(REDIS, gameDay)!)]),
+      );
     });
 
     it('errors with usage when no package is given', async () => {
@@ -1061,9 +1343,25 @@ describe('apt list', () => {
  * row per package would be a wall of mostly-green noise, and a clean box saying so
  * plainly is the better reward.
  */
+const SSH = 'openssh-server';
+const REDIS = 'redis';
+const DAY_MS = 86_400_000;
+
+/** An openssh release whose fix takes the longest the config allows, the release that
+ *  fix is, and the day it ships — so a box can be stood inside the gap or past it. */
+const sshSlowFix = () => {
+  const timeline = packageTimeline(SSH, 400);
+  const vulnerable = timeline.find(
+    (entry) => entry.index >= 1 && entry.patchDelay === CVE_TIMING.maxPatchDelayDays,
+  )!;
+  return {
+    vulnerable,
+    fix: timeline[vulnerable.index + 1]!,
+    shipsOn: vulnerable.publishedAt + vulnerable.patchDelay,
+  };
+};
+
 describe('apt list --upgradable', () => {
-  const SSH = 'openssh-server';
-  const DAY_MS = 86_400_000;
   const UPGRADABLE = new Map<string, string | true>([['-u', true]]);
 
   /** A box carrying `packages` in its manifest, standing on `gameDay` of the world. A
@@ -1087,21 +1385,6 @@ describe('apt list --upgradable', () => {
       fs: mockFsViewFromTree(tree, { userType }),
       now: () => asEpochMs(WORLD_EPOCH + (opts.gameDay ?? 0) * DAY_MS),
     });
-  };
-
-  /** An openssh release whose fix takes the longest the config allows, the release
-   *  that fix is, and the day it ships — so a box can be stood inside the gap or past
-   *  it. */
-  const sshSlowFix = () => {
-    const timeline = packageTimeline(SSH, 400);
-    const vulnerable = timeline.find(
-      (entry) => entry.index >= 1 && entry.patchDelay === CVE_TIMING.maxPatchDelayDays,
-    )!;
-    return {
-      vulnerable,
-      fix: timeline[vulnerable.index + 1]!,
-      shipsOn: vulnerable.publishedAt + vulnerable.patchDelay,
-    };
   };
 
   const listUpgradable = async (env: CommandEnv) =>
@@ -1217,6 +1500,273 @@ describe('apt list --upgradable', () => {
 });
 
 /**
+ * `apt upgrade` — the defender's first move. Everything else in the world makes a box
+ * worse for its owner; this is the answer.
+ *
+ * It moves a package onto the release that fixes it by rewriting that package's version
+ * in the manifest of the box the player is standing on. That file is what a scan reads
+ * and what an exploit is keyed on, so rewriting it is the whole of the patch.
+ */
+describe('apt upgrade', () => {
+  /** The box the player is standing on: its manifest reads exactly `status`, the world
+   *  is on `gameDay`, and every write apt makes is recorded rather than sent. Root and
+   *  online, which is what an upgrade asks for. */
+  const upgradeBox = (
+    status: string,
+    opts: {
+      readonly gameDay: number;
+      readonly userType?: UserType;
+      readonly online?: boolean;
+      readonly writeResult?: PatchResult;
+    },
+  ) => {
+    const writes: WriteCall[] = [];
+    const userType = opts.userType ?? 'root';
+    const tree = buildDirectory({
+      var: buildDirectory({
+        lib: buildDirectory({ dpkg: buildDirectory({ status: buildFile(status, { owner: 'root' }) }) }),
+      }),
+    });
+    const env = mockCommandEnv({
+      session: mockSession({ userType }),
+      network: mockNetworkView({ isOnline: () => opts.online ?? true }),
+      fs: mockFsViewFromTree(tree, { userType }),
+      now: () => asEpochMs(WORLD_EPOCH + opts.gameDay * DAY_MS),
+      patches: {
+        ...mockPatchApi(),
+        write: async (path, content, options) => {
+          writes.push({ path, content, options });
+          return opts.writeResult ?? { ok: true };
+        },
+      },
+    });
+    return { env, writes };
+  };
+
+  const upgrade = async (env: CommandEnv, ...packages: readonly string[]) =>
+    streamResult(await apt.execute(env, ['upgrade', ...packages], NO_FLAGS));
+
+  const manifestOf = (versions: Readonly<Record<string, string>>): string =>
+    formatDpkgStatus(Object.entries(versions).map(([pkg, version]) => buildEntry(pkg, version)));
+
+  /** Every package a box can carry that, on `gameDay` and from the version a box is born
+   *  on, has a released fix — with the version that fix is. Read off the world rather
+   *  than written down, so the fixture cannot drift from it. */
+  const fixedOn = (gameDay: number) =>
+    Object.keys(PACKAGE_TEMPLATES).flatMap((pkg) => {
+      const from = startingVersionOf(pkg)!;
+      const status = upgradeStatusFor(pkg, from, gameDay);
+      return status.kind === 'upgradable' ? [{ pkg, from, to: status.target }] : [];
+    });
+
+  /** The day openssh's newest hole publishes, two days short of its fix — the longest a
+   *  fix is ever held back — and two other packages whose fixes are already out: the
+   *  mixed box bare `apt upgrade` exists for. */
+  const mixedBox = () => {
+    const { vulnerable, shipsOn } = sshSlowFix();
+    const gameDay = shipsOn - 2;
+    const [first, second] = fixedOn(gameDay).filter(({ pkg }) => pkg !== SSH);
+    return { gameDay, waiting: vulnerable.version, first: first!, second: second! };
+  };
+
+  it('moves a package onto the release that fixes it, in the manifest of the box the player is standing on', async () => {
+    const { fix, shipsOn } = sshSlowFix();
+    const from = startingVersionOf(SSH)!;
+    // Written by hand rather than generated: a field apt knows nothing about, a block it
+    // cannot read, and spacing no generator produces. An upgrade that re-serialised the
+    // file would tidy all three away; the only thing allowed to change is the version.
+    const manifestOn = (version: string) =>
+      [
+        `Package: ${SSH}`,
+        'Status: install ok installed',
+        'Architecture: amd64',
+        `Version: ${version}`,
+        '',
+        '',
+        'Description: kept by hand',
+        '',
+        'Package: libz',
+        'Status: install ok installed',
+        `Version: ${startingVersionOf('libz')}`,
+        '',
+      ].join('\n');
+    const { env, writes } = upgradeBox(manifestOn(from), { gameDay: shipsOn });
+
+    const { lines, exitCode } = await upgrade(env, SSH);
+
+    expect(lines).toEqual([
+      { kind: 'text', content: 'Reading package lists...' },
+      { kind: 'text', content: 'Building dependency tree...' },
+      { kind: 'text', content: 'Calculating upgrade...' },
+      { kind: 'text', content: 'The following packages will be upgraded:' },
+      { kind: 'text', content: `  ${SSH}` },
+      { kind: 'text', content: '1 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.' },
+      { kind: 'text', content: `Unpacking ${SSH} (${fix.version}) over (${from}) ...` },
+      { kind: 'text', content: `Setting up ${SSH} (${fix.version}) ...` },
+    ]);
+    // Owner and permissions restated, because a rewrite that left them to the session
+    // would hand the file root-only permissions: the manifest would vanish from every
+    // scan and every `apt list -u` below root.
+    expect(writes).toEqual([
+      {
+        path: DPKG_STATUS_PATH,
+        content: manifestOn(fix.version),
+        options: { owner: 'root', permissions: SERVICE_CONFIG_FILE },
+      },
+    ]);
+    expect(exitCode).toBe(0);
+  });
+
+  it('with no package named, moves every exposed package at once and warns about the one whose fix has not shipped', async () => {
+    const { gameDay, waiting, first, second } = mixedBox();
+    const { env, writes } = upgradeBox(
+      manifestOf({ [SSH]: waiting, [first.pkg]: first.from, [second.pkg]: second.from }),
+      { gameDay },
+    );
+
+    const { lines, exitCode } = await upgrade(env);
+
+    expect(lines).toEqual([
+      { kind: 'text', content: 'Reading package lists...' },
+      { kind: 'text', content: 'Building dependency tree...' },
+      { kind: 'text', content: 'Calculating upgrade...' },
+      { kind: 'text', content: 'The following packages will be upgraded:' },
+      { kind: 'text', content: `  ${first.pkg} ${second.pkg}` },
+      // The count adds up to every package `apt list -u` would have shown: the ones this
+      // run moved, and the one it could not.
+      { kind: 'text', content: '2 upgraded, 0 newly installed, 0 to remove and 1 not upgraded.' },
+      { kind: 'text', content: `Unpacking ${first.pkg} (${first.to}) over (${first.from}) ...` },
+      { kind: 'text', content: `Unpacking ${second.pkg} (${second.to}) over (${second.from}) ...` },
+      { kind: 'text', content: `Setting up ${first.pkg} (${first.to}) ...` },
+      { kind: 'text', content: `Setting up ${second.pkg} (${second.to}) ...` },
+      // Last, where it is read, and in the words `apt list -u` uses for the same state —
+      // two surfaces must not disagree about when a fix ships.
+      { kind: 'error', content: `W: ${SSH} ${waiting} is vulnerable, no fix yet — ETA ~2 days` },
+    ]);
+    expect(writes).toEqual([
+      {
+        path: DPKG_STATUS_PATH,
+        content: manifestOf({ [SSH]: waiting, [first.pkg]: first.to, [second.pkg]: second.to }),
+        options: { owner: 'root', permissions: SERVICE_CONFIG_FILE },
+      },
+    ]);
+    // A warning is not a failure: everything that could move, moved.
+    expect(exitCode).toBe(0);
+  });
+
+  it('moves only the package it is told to, leaving every other exposed one where it is', async () => {
+    const { gameDay, waiting, first, second } = mixedBox();
+    const { env, writes } = upgradeBox(
+      manifestOf({ [SSH]: waiting, [first.pkg]: first.from, [second.pkg]: second.from }),
+      { gameDay },
+    );
+
+    const { text } = await upgrade(env, second.pkg);
+
+    expect(writes.map(({ content }) => content)).toEqual([
+      manifestOf({ [SSH]: waiting, [first.pkg]: first.from, [second.pkg]: second.to }),
+    ]);
+    expect(text).toContain('1 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.');
+    expect(text).not.toContain(first.pkg);
+    expect(text).not.toContain(SSH);
+  });
+
+  it('refuses a player who is not root in the words the dpkg lock uses, before reading anything', async () => {
+    const { gameDay, first } = mixedBox();
+    const { env, writes } = upgradeBox(manifestOf({ [first.pkg]: first.from }), {
+      gameDay,
+      userType: 'user',
+    });
+
+    const { text, exitCode } = syncResult(await apt.execute(env, ['upgrade'], NO_FLAGS));
+
+    expect(exitCode).toBe(100);
+    expect(text).toContain('are you root?');
+    expect(writes).toEqual([]);
+  });
+
+  it('refuses offline in the words apt already uses for a repo it cannot reach', async () => {
+    const { gameDay, first } = mixedBox();
+    const { env, writes } = upgradeBox(manifestOf({ [first.pkg]: first.from }), {
+      gameDay,
+      online: false,
+    });
+
+    const { text, exitCode } = syncResult(await apt.execute(env, ['upgrade'], NO_FLAGS));
+
+    expect(exitCode).toBe(100);
+    expect(text).toContain('are you connected to a network');
+    expect(writes).toEqual([]);
+  });
+
+  it('refuses a package the box does not carry, naming it, beneath the lists it just read', async () => {
+    const { gameDay, first, second } = mixedBox();
+    const { env, writes } = upgradeBox(manifestOf({ [first.pkg]: first.from }), { gameDay });
+
+    const { lines, exitCode } = await upgrade(env, second.pkg);
+
+    expect(lines.at(-1)).toEqual({
+      kind: 'error',
+      content: `E: Package '${second.pkg}' is not installed, so not upgraded`,
+    });
+    expect(exitCode).toBe(100);
+    expect(writes).toEqual([]);
+  });
+
+  it('says plainly that nothing moved on a box with nothing exposed, and writes no journal row', async () => {
+    // A world on its first day has published nothing, so every box in it is clean — and
+    // a clean box must still answer, or the player cannot tell it from a broken command.
+    const { env, writes } = upgradeBox(manifestOf({ [SSH]: startingVersionOf(SSH)! }), {
+      gameDay: 0,
+    });
+
+    const { lines, exitCode } = await upgrade(env);
+
+    expect(lines).toEqual([
+      { kind: 'text', content: 'Reading package lists...' },
+      { kind: 'text', content: 'Building dependency tree...' },
+      { kind: 'text', content: 'Calculating upgrade...' },
+      { kind: 'text', content: '0 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.' },
+    ]);
+    expect(exitCode).toBe(0);
+    expect(writes).toEqual([]);
+  });
+
+  it('reports a manifest write the box rejected, and sets nothing up on top of it', async () => {
+    const { gameDay, first } = mixedBox();
+    const { env } = upgradeBox(manifestOf({ [first.pkg]: first.from }), {
+      gameDay,
+      writeResult: { ok: false, error: 'network_error' },
+    });
+
+    const { lines, text, exitCode } = await upgrade(env);
+
+    // Beneath the unpack the player has already been shown, as a failed install reports
+    // beneath its own announcements — and nothing claims to have been set up.
+    expect(lines.at(-1)).toEqual({
+      kind: 'error',
+      content: `E: Failed to write ${DPKG_STATUS_PATH} (network_error)`,
+    });
+    expect(text).toContain(`Unpacking ${first.pkg}`);
+    expect(text).not.toContain('Setting up');
+    expect(exitCode).toBe(100);
+  });
+
+  it('documents upgrading, so a player shown an exposed package can find the way out of it', async () => {
+    // `list -u` names the hole and stops there. The manual and the usage line are the
+    // only places the operation that closes it is discoverable: the prose, its own
+    // OPERATION values and a worked EXAMPLE — the places a reader looks.
+    expect(apt.manual?.synopsis).toContain('upgrade');
+    expect(apt.manual?.description).toContain('upgrade');
+    expect(apt.manual?.arguments?.[0]?.values).toContain('upgrade');
+    expect(apt.manual?.examples?.map((entry) => entry.command)).toContain('apt upgrade');
+
+    const { text } = syncResult(await apt.execute(aptEnv().env, [], NO_FLAGS));
+    expect(text).toContain('apt upgrade');
+  });
+});
+
+/**
  * The database a player BUYS.
  *
  * `apt install mysql` lays a datadir down the way `apt install hydra` lays down a
@@ -1307,6 +1857,9 @@ describe('the database a player buys', () => {
       { kind: 'write', path: '/usr/sbin/mysqld' },
       { kind: 'mkdir', path: '/var/lib/mysql' },
       { kind: 'write', path: DATADIR_PATH },
+      // Last of all, the row that gives the daemon a version: the box is a database
+      // server only once everything it serves with is actually on it.
+      { kind: 'write', path: DPKG_STATUS_PATH },
     ]);
   });
 
@@ -1362,7 +1915,7 @@ describe('the database a player buys', () => {
     expect(names[0]).toBe(CONFIG.username);
   });
 
-  it('writes the two binaries and the datadir, and nothing else at all', async () => {
+  it('writes the two binaries, the datadir and its version row, and nothing else at all', async () => {
     // No /etc/mysql.cnf: nothing in the game reads one, and a static `port=3306` would
     // be contradicted the first time the player runs `mysqld 3307`. No `mysql` line in
     // /etc/passwd either — NPC database boxes carry no such account, so adding one here
@@ -1373,6 +1926,7 @@ describe('the database a player buys', () => {
       '/usr/bin/mysql',
       '/usr/sbin/mysqld',
       DATADIR_PATH,
+      DPKG_STATUS_PATH,
     ]);
   });
 
@@ -1421,7 +1975,11 @@ describe('the database a player buys', () => {
 
     const again = await buyMysql({ onto: livedIn });
 
-    expect(again.writes.map((write) => write.path)).toEqual(['/usr/bin/mysql', '/usr/sbin/mysqld']);
+    expect(again.writes.map((write) => write.path)).toEqual([
+      '/usr/bin/mysql',
+      '/usr/sbin/mysqld',
+      DPKG_STATUS_PATH,
+    ]);
     expect(again.streamed.text).toContain(`${DATADIR_PATH} already exists, keeping your copy`);
   });
 
@@ -1586,6 +2144,7 @@ describe('the store a player buys', () => {
       { kind: 'write', path: STORE_PATH },
       { kind: 'mkdir', path: '/etc/redis' },
       { kind: 'write', path: REDIS_CONF_PATH },
+      { kind: 'write', path: DPKG_STATUS_PATH },
     ]);
   });
 

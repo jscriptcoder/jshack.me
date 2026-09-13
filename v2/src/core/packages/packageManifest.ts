@@ -19,11 +19,16 @@
  */
 
 import { applyPatches } from '../filesystem/applyPatches';
-import { SERVICE_CONFIG_FILE } from '../generation/baseFs';
 import { SYSTEM_LIBRARIES } from '../generation/libraries';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import { daemonName } from '../services/pidfile';
-import { buildEntry, DPKG_STATUS_PATH, formatDpkgStatus } from './dpkgStatus';
+import {
+  buildEntry,
+  DPKG_STATUS_OWNER,
+  DPKG_STATUS_PATH,
+  DPKG_STATUS_PERMISSIONS,
+  formatDpkgStatus,
+} from './dpkgStatus';
 import {
   FIRMWARE_PACKAGE,
   startingFirmwareVersionOf,
@@ -83,11 +88,7 @@ export const withPackageManifest = (
           buildEntry(pkg, version),
         ),
       ),
-      owner: 'root',
-      // World-readable, root-write, never executable — real dpkg's 644 root:root, and
-      // the same rung `/etc/*.conf` sits on: what software a box runs is the lowest
-      // tier of recon and costs no credential. The tier-3 allowlist already publishes
-      // it, so this permission and that allowlist entry have to agree.
-      permissions: SERVICE_CONFIG_FILE,
+      owner: DPKG_STATUS_OWNER,
+      permissions: DPKG_STATUS_PERMISSIONS,
     },
   ]);
