@@ -3584,6 +3584,48 @@ enable. It also needs its own surface — `pkg=version` parsing, downgrade-only 
 refusal for a version the world has not published yet. Owed to slice 5 or 6, and it gets the
 resolver this slice builds for free.
 
+### Own-LAN scan fix — resolved decisions (planning, 2026-09-13)
+
+Four more, continuing the numbering. Not one of the nine Phase 3 slices: a cross-cutting defect
+whose fourth face slice 4's browser run exposed, planned as two PRs in
+[`own-lan-scan-replays-the-journal.md`](./own-lan-scan-replays-the-journal.md). The client resolves
+an own-LAN scan from seeded trees while a PUBLIC-IP scan replays the target's journal, so `nmap`
+misreports a box that was patched, bricked, backdoored, filtered or shut — open since D5 and
+recorded in the conventions doc's own gotcha list ever since.
+
+#### 40. All four faces close together, and the `.1` gateway is in scope
+
+One missing journal replay causes all four, so one change closes all four; splitting by face ships
+the same endpoint twice. The AP gateway is included despite its different builder and vantage,
+because leaving it out knowingly preserves the `snmpset` face on the one box every occupant of a
+network shares. Fixing only the VERSION/CVE columns was rejected: `readOpenPorts` answers ports and
+versions from the SAME read precisely so a scan cannot name a version and a hole belonging to
+different software, and halving that reintroduces the drift the design exists to prevent.
+
+#### 41. A failed resolution reports the host UP with no port table
+
+`resolveOccupant`'s rule, unchanged: the host list has already placed the box on the LAN, so
+collapsing our own failed round trip into "down" blames a live neighbour for our outage. Falling
+back to the seeded read was rejected — the fallback IS the lie being fixed, and it would be silent.
+
+#### 42. The verified signature is the whole authorization
+
+Matching `resolveInnerGatewayScan`, whose comment already settles it: the boxes belong to the access
+point, so every occupant scanning an address is scanning one box. **Recorded delta, accepted
+knowingly:** an ESSID is readable from `airodump-ng` without cracking it, so a crafted client could
+learn what players have DONE to a network's NPCs without joining it. Today that leaks nothing
+because NPC state is computed from a seed anyone can compute; afterwards it leaks journal state. It
+is the exposure the inner-gateway endpoint already accepts, and the alternative costs an occupancy
+lookup on every single-host scan. Revisit if a mission makes NPC state valuable before entry.
+
+#### 43. Only single-IP scans resolve — a range needs no journal
+
+The recorded open question ("single-IP only, or batch a range, since a `/24` would resolve up to 253
+journals") answers itself in the code: `resolveHostPorts` is passed only to `scanSingle`, so a range
+scan prints `IP / HOSTNAME / KIND` and no ports at all — confirmed live, twelve hosts and not one
+port. There is no batching endpoint to design and no 253-journal problem to solve. **This retires
+the blocker that deferred the fix.**
+
 ### Forced rather than chosen (planning should not re-litigate)
 
 - **`/var/lib/dpkg/status` is THE version source.** Settled by the catalog's own shipped comment,

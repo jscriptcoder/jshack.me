@@ -2773,7 +2773,17 @@ blocks the live PvP loop; each was a scoped owner decision, not a gap.
   gateway shows while a same-LAN `nmap` of `.1` — reading `buildApGatewayBaseFs`, journal-blind —
   still shows the seeded ports. D8 boundary 2 could therefore only close the filter-honours-scan
   claim at the CONTRACT level (`scanResult` reads the filter both vantages); the same-LAN gap is
-  wider than the filter and belongs to `resolveSameLanScan` above, not to D8.
+  wider than the filter and belongs to `resolveSameLanScan` above, not to D8. **Fourth way, and the
+  one that ended the deferral, found by Phase 3 slice 4's browser run 2026-09-13:** `apt upgrade` on
+  an NPC you rooted moves its manifest, and the scan still advertises the OLD version with a LIVE
+  CVE — `redis 7.2.5 / CVE-2026-0597580 critical` in `nmap -sV`, `[-] Exploit failed — no known
+  vulnerability` from `msfconsole` one command later, against a journal reading `Version: 7.3.0`.
+  The first three faces lie about PORTS; this one lies about the VERSION and CVE columns, so the
+  recon tool sends players at holes the server refuses and tells a defender their own patch did
+  nothing. **The open design call is also retired:** a RANGE scan prints no ports at all
+  (`resolveHostPorts` reaches only `scanSingle`), so there was never a 253-journal batching problem
+  — single-IP only, matching the inner-gateway precedent. Planned as two PRs in
+  `plans/own-lan-scan-replays-the-journal.md`, decisions 40-43 in the epic.
 - **`snmpwalk` of your OWN address has no client-side own-box path.** `snmpwalk.ts` calls the server
   unconditionally, and the server answers a walk for the box a player is NOT standing on — so
   walking your own agent times out (`No Response`) even while it runs and a STRANGER's walk of the
