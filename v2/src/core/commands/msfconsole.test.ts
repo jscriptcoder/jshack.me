@@ -240,10 +240,83 @@ describe('msfconsole', () => {
     );
 
     expect(text).toContain('[*] Vulnerability: CVE-2026-0184 (high)');
+    // Named after the kind of hole it is, not a generic "needs an argument": a read hole
+    // and a list hole ask for the same third token but are different doors.
+    expect(text).toContain('reads a file');
     expect(text).toContain('msfconsole <host> <port> <path>');
     expect(text).not.toContain('[+] Exploit successful!');
     expect(exitCode).toBe(1);
     expect(pushed).toEqual([]);
+  });
+
+  it('names the file failure in the tool\'s own words, not the filesystem\'s code', async () => {
+    // The deny map earns its keep only if each failure reads as its own sentence — a
+    // missing file and a directory-where-a-file-was-asked-for are different mistakes.
+    const notFound = exploitEnv({
+      result: {
+        ok: true,
+        effect: 'file_read',
+        cve: 'CVE-2026-0184',
+        severity: 'high',
+        tier: 'user',
+        read: { ok: false, error: 'not_found' },
+      },
+    });
+    const isDir = exploitEnv({
+      result: {
+        ok: true,
+        effect: 'file_read',
+        cve: 'CVE-2026-0184',
+        severity: 'high',
+        tier: 'user',
+        read: { ok: false, error: 'is_directory' },
+      },
+    });
+
+    const missing = await drain(
+      await msfconsole.execute(notFound.env, [TARGET.ip, String(PORT), '/nope'], NO_FLAGS),
+    );
+    const dir = await drain(
+      await msfconsole.execute(isDir.env, [TARGET.ip, String(PORT), '/etc'], NO_FLAGS),
+    );
+
+    expect(missing.text).toContain('[-] No such file (as user): /nope');
+    expect(dir.text).toContain('[-] That is a directory, not a file (as user): /etc');
+  });
+
+  it('names the directory failure in the tool\'s own words, distinct from a file\'s', async () => {
+    const notFound = exploitEnv({
+      result: {
+        ok: true,
+        effect: 'dir_list',
+        cve: 'CVE-2026-0184',
+        severity: 'high',
+        tier: 'user',
+        list: { ok: false, error: 'not_found' },
+      },
+    });
+    const notDir = exploitEnv({
+      result: {
+        ok: true,
+        effect: 'dir_list',
+        cve: 'CVE-2026-0184',
+        severity: 'high',
+        tier: 'user',
+        list: { ok: false, error: 'not_a_directory' },
+      },
+    });
+
+    const missing = await drain(
+      await msfconsole.execute(notFound.env, [TARGET.ip, String(PORT), '/nope'], NO_FLAGS),
+    );
+    const file = await drain(
+      await msfconsole.execute(notDir.env, [TARGET.ip, String(PORT), '/etc/passwd'], NO_FLAGS),
+    );
+
+    // A missing directory is not "No such file", and a file named where a directory was
+    // expected is its own message — the list side keeps its own vocabulary.
+    expect(missing.text).toContain('[-] No such directory (as user): /nope');
+    expect(file.text).toContain('[-] That is a file, not a directory (as user): /etc/passwd');
   });
 
   it('forwards the path the player typed to the server', async () => {
