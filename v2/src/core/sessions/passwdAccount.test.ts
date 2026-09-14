@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { accountIn } from './passwdAccount';
+import { accountIn, accountsIn, withAccountHash } from './passwdAccount';
 import { buildWorkstationBaseFsFromIdentity } from '../generation/workstationFs';
 import { dir, file, PASSWD_FILE, TRAVERSABLE_DIR } from '../generation/baseFs';
 import { md5 } from '../generation/md5';
@@ -47,5 +47,53 @@ describe('accountIn', () => {
       TRAVERSABLE_DIR,
     );
     expect(accountIn(malformed, 'root')).toBeNull();
+  });
+});
+
+const withoutPasswd = () => dir({ etc: dir({}, TRAVERSABLE_DIR) }, TRAVERSABLE_DIR);
+
+/** A passwd file holding exactly these rows, newline-terminated as the generators write it. */
+const passwdOf = (rows: readonly string[]) =>
+  dir(
+    { etc: dir({ passwd: file(`${rows.join('\n')}\n`, PASSWD_FILE) }, TRAVERSABLE_DIR) },
+    TRAVERSABLE_DIR,
+  );
+
+describe('accountsIn', () => {
+  it('names nobody on a box carrying no passwd file', () => {
+    // An exploit that lands on nobody has to refuse, and that rests on this being empty
+    // rather than one account with a nonsense name the box would not recognise.
+    expect(accountsIn(withoutPasswd())).toEqual([]);
+  });
+});
+
+/**
+ * The write half of the same knowledge: a rewrite that assembled a row its own way could
+ * put the hash in a field `accountIn` never reads, and the credential would quietly stop
+ * being the one that opens the door.
+ */
+describe('withAccountHash', () => {
+  it('replaces one account’s hash and leaves the rest of its row, and every other row, alone', () => {
+    const tree = passwdOf([
+      'root:oldroot:0:0:root:/root:/bin/bash',
+      'guest:oldguest:1001:1001::/home/guest:/bin/bash',
+    ]);
+
+    expect(withAccountHash(tree, 'guest', 'newhash')).toBe(
+      'root:oldroot:0:0:root:/root:/bin/bash\nguest:newhash:1001:1001::/home/guest:/bin/bash\n',
+    );
+  });
+
+  it('rewrites a row that carries nothing but a name and a hash', () => {
+    // A hand-edited passwd is something a rooted player can leave behind, and that account
+    // still has to be resettable: the guard exists for a row with no hash FIELD at all, not
+    // for a short one.
+    expect(withAccountHash(passwdOf(['guest:oldguest']), 'guest', 'newhash')).toBe('guest:newhash\n');
+  });
+
+  it('has nothing to rewrite on a box carrying no passwd file', () => {
+    // Unreachable through the exploit handler — it refuses earlier when the box names no
+    // account — so the behaviour is pinned here rather than left to chance.
+    expect(withAccountHash(withoutPasswd(), 'guest', 'newhash')).toBe('');
   });
 });
