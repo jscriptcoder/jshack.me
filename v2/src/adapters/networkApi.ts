@@ -315,6 +315,34 @@ export const resolveInnerGateway = async (
  * distinction `fetchPublicPage` already keeps. `null` says "we could not ask", and the
  * scan renders the host up with no port table, exactly as it did before this existed.
  */
+/**
+ * Resolve ONE NPC sibling's real open ports server-side (backs `env.scan.resolveSameLan`):
+ * its seeded base with its own journal replayed over it. The seed alone answers what the
+ * world SHIPPED, and every patch, planted door, stopped daemon and `/boot` tombstone
+ * written since lives server-side — so the box a client can rebuild for itself stopped
+ * being the box at the first write to it.
+ *
+ * It shares `resolveOccupant`'s degrade rather than `resolvePublic`'s, for the same
+ * reason: the host list has already placed this box on the LAN, so calling our own failed
+ * round trip "down" would report a live neighbour as gone. `null` says "we could not ask",
+ * and the scan lists the host with no port table.
+ */
+export const resolveSameLan = async (
+  deps: NetworkClientDeps,
+  essid: string,
+  target: string,
+): Promise<PublicScanResolution | null> => {
+  try {
+    const response = await post(deps, 'resolveSameLanScan', { essid, target });
+    if (!response.ok) return null;
+    const body: unknown = await response.json();
+    const resolved = body as Partial<PublicScanResolution>;
+    return { found: resolved.found === true, ports: resolved.ports ?? [] };
+  } catch {
+    return null;
+  }
+};
+
 export const resolveOccupant = async (
   deps: NetworkClientDeps,
   essid: string,

@@ -56,11 +56,24 @@ const onlineConnectivity = (essid: string): ConnectivityState => {
   return { interfaces: new Map(cold.interfaces).set('wlan0', connected) };
 };
 
+/** What the server answers about a sibling on an UNTOUCHED world: the seeded read, which
+ *  is what that box's journal replayed over its seeded base comes to while the journal is
+ *  still empty. Stubbing it this way keeps a test whose claim is about GENERATION — which
+ *  ports the world rolls onto which host — making exactly that claim, while the transport
+ *  it travels is the real one. A test about what a WRITE does to a box stubs its own. */
+const seededSiblingScan = (essid: string, target: string) => {
+  const host = generateHomeLan(essid).hosts.find((candidate) => candidate.ip === target);
+  return host === undefined
+    ? { found: false, ports: [] }
+    : { found: true, ports: readOpenPorts(buildRemoteHostFs(essid, host)) };
+};
+
 const onlineEnv = (essid = 'BEAN-THERE-WIFI') =>
   mockCommandEnv({
     identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
     network: mockNetworkViewFromConnectivity(onlineConnectivity(essid)),
     workstationName: OWN_NAME,
+    scan: mockScanApi({ resolveSameLan: async (scanned, target) => seededSiblingScan(scanned, target) }),
   });
 
 const drain = async (result: CommandResult): Promise<{ text: string; exitCode: number }> => {
@@ -381,6 +394,9 @@ describe('nmap — self-host open ports (slice 1)', () => {
       identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
       network: mockNetworkViewFromConnectivity(onlineConnectivity('BEAN-THERE-WIFI')),
       fs: mockFsViewFromTree(tree, { userType: 'user' }),
+      scan: mockScanApi({
+        resolveSameLan: async (essid, target) => seededSiblingScan(essid, target),
+      }),
     });
   };
 
@@ -1130,25 +1146,33 @@ describe('nmap — same-LAN occupant merge', () => {
     expect(text).not.toContain('PORT');
   });
 
-  it('returns to the seeded ports at an address whose occupant has left the WiFi', async () => {
+  it('goes back to asking about the SIBLING at an address whose occupant has left the WiFi', async () => {
     const ip = sshNpcIp();
     const resolveOccupant = vi.fn(async () => ({ found: true, ports: [] }));
+    const resolveSameLan = vi.fn(async (essid: string, target: string) =>
+      seededSiblingScan(essid, target),
+    );
     const { text } = await drain(
       await nmap.execute(
-        envWithOccupants(async () => [], { resolveOccupant }),
+        envWithOccupants(async () => [], { resolveOccupant, resolveSameLan }),
         [ip],
         new Map(),
       ),
     );
 
-    // Nothing is fabricated in either direction: with the player gone the generated
-    // sibling underneath is the box at that address again, and it is read locally.
+    // Nothing is fabricated in either direction: with the player gone, the generated
+    // sibling underneath is the box at that address again — a different box, asked
+    // about through a different door.
     expect(resolveOccupant).not.toHaveBeenCalled();
+    expect(resolveSameLan).toHaveBeenCalledWith(ESSID, ip);
     expect(text).toContain('22/tcp');
   });
 
-  it('never asks the server about a generated sibling', async () => {
+  it('asks about a generated sibling as a sibling, never as an occupant', async () => {
     const resolveOccupant = vi.fn(async () => ({ found: true, ports: [] }));
+    const resolveSameLan = vi.fn(async (essid: string, target: string) =>
+      seededSiblingScan(essid, target),
+    );
     const { text } = await drain(
       await nmap.execute(
         envWithOccupants(
@@ -1159,16 +1183,19 @@ describe('nmap — same-LAN occupant merge', () => {
               machineName: 'alice-rig',
             },
           ],
-          { resolveOccupant },
+          { resolveOccupant, resolveSameLan },
         ),
         [sshNpcIp()],
         new Map(),
       ),
     );
 
-    // One occupant on the LAN does not make every address a cross-player question. A
-    // seeded box is still read from the seed, in the client, with no round-trip.
+    // One occupant on the LAN does not make every address a cross-player question.
+    // Both boxes are resolved server-side now, but they are resolved as what they are:
+    // an occupant is rebuilt from a PLAYER's identity and journal, a sibling from the
+    // access point's seed and the journal written onto it.
     expect(resolveOccupant).not.toHaveBeenCalled();
+    expect(resolveSameLan).toHaveBeenCalledWith(ESSID, sshNpcIp());
     expect(text).toContain('22/tcp');
   });
 
@@ -2438,5 +2465,114 @@ describe('nmap -sV — the version scan', () => {
 
     expect(result.exitCode).toBe(1);
     expect(result.lines[0]?.content).toContain('usage');
+  });
+});
+
+/**
+ * A single-host scan of an NPC sibling on the player's own LAN resolves SERVER-side.
+ *
+ * The seeded tree a client can rebuild for itself is the box the world SHIPPED, and the
+ * journal holding everything anyone has since done to it lives on the server — so a
+ * client-resolved scan described a machine that stopped existing at the first write to
+ * it. Only a single address routes here: a range prints no port table at all, so a range
+ * has no journal to want, and the player's OWN box is read from the live filesystem its
+ * shell is standing on, which shows a daemon started this second.
+ */
+describe('nmap — an own-LAN sibling resolves server-side', () => {
+  const ESSID = 'BEAN-THERE-WIFI';
+  const SELF_IP = '192.168.29.188';
+
+  const siblingIp = (): string => {
+    const host = generateHomeLan(ESSID).hosts.find(
+      (candidate) => candidate.kind === 'machine' && candidate.ip !== SELF_IP,
+    );
+    if (host === undefined) throw new Error('expected a generated sibling on the LAN');
+    return host.ip;
+  };
+
+  /** An online env running sshd on :9999 — a live process no seed rolls, so a port table
+   *  holding it can only have come off the player's OWN filesystem. */
+  const envWithScan = (over: Parameters<typeof mockScanApi>[0]) =>
+    mockCommandEnv({
+      identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
+      network: mockNetworkViewFromConnectivity(onlineConnectivity(ESSID)),
+      fs: mockFsViewFromTree(
+        buildDirectory({
+          var: buildDirectory({
+            run: buildDirectory({ 'sshd.pid': buildFile('sshd:port=9999', { owner: 'root' }) }),
+          }),
+        }),
+        { userType: 'user' },
+      ),
+      scan: mockScanApi(over),
+    });
+
+  it('renders what the server answered for a sibling, not what the seed rolls', async () => {
+    // A door no generated box holds: if this row prints, the table came off the journal.
+    const resolveSameLan = vi.fn(async () => ({
+      found: true,
+      ports: [{ port: 4444, service: 'unknown' }],
+    }));
+    const target = siblingIp();
+
+    const { text } = await drain(
+      await nmap.execute(envWithScan({ resolveSameLan }), [target], new Map()),
+    );
+
+    expect(resolveSameLan).toHaveBeenCalledWith(ESSID, target);
+    expect(text).toContain('4444/tcp open  unknown');
+    expect(text).toContain('Host is up.');
+  });
+
+  it('reports a sibling the server says is down as down', async () => {
+    const resolveSameLan = vi.fn(async () => ({ found: false, ports: [] }));
+
+    const { text } = await drain(
+      await nmap.execute(envWithScan({ resolveSameLan }), [siblingIp()], new Map()),
+    );
+
+    expect(text).toContain('Host seems down.');
+    expect(text).toContain('0 hosts up');
+  });
+
+  it('costs the player’s OWN address no round trip at all', async () => {
+    const resolveSameLan = vi.fn(async () => ({ found: true, ports: [] }));
+
+    const { text } = await drain(
+      await nmap.execute(envWithScan({ resolveSameLan }), [SELF_IP], new Map()),
+    );
+
+    // Asserted as a REQUEST that never happens, not as a line that never prints: a
+    // routing branch made unconditional would change no output, only how chatty the
+    // client is, and only this can see that.
+    expect(resolveSameLan).not.toHaveBeenCalled();
+    expect(text).toContain('9999/tcp open  ssh');
+  });
+
+  it('asks nothing for a RANGE scan — a range prints no port table to want one for', async () => {
+    const resolveSameLan = vi.fn(async () => ({ found: true, ports: [] }));
+
+    const { text } = await drain(
+      await nmap.execute(envWithScan({ resolveSameLan }), ['192.168.29.1-254'], new Map()),
+    );
+
+    expect(resolveSameLan).not.toHaveBeenCalled();
+    expect(text).not.toContain('PORT');
+  });
+
+  it('leaves the host listed with no port table when the round trip fails', async () => {
+    // `null` is "we could not ask" — deliberately not host-down. The host list has
+    // already placed this box on the LAN, so calling it down would blame a live
+    // neighbour for our own outage; and falling back to the seeded read would be the
+    // very lie this path exists to end, told silently.
+    const resolveSameLan = vi.fn(async () => null);
+
+    const { text } = await drain(
+      await nmap.execute(envWithScan({ resolveSameLan }), [siblingIp()], new Map()),
+    );
+
+    expect(text).toContain('Host is up.');
+    expect(text).toContain('1 host up');
+    expect(text).not.toContain('PORT');
   });
 });

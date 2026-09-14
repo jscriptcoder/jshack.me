@@ -7,6 +7,7 @@ import {
   resolveCrossPlayerFs,
   resolveOccupants,
   resolveInnerGateway,
+  resolveSameLan,
   resolveOccupiedEssids,
   resolvePublic,
   type NetworkClientDeps,
@@ -387,6 +388,60 @@ describe('resolveInnerGateway', () => {
       found: false,
       ports: [],
     });
+  });
+});
+
+describe('resolveSameLan', () => {
+  it('signs a resolveSameLanScan request with the essid + target and parses the resolved ports', async () => {
+    const ports = [{ port: 6379, service: 'redis', version: 'Redis 7.4.0' }];
+    const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true, found: true, ports }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    const result = await resolveSameLan(deps, ESSID, '192.168.1.37');
+
+    expect(result).toEqual({ found: true, ports });
+    const verified = await verifyPayload(sentEnvelope(fetchSpy));
+    if (!verified.ok) throw new Error('expected verified envelope');
+    expect(verified.payload).toMatchObject({
+      action: 'resolveSameLanScan',
+      essid: ESSID,
+      target: '192.168.1.37',
+    });
+  });
+
+  it('reports the host down when the server resolves a bricked sibling', async () => {
+    const deps = makeDeps(
+      vi.fn(async () =>
+        jsonResponse(200, { ok: true, found: false, ports: [] }),
+      ) as unknown as typeof fetch,
+    );
+
+    expect(await resolveSameLan(deps, ESSID, '192.168.1.37')).toEqual({
+      found: false,
+      ports: [],
+    });
+  });
+
+  it('answers null — not host-down — when the server refuses', async () => {
+    const deps = makeDeps(
+      vi.fn(async () => jsonResponse(500, { error: 'patches_lookup_failed' })) as unknown as typeof fetch,
+    );
+
+    // Deliberately NOT the inner gateway's degrade. The host list has already placed
+    // this box on the LAN, so reporting our own failed round trip as "down" would say a
+    // live neighbour is gone; `null` says we could not ask, and the scan lists the host
+    // with no port table.
+    expect(await resolveSameLan(deps, ESSID, '192.168.1.37')).toBeNull();
+  });
+
+  it('answers null when the fetch throws (offline)', async () => {
+    const deps = makeDeps(
+      vi.fn(async () => {
+        throw new Error('offline');
+      }) as unknown as typeof fetch,
+    );
+
+    expect(await resolveSameLan(deps, ESSID, '192.168.1.37')).toBeNull();
   });
 });
 

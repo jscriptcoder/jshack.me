@@ -1082,7 +1082,8 @@ time it has been shown across two.
 ### Act 16 — the defender patches, and the scan that does not notice (Phase 3 slice 4)
 
 **One identity, headless.** The only act that needs no second player: the target is an NPC, so the
-whole attack → patch → inert loop runs from one session. First run 2026-09-13 at v0.215.0.
+whole attack → patch → inert loop runs from one session. First run 2026-09-13 at v0.215.0; steps
+9-14 re-run 2026-09-14 at v0.216.0, when step 14 stopped failing.
 
 Act 1's arc to get online, then `su root`, then:
 
@@ -1100,14 +1101,20 @@ Act 1's arc to get online, then `su root`, then:
 | 10 | `apt upgrade redis` **inside that shell** | `Unpacking redis (7.3.0) over (7.2.5) ...` | the patch lands on the box you STAND on |
 | 11 | `whoami` | `root` | **decision 19** — the patch did not evict its own session |
 | 12 | `exit`, `msfconsole <npc> 6379` | `[-] Exploit failed — no known vulnerability` | the loop closes |
-| 13 | `sshd`, `nmap -sV <own ip>` | new version, **CVE column empty** | your own patch reads back |
-| 14 | `nmap -sV <npc>` | ⚠️ **still the OLD version and a live CVE** | the open defect below |
+| 13 | `sshd`, `apt upgrade openssh-server`, `nmap -sV <own ip>` | new version, **CVE column empty**, and the runtime `sshd` still listed | your own patch reads back — and the own box is still read LOCALLY |
+| 14 | `nmap -sV <npc>` | **the NEW version, CVE column empty** | **the headline** — the scan and the server finally agree |
 
-**Step 14 is a KNOWN FAILURE until `resolveSameLanScan` lands.** The scan contradicts step 12 one
-command apart. It is the fourth face of the own-LAN journal blindness in
-`conventions-and-gotchas.md`, planned in `plans/own-lan-scan-replays-the-journal.md`. **When that
-fix ships, step 14 flips to the new version with no CVE and becomes this act's headline assertion** —
-re-run steps 9-14 as its close-out, and delete this paragraph.
+**Step 14 is the assertion this act exists for.** It was a known failure at v0.215.0: the scan
+contradicted step 12 one command apart, reporting `Redis 7.2.5 CVE-2026-0597580 critical` against a
+box whose journal already read `7.3.0`. `resolveSameLanScan` closed it at v0.216.0, and the same
+command now reads `Redis 7.3.0` with the row ending after the version. Steps 9-14 re-run 2026-09-14
+on `SHINRA-5G`/`records-199`; steps 10-12 behaved identically, so the fix moved the scan and nothing
+else.
+
+Step 13 carries a second claim worth knowing you are making: the `sshd` it lists was started by the
+command one line above it and exists in no journal anywhere, so a scan that shows it can only have
+read the live local filesystem. That is the browser's way of checking that the player's own box did
+NOT become a round trip when every other address did.
 
 **Traps.** `apt upgrade` needs root AND a network, so do step 1 before connecting or you cannot see
 the gate. The patch delay is 1-2 days, so in-window packages are common but never the majority — an
@@ -1129,7 +1136,7 @@ services rather than taking the first CVE it sees.
 | Empty foreign tree after a successful `ssh` | the hop resolved but the fetch did not — check `/api/network` in `agent-browser console` |
 | Everything 502s | port squatter — the skill's §1 kill, then restart |
 | Results contradict the code you just read | version banner ≠ `v2/package.json` — stale orphaned server |
-| A scan of an own-LAN NPC disagrees with what you just did to it | **known open defect** — the own-LAN scan replays no journal (`conventions-and-gotchas.md`); not a regression, see Act 16 step 14 |
+| A scan of an own-LAN NPC disagrees with what you just did to it | a regression in `resolveSameLanScan` (closed at v0.216.0) — run `scripts/testSameLanScan.ts` first; if that passes, the client stopped routing to it (`nmap.ts`'s `lanHostResolver`) |
 
 ### Fixed at v0.101.0 + v0.102.0: saving a shared file deleted another occupant's edits
 

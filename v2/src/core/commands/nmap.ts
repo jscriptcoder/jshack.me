@@ -235,36 +235,50 @@ const scanPublic = (
 ): AsyncIterable<TerminalLine> =>
   scanResolvedHost(target, target, () => env.scan.resolvePublic(target), withVersion);
 
-/** An inner gateway is scanned from its UPSTREAM side, where a NAT forward into the
- *  deeper layer is visible. Its name is known — it is a host on the caller's own LAN. */
-const scanInnerGateway = (
-  env: CommandEnv,
-  essid: string,
+/** A host on the player's own LAN, reported the way every LAN host is — its name beside
+ *  its address, unlike a public IP, which names an access point and has no name to give.
+ *  Which server path resolves its ports is the caller's to say; how it is NAMED is not,
+ *  because two LAN hosts reported differently would be the same tool answering by two
+ *  rules. */
+const scanLanHost = (
   host: LanHost,
+  resolve: () => Promise<PublicScanResolution | null>,
   withVersion: boolean,
 ): AsyncIterable<TerminalLine> =>
-  scanResolvedHost(
-    host.ip,
-    `${host.hostname} (${host.ip})`,
-    () => env.scan.resolveInnerGateway(essid, host.ip),
-    withVersion,
-  );
+  scanResolvedHost(host.ip, `${host.hostname} (${host.ip})`, resolve, withVersion);
 
-/** A fellow occupant's services live on THEIR box. `buildRemoteHostFs` keys on the host
- *  IP alone, so reading this address locally would report the NPC ports this viewer's
- *  own seed rolled at that octet as if they were the neighbour's. */
-const scanOccupant = (
+/**
+ * Which server path owns this host's ports, or null when the client may read the box
+ * itself. The precedence is the whole routing rule in one place, in the order it has to
+ * be asked:
+ *
+ * - the player's OWN box is read from the live filesystem its shell is standing on,
+ *   which shows a daemon started this second — and costs no round trip;
+ * - a fellow OCCUPANT is rebuilt from THEIR identity and THEIR journal, and outranks the
+ *   generator: `buildRemoteHostFs` keys on the host IP alone, so a local read would
+ *   report the NPC this viewer's seed rolled at that octet as the neighbour's own;
+ * - an INNER GATEWAY is scanned from its upstream side, where a NAT forward into the
+ *   layer behind it is visible — and that forward lives on its journal;
+ * - an NPC SIBLING's seeded tree is the box the world SHIPPED, and everything anyone has
+ *   since done to it is on that machine's journal.
+ *
+ * The edge `.1` falls through: it is journal-backed too, but it answers at the `sameLAN`
+ * vantage through `scanResult` rather than a plain port read, so it is still resolved
+ * from the client here.
+ */
+const lanHostResolver = (
   env: CommandEnv,
   essid: string,
   host: LanHost,
-  withVersion: boolean,
-): AsyncIterable<TerminalLine> =>
-  scanResolvedHost(
-    host.ip,
-    `${host.hostname} (${host.ip})`,
-    () => env.scan.resolveOccupant(essid, host.ip),
-    withVersion,
-  );
+  selfIp: string,
+  occupantIps: ReadonlySet<string>,
+): (() => Promise<PublicScanResolution | null>) | null => {
+  if (host.ip === selfIp) return null;
+  if (occupantIps.has(host.ip)) return () => env.scan.resolveOccupant(essid, host.ip);
+  if (isInnerGateway(host)) return () => env.scan.resolveInnerGateway(essid, host.ip);
+  if (host.kind === 'machine') return () => env.scan.resolveSameLan(essid, host.ip);
+  return null;
+};
 
 /** Scan the deep `/24` BEHIND the gateway the active shell is standing on — the
  *  reachability pivot. Returns the scan when the target falls inside the deep subnet,
@@ -404,33 +418,20 @@ const execute: Command['execute'] = async (env, args, flags) => {
     // best-effort: logging must not surface to the scan.
   }
 
-  // A single-IP scan of an inner gateway resolves SERVER-side at the external
-  // vantage — its journal-held NAT forward to the deeper layer can't be read from the
-  // client's static world. Only a single IP routes here; a range still just lists the
-  // host (no port table), and the edge `.1`/siblings stay the client-side path below.
-  // A single-IP scan of a real OCCUPANT resolves server-side: their box is theirs, and
-  // the seed that answers for every other address would fabricate its services —
-  // `buildRemoteHostFs` keys on the host IP alone, so a local read would report the NPC
-  // ports this viewer rolled at that octet as the neighbour's own. Checked before the
-  // inner gateway for the same reason the merge drops one: a player standing on an octet
-  // outranks whatever the generator put there.
-  //
-  // This is the ONLY place an occupant's ports are decided. The port resolver below used
-  // to carry a second rule for them — report the host with no table — and that branch is
-  // gone rather than kept as a fallback, because it could no longer be reached: a range
-  // scan builds no port table for any host, so a single scan is the whole of what asks.
+  // Only a SINGLE address is ever resolved server-side. A range still just lists the
+  // hosts and builds no port table for any of them, so there is nothing for a range to
+  // want a journal for — which is also why this is the ONLY place a host's ports are
+  // decided, and why the port resolver below carries no second rule for a box that
+  // answers here. `lanHostResolver` holds the precedence and the reason for each step.
   const single = parsed.target.kind === 'single' ? hosts[0] : undefined;
-  if (single !== undefined && occupantIps.has(single.ip)) {
+  const resolveSingle =
+    single === undefined
+      ? null
+      : lanHostResolver(env, essid, single, wlan0.ipv4, occupantIps);
+  if (single !== undefined && resolveSingle !== null) {
     return {
       kind: 'async',
-      lines: scanOccupant(env, essid, single, withVersion),
-      exitCode: async () => 0,
-    };
-  }
-  if (single !== undefined && isInnerGateway(single)) {
-    return {
-      kind: 'async',
-      lines: scanInnerGateway(env, essid, single, withVersion),
+      lines: scanLanHost(single, resolveSingle, withVersion),
       exitCode: async () => 0,
     };
   }
