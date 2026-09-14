@@ -4,14 +4,15 @@
 close-out: "Phase 3 slice 4 — the defender patches" (#498, #499, v0.214.0–v0.215.0), plus the
 own-LAN scan fix detour (#500, #501, v0.216.0–v0.217.0).
 
-**Status:** Active — PR1 (file_read + dir_list) shipped at v0.218.0 (#502). PR2 (password_reset) is next, branching from updated `main`.
+**Status:** Active — PR1 (file_read + dir_list) shipped at v0.218.0 (#502) and PR2 (password_reset) at v0.219.0 (#503). PR3 (backdoor_port_open) is next, branching from updated `main`.
 
 **Delivery:** Five independent PRs, sequenced to trunk (NOT a stack). Each merges to `main`;
 the next branches from updated `main`. They share a seam (the effect branch in the exploit
 handler and `msfconsole`) but no hard dependency — each is independently observable and
 shippable, and each un-built effect keeps collapsing to a limited shell until its own PR lands.
 
-**Branch for PR2:** `feat/exploit-password-reset` (PR1 shipped from `feat/exploit-read-effects`).
+**Branch for PR3:** `feat/exploit-backdoor-port` (PR1 shipped from `feat/exploit-read-effects`,
+PR2 from `feat/exploit-password-reset`).
 
 ---
 
@@ -134,7 +135,25 @@ payload → client renders. Introduces the discriminated response + the `needs-a
 extended with a read case (openssh `file_read` is the canonical own-LAN example — decision from
 `exploitEffect.test.ts`'s pinned mapping).
 
-### PR2 — password_reset (decision 21)
+### PR2 — password_reset (decision 21) — SHIPPED v0.219.0 (#503)
+
+The granted tier's hash becomes `md5("pwned-<last4-of-cve>-<tier>")`, the plaintext goes back to
+the attacker alone, and no session is minted. Verified by RED-GREEN unit tests, a scoped mutation
+gate (`exploitCreateSession` 96.73%, `passwdAccount` 94.44%) and a 31/31 live own-LAN wire-check
+that ends by logging in over the box's own ssh door with the plaintext it handed over.
+
+**Two facts this PR established, which PR3–PR5 inherit.** First, an effect is reachable only once
+a release CARRYING it has published, and no package's starting release rolls one — so the box has
+to be walked onto that release through the journal, exactly as `apt upgrade` does, before the
+effect can be fired at all. That applies to unit tests and to the wire-check alike, and it is why
+the wire-check pairs a door with a release rather than finding one. Second, because that left
+`password_reset` unreachable at game day 13, `WORLD_EPOCH` moved 2026-09-01 → 2026-08-01, putting
+the world on day 44 (its staleness tripwire asserts `< 90`).
+
+**Check reachability before planning the next wire-check.** At the versions boxes ship today the
+world publishes `file_read`, `dir_list`, `script_exec`, `file_write` and `shell_full` —
+`backdoor_port_open` was NOT among them, so PR3 should expect the same walk-forward, and PR4/PR5
+should confirm rather than assume.
 
 **Value:** A player earns a plaintext they did not hold — the route D2.6b's wordlist progression
 was waiting on.
