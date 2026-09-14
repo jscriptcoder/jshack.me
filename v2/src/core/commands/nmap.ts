@@ -24,15 +24,12 @@ import type {
   TerminalLine,
 } from './types';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
-import { buildRemoteHostFs } from '../generation/remoteHostFs';
-import { buildApGatewayBaseFs } from '../generation/routerFs';
 import { isPublicIp } from '../generation/ip';
 import { parseScanTarget, hostsInScanTarget } from '../network/scanTarget';
 import { mergeLanOccupants, withSelfHost } from '../network/mergeLanOccupants';
 import { readOpenPorts, type OpenPort } from '../services/pidfile';
 import { gameDayAt } from '../cve/worldClock';
 import { serviceByName } from '../services/serviceCatalog';
-import { scanResult } from '../scan/scanResult';
 import { resolveDeepScanHosts } from '../scan/deepScanHosts';
 import {
   isInnerGateway,
@@ -259,12 +256,12 @@ const scanLanHost = (
  *   report the NPC this viewer's seed rolled at that octet as the neighbour's own;
  * - an INNER GATEWAY is scanned from its upstream side, where a NAT forward into the
  *   layer behind it is visible — and that forward lives on its journal;
- * - an NPC SIBLING's seeded tree is the box the world SHIPPED, and everything anyone has
- *   since done to it is on that machine's journal.
+ * - EVERY OTHER host is a box the ACCESS POINT owns — an NPC sibling, or the edge `.1`
+ *   gateway every occupant of the ESSID shares. Its seeded tree is the box the world
+ *   SHIPPED, and everything anyone has since done to it is on that machine's journal.
  *
- * The edge `.1` falls through: it is journal-backed too, but it answers at the `sameLAN`
- * vantage through `scanResult` rather than a plain port read, so it is still resolved
- * from the client here.
+ * Only the player's own box is left for the client to read, which is what makes "the
+ * own-box path never leaves the machine" true by construction rather than by a rule.
  */
 const lanHostResolver = (
   env: CommandEnv,
@@ -276,8 +273,7 @@ const lanHostResolver = (
   if (host.ip === selfIp) return null;
   if (occupantIps.has(host.ip)) return () => env.scan.resolveOccupant(essid, host.ip);
   if (isInnerGateway(host)) return () => env.scan.resolveInnerGateway(essid, host.ip);
-  if (host.kind === 'machine') return () => env.scan.resolveSameLan(essid, host.ip);
-  return null;
+  return () => env.scan.resolveSameLan(essid, host.ip);
 };
 
 /** Scan the deep `/24` BEHIND the gateway the active shell is standing on — the
@@ -436,29 +432,11 @@ const execute: Command['execute'] = async (env, args, flags) => {
     };
   }
 
-  // Per-host open ports. The `.1` gateway is the ACCESS POINT's gateway — a distinct
-  // journal-backed box shared by every occupant; its ports come from the single
-  // `scanResult` total function at the `sameLAN` vantage (the gateway's own services
-  // only, never the NAT forward table), the same function the public-IP scan uses at
-  // `external`. Every other
-  // host reads its filesystem directly: the live env.fs for the player's own host
-  // (so a runtime `sshd` shows up), the deterministic generated FS for a sibling.
-  const selfIp = wlan0.ipv4;
-  const resolveHostPorts = (host: LanHost): readonly OpenPort[] => {
-    if (host.kind === 'router') {
-      return scanResult({
-        vantage: 'sameLAN',
-        routerFs: buildApGatewayBaseFs(essid),
-        resolveTargetPorts: () => [],
-        gameDay,
-      });
-    }
-    const hostFs =
-      host.ip === selfIp
-        ? env.fs.root()
-        : buildRemoteHostFs(essid, host);
-    return readOpenPorts(hostFs, { gameDay });
-  };
+  // The player's OWN box is the only host left for the client to read, because
+  // `lanHostResolver` above hands every other one to the server. It is read off the LIVE
+  // filesystem the shell is standing on, so a daemon started this second shows up —
+  // something a round trip through the journal cannot promise.
+  const resolveHostPorts = (): readonly OpenPort[] => readOpenPorts(env.fs.root(), { gameDay });
 
   const lines =
     parsed.target.kind === 'range'

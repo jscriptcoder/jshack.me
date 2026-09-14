@@ -789,8 +789,12 @@ not an anomaly — treat a non-manual survivor as unproven until a hand run agre
 routing condition (`single !== undefined && resolveSingle !== null` → `true`) as SURVIVED; by hand
 it fails a dozen tests at once, because an always-taken branch hands the renderer an undefined host.
 So the shape is not "guard clauses specifically" — it is any branch whose mutant makes LATER code
-throw, which is exactly where `perTest` coverage mapping is least reliable. The hand-check is one
-scripted run and it has now been right four times out of four.
+throw, which is exactly where `perTest` coverage mapping is least reliable.
+
+**A fifth, on the SAME line, one slice later.** The gateway half of the own-LAN scan fix reported
+that identical `nmap` routing condition as SURVIVED again — by hand it failed **46** tests. A line
+that has produced a false survivor twice is not going to stop, so do not re-litigate it: hand-check
+and move on. The hand-check is one scripted run and it has now been right five times out of five.
 
 **A codec tested only through its own round trip cannot see format drift — pin it with a vector
 from the OTHER implementation.** Every encrypt/decrypt test writes and reads with the same code, so
@@ -2590,7 +2594,7 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   it across the family in one pass; the mutant to reproduce is `ObjectLiteral` on the
   `STATUS_BY_VERIFY_REASON` return of any door.
 
-- **An INTERMITTENT full-suite flake, seen twice in two days, still unnamed.** 2026-08-26, D7 slice
+- **An INTERMITTENT full-suite flake, seen three times, still unnamed.** 2026-08-26, D7 slice
   7a: the first `npx vitest run` reported `1 failed | 171 passed`, and five later runs on the same
   tree were clean. Same day, D7's close-out: `2 failed | 171 passed` on a tree carrying **nothing
   but documentation edits**, then four clean runs (3737/3737 each). Neither failure was ever named.
@@ -2603,6 +2607,19 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   completely as a clean re-run does. So: **never pipe a full-suite run through a filter that can
   drop the failure detail.** Redirect the whole thing (`npx vitest run > suite.log 2>&1`) and grep
   the FILE. A summary line is the one part of the output that is worthless when something fails.
+
+  **Third occurrence, 2026-09-14** (the own-LAN gateway scan, at v0.217.0): `1 failed | 4788 passed`,
+  then five clean runs on the same tree (4789/4789 each). Lost the same way a third time, to a
+  `| tail -8` — so the warning above is easy to trip even by someone who has just read it. Treat
+  "pipe the first full-suite run through anything" as the hazard, not any particular filter.
+
+  One NEW data point survived, because it is about the command rather than the output. Of the six
+  runs, the failing one was the only one not invoked as a bare `npx vitest run`: it was chained in a
+  single shell command after `npm run typecheck`, whose `pretypecheck` hook runs `npm run encode`
+  and REWRITES `src/core/secrets/__encoded.ts`. A source file rewritten moments before the run is a
+  concrete mechanism worth eliminating — vitest's transform cache keys on mtime. That is a
+  hypothesis to TEST next time (run the chained form repeatedly on a clean tree), not a cause; it is
+  recorded because three occurrences have now produced exactly one testable lead.
 
 **Cross-player / multiplayer deferred.** The cross-player epic shipped every enumerated story
 (1–7, plus 5b, unique public-IP allocation and shared-network reconciliation) and its plan file
@@ -2751,56 +2768,53 @@ blocks the live PvP loop; each was a scoped owner decision, not a gap.
 - **`nmap` runs a 5-digit port into the STATE column.** `31337/tcpopen  unknown` — the PORT
   column pads for four digits. Cosmetic, but every port in the generated backdoor pool
   (`BACKDOOR_PORTS`) is 4-5 digits, so it shows up routinely now.
-- **An own-LAN `nmap` of the `.1` AP GATEWAY replays no journal, so it cannot see a planted door —
-  nor a CLOSED one.** *(SIBLINGS fixed at v0.216.0 — `resolveSameLanScan` routes a single-IP sibling
-  scan server-side and replays that machine's journal, closing faces 1, 2 and 4 below for every NPC.
-  The `.1` gateway is still journal-blind: it answers at the `sameLAN` vantage through `scanResult`
-  rather than a plain port read, which is its own slice — S2 of
-  `plans/own-lan-scan-replays-the-journal.md`. Face 3 is therefore the live one; the history below is
-  kept because it is what the remaining gap looks like, and because S2 has to close it the same way.)*
-  The client
-  resolves an own-LAN scan from seeded trees — the `.1` AP gateway from `buildApGatewayBaseFs`,
-  every NPC sibling from `buildRemoteHostFs` — while a scan of a PUBLIC IP is server-resolved
-  and replays the target's journal. So a listener planted on the AP gateway is visible to
-  anyone scanning the public IP and invisible to every occupant scanning the LAN it sits on.
-  It cuts both ways and is worse for the defender: the tool built to give signals gives none,
-  though standing on the box (`ssh` then `ps`) still shows it, because that tree is
-  materialized. NPC root is crackable at 12%, so this is reachable gameplay rather than a
-  corner. **Second way it bites, found 2026-08-22:** a `systemctl stop` is a journal row too, so
-  once a generated box carries the daemon behind its doors (v0.168.0), a defender who shuts port
-  80 on a box they rooted still sees it open from their own `nmap`. That is the tool lying about
-  the player's OWN action rather than about somebody else's, and there is no local workaround —
-  a generated box carries no `nmap` (`LOCALHOST_PREINSTALLED_TOOLS` is the aircrack-ng trio, plus
-  `systemctl`), so the confirming scan can only come from a box that replays nothing. The port
-  really is shut: `readOpenPorts` — the reader the display and the server's scan action share —
-  reports it gone, which is what `generatedBoxDoors.test.ts` pins. **The fix has to be server-side** — `listPatches` is gated on an active session, so
-  the client cannot read a machine's journal it has no session on. `nmap` already routes an
-  INNER gateway's single-IP scan server-side for exactly this reason, and the line after it
-  records the carve-out that leaves the edge `.1` and the siblings behind; the work is
-  finishing that, as a `resolveSameLanScan` action mirroring `resolveInnerGatewayScan`. Open
-  design call first: route single-IP scans only (matching the precedent) or batch a range, since
-  a `/24` would otherwise resolve up to 253 journals. Found by writing D5's Act 14; it predates
-  D5, which only made it observable. Needs its own slice + wire-check. **Third way it bites, found
-  during D8's e2e 2026-08-31:** an `snmpset` deny or forward on the AP gateway is a journal row too,
-  so a stranger who filters or re-opens a port over SNMP changes what the PUBLIC scan of that
-  gateway shows while a same-LAN `nmap` of `.1` — reading `buildApGatewayBaseFs`, journal-blind —
-  still shows the seeded ports. D8 boundary 2 could therefore only close the filter-honours-scan
-  claim at the CONTRACT level (`scanResult` reads the filter both vantages); the same-LAN gap is
-  wider than the filter and belongs to `resolveSameLanScan` above, not to D8. **Fourth way, and the
-  one that ended the deferral, found by Phase 3 slice 4's browser run 2026-09-13:** `apt upgrade` on
-  an NPC you rooted moves its manifest, and the scan still advertises the OLD version with a LIVE
-  CVE — `redis 7.2.5 / CVE-2026-0597580 critical` in `nmap -sV`, `[-] Exploit failed — no known
-  vulnerability` from `msfconsole` one command later, against a journal reading `Version: 7.3.0`.
-  The first three faces lie about PORTS; this one lies about the VERSION and CVE columns, so the
-  recon tool sends players at holes the server refuses and tells a defender their own patch did
-  nothing. **The open design call is also retired:** a RANGE scan prints no ports at all
-  (`resolveHostPorts` reaches only `scanSingle`), so there was never a 253-journal batching problem
-  — single-IP only, matching the inner-gateway precedent. Planned as two PRs in
-  `plans/own-lan-scan-replays-the-journal.md`, decisions 40-43 in the epic. **S1 shipped at
-  v0.216.0**, closing faces 1, 2 and 4 for siblings: the same `nmap -sV` that read
-  `Redis 7.2.5 CVE-2026-0597580 critical` now reads `Redis 7.3.0` with an empty CVE column, verified
-  in the browser at Act 16 step 14 and on the wire by `scripts/testSameLanScan.ts`. The player's own
-  box deliberately stays a local read — a runtime `sshd` no journal has heard of must still show.
+- **CLOSED v0.216.0 + v0.217.0 — an own-LAN `nmap` replayed no journal, so it could not see a
+  planted door, a closed one, a filtered one, or a patched version.** One defect with four recorded
+  faces, open from D5 (2026-08-22) to 2026-09-14. The client resolved an own-LAN scan from seeded
+  trees — the `.1` AP gateway from `buildApGatewayBaseFs`, every NPC sibling from
+  `buildRemoteHostFs` — while a scan of a PUBLIC IP was server-resolved and replayed the target's
+  journal. So one box answered two different ways depending on where you stood.
+
+  | # | Face | Found | Lied about |
+  |---|---|---|---|
+  | 1 | a planted `nc` door — or a CLOSED one — invisible to occupants | D5, Act 14 | somebody else's action |
+  | 2 | `systemctl stop` on a box you rooted still showed the port open | 2026-08-22 | the player's OWN action |
+  | 3 | an `snmpset` filter or forward on `.1` changed the public scan, not the LAN one | D8 e2e, 2026-08-31 | the gateway every occupant shares |
+  | 4 | a package upgraded on an NPC still scanned as the old version, with a live CVE | slice 4 e2e, 2026-09-13 | the version and CVE columns |
+
+  **The fix was which TREE gets passed in, never the reader.** `readOpenPorts` and `scanResult`
+  already answered correctly for whatever they were handed; what was missing was a server-side
+  resolution, because `listPatches` is gated on an active session and a client cannot read the
+  journal of a machine it holds no session on. `resolveSameLanScan` mirrors `resolveInnerGatewayScan`:
+  regenerate the host from the ESSID, resolve it through `resolveLanHostIdentity`, replay its journal
+  with `materializeMachineFs`, gate on `canBoot`, answer its ports. Client-side, `lanHostResolver` in
+  `nmap.ts` holds the precedence — own box → occupant → inner gateway → everything the access point
+  owns.
+
+  - **S1, v0.216.0 (#500)** — siblings. Faces 1, 2 and 4: the same `nmap -sV` that read
+    `Redis 7.2.5 CVE-2026-0597580 critical` now reads `Redis 7.3.0` with an empty CVE column,
+    verified at Act 16 step 14 and by `scripts/testSameLanScan.ts`.
+  - **S2, v0.217.0** — the `.1` gateway, and filters everywhere. The gateway needed no new server
+    branch: `generateHomeLan` already places it and `resolveLanHostIdentity` already seeds it from
+    `buildApGatewayBaseFs`, so the whole client-side defect was that `nmap` never asked. Face 3
+    closed by reading through `scanResult` at the `sameLAN` vantage instead of the pidfiles, which
+    also closed the same hole on SIBLINGS — `snmpset inputPort.<port>=deny` works on *any* box
+    keeping a filter of its own, so a sibling's filter had been invisible too. Verified at
+    Act 17 and by the same wire-check, 9/9.
+
+  **Two things worth keeping.** The player's own box deliberately stays a LOCAL read — a runtime
+  `sshd` no journal has heard of must still show, which is Act 16 step 13 and Act 17 step 9. And a
+  RANGE scan resolves nothing: `resolveHostPorts` reaches only `scanSingle`, so a `/24` prints no
+  port table and there was never a 253-journal batching problem to solve (the open design call that
+  deferred this work for three weeks answered itself in the code).
+
+  **One guarantee is doubled, deliberately.** `resolveSameLanScan` passes both `vantage: 'sameLAN'`
+  and `resolveTargetPorts: () => []`, and either alone would keep the NAT forward table off a LAN
+  scan — the mutation gate proves it, since flipping the vantage to `'external'` by hand leaves all
+  140 tests green. The vantage is therefore documentation and defence in depth rather than the
+  operative guard. Left that way on purpose: making it load-bearing would mean wiring real machine
+  materialization into this handler to produce a value that must never be displayed. If anyone ever
+  passes a real resolver here, the vantage becomes load-bearing that moment and needs its own test.
 - **`snmpwalk` of your OWN address has no client-side own-box path.** `snmpwalk.ts` calls the server
   unconditionally, and the server answers a walk for the box a player is NOT standing on — so
   walking your own agent times out (`No Response`) even while it runs and a STRANGER's walk of the

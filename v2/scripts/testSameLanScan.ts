@@ -1,14 +1,18 @@
-// Wire-payload smoke for the own-LAN sibling scan — an `nmap <sibling ip>` on the
-// player's own LAN, resolved server-side against that machine's journal. Drives the REAL
-// /api/network (resolveSameLanScan) + /api/patches endpoints against a running
-// `vercel dev` + supabase, seeding the writer's root session on the sibling via
-// service_role.
+// Wire-payload smoke for the own-LAN scan — an `nmap <ip>` on the player's own LAN,
+// resolved server-side against that machine's journal. Drives the REAL /api/network
+// (resolveSameLanScan) + /api/patches endpoints against a running `vercel dev` +
+// supabase, seeding the writer's root session on each target via service_role.
 //
-// Net-new under test (the locally-untypechecked api/ runtime): a single-IP scan of an
-// NPC sibling regenerates it from the essid, replays its journal over the seeded base,
-// gates it on canBoot, and reports the ports of the box as it IS. The four faces this
-// closes are all read off ONE resolution — a patched package's new version and the CVE
-// that stops applying to it, a planted listener, a stopped daemon, and a brick.
+// Net-new under test (the locally-untypechecked api/ runtime): a single-IP scan of a box
+// the ACCESS POINT owns regenerates it from the essid, replays its journal over the
+// seeded base, gates it on canBoot, and reports the ports of the box as it IS.
+//
+// Both kinds of box, because they differ in the tree they are seeded from and the reader
+// they answer through. An NPC SIBLING (checks 1-5) closes the four recorded faces off ONE
+// resolution — a patched package's new version and the CVE that stops applying to it, a
+// planted listener, a stopped daemon, and a brick. The `.1` GATEWAY (checks 6-9) is the
+// box every occupant shares, read at the `sameLAN` vantage: its own services, a filter
+// that closes one of them, and never the NAT forwards behind it.
 //
 // Usage (with v2 supabase + vercel dev running):
 //   npx dotenv -e .env.development.local -- npx tsx scripts/testSameLanScan.ts
@@ -21,7 +25,17 @@ import { generateIdentity } from '../src/core/identity/identity';
 import { generateHomeLan, type LanHost } from '../src/core/generation/generateHomeLan';
 import { crackableEssidPool } from '../src/core/generation/generateWifi';
 import { buildRemoteHostFs } from '../src/core/generation/remoteHostFs';
+import { buildApGatewayBaseFs } from '../src/core/generation/routerFs';
+import { machineIdForLanHost } from '../src/core/generation/lanHostIdentity';
 import { hostMachineId } from '../src/core/generation/remoteHostId';
+import {
+  readRulesV4,
+  withForward,
+  withInputDeny,
+  RULES_V4_OWNER,
+  RULES_V4_PATH,
+  RULES_V4_PERMISSIONS,
+} from '../src/core/network/iptablesRules';
 import {
   formatListenerContent,
   listenerPidfileName,
@@ -144,17 +158,43 @@ const PLANTED_PORT = 4444;
 const PLANTED_PIDFILE = `/var/run/${listenerPidfileName(PLANTED_PORT)}`;
 const VMLINUZ = '/boot/vmlinuz';
 const ROOT_ONLY = { read: ['root'], write: ['root'], execute: [] };
+const FORWARDED_PORT = 8080;
+
+/** The access point's own gateway on the same LAN — a different base tree and a different
+ *  vantage, resolved through the same action. */
+const GATEWAY = generateHomeLan(ESSID).hosts.find(
+  (host) => host.ip === `${generateHomeLan(ESSID).subnet}.1`,
+);
+if (GATEWAY === undefined) {
+  console.error(`${ESSID} has no gateway at .1`);
+  process.exit(2);
+}
+const GATEWAY_ID = machineIdForLanHost(GATEWAY, ESSID);
+const GATEWAY_FS = buildApGatewayBaseFs(ESSID);
+const GATEWAY_PORT = readOpenPorts(GATEWAY_FS)[0]?.port;
+if (GATEWAY_PORT === undefined) {
+  console.error('the access point gateway runs no seeded service');
+  process.exit(2);
+}
 
 const alice = generateIdentity();
 
-const scan = () =>
-  post(NETWORK, signRequest(alice, 'resolveSameLanScan', { essid: ESSID, target: SIBLING.ip }));
+const scanAt = (target: string) =>
+  post(NETWORK, signRequest(alice, 'resolveSameLanScan', { essid: ESSID, target }));
 
-const write = (path: string, content: string, owner: string, permissions: unknown) =>
+const scan = () => scanAt(SIBLING.ip);
+
+const writeTo = (
+  machineId: string,
+  path: string,
+  content: string,
+  owner: string,
+  permissions: unknown,
+) =>
   post(
     PATCHES,
     signRequest(alice, 'upsertPatch', {
-      machine_id: SIBLING_ID,
+      machine_id: machineId,
       path,
       content,
       owner,
@@ -163,8 +203,13 @@ const write = (path: string, content: string, owner: string, permissions: unknow
     }),
   );
 
-const remove = (path: string) =>
-  post(PATCHES, signRequest(alice, 'removePatch', { machine_id: SIBLING_ID, path, owner: 'root' }));
+const write = (path: string, content: string, owner: string, permissions: unknown) =>
+  writeTo(SIBLING_ID, path, content, owner, permissions);
+
+const removeFrom = (machineId: string, path: string) =>
+  post(PATCHES, signRequest(alice, 'removePatch', { machine_id: machineId, path, owner: 'root' }));
+
+const remove = (path: string) => removeFrom(SIBLING_ID, path);
 
 console.log(
   `world day ${GAME_DAY} — ${ESSID} ${SIBLING.hostname} (${SIBLING.ip}) ` +
@@ -251,8 +296,78 @@ check(
   `brick=${r5.status} scan=${s5.status} found=${foundOf(s5.body)} ports=[${portsOf(s5.body).join(',')}]`,
 );
 
+// --- The ACCESS POINT's own gateway at `.1`. Same action, same journal replay, read at
+//     the `sameLAN` vantage: its own services, never the NAT forwards behind it. It is
+//     the one box on this LAN every occupant shares, so what any of them writes to it is
+//     what all of them scan. ---
+await sr.from('sessions').delete().eq('player_key', alice.publicKeyHex);
+await sr.from('patches').delete().eq('machine_id', GATEWAY_ID);
+await sr.from('sessions').insert({
+  session_id: `ssh-alice-gateway-${GATEWAY_ID}`,
+  player_key: alice.publicKeyHex,
+  machine_id: GATEWAY_ID,
+  credentials: { username: 'root', userType: 'root' },
+  kind: 'ssh',
+  essid: ESSID,
+});
+
+// 6. BASELINE — the gateway answers with the services it is seeded to run.
+const g1 = await scanAt(GATEWAY.ip);
+check(
+  `gateway baseline: nmap ${GATEWAY.ip} reports its own :${GATEWAY_PORT}`,
+  g1.status === 200 && foundOf(g1.body) && portsOf(g1.body).includes(GATEWAY_PORT),
+  `status=${g1.status} found=${foundOf(g1.body)} ports=[${portsOf(g1.body).join(',')}]`,
+);
+
+// 7. THE FILTER — `snmpset <gw> <rw> inputPort.<port>=deny`. The port closes to the
+//    network while the daemon keeps running, and the LAN scan must say so: this is the
+//    face where the scan of the shared gateway and the scan of its public IP disagreed.
+const w7 = await writeTo(
+  GATEWAY_ID,
+  RULES_V4_PATH,
+  withInputDeny(readRulesV4(GATEWAY_FS), GATEWAY_PORT, true),
+  RULES_V4_OWNER,
+  RULES_V4_PERMISSIONS,
+);
+const g2 = await scanAt(GATEWAY.ip);
+check(
+  `gateway filter: inputPort.${GATEWAY_PORT}=deny → nmap drops :${GATEWAY_PORT}`,
+  w7.status === 200 && g2.status === 200 && !portsOf(g2.body).includes(GATEWAY_PORT),
+  `write=${w7.status} scan=${g2.status} ports=[${portsOf(g2.body).join(',')}]`,
+);
+
+// 8. THE FORWARD — a NAT forward is how the box BEHIND it is reached from the internet,
+//    not a door on the gateway. Listing it here would hand any occupant the public
+//    exposure of every neighbour off a scan of their own LAN.
+const w8 = await writeTo(
+  GATEWAY_ID,
+  RULES_V4_PATH,
+  withForward(readRulesV4(GATEWAY_FS), FORWARDED_PORT, {
+    internalIp: SIBLING.ip,
+    internalPort: PLANTED_PORT,
+  }),
+  RULES_V4_OWNER,
+  RULES_V4_PERMISSIONS,
+);
+const g3 = await scanAt(GATEWAY.ip);
+check(
+  `gateway vantage: a forward on :${FORWARDED_PORT} stays off the LAN scan`,
+  w8.status === 200 && g3.status === 200 && !portsOf(g3.body).includes(FORWARDED_PORT),
+  `write=${w8.status} scan=${g3.status} ports=[${portsOf(g3.body).join(',')}]`,
+);
+
+// 9. BRICK — the box the whole network routes through is no exception to the boot gate.
+const r9 = await removeFrom(GATEWAY_ID, VMLINUZ);
+const g4 = await scanAt(GATEWAY.ip);
+check(
+  'gateway brick: rm /boot/vmlinuz → nmap <gateway> host-down, no ports',
+  r9.status === 200 && g4.status === 200 && !foundOf(g4.body) && portsOf(g4.body).length === 0,
+  `brick=${r9.status} scan=${g4.status} found=${foundOf(g4.body)} ports=[${portsOf(g4.body).join(',')}]`,
+);
+
 // Cleanup.
 await sr.from('patches').delete().eq('machine_id', SIBLING_ID);
+await sr.from('patches').delete().eq('machine_id', GATEWAY_ID);
 await sr.from('sessions').delete().eq('player_key', alice.publicKeyHex);
 
 const passed = results.filter((result) => result.pass).length;

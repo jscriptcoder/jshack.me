@@ -5,7 +5,18 @@ import { generateIdentity } from '../identity/identity';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
 import { crackableEssidPool } from '../generation/generateWifi';
 import { buildRemoteHostFs } from '../generation/remoteHostFs';
+import { buildApGatewayBaseFs } from '../generation/routerFs';
+import { machineIdForLanHost } from '../generation/lanHostIdentity';
 import { hostMachineId } from '../generation/remoteHostId';
+import {
+  readRulesV4,
+  withForward,
+  withInputDeny,
+  RULES_V4_OWNER,
+  RULES_V4_PATH,
+  RULES_V4_PERMISSIONS,
+  type ForwardTarget,
+} from '../network/iptablesRules';
 import {
   formatListenerContent,
   listenerPidfileName,
@@ -136,8 +147,8 @@ const bootTombstone: OwnerPatchRow = {
   writer_key: PLAYER.publicKeyHex,
 };
 
-/** One row on the SIBLING's own journal — what somebody left behind after rooting it. */
-const siblingRow = (path: string, content: string | null): OwnerPatchRow => ({
+/** One row on the target box's own journal — what somebody left behind after rooting it. */
+const journalRow = (path: string, content: string | null): OwnerPatchRow => ({
   path,
   content,
   owner: 'root',
@@ -157,6 +168,55 @@ const seededService = (): { readonly spec: ServiceSpec; readonly port: number } 
   }
   throw new Error('the sibling under test runs no seeded service');
 };
+
+/** The access point's own gateway at `.1` — the one box on this LAN that belongs to the
+ *  NETWORK rather than to any occupant, and that every occupant of the ESSID therefore
+ *  scans as the same machine. */
+const AP_GATEWAY: LanHost = (() => {
+  const { subnet, hosts } = generateHomeLan(ESSID);
+  const gateway = hosts.find((host) => host.ip === `${subnet}.1`);
+  if (gateway === undefined) throw new Error('this LAN has no gateway at .1');
+  return gateway;
+})();
+
+const AP_GATEWAY_ID = machineIdForLanHost(AP_GATEWAY, ESSID);
+
+/** A port the gateway is seeded to serve, read off its own tree rather than named — so
+ *  the test keeps meaning what it says when the seed re-rolls what it carries. */
+const seededGatewayPort = (): number => {
+  const port = readOpenPorts(buildApGatewayBaseFs(ESSID))[0]?.port;
+  if (port === undefined) throw new Error('the AP gateway runs no seeded service');
+  return port;
+};
+
+/** A `rules.v4` row on a box's own journal, written exactly as `snmpset` writes it —
+ *  same path, same owner, same permissions — so what the scan reads back is what an
+ *  occupant's `inputPort.<port>=deny` or `forward.<port>=<ip>:<port>` actually leaves
+ *  behind. */
+const rulesV4Row = (content: string): OwnerPatchRow => ({
+  path: RULES_V4_PATH,
+  content,
+  owner: RULES_V4_OWNER,
+  permissions: RULES_V4_PERMISSIONS,
+  node_type: 'file',
+  updated_at: '2026-09-14T00:00:00.000Z',
+  writer_key: PLAYER.publicKeyHex,
+});
+
+/** A NAT forward published on the GATEWAY — how an occupant exposes a box behind the
+ *  access point to the internet. */
+const gatewayForward = (publicPort: number, target: ForwardTarget): OwnerPatchRow =>
+  rulesV4Row(withForward(readRulesV4(buildApGatewayBaseFs(ESSID)), publicPort, target));
+
+/** `snmpset <gateway> <rw> inputPort.<port>=deny` — the filter that closes a port to the
+ *  network while the daemon behind it keeps running for whoever owns the box. */
+const gatewayDeny = (port: number): OwnerPatchRow =>
+  rulesV4Row(withInputDeny(readRulesV4(buildApGatewayBaseFs(ESSID)), port, true));
+
+/** The same filter, on an NPC SIBLING — any box keeping a `rules.v4` of its own can be
+ *  closed this way, not only the gateway. */
+const siblingDeny = (port: number): OwnerPatchRow =>
+  rulesV4Row(withInputDeny(readRulesV4(buildRemoteHostFs(ESSID, SIBLING)), port, true));
 
 type PatchesResult = { data: readonly OwnerPatchRow[] | null; error: unknown };
 
@@ -281,7 +341,7 @@ describe('handleResolveSameLanScan', () => {
   it('shows a listener somebody planted on the box', async () => {
     const PLANTED_PORT = 4444;
     const { deps } = makeDeps([
-      siblingRow(
+      journalRow(
         `/var/run/${listenerPidfileName(PLANTED_PORT)}`,
         formatListenerContent({ port: PLANTED_PORT, user: 'mallory', userType: 'root' }),
       ),
@@ -301,11 +361,11 @@ describe('handleResolveSameLanScan', () => {
     const PLANTED_PORT = 4444;
     const pidfile = `/var/run/${listenerPidfileName(PLANTED_PORT)}`;
     const rows = [
-      siblingRow(
+      journalRow(
         pidfile,
         formatListenerContent({ port: PLANTED_PORT, user: 'mallory', userType: 'root' }),
       ),
-      { ...siblingRow(pidfile, null), updated_at: '2026-09-14T00:00:01.000Z' },
+      { ...journalRow(pidfile, null), updated_at: '2026-09-14T00:00:01.000Z' },
     ];
     const { deps } = makeDeps(rows);
 
@@ -321,7 +381,7 @@ describe('handleResolveSameLanScan', () => {
   it('stops showing a service the box has been told to stop', async () => {
     const stopped = seededService();
     const running = await handleResolveSameLanScan(envelope(SIBLING.ip), makeDeps().deps);
-    const { deps } = makeDeps([siblingRow(pidfilePath(stopped.spec), null)]);
+    const { deps } = makeDeps([journalRow(pidfilePath(stopped.spec), null)]);
 
     const result = await handleResolveSameLanScan(envelope(SIBLING.ip), deps);
 
@@ -330,5 +390,91 @@ describe('handleResolveSameLanScan', () => {
     // about a player's OWN action, on a box they had just rooted.
     expect(portsOf(running.body).map((entry) => entry.port)).toContain(stopped.port);
     expect(portsOf(result.body).map((entry) => entry.port)).not.toContain(stopped.port);
+  });
+});
+
+/**
+ * The `.1` is the one box on a home LAN that every occupant shares, and the handler
+ * resolves it through the same three steps a sibling takes — `generateHomeLan` places
+ * it, `resolveLanHostIdentity` maps it to the ACCESS POINT's identity and the gateway
+ * base tree, and its own journal replays over that.
+ *
+ * What makes it a different box to READ is the vantage. From inside the LAN a gateway
+ * answers with its own services and never the NAT forwards behind it, so these pin the
+ * split itself — the answer must not change when the reader does.
+ */
+describe('handleResolveSameLanScan — the access point gateway at .1', () => {
+  it('replays the gateway journal, so a door planted on it is visible to every occupant', async () => {
+    const PLANTED_PORT = 4444;
+    const { deps, findPatches } = makeDeps([
+      journalRow(
+        `/var/run/${listenerPidfileName(PLANTED_PORT)}`,
+        formatListenerContent({ port: PLANTED_PORT, user: 'mallory', userType: 'root' }),
+      ),
+    ]);
+
+    const result = await handleResolveSameLanScan(envelope(AP_GATEWAY.ip), deps);
+
+    expect(result.status).toBe(200);
+    expect(result.body.found).toBe(true);
+    expect(portsOf(result.body)).toContainEqual({ port: PLANTED_PORT, service: UNKNOWN_SERVICE });
+    // Read off the ACCESS POINT's own machine id: every occupant of this ESSID is asking
+    // about one box, rather than each rebuilding a private copy of it.
+    expect(findPatches).toHaveBeenCalledWith({ machine_id: AP_GATEWAY_ID });
+  });
+
+  it('answers with the gateway own services and never the forward table behind it', async () => {
+    const FORWARDED_PORT = 8080;
+    const { deps } = makeDeps([
+      gatewayForward(FORWARDED_PORT, { internalIp: SIBLING.ip, internalPort: 22 }),
+    ]);
+
+    const result = await handleResolveSameLanScan(envelope(AP_GATEWAY.ip), deps);
+
+    const ports = portsOf(result.body).map((entry) => entry.port);
+    expect(ports).toContain(seededGatewayPort());
+    // A forward is how the box behind it is reached from the INTERNET, not a door on the
+    // gateway. Listing it here would hand an occupant the public exposure of every
+    // neighbour off a scan of their own LAN.
+    expect(ports).not.toContain(FORWARDED_PORT);
+  });
+
+  it('stops showing a port an occupant filtered on the gateway', async () => {
+    const filtered = seededGatewayPort();
+    const open = await handleResolveSameLanScan(envelope(AP_GATEWAY.ip), makeDeps().deps);
+    const { deps } = makeDeps([gatewayDeny(filtered)]);
+
+    const result = await handleResolveSameLanScan(envelope(AP_GATEWAY.ip), deps);
+
+    // The scan of the shared gateway and the scan of its public IP used to disagree: the
+    // filter closed the port to the network and the LAN view kept advertising it. A port
+    // listed here but refused at every door is an open port that lies.
+    expect(portsOf(open.body).map((entry) => entry.port)).toContain(filtered);
+    expect(portsOf(result.body).map((entry) => entry.port)).not.toContain(filtered);
+  });
+
+  it('reports a bricked gateway down rather than as a box running nothing', async () => {
+    const { deps } = makeDeps([bootTombstone]);
+
+    const result = await handleResolveSameLanScan(envelope(AP_GATEWAY.ip), deps);
+
+    // The box the whole network routes through is no exception to the boot gate: a
+    // kernel somebody deleted takes the gateway down, it does not leave it up and quiet.
+    expect(result).toEqual({ status: 200, body: { ok: true, found: false, ports: [] } });
+  });
+});
+
+describe('handleResolveSameLanScan — a filter on a sibling', () => {
+  it('stops showing a port an occupant filtered on an NPC sibling', async () => {
+    const filtered = seededService().port;
+    const open = await handleResolveSameLanScan(envelope(SIBLING.ip), makeDeps().deps);
+    const { deps } = makeDeps([siblingDeny(filtered)]);
+
+    const result = await handleResolveSameLanScan(envelope(SIBLING.ip), deps);
+
+    // `snmpset inputPort.<port>=deny` works on any box keeping a filter of its own, so
+    // the gateway is not the only place a scan can advertise a door the reach refuses.
+    expect(portsOf(open.body).map((entry) => entry.port)).toContain(filtered);
+    expect(portsOf(result.body).map((entry) => entry.port)).not.toContain(filtered);
   });
 });
