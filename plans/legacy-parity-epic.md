@@ -449,6 +449,14 @@ The V1-V4 rows above are kept as the acceptance statement; the **spine is the ni
 cut across them (V2's effect set alone spans three). Ordered **loop-first** so the attack → patch →
 inert cycle is provable at slice 4 rather than slice 6.
 
+**One cross-cutting fix sits beside the spine, not in it.** The **own-LAN scan fix** ✅ **SHIPPED
+v0.216.0–v0.217.0 (#500, #501)** — `nmap` resolved the player's own LAN from seeded trees while a
+public-IP scan replayed the target's journal, so a box that had been patched, bricked, backdoored,
+filtered or shut scanned as the box the world shipped. Open since D5; slice 4's browser run exposed
+its fourth face and ended the deferral, because that face lies about the VERSION and CVE columns and
+so contradicts the very loop Phase 3 exists to build. Decisions 40-43, as-built at the end of this
+file.
+
 **D2.6b's postponed job is discharged by decision 21**: `password_reset` overwrites any account
 including a player's chosen root, so it is the route by which a player obtains a plaintext they did
 not already hold. See "Next action" for why `/etc/passwd` does not count.
@@ -3587,11 +3595,11 @@ resolver this slice builds for free.
 ### Own-LAN scan fix — resolved decisions (planning, 2026-09-13)
 
 Four more, continuing the numbering. Not one of the nine Phase 3 slices: a cross-cutting defect
-whose fourth face slice 4's browser run exposed, planned as two PRs in
-[`own-lan-scan-replays-the-journal.md`](./own-lan-scan-replays-the-journal.md). The client resolves
-an own-LAN scan from seeded trees while a PUBLIC-IP scan replays the target's journal, so `nmap`
-misreports a box that was patched, bricked, backdoored, filtered or shut — open since D5 and
-recorded in the conventions doc's own gotcha list ever since.
+whose fourth face slice 4's browser run exposed, delivered as two PRs — **✅ SHIPPED v0.216.0–v0.217.0
+(#500, #501)**, as-built above. The client resolved an own-LAN scan from seeded trees while a
+PUBLIC-IP scan replayed the target's journal, so `nmap` misreported a box that was patched, bricked,
+backdoored, filtered or shut — open since D5 and recorded in the conventions doc's own gotcha list
+ever since, now CLOSED there.
 
 #### 40. All four faces close together, and the `.1` gateway is in scope
 
@@ -4834,10 +4842,9 @@ reading `Version: 7.3.0`. The cause is the own-LAN scan's journal blindness reco
 conventions doc since D5: a sibling resolves from `buildRemoteHostFs`, seeded and journal-free,
 while a public-IP scan is server-resolved. **Nothing in slice 4 caused it and nothing in slice 4
 regressed** — the own box reads correctly, the server refuses correctly, and this slice is simply
-the first thing that could move a neighbour's version. It is planned as its own two-PR fix in
-[`own-lan-scan-replays-the-journal.md`](./own-lan-scan-replays-the-journal.md) under decisions
-40-43, with the runbook act as
-[Act 16](../v2/docs/e2e-shared-network-verification.md).
+the first thing that could move a neighbour's version. It was fixed as its own two-PR slice under
+decisions 40-43 — **✅ SHIPPED v0.216.0–v0.217.0 (#500, #501)**, as-built above — with the runbook
+acts as [Act 16 and Act 17](../v2/docs/e2e-shared-network-verification.md).
 
 The honest reading of 4b's *"after the upgrade, `nmap -sV` reports the new version with no CVE"*:
 **true** for the player's own box and for the server's own recomputation, **false** for a client-side
@@ -5059,6 +5066,46 @@ name colliding with a real Node global silently resolves to the HOST's under vit
 the first, and a length assertion passed against a `node` injecting nothing), and a test that stubs
 a global without restoring it makes its neighbours pass — the first test to clean up properly is the
 one that appears to break them.
+
+---
+
+**Own-LAN scan fix ✅ COMPLETE — v0.216.0–v0.217.0 (#500, #501), closed out 2026-09-14.** Four
+locked decisions (40–43) in ["Own-LAN scan fix — resolved decisions"](#own-lan-scan-fix--resolved-decisions-planning-2026-09-13);
+the plan file is deleted and the durable record lives in `conventions-and-gotchas.md` §5 as a CLOSED
+gotcha. Not one of the nine Phase 3 slices — a cross-cutting defect open since D5 (2026-08-22) whose
+fourth face slice 4's browser run exposed.
+
+`nmap` resolved an own-LAN scan from seeded trees while a PUBLIC-IP scan replayed the target's
+journal, so one box answered two different ways depending on where the player stood. All four faces
+were the same missing journal replay: a planted or closed `nc` door invisible to occupants, a
+`systemctl stop` the scan ignored, an `snmpset` filter that moved the public view only, and a
+patched package still advertising its old version with a live CVE.
+
+- **S1 (#500, v0.216.0)** — `resolveSameLanScan`, mirroring `resolveInnerGatewayScan`: regenerate
+  the host from the ESSID, resolve it through `resolveLanHostIdentity`, replay its journal with
+  `materializeMachineFs`, gate on `canBoot`, answer its ports. Closed faces 1, 2 and 4 for NPC
+  siblings. Act 16 step 14 flipped from a written-down known failure into the act's headline.
+- **S2 (#501, v0.217.0)** — the `.1` gateway and face 3. The server needed **no new branch**:
+  `generateHomeLan` already places the `.1` and `resolveLanHostIdentity` already seeds it from
+  `buildApGatewayBaseFs`, so the entire remaining defect was that the client never asked.
+  `lanHostResolver`'s last arm became unconditional, which left the client's local port reader
+  reachable only for the player's own box — it collapsed to one line and `nmap.ts` stopped importing
+  `scanResult`, `buildApGatewayBaseFs` and `buildRemoteHostFs` at all. Reading through `scanResult`
+  at the `sameLAN` vantage closed the filter face, and **the same line closed it on siblings too**:
+  `snmpset inputPort.<port>=deny` works on any box keeping a filter of its own, so a sibling's
+  filter had been invisible as well. Act 17 is its browser act.
+
+**Two decisions worth not re-litigating.** The player's OWN box stays a local read — a runtime
+`sshd` no journal has heard of must still show, which is why `lanHostResolver` returns `null` for
+exactly one address. And decision 43 answered itself in the code: a RANGE scan reaches only
+`scanSingle`, prints no port table, and therefore never wanted a journal — the "253 journals"
+batching blocker that deferred this work for three weeks never existed.
+
+**One guarantee is doubled on purpose.** `resolveSameLanScan` passes both `vantage: 'sameLAN'` and
+`resolveTargetPorts: () => []`, and either alone keeps the NAT forward table off a LAN scan — the
+mutation gate proved it by flipping the vantage to `'external'` with all 140 tests still green. The
+vantage is documentation and defence in depth; the stub is the operative guard. Anyone who later
+passes a real resolver makes the vantage load-bearing that moment.
 
 ---
 
