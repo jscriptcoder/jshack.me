@@ -182,6 +182,7 @@ describe('handleResolveSameLanScan', () => {
     const result = await handleResolveSameLanScan(envelope(SIBLING.ip), deps);
 
     expect(result.status).toBe(200);
+    expect(result.body.ok).toBe(true);
     expect(result.body.found).toBe(true);
     expect(portsOf(result.body)).toContainEqual(VULNERABLE.exposed);
     // The journal is read off the SIBLING's own machine id — the same id the client,
@@ -222,6 +223,53 @@ describe('handleResolveSameLanScan', () => {
     // is gone, the other that it is up and quiet. A machine whose kernel has been
     // deleted is the first.
     expect(result).toEqual({ status: 200, body: { ok: true, found: false, ports: [] } });
+  });
+
+  it('answers 500 when the journal lookup fails, rather than scanning the seed', async () => {
+    const findPatches = vi.fn<(query: { machine_id: string }) => Promise<PatchesResult>>(
+      async () => ({ data: null, error: { message: 'connection reset' } }),
+    );
+    const deps: ResolveSameLanScanDeps = { nonceStore: freshStore, gameDay: GAME_DAY, findPatches };
+
+    const result = await handleResolveSameLanScan(envelope(SIBLING.ip), deps);
+
+    // Falling back to the seeded base here would be the original defect wearing a
+    // different hat: a port table that looks resolved and is not.
+    expect(result).toEqual({ status: 500, body: { error: 'patches_lookup_failed' } });
+  });
+
+  it('rejects a tampered envelope without reading any journal', async () => {
+    const { deps, findPatches } = makeDeps();
+    const signed = envelope(SIBLING.ip);
+    const tampered = { ...signed, payload: `${signed.payload} ` };
+
+    const result = await handleResolveSameLanScan(tampered, deps);
+
+    expect(result).toEqual({ status: 401, body: { error: 'signature_invalid' } });
+    expect(findPatches).not.toHaveBeenCalled();
+  });
+
+  it('rejects an envelope that smuggles a client-supplied player_key', async () => {
+    const { deps, findPatches } = makeDeps();
+
+    const result = await handleResolveSameLanScan(
+      envelope(SIBLING.ip, { player_key: 'attacker' }),
+      deps,
+    );
+
+    expect(result.status).toBe(400);
+    expect(findPatches).not.toHaveBeenCalled();
+  });
+
+  it('rejects an envelope missing the target', async () => {
+    const { deps } = makeDeps();
+
+    const result = await handleResolveSameLanScan(
+      signRequest(PLAYER, 'resolveSameLanScan', { essid: ESSID }),
+      deps,
+    );
+
+    expect(result.status).toBe(400);
   });
 
   /**

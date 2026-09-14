@@ -785,6 +785,13 @@ as SURVIVED; slice 5 reported `gpg`'s `if (encrypted === null || encrypted.lengt
 the same way. Both kill the suite outright by hand. Three occurrences in three slices is a rate,
 not an anomaly — treat a non-manual survivor as unproven until a hand run agrees with the report.
 
+**A fourth, and the first that is not a usage guard.** The own-LAN scan slice reported `nmap`'s
+routing condition (`single !== undefined && resolveSingle !== null` → `true`) as SURVIVED; by hand
+it fails a dozen tests at once, because an always-taken branch hands the renderer an undefined host.
+So the shape is not "guard clauses specifically" — it is any branch whose mutant makes LATER code
+throw, which is exactly where `perTest` coverage mapping is least reliable. The hand-check is one
+scripted run and it has now been right four times out of four.
+
 **A codec tested only through its own round trip cannot see format drift — pin it with a vector
 from the OTHER implementation.** Every encrypt/decrypt test writes and reads with the same code, so
 a change to the key schedule, the checksum or the byte order round-trips perfectly and stays green
