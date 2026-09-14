@@ -4860,6 +4860,20 @@ hands it: a version off the timeline is now **ordinary** rather than exotic — 
 resolves one meets them routinely and the server agrees with the client about all of them — and
 `newestReleaseOn` already answers what a pin must be validated against.
 
+**Planned 2026-09-14 — [`six-more-effects.md`](six-more-effects.md).** No new grill: every
+product decision (8, 9, 13, 21, 23, 31, 34) was already locked, so this needed `planning`, not
+another round. Delivery is **five independent PRs sequenced to trunk**, split by machinery, not a
+stack — (1) `file_read` + `dir_list` (the read payload and the third-arg seam), (2)
+`password_reset`, (3) `backdoor_port_open`, (4) `file_write`, (5) `script_exec` + dropping
+`withoutScript` for decision 23's report grammar (last, since it needs a non-shell effect to
+exist). Decision 31's collapse is removed **one effect at a time** — an un-built effect keeps
+handing a limited shell until its own PR lands, so every intermediate `main` stays shippable and a
+refusal still means only "the CVE is not live." Server side is **one handler, discriminated
+result**: `handleExploitCreateSession` branches on `outcome.effect` after its existing
+authorization preamble. **Own-LAN only** — cross-player (whose journal/log/source IP; public,
+forward and deep routes) and **decision 39's downgrade-pin both move to slice 6**, where the
+persistence beats land together.
+
 **X1 slice 1 SHIPPED at v0.206.0 (PR #487)** — a name resolves. `apt install dnsutils` installs
 `nslookup` and `dig`, and a name is now accepted anywhere an address was, through ONE shared
 client-side step: `core/network/resolveName.ts` — `resolveLanName` pure over `generateHomeLan`,
