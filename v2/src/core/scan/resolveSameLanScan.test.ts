@@ -452,6 +452,16 @@ describe('handleResolveSameLanScan — the access point gateway at .1', () => {
     expect(portsOf(open.body).map((entry) => entry.port)).toContain(filtered);
     expect(portsOf(result.body).map((entry) => entry.port)).not.toContain(filtered);
   });
+
+  it('reports a bricked gateway down rather than as a box running nothing', async () => {
+    const { deps } = makeDeps([bootTombstone]);
+
+    const result = await handleResolveSameLanScan(envelope(AP_GATEWAY.ip), deps);
+
+    // The box the whole network routes through is no exception to the boot gate: a
+    // kernel somebody deleted takes the gateway down, it does not leave it up and quiet.
+    expect(result).toEqual({ status: 200, body: { ok: true, found: false, ports: [] } });
+  });
 });
 
 describe('handleResolveSameLanScan — a filter on a sibling', () => {
