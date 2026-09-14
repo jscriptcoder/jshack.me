@@ -1021,6 +1021,11 @@ export type ExploitRunParams = {
   readonly parentSessionId: string | null;
   /** The address the target's own log records the attempt from, or null. */
   readonly sourceIp: string | null;
+  /** The third token the player typed, if any — the path a read effect reads. The
+   *  client cannot know which effect it will get before firing, so it forwards
+   *  whatever was typed and the server uses it or asks for one. Present-and-undefined
+   *  when nothing was typed, since the caller always sets it. */
+  readonly arg?: string | undefined;
 };
 
 /** What came back. On success the CVE is the attacker's to keep — they earned it,
@@ -1039,6 +1044,28 @@ export type ExploitRunResult =
       readonly username: string;
       readonly userType: UserType;
       readonly kind: ExploitShellKind;
+    }
+  /** A read effect is not a foothold: it hands back a file read at the tier the
+   *  severity granted, and stands the player nowhere. `read` carries the outcome —
+   *  the bytes, or why the tier could not have them. */
+  | {
+      readonly ok: true;
+      readonly effect: 'file_read';
+      readonly cve: string;
+      readonly severity: CveSeverity;
+      readonly tier: UserType;
+      readonly read: FsReadResult;
+    }
+  /** The same effect, fired with no path: the scan never says a CVE reads rather than
+   *  lands a shell, so the first fire is how the player learns it and is asked for a
+   *  target. Nothing was read, so nothing was logged. */
+  | {
+      readonly ok: true;
+      readonly effect: 'file_read';
+      readonly cve: string;
+      readonly severity: CveSeverity;
+      readonly tier: UserType;
+      readonly needsArg: true;
     }
   | {
       readonly ok: false;

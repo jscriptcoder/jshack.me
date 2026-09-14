@@ -691,6 +691,102 @@ describe('runExploit', () => {
 
     expect(await runExploit(deps, params)).toEqual({ ok: false, error: 'network_error' });
   });
+
+  it('carries back a file_read grant as the file it read, not as a shell', async () => {
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse(200, {
+        ok: true,
+        effect: 'file_read',
+        cve: 'CVE-2026-0184',
+        severity: 'high',
+        tier: 'user',
+        read: { ok: true, content: 'root:x:0:0:root:/root:/bin/bash' },
+      }),
+    );
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await runExploit(deps, { ...params, arg: '/etc/passwd' })).toEqual({
+      ok: true,
+      effect: 'file_read',
+      cve: 'CVE-2026-0184',
+      severity: 'high',
+      tier: 'user',
+      read: { ok: true, content: 'root:x:0:0:root:/root:/bin/bash' },
+    });
+  });
+
+  it('carries back a request for a path when a read hole is fired blind', async () => {
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse(200, {
+        ok: true,
+        effect: 'file_read',
+        cve: 'CVE-2026-0184',
+        severity: 'high',
+        tier: 'user',
+        needsArg: true,
+      }),
+    );
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await runExploit(deps, params)).toEqual({
+      ok: true,
+      effect: 'file_read',
+      cve: 'CVE-2026-0184',
+      severity: 'high',
+      tier: 'user',
+      needsArg: true,
+    });
+  });
+
+  it('signs the named path into the envelope, and omits it entirely when none was named', async () => {
+    const named = vi.fn(async () =>
+      jsonResponse(200, {
+        ok: true,
+        effect: 'file_read',
+        cve: 'CVE-2026-0184',
+        severity: 'high',
+        tier: 'user',
+        read: { ok: true, content: '' },
+      }),
+    );
+    await runExploit(makeDeps(named as unknown as typeof fetch), { ...params, arg: '/etc/passwd' });
+    const withPath = await verifyPayload(sentEnvelope(named));
+    if (!withPath.ok) throw new Error('expected a verified envelope');
+    expect(withPath.payload).toMatchObject({ arg: '/etc/passwd' });
+
+    const bare = vi.fn(async () =>
+      jsonResponse(200, {
+        ok: true,
+        cve: 'CVE-2026-0184',
+        severity: 'critical',
+        username: 'root',
+        userType: 'root',
+        kind: 'exploit',
+      }),
+    );
+    await runExploit(makeDeps(bare as unknown as typeof fetch), params);
+    const withoutPath = await verifyPayload(sentEnvelope(bare));
+    if (!withoutPath.ok) throw new Error('expected a verified envelope');
+    // Absent, not present-and-null: a signed key the server did not need would be a
+    // field to verify, and it is how the server tells a blind fire from a targeted one.
+    expect(withoutPath.payload).not.toHaveProperty('arg');
+  });
+
+  it('refuses a 200 whose read body is malformed rather than inventing an empty read', async () => {
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse(200, {
+        ok: true,
+        effect: 'file_read',
+        cve: 'CVE-2026-0184',
+        severity: 'high',
+        tier: 'superuser',
+        read: { ok: true, content: 'x' },
+      }),
+    );
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await runExploit(deps, params)).toEqual({ ok: false, error: 'network_error' });
+  });
 });
 
 describe('authElevateServerSession', () => {
