@@ -4,7 +4,7 @@
 close-out: "Phase 3 slice 4 — the defender patches" (#498, #499, v0.214.0–v0.215.0), plus the
 own-LAN scan fix detour (#500, #501, v0.216.0–v0.217.0).
 
-**Status:** Active — planning done, no code yet.
+**Status:** Active — PR1 (file_read + dir_list) shipped at v0.218.0 (#502). PR2 (password_reset) is next, branching from updated `main`.
 
 **Delivery:** Five independent PRs, sequenced to trunk (NOT a stack). Each merges to `main`;
 the next branches from updated `main`. They share a seam (the effect branch in the exploit
@@ -107,7 +107,13 @@ All five are **behavior change**: RED-GREEN-REFACTOR increments; the mutation-or
 gate runs once per PR at PR readiness; each handler-touching PR carries its wire-check. Bump
 the version in both `v2/package.json` and `v2/package-lock.json` per PR (0.217.0 → 0.218.0 …).
 
-### PR1 — file_read + dir_list (the read payload + the third-arg seam)
+### PR1 — file_read + dir_list (the read payload + the third-arg seam) — SHIPPED v0.218.0 (#502)
+
+Both read effects read the target tier-gated and mint no session; a blind fire reveals the CVE
+and asks for a path. Verified by RED-GREEN unit tests, a scoped mutation gate (the read tier
+gate and each read/list failure's wording pinned), and a 26/26 live own-LAN wire-check. The
+discriminated response + `needs-arg` reveal + the shared read-effect handler branch are the
+seam PR2–PR5 build on.
 
 **Value:** A player fires a CVE that rolled `file_read`/`dir_list` and gets a tier-gated read of
 a file or directory on the target, instead of a limited shell.
