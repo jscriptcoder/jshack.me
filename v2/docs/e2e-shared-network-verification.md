@@ -1124,6 +1124,50 @@ services rather than taking the first CVE it sees.
 
 ---
 
+### Act 17 — the filter the LAN scan finally sees (own-LAN scan S2)
+
+**One identity, headless.** The target is the AP gateway, which belongs to the access point rather
+than to any player, so one session is enough. First run 2026-09-14 at v0.217.0 on
+`CASA-DE-RAMIREZ`, gateway `core-rtr (192.168.199.1)`, own box `192.168.199.246`.
+
+Act 1's arc to get online, then `su root`, then:
+
+| # | Command | Expect | Proves |
+|---|---|---|---|
+| 1 | `apt install nmap`, `apt install snmp`, `apt install hydra` | each sets up; `snmp` prints **this box's own** read-write community | the toolkit — and that the community shown is yours, not the gateway's |
+| 2 | `nmap -sV <subnet>.1` | `22/tcp ssh` **and** `161/udp snmp` | the gateway baseline, server-resolved |
+| 3 | `hydra <subnet>.1 snmp` | `[161][snmp] host: … password: <rw>` | the gateway's OWN read-write community, cracked |
+| 4 | `snmpset <subnet>.1 <rw> inputPort.22=deny` | `inputPort.22 = deny` | the filter, written to the gateway's journal |
+| 5 | `nmap -sV <subnet>.1` | **`22/tcp` is GONE**; `161/udp` remains | **the headline** — the LAN scan honours the filter |
+| 6 | `snmpset <subnet>.1 <rw> inputPort.22=permit`, `nmap -sV <subnet>.1` | `22/tcp` is **back** | the scan tracks the filter, rather than having lost the port some other way |
+| 7 | `sshd`, `snmpset <subnet>.1 <rw> forward.8080=<own ip>:22` | `forward.8080 = <own ip>:22` | a LIVE forward onto a box that really is serving :22 |
+| 8 | `nmap -sV <subnet>.1` | `22` and `161` only — **no `8080`** | the `sameLAN` vantage: own services, never the NAT forward table |
+| 9 | `nmap -sV <own ip>` | `22/tcp ssh` | the own box is still read LOCALLY — that `sshd` exists in no journal |
+
+**Step 5 is the assertion this act exists for.** Before v0.217.0 the gateway's ports were computed
+client-side from `buildApGatewayBaseFs`, journal-blind, so an `snmpset` filter changed what a scan of
+the PUBLIC IP showed and left a same-LAN `nmap` of `.1` reporting the seeded ports. D8 could only
+close the filter-honours-scan claim at the contract level for exactly this reason. Now one command
+moves both views together.
+
+Step 8 is the other half, and it is a claim about what must NOT appear: a forward is how the machine
+behind it is reached from the internet, so listing it on a LAN scan would hand any occupant the
+public exposure of every neighbour. Step 7 deliberately starts `sshd` first, so the forward is
+genuinely live — a forward pointing at a dead port would be absent for the wrong reason.
+
+Step 9 repeats Act 16 step 13's second claim against the new routing: every other address on the LAN
+became a round trip in this slice, and the player's own box must not have. The `sshd` it lists was
+started one line earlier and exists in no journal anywhere.
+
+**Traps.** `snmpset` needs a READ-WRITE community and `hydra <host> snmp` is the only way to get
+one — the `public` community only reads. The community `apt install snmp` prints is **your own box's**,
+not the gateway's; using it is the easy way to waste a run. The destination of a forward must be on
+the device's own segment. And do not queue commands while output is still streaming: the input is
+cleared and retyped by the helper, so a command sent during an `apt` or `nmap` stream is silently
+dropped — send one, read the buffer back, then send the next.
+
+---
+
 ## 6. What a failure means
 
 | Symptom | Look at |
@@ -1136,7 +1180,9 @@ services rather than taking the first CVE it sees.
 | Empty foreign tree after a successful `ssh` | the hop resolved but the fetch did not — check `/api/network` in `agent-browser console` |
 | Everything 502s | port squatter — the skill's §1 kill, then restart |
 | Results contradict the code you just read | version banner ≠ `v2/package.json` — stale orphaned server |
-| A scan of an own-LAN NPC disagrees with what you just did to it | a regression in `resolveSameLanScan` (closed at v0.216.0) — run `scripts/testSameLanScan.ts` first; if that passes, the client stopped routing to it (`nmap.ts`'s `lanHostResolver`) |
+| A scan of an own-LAN NPC **or of the `.1` gateway** disagrees with what you just did to it | a regression in `resolveSameLanScan` (siblings closed v0.216.0, the gateway + filters v0.217.0) — run `scripts/testSameLanScan.ts` first; if that passes, the client stopped routing to it (`nmap.ts`'s `lanHostResolver`) |
+| A filtered port still shows on a LAN scan | the handler stopped reading through `scanResult` at the `sameLAN` vantage and went back to the pidfiles — `portsOpenToNetwork` is what subtracts a `deny` |
+| A NAT forward shows up on a scan of `.1` | the `sameLAN` vantage broke. Note the `resolveTargetPorts: () => []` stub ALSO prevents this, so seeing a forward means both guards went at once — read `scanResult` itself |
 
 ### Fixed at v0.101.0 + v0.102.0: saving a shared file deleted another occupant's edits
 
