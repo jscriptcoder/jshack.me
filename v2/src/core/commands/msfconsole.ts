@@ -34,6 +34,24 @@ import type { Command, CommandEnv, CommandResult, TerminalLine } from './types';
 const PHASE_DELAY_MS = 260;
 const MAX_PORT = 65535;
 const USAGE = 'usage: msfconsole <host> <port>';
+const USAGE_READ = 'usage: msfconsole <host> <port> <path>';
+
+/** Why the granted tier could not have the file a read effect aimed at, said in the
+ *  tool's voice rather than the filesystem's raw code. */
+const READ_DENY: Readonly<Record<'not_found' | 'permission_denied' | 'is_directory', string>> = {
+  not_found: 'No such file',
+  permission_denied: 'Permission denied',
+  is_directory: 'That is a directory, not a file',
+};
+
+/** The list side's mirror of READ_DENY. A directory names a different miss than a file —
+ *  there is no `is_directory` failure for a listing, and a `not_found` reads as a missing
+ *  directory rather than a missing file. */
+const LIST_DENY: Readonly<Record<'not_found' | 'permission_denied' | 'not_a_directory', string>> = {
+  not_found: 'No such directory',
+  permission_denied: 'Permission denied',
+  not_a_directory: 'That is a file, not a directory',
+};
 
 const errorResult = (content: string): CommandResult => ({
   kind: 'sync',
@@ -52,6 +70,9 @@ type Attempt = {
   readonly essid: string;
   readonly machineId: string;
   readonly sourceIp: string | null;
+  /** The path the player named for a read effect, or undefined — forwarded blind,
+   *  since the client cannot know the effect the fire will roll. */
+  readonly arg: string | undefined;
 };
 
 async function* fire(env: CommandEnv, attempt: Attempt): AsyncGenerator<TerminalLine, number> {
@@ -69,6 +90,7 @@ async function* fire(env: CommandEnv, attempt: Attempt): AsyncGenerator<Terminal
     port: attempt.port,
     parentSessionId: env.session.id,
     sourceIp: attempt.sourceIp,
+    arg: attempt.arg,
   });
 
   if (!result.ok) {
@@ -88,6 +110,42 @@ async function* fire(env: CommandEnv, attempt: Attempt): AsyncGenerator<Terminal
   // out which hole this was, and printing it before the callback would be the tool
   // claiming knowledge only the target could have given it.
   yield text(`[*] Vulnerability: ${result.cve} (${result.severity})`);
+
+  // A read effect hands back a file or a directory rather than a shell. Firing with no
+  // path is not a mistake — the scan never says which effect a CVE carries, so the bare
+  // fire is how the player learns it reads, and it names the hole and asks for a target.
+  // The two shapes ask for the same third argument but describe different holes, so a
+  // player who fired blind is told which kind they hit.
+  if ('effect' in result) {
+    if ('needsArg' in result) {
+      yield errorLine(
+        result.effect === 'file_read'
+          ? `[-] this exploit reads a file — name one: ${USAGE_READ}`
+          : `[-] this exploit lists a directory — name one: ${USAGE_READ}`,
+      );
+      return 1;
+    }
+    yield text('[+] Exploit successful!');
+    if (result.effect === 'file_read') {
+      if (!result.read.ok) {
+        yield errorLine(`[-] ${READ_DENY[result.read.error]} (as ${result.tier}): ${attempt.arg}`);
+        return 1;
+      }
+      yield text(`[+] Reading ${attempt.arg} (as ${result.tier}):`);
+      yield text('');
+      for (const line of result.read.content.split('\n')) yield text(line);
+      return 0;
+    }
+    if (!result.list.ok) {
+      yield errorLine(`[-] ${LIST_DENY[result.list.error]} (as ${result.tier}): ${attempt.arg}`);
+      return 1;
+    }
+    yield text(`[+] Listing ${attempt.arg} (as ${result.tier}):`);
+    yield text('');
+    for (const entry of result.list.entries) yield text(entry);
+    return 0;
+  }
+
   yield text('[+] Exploit successful!');
   // Two sentences for two doors. A full shell is an `ssh` hop in everything but how
   // it was reached; a limited one is the backdoor it resembles, and a player told
@@ -113,7 +171,7 @@ async function* fire(env: CommandEnv, attempt: Attempt): AsyncGenerator<Terminal
 }
 
 const execute: Command['execute'] = async (env, args) => {
-  const [rawTarget, rawPort] = args;
+  const [rawTarget, rawPort, rawArg] = args;
   if (rawTarget === undefined || rawPort === undefined) return errorResult(USAGE);
   const port = Number(rawPort);
   if (!Number.isInteger(port) || port < 1 || port > MAX_PORT) return errorResult(USAGE);
@@ -144,7 +202,7 @@ const execute: Command['execute'] = async (env, args) => {
   const { machineId } = resolveLanHostIdentity(host, essid);
 
   return streamedResult(
-    fire(env, { targetIp, port, essid, machineId, sourceIp: wlan0.ipv4 }),
+    fire(env, { targetIp, port, essid, machineId, sourceIp: wlan0.ipv4, arg: rawArg }),
   );
 };
 
@@ -154,26 +212,35 @@ export const msfconsole: Command = {
   category: 'network',
   tier: 'guest',
   availability: { kind: 'any-machine' },
-  // It pushes a session the calling script cannot see, and every effect this slice
-  // grants IS a shell — so a scripted run could only report a door it then made the
-  // player open again by hand. The grammar arrives with the effects that change
-  // state without opening one.
+  // A shell effect pushes a session the calling script cannot enter, and the grammar
+  // that would let a scripted fire report the door instead of standing nobody in it
+  // lands with the last of these effects. Until then msfconsole stays script-gated,
+  // even though some effects now read rather than land a shell.
   withoutScript: 'msfconsole: cannot be run from a script',
   manual: {
-    synopsis: 'msfconsole <host> <port>',
+    synopsis: 'msfconsole <host> <port> [path]',
     description:
       'Attempt to exploit the service listening on a port of a host on your network. ' +
       'No password is asked for and none is needed: if the version running there has a ' +
-      'published vulnerability, the service hands over a shell by itself. How much that ' +
-      'shell can do follows the severity — a critical hole lands you as root, a lesser ' +
-      'one as an ordinary user or a guest — and some holes give only a bare shell with ' +
-      'no terminal behind it, which cannot be used to log on somewhere else. Find a ' +
-      'candidate with "nmap -sV", which reports the version and names the vulnerability ' +
-      'when one has been published. A service that is up to date refuses, and the target ' +
-      'writes down that you tried.',
+      'published vulnerability, the service gives itself up by itself. Most holes hand ' +
+      'over a shell — how much it can do follows the severity, a critical hole landing ' +
+      'you as root and a lesser one as an ordinary user or a guest, and some give only a ' +
+      'bare shell with no terminal behind it. Others do not open a shell at all: a read ' +
+      'hole hands back the file — or the entries of the directory — you name as a third ' +
+      'argument, at the tier the severity granted. Find a candidate with "nmap -sV", ' +
+      'which reports the version and names ' +
+      'the vulnerability when one has been published, but never what it does — firing is ' +
+      'what reveals that. A service that is up to date refuses, and the target writes ' +
+      'down that you tried.',
     arguments: [
       { name: 'host', description: 'Target host IP or name on your network', required: true },
       { name: 'port', description: 'The port the vulnerable service listens on', required: true },
+      {
+        name: 'path',
+        description:
+          'For a read hole, the file or directory to read — the exploit asks for one if omitted',
+        required: false,
+      },
     ],
     examples: [
       { command: 'msfconsole 192.168.1.5 22', description: 'Exploit the ssh service on a host' },

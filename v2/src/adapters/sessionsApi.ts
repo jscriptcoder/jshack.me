@@ -263,6 +263,52 @@ const exploitGrantSchema = z.object({
   kind: z.enum(['exploit', 'exploit_limited']),
 });
 
+/** A read effect's answer: the file it read or the directory it listed at the granted
+ *  tier, or — fired with no path — the CVE it found and a request for a target. A
+ *  malformed body is no read, so it falls through to a network fault rather than becoming
+ *  a silent empty result. The list side names a different failure than the read side (a
+ *  directory has no `is_directory` miss), so the two carry their own error enums. */
+const exploitReadSchema = z.union([
+  z.object({
+    ok: z.literal(true),
+    effect: z.literal('file_read'),
+    cve: z.string().min(1),
+    severity: z.enum(['critical', 'high', 'medium', 'low']),
+    tier: z.enum(['guest', 'user', 'root']),
+    read: z.union([
+      z.object({ ok: z.literal(true), content: z.string() }),
+      z.object({ ok: z.literal(false), error: z.enum(['not_found', 'permission_denied', 'is_directory']) }),
+    ]),
+  }),
+  z.object({
+    ok: z.literal(true),
+    effect: z.literal('file_read'),
+    cve: z.string().min(1),
+    severity: z.enum(['critical', 'high', 'medium', 'low']),
+    tier: z.enum(['guest', 'user', 'root']),
+    needsArg: z.literal(true),
+  }),
+  z.object({
+    ok: z.literal(true),
+    effect: z.literal('dir_list'),
+    cve: z.string().min(1),
+    severity: z.enum(['critical', 'high', 'medium', 'low']),
+    tier: z.enum(['guest', 'user', 'root']),
+    list: z.union([
+      z.object({ ok: z.literal(true), entries: z.array(z.string()) }),
+      z.object({ ok: z.literal(false), error: z.enum(['not_found', 'permission_denied', 'not_a_directory']) }),
+    ]),
+  }),
+  z.object({
+    ok: z.literal(true),
+    effect: z.literal('dir_list'),
+    cve: z.string().min(1),
+    severity: z.enum(['critical', 'high', 'medium', 'low']),
+    tier: z.enum(['guest', 'user', 'root']),
+    needsArg: z.literal(true),
+  }),
+]);
+
 /** Fire a CVE at a port on a host on the caller's own LAN. No credential goes out —
  *  the server recomputes the game day from its own clock, regenerates the target, and
  *  answers from that box's own manifest what is published there and what it grants.
@@ -284,11 +330,17 @@ export const runExploit = async (
       port: params.port,
       parent_session_id: params.parentSessionId,
       source_ip: params.sourceIp,
+      // Only when the player named one — an absent path is how the server learns a read
+      // effect was fired blind, and a signed `arg: undefined` would be a field to verify.
+      ...(params.arg === undefined ? {} : { arg: params.arg }),
     });
     const body: unknown = await response.json();
     if (response.ok) {
       const grant = exploitGrantSchema.safeParse(body);
-      return grant.success ? grant.data : { ok: false, error: 'network_error' };
+      if (grant.success) return grant.data;
+      const read = exploitReadSchema.safeParse(body);
+      if (read.success) return read.data;
+      return { ok: false, error: 'network_error' };
     }
     if (response.status === 404) {
       const refusal = (body as { error?: unknown } | null)?.error;
