@@ -787,6 +787,70 @@ describe('runExploit', () => {
 
     expect(await runExploit(deps, params)).toEqual({ ok: false, error: 'network_error' });
   });
+
+  it('carries back a dir_list grant as the entries it listed, not as a shell', async () => {
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse(200, {
+        ok: true,
+        effect: 'dir_list',
+        cve: 'CVE-2026-0184',
+        severity: 'high',
+        tier: 'user',
+        list: { ok: true, entries: ['passwd', 'shadow'] },
+      }),
+    );
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await runExploit(deps, { ...params, arg: '/etc' })).toEqual({
+      ok: true,
+      effect: 'dir_list',
+      cve: 'CVE-2026-0184',
+      severity: 'high',
+      tier: 'user',
+      list: { ok: true, entries: ['passwd', 'shadow'] },
+    });
+  });
+
+  it('carries back a request for a path when a dir_list hole is fired blind', async () => {
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse(200, {
+        ok: true,
+        effect: 'dir_list',
+        cve: 'CVE-2026-0184',
+        severity: 'high',
+        tier: 'user',
+        needsArg: true,
+      }),
+    );
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await runExploit(deps, params)).toEqual({
+      ok: true,
+      effect: 'dir_list',
+      cve: 'CVE-2026-0184',
+      severity: 'high',
+      tier: 'user',
+      needsArg: true,
+    });
+  });
+
+  it('refuses a dir_list body naming a list error it does not define, rather than inventing a list', async () => {
+    // `is_directory` is a file read's failure, never a directory list's — a list that
+    // failed for a reason the contract does not carry is a fault, not an empty listing.
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse(200, {
+        ok: true,
+        effect: 'dir_list',
+        cve: 'CVE-2026-0184',
+        severity: 'high',
+        tier: 'user',
+        list: { ok: false, error: 'is_directory' },
+      }),
+    );
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await runExploit(deps, params)).toEqual({ ok: false, error: 'network_error' });
+  });
 });
 
 describe('authElevateServerSession', () => {

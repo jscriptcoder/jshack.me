@@ -263,9 +263,11 @@ const exploitGrantSchema = z.object({
   kind: z.enum(['exploit', 'exploit_limited']),
 });
 
-/** A read effect's answer: the file it read at the granted tier, or — fired with no
- *  path — the CVE it found and a request for a target. A malformed body is no read, so
- *  it falls through to a network fault rather than becoming a silent empty result. */
+/** A read effect's answer: the file it read or the directory it listed at the granted
+ *  tier, or — fired with no path — the CVE it found and a request for a target. A
+ *  malformed body is no read, so it falls through to a network fault rather than becoming
+ *  a silent empty result. The list side names a different failure than the read side (a
+ *  directory has no `is_directory` miss), so the two carry their own error enums. */
 const exploitReadSchema = z.union([
   z.object({
     ok: z.literal(true),
@@ -281,6 +283,25 @@ const exploitReadSchema = z.union([
   z.object({
     ok: z.literal(true),
     effect: z.literal('file_read'),
+    cve: z.string().min(1),
+    severity: z.enum(['critical', 'high', 'medium', 'low']),
+    tier: z.enum(['guest', 'user', 'root']),
+    needsArg: z.literal(true),
+  }),
+  z.object({
+    ok: z.literal(true),
+    effect: z.literal('dir_list'),
+    cve: z.string().min(1),
+    severity: z.enum(['critical', 'high', 'medium', 'low']),
+    tier: z.enum(['guest', 'user', 'root']),
+    list: z.union([
+      z.object({ ok: z.literal(true), entries: z.array(z.string()) }),
+      z.object({ ok: z.literal(false), error: z.enum(['not_found', 'permission_denied', 'not_a_directory']) }),
+    ]),
+  }),
+  z.object({
+    ok: z.literal(true),
+    effect: z.literal('dir_list'),
     cve: z.string().min(1),
     severity: z.enum(['critical', 'high', 'medium', 'low']),
     tier: z.enum(['guest', 'user', 'root']),

@@ -254,6 +254,83 @@ describe('msfconsole', () => {
     expect(run).toHaveBeenCalledWith(expect.objectContaining({ arg: '/etc/passwd' }));
   });
 
+  it('lists the directory it is pointed at and prints its entries, standing the player nowhere', async () => {
+    // The other read effect: it hands back the entries and leaves the player where they
+    // were, so nothing is pushed and the cwd never moves.
+    const { env, pushed, cwds } = exploitEnv({
+      result: {
+        ok: true,
+        effect: 'dir_list',
+        cve: 'CVE-2026-0184',
+        severity: 'high',
+        tier: 'user',
+        list: { ok: true, entries: ['passwd', 'shadow', 'ssh'] },
+      },
+    });
+
+    const { text, exitCode } = await drain(
+      await msfconsole.execute(env, [TARGET.ip, String(PORT), '/etc'], NO_FLAGS),
+    );
+
+    expect(text).toContain('[*] Vulnerability: CVE-2026-0184 (high)');
+    expect(text).toContain('[+] Exploit successful!');
+    expect(text).toContain('[+] Listing /etc (as user):');
+    expect(text).toContain('passwd');
+    expect(text).toContain('shadow');
+    expect(text).toContain('ssh');
+    expect(exitCode).toBe(0);
+    expect(pushed).toEqual([]);
+    expect(cwds).toEqual([]);
+  });
+
+  it('reports permission denied for a directory the granted tier cannot read, opening nothing', async () => {
+    const { env, pushed } = exploitEnv({
+      result: {
+        ok: true,
+        effect: 'dir_list',
+        cve: 'CVE-2026-0184',
+        severity: 'medium',
+        tier: 'guest',
+        list: { ok: false, error: 'permission_denied' },
+      },
+    });
+
+    const { text, exitCode } = await drain(
+      await msfconsole.execute(env, [TARGET.ip, String(PORT), '/root'], NO_FLAGS),
+    );
+
+    expect(text).toContain('[+] Exploit successful!');
+    expect(text).toContain('[-] Permission denied (as guest): /root');
+    expect(exitCode).toBe(1);
+    expect(pushed).toEqual([]);
+  });
+
+  it('asks for a path when a dir_list exploit is fired without one, and lists nothing', async () => {
+    // Reveal-by-firing again — and the request has to name the directory it wants, so a
+    // player firing a read hole blind is not told the same thing as one firing a list hole.
+    const { env, pushed } = exploitEnv({
+      result: {
+        ok: true,
+        effect: 'dir_list',
+        cve: 'CVE-2026-0184',
+        severity: 'high',
+        tier: 'user',
+        needsArg: true,
+      },
+    });
+
+    const { text, exitCode } = await drain(
+      await msfconsole.execute(env, [TARGET.ip, String(PORT)], NO_FLAGS),
+    );
+
+    expect(text).toContain('[*] Vulnerability: CVE-2026-0184 (high)');
+    expect(text).toContain('lists a directory');
+    expect(text).toContain('msfconsole <host> <port> <path>');
+    expect(text).not.toContain('[+] Exploit successful!');
+    expect(exitCode).toBe(1);
+    expect(pushed).toEqual([]);
+  });
+
   it('says exactly the same thing about a service with no live CVE and a port with nothing behind it', async () => {
     // One answer, because the server gives one answer. The difference between a
     // patched daemon and a planted listener lives in the DEFENDER's log.

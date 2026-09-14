@@ -44,6 +44,15 @@ const READ_DENY: Readonly<Record<'not_found' | 'permission_denied' | 'is_directo
   is_directory: 'That is a directory, not a file',
 };
 
+/** The list side's mirror of READ_DENY. A directory names a different miss than a file —
+ *  there is no `is_directory` failure for a listing, and a `not_found` reads as a missing
+ *  directory rather than a missing file. */
+const LIST_DENY: Readonly<Record<'not_found' | 'permission_denied' | 'not_a_directory', string>> = {
+  not_found: 'No such directory',
+  permission_denied: 'Permission denied',
+  not_a_directory: 'That is a file, not a directory',
+};
+
 const errorResult = (content: string): CommandResult => ({
   kind: 'sync',
   lines: [errorLine(content)],
@@ -102,22 +111,38 @@ async function* fire(env: CommandEnv, attempt: Attempt): AsyncGenerator<Terminal
   // claiming knowledge only the target could have given it.
   yield text(`[*] Vulnerability: ${result.cve} (${result.severity})`);
 
-  // A read effect hands back a file rather than a shell. Firing with no path is not a
-  // mistake — the scan never says which effect a CVE carries, so the bare fire is how
-  // the player learns it reads, and it names the hole and asks for a target.
+  // A read effect hands back a file or a directory rather than a shell. Firing with no
+  // path is not a mistake — the scan never says which effect a CVE carries, so the bare
+  // fire is how the player learns it reads, and it names the hole and asks for a target.
+  // The two shapes ask for the same third argument but describe different holes, so a
+  // player who fired blind is told which kind they hit.
   if ('effect' in result) {
     if ('needsArg' in result) {
-      yield errorLine(`[-] this exploit reads a file — name one: ${USAGE_READ}`);
+      yield errorLine(
+        result.effect === 'file_read'
+          ? `[-] this exploit reads a file — name one: ${USAGE_READ}`
+          : `[-] this exploit lists a directory — name one: ${USAGE_READ}`,
+      );
       return 1;
     }
     yield text('[+] Exploit successful!');
-    if (!result.read.ok) {
-      yield errorLine(`[-] ${READ_DENY[result.read.error]} (as ${result.tier}): ${attempt.arg}`);
+    if (result.effect === 'file_read') {
+      if (!result.read.ok) {
+        yield errorLine(`[-] ${READ_DENY[result.read.error]} (as ${result.tier}): ${attempt.arg}`);
+        return 1;
+      }
+      yield text(`[+] Reading ${attempt.arg} (as ${result.tier}):`);
+      yield text('');
+      for (const line of result.read.content.split('\n')) yield text(line);
+      return 0;
+    }
+    if (!result.list.ok) {
+      yield errorLine(`[-] ${LIST_DENY[result.list.error]} (as ${result.tier}): ${attempt.arg}`);
       return 1;
     }
-    yield text(`[+] Reading ${attempt.arg} (as ${result.tier}):`);
+    yield text(`[+] Listing ${attempt.arg} (as ${result.tier}):`);
     yield text('');
-    for (const line of result.read.content.split('\n')) yield text(line);
+    for (const entry of result.list.entries) yield text(entry);
     return 0;
   }
 
@@ -201,8 +226,9 @@ export const msfconsole: Command = {
       'over a shell — how much it can do follows the severity, a critical hole landing ' +
       'you as root and a lesser one as an ordinary user or a guest, and some give only a ' +
       'bare shell with no terminal behind it. Others do not open a shell at all: a read ' +
-      'hole hands back a file you name as a third argument, at the tier the severity ' +
-      'granted. Find a candidate with "nmap -sV", which reports the version and names ' +
+      'hole hands back the file — or the entries of the directory — you name as a third ' +
+      'argument, at the tier the severity granted. Find a candidate with "nmap -sV", ' +
+      'which reports the version and names ' +
       'the vulnerability when one has been published, but never what it does — firing is ' +
       'what reveals that. A service that is up to date refuses, and the target writes ' +
       'down that you tried.',
@@ -211,7 +237,8 @@ export const msfconsole: Command = {
       { name: 'port', description: 'The port the vulnerable service listens on', required: true },
       {
         name: 'path',
-        description: 'For a read hole, the file to read — the exploit asks for one if omitted',
+        description:
+          'For a read hole, the file or directory to read — the exploit asks for one if omitted',
         required: false,
       },
     ],

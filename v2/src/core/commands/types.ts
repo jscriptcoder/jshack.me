@@ -1067,6 +1067,26 @@ export type ExploitRunResult =
       readonly tier: UserType;
       readonly needsArg: true;
     }
+  /** The other read effect: a directory's entries read at the granted tier, standing the
+   *  player nowhere. `list` carries the outcome — the entries, or why the tier could not
+   *  read them. */
+  | {
+      readonly ok: true;
+      readonly effect: 'dir_list';
+      readonly cve: string;
+      readonly severity: CveSeverity;
+      readonly tier: UserType;
+      readonly list: FsListResult;
+    }
+  /** dir_list fired with no path — the same reveal-by-firing as file_read's. */
+  | {
+      readonly ok: true;
+      readonly effect: 'dir_list';
+      readonly cve: string;
+      readonly severity: CveSeverity;
+      readonly tier: UserType;
+      readonly needsArg: true;
+    }
   | {
       readonly ok: false;
       readonly error: 'not_vulnerable' | 'host_unreachable' | 'network_error';
