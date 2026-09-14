@@ -1,7 +1,9 @@
 # Plan: an own-LAN scan replays the journal
 
 **Branch**: `feat/phase3-a-sibling-scan-tells-the-truth` (S1), then `feat/phase3-the-gateway-scan-tells-the-truth` (S2)
-**Status**: Active — not started.
+**Status**: Active — **S1 SHIPPED v0.216.0 (#500, merged 2026-09-14)**. S2 is next, cut fresh from
+trunk. Do not re-do S1: `resolveSameLanScan` exists, the client routes to it through
+`lanHostResolver`, `scripts/testSameLanScan.ts` covers it, and Act 16 step 14 is green.
 **Epic**: [`legacy-parity-epic.md`](./legacy-parity-epic.md) — a cross-cutting fix, not one of the
 nine Phase 3 slices. Decisions 40-43 were settled at this planning session and are recorded in the
 epic. This plan implements them and does not reopen them.
@@ -92,23 +94,35 @@ matching the inner-gateway precedent exactly. **This retires the blocker that de
 
 ## Acceptance Criteria
 
-**S1 — a sibling scan tells the truth**
+**S1 — a sibling scan tells the truth** ✅ **SHIPPED v0.216.0 (#500)**
 
-- [ ] `nmap <ip>` / `nmap -sV <ip>` against an NPC sibling on the player's own LAN resolves through
+- [x] `nmap <ip>` / `nmap -sV <ip>` against an NPC sibling on the player's own LAN resolves through
       a new `resolveSameLanScan` action that replays that machine's journal over its seeded base.
-- [ ] A package upgraded on that NPC reports the NEW version, and no CVE against it (face 4).
-- [ ] A listener planted on that NPC shows as an open `unknown` port; one removed stops showing
+- [x] A package upgraded on that NPC reports the NEW version, and no CVE against it (face 4).
+- [x] A listener planted on that NPC shows as an open `unknown` port; one removed stops showing
       (face 1).
-- [ ] A service stopped with `systemctl stop` on that NPC stops showing (face 2).
-- [ ] A bricked NPC (`rm /boot/vmlinuz`) reports host down with no ports, as the inner gateway does.
-- [ ] **The player's OWN address still resolves locally and issues NO request** — a runtime `sshd`
+- [x] A service stopped with `systemctl stop` on that NPC stops showing (face 2).
+- [x] A bricked NPC (`rm /boot/vmlinuz`) reports host down with no ports, as the inner gateway does.
+- [x] **The player's OWN address still resolves locally and issues NO request** — a runtime `sshd`
       still shows up, and the existing "own box costs no round trip" guarantee is unchanged.
-- [ ] A failed round trip reports the host UP with no port table, never down (decision 41).
-- [ ] A RANGE scan is untouched: no ports, no round trips, no journals (decision 43).
-- [ ] Whatever trace an own-LAN scan leaves today it still leaves — none added, none lost.
-- [ ] Wire-check `scripts/testSameLanScan.ts` proves the endpoint live against `vercel dev` +
+- [x] A failed round trip reports the host UP with no port table, never down (decision 41).
+- [x] A RANGE scan is untouched: no ports, no round trips, no journals (decision 43).
+- [x] Whatever trace an own-LAN scan leaves today it still leaves — none added, none lost.
+- [x] Wire-check `scripts/testSameLanScan.ts` proves the endpoint live against `vercel dev` +
       supabase.
-- [ ] Version bumped in `v2/package.json` **and** `v2/package-lock.json`.
+- [x] Version bumped in `v2/package.json` **and** `v2/package-lock.json`.
+
+**What S1 left behind, for S2 to build on.** `resolveSameLanScan.ts` finds the host on the ESSID's
+generated LAN, resolves it through `resolveLanHostIdentity`, replays the journal with
+`materializeMachineFs`, gates on `canBoot`, and answers `readOpenPorts`. The `.1` gateway falls
+through it today because a router is not `kind === 'machine'` — **that fall-through is S2's seam**:
+the gateway needs `scanResult` at the `sameLAN` vantage instead of the plain port read, which is the
+whole reason it is a second slice. Client-side, `lanHostResolver` in `nmap.ts` holds the precedence
+(own box → occupant → inner gateway → sibling, `.1` falling through); S2 adds the `.1` arm there.
+The mutation gate took the handler to 100% and the refactor the plan predicted landed as its own
+commit. One pre-existing survivor was found and deliberately NOT fixed: `networkApi.ts:94`
+(`parsed.success ? … : null` in `joinHomeNetwork`, from #330) — unrelated to this plan, recorded in
+#500's body, still open.
 
 **S2 — the gateway scan tells the truth**
 
@@ -142,7 +156,7 @@ scan paths earn a shared shape once the third exists — they may; `mutation-tes
 **Reduction program**: N/A.
 **Transition/terminal evidence**: N/A.
 
-**Acceptance criteria**: the S1 list above, in full. **Confirm with the owner before any code.**
+**Acceptance criteria**: the S1 list above, in full — all met, see #500. *(Historic below.)*
 
 **RED**: Six increments, each failing first. The load-bearing ones are the patched-version case
 (face 4), the own-box path staying local and request-free, and the failed round trip reporting up
