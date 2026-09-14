@@ -8,8 +8,13 @@
  */
 
 import { userTypeFromPasswdFields } from '../generation/passwdTier';
-import type { UserType } from '../types';
-import type { Directory } from '../filesystem/types';
+import { asAbsPath, type UserType } from '../types';
+import type { Directory, FileEntry } from '../filesystem/types';
+
+/** Where a box keeps its accounts, and who owns that file. Named beside the parser so a
+ *  writer and a reader cannot end up pointing at two different paths for one fact. */
+export const PASSWD_PATH = asAbsPath('/etc/passwd');
+export const PASSWD_OWNER = 'root';
 
 export type PasswdAccount = { readonly hash: string; readonly userType: UserType };
 
@@ -22,11 +27,19 @@ export type NamedPasswdAccount = PasswdAccount & { readonly username: string };
  *  is missing or is not a file. Blank lines are skipped — the file is written with
  *  a trailing newline, and an empty row would otherwise read as a nameless
  *  account with an empty password hash. */
-const passwdFields = (fs: Directory): readonly (readonly string[])[] => {
+/** The credential file itself, or null when the box carries none — a rooted owner can
+ *  delete it, or `mkdir` straight over it, and either is a box with nothing to say about
+ *  who lives on it rather than a crash. */
+const passwdFile = (fs: Directory): FileEntry | null => {
   const etc = fs.entries.get('etc');
-  if (etc === undefined || etc.kind !== 'directory') return [];
+  if (etc === undefined || etc.kind !== 'directory') return null;
   const passwd = etc.entries.get('passwd');
-  if (passwd === undefined || passwd.kind !== 'file') return [];
+  return passwd !== undefined && passwd.kind === 'file' ? passwd : null;
+};
+
+const passwdFields = (fs: Directory): readonly (readonly string[])[] => {
+  const passwd = passwdFile(fs);
+  if (passwd === null) return [];
   return passwd.content
     .split('\n')
     .filter((line) => line.length > 0)
@@ -46,3 +59,24 @@ export const accountsIn = (fs: Directory): readonly NamedPasswdAccount[] =>
     hash: fields[1] ?? '',
     userType: userTypeFromPasswdFields(fields),
   }));
+
+/** The box's passwd with ONE account's hash replaced and every other byte left where it
+ *  was: the other accounts, any field this parser does not read, the blank line a
+ *  hand-edited file may carry.
+ *
+ *  It lives beside the reader above because it is the same knowledge: a writer that
+ *  assembled a row its own way could put the hash in a field the reader never looks at,
+ *  and the credential would silently stop being the one that opens the door.
+ *
+ *  A box carrying no passwd file has no accounts to name, so every caller has already
+ *  had to refuse before reaching this — and the empty text it falls back on rewrites to
+ *  itself rather than inventing a file the box never had. */
+export const withAccountHash = (fs: Directory, username: string, hash: string): string =>
+  (passwdFile(fs)?.content ?? '')
+    .split('\n')
+    .map((line) => {
+      const fields = line.split(':');
+      if (fields.length < 2 || fields[0] !== username) return line;
+      return [fields[0], hash, ...fields.slice(2)].join(':');
+    })
+    .join('\n');

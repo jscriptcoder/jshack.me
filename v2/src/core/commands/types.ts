@@ -1087,6 +1087,19 @@ export type ExploitRunResult =
       readonly tier: UserType;
       readonly needsArg: true;
     }
+  /** A reset opens nothing either: it changes the lock on the account the severity granted
+   *  and hands back the key. `username` is whose account moved and `password` the plaintext
+   *  the box will now take — the attacker's alone, since the target's own log names the CVE
+   *  and never this. It aims at no path, so it has no needs-arg shape to pair with. */
+  | {
+      readonly ok: true;
+      readonly effect: 'password_reset';
+      readonly cve: string;
+      readonly severity: CveSeverity;
+      readonly tier: UserType;
+      readonly username: string;
+      readonly password: string;
+    }
   | {
       readonly ok: false;
       readonly error: 'not_vulnerable' | 'host_unreachable' | 'network_error';

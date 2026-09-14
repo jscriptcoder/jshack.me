@@ -404,6 +404,37 @@ describe('msfconsole', () => {
     expect(pushed).toEqual([]);
   });
 
+  it('names the account it reset and the password the box will now take, standing the player nowhere', async () => {
+    // The plaintext is the prize, so it has to reach the screen verbatim — a player who
+    // cannot read back the exact string has been handed nothing. And a reset is not a
+    // foothold: the lock changed, nobody walked in, so nothing is pushed and the cwd holds.
+    const { env, pushed, cwds } = exploitEnv({
+      result: {
+        ok: true,
+        effect: 'password_reset',
+        cve: 'CVE-2026-0122135',
+        severity: 'low',
+        tier: 'guest',
+        username: 'guest',
+        password: 'pwned-2135-guest',
+      },
+    });
+
+    const { text, exitCode } = await drain(
+      await msfconsole.execute(env, [TARGET.ip, String(PORT)], NO_FLAGS),
+    );
+
+    expect(text).toContain('[*] Vulnerability: CVE-2026-0122135 (low)');
+    expect(text).toContain('[+] Exploit successful!');
+    expect(text).toContain("[+] Password reset for 'guest' — new password: pwned-2135-guest");
+    // A reset aims at no path, so firing it bare is a complete fire rather than the
+    // half-fire a read hole answers with — it must never ask for a third argument.
+    expect(text).not.toContain('msfconsole <host> <port> <path>');
+    expect(exitCode).toBe(0);
+    expect(pushed).toEqual([]);
+    expect(cwds).toEqual([]);
+  });
+
   it('says exactly the same thing about a service with no live CVE and a port with nothing behind it', async () => {
     // One answer, because the server gives one answer. The difference between a
     // patched daemon and a planted listener lives in the DEFENDER's log.

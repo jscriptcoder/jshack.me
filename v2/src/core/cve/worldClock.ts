@@ -37,7 +37,7 @@ const DAY_MS = 86_400_000;
  * because shifting it would retroactively rewrite every published CVE and every
  * player's exposure.
  */
-export const WORLD_EPOCH = asEpochMs(Date.UTC(2026, 8, 1));
+export const WORLD_EPOCH = asEpochMs(Date.UTC(2026, 7, 1));
 
 /** Whole days elapsed since the world began, floored at zero — a clock reading
  *  before the epoch means the anchor has been moved into the future, and the
