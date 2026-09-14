@@ -2751,8 +2751,14 @@ blocks the live PvP loop; each was a scoped owner decision, not a gap.
 - **`nmap` runs a 5-digit port into the STATE column.** `31337/tcpopen  unknown` — the PORT
   column pads for four digits. Cosmetic, but every port in the generated backdoor pool
   (`BACKDOOR_PORTS`) is 4-5 digits, so it shows up routinely now.
-- **An own-LAN `nmap` replays no journals, so it cannot see a planted door — nor a CLOSED
-  one.** The client
+- **An own-LAN `nmap` of the `.1` AP GATEWAY replays no journal, so it cannot see a planted door —
+  nor a CLOSED one.** *(SIBLINGS fixed at v0.216.0 — `resolveSameLanScan` routes a single-IP sibling
+  scan server-side and replays that machine's journal, closing faces 1, 2 and 4 below for every NPC.
+  The `.1` gateway is still journal-blind: it answers at the `sameLAN` vantage through `scanResult`
+  rather than a plain port read, which is its own slice — S2 of
+  `plans/own-lan-scan-replays-the-journal.md`. Face 3 is therefore the live one; the history below is
+  kept because it is what the remaining gap looks like, and because S2 has to close it the same way.)*
+  The client
   resolves an own-LAN scan from seeded trees — the `.1` AP gateway from `buildApGatewayBaseFs`,
   every NPC sibling from `buildRemoteHostFs` — while a scan of a PUBLIC IP is server-resolved
   and replays the target's journal. So a listener planted on the AP gateway is visible to
@@ -2790,7 +2796,11 @@ blocks the live PvP loop; each was a scoped owner decision, not a gap.
   nothing. **The open design call is also retired:** a RANGE scan prints no ports at all
   (`resolveHostPorts` reaches only `scanSingle`), so there was never a 253-journal batching problem
   — single-IP only, matching the inner-gateway precedent. Planned as two PRs in
-  `plans/own-lan-scan-replays-the-journal.md`, decisions 40-43 in the epic.
+  `plans/own-lan-scan-replays-the-journal.md`, decisions 40-43 in the epic. **S1 shipped at
+  v0.216.0**, closing faces 1, 2 and 4 for siblings: the same `nmap -sV` that read
+  `Redis 7.2.5 CVE-2026-0597580 critical` now reads `Redis 7.3.0` with an empty CVE column, verified
+  in the browser at Act 16 step 14 and on the wire by `scripts/testSameLanScan.ts`. The player's own
+  box deliberately stays a local read — a runtime `sshd` no journal has heard of must still show.
 - **`snmpwalk` of your OWN address has no client-side own-box path.** `snmpwalk.ts` calls the server
   unconditionally, and the server answers a walk for the box a player is NOT standing on — so
   walking your own agent times out (`No Response`) even while it runs and a STRANGER's walk of the
