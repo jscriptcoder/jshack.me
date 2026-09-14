@@ -1123,7 +1123,8 @@ export type ScanApi = {
     essid: string,
     target: string,
   ) => Promise<PublicScanResolution>;
-  /** Resolve ONE NPC sibling on the player's own LAN server-side (signed
+  /** Resolve ONE box the ACCESS POINT owns on the player's own LAN server-side — an NPC
+   *  sibling, or the `.1` gateway every occupant of the ESSID shares (signed
    *  `resolveSameLanScan` endpoint). The seeded tree a client can rebuild for itself is
    *  the box the world SHIPPED; everything anyone has since done to it — a package
    *  upgraded out of its vulnerable window, a planted listener, a stopped daemon, a

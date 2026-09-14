@@ -1,6 +1,11 @@
 /**
- * handleResolveSameLanScan — server-side resolution of the player's OWN-LAN `nmap` of
- * an NPC sibling: the box's seeded base with its own journal replayed over it.
+ * handleResolveSameLanScan — server-side resolution of the player's OWN-LAN `nmap` of a
+ * box the ACCESS POINT owns: its seeded base with its own journal replayed over it.
+ *
+ * Two kinds of box arrive here, and the ESSID seeds both, so every occupant of a network
+ * scans one machine rather than each rebuilding a private copy: an NPC SIBLING, and the
+ * `.1` GATEWAY the whole network shares. `resolveLanHostIdentity` already maps either to
+ * the tree it is seeded from, which is why one action answers for both.
  *
  * Every host on a home LAN except a fellow player used to be the client's own
  * arithmetic — `buildRemoteHostFs` keys on the ESSID and the host, so any occupant can

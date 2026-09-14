@@ -20,7 +20,7 @@ import { readOpenPorts } from '../services/pidfile';
 import { buildEntry, formatDpkgStatus } from '../packages/dpkgStatus';
 import { bindFlags } from '../shell/bindFlags';
 import { seedApGatewayHostname } from '../generation/routerFs';
-import { machineIdForLanHost } from '../generation/lanHostIdentity';
+import { baseFsForLanHost, machineIdForLanHost } from '../generation/lanHostIdentity';
 import { generateDeepLayer, seedNetworkDepth } from '../generation/generateDeepLayer';
 import { crackableEssidPool } from '../generation/generateWifi';
 import { computeDeepGatewayId } from '../identity/router';
@@ -56,16 +56,20 @@ const onlineConnectivity = (essid: string): ConnectivityState => {
   return { interfaces: new Map(cold.interfaces).set('wlan0', connected) };
 };
 
-/** What the server answers about a sibling on an UNTOUCHED world: the seeded read, which
- *  is what that box's journal replayed over its seeded base comes to while the journal is
- *  still empty. Stubbing it this way keeps a test whose claim is about GENERATION — which
- *  ports the world rolls onto which host — making exactly that claim, while the transport
- *  it travels is the real one. A test about what a WRITE does to a box stubs its own. */
-const seededSiblingScan = (essid: string, target: string) => {
+/** What the server answers about a box the access point owns on an UNTOUCHED world: the
+ *  seeded read, which is what that machine's journal replayed over its seeded base comes
+ *  to while the journal is still empty. Stubbing it this way keeps a test whose claim is
+ *  about GENERATION — which ports the world rolls onto which host — making exactly that
+ *  claim, while the transport it travels is the real one. A test about what a WRITE does
+ *  to a box stubs its own.
+ *
+ *  The base tree comes from the SHARED resolver, so an NPC sibling and the `.1` gateway
+ *  are each seeded the way the server seeds them rather than the way this file guesses. */
+const seededHostScan = (essid: string, target: string) => {
   const host = generateHomeLan(essid).hosts.find((candidate) => candidate.ip === target);
   return host === undefined
     ? { found: false, ports: [] }
-    : { found: true, ports: readOpenPorts(buildRemoteHostFs(essid, host)) };
+    : { found: true, ports: readOpenPorts(baseFsForLanHost(host, essid)) };
 };
 
 const onlineEnv = (essid = 'BEAN-THERE-WIFI') =>
@@ -73,7 +77,7 @@ const onlineEnv = (essid = 'BEAN-THERE-WIFI') =>
     identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
     network: mockNetworkViewFromConnectivity(onlineConnectivity(essid)),
     workstationName: OWN_NAME,
-    scan: mockScanApi({ resolveSameLan: async (scanned, target) => seededSiblingScan(scanned, target) }),
+    scan: mockScanApi({ resolveSameLan: async (scanned, target) => seededHostScan(scanned, target) }),
   });
 
 const drain = async (result: CommandResult): Promise<{ text: string; exitCode: number }> => {
@@ -395,7 +399,7 @@ describe('nmap — self-host open ports (slice 1)', () => {
       network: mockNetworkViewFromConnectivity(onlineConnectivity('BEAN-THERE-WIFI')),
       fs: mockFsViewFromTree(tree, { userType: 'user' }),
       scan: mockScanApi({
-        resolveSameLan: async (essid, target) => seededSiblingScan(essid, target),
+        resolveSameLan: async (essid, target) => seededHostScan(essid, target),
       }),
     });
   };
@@ -1150,7 +1154,7 @@ describe('nmap — same-LAN occupant merge', () => {
     const ip = sshNpcIp();
     const resolveOccupant = vi.fn(async () => ({ found: true, ports: [] }));
     const resolveSameLan = vi.fn(async (essid: string, target: string) =>
-      seededSiblingScan(essid, target),
+      seededHostScan(essid, target),
     );
     const { text } = await drain(
       await nmap.execute(
@@ -1171,7 +1175,7 @@ describe('nmap — same-LAN occupant merge', () => {
   it('asks about a generated sibling as a sibling, never as an occupant', async () => {
     const resolveOccupant = vi.fn(async () => ({ found: true, ports: [] }));
     const resolveSameLan = vi.fn(async (essid: string, target: string) =>
-      seededSiblingScan(essid, target),
+      seededHostScan(essid, target),
     );
     const { text } = await drain(
       await nmap.execute(
@@ -1380,14 +1384,24 @@ describe('nmap — own-LAN inner-gateway scan (5b.1b-i)', () => {
     expect(text).not.toContain('Host is up.');
   });
 
-  it('does NOT route the edge .1 router through the inner-gateway resolver (it stays the client-side sameLAN scan)', async () => {
+  it('asks about the edge .1 router as the access point box, never as an inner gateway', async () => {
     const resolveInnerGateway = vi.fn(async () => ({ found: true, ports: [] }));
-
-    const { text } = await drain(
-      await nmap.execute(envWithInnerGateway(resolveInnerGateway), [`${lan.subnet}.1`], new Map()),
+    const resolveSameLan = vi.fn(async (essid: string, target: string) =>
+      seededHostScan(essid, target),
     );
+    const env = mockCommandEnv({
+      identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
+      network: mockNetworkViewFromConnectivity(onlineConnectivity(ESSID)),
+      scan: mockScanApi({ resolveInnerGateway, resolveSameLan }),
+    });
 
+    const { text } = await drain(await nmap.execute(env, [`${lan.subnet}.1`], new Map()));
+
+    // The two gateways are scanned from different sides, so routing the edge through the
+    // upstream resolver would answer it at the vantage where a NAT forward is visible —
+    // handing an occupant the public exposure of every neighbour behind their own AP.
     expect(resolveInnerGateway).not.toHaveBeenCalled();
+    expect(resolveSameLan).toHaveBeenCalledWith(ESSID, `${lan.subnet}.1`);
     expect(text).toContain('22/tcp   open  ssh');
   });
 
@@ -2478,9 +2492,13 @@ describe('nmap -sV — the version scan', () => {
  * has no journal to want, and the player's OWN box is read from the live filesystem its
  * shell is standing on, which shows a daemon started this second.
  */
-describe('nmap — an own-LAN sibling resolves server-side', () => {
+describe('nmap — the boxes the access point owns resolve server-side', () => {
   const ESSID = 'BEAN-THERE-WIFI';
   const SELF_IP = '192.168.29.188';
+
+  /** The access point's own gateway. Shared by every occupant of the ESSID, so what any
+   *  of them writes to it is what all of them scan. */
+  const gatewayIp = (): string => `${generateHomeLan(ESSID).subnet}.1`;
 
   const siblingIp = (): string => {
     const host = generateHomeLan(ESSID).hosts.find(
@@ -2574,5 +2592,44 @@ describe('nmap — an own-LAN sibling resolves server-side', () => {
     expect(text).toContain('Host is up.');
     expect(text).toContain('1 host up');
     expect(text).not.toContain('PORT');
+  });
+
+  it('asks the server about the access point gateway too', async () => {
+    // A door no seed rolls onto a gateway: if this row prints, the table came off the
+    // journal the server replayed, not off a tree this client rebuilt for itself.
+    const resolveSameLan = vi.fn(async () => ({
+      found: true,
+      ports: [{ port: 4444, service: 'unknown' }],
+    }));
+
+    const { text } = await drain(
+      await nmap.execute(envWithScan({ resolveSameLan }), [gatewayIp()], new Map()),
+    );
+
+    expect(resolveSameLan).toHaveBeenCalledWith(ESSID, gatewayIp());
+    expect(text).toContain('4444/tcp open  unknown');
+  });
+
+  it('leaves the gateway with no port table when the round trip fails', async () => {
+    const resolveSameLan = vi.fn(async () => null);
+
+    const { text } = await drain(
+      await nmap.execute(envWithScan({ resolveSameLan }), [gatewayIp()], new Map()),
+    );
+
+    // The seeded gateway tree is no longer a fallback: it is the very answer that
+    // disagreed with the filters and forwards written to this box, and told silently.
+    expect(text).toContain('Host is up.');
+    expect(text).not.toContain('PORT');
+  });
+
+  it('reports a gateway the server says is down as down', async () => {
+    const resolveSameLan = vi.fn(async () => ({ found: false, ports: [] }));
+
+    const { text } = await drain(
+      await nmap.execute(envWithScan({ resolveSameLan }), [gatewayIp()], new Map()),
+    );
+
+    expect(text).toContain('Host seems down.');
   });
 });
