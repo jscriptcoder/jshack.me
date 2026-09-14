@@ -269,6 +269,9 @@ export const mockScanApi = (overrides: Partial<ScanApi> = {}): ScanApi => ({
   // Load-bearing like `resolvePublic`: an inner-gateway scan drives its own output, so
   // it throws unless a test stubs the resolution.
   resolveInnerGateway: NOT_IMPLEMENTED('scan.resolveInnerGateway'),
+  // Load-bearing like `resolvePublic`: a sibling's ports drive its own scan output, so
+  // it throws unless a test stubs the resolution.
+  resolveSameLan: NOT_IMPLEMENTED('scan.resolveSameLan'),
   // Additive read: defaults to no fellow occupants so own-LAN nmap tests are unaffected;
   // occupant-merge tests override it to merge a real occupant.
   resolveOccupants: async () => [],

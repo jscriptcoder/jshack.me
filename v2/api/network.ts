@@ -32,6 +32,7 @@ import type {
 import { computeApGatewayId } from '../src/core/identity/router';
 import { handleResolveInnerGatewayScan } from '../src/core/scan/resolveInnerGatewayScan';
 import { handleResolveOccupantScan } from '../src/core/scan/resolveOccupantScan';
+import { handleResolveSameLanScan } from '../src/core/scan/resolveSameLanScan';
 import type { OwnerPatchRow as MachinePatchRow } from '../src/core/network/materializeMachineFs';
 import {
   handleResolveCrossPlayerFs,
@@ -457,6 +458,32 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return { data: data as readonly MachinePatchRow[] | null, error };
     };
     const { status, body } = await handleResolveInnerGatewayScan(req.body, {
+      nonceStore: noopNonceStore,
+      gameDay: gameDayAt(asEpochMs(Date.now())),
+      findPatches,
+    });
+    res.status(status).json(body);
+    return;
+  }
+
+  if (actionOf(req.body) === 'resolveSameLanScan') {
+    // The player's OWN-LAN nmap of an NPC sibling. The seeded tree a client rebuilds for
+    // itself is the box the world SHIPPED; the patches, planted doors, stopped daemons
+    // and `/boot` tombstones that make it what it now IS are on its journal, so read its
+    // patch rows (scoped to machine_id, server order) and replay them over the seeded
+    // base. No occupancy lookup: a sibling is seeded from the ESSID, not owned by a
+    // player — the same reasoning the inner gateway above it already runs on.
+    const findPatches = async ({ machine_id }: { machine_id: string }) => {
+      const { data, error } = await supabase
+        .from('patches')
+        .select('path, content, owner, permissions, node_type, updated_at, writer_key')
+        .eq('machine_id', machine_id)
+        .order('updated_at', { ascending: true })
+        .order('writer_key', { ascending: true });
+      if (error) console.error('[network] same-lan scan lookup error:', error);
+      return { data: data as readonly MachinePatchRow[] | null, error };
+    };
+    const { status, body } = await handleResolveSameLanScan(req.body, {
       nonceStore: noopNonceStore,
       gameDay: gameDayAt(asEpochMs(Date.now())),
       findPatches,

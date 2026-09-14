@@ -152,6 +152,7 @@ import {
   resolveCrossPlayerFs,
   resolveOccupants,
   resolveOccupant,
+  resolveSameLan,
   resolveOccupiedEssids,
   resolvePublic,
   resolveInnerGateway,
@@ -920,6 +921,14 @@ const resolveInnerGatewayFn = (essid: string, target: string): Promise<PublicSca
   networkClientDeps === undefined
     ? Promise.resolve({ found: false, ports: [] })
     : resolveInnerGateway(networkClientDeps, essid, target);
+
+/** Resolve one NPC sibling's real open ports (backs `env.scan.resolveSameLan`). `null`
+ *  before the network client is wired, as the occupant resolver is: the host is listed
+ *  with no port table rather than reported down, because we failed to ask. */
+const resolveSameLanFn = (essid: string, target: string): Promise<PublicScanResolution | null> =>
+  networkClientDeps === undefined
+    ? Promise.resolve(null)
+    : resolveSameLan(networkClientDeps, essid, target);
 
 /** Resolve one fellow occupant's real open ports (backs `env.scan.resolveOccupant`).
  *  `null` before the network client is wired: the occupant is listed with no port table
@@ -1707,6 +1716,7 @@ const executeLine = async (line: string): Promise<void> => {
     onScanResolvePublic: resolvePublicFn,
     onScanResolveInnerGateway: resolveInnerGatewayFn,
     onScanResolveOccupants: resolveOccupantsFn,
+    onScanResolveSameLan: resolveSameLanFn,
     onScanResolveOccupant: resolveOccupantFn,
     onScanResolveOccupiedEssids: resolveOccupiedEssidsFn,
     onHttpFetchPublic: fetchPublicPageFn,

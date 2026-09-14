@@ -1123,6 +1123,22 @@ export type ScanApi = {
     essid: string,
     target: string,
   ) => Promise<PublicScanResolution>;
+  /** Resolve ONE NPC sibling on the player's own LAN server-side (signed
+   *  `resolveSameLanScan` endpoint). The seeded tree a client can rebuild for itself is
+   *  the box the world SHIPPED; everything anyone has since done to it — a package
+   *  upgraded out of its vulnerable window, a planted listener, a stopped daemon, a
+   *  `/boot` tombstone — lives on that machine's server-side journal, so a locally
+   *  resolved scan describes a box that stopped existing at the first write to it.
+   *
+   *  Three outcomes, as `resolveOccupant` has: `found: true` carries the ports,
+   *  `found: false` is a resolved host-DOWN (a bricked box), and `null` is OUR round
+   *  trip failing — not either of those, because the host list has already placed this
+   *  box on the LAN, and falling back to the seeded read would tell the very lie this
+   *  path exists to end, silently. */
+  readonly resolveSameLan: (
+    essid: string,
+    target: string,
+  ) => Promise<PublicScanResolution | null>;
   /** Fetch the current ESSID's OTHER occupants for a same-LAN scan (signed
    *  `resolveOccupants` endpoint). `nmap` merges the result over its generated LAN so
    *  a fellow player shows up as a real host. Additive: degrades to an empty list

@@ -266,6 +266,22 @@ const scanOccupant = (
     withVersion,
   );
 
+/** An NPC sibling's seeded tree is the box the world SHIPPED. Everything anyone has
+ *  since done to it lives on that machine's journal, server-side — so the box a client
+ *  can rebuild for itself stopped being the box at the first write to it. */
+const scanSameLan = (
+  env: CommandEnv,
+  essid: string,
+  host: LanHost,
+  withVersion: boolean,
+): AsyncIterable<TerminalLine> =>
+  scanResolvedHost(
+    host.ip,
+    `${host.hostname} (${host.ip})`,
+    () => env.scan.resolveSameLan(essid, host.ip),
+    withVersion,
+  );
+
 /** Scan the deep `/24` BEHIND the gateway the active shell is standing on — the
  *  reachability pivot. Returns the scan when the target falls inside the deep subnet,
  *  or null when it doesn't (a home/foreign target falls through to the home path, so
@@ -431,6 +447,20 @@ const execute: Command['execute'] = async (env, args, flags) => {
     return {
       kind: 'async',
       lines: scanInnerGateway(env, essid, single, withVersion),
+      exitCode: async () => 0,
+    };
+  }
+  // An NPC SIBLING resolves server-side too, for the reason every other journal-backed
+  // box does: `buildRemoteHostFs` answers what the world shipped, and the patches,
+  // planted doors, stopped daemons and `/boot` tombstones that make a box what it now IS
+  // are on its journal. Only a single address asks — a range prints no port table, so
+  // there is nothing for a range to want a journal for — and the player's OWN box is
+  // excluded deliberately: its ports come off the live filesystem its shell is standing
+  // on, which shows a daemon started this second, and no round trip can promise that.
+  if (single !== undefined && single.kind === 'machine' && single.ip !== wlan0.ipv4) {
+    return {
+      kind: 'async',
+      lines: scanSameLan(env, essid, single, withVersion),
       exitCode: async () => 0,
     };
   }
