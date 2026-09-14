@@ -136,6 +136,13 @@ async function* fire(env: CommandEnv, attempt: Attempt): AsyncGenerator<Terminal
       for (const line of result.read.content.split('\n')) yield text(line);
       return 0;
     }
+    // The plaintext verbatim and on its own line: it is the whole prize, and a player who
+    // cannot read the exact string back has been handed nothing. Nothing is pushed —
+    // the lock changed, nobody walked in.
+    if (result.effect === 'password_reset') {
+      yield text(`[+] Password reset for '${result.username}' — new password: ${result.password}`);
+      return 0;
+    }
     if (!result.list.ok) {
       yield errorLine(`[-] ${LIST_DENY[result.list.error]} (as ${result.tier}): ${attempt.arg}`);
       return 1;
@@ -227,7 +234,9 @@ export const msfconsole: Command = {
       'you as root and a lesser one as an ordinary user or a guest, and some give only a ' +
       'bare shell with no terminal behind it. Others do not open a shell at all: a read ' +
       'hole hands back the file — or the entries of the directory — you name as a third ' +
-      'argument, at the tier the severity granted. Find a candidate with "nmap -sV", ' +
+      'argument, at the tier the severity granted. A reset hole takes no argument at all: ' +
+      'it changes the password of the account that tier names and tells you the new one, ' +
+      'which is then yours to use wherever that account is taken. Find a candidate with "nmap -sV", ' +
       'which reports the version and names ' +
       'the vulnerability when one has been published, but never what it does — firing is ' +
       'what reveals that. A service that is up to date refuses, and the target writes ' +

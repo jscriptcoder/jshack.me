@@ -738,6 +738,50 @@ describe('runExploit', () => {
     });
   });
 
+  it('carries back a reset as the credential it left behind, not as a shell', async () => {
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse(200, {
+        ok: true,
+        effect: 'password_reset',
+        cve: 'CVE-2026-0122135',
+        severity: 'low',
+        tier: 'guest',
+        username: 'guest',
+        password: 'pwned-2135-guest',
+      }),
+    );
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await runExploit(deps, params)).toEqual({
+      ok: true,
+      effect: 'password_reset',
+      cve: 'CVE-2026-0122135',
+      severity: 'low',
+      tier: 'guest',
+      username: 'guest',
+      password: 'pwned-2135-guest',
+    });
+  });
+
+  it('refuses a reset that names no password rather than announcing a lock it holds no key to', async () => {
+    // The plaintext IS the prize. A body without one is not a reset, and letting it
+    // through would tell the player the account had moved while handing them nothing
+    // to open it with.
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse(200, {
+        ok: true,
+        effect: 'password_reset',
+        cve: 'CVE-2026-0122135',
+        severity: 'low',
+        tier: 'guest',
+        username: 'guest',
+      }),
+    );
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await runExploit(deps, params)).toEqual({ ok: false, error: 'network_error' });
+  });
+
   it('signs the named path into the envelope, and omits it entirely when none was named', async () => {
     const named = vi.fn(async () =>
       jsonResponse(200, {

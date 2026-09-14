@@ -263,12 +263,14 @@ const exploitGrantSchema = z.object({
   kind: z.enum(['exploit', 'exploit_limited']),
 });
 
-/** A read effect's answer: the file it read or the directory it listed at the granted
- *  tier, or — fired with no path — the CVE it found and a request for a target. A
- *  malformed body is no read, so it falls through to a network fault rather than becoming
- *  a silent empty result. The list side names a different failure than the read side (a
- *  directory has no `is_directory` miss), so the two carry their own error enums. */
-const exploitReadSchema = z.union([
+/** What an effect that opens no shell answers with: the file it read or the directory it
+ *  listed at the granted tier, the credential a reset left behind, or — for a read hole
+ *  fired with no path — the CVE it found and a request for a target. A malformed body is
+ *  none of those, so it falls through to a network fault rather than becoming a silent
+ *  empty read or a lock announced with no key to it. The list side names a different
+ *  failure than the read side (a directory has no `is_directory` miss), so the two carry
+ *  their own error enums. */
+const exploitEffectSchema = z.union([
   z.object({
     ok: z.literal(true),
     effect: z.literal('file_read'),
@@ -307,6 +309,17 @@ const exploitReadSchema = z.union([
     tier: z.enum(['guest', 'user', 'root']),
     needsArg: z.literal(true),
   }),
+  z.object({
+    ok: z.literal(true),
+    effect: z.literal('password_reset'),
+    cve: z.string().min(1),
+    severity: z.enum(['critical', 'high', 'medium', 'low']),
+    tier: z.enum(['guest', 'user', 'root']),
+    /** Both required: the account that moved and the key to it. A reset missing either
+     *  is a changed lock the player cannot open, which is worse than no reset at all. */
+    username: z.string().min(1),
+    password: z.string().min(1),
+  }),
 ]);
 
 /** Fire a CVE at a port on a host on the caller's own LAN. No credential goes out —
@@ -338,8 +351,8 @@ export const runExploit = async (
     if (response.ok) {
       const grant = exploitGrantSchema.safeParse(body);
       if (grant.success) return grant.data;
-      const read = exploitReadSchema.safeParse(body);
-      if (read.success) return read.data;
+      const effect = exploitEffectSchema.safeParse(body);
+      if (effect.success) return effect.data;
       return { ok: false, error: 'network_error' };
     }
     if (response.status === 404) {
