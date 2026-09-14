@@ -6,7 +6,16 @@ import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
 import { crackableEssidPool } from '../generation/generateWifi';
 import { buildRemoteHostFs } from '../generation/remoteHostFs';
 import { hostMachineId } from '../generation/remoteHostId';
-import { readOpenPorts, type OpenPort } from '../services/pidfile';
+import {
+  formatListenerContent,
+  listenerPidfileName,
+  pidfilePath,
+  readOpenPorts,
+  readRunningProcesses,
+  UNKNOWN_SERVICE,
+  type OpenPort,
+} from '../services/pidfile';
+import type { ServiceSpec } from '../services/serviceCatalog';
 import {
   DPKG_STATUS_OWNER,
   DPKG_STATUS_PATH,
@@ -127,6 +136,28 @@ const bootTombstone: OwnerPatchRow = {
   writer_key: PLAYER.publicKeyHex,
 };
 
+/** One row on the SIBLING's own journal — what somebody left behind after rooting it. */
+const siblingRow = (path: string, content: string | null): OwnerPatchRow => ({
+  path,
+  content,
+  owner: 'root',
+  permissions: null,
+  node_type: content === null ? null : 'file',
+  updated_at: '2026-09-14T00:00:00.000Z',
+  writer_key: PLAYER.publicKeyHex,
+});
+
+/** The service the sibling is seeded to run whose door the stop test closes. Read off
+ *  the box rather than named, so the test keeps meaning what it says when the generator
+ *  re-rolls which daemons land where. */
+const seededService = (): { readonly spec: ServiceSpec; readonly port: number } => {
+  const seededFs = buildRemoteHostFs(ESSID, SIBLING);
+  for (const running of readRunningProcesses(seededFs)) {
+    if (running.kind === 'service') return { spec: running.spec, port: running.port };
+  }
+  throw new Error('the sibling under test runs no seeded service');
+};
+
 type PatchesResult = { data: readonly OwnerPatchRow[] | null; error: unknown };
 
 const makeDeps = (journal: readonly OwnerPatchRow[] = []) => {
@@ -191,5 +222,65 @@ describe('handleResolveSameLanScan', () => {
     // is gone, the other that it is up and quiet. A machine whose kernel has been
     // deleted is the first.
     expect(result).toEqual({ status: 200, body: { ok: true, found: false, ports: [] } });
+  });
+
+  /**
+   * The three faces of this defect that were found before the one slice 4 hit. They
+   * close here for the same reason face 4 does — one missing journal replay caused all
+   * of them — and they are pinned at the handler because until it existed there was
+   * nowhere for a journal to be read on an own-LAN scan at all.
+   */
+  it('shows a listener somebody planted on the box', async () => {
+    const PLANTED_PORT = 4444;
+    const { deps } = makeDeps([
+      siblingRow(
+        `/var/run/${listenerPidfileName(PLANTED_PORT)}`,
+        formatListenerContent({ port: PLANTED_PORT, user: 'mallory', userType: 'root' }),
+      ),
+    ]);
+
+    const result = await handleResolveSameLanScan(envelope(SIBLING.ip), deps);
+
+    // Open, and unaccounted for: the box names no software behind it, which is the
+    // finding. A door planted by one occupant used to be invisible to every other.
+    expect(portsOf(result.body)).toContainEqual({
+      port: PLANTED_PORT,
+      service: UNKNOWN_SERVICE,
+    });
+  });
+
+  it('stops showing a listener once it has been removed', async () => {
+    const PLANTED_PORT = 4444;
+    const pidfile = `/var/run/${listenerPidfileName(PLANTED_PORT)}`;
+    const rows = [
+      siblingRow(
+        pidfile,
+        formatListenerContent({ port: PLANTED_PORT, user: 'mallory', userType: 'root' }),
+      ),
+      { ...siblingRow(pidfile, null), updated_at: '2026-09-14T00:00:01.000Z' },
+    ];
+    const { deps } = makeDeps(rows);
+
+    const planted = await handleResolveSameLanScan(envelope(SIBLING.ip), makeDeps([rows[0]]).deps);
+    const removed = await handleResolveSameLanScan(envelope(SIBLING.ip), deps);
+
+    // Asserted as a CHANGE, so the claim cannot be satisfied by a scan that lost the
+    // port for some other reason — or by a replay that reported nothing at all.
+    expect(portsOf(planted.body).map((entry) => entry.port)).toContain(PLANTED_PORT);
+    expect(portsOf(removed.body).map((entry) => entry.port)).not.toContain(PLANTED_PORT);
+  });
+
+  it('stops showing a service the box has been told to stop', async () => {
+    const stopped = seededService();
+    const running = await handleResolveSameLanScan(envelope(SIBLING.ip), makeDeps().deps);
+    const { deps } = makeDeps([siblingRow(pidfilePath(stopped.spec), null)]);
+
+    const result = await handleResolveSameLanScan(envelope(SIBLING.ip), deps);
+
+    // `systemctl stop` tombstones the pidfile. A scan still advertising the door would
+    // send a player at a service that is no longer listening — and the same scan lied
+    // about a player's OWN action, on a box they had just rooted.
+    expect(portsOf(running.body).map((entry) => entry.port)).toContain(stopped.port);
+    expect(portsOf(result.body).map((entry) => entry.port)).not.toContain(stopped.port);
   });
 });
