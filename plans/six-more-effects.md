@@ -11,7 +11,7 @@ the next branches from updated `main`. They share a seam (the effect branch in t
 handler and `msfconsole`) but no hard dependency — each is independently observable and
 shippable, and each un-built effect keeps collapsing to a limited shell until its own PR lands.
 
-**Branch for PR1:** `feat/exploit-read-effects`.
+**Branch for PR2:** `feat/exploit-password-reset` (PR1 shipped from `feat/exploit-read-effects`).
 
 ---
 
