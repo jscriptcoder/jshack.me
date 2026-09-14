@@ -11,6 +11,7 @@ import { hostMachineId } from '../generation/remoteHostId';
 import {
   readRulesV4,
   withForward,
+  withInputDeny,
   RULES_V4_OWNER,
   RULES_V4_PATH,
   RULES_V4_PERMISSIONS,
@@ -188,17 +189,34 @@ const seededGatewayPort = (): number => {
   return port;
 };
 
-/** A root `nano /etc/iptables/rules.v4` edit on the GATEWAY's journal publishing a NAT
- *  forward — how an occupant exposes a box behind the access point to the internet. */
-const gatewayForward = (publicPort: number, target: ForwardTarget): OwnerPatchRow => ({
+/** A `rules.v4` row on a box's own journal, written exactly as `snmpset` writes it —
+ *  same path, same owner, same permissions — so what the scan reads back is what an
+ *  occupant's `inputPort.<port>=deny` or `forward.<port>=<ip>:<port>` actually leaves
+ *  behind. */
+const rulesV4Row = (content: string): OwnerPatchRow => ({
   path: RULES_V4_PATH,
-  content: withForward(readRulesV4(buildApGatewayBaseFs(ESSID)), publicPort, target),
+  content,
   owner: RULES_V4_OWNER,
   permissions: RULES_V4_PERMISSIONS,
   node_type: 'file',
   updated_at: '2026-09-14T00:00:00.000Z',
   writer_key: PLAYER.publicKeyHex,
 });
+
+/** A NAT forward published on the GATEWAY — how an occupant exposes a box behind the
+ *  access point to the internet. */
+const gatewayForward = (publicPort: number, target: ForwardTarget): OwnerPatchRow =>
+  rulesV4Row(withForward(readRulesV4(buildApGatewayBaseFs(ESSID)), publicPort, target));
+
+/** `snmpset <gateway> <rw> inputPort.<port>=deny` — the filter that closes a port to the
+ *  network while the daemon behind it keeps running for whoever owns the box. */
+const gatewayDeny = (port: number): OwnerPatchRow =>
+  rulesV4Row(withInputDeny(readRulesV4(buildApGatewayBaseFs(ESSID)), port, true));
+
+/** The same filter, on an NPC SIBLING — any box keeping a `rules.v4` of its own can be
+ *  closed this way, not only the gateway. */
+const siblingDeny = (port: number): OwnerPatchRow =>
+  rulesV4Row(withInputDeny(readRulesV4(buildRemoteHostFs(ESSID, SIBLING)), port, true));
 
 type PatchesResult = { data: readonly OwnerPatchRow[] | null; error: unknown };
 
@@ -419,5 +437,34 @@ describe('handleResolveSameLanScan — the access point gateway at .1', () => {
     // gateway. Listing it here would hand an occupant the public exposure of every
     // neighbour off a scan of their own LAN.
     expect(ports).not.toContain(FORWARDED_PORT);
+  });
+
+  it('stops showing a port an occupant filtered on the gateway', async () => {
+    const filtered = seededGatewayPort();
+    const open = await handleResolveSameLanScan(envelope(AP_GATEWAY.ip), makeDeps().deps);
+    const { deps } = makeDeps([gatewayDeny(filtered)]);
+
+    const result = await handleResolveSameLanScan(envelope(AP_GATEWAY.ip), deps);
+
+    // The scan of the shared gateway and the scan of its public IP used to disagree: the
+    // filter closed the port to the network and the LAN view kept advertising it. A port
+    // listed here but refused at every door is an open port that lies.
+    expect(portsOf(open.body).map((entry) => entry.port)).toContain(filtered);
+    expect(portsOf(result.body).map((entry) => entry.port)).not.toContain(filtered);
+  });
+});
+
+describe('handleResolveSameLanScan — a filter on a sibling', () => {
+  it('stops showing a port an occupant filtered on an NPC sibling', async () => {
+    const filtered = seededService().port;
+    const open = await handleResolveSameLanScan(envelope(SIBLING.ip), makeDeps().deps);
+    const { deps } = makeDeps([siblingDeny(filtered)]);
+
+    const result = await handleResolveSameLanScan(envelope(SIBLING.ip), deps);
+
+    // `snmpset inputPort.<port>=deny` works on any box keeping a filter of its own, so
+    // the gateway is not the only place a scan can advertise a door the reach refuses.
+    expect(portsOf(open.body).map((entry) => entry.port)).toContain(filtered);
+    expect(portsOf(result.body).map((entry) => entry.port)).not.toContain(filtered);
   });
 });

@@ -27,7 +27,7 @@ import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
 import { generateHomeLan } from '../generation/generateHomeLan';
 import { materializeMachineFs, type OwnerPatchRow } from '../network/materializeMachineFs';
 import { canBoot } from '../boot/bootFiles';
-import { readOpenPorts } from '../services/pidfile';
+import { scanResult } from './scanResult';
 import type { NonceStore } from '../signedRequest/nonceStore';
 
 export type ResolveSameLanScanDeps = {
@@ -99,8 +99,29 @@ export const handleResolveSameLanScan = async (
     return HOST_DOWN;
   }
 
+  // What the box gives the NETWORK, which is all a scan of it can see. Read through the
+  // ONE function that owns the vantage split, at `sameLAN`: the box's own services, and
+  // never the NAT forwards a gateway passes through — those are how the machines BEHIND
+  // it are reached from the internet, so listing them here would hand any occupant the
+  // public exposure of every neighbour off a scan of their own LAN. The forward table is
+  // the `external` vantage's answer and stays there.
+  //
+  // A port its owner filtered is simply absent. The pidfiles stay the truth about what is
+  // RUNNING — a filtered daemon is still running, which is the whole reason to prefer a
+  // filter to `systemctl stop` — but a scan reading them directly advertised doors the
+  // reach then refused, which is the same lie this handler exists to end.
   return {
     status: 200,
-    body: { ok: true, found: true, ports: readOpenPorts(hostFs, { gameDay: deps.gameDay }) },
+    body: {
+      ok: true,
+      found: true,
+      ports: scanResult({
+        vantage: 'sameLAN',
+        routerFs: hostFs,
+        // Never consulted at this vantage: a forward is not a door on the box holding it.
+        resolveTargetPorts: () => [],
+        gameDay: deps.gameDay,
+      }),
+    },
   };
 };

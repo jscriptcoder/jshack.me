@@ -2590,7 +2590,7 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   it across the family in one pass; the mutant to reproduce is `ObjectLiteral` on the
   `STATUS_BY_VERIFY_REASON` return of any door.
 
-- **An INTERMITTENT full-suite flake, seen twice in two days, still unnamed.** 2026-08-26, D7 slice
+- **An INTERMITTENT full-suite flake, seen three times, still unnamed.** 2026-08-26, D7 slice
   7a: the first `npx vitest run` reported `1 failed | 171 passed`, and five later runs on the same
   tree were clean. Same day, D7's close-out: `2 failed | 171 passed` on a tree carrying **nothing
   but documentation edits**, then four clean runs (3737/3737 each). Neither failure was ever named.
@@ -2603,6 +2603,19 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   completely as a clean re-run does. So: **never pipe a full-suite run through a filter that can
   drop the failure detail.** Redirect the whole thing (`npx vitest run > suite.log 2>&1`) and grep
   the FILE. A summary line is the one part of the output that is worthless when something fails.
+
+  **Third occurrence, 2026-09-14** (own-LAN gateway scan, S2 increment 2): `1 failed | 4788 passed`,
+  then five clean runs on the same tree (4789/4789 each). Lost the same way a third time, to a
+  `| tail -8` — so the warning above is easy to trip even by someone who has just read it. Treat
+  "pipe the first full-suite run through anything" as the hazard, not any particular filter.
+
+  One NEW data point survived, because it is about the command rather than the output. Of the six
+  runs, the failing one was the only one not invoked as a bare `npx vitest run`: it was chained in a
+  single shell command after `npm run typecheck`, whose `pretypecheck` hook runs `npm run encode`
+  and REWRITES `src/core/secrets/__encoded.ts`. A source file rewritten moments before the run is a
+  concrete mechanism worth eliminating — vitest's transform cache keys on mtime. That is a
+  hypothesis to TEST next time (run the chained form repeatedly on a clean tree), not a cause; it is
+  recorded because three occurrences have now produced exactly one testable lead.
 
 **Cross-player / multiplayer deferred.** The cross-player epic shipped every enumerated story
 (1–7, plus 5b, unique public-IP allocation and shared-network reconciliation) and its plan file
