@@ -143,6 +143,13 @@ async function* fire(env: CommandEnv, attempt: Attempt): AsyncGenerator<Terminal
       yield text(`[+] Password reset for '${result.username}' — new password: ${result.password}`);
       return 0;
     }
+    // The port on its own line for the reason the plaintext is: it is the whole prize,
+    // and it is the one thing the scan that found this box never reported. Nothing is
+    // pushed — the door is standing open, but nobody walked through it.
+    if (result.effect === 'backdoor_port_open') {
+      yield text(`[+] Backdoor planted on port ${result.port}`);
+      return 0;
+    }
     if (!result.list.ok) {
       yield errorLine(`[-] ${LIST_DENY[result.list.error]} (as ${result.tier}): ${attempt.arg}`);
       return 1;
@@ -236,7 +243,10 @@ export const msfconsole: Command = {
       'hole hands back the file — or the entries of the directory — you name as a third ' +
       'argument, at the tier the severity granted. A reset hole takes no argument at all: ' +
       'it changes the password of the account that tier names and tells you the new one, ' +
-      'which is then yours to use wherever that account is taken. Find a candidate with "nmap -sV", ' +
+      'which is then yours to use wherever that account is taken. A backdoor hole takes none ' +
+      'either: it leaves a listener running on a port of its own choosing and tells you which, ' +
+      'and that door stays open long after the break-in is forgotten. ' +
+      'Find a candidate with "nmap -sV", ' +
       'which reports the version and names ' +
       'the vulnerability when one has been published, but never what it does — firing is ' +
       'what reveals that. A service that is up to date refuses, and the target writes ' +
