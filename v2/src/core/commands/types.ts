@@ -1032,6 +1032,13 @@ export type ExploitRunParams = {
    *  it was not sent are bytes it cannot get. Undefined whenever the third token was
    *  not a pair, or named a file this shell could not read. */
   readonly content?: string | undefined;
+  /** What the attacker's script DID, for the hole that runs one. The script ran on THIS
+   *  machine — the server holds no interpreter for player-supplied source, and building
+   *  one there would run that source inside the server — so what travels is the writes it
+   *  made rather than the text that made them. Undefined whenever the third token named no
+   *  script this shell could read, which reaches the server as the same fire as naming
+   *  none at all. */
+  readonly writes?: readonly { readonly path: string; readonly content: string }[] | undefined;
 };
 
 /** What came back. On success the CVE is the attacker's to keep — they earned it,
@@ -1145,6 +1152,29 @@ export type ExploitRunResult =
   | {
       readonly ok: true;
       readonly effect: 'file_write';
+      readonly cve: string;
+      readonly severity: CveSeverity;
+      readonly tier: UserType;
+      readonly needsArg: true;
+    }
+  /** A script of the attacker's own ran on the box and stood them nowhere. Blind by
+   *  design: there is no payload arm here because nothing is handed back — not the
+   *  script's output, which was never captured, and not a count of what it managed to
+   *  write, which would answer a question about the target's permissions that the
+   *  player never got to ask. What the effect did is visible only on the box. */
+  | {
+      readonly ok: true;
+      readonly effect: 'script_exec';
+      readonly cve: string;
+      readonly severity: CveSeverity;
+      readonly tier: UserType;
+    }
+  /** The same hole fired with nothing to run — either no third token at all, or one
+   *  naming a script this box could not read. The tool tells those two apart itself,
+   *  knowing which of them happened; the server only knows it was handed nothing. */
+  | {
+      readonly ok: true;
+      readonly effect: 'script_exec';
       readonly cve: string;
       readonly severity: CveSeverity;
       readonly tier: UserType;

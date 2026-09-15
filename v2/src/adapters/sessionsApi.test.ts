@@ -623,6 +623,79 @@ describe('runExploit', () => {
     expect(await runExploit(deps, params)).toMatchObject({ kind: 'exploit_limited' });
   });
 
+  it('carries back a script that ran, rather than reading the answer as a fault', async () => {
+    // An answer this adapter cannot parse falls through to `network_error`, which tells a
+    // player their exploit was beaten by a patch it never reached. The blind effect is the
+    // one best able to hide that, because it hands back nothing whose absence would show.
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse(200, {
+        ok: true,
+        effect: 'script_exec',
+        cve: 'CVE-2026-0269486',
+        severity: 'high',
+        tier: 'user',
+      }),
+    );
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await runExploit(deps, params)).toEqual({
+      ok: true,
+      effect: 'script_exec',
+      cve: 'CVE-2026-0269486',
+      severity: 'high',
+      tier: 'user',
+    });
+  });
+
+  it('carries back a script hole fired with nothing to run', async () => {
+    // Reveal-by-firing reaches the client as its own shape, so the tool can ask for a
+    // script rather than reporting a hole that did nothing.
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse(200, {
+        ok: true,
+        effect: 'script_exec',
+        cve: 'CVE-2026-0269486',
+        severity: 'high',
+        tier: 'user',
+        needsArg: true,
+      }),
+    );
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await runExploit(deps, params)).toMatchObject({
+      effect: 'script_exec',
+      needsArg: true,
+    });
+  });
+
+  it('sends what the script did, since that is the whole of what the fire carries', async () => {
+    // The script ran on THIS side, so its writes are the entire payload of the effect. A
+    // fire that dropped them would announce a break-in that changed nothing on the box.
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse(200, {
+        ok: true,
+        effect: 'script_exec',
+        cve: 'CVE-2026-0269486',
+        severity: 'high',
+        tier: 'user',
+      }),
+    );
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    await runExploit(deps, {
+      ...params,
+      arg: '/tmp/drop.js',
+      writes: [{ path: '/tmp/dropped.txt', content: 'planted\n' }],
+    });
+
+    const verified = await verifyPayload(sentEnvelope(fetchSpy));
+    if (!verified.ok) throw new Error('expected a verified envelope');
+    expect(verified.payload).toMatchObject({
+      arg: '/tmp/drop.js',
+      writes: [{ path: '/tmp/dropped.txt', content: 'planted\n' }],
+    });
+  });
+
   it('maps the refusal 404 to not_vulnerable', async () => {
     const fetchSpy = vi.fn(async () => jsonResponse(404, { error: 'not_vulnerable' }));
     const deps = makeDeps(fetchSpy as unknown as typeof fetch);
