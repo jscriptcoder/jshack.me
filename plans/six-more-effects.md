@@ -5,18 +5,18 @@ close-out: "Phase 3 slice 4 — the defender patches" (#498, #499, v0.214.0–v0
 own-LAN scan fix detour (#500, #501, v0.216.0–v0.217.0).
 
 **Status:** Active — PR1 (file_read + dir_list) shipped at v0.218.0 (#502), PR2 (password_reset) at
-v0.219.0 (#503), PR3 (backdoor_port_open) at v0.220.0 (#504), PR4 (file_write) at v0.221.0 (#505).
-PR5 (scriptable `msfconsole`) is next, branching from updated `main`. `script_exec` split out to
-PR6 — see its section for why.
+v0.219.0 (#503), PR3 (backdoor_port_open) at v0.220.0 (#504), PR4 (file_write) at v0.221.0 (#505),
+PR5 (scriptable `msfconsole`) at v0.222.0 (#506). PR6 (script_exec) is next, branching from updated
+`main` — its design is deliberately still open; see its section.
 
 **Delivery:** Six independent PRs, sequenced to trunk (NOT a stack). Each merges to `main`;
 the next branches from updated `main`. They share a seam (the effect branch in the exploit
 handler and `msfconsole`) but no hard dependency — each is independently observable and
 shippable, and each un-built effect keeps collapsing to a limited shell until its own PR lands.
 
-**Branch for PR5:** `feat/msfconsole-scriptable` (PR1 shipped from `feat/exploit-read-effects`,
-PR2 from `feat/exploit-password-reset`, PR3 from `feat/exploit-backdoor-port`, PR4 from
-`feat/exploit-file-write`).
+**Branch for PR6:** `feat/exploit-script-exec` (PR1 shipped from `feat/exploit-read-effects`, PR2
+from `feat/exploit-password-reset`, PR3 from `feat/exploit-backdoor-port`, PR4 from
+`feat/exploit-file-write`, PR5 from `feat/msfconsole-scriptable`).
 
 ---
 
@@ -264,9 +264,27 @@ form (usage error otherwise).
 - Missing / malformed `local:remote` returns the usage line.
 **Evidence:** RED-GREEN; mutation gate; wire-check with a write case + a read-back.
 
-### PR5 — `msfconsole` becomes scriptable
+### PR5 — `msfconsole` becomes scriptable — SHIPPED v0.222.0 (#506)
 
-**Why this is its own PR.** The plan originally paired this with `script_exec`. The two separated
+The script adapter marks every call it makes, and the two shell branches read that mark and report
+the door rather than pushing a session the caller could never enter — symmetrically, `Full shell
+available on` against `Limited shell available on`, because a script BRANCHES on that line and
+matching "Got shell" against "Full shell" would mean knowing an asymmetry to see a difference.
+Everything that acts rather than lands a shell behaves exactly as it does at the prompt. Verified
+by RED-GREEN unit tests through both the adapter and the command, a scoped mutation gate (599
+mutants across the three files in scope, 68 survivors, none of them in the code this added) and
+the 45/45 wire-check re-run UNCHANGED, since no `api/` behavior moved.
+
+It also cleared the limited-shell coverage debt: the two mutants PR3 named are dead, measured
+rather than asserted — `exploitCreateSession.ts` was put in mutation scope deliberately for that
+reason, though this PR does not change it.
+
+**Honest note for whoever reads this later.** The `shell_limited` test and the two scripted-effect
+tests are CHARACTERIZATION, not RED-first — they pin behaviour that already worked, and the
+mutation result is what earns them their place. The three behavioural increments (the gate,
+report-not-push, the wording split) were genuinely red first.
+
+**Why this was its own PR.** The plan originally paired this with `script_exec`. The two separated
 once the runner was actually read rather than cited: `runScript` builds an `AsyncFunction` over
 player-supplied source and injects a context assembled from `CommandEnv`, and nothing server-side
 runs scripts at all. "Run the script on the target through the D9 runner" therefore describes
