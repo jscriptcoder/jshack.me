@@ -383,13 +383,36 @@ from it.
 
 **What PR6 must not be surprised by.** Building it removes the LAST collapse. `mintsLimitedShell` in
 the wire-check excludes each effect as it gains real behaviour, and `script_exec` is the sixth and
-final exclusion — after which the predicate collapses to a single positive check on `shell_limited`
-and the exclusion list goes away entirely. The script HARD-EXITS (`process.exit(2)`) when it can find
-no limited-shell door, so a real one has to exist before the collapse goes: the nearest genuine
-`shell_limited` roll is openssh 9.8.3 at day 61 while the world sits on day 45, so the `WORLD_EPOCH`
-move lands in this same PR. **Correction to what this plan said earlier:** the staleness tripwire in
-`worldClock.test.ts` ALREADY asserts `toBeLessThan(90)` and needs no edit — moving the anchor back 16
-days, to 2026-07-16, puts the world on day 61 and stays well inside that bound.
+final exclusion. The script HARD-EXITS (`process.exit(2)`) when it can find no limited-shell door, so
+a real one has to exist before the collapse goes.
+
+**Corrections, found by building it.** Three things this section got wrong about its own work:
+
+1. **The epoch move alone was not enough, and the predicate did not survive at all.** This section
+   said the move went "exactly as PR2 did". It does not. `limitedDoor` searched the SHIPPED versions,
+   and `exploitEffect.test.ts` pins every package's shipped roll — none of them is `shell_limited`,
+   on any network. So once the last collapse went there was nothing left to find and the script
+   hard-exited. The door had to become a WALKED one (`doorCarrying`'s pattern, as the reset and
+   backdoor doors already use), which meant `mintsLimitedShell` was not extended but DELETED — its
+   only caller was gone. A walked door also needs `upgradeTo` recomputed for the version the walk
+   lands on, because section 4 closes the door by upgrading past it and the target for a shipped
+   release is not the target for a walked one.
+2. **The walked door cannot sit on the read door's box.** Both are ssh doors, the walk rewrites that
+   box's manifest, and section 3b fires the read AFTERWARDS expecting the shipped hole. Measured
+   rather than reasoned: three boxes can carry the walked hole, and the first in host order is the
+   read door's — so the finder excludes it explicitly and lands on `…142:22` instead.
+3. **The staleness tripwire needed no edit.** `worldClock.test.ts` already asserts
+   `toBeLessThan(90)`.
+
+**The epoch landed on day 65 (`2026-07-12`), not day 61.** Day 61 is the day openssh 9.8.3 publishes,
+and anchoring a live global constant exactly on a publication boundary is the same fragility this
+plan already avoided once, when `LIMITED_SHELL_NOW` was put at day 71 rather than on the boundary.
+Day 65 clears it by four days and still leaves 25 days of runway under the tripwire.
+
+**A redundancy worth knowing, not worth fixing here.** `msfconsole` builds the script's view with
+`createFsView(tree, { cwd: asAbsPath('/') })`, and `/` is already that builder's own default — which
+is why two mutants there are equivalent by construction. Left as it is: the explicit cwd states the
+intent, and changing it would invalidate the mutation evidence gathered against it.
 
 **Reachability, already confirmed.** `script_exec` is rolled at the version boxes ship by nginx
 (1.26.0, index 0, day 9, high → user, `CVE-2026-0269486`), and later by openssh 9.8.2, mysql
@@ -426,6 +449,34 @@ exploit fire → handler branch `script_exec` re-walks each write at the granted
 **Evidence:** RED-GREEN for each increment; the mutation gate over the changed core; a live own-LAN
 wire-check carrying a script case with a read-back, run on the moved epoch so the limited-shell
 section proves it found a real `shell_limited` roll.
+
+**Evidence as measured.** Gates: typecheck, lint and build clean; 218 files / 4885 tests; wire-check
+52/52 live against `vercel dev` + supabase (45/45 before this PR, +5 script cases and the reworked
+limited-shell door). Version 0.223.0.
+
+Mutation, three runs over `exploitCreateSession.ts`, `msfconsole.ts` and `worldClock.ts`:
+83.19% → 87.52% → **87.85%**; killed 500 → 528; no-coverage 23 → **0**; **zero timeouts on every
+run**, which is what makes the number quotable rather than a measure of how loaded the machine was.
+Final per file: `worldClock.ts` 100%, `exploitCreateSession.ts` 98.51%, `msfconsole.ts` 79.03%.
+
+The 73 survivors, triaged rather than summarised: **54 sit in `msfconsole`'s `manual` block** — help
+text, where asserting exact prose would be coverage theatre. Of the remaining 19, **13 are
+pre-existing or already-triaged equivalents** (the usage guard masked by the port check, the
+local-half guard whose two halves are undefined together by construction, and the `view.stat(…)?.owner`
+chain that `resolveWriteTarget` makes unreachable). **Three are mine and argued equivalent** — the two
+redundant-cwd mutants above, and this effect's twin of that same optional chain. **Three are mine and
+UNRESOLVED**: the `written !== undefined` branch in `currentAt`, and the two ternaries that decide
+whether a bare token was read and whether a script ran. Recorded as unresolved rather than claimed
+equivalent, because I could reason toward why they should die but not demonstrate it.
+
+**Which increments were genuinely RED-first, and which were not.** RED-first, each proved failing for
+the right reason before any code: the first handler test; all three adapter tests (the `script_exec`
+arm, the `needsArg` arm, and forwarding `writes`); three of the four rendering tests; and both
+script-running tests. **Characterization, not RED-first:** handler tests two through six, because the
+first increment's GREEN over-implemented the write loop rather than writing the minimum — so the
+behaviour existed before the tests that describe it. Likewise the bare-path-still-fires test, the
+sandbox test, and all seven tests added afterwards to kill mutants. Their worth is the mutation delta
+above, not a RED they never had.
 
 ---
 
