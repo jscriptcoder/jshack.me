@@ -331,6 +331,39 @@ const exploitEffectSchema = z.union([
      *  through, which is worse than no backdoor at all. */
     port: z.number().int().min(1).max(65535),
   }),
+  z.object({
+    ok: z.literal(true),
+    effect: z.literal('file_write'),
+    cve: z.string().min(1),
+    severity: z.enum(['critical', 'high', 'medium', 'low']),
+    tier: z.enum(['guest', 'user', 'root']),
+    write: z.union([
+      z.object({
+        ok: z.literal(true),
+        /** Zero is a real count: planting an EMPTY file is something a player can do, so
+         *  the floor is 0 and a `min(1)` here would refuse a write that really happened. */
+        bytes: z.number().int().min(0),
+        /** Required, and required on the refusal arm too. Where the bytes landed is the
+         *  whole of what comes back — it is how the player finds the file again — and the
+         *  token they typed carries a local half that names nothing on the target. A body
+         *  without it would have the tool print a destination of `undefined`. */
+        path: z.string().min(1),
+      }),
+      z.object({
+        ok: z.literal(false),
+        error: z.enum(['not_found', 'permission_denied', 'is_directory']),
+        path: z.string().min(1),
+      }),
+    ]),
+  }),
+  z.object({
+    ok: z.literal(true),
+    effect: z.literal('file_write'),
+    cve: z.string().min(1),
+    severity: z.enum(['critical', 'high', 'medium', 'low']),
+    tier: z.enum(['guest', 'user', 'root']),
+    needsArg: z.literal(true),
+  }),
 ]);
 
 /** Fire a CVE at a port on a host on the caller's own LAN. No credential goes out —
@@ -357,6 +390,11 @@ export const runExploit = async (
       // Only when the player named one — an absent path is how the server learns a read
       // effect was fired blind, and a signed `arg: undefined` would be a field to verify.
       ...(params.arg === undefined ? {} : { arg: params.arg }),
+      // Only when the third token was a pair this box could read. Keyed on UNDEFINED
+      // rather than on emptiness: an empty string is a real payload — it is how a player
+      // plants an empty file — so dropping it for being falsy would send a write carrying
+      // nothing and have the target write out a file the player never meant to empty.
+      ...(params.content === undefined ? {} : { content: params.content }),
     });
     const body: unknown = await response.json();
     if (response.ok) {

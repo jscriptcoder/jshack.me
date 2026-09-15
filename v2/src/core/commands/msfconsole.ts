@@ -28,6 +28,7 @@ import { generateHomeLan } from '../generation/generateHomeLan';
 import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
 import { addressForTarget } from '../network/resolveName';
 import { homeDirectory } from '../sessions/homeDirectory';
+import { resolveAbsPath } from '../filesystem/path';
 import { errorLine, streamedResult, text } from './streaming';
 import type { Command, CommandEnv, CommandResult, TerminalLine } from './types';
 
@@ -35,6 +36,9 @@ const PHASE_DELAY_MS = 260;
 const MAX_PORT = 65535;
 const USAGE = 'usage: msfconsole <host> <port>';
 const USAGE_READ = 'usage: msfconsole <host> <port> <path>';
+/** A write takes a PAIR, not a path: the bytes come from a file on this box and land on
+ *  one over there, and naming only the destination would leave nothing to send. */
+const USAGE_WRITE = 'usage: msfconsole <host> <port> <local:remote>';
 
 /** Why the granted tier could not have the file a read effect aimed at, said in the
  *  tool's voice rather than the filesystem's raw code. */
@@ -51,6 +55,54 @@ const LIST_DENY: Readonly<Record<'not_found' | 'permission_denied' | 'not_a_dire
   not_found: 'No such directory',
   permission_denied: 'Permission denied',
   not_a_directory: 'That is a file, not a directory',
+};
+
+/** Why the LOCAL half of a write's `local:remote` could not be read — a failure on the
+ *  box the tool is run from, which is a different thing from the two maps above and has
+ *  to read like one. Those describe what the TARGET refused; this describes a file the
+ *  player does not have, and collapsing them would tell somebody their own typo was the
+ *  remote box holding out on them.
+ *
+ *  Worded as the file-reading commands word it (`cat`'s vocabulary, under this tool's own
+ *  prefix) rather than as `READ_DENY` does. Five commands already map an FS failure to a
+ *  line and no two agree — the differences are legacy parity, deliberately not
+ *  reconciled — so this joins that family instead of inventing a sixth phrasing. */
+const LOCAL_READ_DENY: Readonly<
+  Record<'not_found' | 'permission_denied' | 'is_directory', string>
+> = {
+  not_found: 'No such file or directory',
+  permission_denied: 'Permission denied',
+  is_directory: 'Is a directory',
+};
+
+/** Why the granted tier could not put a file where a write aimed it — the TARGET's
+ *  refusal, so it is worded as `READ_DENY` is rather than as the local map above. A
+ *  `not_found` here is not a missing file but a missing place to put one: the write
+ *  resolved a path whose containing directory is not there. */
+const WRITE_DENY: Readonly<Record<'not_found' | 'permission_denied' | 'is_directory', string>> = {
+  not_found: 'No such directory to write into',
+  permission_denied: 'Permission denied',
+  is_directory: 'That is a directory, not a file',
+};
+
+/** What an argument-taking hole asks for when it is fired blind. A write asks for a PAIR
+ *  where the reads ask for a path, so the three cannot share one sentence — a player who
+ *  fired without knowing the effect is told which kind of door they actually hit. */
+const NEEDS_ARG_LINE: Readonly<Record<'file_read' | 'dir_list' | 'file_write', string>> = {
+  file_read: `this exploit reads a file — name one: ${USAGE_READ}`,
+  dir_list: `this exploit lists a directory — name one: ${USAGE_READ}`,
+  file_write: `this exploit writes a file — name a pair: ${USAGE_WRITE}`,
+};
+
+/** The LOCAL half of a `local:remote` third token, or undefined when the token is not a
+ *  pair: first colon, and neither half may be empty.
+ *
+ *  The server splits the same token for its REMOTE half. The two halves are one grammar
+ *  and have to stay one — read differently, the bytes and the destination would come from
+ *  different readings of a single string the player typed once. */
+const localHalfOf = (arg: string): string | undefined => {
+  const colon = arg.indexOf(':');
+  return colon <= 0 || colon === arg.length - 1 ? undefined : arg.slice(0, colon);
 };
 
 const errorResult = (content: string): CommandResult => ({
@@ -73,6 +125,10 @@ type Attempt = {
   /** The path the player named for a read effect, or undefined — forwarded blind,
    *  since the client cannot know the effect the fire will roll. */
   readonly arg: string | undefined;
+  /** The bytes of the local half, when the token was a pair and this box could read it.
+   *  Carried blind for the same reason `arg` is: only the server knows whether the hole
+   *  it is about to fire writes anything. */
+  readonly content: string | undefined;
 };
 
 async function* fire(env: CommandEnv, attempt: Attempt): AsyncGenerator<TerminalLine, number> {
@@ -91,6 +147,7 @@ async function* fire(env: CommandEnv, attempt: Attempt): AsyncGenerator<Terminal
     parentSessionId: env.session.id,
     sourceIp: attempt.sourceIp,
     arg: attempt.arg,
+    content: attempt.content,
   });
 
   if (!result.ok) {
@@ -118,11 +175,7 @@ async function* fire(env: CommandEnv, attempt: Attempt): AsyncGenerator<Terminal
   // player who fired blind is told which kind they hit.
   if ('effect' in result) {
     if ('needsArg' in result) {
-      yield errorLine(
-        result.effect === 'file_read'
-          ? `[-] this exploit reads a file — name one: ${USAGE_READ}`
-          : `[-] this exploit lists a directory — name one: ${USAGE_READ}`,
-      );
+      yield errorLine(`[-] ${NEEDS_ARG_LINE[result.effect]}`);
       return 1;
     }
     yield text('[+] Exploit successful!');
@@ -148,6 +201,22 @@ async function* fire(env: CommandEnv, attempt: Attempt): AsyncGenerator<Terminal
     // pushed — the door is standing open, but nobody walked through it.
     if (result.effect === 'backdoor_port_open') {
       yield text(`[+] Backdoor planted on port ${result.port}`);
+      return 0;
+    }
+    // A write leaves something of the player's ON the box and stands them nowhere, so
+    // nothing is pushed and the cwd holds — the same shape a read ends in. The path is
+    // read off the ANSWER rather than split back out of what was typed: the box resolved
+    // it, so it is the only side that knows where the bytes really went.
+    if (result.effect === 'file_write') {
+      if (!result.write.ok) {
+        yield errorLine(
+          `[-] ${WRITE_DENY[result.write.error]} (as ${result.tier}): ${result.write.path}`,
+        );
+        return 1;
+      }
+      yield text(
+        `[+] Wrote ${result.write.bytes} bytes to ${result.write.path} (as ${result.tier})`,
+      );
       return 0;
     }
     if (!result.list.ok) {
@@ -215,8 +284,33 @@ const execute: Command['execute'] = async (env, args) => {
   }
   const { machineId } = resolveLanHostIdentity(host, essid);
 
+  // A `local:remote` token aims a WRITE, and its local half names a file on THIS box.
+  // Read here rather than on the server, which regenerates the target and has no view of
+  // this filesystem — through the same tier-scoped view `cat` reads, so a file this shell
+  // cannot have is not one the exploit can send. Read blind: the scan never says which
+  // effect a CVE carries, so any pair-shaped token is read in case the hole writes.
+  const localPath = rawArg === undefined ? undefined : localHalfOf(rawArg);
+  const local =
+    localPath === undefined ? undefined : env.fs.read(resolveAbsPath(env.fs.cwd(), localPath));
+
+  // Refused HERE rather than fired and failed. Nothing reached the daemon, so the target
+  // is owed no line about it — the same rule the server keeps for a read fired with no
+  // path. A player who mistyped their OWN path is told so without spending a break-in on
+  // somebody else's log to find out.
+  if (localPath !== undefined && local !== undefined && !local.ok) {
+    return errorResult(`msfconsole: ${localPath}: ${LOCAL_READ_DENY[local.error]}`);
+  }
+
   return streamedResult(
-    fire(env, { targetIp, port, essid, machineId, sourceIp: wlan0.ipv4, arg: rawArg }),
+    fire(env, {
+      targetIp,
+      port,
+      essid,
+      machineId,
+      sourceIp: wlan0.ipv4,
+      arg: rawArg,
+      content: local !== undefined && local.ok ? local.content : undefined,
+    }),
   );
 };
 
@@ -232,7 +326,7 @@ export const msfconsole: Command = {
   // even though some effects now read rather than land a shell.
   withoutScript: 'msfconsole: cannot be run from a script',
   manual: {
-    synopsis: 'msfconsole <host> <port> [path]',
+    synopsis: 'msfconsole <host> <port> [path | local:remote]',
     description:
       'Attempt to exploit the service listening on a port of a host on your network. ' +
       'No password is asked for and none is needed: if the version running there has a ' +
@@ -245,7 +339,12 @@ export const msfconsole: Command = {
       'it changes the password of the account that tier names and tells you the new one, ' +
       'which is then yours to use wherever that account is taken. A backdoor hole takes none ' +
       'either: it leaves a listener running on a port of its own choosing and tells you which, ' +
-      'and that door stays open long after the break-in is forgotten. ' +
+      'and that door stays open long after the break-in is forgotten. A write hole wants a ' +
+      'PAIR as its third argument — "local:remote" — and plants the contents of a file on ' +
+      'your own box at the path you name on theirs, at the tier the severity granted. It ' +
+      'reads your file before it fires, so a local path you cannot read stops it before the ' +
+      'target ever hears from you, and a file its tier cannot have over there comes back ' +
+      'refused with the break-in already written down. ' +
       'Find a candidate with "nmap -sV", ' +
       'which reports the version and names ' +
       'the vulnerability when one has been published, but never what it does — firing is ' +
@@ -257,13 +356,19 @@ export const msfconsole: Command = {
       {
         name: 'path',
         description:
-          'For a read hole, the file or directory to read — the exploit asks for one if omitted',
+          'For a read hole, the file or directory to read. For a write hole, a "local:remote" ' +
+          'pair — the file on your box, and where to put it on theirs. The exploit asks for ' +
+          'whichever it needs if omitted',
         required: false,
       },
     ],
     examples: [
       { command: 'msfconsole 192.168.1.5 22', description: 'Exploit the ssh service on a host' },
       { command: 'msfconsole web-04 80', description: 'Exploit a web server by its name' },
+      {
+        command: 'msfconsole 192.168.1.1 161 /home/me/note.txt:/tmp/note.txt',
+        description: 'Plant a file from your own box onto a router through its SNMP hole',
+      },
     ],
   },
   execute,

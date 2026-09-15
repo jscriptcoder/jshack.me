@@ -895,6 +895,141 @@ describe('runExploit', () => {
 
     expect(await runExploit(deps, params)).toEqual({ ok: false, error: 'network_error' });
   });
+
+  it('carries back a write as the bytes it planted, not as a shell', async () => {
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse(200, {
+        ok: true,
+        effect: 'file_write',
+        cve: 'CVE-2026-0712758',
+        severity: 'medium',
+        tier: 'guest',
+        write: { ok: true, bytes: 27, path: '/tmp/loot.txt' },
+      }),
+    );
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(
+      await runExploit(deps, {
+        ...params,
+        arg: '/home/attacker/loot.txt:/tmp/loot.txt',
+        content: 'the combination is 12-24-36\n',
+      }),
+    ).toEqual({
+      ok: true,
+      effect: 'file_write',
+      cve: 'CVE-2026-0712758',
+      severity: 'medium',
+      tier: 'guest',
+      write: { ok: true, bytes: 27, path: '/tmp/loot.txt' },
+    });
+  });
+
+  it('carries back a write the target refused, naming the path it refused', async () => {
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse(200, {
+        ok: true,
+        effect: 'file_write',
+        cve: 'CVE-2026-0712758',
+        severity: 'medium',
+        tier: 'guest',
+        write: { ok: false, error: 'permission_denied', path: '/etc/passwd' },
+      }),
+    );
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await runExploit(deps, { ...params, arg: '/home/a/x:/etc/passwd', content: 'x' })).toEqual(
+      {
+        ok: true,
+        effect: 'file_write',
+        cve: 'CVE-2026-0712758',
+        severity: 'medium',
+        tier: 'guest',
+        write: { ok: false, error: 'permission_denied', path: '/etc/passwd' },
+      },
+    );
+  });
+
+  it('carries back a request for a pair when a write hole is fired blind', async () => {
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse(200, {
+        ok: true,
+        effect: 'file_write',
+        cve: 'CVE-2026-0712758',
+        severity: 'medium',
+        tier: 'guest',
+        needsArg: true,
+      }),
+    );
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await runExploit(deps, params)).toEqual({
+      ok: true,
+      effect: 'file_write',
+      cve: 'CVE-2026-0712758',
+      severity: 'medium',
+      tier: 'guest',
+      needsArg: true,
+    });
+  });
+
+  it('signs the local bytes into the envelope, and omits them when the token was not a pair', async () => {
+    const withBytes = vi.fn(async () =>
+      jsonResponse(200, {
+        ok: true,
+        effect: 'file_write',
+        cve: 'CVE-2026-0712758',
+        severity: 'medium',
+        tier: 'guest',
+        write: { ok: true, bytes: 4, path: '/tmp/x' },
+      }),
+    );
+    await runExploit(makeDeps(withBytes as unknown as typeof fetch), {
+      ...params,
+      arg: '/home/a/x:/tmp/x',
+      content: 'abcd',
+    });
+    const signed = await verifyPayload(sentEnvelope(withBytes));
+    if (!signed.ok) throw new Error('expected a verified envelope');
+    expect(signed.payload).toMatchObject({ arg: '/home/a/x:/tmp/x', content: 'abcd' });
+
+    const bare = vi.fn(async () =>
+      jsonResponse(200, {
+        ok: true,
+        effect: 'file_read',
+        cve: 'CVE-2026-0184',
+        severity: 'high',
+        tier: 'user',
+        read: { ok: true, content: '' },
+      }),
+    );
+    await runExploit(makeDeps(bare as unknown as typeof fetch), { ...params, arg: '/etc/passwd' });
+    const withoutBytes = await verifyPayload(sentEnvelope(bare));
+    if (!withoutBytes.ok) throw new Error('expected a verified envelope');
+    // Absent on UNDEFINED, never on emptiness: an empty string is a real payload — it is
+    // how a player plants an empty file — so dropping it for being falsy would quietly
+    // turn a write into a fire that carried nothing.
+    expect(withoutBytes.payload).not.toHaveProperty('content');
+  });
+
+  it('refuses a write body that names no destination rather than reporting a file it cannot point to', async () => {
+    // Where the bytes landed IS the news — it is the only way the player finds the file
+    // again. A body without it would have the tool print a destination of `undefined` to
+    // the one person who needs to go looking.
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse(200, {
+        ok: true,
+        effect: 'file_write',
+        cve: 'CVE-2026-0712758',
+        severity: 'medium',
+        tier: 'guest',
+        write: { ok: true, bytes: 27 },
+      }),
+    );
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await runExploit(deps, params)).toEqual({ ok: false, error: 'network_error' });
+  });
 });
 
 describe('authElevateServerSession', () => {
