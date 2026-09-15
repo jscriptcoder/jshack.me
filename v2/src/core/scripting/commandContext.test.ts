@@ -14,6 +14,7 @@ import { echo } from '../commands/echo';
 import { ls } from '../commands/ls';
 import { nc } from '../commands/nc';
 import { scp } from '../commands/scp';
+import { msfconsole } from '../commands/msfconsole';
 import { commandRegistry } from '../commands/registry';
 import { buildDirectory, buildFile } from '../../test/factories/filesystem';
 import {
@@ -233,6 +234,22 @@ describe('a script calling the machine commands', () => {
     await expect(contextOf([nc], asRoot).context.nc('10.0.0.5', 4444)).rejects.toThrow(
       'nc: cannot be run from a script',
     );
+  });
+
+  it('lets a script fire an exploit, because a fired hole stands nobody anywhere', async () => {
+    // The refusal that used to sit here was about the SHELL a hole can hand over,
+    // not about firing one: most effects read, write or plant and leave the player
+    // exactly where they were. Sweeping a subnet is the thing scripting is for, so
+    // the command runs and the shell branches report instead of pushing.
+    //
+    // Called bare on purpose — reaching its own usage line proves the command was
+    // ENTERED rather than turned away at the gate, which is the whole claim here.
+    const { context, emitted } = contextOf([msfconsole]);
+
+    const out = await context.msfconsole();
+
+    expect(emitted.map((line) => line.content)).toEqual(['usage: msfconsole <host> <port>']);
+    expect(out.exitCode).toBe(1);
   });
 
   it('lets a command that needs a terminal run from a script when there IS one', async () => {

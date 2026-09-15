@@ -230,6 +230,24 @@ async function* fire(env: CommandEnv, attempt: Attempt): AsyncGenerator<Terminal
   }
 
   yield text('[+] Exploit successful!');
+
+  // A script has nowhere to be put. `env` is a per-line snapshot, so a session pushed
+  // from here would leave every line after it answering about a box the script itself
+  // cannot stand on — and the player would never see the prompt that proved it. The
+  // door is real and worth knowing about, so it is REPORTED and the caller is left
+  // exactly where it was, which is the bargain every non-shell effect already strikes.
+  if (env.scripted === true) {
+    // Told apart here as they are at the prompt below, and symmetrically rather than in
+    // the prompt's own two voices: a script BRANCHES on this line, and a caller matching
+    // "Got shell" against "Full shell" would have to know the asymmetry to see it.
+    yield text(
+      result.kind === 'exploit'
+        ? `[+] Full shell available on ${attempt.targetIp} as ${result.username}`
+        : `[+] Limited shell available on ${attempt.targetIp} as ${result.username}`,
+    );
+    return 0;
+  }
+
   // Two sentences for two doors. A full shell is an `ssh` hop in everything but how
   // it was reached; a limited one is the backdoor it resembles, and a player told
   // "Full shell" who then cannot pivot onward has been lied to by their own tool.
@@ -320,11 +338,6 @@ export const msfconsole: Command = {
   category: 'network',
   tier: 'guest',
   availability: { kind: 'any-machine' },
-  // A shell effect pushes a session the calling script cannot enter, and the grammar
-  // that would let a scripted fire report the door instead of standing nobody in it
-  // lands with the last of these effects. Until then msfconsole stays script-gated,
-  // even though some effects now read rather than land a shell.
-  withoutScript: 'msfconsole: cannot be run from a script',
   manual: {
     synopsis: 'msfconsole <host> <port> [path | local:remote]',
     description:
