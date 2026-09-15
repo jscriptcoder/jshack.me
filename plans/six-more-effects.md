@@ -223,10 +223,12 @@ wire-check therefore has to find its door with `readOpenPorts` against the gatew
 and the tier-account filter needs rethinking for an effect whose target is a file rather than an
 account.
 
-Established by reading the generators and the pinned world tables rather than by running the probe,
-which a tooling block prevented. Every number above is an assertion the suite already enforces, but
-the door has not yet been watched opening — treat the tier as confirmed-on-paper until a live run
-shows it.
+Confirmed by running the probe against the live generators, not only by reading them: across six
+unrelated ESSIDs every `.1` gateway answered on 161 with `net-snmp 5.9.4` and reported
+`CVE-2026-0712758` **from its own manifest read**, `hostServices` yielded zero snmp doors across 54
+hosts, and every gateway's account list came back `[root:root]` — so the tier-account filter drops a
+guest-tier effect there with certainty rather than merely probably. Unproven and not to be leaned
+on: ssh is rolled rather than pinned on the AP gateway, so its port 22 is not guaranteed.
 
 **Value:** A CVE writes a local file onto the target — planting or clobbering content the box
 then serves/reads.
