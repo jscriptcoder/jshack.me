@@ -5,16 +5,17 @@ close-out: "Phase 3 slice 4 — the defender patches" (#498, #499, v0.214.0–v0
 own-LAN scan fix detour (#500, #501, v0.216.0–v0.217.0).
 
 **Status:** Active — PR1 (file_read + dir_list) shipped at v0.218.0 (#502), PR2 (password_reset) at
-v0.219.0 (#503), PR3 (backdoor_port_open) at v0.220.0 (#504). PR4 (file_write) is next, branching
-from updated `main`.
+v0.219.0 (#503), PR3 (backdoor_port_open) at v0.220.0 (#504), PR4 (file_write) at v0.221.0 (#505).
+PR5 (script_exec) is next, branching from updated `main`.
 
 **Delivery:** Five independent PRs, sequenced to trunk (NOT a stack). Each merges to `main`;
 the next branches from updated `main`. They share a seam (the effect branch in the exploit
 handler and `msfconsole`) but no hard dependency — each is independently observable and
 shippable, and each un-built effect keeps collapsing to a limited shell until its own PR lands.
 
-**Branch for PR4:** `feat/exploit-file-write` (PR1 shipped from `feat/exploit-read-effects`, PR2
-from `feat/exploit-password-reset`, PR3 from `feat/exploit-backdoor-port`).
+**Branch for PR5:** `feat/exploit-script-exec` (PR1 shipped from `feat/exploit-read-effects`, PR2
+from `feat/exploit-password-reset`, PR3 from `feat/exploit-backdoor-port`, PR4 from
+`feat/exploit-file-write`).
 
 ---
 
@@ -203,7 +204,25 @@ the port is then reachable.
 - The pidfile carries the effect's tier so a later shell on it lands at that privilege.
 **Evidence:** RED-GREEN; mutation gate; wire-check with a backdoor case + a reachability check.
 
-### PR4 — file_write (local:remote CVE write)
+### PR4 — file_write (local:remote CVE write) — SHIPPED v0.221.0 (#505)
+
+The bytes come from the CLIENT — the server regenerates the target and has no view of the
+attacker's filesystem — and a local file the shell cannot read stops the fire before the target
+hears anything. Verified by RED-GREEN unit tests, a mutation gate (473 mutants, 82 → 70 survivors
+after six added tests, 390 → 402 killed with no new survivors) and a 45/45 live own-LAN wire-check.
+
+**What PR5 inherits, and the one open question.** The account gate was relaxed: `file_read`,
+`dir_list` and `file_write` now answer ABOVE the refusal that requires an account at the granted
+tier, because an effect aiming at a file needs nobody to BE — it acts AS the tier. Without that,
+this hole was unreachable at all (snmp is guest-tier on root-only routers). **PR5 must decide which
+side of that gate `script_exec` sits on**: it targets neither a file nor an account, and running as
+a tier nobody holds is a live design question, not a mechanical port. Also inherited: the
+`readOpenPorts` door-finder, for any effect whose door `doorsOn` cannot produce. Reachability looks
+clear — PR2's survey lists `script_exec` among the effects the world publishes at shipped versions,
+so like PR4 it likely needs no walk-forward; confirm rather than assume.
+
+Gameplay consequence, recorded: a rooted player can no longer close a `file_read` hole by deleting
+the account at its tier. It was never the way in.
 
 **Reachability — confirmed, and PR4 is the exception.** `snmp` rolls `file_write` at the version
 every box ships (the mapping `exploitEffect.test.ts` pins), and generated manifests really are built
