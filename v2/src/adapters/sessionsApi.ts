@@ -364,6 +364,32 @@ const exploitEffectSchema = z.union([
     tier: z.enum(['guest', 'user', 'root']),
     needsArg: z.literal(true),
   }),
+  /** ORDER IS LOAD-BEARING for this effect alone, and it is the blindness that makes it
+   *  so. Every other pair is told apart by a field the payload arm REQUIRES — `read`,
+   *  `list`, `write` — so a `needsArg` body fails that arm and falls through to its own.
+   *  This effect hands back no payload at all, so its success arm demands nothing beyond
+   *  the hole's identity and would match a `needsArg` body too, stripping the flag on the
+   *  way past (`z.object` drops what it does not declare). The ask therefore goes FIRST:
+   *  a body carrying the flag matches here, and one without it falls to the arm below. */
+  z.object({
+    ok: z.literal(true),
+    effect: z.literal('script_exec'),
+    cve: z.string().min(1),
+    severity: z.enum(['critical', 'high', 'medium', 'low']),
+    tier: z.enum(['guest', 'user', 'root']),
+    needsArg: z.literal(true),
+  }),
+  /** The effect having actually run — and the arm this validation matters most for: were
+   *  it missing, a fired script would take the `network_error` path and tell the player a
+   *  patch had beaten an exploit that in fact ran. There is nothing to validate past the
+   *  hole's own identity, which is the whole character of the effect. */
+  z.object({
+    ok: z.literal(true),
+    effect: z.literal('script_exec'),
+    cve: z.string().min(1),
+    severity: z.enum(['critical', 'high', 'medium', 'low']),
+    tier: z.enum(['guest', 'user', 'root']),
+  }),
 ]);
 
 /** Fire a CVE at a port on a host on the caller's own LAN. No credential goes out —
@@ -395,6 +421,11 @@ export const runExploit = async (
       // plants an empty file — so dropping it for being falsy would send a write carrying
       // nothing and have the target write out a file the player never meant to empty.
       ...(params.content === undefined ? {} : { content: params.content }),
+      // Only when a script actually ran. Keyed on UNDEFINED rather than on emptiness, as
+      // the bytes above are: a script that ran and wrote NOTHING is a real outcome — it
+      // reached the box and chose to leave it alone — and dropping an empty list for being
+      // falsy would report that back as a hole fired with nothing to run.
+      ...(params.writes === undefined ? {} : { writes: params.writes }),
     });
     const body: unknown = await response.json();
     if (response.ok) {

@@ -22,8 +22,13 @@
  * standing on a box the player was never put on.
  */
 
-import { asMachineId } from '../types';
+import { asAbsPath, asMachineId } from '../types';
 import { connectedWlan0 } from '../network/interfaces';
+import { createFsView } from '../filesystem/fsView';
+import { describeScriptError, runScript } from '../scripting/runScript';
+import { formatScriptValue } from '../scripting/format';
+import type { ScriptFs } from '../scripting/fsApi';
+import type { Directory } from '../filesystem/types';
 import { generateHomeLan } from '../generation/generateHomeLan';
 import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
 import { addressForTarget } from '../network/resolveName';
@@ -88,10 +93,15 @@ const WRITE_DENY: Readonly<Record<'not_found' | 'permission_denied' | 'is_direct
 /** What an argument-taking hole asks for when it is fired blind. A write asks for a PAIR
  *  where the reads ask for a path, so the three cannot share one sentence — a player who
  *  fired without knowing the effect is told which kind of door they actually hit. */
-const NEEDS_ARG_LINE: Readonly<Record<'file_read' | 'dir_list' | 'file_write', string>> = {
+const NEEDS_ARG_LINE: Readonly<
+  Record<'file_read' | 'dir_list' | 'file_write' | 'script_exec', string>
+> = {
   file_read: `this exploit reads a file — name one: ${USAGE_READ}`,
   dir_list: `this exploit lists a directory — name one: ${USAGE_READ}`,
   file_write: `this exploit writes a file — name a pair: ${USAGE_WRITE}`,
+  // Asks for the same shape a read does, and means something else by it: this path names
+  // a file on the attacker's OWN box, the one whose contents get run over there.
+  script_exec: `this exploit runs a script — name one: ${USAGE_READ}`,
 };
 
 /** The LOCAL half of a `local:remote` third token, or undefined when the token is not a
@@ -103,6 +113,57 @@ const NEEDS_ARG_LINE: Readonly<Record<'file_read' | 'dir_list' | 'file_write', s
 const localHalfOf = (arg: string): string | undefined => {
   const colon = arg.indexOf(':');
   return colon <= 0 || colon === arg.length - 1 ? undefined : arg.slice(0, colon);
+};
+
+/** A script's filesystem when the box it is running against is NOT this one.
+ *
+ *  Reads come off the target's own regenerated tree. Writes are COLLECTED rather than
+ *  sent, because nothing on this side is entitled to write that box: the fire carries
+ *  them, and the server re-walks every one at the tier the CVE granted before any of them
+ *  lands. A client can therefore propose whatever it likes and change nothing by it.
+ *
+ *  The tree is the box as the world GENERATES it, without the journal replayed over it —
+ *  reading that needs a session this effect never mints. So a script sees the box as it
+ *  shipped rather than as it stands, which is a fidelity cost the blindness of the effect
+ *  already carries elsewhere.
+ *
+ *  The view takes no tier, which reads as an ordinary user. Deliberately the
+ *  under-permissive side of the choice rather than the over: the tier is unknown until the
+ *  fire returns, a read this view refuses is simply a read the script does not get, and a
+ *  write it allows still has to survive the server's own walk at the real tier. */
+const targetScriptFs = (
+  tree: Directory,
+  collected: { path: string; content: string }[],
+): ScriptFs => {
+  const view = createFsView(tree, { cwd: asAbsPath('/') });
+  const resolve = (path: string) => resolveAbsPath(view.cwd(), path);
+  /** What the script would see at a path: its own latest write there if it has made one,
+   *  else the box's own file. Without this an append after a write would reach past the
+   *  script's own work to the generated file underneath it. */
+  const currentAt = (target: ReturnType<typeof resolve>): string => {
+    const written = [...collected].reverse().find((write) => write.path === target);
+    if (written !== undefined) return written.content;
+    const onBox = view.read(target);
+    return onBox.ok ? onBox.content : '';
+  };
+  return {
+    readFile: async (path) => {
+      const result = view.read(resolve(path));
+      // An ordinary `Error`, and worded without a command's name in front of it. The script
+      // is running on the TARGET, so a miss there is the box's answer rather than this
+      // tool's — and whatever is thrown here reaches the player through
+      // `describeScriptError`, which puts the error's own name at the front already.
+      if (!result.ok) throw new Error(`${path}: ${LOCAL_READ_DENY[result.error]}`);
+      return result.content;
+    },
+    writeFile: async (path, data) => {
+      collected.push({ path: resolve(path), content: formatScriptValue(data) });
+    },
+    appendFile: async (path, data) => {
+      const target = resolve(path);
+      collected.push({ path: target, content: `${currentAt(target)}${formatScriptValue(data)}` });
+    },
+  };
 };
 
 const errorResult = (content: string): CommandResult => ({
@@ -129,6 +190,23 @@ type Attempt = {
    *  Carried blind for the same reason `arg` is: only the server knows whether the hole
    *  it is about to fire writes anything. */
   readonly content: string | undefined;
+  /** Why a BARE third token could not be read on this box, or undefined when it read or
+   *  was never a local path at all.
+   *
+   *  Carried rather than acted on, because at the moment of reading nothing knows which
+   *  kind of token it is holding: a bare path is a file on the TARGET for the read holes
+   *  and a file on THIS box for the script hole. The failure only becomes news once the
+   *  server says the hole runs a script — before that it is an ordinary miss on a path
+   *  that was never ours to open. */
+  readonly localError: 'not_found' | 'permission_denied' | 'is_directory' | undefined;
+  /** What the script did, when a bare token named one this box could read. Undefined when
+   *  nothing was run at all — which is a different fact from having run and written
+   *  nothing, and the server tells the two apart on exactly that distinction. */
+  readonly writes: readonly { readonly path: string; readonly content: string }[] | undefined;
+  /** Why the script stopped early, or undefined when it finished. Carried rather than
+   *  printed, for the same reason `localError` is: a read hole aimed at a path that
+   *  happens to be valid JavaScript must not report a script failure nobody asked for. */
+  readonly scriptError: string | undefined;
 };
 
 async function* fire(env: CommandEnv, attempt: Attempt): AsyncGenerator<TerminalLine, number> {
@@ -148,6 +226,7 @@ async function* fire(env: CommandEnv, attempt: Attempt): AsyncGenerator<Terminal
     sourceIp: attempt.sourceIp,
     arg: attempt.arg,
     content: attempt.content,
+    writes: attempt.writes,
   });
 
   if (!result.ok) {
@@ -175,6 +254,14 @@ async function* fire(env: CommandEnv, attempt: Attempt): AsyncGenerator<Terminal
   // player who fired blind is told which kind they hit.
   if ('effect' in result) {
     if ('needsArg' in result) {
+      // The server knows only that it was handed nothing to run, so it asks for a script.
+      // This box knows the half the server cannot see: that a path WAS named and refused
+      // here. Printing the ask would tell somebody who typed one that they had typed none,
+      // and send them looking at the target for a mistake on their own disk.
+      if (result.effect === 'script_exec' && attempt.localError !== undefined) {
+        yield errorLine(`msfconsole: ${attempt.arg}: ${LOCAL_READ_DENY[attempt.localError]}`);
+        return 1;
+      }
       yield errorLine(`[-] ${NEEDS_ARG_LINE[result.effect]}`);
       return 1;
     }
@@ -217,6 +304,22 @@ async function* fire(env: CommandEnv, attempt: Attempt): AsyncGenerator<Terminal
       yield text(
         `[+] Wrote ${result.write.bytes} bytes to ${result.write.path} (as ${result.tier})`,
       );
+      return 0;
+    }
+    // A script ran on the box and left nothing to read back — not its output, which was
+    // never captured, and not a tally of what it managed to write, which would answer a
+    // question about the target's permissions the player never got to ask. So the line
+    // says the one thing there is to say, and stands them nowhere, as a write does.
+    if (result.effect === 'script_exec') {
+      // Said only now, once the box has confirmed this hole really does run something. The
+      // break-in still stands and whatever the script wrote before it stopped has already
+      // travelled with the fire — a side effect that landed cannot be unwound, and the box
+      // would not unwind it either. What the player is owed is where it stopped.
+      if (attempt.scriptError !== undefined) {
+        yield errorLine(`[-] Script injection failed: ${attempt.scriptError}`);
+        return 1;
+      }
+      yield text(`[+] Script injected on ${attempt.targetIp} as ${result.tier}`);
       return 0;
     }
     if (!result.list.ok) {
@@ -300,7 +403,7 @@ const execute: Command['execute'] = async (env, args) => {
   if (host === undefined) {
     return errorResult(connectFailure(targetIp, port, 'No route to host'));
   }
-  const { machineId } = resolveLanHostIdentity(host, essid);
+  const { machineId, baseFs } = resolveLanHostIdentity(host, essid);
 
   // A `local:remote` token aims a WRITE, and its local half names a file on THIS box.
   // Read here rather than on the server, which regenerates the target and has no view of
@@ -310,6 +413,29 @@ const execute: Command['execute'] = async (env, args) => {
   const localPath = rawArg === undefined ? undefined : localHalfOf(rawArg);
   const local =
     localPath === undefined ? undefined : env.fs.read(resolveAbsPath(env.fs.cwd(), localPath));
+
+  // A BARE token is read here too, and for the opposite reason the pair above is. A pair's
+  // local half is certainly ours; a bare path is a file on the TARGET for the read holes
+  // and a file on THIS box for the script hole, and nothing on this side can tell which it
+  // is holding until the server names the effect. So it is read blind and a failure is
+  // CARRIED rather than refused — refusing would stop every blind read aimed at a path this
+  // box happens not to have, before it ever reached the network.
+  const bareLocal =
+    rawArg === undefined || localPath !== undefined
+      ? undefined
+      : env.fs.read(resolveAbsPath(env.fs.cwd(), rawArg));
+
+  // Run BLIND, for the reason the read above is blind: the effect is not known until the
+  // server answers, so any bare token this box could read is executed in case the hole
+  // turns out to run one. It costs nothing when it does not — every other branch ignores
+  // the writes, the run reaches only the target's regenerated tree and never this box, and
+  // the failure is carried rather than printed, so a read hole aimed at a file that happens
+  // to be valid JavaScript never reports a script error nobody asked for.
+  const collected: { path: string; content: string }[] = [];
+  const scriptRun =
+    bareLocal !== undefined && bareLocal.ok
+      ? await runScript(bareLocal.content, { fs: targetScriptFs(baseFs, collected) })
+      : undefined;
 
   // Refused HERE rather than fired and failed. Nothing reached the daemon, so the target
   // is owed no line about it — the same rule the server keeps for a read fired with no
@@ -328,6 +454,13 @@ const execute: Command['execute'] = async (env, args) => {
       sourceIp: wlan0.ipv4,
       arg: rawArg,
       content: local !== undefined && local.ok ? local.content : undefined,
+      localError: bareLocal !== undefined && !bareLocal.ok ? bareLocal.error : undefined,
+      // Present whenever a script RAN, even when it wrote nothing: having reached the box
+      // and left it alone is a real outcome, and sending nothing would reach the server as
+      // the entirely different fire that had nothing to run at all.
+      writes: scriptRun === undefined ? undefined : collected,
+      scriptError:
+        scriptRun !== undefined && !scriptRun.ok ? describeScriptError(scriptRun.error) : undefined,
     }),
   );
 };
