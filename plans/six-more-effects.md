@@ -7,7 +7,8 @@ own-LAN scan fix detour (#500, #501, v0.216.0–v0.217.0).
 **Status:** Active — PR1 (file_read + dir_list) shipped at v0.218.0 (#502), PR2 (password_reset) at
 v0.219.0 (#503), PR3 (backdoor_port_open) at v0.220.0 (#504), PR4 (file_write) at v0.221.0 (#505),
 PR5 (scriptable `msfconsole`) at v0.222.0 (#506). PR6 (script_exec) is next, branching from updated
-`main` — its design is deliberately still open; see its section.
+`main` — its design is now settled (the client runs the script, the server validates and applies its
+writes) and carries the `WORLD_EPOCH` move; see its section.
 
 **Delivery:** Six independent PRs, sequenced to trunk (NOT a stack). Each merges to `main`;
 the next branches from updated `main`. They share a seam (the effect branch in the exploit
@@ -331,30 +332,100 @@ fires a real limited-shell door every run". It does not. That door is `192.168.7
 nginx index 0, which rolls `script_exec` and reaches a limited shell only through decision 31's
 collapse. Deferring `script_exec` keeps it standing; building it does not. See PR6.
 
-### PR6 — script_exec, once its design is settled
+### PR6 — script_exec (the client runs it, the server decides what it did)
 
-**Deliberately unsettled.** `script_exec` aims at neither a file nor an account, so PR4's
-account-gate exemption does not obviously extend to it — and the larger question is where a
-script could run at all. Three shapes were weighed; none is chosen yet:
+**Design settled, and the blueprint settled it.** `docs/rewrite-blueprint/sections/03-cve-and-exploits.md`
+§3.1.8 has this effect "blindly execute a JavaScript file on the remote machine as the specified
+tier", with "no output captured or returned" and "sandboxed — the script cannot call system commands
+or reach back to localhost". §3.1.5 then calls `file_write` "the gateway effect for persistence
+(plant a backdoor script, then execute it via script_exec)". The two are a designed PAIR, so
+plant-with-no-interpreter would not merely risk failing to earn the name — it would collapse two
+effects into one and delete the beat the pair exists for. Server-side eval stays rejected for the
+reason PR5 opens with: `runScript` builds a real `AsyncFunction` over player-supplied source, and
+firing that from the handler would execute player JavaScript inside the Vercel function.
 
-- **Plant the script, no interpreter.** The file lands at the granted tier and the server applies
-  a declared, computed side effect. Safe and cheap, reusing PR4's write machinery — but
-  mechanically close to `file_write` with extra steps, and may not earn the name.
-- **Client-side against a target-scoped context**, with a NEW signed action authorizing writes
-  under the live CVE rather than under a session. Most faithful to "runs on the target", and much
-  the largest: today a client may only write to a box it holds a session on, and this effect
-  mints none.
-- **Server-side eval.** Rejected, for the reason PR5 opens with.
+**The shape.** The CLIENT runs the script; the SERVER decides what it is allowed to have done.
+`msfconsole <host> <port> <path>` reads the local script through the same tier-scoped view the
+`local:remote` half already uses, runs it under `runScript` against the target's regenerated tree
+with an fs-only context — no commands, no localhost, which is the blueprint's sandbox stated as a
+context rather than enforced as a rule — and COLLECTS the writes it proposes instead of sending them
+as they happen. They travel with the one existing exploit fire. The server then re-walks every write
+at the granted tier through the same `resolveWriteTarget`/`createFsView` pair the `file_write` branch
+already uses, and applies only what that tier could have written itself.
 
-**What PR6 must not be surprised by.** Building it removes the last collapse, and the wire-check's
-"Limited shell" door goes with it — nginx/`script_exec` stops collapsing, so that section needs a
-genuine `shell_limited` roll. The nearest is openssh 9.8.3 at day 61 while the world sits on day
-45, so PR6 carries a `WORLD_EPOCH` move exactly as PR2 did; its staleness tripwire asserts `< 90`.
+**No new endpoint and no new signed action.** The plan previously assumed one was needed, on the
+premise that "a client may only write to a box it holds a session on". That premise is true of the
+CLIENT and false of the SERVER, which is the half that matters here: `file_write`, `password_reset`
+and `backdoor_port_open` all reach `deps.upsertPatch` today with no session behind them, and
+`snmpSet` describes itself as "the only place in the game where a player changes what a machine DOES
+without ever standing on it. NO SESSION ROW." The exploit action already IS the CVE-authorized write
+channel. What a client genuinely cannot do is read or write the target directly — `listPatches` and
+`upsertPatch` both pass `authorizeMachineAccess` — which is exactly why the writes ride the fire
+rather than going out on their own.
+
+**Why the client may read the target freely.** It cannot know the tier before it fires — decision 13
+makes firing the reveal — so the script runs against an UNFILTERED view and the tier is enforced only
+where it persists. That leaks nothing: seed-regen already hands the client the whole generated tree,
+so a script reading it learns only what `generateHomeLan` would have told the same client anyway. The
+blueprint's own rule survives intact because it is a rule about writes — a guest-tier script still
+cannot write a root-owned file, the server having refused it. Two costs, recorded rather than hidden:
+the script's reads are not tier-filtered, and they see the box WITHOUT its journal, since the patches
+need a session this effect never mints. Both sit comfortably inside an effect the blueprint calls
+blind.
+
+**A bare `<path>` is read locally, and failing to read it must NOT stop the fire.** `file_read` and
+`dir_list` take a bare path naming a file on the TARGET; `script_exec` takes one naming a file on the
+ATTACKER's own box. The client cannot tell which it is holding, so it reads the path locally, blind,
+and sends the bytes when it can. Unlike the `local:remote` pair — where an unreadable local half
+refuses before anything reaches the network — an unreadable bare path cannot refuse, or every blind
+`file_read` aimed at a path this box happens not to have would stop before the daemon ever heard
+from it.
+
+**What PR6 must not be surprised by.** Building it removes the LAST collapse. `mintsLimitedShell` in
+the wire-check excludes each effect as it gains real behaviour, and `script_exec` is the sixth and
+final exclusion — after which the predicate collapses to a single positive check on `shell_limited`
+and the exclusion list goes away entirely. The script HARD-EXITS (`process.exit(2)`) when it can find
+no limited-shell door, so a real one has to exist before the collapse goes: the nearest genuine
+`shell_limited` roll is openssh 9.8.3 at day 61 while the world sits on day 45, so the `WORLD_EPOCH`
+move lands in this same PR. **Correction to what this plan said earlier:** the staleness tripwire in
+`worldClock.test.ts` ALREADY asserts `toBeLessThan(90)` and needs no edit — moving the anchor back 16
+days, to 2026-07-16, puts the world on day 61 and stays well inside that bound.
 
 **Reachability, already confirmed.** `script_exec` is rolled at the version boxes ship by nginx
 (1.26.0, index 0, day 9, high → user, `CVE-2026-0269486`), and later by openssh 9.8.2, mysql
 8.0.38 and redis 7.3.0. vsftpd, bind9 and snmp never roll it — snmp by design, there being no
 interpreter behind an SNMP agent to inject one into.
+
+**Value:** A CVE runs the attacker's OWN script on the target — the persistence lever `file_write`
+is the gateway to, and the one effect whose consequences the player composes rather than picks from
+a list.
+**Actor/trigger/outcome:** player runs `msfconsole <host> <port> <path>` on a box whose service
+rolled `script_exec` → the writes the script made land on the target at the effect's tier, and the
+fire reports only that it ran.
+**Path:** client reads `<path>` from its own box (blind, and non-fatal when it cannot) → `runScript`
+over an fs-only context against the regenerated target → the collected writes travel on the existing
+exploit fire → handler branch `script_exec` re-walks each write at the granted tier through
+`resolveWriteTarget`/`createFsView` → applies the ones that pass → one trace, one ack.
+
+**Acceptance:**
+- A script that writes a file on the target leaves that file there after the fire, owned and
+  permissioned as a write at the granted tier would leave it.
+- A write the granted tier could not have made is dropped while the script's other writes still
+  land — the tier is enforced per write, not per script.
+- A script that throws partway keeps the writes it completed first. It really ran; the side effects
+  it had already caused are not unwound, and the player is told `Script injection failed: <error>`.
+- Firing with no path names the CVE and asks for one, the same reveal-by-firing the read effects use.
+- A `<path>` this box cannot read does NOT stop the fire — only the `local:remote` pair refuses early.
+- The script reaches an `fs` and nothing else: no command is callable and no localhost is reachable.
+- Nothing is read back to the player — the ack is `[+] Script injected on <host> as <tier>` and the
+  effect stays blind.
+- With the collapse removed, `shell_limited` still mints a limited shell, and the wire-check finds a
+  GENUINE limited-shell door on the moved epoch rather than a collapsed one.
+- Version bumped to v0.223.0 in `package.json` and `package-lock.json`.
+
+**Evidence:** RED-GREEN for each increment; the mutation gate over the changed core; a live own-LAN
+wire-check carrying a script case with a read-back, run on the moved epoch so the limited-shell
+section proves it found a real `shell_limited` roll.
 
 ---
 
