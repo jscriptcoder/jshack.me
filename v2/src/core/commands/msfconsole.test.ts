@@ -3,14 +3,16 @@ import { msfconsole } from './msfconsole';
 import {
   mockCommandEnv,
   mockExploitApi,
+  mockFsViewFromTree,
   mockNetworkViewFromConnectivity,
   mockSession,
 } from '../../test/factories/commandEnv';
+import { buildDirectory, buildFile } from '../../test/factories/filesystem';
 import { buildColdStartConnectivity } from '../network/interfaces';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
 import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
 import { asPlayerKeyHex } from '../types';
-import type { CommandResult, ExploitRunParams, ExploitRunResult, Session } from './types';
+import type { CommandResult, ExploitRunParams, ExploitRunResult, FsView, Session } from './types';
 import type { ConnectivityState, NetworkInterface } from '../network/interfaces';
 
 /**
@@ -80,9 +82,33 @@ const GRANTED_FULL: ExploitRunResult = {
   kind: 'exploit',
 };
 
+/** What the attacker's own box holds for a write's local half to name. */
+const LOCAL_LOOT = 'the combination is 12-24-36\n';
+
+/** The box the tool is RUN FROM, holding one readable file. A write reads its local half
+ *  here before firing, so a test that left this empty would be refused pre-flight and
+ *  never reach the server at all. */
+const attackerBox = (): FsView =>
+  mockFsViewFromTree(
+    buildDirectory({
+      home: buildDirectory({
+        attacker: buildDirectory(
+          { 'loot.txt': buildFile(LOCAL_LOOT, { owner: 'attacker' }) },
+          { owner: 'attacker' },
+        ),
+      }),
+    }),
+    { userType: 'user' },
+  );
+
+const WRITE_PAIR = '/home/attacker/loot.txt:/tmp/loot.txt';
+
 type EnvOpts = {
   readonly result?: ExploitRunResult;
   readonly connectivity?: ConnectivityState;
+  /** The box the tool is RUN FROM. Only a write effect reads it — its `local:remote`
+   *  names a file here, and the server has no way to see it. */
+  readonly fs?: FsView;
 };
 
 const exploitEnv = (opts: EnvOpts = {}) => {
@@ -97,6 +123,7 @@ const exploitEnv = (opts: EnvOpts = {}) => {
     session: mockSession(),
     network: mockNetworkViewFromConnectivity(opts.connectivity ?? connectedState()),
     exploit: mockExploitApi({ run }),
+    ...(opts.fs === undefined ? {} : { fs: opts.fs }),
     pushSession: (session) => void pushed.push(session),
     setCwd: (path) => void cwds.push(path),
     prompt,
@@ -317,6 +344,220 @@ describe('msfconsole', () => {
     // expected is its own message — the list side keeps its own vocabulary.
     expect(missing.text).toContain('[-] No such directory (as user): /nope');
     expect(file.text).toContain('[-] That is a file, not a directory (as user): /etc/passwd');
+  });
+
+  it('reads the local half of the pair off its own box and sends the bytes', async () => {
+    // The server holds no client filesystem, so the bytes have to travel. The local half
+    // names a file HERE and is read through the same tier-scoped view `cat` reads; only
+    // the remote half means anything to the target, and it is forwarded untouched.
+    const { env, run } = exploitEnv({ fs: attackerBox() });
+
+    await drain(await msfconsole.execute(env, [TARGET.ip, String(PORT), WRITE_PAIR], NO_FLAGS));
+
+    expect(run).toHaveBeenCalledWith(
+      expect.objectContaining({ arg: WRITE_PAIR, content: LOCAL_LOOT }),
+    );
+  });
+
+  it('names the bytes it planted and where, standing the player nowhere', async () => {
+    // A write is not a foothold: something of the attacker's is on the box, but nobody is
+    // — so nothing is pushed and the cwd never moves, exactly as a read leaves them.
+    //
+    // The PATH is read off the answer rather than split back out of what was typed. The
+    // box is the side that resolved it, so it is the only side that knows where the bytes
+    // actually landed; echoing the typed half would report a destination the write may
+    // have normalized away from.
+    const { env, pushed, cwds } = exploitEnv({
+      fs: attackerBox(),
+      result: {
+        ok: true,
+        effect: 'file_write',
+        cve: 'CVE-2026-0712758',
+        severity: 'medium',
+        tier: 'guest',
+        write: { ok: true, bytes: 27, path: '/tmp/loot.txt' },
+      },
+    });
+
+    const { text, exitCode } = await drain(
+      await msfconsole.execute(env, [TARGET.ip, String(PORT), WRITE_PAIR], NO_FLAGS),
+    );
+
+    expect(text).toContain('[*] Vulnerability: CVE-2026-0712758 (medium)');
+    expect(text).toContain('[+] Exploit successful!');
+    expect(text).toContain('[+] Wrote 27 bytes to /tmp/loot.txt (as guest)');
+    expect(exitCode).toBe(0);
+    expect(pushed).toEqual([]);
+    expect(cwds).toEqual([]);
+  });
+
+  it('names a write the granted tier could not land, and opens nothing', async () => {
+    // The remote path is read off the ANSWER rather than the typed token — a deny that
+    // echoed `local:remote` back would point the player at a file on their own box.
+    const { env, pushed } = exploitEnv({
+      fs: attackerBox(),
+      result: {
+        ok: true,
+        effect: 'file_write',
+        cve: 'CVE-2026-0712758',
+        severity: 'medium',
+        tier: 'guest',
+        write: { ok: false, error: 'permission_denied', path: '/etc/passwd' },
+      },
+    });
+
+    const { text, exitCode } = await drain(
+      await msfconsole.execute(
+        env,
+        [TARGET.ip, String(PORT), '/home/attacker/loot.txt:/etc/passwd'],
+        NO_FLAGS,
+      ),
+    );
+
+    // The break-in still succeeded — the hole opened, and only the file refused. Saying
+    // otherwise would read as a patched daemon and send the player hunting a version.
+    expect(text).toContain('[+] Exploit successful!');
+    expect(text).toContain('[-] Permission denied (as guest): /etc/passwd');
+    expect(exitCode).toBe(1);
+    expect(pushed).toEqual([]);
+  });
+
+  it('asks for a pair when a write exploit is fired without one, planting nothing', async () => {
+    // Reveal-by-firing, as the reads do — but a write asks for a PAIR where they ask for
+    // a path, so a player who fired blind is told which kind of door they actually hit.
+    const { env, pushed } = exploitEnv({
+      result: {
+        ok: true,
+        effect: 'file_write',
+        cve: 'CVE-2026-0712758',
+        severity: 'medium',
+        tier: 'guest',
+        needsArg: true,
+      },
+    });
+
+    const { text, exitCode } = await drain(
+      await msfconsole.execute(env, [TARGET.ip, String(PORT)], NO_FLAGS),
+    );
+
+    expect(text).toContain('[*] Vulnerability: CVE-2026-0712758 (medium)');
+    expect(text).toContain('writes a file');
+    expect(text).toContain('msfconsole <host> <port> <local:remote>');
+    // Nothing was planted, so it must not claim the success a landed write would.
+    expect(text).not.toContain('[+] Exploit successful!');
+    expect(exitCode).toBe(1);
+    expect(pushed).toEqual([]);
+  });
+
+  it('refuses before firing when the local half names a file it cannot read', async () => {
+    // The bytes can only come from this box, so a pair whose local half is not here aims
+    // at nothing. Refusing BEFORE the round trip is what keeps it off the target's log:
+    // nothing reached the daemon, so its owner is owed no line about it — the same rule
+    // the server already follows for a read fired with no path.
+    const { env, run, pushed } = exploitEnv();
+
+    const result = await msfconsole.execute(
+      env,
+      [TARGET.ip, String(PORT), '/home/attacker/missing.txt:/tmp/loot.txt'],
+      NO_FLAGS,
+    );
+
+    // The file it names is the LOCAL one. A player told the remote path was missing would
+    // go hunting on the wrong box entirely.
+    expect(syncText(result)).toBe(
+      'msfconsole: /home/attacker/missing.txt: No such file or directory',
+    );
+    expect(run).not.toHaveBeenCalled();
+    expect(pushed).toEqual([]);
+  });
+
+  it('treats a token with only one half as a plain path, reading nothing off this box', async () => {
+    // `local:remote` needs BOTH halves. A leading colon names no local file and a trailing
+    // one names no destination, so neither is a pair: each is forwarded exactly as typed and
+    // nothing here is read. Get either boundary wrong and the tool reads `/` — or the whole
+    // token — and refuses a fire that should have gone out.
+    for (const token of [':/tmp/loot.txt', '/home/attacker/loot.txt:']) {
+      const { env, run } = exploitEnv({ fs: attackerBox() });
+
+      await drain(await msfconsole.execute(env, [TARGET.ip, String(PORT), token], NO_FLAGS));
+
+      expect(run).toHaveBeenCalledWith(
+        expect.objectContaining({ arg: token, content: undefined }),
+      );
+    }
+  });
+
+  it('names a local half it cannot read in the tool’s own words, and fires nothing', async () => {
+    // A failure on the attacker's OWN box, which is a different thing from the target
+    // refusing — so it reads as `cat` reads, under this tool's prefix, and never as one of
+    // the remote deny lines.
+    const secret = exploitEnv({
+      fs: mockFsViewFromTree(
+        buildDirectory({
+          root: buildDirectory({ 'key.txt': buildFile('sekrit\n', { owner: 'root' }) }, {
+            owner: 'root',
+          }),
+        }),
+        { userType: 'user' },
+      ),
+    });
+    const directory = exploitEnv({ fs: attackerBox() });
+
+    const denied = await msfconsole.execute(
+      secret.env,
+      [TARGET.ip, String(PORT), '/root/key.txt:/tmp/loot.txt'],
+      NO_FLAGS,
+    );
+    const isDir = await msfconsole.execute(
+      directory.env,
+      [TARGET.ip, String(PORT), '/home/attacker:/tmp/loot.txt'],
+      NO_FLAGS,
+    );
+
+    expect(syncText(denied)).toBe('msfconsole: /root/key.txt: Permission denied');
+    expect(syncText(isDir)).toBe('msfconsole: /home/attacker: Is a directory');
+    expect(secret.run).not.toHaveBeenCalled();
+    expect(directory.run).not.toHaveBeenCalled();
+  });
+
+  it('names each way the target refused a write in its own words', async () => {
+    // A write's failures are not a read's: `not_found` here is not a missing file but a
+    // missing place to put one, and naming it "No such file" would send the player looking
+    // for something that was never supposed to exist yet.
+    const missing = exploitEnv({
+      fs: attackerBox(),
+      result: {
+        ok: true,
+        effect: 'file_write',
+        cve: 'CVE-2026-0712758',
+        severity: 'medium',
+        tier: 'guest',
+        write: { ok: false, error: 'not_found', path: '/nowhere/loot.txt' },
+      },
+    });
+    const ontoDir = exploitEnv({
+      fs: attackerBox(),
+      result: {
+        ok: true,
+        effect: 'file_write',
+        cve: 'CVE-2026-0712758',
+        severity: 'medium',
+        tier: 'guest',
+        write: { ok: false, error: 'is_directory', path: '/tmp' },
+      },
+    });
+
+    const gone = await drain(
+      await msfconsole.execute(missing.env, [TARGET.ip, String(PORT), WRITE_PAIR], NO_FLAGS),
+    );
+    const dir = await drain(
+      await msfconsole.execute(ontoDir.env, [TARGET.ip, String(PORT), WRITE_PAIR], NO_FLAGS),
+    );
+
+    expect(gone.text).toContain(
+      '[-] No such directory to write into (as guest): /nowhere/loot.txt',
+    );
+    expect(dir.text).toContain('[-] That is a directory, not a file (as guest): /tmp');
   });
 
   it('forwards the path the player typed to the server', async () => {

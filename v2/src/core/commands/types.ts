@@ -1026,6 +1026,12 @@ export type ExploitRunParams = {
    *  whatever was typed and the server uses it or asks for one. Present-and-undefined
    *  when nothing was typed, since the caller always sets it. */
   readonly arg?: string | undefined;
+  /** The bytes behind the LOCAL half of a `local:remote` token, read off the box the
+   *  tool is run from. A write effect's payload can only come from here: the server
+   *  regenerates the TARGET and has no view of the attacker's own filesystem, so bytes
+   *  it was not sent are bytes it cannot get. Undefined whenever the third token was
+   *  not a pair, or named a file this shell could not read. */
+  readonly content?: string | undefined;
 };
 
 /** What came back. On success the CVE is the attacker's to keep — they earned it,
@@ -1112,6 +1118,37 @@ export type ExploitRunResult =
       readonly severity: CveSeverity;
       readonly tier: UserType;
       readonly port: number;
+    }
+  /** A write plants something of the attacker's ON the box and stands them nowhere. The
+   *  bytes came from THIS machine — the server has no view of it — so the only news
+   *  coming back is whether they landed and where. `path` is the server's own resolved
+   *  destination rather than the half the player typed: the box is the side that
+   *  resolved it, so it is the only side that knows where the file actually went. It is
+   *  on the failure arm too, because a refusal has to name the remote path and the typed
+   *  token holds a local half that means nothing on the target. */
+  | {
+      readonly ok: true;
+      readonly effect: 'file_write';
+      readonly cve: string;
+      readonly severity: CveSeverity;
+      readonly tier: UserType;
+      readonly write:
+        | { readonly ok: true; readonly bytes: number; readonly path: string }
+        | {
+            readonly ok: false;
+            readonly error: 'not_found' | 'permission_denied' | 'is_directory';
+            readonly path: string;
+          };
+    }
+  /** The write fired with no `local:remote` pair — the same reveal-by-firing the reads
+   *  answer with, since a scan never says which effect a CVE carries. */
+  | {
+      readonly ok: true;
+      readonly effect: 'file_write';
+      readonly cve: string;
+      readonly severity: CveSeverity;
+      readonly tier: UserType;
+      readonly needsArg: true;
     }
   | {
       readonly ok: false;
