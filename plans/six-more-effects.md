@@ -4,15 +4,17 @@
 close-out: "Phase 3 slice 4 — the defender patches" (#498, #499, v0.214.0–v0.215.0), plus the
 own-LAN scan fix detour (#500, #501, v0.216.0–v0.217.0).
 
-**Status:** Active — PR1 (file_read + dir_list) shipped at v0.218.0 (#502) and PR2 (password_reset) at v0.219.0 (#503). PR3 (backdoor_port_open) is next, branching from updated `main`.
+**Status:** Active — PR1 (file_read + dir_list) shipped at v0.218.0 (#502), PR2 (password_reset) at
+v0.219.0 (#503), PR3 (backdoor_port_open) at v0.220.0 (#504). PR4 (file_write) is next, branching
+from updated `main`.
 
 **Delivery:** Five independent PRs, sequenced to trunk (NOT a stack). Each merges to `main`;
 the next branches from updated `main`. They share a seam (the effect branch in the exploit
 handler and `msfconsole`) but no hard dependency — each is independently observable and
 shippable, and each un-built effect keeps collapsing to a limited shell until its own PR lands.
 
-**Branch for PR3:** `feat/exploit-backdoor-port` (PR1 shipped from `feat/exploit-read-effects`,
-PR2 from `feat/exploit-password-reset`).
+**Branch for PR4:** `feat/exploit-file-write` (PR1 shipped from `feat/exploit-read-effects`, PR2
+from `feat/exploit-password-reset`, PR3 from `feat/exploit-backdoor-port`).
 
 ---
 
@@ -169,7 +171,25 @@ overwrite the hash → `upsertPatch` → return the plaintext.
 - A later login with the printed plaintext succeeds (hash round-trips through auth).
 **Evidence:** RED-GREEN; mutation gate; wire-check with a reset case + a subsequent auth check.
 
-### PR3 — backdoor_port_open (D5 chain reuse)
+### PR3 — backdoor_port_open (D5 chain reuse) — SHIPPED v0.220.0 (#504)
+
+Firing plants an `nc` listener pidfile on the target and reports the port, minting no session — a
+door left standing open rather than somewhere the attacker is now stood. The port is drawn from the
+same pool the world's own planted listeners use and is **seeded on the CVE**, so every box running
+that release opens the same port; nothing is stored, the server derives it as it plants the door.
+A listener already holding that port is overwritten at the effect's tier rather than refused —
+the port is a function of the CVE, so a collision is ordinary rather than exceptional, and refusing
+there would make a bounce mean something other than "the CVE is not live on that box". Verified by
+RED-GREEN unit tests, a scoped mutation gate (`exploitCreateSession.ts` re-measured alone: 168/173
+killed, 0 timeouts, zero survivors in the changed branch) and a 36/36 live own-LAN wire-check that
+ends by knocking at the planted port and opening through the real auth gate at the granted tier.
+
+**Reachability, and what it means for PR4.** `backdoor_port_open` needed the walk-forward PR2
+predicted: no shipped version rolls it, so the wire-check reaches it by pairing a findable daemon
+with a release that carries it (vsftpd 4.0.0, user tier). No epoch move was needed this time — day
+44 already had one, unlike PR2. **PR4 looks different:** `file_write` IS among the effects the world
+publishes at shipped versions (see PR2's note above), so it may need no walk at all. Confirm with a
+probe before writing the wire-check rather than assuming either way.
 
 **Value:** A CVE plants a quiet `nc` backdoor — a persistence mechanic that leaves a pidfile,
 reusing D5's chain forwarding whole.
