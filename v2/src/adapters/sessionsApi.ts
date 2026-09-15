@@ -320,6 +320,17 @@ const exploitEffectSchema = z.union([
     username: z.string().min(1),
     password: z.string().min(1),
   }),
+  z.object({
+    ok: z.literal(true),
+    effect: z.literal('backdoor_port_open'),
+    cve: z.string().min(1),
+    severity: z.enum(['critical', 'high', 'medium', 'low']),
+    tier: z.enum(['guest', 'user', 'root']),
+    /** Required, and range-checked as a port rather than taken as any number: a backdoor
+     *  whose port did not survive the wire is a door the player can never come back
+     *  through, which is worse than no backdoor at all. */
+    port: z.number().int().min(1).max(65535),
+  }),
 ]);
 
 /** Fire a CVE at a port on a host on the caller's own LAN. No credential goes out —

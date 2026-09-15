@@ -1100,6 +1100,19 @@ export type ExploitRunResult =
       readonly username: string;
       readonly password: string;
     }
+  /** A backdoor opens a door and walks away from it, standing the player nowhere. `port`
+   *  is the whole of what was earned: the number is not derivable from anything a scan
+   *  reported, so a player who cannot read it back holds a door they can never come
+   *  through. No username — the line on the box names the account, and the attacker's
+   *  business is with the port. */
+  | {
+      readonly ok: true;
+      readonly effect: 'backdoor_port_open';
+      readonly cve: string;
+      readonly severity: CveSeverity;
+      readonly tier: UserType;
+      readonly port: number;
+    }
   | {
       readonly ok: false;
       readonly error: 'not_vulnerable' | 'host_unreachable' | 'network_error';

@@ -404,6 +404,36 @@ describe('msfconsole', () => {
     expect(pushed).toEqual([]);
   });
 
+  it('names the port it left open, standing the player nowhere', async () => {
+    // The port is the whole of what the player earned: a backdoor they cannot name is a
+    // door they cannot come back through, and the number is not derivable from anything
+    // a scan already told them. Nothing is pushed — the door is open, nobody walked in.
+    const { env, pushed, cwds } = exploitEnv({
+      result: {
+        ok: true,
+        effect: 'backdoor_port_open',
+        cve: 'CVE-2026-0143486',
+        severity: 'medium',
+        tier: 'guest',
+        port: 1337,
+      },
+    });
+
+    const { text, exitCode } = await drain(
+      await msfconsole.execute(env, [TARGET.ip, String(PORT)], NO_FLAGS),
+    );
+
+    expect(text).toContain('[*] Vulnerability: CVE-2026-0143486 (medium)');
+    expect(text).toContain('[+] Exploit successful!');
+    expect(text).toContain('[+] Backdoor planted on port 1337');
+    // A backdoor aims at no path, so firing it bare is a complete fire rather than the
+    // half-fire a read hole answers with — it must never ask for a third argument.
+    expect(text).not.toContain('msfconsole <host> <port> <path>');
+    expect(exitCode).toBe(0);
+    expect(pushed).toEqual([]);
+    expect(cwds).toEqual([]);
+  });
+
   it('names the account it reset and the password the box will now take, standing the player nowhere', async () => {
     // The plaintext is the prize, so it has to reach the screen verbatim — a player who
     // cannot read back the exact string has been handed nothing. And a reset is not a
