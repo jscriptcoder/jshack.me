@@ -6,15 +6,16 @@ own-LAN scan fix detour (#500, #501, v0.216.0–v0.217.0).
 
 **Status:** Active — PR1 (file_read + dir_list) shipped at v0.218.0 (#502), PR2 (password_reset) at
 v0.219.0 (#503), PR3 (backdoor_port_open) at v0.220.0 (#504), PR4 (file_write) at v0.221.0 (#505).
-PR5 (script_exec) is next, branching from updated `main`.
+PR5 (scriptable `msfconsole`) is next, branching from updated `main`. `script_exec` split out to
+PR6 — see its section for why.
 
-**Delivery:** Five independent PRs, sequenced to trunk (NOT a stack). Each merges to `main`;
+**Delivery:** Six independent PRs, sequenced to trunk (NOT a stack). Each merges to `main`;
 the next branches from updated `main`. They share a seam (the effect branch in the exploit
 handler and `msfconsole`) but no hard dependency — each is independently observable and
 shippable, and each un-built effect keeps collapsing to a limited shell until its own PR lands.
 
-**Branch for PR5:** `feat/exploit-script-exec` (PR1 shipped from `feat/exploit-read-effects`, PR2
-from `feat/exploit-password-reset`, PR3 from `feat/exploit-backdoor-port`, PR4 from
+**Branch for PR5:** `feat/msfconsole-scriptable` (PR1 shipped from `feat/exploit-read-effects`,
+PR2 from `feat/exploit-password-reset`, PR3 from `feat/exploit-backdoor-port`, PR4 from
 `feat/exploit-file-write`).
 
 ---
@@ -107,8 +108,9 @@ still act, and `shell_full`/`shell_limited` report rather than push.
 
 ## Slices
 
-All five are **behavior change**: RED-GREEN-REFACTOR increments; the mutation-or-alternate
-gate runs once per PR at PR readiness; each handler-touching PR carries its wire-check. Bump
+All six are **behavior change**: RED-GREEN-REFACTOR increments; the mutation-or-alternate
+gate runs once per PR at PR readiness; each handler-touching PR carries its wire-check — PR5
+touches no handler and so carries none, which its own section argues. Bump
 the version in both `v2/package.json` and `v2/package-lock.json` per PR (0.217.0 → 0.218.0 …).
 
 ### PR1 — file_read + dir_list (the read payload + the third-arg seam) — SHIPPED v0.218.0 (#502)
@@ -262,38 +264,79 @@ form (usage error otherwise).
 - Missing / malformed `local:remote` returns the usage line.
 **Evidence:** RED-GREEN; mutation gate; wire-check with a write case + a read-back.
 
-### PR5 — script_exec + the decision-23 script grammar
+### PR5 — `msfconsole` becomes scriptable
 
-**Value:** A CVE injects and runs a script on the target (D9 runner), and `msfconsole` becomes
-scriptable — the last collapse is removed and mass exploitation is finally scriptable, which
-D9's own `sweep.js` example was reaching toward.
-**Actor/trigger/outcome:** player runs `msfconsole <host> <port> <script-path>` on a box whose
-service rolled `script_exec` → the local script runs blind on the target at the effect's tier.
-AND: from a `node` script, every state-changing effect still fires while `shell_full`/
-`shell_limited` report (`root shell available on <host>`) instead of pushing a session.
-**Path:** handler branch `script_exec` → run the supplied script through the D9 runner against
-the target → return an ack. Drop `withoutScript` from `msfconsole`; make the shell branches
-report-not-push when `env` indicates a scripted run.
+**Why this is its own PR.** The plan originally paired this with `script_exec`. The two separated
+once the runner was actually read rather than cited: `runScript` builds an `AsyncFunction` over
+player-supplied source and injects a context assembled from `CommandEnv`, and nothing server-side
+runs scripts at all. "Run the script on the target through the D9 runner" therefore describes
+evaluating a player's JavaScript inside the Vercel function — real code execution on our own
+infrastructure, the one thing in this repo that would not be simulated. The scriptable half needs
+none of that, is independently valuable, and ships first.
+
+**Value:** Mass exploitation becomes scriptable — what D9's own `sweep.js` example was reaching
+toward. A script fires a CVE at every host a scan found and branches on what came back.
+**Actor/trigger/outcome:** a `node` script calls `await msfconsole(host, port)` → every
+state-changing effect acts exactly as it does interactively, while a shell effect REPORTS the
+door instead of pushing a session the script could never have entered.
+**Path:** `commandContext` threads a scripted marker onto the env it already builds per call
+(`{ ...env, scripted: true }` — the shape `runLine` uses for `stdin`); `msfconsole` drops
+`withoutScript`, and its shell branches report rather than push when that marker is set. No
+handler branch is added: this PR changes no `api/` behavior.
 **Acceptance:**
-- A `script_exec` roll runs the script blind (side effects only, no target output).
-- `msfconsole` runs from a script; a scripted shell effect reports and mints no session the
-  script cannot enter; a scripted state-changing effect changes state as interactively.
+- `msfconsole` runs from a script; the refusal is gone.
+- A scripted `shell_full` roll reports the door, calls no `pushSession`, and leaves the cwd.
+- A scripted `shell_limited` roll reports too, worded apart from a full shell — a script told
+  "full" that then cannot pivot has been lied to by its own tool.
+- An INTERACTIVE shell roll still pushes the session and still moves the cwd.
+- Read, list, write, reset and backdoor behave identically scripted and interactive.
+- A scripted fire's stdout is ordinary stdout carrying `.exitCode`; a refusal still exits 1.
 - D9's per-line-snapshot rule stays intact.
-- A `shell_limited` roll still mints an `exploit_limited` session — the coverage debt below,
-  which this PR is the right place to clear.
-**Evidence:** RED-GREEN; mutation gate; wire-check with a script case; a scripted-run test
-proving the report-not-push grammar.
+**Evidence:** RED-GREEN through `msfconsole` and `commandContext`; mutation gate on `src/core/**`.
+Wire-check `N/A` as an EXTENSION, since no `api/` behavior changes — but run unchanged as a
+regression check, which is the alternate evidence this PR records.
 
-**Inherited coverage debt — the limited-shell branch.** PR1, PR2 and PR3 each peeled an effect
-off decision 31's collapse, and every one of them returns BEFORE the shell branch. That branch
-is now reached only by a genuine `shell_limited` roll, and no unit test exercises one: PR3's
-mutation run reports the `'exploit_limited'` literal in `exploitCreateSession.ts` as uncovered,
-and inverting `outcome.shell === 'full'` survives. Nothing is broken — the wire-check still
-fires a real limited-shell door every run — but the unit layer quietly stopped covering it as a
-side effect of the effects landing, and PR4 will narrow that path once more. Closing it needs a
-door walked onto a release whose hole rolls `shell_limited`, exactly as PR2 and PR3 each walked
-one onto theirs. PR5 is the right place because it reworks those shell branches for the
-report-not-push grammar, so it has to reach that code anyway.
+**Inherited coverage debt — the limited-shell branch, cleared here.** PR1–PR4 each peeled an
+effect off decision 31's collapse, and every one of them returns BEFORE the shell branch, which
+is now reached only by a genuine `shell_limited` roll. No unit test exercises one: PR3's mutation
+run reports the `'exploit_limited'` literal in `exploitCreateSession.ts` as uncovered, and
+inverting `outcome.shell === 'full'` survives.
+
+The door is known rather than hoped for. Walking every package's timeline shows `shell_limited`
+is rolled in exactly TWO places in the whole world: `openssh-server` 9.8.3 (index 6, publishes
+day 61, high → user, `CVE-2026-0194478`) and `snmp` 5.11.0 (index 19, day 163, medium → guest).
+nginx, vsftpd, mysql, redis and bind9 never roll it across 60–77 releases each. A unit test owns
+its own clock through `deps.now()`, so the openssh door closes this debt with NO epoch move.
+
+**A correction to what this plan used to claim here.** The old note said "the wire-check still
+fires a real limited-shell door every run". It does not. That door is `192.168.78.24:80 (http)` —
+nginx index 0, which rolls `script_exec` and reaches a limited shell only through decision 31's
+collapse. Deferring `script_exec` keeps it standing; building it does not. See PR6.
+
+### PR6 — script_exec, once its design is settled
+
+**Deliberately unsettled.** `script_exec` aims at neither a file nor an account, so PR4's
+account-gate exemption does not obviously extend to it — and the larger question is where a
+script could run at all. Three shapes were weighed; none is chosen yet:
+
+- **Plant the script, no interpreter.** The file lands at the granted tier and the server applies
+  a declared, computed side effect. Safe and cheap, reusing PR4's write machinery — but
+  mechanically close to `file_write` with extra steps, and may not earn the name.
+- **Client-side against a target-scoped context**, with a NEW signed action authorizing writes
+  under the live CVE rather than under a session. Most faithful to "runs on the target", and much
+  the largest: today a client may only write to a box it holds a session on, and this effect
+  mints none.
+- **Server-side eval.** Rejected, for the reason PR5 opens with.
+
+**What PR6 must not be surprised by.** Building it removes the last collapse, and the wire-check's
+"Limited shell" door goes with it — nginx/`script_exec` stops collapsing, so that section needs a
+genuine `shell_limited` roll. The nearest is openssh 9.8.3 at day 61 while the world sits on day
+45, so PR6 carries a `WORLD_EPOCH` move exactly as PR2 did; its staleness tripwire asserts `< 90`.
+
+**Reachability, already confirmed.** `script_exec` is rolled at the version boxes ship by nginx
+(1.26.0, index 0, day 9, high → user, `CVE-2026-0269486`), and later by openssh 9.8.2, mysql
+8.0.38 and redis 7.3.0. vsftpd, bind9 and snmp never roll it — snmp by design, there being no
+interpreter behind an SNMP agent to inject one into.
 
 ---
 
