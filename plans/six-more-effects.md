@@ -188,8 +188,8 @@ ends by knocking at the planted port and opening through the real auth gate at t
 predicted: no shipped version rolls it, so the wire-check reaches it by pairing a findable daemon
 with a release that carries it (vsftpd 4.0.0, user tier). No epoch move was needed this time — day
 44 already had one, unlike PR2. **PR4 looks different:** `file_write` IS among the effects the world
-publishes at shipped versions (see PR2's note above), so it may need no walk at all. Confirm with a
-probe before writing the wire-check rather than assuming either way.
+publishes at shipped versions (see PR2's note above), so it may need no walk at all — since
+confirmed, and recorded under PR4 below.
 
 **Value:** A CVE plants a quiet `nc` backdoor — a persistence mechanic that leaves a pidfile,
 reusing D5's chain forwarding whole.
@@ -204,6 +204,29 @@ the port is then reachable.
 **Evidence:** RED-GREEN; mutation gate; wire-check with a backdoor case + a reachability check.
 
 ### PR4 — file_write (local:remote CVE write)
+
+**Reachability — confirmed, and PR4 is the exception.** `snmp` rolls `file_write` at the version
+every box ships (the mapping `exploitEffect.test.ts` pins), and generated manifests really are built
+from `startingVersionOf` rather than from the newest release — so unlike PR2 and PR3 there is **no
+walk-forward to arrange**. The hole is `CVE-2026-0712758`, medium, published day 4, which puts the
+effect at **guest** tier. Reachability is pinned rather than rolled: `buildApGatewayBaseFs` sets
+`hasSnmp: true`, so every network's `.1` gateway runs the agent by construction.
+
+**The wire-check's own door-finder cannot see it, though**, for two independent reasons — this is the
+work PR4 has to do before it can write a write case. `doorsOn` enumerates ports through
+`hostServices`, which rolls against `placementOf`; snmp's flat `placement` is 0, and its only
+non-zero cells sit under the `router`/`switch` roles, which `roleOfHostname` never returns. The agent
+is planted by the router builders instead, so that roller yields an snmp door for no host at all.
+Separately, `doorsOn` keeps only a door with an account at the effect's tier — and routers are
+root-only filesystems while this effect is guest-tier, so it would be dropped a second time. PR4's
+wire-check therefore has to find its door with `readOpenPorts` against the gateway's planted pidfile,
+and the tier-account filter needs rethinking for an effect whose target is a file rather than an
+account.
+
+Established by reading the generators and the pinned world tables rather than by running the probe,
+which a tooling block prevented. Every number above is an assertion the suite already enforces, but
+the door has not yet been watched opening — treat the tier as confirmed-on-paper until a live run
+shows it.
 
 **Value:** A CVE writes a local file onto the target — planting or clobbering content the box
 then serves/reads.
