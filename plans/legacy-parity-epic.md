@@ -398,7 +398,7 @@ PHASE 3 — VULNERABILITIES                             GRILLED 09-09/09-10 + PL
       V slice 2 a CVE is visible              ✔ SHIPPED v0.212.0 (#496)
       V slice 3 a door opens                  ✔ SHIPPED v0.213.0 (#497)
       V slice 4 the defender patches          ✔ SHIPPED v0.214.0-v0.215.0 (#498, #499) <- LOOP CLOSED
-      V slice 5 six more effects              read/list/write/reset/backdoor/script
+      V slice 5 six more effects              ✔ SHIPPED v0.218.0-v0.223.0 (#502-#507)
       V slice 6 the exploit crosses networks  public IP, forwards, deep chain
       V slice 7 reboot evicts                 server-side session end
       V slice 8 libraries fall                ldd + msfconsole --local
@@ -439,7 +439,7 @@ POST-SHIP — MISSIONS
 | # | Slice | Includes | Acceptance |
 |---|---|---|---|
 | **V1** ✅ | **A scanner reads what version a service runs** — **GRILLED**, delivered as slices 1-2; **SHIPPED v0.210.0-v0.212.0 (#491, #494, #496)** | `/var/lib/dpkg/status` generated on every box (services + the 8 libraries + firmware on routers); `nmap -sV` VERSION column; `WORLD_EPOCH` + each package's first publication + the severity roll (the forward walk moved to slice 4); a CVE id and severity on a live one | `nmap -sV <host>` → real versions; the world is clean for ~3 days, then CVEs start landing; tier-3 readable (already allowlisted) |
-| **V2** ◐ | **A player breaks in with no credentials** — **GRILLED**, now slices 3, 5, 6; **slice 3 SHIPPED v0.213.0 (#497)**, slices 5-6 remain | `msfconsole <host> <port> [arg]`; all 8 effect kinds; the exploit session row; the `formatExploit` catalog column tracing BOTH outcomes; **server-side CVE recomputation** through the one shared module the client renders from | B finds a vulnerable version → `msfconsole` → `shell_full` with no password; a patched version refuses and the target logs the bounce |
+| **V2** ◐ | **A player breaks in with no credentials** — **GRILLED**, now slices 3, 5, 6; **slice 3 SHIPPED v0.213.0 (#497)** and **slice 5 SHIPPED v0.218.0-v0.223.0 (#502-#507)**, slice 6 remains | `msfconsole <host> <port> [arg]`; all 8 effect kinds; the exploit session row; the `formatExploit` catalog column tracing BOTH outcomes; **server-side CVE recomputation** through the one shared module the client renders from | B finds a vulnerable version → `msfconsole` → `shell_full` with no password; a patched version refuses and the target logs the bounce |
 | **V3** ◐ | **A defender patches and the exploit goes inert** — **GRILLED**, now slices 4 and 7; **slice 4 SHIPPED v0.214.0-v0.215.0 (#498, #499)**, slice 7 remains; `pkg=<version>` pinning moved to the attacker slices by decision 39 | `apt upgrade [pkg]`; `apt list -u` with the ETA status; `apt install pkg=<version>` downgrade-only; install sharing the upgrade resolver; `reboot` ending every session on the machine | A upgrades → B's working exploit now fails; inside the delay window A is told no fix exists; A reboots and B's shell drops |
 | **V4** ✔ | **A player escalates locally through a vulnerable library** — **GRILLED**, now slices 8 and 9 | Library timelines; `ldd`; `msfconsole --local`; the syslog trace; the extended dependency map + its effect pools; `metadata.libraryLinks` deleted; firmware as the third axis | B (guest) `msfconsole --local su` → root without the root password; `ldd /bin/su` shows the vulnerable lib; A upgrades to close it |
 
@@ -3675,7 +3675,7 @@ central mechanic unplayable until slice 6.
 | **2** ✅ | **A CVE is visible** — **SHIPPED v0.212.0 (#496)** | `WORLD_EPOCH` + each package's FIRST publication + the severity roll (the forward walk moved to slice 4, where `apt upgrade` is what first reaches past it); `nmap -sV` prints a CVE id and severity for a live one. The world is clean for three days and then starts moving. Nothing is exploitable yet — the player can only watch it happen |
 | **3** ✅ | **A door opens** — **SHIPPED v0.213.0 (#497)** | `msfconsole <host> <port>` against a generated NPC host on your own LAN; `shell_full` and `shell_limited`; the exploit session row; the `formatExploit` catalog column with BOTH outcomes traced. A stale NPC service hands over a shell with no credential, and the box records it |
 | **4** ✅ | **The defender patches** — **SHIPPED v0.214.0-v0.215.0 (#498, #499)** | `apt upgrade [package]`, `apt list -u` with the ETA status, install through the SAME resolver, a manifest row written on install, and **the forward timeline walk + the nearest-ancestor rule** deferred here from slice 2. **The loop closed**: A upgrades, B's working exploit now refuses, the session B already holds survives it, and inside the delay window A is told plainly that no fix exists |
-| **5** | **Six more effects** | `file_read`, `dir_list`, `file_write`, `password_reset`, `backdoor_port_open`, `script_exec` — the third-argument grammar, the CVE-authorized write and exec paths, and D5's backdoor chain forwarding reused whole |
+| **5** ✅ | **Six more effects** — **SHIPPED v0.218.0-v0.223.0 (#502-#507)** | `file_read`, `dir_list`, `file_write`, `password_reset`, `backdoor_port_open`, `script_exec` — decision 23's third-argument grammar, the CVE-authorized write and exec paths, and D5's backdoor chain forwarding reused whole. Six independent PRs to trunk, each peeling one effect off decision 31's collapse; `msfconsole` became scriptable on the way |
 | **6** | **The exploit crosses networks** | Public IPs, NAT forwards, inner gateways and the deep chain, through the resolvers `ssh` and `hydra` already share. The first real route to rooting another player |
 | **7** | **Reboot evicts** | `reboot` ends every session row on that machine server-side, not just the rebooter's stack. The defender gets an answer; the intruder who deleted `/boot/vmlinuz` gets the last laugh |
 | **8** | **Libraries fall** | Library timelines; `ldd`; `msfconsole --local <command>`; the syslog trace; the extended dependency map with its new effect pools; `metadata.libraryLinks` deleted. Guest becomes root without the root password |
@@ -4859,6 +4859,120 @@ pinning is owed to slice 5 or 6 and inherits this slice's resolver for free. Two
 hands it: a version off the timeline is now **ordinary** rather than exotic — every path that
 resolves one meets them routinely and the server agrees with the client about all of them — and
 `newestReleaseOn` already answers what a pin must be validated against.
+
+### Phase 3 slice 5 — six more effects ✅ SHIPPED v0.218.0–v0.223.0 (#502–#507)
+
+Retired here from `six-more-effects.md`, the way D3–D10, X1 and slices 1–4 each were. **Six
+independent PRs sequenced to trunk, not a stack** — each cut fresh from updated `main`, each
+peeling one effect off decision 31's collapse: `file_read`+`dir_list` (v0.218.0, #502),
+`password_reset` (v0.219.0, #503), `backdoor_port_open` (v0.220.0, #504), `file_write`
+(v0.221.0, #505), a scriptable `msfconsole` (v0.222.0, #506) and `script_exec` (v0.223.0,
+#507). Every intermediate `main` stayed shippable because an un-built effect kept collapsing
+to a limited shell until its own PR landed, and a refusal kept meaning exactly one thing —
+**the CVE is not live on that box**.
+
+**The roll was frozen throughout; only what an effect DOES changed.** `SERVICE_EFFECT_POOLS`
+and the seeded draw were never re-rolled, so nothing already published moved.
+
+**An effect is reachable only once a release CARRYING it has published.** This is the fact the
+slice kept re-learning and the one slice 6 should start from. No package's *starting* release
+rolls `password_reset` or `backdoor_port_open`, so a test reaches those only by walking the box
+onto a later release through the journal, exactly as `apt upgrade` does — which is why the
+wire-check pairs a door with a release rather than going looking for one. `file_write` and
+`script_exec` are different: both are rolled at the versions boxes ship (snmp 5.9.4 and nginx
+1.26.0 at index 0), so they needed no walk at all. Confirm reachability before writing a case;
+two PRs here assumed and were wrong.
+
+**`WORLD_EPOCH` moved twice, and both moves were forced by reachability rather than chosen.**
+2026-09-01 → 2026-08-01 (day 44) in PR2 to make `password_reset` reachable, then → **2026-07-12
+(day 65)** in PR6. Day 65 rather than day 61 deliberately: day 61 is the day openssh 9.8.3
+publishes, and anchoring a live global constant on a publication boundary is a fragility the
+plan had already avoided once. `worldClock.test.ts`'s staleness tripwire asserts `< 90` and
+needed no edit either time; 25 days of runway remain.
+
+**The account gate now answers ABOVE the refusal that requires an account at the granted tier.**
+An effect aiming at a *file* needs nobody to BE — it acts AS the tier. Without this the
+`file_write` hole was unreachable at all, snmp being guest-tier on root-only routers. Recorded
+cost, and it is a gameplay consequence rather than a bug: a rooted player can no longer close a
+`file_read` hole by deleting the account at its tier. It was never the way in.
+
+**A backdoor's port is seeded on the CVE, so a collision is ordinary rather than exceptional.**
+Every box running that release opens the same port and nothing is stored; a listener already
+holding it is overwritten at the effect's tier rather than refused — refusing there would make
+a bounce mean something other than "the CVE is not live on that box".
+
+**`script_exec` runs on the CLIENT and the SERVER decides what it was allowed to have done.**
+Server-side eval was rejected outright and stays rejected: `runScript` builds a real
+`AsyncFunction` over player-supplied source, so firing it from the handler would execute player
+JavaScript inside the Vercel function — the one thing in this repo that would not be simulated.
+Instead the script runs against the target's regenerated tree, its writes are COLLECTED, and
+they ride the one existing exploit fire; the server re-walks each at the granted tier through
+the same `resolveWriteTarget`/`createFsView` pair `file_write` uses. A write the tier could not
+make is **dropped** while the rest land, and a script that throws keeps what it already wrote —
+the script had already run, so a refusal would describe a veto nobody held. No new endpoint and
+no new signed action were needed: `file_write`, `password_reset` and `backdoor_port_open` all
+reach `upsertPatch` with no session behind them already.
+
+**Removing the last collapse removed the wire-check's limited-shell door with it.** Not
+anticipated, and the one thing that made PR6 more than an effect. `shell_limited` is rolled in
+exactly TWO places in the whole world — `openssh-server` 9.8.3 (index 6, day 61, high → user)
+and `snmp` 5.11.0 (index 19, day 163, medium → guest) — and neither is a shipped version, so
+once the collapse went the script's door-finder had nothing left to find and hard-exited. The
+door became a **walked** one and `mintsLimitedShell` was deleted rather than extended, its only
+caller gone. A walked door also cannot share the read door's box: both are ssh doors, the walk
+rewrites that box's manifest, and the read section fires afterwards expecting the shipped hole.
+
+**The blueprint's sandbox is half enforced, and this is a gap, not a closure.** §3.1.8 asks for
+"sandboxed — the script cannot call system commands or reach back to localhost". The injected
+context is `{ fs }` only, so no command is callable and that half is tested. But an
+`AsyncFunction` walls off no browser global, so **`fetch` remains reachable** from an injected
+script. Pre-existing behaviour of the script host rather than anything slice 5 introduced, and
+written down here rather than marked met.
+
+### Evidence
+
+Final suite **4885 tests / 218 files**; `npm run typecheck`, `npm run lint` and `npm run build`
+clean at v0.223.0.
+
+`scripts/testExploitOwnLan.ts` grew with the slice and stayed live against `vercel dev` +
+supabase: **26/26 → 31/31 → 36/36 → 45/45 → 45/45 (PR5 unchanged, no `api/` behaviour moved) →
+52/52**. The last run is the slice's own proof: the planted file lands with user-tier terms, the
+`/etc/passwd` write is dropped while the other lands, the trace names the CVE as `developer`, no
+session is minted, and the read door still answers `file_read` after the walked door has run on
+a different box.
+
+Mutation ran once per PR at its readiness gate. PR3 took `exploitCreateSession.ts` to 168/173
+killed with zero survivors in the changed branch; PR4 ran 473 mutants (82 → 70 survivors, 390 →
+402 killed); PR5 ran 599 across three files with none of its 68 survivors in the code it added;
+PR6 ran three times — **83.19% → 87.52% → 87.85%**, killed 500 → 528, no-coverage 23 → **0**,
+**zero timeouts on every run** (which is what makes the number quotable rather than a measure of
+machine load), ending at `worldClock.ts` 100%, `exploitCreateSession.ts` 98.51%, `msfconsole.ts`
+79.03%.
+
+**Two honesty notes kept deliberately.** PR5's `shell_limited` test and its two scripted-effect
+tests are characterization, not RED-first. PR6 is more mixed still: genuinely RED-first were the
+first handler test, all three adapter tests, three of four rendering tests and both
+script-running tests — while handler tests two through six are characterization, because that
+increment's GREEN over-implemented the write loop rather than writing the minimum, as are the
+seven tests added afterwards to kill mutants. The mutation delta is what earns those their
+place, not a RED they never had. **Three PR6 survivors are recorded UNRESOLVED** rather than
+claimed equivalent — the `written !== undefined` branch in `currentAt` and the two ternaries
+deciding whether a bare token was read and whether a script ran.
+
+**`exploitEffect.ts`'s 45 survivors were left alone, as slice 4 instructed.** They are
+`StringLiteral → ""` on a `readonly ExploitEffectKind[]` literal: compile errors Stryker scores
+as survived, not unreachable code. Slice 6 should leave them alone too.
+
+**➡️ NEXT: Phase 3 slice 6 — the exploit crosses networks.** Public IPs, NAT forwards, inner
+gateways and the deep chain, through the resolvers `ssh` and `hydra` already share — **the first
+real route to rooting another player**, and the slice where the first player-vs-player CVE
+lands after two slices of exercising the trace against NPCs. Everything slice 5 deferred under
+decision 34 is owed here: whose journal, whose log, whose source IP, and the public / forward /
+deep routes. Decision 39's `apt install pkg=<version>` downgrade-only pinning is owed here too
+and inherits slice 4's resolver for free. Two things slice 5 hands it: the effect branch in
+`handleExploitCreateSession` is now a settled six-way discriminated shape rather than a seam
+under construction, and `msfconsole` is scriptable, so mass exploitation across a chain is
+expressible the moment the routes exist.
 
 **X1 slice 1 SHIPPED at v0.206.0 (PR #487)** — a name resolves. `apt install dnsutils` installs
 `nslookup` and `dig`, and a name is now accepted anywhere an address was, through ONE shared
