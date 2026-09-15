@@ -215,8 +215,21 @@ report-not-push when `env` indicates a scripted run.
 - `msfconsole` runs from a script; a scripted shell effect reports and mints no session the
   script cannot enter; a scripted state-changing effect changes state as interactively.
 - D9's per-line-snapshot rule stays intact.
+- A `shell_limited` roll still mints an `exploit_limited` session — the coverage debt below,
+  which this PR is the right place to clear.
 **Evidence:** RED-GREEN; mutation gate; wire-check with a script case; a scripted-run test
 proving the report-not-push grammar.
+
+**Inherited coverage debt — the limited-shell branch.** PR1, PR2 and PR3 each peeled an effect
+off decision 31's collapse, and every one of them returns BEFORE the shell branch. That branch
+is now reached only by a genuine `shell_limited` roll, and no unit test exercises one: PR3's
+mutation run reports the `'exploit_limited'` literal in `exploitCreateSession.ts` as uncovered,
+and inverting `outcome.shell === 'full'` survives. Nothing is broken — the wire-check still
+fires a real limited-shell door every run — but the unit layer quietly stopped covering it as a
+side effect of the effects landing, and PR4 will narrow that path once more. Closing it needs a
+door walked onto a release whose hole rolls `shell_limited`, exactly as PR2 and PR3 each walked
+one onto theirs. PR5 is the right place because it reworks those shell branches for the
+report-not-push grammar, so it has to reach that code anyway.
 
 ---
 
