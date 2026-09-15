@@ -1409,6 +1409,17 @@ export type CommandEnv = {
   /** Piped input from a previous command in the pipeline. */
   readonly stdin?: AsyncIterable<string>;
 
+  /** Whether this call came from a SCRIPT rather than from a typed line. Absent at
+   *  the prompt; set by the script adapter, which is the one place that knows.
+   *
+   *  It grants nothing and forbids nothing on its own — a script already runs at the
+   *  same tier through the same walker as typing would. It exists for the commands
+   *  whose RESULT has nowhere to go in a script: a fired exploit can hand over a
+   *  shell, and `env` is a per-line snapshot, so a session pushed from a script would
+   *  leave every later line answering about a box the script cannot stand on. Those
+   *  commands report the door instead of standing nobody in it. */
+  readonly scripted?: boolean;
+
   /** Abort-aware delay for pacing streamed output (airodump-ng's scan, aircrack-ng's
    *  crack). Rejects when `signal` fires so Ctrl-C stops a stream mid-flight.
    *  The UI injects a real setTimeout-backed sleep; tests inject an instant one

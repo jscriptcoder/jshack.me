@@ -11,6 +11,7 @@ import { buildDirectory, buildFile } from '../../test/factories/filesystem';
 import { buildColdStartConnectivity } from '../network/interfaces';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
 import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
+import { buildCommandContext } from '../scripting/commandContext';
 import { asPlayerKeyHex } from '../types';
 import type { CommandResult, ExploitRunParams, ExploitRunResult, FsView, Session } from './types';
 import type { ConnectivityState, NetworkInterface } from '../network/interfaces';
@@ -82,6 +83,18 @@ const GRANTED_FULL: ExploitRunResult = {
   kind: 'exploit',
 };
 
+/** The weaker of the two grants — a room to search rather than a door to pivot onward
+ *  from. Its tier follows the severity the way the server's own table does, so the
+ *  fixture cannot drift into a pairing the world would never actually produce. */
+const GRANTED_LIMITED: ExploitRunResult = {
+  ok: true,
+  cve: 'CVE-2026-0185',
+  severity: 'medium',
+  username: 'guest',
+  userType: 'guest',
+  kind: 'exploit_limited',
+};
+
 /** What the attacker's own box holds for a write's local half to name. */
 const LOCAL_LOOT = 'the combination is 12-24-36\n';
 
@@ -143,6 +156,22 @@ const drain = async (
 const syncText = (result: CommandResult): string => {
   if (result.kind !== 'sync') throw new Error('sync expected');
   return result.lines.map((line) => line.content).join('\n');
+};
+
+/** `msfconsole` reached the way a SCRIPT reaches it, through the adapter rather than
+ *  through `execute` directly. The adapter is what marks the run as scripted, so a test
+ *  that called `execute` itself would prove nothing about scripted behaviour.
+ *
+ *  `emitted` collects what a call does NOT hand back — stderr and the dim asides. A
+ *  script's stdout is the return value alone, and keeping the two apart here is what lets
+ *  a test say which side of that line a sentence landed on. */
+const scriptedRun = (opts: EnvOpts = {}) => {
+  const { env, run, pushed, cwds } = exploitEnv(opts);
+  const emitted: string[] = [];
+  const context = buildCommandContext(env, new Map([[msfconsole.name, msfconsole]]), (line) =>
+    emitted.push(line.content),
+  );
+  return { fire: context.msfconsole, run, pushed, cwds, emitted };
 };
 
 describe('msfconsole', () => {
@@ -852,5 +881,97 @@ describe('msfconsole', () => {
       `msfconsole: connect to host ${TARGET.ip} port ${PORT}: Network is unreachable`,
     );
     expect(run).not.toHaveBeenCalled();
+  });
+
+  it('reports a full shell to a script instead of pushing one it could never enter', async () => {
+    // A script has nobody sitting in front of a terminal, and `env` is a per-line
+    // snapshot — so a session pushed from here would leave every later line in the
+    // script answering about a box the script itself cannot stand on. The door is
+    // still worth knowing about, so it is REPORTED and the player is left where
+    // they were, which is the same bargain every other effect already strikes.
+    //
+    // Driven through the script adapter rather than through a flag on the env,
+    // because that adapter is what a real scripted call goes through.
+    const { fire, pushed, cwds } = scriptedRun();
+
+    const out = await fire(TARGET.ip, String(PORT));
+
+    expect(pushed).toEqual([]);
+    expect(cwds).toEqual([]);
+    expect([...out]).toContain(`[+] Full shell available on ${TARGET.ip} as root`);
+    expect(out.exitCode).toBe(0);
+  });
+
+  it('tells a script a limited shell apart from a full one', async () => {
+    // The distinction the interactive path already draws, kept for the same reason: a
+    // caller told "Full" that then cannot pivot onward has been lied to by its own
+    // tool. A script is the one reader that cannot notice the difference for itself —
+    // there is no prompt in front of it to come back wrong — so the line has to carry
+    // the whole of it.
+    const { fire, pushed } = scriptedRun({ result: GRANTED_LIMITED });
+
+    const out = await fire(TARGET.ip, String(PORT));
+
+    expect(pushed).toEqual([]);
+    expect([...out]).toContain(`[+] Limited shell available on ${TARGET.ip} as guest`);
+    expect(out.exitCode).toBe(0);
+  });
+
+  it('lets a script fire the effects that ACT, and tells it what each one did', async () => {
+    // These return before the shell branch ever comes up, which is the whole reason the
+    // scripted check sits where it does. Moved to the top of the fire it would be just as
+    // green on the two tests above — and every reset, backdoor, read and write would
+    // quietly start reporting a door instead of doing its work.
+    const reset = scriptedRun({
+      result: {
+        ok: true,
+        effect: 'password_reset',
+        cve: 'CVE-2026-0186',
+        severity: 'low',
+        tier: 'guest',
+        username: 'guest',
+        password: 'pwned-0186-guest',
+      },
+    });
+    const backdoor = scriptedRun({
+      result: {
+        ok: true,
+        effect: 'backdoor_port_open',
+        cve: 'CVE-2026-0187',
+        severity: 'medium',
+        tier: 'guest',
+        port: 1337,
+      },
+    });
+
+    const afterReset = await reset.fire(TARGET.ip, String(PORT));
+    const afterBackdoor = await backdoor.fire(TARGET.ip, String(PORT));
+
+    expect(reset.run).toHaveBeenCalledTimes(1);
+    expect(backdoor.run).toHaveBeenCalledTimes(1);
+    expect([...afterReset]).toContain(
+      "[+] Password reset for 'guest' — new password: pwned-0186-guest",
+    );
+    expect([...afterBackdoor]).toContain('[+] Backdoor planted on port 1337');
+    expect(afterReset.exitCode).toBe(0);
+    expect(afterBackdoor.exitCode).toBe(0);
+    expect([...reset.pushed, ...backdoor.pushed]).toEqual([]);
+  });
+
+  it('hands a script the refusal as stderr and a nonzero exit, not as output to read', async () => {
+    // A script branches on the exit code; the sentence is for whoever is watching it run.
+    // If the refusal came back as stdout, a sweep collecting its findings would file "no
+    // vulnerability" beside the real ones, and a redirect would write it into the loot.
+    const { fire, emitted, pushed } = scriptedRun({
+      result: { ok: false, error: 'not_vulnerable' },
+    });
+
+    const out = await fire(TARGET.ip, String(PORT));
+
+    const refusal = `[-] Exploit failed — no known vulnerability on ${TARGET.ip}:${PORT}`;
+    expect(out.exitCode).toBe(1);
+    expect([...out]).not.toContain(refusal);
+    expect(emitted).toContain(refusal);
+    expect(pushed).toEqual([]);
   });
 });

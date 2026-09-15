@@ -203,7 +203,14 @@ export const buildCommandContext = (
         // running while its lines are arriving.
         env.setChildCommand(command.name);
         try {
-          const result = await command.execute(env, positional, flags);
+          // Marked here because this adapter IS the script path: everything reached
+          // through it is running from a script by construction, so a command that
+          // must behave differently there reads one field rather than being told.
+          const result = await command.execute(
+            { ...env, scripted: true },
+            positional,
+            flags,
+          );
           const { stdout, passthrough, exitCode } = await collectStageOutput(result);
           // Emitted BEFORE the second check, deliberately: the command really
           // did write those lines, and the interrupt is not a reason to keep
