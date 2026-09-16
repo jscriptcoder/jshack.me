@@ -665,9 +665,14 @@ describe('a device that filters the port its agent answers on', () => {
  * in that same row: otherwise a defender reading their own gateway's log would erase the
  * attacker's lines by looking at them.
  *
- * Every other box on the LAN is generated and ownerless in a different way — nobody's
- * lease has anything to do with it — so the caller's own key remains the only stable
- * thing there is to write under.
+ * A box on the hidden layer behind an inner gateway is ownerless in the same way and
+ * takes the same key. That chain is regenerated from the ESSID and every occupant walks
+ * the identical one, so the caller's own key — stable for one player, different for the
+ * next — would hand each walker a row of their own and let the newest erase the rest.
+ *
+ * The key is a BUCKET rather than a claim about who acted: the walker's identity is in
+ * the line itself, and the row is read back through the same resolver that chose it, so
+ * a read and a write cannot come to disagree about where the log lives.
  */
 describe("whose row a gateway's own log accretes under", () => {
   it('writes an occupant’s walk of their own gateway under the access point’s stable key', async () => {
@@ -696,13 +701,13 @@ describe("whose row a gateway's own log accretes under", () => {
     });
   });
 
-  it('writes a walk of a device down the forward chain under the caller’s own key', async () => {
+  it('writes a walk of a device down the forward chain under that same stable key', async () => {
     // Every agent-running device on a LAN that is NOT the edge `.1` is an inner gateway,
     // so this walk resolves down that gateway's own chain rather than on the regenerated
-    // LAN — a different vantage from the one above, and the reason the leases below
-    // change nothing. Nobody owns a box on a hidden layer and no lease names it, so the
-    // caller's key is the only stable thing there is to write under. Pinned beside the
-    // gateway so the AP's stable key reads as a branch rather than a blanket rule.
+    // LAN — a different vantage from the one above, reaching the same answer. Nobody owns
+    // a box on a hidden layer, but every occupant of the ESSID walks the very same one,
+    // so a row per caller means the newest wins outright on replay and whoever came
+    // before is simply gone.
     const identity = generateIdentity();
     const { essid, host } = deviceOfKind('switch');
     const neighbour = generateIdentity();
@@ -718,9 +723,12 @@ describe("whose row a gateway's own log accretes under", () => {
 
     await handleSnmpWalk(await signedWalk(identity, { essid, target_ip: host.ip }), deps);
 
+    // The lowest lease rather than the caller. The two leases above are arranged so those
+    // differ, because on a WiFi the caller holds alone they coincide and the claim could
+    // not be told apart from its own absence.
     expect(upsertPatch.mock.calls[0]![0]).toMatchObject({
       path: SNMPD_LOG_PATH,
-      writer_key: identity.publicKeyHex,
+      writer_key: neighbour.publicKeyHex,
     });
   });
 });

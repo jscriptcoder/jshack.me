@@ -63,6 +63,7 @@ import {
 import { portsOpenToNetwork } from '../network/portsOpenToNetwork';
 import { WORDLIST_PATH } from '../wordlist/defaultWordlist';
 import { serviceByName, type SweepLog } from '../services/serviceCatalog';
+import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter';
 import { sweepAccounts, wordlistOn } from '../wordlist/passwordSweep';
 import {
   appendMachineLog,
@@ -169,7 +170,8 @@ type SweepTarget = {
   readonly rebuild: (patches: readonly OwnerPatchRow[] | null) => Directory;
   /** Whose row the trace accretes under: the TARGET OWNER's on a real player's box,
    *  since the system owns its logs and two attackers must not erase each other; the
-   *  caller's own on a generated box nobody owns. */
+   *  ESSID's own stable key on a box nobody owns, which is shared by every occupant and
+   *  written by the data doors into the very same service log. */
   readonly writerKey: string;
   /** The address the target saw the sweep arrive from. */
   readonly fromIp: string;
@@ -249,15 +251,25 @@ const resolveSweepTarget = async (
     return { ok: false, response: { status: 404, body: { error: 'host_unreachable' } } };
   }
   const { machineId, baseFs } = resolveLanHostIdentity(host, request.essid);
+  // Nobody OWNS a generated box, but every occupant of the ESSID reaches the identical
+  // one, and the data doors file their lines into the very same service log on the very
+  // same id — so a sweep and a login that disagreed about the key would write two rows
+  // for one path, and replay keeps only whichever arrived last. The ESSID's lowest lease
+  // is the one bucket every door and every caller agrees on.
+  //
+  // Read here rather than above the occupancy branch on purpose: a lease failure is a
+  // refusal THERE, because a neighbour resolved without their address would be swept as
+  // the wrong box. Here it costs only the stable key, so it stays best-effort and the
+  // sweep still happens — the same posture the reach keeps.
+  const leases = await deps.listLeasesByEssid(request.essid);
+  const sharedKey = leases.error ? null : apGatewayLogWriterKey(leases.data ?? []);
   return {
     ok: true,
     target: {
       machineId,
       hostname: host.hostname,
       rebuild: (patches) => materializeMachineFs(baseFs, patches),
-      // Nobody owns a generated box, so the caller's key is the only stable thing
-      // there is to write the trace under.
-      writerKey: request.callerKey,
+      writerKey: sharedKey ?? request.callerKey,
       fromIp: request.standingIp ?? request.claimedIp ?? 'unknown',
     },
   };
