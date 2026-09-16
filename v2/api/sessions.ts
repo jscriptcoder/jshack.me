@@ -409,6 +409,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       findPatches: findPatchesVia({ supabase, label: 'exploit boot-state lookup' }),
       readLog: readAuthLogVia({ supabase, label: 'exploit trace read' }),
       upsertPatch: upsertPatchVia({ supabase, label: 'exploit trace upsert' }),
+      listLeasesByEssid: listLeasesByEssidVia({ supabase, label: 'exploit lan-lease list' }),
     });
     res.status(status).json(body);
     return;
