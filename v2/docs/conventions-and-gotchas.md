@@ -2972,11 +2972,20 @@ blocks the live PvP loop; each was a scoped owner decision, not a gap.
   one slice, with a test proving two occupants' lines coexist. The stale "private, per-viewer"
   docstrings that hid this were corrected across the codebase at D2.4 close-out.
 
-  **Mostly CLOSED at v0.225.0.** The deep ssh reach and the deep sweep now file under
-  `apGatewayLogWriterKey` on the ESSID's leases, alongside the reach's own two ownerless
-  branches and `hydraCrack`'s own-LAN sweep. The deep scan's `kern.log` (`nmapScanDeep`) is
-  the one path still caller-keyed, and it follows in this slice — `kern.log` has no competing
-  writer, which is why it could be split off safely where the others could not.
+  **CLOSED at v0.225.0**, and wider than the three paths above. Everything that touches an
+  ownerless box now files under `apGatewayLogWriterKey` on the ESSID's leases: the reach's
+  deep and own-LAN branches (so mysql/redis/snmp inherit it), `hydraCrack` own-LAN, the deep
+  sweep, the deep ssh reach, both scans, and the exploit's trace. A box with an OWNER is
+  unchanged and still keyed to them, and effect WRITES are unchanged and still keyed to the
+  actor — those rows are provenance and are meant to coexist.
+
+  Proven live by `scripts/testSharedBoxLogTruth.ts`: two players sweep one generated box,
+  and afterwards there is ONE row at that `(machine_id, /var/log/auth.log)`, keyed to a
+  third player who holds the lowest lease and never acted, holding both attackers' lines.
+  Reverting the rule takes it to 2/7 with `rows=2`, `+0 from bob`, `bob MISSING` — the data
+  loss itself, on the real journal's fold. That falsification is what makes the green run
+  worth anything; the other four candidate scripts pass UNCHANGED either way, because they
+  seed no leases and so only ever exercise the `?? publicKey` fallback.
 
   Two things the original entry did not predict. The blast radius was wider than "deep": the
   reach's OWN-LAN generated branch had the identical bug, and so did `hydraCrack`'s own-LAN
