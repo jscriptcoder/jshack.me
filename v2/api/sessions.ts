@@ -494,6 +494,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }),
       readAuthLog: readAuthLogVia({ supabase, label: 'inner-gateway auth-log read' }),
       upsertPatch: upsertPatchVia({ supabase, label: 'inner-gateway auth-log upsert' }),
+      listLeasesByEssid: listLeasesByEssidVia({
+        supabase,
+        label: 'inner-gateway lan-lease list',
+      }),
     });
     res.status(status).json(body);
     return;
@@ -818,6 +822,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       listPathPatches: listPathPatchesVia({ supabase, label: 'hydra deep wordlist read' }),
       readAuthLog: readAuthLogVia({ supabase, label: 'hydra deep auth-log read' }),
       upsertPatch: upsertPatchVia({ supabase, label: 'hydra deep auth-log upsert' }),
+      listLeasesByEssid: listLeasesByEssidVia({ supabase, label: 'hydra deep lan-lease list' }),
     });
     res.status(status).json(body);
     return;

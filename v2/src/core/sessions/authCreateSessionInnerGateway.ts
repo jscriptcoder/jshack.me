@@ -45,6 +45,8 @@ import {
 } from '../patches/appendMachineLog';
 import { asGameTime } from '../types';
 import type { PatchRow } from '../patches/upsertPatch';
+import type { LanLeaseRow } from '../network/lanAddress';
+import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter';
 import { DOOR_KINDS, type AuthSessionRow, type HandlerResponse } from './authCreateSession';
 import { listenerOn, readOpenPorts } from '../services/pidfile';
 import type { NonceStore } from '../signedRequest/nonceStore';
@@ -65,6 +67,13 @@ export type AuthCreateSessionInnerGatewayDeps = {
   readonly readAuthLog: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
   /** Write a patch (here: the appended auth.log line on the landed deep box). */
   readonly upsertPatch: (row: PatchRow) => Promise<{ readonly error: unknown }>;
+  /** Every lease held on this ESSID. A deep box is ownerless and ESSID-SHARED, so its
+   *  auth.log accretes under the lowest octet ever leased there rather than under whoever
+   *  reached it — the same bucket hydra's sweep and the data doors write into on that very
+   *  same box. */
+  readonly listLeasesByEssid: (
+    essid: string,
+  ) => Promise<{ readonly data: readonly LanLeaseRow[] | null; readonly error: unknown }>;
 };
 
 // The destination ssh port when the client sends none — a bare `ssh user@host` is
@@ -98,11 +107,11 @@ const authCreateSessionInnerGatewaySchema = z
  *  whoever is behind it. Best-effort: a logging failure must never break (or fabricate)
  *  the auth.
  *
- *  The writer is the CALLER's own key, which is a KNOWN DEFECT rather than a decision:
- *  these boxes are ESSID-seeded and shared, so two occupants reaching one of them write
- *  two rows, and the fold takes the later one — hiding the earlier player's line. The fix
- *  is a box-owned key on this write and on hydra's, together; see the backlog entry in
- *  `docs/conventions-and-gotchas.md` §9. */
+ *  The writer is the ESSID's own stable key — the lowest octet ever leased on it. These
+ *  boxes are ESSID-seeded and SHARED, so two occupants reaching one of them under their
+ *  own keys would write two rows for one path, and the fold takes the later one, hiding
+ *  the earlier player's line. It is the same bucket hydra's sweep and the data doors write
+ *  into on this box, which is what keeps one log one log however many doors reach it. */
 const logDeepReachAuth = async (
   deps: AuthCreateSessionInnerGatewayDeps,
   target: {
@@ -221,13 +230,18 @@ export const handleAuthCreateSessionInnerGateway = async (
   // gateway's `.1`. Landing on the inner gateway's own `:22` is a Layer-1 box (sourceIp
   // null), not a deep one, so it records nothing here.
   if (resolution.sourceIp !== null) {
+    // Read inside the guard, so a Layer-1 landing — which records nothing — costs no
+    // lookup. Best-effort like the write it feeds: a lease failure leaves the caller's
+    // key, which is worse than the shared one but better than losing the line.
+    const leases = await deps.listLeasesByEssid(payload.essid);
+    const sharedKey = leases.error ? null : apGatewayLogWriterKey(leases.data ?? []);
     await logDeepReachAuth(
       deps,
       {
         machineId: resolution.machineId,
         hostname: resolution.hostname,
         sourceIp: resolution.sourceIp,
-        writerKey: publicKey,
+        writerKey: sharedKey ?? publicKey,
       },
       { outcome: passwordOk ? 'success' : 'failure', user: payload.username },
     );
