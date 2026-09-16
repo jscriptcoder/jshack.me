@@ -399,10 +399,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   if (actionOf(req.body) === 'exploitCreateSession') {
     // A CVE fired at a generated host on the caller's own LAN, at the layer behind an
-    // inner gateway, or at the ACCESS POINT a public address names. No credential is sent
-    // or asked for: the handler recomputes the game day from THIS clock, resolves the
-    // target itself, reads its manifest, and decides what is published there and what it
-    // grants. The break-in lands in that daemon's own log on the remote host.
+    // inner gateway, or at a public address — which reaches the ACCESS POINT itself on a
+    // port it serves, and the box of whoever leases the address behind one of its
+    // forwards on a port it does not. No credential is sent or asked for: the handler
+    // recomputes the game day from THIS clock, resolves the target through the same
+    // resolver the login doors use, reads its manifest, and decides what is published
+    // there and what it grants. The break-in lands in that daemon's own log on the
+    // remote host, under the key that owns that machine's logs.
     const { status, body } = await handleExploitCreateSession(req.body, {
       nonceStore: noopNonceStore,
       now: () => Date.now(),
@@ -414,6 +417,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       findNetworkByPublicIp: findNetworkByPublicIpVia({
         supabase,
         label: 'exploit public-ip lookup',
+      }),
+      listOccupantsByEssid: listOccupantsByEssidVia<NatOccupantRow>({
+        supabase,
+        label: 'exploit occupant list',
       }),
       findHomeNetworkByOwnerKey: findHomeNetworkByOwnerKeyVia({
         supabase,

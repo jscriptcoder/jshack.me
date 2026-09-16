@@ -202,7 +202,7 @@ const openJournaledBox = async (
  *  there. `null` for "nobody on this WiFi is at that address", which is not a refusal:
  *  the generated world is asked next, and it is what an own-LAN player normally
  *  reaches. */
-type SameLanTarget = {
+export type SameLanTarget = {
   readonly occupant: NatOccupantRow;
   /** The caller's LEASED address — what the target's log records for this attempt. It
    *  is read here rather than taken from the request because a defender's log is their
@@ -225,7 +225,7 @@ type SameLanLookup =
  *  A read that FAILS is a refusal rather than a fall-through: quietly dropping to the
  *  generated world would route a player's statements onto a seeded box standing where
  *  a real player is, and write their data to it. */
-const resolveSameLanOccupant = async (
+export const resolveSameLanOccupant = async (
   deps: ServiceHostLookup,
   target: {
     readonly essid: string;
