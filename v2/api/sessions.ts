@@ -398,9 +398,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   if (actionOf(req.body) === 'exploitCreateSession') {
-    // A CVE fired at a generated host on the caller's OWN LAN. No credential is sent or
-    // asked for: the handler recomputes the game day from THIS clock, regenerates the
-    // target, reads its manifest, and decides what is published there and what it
+    // A CVE fired at a generated host on the caller's own LAN, at the layer behind an
+    // inner gateway, or at the ACCESS POINT a public address names. No credential is sent
+    // or asked for: the handler recomputes the game day from THIS clock, resolves the
+    // target itself, reads its manifest, and decides what is published there and what it
     // grants. The break-in lands in that daemon's own log on the remote host.
     const { status, body } = await handleExploitCreateSession(req.body, {
       nonceStore: noopNonceStore,
@@ -410,6 +411,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       readLog: readAuthLogVia({ supabase, label: 'exploit trace read' }),
       upsertPatch: upsertPatchVia({ supabase, label: 'exploit trace upsert' }),
       listLeasesByEssid: listLeasesByEssidVia({ supabase, label: 'exploit lan-lease list' }),
+      findNetworkByPublicIp: findNetworkByPublicIpVia({
+        supabase,
+        label: 'exploit public-ip lookup',
+      }),
+      findHomeNetworkByOwnerKey: findHomeNetworkByOwnerKeyVia({
+        supabase,
+        occupancyLabel: 'exploit source-ip occupancy',
+        lookupLabel: 'exploit source-ip lookup',
+      }),
     });
     res.status(status).json(body);
     return;
