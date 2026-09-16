@@ -1055,6 +1055,12 @@ export type ExploitRunResult =
       readonly username: string;
       readonly userType: UserType;
       readonly kind: ExploitShellKind;
+      /** The box the session actually landed on, as the SERVER resolved it. Carried for
+       *  the same reason `PublicAuthResult` carries one: a target off the generated LAN —
+       *  another player's box behind a forward, or a fellow occupant at an octet the
+       *  generator never filled — has no id this side can derive, and deriving one anyway
+       *  would name the seeded sibling that would have stood there instead. */
+      readonly machineId: string;
     }
   /** A read effect is not a foothold: it hands back a file read at the tier the
    *  severity granted, and stands the player nowhere. `read` carries the outcome —
