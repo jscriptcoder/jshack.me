@@ -1234,7 +1234,10 @@ describe('msfconsole', () => {
     expect(run).toHaveBeenCalledWith(expect.objectContaining({ targetIp: TARGET.ip }));
   });
 
-  it('tells the target which session opened the door and where it came from', async () => {
+  it('tells the target which session opened the door', async () => {
+    // Which session, and nothing about where it came from: the address the target's log
+    // names is the server's to derive from the lease it already holds. A client that
+    // offered one would be asking to be written up as somebody else.
     const { env, run } = exploitEnv();
 
     await drain(await msfconsole.execute(env, [TARGET.ip, String(PORT)], NO_FLAGS));
@@ -1244,7 +1247,6 @@ describe('msfconsole', () => {
         essid: ESSID,
         port: PORT,
         parentSessionId: env.session.id,
-        sourceIp: SOURCE_IP,
       }),
     );
   });

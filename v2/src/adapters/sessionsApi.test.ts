@@ -564,7 +564,6 @@ describe('runExploit', () => {
     targetIp: '192.168.1.31',
     port: 22,
     parentSessionId: 'shell-1',
-    sourceIp: '192.168.1.50',
   };
 
   it('POSTs a signed exploitCreateSession envelope carrying an address and a port and no credential', async () => {
@@ -599,12 +598,15 @@ describe('runExploit', () => {
       target_ip: '192.168.1.31',
       port: 22,
       parent_session_id: 'shell-1',
-      source_ip: '192.168.1.50',
     });
-    // Nothing about the hole travels outward: the server derives all of it.
+    // Nothing about the hole travels outward: the server derives all of it. The address
+    // joins that list — the server holds the lease that settles where the caller stands,
+    // and the door refuses an envelope offering one, so sending it would fail the fire
+    // outright rather than be ignored.
     expect(verified.payload).not.toHaveProperty('username');
     expect(verified.payload).not.toHaveProperty('password');
     expect(verified.payload).not.toHaveProperty('cve');
+    expect(verified.payload).not.toHaveProperty('source_ip');
   });
 
   it('carries back the weaker grant as its own kind', async () => {

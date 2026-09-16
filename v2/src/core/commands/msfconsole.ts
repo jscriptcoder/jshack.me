@@ -182,7 +182,6 @@ type Attempt = {
   readonly port: number;
   readonly essid: string;
   readonly machineId: string;
-  readonly sourceIp: string | null;
   /** The path the player named for a read effect, or undefined — forwarded blind,
    *  since the client cannot know the effect the fire will roll. */
   readonly arg: string | undefined;
@@ -223,7 +222,6 @@ async function* fire(env: CommandEnv, attempt: Attempt): AsyncGenerator<Terminal
     targetIp: attempt.targetIp,
     port: attempt.port,
     parentSessionId: env.session.id,
-    sourceIp: attempt.sourceIp,
     arg: attempt.arg,
     content: attempt.content,
     writes: attempt.writes,
@@ -451,7 +449,6 @@ const execute: Command['execute'] = async (env, args) => {
       port,
       essid,
       machineId,
-      sourceIp: wlan0.ipv4,
       arg: rawArg,
       content: local !== undefined && local.ok ? local.content : undefined,
       localError: bareLocal !== undefined && !bareLocal.ok ? bareLocal.error : undefined,
