@@ -10,11 +10,11 @@
  *
  * The line lists that host's open ports — POST-ACL when the vantage is a switch,
  * whose `/etc/switch/acl.conf` is read off its materialized journal — sourced from
- * the fronting gateway's downstream `.1`. The writer is the CALLER's own key, in parity
- * with the deep-reach auth.log and the deep sweep — and, like both, a KNOWN DEFECT rather
- * than a decision: deep boxes are ESSID-seeded and SHARED, so two occupants scanning one
- * write two rows and the fold takes the later, hiding the earlier player's line. All three
- * move together when it is fixed; see `docs/conventions-and-gotchas.md` §9.
+ * the fronting gateway's downstream `.1`. The writer is the ESSID's own stable key — the
+ * lowest octet ever leased on it — in parity with the deep-reach auth.log and the deep
+ * sweep. Deep boxes are ESSID-seeded and SHARED, so two occupants scanning one under their
+ * own keys would write two rows and the fold would take the later, hiding the earlier
+ * player's line.
  *
  * Best-effort logging: a per-host write failure never fails the scan; the action
  * reports how many hosts the scan target touched.
@@ -42,6 +42,8 @@ import { asGameTime } from '../types';
 import type { PatchRow } from '../patches/upsertPatch';
 import type { NonceStore } from '../signedRequest/nonceStore';
 import type { HandlerResponse } from './nmapScan';
+import type { LanLeaseRow } from '../network/lanAddress';
+import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter';
 
 export type NmapScanDeepDeps = {
   readonly nonceStore: NonceStore;
@@ -58,6 +60,12 @@ export type NmapScanDeepDeps = {
   readonly findPatches: (query: {
     readonly machine_id: string;
   }) => Promise<{ readonly data: readonly OwnerPatchRow[] | null; readonly error: unknown }>;
+  /** Every lease held on this ESSID. A deep host is ownerless and ESSID-SHARED, so its
+   *  kern.log accretes under the lowest octet ever leased there rather than under whoever
+   *  scanned it — the same bucket every other door writes into on that very same box. */
+  readonly listLeasesByEssid: (
+    essid: string,
+  ) => Promise<{ readonly data: readonly LanLeaseRow[] | null; readonly error: unknown }>;
 };
 
 const OK_NOTHING: HandlerResponse = { status: 200, body: { ok: true, hostsLogged: 0 } };
@@ -150,12 +158,19 @@ export const handleNmapScanDeep = async (
       )
     : [];
 
+  // Read ONCE for the whole scan rather than per touched host: every host on this layer
+  // is on the same ESSID, so the answer cannot differ between them, and a scan covering a
+  // /24 would otherwise re-read the same leases for every box it swept. Best-effort like
+  // the writes it feeds — a lease failure costs the stable key, never the trace.
+  const leases = await deps.listLeasesByEssid(payload.essid);
+  const sharedKey = leases.error ? null : apGatewayLogWriterKey(leases.data ?? []);
+
   const time = deps.now();
   for (const entry of touched) {
     await logDeepHostScan(deps, {
       entry,
       sourceIp: resolution.sourceIp,
-      writerKey: publicKey,
+      writerKey: sharedKey ?? publicKey,
       time,
     });
   }

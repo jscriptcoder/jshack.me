@@ -28,6 +28,7 @@ import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
 import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
 import { lanAddressesByOwner, type LanLeaseRow } from '../network/lanAddress';
+import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter';
 import {
   parseScanTarget,
   hostsInScanTarget,
@@ -113,10 +114,14 @@ const nmapScanSchema = z
   .refine((payload) => !('player_key' in payload));
 
 type ScanContext = {
-  readonly publicKey: string;
   readonly essid: string;
   readonly sourceIp: string;
   readonly time: number;
+  /** Whose row every own-LAN trace in this sweep lands in: the ESSID's stable key, since
+   *  these boxes are the generator's and the access point's rather than any player's.
+   *  Resolved ONCE for the sweep — every host is on the same ESSID, so the answer cannot
+   *  differ between them, and a `/24` would otherwise re-read identical leases per box. */
+  readonly writerKey: string;
 };
 
 /** Stamp one host's kern.log with the aggregate scan line via the shared system-
@@ -131,7 +136,8 @@ const logHostScan = async (
   // and an inner gateway log on their real router record + real ports (their
   // `hostMachineId` is a dead-end nobody reads, and the generic FS would log "ports
   // none" for a box visibly running ssh); a generic NPC sibling keeps its coordinate
-  // path. The writer stays the caller, who is the owner on this own-LAN path.
+  // path. The writer is the ESSID's, resolved once for the whole sweep: nobody owns a
+  // generated box, and every occupant of this WiFi scans the identical one.
   const { machineId, baseFs: hostFs } = resolveLanHostIdentity(host, context.essid);
   const ports = readOpenPorts(hostFs);
   const line = formatNmapScanAggregate({
@@ -144,7 +150,7 @@ const logHostScan = async (
     await appendMachineLog(
       { readLog: deps.readLog, upsertPatch: deps.upsertPatch },
       {
-        writerKey: context.publicKey,
+        writerKey: context.writerKey,
         machineId,
         path: KERN_LOG_PATH,
         owner: KERN_LOG_OWNER,
@@ -257,11 +263,17 @@ export const handleNmapScan = async (
   const parsed = parseScanTarget(payload.target, lan.subnet);
   const hosts = parsed.ok ? hostsInScanTarget(lan, parsed.target) : [];
 
+  // One read for the whole sweep. Best-effort like the writes it feeds: a lease failure
+  // costs the stable key, never the traces — and an ESSID nobody has ever leased an
+  // address on has no stable key to offer, which is the one case left on the caller's.
+  const leases = await deps.listLeasesByEssid(payload.essid);
+  const sharedKey = leases.error ? null : apGatewayLogWriterKey(leases.data ?? []);
+
   const context: ScanContext = {
-    publicKey,
     essid: payload.essid,
     sourceIp: payload.source_ip ?? 'unknown',
     time: deps.now(),
+    writerKey: sharedKey ?? publicKey,
   };
   for (const host of hosts) {
     await logHostScan(deps, context, host);
