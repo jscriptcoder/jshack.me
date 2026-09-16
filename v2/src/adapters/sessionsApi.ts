@@ -254,14 +254,28 @@ export const authCreateServerSessionSameLan = async (
 /** The grant, validated at the trust boundary rather than cast: its `kind` decides
  *  whether the player gets a terminal and its `userType` decides what the box will
  *  let them do, so a malformed body must never become a session. */
-const exploitGrantSchema = z.object({
-  ok: z.literal(true),
-  cve: z.string().min(1),
-  severity: z.enum(['critical', 'high', 'medium', 'low']),
-  username: z.string().min(1),
-  userType: z.enum(['guest', 'user', 'root']),
-  kind: z.enum(['exploit', 'exploit_limited']),
-});
+const exploitGrantSchema = z
+  .object({
+    ok: z.literal(true),
+    cve: z.string().min(1),
+    severity: z.enum(['critical', 'high', 'medium', 'low']),
+    username: z.string().min(1),
+    userType: z.enum(['guest', 'user', 'root']),
+    kind: z.enum(['exploit', 'exploit_limited']),
+    // Required, not optional: a shell whose box this side cannot name is one the player
+    // would be stood on blind. Off the generated LAN there is nothing to fall back to, so
+    // a body without it is malformed rather than merely thin.
+    machine_id: z.string().min(1),
+  })
+  .transform((body) => ({
+    ok: body.ok,
+    cve: body.cve,
+    severity: body.severity,
+    username: body.username,
+    userType: body.userType,
+    kind: body.kind,
+    machineId: body.machine_id,
+  }));
 
 /** What an effect that opens no shell answers with: the file it read or the directory it
  *  listed at the granted tier, the credential a reset left behind, or — for a read hole

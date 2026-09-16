@@ -5,6 +5,7 @@ import {
   mockExploitApi,
   mockFsViewFromTree,
   mockNetworkViewFromConnectivity,
+  mockScanApi,
   mockSession,
 } from '../../test/factories/commandEnv';
 import { buildDirectory, buildFile } from '../../test/factories/filesystem';
@@ -12,8 +13,16 @@ import { buildColdStartConnectivity } from '../network/interfaces';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
 import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
 import { buildCommandContext } from '../scripting/commandContext';
-import { asAbsPath, asPlayerKeyHex } from '../types';
-import type { CommandResult, ExploitRunParams, ExploitRunResult, FsView, Session } from './types';
+import { asAbsPath, asNetworkAddress, asPlayerKeyHex } from '../types';
+import type { OccupantProjection } from '../network/resolveOccupants';
+import type {
+  CommandResult,
+  ExploitRunParams,
+  ExploitRunResult,
+  FsView,
+  ScanApi,
+  Session,
+} from './types';
 import type { ConnectivityState, NetworkInterface } from '../network/interfaces';
 
 /**
@@ -58,7 +67,44 @@ const vacantAddress = (): string => {
 
 const VACANT_IP = vacantAddress();
 
+/** A SECOND address nobody answers to. Needed because a fixture that stands an occupant
+ *  at the very address it fires at cannot tell "somebody is at THIS address" from
+ *  "somebody is on this WiFi at all" — the two answer identically until the occupant and
+ *  the target are different places. */
+const otherVacantAddress = (): string => {
+  const taken = new Set([...LAN.hosts.map((host) => host.ip), VACANT_IP]);
+  for (let octet = 254; octet >= 2; octet -= 1) {
+    const candidate = `${LAN.subnet}.${octet}`;
+    if (!taken.has(candidate)) return candidate;
+  }
+  throw new Error('the generated LAN has no second vacant address');
+};
+
+const OTHER_VACANT_IP = otherVacantAddress();
+
 const SOURCE_IP = `${LAN.subnet}.50`;
+
+/** Somebody else's access point, reached across the internet. TEST-NET-3, so the address
+ *  is unmistakably off this LAN — and unmistakably not something the client can generate
+ *  a host list for. */
+const PUBLIC_IP = '203.0.113.9';
+
+/** A fellow occupant's own machine, which only the registry knows about: a player's box
+ *  is on nobody's generated LAN, so its id cannot be derived from the address the way a
+ *  seeded sibling's can. */
+const OCCUPANT_MACHINE_ID = 'ws-occupant-cafef00d';
+
+/** The box behind somebody's forward. Deliberately unlike anything this side could
+ *  compute from a TEST-NET-3 address, so a session landing on it proves the id came back
+ *  from the server rather than out of a local derivation. */
+const FORWARDED_MACHINE_ID = 'ws-behind-the-forward-d00dfeed';
+
+/** A fellow occupant of this ESSID, as the signed occupant read hands them back. */
+const occupantAt = (localIp: string): OccupantProjection => ({
+  workstation_machine_id: OCCUPANT_MACHINE_ID,
+  localIp: asNetworkAddress(localIp),
+  machineName: 'alice-rig',
+});
 
 /** A workstation associated with an AP and holding a lease — there is no target to
  *  name until the box the tool runs from is on a network. */
@@ -81,6 +127,7 @@ const GRANTED_FULL: ExploitRunResult = {
   username: 'root',
   userType: 'root',
   kind: 'exploit',
+  machineId: TARGET_MACHINE_ID,
 };
 
 /** The weaker of the two grants — a room to search rather than a door to pivot onward
@@ -93,6 +140,7 @@ const GRANTED_LIMITED: ExploitRunResult = {
   username: 'guest',
   userType: 'guest',
   kind: 'exploit_limited',
+  machineId: TARGET_MACHINE_ID,
 };
 
 /** What the attacker's own box holds for a write's local half to name. */
@@ -185,6 +233,11 @@ type EnvOpts = {
   /** The box the tool is RUN FROM. Only a write effect reads it — its `local:remote`
    *  names a file here, and the server has no way to see it. */
   readonly fs?: FsView;
+  /** The scan seam, for the two vantages that are NOT on the generated LAN: a public
+   *  address belonging to somebody else's access point, and a fellow occupant standing
+   *  at an octet the generator never filled. Defaults leave the own-LAN tests alone —
+   *  no occupants, so every existing target still resolves exactly as it did. */
+  readonly scan?: Partial<ScanApi>;
 };
 
 const exploitEnv = (opts: EnvOpts = {}) => {
@@ -199,6 +252,7 @@ const exploitEnv = (opts: EnvOpts = {}) => {
     session: mockSession(),
     network: mockNetworkViewFromConnectivity(opts.connectivity ?? connectedState()),
     exploit: mockExploitApi({ run }),
+    scan: mockScanApi(opts.scan ?? {}),
     ...(opts.fs === undefined ? {} : { fs: opts.fs }),
     pushSession: (session) => void pushed.push(session),
     setCwd: (path) => void cwds.push(path),
@@ -274,6 +328,7 @@ describe('msfconsole', () => {
         username: 'guest',
         userType: 'guest',
         kind: 'exploit_limited',
+        machineId: TARGET_MACHINE_ID,
       },
     });
 
@@ -1186,6 +1241,81 @@ describe('msfconsole', () => {
     );
     // The LAN is deterministic, so an address nothing answers to is answerable here.
     // Firing anyway would spend a round trip to be told what the client already knew.
+    expect(run).not.toHaveBeenCalled();
+    expect(pushed).toEqual([]);
+  });
+
+  it('fires at a box behind somebody’s forward, which no client can generate a host for', async () => {
+    const { env, run, pushed } = exploitEnv({
+      result: { ...GRANTED_FULL, machineId: FORWARDED_MACHINE_ID },
+    });
+
+    const { text } = await drain(
+      await msfconsole.execute(env, [PUBLIC_IP, String(PORT)], NO_FLAGS),
+    );
+
+    // A public address names somebody else's access point, and whether a forward points
+    // anywhere behind it is server-side state this side cannot see. Answering locally
+    // would shut the vantage from the inside, however willing the server is to open it —
+    // which is a different thing from the deterministic LAN the guard above answers for.
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({ targetIp: PUBLIC_IP, port: PORT }));
+    expect(text).toContain(`[+] Full shell as root@${PUBLIC_IP}`);
+    // The box the SERVER resolved behind the forward. Nothing on this side could have
+    // produced this id from the address typed, which is the whole of why it has to travel.
+    expect(pushed).toEqual([expect.objectContaining({ machineId: FORWARDED_MACHINE_ID })]);
+  });
+
+  it('fires at a fellow occupant standing where the generator put nobody', async () => {
+    const { env, run, pushed } = exploitEnv({
+      result: { ...GRANTED_FULL, machineId: OCCUPANT_MACHINE_ID },
+      scan: { resolveOccupants: async () => [occupantAt(VACANT_IP)] },
+    });
+
+    const { text } = await drain(
+      await msfconsole.execute(env, [VACANT_IP, String(PORT)], NO_FLAGS),
+    );
+
+    // The same address the guard above refuses — and it is right to, with nobody there.
+    // A real player leases an octet the generator never filled, so occupancy is the only
+    // thing that can tell the two apart, and it decides BEFORE the generated world does.
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({ targetIp: VACANT_IP, port: PORT }));
+    expect(text).toContain(`[+] Full shell as root@${VACANT_IP}`);
+    // Their own machine, from the registry — never a machine id derived from the address,
+    // which would name the seeded sibling the generator would have put there instead.
+    expect(pushed).toEqual([expect.objectContaining({ machineId: OCCUPANT_MACHINE_ID })]);
+  });
+
+  it('reaches a fellow occupant named rather than addressed', async () => {
+    const { env, run, pushed } = exploitEnv({
+      result: { ...GRANTED_FULL, machineId: OCCUPANT_MACHINE_ID },
+      scan: { resolveOccupants: async () => [occupantAt(VACANT_IP)] },
+    });
+
+    const { text } = await drain(
+      await msfconsole.execute(env, ['alice-rig', String(PORT)], NO_FLAGS),
+    );
+
+    // A scan prints a NAME and that is what a player types next. The occupant list is the
+    // only thing that turns it into an address, so a fire that never consulted it would
+    // answer "No route to host" about a box standing right there.
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({ targetIp: VACANT_IP }));
+    expect(text).toContain(`[+] Full shell as root@${VACANT_IP}`);
+    expect(pushed).toEqual([expect.objectContaining({ machineId: OCCUPANT_MACHINE_ID })]);
+  });
+
+  it('does not make an empty address reachable just because somebody else is on the WiFi', async () => {
+    const { env, run, pushed } = exploitEnv({
+      scan: { resolveOccupants: async () => [occupantAt(VACANT_IP)] },
+    });
+
+    const result = await msfconsole.execute(env, [OTHER_VACANT_IP, String(PORT)], NO_FLAGS);
+
+    // An occupant standing at ONE address says nothing about another. Reading occupancy as
+    // "a player is on this network" rather than "a player is at this address" would make
+    // every octet the generator left empty answer as though somebody were behind it.
+    expect(syncText(result)).toBe(
+      `msfconsole: connect to host ${OTHER_VACANT_IP} port ${PORT}: No route to host`,
+    );
     expect(run).not.toHaveBeenCalled();
     expect(pushed).toEqual([]);
   });

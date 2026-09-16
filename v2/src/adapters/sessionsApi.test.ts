@@ -575,6 +575,7 @@ describe('runExploit', () => {
         username: 'root',
         userType: 'root',
         kind: 'exploit',
+        machine_id: 'darkstar-12345678',
       }),
     );
     const deps = makeDeps(fetchSpy as unknown as typeof fetch);
@@ -588,6 +589,9 @@ describe('runExploit', () => {
       username: 'root',
       userType: 'root',
       kind: 'exploit',
+      // Renamed on the way in: the wire spells it as every other door does, and the shell
+      // that lands is stood on the box the SERVER named rather than one derived here.
+      machineId: 'darkstar-12345678',
     });
     const verified = await verifyPayload(sentEnvelope(fetchSpy));
     if (!verified.ok) throw new Error('expected a verified envelope');
@@ -618,6 +622,7 @@ describe('runExploit', () => {
         username: 'guest',
         userType: 'guest',
         kind: 'exploit_limited',
+        machine_id: 'vault-87654321',
       }),
     );
     const deps = makeDeps(fetchSpy as unknown as typeof fetch);
@@ -735,6 +740,10 @@ describe('runExploit', () => {
         username: 'root',
         userType: 'root',
         kind: 'exploit',
+        // Present so the SEVERITY is the only thing wrong with this body. Without it the
+        // refusal would stand on two faults at once, and the day the enum stopped catching
+        // this one the test would go on passing on the other.
+        machine_id: 'darkstar-12345678',
       }),
     );
     const deps = makeDeps(fetchSpy as unknown as typeof fetch);
@@ -751,6 +760,29 @@ describe('runExploit', () => {
         username: 'root',
         userType: 'root',
         kind: 'ssh',
+        // As above: the KIND is the only thing wrong here, so the refusal cannot be
+        // standing on a second fault that would outlive a regression in the first.
+        machine_id: 'darkstar-12345678',
+      }),
+    );
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await runExploit(deps, params)).toEqual({ ok: false, error: 'network_error' });
+  });
+
+  it('refuses a grant that never says which box it landed on', async () => {
+    // The box is the server's to name, and off the caller's own generated LAN there is
+    // nothing here to fall back to: a player stood on a shell whose machine this side
+    // cannot identify is standing nowhere the rest of the session can reason about. So a
+    // body without it is malformed rather than merely thin.
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse(200, {
+        ok: true,
+        cve: 'CVE-2026-0184',
+        severity: 'critical',
+        username: 'root',
+        userType: 'root',
+        kind: 'exploit',
       }),
     );
     const deps = makeDeps(fetchSpy as unknown as typeof fetch);

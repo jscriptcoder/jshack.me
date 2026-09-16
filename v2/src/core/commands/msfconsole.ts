@@ -24,6 +24,9 @@
 
 import { asAbsPath, asMachineId } from '../types';
 import { connectedWlan0 } from '../network/interfaces';
+import { isPublicIp } from '../generation/ip';
+import { dir } from '../generation/baseFs';
+import { defaultDirectoryPermissions } from '../filesystem/defaultPermissions';
 import { createFsView } from '../filesystem/fsView';
 import { describeScriptError, runScript } from '../scripting/runScript';
 import { formatScriptValue } from '../scripting/format';
@@ -181,7 +184,6 @@ type Attempt = {
   readonly targetIp: string;
   readonly port: number;
   readonly essid: string;
-  readonly machineId: string;
   /** The path the player named for a read effect, or undefined — forwarded blind,
    *  since the client cannot know the effect the fire will roll. */
   readonly arg: string | undefined;
@@ -362,7 +364,10 @@ async function* fire(env: CommandEnv, attempt: Attempt): AsyncGenerator<Terminal
   env.pushSession({
     id: sessionId,
     playerKey: env.session.playerKey,
-    machineId: asMachineId(attempt.machineId),
+    // The SERVER's answer for which box this landed on, never a client derivation: off the
+    // generated LAN there is no id to derive, and deriving one would name the seeded
+    // sibling standing where a real player actually is.
+    machineId: asMachineId(result.machineId),
     username: result.username,
     userType: result.userType,
     kind: result.kind,
@@ -384,24 +389,49 @@ const execute: Command['execute'] = async (env, args) => {
   }
   const essid = wlan0.association.essid;
 
+  // Read ONCE and used twice — to turn a name into an address, and then to ask whether
+  // that address is a player's. Two reads could answer differently between the two uses,
+  // and the second answer is the one that decides whether this fires at all.
+  const occupants = await env.scan.resolveOccupants(essid);
+
   // A name becomes an address before anything routes on it, exactly as it does for
   // `ssh` — a scan prints `web-04` and that is what a player types next.
   const targetIp = await addressForTarget({
     essid,
     target: rawTarget,
-    resolveOccupants: env.scan.resolveOccupants,
+    resolveOccupants: async () => occupants,
   });
 
-  // The LAN is a function of the ESSID, so an address nothing answers to is
-  // answerable here: firing anyway would spend a round trip to be told what the
-  // client already knew. It also yields the machine id the session lands on — the
-  // same one the server derives from the same ip, so they never disagree about
-  // which box the player is standing on.
-  const host = generateHomeLan(essid).hosts.find((candidate) => candidate.ip === targetIp);
-  if (host === undefined) {
+  // The two vantages that are NOT on the generated LAN, and that this side therefore
+  // cannot answer for. A public address names somebody else's access point, and whether a
+  // forward points at a live box behind it is server-side state. A fellow occupant leases
+  // an octet the generator never filled, so the generated world says "nobody" about a box
+  // that is really standing there — the same precedence `nmap`, `ssh` and `nc` already
+  // answer by. Refusing either here would shut the door from the inside, whatever the
+  // server is willing to open.
+  const offGeneratedLan =
+    isPublicIp(targetIp) || occupants.some((occupant) => occupant.localIp === targetIp);
+
+  // Everything else is the deterministic LAN, so an address nothing answers to is
+  // answerable here: firing anyway would spend a round trip to be told what this side
+  // already knew.
+  const host = offGeneratedLan
+    ? undefined
+    : generateHomeLan(essid).hosts.find((candidate) => candidate.ip === targetIp);
+  if (!offGeneratedLan && host === undefined) {
     return errorResult(connectFailure(targetIp, port, 'No route to host'));
   }
-  const { machineId, baseFs } = resolveLanHostIdentity(host, essid);
+
+  // The tree a blind script runs against. Only a box this side can REGENERATE has one:
+  // another player's is rebuilt server-side from THEIR identity and THEIR journal, so
+  // there is nothing here to read it from. An empty tree keeps the hole working — the
+  // writes still travel and are re-walked at the granted tier over there — at the same
+  // fidelity cost this run already carries on a generated box, where it sees the box as
+  // it shipped rather than as it stands.
+  const baseFs =
+    host === undefined
+      ? dir({}, defaultDirectoryPermissions('user'))
+      : resolveLanHostIdentity(host, essid).baseFs;
 
   // A `local:remote` token aims a WRITE, and its local half names a file on THIS box.
   // Read here rather than on the server, which regenerates the target and has no view of
@@ -448,7 +478,6 @@ const execute: Command['execute'] = async (env, args) => {
       targetIp,
       port,
       essid,
-      machineId,
       arg: rawArg,
       content: local !== undefined && local.ok ? local.content : undefined,
       localError: bareLocal !== undefined && !bareLocal.ok ? bareLocal.error : undefined,
