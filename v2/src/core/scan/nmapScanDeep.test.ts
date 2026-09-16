@@ -28,10 +28,13 @@ import type { NonceStore } from '../signedRequest/nonceStore';
  * machine_id, then appends ONE aggregate `/var/log/kern.log` line to EACH touched
  * deep host (the terminal NPC, plus the child gateway when the layer hangs one and
  * it is in range). The source is the fronting gateway's downstream `.1`
- * (`${subnet}.1`); the writer is the SCANNER's key, which is provenance — the line
- * records who ran the scan, on a box every occupant of the network shares. The
- * claimed vantage is server-validated: a machine_id that is not a real gateway in
- * the network's chain logs nothing.
+ * (`${subnet}.1`); the writer is the ESSID's own STABLE key — the lowest octet ever
+ * leased there — precisely BECAUSE every occupant of the network shares these boxes.
+ * A per-scanner key would give one path a row per attacker, and a log patch carries
+ * the whole file, so replay would keep only whichever swept last. Who ran the scan is
+ * recorded by the line's source address, not by the row it sits in. The claimed
+ * vantage is server-validated: a machine_id that is not a real gateway in the
+ * network's chain logs nothing.
  */
 
 const freshStore: NonceStore = async () => ({ fresh: true });
@@ -98,6 +101,9 @@ const makeDeps = (over: Partial<NmapScanDeepDeps> = {}) => {
     readLog,
     upsertPatch,
     findPatches,
+    // Nobody has leased an address on this WiFi by default, which is the one case with no
+    // stable key to offer — the tests that care supply leases of their own.
+    listLeasesByEssid: async () => ({ data: [], error: null }),
     ...over,
   };
   return { deps, upsertPatch, readLog, findPatches };
@@ -189,9 +195,11 @@ const envelope = (
   });
 
 /** The boxes one occupant's pivot scan actually touched, as the rows it wrote MINUS the
- *  writer key. The writer key is provenance — which player did the scanning — and is the
- *  one field two occupants scanning one layer are supposed to differ on; everything else
- *  answers "which machines, and what was recorded on them". */
+ *  writer key, which is compared on its own where it matters. It is NOT provenance here:
+ *  a deep host is ownerless and ESSID-shared, so every occupant scanning one layer files
+ *  into the SAME row — the scanner is named by the line's source address instead. Stripped
+ *  from this comparison only so it answers one question, "which machines, and what was
+ *  recorded on them", rather than two. */
 const tracedBoxes = async (
   identity: ReturnType<typeof generateIdentity>,
   vantageMachineId: string,
@@ -204,6 +212,40 @@ const tracedBoxes = async (
     return touched;
   });
 };
+
+describe('whose row a deep scan trace accretes under', () => {
+  it('files every touched host under the lowest lease on the WiFi, not the scanner', async () => {
+    // Two occupants scanning one layer must land in ONE row per box. `patches` is keyed
+    // `(machine_id, path, writer_key)` and a log patch carries the whole file, so a row
+    // per scanner means replay keeps only whichever swept last — the earlier player's
+    // reconnaissance vanishes from the defender's kern.log.
+    //
+    // The scanner is not lost by this: they are named in the line's source address, which
+    // is the fronting gateway's `.1` and server-derived. The key is the bucket, not the
+    // signature.
+    const neighbour = generateIdentity();
+    const vantage = innerRouterVantage();
+    const expected = expectedDeepLayer(ESSID, vantage);
+    const { deps, upsertPatch } = makeDeps({
+      // ALICE is deliberately not the lowest octet: where the caller holds it, the two
+      // keys coincide and the claim cannot be told apart from its own absence.
+      listLeasesByEssid: async () => ({
+        data: [
+          { owner_key: ALICE.publicKeyHex, octet: 77 },
+          { owner_key: neighbour.publicKeyHex, octet: 12 },
+        ],
+        error: null,
+      }),
+    });
+
+    await handleNmapScanDeep(envelope(ALICE, vantage, `${expected.subnet}.1-254`), deps);
+
+    expect(upsertPatch.mock.calls.length).toBeGreaterThan(0);
+    for (const [row] of upsertPatch.mock.calls) {
+      expect(row.writer_key).toBe(neighbour.publicKeyHex);
+    }
+  });
+});
 
 describe('handleNmapScanDeep', () => {
   it('reaches one deep layer for every occupant standing on a shared chain door', async () => {

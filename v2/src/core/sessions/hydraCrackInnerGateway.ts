@@ -41,6 +41,8 @@ import {
   type MachineLogReadResult,
 } from '../patches/appendMachineLog';
 import type { ListPathPatchesResult, PatchRow } from '../patches/upsertPatch';
+import type { LanLeaseRow } from '../network/lanAddress';
+import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter';
 import type { HandlerResponse } from './hydraCrack';
 import type { NonceStore } from '../signedRequest/nonceStore';
 
@@ -57,6 +59,13 @@ export type HydraCrackInnerGatewayDeps = {
   }) => Promise<ListPathPatchesResult>;
   readonly readAuthLog: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
   readonly upsertPatch: (row: PatchRow) => Promise<{ readonly error: unknown }>;
+  /** Every lease held on this ESSID. A deep box is ownerless and ESSID-SHARED, so the
+   *  sweep's trace files under the lowest octet ever leased there rather than under the
+   *  caller — the same bucket the data doors write their service logs into on that very
+   *  same box. */
+  readonly listLeasesByEssid: (
+    essid: string,
+  ) => Promise<{ readonly data: readonly LanLeaseRow[] | null; readonly error: unknown }>;
 };
 
 const hydraCrackInnerGatewaySchema = z
@@ -165,11 +174,23 @@ export const handleHydraCrackInnerGateway = async (
   });
 
   if (trace.length > 0 && target.sourceIp !== null) {
+    // Nobody OWNS a deep box, but the chain is regenerated from the ESSID and every
+    // occupant walks the identical one, so the caller's own key would give each attacker
+    // a row of their own for one path — and a log patch carries the whole file, so replay
+    // keeps only whichever arrived last. The sweep lands in the service's own log, which
+    // is the same file `ssh` and the data doors write on this very box, so the key has to
+    // be the one they all agree on rather than merely a stable one.
+    //
+    // Read before the append rather than inside its try: a lease failure costs the stable
+    // key, never the trace, and the catch below exists to stop a logging failure swallowing
+    // a sweep that really happened — not to swallow this.
+    const leases = await deps.listLeasesByEssid(payload.essid);
+    const sharedKey = leases.error ? null : apGatewayLogWriterKey(leases.data ?? []);
     try {
       await appendMachineLog(
         { readLog: deps.readAuthLog, upsertPatch: deps.upsertPatch },
         {
-          writerKey: publicKey,
+          writerKey: sharedKey ?? publicKey,
           machineId: target.machineId,
           path: spec.sweepLog.path,
           owner: spec.sweepLog.owner,

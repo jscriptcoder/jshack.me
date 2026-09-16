@@ -161,8 +161,10 @@ export const handleMysqlConnect = async (
   await recordAttempt(deps, {
     // The TARGET's key once the box has an owner: the system owns its logs, so every
     // attacker's lines accrete into one row on the defender's box rather than a row
-    // each, where the newest would erase the rest on replay. A generated box has no
-    // owner, and there the caller's own key is the only stable thing to write under.
+    // each, where the newest would erase the rest on replay. A box nobody owns takes the
+    // ESSID's own stable key for the same reason — it is shared by every occupant, so
+    // the caller's key would be stable for one player and different for the next. The
+    // fallback is left for an ESSID nobody has ever leased an address on.
     writerKey: writerKey ?? publicKey,
     machineId,
     hostname,

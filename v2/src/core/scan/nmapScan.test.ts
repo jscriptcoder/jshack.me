@@ -27,8 +27,13 @@ import type { NonceStore } from '../signedRequest/nonceStore';
  * scanned host (the SSH-epic `appendMachineLog` pattern). Per-host, never per
  * probe; every up host except the player's own workstation (which is keyed by a
  * different machine_id); the line lists that host's own open ports. The line lands
- * on the host's shared journal keyed by the caller's writer_key + machine_id; the
- * cross-player trace READ (a different identity reading it) is a later story.
+ * on the host's shared journal keyed by machine_id and the ESSID's own STABLE writer
+ * key — the lowest octet ever leased there, not the caller's. These boxes are
+ * regenerated from the ESSID and shared by every occupant, so a row per scanner would
+ * let replay keep only whichever swept last; the scanner is named by the line's source
+ * address instead. A fellow occupant's REAL workstation is the other case and keeps its
+ * owner's key, which is the same rule seen from the other side: whoever the box belongs
+ * to owns its log.
  */
 
 const freshStore: NonceStore = async () => ({ fresh: true });
@@ -172,6 +177,39 @@ const envelope = (
   target: string,
   over: Record<string, unknown> = {},
 ) => signRequest(id, 'nmapScan', { essid: ESSID, target, source_ip: SOURCE_IP, ...over });
+
+describe('whose row an own-LAN scan trace accretes under', () => {
+  it('files a generated box under the lowest lease on the WiFi, not the scanner', async () => {
+    // A generated sibling is ESSID-shared: regenerated from the ESSID with an id that does
+    // not depend on who is asking, so every occupant of this WiFi scans the identical box.
+    // `patches` is keyed `(machine_id, path, writer_key)` and a log patch carries the whole
+    // file, so a row per scanner means replay keeps only whichever swept last.
+    //
+    // It also has to agree with the doors that write this same box: a `mysql` login and an
+    // `ssh` reach file into their own logs on this very machine id under the ESSID's key,
+    // and a scan that kept the caller's would be the one writer out of step.
+    //
+    // Only the NEIGHBOUR holds a lease here. Leasing the caller too would move the address
+    // their own scan is traced from, changing which hosts are logged at all — a failure
+    // about self-exclusion rather than about the writer key.
+    const id = identityOffTheGeneratedLan();
+    const neighbour = generateIdentity();
+    const { deps, upsertPatch } = makeDeps({
+      listLeasesByEssid: async () => ({
+        data: [{ owner_key: neighbour.publicKeyHex, octet: 12 }],
+        error: null,
+      }),
+    });
+    const logged = loggedHostsOf(id.publicKeyHex);
+
+    await handleNmapScan(envelope(id, `${subnetOf()}.1-254`), deps);
+
+    expect(upsertPatch).toHaveBeenCalledTimes(logged.length);
+    for (const [row] of upsertPatch.mock.calls) {
+      expect(row.writer_key).toBe(neighbour.publicKeyHex);
+    }
+  });
+});
 
 describe('handleNmapScan', () => {
   it('appends one kern.log line to every up host in a full-range scan, skipping the own host', async () => {

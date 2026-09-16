@@ -73,7 +73,6 @@ import { materializeMachineFs, type OwnerPatchRow } from '../network/materialize
 import { canBoot } from '../boot/bootFiles';
 import { portsOpenToNetwork } from '../network/portsOpenToNetwork';
 import { frontedSegment } from '../network/frontedSegment';
-import { computeApGatewayId } from '../identity/router';
 import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter';
 import type { Directory } from '../filesystem/types';
 
@@ -117,8 +116,14 @@ export type ReachedServiceHost = {
   /** The key every row this door writes on the target lands under. The TARGET's once
    *  the box has an owner, so a defender's box keeps ONE datadir and ONE log however
    *  many attackers touch it, rather than a row each where the newest erases the rest.
-   *  `null` on a box nobody owns, where the caller's own key is the only stable thing
-   *  there is to write under. */
+   *
+   *  A box nobody owns takes the ESSID's own stable key — the lowest octet ever leased
+   *  there — for the same reason: it is regenerated from the ESSID and shared by every
+   *  occupant, so the caller's key would be stable for one player and different for the
+   *  next, and a row per caller means the newest wins outright on replay.
+   *
+   *  `null` only where that ESSID has never had an address leased on it at all, which is
+   *  the one case with no stable key to offer. */
   readonly writerKey: string | null;
   /** The `/24` this box's forwards may point INTO, or `null` for a box that fronts no
    *  network at all — which is a REASON to refuse a NAT rule, never missing information.
@@ -261,20 +266,28 @@ const openBox = (box: ReachedBox): BoxReach => {
   return { ok: true, reached: box };
 };
 
-/** Whose row a box on the caller's OWN LAN writes under: the access point's stable
- *  log-writer key when the box reached is the gateway itself, and `null` — meaning the
- *  caller's own — for every generated box beside it, which no lease names.
+/** The stable key an OWNERLESS box on an ESSID keeps its logs under: the lowest octet
+ *  ever leased there.
  *
- *  The leases are read only where the answer can differ, so an ordinary LAN reach costs
- *  no extra lookup. A read that fails leaves the caller's key rather than turning a
- *  reach into a 500: a log line is best-effort everywhere else too, and losing the
- *  stable key is milder than losing the visit. */
-const apGatewayWriterKey = async (
+ *  These boxes are regenerated from the ESSID and their ids do not depend on who is
+ *  asking, so several players reach the very same machine. `patches` rows are keyed
+ *  `(machine_id, path, writer_key)` and a log patch carries the WHOLE file, so a row per
+ *  caller means the newest wins outright on replay and the earlier visitor's lines are
+ *  simply gone. The caller's own key is stable per player and unstable across them —
+ *  exactly the wrong way round for a box they share.
+ *
+ *  It is not a claim about who acted: the attacker's identity lives in the line itself.
+ *  It is the BUCKET the lines accrete in, and it is read back through the same resolver
+ *  that chose it, so a read and a write cannot come to disagree about where the log is.
+ *
+ *  A read that fails leaves the caller's key rather than turning a reach into a 500: a
+ *  log line is best-effort everywhere else too, and losing the stable key is milder than
+ *  losing the visit. */
+const sharedBoxWriterKey = async (
   deps: ServiceHostLookup,
-  box: { readonly essid: string; readonly machineId: string },
+  essid: string,
 ): Promise<string | null> => {
-  if (box.machineId !== computeApGatewayId(box.essid)) return null;
-  const leases = await deps.listLeasesByEssid(box.essid);
+  const leases = await deps.listLeasesByEssid(essid);
   return leases.error ? null : apGatewayLogWriterKey(leases.data ?? []);
 };
 
@@ -379,8 +392,11 @@ export const reachBox = async (
       localIp: resolved.target.localIp,
       reachedPort: resolved.target.reachedPort,
       sourceIp: resolved.target.sourceIp,
-      // Nobody owns a generated box, so there is no key but the caller's to write under.
-      writerKey: null,
+      // Nobody OWNS a deep box, but the whole chain is regenerated from the ESSID and
+      // every occupant walks the same one, so the caller's own key would give each
+      // attacker a row of their own for one path — and the newest wins outright on
+      // replay, erasing whoever came before.
+      writerKey: await sharedBoxWriterKey(deps, target.essid),
       // The layer behind the box the chain walk stopped on, which only the walk knows.
       frontedSegment: resolved.target.frontedSegment,
     });
@@ -404,13 +420,14 @@ export const reachBox = async (
     // Never invented here. On the caller's own LAN the address the box saw is the
     // caller's, which only the caller can state.
     sourceIp: null,
-    // The access point's gateway is reachable from INSIDE as well as from the world, and
-    // one box may not keep two logs: a row per writer means the newest wins outright on
-    // replay, so an occupant walking their own gateway would erase the lines a stranger's
-    // visit left there. The AP's own stable key covers both vantages. Every other box on
-    // this LAN is generated and nobody's lease names it, so the caller's key remains the
-    // only stable thing to write under.
-    writerKey: await apGatewayWriterKey(deps, { essid: target.essid, machineId }),
+    // Every box on this LAN belongs to the access point or to the generator, never to a
+    // player, and every occupant of the ESSID reaches the identical one: a box may not
+    // keep two logs, because a row per writer means the newest wins outright on replay.
+    // The gateway is the sharpest case, reachable from INSIDE as well as from the world,
+    // so an occupant walking their own gateway would erase the lines a stranger's visit
+    // left there — but a generated sibling shares its id across the ESSID the same way,
+    // and so takes the same key.
+    writerKey: await sharedBoxWriterKey(deps, target.essid),
     // The caller's own ESSID genuinely IS this box's network here, so the derivation the
     // set door used to make is correct at this vantage — and only at this one.
     frontedSegment: frontedSegment({ essid: target.essid, machineId, kind: host.kind }),

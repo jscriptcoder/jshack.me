@@ -1021,6 +1021,45 @@ describe('the trace a hydra sweep leaves on its target', () => {
     );
   });
 
+  it('files a generated box sweep under the lowest lease on the WiFi, not the caller', async () => {
+    // The same box this door sweeps is reachable through the data doors, and they file
+    // their lines in the very same file: `hydra <box> mysql` and a `mysql` login both
+    // land in the service's own sweep log, on the id `resolveLanHostIdentity` gives that
+    // seeded sibling. `patches` is keyed `(machine_id, path, writer_key)` and a log patch
+    // carries the whole file, so if the two doors disagree about the key they write two
+    // rows for one path and replay keeps only whichever arrived last.
+    //
+    // A generated box is ESSID-shared — every occupant reaches the identical one — so the
+    // caller's own key is stable for one player and different for the next. The lowest
+    // lease is the one bucket every door and every caller agrees on.
+    const identity = generateIdentity();
+    const neighbour = generateIdentity();
+    const host = sshHostOn(ESSID);
+    const { machineId } = resolveLanHostIdentity(host, ESSID);
+    const { deps, upsertPatch } = makeDeps({
+      wordlist: ['no-such-word'],
+      // The caller is deliberately NOT the lowest octet: where they are, the two keys
+      // coincide and the claim cannot be told apart from its own absence.
+      listLeasesByEssid: async () => ({
+        data: [
+          { owner_key: identity.publicKeyHex, octet: 77 },
+          { owner_key: neighbour.publicKeyHex, octet: 12 },
+        ],
+        error: null,
+      }),
+    });
+
+    await handleHydraCrack(signedCrack(identity, { target_ip: host.ip }), deps);
+
+    expect(upsertPatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        writer_key: neighbour.publicKeyHex,
+        machine_id: machineId,
+        path: AUTH_LOG_PATH,
+      }),
+    );
+  });
+
   it('appends to what the log already holds', async () => {
     // A sweep after an ssh login must not erase the login — and a second sweep
     // must not erase the first.

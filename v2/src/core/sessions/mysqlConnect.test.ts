@@ -498,14 +498,17 @@ describe('handleMysqlConnect', () => {
     });
   });
 
-  it('records it under the CALLER, even where the WiFi has leases of its own', async () => {
+  it('records it under the lowest lease on the WiFi, not the caller', async () => {
     // The access point's own gateway keeps its log under the lowest lease on the ESSID,
     // because it belongs to nobody and needs a key that does not move between visitors.
-    // A generated box beside it is a different case: no lease names it either, but there
-    // is nothing shared to preserve, and filing a stranger's connection under whichever
-    // neighbour happens to hold the lowest octet would put one player's row on another
-    // player's business. The gateway's rule is a branch, and this is the other side of
-    // it — asserted where the leases would CHANGE the answer if the branch went away.
+    // A generated box beside it is the same case, not its opposite: no lease names it
+    // either, but every occupant of this WiFi connects to the identical box, so filing
+    // each attempt under the caller's own key gives one box a row per visitor — and a log
+    // patch carries the whole file, so replay keeps only whichever arrived last.
+    //
+    // Filing it under the lowest lease claims nothing about its holder; the connecting
+    // account and address are named in the line. It is the one bucket every caller
+    // agrees on, and the same resolver chooses it for the read and for the write.
     const identity = generateIdentity();
     const neighbour = generateIdentity();
     const host = mysqlHostOn(ESSID);
@@ -530,7 +533,7 @@ describe('handleMysqlConnect', () => {
       expect.objectContaining({
         machine_id: machineId,
         path: MYSQL_LOG_PATH,
-        writer_key: identity.publicKeyHex,
+        writer_key: neighbour.publicKeyHex,
       }),
     );
   });

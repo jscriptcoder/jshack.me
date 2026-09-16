@@ -412,7 +412,6 @@ export const runExploit = async (
       target_ip: params.targetIp,
       port: params.port,
       parent_session_id: params.parentSessionId,
-      source_ip: params.sourceIp,
       // Only when the player named one — an absent path is how the server learns a read
       // effect was fired blind, and a signed `arg: undefined` would be a field to verify.
       ...(params.arg === undefined ? {} : { arg: params.arg }),

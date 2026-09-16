@@ -142,7 +142,7 @@ describe('reaching a generated box on the caller own LAN', () => {
     });
   });
 
-  it('leaves a generated box under the caller own key even where the WiFi holds leases', async () => {
+  it('writes a generated box on the WiFi under that same stable key', async () => {
     const neighbour = generateIdentity();
     const reach = await reachServiceHost(
       makeLookup({
@@ -163,12 +163,16 @@ describe('reaching a generated box on the caller own LAN', () => {
       },
     );
 
-    // `null` means the caller's own key. No lease names a generated box, and filing a
-    // stranger's visit under whichever neighbour happens to hold the lowest octet
-    // would put one player's row on another player's business. The leases are present
-    // here deliberately: they would change the answer if the gateway rule below leaked
-    // into this branch.
-    expect(reach.ok && reach.reached.writerKey).toBe(null);
+    // A generated sibling is as ESSID-shared as the gateway above it and the deep chain
+    // behind it: regenerated from the ESSID, with an id that does not depend on who is
+    // asking, so every occupant of this WiFi reaches the identical box. Filing each visit
+    // under the caller's own key gives one box a row per attacker — and a log patch
+    // carries the whole file, so replay keeps only whichever arrived last.
+    //
+    // The lowest lease is not a claim that its holder did anything; the visitor is named
+    // in the line itself. It is the one bucket every caller agrees on, and it is read
+    // back through the same resolver that chose it.
+    expect(reach.ok && reach.reached.writerKey).toBe(neighbour.publicKeyHex);
   });
 
   it('writes the access point gateway under the lowest lease on the WiFi', async () => {
@@ -536,13 +540,17 @@ const DEEP_FORWARD_PORT = 33306;
 const DEEP_SERVICE_PORT = SERVICE_CATALOG.mysql.defaultPort;
 const DEEP_SERVICE = SERVICE_CATALOG.mysql.service;
 
-const deepLookup = (destination = `${DEEP.layer.host.ip}:${DEEP_SERVICE_PORT}`) =>
+const deepLookup = (
+  destination = `${DEEP.layer.host.ip}:${DEEP_SERVICE_PORT}`,
+  over: Partial<ServiceHostLookup> = {},
+) =>
   makeLookup({
     findPatches: journals({
       [DEEP.gatewayMachineId]: [
         patchRow('/etc/iptables/rules.v4', `forward ${DEEP_FORWARD_PORT} to ${destination}`),
       ],
     }),
+    ...over,
   });
 
 const reachDeep = (lookup: ServiceHostLookup, port: number = DEEP_FORWARD_PORT) =>
@@ -569,15 +577,27 @@ describe('reaching a box on the layer behind an inner gateway', () => {
     expect(reach.ok && reach.reached.sourceIp).toBe(DEEP.natIp);
   });
 
-  it('leaves a deep box under the caller own key, having no owner to write under', async () => {
-    const reach = await reachDeep(deepLookup());
+  it('writes a deep box under the lowest lease on the WiFi it is generated from', async () => {
+    const neighbour = generateIdentity();
+    const reach = await reachDeep(
+      deepLookup(undefined, {
+        listLeasesByEssid: async () => ({
+          data: [
+            { owner_key: ATTACKER.publicKeyHex, octet: 77 },
+            { owner_key: neighbour.publicKeyHex, octet: 12 },
+          ],
+          error: null,
+        }),
+      }),
+    );
 
-    // Nobody owns a generated box, so there is no key but the caller's. The
-    // consequence is worth stating plainly: these boxes are regenerated from the ESSID
-    // and their ids do not depend on who is asking, so two players reaching one box
-    // write two rows for one path — and a log patch carries the whole file, so on
-    // replay the newest row wins outright.
-    expect(reach.ok && reach.reached.writerKey).toBe(null);
+    // Nobody OWNS a deep box, but it is ESSID-shared and its id does not depend on who
+    // is asking, so two players reaching one box write two rows for one path — and a log
+    // patch carries the whole file, so replay takes the newest outright and the earlier
+    // attacker's lines vanish. The caller's own key is stable per player and unstable
+    // across them, which is precisely the bug; the lowest lease on the ESSID is stable
+    // for everyone, because leases outlive occupancy and do not depend on row order.
+    expect(reach.ok && reach.reached.writerKey).toBe(neighbour.publicKeyHex);
   });
 
   it('refuses a port the gateway forwards nowhere', async () => {

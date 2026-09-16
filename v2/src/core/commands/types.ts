@@ -1019,8 +1019,6 @@ export type ExploitRunParams = {
    *  outcome. */
   readonly port: number;
   readonly parentSessionId: string | null;
-  /** The address the target's own log records the attempt from, or null. */
-  readonly sourceIp: string | null;
   /** The third token the player typed, if any — the path a read effect reads. The
    *  client cannot know which effect it will get before firing, so it forwards
    *  whatever was typed and the server uses it or asks for one. Present-and-undefined

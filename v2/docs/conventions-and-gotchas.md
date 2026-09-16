@@ -2052,7 +2052,12 @@ state costs you more than one wrong attempt.
   keyed to its visitor.** A generated host's log is per-player and caller-keyed; another
   player's is shared, so a visitor-keyed line lands in a different row from the login that
   preceded it and the journal's last-write-wins replay hands the defender half a visit —
-  the second visitor erasing the first. `recordFtpTransfer` decides with ONE occupancy
+  the second visitor erasing the first. **The "caller-keyed" half now describes
+  `recordFtpTransfer` alone.** Every door that goes through the reach files an ownerless
+  box under the ESSID's own stable key instead, because a generated host is shared by every
+  occupant and caller-keying it splits one log into a row per attacker — the same failure
+  this bullet names, one level out. See the shared-box entry in §9.
+  `recordFtpTransfer` decides with ONE occupancy
   lookup (`findOccupantWorkstationByMachineId`): a hit means the owner's row and a
   server-derived address, `null` means a generated host and the caller's own row with the
   address they reported. When that lookup fails it writes nothing rather than guessing —
@@ -2958,7 +2963,7 @@ blocks the live PvP loop; each was a scoped owner decision, not a gap.
   A's in the materialized view. This is precisely the collision the credential layer already
   solved on the public path, where `resolvePublicTarget` returns a box-owned `logWriterKey` (the
   reached occupant's key, or the AP's stable key when the box is ownerless) so every attacker's
-  lines accrete into ONE row. **Affects THREE paths**, all writing `writerKey: publicKey` onto
+  lines accrete into ONE row. **Affected THREE paths**, all writing `writerKey: publicKey` onto
   ESSID-shared deep boxes: the deep ssh reach (`authCreateSessionInnerGateway`), the deep sweep
   (`hydraCrackInnerGateway`), and the deep scan's `kern.log` (`nmapScanDeep`). D2.4 slice 5
   deliberately made hydra match the other two rather than diverge — hydra and `ssh` disagreeing
@@ -2966,6 +2971,29 @@ blocks the live PvP loop; each was a scoped owner decision, not a gap.
   `apGatewayLogWriterKey` shape: a stable key derived from the box, applied to all three writes in
   one slice, with a test proving two occupants' lines coexist. The stale "private, per-viewer"
   docstrings that hid this were corrected across the codebase at D2.4 close-out.
+
+  **CLOSED at v0.225.0**, and wider than the three paths above. Everything that touches an
+  ownerless box now files under `apGatewayLogWriterKey` on the ESSID's leases: the reach's
+  deep and own-LAN branches (so mysql/redis/snmp inherit it), `hydraCrack` own-LAN, the deep
+  sweep, the deep ssh reach, both scans, and the exploit's trace. A box with an OWNER is
+  unchanged and still keyed to them, and effect WRITES are unchanged and still keyed to the
+  actor — those rows are provenance and are meant to coexist.
+
+  Proven live by `scripts/testSharedBoxLogTruth.ts`: two players sweep one generated box,
+  and afterwards there is ONE row at that `(machine_id, /var/log/auth.log)`, keyed to a
+  third player who holds the lowest lease and never acted, holding both attackers' lines.
+  Reverting the rule takes it to 2/7 with `rows=2`, `+0 from bob`, `bob MISSING` — the data
+  loss itself, on the real journal's fold. That falsification is what makes the green run
+  worth anything; the other four candidate scripts pass UNCHANGED either way, because they
+  seed no leases and so only ever exercise the `?? publicKey` fallback.
+
+  Two things the original entry did not predict. The blast radius was wider than "deep": the
+  reach's OWN-LAN generated branch had the identical bug, and so did `hydraCrack`'s own-LAN
+  sweep, which resolves its own targets and never appears in the deep list at all. And the
+  three paths are coupled through the FILE, not the depth — `spec.sweepLog.path` is the same
+  file the data doors write, so hydra had to move with them or a login and a sweep would have
+  split one log the moment the reach changed. The rule that follows: the unit that must agree
+  is `(machine_id, path)`, not the vantage.
 - **D2.6b — harvestable plaintext loot, the missing input to wordlist growth. POSTPONED by owner
   decision 2026-08-12**, in favour of parity breadth; the harvest route can arrive with the CVE
   phase (decision 6 names `password_reset`) rather than as bespoke loot content. Hidden credentials
