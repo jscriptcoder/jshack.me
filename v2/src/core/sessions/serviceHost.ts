@@ -1,5 +1,6 @@
 /**
- * Reaching a box that serves a named daemon, before anything is asked of it.
+ * Reaching a box — and, for the doors that want one, reaching a box that serves a
+ * NAMED DAEMON.
  *
  * Every door that answers with the box's own DATA — the database login and every
  * statement behind it, the key-value connection and every statement behind that — has
@@ -24,14 +25,22 @@
  * an account the player can see sitting in the datadir, or serve a table they
  * already dropped.
  *
- * FOUR VANTAGES, one function. A port that addresses the hidden layer behind an inner
+ * FOUR VANTAGES, one resolver. A port that addresses the hidden layer behind an inner
  * gateway resolves down the forward chain instead of on the caller's own LAN; a
  * PUBLIC address resolves through somebody else's access point to the occupant behind
  * a forward they opened; and a private address on the caller's own ESSID may belong to
  * a FELLOW OCCUPANT rather than to a generated sibling — but the rest, materialize,
- * boot-gate, is the daemon listening, is the same work in the same order. Routing here
- * rather than in a second pair of handlers is what keeps the login and every statement
- * behind it agreeing about the reach by construction.
+ * boot-gate, is the same work in the same order. Routing here rather than in a second
+ * pair of handlers is what keeps the login and every statement behind it agreeing
+ * about the reach by construction.
+ *
+ * THE DAEMON CHECK SITS ABOVE THE REACH, not inside it. `reachBox` answers "which box
+ * is at this address and port, and what is it right now"; `reachServiceHost` adds "and
+ * the daemon holding that port had better be the one I asked for". Split because not
+ * every door knows which daemon it wants: one that aims at a bare port and derives the
+ * service from whatever answers there needs the same four vantages and must not get
+ * them from a second copy — and a caller cannot be trusted to NAME the service, since
+ * routing on a claim is exactly what the signed schema exists to prevent.
  *
  * On the same WiFi there is no router, no NAT and no forward to pass through, so the
  * whole reach is the occupancy table: the caller must be ON the ESSID to reach anything
@@ -122,8 +131,26 @@ export type ReachedServiceHost = {
   readonly frontedSegment: string | null;
 };
 
+/** A reached box before any daemon has been asked for, which is the same box plus the
+ *  one fact only the route knows. */
+export type ReachedBox = ReachedServiceHost & {
+  /** The port ON THE TARGET this request actually arrived at — the far side of a NAT
+   *  forward rather than the port dialled, which through a forward are different
+   *  numbers. A caller that means to name the daemon answering here must check it
+   *  against THIS, or a forward to one daemon becomes a door to every daemon.
+   *
+   *  Deliberately absent from `ReachedServiceHost`: the doors that name a daemon have
+   *  already had this checked for them, and handing it back would invite a second,
+   *  looser check beside the one that already passed. */
+  readonly reachedPort: number;
+};
+
 export type ServiceHostReach =
   | { readonly ok: true; readonly reached: ReachedServiceHost }
+  | { readonly ok: false; readonly refusal: HandlerResponse };
+
+export type BoxReach =
+  | { readonly ok: true; readonly reached: ReachedBox }
   | { readonly ok: false; readonly refusal: HandlerResponse };
 
 const UNREACHABLE: HandlerResponse = { status: 404, body: { error: 'host_unreachable' } };
@@ -140,7 +167,6 @@ const openJournaledBox = async (
   box: {
     readonly hostname: string;
     readonly machineId: string;
-    readonly service: string;
     /** The rows made into a filesystem: over a seeded base for a generated box, over
      *  the owner's own identity for a player's. */
     readonly rebuild: (patches: readonly OwnerPatchRow[] | null) => Directory;
@@ -150,15 +176,14 @@ const openJournaledBox = async (
     readonly writerKey: string | null;
     readonly frontedSegment: string | null;
   },
-): Promise<ServiceHostReach> => {
+): Promise<BoxReach> => {
   const patches = await deps.findPatches({ machine_id: box.machineId });
   if (patches.error) {
     return { ok: false, refusal: { status: 500, body: { error: 'patches_lookup_failed' } } };
   }
-  return openServiceOn({
+  return openBox({
     hostname: box.hostname,
     machineId: box.machineId,
-    service: box.service,
     hostFs: box.rebuild(patches.data),
     localIp: box.localIp,
     reachedPort: box.reachedPort,
@@ -226,60 +251,14 @@ const resolveSameLanOccupant = async (
     : { ok: true, target: { occupant, callerAddress } };
 };
 
-/** Everything after "which box is it, and what is it right now": refuse it if it is
- *  dark, and refuse it unless the daemon asked for is the one on the port this request
- *  REACHED. Shared by every vantage so none can drift on the order or the refusals. */
-const openServiceOn = (box: {
-  readonly hostname: string;
-  readonly machineId: string;
-  /** Which daemon has to be the one holding the reached port. The ONE thing that
-   *  differs between the doors that share this reach: everything above it — the four
-   *  vantages, the boot gate, the journal replay — is the same work in the same order
-   *  whether the caller is a database login or a key-value statement. */
-  readonly service: string;
-  readonly hostFs: Directory;
-  readonly localIp: string;
-  readonly reachedPort: number;
-  readonly sourceIp: string | null;
-  readonly writerKey: string | null;
-  readonly frontedSegment: string | null;
-}): ServiceHostReach => {
+/** Everything after "which box is it": refuse it if it is dark. Shared by every vantage
+ *  so none can drift on the order or the refusals. */
+const openBox = (box: ReachedBox): BoxReach => {
   // A bricked box is dark before anything is asked of it, so a dead machine cannot
   // be probed for what it used to hold.
   if (!canBoot(box.hostFs).ok) return { ok: false, refusal: UNREACHABLE };
 
-  // The pidfiles are the truth about what is listening — the same source `nmap`
-  // reads — less whatever the box's own filter refuses the network. It must be THE
-  // NAMED DAEMON ON THE PORT REACHED: a forward to sshd is not a door to the data
-  // behind it, and neither is a LAN box's own ssh port.
-  //
-  // EVERY vantage this function serves is a remote one, which is what makes a filtered
-  // port unreachable from the world, from a neighbour and from down a forward with one
-  // check rather than four. The owner's own box never arrives here at all: it is
-  // answered on the client, so a filter can never lock them out of their own service.
-  //
-  // Filtered reads as `service_not_running`, word for word what an unserved port gives.
-  // A refusal of its own would be an oracle telling a scanner which ports are worth
-  // attacking.
-  const listening = portsOpenToNetwork(box.hostFs).some(
-    (open) => open.port === box.reachedPort && open.service === box.service,
-  );
-  if (!listening) {
-    return { ok: false, refusal: { status: 404, body: { error: 'service_not_running' } } };
-  }
-
-  return {
-    ok: true,
-    reached: {
-      hostname: box.hostname,
-      machineId: box.machineId,
-      hostFs: box.hostFs,
-      localIp: box.localIp,
-      sourceIp: box.sourceIp,
-      writerKey: box.writerKey,
-      frontedSegment: box.frontedSegment,
-    },
-  };
+  return { ok: true, reached: box };
 };
 
 /** Whose row a box on the caller's OWN LAN writes under: the access point's stable
@@ -299,14 +278,19 @@ const apGatewayWriterKey = async (
   return leases.error ? null : apGatewayLogWriterKey(leases.data ?? []);
 };
 
-export const reachServiceHost = async (
+/**
+ * Which box is at this address and port, and what it is right now — the four vantages
+ * and the boot gate, with no opinion about what is listening.
+ *
+ * A door that knows which daemon it wants goes through `reachServiceHost` instead. This
+ * is the shape for the one that does not: a bare port, find whatever answers there,
+ * derive the service from it.
+ */
+export const reachBox = async (
   deps: ServiceHostLookup,
   target: {
     readonly essid: string;
     readonly targetIp: string;
-    /** The daemon the caller is reaching for, as the pidfiles name it. Passed rather
-     *  than assumed so a forward to sshd is never a door to somebody else's service. */
-    readonly service: string;
     /** The port the request is addressed to. On an inner gateway a port other than its
      *  own sshd addresses the layer BEHIND it, which is the whole of how a hidden box
      *  is named at all — and on a public address it is the ONLY thing that names a box,
@@ -316,11 +300,11 @@ export const reachServiceHost = async (
      *  line records for them, which is why it is a key rather than an address. */
     readonly actorKey: string;
   },
-): Promise<ServiceHostReach> => {
+): Promise<BoxReach> => {
   // A public address belongs to somebody else's access point, so the whole resolution
-  // — which network, whose box behind which forward, is that box up and serving — is
-  // the server's. It is the SAME resolver `ssh` and `hydra` authenticate through, so a
-  // credential one of them earns is one this door then accepts.
+  // — which network, whose box behind which forward, is that box up — is the server's.
+  // It is the SAME resolver `ssh` and `hydra` authenticate through, so a credential one
+  // of them earns is one this door then accepts.
   if (isPublicIp(target.targetIp)) {
     const resolved = await resolvePublicTarget(deps, {
       publicIp: target.targetIp,
@@ -329,10 +313,9 @@ export const reachServiceHost = async (
     if (!resolved.ok) {
       return { ok: false, refusal: { status: resolved.status, body: { error: resolved.error } } };
     }
-    return openServiceOn({
+    return openBox({
       hostname: resolved.target.hostname,
       machineId: resolved.target.machineId,
-      service: target.service,
       // Already rebuilt from the owner's identity plus their journal — one of the two
       // vantages the server resolves whole, because only it can know whose box it is.
       hostFs: resolved.target.fs,
@@ -363,7 +346,6 @@ export const reachServiceHost = async (
     return openJournaledBox(deps, {
       hostname: occupant.workstation_machine_name,
       machineId: occupant.workstation_machine_id,
-      service: target.service,
       rebuild: (patches) => materializeWorkstationFs(occupant, patches),
       localIp: target.targetIp,
       reachedPort: target.port,
@@ -387,10 +369,9 @@ export const reachServiceHost = async (
     if (!resolved.ok) {
       return { ok: false, refusal: { status: resolved.status, body: { error: resolved.error } } };
     }
-    return openServiceOn({
+    return openBox({
       hostname: resolved.target.hostname,
       machineId: resolved.target.machineId,
-      service: target.service,
       // The chain walk replayed this box's journal and boot-gated it, so the deep
       // vantage arrives materialized exactly as the public one does. Replaying it again
       // here would be a second read of the same rows to reach the same tree.
@@ -417,7 +398,6 @@ export const reachServiceHost = async (
   return openJournaledBox(deps, {
     hostname: host.hostname,
     machineId,
-    service: target.service,
     rebuild: (patches) => materializeMachineFs(baseFs, patches),
     localIp: target.targetIp,
     reachedPort: target.port,
@@ -435,4 +415,62 @@ export const reachServiceHost = async (
     // set door used to make is correct at this vantage — and only at this one.
     frontedSegment: frontedSegment({ essid: target.essid, machineId, kind: host.kind }),
   });
+};
+
+export const reachServiceHost = async (
+  deps: ServiceHostLookup,
+  target: {
+    readonly essid: string;
+    readonly targetIp: string;
+    /** The daemon the caller is reaching for, as the pidfiles name it. Passed rather
+     *  than assumed so a forward to sshd is never a door to somebody else's service. */
+    readonly service: string;
+    readonly port: number;
+    readonly actorKey: string;
+  },
+): Promise<ServiceHostReach> => {
+  const reach = await reachBox(deps, {
+    essid: target.essid,
+    targetIp: target.targetIp,
+    port: target.port,
+    actorKey: target.actorKey,
+  });
+  if (!reach.ok) return { ok: false, refusal: reach.refusal };
+
+  // The pidfiles are the truth about what is listening — the same source `nmap`
+  // reads — less whatever the box's own filter refuses the network. It must be THE
+  // NAMED DAEMON ON THE PORT REACHED: a forward to sshd is not a door to the data
+  // behind it, and neither is a LAN box's own ssh port.
+  //
+  // EVERY vantage the reach serves is a remote one, which is what makes a filtered
+  // port unreachable from the world, from a neighbour and from down a forward with one
+  // check rather than four. The owner's own box never arrives here at all: it is
+  // answered on the client, so a filter can never lock them out of their own service.
+  //
+  // Filtered reads as `service_not_running`, word for word what an unserved port gives.
+  // A refusal of its own would be an oracle telling a scanner which ports are worth
+  // attacking.
+  const listening = portsOpenToNetwork(reach.reached.hostFs).some(
+    (open) => open.port === reach.reached.reachedPort && open.service === target.service,
+  );
+  if (!listening) {
+    return { ok: false, refusal: { status: 404, body: { error: 'service_not_running' } } };
+  }
+
+  // Rebuilt field by field rather than passed through, so `reachedPort` cannot leak
+  // into a contract six doors already depend on: they have had the port checked for
+  // them, and handing it back would invite a second, looser check beside the one that
+  // already passed.
+  return {
+    ok: true,
+    reached: {
+      hostname: reach.reached.hostname,
+      machineId: reach.reached.machineId,
+      hostFs: reach.reached.hostFs,
+      localIp: reach.reached.localIp,
+      sourceIp: reach.reached.sourceIp,
+      writerKey: reach.reached.writerKey,
+      frontedSegment: reach.reached.frontedSegment,
+    },
+  };
 };
