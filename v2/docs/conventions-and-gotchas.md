@@ -1370,6 +1370,18 @@ is always right; the `[Survived]` blocks above it are the part that gets cut. Ru
 the only way to tell which of the three mutants Stryker generates for an `a && b` condition
 actually lived.
 
+**A battery piped through `tee` reports a success it never earned.** `npx stryker run … | tee
+run.log` yields `tee`'s exit status rather than Stryker's, so a run that died in config validation
+— before a single mutant — surfaced as `completed (exit code 0)`, and in a BACKGROUNDED run that
+notification is the first thing you read. Same mechanism as the wire-check runner's false `32/32`
+in §6 (`$?` after a pipeline is the LAST stage's status), and it compounds with the `-c` trap
+above: the wrong flag kills the run in a second and the pipe scores it a pass, which together read
+as a battery that finished impossibly fast rather than as one that never started. `tee` is the
+tempting one precisely because it KEEPS the output, so it feels safer than `tail` — it is not.
+Don't pipe a gate at all (the `progress` reporter writes nothing to a redirected stream anyway);
+confirm a battery really ran from the instrumenter's own `Instrumented N source file(s)` line and
+a fresh `mutation.json` mtime, never from the exit status. Hit on 2026-09-16.
+
 **A golden that compares a generated tree against the list it was generated from agrees with any
 list.** `workstationFs.test.ts` and `routerFs.test.ts` assert `/bin`'s keys equal
 `SYSTEM_UTILITY_NAMES`, and both generators build `/bin` from that same constant — so dropping a
