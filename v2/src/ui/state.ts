@@ -19,7 +19,7 @@
  */
 
 import { createSignal } from 'solid-js';
-import { asAbsPath, type AbsPath, type UserType } from '../core/types';
+import { asAbsPath, type AbsPath, type MachineId, type UserType } from '../core/types';
 import type {
   PublicDoorAuthParams,
   Identity,
@@ -62,6 +62,7 @@ import type {
   ScanRecordParams,
   Session,
   SuElevateParams,
+  RebootEvictResult,
   HydraCrackParams,
   HydraCrackInnerGatewayParams,
   HydraCrackPublicParams,
@@ -145,6 +146,7 @@ import {
   runExploit,
   createServerSession,
   endServerSession,
+  rebootServerMachine,
   listServerSessions,
   type SessionsClientDeps,
 } from '../adapters/sessionsApi';
@@ -677,6 +679,16 @@ const suElevate = (params: SuElevateParams): Promise<RemoteAuthResult> =>
   sessionsClientDeps === undefined
     ? Promise.resolve({ ok: false, error: 'network_error' })
     : authElevateServerSession(sessionsClientDeps, params);
+
+/** End every session the player holds on a machine, because the box went down
+ *  under them (backs `env.reboot.evict`). Degrades to a network error before
+ *  `startGame` wires the sessions client — and `reboot` shows that failure rather
+ *  than swallowing it, so a box that did not really empty never reads as one that
+ *  did. */
+const rebootEvict = (machineId: MachineId): Promise<RebootEvictResult> =>
+  sessionsClientDeps === undefined
+    ? Promise.resolve({ ok: false, error: 'network_error' })
+    : rebootServerMachine(sessionsClientDeps, machineId);
 
 /** Crack credentials on an own-LAN host server-side (backs `env.hydra.crack`).
  *  Degrades to a network error before `startGame` wires the sessions client. */
@@ -1731,6 +1743,7 @@ const executeLine = async (line: string): Promise<void> => {
     onNcConnectSameLan: ncConnectSameLan,
     onNcConnectInnerGateway: ncConnectInnerGateway,
     onSuElevate: suElevate,
+    onRebootEvict: rebootEvict,
     onMysqlConnect: mysqlConnect,
     onMysqlStatement: mysqlStatement,
     onMysqlEnter: enterMysqlSession,

@@ -2642,6 +2642,19 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   hypothesis to TEST next time (run the chained form repeatedly on a clean tree), not a cause; it is
   recorded because three occurrences have now produced exactly one testable lead.
 
+  **Fourth occurrence, 2026-09-17** (Phase 3 slice 7 PR1, at v0.231.0): `1 failed | 5016 passed`,
+  then five clean runs on the same tree (5017/5017 each). Lost the same way a FOURTH time, to a
+  `| tail -6`. Two things it did settle, though:
+
+  1. *It matched the lead.* The failing run was again the chained form — `npm run typecheck && npm
+     run lint && npx vitest run` in one shell command — and every clean run was either bare or
+     redirected to a file. Two for two now.
+  2. *But the lead does not reproduce on demand.* Running the chained form three more times on the
+     same clean tree was 5017/5017 each. So `__encoded.ts` being rewritten moments before the run
+     is at best a contributing condition, not a trigger — which is what makes this so hard to
+     corner, and why the next occurrence still needs its output redirected to a file before
+     anything else is tried.
+
 **Cross-player / multiplayer deferred.** The cross-player epic shipped every enumerated story
 (1–7, plus 5b, unique public-IP allocation and shared-network reconciliation) and its plan file
 was retired here on close-out — this group is now the sole owner of what it deliberately left

@@ -49,6 +49,23 @@ describe('handleEndSession', () => {
     });
   });
 
+  it('refuses a caller claiming their session was rebooted out from under them', async () => {
+    const id = generateIdentity();
+    const envelope = signRequest(id, 'endSession', {
+      session_id: 'ssh-guest-1700000000000',
+      reason: 'rebooted',
+    });
+    const { deps, endSession } = makeDeps();
+
+    const result = await handleEndSession(envelope, deps);
+
+    // A box going down under a session is something the SERVER witnessed. Letting
+    // a caller name it would let a voluntary exit be recorded as an eviction, in
+    // the one field that says whether a player left or was thrown off.
+    expect(result).toEqual({ status: 400, body: { error: 'payload_invalid' } });
+    expect(endSession).not.toHaveBeenCalled();
+  });
+
   it('refuses a reason outside the known set rather than storing free text', async () => {
     const id = generateIdentity();
     const envelope = signRequest(id, 'endSession', {

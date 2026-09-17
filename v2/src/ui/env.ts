@@ -35,6 +35,7 @@ import type {
   HydraApi,
   ExploitApi,
   SuApi,
+  RebootApi,
   AptApi,
   TerminalLine,
 } from '../core/commands/types';
@@ -223,6 +224,9 @@ export type BuildCommandEnvArgs = {
    *  Optional here: only a cross-player hop's `su` calls it, so own-box/test setups
    *  leave it unwired (a foreign-box `su` without it surfaces the missing wiring). */
   readonly onSuElevate?: SuApi['elevate'];
+
+  /** Backs `env.reboot.evict` — the signed act that ends the machine's sessions. */
+  readonly onRebootEvict?: RebootApi['evict'];
   /** The scan-logging seam — backs `env.scan.record`. The UI wires it to the
    *  `recordScan` adapter (signed `nmapScan` round-trip). Optional here for terse
    *  test setups; the UI always passes the real one. */
@@ -469,6 +473,13 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
   },
   su: {
     elevate: args.onSuElevate ?? notWired('su.elevate'),
+  },
+  reboot: {
+    // Loud when unwired, alone among the session writes. Every other one is
+    // fire-and-forget because its failure costs a log line; an eviction that
+    // quietly reported success would tell the player their box came up empty
+    // while whoever was on it is still there.
+    evict: args.onRebootEvict ?? notWired('reboot.evict'),
   },
   hydra: {
     crack: args.onHydraCrack ?? notWired('hydra.crack'),

@@ -1,10 +1,16 @@
 import { describe, expect, it, vi } from 'vitest';
 import { buildDirectory, buildFile } from '../../test/factories/filesystem';
-import { mockCommandEnv, mockFsViewFromTree, mockSession } from '../../test/factories/commandEnv';
+import {
+  mockCommandEnv,
+  mockFsViewFromTree,
+  mockNetworkView,
+  mockRebootApi,
+  mockSession,
+} from '../../test/factories/commandEnv';
 import { commandRegistry } from './registry';
 import { createBinaryEntries } from '../generation/binaries';
 import { asAbsPath, asMachineId, type MachineId } from '../types';
-import type { CommandResult, HopChain, Session } from './types';
+import type { CommandResult, HopChain, NetworkView, RebootApi, Session } from './types';
 import type { Directory, FileNode } from '../filesystem/types';
 import { reboot } from './reboot';
 
@@ -51,6 +57,8 @@ type RebootEnvOpts = {
   readonly session?: Session;
   readonly hopChain?: HopChain;
   readonly popSession?: () => void;
+  readonly evict?: RebootApi['evict'];
+  readonly network?: NetworkView;
   readonly extra?: Readonly<Record<string, FileNode>>;
 };
 
@@ -70,6 +78,11 @@ const rebootEnv = (opts: RebootEnvOpts = {}) => {
     hostname: opts.hostname ?? 'workstation',
     fs: mockFsViewFromTree(merged, { userType: session.userType, cwd: () => asAbsPath('/') }),
     popSession: opts.popSession ?? (() => undefined),
+    // The ordinary case, so the boot-outcome tests above stay about booting. The
+    // seam itself is loud when unstubbed — a reboot that silently failed to evict
+    // is the one failure this command must never absorb.
+    reboot: mockRebootApi({ evict: opts.evict ?? (async () => ({ ok: true })) }),
+    ...(opts.network === undefined ? {} : { network: opts.network }),
   });
 };
 
@@ -209,6 +222,86 @@ describe('reboot — disconnect from the rebooted machine', () => {
     await collect(await reboot.execute(env, [], NO_FLAGS));
 
     expect(popSession).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('reboot — the machine drops its sessions', () => {
+  const EVICTION_FAILED =
+    'reboot: could not end active sessions — anyone connected may still be on this machine';
+
+  it('drops the sessions at the shutdown beat, before the box is said to be down', async () => {
+    const evict = vi.fn<RebootApi['evict']>(async () => ({ ok: true }));
+    const env = rebootEnv({
+      session: mockSession({ machineId: REMOTE, userType: 'root', username: 'root', kind: 'su' }),
+      hopChain: [mockSession({ machineId: OWN, userType: 'user', username: 'mallory' })],
+      evict,
+    });
+
+    const result = await reboot.execute(env, [], NO_FLAGS);
+    if (result.kind !== 'async') throw new Error('async result expected');
+    // Walk the animation a line at a time and stop the moment the box has dropped
+    // its sessions — the way a Ctrl-C leaves it half-rendered. What the player had
+    // been shown by then is the assertion: a real machine drops its sessions while
+    // it is shutting down, and once it has, there is nothing left to take back.
+    const animation = result.lines[Symbol.asyncIterator]();
+    const shown: string[] = [];
+    while (evict.mock.calls.length === 0) {
+      const step = await animation.next();
+      if (step.done === true) break;
+      shown.push(step.value.content);
+    }
+
+    expect(evict).toHaveBeenCalledWith(REMOTE);
+    expect(shown).toEqual([
+      'Broadcast message from root@workstation:',
+      'The system is going down for reboot NOW!',
+      '[ OK ] Stopping system logging...',
+      '[ OK ] Reached target Shutdown.',
+    ]);
+  });
+
+  it('tells the player the eviction did not take, and exits non-zero', async () => {
+    const env = rebootEnv({ evict: async () => ({ ok: false, error: 'network_error' }) });
+
+    const { lines, exitCode } = await collect(await reboot.execute(env, [], NO_FLAGS));
+
+    // The box did come up — that part was local and really happened. What the
+    // player must not be allowed to believe is that it came up empty.
+    expect(lines).toContain('System rebooted successfully.');
+    expect(lines).toContain(EVICTION_FAILED);
+    expect(exitCode).toBe(1);
+  });
+
+  it('says nothing extra and exits zero when the eviction took', async () => {
+    const env = rebootEnv({ evict: async () => ({ ok: true }) });
+
+    const { lines, exitCode } = await collect(await reboot.execute(env, [], NO_FLAGS));
+
+    expect(lines).not.toContain(EVICTION_FAILED);
+    expect(exitCode).toBe(0);
+  });
+
+  it('drops the sessions of a box that cannot boot, which is the whole trade', async () => {
+    const evict = vi.fn<RebootApi['evict']>(async () => ({ ok: true }));
+    const env = rebootEnv({ files: ['initrd.img'], evict });
+
+    const { lines } = await collect(await reboot.execute(env, [], NO_FLAGS));
+
+    // Rebooting a box whose kernel image is already gone is how a defender pays
+    // for the eviction: they get the intruder off, and lose the machine doing it.
+    expect(lines).toContain('System halted.');
+    expect(evict).toHaveBeenCalledTimes(1);
+  });
+
+  it('drops the sessions while the player is not joined to any network', async () => {
+    const evict = vi.fn<RebootApi['evict']>(async () => ({ ok: true }));
+    const env = rebootEnv({ network: mockNetworkView({ isOnline: () => false }), evict });
+
+    await collect(await reboot.execute(env, [], NO_FLAGS));
+
+    // `nmcli disconnect` then `reboot` is the panic sequence, and it is supposed
+    // to work: in-game connectivity says nothing about rebooting your own hardware.
+    expect(evict).toHaveBeenCalledTimes(1);
   });
 });
 
