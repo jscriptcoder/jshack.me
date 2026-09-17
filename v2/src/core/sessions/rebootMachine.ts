@@ -10,12 +10,23 @@
  * reaches all of them; naming session ids reaches whichever ones a client
  * remembered to name.
  *
- * Ownership is enforced the same way `endSession` enforces it — by SCOPING the
- * update to the verified `player_key`, stamped from the envelope and never a
- * client claim. So today this ends the CALLER's rows on that machine and nobody
- * else's. Reaching a stranger's row is the point of the feature and needs a
- * server-derived authority (owning the box, or holding root on it) that this
- * handler does not have yet; until it does, the narrow scope is the authorization.
+ * It ends EVERY active row on that machine — every player, every kind. The box
+ * stopped existing for a moment, and that one sentence answers every session at
+ * once without a table of exceptions to maintain. The implicit base login is
+ * untouched because it was never a row, so a player's own box stays reachable.
+ *
+ * Which means scoping can no longer be the authorization, and the authority is now
+ * asked as its own question, SERVER-derived from the verified pubkey: the caller
+ * owns the box (the suffix match `authorizeMachineAccess` already gates the patch
+ * endpoints with), or holds a live session on it at root. Never a client claim, and
+ * never widened into `endSession`, which stays scoped to its own caller.
+ *
+ * The owner arm is deliberately unconditional — an owner's base login is not a row,
+ * so there is no tier for the server to read, and the in-game gate is real anyway
+ * (`/bin/reboot` is `execute:['root']`). What it costs is that a tampered client
+ * could throw intruders off its OWN box without in-game root, which is the
+ * defender's own move. The gateway arm needs no branch: nobody owns an access
+ * point, so only the root-session arm can ever carry it.
  *
  * Why the row closed is the server's word: the reason is stamped here, not read
  * off the wire, so a caller cannot ask for its rows to be recorded as anything
@@ -25,12 +36,14 @@
 import { z } from 'zod';
 import { verifySignedRequest } from '../signedRequest/verify';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
+import { authorizeMachineAccess, type FindActiveSession } from '../patches/authorizeMachineAccess';
 import type { NonceStore } from '../signedRequest/nonceStore';
 import type { EndReason } from './endSession';
 
+/** No `player_key`: the update is scoped to the MACHINE and nothing else, which is
+ *  what lets one reboot reach a row the caller has never seen. */
 export type EndMachineSessionsParams = {
   readonly machine_id: string;
-  readonly player_key: string;
   readonly reason: EndReason;
 };
 
@@ -42,6 +55,10 @@ export type WriteBootIdParams = {
 
 export type RebootMachineDeps = {
   readonly nonceStore: NonceStore;
+  /** The caller's own live row on the target, whose tier is the authority when the
+   *  box is not theirs. Shared with the patch endpoints so one shell's writes and
+   *  its reboot agree about where the player is standing. */
+  readonly findActiveSession: FindActiveSession;
   readonly endMachineSessions: (
     params: EndMachineSessionsParams,
   ) => Promise<{ readonly error: unknown }>;
@@ -80,9 +97,23 @@ export const handleRebootMachine = async (
   }
 
   const { publicKey, payload } = verified;
+
+  // Before anything moves. A machine id travels — it is on every session row and in
+  // every hop the client makes — so an unauthorized reboot that reached the rows or
+  // left a marker would evict the box's occupants just as effectively as one that
+  // was allowed.
+  const access = await authorizeMachineAccess(publicKey, payload.machine_id, deps.findActiveSession);
+  if (!access.ok) {
+    return { status: access.status, body: { error: access.error } };
+  }
+  // `null` is the owner bypass. Otherwise the tier comes off the caller's own row on
+  // the target: standing on a box is not authority over it.
+  if (access.session !== null && access.session.userType !== 'root') {
+    return { status: 403, body: { error: 'not_root' } };
+  }
+
   const { error } = await deps.endMachineSessions({
     machine_id: payload.machine_id,
-    player_key: publicKey,
     reason: 'rebooted',
   });
   // Loud, unlike every other session write. A swallowed failure elsewhere costs a
