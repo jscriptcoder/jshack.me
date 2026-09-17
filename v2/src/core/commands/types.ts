@@ -604,6 +604,31 @@ export type FtpTransfer = {
   readonly bytes: number;
 };
 
+/** What `apt` reports about one completed rollback: which package moved, and between
+ *  which releases. The command names only WHAT moved — which box, from which address,
+ *  and at what time are the caller's to supply, because a command cannot be trusted to
+ *  say who it is. The same division `FtpTransfer` makes, for the same reason. */
+export type AptDowngrade = {
+  readonly packageName: string;
+  /** The release the box was on. */
+  readonly fromVersion: string;
+  /** The older release it landed on. */
+  readonly toVersion: string;
+};
+
+/** The package manager's one server-side seam. `apt` moves a package by writing the
+ *  box's manifest through the ordinary patch path — a manifest is just a file — so
+ *  nothing here performs the change. This REPORTS a completed downgrade, so the machine
+ *  it happened on records a rollback in its own `/var/log/dpkg.log`.
+ *
+ *  Only downgrades. An install or an upgrade leaves a box no worse off than it found it,
+ *  while a rollback is the one apt verb that reopens a hole — and after an ssh hop it
+ *  can be run by somebody who does not own the box. Fire-and-forget like the other
+ *  traces: the manifest has already moved, and a logging failure must not un-move it. */
+export type AptApi = {
+  readonly recordDowngrade: (downgrade: AptDowngrade) => void;
+};
+
 /** What `nc` hands a door that asks for nothing. Structurally the ssh params MINUS
  *  the credential, because that is exactly what a backdoor is: the pidfile already
  *  names its user and tier, so there is nothing for a client to send and nothing for
@@ -1352,6 +1377,7 @@ export type CommandEnv = {
   readonly redis: RedisApi;
   readonly snmp: SnmpApi;
   readonly scp: ScpApi;
+  readonly apt: AptApi;
   readonly su: SuApi;
   readonly scan: ScanApi;
   readonly hydra: HydraApi;

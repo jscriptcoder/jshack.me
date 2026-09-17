@@ -69,6 +69,7 @@ import type {
   ExploitRunParams,
   ExploitRunResult,
   ModeChange,
+  AptDowngrade,
   TerminalLine,
 } from '../core/commands/types';
 import { DEFAULT_THEME_ID, type ThemeId } from '../core/theme/themes';
@@ -105,6 +106,7 @@ import { buildCommandEnv, type BuildCommandEnvArgs } from './env';
 import { homeDirectory } from '../core/sessions/homeDirectory';
 import { getPlayerIdentity } from './identity';
 import { isOwnWorkstation, parseWorkstationId } from '../core/identity/workstation';
+import { launchVantage } from '../core/sessions/launchVantage';
 import {
   createPatchApi,
   fetchOwnPatches,
@@ -113,9 +115,11 @@ import {
   recordDeepScan,
   recordFtpTransfer,
   recordLanFetch,
+  recordPackageDowngrade,
   recordScan,
   recordZoneTransfer,
   type FtpTransferRecord,
+  type PackageDowngradeRecord,
   type PatchClientDeps,
 } from '../adapters/patchApi';
 import { createSyncChannel, type SyncChannel } from '../adapters/crossTabSync';
@@ -765,6 +769,36 @@ const recordFtpTransferFn = (transfer: FtpTransferRecord): Promise<void> =>
   patchClientDeps === undefined
     ? Promise.resolve()
     : recordFtpTransfer(patchClientDeps, transfer);
+
+/** Record a package rolled backwards on the box it happened to (backs
+ *  `env.apt.recordDowngrade`). Best-effort and a no-op until `startGame` wires the
+ *  patch client; the manifest has moved regardless. */
+const recordPackageDowngradeFn = (downgrade: PackageDowngradeRecord): Promise<void> =>
+  patchClientDeps === undefined
+    ? Promise.resolve()
+    : recordPackageDowngrade(patchClientDeps, downgrade);
+
+/** Address one reported rollback: the command names only the package and the two
+ *  releases, and WHICH box, from WHERE, and when are added here.
+ *
+ *  The box is the one the shell is STANDING on — a rollback happens where you are,
+ *  unlike a transfer, which has a target of its own. The vantage is therefore the hop
+ *  BELOW this one: naming the current session would tell the rolled-back box's own log
+ *  that the visit came from its own network, which is the one address it can never have
+ *  been. Absent at the base session, which the server reads as the player's own home
+ *  network — and an `su` elevation is not a hop, so it still resolves to the workstation
+ *  underneath it. */
+const aptDowngradeRecord = (downgrade: AptDowngrade): PackageDowngradeRecord => {
+  const launchedFrom = launchVantage(sessionStack());
+  return {
+    machineId: requireSession().machineId,
+    packageName: downgrade.packageName,
+    fromVersion: downgrade.fromVersion,
+    toVersion: downgrade.toVersion,
+    sourceIp: localAddress(),
+    ...(launchedFrom === undefined ? {} : { callerMachineId: launchedFrom }),
+  };
+};
 
 /** Write to the machine an ftp session is held on (backs `env.ftp.write`). The
  *  SHIPPED patch client, aimed at the target and stamped with the session's account
@@ -1683,6 +1717,7 @@ const executeLine = async (line: string): Promise<void> => {
     onFtpEnter: enterFtpSession,
     onFtpLeave: leaveFtpSession,
     ...ftpBinding(),
+    onAptDowngrade: (downgrade) => void recordPackageDowngradeFn(aptDowngradeRecord(downgrade)),
     onScpAuthenticate: scpAuthenticate,
     onScpAuthenticatePublic: scpAuthenticatePublic,
     onScpWrite: writeToScpTarget,

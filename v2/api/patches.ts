@@ -10,6 +10,7 @@ import { handleListPatches, type ListPatchesQuery } from '../src/core/patches/li
 import { handleRemovePatch, type PatchTreeQuery } from '../src/core/patches/removePatch';
 import { handleAppendAuthLog, type AuthLogContentQuery } from '../src/core/patches/appendAuthLog';
 import { handleRecordFtpTransfer } from '../src/core/patches/recordFtpTransfer';
+import { handleRecordPackageDowngrade } from '../src/core/patches/recordPackageDowngrade';
 import { handleRecordZoneTransfer } from '../src/core/patches/recordZoneTransfer';
 import { handleNmapScan, type ScanOccupant } from '../src/core/scan/nmapScan';
 import {
@@ -304,6 +305,56 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return findPublicIpByEssid(essid);
     };
     const { status, body } = await handleRecordFtpTransfer(req.body, {
+      nonceStore: noopNonceStore,
+      now: () => Date.now(),
+      findActiveSession,
+      readLog: readMachineLog,
+      upsertPatch,
+      findOccupantWorkstationByMachineId,
+      findHomeNetworkByOwnerKey,
+      findPublicIpByEssid,
+    });
+    res.status(status).json(body);
+    return;
+  }
+
+  if (actionOf(req.body) === 'recordPackageDowngrade') {
+    // A package rolled BACKWARDS is recorded in THAT box's dpkg.log. Pinning is the one
+    // apt verb that leaves a machine more exposed than it found it, and after an ssh hop
+    // it is run by somebody who does not own the box — so its owner's only way to learn
+    // it happened is this line. Same read-modify-write as the transfer above, and the
+    // same provenance rule: a generated host keeps the caller's own row and the address
+    // they reported, while a box somebody owns owns its log too, and is told where the
+    // visitor really came from.
+    // The two lookups are re-declared rather than shared with the branch above: each
+    // branch owns its closures, as `recordZoneTransfer` below does, so retuning one
+    // cannot silently retune another.
+    const findPublicIpByEssid = async (essid: string) => {
+      const { data, error } = await supabase
+        .from('network_public_ips')
+        .select('public_ip')
+        .eq('essid', essid)
+        .maybeSingle();
+      if (error) console.error('[patches] downgrade vantage-ip lookup error:', error);
+      return { data: data as { public_ip: string } | null, error };
+    };
+    const findHomeNetworkByOwnerKey = async (ownerKey: string) => {
+      const occupancy = await supabase
+        .from('home_network_occupants')
+        .select('essid')
+        .eq('owner_key', ownerKey)
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (occupancy.error) {
+        console.error('[patches] downgrade source-ip occupancy error:', occupancy.error);
+        return { data: null, error: occupancy.error };
+      }
+      const essid = (occupancy.data as { essid: string } | null)?.essid ?? null;
+      if (essid === null) return { data: null, error: null };
+      return findPublicIpByEssid(essid);
+    };
+    const { status, body } = await handleRecordPackageDowngrade(req.body, {
       nonceStore: noopNonceStore,
       now: () => Date.now(),
       findActiveSession,

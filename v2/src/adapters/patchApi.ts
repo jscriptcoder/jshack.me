@@ -254,6 +254,49 @@ export const recordFtpTransfer = async (
   }
 };
 
+/** What one apt rollback tells the box it happened on: which machine, which package,
+ *  the releases either side of the move, and the address at the other end. No ACCOUNT,
+ *  unlike the transfer above — a `dpkg.log` line names none, so there is nothing here
+ *  for the server to read off the session row. */
+export type PackageDowngradeRecord = {
+  readonly machineId: MachineId;
+  readonly packageName: string;
+  /** The release the box was on, then the older one it landed on. Both, because a line
+   *  naming only where it ended up cannot tell its owner how far back it was taken. */
+  readonly fromVersion: string;
+  readonly toVersion: string;
+  readonly sourceIp: string | null;
+  /** The box the rollback was LAUNCHED from — the hop below the one being rolled back,
+   *  because a downgrade happens where you are standing rather than on a separate target.
+   *  Absent at the player's own workstation, which the server reads as their own home
+   *  network. Naming the rolled-back box itself would tell its owner's log that the visit
+   *  came from their own address, which is the one address it cannot have been. */
+  readonly callerMachineId?: MachineId;
+};
+
+/** Fire the rolled-back box's own package log: the server checks the caller holds a
+ *  session there, derives the address on every path that lands in a stranger's log, and
+ *  appends the `downgrade` line to its `/var/log/dpkg.log`. Best-effort +
+ *  fire-and-forget like the other traces — the manifest has already moved, so a logging
+ *  failure must not surface as a failed rollback. */
+export const recordPackageDowngrade = async (
+  deps: PatchClientDeps,
+  downgrade: PackageDowngradeRecord,
+): Promise<void> => {
+  try {
+    await post(deps, 'recordPackageDowngrade', {
+      machine_id: downgrade.machineId,
+      package_name: downgrade.packageName,
+      from_version: downgrade.fromVersion,
+      to_version: downgrade.toVersion,
+      source_ip: downgrade.sourceIp,
+      caller_machine_id: downgrade.callerMachineId,
+    });
+  } catch {
+    // best-effort: a logging failure must not surface to the rollback.
+  }
+};
+
 /** Fire the server-internal scan log: the server resolves the scanned hosts from
  *  the (verified pubkey, essid, target) and writes each one's `/var/log/kern.log`
  *  itself — the client only names what it scanned. Best-effort + fire-and-forget:
