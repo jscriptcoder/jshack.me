@@ -35,6 +35,7 @@ import type {
   HydraApi,
   ExploitApi,
   SuApi,
+  AptApi,
   TerminalLine,
 } from '../core/commands/types';
 import type { Directory } from '../core/filesystem/types';
@@ -162,6 +163,11 @@ export type BuildCommandEnvArgs = {
    *  round-trip, adding the session and the vantage the command has no business
    *  naming. */
   readonly onFtpTransfer?: FtpApi['recordTransfer'];
+  /** Report a package rolled BACKWARDS on the box it happened to, so that box's own
+   *  `dpkg.log` records a rollback its owner never ran. The UI wires it to the signed
+   *  `recordPackageDowngrade` round-trip, adding the machine and the vantage the
+   *  command has no business naming. */
+  readonly onAptDowngrade?: AptApi['recordDowngrade'];
   /** The database login seam — backs `env.mysql.connect`. Not the session round-trip
    *  the doors above share: a database connection mints no row, so this validates a
    *  credential against the target's datadir and returns whether it opened. */
@@ -402,6 +408,12 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
     // have already moved by the time this is called, and a logging failure must
     // not un-move them.
     recordTransfer: args.onFtpTransfer ?? (() => undefined),
+  },
+  apt: {
+    // Fire-and-forget, so an unwired seam no-ops rather than throwing: the manifest has
+    // already moved by the time this is called, and a logging failure must not un-move
+    // it — the same posture ftp's recorder above takes.
+    recordDowngrade: args.onAptDowngrade ?? (() => undefined),
   },
   mysql: {
     // Loud when unwired, like every other door's login: a connect that answered

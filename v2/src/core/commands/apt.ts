@@ -453,6 +453,12 @@ async function* pinVersion(
     yield errorLine(`E: Failed to write ${DPKG_STATUS_PATH} (${written.error})`);
     return APT_ERROR;
   }
+  // Only a LANDED rollback is reported, which is why this sits below the write rather
+  // than beside the announcement above it. The manifest IS the downgrade, so a report
+  // raised any earlier would put a rollback in the box owner's log that their manifest
+  // never took — evidence of an attack that did not happen. The command names only what
+  // moved: which box, from which address and at what time are the caller's to supply.
+  env.apt.recordDowngrade({ packageName, fromVersion: from, toVersion: version });
   yield text(`Setting up ${packageName} (${version}) ...`);
   return 0;
 }

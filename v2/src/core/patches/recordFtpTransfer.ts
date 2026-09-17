@@ -43,25 +43,18 @@ import {
   formatVsftpdTransferLine,
 } from '../logging/vsftpdLog';
 import { derivePid } from '../logging/syslog';
-import {
-  authorizeMachineAccess,
-  standingVantage,
-  type FindActiveSession,
-} from './authorizeMachineAccess';
-import {
-  resolveVantageSourceIp,
-  type FindHomeNetworkByOwnerKey,
-  type FindPublicIpByEssid,
+import { authorizeMachineAccess, type FindActiveSession } from './authorizeMachineAccess';
+import type {
+  FindHomeNetworkByOwnerKey,
+  FindPublicIpByEssid,
 } from '../logging/crossPlayerSourceIp';
+import { resolveTraceProvenance } from './traceProvenance';
 import {
   appendMachineLog,
   type MachineLogReadQuery,
   type MachineLogReadResult,
 } from './appendMachineLog';
-import type {
-  FindOccupantWorkstationByMachineId,
-  OccupantWorkstation,
-} from './remoteWritePermission';
+import type { FindOccupantWorkstationByMachineId } from './remoteWritePermission';
 import type { NonceStore } from '../signedRequest/nonceStore';
 import type { PatchRow } from './upsertPatch';
 
@@ -105,49 +98,6 @@ const recordFtpTransferSchema = z
   })
   .refine((payload) => !('player_key' in payload) && !('writer_key' in payload));
 
-/** Whose row the line is filed under, and which address it names.
- *
- *  On a generated host the caller's own row IS the record — nobody else writes there,
- *  and the LAN address they report is what that box saw. On another PLAYER's box both
- *  answers change: the row belongs to the machine's owner, because a shared log split
- *  across two writer keys replays with one row winning and the defender reading half a
- *  visit; and the address comes from the verified key, because it is the defender's
- *  only evidence. Pivot-aware — a transfer run from a box the visitor merely holds a
- *  session on is traced to THAT network, which is the one the target actually saw. */
-type Provenance =
-  | { readonly ok: true; readonly writerKey: string; readonly fromIp: string }
-  | { readonly ok: false; readonly status: number; readonly error: string };
-
-const resolveProvenance = async (
-  deps: RecordFtpTransferDeps,
-  visit: {
-    readonly actorKey: string;
-    readonly callerMachineId: string | undefined;
-    readonly claimedIp: string | null;
-    readonly owner: OccupantWorkstation | null;
-  },
-): Promise<Provenance> => {
-  if (visit.owner === null) {
-    return { ok: true, writerKey: visit.actorKey, fromIp: visit.claimedIp ?? 'unknown' };
-  }
-  const standing = await standingVantage(
-    visit.actorKey,
-    visit.callerMachineId,
-    deps.findActiveSession,
-  );
-  if (!standing.ok) {
-    return { ok: false, status: standing.status, error: standing.error };
-  }
-  return {
-    ok: true,
-    writerKey: visit.owner.owner_key,
-    fromIp: await resolveVantageSourceIp(deps, {
-      actorKey: visit.actorKey,
-      standingEssid: standing.standingEssid,
-    }),
-  };
-};
-
 export const handleRecordFtpTransfer = async (
   body: unknown,
   deps: RecordFtpTransferDeps,
@@ -171,7 +121,7 @@ export const handleRecordFtpTransfer = async (
   if (owner.error) {
     return { status: 500, body: { error: 'occupant_lookup_failed' } };
   }
-  const provenance = await resolveProvenance(deps, {
+  const provenance = await resolveTraceProvenance(deps, {
     actorKey: publicKey,
     callerMachineId: payload.caller_machine_id,
     claimedIp: payload.source_ip ?? null,

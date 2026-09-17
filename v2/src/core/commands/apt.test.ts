@@ -1,9 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { BINARY_STUB } from '../generation/binaries';
 import type { SystemLibrary } from '../generation/libraries';
 import type { Directory, FilePermissions } from '../filesystem/types';
 import { asAbsPath, asEpochMs, asPlayerKeyHex, type UserType } from '../types';
-import type { CommandEnv, CommandResult, PatchResult, TerminalLine } from './types';
+import type { AptApi, CommandEnv, CommandResult, PatchResult, TerminalLine } from './types';
 import {
   CVE_TIMING,
   newestReleaseOn,
@@ -903,6 +903,104 @@ describe('apt', () => {
         );
         expect(writes).toEqual([]);
         expect(exitCode).toBe(100);
+      });
+
+      /** A rollback the box's owner never ran is the one apt result they have to be able
+       *  to find afterwards, and after an ssh hop the person running it is not them. The
+       *  command reports only WHAT moved — which box, from which address, and at what
+       *  time are the caller's to supply, because a command cannot be trusted to say who
+       *  it is. */
+      const withRecorder = (opts: Parameters<typeof aptEnv>[0]) => {
+        const built = aptEnv(opts);
+        const recordDowngrade = vi.fn<AptApi['recordDowngrade']>();
+        const env: CommandEnv = { ...built.env, apt: { recordDowngrade } };
+        return { ...built, env, recordDowngrade };
+      };
+
+      /** The fixture the happy path and three of the four refusals share: a box sitting on
+       *  the patched release, on a day it could legitimately have upgraded. */
+      const rollbackFixture = () => {
+        const older = startingVersionOf(REDIS)!;
+        const gameDay = [300, 301, 302].find(
+          (day) => upgradeStatusFor(REDIS, older, day).kind === 'upgradable',
+        )!;
+        return { older, gameDay, patched: newestReleaseOn(REDIS, gameDay)! };
+      };
+
+      it('reports the rollback, so the box it landed on can record who moved it', async () => {
+        const { older, gameDay, patched } = rollbackFixture();
+        const { env, recordDowngrade } = withRecorder({
+          gameDay,
+          carries: { [REDIS]: patched },
+        });
+
+        await streamResult(await apt.execute(env, ['install', `${REDIS}=${older}`], NO_FLAGS));
+
+        // Both releases, in the order the log renders them: a line naming only where the
+        // box ended up cannot tell its owner how far back it was taken.
+        expect(recordDowngrade).toHaveBeenCalledTimes(1);
+        expect(recordDowngrade).toHaveBeenCalledWith({
+          packageName: REDIS,
+          fromVersion: patched,
+          toVersion: older,
+        });
+      });
+
+      it('reports nothing when the manifest write was refused, so no trace outlives the rollback', async () => {
+        const { older, gameDay, patched } = rollbackFixture();
+        const { env, recordDowngrade } = withRecorder({
+          gameDay,
+          carries: { [REDIS]: patched },
+          failWritesTo: DPKG_STATUS_PATH,
+        });
+
+        await streamResult(await apt.execute(env, ['install', `${REDIS}=${older}`], NO_FLAGS));
+
+        // The sharpest of the four: every guard PASSED here, and only the write failed. A
+        // report raised before checking the write would put a rollback in someone's log
+        // that their manifest never took — evidence of an attack that did not happen.
+        expect(recordDowngrade).not.toHaveBeenCalled();
+      });
+
+      it('reports nothing for a package the box does not carry', async () => {
+        const gameDay = 300;
+        const published = newestReleaseOn(REDIS, gameDay)!;
+        const { env, recordDowngrade } = withRecorder({ gameDay });
+
+        await streamResult(await apt.execute(env, ['install', `${REDIS}=${published}`], NO_FLAGS));
+
+        expect(recordDowngrade).not.toHaveBeenCalled();
+      });
+
+      it('reports nothing for a release this world has never published', async () => {
+        const { older: born, gameDay, patched } = rollbackFixture();
+        const belowBorn = born.replace(/\d+$/, (last) => String(Number(last) - 1));
+        const { env, recordDowngrade } = withRecorder({
+          gameDay,
+          carries: { [REDIS]: patched },
+        });
+
+        await streamResult(await apt.execute(env, ['install', `${REDIS}=${belowBorn}`], NO_FLAGS));
+
+        expect(recordDowngrade).not.toHaveBeenCalled();
+      });
+
+      it('reports nothing when the named release moves the box forward', async () => {
+        const carried = startingVersionOf(REDIS)!;
+        const gameDay = [300, 301, 302].find(
+          (day) => upgradeStatusFor(REDIS, carried, day).kind === 'upgradable',
+        )!;
+        const newer = newestReleaseOn(REDIS, gameDay)!;
+        const { env, recordDowngrade } = withRecorder({
+          gameDay,
+          carries: { [REDIS]: carried },
+        });
+
+        await streamResult(await apt.execute(env, ['install', `${REDIS}=${newer}`], NO_FLAGS));
+
+        // An upgrade is not a downgrade even when install is the verb that reached it —
+        // reporting one here would put a rollback in the log for a box that moved forward.
+        expect(recordDowngrade).not.toHaveBeenCalled();
       });
     });
 

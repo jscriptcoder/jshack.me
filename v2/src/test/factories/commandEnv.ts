@@ -32,6 +32,7 @@ import type {
   SuApi,
   HydraApi,
   ExploitApi,
+  AptApi,
 } from '../../core/commands/types';
 import { basename, dirname } from '../../core/filesystem/path';
 import { canWrite } from '../../core/filesystem/walker';
@@ -173,6 +174,14 @@ export const mockFtpApi = (overrides: Partial<FtpApi> = {}): FtpApi => ({
   ...overrides,
 });
 
+/** The package-manager seam. Fire-and-forget in production, so a no-op default leaves
+ *  every test that does not care about the defender's log unaffected; the ones that care
+ *  pass a spy — the same posture `recordTransfer` above takes. */
+export const mockAptApi = (overrides: Partial<AptApi> = {}): AptApi => ({
+  recordDowngrade: () => undefined,
+  ...overrides,
+});
+
 /** The database door seam. Loud when unstubbed for the same reason ssh's and ftp's
  *  are: a connect that silently refused would read as a rejected credential, which is
  *  a different fact about the world than a test that forgot to wire the door. */
@@ -306,6 +315,7 @@ export const mockCommandEnv = (overrides: Partial<CommandEnv> = {}): CommandEnv 
   redis: mockRedisApi(),
   snmp: mockSnmpApi(),
   scp: mockScpApi(),
+  apt: mockAptApi(),
   su: mockSuApi(),
   hydra: mockHydraApi(),
   exploit: mockExploitApi(),
