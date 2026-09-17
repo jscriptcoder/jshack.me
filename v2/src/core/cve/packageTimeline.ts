@@ -324,6 +324,39 @@ export const newestReleaseOn = (key: string, gameDay: number): string | undefine
 };
 
 /**
+ * Whether the repo holds `version` of `key` on `gameDay`: a real release, at or below
+ * the newest one installable today. The set a player may name outright.
+ *
+ * Deliberately NOT "its CVE has published". The release that FIXES the current hole is
+ * installable the day that fix ships, and its own hole lands later — so a published-CVE
+ * test would refuse the very version a fresh install lands on. What can be named is what
+ * the repo can hand over, which is exactly what `newestReleaseOn` already answers the
+ * top of.
+ */
+export const repoHolds = (key: string, version: string, gameDay: number): boolean => {
+  const newest = newestReleaseOn(key, gameDay);
+  const timeline = packageTimeline(key, gameDay);
+  const named = timeline.findIndex((entry) => entry.version === version);
+  return named !== -1 && named <= timeline.findIndex((entry) => entry.version === newest);
+};
+
+/**
+ * Whether moving `key` between two versions walks FORWARD along its history on `gameDay`.
+ *
+ * Both ends resolve through `installedRelease`, so a manifest holding a version this
+ * world never published is weighed as the release it actually behaves as, rather than as
+ * the string somebody typed into it — the same reading a scan and an exploit take of it.
+ */
+export const movesForward = (
+  key: string,
+  move: { readonly from: string; readonly to: string; readonly gameDay: number },
+): boolean => {
+  const before = installedRelease(key, move.from, move.gameDay);
+  const after = installedRelease(key, move.to, move.gameDay);
+  return before !== undefined && after !== undefined && after.index > before.index;
+};
+
+/**
  * What apt can do for one package on a box.
  *
  * `up-to-date` means NOT EXPOSED rather than on the newest release: the treadmill only

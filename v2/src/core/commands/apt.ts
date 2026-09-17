@@ -55,7 +55,13 @@ import {
   withPackageEntries,
   withPackageVersion,
 } from '../packages/dpkgStatus';
-import { newestReleaseOn, upgradeStatusFor, type UpgradeStatus } from '../cve/packageTimeline';
+import {
+  movesForward,
+  newestReleaseOn,
+  repoHolds,
+  upgradeStatusFor,
+  type UpgradeStatus,
+} from '../cve/packageTimeline';
 import { gameDayAt } from '../cve/worldClock';
 import { libraryDeps } from './libraryDeps';
 import { binaryExists } from './availability';
@@ -67,10 +73,10 @@ const STEP_DELAY_MS = 300;
 
 const USAGE = [
   'apt: usage:',
-  '  apt install <package>     Install a package',
-  '  apt upgrade [package]     Patch the packages on this box whose fixes have shipped',
-  '  apt list [--installed]    List packages (optionally only installed ones)',
-  '  apt list --upgradable     List the packages on this box with a vulnerability',
+  '  apt install <package>[=<version>]  Install a package, or roll one back to a release',
+  '  apt upgrade [package]              Patch the packages on this box whose fixes have shipped',
+  '  apt list [--installed]             List packages (optionally only installed ones)',
+  '  apt list --upgradable              List the packages on this box with a vulnerability',
 ];
 
 /** Apt's exit code for a failed operation (permission, fetch, locate, …). */
@@ -384,9 +390,77 @@ const nothingNewerThan = (status: UpgradeStatus): boolean =>
  *  connectivity gates. Every step is announced before it happens; a failure
  *  lands beneath the announcements the player has already seen rather than
  *  replacing them. */
+/** `redis=7.2.5` split into the package and the release it names; a bare `redis` names
+ *  no release. Split on the FIRST `=` so a version containing one cannot swallow the
+ *  package name. */
+const splitPin = (spec: string): readonly [string, string | undefined] => {
+  const at = spec.indexOf('=');
+  return at === -1 ? [spec, undefined] : [spec.slice(0, at), spec.slice(at + 1)];
+};
+
+/**
+ * Move a package to the release the player NAMED, rather than to the one the resolver
+ * picks. The manifest is the whole of the move: a stub binary carries no version, so
+ * the row IS the release this box is running, and the scan and the exploit that follow
+ * both read it from there.
+ *
+ * Which is what makes rolling backwards worth doing — a box pinned to a release whose
+ * hole is open is exposed again, and reads exactly like one that never patched.
+ */
+async function* pinVersion(
+  env: CommandEnv,
+  pin: {
+    readonly packageName: string;
+    readonly version: string;
+    readonly manifest: string;
+    readonly carried: ReadonlyMap<string, string>;
+    readonly gameDay: number;
+  },
+): AsyncGenerator<TerminalLine, number> {
+  const { packageName, version, manifest, carried, gameDay } = pin;
+  const from = carried.get(packageName);
+  // Only discoverable by reading the box's own manifest, so it reports beneath the
+  // preamble — where `upgrade` reports the same thing, and for the same reason.
+  if (from === undefined) {
+    yield errorLine(`E: Package '${packageName}' is not installed, so not downgraded`);
+    return APT_ERROR;
+  }
+  // A release the repo does not hold cannot be had by naming it. Without this the
+  // manifest would accept any number at all, and the box would claim a version this
+  // world never shipped — which every scan and exploit downstream would believe.
+  if (!repoHolds(packageName, version, gameDay)) {
+    yield errorLine(`E: Version '${version}' for '${packageName}' was not found`);
+    return APT_ERROR;
+  }
+  // Pinning is how a box goes BACKWARDS. Moving forward is `upgrade`'s verb, and it
+  // carries a rule this path does not — it may only land on a release whose own hole has
+  // not opened yet — so allowing it here would be a second way forward that skips it.
+  if (movesForward(packageName, { from, to: version, gameDay })) {
+    yield errorLine(
+      `E: Version '${version}' for '${packageName}' is newer than the installed '${from}' — use 'apt upgrade'`,
+    );
+    return APT_ERROR;
+  }
+  yield text(`Unpacking ${packageName} (${version}) over (${from}) ...`);
+  const written = await env.patches.write(
+    asAbsPath(DPKG_STATUS_PATH),
+    withPackageVersion(manifest, packageName, version),
+    { owner: DPKG_STATUS_OWNER, permissions: DPKG_STATUS_PERMISSIONS },
+  );
+  // Nothing moved, so nothing may claim to have been set up: the manifest IS the
+  // downgrade, and a box reporting one it never made would lie about its own exposure.
+  if (!written.ok) {
+    yield errorLine(`E: Failed to write ${DPKG_STATUS_PATH} (${written.error})`);
+    return APT_ERROR;
+  }
+  yield text(`Setting up ${packageName} (${version}) ...`);
+  return 0;
+}
+
 async function* installPackage(
   env: CommandEnv,
   packageName: string,
+  pinnedVersion: string | undefined,
 ): AsyncGenerator<TerminalLine, number> {
   yield text('Reading package lists...');
   await env.sleep(STEP_DELAY_MS);
@@ -396,6 +470,19 @@ async function* installPackage(
   const gameDay = gameDayAt(env.now());
   const manifest = readDpkgStatus(env.fs.root());
   const carried = parseDpkgVersions(manifest);
+
+  // A named release answers the version question outright, so it runs ahead of every
+  // resolver below: those all ask "where should this box move to", and the player has
+  // already said.
+  if (pinnedVersion !== undefined) {
+    return yield* pinVersion(env, {
+      packageName,
+      version: pinnedVersion,
+      manifest,
+      carried,
+      gameDay,
+    });
+  }
 
   // Shipped with the box, so there is nothing to lay down: no binary for software that
   // came with the image, no `.so` for a library everything already links. The VERSION is
@@ -499,17 +586,20 @@ const handleList = (env: CommandEnv, flags: ReadonlyMap<string, string | true>):
   return streamedResult(listPackages(env, flags));
 };
 
-const handleInstall = (env: CommandEnv, packageName: string | undefined): CommandResult => {
+const handleInstall = (env: CommandEnv, spec: string | undefined): CommandResult => {
   if (env.session.userType !== 'root') {
     return lockError();
   }
   if (!env.network.isOnline()) {
     return offlineError();
   }
-  if (packageName === undefined) {
+  if (spec === undefined) {
     return errorResult(['E: No package specified.', ...USAGE]);
   }
-  return streamedResult(installPackage(env, packageName));
+  // Only `install` takes a release: `upgrade` exists to answer where a box should move
+  // NEXT, and a version handed to it would be the player answering its own question.
+  const [packageName, pinnedVersion] = splitPin(spec);
+  return streamedResult(installPackage(env, packageName, pinnedVersion));
 };
 
 /** `upgrade` takes the same two gates `install` does, in the same order and for the same
@@ -550,9 +640,9 @@ export const apt: Command = {
   availability: { kind: 'localhost-only' },
   flags: { '--installed': 'boolean', '-i': 'boolean', '--upgradable': 'boolean', '-u': 'boolean' },
   manual: {
-    synopsis: 'apt <install|list|upgrade> [--installed|--upgradable] [package]',
+    synopsis: 'apt <install|list|upgrade> [--installed|--upgradable] [package[=<version>]]',
     description:
-      'Advanced Package Tool. "install" downloads a package and places its binaries where they belong — tools in /usr/bin, service daemons in /usr/sbin — making them available to run (requires root — run "su" first). "upgrade" closes the holes "list --upgradable" names: it moves every package on this box whose fix has been released onto that release, or only the package you name, and reports the ones whose fix has not shipped yet rather than moving them (requires root). "list" shows the installable catalog; "list --installed" shows only the packages already present. "list --upgradable" (or -u) reads this box\'s package manifest and names every package with a published vulnerability: the version that fixes it, or — while the fix has not been released yet — how many days until it is. It needs no root. All of them need a network connection.',
+      'Advanced Package Tool. "install" downloads a package and places its binaries where they belong — tools in /usr/bin, service daemons in /usr/sbin — making them available to run (requires root — run "su" first). Naming a release as "<package>=<version>" installs that release instead of the newest: the repo hands over only releases it already holds, and only backwards — moving a box forward is what "upgrade" is for. "upgrade" closes the holes "list --upgradable" names: it moves every package on this box whose fix has been released onto that release, or only the package you name, and reports the ones whose fix has not shipped yet rather than moving them (requires root). "list" shows the installable catalog; "list --installed" shows only the packages already present. "list --upgradable" (or -u) reads this box\'s package manifest and names every package with a published vulnerability: the version that fixes it, or — while the fix has not been released yet — how many days until it is. It needs no root. All of them need a network connection.',
     arguments: [
       {
         name: 'operation',
@@ -563,7 +653,7 @@ export const apt: Command = {
       {
         name: 'package',
         description:
-          'The package to install (for "install"), or the single package to upgrade (for "upgrade", which otherwise covers them all)',
+          'The package to install (for "install"), written as "<package>=<version>" to name a release rather than take the newest, or the single package to upgrade (for "upgrade", which otherwise covers them all)',
       },
       { name: '--installed', description: 'With "list": only the packages already present (-i)' },
       {
@@ -573,6 +663,10 @@ export const apt: Command = {
     ],
     examples: [
       { command: 'apt install nmap', description: 'Install the nmap network scanner' },
+      {
+        command: 'apt install redis=7.2.5',
+        description: 'Roll redis back to an older release the repo still holds',
+      },
       {
         command: 'apt upgrade',
         description: 'Patch every package on this box whose fix has been released',

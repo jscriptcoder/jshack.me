@@ -8,6 +8,7 @@ import {
   CVE_TIMING,
   newestReleaseOn,
   packageTimeline,
+  repoHolds,
   upgradeStatusFor,
 } from '../cve/packageTimeline';
 import { WORLD_EPOCH } from '../cve/worldClock';
@@ -775,6 +776,136 @@ describe('apt', () => {
       );
     });
 
+    describe('version pinning', () => {
+      it('rolls a package back onto an older release the world has published', async () => {
+        // Pinning backwards is the move a defender can be robbed by: a box that had been
+        // patched goes back to a release whose hole is open again. It resolves like any
+        // other box because that release is a real entry on the timeline — nothing reading
+        // the manifest afterwards can tell it was reached by rolling back rather than by
+        // never moving.
+        const older = startingVersionOf(REDIS)!;
+        // A day the box could legitimately have upgraded on. Two things come free with it:
+        // the release it sits on is strictly behind what the repo holds, and its hole has
+        // LANDED — which is what makes `older` a version this world has published, rather
+        // than merely a smaller number.
+        const gameDay = [300, 301, 302].find(
+          (day) => upgradeStatusFor(REDIS, older, day).kind === 'upgradable',
+        )!;
+        const patched = newestReleaseOn(REDIS, gameDay)!;
+        // The fixture is only a downgrade if the box really is ahead of where it lands.
+        expect(patched).not.toBe(older);
+        const { env, writes } = aptEnv({ gameDay, carries: { [REDIS]: patched } });
+
+        const { exitCode, text } = await streamResult(
+          await apt.execute(env, ['install', `${REDIS}=${older}`], NO_FLAGS),
+        );
+
+        const written = writes.find(({ path }) => path === DPKG_STATUS_PATH);
+        expect(parseDpkgVersions(written?.content ?? '').get(REDIS)).toBe(older);
+        // Restated on the write rather than left to the session: a manifest rewritten at
+        // the session's defaults would come back root-only, and a root-only manifest is
+        // invisible to every scan and to `list -u` — the box would look clean while
+        // sitting on an open hole.
+        expect(written?.options).toEqual({ owner: 'root', permissions: SERVICE_CONFIG_FILE });
+        // Announced on both sides, as the upgrade path announces it. A version that moves
+        // with nothing on screen accounting for it reads as the game acting behind the
+        // player's back.
+        expect(text).toContain(`Unpacking ${REDIS} (${older}) over (${patched}) ...`);
+        expect(text).toContain(`Setting up ${REDIS} (${older}) ...`);
+        expect(exitCode).toBe(0);
+      });
+
+      it('refuses a release for a package the box does not carry, and writes nothing', async () => {
+        const gameDay = 300;
+        // A release the repo really holds, so the only thing left to refuse over is the
+        // package being absent — the box has nothing to roll back.
+        const published = newestReleaseOn(REDIS, gameDay)!;
+        expect(parseDpkgVersions(boxManifest()).has(REDIS)).toBe(false);
+        const { env, writes } = aptEnv({ gameDay });
+
+        const { text, exitCode } = await streamResult(
+          await apt.execute(env, ['install', `${REDIS}=${published}`], NO_FLAGS),
+        );
+
+        expect(text).toContain(`E: Package '${REDIS}' is not installed, so not downgraded`);
+        expect(exitCode).toBe(100);
+        expect(writes).toEqual([]);
+      });
+
+      it('reports a manifest the box refused, rather than a downgrade that never landed', async () => {
+        const older = startingVersionOf(REDIS)!;
+        const gameDay = [300, 301, 302].find(
+          (day) => upgradeStatusFor(REDIS, older, day).kind === 'upgradable',
+        )!;
+        const patched = newestReleaseOn(REDIS, gameDay)!;
+        const { env } = aptEnv({
+          gameDay,
+          carries: { [REDIS]: patched },
+          failWritesTo: DPKG_STATUS_PATH,
+        });
+
+        const { text, exitCode } = await streamResult(
+          await apt.execute(env, ['install', `${REDIS}=${older}`], NO_FLAGS),
+        );
+
+        expect(text).toContain(`E: Failed to write ${DPKG_STATUS_PATH} (permission_denied)`);
+        // The manifest IS the downgrade, so a box whose write was refused must not report
+        // a setup it never did — that would be the box lying about its own exposure.
+        expect(text).not.toContain(`Setting up ${REDIS} (${older})`);
+        expect(exitCode).toBe(100);
+      });
+
+      it('refuses a release this world has never published, leaving the box where it is', async () => {
+        const born = startingVersionOf(REDIS)!;
+        const gameDay = [300, 301, 302].find(
+          (day) => upgradeStatusFor(REDIS, born, day).kind === 'upgradable',
+        )!;
+        const patched = newestReleaseOn(REDIS, gameDay)!;
+        // A number one BELOW the release redis was born on: older than anything the box
+        // can be carrying, so the rule that refuses it cannot be the one about upgrades —
+        // and no release this world ever published.
+        const belowBorn = born.replace(/\d+$/, (last) => String(Number(last) - 1));
+        expect(packageTimeline(REDIS, gameDay).map(({ version }) => version)).not.toContain(
+          belowBorn,
+        );
+        const { env, writes } = aptEnv({ gameDay, carries: { [REDIS]: patched } });
+
+        const { text, exitCode } = await streamResult(
+          await apt.execute(env, ['install', `${REDIS}=${belowBorn}`], NO_FLAGS),
+        );
+
+        expect(text).toContain(`E: Version '${belowBorn}' for '${REDIS}' was not found`);
+        expect(writes).toEqual([]);
+        expect(exitCode).toBe(100);
+      });
+
+      it('refuses a release newer than the one installed, naming the verb that moves forward', async () => {
+        const carried = startingVersionOf(REDIS)!;
+        const gameDay = [300, 301, 302].find(
+          (day) => upgradeStatusFor(REDIS, carried, day).kind === 'upgradable',
+        )!;
+        const newer = newestReleaseOn(REDIS, gameDay)!;
+        // A release the repo really holds, so the rule that refuses it cannot be the one
+        // about versions this world never published — and one the box is genuinely behind.
+        expect(repoHolds(REDIS, newer, gameDay)).toBe(true);
+        expect(newer).not.toBe(carried);
+        const { env, writes } = aptEnv({ gameDay, carries: { [REDIS]: carried } });
+
+        const { text, exitCode } = await streamResult(
+          await apt.execute(env, ['install', `${REDIS}=${newer}`], NO_FLAGS),
+        );
+
+        // Pinning is how a box goes BACKWARDS. Moving forward is a different verb with a
+        // different rule — it may only land on a release whose own hole has not opened —
+        // so letting install do it would be a second way forward that skips that rule.
+        expect(text).toContain(
+          `E: Version '${newer}' for '${REDIS}' is newer than the installed '${carried}' — use 'apt upgrade'`,
+        );
+        expect(writes).toEqual([]);
+        expect(exitCode).toBe(100);
+      });
+    });
+
     it('errors with usage when no package is given', async () => {
       const { env, writes } = aptEnv();
 
@@ -1063,6 +1194,23 @@ describe('apt', () => {
 
     const { text } = syncResult(await apt.execute(aptEnv().env, [], NO_FLAGS));
     expect(text).toContain('--upgradable');
+  });
+
+  it('documents pinning, so a player can discover install takes a version at all', async () => {
+    // Nothing on screen hints that `install` accepts anything but a bare package name,
+    // so the manual and the usage line are the only places the syntax exists to be
+    // found — the same places `--upgradable` had to be put, and for the same reason.
+    expect(apt.manual?.synopsis).toContain('[=<version>]');
+    expect(apt.manual?.description).toContain('=<version>');
+    expect(apt.manual?.arguments?.find((entry) => entry.name === 'package')?.description).toContain(
+      '=<version>',
+    );
+    // A worked example, because the shape is the whole feature: a reader who sees one
+    // pinned command never has to guess where the version goes.
+    expect(apt.manual?.examples?.map((entry) => entry.command)).toContain('apt install redis=7.2.5');
+
+    const { text } = syncResult(await apt.execute(aptEnv().env, [], NO_FLAGS));
+    expect(text).toContain('[=<version>]');
   });
 
   it('writes no libraries for a real apt package (none map to a library today)', async () => {
