@@ -398,19 +398,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   if (actionOf(req.body) === 'rebootMachine') {
-    // Machine-scoped rather than session-scoped: a reboot ends every row the
-    // caller holds on that box, including ones no hop chain on their screen is
-    // standing on. Still player_key-scoped, so it reaches nobody else's yet.
-    const endMachineSessions = async ({
-      machine_id,
-      player_key,
-      reason,
-    }: EndMachineSessionsParams) => {
+    // Machine-scoped and nothing else: a reboot ends EVERY open row on that box —
+    // the caller's, including ones no hop chain on their screen is standing on, and
+    // every stranger's. The missing `player_key` filter is the feature. What keeps
+    // it from being a weapon anyone can point anywhere is the handler's own
+    // authority check, which runs before this is ever called.
+    const endMachineSessions = async ({ machine_id, reason }: EndMachineSessionsParams) => {
       const { error } = await supabase
         .from('sessions')
         .update({ ended_at: new Date().toISOString(), end_reason: reason })
         .eq('machine_id', machine_id)
-        .eq('player_key', player_key)
         .is('ended_at', null);
       logFailure('reboot', error);
       return { error };
@@ -434,6 +431,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
     const { status, body } = await handleRebootMachine(req.body, {
       nonceStore: noopNonceStore,
+      // The authority for a box that is not the caller's own: their live row on it,
+      // read at the tier the target granted. Same query the patch endpoints use.
+      findActiveSession: findActiveSessionVia({ supabase, label: 'reboot active-session' }),
       endMachineSessions,
       writeBootId,
       // Unguessable on purpose: a caller able to predict the next id could keep a

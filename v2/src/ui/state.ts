@@ -539,6 +539,14 @@ const activeRoot = (): Directory => {
  * refresh cost nobody their shell — a row still active when the stack rebuilds is
  * by definition one no reboot closed, so reading the box's id afresh is right.
  *
+ * The moment that matters is ARRIVAL, not the first line: a player who breaks in
+ * and waits reads the box for the first time only AFTER it went down, and would
+ * stamp the new id as if they had always held it — walking away evicted, unevicted,
+ * with their commands quietly missing because the box now serves them the
+ * externally-observable allowlist. So the tree acquisition that follows every hop
+ * calls this as soon as it has that box's tree in hand, and the line-by-line call
+ * is what covers a session that reached the prompt by some other road.
+ *
  * The bottom of the stack is left alone. The base login was never a session row,
  * so no reboot can end it and nothing may evict the player from their own box —
  * stamping it would hand `reboot` on your own machine the power to throw you out
@@ -1295,13 +1303,32 @@ const rebindPatchClient = (): void => {
     tier: active.userType,
   };
   patchApi = wrapWithRefetch(createPatchApi(patchClientDeps));
-  if (machineChanged) {
-    setPatches([]);
-    void refetchPatches();
-  }
-  // Fetch (or clear) the cross-player served tree for whatever machine we now stand
-  // on — a no-op fetch for the own box / a local-LAN hop (self-guarded).
-  void refreshServedRoot();
+  if (machineChanged) setPatches([]);
+  void acquireTree(active, machineChanged);
+};
+
+/**
+ * Pull whatever tree the now-active session reads from — the machine's journal, the
+ * server-served copy of another player's box, or both — and only then record the
+ * boot id it was carrying when the player walked in.
+ *
+ * The two fetches stay concurrent because they answer different readers and a hop
+ * should not pay for them twice; the stamp waits for both because either one can be
+ * the tree `activeRoot` ends up returning, and a marker read before its source has
+ * landed reads as an absence.
+ */
+const acquireTree = async (entered: Session, machineChanged: boolean): Promise<void> => {
+  await Promise.all([
+    machineChanged ? refetchPatches() : Promise.resolve(),
+    // Fetch (or clear) the cross-player served tree for whatever machine we now stand
+    // on — a no-op fetch for the own box / a local-LAN hop (self-guarded).
+    refreshServedRoot(),
+  ]);
+  const standing = activeSession();
+  // Only if the player is still standing where they were when this began. A tree
+  // that arrives after they have hopped on belongs to the box they left, and arming
+  // a session from it would point it at the wrong machine.
+  if (standing !== undefined && standing.id === entered.id) observeBootId(standing);
 };
 
 /** Fetch — or clear — the SERVER-served filesystem for the active session. For a

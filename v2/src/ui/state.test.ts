@@ -2600,6 +2600,36 @@ describe('a backdoor on a box across the network', () => {
     expect(await typeLine(state, 'ls /var/run')).toContain('closed by remote host');
   });
 
+  /**
+   * The intruder who breaks in and waits — which is most of them, because nothing in
+   * the game makes a player type a line before the box goes down under them.
+   *
+   * The eviction has to be armed by the BREAK-IN, not by the first line they happen
+   * to run: a session that reads the box for the first time after the reboot has
+   * nothing to compare against and stamps the new id as if it had always held it.
+   * What that player sees instead is their rows already closed server-side, so the
+   * box serves them the externally-observable allowlist and their next command is
+   * simply not there — a silent tier downgrade, which is the one answer this whole
+   * mechanism exists to avoid giving.
+   */
+  it('throws off an intruder who had typed nothing before the box rebooted', async () => {
+    const { state, rebootTheBox } = await enterTheBackdoor();
+
+    rebootTheBox('boot-9f2');
+
+    expect(await typeLine(state, 'ls /var/run')).toContain('closed by remote host');
+  });
+
+  // The same, on a box that was already carrying an id when they broke in — so the
+  // arming reads a real value rather than an absence.
+  it('throws off a waiting intruder on a box that had rebooted before they arrived', async () => {
+    const { state, rebootTheBox } = await enterTheBackdoor('boot-111');
+
+    rebootTheBox('boot-222');
+
+    expect(await typeLine(state, 'ls /var/run')).toContain('closed by remote host');
+  });
+
   // A reboot that happened before the player arrived is not theirs to be told about.
   // Without this the marker itself would be the eviction, and breaking into a box
   // that had ever gone down would close the door behind you on your first line.

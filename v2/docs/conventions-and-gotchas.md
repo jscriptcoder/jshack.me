@@ -2260,6 +2260,41 @@ state costs you more than one wrong attempt.
     other door spends its port reaching the box and never needs it again, while a backdoor is the
     one that has to keep asking whether it is still there. No push channel, and no widening of
     `endSession`, which is deliberately scoped so a caller can only end their OWN rows.
+- **Ending a row and ending a MACHINE's rows are two actions with two authorities.** `endSession`
+  stays scoped to the caller's own `player_key`, and that scoping IS its authorization — it is why
+  no door has ever needed to ask who may close a session. `rebootMachine` is the other shape: the
+  update names the machine and nothing else, so it reaches every player's rows on that box, and
+  because scoping no longer authorizes anything the authority is asked as its own question,
+  server-derived from the verified pubkey — the caller owns the box (the `isOwnWorkstation` suffix
+  match, through the shared `authorizeMachineAccess`), or holds a live session on it at root. Two
+  things to know before a third action of either shape is written: a machine-scoped update must
+  check its authority BEFORE it touches anything, because a machine id travels on every row and in
+  every hop and is therefore not a capability; and the owner arm cannot be conditioned on a session
+  row, because an owner's base login is not a row — a box whose owner is sitting at their own
+  prompt has no tier to read, and a second reboot of a box whose rows are already all closed still
+  has to work.
+- **A session is armed against the box when it ARRIVES, not on the first line it runs — and the
+  test that types a line first can never see the difference.** The boot-id gate compares what the
+  session recorded against what the box now carries, so a session that reads the box for the first
+  time AFTER the reboot records the new id as though it had always held it and is never evicted.
+  That is the ordinary case, not an edge one: an intruder who breaks in and waits has typed
+  nothing, which is most of them. Worse, the shell they keep is not even the one they had — their
+  rows are closed, so the box now serves them the externally-observable allowlist, and their next
+  command comes back `command not found` because `/bin` is no longer in the tree they are handed.
+  A silent tier downgrade is precisely the answer the gate exists to replace with a line saying the
+  box went down. So the stamp happens in `acquireTree`, the moment the client holds that machine's
+  tree, and the per-line stamp is only the fallback for a session that reached the prompt by
+  another road. **Every unit test written for this gate passed with the hole in place**, because
+  each of them typed a line to establish the reading — it took a two-player browser run to notice,
+  and that is the argument for keeping one in the evidence line for anything that evicts a player.
+- **A closed row does not close the shell on your OWN box, and that is priced rather than broken.**
+  `needsFreshTree` exempts your own workstation, so the boot-id gate never runs there: an `su` row
+  of yours that somebody else's reboot closed server-side leaves you standing in that root shell
+  until you reload, when rehydrate declines to bring it back. It costs nothing defensively — you
+  own the box, and `su` is yours to run again — and closing it would put a network round trip on
+  every line typed on your own machine, which is the one thing the re-pull rule has refused to do
+  since it was first priced. Reopen the trade only if a session on your own box ever needs a
+  server-side eviction to be visible before a reload.
 - **D2.4's `reachedPort` rule binds the LOGIN gate too, and did not until v0.136.0.** hydra
   had checked the service on the reached port since v0.120.0; `authCreateSessionPublic` never
   had, so a forward to :22 was an `ftp` door and a forward to :21 an `ssh` one. Both now
