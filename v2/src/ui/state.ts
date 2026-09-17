@@ -81,7 +81,8 @@ import type { GameConfig } from '../core/gameConfig/gameConfig';
 import type { Directory } from '../core/filesystem/types';
 import { applyPatches, type Patch } from '../core/filesystem/applyPatches';
 import { canBoot, type BootCheck } from '../core/boot/bootFiles';
-import { isCrossPlayerHop, resolveActiveRoot } from './activeRoot';
+import { readBootId } from '../core/boot/bootId';
+import { isCrossPlayerHop, needsFreshTree, resolveActiveRoot } from './activeRoot';
 import { isCrossPlayerWorkstation } from '../core/network/crossPlayerHop';
 import { createFsView } from '../core/filesystem/fsView';
 import { resolveAbsPath } from '../core/filesystem/path';
@@ -527,6 +528,32 @@ const activeRoot = (): Directory => {
   });
 };
 
+/**
+ * Record the boot id the box is carrying, the first time this session reads it —
+ * and hand back the session that now carries it, so the line about to run is
+ * judged against the same reading that was just stored.
+ *
+ * Once, and never again: every later line compares against this value, and
+ * re-stamping would mean the box could change under a session without the session
+ * ever disagreeing with it. A reload arrives here too, which is what makes a
+ * refresh cost nobody their shell — a row still active when the stack rebuilds is
+ * by definition one no reboot closed, so reading the box's id afresh is right.
+ *
+ * The bottom of the stack is left alone. The base login was never a session row,
+ * so no reboot can end it and nothing may evict the player from their own box —
+ * stamping it would hand `reboot` on your own machine the power to throw you out
+ * of your own login shell.
+ */
+const observeBootId = (session: Session): Session => {
+  if (session.bootId !== undefined) return session;
+  if (sessionStack().length <= 1) return session;
+  const stamped: Session = { ...session, bootId: readBootId(activeRoot()) };
+  setSessionStack((previous) =>
+    previous.map((entry) => (entry.id === stamped.id ? stamped : entry)),
+  );
+  return stamped;
+};
+
 /** Whether the box an ftp session is held on is another player's — the machine-level
  *  question `scpTargetTree` asks for the same reason, and deliberately NOT
  *  `isCrossPlayerHop`: that one also asks whether the session lands you in a SHELL,
@@ -684,11 +711,26 @@ const suElevate = (params: SuElevateParams): Promise<RemoteAuthResult> =>
  *  under them (backs `env.reboot.evict`). Degrades to a network error before
  *  `startGame` wires the sessions client — and `reboot` shows that failure rather
  *  than swallowing it, so a box that did not really empty never reads as one that
- *  did. */
-const rebootEvict = (machineId: MachineId): Promise<RebootEvictResult> =>
-  sessionsClientDeps === undefined
-    ? Promise.resolve({ ok: false, error: 'network_error' })
-    : rebootServerMachine(sessionsClientDeps, machineId);
+ *  did.
+ *
+ *  The tree is re-pulled on success so the box the rebooter is looking at is the
+ *  one that just came up. It is what makes a Ctrl-C mid-animation resolve itself:
+ *  the aborter kept a session the server has already closed, and their next line
+ *  finds the new marker and drops them where everyone else evicted by this reboot
+ *  lands. One fetch per reboot, not per line — nothing about the priced own-box
+ *  claim changes, because this is an act the player explicitly ran. */
+const rebootEvict = async (machineId: MachineId): Promise<RebootEvictResult> => {
+  if (sessionsClientDeps === undefined) return { ok: false, error: 'network_error' };
+  const result = await rebootServerMachine(sessionsClientDeps, machineId);
+  if (result.ok) {
+    const active = activeSession();
+    await (active !== undefined &&
+    isCrossPlayerHop(active, currentEssid(), requireIdentity().publicKeyHex)
+      ? refreshServedRoot()
+      : refetchPatches());
+  }
+  return result;
+};
 
 /** Crack credentials on an own-LAN host server-side (backs `env.hydra.crack`).
  *  Degrades to a network error before `startGame` wires the sessions client. */
@@ -1692,11 +1734,26 @@ const executeLine = async (line: string): Promise<void> => {
   // materialized. Refreshing only the journal would leave an off-LAN intruder
   // asking a stale copy whether their own door is still open, and being told yes
   // for as long as they cared to keep typing.
-  if (currentSession.kind === 'nc') {
+  //
+  // A reboot widened WHICH sessions have to ask. It ends every row on a box in one
+  // stroke, including ones no screen is showing, so the marker it leaves behind is
+  // the only thing that can reach a shell already standing there — and a tree
+  // fetched when the player walked in would never grow one. `needsFreshTree` owns
+  // that rule; your own box still asks nothing, which is the claim that has always
+  // been priced rather than described.
+  if (needsFreshTree(currentSession, ownWorkstationId())) {
     await (isCrossPlayerHop(currentSession, currentEssid(), requireIdentity().publicKeyHex)
       ? refreshServedRoot()
       : refetchPatches());
   }
+
+  // Now that the tree is the box's current one, record what it says the boot is —
+  // once per session, the first time it looks. Everything after compares against
+  // this reading, which is why it is taken here rather than at the door: the doors
+  // that reach another player's box get back a machine id and a tier, never a tree,
+  // and a session stamped from a tree it had not yet been handed would be stamped
+  // from the wrong box.
+  const session = observeBootId(currentSession);
 
   // Fresh abort controller per run — Ctrl-C aborts it, which rejects the
   // command's `env.sleep` and unwinds a streamed command mid-flight.
@@ -1706,7 +1763,7 @@ const executeLine = async (line: string): Promise<void> => {
 
   const env = buildCommandEnv({
     identity: requireIdentity(),
-    session: currentSession,
+    session,
     hostname: promptHost(),
     workstationName: config?.machineName ?? 'workstation',
     root: activeRoot(),

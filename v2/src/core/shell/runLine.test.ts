@@ -1013,3 +1013,144 @@ describe('a backdoor whose listener was killed underneath it', () => {
     expect(result.lines).toEqual([errorLine(CLOSED)]);
   });
 });
+
+
+/**
+ * A reboot is the one act that ends sessions it cannot see. The rows close
+ * server-side and that is the authority; this is only how a player sitting in an
+ * open shell finds out, on the very next line they type.
+ *
+ * The box carries an opaque id its server minted on the last reboot, and the
+ * session carries the one it arrived on. Equality, never ordering: a live session
+ * is stamped by the client's clock and a rehydrated one by the server's, so two
+ * sessions on one box already disagree about what time it is, and a player whose
+ * clock runs slow would be thrown off a box that rebooted before they got there.
+ */
+describe('a box that rebooted under an open session', () => {
+  const WENT_DOWN = 'Connection to workstation closed by remote host.';
+
+  const bootIdFile = (bootId: string) => buildFile(`${bootId}\n`, { owner: 'root' });
+
+  /** The box the player is standing on, carrying whatever `/var/run` currently
+   *  holds, and the boot id their session believes it arrived on. `notes.txt`
+   *  gives every command in these tests something real to have done, so a session
+   *  that was NOT closed shows up as output rather than as an absence. */
+  const standingOn = (
+    varRun: Parameters<typeof buildDirectory>[0],
+    session: Parameters<typeof mockSession>[0] = {},
+  ) => {
+    const popSession = vi.fn();
+    const env = mockCommandEnv({
+      session: mockSession({ kind: 'ssh', ...session }),
+      popSession,
+      fs: mockFsViewFromTree(
+        buildDirectory({
+          var: buildDirectory({ run: buildDirectory(varRun) }),
+          home: buildDirectory({
+            alice: buildDirectory(
+              { 'notes.txt': buildFile('hello world\n', { owner: 'alice' }) },
+              { owner: 'alice' },
+            ),
+          }),
+        }),
+        { userType: 'root', cwd: asAbsPath('/home/alice') },
+      ),
+    });
+    return { env, popSession };
+  };
+
+  it('closes the session on the next line instead of running it', async () => {
+    const { env, popSession } = standingOn(
+      { 'boot-id': bootIdFile('boot-9f2') },
+      { bootId: 'boot-1a0' },
+    );
+
+    const result = expectSync(await runCommandLine(env, 'cat notes.txt', commands));
+
+    expect(result.lines).toEqual([errorLine(WENT_DOWN)]);
+    expect(result.exitCode).toBe(1);
+    expect(popSession).toHaveBeenCalled();
+  });
+
+  // The same reason the dead socket answers this way: nothing the player typed
+  // reached the box, so it was never there to have looked for the program.
+  it('answers a typo with the box going down, not with a command it never looked for', async () => {
+    const { env } = standingOn({ 'boot-id': bootIdFile('boot-9f2') }, { bootId: 'boot-1a0' });
+
+    const result = expectSync(await runCommandLine(env, 'notacommand', commands));
+
+    expect(result.lines).toEqual([errorLine(WENT_DOWN)]);
+  });
+
+  it('closes before any stage of a pipeline runs', async () => {
+    const { env } = standingOn({ 'boot-id': bootIdFile('boot-9f2') }, { bootId: 'boot-1a0' });
+
+    const result = expectSync(await runCommandLine(env, 'echo hi | grep hi', pipeCommands));
+
+    expect(result.lines).toEqual([errorLine(WENT_DOWN)]);
+  });
+
+  it('names the box the player was standing on, not the one they came from', async () => {
+    const { env, popSession } = standingOn(
+      { 'boot-id': bootIdFile('boot-9f2') },
+      { bootId: 'boot-1a0' },
+    );
+
+    const result = expectSync(
+      await runCommandLine({ ...env, hostname: 'db-07' }, 'cat notes.txt', commands),
+    );
+
+    expect(result.lines).toEqual([errorLine('Connection to db-07 closed by remote host.')]);
+    expect(popSession).toHaveBeenCalled();
+  });
+
+  it('leaves a session alone on a box that has never rebooted', async () => {
+    const { env, popSession } = standingOn(
+      { 'sshd.pid': buildFile('sshd:port=22', { owner: 'root' }) },
+      { bootId: null },
+    );
+
+    const result = expectSync(await runCommandLine(env, 'cat notes.txt', commands));
+
+    expect(contentOf(result.lines)).toContain('hello world');
+    expect(popSession).not.toHaveBeenCalled();
+  });
+
+  it('leaves a session alone while the box still carries the id it arrived on', async () => {
+    const { env, popSession } = standingOn(
+      { 'boot-id': bootIdFile('boot-9f2') },
+      { bootId: 'boot-9f2' },
+    );
+
+    const result = expectSync(await runCommandLine(env, 'cat notes.txt', commands));
+
+    expect(contentOf(result.lines)).toContain('hello world');
+    expect(popSession).not.toHaveBeenCalled();
+  });
+
+  // The FIRST reboot of any box is the case that hides. A session on a box that has
+  // never gone down looked and found nothing, so the box GROWING a marker is the
+  // entire signal that it went down under them. Nothing distinguishes that from any
+  // later reboot except that the value it moved away from was the absence of one.
+  it('evicts a session that was standing on the box before its very first reboot', async () => {
+    const { env, popSession } = standingOn({ 'boot-id': bootIdFile('boot-9f2') }, { bootId: null });
+
+    const result = expectSync(await runCommandLine(env, 'cat notes.txt', commands));
+
+    expect(result.lines).toEqual([errorLine(WENT_DOWN)]);
+    expect(popSession).toHaveBeenCalled();
+  });
+
+  // A session that has not yet read the box it is standing on has nothing to compare
+  // and is not evicted for it. The row is the authority either way: a client that
+  // never looked still holds a row the reboot closed, so its writes are refused and
+  // the only thing it gains by not looking is not being told.
+  it('says nothing to a session that has not yet looked at the box', async () => {
+    const { env, popSession } = standingOn({ 'boot-id': bootIdFile('boot-9f2') }, {});
+
+    const result = expectSync(await runCommandLine(env, 'cat notes.txt', commands));
+
+    expect(contentOf(result.lines)).toContain('hello world');
+    expect(popSession).not.toHaveBeenCalled();
+  });
+});

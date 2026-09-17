@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { handleCreateSession, type SessionRow } from '../src/core/sessions/createSession';
@@ -42,7 +43,13 @@ import { handleEndSession, type EndSessionParams } from '../src/core/sessions/en
 import {
   handleRebootMachine,
   type EndMachineSessionsParams,
+  type WriteBootIdParams,
 } from '../src/core/sessions/rebootMachine';
+import {
+  BOOT_ID_OWNER,
+  BOOT_ID_PATH,
+  BOOT_ID_PERMISSIONS,
+} from '../src/core/boot/bootId';
 import type { MachineLogReadQuery } from '../src/core/patches/appendMachineLog';
 import type {
   ActiveSessionQuery,
@@ -408,9 +415,30 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       logFailure('reboot', error);
       return { error };
     };
+    // The marker the box comes back carrying, and the only thing that can reach a
+    // shell already standing on it. Written under the CALLER's writer key, which is
+    // enough here for a reason worth writing down: the journal replays in
+    // `updated_at` order and the last write to a path wins, so whoever rebooted most
+    // recently is the id the box shows, whether or not they own it. That is exactly
+    // the answer wanted. The stable-writer rule earns its keep where lines ACCRETE —
+    // the kernel-log trace — not for a single value the newest reboot should replace.
+    const writeBootId = async ({ machine_id, player_key, boot_id }: WriteBootIdParams) =>
+      upsertPatchVia({ supabase, label: 'reboot boot-id upsert' })({
+        writer_key: player_key,
+        machine_id,
+        path: BOOT_ID_PATH,
+        content: `${boot_id}\n`,
+        owner: BOOT_ID_OWNER,
+        permissions: BOOT_ID_PERMISSIONS,
+        node_type: 'file',
+      });
     const { status, body } = await handleRebootMachine(req.body, {
       nonceStore: noopNonceStore,
       endMachineSessions,
+      writeBootId,
+      // Unguessable on purpose: a caller able to predict the next id could keep a
+      // session alive across the reboot meant to end it.
+      newBootId: () => randomUUID(),
     });
     res.status(status).json(body);
     return;

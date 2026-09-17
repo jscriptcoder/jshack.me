@@ -16,6 +16,11 @@
 //     to refuse an already-closed row.
 //   - endSession refuses a caller who NAMES `rebooted`: a box going down is something
 //     the server witnessed, not something a caller may claim.
+//   - The box comes back carrying a FRESH boot id at the allowlisted marker path, with
+//     the permissions an unauthenticated reader needs to see it at all — the half no
+//     unit test can prove, because the row that carries it is written by api/ glue and
+//     read back through the same journal every client materializes the box from. A
+//     second reboot must move it again, or a box could only ever evict a shell once.
 //
 // Usage (with v2 supabase + vercel dev running on 3100):
 //   npx dotenv -e .env.development.local -- npx tsx scripts/testRebootEvicts.ts
@@ -25,6 +30,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign';
 import { generateIdentity } from '../src/core/identity/identity';
+import { BOOT_ID_PATH } from '../src/core/boot/bootId';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const url = process.env.SUPABASE_URL;
@@ -185,8 +191,46 @@ check(
   `ended_at=${rowFor(afterClaim, OFF_BOX)?.ended_at}`,
 );
 
+// === 7. The box comes back carrying a marker a shell on it can read. ===
+const readMarker = async () => {
+  const { data } = await sr
+    .from('patches')
+    .select('content, owner, permissions')
+    .eq('machine_id', REBOOTED)
+    .eq('path', BOOT_ID_PATH)
+    .maybeSingle();
+  return data as { content: string; owner: string; permissions: { read: string[] } } | null;
+};
+
+const marker = await readMarker();
+check(
+  'the reboot left a boot id on the box',
+  typeof marker?.content === 'string' && marker.content.trim().length > 0,
+  `content=${JSON.stringify(marker?.content)}`,
+);
+// Root-owned and world-readable, because the reader who most needs it holds no
+// session at all: their rows were just closed, so the tree they pull next is the
+// tier-3 allowlist, and a marker they cannot read is a box that never rebooted.
+check(
+  'the marker is readable by a caller holding no session on the box',
+  marker?.owner === 'root' && marker?.permissions.read.includes('guest') === true,
+  `owner=${marker?.owner} read=${JSON.stringify(marker?.permissions.read)}`,
+);
+
+// === 8. A second reboot moves it, so a box can evict more than once. ===
+const secondReboot = await post(signRequest(defender, 'rebootMachine', { machine_id: REBOOTED }));
+const movedMarker = await readMarker();
+check(
+  'a second reboot mints a different id',
+  secondReboot.status === 200 &&
+    typeof movedMarker?.content === 'string' &&
+    movedMarker.content !== marker?.content,
+  `status=${secondReboot.status} before=${marker?.content?.trim()} after=${movedMarker?.content?.trim()}`,
+);
+
 // Cleanup.
 await sr.from('sessions').delete().in('session_id', ALL_IDS);
+await sr.from('patches').delete().eq('machine_id', REBOOTED).eq('path', BOOT_ID_PATH);
 
 const passed = results.filter((result) => result.pass).length;
 console.log(`\n${passed}/${results.length} checks passed`);

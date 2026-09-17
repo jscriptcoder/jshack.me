@@ -397,7 +397,10 @@ describe('filterTreeToAllowlist', () => {
       {
         var: dir(
           {
-            run: dir({ 'sshd.pid': worldFile('1') }, TRAVERSABLE_DIR),
+            run: dir(
+              { 'sshd.pid': worldFile('1'), 'boot-id': worldFile('boot-9f2') },
+              TRAVERSABLE_DIR,
+            ),
             www: dir({ 'index.html': worldFile('page') }, TRAVERSABLE_DIR),
             lib: dir(
               { dpkg: dir({ status: worldFile('Package: nginx') }, TRAVERSABLE_DIR) },
@@ -421,11 +424,59 @@ describe('filterTreeToAllowlist', () => {
     const filtered = filterTreeToAllowlist(tree);
 
     expect(get(filtered, 'var', 'run', 'sshd.pid')?.kind).toBe('file');
+    expect(get(filtered, 'var', 'run', 'boot-id')?.kind).toBe('file');
     expect(get(filtered, 'var', 'www', 'index.html')?.kind).toBe('file');
     expect(get(filtered, 'var', 'lib', 'dpkg', 'status')?.kind).toBe('file');
     expect(get(filtered, 'etc', 'iptables', 'rules.v4')?.kind).toBe('file');
     expect(get(filtered, 'etc', 'snmp', 'snmpd.conf')?.kind).toBe('file');
     expect(get(filtered, 'etc', 'switch', 'acl.conf')?.kind).toBe('file');
+  });
+
+  /**
+   * The moment a reboot closes a player's rows they hold no session, so the next
+   * tree they pull is this tier — and a marker pruned out of it reads to their
+   * client exactly like a box that has never rebooted at all. That is only ever
+   * wrong ONCE per box, on its first reboot, which is precisely the kind of hole
+   * that survives a test suite and reads afterwards as an unreproducible bug.
+   */
+  it('observes the boot id, so a box’s FIRST reboot reaches the session it just evicted', () => {
+    const tree = dir(
+      {
+        var: dir(
+          { run: dir({ 'boot-id': worldFile('boot-9f2') }, TRAVERSABLE_DIR) },
+          TRAVERSABLE_DIR,
+        ),
+      },
+      TRAVERSABLE_DIR,
+    );
+
+    const filtered = filterTreeToAllowlist(tree);
+
+    const marker = get(filtered, 'var', 'run', 'boot-id');
+    expect(marker?.kind === 'file' ? marker.content : null).toBe('boot-9f2');
+  });
+
+  // What the marker discloses is strictly smaller than the pidfiles beside it: that
+  // the box went down, and an opaque id. WHO took it down lives in the kernel log,
+  // which an unauthenticated reader still cannot see.
+  it('does not observe who rebooted the box', () => {
+    const tree = dir(
+      {
+        var: dir(
+          {
+            run: dir({ 'boot-id': worldFile('boot-9f2') }, TRAVERSABLE_DIR),
+            log: dir({ 'kern.log': worldFile('reboot by 10.0.0.9') }, TRAVERSABLE_DIR),
+          },
+          TRAVERSABLE_DIR,
+        ),
+      },
+      TRAVERSABLE_DIR,
+    );
+
+    const filtered = filterTreeToAllowlist(tree);
+
+    expect(get(filtered, 'var', 'run', 'boot-id')?.kind).toBe('file');
+    expect(get(filtered, 'var', 'log')).toBeUndefined();
   });
 
   it('pins the externally-observable allowlist exactly (security tripwire)', () => {
@@ -434,6 +485,7 @@ describe('filterTreeToAllowlist', () => {
     // port-bound); narrow it to running-service entries if off-port CVEs land.
     expect(EXTERNALLY_OBSERVABLE_ALLOWLIST).toEqual([
       '/var/run/*.pid',
+      '/var/run/boot-id',
       '/etc/iptables/rules.v4',
       '/etc/snmp/snmpd.conf',
       '/etc/switch/acl.conf',

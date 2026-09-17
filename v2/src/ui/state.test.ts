@@ -12,6 +12,11 @@ import {
   formatPidfileContent,
   readOpenPorts,
 } from '../core/services/pidfile';
+import {
+  BOOT_ID_OWNER,
+  BOOT_ID_PATH,
+  BOOT_ID_PERMISSIONS,
+} from '../core/boot/bootId';
 import { applyPatches, type Patch } from '../core/filesystem/applyPatches';
 import { defaultFilePermissions } from '../core/filesystem/defaultPermissions';
 import { SERVICE_CATALOG } from '../core/services/serviceCatalog';
@@ -2413,11 +2418,26 @@ describe('a backdoor on a box across the network', () => {
     permissions: PIDFILE_PERMISSIONS,
   };
 
+  /** The marker a reboot leaves on the box — the only thing that can reach a shell
+   *  already standing on it, since the rows it closed are server-side. */
+  const bootIdPatch = (bootId: string) => ({
+    path: BOOT_ID_PATH as string,
+    content: `${bootId}
+`,
+    owner: BOOT_ID_OWNER,
+    permissions: BOOT_ID_PERMISSIONS,
+  });
+
   /** The target as the SERVER materializes it: the box's own seeded tree with its
    *  journal replayed over it. The listener leaves the tree and the journal together
    *  when a defender kills it, because the server builds the one from the other. */
-  const theirTree = (listening: boolean) =>
-    applyPatches(buildRemoteHostFs(THEIR_ESSID, THEIR_HOST), listening ? [listenerPatch] : []);
+  const theirJournal = (listening: boolean, bootId: string | null) => [
+    ...(listening ? [listenerPatch] : []),
+    ...(bootId === null ? [] : [bootIdPatch(bootId)]),
+  ];
+
+  const theirTree = (listening: boolean, bootId: string | null) =>
+    applyPatches(buildRemoteHostFs(THEIR_ESSID, THEIR_HOST), theirJournal(listening, bootId));
 
   /** netcat on the player's own box, stamped the way `apt install` leaves it. */
   const ownNetcat = {
@@ -2437,7 +2457,7 @@ describe('a backdoor on a box across the network', () => {
    *  network's public IP — the reach slice 7 proved on the wire. `killTheListener`
    *  is the defender's `kill` seen from here: the pidfile leaves the target's
    *  journal, and so leaves the tree the server materializes from it. */
-  const enterTheBackdoor = async () => {
+  const enterTheBackdoor = async (startingBootId: string | null = null) => {
     vi.resetModules();
     const store = new Map<string, string>();
     const storage = {
@@ -2450,6 +2470,7 @@ describe('a backdoor on a box across the network', () => {
     vi.stubGlobal('localStorage', storage);
 
     let listening = true;
+    let bootId: string | null = startingBootId;
     const actions: string[] = [];
     const json = (body: unknown) => ({ ok: true, status: 200, json: async () => body });
     vi.stubGlobal(
@@ -2466,11 +2487,11 @@ describe('a backdoor on a box across the network', () => {
         }
         // The stranger's box, materialized by the only party that can.
         if (fields.action === 'resolveCrossPlayerFs') {
-          return json({ ok: true, tree: serializeTree(theirTree(listening)) });
+          return json({ ok: true, tree: serializeTree(theirTree(listening, bootId)) });
         }
         if (fields.action !== 'listPatches') return json({});
         if (fields.machine_id === THEIR_BOX) {
-          return json({ patches: listening ? [listenerPatch] : [] });
+          return json({ patches: theirJournal(listening, bootId) });
         }
         return json({ patches: [ownNetcat] });
       }),
@@ -2493,6 +2514,11 @@ describe('a backdoor on a box across the network', () => {
       actions,
       killTheListener: () => {
         listening = false;
+      },
+      /** The defender's reboot, seen from in here: the rows are already closed
+       *  server-side, and this is the box growing the marker that says so. */
+      rebootTheBox: (newBootId: string) => {
+        bootId = newBootId;
       },
     };
   };
@@ -2519,18 +2545,69 @@ describe('a backdoor on a box across the network', () => {
     expect(await typeLine(state, 'cat /etc/passwd')).not.toContain('tester');
   });
 
-  it('pays the re-pull only while standing in a backdoor, not on every line', async () => {
-    // The other half of "pull, not a push": a door that can be taken away has to
-    // re-ask the box before each line, and nothing else does. Charging every session
-    // for that would make the whole game re-fetch on every keystroke — invisible in a
-    // test that only reads output, which is why this one prices the line instead.
+  it('pays the re-pull only on a box that is not yours, never on your own', async () => {
+    // The other half of "pull, not a push". A box that can be taken away under you —
+    // a killed listener, or a reboot that ended your row — has to be re-asked before
+    // each line; your own box never does, because its tree is local and the base
+    // login is not a row anybody can close. Charging every session would make the
+    // whole game re-fetch on every keystroke, which is invisible to a test that reads
+    // output, so this one prices the line instead.
     const { state, actions } = await enterTheBackdoor();
 
+    const spentInside = actions.length;
+    await typeLine(state, 'ls');
+    expect(actions.slice(spentInside)).not.toEqual([]);
+
     await typeLine(state, 'exit');
-    const spentBefore = actions.length;
+    const spentHome = actions.length;
     await typeLine(state, 'ls');
 
-    expect(actions.slice(spentBefore)).toEqual([]);
+    expect(actions.slice(spentHome)).toEqual([]);
+  });
+
+  /**
+   * The eviction the whole slice exists for. Closing the rows handles a player who
+   * reloads; this is the one sitting in an open shell, told on the very next line
+   * they type rather than left addressing a box that threw them out.
+   *
+   * Both halves have to hold for this to pass. The shell must re-read the box
+   * before the line — a tree fetched when they broke in would never grow a marker —
+   * and the session must have RECORDED what it read, or there is nothing for the
+   * new id to differ from.
+   */
+  it('throws the intruder off when the box reboots under them', async () => {
+    const { state, rebootTheBox } = await enterTheBackdoor();
+
+    // The box has never gone down, so this line reads a marker that is not there
+    // and answers normally. That reading is the thing the next line compares against.
+    expect(await typeLine(state, 'ls /var/run')).toContain(SERVICE_CATALOG.ssh.pidfile);
+
+    rebootTheBox('boot-9f2');
+
+    expect(await typeLine(state, 'ls /var/run')).toContain('closed by remote host');
+  });
+
+  // The first reboot of a box is the case that hides, and it is not this one: a box
+  // that has ALREADY rebooted hands every later session the current id on arrival,
+  // so the eviction has to work from a real id to a different real id too.
+  it('throws them off a box that had rebooted before they ever arrived', async () => {
+    const { state, rebootTheBox } = await enterTheBackdoor('boot-111');
+
+    expect(await typeLine(state, 'ls /var/run')).toContain(SERVICE_CATALOG.ssh.pidfile);
+
+    rebootTheBox('boot-222');
+
+    expect(await typeLine(state, 'ls /var/run')).toContain('closed by remote host');
+  });
+
+  // A reboot that happened before the player arrived is not theirs to be told about.
+  // Without this the marker itself would be the eviction, and breaking into a box
+  // that had ever gone down would close the door behind you on your first line.
+  it('leaves a shell alone on a box whose id has not moved since it arrived', async () => {
+    const { state } = await enterTheBackdoor('boot-111');
+
+    expect(await typeLine(state, 'ls /var/run')).toContain(SERVICE_CATALOG.ssh.pidfile);
+    expect(await typeLine(state, 'ls /var/run')).not.toContain('closed by remote host');
   });
 
   it('still closes on the intruder when the defender kills the listener from off-LAN', async () => {
@@ -2542,6 +2619,149 @@ describe('a backdoor on a box across the network', () => {
     killTheListener();
 
     expect(await typeLine(state, 'ls')).toContain(CLOSED);
+  });
+});
+
+/**
+ * A reboot ends every session ROW on the box it ran on. The base login is not one:
+ * nothing persists it, nothing can close it, and there is nothing beneath it to drop
+ * back to — so the one player a reboot must never disconnect is the owner sitting at
+ * their own prompt.
+ *
+ * It is the boot-id gate's sharpest edge, because the marker lands on the owner's own
+ * journal. Judge the base session against it and `reboot` on your own machine throws
+ * you out of your own login shell, on a box that came back up perfectly.
+ */
+describe('the login shell a reboot must not close', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
+
+  const bootAtOwnBox = async () => {
+    vi.resetModules();
+    const store = new Map<string, string>();
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => store.set(key, value),
+      removeItem: (key: string) => store.delete(key),
+    });
+
+    let bootId = 'boot-before';
+    const actions: string[] = [];
+    const json = (body: unknown) => ({ ok: true, status: 200, json: async () => body });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: { body?: string }) => {
+        const fields = JSON.parse(JSON.parse(init?.body ?? '{}').payload) as Record<string, unknown>;
+        actions.push(String(fields.action));
+        if (fields.action === 'listSessions') return json({ sessions: [] });
+        if (fields.action === 'rebootMachine') {
+          bootId = 'boot-after';
+          return json({ ok: true });
+        }
+        if (fields.action === 'listPatches') {
+          return json({
+            patches: [
+              {
+                path: BOOT_ID_PATH as string,
+                content: `${bootId}
+`,
+                owner: BOOT_ID_OWNER,
+                permissions: BOOT_ID_PERMISSIONS,
+              },
+            ],
+          });
+        }
+        return json({ ok: true });
+      }),
+    );
+
+    const state = await import('./state');
+    state.startGame({ machineName: 'box', username: 'tester', rootPassword: 'pw' });
+    await vi.waitFor(() => expect(state.promptHost()).toBe('box'));
+    await settle();
+    return {
+      state,
+      actions,
+      /** The box goes down and comes back under the owner's own prompt. */
+      rebootTheirOwnBox: () => {
+        bootId = 'boot-after';
+      },
+    };
+  };
+
+  const typeLine = async (state: typeof import('./state'), line: string): Promise<string> => {
+    const before = state.scrollback().length;
+    state.setInput(line);
+    await state.runInput();
+    return state
+      .scrollback()
+      .slice(before)
+      .map((entry) => entry.content)
+      .join('\n');
+  };
+
+  it('never disconnects the owner from their own box, however often it reboots', async () => {
+    const { state, rebootTheirOwnBox } = await bootAtOwnBox();
+
+    // A line first, so any reading the box had to offer has been taken.
+    expect(await typeLine(state, 'whoami')).toContain('tester');
+
+    rebootTheirOwnBox();
+    // A write re-pulls the journal, which is how the new marker reaches this client
+    // at all — your own box is never re-asked on the strength of a line alone.
+    await typeLine(state, 'echo hi > /tmp/note.txt');
+    await settle();
+
+    expect(await typeLine(state, 'whoami')).not.toContain('closed by remote host');
+    expect(await typeLine(state, 'whoami')).toContain('tester');
+    expect(state.promptHost()).toBe('box');
+  });
+
+  /**
+   * The elevation ON that box IS a row, and the reboot closed it — so the half-state
+   * a Ctrl-C leaves has to resolve itself. It cannot resolve by waiting, the way a
+   * foreign box does: your own box is never re-asked on the strength of a line, which
+   * is the claim this file prices. So the reboot re-reads the box once, as part of the
+   * act the player explicitly ran, and the next line finds an id it does not know.
+   *
+   * This is the promise that retired the old one. A Ctrl-C used to leave you connected;
+   * now it leaves you somewhere the very next line resolves, and for the owner of the
+   * box that means back in the login shell they started from.
+   */
+  it('drops an aborted reboot back to the login shell on the next line', async () => {
+    const { state, actions } = await bootAtOwnBox();
+
+    state.setInput('su');
+    const elevating = state.runInput();
+    await vi.waitFor(() => expect(state.pendingPrompt()).toBeDefined());
+    state.setInput('pw');
+    state.submitPrompt();
+    await elevating;
+    expect(state.promptTier()).toBe('root');
+
+    // Let the elevation's OWN journal re-pull land before the box goes down. `su`
+    // writes an auth.log line and reconciles the journal after it, and a refetch still
+    // in flight would carry the new marker in on its own — passing this test without
+    // the reboot having re-read anything.
+    await vi.waitFor(() => expect(actions.filter((action) => action === 'listPatches').length).toBeGreaterThan(1));
+    await settle();
+
+    // Ctrl-C once the box has already dropped its sessions — past the point the
+    // animation can un-ring, which is the whole of what decision 57 gave up.
+    state.setInput('reboot');
+    const rebooting = state.runInput();
+    await vi.waitFor(() => expect(state.scrollback().some((line) => line.content.includes('Stopping system logging'))).toBe(true));
+    await vi.waitFor(() => expect(state.promptTier()).toBe('root'));
+    state.abortRunning();
+    await rebooting;
+    await settle();
+
+    // Still root on screen, holding a session the server has already closed.
+    expect(state.promptTier()).toBe('root');
+
+    expect(await typeLine(state, 'whoami')).toContain('closed by remote host');
+    expect(state.promptTier()).toBe('user');
   });
 });
 

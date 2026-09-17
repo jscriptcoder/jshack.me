@@ -18,6 +18,7 @@
  * Tier 3 (no session → externally-observable allowlist) is `filterTreeToAllowlist`.
  */
 
+import { BOOT_ID_PATH } from '../boot/bootId';
 import { canRead } from '../filesystem/walker';
 import type { Directory, FileNode, FilePermissions } from '../filesystem/types';
 import type { UserType } from '../types';
@@ -60,6 +61,12 @@ export const filterTreeForRead = (tree: Directory, userType: UserType): Director
  */
 export const EXTERNALLY_OBSERVABLE_ALLOWLIST: readonly string[] = [
   '/var/run/*.pid',
+  // A reboot ends a player's rows, and from that moment they read this tier — so a
+  // marker pruned here reads to their client exactly like a box that never rebooted,
+  // and the FIRST reboot of every box would evict nobody on screen. What it
+  // discloses is strictly smaller than the pidfiles above it: that the box went
+  // down, and an opaque id. WHO took it down is a kernel-log line, not this.
+  BOOT_ID_PATH,
   '/etc/iptables/rules.v4',
   '/etc/snmp/snmpd.conf',
   '/etc/switch/acl.conf',

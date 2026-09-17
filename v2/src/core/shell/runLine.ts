@@ -44,6 +44,7 @@ import {
   type TerminalLine,
 } from '../commands/types';
 import { listenerOn } from '../services/pidfile';
+import { readBootId } from '../boot/bootId';
 import type { AbsPath } from '../types';
 import { tokenize } from './tokenize';
 import { parsePipeline, type Stage } from './pipeline';
@@ -111,6 +112,22 @@ const socketAlive = (session: Session, fs: FsView): boolean =>
   session.kind !== 'nc' ||
   session.port === undefined ||
   listenerOn(fs.root(), session.port) !== null;
+
+/** What a shell says when the box it was standing on went down underneath it —
+ *  the line the real thing prints when the far end stops answering mid-session. */
+const wentDown = (hostname: string): string => `Connection to ${hostname} closed by remote host.`;
+
+/** Whether the box has rebooted since this session last looked at it. Asked of
+ *  every kind, because a reboot is the one act that ends sessions it cannot see:
+ *  the rows close server-side in one stroke, and this is the only thing that tells
+ *  a player sitting in an open shell, on the very next line they type.
+ *
+ *  A session that has read nothing yet (`undefined`) is refused nothing — there is
+ *  no reading for the box to have moved away from. It loses nothing by it either:
+ *  the row is the authority, so a client that never looks still holds one the
+ *  reboot closed, and every write it attempts is refused at the server. */
+const bootIdMoved = (session: Session, fs: FsView): boolean =>
+  session.bootId !== undefined && session.bootId !== readBootId(fs.root());
 
 /** Resolve a stage to a runnable command + bound flags, or a shell error
  *  (command-not-found exit 127, a binder failure exit 2, or no terminal for a
@@ -265,6 +282,15 @@ export const runCommandLine = async (
   if (!socketAlive(env.session, env.fs)) {
     env.popSession();
     return syncError(CONNECTION_CLOSED, 1);
+  }
+
+  // The second way a box stops being there, asked in the same breath and for the
+  // same reason: a reboot ended this session server-side, and nothing the player
+  // typed reached the machine. A pipeline cannot slip past it either — this is
+  // before the parse, so `su | grep x` is no more a way through than a typo is.
+  if (bootIdMoved(env.session, env.fs)) {
+    env.popSession();
+    return syncError(wentDown(env.hostname), 1);
   }
 
   const tokenized = tokenize(input);

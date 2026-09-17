@@ -3,6 +3,7 @@ import {
   handleRebootMachine,
   type EndMachineSessionsParams,
   type RebootMachineDeps,
+  type WriteBootIdParams,
 } from './rebootMachine';
 import { signRequest } from '../signedRequest/sign';
 import { generateIdentity } from '../identity/identity';
@@ -32,8 +33,21 @@ const makeDeps = (over: Partial<RebootMachineDeps> = {}) => {
   const endMachineSessions = vi.fn<
     (params: EndMachineSessionsParams) => Promise<{ error: unknown }>
   >(async () => ({ error: null }));
-  const deps: RebootMachineDeps = { nonceStore: freshStore, endMachineSessions, ...over };
-  return { deps, endMachineSessions };
+  const writeBootId = vi.fn<(params: WriteBootIdParams) => Promise<{ error: unknown }>>(
+    async () => ({ error: null }),
+  );
+  const deps: RebootMachineDeps = {
+    nonceStore: freshStore,
+    endMachineSessions,
+    writeBootId,
+    // Minting is injected so a test can name the value the box ends up carrying.
+    // In production it is a random id nobody can predict, which is the point: a
+    // client that could guess the next one could claim to be standing on a box it
+    // had already been thrown off.
+    newBootId: () => 'boot-fixed',
+    ...over,
+  };
+  return { deps, endMachineSessions, writeBootId };
 };
 
 describe('handleRebootMachine', () => {
@@ -134,6 +148,94 @@ describe('handleRebootMachine', () => {
 
     // The one place a swallowed failure costs more than a log line: the defender
     // would be told the box came back up while the intruder is still on it.
+    expect(result).toEqual({ status: 500, body: { error: 'update_failed' } });
+  });
+  /**
+   * Closing the rows handles the player who reloads. It does nothing for the one
+   * sitting in an open shell, and that player is the entire point of the feature —
+   * so the box is left carrying a freshly minted id, which is what their next line
+   * compares against and fails to recognise.
+   */
+  it('leaves a freshly minted boot id on the box, so an open shell finds out', async () => {
+    const identity = generateIdentity();
+    const envelope = signRequest(identity, 'rebootMachine', { machine_id: 'boxa-0b0b0b0b' });
+    const { deps, writeBootId } = makeDeps();
+
+    const result = await handleRebootMachine(envelope, deps);
+
+    expect(result).toEqual({ status: 200, body: { ok: true } });
+    expect(writeBootId).toHaveBeenCalledWith({
+      machine_id: 'boxa-0b0b0b0b',
+      player_key: identity.publicKeyHex,
+      boot_id: 'boot-fixed',
+    });
+  });
+
+  // The id is the server's word, exactly as the reason is. A caller that could name
+  // it could name the one its own session is already carrying, and reboot a box
+  // without the shell standing on it ever noticing.
+  it('mints the id itself rather than taking one off the wire', async () => {
+    const identity = generateIdentity();
+    const envelope = signRequest(identity, 'rebootMachine', {
+      machine_id: 'boxa-0b0b0b0b',
+      boot_id: 'the-one-i-am-already-holding',
+    });
+    const { deps, writeBootId } = makeDeps();
+
+    const result = await handleRebootMachine(envelope, deps);
+
+    expect(result).toEqual({ status: 200, body: { ok: true } });
+    expect(writeBootId).toHaveBeenCalledWith(
+      expect.objectContaining({ boot_id: 'boot-fixed' }),
+    );
+  });
+
+  // The rows are the authority, so they close first; the marker is only how a
+  // terminal finds out. A marker written over rows that failed to close would evict
+  // players from a box that still holds their standing write grant.
+  it('closes the rows before it touches the box', async () => {
+    const identity = generateIdentity();
+    const envelope = signRequest(identity, 'rebootMachine', { machine_id: 'boxa-0b0b0b0b' });
+    const order: string[] = [];
+    const { deps } = makeDeps({
+      endMachineSessions: async () => {
+        order.push('rows');
+        return { error: null };
+      },
+      writeBootId: async () => {
+        order.push('marker');
+        return { error: null };
+      },
+    });
+
+    await handleRebootMachine(envelope, deps);
+
+    expect(order).toEqual(['rows', 'marker']);
+  });
+
+  it('never touches the box when the rows did not close', async () => {
+    const identity = generateIdentity();
+    const envelope = signRequest(identity, 'rebootMachine', { machine_id: 'boxa-0b0b0b0b' });
+    const { deps, writeBootId } = makeDeps({
+      endMachineSessions: async () => ({ error: { message: 'db down' } }),
+    });
+
+    const result = await handleRebootMachine(envelope, deps);
+
+    expect(result).toEqual({ status: 500, body: { error: 'update_failed' } });
+    expect(writeBootId).not.toHaveBeenCalled();
+  });
+
+  // As loud as a failed eviction, and for the same reason. Rows closed with nobody
+  // told is a defender watching a convincing animation while an intruder keeps
+  // typing — which is the one failure this command exists to prevent.
+  it('returns 500 when the marker could not be written', async () => {
+    const identity = generateIdentity();
+    const envelope = signRequest(identity, 'rebootMachine', { machine_id: 'boxa-0b0b0b0b' });
+    const { deps } = makeDeps({ writeBootId: async () => ({ error: { message: 'db down' } }) });
+
+    const result = await handleRebootMachine(envelope, deps);
+
     expect(result).toEqual({ status: 500, body: { error: 'update_failed' } });
   });
 });
