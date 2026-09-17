@@ -60,6 +60,7 @@ import type {
   HydraCrackResult,
   ExploitRunParams,
   ExploitRunResult,
+  RebootEvictResult,
 } from '../core/commands/types';
 import type { SessionSummary } from '../core/sessions/listSessions';
 import type { EndReason } from '../core/sessions/endSession';
@@ -545,6 +546,27 @@ export const endServerSession = async (
 ): Promise<PatchResult> => {
   try {
     return toResult(await post(deps, 'endSession', { session_id: sessionId, reason }));
+  } catch {
+    return { ok: false, error: 'network_error' };
+  }
+};
+
+/** End every session the caller holds on a machine, because the machine went
+ *  down under them. Named by the MACHINE, which is what reaches a session no hop
+ *  chain on this screen is standing on.
+ *
+ *  Unlike every other session write here, the answer is NOT fire-and-forget: a
+ *  reboot that quietly failed to evict hands the player a convincing animation and
+ *  leaves whoever was on the box still on it, so `reboot` reports it. Every
+ *  non-ok answer collapses to one error because there is nothing useful for the
+ *  player to do differently — the eviction did not take, and that is the fact. */
+export const rebootServerMachine = async (
+  deps: SessionsClientDeps,
+  machineId: MachineId,
+): Promise<RebootEvictResult> => {
+  try {
+    const response = await post(deps, 'rebootMachine', { machine_id: machineId });
+    return response.ok ? { ok: true } : { ok: false, error: 'network_error' };
   } catch {
     return { ok: false, error: 'network_error' };
   }

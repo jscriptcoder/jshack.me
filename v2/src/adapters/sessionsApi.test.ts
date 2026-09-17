@@ -10,6 +10,7 @@ import {
   authElevateServerSession,
   createServerSession,
   endServerSession,
+  rebootServerMachine,
   listServerSessions,
   runExploit,
   type SessionsClientDeps,
@@ -1274,6 +1275,49 @@ describe('endServerSession', () => {
     const deps = makeDeps(fetchSpy as unknown as typeof fetch);
 
     expect(await endServerSession(deps, 'su-root-1700000000000')).toEqual({
+      ok: false,
+      error: 'network_error',
+    });
+  });
+});
+
+describe('rebootServerMachine', () => {
+  it('POSTs a signed rebootMachine envelope naming the machine, not a session', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    const result = await rebootServerMachine(deps, asMachineId('boxa-0b0b0b0b'));
+
+    // Naming the box is what reaches a session no hop chain on this screen is
+    // standing on — the whole reason this is not a series of endSession calls.
+    expect(result).toEqual({ ok: true });
+    const verified = await verifyPayload(sentEnvelope(fetchSpy));
+    if (!verified.ok) throw new Error('expected a verified envelope');
+    expect(verified.payload).toMatchObject({
+      action: 'rebootMachine',
+      machine_id: 'boxa-0b0b0b0b',
+    });
+  });
+
+  it('reports a refused reboot rather than reporting success', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(500, { error: 'update_failed' }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    // The one session write whose failure the caller must see: `reboot` tells the
+    // player, instead of letting them believe the box came up empty.
+    expect(await rebootServerMachine(deps, asMachineId('boxa-0b0b0b0b'))).toEqual({
+      ok: false,
+      error: 'network_error',
+    });
+  });
+
+  it('maps a thrown fetch (offline) to network_error', async () => {
+    const fetchSpy = vi.fn(async () => {
+      throw new Error('offline');
+    });
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await rebootServerMachine(deps, asMachineId('boxa-0b0b0b0b'))).toEqual({
       ok: false,
       error: 'network_error',
     });

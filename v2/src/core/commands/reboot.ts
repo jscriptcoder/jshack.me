@@ -22,8 +22,15 @@
  *
  * On completion the player is DISCONNECTED from the rebooted machine: every
  * session sitting on it is popped (the box went down), but never the base login
- * — rebooting a remote box drops you back to wherever you ssh'd from. A Ctrl-C
- * mid-animation aborts before the disconnect, leaving you connected.
+ * — rebooting a remote box drops you back to wherever you ssh'd from.
+ *
+ * The SERVER-side eviction is a separate, earlier act: it fires at the shutdown
+ * beat, which is when a real machine drops its sessions, and it is therefore not
+ * abortable. A Ctrl-C after that point stops the animation and leaves the player
+ * looking at a shell on a box that has already ended their rows — which resolves
+ * itself the moment they type again. Its failure is reported rather than
+ * swallowed: a defensive command that silently no-ops is worse than one that
+ * refuses, because the player walks away believing the box came up empty.
  */
 
 import { canBoot, type BootCheck, type BootFile } from '../boot/bootFiles';
@@ -37,6 +44,13 @@ const text = (content: string): TerminalLine => ({ kind: 'text', content });
 const SHUTDOWN_PAUSE_MS = 600;
 const BIOS_PAUSE_MS = 500;
 const BOOT_PAUSE_MS = 600;
+
+/** What the player is told when the box came back but its sessions did not end.
+ *  Named as the command's own failure (`reboot:`) rather than dressed as kernel
+ *  output, because it is not something the machine reported — it is this command
+ *  saying the one thing it was run to do did not happen. */
+const EVICTION_FAILED =
+  'reboot: could not end active sessions — anyone connected may still be on this machine';
 
 /** The kernel sequence for a successful boot. */
 const SUCCESS_TAIL: readonly string[] = [
@@ -77,11 +91,29 @@ const disconnect = (env: CommandEnv): void => {
   for (let popped = 0; popped < pops; popped += 1) env.popSession();
 };
 
-async function* rebootSequence(env: CommandEnv, bootCheck: BootCheck): AsyncIterable<TerminalLine> {
+/** Whether the eviction took, written by the stream and read by `exitCode` after
+ *  it drains. The two are handed to the shell separately, so the outcome has to
+ *  outlive the generator that learned it. */
+type EvictionOutcome = { failed: boolean };
+
+async function* rebootSequence(
+  env: CommandEnv,
+  bootCheck: BootCheck,
+  eviction: EvictionOutcome,
+): AsyncIterable<TerminalLine> {
   yield text(`Broadcast message from root@${env.hostname}:`);
   yield text('The system is going down for reboot NOW!');
   await env.sleep(SHUTDOWN_PAUSE_MS);
   yield text('[ OK ] Stopping system logging...');
+
+  // The box drops its sessions HERE — the moment a real one does, and before it
+  // has said it is down. Not gated on `env.network.isOnline()`: that flag is the
+  // in-game "am I joined to a WiFi", and rebooting hardware is local. A defender
+  // who runs `nmcli disconnect` and then `reboot` is executing the panic sequence
+  // correctly, and it has to work.
+  const evicted = await env.reboot.evict(env.session.machineId);
+  eviction.failed = !evicted.ok;
+
   yield text('[ OK ] Reached target Shutdown.');
   yield text('');
   await env.sleep(BIOS_PAUSE_MS);
@@ -93,16 +125,23 @@ async function* rebootSequence(env: CommandEnv, bootCheck: BootCheck): AsyncIter
   const tail = bootCheck.ok ? SUCCESS_TAIL : panicTail(bootCheck.missing);
   for (const line of tail) yield text(line);
 
+  // After the boot result, because the boot really did happen — what did not
+  // happen is the part the player cannot see for themselves.
+  if (eviction.failed) yield text(EVICTION_FAILED);
+
   // The box has come up (or halted) — drop off it. Reached only when the stream
   // runs to completion; a Ctrl-C abort stops before here, leaving the hop intact.
   disconnect(env);
 }
 
-const execute: Command['execute'] = async (env) => ({
-  kind: 'async',
-  lines: rebootSequence(env, canBoot(env.fs.root())),
-  exitCode: async () => 0,
-});
+const execute: Command['execute'] = async (env) => {
+  const eviction: EvictionOutcome = { failed: false };
+  return {
+    kind: 'async',
+    lines: rebootSequence(env, canBoot(env.fs.root()), eviction),
+    exitCode: async () => (eviction.failed ? 1 : 0),
+  };
+};
 
 export const reboot: Command = {
   name: 'reboot',

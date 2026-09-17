@@ -39,6 +39,10 @@ import {
   type SessionSummary,
 } from '../src/core/sessions/listSessions';
 import { handleEndSession, type EndSessionParams } from '../src/core/sessions/endSession';
+import {
+  handleRebootMachine,
+  type EndMachineSessionsParams,
+} from '../src/core/sessions/rebootMachine';
 import type { MachineLogReadQuery } from '../src/core/patches/appendMachineLog';
 import type {
   ActiveSessionQuery,
@@ -54,7 +58,7 @@ import type { NonceStore } from '../src/core/signedRequest/nonceStore';
 
 // Vercel adapter for POST /api/sessions.
 //
-// Eighteen signed actions share this endpoint, routed on the (unverified) payload
+// Nineteen signed actions share this endpoint, routed on the (unverified) payload
 // `action` — each handler re-verifies the envelope itself, so routing on the
 // raw action is safe. They span session creation (own machine, own LAN, same
 // LAN, cross-player public, inner gateway), the exploit door that asks for no
@@ -369,13 +373,44 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         .from('sessions')
         .update({ ended_at: new Date().toISOString(), end_reason: reason })
         .eq('session_id', session_id)
-        .eq('player_key', player_key);
+        .eq('player_key', player_key)
+        // Only rows still open. A reboot ends the machine's rows FIRST and the
+        // client then pops the hop chain it was holding, which sends an ordinary
+        // exit for each — without this, those arrive late and rewrite `rebooted`
+        // into `user_exit`, erasing the record that the player was thrown off.
+        .is('ended_at', null);
       logFailure('end', error);
       return { error };
     };
     const { status, body } = await handleEndSession(req.body, {
       nonceStore: noopNonceStore,
       endSession,
+    });
+    res.status(status).json(body);
+    return;
+  }
+
+  if (actionOf(req.body) === 'rebootMachine') {
+    // Machine-scoped rather than session-scoped: a reboot ends every row the
+    // caller holds on that box, including ones no hop chain on their screen is
+    // standing on. Still player_key-scoped, so it reaches nobody else's yet.
+    const endMachineSessions = async ({
+      machine_id,
+      player_key,
+      reason,
+    }: EndMachineSessionsParams) => {
+      const { error } = await supabase
+        .from('sessions')
+        .update({ ended_at: new Date().toISOString(), end_reason: reason })
+        .eq('machine_id', machine_id)
+        .eq('player_key', player_key)
+        .is('ended_at', null);
+      logFailure('reboot', error);
+      return { error };
+    };
+    const { status, body } = await handleRebootMachine(req.body, {
+      nonceStore: noopNonceStore,
+      endMachineSessions,
     });
     res.status(status).json(body);
     return;

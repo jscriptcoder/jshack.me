@@ -709,6 +709,25 @@ export type SuApi = {
   readonly elevate: (params: SuElevateParams) => Promise<RemoteAuthResult>;
 };
 
+/** What a reboot's eviction can report back. Deliberately NOT `PatchResult`: a
+ *  refusal there means a file could not be written, and none of those answers is
+ *  reachable from here. Today the only failure is not reaching the server at all. */
+export type RebootEvictResult =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly error: 'network_error' };
+
+/** The eviction seam — backed by the signed `rebootMachine` endpoint. A reboot
+ *  ends the machine's sessions in ONE act named by the machine, which is what lets
+ *  it reach a session no hop chain on the player's screen is standing on.
+ *
+ *  Alone among the fire-and-forget session writes, its answer is load-bearing: a
+ *  swallowed failure elsewhere costs a log line, and a swallowed failure here
+ *  hands the player a convincing reboot animation and a live intruder. `reboot`
+ *  reports it rather than absorbing it. */
+export type RebootApi = {
+  readonly evict: (machineId: MachineId) => Promise<RebootEvictResult>;
+};
+
 /** What `mysql` hands the connect action. No `sessionId` and no `parentSessionId`,
  *  alone among the doors: a database connection mints NO session row, so there is
  *  nothing to name it and nothing to hang it from. The credential travels with every
@@ -1379,6 +1398,7 @@ export type CommandEnv = {
   readonly scp: ScpApi;
   readonly apt: AptApi;
   readonly su: SuApi;
+  readonly reboot: RebootApi;
   readonly scan: ScanApi;
   readonly hydra: HydraApi;
   readonly exploit: ExploitApi;

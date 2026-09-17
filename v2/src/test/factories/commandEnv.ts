@@ -30,6 +30,7 @@ import type {
   SshApi,
   NcApi,
   SuApi,
+  RebootApi,
   HydraApi,
   ExploitApi,
   AptApi,
@@ -243,6 +244,15 @@ export const mockSuApi = (overrides: Partial<SuApi> = {}): SuApi => ({
   ...overrides,
 });
 
+/** The eviction seam. Load-bearing rather than fire-and-forget: a default that
+ *  quietly reported success would let a test believe a box came up empty when
+ *  nothing was ever ended, which is exactly the failure `reboot` exists to refuse
+ *  to absorb. Reboot tests supply the ordinary success themselves. */
+export const mockRebootApi = (overrides: Partial<RebootApi> = {}): RebootApi => ({
+  evict: NOT_IMPLEMENTED('reboot.evict'),
+  ...overrides,
+});
+
 /** The crack seam. Load-bearing — `hydra` has no answer of its own to fall back
  *  on, so an unstubbed call must be loud rather than silently reporting nothing
  *  cracked, which is indistinguishable from a strong password. */
@@ -317,6 +327,7 @@ export const mockCommandEnv = (overrides: Partial<CommandEnv> = {}): CommandEnv 
   scp: mockScpApi(),
   apt: mockAptApi(),
   su: mockSuApi(),
+  reboot: mockRebootApi(),
   hydra: mockHydraApi(),
   exploit: mockExploitApi(),
   scan: mockScanApi(),
