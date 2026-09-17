@@ -10,10 +10,10 @@
 **Where we are now (2026-09-17):** **v0.230.0**. **Phase 3 slice 6 — the exploit crosses
 networks — is SHIPPED and closed out**: seven independent PRs to trunk, #508–#514,
 v0.224.0–v0.230.0, with its as-built retired into the `### Phase 3 slice 6` section near the
-end of this file. **Next is Phase 3 slice 7 — reboot evicts**, which is what closes V3.
-**There is no live slice plan file right now**: slice 6's was retired on close-out and
-slice 7's is not written yet, so an empty-looking `plans/` is expected rather than a file
-somebody lost. The `Status` block below is an accumulating log, not the current state.
+end of this file. **Next is Phase 3 slice 7 — reboot evicts**, which is what closes V3, and it
+is **GRILLED + PLANNED (2026-09-17)**: eleven decisions numbered 52–62 and four independent PRs
+in [`plans/reboot-evicts.md`](reboot-evicts.md), which is the live slice plan — start there, not
+here, for that work. The `Status` block below is an accumulating log, not the current state.
 
 **Status**: **D1 shipped** (v0.109.0), with its web follow-ups D1c (v0.123.0-v0.124.0), D1b
 (v0.125.0-v0.129.0) and D1d (v0.130.0) all closed out. **D3 ✅ COMPLETE (v0.136.0)** — six slices,
@@ -411,7 +411,7 @@ PHASE 3 — VULNERABILITIES                             GRILLED 09-09/09-10 + PL
       V slice 4 the defender patches          ✔ SHIPPED v0.214.0-v0.215.0 (#498, #499) <- LOOP CLOSED
       V slice 5 six more effects              ✔ SHIPPED v0.218.0-v0.223.0 (#502-#507)
       V slice 6 the exploit crosses networks  ✔ SHIPPED v0.224.0-v0.230.0 (#508-#514)
-      V slice 7 reboot evicts                 server-side session end
+      V slice 7 reboot evicts                 🔍 GRILLED + PLANNED — 4 PRs, v0.231.0-v0.234.0
       V slice 8 libraries fall                ldd + msfconsole --local
       V slice 9 firmware falls                the third axis
 ────────────────────────── SHIP ──────────────────────────
@@ -3688,7 +3688,7 @@ central mechanic unplayable until slice 6.
 | **4** ✅ | **The defender patches** — **SHIPPED v0.214.0-v0.215.0 (#498, #499)** | `apt upgrade [package]`, `apt list -u` with the ETA status, install through the SAME resolver, a manifest row written on install, and **the forward timeline walk + the nearest-ancestor rule** deferred here from slice 2. **The loop closed**: A upgrades, B's working exploit now refuses, the session B already holds survives it, and inside the delay window A is told plainly that no fix exists |
 | **5** ✅ | **Six more effects** — **SHIPPED v0.218.0-v0.223.0 (#502-#507)** | `file_read`, `dir_list`, `file_write`, `password_reset`, `backdoor_port_open`, `script_exec` — decision 23's third-argument grammar, the CVE-authorized write and exec paths, and D5's backdoor chain forwarding reused whole. Six independent PRs to trunk, each peeling one effect off decision 31's collapse; `msfconsole` became scriptable on the way |
 | **6** ✅ | **The exploit crosses networks** — **SHIPPED v0.224.0-v0.230.0 (#508-#514)** | Public IPs, NAT forwards, inner gateways and the deep chain, through the resolvers `ssh` and `hydra` already share. The first real route to rooting another player. Seven independent PRs to trunk, one vantage each; decision 34's three cross-player questions answered once in a shared rule, and decision 39's pinning shipped with the trace that makes it visible |
-| **7** | **Reboot evicts** | `reboot` ends every session row on that machine server-side, not just the rebooter's stack. The defender gets an answer; the intruder who deleted `/boot/vmlinuz` gets the last laugh |
+| **7** 🔍 | **Reboot evicts** — **GRILLED + PLANNED 2026-09-17**, decisions 52–62 and four independent PRs in [`plans/reboot-evicts.md`](reboot-evicts.md) | `reboot` ends every session row on that machine server-side, not just the rebooter's stack. The defender gets an answer; the intruder who deleted `/boot/vmlinuz` gets the last laugh. A server-minted **boot id** on the box is how a live shell finds out, read through the re-pull `executeLine` already does per line; a failed eviction fails loudly, because silence hands the defender a convincing animation and a live intruder |
 | **8** | **Libraries fall** | Library timelines; `ldd`; `msfconsole --local <command>`; the syslog trace; the extended dependency map with its new effect pools; `metadata.libraryLinks` deleted. Guest becomes root without the root password |
 | **9** | **Firmware falls** | The third axis on routers, switches and the shared AP gateway — a fully patched gateway can still be taken |
 
