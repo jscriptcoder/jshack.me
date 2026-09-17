@@ -4,8 +4,8 @@
 close-out: "Phase 3 slice 6 — the exploit crosses networks" (#508–#514, v0.224.0–v0.230.0).
 **V3 closes when this lands.**
 
-**Status:** Active — PR1 merged (#515, v0.231.0, squash `8d4085a5`). PR2 next on
-`feat/boot-id-evicts-a-live-shell`, branching from `main` at v0.231.0.
+**Status:** Active — PR1 merged (#515, v0.231.0). PR2 merged (#516, v0.232.0, squash
+`543cca8f`). PR3 next on `feat/reboot-evicts-strangers`, branching from `main` at v0.232.0.
 
 **Delivery:** Four independent PRs, sequenced to trunk (NOT a stack). Each merges to `main`;
 the next branches from updated `main`. The blast radius arrives one step at a time — the
@@ -13,9 +13,9 @@ action first against the caller's own rows, then the channel that tells a live s
 strangers, then the trace.
 
 **Branches:** PR1 `feat/reboot-ends-the-machines-rows` (merged, deleted), PR2
-`feat/boot-id-evicts-a-live-shell`,
-PR3 `feat/reboot-evicts-strangers`, PR4 `feat/reboot-leaves-a-trace`. Versions 0.231.0 →
-0.234.0, bumped in both `v2/package.json` and `v2/package-lock.json` per PR.
+`feat/boot-id-evicts-a-live-shell` (merged, deleted), PR3 `feat/reboot-evicts-strangers`,
+PR4 `feat/reboot-leaves-a-trace`. Versions 0.231.0 → 0.234.0, bumped in both
+`v2/package.json` and `v2/package-lock.json` per PR.
 
 ---
 
@@ -83,11 +83,26 @@ same seam, the same shape of rule (*this session cannot do that*), so a box that
 answers the connection-closed line rather than `command not found`, and a pipeline can no more
 slip past it than `su | grep x` can past a missing pty.
 
-It costs **zero new round trips**. `executeLine` already re-pulls the active tree before every
-line — served for a cross-player hop, journal otherwise — and the conventions doc already
-anticipated this: *"any future 're-read the box before acting' gate has the same two sources to
-choose between."* This is that gate, and it chooses neither: it reads whatever tree the re-pull
-produced.
+**Corrected at PR2, 2026-09-17.** This paragraph claimed the gate costs **zero new round trips**
+because *"`executeLine` already re-pulls the active tree before every line"*. It does not, and
+did not: the re-pull was `kind === 'nc'` only — a shipped and deliberately PRICED rule, with a
+test that spends the line (`state.test.ts`, "pays the re-pull only…") and a conventions entry
+whose very next bullet says *"it costs a round trip only in a backdoor"*. The plan quoted that
+entry's conclusion and dropped the guard around it. The gate as written would have worked for
+backdoor shells and silently for nothing else — which is most of what this slice is about, since
+PR3's headline intruder sits in an ssh or exploit shell.
+
+What shipped instead: the rule widened, and it now has a name. `needsFreshTree`
+(`ui/activeRoot.ts`) asks WHETHER to fetch — a backdoor always, plus any session standing on a
+box that is not the player's own workstation. `isCrossPlayerHop` still answers WHERE the tree
+comes from, which is the two-source dispatch the conventions doc anticipated: *"any future
+'re-read the box before acting' gate has the same two sources to choose between."* The gate
+itself still chooses neither; it reads whatever tree the re-pull produced.
+
+So it costs **one round trip per line while standing on somebody else's box**, and nothing at
+all on your own — the priced claim survives intact, and its test now spends the line in both
+directions rather than only proving the negative. PR3 and PR4 inherit the corrected rule, not
+the original sentence.
 
 Rejected: a liveness call per line (correct, and dead against the repo's own test that a
 command on your own box issues no requests at all); and letting the served tree's tier answer
@@ -322,7 +337,7 @@ rewriting `rebooted` into `user_exit`. Found by the wire-check, not by a unit te
 the argument for PR3's two-identity wire-check being written before its handler change, not
 after.
 
-### PR2 — the box carries a boot id, and a live shell learns it moved (v0.232.0)
+### PR2 — the box carries a boot id, and a live shell learns it moved (v0.232.0) — merged (#516)
 
 **Value:** An open shell on a rebooted box stops being a shell — the player is told, on their
 next line, instead of typing into a machine that threw them out.
@@ -346,6 +361,56 @@ marker; the gate lands beside `socketAlive` in `runCommandLine`, before the pars
 tier-3 pruned-tree test proving the first-reboot case fails without the allowlist entry.
 **Evidence:** RED-GREEN unit tests; a Terminal-level test for the Ctrl-C-then-type sequence;
 mutation gate; wire-check covering the marker write.
+
+**Outcome:** merged as #516. 5051 tests / 225 files green; typecheck and lint clean; wire-check
+`scripts/testRebootEvicts.ts` 13/13 against `vercel dev` + supabase, with a negative control —
+pointing the marker write at another path turns its three new checks red. Mutation gate 142 killed
+/ 12 not killed — 92.21%, with `rebootMachine.ts`, `runLine.ts`, `readFilter.ts` and
+`activeRoot.ts` each at 100%.
+
+**The correction to decision 53 above is this PR's main story**, and PR3 should read it before
+starting: that cost argument was false, the pre-line re-pull widened to `needsFreshTree`, and the
+whole rule plus the general lesson is recorded in `conventions-and-gotchas.md` §7.
+
+Two deviations from this slice's own wording, both deliberate and both flagged before GREEN:
+
+**`Session.bootId` carries three states, not one.** `undefined` is "has not read the box yet",
+`null` is "read it and found no marker", a string is the id. Decision 54 described two, which
+cannot work: a session minted on a box that has ALREADY rebooted would carry `undefined`, match
+the absence of a reading, and be evicted on its first line — or, read the other way, the first
+reboot of every box would evict nobody. The third state is what keeps those apart.
+
+**The stamp is taken once at the observation seam, not "by every door that mints a session".**
+The doors that reach another player's box get back a machine id and a tier, never a tree
+(`RemoteAuthResult`), so a door-stamped session would be stamped from the wrong box — or need a
+new field threaded through roughly eight auth endpoints, their api glue, their adapters and their
+wire-checks, in the PR that was supposed to ship alone because it touches `runCommandLine`.
+`sessionRehydrate` therefore needed NO change, for exactly the reason decision 54 already gives
+about rehydrate: a row still active then is one no reboot closed.
+
+**One thing decision 52 implied that nothing had written down:** the base login must be left
+unstamped. It was never a session row, nothing can close it, and there is nothing beneath it to
+drop back to — judge it against the marker and `reboot` on your own machine throws you out of
+your own login shell. Verified by hand: that mutant prints `Connection to box closed by remote
+host.` at the owner's own prompt.
+
+**The mutation gate earned its keep twice, both times on tests written in this PR.** It raised
+`bootId.ts` from 55.88% to 88.24% by showing that nothing pinned the marker's permissions or a
+tree with no `/var` in it — the latter load-bearing, because a tier-3 pruned tree of a box with
+nothing observable on it arrives with no `/var` at all, and a throw there takes down the shell
+rather than the session. Worse, a test asserting the post-evict re-pull's ORDER was being satisfied
+by an in-flight refetch from `su`'s own auth.log write; it is now decision 57's actual promise (an
+aborted reboot drops the owner back to their login shell on the next line) with the contaminating
+refetch awaited first. **The lesson for PR3 and PR4: in a state-level test, a fire-and-forget
+refetch from an earlier command can satisfy an ordering assertion on its own.**
+
+Of the 12 survivors: 4 on `BOOT_ID_PERMISSIONS` are provably equivalent (both walker predicates
+open with `if (userType === 'root') return ALLOWED`, so a blanked `'root'` entry is unobservable),
+4 on the `sessionsClientDeps === undefined` degradation are unreachable through the public surface
+— the house pattern every sibling in `state.ts` shares, none of them covered — and 4 sit inside
+`rebootEvict`: one harmless extra fetch after a FAILED evict, and three on which source the
+re-pull reads from, a rule already at 100% in `activeRoot.test.ts`. **Killing those three needs a
+cross-player reboot fixture, which PR3 brings anyway.**
 
 ### PR3 — a reboot evicts strangers (v0.233.0)
 
