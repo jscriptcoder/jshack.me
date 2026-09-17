@@ -2416,6 +2416,39 @@ state costs you more than one wrong attempt.
     cannot do real node's stop-at-the-operand parsing; `bindFlags` already implements the sentinel,
     so this costs no shell mechanism.
 
+- **WHICH sessions re-read the box before a line is a named rule, and it is not "all of them".**
+  `needsFreshTree` (`ui/activeRoot.ts`) owns it: a backdoor always, and any session standing on a
+  machine that is not your own workstation. Your own box is deliberately outside it — its tree is
+  local and its base login is not a session row, so nothing can close it without you — which is
+  what keeps the priced claim that *a command on your own box issues no requests at all*. That
+  claim has a test that spends the line rather than reading its output
+  (`state.test.ts`, "pays the re-pull only on a box that is not yours"), because an unconditional
+  re-pull changes no output at all and survives everything else.
+
+  It widened from "a backdoor" to this at v0.232.0, when the boot-id gate needed the marker a
+  reboot leaves to actually reach a shell already standing on the box. Two things generalize:
+
+  - **The SOURCE and the TRIGGER are two questions.** `isCrossPlayerHop` answers where the fresh
+    tree comes from (served vs journal); `needsFreshTree` answers whether to go and get one.
+    Collapsing them looks natural and is wrong in both directions: an own-LAN hop needs a journal
+    re-pull and is not a cross-player hop, and a sub-shell line (`ftp>`, `mysql>`, `redis>`) never
+    reaches `runCommandLine` at all.
+  - **An eviction that must land on the ACTOR's own screen cannot wait for the next line.**
+    `reboot` re-reads the box once on a successful evict, as part of the act the player ran, so a
+    Ctrl-C mid-animation resolves on their next line even on their own box — which is never
+    re-asked per line. Per-reboot, not per-line: the priced claim is untouched.
+
+- **A plan that quotes this document can quote the conclusion and drop the guard around it.**
+  Slice 7's decision 53 asserted the boot-id gate "costs zero new round trips" because
+  "`executeLine` already re-pulls the active tree before every line". It did not: the re-pull was
+  `kind === 'nc'` only, which the entry it was drawn from says in its very next bullet
+  ("it costs a round trip only in a backdoor" — a priced, tested claim). The gate as planned would
+  have worked for backdoor shells and silently for nothing else, which is most of what the slice is
+  about. Caught at the seam while writing GREEN, not by a test, and only because the condition had
+  to be read to be changed. **When a plan justifies a design by what the code "already does", open
+  the code at that line before building on it** — a cost argument inherited from a doc is the one
+  kind of claim no test in the repository is checking.
+
 - **Known deferred gap (L3 smart-server):** a client with a valid keypair can mint an
   `effect_one_shot`/root session via `createSession` and call `exploitRead` directly,
   skipping the in-game CVE flow. Accepted per the security model; real fix = server-side

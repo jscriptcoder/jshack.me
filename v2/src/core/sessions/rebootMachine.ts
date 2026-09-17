@@ -34,11 +34,26 @@ export type EndMachineSessionsParams = {
   readonly reason: EndReason;
 };
 
+export type WriteBootIdParams = {
+  readonly machine_id: string;
+  readonly player_key: string;
+  readonly boot_id: string;
+};
+
 export type RebootMachineDeps = {
   readonly nonceStore: NonceStore;
   readonly endMachineSessions: (
     params: EndMachineSessionsParams,
   ) => Promise<{ readonly error: unknown }>;
+  /** Land the new boot id on the machine's own tree. Separate from the row close
+   *  because they answer different readers: the rows are what the server enforces,
+   *  the marker is what a terminal already standing on the box can see. */
+  readonly writeBootId: (params: WriteBootIdParams) => Promise<{ readonly error: unknown }>;
+  /** A fresh, unguessable id for this boot. Injected so tests can name it — and
+   *  unguessable in production for the same reason the reason is server-stamped: a
+   *  caller able to predict the next id could keep a session alive across the
+   *  reboot that was meant to end it. */
+  readonly newBootId: () => string;
 };
 
 export type HandlerResponse = {
@@ -74,6 +89,22 @@ export const handleRebootMachine = async (
   // log line; swallowed here it hands the player a convincing reboot animation and
   // leaves whoever was on the box still on it.
   if (error) {
+    return { status: 500, body: { error: 'update_failed' } };
+  }
+
+  // Only now, and only if they closed. The rows are the authority and the marker is
+  // how a terminal finds out — so a marker landing over rows that stayed open would
+  // throw players off a box that is still holding their write grant, which is the
+  // one arrangement worse than telling nobody.
+  const marker = await deps.writeBootId({
+    machine_id: payload.machine_id,
+    player_key: publicKey,
+    boot_id: deps.newBootId(),
+  });
+  // Equally loud, because rows closed with nobody told is exactly the outcome the
+  // command exists to prevent: a defender walks away believing they are clear while
+  // an intruder keeps typing into a shell that no longer has a row behind it.
+  if (marker.error) {
     return { status: 500, body: { error: 'update_failed' } };
   }
 

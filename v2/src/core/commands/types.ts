@@ -65,6 +65,19 @@ export type Session = {
    *  Every other kind spends its port reaching the box and never needs it again,
    *  so it goes unrecorded rather than carried as a field that means nothing. */
   readonly port?: number;
+  /** The boot id this session last READ off the box it is standing on, which is
+   *  how it finds out the box went down under it: a reboot mints a new one, and
+   *  the next line typed through this session sees a value it does not recognise.
+   *
+   *  Three states, and they are all load-bearing. A string is the id the box was
+   *  carrying. `null` is a box that HAS been read and carries no marker, so it
+   *  has never rebooted — and the marker appearing later is the whole signal that
+   *  it has now, which is the only way the first reboot of a box evicts anyone.
+   *  `undefined` is a session that has not read the box yet, which is refused
+   *  nothing: it has no reading to have moved away from. Once a box can go down
+   *  under it, every session becomes what a backdoor already was — a door that
+   *  has to keep asking whether it is still there. */
+  readonly bootId?: string | null;
 };
 
 export type HopChain = readonly Session[];
