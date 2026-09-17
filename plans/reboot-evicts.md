@@ -58,7 +58,7 @@ Eleven, continuing the epic's numbering from 51.
 #### 52. Every active row on the rebooted machine dies — every player, every kind
 
 Not the rebooter's hop chain, not shells only, not foreigners only: every active row whose
-`machine_id` is the rebooted box, across all twelve `SessionKind`s. The machine stopped
+`machine_id` is the rebooted box, across all eleven `SessionKind`s. The machine stopped
 existing for a moment, and that one sentence answers every kind at once without a table of
 exceptions to maintain.
 
@@ -226,9 +226,12 @@ disclosure is strictly smaller than the pidfiles already on that list: an unauth
 reader learns that a box has rebooted and sees an opaque id, and nothing about **who** rebooted
 it, which lives in `kern.log` and is not allowlisted.
 
-Proposed path `/var/run/boot-id` (`/var/run` is the established runtime-truth directory and is
-root-writable; the real-world analogue is `/proc/sys/kernel/random/boot_id`). The
-implementation confirms the name; the allowlist entry and the read posture are the decision.
+The path is `/var/run/boot-id`, confirmed 2026-09-17 (`/var/run` is the established
+runtime-truth directory and is root-writable; the real-world analogue is
+`/proc/sys/kernel/random/boot_id`). It is not a free choice for the implementation to
+revisit: PR2 writes it into `EXTERNALLY_OBSERVABLE_ALLOWLIST`, where it is read by
+unauthenticated strangers from that point on, and moving it afterwards means moving a
+path other players' clients have already learned to look at.
 
 #### 61. The shared AP gateway is in scope, and needs no branch to be there
 
