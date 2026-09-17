@@ -561,8 +561,12 @@ before touching it:
     shared client+server module in the door, so `testCrossPlayerWrite` grew checks 13-15 (15/15)
     and was shown to fail against the pre-slice materializer.
 
-To pick up the next slice: read the relevant `plans/*.md` TOP BLOCK (live status +
-as-built), then the cross-player architecture doc if the work touches cross-player paths.
+To pick up the next slice: read [`plans/legacy-parity-epic.md`](../../plans/legacy-parity-epic.md)
+— its **"Where we are now"** line near the top, then the Phase 3 tree and the slice table
+for per-slice status. A slice gets its own `plans/*.md` only while it is IN FLIGHT, with a
+top block carrying live status + as-built; it is retired into the epic on close-out, so
+between slices there is no slice plan and that is expected. Then the cross-player
+architecture doc if the work touches cross-player paths.
 
 ---
 

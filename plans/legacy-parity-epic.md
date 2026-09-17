@@ -1,8 +1,19 @@
 # Epic: Legacy Parity (v2) — every way into a machine
 
-> **Picking this up cold? Read "Locked decisions" then jump to "Next action" at the end.**
+> **Picking this up cold?** Read "Locked decisions", then the Phase 3 tree and the slice
+> table — both are maintained per-PR and carry the live status. `## Next action` at the end
+> is a HISTORICAL close-out log, NOT a pointer to current work: its newest entry is D5b
+> (v0.157.0), many versions behind.
 > Split authored 2026-07-29 (`story-splitting`), then grilled to nine locked decisions
 > (`grill-me`, same day).
+
+**Where we are now (2026-09-17):** **v0.230.0**. **Phase 3 slice 6 — the exploit crosses
+networks — is SHIPPED and closed out**: seven independent PRs to trunk, #508–#514,
+v0.224.0–v0.230.0, with its as-built retired into the `### Phase 3 slice 6` section near the
+end of this file. **Next is Phase 3 slice 7 — reboot evicts**, which is what closes V3.
+**There is no live slice plan file right now**: slice 6's was retired on close-out and
+slice 7's is not written yet, so an empty-looking `plans/` is expected rather than a file
+somebody lost. The `Status` block below is an accumulating log, not the current state.
 
 **Status**: **D1 shipped** (v0.109.0), with its web follow-ups D1c (v0.123.0-v0.124.0), D1b
 (v0.125.0-v0.129.0) and D1d (v0.130.0) all closed out. **D3 ✅ COMPLETE (v0.136.0)** — six slices,
