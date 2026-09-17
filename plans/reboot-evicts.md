@@ -4,8 +4,9 @@
 close-out: "Phase 3 slice 6 — the exploit crosses networks" (#508–#514, v0.224.0–v0.230.0).
 **V3 closes when this lands.**
 
-**Status:** Active — PR1 merged (#515, v0.231.0). PR2 merged (#516, v0.232.0, squash
-`543cca8f`). PR3 next on `feat/reboot-evicts-strangers`, branching from `main` at v0.232.0.
+**Status:** Active — PR1 merged (#515, v0.231.0). PR2 merged (#516, v0.232.0). PR3 merged
+(#517, v0.233.0, squash `06ba75ea`). PR4 next on `feat/reboot-leaves-a-trace`, branching from
+`main` at v0.233.0 — the last one, and V3 closes when it lands.
 
 **Delivery:** Four independent PRs, sequenced to trunk (NOT a stack). Each merges to `main`;
 the next branches from updated `main`. The blast radius arrives one step at a time — the
@@ -13,9 +14,9 @@ action first against the caller's own rows, then the channel that tells a live s
 strangers, then the trace.
 
 **Branches:** PR1 `feat/reboot-ends-the-machines-rows` (merged, deleted), PR2
-`feat/boot-id-evicts-a-live-shell` (merged, deleted), PR3 `feat/reboot-evicts-strangers`,
-PR4 `feat/reboot-leaves-a-trace`. Versions 0.231.0 → 0.234.0, bumped in both
-`v2/package.json` and `v2/package-lock.json` per PR.
+`feat/boot-id-evicts-a-live-shell` (merged, deleted), PR3 `feat/reboot-evicts-strangers`
+(merged, deleted), PR4 `feat/reboot-leaves-a-trace`. Versions 0.231.0 → 0.234.0, bumped in
+both `v2/package.json` and `v2/package-lock.json` per PR.
 
 ---
 
@@ -380,13 +381,20 @@ cannot work: a session minted on a box that has ALREADY rebooted would carry `un
 the absence of a reading, and be evicted on its first line — or, read the other way, the first
 reboot of every box would evict nobody. The third state is what keeps those apart.
 
-**The stamp is taken once at the observation seam, not "by every door that mints a session".**
+**The stamp is taken at the observation seam, not "by every door that mints a session".**
 The doors that reach another player's box get back a machine id and a tier, never a tree
 (`RemoteAuthResult`), so a door-stamped session would be stamped from the wrong box — or need a
 new field threaded through roughly eight auth endpoints, their api glue, their adapters and their
 wire-checks, in the PR that was supposed to ship alone because it touches `runCommandLine`.
 `sessionRehydrate` therefore needed NO change, for exactly the reason decision 54 already gives
 about rehydrate: a row still active then is one no reboot closed.
+
+**Corrected at PR3, 2026-09-17.** "Once, at the observation seam" was right about WHERE and
+wrong about WHEN: PR2 read the box on the first line the session RUNS, which is too late for the
+intruder who breaks in and waits — see PR3's outcome below. The seam is unchanged (still one
+place, still the client's own tree, still no field on the wire); it now fires in `acquireTree`,
+as soon as the client holds that machine's tree, with the per-line call kept as the fallback.
+Every door reaches it, because every door pushes a session and every push rebinds the tree.
 
 **One thing decision 52 implied that nothing had written down:** the base login must be left
 unstamped. It was never a session row, nothing can close it, and there is nothing beneath it to
@@ -412,7 +420,7 @@ open with `if (userType === 'root') return ALLOWED`, so a blanked `'root'` entry
 re-pull reads from, a rule already at 100% in `activeRoot.test.ts`. **Killing those three needs a
 cross-player reboot fixture, which PR3 brings anyway.**
 
-### PR3 — a reboot evicts strangers (v0.233.0)
+### PR3 — a reboot evicts strangers (v0.233.0) — merged (#517)
 
 **Value:** The slice's headline and V3's closer — the defender's one lever finally reaches rows
 the rebooter does not own.
@@ -435,6 +443,54 @@ for a caller holding neither authority.
 **Evidence:** RED-GREEN unit tests; mutation gate; a **two-identity wire-check** inheriting
 slice 6's fixture; and a **two-player browser run** — the one thing that belongs in a browser
 here, since it is the first time a real player is thrown off a real box.
+
+**Outcome:** merged as #517. 5059 tests / 225 files green; typecheck and lint clean; wire-check
+`scripts/testRebootEvicts.ts` 23/23 against `vercel dev` + supabase, with a negative control
+(root check bypassed, closure narrowed to one kind) dropping it to 12/23. Mutation:
+`rebootMachine.ts` 50/50, the changed `state.ts` ranges 26/38, 76/88 overall.
+
+**Authority landed as decision 55 wrote it**, reusing `authorizeMachineAccess` — the own-box
+suffix bypass the patch endpoints already gate on — with the root-tier requirement as reboot's own
+extra (`403 not_root`). It is checked BEFORE anything moves, because a machine id travels on every
+row and in every hop: an unauthorized reboot that reached the rows or left a marker would evict the
+box's occupants just as effectively as one that was allowed. The gateway needed no branch, exactly
+as decision 61 predicted. Decision 56 and the `endSession` scoping were already pinned by shipped
+tests (`reboot.test.ts`, `endSession.test.ts`) and needed nothing new.
+
+**One thing decision 55 implied that only the wire-check made concrete:** the owner arm cannot be
+conditioned on a session row. After the first reboot the box has no open rows at all, so an
+authority read off the session table would refuse the owner their own second reboot.
+
+**The two-player browser run earned its place in the evidence line, and PR4 should keep one.**
+It found a defect nothing else could: the boot id was stamped on the first line a session RUNS, so
+an intruder who breaks in and waits reads the box for the first time AFTER the reboot, records the
+new id as though they had always held it, and is never evicted. That is the ordinary case — nothing
+makes a player type a line before the box goes down under them. And the shell they keep is not the
+one they had: their rows are closed, so the box serves them the tier-3 allowlist and their next
+command answers `command not found` because `/bin` is no longer in the tree. **A silent tier
+downgrade is precisely what decision 53 rejected**, arriving anyway through the back door. Every
+unit test written for the gate passed with the hole in place, because each of them types a line
+first to establish the reading. Fixed by stamping in `acquireTree`; PR2's outcome above is
+corrected in place. The rule and the lesson are in `conventions-and-gotchas.md` §7.
+
+Two-identity run in full, for the record: B cracked A's WiFi, swept the LAN with `nmap`, took
+`guest:sunshine` off A's box with `hydra`, and ssh'd in; A ran `reboot`; B's next line answered
+`Connection to alpha closed by remote host.` and dropped them back to their own box. **The server
+half was flawless on the first attempt** — the row closed, stamped `rebooted`, marker written — and
+that is worth noticing: the wire-check was telling the truth, and the half it does not reach is the
+half that was broken.
+
+**Recorded, not fixed:** a closed row does not close a shell on your OWN box. `needsFreshTree`
+exempts your own workstation, so an `su` row of yours that somebody else's reboot closed survives
+until you reload. It costs nothing defensively and closing it would put a round trip on every line
+typed at home, which is what the re-pull rule has refused since it was priced. Also in §7.
+
+Of the 12 mutation survivors, 8 are pre-existing `rebindPatchClient` lines this diff only
+reformatted — killing them needs a same-LAN, journal-driven hop fixture, since the cross-player
+fixture reads a SERVED tree — and 4 sit on the new guard against stamping a session from a tree
+that arrived after the player hopped on. That window is real (it stamps `null` against a cleared
+journal and spuriously evicts), but observable only through a two-remote-hop fixture neither this
+slice nor PR4 has another use for.
 
 ### PR4 — the reboot leaves a trace (v0.234.0)
 
