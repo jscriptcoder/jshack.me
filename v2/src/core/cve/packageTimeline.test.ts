@@ -11,8 +11,10 @@ import {
   CVE_TIMING,
   MAX_TIMELINE_ENTRIES,
   installedRelease,
+  movesForward,
   newestReleaseOn,
   packageTimeline,
+  repoHolds,
   severityForRoll,
   upgradeStatusFor,
 } from './packageTimeline';
@@ -422,5 +424,86 @@ describe('the bump a roll lands on', () => {
     [99, 'patch'],
   ])('rolls %i as a %s', (roll, bump) => {
     expect(bumpForRoll(roll)).toBe(bump);
+  });
+});
+
+/**
+ * Which releases a player may name outright.
+ *
+ * Deliberately not "its CVE has published": the release that FIXES the current hole
+ * becomes installable the day that fix ships, and its own hole lands later — so a
+ * published-CVE test would refuse the very version a fresh install lands on. What can
+ * be named is what the repo can hand over.
+ */
+describe('the releases the repo will hand over by name', () => {
+  it('holds the release a fresh install lands on, and the ones behind it', () => {
+    expect(repoHolds(SSH, newestReleaseOn(SSH, LATE)!, LATE)).toBe(true);
+    expect(repoHolds(SSH, startingVersionOf(SSH)!, LATE)).toBe(true);
+  });
+
+  it('will not hand over a fix that has not shipped yet, though the timeline names it', () => {
+    // The boundary that stops pinning being a way FORWARD past the patch delay. One day
+    // before the fix ships the box is told the truth and can do nothing about it — and
+    // naming that release outright must not be the way out, or the window nobody can buy
+    // their way out of is one `install` away from being skipped.
+    const { vulnerable, fix, shipsOn } = slowFix();
+    expect(upgradeStatusFor(SSH, vulnerable.version, shipsOn - 1)).toMatchObject({
+      kind: 'no-fix-yet',
+    });
+    expect(repoHolds(SSH, fix.version, shipsOn - 1)).toBe(false);
+    // And the day it ships, it is on the shelf like anything else.
+    expect(repoHolds(SSH, fix.version, shipsOn)).toBe(true);
+  });
+
+  it('will not hand over a number this world never released', () => {
+    // Below the release the package was born on: older than anything a box can carry, so
+    // nothing about upgrades can be what refuses it.
+    const born = startingVersionOf(SSH)!;
+    const belowBorn = born.replace(/\d+$/, (last) => String(Number(last) - 1));
+    expect(packageTimeline(SSH, LATE).map(({ version }) => version)).not.toContain(belowBorn);
+    expect(repoHolds(SSH, belowBorn, LATE)).toBe(false);
+  });
+
+  it('holds nothing for a package this world keeps no history for', () => {
+    // A router's firmware is not upgraded through apt, so there is no shelf to take a
+    // release off — naming any version of it is naming something that does not exist.
+    expect(repoHolds(FIRMWARE_PACKAGE, '1.0.0', LATE)).toBe(false);
+  });
+});
+
+/**
+ * Which way a version move walks along a package's history.
+ *
+ * Both ends resolve through `installedRelease`, so a manifest holding a version this
+ * world never published is weighed as the release it actually behaves as rather than as
+ * the string somebody typed into it.
+ */
+describe('which way a version move walks', () => {
+  it('walks forward onto a newer release and backward onto an older one', () => {
+    const born = startingVersionOf(SSH)!;
+    const newest = newestReleaseOn(SSH, LATE)!;
+    expect(born).not.toBe(newest);
+    expect(movesForward(SSH, { from: born, to: newest, gameDay: LATE })).toBe(true);
+    expect(movesForward(SSH, { from: newest, to: born, gameDay: LATE })).toBe(false);
+  });
+
+  it('does not call standing still a move forward', () => {
+    // Reinstalling the release a box already runs changes nothing, so it is not the
+    // forward move `upgrade` owns — refusing it would send a player to a verb with
+    // nothing to do.
+    const newest = newestReleaseOn(SSH, LATE)!;
+    expect(movesForward(SSH, { from: newest, to: newest, gameDay: LATE })).toBe(false);
+  });
+
+  it('weighs a manifest full of nonsense as the release it actually behaves as', () => {
+    // Root can put anything in the manifest with an editor. Whatever is in there, the
+    // box behaves as some real release — and the move is judged against THAT, or a
+    // hand-edited file would be a way to make any move look like a downgrade.
+    const born = startingVersionOf(SSH)!;
+    expect(installedRelease(SSH, 'banana', LATE)?.version).toBe(born);
+    expect(movesForward(SSH, { from: 'banana', to: born, gameDay: LATE })).toBe(false);
+    expect(movesForward(SSH, { from: 'banana', to: newestReleaseOn(SSH, LATE)!, gameDay: LATE })).toBe(
+      true,
+    );
   });
 });
