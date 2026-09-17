@@ -4,14 +4,16 @@
 close-out: "Phase 3 slice 6 — the exploit crosses networks" (#508–#514, v0.224.0–v0.230.0).
 **V3 closes when this lands.**
 
-**Status:** Active — not started. PR1 branches from `main` at v0.230.0.
+**Status:** Active — PR1 merged (#515, v0.231.0, squash `8d4085a5`). PR2 next on
+`feat/boot-id-evicts-a-live-shell`, branching from `main` at v0.231.0.
 
 **Delivery:** Four independent PRs, sequenced to trunk (NOT a stack). Each merges to `main`;
 the next branches from updated `main`. The blast radius arrives one step at a time — the
 action first against the caller's own rows, then the channel that tells a live shell, then
 strangers, then the trace.
 
-**Branches:** PR1 `feat/reboot-ends-the-machines-rows`, PR2 `feat/boot-id-evicts-a-live-shell`,
+**Branches:** PR1 `feat/reboot-ends-the-machines-rows` (merged, deleted), PR2
+`feat/boot-id-evicts-a-live-shell`,
 PR3 `feat/reboot-evicts-strangers`, PR4 `feat/reboot-leaves-a-trace`. Versions 0.231.0 →
 0.234.0, bumped in both `v2/package.json` and `v2/package-lock.json` per PR.
 
@@ -272,7 +274,7 @@ and therefore carries a wire-check; none is exempt.
 terminal-observable behaviour; `mutation-testing` at each PR boundary's readiness. PR3 is the
 one with a browser obligation — see its evidence line.
 
-### PR1 — the machine's rows close in one action, and a failure says so (v0.231.0)
+### PR1 — the machine's rows close in one action, and a failure says so (v0.231.0) — merged (#515)
 
 **Value:** A reboot stops relying on N optimistic per-pop calls that report nothing, and starts
 being one authoritative act that tells the player when it did not happen.
@@ -296,6 +298,29 @@ scoped to the caller's own rows — no stranger is touched yet.
 rather than being swallowed.
 **Evidence:** RED-GREEN unit tests; mutation gate at PR readiness; wire-check extended with a
 reboot that closes two of the caller's own rows on one machine.
+
+**Outcome:** merged as #515. 5017 tests / 224 files green; typecheck and lint clean; wire-check
+`scripts/testRebootEvicts.ts` 10/10 against `vercel dev` + supabase, with a negative control —
+removing the `.is('ended_at', null)` guard turns checks 7–8 red, so the check can fail. Mutation
+gate 111 killed (109 + 2 timeouts) / 132 — 84.1%: `rebootMachine.ts` 25/25, `endSession.ts`
+25/25, the new adapter lines 13/13. Of the 21 survivors, 14 are the `reboot: Command` metadata
+literal, 4 are animation copy the file deliberately leaves unpinned, 1 is the `text()` helper's
+`kind`, and 2 are proven equivalent (on abort the `for await` throws and `exitCode()` is never
+reached, so the `{ failed: false }` initializer has no reader that could observe it).
+
+Two things the acceptance list did not predict, both worth carrying into PR2 and PR3:
+
+**`endSession` no longer accepts `rebooted` from a caller.** Adding it to `END_REASONS` made it
+client-writable, and a caller able to claim it could record a voluntary exit as an eviction — in
+the one field that says whether a player left or was thrown off. The wire-facing schema now takes
+a narrower `CLIENT_END_REASONS` subset. The acceptance line above said `handleEndSession` is
+unchanged; its intent, the ownership scoping decision 55 protects, is intact.
+
+**The endSession UPDATE now touches only rows still open.** `disconnect()`'s pops really do send
+an ordinary exit for every row, milliseconds after the reboot closed them, and they were
+rewriting `rebooted` into `user_exit`. Found by the wire-check, not by a unit test — which is
+the argument for PR3's two-identity wire-check being written before its handler change, not
+after.
 
 ### PR2 — the box carries a boot id, and a live shell learns it moved (v0.232.0)
 
