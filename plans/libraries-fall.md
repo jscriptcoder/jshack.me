@@ -6,7 +6,7 @@ record: the epic's `### Slice 8 — resolved decisions (grill-me, 2026-09-18)` s
 slice close-out: "Phase 3 slice 7 — reboot evicts" (#515–#518, v0.231.0–v0.234.0), which closed V3.
 **Slice 9 (firmware) is the only V-series axis left after this.**
 
-**Status:** Active — PR1 next, not yet branched. Nothing merged.
+**Status:** Active — PR1 in review on `feat/ldd-lists-linked-libraries`. Nothing merged.
 
 **Delivery:** Six independent PRs, sequenced to trunk (NOT a stack), per decision 72. Each merges
 to `main`; the next branches from updated `main`. PRs 1, 2 and 3 are independent of everything and
