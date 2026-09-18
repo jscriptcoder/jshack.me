@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { commandRegistry } from './registry';
 import { buildDirectory, buildFile } from '../../test/factories/filesystem';
 import { mockCommandEnv, mockFsViewFromTree, mockSession } from '../../test/factories/commandEnv';
-import { BINARY_STUB } from '../generation/binaries';
+import { binaryStub } from '../generation/binaries';
 import { asAbsPath } from '../types';
 import type { FileNode } from '../filesystem/types';
 import type { CommandResult, TerminalLine } from './types';
@@ -11,31 +11,38 @@ const NO_FLAGS = new Map<string, string | true>();
 
 const LOAD_ADDRESS = /^\(0x[0-9a-f]{12}\)$/;
 
-const worldExecutableBinary = (): FileNode =>
-  buildFile(BINARY_STUB, { owner: 'root', perms: { execute: ['root', 'user', 'guest'] } });
+const worldExecutableBinary = (name: string): FileNode =>
+  buildFile(binaryStub(name), { owner: 'root', perms: { execute: ['root', 'user', 'guest'] } });
 
-const library = (): FileNode => buildFile(BINARY_STUB, { owner: 'root' });
+const library = (name: string): FileNode => buildFile(binaryStub(`${name}.so`), { owner: 'root' });
 
 type TreeOptions = {
   readonly bin?: readonly string[];
   readonly usrBin?: readonly string[];
   readonly libs?: readonly string[];
+  /** Files in `/tmp`, by name, each holding the given content. */
+  readonly tmp?: Readonly<Record<string, string>>;
 };
 
 /** A box whose `/bin` always holds `ldd` itself, plus the named binaries and
  *  `/lib/<lib>.so` files. */
-const buildBox = ({ bin = [], usrBin = [], libs = [] }: TreeOptions) =>
+const buildBox = ({ bin = [], usrBin = [], libs = [], tmp = {} }: TreeOptions) =>
   buildDirectory({
     bin: buildDirectory(
-      Object.fromEntries(['ldd', ...bin].map((name) => [name, worldExecutableBinary()])),
+      Object.fromEntries(['ldd', ...bin].map((name) => [name, worldExecutableBinary(name)])),
     ),
     usr: buildDirectory({
       bin: buildDirectory(
-        Object.fromEntries(usrBin.map((name) => [name, worldExecutableBinary()])),
+        Object.fromEntries(usrBin.map((name) => [name, worldExecutableBinary(name)])),
       ),
     }),
-    lib: buildDirectory(Object.fromEntries(libs.map((lib) => [`${lib}.so`, library()]))),
-    tmp: buildDirectory({}, { owner: 'guest' }),
+    lib: buildDirectory(Object.fromEntries(libs.map((lib) => [`${lib}.so`, library(lib)]))),
+    tmp: buildDirectory(
+      Object.fromEntries(
+        Object.entries(tmp).map(([name, content]) => [name, buildFile(content, { owner: 'guest' })]),
+      ),
+      { owner: 'guest' },
+    ),
   });
 
 const runLdd = async (
@@ -167,6 +174,39 @@ describe('ldd', () => {
     expect(result.lines).toEqual([
       { kind: 'error', content: 'ldd: /tmp/su: No such file or directory' },
     ]);
+  });
+
+  it('answers for a renamed copy by the tool its content names, not by its file name', async () => {
+    const box = buildBox({
+      bin: ['su'],
+      libs: ['libpam', 'libcrypt'],
+      tmp: { foo: binaryStub('su') },
+    });
+
+    expect((await runLdd(box, ['/tmp/foo'])).lines).toEqual((await runLdd(box, ['su'])).lines);
+  });
+
+  it('answers for what a file is even when it is named after another tool', async () => {
+    const box = buildBox({ bin: ['grep'], libs: ['libpcre'], tmp: { su: binaryStub('grep') } });
+
+    expect((await runLdd(box, ['/tmp/su'])).lines).toEqual((await runLdd(box, ['grep'])).lines);
+  });
+
+  it('reports a file that is not a binary at all as not a dynamic executable', async () => {
+    const box = buildBox({ tmp: { su: 'just some text\n' } });
+
+    const result = await runLdd(box, ['/tmp/su']);
+
+    expect(result.exitCode).toBe(1);
+    expect(linesOfKind(result.lines, 'text')).toEqual(['\tnot a dynamic executable']);
+  });
+
+  it('treats a stub naming a built-in object property as linking nothing', async () => {
+    const box = buildBox({ tmp: { odd: binaryStub('constructor') } });
+
+    const result = await runLdd(box, ['/tmp/odd']);
+
+    expect(linesOfKind(result.lines, 'text')).toEqual(['\tnot a dynamic executable']);
   });
 
   it('refuses a directory as not a regular file', async () => {

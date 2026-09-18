@@ -20,7 +20,7 @@
 import type { UserType } from '../types';
 import type { FileNode, FilePermissions } from '../filesystem/types';
 
-/** Looks like an ELF header (magic `\x7fELF`) followed by the readable tail a
+/** Looks like an ELF header (magic `ELF`) followed by the readable tail a
  *  dynamically linked binary carries — what `cat`/`strings` show.
  *
  *  The header alone is not enough. `strings` reports runs of four or more
@@ -29,15 +29,27 @@ import type { FileNode, FilePermissions } from '../filesystem/types';
  *  first thing anyone points that tool at would look broken. The interpreter
  *  path and libc version are what a real `strings /bin/ls` prints first.
  *
- *  Identical on every machine and every library, deliberately: this is
- *  cosmetic parity, not world content. Nothing here is worth finding, so
- *  nothing here is loot.
- *
  *  MUST be NUL-free: `apt install` persists this content to the patch store's
  *  Postgres TEXT column, which rejects the NUL byte (U+0000) — a real ELF
  *  header's padding NULs would fail the write with a network_error. */
-export const BINARY_STUB =
-  '\x7fELF\x02\x01\x01\x03\x3e\x01' + '/lib64/ld-linux-x86-64.so.2' + '\x01' + 'GLIBC_2.2.5';
+const STUB_HEADER =
+  'ELF>' + '/lib64/ld-linux-x86-64.so.2' + '' + 'GLIBC_2.2.5' + '';
+
+/** The content of a binary (or `.so`) named `name`. The name is what the file
+ *  IS, wherever it is copied and whatever it is renamed to: a binary run by its
+ *  path, and `ldd`, identify the tool by this and never by the file name, so
+ *  copying `cat` to `~/msfconsole` gives you a `cat`. A library carries its own
+ *  `<lib>.so` name, which no command answers to, so it never runs as a tool.
+ *
+ *  Otherwise identical on every machine: cosmetic parity, not world content.
+ *  Nothing here is worth finding, so nothing here is loot. */
+export const binaryStub = (name: string): string => `${STUB_HEADER}${name}`;
+
+/** The name a stub was stamped with, or null for content that is not a stub. */
+export const stubName = (content: string): string | null =>
+  content.startsWith(STUB_HEADER) && content.length > STUB_HEADER.length
+    ? content.slice(STUB_HEADER.length)
+    : null;
 
 /** Default execute set for a system binary — world-executable. */
 const WORLD_EXECUTABLE: readonly UserType[] = ['root', 'user', 'guest'];
@@ -136,7 +148,7 @@ export const createBinaryEntries = (names: readonly string[]): Readonly<Record<s
       name,
       {
         kind: 'file' as const,
-        content: BINARY_STUB,
+        content: binaryStub(name),
         owner: 'root',
         perms: binaryPerms(name),
       } satisfies FileNode,

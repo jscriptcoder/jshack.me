@@ -8,8 +8,9 @@
  *
  * What a binary links comes from `libraryDeps`, the same map that makes a
  * command fail to start when a library is missing — so what `ldd` shows and
- * what actually breaks can never disagree. The map is keyed by the binary's
- * file name.
+ * what actually breaks can never disagree. The map is looked up by the tool
+ * the binary's content names, never its file name, so a renamed copy answers
+ * for what it is.
  *
  * A binary the map does not list prints real `ldd`'s `not a dynamic
  * executable`, and a binary that is not on the box never reaches the map.
@@ -23,6 +24,7 @@
 import { resolveAbsPath } from '../filesystem/path';
 import type { FileNode } from '../filesystem/types';
 import type { SystemLibrary } from '../generation/libraries';
+import { stubName } from '../generation/binaries';
 import { resolveBinary } from './availability';
 import { libraryDeps, libraryPresent } from './libraryDeps';
 import type { Command, CommandEnv, CommandResult } from './types';
@@ -49,22 +51,22 @@ const formatLine = (env: CommandEnv, library: SystemLibrary): string => {
   return `\t${library}.so => ${resolution}`;
 };
 
-/** The node the argument names, and the file name the library map is keyed by. */
-const locate = (env: CommandEnv, arg: string): { node: FileNode | null; name: string } => {
-  if (!arg.includes('/')) return { node: resolveBinary(env, arg), name: arg };
-  const path = resolveAbsPath(env.fs.cwd(), arg);
-  return { node: env.fs.stat(path), name: path.slice(path.lastIndexOf('/') + 1) };
-};
+/** The node the argument names: a path taken literally, a bare name searched. */
+const locate = (env: CommandEnv, arg: string): FileNode | null =>
+  arg.includes('/') ? env.fs.stat(resolveAbsPath(env.fs.cwd(), arg)) : resolveBinary(env, arg);
 
 const execute: Command['execute'] = async (env, args) => {
   const arg = args[0];
   if (arg === undefined) return failure('ldd: missing file arguments');
 
-  const { node, name } = locate(env, arg);
+  const node = locate(env, arg);
   if (node === null) return failure(`ldd: ${arg}: No such file or directory`);
   if (node.kind !== 'file') return failure(`ldd: ${arg}: not regular file`);
 
-  const deps = libraryDeps[name];
+  const tool = stubName(node.content);
+  // `hasOwn`, because content is written by players and `libraryDeps` is a plain
+  // object: a stub naming `constructor` must not read a prototype member.
+  const deps = tool !== null && Object.hasOwn(libraryDeps, tool) ? libraryDeps[tool] : undefined;
   if (deps === undefined) {
     return {
       kind: 'sync',

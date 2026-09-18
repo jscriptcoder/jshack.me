@@ -9,7 +9,7 @@ import {
   mockSession,
 } from '../../test/factories/commandEnv';
 import { buildDirectory, buildFile } from '../../test/factories/filesystem';
-import { BINARY_STUB } from '../generation/binaries';
+import { binaryStub } from '../generation/binaries';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import { SYSTEM_DAEMON_NAMES } from '../generation/binaries';
 import { packageForBinary } from '../packages/aptPackages';
@@ -67,7 +67,7 @@ type SystemctlEnvOpts = {
 
 const binaries = (names: readonly string[]) =>
   buildDirectory(
-    Object.fromEntries(names.map((name) => [name, buildFile(BINARY_STUB, { owner: 'root' })])),
+    Object.fromEntries(names.map((name) => [name, buildFile(binaryStub(name), { owner: 'root' })])),
   );
 
 /** An env whose `/var/run` holds the given pidfiles and whose patch calls are

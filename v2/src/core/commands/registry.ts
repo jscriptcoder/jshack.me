@@ -148,3 +148,13 @@ const gate = (command: Command): Command =>
 export const commandRegistry: ReadonlyMap<string, Command> = new Map(
   builtins.map((command) => [command.name, gate(command)]),
 );
+
+/** The same commands for a binary run by its PATH (`/tmp/tool`): the shell has
+ *  already found the file and checked its execute bit, so only the library check
+ *  applies — searching the system directories by name would refuse a tool the
+ *  player carried in. Builtins and game commands have no binary to carry. */
+export const carriedCommandRegistry: ReadonlyMap<string, Command> = new Map(
+  builtins
+    .filter((command) => !isAlwaysAvailable(command.name))
+    .map((command) => [command.name, wrapWithLibraryCheck(command)]),
+);

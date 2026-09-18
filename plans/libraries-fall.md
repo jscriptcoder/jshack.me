@@ -6,7 +6,7 @@ record: the epic's `### Slice 8 — resolved decisions (grill-me, 2026-09-18)` s
 slice close-out: "Phase 3 slice 7 — reboot evicts" (#515–#518, v0.231.0–v0.234.0), which closed V3.
 **Slice 9 (firmware) is the only V-series axis left after this.**
 
-**Status:** Active — PR1 in review on `feat/ldd-lists-linked-libraries`. Nothing merged.
+**Status:** Active — PR1 ✔ merged (#519, v0.235.0). PR2 in review on `feat/run-a-carried-binary`.
 
 **Delivery:** Six independent PRs, sequenced to trunk (NOT a stack), per decision 72. Each merges
 to `main`; the next branches from updated `main`. PRs 1, 2 and 3 are independent of everything and
@@ -68,7 +68,7 @@ escalation; `mutation-testing` at each PR boundary's readiness.
 
 ---
 
-### PR1 — `ldd` lists a command's linked libraries, and `libraryLinks` is deleted (v0.235.0)
+### PR1 — `ldd` lists a command's linked libraries, and `libraryLinks` is deleted (v0.235.0) ✔ SHIPPED v0.235.0 (#519)
 
 **Value:** A player can see which shared libraries a command links, and whether each `.so` is
 present — the recon half of the axis, and the one map that (decision 11) also drives the exploit,
@@ -143,7 +143,9 @@ tool in their content and dispatch is by content, not filename**; path execution
 - With a real `msfconsole`-content binary at `/tmp/msfconsole` and its execute bit set for the
   caller's tier, `/tmp/msfconsole <host> <port>` runs the exploit command.
 - `./msfconsole` from the cwd holding that file resolves the same way.
-- `cp /bin/cat ~/x && ~/x` runs `cat`, not whatever `~/x` is named — dispatch is by content.
+- A copy of `cat`'s binary saved as `~/msfconsole` runs `cat`, not whatever the file is named —
+  dispatch is by content. (v2 has no `cp`; players carry binaries in with `scp`/`ftp put`, so the
+  test plants the renamed copy directly.)
 - A carried binary whose execute bit the tier lacks refuses with `Permission denied`; `chmod +x`
   on the player's own copy (already allowed by D10) then lets it run.
 - A path token pointing at a non-file, or a file whose content names no tool, prints

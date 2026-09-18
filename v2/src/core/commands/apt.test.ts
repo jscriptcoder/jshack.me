@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { BINARY_STUB } from '../generation/binaries';
+import { binaryStub, stubName } from '../generation/binaries';
 import type { SystemLibrary } from '../generation/libraries';
 import type { Directory, FilePermissions } from '../filesystem/types';
 import { asAbsPath, asEpochMs, asPlayerKeyHex, type UserType } from '../types';
@@ -370,7 +370,7 @@ describe('apt', () => {
       expect(writes).toHaveLength(1);
       expect(writes[0]).toEqual({
         path: '/usr/bin/nmap',
-        content: BINARY_STUB,
+        content: binaryStub('nmap'),
         options: { isNew: true, permissions: WORLD_EXECUTABLE },
       });
       expect(text).toContain('Setting up nmap');
@@ -474,7 +474,9 @@ describe('apt', () => {
 
       // The BINARIES, specifically: this package also ships a database, and where
       // that lands is a separate claim with its own tests below.
-      const binaries = writes.filter((write) => write.content === BINARY_STUB);
+      const binaries = writes.filter(
+        (write) => stubName(write.content) === write.path.slice(write.path.lastIndexOf('/') + 1),
+      );
       expect(binaries.map((write) => write.path)).toEqual(['/usr/bin/mysql', '/usr/sbin/mysqld']);
     });
 
@@ -1152,7 +1154,7 @@ describe('apt', () => {
         // The binary is rewritten with the stub it already held — harmless, and
         // out of scope here; what matters is that the data file comes back.
         expect(writes).toEqual([
-          { path: '/usr/bin/hydra', content: BINARY_STUB, options: expect.anything() },
+          { path: '/usr/bin/hydra', content: binaryStub('hydra'), options: expect.anything() },
           {
             path: '/usr/share/wordlists/passwords.txt',
             content: formatWordlist(DEFAULT_WORDLIST),
@@ -1339,7 +1341,7 @@ describe('installPackageLibraries', () => {
     const tree = buildDirectory({
       lib: buildDirectory(
         Object.fromEntries(
-          presentLibs.map((lib) => [`${lib}.so`, buildFile(BINARY_STUB, { owner: 'root' })]),
+          presentLibs.map((lib) => [`${lib}.so`, buildFile(binaryStub(`${lib}.so`), { owner: 'root' })]),
         ),
       ),
     });
@@ -1368,7 +1370,7 @@ describe('installPackageLibraries', () => {
     expect(writes).toEqual([
       {
         path: '/lib/libssl.so',
-        content: BINARY_STUB,
+        content: binaryStub('libssl.so'),
         options: { isNew: true, permissions: LIBRARY_PERMS },
       },
     ]);
@@ -1468,7 +1470,7 @@ describe('apt list', () => {
       usr: buildDirectory({
         bin: buildDirectory(
           Object.fromEntries(
-            (opts.installed ?? []).map((bin) => [bin, buildFile(BINARY_STUB, { owner: 'root' })]),
+            (opts.installed ?? []).map((bin) => [bin, buildFile(binaryStub(bin), { owner: 'root' })]),
           ),
         ),
       }),

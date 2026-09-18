@@ -21,7 +21,7 @@ import { applyPatches, type Patch } from '../core/filesystem/applyPatches';
 import { defaultFilePermissions } from '../core/filesystem/defaultPermissions';
 import { SERVICE_CATALOG } from '../core/services/serviceCatalog';
 import { HTTP_DEFAULT_PORT } from '../core/network/http';
-import { BINARY_STUB } from '../core/generation/binaries';
+import { binaryStub } from '../core/generation/binaries';
 import { serializeTree } from '../core/filesystem/treeCodec';
 import { buildDirectory, buildFile } from '../test/factories/filesystem';
 import type { ModeChange, PublicFetchResult } from '../core/commands/types';
@@ -862,7 +862,7 @@ describe('the ftp sub-shell', () => {
             patches: [
               {
                 path: '/usr/bin/ftp',
-                content: BINARY_STUB,
+                content: binaryStub('ftp'),
                 owner: 'root',
                 // World-executable, the way `apt install` stamps a tool: a binary only
                 // root could run would be no use to the player who installed it.
@@ -1292,7 +1292,7 @@ describe('an ftp session on a box across the network', () => {
   /** ftp on the player's own box, stamped the way `apt install` leaves it. */
   const ownFtpClient = {
     path: '/usr/bin/ftp',
-    content: BINARY_STUB,
+    content: binaryStub('ftp'),
     owner: 'root',
     permissions: {
       read: ['root', 'user', 'guest'],
@@ -1643,7 +1643,7 @@ describe('the mysql sub-shell', () => {
             patches: [
               {
                 path: '/usr/bin/mysql',
-                content: BINARY_STUB,
+                content: binaryStub('mysql'),
                 owner: 'root',
                 permissions: {
                   read: ['root', 'user', 'guest'],
@@ -2295,7 +2295,7 @@ describe('a listener killed while an intruder is standing inside it', () => {
   /** netcat on the player's own box, stamped the way `apt install` leaves it. */
   const ownNetcat = {
     path: '/usr/bin/nc',
-    content: BINARY_STUB,
+    content: binaryStub('nc'),
     owner: 'root',
     permissions: {
       read: ['root', 'user', 'guest'],
@@ -2442,7 +2442,7 @@ describe('a backdoor on a box across the network', () => {
   /** netcat on the player's own box, stamped the way `apt install` leaves it. */
   const ownNetcat = {
     path: '/usr/bin/nc',
-    content: BINARY_STUB,
+    content: binaryStub('nc'),
     owner: 'root',
     permissions: {
       read: ['root', 'user', 'guest'],
@@ -2871,7 +2871,7 @@ describe('the redis sub-shell', () => {
             patches: [
               {
                 path: '/usr/bin/redis-cli',
-                content: BINARY_STUB,
+                content: binaryStub('redis-cli'),
                 owner: 'root',
                 permissions: {
                   read: ['root', 'user', 'guest'],

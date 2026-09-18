@@ -16,7 +16,7 @@
  * radius (every command) would collapse gameplay. See the library-CVE design.
  */
 
-import { BINARY_STUB } from './binaries';
+import { binaryStub } from './binaries';
 import type { FileNode, FilePermissions } from '../filesystem/types';
 
 /** The shared libraries modelled by the game. Ported verbatim from legacy
@@ -65,7 +65,7 @@ export const createLibraryEntries = (
       `${lib}.so`,
       {
         kind: 'file' as const,
-        content: BINARY_STUB,
+        content: binaryStub(`${lib}.so`),
         owner: 'root',
         perms: LIBRARY_PERMS,
       } satisfies FileNode,

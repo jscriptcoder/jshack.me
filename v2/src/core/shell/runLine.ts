@@ -29,7 +29,8 @@
  * Exit-code conventions:
  *   0   — empty input (no-op) or successful command
  *   2   — parse-time error (tokenizer, pipeline, OR a stage's binder)
- *   127 — unknown command name in any stage
+ *   126 — a binary named by its path that this tier may not execute
+ *   127 — unknown command name, or a path that names no runnable binary
  *   *   — anything else is the (last) command's own exit code
  */
 
@@ -50,6 +51,9 @@ import { tokenize } from './tokenize';
 import { parsePipeline, type Stage } from './pipeline';
 import { bindFlags } from './bindFlags';
 import { resolveWriteTarget, type WriteTarget } from '../filesystem/writeTarget';
+import { resolveAbsPath } from '../filesystem/path';
+import { stubName } from '../generation/binaries';
+import { mayExecute } from '../commands/availability';
 
 const syncError = (content: string, exitCode: number): CommandResult => ({
   kind: 'sync',
@@ -129,20 +133,66 @@ const wentDown = (hostname: string): string => `Connection to ${hostname} closed
 const bootIdMoved = (session: Session, fs: FsView): boolean =>
   session.bootId !== undefined && session.bootId !== readBootId(fs.root());
 
+type Resolved =
+  | { readonly ok: true; readonly command: Command }
+  | { readonly ok: false; readonly error: CommandResult };
+
+/** Resolve a path-shaped token (`/tmp/tool`, `./tool`) to the command its
+ *  binary's content names — never its file name, so a renamed copy is still
+ *  what it was. Gated as an installed binary is: a file, executable by this
+ *  tier (root bypasses, as it does for `/bin`). Anything that is not a runnable
+ *  binary answers `No such file or directory`, whatever the reason. */
+const resolveCarried = (
+  env: CommandEnv,
+  token: string,
+  pathCommands: ReadonlyMap<string, Command>,
+): Resolved => {
+  const noSuchFile: Resolved = {
+    ok: false,
+    error: syncError(`bash: ${token}: No such file or directory`, 127),
+  };
+  const node = env.fs.stat(resolveAbsPath(env.fs.cwd(), token));
+  if (node === null || node.kind !== 'file') return noSuchFile;
+
+  if (!mayExecute(node, env.session.userType)) {
+    return { ok: false, error: syncError(`bash: ${token}: Permission denied`, 126) };
+  }
+
+  const tool = stubName(node.content);
+  const command = tool === null ? undefined : pathCommands.get(tool);
+  return command === undefined ? noSuchFile : { ok: true, command };
+};
+
+/** A bare name is looked up in the registry, whose commands find their own
+ *  binary in the system directories; a token with a `/` is a path. */
+const resolveCommand = (
+  env: CommandEnv,
+  token: string,
+  commands: ReadonlyMap<string, Command>,
+  pathCommands: ReadonlyMap<string, Command>,
+): Resolved => {
+  if (token.includes('/')) return resolveCarried(env, token, pathCommands);
+  const command = commands.get(token);
+  return command === undefined
+    ? { ok: false, error: syncError(`bash: ${token}: command not found`, 127) }
+    : { ok: true, command };
+};
+
 /** Resolve a stage to a runnable command + bound flags, or a shell error
  *  (command-not-found exit 127, a binder failure exit 2, or no terminal for a
  *  command that needs one, exit 1). Pure — no execution — so the dispatcher can
  *  validate every stage up front, which is also what stops `su | grep x` from
  *  smuggling a refused command past the gate inside a pipeline. */
 const prepareStage = (
+  env: CommandEnv,
   stage: Stage,
   commands: ReadonlyMap<string, Command>,
+  pathCommands: ReadonlyMap<string, Command>,
   tty: boolean,
 ): PrepareResult => {
-  const command = commands.get(stage.name);
-  if (command === undefined) {
-    return { ok: false, error: syncError(`bash: ${stage.name}: command not found`, 127) };
-  }
+  const resolved = resolveCommand(env, stage.name, commands, pathCommands);
+  if (!resolved.ok) return resolved;
+  const { command } = resolved;
 
   const bound = bindFlags(stage.args, command.flags ?? {}, { stacking: command.stacking ?? false });
   if (!bound.ok) {
@@ -270,10 +320,15 @@ const withCarried = (carried: readonly TerminalLine[], result: CommandResult): C
   return result;
 };
 
+/** `pathCommands` answers for a binary run by its path: the same commands, gated by
+ *  their libraries but not by the system-directory search, because the binary
+ *  is wherever the path says. It defaults to `commands` for callers that only
+ *  ever dispatch bare names. */
 export const runCommandLine = async (
   env: CommandEnv,
   input: string,
   commands: ReadonlyMap<string, Command>,
+  pathCommands: ReadonlyMap<string, Command> = commands,
 ): Promise<CommandResult> => {
   // Before the line is even parsed: a submitted line is a write to the socket, and
   // this is how a terminal learns the socket died — by writing to it. Nothing the
@@ -311,7 +366,7 @@ export const runCommandLine = async (
   const prepared: PreparedStage[] = [];
   const tty = hasTty(env.session);
   for (const stage of parsed.pipeline.stages) {
-    const result = prepareStage(stage, commands, tty);
+    const result = prepareStage(env, stage, commands, pathCommands, tty);
     if (!result.ok) return result.error;
     prepared.push(result.prepared);
   }
