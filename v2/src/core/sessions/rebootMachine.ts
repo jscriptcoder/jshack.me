@@ -31,12 +31,44 @@
  * Why the row closed is the server's word: the reason is stamped here, not read
  * off the wire, so a caller cannot ask for its rows to be recorded as anything
  * other than rebooted.
+ *
+ * And the box keeps a note of it. Every reboot leaves one `kern.log` line naming
+ * the address it was ordered from — with no carve-out for rebooting your own box,
+ * because an exception is one more rule to remember and it would tell an attacker
+ * exactly which act is invisible. That line is the defender's whole answer to the
+ * question the eviction raises and cannot itself settle: you came back, your box is
+ * up, your intruder is gone, and this is who it was.
  */
 
 import { z } from 'zod';
 import { verifySignedRequest } from '../signedRequest/verify';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
-import { authorizeMachineAccess, type FindActiveSession } from '../patches/authorizeMachineAccess';
+import {
+  authorizeMachineAccess,
+  type ActiveSession,
+  type FindActiveSession,
+} from '../patches/authorizeMachineAccess';
+import {
+  appendMachineLog,
+  type MachineLogReadQuery,
+  type MachineLogReadResult,
+} from '../patches/appendMachineLog';
+import type { FindOccupantWorkstationByMachineId } from '../patches/remoteWritePermission';
+import type { PatchRow } from '../patches/upsertPatch';
+import {
+  formatRebootLine,
+  KERN_LOG_OWNER,
+  KERN_LOG_PATH,
+  KERN_LOG_PERMISSIONS,
+} from '../logging/kernLog';
+import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter';
+import {
+  resolveCrossPlayerSourceIp,
+  type FindHomeNetworkByOwnerKey,
+} from '../logging/crossPlayerSourceIp';
+import { parseWorkstationId } from '../identity/workstation';
+import type { LanLeaseRow } from '../network/lanAddress';
+import { asGameTime } from '../types';
 import type { NonceStore } from '../signedRequest/nonceStore';
 import type { EndReason } from './endSession';
 
@@ -66,6 +98,23 @@ export type RebootMachineDeps = {
    *  because they answer different readers: the rows are what the server enforces,
    *  the marker is what a terminal already standing on the box can see. */
   readonly writeBootId: (params: WriteBootIdParams) => Promise<{ readonly error: unknown }>;
+  /** The server's wall clock, epoch-ms (UTC), for the log line's stamp. Injected
+   *  so the handler stays pure and the rendered line is testable. */
+  readonly now: () => number;
+  /** Whose box this is — `null` for a generated host or an access point nobody
+   *  owns. It decides the row the kernel log accretes under, which is the only
+   *  thing standing between two attackers' lines and one erasing the other. */
+  readonly findOccupantWorkstationByMachineId: FindOccupantWorkstationByMachineId;
+  /** The address the actor OWNS, from their verified key — never a value they
+   *  send. */
+  readonly findHomeNetworkByOwnerKey: FindHomeNetworkByOwnerKey;
+  /** Every address ever leased on a network, for the stable key an ownerless box
+   *  logs under. */
+  readonly listLeasesByEssid: (
+    essid: string,
+  ) => Promise<{ readonly data: readonly LanLeaseRow[] | null; readonly error: unknown }>;
+  readonly readLog: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
+  readonly upsertPatch: (row: PatchRow) => Promise<{ readonly error: unknown }>;
   /** A fresh, unguessable id for this boot. Injected so tests can name it — and
    *  unguessable in production for the same reason the reason is server-stamped: a
    *  caller able to predict the next id could keep a session alive across the
@@ -76,6 +125,43 @@ export type RebootMachineDeps = {
 export type HandlerResponse = {
   readonly status: number;
   readonly body: Record<string, unknown>;
+};
+
+/**
+ * Whose journal row this box's kernel log accretes under. `null` means file nothing:
+ * an unreadable answer would put a stranger's evidence in the wrong row, and a log
+ * line is never worth guessing for.
+ *
+ * A box its owner is occupying answers with the owner's key, which is what lets
+ * several attackers' lines pile up in one file instead of each replacing the last —
+ * patches key on `(machine_id, path, writer_key)` and a log patch carries the WHOLE
+ * file, so two writers on one path means the newer row wins outright.
+ *
+ * Nobody owns an access point or a generated host, so those fall back to the
+ * network's own stable key — the lowest address ever leased on it, which does not
+ * move as players join and leave. The caller's key is the last resort, and it is the
+ * right answer in the one case that reaches it honestly: your own box, rebooted
+ * after `nmcli disconnect` took your occupancy row away with it. There your key IS
+ * the owner's.
+ */
+const resolveLogWriterKey = async (
+  deps: RebootMachineDeps,
+  target: {
+    readonly machineId: string;
+    readonly actorKey: string;
+    readonly standing: ActiveSession | null;
+  },
+): Promise<string | null> => {
+  const owner = await deps.findOccupantWorkstationByMachineId(target.machineId);
+  if (owner.error) return null;
+  if (owner.data !== null) return owner.data.owner_key;
+  if (target.standing === null) return target.actorKey;
+  // A read that failed and a network nobody has ever leased an address on answer
+  // the same way, and so they are not told apart: no stable key means the line is
+  // filed under the rebooter instead. One reboot in a row of its own costs a later
+  // reader a line they have to correlate; no line at all costs them the event.
+  const leases = await deps.listLeasesByEssid(target.standing.essid);
+  return apGatewayLogWriterKey(leases.data ?? []) ?? target.actorKey;
 };
 
 const rebootMachineSchema = z
@@ -121,6 +207,37 @@ export const handleRebootMachine = async (
   // leaves whoever was on the box still on it.
   if (error) {
     return { status: 500, body: { error: 'update_failed' } };
+  }
+
+  // At the shutdown beat, with the rows already closed: the eviction is what this
+  // line records, so it is written once that has actually happened. Best-effort
+  // from here on — the reboot is the command and the line is the note taken of it,
+  // and failing the request over a log would tell the player their reboot did not
+  // take when every row on the box has already gone.
+  const writerKey = await resolveLogWriterKey(deps, {
+    machineId: payload.machine_id,
+    actorKey: publicKey,
+    standing: access.session,
+  });
+  if (writerKey !== null) {
+    await appendMachineLog(
+      { readLog: deps.readLog, upsertPatch: deps.upsertPatch },
+      {
+        writerKey,
+        machineId: payload.machine_id,
+        path: KERN_LOG_PATH,
+        owner: KERN_LOG_OWNER,
+        permissions: KERN_LOG_PERMISSIONS,
+      },
+      formatRebootLine({
+        time: asGameTime(deps.now()),
+        // The box's own name, which is the half of its id a player ever sees. An
+        // id with no name in it is a generated host, and there the id is the only
+        // name anyone has for it.
+        hostname: parseWorkstationId(payload.machine_id)?.name ?? payload.machine_id,
+        sourceIp: await resolveCrossPlayerSourceIp(deps.findHomeNetworkByOwnerKey, publicKey),
+      }),
+    );
   }
 
   // Only now, and only if they closed. The rows are the authority and the marker is

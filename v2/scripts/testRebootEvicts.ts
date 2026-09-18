@@ -26,6 +26,16 @@
 //     unit test can prove, because the row that carries it is written by api/ glue and
 //     read back through the same journal every client materializes the box from. A
 //     second reboot must move it again, or a box could only ever evict a shell once.
+//   - The box keeps a `kern.log` note of who took it down, and the journal is the only
+//     place that claim can be tested: a log patch carries the WHOLE file, keyed on
+//     `(machine_id, path, writer_key)`, so two actors filing under two keys means the
+//     newer row wins outright and the defender reads half a break-in. One row with
+//     everybody's lines in it is the assertion; a handler test asserting a writer key
+//     cannot tell the two apart.
+//   - Each line names the address the SERVER derived for its actor, from a real
+//     occupancy row — the defender's for their own reboots, the intruder's for theirs.
+//     An access point nobody owns files under the network's stable lease key instead,
+//     which is neither rebooter's.
 //
 // Usage (with v2 supabase + vercel dev running on 3100):
 //   npx dotenv -e .env.development.local -- npx tsx scripts/testRebootEvicts.ts
@@ -38,6 +48,8 @@ import { generateIdentity } from '../src/core/identity/identity';
 import { computeWorkstationId } from '../src/core/identity/workstation';
 import { computeApGatewayId } from '../src/core/identity/router';
 import { BOOT_ID_PATH } from '../src/core/boot/bootId';
+import { KERN_LOG_PATH } from '../src/core/logging/kernLog';
+import { clearPublicIps, seedPublicIps } from './networkFixture';
 import type { UserType } from '../src/core/types';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
@@ -80,8 +92,16 @@ const stranger = generateIdentity();
 // second one still has to work.
 const OWN_BOX = computeWorkstationId('wirebox', defender.publicKeyHex);
 // Nobody owns an access point, so only the root-session arm can ever reboot one.
-const GATEWAY = computeApGatewayId('WIRE-AP-9F2A');
+const HOME_ESSID = 'WIRE-AP-9F2A';
+const GATEWAY = computeApGatewayId(HOME_ESSID);
 const ELSEWHERE = 'reboot-wire-other-box';
+
+// The intruder's own network, so the address their line carries is derived from a real
+// occupancy row of theirs rather than from anything they send.
+const INTRUDER_ESSID = 'WIRE-AP-INTRUDER';
+const INTRUDER_BOX = computeWorkstationId('crackbox', intruder.publicKeyHex);
+const HOME_IP = '203.0.113.11';
+const INTRUDER_IP = '198.51.100.22';
 
 const DEFENDER_SHELL = 'reboot-wire-defender-shell';
 const DEFENDER_UNNAMED = 'reboot-wire-defender-unnamed';
@@ -101,6 +121,7 @@ const sessionRow = (
   kind: string,
   username: string,
   userType: UserType,
+  essid: string = HOME_ESSID,
 ) => ({
   session_id: sessionId,
   player_key: owner.publicKeyHex,
@@ -109,6 +130,10 @@ const sessionRow = (
   parent_session_id: null,
   source_ip: null,
   kind,
+  // Which network the box is on, stamped when the hop was made. An ownerless box
+  // reads its log's writer key off this, so a session with no ESSID would file an
+  // access point's line under whoever rebooted it last.
+  essid,
 });
 
 type Row = {
@@ -136,10 +161,79 @@ const closed = (rows: readonly Row[], sessionId: string): boolean => {
   return typeof ended === 'string' && ended.length > 0;
 };
 
+/** Every kern.log row on a box, as rows rather than as one — how many there are IS
+ *  the accretion claim. */
+const kernRows = async (
+  machineId: string,
+): Promise<readonly { content: string; writer_key: string }[]> => {
+  const { data } = await sr
+    .from('patches')
+    .select('content, writer_key')
+    .eq('machine_id', machineId)
+    .eq('path', KERN_LOG_PATH);
+  return (data as readonly { content: string; writer_key: string }[] | null) ?? [];
+};
+
+const kernLines = (rows: readonly { content: string }[]): readonly string[] =>
+  rows.flatMap((row) => row.content.trimEnd().split('\n')).filter((line) => line.length > 0);
+
+const wipeWorld = async () => {
+  await sr.from('sessions').delete().in('session_id', ALL_IDS);
+  for (const machineId of [OWN_BOX, GATEWAY, INTRUDER_BOX]) {
+    await sr.from('patches').delete().eq('machine_id', machineId);
+  }
+  for (const essid of [HOME_ESSID, INTRUDER_ESSID]) {
+    await sr.from('home_network_occupants').delete().eq('essid', essid);
+    await sr.from('network_lan_leases').delete().eq('essid', essid);
+  }
+  await clearPublicIps(sr, [
+    { essid: HOME_ESSID, publicIp: HOME_IP },
+    { essid: INTRUDER_ESSID, publicIp: INTRUDER_IP },
+  ]);
+};
+
 // Clean slate, then seed. The defender's second shell is load-bearing: it sits on
 // the rebooted box with NO hop chain naming it, which is what a session-id-scoped
 // eviction would leave behind.
-await sr.from('sessions').delete().in('session_id', ALL_IDS);
+// Cleared at SETUP as well as teardown: every id here is identity- or ESSID-seeded and
+// identical across runs, so a crashed run would leave rows the next one reads as its own.
+await wipeWorld();
+
+await seedPublicIps(sr, [
+  { essid: HOME_ESSID, publicIp: HOME_IP },
+  { essid: INTRUDER_ESSID, publicIp: INTRUDER_IP },
+]);
+
+// Who owns which box. It decides whose row each kern.log line accretes under, and — read
+// the other way, by owner key — which address the server derives for the actor.
+const occupancy = await sr.from('home_network_occupants').insert([
+  {
+    essid: HOME_ESSID,
+    owner_key: defender.publicKeyHex,
+    workstation_machine_id: OWN_BOX,
+    workstation_username: 'nadia',
+    workstation_machine_name: 'wirebox',
+    workstation_root_hash: '0123456789abcdef0123456789abcdef',
+  },
+  {
+    essid: INTRUDER_ESSID,
+    owner_key: intruder.publicKeyHex,
+    workstation_machine_id: INTRUDER_BOX,
+    workstation_username: 'mallory',
+    workstation_machine_name: 'crackbox',
+    workstation_root_hash: 'fedcba9876543210fedcba9876543210',
+  },
+]);
+if (occupancy.error) throw new Error(`occupancy seed failed: ${occupancy.error.message}`);
+
+// The lowest address ever leased on the home network is the key its access point logs
+// under, and here it belongs to the lurker — who reboots nothing. A gateway's log has to
+// be stable against whoever happens to be standing on it.
+const leases = await sr.from('network_lan_leases').insert([
+  { essid: HOME_ESSID, owner_key: defender.publicKeyHex, octet: 20 },
+  { essid: HOME_ESSID, owner_key: lurker.publicKeyHex, octet: 7 },
+]);
+if (leases.error) throw new Error(`lease seed failed: ${leases.error.message}`);
 await sr
   .from('sessions')
   .insert([
@@ -337,9 +431,77 @@ check(
   `content=${JSON.stringify(gatewayMarker?.content)}`,
 );
 
+// === 10. The box keeps a note of who took it down. ===
+// Two owner reboots have run by now (sections 2 and 8), and both are the case there is
+// no carve-out for: your own reboot of your own box is recorded like anybody else's.
+const ownerTrace = await kernRows(OWN_BOX);
+check(
+  "the owner's own reboots are recorded on their own box, in one row",
+  ownerTrace.length === 1 &&
+    ownerTrace[0]?.writer_key === defender.publicKeyHex &&
+    kernLines(ownerTrace).length === 2,
+  `${ownerTrace.length} row(s), ${kernLines(ownerTrace).length} line(s)`,
+);
+check(
+  'each line names the address the server derived for the actor',
+  kernLines(ownerTrace).length > 0 &&
+    kernLines(ownerTrace).every(
+      (line) => line.includes(HOME_IP) && line.includes('System restart requested'),
+    ),
+  kernLines(ownerTrace).at(-1) ?? '(no line)',
+);
+
+// A stranger's reboot of the same box, after the owner's two. The row it lands in is
+// the claim: filed under the intruder's own key it would be a SECOND row for the same
+// path, and the newest row wins the replay outright — erasing the owner's two lines
+// from every reader's tree without touching them.
+await sr.from('sessions').delete().eq('session_id', INTRUDER_ROOT);
+await sr
+  .from('sessions')
+  .insert([sessionRow(INTRUDER_ROOT, intruder, OWN_BOX, 'exploit', 'root', 'root')]);
+const intruderReboot = await post(signRequest(intruder, 'rebootMachine', { machine_id: OWN_BOX }));
+const afterIntruder = await kernRows(OWN_BOX);
+check(
+  "a stranger's reboot joins the owner's lines instead of replacing them",
+  intruderReboot.status === 200 &&
+    afterIntruder.length === 1 &&
+    afterIntruder[0]?.writer_key === defender.publicKeyHex &&
+    kernLines(afterIntruder).length === 3,
+  `status=${intruderReboot.status} ${afterIntruder.length} row(s), ${kernLines(afterIntruder).length} line(s)`,
+);
+const strangerLine = kernLines(afterIntruder).at(-1) ?? '';
+check(
+  "and it carries the intruder's own address, not the box owner's",
+  strangerLine.includes(INTRUDER_IP) && !strangerLine.includes(HOME_IP),
+  strangerLine.length === 0 ? '(no line)' : strangerLine,
+);
+
+// The access point, rebooted back in section 9 by a player who does not own it —
+// because nobody does. Its line is filed under the lowest address ever leased on the
+// network, which belongs to neither the rebooter nor the box owner.
+const gatewayTrace = await kernRows(GATEWAY);
+check(
+  "the access point's line is filed under the network's stable key, not the rebooter's",
+  gatewayTrace.length === 1 &&
+    gatewayTrace[0]?.writer_key === lurker.publicKeyHex &&
+    kernLines(gatewayTrace).length === 1,
+  `${gatewayTrace.length} row(s) under ${gatewayTrace[0]?.writer_key?.slice(0, 12) ?? '-'}…`,
+);
+
+// A refusal writes nothing at all. A forged entry naming somebody else is its own
+// attack on the defender, so the authority has to be checked before the pen touches
+// the page — not after.
+const beforeRefusal = kernLines(await kernRows(OWN_BOX)).length;
+const refusedAgain = await post(signRequest(stranger, 'rebootMachine', { machine_id: OWN_BOX }));
+const afterRefusal = kernLines(await kernRows(OWN_BOX)).length;
+check(
+  'a refused reboot leaves no line behind',
+  refusedAgain.status === 403 && afterRefusal === beforeRefusal,
+  `status=${refusedAgain.status} ${beforeRefusal} line(s) before, ${afterRefusal} after`,
+);
+
 // Cleanup.
-await sr.from('sessions').delete().in('session_id', ALL_IDS);
-await sr.from('patches').delete().in('machine_id', [OWN_BOX, GATEWAY]).eq('path', BOOT_ID_PATH);
+await wipeWorld();
 
 const passed = results.filter((result) => result.pass).length;
 console.log(`\n${passed}/${results.length} checks passed`);
