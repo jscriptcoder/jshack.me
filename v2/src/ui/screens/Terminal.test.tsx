@@ -16,7 +16,7 @@ import { buildRemoteHostFs } from '../../core/generation/remoteHostFs';
 import { readOpenPorts } from '../../core/services/pidfile';
 import { SERVICE_CATALOG } from '../../core/services/serviceCatalog';
 import { lanLeaseCacheIn } from '../../core/network/lanLeaseCache';
-import { BINARY_STUB } from '../../core/generation/binaries';
+import { binaryStub } from '../../core/generation/binaries';
 
 /** Fresh terminal state per test — the module-singleton session + signals are
  *  rebuilt by `startGame`, which also clears the scrollback, so this both
@@ -315,7 +315,7 @@ describe('Terminal', () => {
               patches: [
                 {
                   path: '/usr/bin/node',
-                  content: BINARY_STUB,
+                  content: binaryStub('node'),
                   owner: 'root',
                   permissions: {
                     read: ['root', 'user', 'guest'],
@@ -359,6 +359,48 @@ describe('Terminal', () => {
     expect(screen.getByText((content) => content.includes('scanning 10.0.0.1'))).toBeInTheDocument();
     expect(screen.queryByText((content) => content.includes('scanning 10.0.0.2'))).toBeNull();
     expect(screen.queryByText((content) => content.includes('AbortError'))).toBeNull();
+  });
+
+  it('runs a binary the player carried in by naming its path', async () => {
+    // A tool sitting in a home directory, not installed anywhere the shell
+    // searches: typed by name it is not found, typed by path it runs.
+    onTestFinished(() => {
+      vi.unstubAllGlobals();
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              sessions: [],
+              patches: [
+                {
+                  path: '/home/alice/tool',
+                  content: binaryStub('msfconsole'),
+                  owner: 'alice',
+                  permissions: {
+                    read: ['root', 'user', 'guest'],
+                    write: ['root', 'user'],
+                    execute: ['root', 'user', 'guest'],
+                  },
+                },
+              ],
+            }),
+            { status: 200 },
+          ),
+      ),
+    );
+    renderTerminal();
+    await vi.waitFor(async () => {
+      setInput('ls /home/alice');
+      await runInput();
+      expect(scrollback().some((entry) => entry.content.includes('tool'))).toBe(true);
+    });
+
+    runCommand('/home/alice/tool');
+
+    expect(await screen.findByText('usage: msfconsole <host> <port>')).toBeInTheDocument();
   });
 
   describe('busy indicator', () => {
@@ -983,7 +1025,7 @@ describe('a sub-shell prompt', () => {
             patches: [
               {
                 path: '/usr/bin/mysql',
-                content: BINARY_STUB,
+                content: binaryStub('mysql'),
                 owner: 'root',
                 permissions: {
                   read: ['root', 'user', 'guest'],

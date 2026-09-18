@@ -90,14 +90,17 @@ const notFoundMessage = (name: string): string => {
     : `bash: ${name}: command not found. Install with: apt install ${pkg}`;
 };
 
+/** Whether `tier` may run `binary`: its execute bit, which root bypasses. One
+ *  rule for an installed binary found by name and a carried one named by path. */
+export const mayExecute = (binary: FileNode, tier: UserType): boolean =>
+  tier === 'root' || binary.perms.execute.includes(tier);
+
 /**
  * Wrap a command so it gates on its binary at execution time. Metadata (name,
  * category, tier, manual, …) is preserved untouched — only `execute` is
  * intercepted — so `help`/`man` and tab-completion still see the real command.
  *
- * The check is inlined (no intermediate `{found, permitted}` object) because
- * nothing else consumes that shape in v2 — resolving the binary and reading its
- * `perms.execute` is the whole gate. Root bypasses the execute allowlist.
+ * Resolving the binary and asking `mayExecute` is the whole gate.
  */
 export const wrapWithBinaryCheck = (command: Command): Command => ({
   ...command,
@@ -106,8 +109,7 @@ export const wrapWithBinaryCheck = (command: Command): Command => ({
     if (binary === null) {
       return syncError(notFoundMessage(command.name), 127);
     }
-    const tier: UserType = env.session.userType;
-    if (tier !== 'root' && !binary.perms.execute.includes(tier)) {
+    if (!mayExecute(binary, env.session.userType)) {
       return syncError(`bash: ${command.name}: Permission denied`, 126);
     }
     return command.execute(env, args, flags);

@@ -42,6 +42,7 @@ import {
   machineIdForLanHost,
 } from '../src/core/generation/lanHostIdentity';
 import { md5 } from '../src/core/generation/md5';
+import { binaryStub } from '../src/core/generation/binaries';
 import { clearPublicIps, seedPublicIps } from './networkFixture';
 
 const PATCHES = process.env.PATCHES_ENDPOINT ?? 'http://localhost:3100/api/patches';
@@ -81,7 +82,6 @@ const PUBLIC_IP = '203.0.113.91';
 
 // What `apt install netcat` really sends, byte for byte.
 const NC_PATH = '/usr/bin/nc';
-const BINARY_STUB = '\x7fELF\x02\x01\x01\x03\x3e\x01';
 const INSTALLED_BINARY_PERMS = {
   read: ['root', 'user', 'guest'],
   write: ['root'],
@@ -115,7 +115,7 @@ const installNetcat = (machineId: string) =>
     signRequest(attacker, 'upsertPatch', {
       machine_id: machineId,
       path: NC_PATH,
-      content: BINARY_STUB,
+      content: binaryStub('nc'),
       owner: 'root',
       permissions: INSTALLED_BINARY_PERMS,
       is_new: true,

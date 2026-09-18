@@ -36,7 +36,7 @@
 import { asAbsPath, type AbsPath } from '../types';
 import type { FilePermissions } from '../filesystem/types';
 import type { Command, CommandEnv, CommandResult, PatchResult, TerminalLine } from './types';
-import { BINARY_STUB } from '../generation/binaries';
+import { binaryStub } from '../generation/binaries';
 import { LIBRARY_PERMS } from '../generation/libraries';
 import type { SystemLibrary } from '../generation/libraries';
 import {
@@ -151,7 +151,7 @@ export const installPackageLibraries = async (
     const path = asAbsPath(`/lib/${lib}.so`);
     const existing = env.fs.stat(path);
     if (existing !== null && existing.kind === 'file') continue;
-    const result = await env.patches.write(path, BINARY_STUB, {
+    const result = await env.patches.write(path, binaryStub(`${lib}.so`), {
       isNew: true,
       permissions: LIBRARY_PERMS,
     });
@@ -526,7 +526,8 @@ async function* installPackage(
 
   for (const { binary, isDaemon } of binaries) {
     const directory = isDaemon ? DAEMON_DIR : TOOL_DIR;
-    const result = await env.patches.write(asAbsPath(`${directory}/${binary}`), BINARY_STUB, {
+    const path = asAbsPath(`${directory}/${binary}`);
+    const result = await env.patches.write(path, binaryStub(binary), {
       isNew: true,
       permissions: INSTALLED_BINARY_PERMS,
     });

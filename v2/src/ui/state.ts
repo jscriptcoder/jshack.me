@@ -100,7 +100,7 @@ import { isPublicIp } from '../core/generation/ip';
 import type { FollowOutcome } from './screens/Lynx';
 import { generateWifi } from '../core/generation/generateWifi';
 import type { WifiNetwork } from '../core/network/wifi';
-import { commandRegistry } from '../core/commands/registry';
+import { carriedCommandRegistry, commandRegistry } from '../core/commands/registry';
 import { complete, type CompleteAdapter } from '../core/shell/complete';
 import { runCommandLine } from '../core/shell/runLine';
 import { commandEchoLine } from '../core/shell/prompt';
@@ -1890,7 +1890,7 @@ const executeLine = async (line: string): Promise<void> => {
           ? await runRedisLine(env, line, store)
           : inFtpSession()
             ? await runFtpLine(env, line)
-            : await runCommandLine(env, line, commandRegistry);
+            : await runCommandLine(env, line, commandRegistry, carriedCommandRegistry);
     if (result.kind === 'sync') {
       setScrollback((previous) => [...previous, ...result.lines]);
       return;

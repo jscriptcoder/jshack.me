@@ -23,7 +23,7 @@ import { DEFAULT_DIRLIST, DIRLIST_PATH } from '../network/defaultDirlist';
 import { applyPatches, type Patch } from '../filesystem/applyPatches';
 import type { Directory, FilePermissions } from '../filesystem/types';
 import { buildWorkstationBaseFs } from '../generation/workstationFs';
-import { BINARY_STUB } from '../generation/binaries';
+import { binaryStub } from '../generation/binaries';
 import { formatPidfileContent, readOpenPorts } from '../services/pidfile';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces';
@@ -99,7 +99,7 @@ const installedList = (...words: readonly string[]): Patch => ({
  *  present and runnable, so a sweep reached by NAME needs the tool installed. */
 const INSTALLED_BINARY: Patch = {
   path: '/usr/bin/gobuster',
-  content: BINARY_STUB,
+  content: binaryStub('gobuster'),
   owner: 'root',
   permissions: { read: ['root', 'user', 'guest'], write: ['root'], execute: ['root', 'user', 'guest'] },
 };

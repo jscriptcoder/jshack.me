@@ -9,7 +9,7 @@ import {
   mockSession,
 } from '../../test/factories/commandEnv';
 import { buildDirectory, buildFile } from '../../test/factories/filesystem';
-import { BINARY_STUB, createBinaryEntries } from '../generation/binaries';
+import { binaryStub, createBinaryEntries } from '../generation/binaries';
 import { createLibraryEntries, SYSTEM_LIBRARIES } from '../generation/libraries';
 import { applyPatches, type Patch } from '../filesystem/applyPatches';
 import { defaultFilePermissions } from '../filesystem/defaultPermissions';
@@ -272,7 +272,7 @@ describe('ps after a service is stopped', () => {
       fs: mockFsViewFromTree(
         buildDirectory({
           ...Object.fromEntries(before.entries),
-          usr: buildDirectory({ sbin: buildDirectory({ sshd: buildFile(BINARY_STUB) }) }),
+          usr: buildDirectory({ sbin: buildDirectory({ sshd: buildFile(binaryStub('sshd')) }) }),
         }),
         { userType: 'root', cwd: () => asAbsPath('/') },
       ),
