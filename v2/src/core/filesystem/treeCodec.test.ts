@@ -67,7 +67,7 @@ describe('serializeTree / deserializeTree', () => {
           content: 'stub',
           owner: 'root',
           perms: TRAVERSABLE_DIR,
-          metadata: { isExecutable: true, libraryLinks: ['/lib/libc.so.6'] },
+          metadata: { isExecutable: true },
         },
       },
       TRAVERSABLE_DIR,
@@ -81,7 +81,7 @@ describe('serializeTree / deserializeTree', () => {
       content: 'stub',
       owner: 'root',
       perms: TRAVERSABLE_DIR,
-      metadata: { isExecutable: true, libraryLinks: ['/lib/libc.so.6'] },
+      metadata: { isExecutable: true },
     });
   });
 

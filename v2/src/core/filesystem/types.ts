@@ -25,9 +25,6 @@ export type FilePermissions = {
 export type FileMetadata = {
   readonly mtime?: EpochMs;
   readonly isExecutable?: boolean;
-  /** For /bin/* commands — which /lib/* libraries they dynamically link.
-   *  Used by the library-CVE chain (msfconsole --local, ldd). */
-  readonly libraryLinks?: readonly string[];
 };
 
 export type FileEntry = {

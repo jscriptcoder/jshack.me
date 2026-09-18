@@ -24,7 +24,7 @@
  */
 
 import { asAbsPath } from '../types';
-import type { Command, CommandResult } from './types';
+import type { Command, CommandEnv, CommandResult } from './types';
 import type { SystemLibrary } from '../generation/libraries';
 
 export const libraryDeps: Readonly<Record<string, readonly SystemLibrary[]>> = {
@@ -47,6 +47,11 @@ export const libraryDeps: Readonly<Record<string, readonly SystemLibrary[]>> = {
   curl: ['libssl'],
 };
 
+/** Whether `<library>.so` is loadable on the current machine — the one test
+ *  both the start-up check and `ldd` apply, so they cannot disagree. */
+export const libraryPresent = (env: CommandEnv, library: SystemLibrary): boolean =>
+  env.fs.stat(asAbsPath(`/lib/${library}.so`))?.kind === 'file';
+
 /**
  * Wrap a command with a runtime shared-library check. A command not in
  * `libraryDeps` is returned untouched (opt-in). Otherwise, at execution time,
@@ -60,10 +65,7 @@ export const wrapWithLibraryCheck = (command: Command): Command => {
   return {
     ...command,
     execute: async (env, args, flags): Promise<CommandResult> => {
-      const missing = deps.find((lib) => {
-        const node = env.fs.stat(asAbsPath(`/lib/${lib}.so`));
-        return node === null || node.kind !== 'file';
-      });
+      const missing = deps.find((lib) => !libraryPresent(env, lib));
       if (missing !== undefined) {
         return {
           kind: 'sync',
