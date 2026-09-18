@@ -7,13 +7,14 @@
 > Split authored 2026-07-29 (`story-splitting`), then grilled to nine locked decisions
 > (`grill-me`, same day).
 
-**Where we are now (2026-09-17):** **v0.230.0**. **Phase 3 slice 6 — the exploit crosses
-networks — is SHIPPED and closed out**: seven independent PRs to trunk, #508–#514,
-v0.224.0–v0.230.0, with its as-built retired into the `### Phase 3 slice 6` section near the
-end of this file. **Next is Phase 3 slice 7 — reboot evicts**, which is what closes V3, and it
-is **GRILLED + PLANNED (2026-09-17)**: eleven decisions numbered 52–62 and four independent PRs
-in [`plans/reboot-evicts.md`](reboot-evicts.md), which is the live slice plan — start there, not
-here, for that work. The `Status` block below is an accumulating log, not the current state.
+**Where we are now (2026-09-18):** **v0.234.0**. **Phase 3 slice 7 — reboot evicts — is SHIPPED
+and closed out, and with it V3 is CLOSED**: four independent PRs to trunk, #515–#518,
+v0.231.0–v0.234.0, with its as-built retired into the `### Phase 3 slice 7` section near the end
+of this file and its plan file (`reboot-evicts.md`) deleted. Slice 6 before it (the exploit
+crosses networks, #508–#514, v0.224.0–v0.230.0) is in the `### Phase 3 slice 6` section. **Next
+is Phase 3 slice 8 — libraries fall** (`ldd` + `msfconsole --local`), the second-to-last V-series
+axis, not yet grilled or planned. The `Status` block below is an accumulating log, not the
+current state.
 
 **Status**: **D1 shipped** (v0.109.0), with its web follow-ups D1c (v0.123.0-v0.124.0), D1b
 (v0.125.0-v0.129.0) and D1d (v0.130.0) all closed out. **D3 ✅ COMPLETE (v0.136.0)** — six slices,
@@ -411,7 +412,7 @@ PHASE 3 — VULNERABILITIES                             GRILLED 09-09/09-10 + PL
       V slice 4 the defender patches          ✔ SHIPPED v0.214.0-v0.215.0 (#498, #499) <- LOOP CLOSED
       V slice 5 six more effects              ✔ SHIPPED v0.218.0-v0.223.0 (#502-#507)
       V slice 6 the exploit crosses networks  ✔ SHIPPED v0.224.0-v0.230.0 (#508-#514)
-      V slice 7 reboot evicts                 🔍 GRILLED + PLANNED — 4 PRs, v0.231.0-v0.234.0
+      V slice 7 reboot evicts                 ✔ SHIPPED v0.231.0-v0.234.0 (#515-#518) <- V3 CLOSED
       V slice 8 libraries fall                ldd + msfconsole --local
       V slice 9 firmware falls                the third axis
 ────────────────────────── SHIP ──────────────────────────
@@ -5296,6 +5297,80 @@ batching blocker that deferred this work for three weeks never existed.
 mutation gate proved it by flipping the vantage to `'external'` with all 140 tests still green. The
 vantage is documentation and defence in depth; the stub is the operative guard. Anyone who later
 passes a real resolver makes the vantage load-bearing that moment.
+
+### Phase 3 slice 7 — reboot evicts ✅ SHIPPED v0.231.0–v0.234.0 (#515–#518)
+
+Retired here from `reboot-evicts.md`, the way slices 1–6 each were. **V3 closes with this** — the
+defender's one eviction lever now reaches every active row on the box, not just the rebooter's own
+hop chain (locked decision 20, from the phase's original grill). **Four independent PRs sequenced to
+trunk, not a stack**, so the blast radius arrived in identifiable commits: the machine's rows close
+in one authoritative act that reports its own failure (v0.231.0, #515), a box carries a boot id and
+a live shell learns it moved (v0.232.0, #516), the reboot evicts strangers and arms a shell the
+moment it arrives (v0.233.0, #517), and the reboot leaves a `kern.log` trace naming who ordered it
+(v0.234.0, #518). Eleven decisions numbered 52–62, grilled 2026-09-17.
+
+**The one property that makes it safe: the closed row is the authority, the marker is only how the
+terminal finds out.** A tampered client that ignores the boot-id marker gains nothing — its rows are
+ended, so `resolveCrossPlayerFs` serves it the tier-3 allowlist and the L1 gate refuses its writes.
+That split is what lets the player-facing half be a cheap client-side equality check instead of a
+round trip per line, the same posture the conventions doc already takes for L1.
+
+**Authorization is reused, not reinvented (decision 55).** `authorizeMachineAccess` — the own-box
+suffix bypass the patch endpoints already gate on — carries it, with a root-tier requirement as
+reboot's own extra (`403 not_root`). It is checked BEFORE anything moves, because a machine id
+travels on every row and in every hop: an unauthorized reboot that reached the rows or left a marker
+would evict the box's occupants just as effectively as one that was allowed. The AP gateway needed
+no branch (decision 61) — nobody owns an access point, so only the root-session arm can carry it.
+
+**The owner arm cannot be conditioned on a session row, and only the wire-check made that concrete.**
+After the first reboot the box has zero open rows, so an authority read off the session table would
+refuse the owner their own second reboot. The owner arm is the pure `isOwnWorkstation` suffix match
+instead — which is also what protects the panic sequence (decision 59): a defender who runs `nmcli
+disconnect` then `reboot` has no occupancy row, and an occupancy-based owner check would refuse them
+exactly when they are using the tool correctly.
+
+**The browser run earned its place by finding a defect nothing else could (PR3).** The boot id was
+stamped on the first line a session RUNS, so an intruder who breaks in and waits reads the box for
+the first time AFTER the reboot, records the new id as though they had always held it, and is never
+evicted — and the shell they keep serves the tier-3 allowlist, so their next command answers
+`command not found`, the silent tier downgrade decision 53 rejected, arriving through the back door.
+Every unit test passed with the hole in place, because each types a line first to establish the
+reading. Fixed by stamping in `acquireTree` the moment the client holds the box's tree; the per-line
+call is the fallback. PR2's outcome was corrected in place — right about WHERE the stamp is taken,
+wrong about WHEN.
+
+**PR4's trace is unconditional and server-authored (decision 58).** Every reboot writes one
+`kern.log` line naming the address it was ordered from, with no carve-out for your own box — exactly
+as your own `su` shows in your own `auth.log`, and an exception would only tell an attacker which act
+is invisible. The address is derived from the verified key (`crossPlayerSourceIp`), never a client
+value; whose row it accretes under is resolved once — the box owner's key so several attackers' lines
+pile up instead of erasing each other, the network's stable lease key for an ownerless gateway or
+generated host, the caller's own key only as the last honest resort (your own box, rebooted after
+`nmcli disconnect` took your occupancy row away). Written at the shutdown beat once the rows have
+closed, best-effort from there: a log that cannot be written never fails a reboot whose rows are
+already gone.
+
+**The two-player browser scenario PR4 asked for could not be staged, and that is recorded rather
+than worked around.** A brand-new player workstation runs no service (`nmap -sV` shows no open ports;
+`hydra` answers “no such service”), and player root is uncrackable by design — the CVE arc is the
+intended way onto a box that runs a service — so B can never reach A's fresh box to reboot it. What a
+browser uniquely proves, that the real client materializes the line and shows it on
+`cat /var/log/kern.log`, was shown single-player; the distinct-attacker address and the accretion of
+two actors' lines stay the wire-check's, where two identities on two networks exist at once (PR4's
+tenth section runs 29/29 live, with 26/29 and 28/29 negative controls).
+
+**Durable rules landed in `conventions-and-gotchas.md` §7**: ending a row and ending a machine's rows
+are two actions with two authorities; a session is armed against the box when it ARRIVES, not on the
+first line it runs (and the test that types a line first can never see the difference); a closed row
+does not close the shell on your OWN box, and that is priced rather than broken. Two follow-ups are
+recorded, not fixed: the `acquireTree` mutation window that needs a two-remote-hop fixture this slice
+had no other use for, and the same own-box re-pull cost the re-pull rule has refused to pay since it
+was first priced.
+
+**Out of scope, carried forward:** a bricked gateway evicting the sessions already inside it (the §9
+backlog entry, with a preferred lazy-re-validation shape), session TTL/expiry (v2 sessions still
+never expire — reboot is *an* answer to a stale session, not a general one), and libraries/firmware
+as exploit axes (slices 8 and 9).
 
 ---
 
