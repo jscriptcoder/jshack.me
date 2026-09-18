@@ -13,7 +13,8 @@ v0.231.0–v0.234.0, with its as-built retired into the `### Phase 3 slice 7` se
 of this file and its plan file (`reboot-evicts.md`) deleted. Slice 6 before it (the exploit
 crosses networks, #508–#514, v0.224.0–v0.230.0) is in the `### Phase 3 slice 6` section. **Next
 is Phase 3 slice 8 — libraries fall** (`ldd` + `msfconsole --local`), the second-to-last V-series
-axis, not yet grilled or planned. The `Status` block below is an accumulating log, not the
+axis — **GRILLED 2026-09-18** (decisions 63–73 in `### Slice 8 — resolved decisions`; decision 69
+supersedes 17) and `find-gaps`-checked the same day (seven gaps closed), not yet planned. The `Status` block below is an accumulating log, not the
 current state.
 
 **Status**: **D1 shipped** (v0.109.0), with its web follow-ups D1c (v0.123.0-v0.124.0), D1b
@@ -413,7 +414,7 @@ PHASE 3 — VULNERABILITIES                             GRILLED 09-09/09-10 + PL
       V slice 5 six more effects              ✔ SHIPPED v0.218.0-v0.223.0 (#502-#507)
       V slice 6 the exploit crosses networks  ✔ SHIPPED v0.224.0-v0.230.0 (#508-#514)
       V slice 7 reboot evicts                 ✔ SHIPPED v0.231.0-v0.234.0 (#515-#518) <- V3 CLOSED
-      V slice 8 libraries fall                ldd + msfconsole --local
+      V slice 8 libraries fall                GRILLED 09-18 (decisions 63-73) — ldd + msfconsole --local
       V slice 9 firmware falls                the third axis
 ────────────────────────── SHIP ──────────────────────────
 POST-SHIP — MISSIONS
@@ -3224,6 +3225,10 @@ scattering one attacker's activity across two files.
 
 #### 17. `msfconsole --local` writes a syslog line naming command, library and tier
 
+> **SUPERSEDED by decision 69 (slice 8 grill, 2026-09-18)** — no real system writes this line.
+> The trace is now only what a real box records: a `kern.log` crash line on a miss, the ordinary
+> `auth.log` session line on a shell success, nothing else. Kept below as the record of why.
+
 `/var/log/syslog`, because a library has no daemon and `auth.log` would dress a memory-corruption
 exploit as an authentication event. It closes the incentive legacy left open: with `su` logging
 `Successful su for root by guest` and `--local` logging nothing, the exploit was a strictly better
@@ -3646,6 +3651,236 @@ scan prints `IP / HOSTNAME / KIND` and no ports at all — confirmed live, twelv
 port. There is no batching endpoint to design and no 253-journal problem to solve. **This retires
 the blocker that deferred the fix.**
 
+### Slice 8 — resolved decisions (grill-me, 2026-09-18)
+
+Eleven decisions, numbered 63–73, each grounded in code first. **Decision 69 supersedes decision
+17.** `find-gaps`-checked 2026-09-18 — seven gaps closed and written into decisions 63, 69, 71
+and the routine list (each marked "find-gaps, 2026-09-18"); none parked. Not yet planned.
+
+**What grounding changed before a single question was asked:**
+
+- **Library timelines already shipped.** All eight libraries carry a `PACKAGE_TEMPLATES` row
+  (`packageVersions.ts` — `libpam` is package 8, `startTuple` 1.5.3) and `liveCve.test.ts` already
+  derives live library CVEs (`libpam` goes medium on day 3, `libpcre` high on day 9). The slice
+  row's "library timelines" is done; what is left is the per-axis INTERPRETER decision 25 deferred
+  here, the pools, `ldd`, `--local`, the trace and the `libraryLinks` deletion.
+- **`su` is already split by who is at stake** (`su.ts:112-120`). On the player's own box and an
+  NPC hop it is client-local — reads the local `/etc/passwd`, pushes a local session. On another
+  player's workstation it is server-authoritative (`suElevate`, `api/sessions.ts:940`), because
+  the patch L2 gate reads the SERVER row's tier. `--local` is `su` with a CVE where the password
+  was.
+- **The exploit gate resolves by address and port** (`exploitCreateSession.ts`). It has no notion
+  of "the box I am standing on"; `exploitOutcome` returns `undefined` for a library by design.
+- **Nothing ships `msfconsole` except `apt install metasploit`** (`aptPackages.ts:145`), which
+  needs root, and no command runs by path — the search path is `/bin`, `/usr/bin`, `/usr/sbin`
+  only (`availability.ts`). So V4's own acceptance line, *"B (guest) `msfconsole --local su` →
+  root"*, could not happen on any box B had not already rooted.
+- **`msfconsole` has no `withoutTty`**, so it already runs inside the PTY-less shells (`nc`,
+  `exploit_limited`, `runLine.ts:73`), where `su` refuses.
+
+#### 63. Authority follows `su`'s split — client-local on own box and NPC hops, server on a player's workstation
+
+On the player's own box and an NPC hop the client reads that box's `dpkg/status`, runs `liveCve`
+plus the library interpreter, and performs the effect locally, exactly as NPC `su` already does.
+Nothing there is anyone else's to protect: an NPC box is the player's own copy, and its root
+password was crackable anyway.
+
+On another player's workstation a new server action beside `suElevate` regenerates the box,
+replays its journal (so the owner's `apt upgrade` history counts), recomputes the library CVE from
+that manifest, and mints the row at the granted tier. This is the path that decides decision 6's
+"patch or die" — B holding a guest shell on A's stale box becomes root — and a client that could
+claim the outcome could forge root on another player's machine.
+
+Rejected: every `--local` through the server. Uniform, but a round trip and a new resolve path for
+NPC boxes where no other player is at stake, and stricter than the `su` it replaces.
+
+**An owner who has left the network answers exactly as `su` does** (find-gaps, 2026-09-18). The
+server action resolves A's box through occupancy, as `suElevate` does; with no occupancy row it
+returns `404 host_unreachable` (`authElevateSession.ts:180`), which `msfconsole` renders in the
+wording it already uses — `No route to host` (`msfconsole.ts:239`). Nothing is written: no session
+row, and no `kern.log` line, because nothing ran on a box that is not up to crash. Rejected:
+resolving from the persisted identity regardless — it would let B escalate on a machine that is
+off the network, which `su` refuses and nothing else in the game allows.
+
+**Standing on the box IS the authorization, so the server proves it** (find-gaps, 2026-09-18).
+`suElevate` stores `parent_session_id` but never checks it — safe there, because a password is its
+authority. `--local` has no password, so a copy of that shape would let any signed player name any
+online workstation's machine id and walk away root without ever holding a shell on it. The request
+names the caller's current session, and the server requires that row to be **open** (`ended_at IS
+NULL` — so slice 7's reboot eviction ends the right to escalate too), **owned by the verified
+signer** (the player key from the signed envelope, never a body field), and **on that exact
+machine**. Its tier is irrelevant (decision 66). Any check failing refuses with the same `No route
+to host` as an offline owner and writes nothing — a caller who does not hold the box learns nothing
+about it.
+
+#### 64. When a command links two libraries, the highest-severity live CVE wins; ties go to `libraryDeps` order
+
+`su`, `apt` and `ssh` each link two. Legacy took the first live one in link order, but under
+decision 9 severity decides the tier, so link order would let a medium `libpam` shadow a critical
+`libcrypt` — the player reads critical in `apt list -u`, fires `--local su`, and lands as user.
+The scan and the exploit would disagree, which slices 2–3 were built to make impossible.
+
+#### 65. The effect is seeded on `(command, library, release)`, never the machine
+
+`effect:local:${command}:${library}:${release.index}`, parallel to the service axis's
+`effect:${key}:${release.index}`. A local hole is learned once and holds everywhere; the client
+and the server compute it with no machine id, so decision 63's two paths cannot disagree; and
+decision 12's "pick your payload by picking the command" survives, because each command keeps its
+own pool.
+
+Rejected: legacy's `local-exploit:${machineId}:${command}:${cve}` — every box its own lottery, and
+a break from the rule the service axis already keeps.
+
+#### 66. No tier comparison — a same-or-lower grant fires normally
+
+A shell effect pushes a hop at the granted tier even when it is no higher than the caller's, and
+`exit` pops it like a pointless `su`. A read, list or write runs at the granted tier. The trace
+(decision 69) lands either way. One rule and no second refusal message; the tier was already
+predictable from the severity the player could read before firing. Rejected: refusing with
+"nothing to gain" — a branch, a message, and the same comparison repeated server-side against the
+caller's row.
+
+#### 67. `ldd` ports verbatim — presence and paths, no version, no CVE
+
+Legacy's `\t<lib>.so => /lib/<lib>.so (0x…)` with a stable per-library address, `not found` when
+the `.so` is missing, and legacy's line for a command that links nothing. It reads `libraryDeps`
+(decision 11) and the `/lib` of the box the player stands on. The version is the manifest's to
+tell — a version in `ldd` would be a second copy of the fact decision 14 kept out of the banner.
+Recon is two tools, each reporting its own fact: `ldd su`, then `grep libpam
+/var/lib/dpkg/status` (or `apt list -u`).
+
+#### 68. Legacy's seventeen pools first; the map extension and its pool contents are the last PR
+
+The seventeen `SYSTEM_COMMAND_EFFECT_POOLS` entries port with ORDER AND REPETITION intact, as
+**effect kinds only** — legacy baked `tier: 'root'` into every entry, and decision 9's library
+floor is what sets the tier now. Decision 12's extension to the game's own tools (`nmap`, `node`,
+`hydra`, `gpg`, `lynx` and kin) lands as slice 8's final PR, with each new command's link AND pool
+together (a mapped command with no pool is not exploitable), and the pool contents — including
+whether `node` gets one at all — decided at that PR's planning, once the axis is playable.
+
+#### 69. The trace is only what a real box would record — supersedes decision 17
+
+A real Linux box has no "exploit" log line: nothing on the system knows a library was misused.
+What it records is whatever the affected program and the kernel ordinarily write, and that is all
+the game writes:
+
+- **A miss** — a linked library, none of them live — is a crash, and the kernel records it:
+  **one `kern.log` line naming the command and the library** it faulted in (the realistic shape is
+  `su[pid]: segfault … in libpam.so`). `kern.log` already exists on every box (`kernLog.ts`,
+  root-write, world-read). A command that links nothing crashed nothing and writes nothing.
+- **A shell success** writes the ordinary `auth.log` session line that opening such a session
+  writes — with no password line before it and no CVE id. The missing authentication is the whole
+  tell, and a careful defender can see it.
+- **Every other success** — a read, a list, a write — writes nothing. Stock Linux does not log
+  file access without auditd configured.
+
+Decision 17's `/var/log/syslog` line naming command, library and tier is dropped because no real
+system writes it. **The cost is accepted by name:** a working local exploit is now quieter than
+`su`, which is the incentive decision 17 existed to close. Under this model that is the trade — a
+quiet success is the reward for finding a live library, a miss is loud, and the defender's clue
+that says *patch your libraries* is the same library name recurring in `kern.log` crash lines.
+
+**How each line is written** (find-gaps, 2026-09-18). On the client-local path both go through
+`env.log`, the route `su` already uses (`su.ts:84-107`): the SERVER stamps the game time, so a
+crafted request cannot dictate it, and the append is best-effort — a failed write never fails or
+reverses the exploit. That needs two additions: `env.log.appendKernLog` for the crash line (the
+client supplies only the command and library), and a new `AuthLogEvent` variant for a session
+opened with no authentication before it (today the type describes only a `su` switch). On the
+server path (decision 63) the action writes both itself under the owner's writer key, as
+`suElevate` already does, with no client call. Rejected: direct client-side file patches — one
+route fewer, but the client would pick its own timestamps.
+
+#### 70. All eight effects on both paths; the server reuses slice 5's handlers
+
+The eight effect handlers slice 5 built in `exploitCreateSession.ts` each act on a machine at a
+granted tier; for `--local` that machine is the one the caller stands on, located through the
+caller's own session on it rather than by an address and a port. On the client-local path each
+effect is the ordinary local operation at the granted tier. Decision 23's third-argument grammar
+carries over (`msfconsole --local <command> [path | local:remote]`, both halves on the same box),
+as does its scripting rule — a shell effect from a `node` script reports rather than entering.
+Rejected: decision 31's collapse-to-limited while effects land later — it was right when the
+handlers did not exist, and would now be a temporary branch written only to be deleted.
+
+#### 71. A copied binary runs by explicit path, gated exactly like an installed one
+
+`/tmp/msfconsole --local su` and `./msfconsole …` resolve the named file, which must be a real
+binary stub the caller's tier may execute; bare names still resolve only through `/bin`,
+`/usr/bin`, `/usr/sbin`. One rule — *you need the tool on the box you stand on* — satisfied the
+way a real attacker satisfies it: carry it in (`scp` or `ftp put` into a writable place) and run it
+by path. A copy that lost its execute bit is fixed by `chmod +x` on the player's own copy, which D10
+already allows (*whoever may WRITE a node may chmod it*). It works for every tool, not only
+`msfconsole`.
+
+**A binary is what is IN it, not what it is called** (find-gaps, 2026-09-18). Every binary today
+carries the one identical `BINARY_STUB` (`binaries.ts:39`), so dispatching a path by its FILENAME
+would let `cp /bin/cat ~/msfconsole` mint any tool from any binary — voiding this decision's
+"carry it in" and every binary-presence gate the game has. So each stub's content names its tool
+(`BINARY_STUB` plus the tool name, stamped by the one function generation and `apt install` both
+use), and path execution dispatches on the CONTENT. Renaming a copy changes nothing — `~/foo` copied
+from `/bin/cat` runs `cat` — and `strings` on a binary shows its name. A file whose content names
+no registered tool is not executable. This re-rolls every generated binary's content, which the
+pre-launch no-backward-compat licence allows.
+
+**Path execution is prompt-only** (find-gaps, 2026-09-18). D9's script globals keep resolving
+through `/bin`, `/usr/bin`, `/usr/sbin` exactly as shipped — a script has no path syntax for a
+global to take. A carried tool is usable by hand; scripting it needs a box where it is installed,
+which means root. Rejected: an `exec('/tmp/msfconsole', …)` script helper — new sandbox surface of
+the kind D9 refused by name (`sh()`).
+
+The other route already exists and costs nothing: a player who reaches root by any other means can
+`apt install metasploit`. Path execution covers the case that route cannot — a guest, who can
+install nothing.
+
+Rejected: exempting `--local` from the binary check (a carve-out, and unrealistic); shipping
+metasploit on a share of generated boxes (escalation by placement luck); accepting the gap (V4's
+acceptance line unreachable).
+
+#### 72. Slice 8 delivers as five independent PRs to trunk
+
+1. **`ldd`**, plus deleting `metadata.libraryLinks` (decision 11). `ldd su` lists libpam and
+   libcrypt, and `not found` once one is removed.
+2. **Explicit-path execution** (decision 71). A binary copied into `~` or `/tmp` runs by path once
+   its execute bit is set.
+3. **`--local` client-local** — the library interpreter (decisions 64–66, the library floor), the
+   seventeen pools, all eight effects, the realistic traces. A guest on an NPC box carries the tool
+   in and becomes root without the root password.
+4. **`--local` on another player's workstation** — the server action, reusing slice 5's handlers.
+   B, a guest on A's stale box, becomes root; A's `apt upgrade` closes it.
+5. **The map extension** to the game's own tools, with its pools decided at that PR's planning.
+
+1 and 2 are independent of everything; 3 needs 2 only for the "guest carries the tool" story (it
+runs on a box the player already roots without it); 4 needs 3's interpreter. Independent PRs, not
+a stack — no layer needs an evolving shared baseline before its predecessor merges, and slices 5–7
+delivered the same way.
+
+#### 73. The escalated shell inherits the TTY of the shell it was fired from — `--local` raises the tier, never the door
+
+From a shell with a terminal, `shell_full` and `shell_limited` open what they rolled. From a
+PTY-less shell (`nc`, `exploit_limited`) both open a PTY-less shell at the granted tier. A root
+exploit run inside a netcat pipe gives root inside the same pipe, and `hasTty`'s rule — *only a real
+login, or the full grant, can be pivoted onward from* — stays whole: root through a backdoor is a
+root that can search and break, not pivot, until the player earns a login (`password_reset`, then
+`ssh`). Rejected: refusing from a PTY-less shell as `su` does (it shuts `--local` out of the vantage
+it is most wanted in); letting `shell_full` upgrade to a TTY (a quiet bypass of the pivot rule).
+
+#### Slice 8 — folded in as routine
+
+- **One uniform miss message**, legacy's `msfconsole: no known vulnerability on <command>`, for an
+  unmapped command, no live library and a missing `.so` alike — a miss never says which it was.
+- Library CVEs surface in `apt list -u` (already built), not in `nmap -sV`, which reads ports.
+- **Routers, switches and the AP gateway are in, with no carve-out** (find-gaps, 2026-09-18). All
+  three builders stamp the eight libraries (`remoteHostFs.ts:391`, `routerFs.ts:273`,
+  `workstationFs.ts:138`), so any box the player stands on is in scope through the client-local
+  path. The library axis there is independent of slice 9's firmware axis — slice 9 adds a second,
+  separate way in, and its planning should not assume routers were excluded here.
+- **A missing `.so` writes no crash line** (find-gaps, 2026-09-18). A program whose library is
+  gone never loads, so nothing faulted and a real box has nothing for `kern.log`; `--local` prints
+  the uniform miss message, so a deleted library and a patched one are indistinguishable to the
+  caller. That leaves the defender a real, costly lever: `rm /lib/libpam.so` as root closes the
+  hole silently, and breaks `su` for everyone on the box.
+- Evidence: PR 4 carries a `scripts/test*.ts` wire-check against `vercel dev` + supabase; PR 3 a
+  solo browser run. Every PR bumps the version.
+
 ### Forced rather than chosen (planning should not re-litigate)
 
 - **`/var/lib/dpkg/status` is THE version source.** Settled by the catalog's own shipped comment,
@@ -3690,7 +3925,7 @@ central mechanic unplayable until slice 6.
 | **5** ✅ | **Six more effects** — **SHIPPED v0.218.0-v0.223.0 (#502-#507)** | `file_read`, `dir_list`, `file_write`, `password_reset`, `backdoor_port_open`, `script_exec` — decision 23's third-argument grammar, the CVE-authorized write and exec paths, and D5's backdoor chain forwarding reused whole. Six independent PRs to trunk, each peeling one effect off decision 31's collapse; `msfconsole` became scriptable on the way |
 | **6** ✅ | **The exploit crosses networks** — **SHIPPED v0.224.0-v0.230.0 (#508-#514)** | Public IPs, NAT forwards, inner gateways and the deep chain, through the resolvers `ssh` and `hydra` already share. The first real route to rooting another player. Seven independent PRs to trunk, one vantage each; decision 34's three cross-player questions answered once in a shared rule, and decision 39's pinning shipped with the trace that makes it visible |
 | **7** ✅ | **Reboot evicts** — **SHIPPED v0.231.0-v0.234.0 (#515-#518)**, decisions 52–62 and four independent PRs to trunk; as-built in ["Phase 3 slice 7"](#phase-3-slice-7--reboot-evicts--shipped-v02310v02340-515518) | `reboot` ends every session row on that machine server-side, not just the rebooter's stack. The defender gets an answer; the intruder who deleted `/boot/vmlinuz` gets the last laugh. A server-minted **boot id** on the box is how a live shell finds out, read through the re-pull `executeLine` already does per line; a failed eviction fails loudly, because silence hands the defender a convincing animation and a live intruder |
-| **8** | **Libraries fall** | Library timelines; `ldd`; `msfconsole --local <command>`; the syslog trace; the extended dependency map with its new effect pools; `metadata.libraryLinks` deleted. Guest becomes root without the root password |
+| **8** | **Libraries fall** — **GRILLED 2026-09-18**, decisions 63–73, five independent PRs (decision 72) | ~~Library timelines~~ (already shipped with slice 2); `ldd`; explicit-path execution of a carried binary; `msfconsole --local <command>`, client-local on own/NPC boxes and server-side on a player's workstation; the realistic trace (decision 69, superseding 17's syslog line); the extended dependency map with its new effect pools; `metadata.libraryLinks` deleted. Guest becomes root without the root password |
 | **9** | **Firmware falls** | The third axis on routers, switches and the shared AP gateway — a fully patched gateway can still be taken |
 
 Slices 1 and 2 could merge; they are split because a VERSION column is independently useful and
@@ -3719,7 +3954,8 @@ libc window?*.
   frozen at its starting version — and irreversible after, because every CVE id, publication date
   and severity derives from it. **Shipping the development value would begin the world months deep
   in CVEs**; re-stamping it is the tripwire's whole job.
-- **The effect pools for the newly-mapped commands** (decision 12). `nmap`, `node`, `hydra`, `gpg`
+- **The effect pools for the newly-mapped commands** (decision 12) — **scheduled 2026-09-18** by
+  decision 68 as slice 8's final PR, contents decided at that PR's planning. `nmap`, `node`, `hydra`, `gpg`
   and `lynx` each need a `SYSTEM_COMMAND_EFFECT_POOLS` entry, and what a `node` CVE should yield is
   a content question with real reach — `script_exec` through the script runner is close to circular.
 - ~~**The firmware vendor set and its placement**~~ — **RESOLVED 2026-09-09 at slice 1a.** The
