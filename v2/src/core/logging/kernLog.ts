@@ -29,6 +29,24 @@ export const KERN_LOG_PERMISSIONS: FilePermissions = {
   execute: ['root'],
 };
 
+export type RebootLogEvent = {
+  readonly time: GameTime;
+  readonly hostname: string;
+  /** Where the reboot was ordered from (see `resolveCrossPlayerSourceIp`) — the
+   *  defender's only lead on who threw them off their own box. */
+  readonly sourceIp: string;
+};
+
+/** One reboot, as the box's kernel records it going down. Tagged `[reboot]` beside
+ *  the `[iptables]` entries already in this file, because a defender reads the log
+ *  top to bottom with `cat` and a line that does not announce which subsystem wrote
+ *  it is one more thing to work out.
+ *
+ *  It names the sessions, not the machine: what the reader wants to know is whether
+ *  whoever was inside is gone, and that is the fact the reboot actually settled. */
+export const formatRebootLine = ({ time, hostname, sourceIp }: RebootLogEvent): string =>
+  `${formatSyslogTimestamp(time)} ${hostname} kernel: [reboot] System restart requested from ${sourceIp} — all sessions terminated`;
+
 export type NmapScanLogEvent = {
   readonly time: GameTime;
   readonly hostname: string;

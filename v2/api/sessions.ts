@@ -429,6 +429,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         permissions: BOOT_ID_PERMISSIONS,
         node_type: 'file',
       });
+    // Whose box went down — the row that decides which journal key the kernel log
+    // accretes under. Occupancy is also what a `nmcli disconnect` removes, so a box
+    // whose owner has gone dark answers nothing here and the line falls back to the
+    // stable key the handler picks.
+    const findOccupantWorkstationByMachineId = async (machineId: string) => {
+      const { data, error } = await supabase
+        .from('home_network_occupants')
+        .select('owner_key, workstation_username, workstation_root_hash')
+        .eq('workstation_machine_id', machineId)
+        .limit(1)
+        .maybeSingle();
+      logFailure('reboot occupant lookup', error);
+      return { data: data as OccupantWorkstation | null, error };
+    };
     const { status, body } = await handleRebootMachine(req.body, {
       nonceStore: noopNonceStore,
       // The authority for a box that is not the caller's own: their live row on it,
@@ -436,6 +450,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       findActiveSession: findActiveSessionVia({ supabase, label: 'reboot active-session' }),
       endMachineSessions,
       writeBootId,
+      // The trace the defender comes back to. Every lookup behind it is server-side:
+      // whose log this is, which address ordered the reboot, and the clock it is
+      // stamped with — none of it reported by the caller, because a log a visitor can
+      // author is not evidence.
+      now: () => Date.now(),
+      findOccupantWorkstationByMachineId,
+      findHomeNetworkByOwnerKey: findHomeNetworkByOwnerKeyVia({
+        supabase,
+        occupancyLabel: 'reboot trace occupancy',
+        lookupLabel: 'reboot trace source-ip',
+      }),
+      listLeasesByEssid: listLeasesByEssidVia({ supabase, label: 'reboot lan-lease list' }),
+      readLog: readAuthLogVia({ supabase, label: 'reboot kern-log read' }),
+      upsertPatch: upsertPatchVia({ supabase, label: 'reboot kern-log upsert' }),
       // Unguessable on purpose: a caller able to predict the next id could keep a
       // session alive across the reboot meant to end it.
       newBootId: () => randomUUID(),

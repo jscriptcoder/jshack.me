@@ -10,6 +10,13 @@ import { generateIdentity } from '../identity/identity';
 import { computeWorkstationId } from '../identity/workstation';
 import { computeApGatewayId } from '../identity/router';
 import type { ActiveSession, FindActiveSession } from '../patches/authorizeMachineAccess';
+import type { FindOccupantWorkstationByMachineId } from '../patches/remoteWritePermission';
+import type {
+  MachineLogReadQuery,
+  MachineLogReadResult,
+} from '../patches/appendMachineLog';
+import type { PatchRow } from '../patches/upsertPatch';
+import { KERN_LOG_PATH, KERN_LOG_PERMISSIONS } from '../logging/kernLog';
 import type { Identity } from '../commands/types';
 import type { NonceStore } from '../signedRequest/nonceStore';
 import type { UserType } from '../types';
@@ -57,6 +64,29 @@ const holding = (userType: UserType): FindActiveSession => {
 
 const holdingNothing: FindActiveSession = async () => ({ data: null, error: null });
 
+/** A clock the rendered line can be read against: `Sep 18 12:03:44` UTC. */
+const REBOOT_AT = Date.UTC(2026, 8, 18, 12, 3, 44);
+/** The address the actor's own home network answers to — what a defender reads. */
+const ACTOR_IP = '203.0.113.77';
+
+/** Whose box this is. The occupancy row is the only thing that tells a player's
+ *  machine apart from one nobody owns. */
+const ownedBy =
+  (ownerKey: string): FindOccupantWorkstationByMachineId =>
+  async () => ({
+    data: {
+      owner_key: ownerKey,
+      workstation_username: 'kai',
+      workstation_root_hash: 'a1b2c3',
+    },
+    error: null,
+  });
+
+const ownedByNobody: FindOccupantWorkstationByMachineId = async () => ({
+  data: null,
+  error: null,
+});
+
 const makeDeps = (over: Partial<RebootMachineDeps> = {}) => {
   const endMachineSessions = vi.fn<
     (params: EndMachineSessionsParams) => Promise<{ error: unknown }>
@@ -65,6 +95,12 @@ const makeDeps = (over: Partial<RebootMachineDeps> = {}) => {
     over.writeBootId ?? (async () => ({ error: null })),
   );
   const findActiveSession = vi.fn<FindActiveSession>(over.findActiveSession ?? holdingNothing);
+  const upsertPatch = vi.fn<(row: PatchRow) => Promise<{ error: unknown }>>(
+    over.upsertPatch ?? (async () => ({ error: null })),
+  );
+  const readLog = vi.fn<(query: MachineLogReadQuery) => Promise<MachineLogReadResult>>(
+    over.readLog ?? (async () => ({ data: null, error: null })),
+  );
   const deps: RebootMachineDeps = {
     nonceStore: over.nonceStore ?? freshStore,
     // Minting is injected so a test can name the value the box ends up carrying.
@@ -75,8 +111,19 @@ const makeDeps = (over: Partial<RebootMachineDeps> = {}) => {
     findActiveSession,
     endMachineSessions,
     writeBootId,
+    // The trace half: whose row the line is filed under, which address it names,
+    // and the clock it is stamped with — all server-side, none of it the caller's
+    // to report.
+    now: over.now ?? (() => REBOOT_AT),
+    findOccupantWorkstationByMachineId:
+      over.findOccupantWorkstationByMachineId ?? ownedByNobody,
+    findHomeNetworkByOwnerKey:
+      over.findHomeNetworkByOwnerKey ?? (async () => ({ data: { public_ip: ACTOR_IP }, error: null })),
+    listLeasesByEssid: over.listLeasesByEssid ?? (async () => ({ data: [], error: null })),
+    readLog,
+    upsertPatch,
   };
-  return { deps, endMachineSessions, writeBootId, findActiveSession };
+  return { deps, endMachineSessions, writeBootId, findActiveSession, upsertPatch, readLog };
 };
 
 describe('handleRebootMachine', () => {
@@ -381,5 +428,250 @@ describe('the authority to reboot a box', () => {
     // and send them looking for an in-game reason that does not exist.
     expect(result).toEqual({ status: 500, body: { error: 'session_lookup_failed' } });
     expect(endMachineSessions).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * A reboot is the one act in this game that throws another player out, and until
+ * now it left the defender nothing to come back to: their box was up, their
+ * intruder was gone, and there was no record that either had happened.
+ *
+ * `kern.log` is where it lands, because a reboot is a kernel event and that file
+ * already exists on every box — root-owned, world-readable, and already the home
+ * of the netfilter scan trace. There is no carve-out for rebooting your OWN box:
+ * an exception is one more rule to remember, and it would tell an attacker exactly
+ * which act is invisible.
+ *
+ * The line names the actor's address, derived server-side from the verified key.
+ * A defender's log that a visitor can author is not evidence.
+ */
+describe('the line a reboot leaves behind', () => {
+  it('records the reboot on the box that went down, naming where it came from', async () => {
+    const identity = generateIdentity();
+    const envelope = signRequest(identity, 'rebootMachine', { machine_id: FOREIGN_BOX });
+    const { deps, upsertPatch } = makeDeps({
+      findActiveSession: holding('root'),
+      findOccupantWorkstationByMachineId: ownedBy('0a0a0a0a'),
+    });
+
+    const result = await handleRebootMachine(envelope, deps);
+
+    expect(result).toEqual({ status: 200, body: { ok: true } });
+    // One line, in the box's own kernel log, in the shape the rest of that file
+    // is written in — a defender reads this with `cat`, so it has to read like
+    // the entries already above it.
+    expect(upsertPatch).toHaveBeenCalledWith({
+      writer_key: '0a0a0a0a',
+      machine_id: FOREIGN_BOX,
+      path: KERN_LOG_PATH,
+      content:
+        'Sep 18 12:03:44 victim kernel: [reboot] System restart requested from 203.0.113.77 — all sessions terminated\n',
+      owner: 'root',
+      permissions: KERN_LOG_PERMISSIONS,
+      node_type: 'file',
+    });
+  });
+
+  it("files a second attacker's line under the same key, so it joins the first", async () => {
+    const first = generateIdentity();
+    const second = generateIdentity();
+    const owned = ownedBy('0a0a0a0a');
+    const existing =
+      'Sep 18 11:00:00 victim kernel: [reboot] System restart requested from 198.51.100.4 — all sessions terminated\n';
+    const { deps, upsertPatch } = makeDeps({
+      findActiveSession: holding('root'),
+      findOccupantWorkstationByMachineId: owned,
+      readLog: async () => ({ data: { content: existing }, error: null }),
+    });
+
+    await handleRebootMachine(
+      signRequest(first, 'rebootMachine', { machine_id: FOREIGN_BOX }),
+      deps,
+    );
+    await handleRebootMachine(
+      signRequest(second, 'rebootMachine', { machine_id: FOREIGN_BOX }),
+      deps,
+    );
+
+    // Both visits are still readable. The journal keys a file by its writer, so a
+    // line filed under each attacker's own key would mean the newer row replacing
+    // the older one wholesale — the defender reading half a break-in and never
+    // knowing the other half existed.
+    const written = upsertPatch.mock.calls.at(-1)?.[0];
+    expect(written?.writer_key).toBe('0a0a0a0a');
+    expect(written?.content).toBe(
+      `${existing}Sep 18 12:03:44 victim kernel: [reboot] System restart requested from 203.0.113.77 — all sessions terminated\n`,
+    );
+  });
+
+  it('records a reboot the owner ran on their own box', async () => {
+    const identity = generateIdentity();
+    const ownBox = ownBoxOf(identity);
+    const envelope = signRequest(identity, 'rebootMachine', { machine_id: ownBox });
+    const { deps, upsertPatch } = makeDeps({
+      findOccupantWorkstationByMachineId: ownedBy(identity.publicKeyHex),
+    });
+
+    await handleRebootMachine(envelope, deps);
+
+    // Unconditional, exactly as your own `su` shows up in your own `auth.log`.
+    expect(upsertPatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        writer_key: identity.publicKeyHex,
+        machine_id: ownBox,
+        path: KERN_LOG_PATH,
+        content:
+          'Sep 18 12:03:44 skylab kernel: [reboot] System restart requested from 203.0.113.77 — all sessions terminated\n',
+      }),
+    );
+  });
+
+  it("files an access point's line under the network's key rather than the rebooter's", async () => {
+    const identity = generateIdentity();
+    const gateway = computeApGatewayId('HOME-9F2A');
+    const envelope = signRequest(identity, 'rebootMachine', { machine_id: gateway });
+    const { deps, upsertPatch } = makeDeps({
+      findActiveSession: holding('root'),
+      findOccupantWorkstationByMachineId: ownedByNobody,
+      listLeasesByEssid: async () => ({
+        data: [
+          { owner_key: 'high-octet', octet: 9 },
+          { owner_key: 'low-octet', octet: 4 },
+        ],
+        error: null,
+      }),
+    });
+
+    await handleRebootMachine(envelope, deps);
+
+    // Nobody owns an access point, so its log needs a key that does not move when
+    // players join and leave: the lowest address ever leased on the network. Under
+    // the rebooter's own key instead, two attackers would erase each other here.
+    expect(upsertPatch).toHaveBeenCalledWith(
+      expect.objectContaining({ writer_key: 'low-octet', machine_id: gateway }),
+    );
+  });
+
+  it('names the address the server derived, not one the caller reported', async () => {
+    const identity = generateIdentity();
+    const envelope = signRequest(identity, 'rebootMachine', {
+      machine_id: FOREIGN_BOX,
+      source_ip: '198.51.100.250',
+    });
+    const { deps, upsertPatch } = makeDeps({
+      findActiveSession: holding('root'),
+      findOccupantWorkstationByMachineId: ownedBy('0a0a0a0a'),
+    });
+
+    await handleRebootMachine(envelope, deps);
+
+    const written = upsertPatch.mock.calls.at(-1)?.[0];
+    expect(written?.content).toContain(ACTOR_IP);
+    expect(written?.content).not.toContain('198.51.100.250');
+  });
+
+  it('says unknown rather than guessing when the actor is on no network', async () => {
+    const identity = generateIdentity();
+    const envelope = signRequest(identity, 'rebootMachine', { machine_id: FOREIGN_BOX });
+    const { deps, upsertPatch } = makeDeps({
+      findActiveSession: holding('root'),
+      findOccupantWorkstationByMachineId: ownedBy('0a0a0a0a'),
+      findHomeNetworkByOwnerKey: async () => ({ data: null, error: null }),
+    });
+
+    await handleRebootMachine(envelope, deps);
+
+    // A false origin in a defender's log is worse than no origin.
+    const written = upsertPatch.mock.calls.at(-1)?.[0];
+    expect(written?.content).toContain('requested from unknown');
+  });
+
+  it("falls back to the rebooter's own key when the network's leases cannot be read", async () => {
+    const identity = generateIdentity();
+    const gateway = computeApGatewayId('HOME-9F2A');
+    const envelope = signRequest(identity, 'rebootMachine', { machine_id: gateway });
+    const { deps, upsertPatch } = makeDeps({
+      findActiveSession: holding('root'),
+      findOccupantWorkstationByMachineId: ownedByNobody,
+      listLeasesByEssid: async () => ({ data: null, error: 'down' }),
+    });
+
+    await handleRebootMachine(envelope, deps);
+
+    // A lease read that fails costs the stable key, never the line. One reboot
+    // recorded in a row of its own beats a reboot nobody can see was run.
+    expect(upsertPatch).toHaveBeenCalledWith(
+      expect.objectContaining({ writer_key: identity.publicKeyHex, machine_id: gateway }),
+    );
+  });
+
+  it('falls back the same way on a network nobody has ever leased an address on', async () => {
+    const identity = generateIdentity();
+    const gateway = computeApGatewayId('HOME-9F2A');
+    const envelope = signRequest(identity, 'rebootMachine', { machine_id: gateway });
+    const { deps, upsertPatch } = makeDeps({
+      findActiveSession: holding('root'),
+      findOccupantWorkstationByMachineId: ownedByNobody,
+      listLeasesByEssid: async () => ({ data: null, error: null }),
+    });
+
+    await handleRebootMachine(envelope, deps);
+
+    expect(upsertPatch).toHaveBeenCalledWith(
+      expect.objectContaining({ writer_key: identity.publicKeyHex }),
+    );
+  });
+
+  it('names a generated host by the only name anybody has for it', async () => {
+    const identity = generateIdentity();
+    const generated = 'lan-host-10-0-0-77';
+    const envelope = signRequest(identity, 'rebootMachine', { machine_id: generated });
+    const { deps, upsertPatch } = makeDeps({
+      findActiveSession: holding('root'),
+      findOccupantWorkstationByMachineId: ownedByNobody,
+    });
+
+    await handleRebootMachine(envelope, deps);
+
+    // A player's box carries a name in its id and a generated one does not, so
+    // the hostname column falls back to the id itself rather than going blank.
+    const written = upsertPatch.mock.calls.at(-1)?.[0];
+    expect(written?.content).toContain(`${generated} kernel: [reboot]`);
+  });
+
+  it('leaves no line behind when the reboot itself was refused', async () => {
+    const identity = generateIdentity();
+    const envelope = signRequest(identity, 'rebootMachine', { machine_id: FOREIGN_BOX });
+    const { deps, upsertPatch } = makeDeps({
+      findActiveSession: holdingNothing,
+      findOccupantWorkstationByMachineId: ownedBy('0a0a0a0a'),
+    });
+
+    const result = await handleRebootMachine(envelope, deps);
+
+    // A stranger who cannot reboot a box cannot write in its logs either — a
+    // forged entry naming somebody else is its own attack on the defender.
+    expect(result.status).toBe(403);
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
+  it('still reports the eviction when the trace cannot be filed', async () => {
+    const identity = generateIdentity();
+    const envelope = signRequest(identity, 'rebootMachine', { machine_id: FOREIGN_BOX });
+    const { deps, upsertPatch, endMachineSessions } = makeDeps({
+      findActiveSession: holding('root'),
+      findOccupantWorkstationByMachineId: async () => ({ data: null, error: 'down' }),
+    });
+
+    const result = await handleRebootMachine(envelope, deps);
+
+    // The eviction is the command; the line is the record of it. Failing the
+    // request over a log would tell the player their reboot did not take when
+    // every row on the box has already closed — the one lie this handler must
+    // never tell. An unreadable answer writes nothing rather than filing a
+    // stranger's evidence under the wrong row.
+    expect(result).toEqual({ status: 200, body: { ok: true } });
+    expect(endMachineSessions).toHaveBeenCalled();
+    expect(upsertPatch).not.toHaveBeenCalled();
   });
 });
