@@ -287,8 +287,8 @@ and therefore carries a wire-check; none is exempt.
 
 **Required implementation skills:** `tdd`, `testing`, and `functional` throughout;
 `refactoring` where a PR also tidies already-tested code; `front-end-testing` for PR2's
-terminal-observable behaviour; `mutation-testing` at each PR boundary's readiness. PR3 is the
-one with a browser obligation — see its evidence line.
+terminal-observable behaviour; `mutation-testing` at each PR boundary's readiness. PR3 and PR4 both carry a
+browser obligation — see their evidence lines.
 
 ### PR1 — the machine's rows close in one action, and a failure says so (v0.231.0) — merged (#515)
 
@@ -508,7 +508,19 @@ under the owner's writer key, with the address from `crossPlayerSourceIp`.
 - A bricked box's line is written and is unreadable forever — asserted, not worked around.
 **RED:** a handler test asserting the line's shape and the server-derived address, and one
 asserting two actors' lines coexist.
-**Evidence:** RED-GREEN unit tests; mutation gate; wire-check covering the traced reboot.
+**Evidence:** RED-GREEN unit tests; mutation gate; wire-check covering the traced reboot; and
+a **browser run**, kept for the reason PR3 earned it — a trace can fail in exactly the shape
+PR3's eviction did, correct on the wire and never reaching the player who has to read it. The
+browser proves the one half no wire-check reaches: the real client materializes the line and
+shows it on `cat /var/log/kern.log`. The distinct-attacker address and the accretion of two
+actors' lines stay the wire-check's, where two identities on two networks exist at once — a
+same-LAN browser attacker only ever derives the defender's own public IP, and a fresh player
+box exposes no service to break into, so a browser cannot show that half more legibly than the
+wire-check already does. **Corrected at implementation:** the plan first asked here for "B
+reboots A's box; A reads the line", which the mechanics do not permit — a brand-new workstation
+runs nothing, and player root is uncrackable by design (the CVE arc is the way onto a box that
+runs a service). The defender-reads-a-stranger's-line claim is the wire-check's, made there with
+a real second identity on its own network.
 
 ## Named risks
 
