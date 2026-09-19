@@ -63,6 +63,7 @@ import {
   type UpgradeStatus,
 } from '../cve/packageTimeline';
 import { gameDayAt } from '../cve/worldClock';
+import { liveCve } from '../cve/liveCve';
 import { libraryDeps } from './libraryDeps';
 import { binaryExists } from './availability';
 import { errorLine, streamedResult, text } from './streaming';
@@ -255,7 +256,27 @@ async function* listPackages(
 /** A package inside its patch-delay gap, in the words `list -u` and `upgrade` both use —
  *  one phrase, so the two cannot disagree about when a fix ships. */
 const noFixYet = (etaDays: number): string =>
-  `vulnerable, no fix yet — ETA ~${etaDays} day${etaDays === 1 ? '' : 's'}`;
+  `no fix yet — ETA ~${etaDays} day${etaDays === 1 ? '' : 's'}`;
+
+/** A package that needs a move, and the hole that is why. */
+type Exposure = {
+  readonly status: Extract<UpgradeStatus, { kind: 'upgradable' | 'no-fix-yet' }>;
+  /** `CVE-… high`: the id and severity, never what firing it would grant — that stays
+   *  the act of firing. Severity forecasts the privilege; the id is what a defender
+   *  matches against a scan. */
+  readonly hole: string;
+};
+
+/** Where a package on the box stands, when it needs a move at all. The hole comes from
+ *  the same derivation a scan answers from, so `apt` and `nmap -sV` cannot name
+ *  different CVEs for one package — and one format serves services and libraries alike. */
+const exposureOf = (pkg: string, version: string, gameDay: number): Exposure | undefined => {
+  const status = upgradeStatusFor(pkg, version, gameDay);
+  const live = liveCve(pkg, version, gameDay);
+  if (live === undefined) return undefined;
+  if (status.kind !== 'upgradable' && status.kind !== 'no-fix-yet') return undefined;
+  return { status, hole: `${live.cve} ${live.severity}` };
+};
 
 /** One package's row, or none. Only a package that needs a move is listed, as real
  *  `apt list --upgradable` does; a package with no timeline — a router's firmware —
@@ -265,15 +286,13 @@ const noFixYet = (etaDays: number): string =>
 const upgradableRow = (
   pkg: string,
   version: string,
-  status: UpgradeStatus,
+  exposure: Exposure | undefined,
 ): readonly TerminalLine[] => {
-  if (status.kind === 'upgradable') {
-    return [text(`  ${pkg} ${version} [upgradable → ${status.target}]`)];
-  }
-  if (status.kind === 'no-fix-yet') {
-    return [text(`  ${pkg} ${version} [${noFixYet(status.etaDays)}]`)];
-  }
-  return [];
+  if (exposure === undefined) return [];
+  const { status, hole } = exposure;
+  const move =
+    status.kind === 'upgradable' ? `upgradable → ${status.target}` : noFixYet(status.etaDays);
+  return [text(`  ${pkg} ${version} [${hole} · ${move}]`)];
 };
 
 /** Every package in the manifest of the box the player is STANDING on, against today's
@@ -286,7 +305,7 @@ async function* listUpgradable(env: CommandEnv): AsyncGenerator<TerminalLine, nu
 
   const gameDay = gameDayAt(env.now());
   const rows = Array.from(parseDpkgVersions(readDpkgStatus(env.fs.root())), ([pkg, version]) =>
-    upgradableRow(pkg, version, upgradeStatusFor(pkg, version, gameDay)),
+    upgradableRow(pkg, version, exposureOf(pkg, version, gameDay)),
   ).flat();
   yield* rows.length > 0 ? rows : [text('All packages are up to date.')];
   return 0;
@@ -320,13 +339,16 @@ async function* applyUpgrades(
   }
   const rows = Array.from(installed)
     .filter(([pkg]) => packageName === undefined || pkg === packageName)
-    .map(([pkg, version]) => ({ pkg, version, status: upgradeStatusFor(pkg, version, gameDay) }));
+    .flatMap(([pkg, version]) => {
+      const exposure = exposureOf(pkg, version, gameDay);
+      return exposure === undefined ? [] : [{ pkg, version, ...exposure }];
+    });
   const upgrades = rows.flatMap(({ pkg, version, status }): readonly Upgrade[] =>
     status.kind === 'upgradable' ? [{ pkg, from: version, to: status.target }] : [],
   );
-  const warnings = rows.flatMap(({ pkg, version, status }) =>
+  const warnings = rows.flatMap(({ pkg, version, status, hole }) =>
     status.kind === 'no-fix-yet'
-      ? [errorLine(`W: ${pkg} ${version} is ${noFixYet(status.etaDays)}`)]
+      ? [errorLine(`W: ${pkg} ${version} (${hole}) is vulnerable, ${noFixYet(status.etaDays)}`)]
       : [],
   );
 
@@ -649,7 +671,7 @@ export const apt: Command = {
   manual: {
     synopsis: 'apt <install|list|upgrade> [--installed|--upgradable] [package[=<version>]]',
     description:
-      'Advanced Package Tool. "install" downloads a package and places its binaries where they belong — tools in /usr/bin, service daemons in /usr/sbin — making them available to run (requires root — run "su" first). Naming a release as "<package>=<version>" installs that release instead of the newest: the repo hands over only releases it already holds, and only backwards — moving a box forward is what "upgrade" is for. "upgrade" closes the holes "list --upgradable" names: it moves every package on this box whose fix has been released onto that release, or only the package you name, and reports the ones whose fix has not shipped yet rather than moving them (requires root). "list" shows the installable catalog; "list --installed" shows only the packages already present. "list --upgradable" (or -u) reads this box\'s package manifest and names every package with a published vulnerability: the version that fixes it, or — while the fix has not been released yet — how many days until it is. It needs no root. All of them need a network connection.',
+      'Advanced Package Tool. "install" downloads a package and places its binaries where they belong — tools in /usr/bin, service daemons in /usr/sbin — making them available to run (requires root — run "su" first). Naming a release as "<package>=<version>" installs that release instead of the newest: the repo hands over only releases it already holds, and only backwards — moving a box forward is what "upgrade" is for. "upgrade" closes the holes "list --upgradable" names: it moves every package on this box whose fix has been released onto that release, or only the package you name, and reports the ones whose fix has not shipped yet rather than moving them (requires root). "list" shows the installable catalog; "list --installed" shows only the packages already present. "list --upgradable" (or -u) reads this box\'s package manifest and names every package with a published vulnerability, by its CVE id and severity, beside the version that fixes it, or — while the fix has not been released yet — how many days until it is. It needs no root. All of them need a network connection.',
     arguments: [
       {
         name: 'operation',

@@ -12,6 +12,9 @@ import {
   upgradeStatusFor,
 } from '../cve/packageTimeline';
 import { WORLD_EPOCH } from '../cve/worldClock';
+import { exploitOutcome } from '../cve/exploitEffect';
+import { assignHomeNetwork } from '../network/homeNetwork';
+import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces';
 import {
   buildEntry,
   DPKG_STATUS_PATH,
@@ -32,6 +35,7 @@ import {
   mockFsViewFromTree,
   mockIdentity,
   mockNetworkView,
+  mockNetworkViewFromConnectivity,
   mockPatchApi,
   mockSession,
 } from '../../test/factories/commandEnv';
@@ -71,6 +75,7 @@ import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import { accountIn, accountsIn } from '../sessions/passwdAccount';
 import { buildDirectory, buildFile } from '../../test/factories/filesystem';
 import { apt, installExtraFiles, installPackageLibraries } from './apt';
+import { nmap } from './nmap';
 import { APT_PACKAGES } from '../packages/aptPackages';
 import {
   DEFAULT_WORDLIST,
@@ -1609,6 +1614,25 @@ const sshSlowFix = () => {
   };
 };
 
+/** wlan0 associated and addressed on `essid`, at the LAN IP that network issues this
+ *  player — what a scan of the player's own box needs to find it. */
+const onlineOn = (publicKey: string, essid: string): ConnectivityState => {
+  const cold = buildColdStartConnectivity(publicKey);
+  const wlan0 = cold.interfaces.get('wlan0');
+  if (wlan0 === undefined || wlan0.kind !== 'wireless') throw new Error('no wlan0 in cold start');
+  const { localIp } = assignHomeNetwork(publicKey, essid);
+  const connected = { ...wlan0, association: { essid, bssid: 'AA:BB:CC:DD:EE:FF' }, ipv4: localIp };
+  return { interfaces: new Map(cold.interfaces).set('wlan0', connected) };
+};
+
+/** The id and severity of the hole a box on `version` of `pkg` sits in, read straight
+ *  off the package's history — `CVE-2026-0149031 medium`. */
+const holeOf = (pkg: string, version: string): string => {
+  const release = packageTimeline(pkg, 400).find((entry) => entry.version === version);
+  if (release === undefined) throw new Error(`${pkg} has no release ${version}`);
+  return `${release.cve} ${release.severity}`;
+};
+
 describe('apt list --upgradable', () => {
   const UPGRADABLE = new Map<string, string | true>([['-u', true]]);
 
@@ -1646,7 +1670,10 @@ describe('apt list --upgradable', () => {
 
     expect(lines).toEqual([
       { kind: 'text', content: 'Listing...' },
-      { kind: 'text', content: `  ${SSH} ${startingVersionOf(SSH)} [upgradable → ${fix.version}]` },
+      {
+        kind: 'text',
+        content: `  ${SSH} ${startingVersionOf(SSH)} [${holeOf(SSH, startingVersionOf(SSH)!)} · upgradable → ${fix.version}]`,
+      },
     ]);
     expect(exitCode).toBe(0);
   });
@@ -1661,11 +1688,114 @@ describe('apt list --upgradable', () => {
 
     expect(await rowOn(shipsOn - 2)).toEqual({
       kind: 'text',
-      content: `  ${SSH} ${vulnerable.version} [vulnerable, no fix yet — ETA ~2 days]`,
+      content: `  ${SSH} ${vulnerable.version} [${holeOf(SSH, vulnerable.version)} · no fix yet — ETA ~2 days]`,
     });
     expect(await rowOn(shipsOn - 1)).toEqual({
       kind: 'text',
-      content: `  ${SSH} ${vulnerable.version} [vulnerable, no fix yet — ETA ~1 day]`,
+      content: `  ${SSH} ${vulnerable.version} [${holeOf(SSH, vulnerable.version)} · no fix yet — ETA ~1 day]`,
+    });
+  });
+
+  describe('names the hole a row is exposed to, in one format for every package', () => {
+    const PAM = 'libpam';
+    /** libpam as the world ships it: its first release, which publishes this CVE. */
+    const pamRelease = () => {
+      const release = packageTimeline(PAM, 400).find(
+        (entry) => entry.version === startingVersionOf(PAM),
+      );
+      if (release === undefined) throw new Error('libpam ships no starting release');
+      return release;
+    };
+
+    it('gives a library whose fix has shipped its CVE id and severity beside the move', async () => {
+      const release = pamRelease();
+      const shipsOn = release.publishedAt + release.patchDelay;
+      const status = upgradeStatusFor(PAM, release.version, shipsOn);
+      if (status.kind !== 'upgradable') throw new Error(`expected a shipped fix, got ${status.kind}`);
+
+      const { lines } = await listUpgradable(manifestBox({ [PAM]: release.version }, { gameDay: shipsOn }));
+
+      expect(lines[1]).toEqual({
+        kind: 'text',
+        content: `  ${PAM} ${release.version} [CVE-2026-0833104 medium · upgradable → ${status.target}]`,
+      });
+    });
+
+    it('gives a library inside its patch delay the same id and severity beside the ETA', async () => {
+      const release = pamRelease();
+
+      const { lines } = await listUpgradable(
+        manifestBox({ [PAM]: release.version }, { gameDay: release.publishedAt }),
+      );
+
+      const days = release.patchDelay;
+      expect(lines[1]).toEqual({
+        kind: 'text',
+        content: `  ${PAM} ${release.version} [CVE-2026-0833104 medium · no fix yet — ETA ~${days} day${days === 1 ? '' : 's'}]`,
+      });
+    });
+
+    it('names the same CVE and severity for a service that nmap -sV prints for its port', async () => {
+      // Two surfaces reading one fact: a defender matching `list -u` against a scan of
+      // their own box must find the same id in both, or one of them is lying.
+      const essid = 'BEAN-THERE-WIFI';
+      const publicKey = 'a'.repeat(64);
+      const gameDay = 8;
+      const tree = buildDirectory({
+        var: buildDirectory({
+          run: buildDirectory({ 'sshd.pid': buildFile('sshd:port=22', { owner: 'root' }) }),
+          lib: buildDirectory({
+            dpkg: buildDirectory({
+              status: buildFile(formatDpkgStatus([buildEntry(SSH, '9.7.0')]), { owner: 'root' }),
+            }),
+          }),
+        }),
+      });
+      const env = mockCommandEnv({
+        identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(publicKey) }),
+        network: mockNetworkViewFromConnectivity(onlineOn(publicKey, essid)),
+        fs: mockFsViewFromTree(tree, { userType: 'user' }),
+        now: () => asEpochMs(WORLD_EPOCH + gameDay * DAY_MS),
+      });
+      const { localIp } = assignHomeNetwork(publicKey, essid);
+
+      const scan = await streamResult(
+        await nmap.execute(env, [localIp], new Map([['-sV', true]])),
+      );
+      const scanRow = scan.text.split('\n').find((line) => line.startsWith('22/tcp'));
+      const [cve, severity] = (scanRow ?? '').split(/\s+/).slice(-2);
+      const { lines } = await listUpgradable(env);
+
+      expect(cve).toMatch(/^CVE-/);
+      expect(lines[1]?.content).toContain(`[${cve} ${severity} · `);
+    });
+
+    it('lists nothing for a package whose hole is live but whose history has run out', async () => {
+      // A clock set past the last release the walk reaches: the box sits on a landed CVE
+      // with nowhere to move. Naming the hole with no move beside it would be a row
+      // `upgrade` could never act on.
+      const { lines } = await listUpgradable(
+        manifestBox({ [SSH]: '999.0.0' }, { gameDay: 10_000_000 }),
+      );
+
+      expect(lines).toEqual([
+        { kind: 'text', content: 'Listing...' },
+        { kind: 'text', content: 'All packages are up to date.' },
+      ]);
+    });
+
+    it('never says what firing the CVE would get you', async () => {
+      // Severity forecasts the privilege; only firing reveals the capability.
+      const { vulnerable, shipsOn } = sshSlowFix();
+      const granted = exploitOutcome(SSH, vulnerable.version, shipsOn);
+      if (granted === undefined) throw new Error('this world stopped publishing the hole');
+
+      const { text } = await listUpgradable(
+        manifestBox({ [SSH]: vulnerable.version }, { gameDay: shipsOn }),
+      );
+
+      expect(text).toContain(vulnerable.cve);
+      expect(text).not.toContain(granted.effect);
     });
   });
 
@@ -1686,7 +1816,10 @@ describe('apt list --upgradable', () => {
 
     expect(lines).toEqual([
       { kind: 'text', content: 'Listing...' },
-      { kind: 'text', content: `  ${SSH} ${startingVersionOf(SSH)} [upgradable → ${fix.version}]` },
+      {
+        kind: 'text',
+        content: `  ${SSH} ${startingVersionOf(SSH)} [${holeOf(SSH, startingVersionOf(SSH)!)} · upgradable → ${fix.version}]`,
+      },
     ]);
   });
 
@@ -1732,7 +1865,7 @@ describe('apt list --upgradable', () => {
     const { text, exitCode } = await listUpgradable(env);
 
     expect(exitCode).toBe(0);
-    expect(text).toContain(`[upgradable → ${fix.version}]`);
+    expect(text).toContain(`· upgradable → ${fix.version}]`);
   });
 
   it('refuses offline in the words apt list already uses, and lists nothing', async () => {
@@ -1889,7 +2022,10 @@ describe('apt upgrade', () => {
       { kind: 'text', content: `Setting up ${second.pkg} (${second.to}) ...` },
       // Last, where it is read, and in the words `apt list -u` uses for the same state —
       // two surfaces must not disagree about when a fix ships.
-      { kind: 'error', content: `W: ${SSH} ${waiting} is vulnerable, no fix yet — ETA ~2 days` },
+      {
+        kind: 'error',
+        content: `W: ${SSH} ${waiting} (${holeOf(SSH, waiting)}) is vulnerable, no fix yet — ETA ~2 days`,
+      },
     ]);
     expect(writes).toEqual([
       {
