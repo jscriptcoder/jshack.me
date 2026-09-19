@@ -35,14 +35,50 @@ import type { Directory } from '../filesystem/types';
 import { generateHomeLan } from '../generation/generateHomeLan';
 import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
 import { addressForTarget } from '../network/resolveName';
+import { isCrossPlayerWorkstation } from '../network/crossPlayerHop';
 import { homeDirectory } from '../sessions/homeDirectory';
 import { resolveAbsPath } from '../filesystem/path';
+import { gameDayAt } from '../cve/worldClock';
+import { parseDpkgVersions, readDpkgStatus } from '../packages/dpkgStatus';
+import { localExploitOutcome, type LocalExploitOutcome } from '../cve/localExploit';
+import type { ExploitEffectKind } from '../cve/exploitEffect';
+import { accountsIn, type NamedPasswdAccount } from '../sessions/passwdAccount';
+import { libraryPresent } from './libraryDeps';
+import { SYSTEM_LIBRARIES } from '../generation/libraries';
+import { hasTty } from '../shell/runLine';
 import { errorLine, streamedResult, text } from './streaming';
-import type { Command, CommandEnv, CommandResult, TerminalLine } from './types';
+import type { Command, CommandEnv, CommandResult, SessionKind, TerminalLine } from './types';
 
 const PHASE_DELAY_MS = 260;
 const MAX_PORT = 65535;
 const USAGE = 'usage: msfconsole <host> <port>';
+const USAGE_LOCAL = 'usage: msfconsole --local <command>';
+
+/** `--local` reads the box's own manifest and rolls the effect client-side, which it can
+ *  only do on a box it can regenerate — its owner's own or an NPC's. Another player's
+ *  workstation is server-side state this side cannot see, so `--local` bounces here the
+ *  way the own-box-only wireless tools do; crossing to it is a later, server-routed path. */
+const LOCAL_CROSS_PLAYER = 'msfconsole: --local not available on this machine';
+
+/** The one line a service with no live CVE, an unmapped command, a linked library with
+ *  no live hole, and no account at the granted tier all bounce with — a `--local` fire
+ *  that told which of those it was would turn a failed exploit into a free scan of the
+ *  box's own manifest, exactly as the service path's single refusal does. */
+const localMiss = (command: string): string => `msfconsole: no known vulnerability on ${command}`;
+
+/** How a non-shell roll names the kind of hole it found. `--local` can walk in through a
+ *  shell today; the six holes that act ON the box rather than opening one are PR4b's, so
+ *  until then the roll reveals its kind and refuses to fake a shell it never rolled. */
+const NON_SHELL_HOLE: Readonly<
+  Record<Exclude<ExploitEffectKind, 'shell_full' | 'shell_limited'>, string>
+> = {
+  file_read: 'reads a file',
+  dir_list: 'lists a directory',
+  file_write: 'writes a file',
+  password_reset: 'resets a password',
+  backdoor_port_open: 'opens a backdoor port',
+  script_exec: 'runs a script',
+};
 const USAGE_READ = 'usage: msfconsole <host> <port> <path>';
 /** A write takes a PAIR, not a path: the bytes come from a file on this box and land on
  *  one over there, and naming only the destination would leave nothing to send. */
@@ -377,7 +413,143 @@ async function* fire(env: CommandEnv, attempt: Attempt): AsyncGenerator<Terminal
   return 0;
 }
 
-const execute: Command['execute'] = async (env, args) => {
+/** The recon every `--local` fire streams before it either walks in or names the hole:
+ *  the phases, then the vulnerability line naming the library that fell (decision 77 —
+ *  there is no port to target, so the library stands in for the service). */
+async function* localPreamble(
+  env: CommandEnv,
+  command: string,
+  outcome: LocalExploitOutcome,
+): AsyncGenerator<TerminalLine, void> {
+  yield text(`[*] Exploiting ${command} locally`);
+  await env.sleep(PHASE_DELAY_MS);
+  yield text('[*] Sending exploit payload...');
+  await env.sleep(PHASE_DELAY_MS);
+  yield text('[*] Payload delivered, waiting for callback...');
+  yield text(`[*] Vulnerability: ${outcome.cve} (${outcome.severity}) in ${outcome.library}.so`);
+}
+
+/** A shell roll: walk the player in at the granted tier, as an account the box actually
+ *  has there. */
+async function* fireLocalShell(
+  env: CommandEnv,
+  command: string,
+  outcome: LocalExploitOutcome,
+  account: NamedPasswdAccount,
+): AsyncGenerator<TerminalLine, number> {
+  yield* localPreamble(env, command, outcome);
+  yield text('[+] Exploit successful!');
+
+  // A `shell_full` from a shell with no terminal behind it (`nc`, a limited exploit)
+  // still can't open a full one: the tier rises, the door does not. Every other case
+  // follows the effect. The kind decides the wording, so the two never disagree.
+  const kind: SessionKind =
+    outcome.effect === 'shell_full' && hasTty(env.session) ? 'exploit' : 'exploit_limited';
+
+  // A script has nowhere to be put down: `env` is a per-line snapshot, so a session
+  // pushed from here would leave every later line answering about a shell the script
+  // itself never stands in. The door is real and worth reporting, so it is — and the
+  // caller is left where it was, the bargain the service path strikes for the same case.
+  if (env.scripted === true) {
+    yield text(
+      kind === 'exploit'
+        ? `[+] Full shell available on ${env.hostname} as ${account.username}`
+        : `[+] Limited shell available on ${env.hostname} as ${account.username}`,
+    );
+    return 0;
+  }
+
+  yield text(
+    kind === 'exploit'
+      ? `[+] Full shell as ${account.username}@${env.hostname}`
+      : `[+] Got shell as ${account.username}@${env.hostname}`,
+  );
+  yield text('');
+
+  env.pushSession({
+    id: `exploit-local-${command}-${env.now()}`,
+    playerKey: env.session.playerKey,
+    machineId: env.session.machineId,
+    username: account.username,
+    userType: outcome.tier,
+    kind,
+    createdAt: env.now(),
+  });
+  env.setCwd(homeDirectory({ username: account.username, userType: outcome.tier }));
+  return 0;
+}
+
+/** A non-shell roll: name the kind of hole and stop. The six effects that act ON the box
+ *  rather than opening a shell are PR4b's, so until then the roll reveals its kind and
+ *  refuses to fake a shell it never rolled — no `[+] Exploit successful!`. */
+async function* fireLocalStandIn(
+  env: CommandEnv,
+  command: string,
+  outcome: LocalExploitOutcome,
+  hole: string,
+): AsyncGenerator<TerminalLine, number> {
+  yield* localPreamble(env, command, outcome);
+  yield errorLine(`[-] This hole ${hole}, which a local exploit cannot use yet`);
+  return 1;
+}
+
+/**
+ * `msfconsole --local <command>`: fire the CVE a library the command links carries, on
+ * the box the player is standing on. Everything is read from the box's OWN manifest and
+ * the world clock, so what `apt list -u` forecasts and what `--local` lands agree.
+ */
+const executeLocal = async (
+  env: CommandEnv,
+  command: string | undefined,
+): Promise<CommandResult> => {
+  if (command === undefined) return errorResult(USAGE_LOCAL);
+
+  // Another player's workstation is server-side state this side cannot regenerate, so the
+  // client interpreter would have nothing to read. Refused before it runs, as `su` routes
+  // that box to the server — the routed `--local` path is a later slice.
+  const wlan0 = connectedWlan0(env.network);
+  const essid = wlan0 === null ? null : wlan0.association.essid;
+  if (
+    isCrossPlayerWorkstation({
+      machineId: env.session.machineId,
+      publicKeyHex: env.identity.publicKeyHex,
+      essid,
+    })
+  ) {
+    return errorResult(LOCAL_CROSS_PLAYER);
+  }
+
+  const gameDay = gameDayAt(env.now());
+  const versions = parseDpkgVersions(readDpkgStatus(env.fs.root()));
+  // A library whose `.so` was deleted can't be fired through even if the manifest still
+  // remembers it — the linker could no longer load it. Drop it from the candidate set so
+  // it reads as the uniform miss, the way a missing binary makes a command not-found.
+  const loadable = new Map(
+    [...versions].filter(([pkg]) => {
+      const library = SYSTEM_LIBRARIES.find((candidate) => candidate === pkg);
+      return library === undefined || libraryPresent(env, library);
+    }),
+  );
+  const outcome = localExploitOutcome(command, loadable, gameDay);
+  if (outcome === undefined) return errorResult(localMiss(command));
+
+  if (outcome.effect === 'shell_full' || outcome.effect === 'shell_limited') {
+    // A shell lands as the first passwd row at the granted tier (the server's own rule).
+    // No such account is the uniform miss, refused before any phase is streamed so it
+    // reads like every other bounce.
+    const account = accountsIn(env.fs.root()).find(
+      (candidate) => candidate.userType === outcome.tier,
+    );
+    if (account === undefined) return errorResult(localMiss(command));
+    return streamedResult(fireLocalShell(env, command, outcome, account));
+  }
+
+  return streamedResult(fireLocalStandIn(env, command, outcome, NON_SHELL_HOLE[outcome.effect]));
+};
+
+const execute: Command['execute'] = async (env, args, flags) => {
+  if (flags.has('--local')) return executeLocal(env, args[0]);
+
   const [rawTarget, rawPort, rawArg] = args;
   if (rawTarget === undefined || rawPort === undefined) return errorResult(USAGE);
   const port = Number(rawPort);
@@ -497,8 +669,9 @@ export const msfconsole: Command = {
   category: 'network',
   tier: 'guest',
   availability: { kind: 'any-machine' },
+  flags: { '--local': 'boolean' },
   manual: {
-    synopsis: 'msfconsole <host> <port> [path | local:remote]',
+    synopsis: 'msfconsole <host> <port> [path | local:remote]\n       msfconsole --local <command>',
     description:
       'Attempt to exploit the service listening on a port of a host on your network. ' +
       'No password is asked for and none is needed: if the version running there has a ' +
@@ -521,7 +694,14 @@ export const msfconsole: Command = {
       'which reports the version and names ' +
       'the vulnerability when one has been published, but never what it does — firing is ' +
       'what reveals that. A service that is up to date refuses, and the target writes ' +
-      'down that you tried.',
+      'down that you tried. ' +
+      'With "--local" the target is not a service but a command on the box you are already ' +
+      'standing on — your own or one you hold. If a shared library the command links has a ' +
+      'live vulnerability, the command gives up a shell at a tier that follows the severity, ' +
+      'with no password, exactly as a service does; a critical or high hole lands you as root, ' +
+      'a lesser one as an ordinary user. See what a command links with "ldd", and which of ' +
+      'those libraries is exposed with "apt list -u". A command with no exposed library ' +
+      'refuses.',
     arguments: [
       { name: 'host', description: 'Target host IP or name on your network', required: true },
       { name: 'port', description: 'The port the vulnerable service listens on', required: true },
@@ -540,6 +720,10 @@ export const msfconsole: Command = {
       {
         command: 'msfconsole 192.168.1.1 161 /home/me/note.txt:/tmp/note.txt',
         description: 'Plant a file from your own box onto a router through its SNMP hole',
+      },
+      {
+        command: 'msfconsole --local su',
+        description: 'Escalate a shell through a live vulnerability in a library su links',
       },
     ],
   },
