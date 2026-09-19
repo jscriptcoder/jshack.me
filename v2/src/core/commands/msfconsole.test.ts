@@ -13,7 +13,21 @@ import { buildColdStartConnectivity } from '../network/interfaces';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
 import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
 import { buildCommandContext } from '../scripting/commandContext';
-import { asAbsPath, asNetworkAddress, asPlayerKeyHex } from '../types';
+import {
+  asAbsPath,
+  asEpochMs,
+  asMachineId,
+  asNetworkAddress,
+  asPlayerKeyHex,
+  type UserType,
+} from '../types';
+import { computeWorkstationId } from '../identity/workstation';
+import { WORLD_EPOCH } from '../cve/worldClock';
+import { localExploitOutcome } from '../cve/localExploit';
+import { packageTimeline } from '../cve/packageTimeline';
+import type { ExploitEffectKind } from '../cve/exploitEffect';
+import { buildEntry, formatDpkgStatus } from '../packages/dpkgStatus';
+import type { SystemLibrary } from '../generation/libraries';
 import type { OccupantProjection } from '../network/resolveOccupants';
 import type {
   CommandResult,
@@ -22,7 +36,9 @@ import type {
   FsView,
   ScanApi,
   Session,
+  SessionKind,
 } from './types';
+import type { MachineId } from '../types';
 import type { ConnectivityState, NetworkInterface } from '../network/interfaces';
 
 /**
@@ -273,6 +289,11 @@ const drain = async (
 const syncText = (result: CommandResult): string => {
   if (result.kind !== 'sync') throw new Error('sync expected');
   return result.lines.map((line) => line.content).join('\n');
+};
+
+const syncExit = (result: CommandResult): number => {
+  if (result.kind !== 'sync') throw new Error('sync expected');
+  return result.exitCode;
 };
 
 /** `msfconsole` reached the way a SCRIPT reaches it, through the adapter rather than
@@ -1526,6 +1547,405 @@ describe('msfconsole', () => {
     expect(out.exitCode).toBe(1);
     expect([...out]).not.toContain(refusal);
     expect(emitted).toContain(refusal);
+    expect(pushed).toEqual([]);
+  });
+});
+
+// ── msfconsole --local ──────────────────────────────────────────────────────
+//
+// The library axis of the exploit layer: with no port to reach, `--local <command>`
+// fires the CVE a linked library carries and stands the player at a higher tier on the
+// box they already hold. Like the service path, the command decides nothing about the
+// tier or the effect — the interpreter reads the box's own manifest and the world clock.
+
+/** One whole game day on the world clock — the unit a library CVE window opens on. */
+const DAY_MS = 86_400_000;
+
+/** The wall-clock moment a game day begins, so a box can sit exactly inside a library's
+ *  live window (`gameDayAt` of this is that day), or one day before it. */
+const atGameDay = (gameDay: number) => asEpochMs(WORLD_EPOCH + gameDay * DAY_MS);
+
+/** The player's OWN workstation id. A bare id like the mock default reads as another
+ *  player's box, where `--local` must not run client-side. */
+const OWN_MACHINE_ID = asMachineId(computeWorkstationId('rig', OWNER_KEY));
+
+/** A release of `library` on which `command`'s pool rolls a full shell at `tier` —
+ *  searched for in the world rather than pinned to a seed, so no reseed can quietly turn
+ *  this box's hole into a password reset or a different tier and stop testing the roll. */
+const shellReleaseFor = (command: string, library: SystemLibrary, tier: UserType) => {
+  const release = packageTimeline(library, 400).find((entry) => {
+    const outcome = localExploitOutcome(command, new Map([[library, entry.version]]), entry.publishedAt);
+    return outcome?.effect === 'shell_full' && outcome.tier === tier;
+  });
+  if (release === undefined) throw new Error(`no ${library} release rolls a ${tier} shell for ${command}`);
+  return release;
+};
+
+const rootShellReleaseFor = (command: string, library: SystemLibrary) =>
+  shellReleaseFor(command, library, 'root');
+
+/** A release of `library` on which `command`'s pool rolls exactly `effect` — the way to
+ *  reach a specific non-shell hole without pinning a seed's raw output. */
+const effectReleaseFor = (command: string, library: SystemLibrary, effect: ExploitEffectKind) => {
+  const release = packageTimeline(library, 400).find((entry) => {
+    const outcome = localExploitOutcome(command, new Map([[library, entry.version]]), entry.publishedAt);
+    return outcome?.effect === effect;
+  });
+  if (release === undefined) throw new Error(`no ${library} release rolls ${effect} for ${command}`);
+  return release;
+};
+
+/** A passwd holding both a root and a user account, so a shell roll at either tier has a
+ *  row to land as. */
+const ROOT_AND_USER_PASSWD =
+  'root:x:0:0:root:/root:/bin/bash\nalice:hash:1000:1000::/home/alice:/bin/bash\n';
+
+/** A box the player holds: their own workstation id, a passwd, a manifest carrying just
+ *  `library` at `version` (so it is the only library that can be live), and — unless
+ *  `soPresent` is false — that library's loadable `.so`. `gameDay` sets the clock. */
+const localBoxEnv = (opts: {
+  readonly library: SystemLibrary;
+  readonly version: string;
+  readonly gameDay: number;
+  readonly passwd?: string;
+  readonly soPresent?: boolean;
+  /** The box the tool runs from. A foreign workstation id reads as another player's box,
+   *  where `--local` must not run client-side. Defaults to the player's own. */
+  readonly machineId?: MachineId;
+  /** The kind of shell the player is standing in. A PTY-less one (`nc`, `exploit_limited`)
+   *  can only pass its lack of a terminal onward. Defaults to a TTY shell. */
+  readonly sessionKind?: SessionKind;
+  /** A box with no wireless association. `--local` is local, so it must still fire — the
+   *  network only decides whether the box is another player's, which own-box short-circuits. */
+  readonly offline?: boolean;
+}) => {
+  const manifest = formatDpkgStatus([buildEntry(opts.library, opts.version)]);
+  const lib = buildDirectory(
+    opts.soPresent === false ? {} : { [`${opts.library}.so`]: buildFile('', { owner: 'root' }) },
+  );
+  const tree = buildDirectory({
+    etc: buildDirectory({ passwd: buildFile(opts.passwd ?? ROOT_AND_USER_PASSWD) }),
+    lib,
+    var: buildDirectory({
+      lib: buildDirectory({
+        dpkg: buildDirectory({ status: buildFile(manifest, { owner: 'root' }) }),
+      }),
+    }),
+  });
+  const pushed: Session[] = [];
+  const cwds: string[] = [];
+  const env = mockCommandEnv({
+    identity: { publicKeyHex: asPlayerKeyHex(OWNER_KEY), privateKeyHex: 'b'.repeat(64) },
+    session: mockSession({
+      machineId: opts.machineId ?? OWN_MACHINE_ID,
+      username: 'alice',
+      userType: 'user',
+      kind: opts.sessionKind ?? 'su',
+    }),
+    hostname: 'rig',
+    now: () => atGameDay(opts.gameDay),
+    fs: mockFsViewFromTree(tree),
+    network: mockNetworkViewFromConnectivity(
+      opts.offline === true ? buildColdStartConnectivity(OWNER_KEY) : connectedState(),
+    ),
+    pushSession: (session) => void pushed.push(session),
+    setCwd: (path) => void cwds.push(path),
+  });
+  return { env, pushed, cwds };
+};
+
+/** A scripted `--local` reach — through the command context, which is what marks a run
+ *  scripted. `emitted` collects what a script does NOT hand back (stderr, dim asides). */
+const scriptedLocalRun = (opts: Parameters<typeof localBoxEnv>[0]) => {
+  const { env, pushed, cwds } = localBoxEnv(opts);
+  const emitted: string[] = [];
+  const context = buildCommandContext(env, new Map([[msfconsole.name, msfconsole]]), (line) =>
+    emitted.push(line.content),
+  );
+  return { fire: context.msfconsole, pushed, cwds, emitted };
+};
+
+/** How the shell parser hands `msfconsole --local su` to `execute`: the command a
+ *  positional, `--local` a bare flag. */
+const localFlags = new Map<string, string | true>([['--local', true]]);
+
+describe('msfconsole --local', () => {
+  it('escalates to a full shell with no password when a linked library CVE is live', async () => {
+    const release = rootShellReleaseFor('su', 'libpam');
+    const { env, pushed, cwds } = localBoxEnv({
+      library: 'libpam',
+      version: release.version,
+      gameDay: release.publishedAt,
+    });
+    const outcome = localExploitOutcome(
+      'su',
+      new Map([['libpam', release.version]]),
+      release.publishedAt,
+    )!;
+
+    const { text, exitCode } = await drain(await msfconsole.execute(env, ['su'], localFlags));
+
+    expect(exitCode).toBe(0);
+    // The whole ordered transcript (decision 77), so a dropped or reworded phase line is
+    // caught, not just the presence of the shell line.
+    expect(text.split('\n')).toEqual([
+      '[*] Exploiting su locally',
+      '[*] Sending exploit payload...',
+      '[*] Payload delivered, waiting for callback...',
+      `[*] Vulnerability: ${outcome.cve} (${outcome.severity}) in libpam.so`,
+      '[+] Exploit successful!',
+      '[+] Full shell as root@rig',
+      '',
+    ]);
+    expect(pushed).toHaveLength(1);
+    expect(pushed[0]).toMatchObject({
+      machineId: OWN_MACHINE_ID,
+      username: 'root',
+      userType: 'root',
+      kind: 'exploit',
+    });
+    // A distinct id naming the command, so the pushed hop is a real, addressable session
+    // rather than a nameless one that later lookups collide on.
+    expect(pushed[0]?.id).toContain('exploit-local-su');
+    expect(cwds).toEqual(['/root']);
+  });
+
+  it('fires client-side even offline, since --local touches no network', async () => {
+    // The network only tells `--local` whether the box is another player's; on the
+    // player's own box that is answered without it, so a box with no association still
+    // escalates rather than bouncing.
+    const release = rootShellReleaseFor('su', 'libpam');
+    const { env, pushed } = localBoxEnv({
+      library: 'libpam',
+      version: release.version,
+      gameDay: release.publishedAt,
+      offline: true,
+    });
+
+    const { text, exitCode } = await drain(await msfconsole.execute(env, ['su'], localFlags));
+
+    expect(exitCode).toBe(0);
+    expect(text).toContain('[+] Full shell as root@rig');
+    expect(pushed).toHaveLength(1);
+  });
+
+  it('misses with the uniform line the day before the library CVE window opens', async () => {
+    const release = rootShellReleaseFor('su', 'libpam');
+    const missDay = release.publishedAt - 1;
+    // Precondition: on the day before its window the installed version carries no live
+    // hole, so the command has nothing to fire and must say so.
+    expect(
+      localExploitOutcome('su', new Map([['libpam', release.version]]), missDay),
+    ).toBeUndefined();
+    const { env, pushed, cwds } = localBoxEnv({
+      library: 'libpam',
+      version: release.version,
+      gameDay: missDay,
+    });
+
+    const result = await msfconsole.execute(env, ['su'], localFlags);
+
+    expect(syncText(result)).toBe('msfconsole: no known vulnerability on su');
+    expect(syncExit(result)).toBe(1);
+    expect(pushed).toEqual([]);
+    expect(cwds).toEqual([]);
+  });
+
+  // Each non-shell effect names its own kind of hole and refuses to open a shell it never
+  // rolled. Until PR4b wires the six effects, this stand-in is what a rolled read, list,
+  // write, reset, backdoor or script hands back.
+  it.each([
+    ['file_read', 'cat', 'libpcre', 'reads a file'],
+    ['dir_list', 'ls', 'libpcre', 'lists a directory'],
+    ['file_write', 'rm', 'libpcre', 'writes a file'],
+    ['password_reset', 'su', 'libpam', 'resets a password'],
+    ['backdoor_port_open', 'systemctl', 'libsystemd', 'opens a backdoor port'],
+    ['script_exec', 'reboot', 'libsystemd', 'runs a script'],
+  ] as const)(
+    'names a %s hole, opens no shell, and pushes nothing',
+    async (effect, command, library, phrase) => {
+      const release = effectReleaseFor(command, library, effect);
+      const { env, pushed, cwds } = localBoxEnv({
+        library,
+        version: release.version,
+        gameDay: release.publishedAt,
+      });
+      const outcome = localExploitOutcome(
+        command,
+        new Map([[library, release.version]]),
+        release.publishedAt,
+      )!;
+
+      const { text, exitCode } = await drain(await msfconsole.execute(env, [command], localFlags));
+
+      expect(text).toContain(`[*] Vulnerability: ${outcome.cve} (${outcome.severity}) in ${library}.so`);
+      expect(text).not.toContain('[+] Exploit successful!');
+      expect(text).toContain(`[-] This hole ${phrase}, which a local exploit cannot use yet`);
+      expect(exitCode).toBe(1);
+      expect(pushed).toEqual([]);
+      expect(cwds).toEqual([]);
+    },
+  );
+
+  it('misses on a command that links no library', async () => {
+    // `mkdir` is not in `libraryDeps`, so it has no library to fall through — the same
+    // uniform miss a live-less library gives, so a bare fire is no free scan of the map.
+    const release = rootShellReleaseFor('su', 'libpam');
+    const { env, pushed } = localBoxEnv({
+      library: 'libpam',
+      version: release.version,
+      gameDay: release.publishedAt,
+    });
+
+    const result = await msfconsole.execute(env, ['mkdir'], localFlags);
+
+    expect(syncText(result)).toBe('msfconsole: no known vulnerability on mkdir');
+    expect(syncExit(result)).toBe(1);
+    expect(pushed).toEqual([]);
+  });
+
+  it('misses when the linked library is live but its .so has been deleted', async () => {
+    // The manifest still remembers libpam and its CVE is live, but the linker could no
+    // longer load a deleted `.so` — so there is nothing to fire through, and it reads as
+    // the uniform miss rather than exploiting a library the box can't even load.
+    const release = rootShellReleaseFor('su', 'libpam');
+    const { env, pushed } = localBoxEnv({
+      library: 'libpam',
+      version: release.version,
+      gameDay: release.publishedAt,
+      soPresent: false,
+    });
+
+    const result = await msfconsole.execute(env, ['su'], localFlags);
+
+    expect(syncText(result)).toBe('msfconsole: no known vulnerability on su');
+    expect(syncExit(result)).toBe(1);
+    expect(pushed).toEqual([]);
+  });
+
+  it('misses when the box has no account at the granted tier', async () => {
+    // A root shell needs a root row to land as. A box with only a user account has none,
+    // so the same live CVE that would open a root shell elsewhere reads as the uniform
+    // miss here — refused before any phase is streamed, like every other bounce.
+    const release = rootShellReleaseFor('su', 'libpam');
+    const { env, pushed } = localBoxEnv({
+      library: 'libpam',
+      version: release.version,
+      gameDay: release.publishedAt,
+      passwd: 'alice:hash:1000:1000::/home/alice:/bin/bash\n',
+    });
+
+    const result = await msfconsole.execute(env, ['su'], localFlags);
+
+    expect(syncText(result)).toBe('msfconsole: no known vulnerability on su');
+    expect(syncExit(result)).toBe(1);
+    expect(pushed).toEqual([]);
+  });
+
+  it('shows its usage when no command is named', async () => {
+    const release = rootShellReleaseFor('su', 'libpam');
+    const { env } = localBoxEnv({
+      library: 'libpam',
+      version: release.version,
+      gameDay: release.publishedAt,
+    });
+
+    const result = await msfconsole.execute(env, [], localFlags);
+
+    expect(syncText(result)).toBe('usage: msfconsole --local <command>');
+    expect(syncExit(result)).toBe(1);
+  });
+
+  it('lands a lesser CVE at user, as a user account rather than root', async () => {
+    // The library floor bottoms at user (decision 9), so a medium/low libpam CVE opens a
+    // shell as the box's user account, never root — the same command, one tier down.
+    const release = shellReleaseFor('su', 'libpam', 'user');
+    const { env, pushed, cwds } = localBoxEnv({
+      library: 'libpam',
+      version: release.version,
+      gameDay: release.publishedAt,
+    });
+
+    const { text, exitCode } = await drain(await msfconsole.execute(env, ['su'], localFlags));
+
+    expect(exitCode).toBe(0);
+    expect(text).toContain('[+] Full shell as alice@rig');
+    expect(pushed).toHaveLength(1);
+    expect(pushed[0]).toMatchObject({ username: 'alice', userType: 'user', kind: 'exploit' });
+    expect(cwds).toEqual(['/home/alice']);
+  });
+
+  it('passes a PTY-less shell onward: a full roll pushes a limited hop', async () => {
+    // Decision 73: an escalated shell inherits the caller's terminal state. Fired from a
+    // shell with no TTY (a limited exploit, a backdoor), a `shell_full` roll still can't
+    // open a full one — the tier rises to root, but the door stays a limited hop.
+    const release = rootShellReleaseFor('su', 'libpam');
+    const { env, pushed } = localBoxEnv({
+      library: 'libpam',
+      version: release.version,
+      gameDay: release.publishedAt,
+      sessionKind: 'exploit_limited',
+    });
+
+    const { text, exitCode } = await drain(await msfconsole.execute(env, ['su'], localFlags));
+
+    expect(exitCode).toBe(0);
+    expect(text).toContain('[+] Got shell as root@rig');
+    expect(text).not.toContain('[+] Full shell as');
+    expect(pushed).toHaveLength(1);
+    expect(pushed[0]).toMatchObject({ userType: 'root', kind: 'exploit_limited' });
+  });
+
+  it('does not run client-side on another player’s workstation', async () => {
+    const release = rootShellReleaseFor('su', 'libpam');
+    const foreign = asMachineId(computeWorkstationId('bob', 'f'.repeat(64)));
+    const { env, pushed } = localBoxEnv({
+      library: 'libpam',
+      version: release.version,
+      gameDay: release.publishedAt,
+      machineId: foreign,
+    });
+
+    const result = await msfconsole.execute(env, ['su'], localFlags);
+
+    expect(syncText(result)).toBe('msfconsole: --local not available on this machine');
+    expect(syncExit(result)).toBe(1);
+    expect(pushed).toEqual([]);
+  });
+
+  it('reports a shell rather than entering it when run from a script', async () => {
+    // Decision 70: a script has nowhere to stand a session, so the door is reported and
+    // the script is left where it was — never a shell it cannot occupy.
+    const release = rootShellReleaseFor('su', 'libpam');
+    const { fire, pushed, cwds } = scriptedLocalRun({
+      library: 'libpam',
+      version: release.version,
+      gameDay: release.publishedAt,
+    });
+
+    const out = await fire('su', { '--local': true });
+
+    expect([...out]).toContain('[+] Full shell available on rig as root');
+    expect([...out]).not.toContain('[+] Full shell as root@rig');
+    expect(pushed).toEqual([]);
+    expect(cwds).toEqual([]);
+  });
+
+  it('reports a limited shell from a script when the caller has no terminal', async () => {
+    // A `shell_full` roll from a PTY-less shell is a limited hop (decision 73), and a
+    // script reports it rather than entering — so the line is the limited one, not the full.
+    const release = rootShellReleaseFor('su', 'libpam');
+    const { fire, pushed } = scriptedLocalRun({
+      library: 'libpam',
+      version: release.version,
+      gameDay: release.publishedAt,
+      sessionKind: 'exploit_limited',
+    });
+
+    const out = await fire('su', { '--local': true });
+
+    expect([...out]).toContain('[+] Limited shell available on rig as root');
+    expect([...out]).not.toContain('[+] Full shell available on rig as root');
     expect(pushed).toEqual([]);
   });
 });
