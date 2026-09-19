@@ -6,18 +6,19 @@ record: the epic's `### Slice 8 — resolved decisions (grill-me, 2026-09-18)` s
 slice close-out: "Phase 3 slice 7 — reboot evicts" (#515–#518, v0.231.0–v0.234.0), which closed V3.
 **Slice 9 (firmware) is the only V-series axis left after this.**
 
-**Status:** Active — PR1 ✔ merged (#519, v0.235.0). PR2 ✔ merged (#520, v0.236.0). PR3 ✔ merged (#521, v0.237.0). PR4 in progress on `feat/local-exploit-escalates`.
+**Status:** Active — PR1 ✔ merged (#519, v0.235.0). PR2 ✔ merged (#520, v0.236.0). PR3 ✔ merged (#521, v0.237.0). PR4a in progress on `feat/local-exploit-escalates`. PR4 split into 4a/4b/4c at its planning (decisions 75–77).
 
-**Delivery:** Six independent PRs, sequenced to trunk (NOT a stack), per decision 72. Each merges
+**Delivery:** Eight independent PRs (six until PR4 split into 4a/4b/4c, decision 75), sequenced to trunk (NOT a stack), per decision 72. Each merges
 to `main`; the next branches from updated `main`. PRs 1, 2 and 3 are independent of everything and
-of each other; PR4 needs PR2 only for the "guest carries the tool in" story (it runs unaided on a
-box the player already holds root on) and PR3 only for its forecast to be readable; PR5 needs PR4's
-interpreter; PR6 widens PR4's map. Versions 0.235.0 → 0.240.0, bumped in both `v2/package.json`
+of each other; PR4a needs PR2 only for the "guest carries the tool in" story (it runs unaided on a
+box the player already holds root on) and PR3 only for its forecast to be readable; PR4b and PR4c need PR4a's
+`--local` branch; PR5 needs PR4a's interpreter and PR4c's log actions; PR6 widens PR4a's map.
+Versions 0.235.0 → 0.242.0, bumped in both `v2/package.json`
 and `v2/package-lock.json` per PR.
 
 **Branches (proposed):** PR1 `feat/ldd-lists-linked-libraries`, PR2 `feat/run-a-carried-binary`,
-PR3 `feat/apt-list-names-the-cve`, PR4 `feat/local-exploit-escalates`,
-PR5 `feat/local-exploit-crosses-players`, PR6 `feat/library-map-covers-the-toolchain`.
+PR3 `feat/apt-list-names-the-cve`, PR4a `feat/local-exploit-escalates`,
+PR4b `feat/local-exploit-effects`, PR4c `feat/local-exploit-traces`, PR5 `feat/local-exploit-crosses-players`, PR6 `feat/library-map-covers-the-toolchain`.
 
 ---
 
@@ -193,7 +194,17 @@ browser run (a unit test observes the exact rows).
 
 ---
 
-### PR4 — a live library CVE escalates a shell on a box you hold (v0.238.0)
+### PR4 — split at its planning into 4a, 4b and 4c (decision 75)
+
+The original PR4 is kept below verbatim as the source of the decisions it cites; the three
+sub-PRs that follow it own delivery. Planning found the traces need `api/` work the original
+Evidence line missed — `kern.log` has no client appender (only the server writes it, for `nmap`
+and reboot) and `appendAuthLog` formats only a `su` switch and refuses any box but the caller's
+own workstation — so the traces carry a wire-check and ship on their own.
+
+<details><summary>Original PR4 (superseded by 4a/4b/4c for delivery)</summary>
+
+#### PR4 — a live library CVE escalates a shell on a box you hold
 
 **Value:** The headline. A shell on the player's own box or an NPC box becomes a higher tier —
 often root — with no password, because a library the named command links has a live CVE. This is
@@ -251,9 +262,76 @@ epic's PR4 evidence obligation): on a seeded box inside a window, `ldd su` then 
 su` reaches root at the prompt, and `cat /var/log/kern.log` shows a crash line after a miss. No
 wire-check (client-local path touches no `api/`).
 
+</details>
+
+### PR4a — `--local` escalates a shell on a box you hold (v0.238.0)
+
+**Value:** The headline, playable. On the player's own box or an NPC box, `msfconsole --local
+<command>` becomes a higher-tier shell with no password when a library the command links has a
+live CVE.
+**Class:** Behavior change. **Decisions:** 9 (library floor), 63, 64, 65, 66, 68, 73, 76, 77.
+**Path:** the library interpreter and the seventeen pools in `src/core/cve` (as the original PR4
+Path describes); the `--local` branch in `msfconsole.ts`, refused on another player's workstation
+(`isCrossPlayerWorkstation`, as `su` routes) — that is PR5's; the account a tier lands as is the
+first `/etc/passwd` row at that tier (the server's own rule, `exploitCreateSession.ts:533`), and
+no account at that tier is the uniform miss. A rolled non-shell effect in this PR reports the
+effect kind it rolled and pushes nothing (`[+] Exploit successful!` then one line naming what the
+hole does) — the honest stand-in 4b replaces, never a shell it did not roll.
+**Output** (decision 77): `[*] Exploiting <command> locally`, `[*] Sending exploit payload...`,
+`[*] Payload delivered, waiting for callback...`, `[*] Vulnerability: <CVE> (<severity>) in
+<library>.so`, `[+] Exploit successful!`, `[+] Full shell as <user>@<hostname>` (or `[+] Got shell
+as …` for a limited one). A miss is the one line `msfconsole: no known vulnerability on <command>`.
+**Acceptance:**
+- On a box whose `libpam` is inside a live-CVE window, `msfconsole --local su` escalates with no
+  password — a `medium`/`low` CVE lands user, a `high`/`critical` lands root (the library floor) —
+  and the same box a day before the window opens answers the miss message.
+- The effect for a given `(command, library, release)` is identical across two different boxes on
+  that release.
+- When `su`'s two libraries are both live, the higher-severity CVE decides; a tie falls to
+  `libpam` before `libcrypt`.
+- An unmapped command, no live library, a deleted `.so`, and no account at the granted tier all
+  print the same miss message.
+- `shell_full` from a TTY shell pushes an `exploit` hop; from a PTY-less shell (`nc`,
+  `exploit_limited`) both shell rolls push `exploit_limited` — the tier rises, the door does not.
+- On another player's workstation `--local` does not run client-side.
+- From a `node` script a shell roll reports rather than entering (decision 70's scripting rule).
+**Evidence:** RED-GREEN unit tests at the interpreter and command layers; mutation gate; a solo
+browser run — on a seeded box inside a window, `ldd su` then `msfconsole --local su` reaches the
+granted tier at the prompt. No wire-check (no `api/`).
+
+### PR4b — every effect `--local` can roll does what it does (v0.239.0)
+
+**Value:** The six non-shell rolls stop being reports and act on the box the player stands on.
+**Class:** Behavior change. **Decisions:** 70, 76.
+**Path:** each effect as the ordinary local operation at the granted tier, reusing slice 5's pure
+pieces: `file_read`/`dir_list` through `createFsView(root, { userType: tier })`; `file_write` with
+decision 23's `local:remote` grammar, both halves on this box; `password_reset` through
+`withAccountHash` and `pwned-XXXX-<tier>`; `backdoor_port_open` through `backdoorPortFor` and the
+`nc -l` pidfile path; `script_exec` through `runScript` against the current box at the tier. Writes
+go through `env.patches`.
+**Acceptance:** all eight kinds reachable and behaving as their slice-5 handlers do, the current
+box standing in for the remote target; on an NPC box the four write effects are authorized at the
+caller's server session tier (decision 76).
+**Evidence:** RED-GREEN unit tests; mutation gate. No wire-check.
+
+### PR4c — `--local` leaves the trace a real box would record (v0.240.0)
+
+**Value:** Decision 69 made real: a miss is loud, a shell success shows its missing
+authentication, everything else is quiet.
+**Class:** Behavior change. **Decisions:** 69, 76.
+**Path:** `env.log.appendKernLog` and a new server action formatting a `kern.log` segfault line
+naming the command and the library; a no-auth `AuthLogEvent` variant and its server formatter.
+Both server-stamped and best-effort. Both own-workstation only, as `appendAuthLog` is today, so an
+NPC box records nothing — the same as `su` there (decision 76).
+**Acceptance:** a miss with a linked library writes one `kern.log` line naming both; a command
+linking nothing or a missing `.so` writes nothing; a shell success writes an `auth.log` session
+line with no password line before it; a non-shell success writes nothing.
+**Evidence:** RED-GREEN unit tests; a `scripts/test*.ts` wire-check against `vercel dev` +
+supabase for both actions; mutation gate.
+
 ---
 
-### PR5 — the local exploit crosses to another player's box (v0.239.0)
+### PR5 — the local exploit crosses to another player's box (v0.241.0)
 
 **Value:** The PvP face. B, holding a guest shell on A's stale workstation, escalates to root on it
 with no password — and A closing the hole with `apt upgrade` is what stops them. The first route by
@@ -310,7 +388,7 @@ A's box escalate, each turning a check red).
 
 ---
 
-### PR6 — the dependency map covers the game's own toolchain (v0.240.0)
+### PR6 — the dependency map covers the game's own toolchain (v0.242.0)
 
 **Value:** A live library CVE reaches the game's own tools, not just the base system commands — so
 the axis is as wide as legacy's, and a player can pick a payload by picking from a larger set of

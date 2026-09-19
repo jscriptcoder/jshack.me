@@ -3960,6 +3960,43 @@ severity without the id (the defender loses the id to match, and it is no use to
 - Evidence: PR 5 carries a `scripts/test*.ts` wire-check against `vercel dev` + supabase; PR 4 a
   solo browser run. Every PR bumps the version.
 
+#### 75. PR4 splits into three: shells, effects, traces (PR4 planning, 2026-09-19)
+
+Planning PR4 found `api/` work its Evidence line had not counted: nothing on the client can append
+to `kern.log` (only the server writes it, for `nmap` and reboot), and `appendAuthLog` formats only a
+`su` switch and refuses any box but the caller's own workstation. So decision 72's PR4 ships as
+**4a** (interpreter, seventeen pools, `--local` with both shell rolls and the miss), **4b** (the six
+non-shell effects) and **4c** (the two traces, with their server actions and a wire-check) —
+each playable and reviewable alone. Eight PRs, versions 0.235.0 → 0.242.0. Rejected: one PR (the
+largest of the slice by far, mixing a client feature with a wire-checked server change); two PRs
+(the client half still carries all eight effects at once).
+
+#### 76. On an NPC box `--local` inherits `su`'s limits, by name (PR4 planning, 2026-09-19)
+
+Decision 63 says the client-local path works "exactly as NPC `su` already does", and that includes
+two limits `su` has today. A write to an NPC box is authorized server-side at the tier of the
+caller's SERVER session row there (their `ssh` hop) — a client-local escalation never raises it, so
+a root `file_write`, `password_reset`, backdoor or script lands at the ssh tier, exactly as a write
+after a local `su root` does. And `appendAuthLog` refuses any box but the caller's own, so an NPC
+box records no trace, as it records none for `su`. Shells and reads are fully client-side and
+unaffected; on the player's own box every effect runs at the granted tier. Accepted as a known gap
+shared with `su`; fixing it is one change for both and its own slice. Rejected: fixing it here (new
+`api/` surface that `su` needs identically).
+
+#### 77. `--local` names the library that fell (PR4 planning, 2026-09-19)
+
+The phase output follows the service path's, with the library appended to the vulnerability line:
+`[*] Exploiting <command> locally`, `[*] Sending exploit payload...`, `[*] Payload delivered,
+waiting for callback...`, `[*] Vulnerability: <CVE> (<severity>) in <library>.so`, `[+] Exploit
+successful!`, then the effect's line (`[+] Full shell as <user>@<hostname>` / `[+] Got shell as
+…`). Legacy's `[*] Targeting <ip>:<port> (<version>)` has no meaning with no port. Naming the
+library is recon the attacker already did (`ldd`, `apt list -u`); naming it on the way in, not up
+front, keeps the service path's rule that the tool learns the hole from the target. An escalated
+shell pushes `exploit` / `exploit_limited` (no new kind, as already folded in), and so — like any
+NPC hop — does not survive a refresh on the player's own box, where the server stores only `su`
+rows. Rejected: pushing `su` to persist it (the PTY-less case still needs `exploit_limited`, and
+`exit` and refresh would read an exploit as a password switch).
+
 ### Forced rather than chosen (planning should not re-litigate)
 
 - **`/var/lib/dpkg/status` is THE version source.** Settled by the catalog's own shipped comment,
