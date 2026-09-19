@@ -6,7 +6,7 @@ record: the epic's `### Slice 8 — resolved decisions (grill-me, 2026-09-18)` s
 slice close-out: "Phase 3 slice 7 — reboot evicts" (#515–#518, v0.231.0–v0.234.0), which closed V3.
 **Slice 9 (firmware) is the only V-series axis left after this.**
 
-**Status:** Active — PR1 ✔ merged (#519, v0.235.0). PR2 ✔ merged (#520, v0.236.0). PR3 in progress on `feat/apt-list-names-the-cve`.
+**Status:** Active — PR1 ✔ merged (#519, v0.235.0). PR2 ✔ merged (#520, v0.236.0). PR3 ✔ merged (#521, v0.237.0). PR4 in progress on `feat/local-exploit-escalates`.
 
 **Delivery:** Six independent PRs, sequenced to trunk (NOT a stack), per decision 72. Each merges
 to `main`; the next branches from updated `main`. PRs 1, 2 and 3 are independent of everything and
