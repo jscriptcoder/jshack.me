@@ -274,9 +274,12 @@ live CVE.
 Path describes); the `--local` branch in `msfconsole.ts`, refused on another player's workstation
 (`isCrossPlayerWorkstation`, as `su` routes) — that is PR5's; the account a tier lands as is the
 first `/etc/passwd` row at that tier (the server's own rule, `exploitCreateSession.ts:533`), and
-no account at that tier is the uniform miss. A rolled non-shell effect in this PR reports the
-effect kind it rolled and pushes nothing (`[+] Exploit successful!` then one line naming what the
-hole does) — the honest stand-in 4b replaces, never a shell it did not roll.
+no account at that tier is the uniform miss. A rolled non-shell effect in this PR names the kind
+of hole after the vulnerability line, does nothing, pushes nothing, and exits 1 — no `[+] Exploit
+successful!` (confirmed 2026-09-19): `[-] This hole <reads a file | lists a directory | writes a
+file | resets a password | opens a backdoor port | runs a script>, which a local exploit cannot use
+yet`. The honest stand-in 4b replaces, never a shell it did not roll; while 4a is live it reveals
+the kind of hole without its effect, which was accepted over a miss message that would lie.
 **Output** (decision 77): `[*] Exploiting <command> locally`, `[*] Sending exploit payload...`,
 `[*] Payload delivered, waiting for callback...`, `[*] Vulnerability: <CVE> (<severity>) in
 <library>.so`, `[+] Exploit successful!`, `[+] Full shell as <user>@<hostname>` (or `[+] Got shell
