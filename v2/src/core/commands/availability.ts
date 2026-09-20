@@ -23,7 +23,7 @@
  */
 
 import { asAbsPath } from '../types';
-import type { UserType } from '../types';
+import type { AbsPath, UserType } from '../types';
 import type { FileNode } from '../filesystem/types';
 import type { Command, CommandEnv, CommandResult } from './types';
 import { packageForBinary } from '../packages/aptPackages';
@@ -64,14 +64,24 @@ const syncError = (content: string, exitCode: number): CommandResult => ({
  *  live in `/usr/sbin`. */
 const BINARY_SEARCH_PATH: readonly string[] = ['/bin', '/usr/bin', '/usr/sbin'];
 
-/** First existing binary FILE for `name` across the search path, or null.
- *  Shared with `ldd`, which resolves a bare name the same way the shell does. */
-export const resolveBinary =(env: CommandEnv, name: string): FileNode | null => {
+/** The PATH of the first existing binary file for `name` across the search path, or null.
+ *  Where a bare name a player typed actually lives — `/usr/bin/msfconsole` for an installed
+ *  tool — which a cross-player `--local` fire must name to the server (decision 71), since
+ *  the box could no longer be asked to find it after the fact. */
+export const resolveBinaryPath = (env: CommandEnv, name: string): AbsPath | null => {
   for (const directory of BINARY_SEARCH_PATH) {
-    const node = env.fs.stat(asAbsPath(`${directory}/${name}`));
-    if (node !== null && node.kind === 'file') return node;
+    const path = asAbsPath(`${directory}/${name}`);
+    const node = env.fs.stat(path);
+    if (node !== null && node.kind === 'file') return path;
   }
   return null;
+};
+
+/** First existing binary FILE for `name` across the search path, or null.
+ *  Shared with `ldd`, which resolves a bare name the same way the shell does. */
+export const resolveBinary = (env: CommandEnv, name: string): FileNode | null => {
+  const path = resolveBinaryPath(env, name);
+  return path === null ? null : env.fs.stat(path);
 };
 
 /** Whether a binary named `name` is present on the current machine (resolves in

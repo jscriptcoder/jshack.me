@@ -1269,10 +1269,46 @@ export type ExploitRunResult =
       readonly error: 'not_vulnerable' | 'host_unreachable' | 'network_error';
     };
 
-/** The exploit seam, backed by the signed `exploitCreateSession` endpoint. One
- *  method, because there is one question: fire at this port and see what opens. */
+/** What `msfconsole --local` hands the CROSS-PLAYER exploit action: the box B is
+ *  standing on (A's registered workstation), the command whose linked library carries
+ *  the hole, and the PATH B ran the tool from — so the server can confirm a runnable
+ *  `msfconsole` is really there (decision 71) rather than take a forged client's word.
+ *  No version, CVE, effect or tier: the server recomputes every one from A's own
+ *  regenerated manifest and its own clock, exactly as `ExploitRunParams` withholds them
+ *  from the network path. B's OWN open session on the box is the authorization, resolved
+ *  server-side from the verified key — there is no password to send. */
+export type ExploitLocalElevateParams = {
+  readonly sessionId: string;
+  /** A's registered workstation id — the box B stands on and the server regenerates. */
+  readonly machineId: string;
+  /** The `<command>` the player named (`su`), whose linked libraries carry the hole. */
+  readonly command: string;
+  /** Where the client resolved `msfconsole` from — `/usr/bin/msfconsole` for an
+   *  installed copy, `/tmp/msfconsole` for one B carried in. The server re-checks the
+   *  box really holds a runnable `msfconsole` there. */
+  readonly commandPath: string;
+  readonly parentSessionId: string | null;
+  /** The third token the player typed, if any — the path a read effect reads, the file a
+   *  write effect writes. Forwarded blind, exactly as the network path forwards it. */
+  readonly arg?: string | undefined;
+  /** The bytes behind the LOCAL half of a `local:remote` token, read off the box B runs
+   *  the tool from. A write effect's payload can only come from here — the server
+   *  regenerates A's box and has no view of B's own filesystem. */
+  readonly content?: string | undefined;
+  /** What a script effect's run wrote on this side, re-walked at the granted tier
+   *  server-side. Undefined whenever no script ran, which reaches the server as the same
+   *  fire as naming none at all. */
+  readonly writes?: readonly { readonly path: string; readonly content: string }[] | undefined;
+};
+
+/** The exploit seam. `run` fires at a network service; `elevateLocal` fires a library
+ *  CVE on ANOTHER player's box B already holds a session on — the passwordless
+ *  cross-player `--local`. Both answer with the same `ExploitRunResult`: the effect union
+ *  is the server's, whichever door reached it, so the client renders one shape. Backed by
+ *  the signed `exploitCreateSession` and `exploitLocalElevate` endpoints respectively. */
 export type ExploitApi = {
   readonly run: (params: ExploitRunParams) => Promise<ExploitRunResult>;
+  readonly elevateLocal: (params: ExploitLocalElevateParams) => Promise<ExploitRunResult>;
 };
 
 /** What `nmap` hands to the scan action so the server can record the scan on each
@@ -1524,6 +1560,15 @@ export type CommandEnv = {
 
   /** Piped input from a previous command in the pipeline. */
   readonly stdin?: AsyncIterable<string>;
+
+  /** The token the command was invoked as — argv[0], the exact word the shell resolved to
+   *  this binary (`msfconsole`, `/tmp/msfconsole`, `./msfconsole`). The shell resolves the
+   *  binary and would otherwise discard the token; it is carried for the one command that
+   *  must name WHERE it ran from: a cross-player `msfconsole --local` tells the server the
+   *  path B ran the tool from, so a box that regenerates elsewhere can confirm the tool is
+   *  really there (decision 71). Absent when a command is not reached through the shell (a
+   *  script, a bare test); the reader falls back to its own name, resolved on the box. */
+  readonly argv0?: string;
 
   /** Whether this call came from a SCRIPT rather than from a typed line. Absent at
    *  the prompt; set by the script adapter, which is the one place that knows.

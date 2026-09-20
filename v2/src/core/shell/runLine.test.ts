@@ -1153,4 +1153,38 @@ describe('a box that rebooted under an open session', () => {
     expect(contentOf(result.lines)).toContain('hello world');
     expect(popSession).not.toHaveBeenCalled();
   });
+
+  // The shell resolves argv[0] to a binary and would otherwise discard the token. It is
+  // carried so a command can name WHERE it ran from — the path a cross-player exploit
+  // reports to the server. Each stage sees the word IT was invoked as, not the line's first.
+  describe('argv0', () => {
+    const argvProbe = (name: string, sink: { value?: string | undefined }): Command => ({
+      ...baseFixture(name),
+      execute: async (env) => {
+        sink.value = env.argv0;
+        return { kind: 'sync', lines: [], exitCode: 0 };
+      },
+    });
+
+    it('carries the token a command was invoked as', async () => {
+      const sink: { value?: string | undefined } = {};
+      await runCommandLine(aliceEnv(), 'probe', new Map([['probe', argvProbe('probe', sink)]]));
+      expect(sink.value).toBe('probe');
+    });
+
+    it('gives each pipeline stage the word it was invoked as, not the line’s first', async () => {
+      const first: { value?: string | undefined } = {};
+      const second: { value?: string | undefined } = {};
+      await runCommandLine(
+        aliceEnv(),
+        'alpha | beta',
+        new Map([
+          ['alpha', argvProbe('alpha', first)],
+          ['beta', argvProbe('beta', second)],
+        ]),
+      );
+      expect(first.value).toBe('alpha');
+      expect(second.value).toBe('beta');
+    });
+  });
 });

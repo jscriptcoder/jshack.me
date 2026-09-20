@@ -219,6 +219,11 @@ export type BuildCommandEnvArgs = {
    *  adapter (signed `exploitCreateSession` round-trip). Optional here for terse test
    *  setups; the UI always passes the real one. */
   readonly onExploitRun?: ExploitApi['run'];
+  /** The cross-player local-exploit seam — backs `env.exploit.elevateLocal`. The UI wires
+   *  it to the `postExploitLocalElevate` adapter (signed `exploitLocalElevate` round-trip).
+   *  Optional here: only a cross-player `msfconsole --local` calls it, so own-box/test setups
+   *  leave it unwired (a foreign-box `--local` without it surfaces the missing wiring). */
+  readonly onExploitElevateLocal?: ExploitApi['elevateLocal'];
   /** The cross-player `su`-elevation seam — backs `env.su.elevate`. The UI wires it
    *  to the `authElevateServerSession` adapter (signed `suElevate` round-trip).
    *  Optional here: only a cross-player hop's `su` calls it, so own-box/test setups
@@ -492,6 +497,7 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
     // shell the server never authorized, or report a hardened target for a door
     // nobody ever knocked on. Both are the client deciding the one thing it must not.
     run: args.onExploitRun ?? notWired('exploit.run'),
+    elevateLocal: args.onExploitElevateLocal ?? notWired('exploit.elevateLocal'),
   },
   scan: {
     record: args.onScanRecord ?? notWired('scan.record'),
