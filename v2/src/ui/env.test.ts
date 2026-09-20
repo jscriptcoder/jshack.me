@@ -5,7 +5,13 @@ import { generateIdentity } from '../core/identity/identity';
 import { asAbsPath } from '../core/types';
 import { buildColdStartConnectivity, type NetworkInterface } from '../core/network/interfaces';
 import { generateWifi } from '../core/generation/generateWifi';
-import type { LogApi, PatchApi, ScanRecordParams } from '../core/commands/types';
+import type {
+  ExploitApi,
+  ExploitLocalElevateParams,
+  LogApi,
+  PatchApi,
+  ScanRecordParams,
+} from '../core/commands/types';
 
 const noopPatches: PatchApi = {
   write: async () => ({ ok: true }),
@@ -27,7 +33,10 @@ const seedWifi = () => generateWifi({ seedPubkeyHex: 'a'.repeat(64) });
 const seedEnv = (
   userType: 'guest' | 'user' | 'root' = 'user',
   names: { readonly hostname?: string; readonly workstationName?: string } = {},
-  seams: { readonly onChildCommand?: (name: string | null) => void } = {},
+  seams: {
+    readonly onChildCommand?: (name: string | null) => void;
+    readonly onExploitElevateLocal?: ExploitApi['elevateLocal'];
+  } = {},
 ) =>
   buildCommandEnv({
     ...names,
@@ -65,6 +74,40 @@ describe('the busy label a script drives', () => {
     // The label is cosmetic, so an env built without the seam must stay usable —
     // unlike `resetGame`, whose absence really is a wiring bug worth throwing on.
     expect(() => seedEnv().setChildCommand('nmap')).not.toThrow();
+  });
+});
+
+describe('the cross-player local-exploit seam', () => {
+  const params: ExploitLocalElevateParams = {
+    sessionId: 'exploit-local-su-1',
+    machineId: 'alice-workstation-1234',
+    command: 'su',
+    commandPath: '/tmp/msfconsole',
+    parentSessionId: 'guest-1',
+  };
+
+  it('routes onExploitElevateLocal through env.exploit.elevateLocal', async () => {
+    const seen: ExploitLocalElevateParams[] = [];
+    const env = seedEnv('guest', {}, {
+      onExploitElevateLocal: async (received) => {
+        seen.push(received);
+        return { ok: false, error: 'not_vulnerable' };
+      },
+    });
+
+    const result = await env.exploit.elevateLocal(params);
+
+    expect(seen).toEqual([params]);
+    expect(result).toEqual({ ok: false, error: 'not_vulnerable' });
+  });
+
+  it('is loud when left unwired, refusing to answer a fire on its own', () => {
+    // Like `env.exploit.run`, an unwired local-exploit seam must never quietly answer:
+    // a client that did would either open a shell the server never authorized or report a
+    // box hardened that nobody ever reached.
+    expect(() => seedEnv().exploit.elevateLocal(params)).toThrow(
+      'exploit.elevateLocal is not wired',
+    );
   });
 });
 

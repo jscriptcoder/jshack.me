@@ -269,6 +269,7 @@ export const mockHydraApi = (overrides: Partial<HydraApi> = {}): HydraApi => ({
  *  than quietly refusing, which reads as a target that was never vulnerable. */
 export const mockExploitApi = (overrides: Partial<ExploitApi> = {}): ExploitApi => ({
   run: NOT_IMPLEMENTED('exploit.run'),
+  elevateLocal: NOT_IMPLEMENTED('exploit.elevateLocal'),
   ...overrides,
 });
 

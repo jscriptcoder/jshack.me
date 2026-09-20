@@ -60,6 +60,7 @@ import type {
   HydraCrackResult,
   ExploitRunParams,
   ExploitRunResult,
+  ExploitLocalElevateParams,
   RebootEvictResult,
 } from '../core/commands/types';
 import type { SessionSummary } from '../core/sessions/listSessions';
@@ -407,15 +408,53 @@ const exploitEffectSchema = z.union([
   }),
 ]);
 
+/** The server's answer to a fired CVE, read the same way whichever door reached it: a
+ *  shell grant, a non-shell effect, or one of the two 404 refusals kept apart. Shared by
+ *  the network fire and the cross-player local fire — the effect union is the server's, so
+ *  the client parses one shape either way.
+ *
+ *  The two 404s stay apart because they are two different facts: `host_unreachable` is a
+ *  box that was not there, `not_vulnerable` is the ONE answer for everything that was there
+ *  and did not open. A 200 that is neither a grant nor a known effect, and every non-404
+ *  status, is a fault rather than an answer about the box — collapsing one into
+ *  `not_vulnerable` would tell a player their exploit was beaten by a patch it never
+ *  reached. */
+const interpretExploitResponse = (response: Response, body: unknown): ExploitRunResult => {
+  if (response.ok) {
+    const grant = exploitGrantSchema.safeParse(body);
+    if (grant.success) return grant.data;
+    const effect = exploitEffectSchema.safeParse(body);
+    if (effect.success) return effect.data;
+    return { ok: false, error: 'network_error' };
+  }
+  if (response.status === 404) {
+    const refusal = (body as { error?: unknown } | null)?.error;
+    return {
+      ok: false,
+      error: refusal === 'host_unreachable' ? 'host_unreachable' : 'not_vulnerable',
+    };
+  }
+  return { ok: false, error: 'network_error' };
+};
+
+/** The optional payload fields both exploit doors forward the same way: a third token, a
+ *  write effect's bytes, and a script's writes — each keyed on UNDEFINED, not emptiness.
+ *  An empty string is a real payload (planting an empty file), and an empty writes list is
+ *  a real outcome (a script that ran and left the box alone), so dropping either for being
+ *  falsy would change what the fire means. A signed `undefined` would be a field to verify. */
+const exploitPayloadFields = (params: {
+  readonly arg?: string | undefined;
+  readonly content?: string | undefined;
+  readonly writes?: readonly { readonly path: string; readonly content: string }[] | undefined;
+}): Readonly<Record<string, unknown>> => ({
+  ...(params.arg === undefined ? {} : { arg: params.arg }),
+  ...(params.content === undefined ? {} : { content: params.content }),
+  ...(params.writes === undefined ? {} : { writes: params.writes }),
+});
+
 /** Fire a CVE at a port on a host on the caller's own LAN. No credential goes out —
  *  the server recomputes the game day from its own clock, regenerates the target, and
- *  answers from that box's own manifest what is published there and what it grants.
- *
- *  The two 404s stay apart because they are two different facts: `host_unreachable`
- *  is a box that was not there, `not_vulnerable` is the ONE answer for everything
- *  that was there and did not open. Every other status is a fault rather than an
- *  answer about the target, and collapsing one into `not_vulnerable` would tell a
- *  player their exploit was beaten by a patch it never reached. */
+ *  answers from that box's own manifest what is published there and what it grants. */
 export const runExploit = async (
   deps: SessionsClientDeps,
   params: ExploitRunParams,
@@ -427,36 +466,33 @@ export const runExploit = async (
       target_ip: params.targetIp,
       port: params.port,
       parent_session_id: params.parentSessionId,
-      // Only when the player named one — an absent path is how the server learns a read
-      // effect was fired blind, and a signed `arg: undefined` would be a field to verify.
-      ...(params.arg === undefined ? {} : { arg: params.arg }),
-      // Only when the third token was a pair this box could read. Keyed on UNDEFINED
-      // rather than on emptiness: an empty string is a real payload — it is how a player
-      // plants an empty file — so dropping it for being falsy would send a write carrying
-      // nothing and have the target write out a file the player never meant to empty.
-      ...(params.content === undefined ? {} : { content: params.content }),
-      // Only when a script actually ran. Keyed on UNDEFINED rather than on emptiness, as
-      // the bytes above are: a script that ran and wrote NOTHING is a real outcome — it
-      // reached the box and chose to leave it alone — and dropping an empty list for being
-      // falsy would report that back as a hole fired with nothing to run.
-      ...(params.writes === undefined ? {} : { writes: params.writes }),
+      ...exploitPayloadFields(params),
     });
-    const body: unknown = await response.json();
-    if (response.ok) {
-      const grant = exploitGrantSchema.safeParse(body);
-      if (grant.success) return grant.data;
-      const effect = exploitEffectSchema.safeParse(body);
-      if (effect.success) return effect.data;
-      return { ok: false, error: 'network_error' };
-    }
-    if (response.status === 404) {
-      const refusal = (body as { error?: unknown } | null)?.error;
-      return {
-        ok: false,
-        error: refusal === 'host_unreachable' ? 'host_unreachable' : 'not_vulnerable',
-      };
-    }
+    return interpretExploitResponse(response, await response.json());
+  } catch {
     return { ok: false, error: 'network_error' };
+  }
+};
+
+/** Fire a library CVE on ANOTHER player's box B already holds a session on — the
+ *  passwordless cross-player `--local`. Sends the box, the command and the PATH B ran the
+ *  tool from (never a version, CVE, effect or tier); the server resolves B's open session
+ *  as the authorization from the verified key, re-checks the tool is really there, and
+ *  answers with the same shape the network fire returns, so the two share one interpreter. */
+export const postExploitLocalElevate = async (
+  deps: SessionsClientDeps,
+  params: ExploitLocalElevateParams,
+): Promise<ExploitRunResult> => {
+  try {
+    const response = await post(deps, 'exploitLocalElevate', {
+      session_id: params.sessionId,
+      machine_id: params.machineId,
+      command: params.command,
+      command_path: params.commandPath,
+      parent_session_id: params.parentSessionId,
+      ...exploitPayloadFields(params),
+    });
+    return interpretExploitResponse(response, await response.json());
   } catch {
     return { ok: false, error: 'network_error' };
   }

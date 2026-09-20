@@ -65,6 +65,9 @@ type PreparedStage = {
   readonly command: Command;
   readonly positional: readonly string[];
   readonly flags: ReadonlyMap<string, string | true>;
+  /** The token this stage was invoked as (argv[0]) — carried onto the stage's env so a
+   *  command can name where it ran from, even after the shell has resolved the binary. */
+  readonly argv0: string;
 };
 
 type PrepareResult =
@@ -208,7 +211,10 @@ const prepareStage = (
     return { ok: false, error: syncError(noTerminal, 1) };
   }
 
-  return { ok: true, prepared: { command, positional: bound.positional, flags: bound.flags } };
+  return {
+    ok: true,
+    prepared: { command, positional: bound.positional, flags: bound.flags, argv0: stage.name },
+  };
 };
 
 const run = (env: CommandEnv, prepared: PreparedStage): Promise<CommandResult> =>
@@ -395,9 +401,13 @@ export const runCommandLine = async (
   let stdin = env.stdin;
   const carried: TerminalLine[] = [];
   for (let i = 0; i < prepared.length; i += 1) {
-    // Omit `stdin` entirely when undefined — `exactOptionalPropertyTypes`
-    // forbids assigning `undefined` to the optional `stdin` property.
-    const stageEnv: CommandEnv = stdin === undefined ? env : { ...env, stdin };
+    // Each stage runs as the token IT was invoked as, and `stdin` is omitted entirely when
+    // undefined — `exactOptionalPropertyTypes` forbids assigning `undefined` to it.
+    const stageEnv: CommandEnv = {
+      ...env,
+      argv0: prepared[i].argv0,
+      ...(stdin === undefined ? {} : { stdin }),
+    };
     const result = await run(stageEnv, prepared[i]);
     if (i === prepared.length - 1) {
       // A mode_change (nano/lynx/…) produces no stdout to redirect — pass it

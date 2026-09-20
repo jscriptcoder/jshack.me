@@ -60,9 +60,17 @@ import { md5 } from '../generation/md5';
 import { libraryDeps, libraryPresent } from './libraryDeps';
 import { SYSTEM_LIBRARIES } from '../generation/libraries';
 import { hasTty } from '../shell/runLine';
+import { resolveBinaryPath } from './availability';
 import { errorLine, streamedResult, text } from './streaming';
 import { PATCH_ERROR_REASON } from './types';
-import type { Command, CommandEnv, CommandResult, SessionKind, TerminalLine } from './types';
+import type {
+  Command,
+  CommandEnv,
+  CommandResult,
+  ExploitRunResult,
+  SessionKind,
+  TerminalLine,
+} from './types';
 
 const PHASE_DELAY_MS = 260;
 const MAX_PORT = 65535;
@@ -76,12 +84,6 @@ const USAGE_LOCAL_READ = 'usage: msfconsole --local <command> <path>';
  *  land on one over there — naming only a destination would leave nothing to send. Both
  *  halves are on this box for a `--local` fire, but the grammar is the service path's. */
 const USAGE_LOCAL_WRITE = 'usage: msfconsole --local <command> <local:remote>';
-
-/** `--local` reads the box's own manifest and rolls the effect client-side, which it can
- *  only do on a box it can regenerate — its owner's own or an NPC's. Another player's
- *  workstation is server-side state this side cannot see, so `--local` bounces here the
- *  way the own-box-only wireless tools do; crossing to it is a later, server-routed path. */
-const LOCAL_CROSS_PLAYER = 'msfconsole: --local not available on this machine';
 
 /** The one line a service with no live CVE, an unmapped command, a linked library with
  *  no live hole, and no account at the granted tier all bounce with — a `--local` fire
@@ -268,34 +270,95 @@ type Attempt = {
   readonly scriptError: string | undefined;
 };
 
-async function* fire(env: CommandEnv, attempt: Attempt): AsyncGenerator<TerminalLine, number> {
-  yield text(`[*] Targeting ${attempt.targetIp}:${attempt.port}`);
-  await env.sleep(PHASE_DELAY_MS);
-  yield text('[*] Sending exploit payload...');
-  await env.sleep(PHASE_DELAY_MS);
-  yield text('[*] Payload delivered, waiting for callback...');
+/** The blind payload both fires carry to the server: the bytes a write effect would plant,
+ *  and what a script effect's run wrote. Blind because the effect is unknown until the
+ *  server answers — a read hole and a write hole name their third token the same way. */
+type BlindPayload = {
+  readonly content: string | undefined;
+  readonly localError: 'not_found' | 'permission_denied' | 'is_directory' | undefined;
+  readonly writes: readonly { readonly path: string; readonly content: string }[] | undefined;
+  readonly scriptError: string | undefined;
+};
 
-  const sessionId = `exploit-${attempt.port}-${env.now()}`;
-  const result = await env.exploit.run({
-    sessionId,
-    essid: attempt.essid,
-    targetIp: attempt.targetIp,
-    port: attempt.port,
-    parentSessionId: env.session.id,
-    arg: attempt.arg,
-    content: attempt.content,
-    writes: attempt.writes,
-  });
+/** Read the LOCAL half of a `local:remote` token off this box, and run a BARE token blind
+ *  against `scriptBaseFs`, before either fire knows which effect the CVE carries. Both the
+ *  network fire and the cross-player local fire must do this the same way — the bytes and
+ *  any script writes are the whole of what a write or a script effect can send, because the
+ *  server regenerates the target and has no view of this filesystem.
+ *
+ *  A local half this shell cannot read is the player's OWN typo, refused here rather than
+ *  fired: nothing reached the box, so it is owed no line, and the player learns it without
+ *  spending a break-in on somebody else's log. A bare token that fails to read is CARRIED
+ *  instead — until the server names the effect, nothing on this side knows whether it was a
+ *  file on the target (a read hole) or a script on this box, so a blind read aimed at a path
+ *  this box happens not to have must not be stopped before it reaches the network. */
+const prepareBlindPayload = async (
+  env: CommandEnv,
+  scriptBaseFs: Directory,
+  rawArg: string | undefined,
+): Promise<{ readonly ok: false; readonly message: string } | { readonly ok: true; readonly payload: BlindPayload }> => {
+  const localPath = rawArg === undefined ? undefined : localHalfOf(rawArg);
+  const local =
+    localPath === undefined ? undefined : env.fs.read(resolveAbsPath(env.fs.cwd(), localPath));
+  if (localPath !== undefined && local !== undefined && !local.ok) {
+    return { ok: false, message: `msfconsole: ${localPath}: ${LOCAL_READ_DENY[local.error]}` };
+  }
 
+  const bareLocal =
+    rawArg === undefined || localPath !== undefined
+      ? undefined
+      : env.fs.read(resolveAbsPath(env.fs.cwd(), rawArg));
+  const collected: { path: string; content: string }[] = [];
+  const scriptRun =
+    bareLocal !== undefined && bareLocal.ok
+      ? await runScript(bareLocal.content, { fs: targetScriptFs(scriptBaseFs, collected) })
+      : undefined;
+
+  return {
+    ok: true,
+    payload: {
+      content: local !== undefined && local.ok ? local.content : undefined,
+      localError: bareLocal !== undefined && !bareLocal.ok ? bareLocal.error : undefined,
+      // Present whenever a script RAN, even when it wrote nothing: having reached the box
+      // and left it alone is a real outcome, and sending nothing would reach the server as
+      // the entirely different fire that had nothing to run at all.
+      writes: scriptRun === undefined ? undefined : collected,
+      scriptError:
+        scriptRun !== undefined && !scriptRun.ok ? describeScriptError(scriptRun.error) : undefined,
+    },
+  };
+};
+
+/** What the shared exploit renderer needs beyond the result itself — the few facts that
+ *  differ between a network fire and a cross-player local one. `host` names the box for a
+ *  shell or a script ("@host", "on host"); `missLabel` names the target in the miss line;
+ *  `refusal` words a connect-level bounce (a network fire names host and port, a local one
+ *  has neither); `arg`/`scriptError`/`localError` are what this side knew that the server
+ *  could not; `sessionId` is the id a minted shell carries. */
+type ExploitRenderContext = {
+  readonly host: string;
+  readonly missLabel: string;
+  readonly refusal: (reason: 'No route to host' | 'Network error') => string;
+  readonly arg: string | undefined;
+  readonly scriptError: string | undefined;
+  readonly localError: 'not_found' | 'permission_denied' | 'is_directory' | undefined;
+  readonly sessionId: string;
+};
+
+/** Render a fired CVE's answer — the shared tail of both exploit fires. The seam has
+ *  already returned; this streams the vulnerability line, every effect's outcome, and a
+ *  shell's hop. A network service and another player's box reach it by different doors and
+ *  read the same `ExploitRunResult`, so they render one shape and can never drift. */
+async function* renderExploitResult(
+  env: CommandEnv,
+  result: ExploitRunResult,
+  ctx: ExploitRenderContext,
+): AsyncGenerator<TerminalLine, number> {
   if (!result.ok) {
     yield errorLine(
       result.error === 'not_vulnerable'
-        ? `[-] Exploit failed — no known vulnerability on ${attempt.targetIp}:${attempt.port}`
-        : connectFailure(
-            attempt.targetIp,
-            attempt.port,
-            result.error === 'host_unreachable' ? 'No route to host' : 'Network error',
-          ),
+        ? `[-] Exploit failed — no known vulnerability on ${ctx.missLabel}`
+        : ctx.refusal(result.error === 'host_unreachable' ? 'No route to host' : 'Network error'),
     );
     return 1;
   }
@@ -316,8 +379,8 @@ async function* fire(env: CommandEnv, attempt: Attempt): AsyncGenerator<Terminal
       // This box knows the half the server cannot see: that a path WAS named and refused
       // here. Printing the ask would tell somebody who typed one that they had typed none,
       // and send them looking at the target for a mistake on their own disk.
-      if (result.effect === 'script_exec' && attempt.localError !== undefined) {
-        yield errorLine(`msfconsole: ${attempt.arg}: ${LOCAL_READ_DENY[attempt.localError]}`);
+      if (result.effect === 'script_exec' && ctx.localError !== undefined) {
+        yield errorLine(`msfconsole: ${ctx.arg}: ${LOCAL_READ_DENY[ctx.localError]}`);
         return 1;
       }
       yield errorLine(`[-] ${NEEDS_ARG_LINE[result.effect]}`);
@@ -326,10 +389,10 @@ async function* fire(env: CommandEnv, attempt: Attempt): AsyncGenerator<Terminal
     yield text('[+] Exploit successful!');
     if (result.effect === 'file_read') {
       if (!result.read.ok) {
-        yield errorLine(`[-] ${READ_DENY[result.read.error]} (as ${result.tier}): ${attempt.arg}`);
+        yield errorLine(`[-] ${READ_DENY[result.read.error]} (as ${result.tier}): ${ctx.arg}`);
         return 1;
       }
-      yield text(`[+] Reading ${attempt.arg} (as ${result.tier}):`);
+      yield text(`[+] Reading ${ctx.arg} (as ${result.tier}):`);
       yield text('');
       for (const line of result.read.content.split('\n')) yield text(line);
       return 0;
@@ -373,18 +436,18 @@ async function* fire(env: CommandEnv, attempt: Attempt): AsyncGenerator<Terminal
       // break-in still stands and whatever the script wrote before it stopped has already
       // travelled with the fire — a side effect that landed cannot be unwound, and the box
       // would not unwind it either. What the player is owed is where it stopped.
-      if (attempt.scriptError !== undefined) {
-        yield errorLine(`[-] Script injection failed: ${attempt.scriptError}`);
+      if (ctx.scriptError !== undefined) {
+        yield errorLine(`[-] Script injection failed: ${ctx.scriptError}`);
         return 1;
       }
-      yield text(`[+] Script injected on ${attempt.targetIp} as ${result.tier}`);
+      yield text(`[+] Script injected on ${ctx.host} as ${result.tier}`);
       return 0;
     }
     if (!result.list.ok) {
-      yield errorLine(`[-] ${LIST_DENY[result.list.error]} (as ${result.tier}): ${attempt.arg}`);
+      yield errorLine(`[-] ${LIST_DENY[result.list.error]} (as ${result.tier}): ${ctx.arg}`);
       return 1;
     }
-    yield text(`[+] Listing ${attempt.arg} (as ${result.tier}):`);
+    yield text(`[+] Listing ${ctx.arg} (as ${result.tier}):`);
     yield text('');
     for (const entry of result.list.entries) yield text(entry);
     return 0;
@@ -403,8 +466,8 @@ async function* fire(env: CommandEnv, attempt: Attempt): AsyncGenerator<Terminal
     // "Got shell" against "Full shell" would have to know the asymmetry to see it.
     yield text(
       result.kind === 'exploit'
-        ? `[+] Full shell available on ${attempt.targetIp} as ${result.username}`
-        : `[+] Limited shell available on ${attempt.targetIp} as ${result.username}`,
+        ? `[+] Full shell available on ${ctx.host} as ${result.username}`
+        : `[+] Limited shell available on ${ctx.host} as ${result.username}`,
     );
     return 0;
   }
@@ -414,13 +477,13 @@ async function* fire(env: CommandEnv, attempt: Attempt): AsyncGenerator<Terminal
   // "Full shell" who then cannot pivot onward has been lied to by their own tool.
   yield text(
     result.kind === 'exploit'
-      ? `[+] Full shell as ${result.username}@${attempt.targetIp}`
-      : `[+] Got shell as ${result.username}@${attempt.targetIp}`,
+      ? `[+] Full shell as ${result.username}@${ctx.host}`
+      : `[+] Got shell as ${result.username}@${ctx.host}`,
   );
   yield text('');
 
   env.pushSession({
-    id: sessionId,
+    id: ctx.sessionId,
     playerKey: env.session.playerKey,
     // The SERVER's answer for which box this landed on, never a client derivation: off the
     // generated LAN there is no id to derive, and deriving one would name the seeded
@@ -433,6 +496,36 @@ async function* fire(env: CommandEnv, attempt: Attempt): AsyncGenerator<Terminal
   });
   env.setCwd(homeDirectory({ username: result.username, userType: result.userType }));
   return 0;
+}
+
+async function* fire(env: CommandEnv, attempt: Attempt): AsyncGenerator<TerminalLine, number> {
+  yield text(`[*] Targeting ${attempt.targetIp}:${attempt.port}`);
+  await env.sleep(PHASE_DELAY_MS);
+  yield text('[*] Sending exploit payload...');
+  await env.sleep(PHASE_DELAY_MS);
+  yield text('[*] Payload delivered, waiting for callback...');
+
+  const sessionId = `exploit-${attempt.port}-${env.now()}`;
+  const result = await env.exploit.run({
+    sessionId,
+    essid: attempt.essid,
+    targetIp: attempt.targetIp,
+    port: attempt.port,
+    parentSessionId: env.session.id,
+    arg: attempt.arg,
+    content: attempt.content,
+    writes: attempt.writes,
+  });
+
+  return yield* renderExploitResult(env, result, {
+    host: attempt.targetIp,
+    missLabel: `${attempt.targetIp}:${attempt.port}`,
+    refusal: (reason) => connectFailure(attempt.targetIp, attempt.port, reason),
+    arg: attempt.arg,
+    scriptError: attempt.scriptError,
+    localError: attempt.localError,
+    sessionId,
+  });
 }
 
 /** The recon every `--local` fire streams before it either walks in or names the hole:
@@ -810,6 +903,64 @@ const appendCrashTrace = async (
   }
 };
 
+/** The absolute path B ran `msfconsole` from, for the server's binary check (decision 71).
+ *  argv[0] is the token the shell resolved to this binary: a path names itself (resolved
+ *  against the cwd), a bare word is found on the box's own search path the way the shell
+ *  found it. Falls back to the tool's own name when reached outside the shell (a script) —
+ *  and, for a bare word the search path cannot place, to the cwd, which the box then refuses
+ *  as a tool that is not really there. */
+const invocationPath = (env: CommandEnv): string => {
+  const token = env.argv0 ?? 'msfconsole';
+  return token.includes('/')
+    ? resolveAbsPath(env.fs.cwd(), token)
+    : (resolveBinaryPath(env, token) ?? resolveAbsPath(env.fs.cwd(), token));
+};
+
+/** A cross-player `--local`: B holds a session on A's box but cannot read A's server-side
+ *  state, so the fire routes to the server and RENDERS what it answers — the same effect
+ *  union the network fire renders — rather than rolling the outcome here. The client sends
+ *  the box, the command, the path B ran the tool from, and the blind payload; the server
+ *  recomputes the CVE from A's own manifest, applies the effect at the tier it grants, and
+ *  writes A's traces under A's own key. No password: B's open session is the authorization
+ *  (decision 66), resolved server-side from the verified key. */
+async function* fireLocalCrossPlayer(
+  env: CommandEnv,
+  command: string,
+  commandPath: string,
+  arg: string | undefined,
+  payload: BlindPayload,
+): AsyncGenerator<TerminalLine, number> {
+  yield text(`[*] Exploiting ${command} on ${env.hostname}`);
+  await env.sleep(PHASE_DELAY_MS);
+  yield text('[*] Sending exploit payload...');
+  await env.sleep(PHASE_DELAY_MS);
+  yield text('[*] Payload delivered, waiting for callback...');
+
+  const sessionId = `exploit-local-${command}-${env.now()}`;
+  const result = await env.exploit.elevateLocal({
+    sessionId,
+    machineId: env.session.machineId,
+    command,
+    commandPath,
+    parentSessionId: env.session.id,
+    ...(arg === undefined ? {} : { arg }),
+    ...(payload.content === undefined ? {} : { content: payload.content }),
+    ...(payload.writes === undefined ? {} : { writes: payload.writes }),
+  });
+
+  return yield* renderExploitResult(env, result, {
+    host: env.hostname,
+    missLabel: command,
+    // No host or port to name on a `--local` fire, so the connect-level bounce is the
+    // tool's own line rather than the network path's `connect to host … port …`.
+    refusal: (reason) => `msfconsole: ${reason}`,
+    arg,
+    scriptError: payload.scriptError,
+    localError: payload.localError,
+    sessionId,
+  });
+}
+
 /**
  * `msfconsole --local <command>`: fire the CVE a library the command links carries, on
  * the box the player is standing on. Everything is read from the box's OWN manifest and
@@ -822,9 +973,13 @@ const executeLocal = async (
 ): Promise<CommandResult> => {
   if (command === undefined) return errorResult(USAGE_LOCAL);
 
-  // Another player's workstation is server-side state this side cannot regenerate, so the
-  // client interpreter would have nothing to read. Refused before it runs, as `su` routes
-  // that box to the server — the routed `--local` path is a later slice.
+  // Another player's workstation is server-side state this side cannot regenerate — B holds
+  // a session on it but cannot read its journal or roll its manifest. So the fire CROSSES to
+  // the server, which rebuilds A's box, recomputes the CVE, applies the effect at the tier it
+  // grants, and writes A's traces under A's own key; the client only renders the answer. The
+  // local half of a write and any script writes are read on THIS side first — B's box is what
+  // the server has no view of — and travel with the fire, exactly as the network path sends
+  // them to a regenerated target.
   const wlan0 = connectedWlan0(env.network);
   const essid = wlan0 === null ? null : wlan0.association.essid;
   if (
@@ -834,7 +989,11 @@ const executeLocal = async (
       essid,
     })
   ) {
-    return errorResult(LOCAL_CROSS_PLAYER);
+    const prepared = await prepareBlindPayload(env, env.fs.root(), path);
+    if (!prepared.ok) return errorResult(prepared.message);
+    return streamedResult(
+      fireLocalCrossPlayer(env, command, invocationPath(env), path, prepared.payload),
+    );
   }
 
   const gameDay = gameDayAt(env.now());
@@ -953,45 +1112,12 @@ const execute: Command['execute'] = async (env, args, flags) => {
       ? dir({}, defaultDirectoryPermissions('user'))
       : resolveLanHostIdentity(host, essid).baseFs;
 
-  // A `local:remote` token aims a WRITE, and its local half names a file on THIS box.
-  // Read here rather than on the server, which regenerates the target and has no view of
-  // this filesystem — through the same tier-scoped view `cat` reads, so a file this shell
-  // cannot have is not one the exploit can send. Read blind: the scan never says which
-  // effect a CVE carries, so any pair-shaped token is read in case the hole writes.
-  const localPath = rawArg === undefined ? undefined : localHalfOf(rawArg);
-  const local =
-    localPath === undefined ? undefined : env.fs.read(resolveAbsPath(env.fs.cwd(), localPath));
-
-  // A BARE token is read here too, and for the opposite reason the pair above is. A pair's
-  // local half is certainly ours; a bare path is a file on the TARGET for the read holes
-  // and a file on THIS box for the script hole, and nothing on this side can tell which it
-  // is holding until the server names the effect. So it is read blind and a failure is
-  // CARRIED rather than refused — refusing would stop every blind read aimed at a path this
-  // box happens not to have, before it ever reached the network.
-  const bareLocal =
-    rawArg === undefined || localPath !== undefined
-      ? undefined
-      : env.fs.read(resolveAbsPath(env.fs.cwd(), rawArg));
-
-  // Run BLIND, for the reason the read above is blind: the effect is not known until the
-  // server answers, so any bare token this box could read is executed in case the hole
-  // turns out to run one. It costs nothing when it does not — every other branch ignores
-  // the writes, the run reaches only the target's regenerated tree and never this box, and
-  // the failure is carried rather than printed, so a read hole aimed at a file that happens
-  // to be valid JavaScript never reports a script error nobody asked for.
-  const collected: { path: string; content: string }[] = [];
-  const scriptRun =
-    bareLocal !== undefined && bareLocal.ok
-      ? await runScript(bareLocal.content, { fs: targetScriptFs(baseFs, collected) })
-      : undefined;
-
-  // Refused HERE rather than fired and failed. Nothing reached the daemon, so the target
-  // is owed no line about it — the same rule the server keeps for a read fired with no
-  // path. A player who mistyped their OWN path is told so without spending a break-in on
-  // somebody else's log to find out.
-  if (localPath !== undefined && local !== undefined && !local.ok) {
-    return errorResult(`msfconsole: ${localPath}: ${LOCAL_READ_DENY[local.error]}`);
-  }
+  // A `local:remote` token's local half, and a bare token's blind script, both read off
+  // THIS box before the effect is known — the same preparation the cross-player local fire
+  // makes, against the target's regenerated tree here and the box under the caller there. A
+  // local half this shell cannot read is the player's own typo, refused before firing.
+  const prepared = await prepareBlindPayload(env, baseFs, rawArg);
+  if (!prepared.ok) return errorResult(prepared.message);
 
   return streamedResult(
     fire(env, {
@@ -999,14 +1125,10 @@ const execute: Command['execute'] = async (env, args, flags) => {
       port,
       essid,
       arg: rawArg,
-      content: local !== undefined && local.ok ? local.content : undefined,
-      localError: bareLocal !== undefined && !bareLocal.ok ? bareLocal.error : undefined,
-      // Present whenever a script RAN, even when it wrote nothing: having reached the box
-      // and left it alone is a real outcome, and sending nothing would reach the server as
-      // the entirely different fire that had nothing to run at all.
-      writes: scriptRun === undefined ? undefined : collected,
-      scriptError:
-        scriptRun !== undefined && !scriptRun.ok ? describeScriptError(scriptRun.error) : undefined,
+      content: prepared.payload.content,
+      localError: prepared.payload.localError,
+      writes: prepared.payload.writes,
+      scriptError: prepared.payload.scriptError,
     }),
   );
 };

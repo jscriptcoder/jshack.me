@@ -69,6 +69,7 @@ import type {
   HydraCrackResult,
   ExploitRunParams,
   ExploitRunResult,
+  ExploitLocalElevateParams,
   ModeChange,
   AptDowngrade,
   TerminalLine,
@@ -146,6 +147,7 @@ import {
   crackCredentialsInnerGateway,
   crackCredentialsPublic,
   runExploit,
+  postExploitLocalElevate,
   createServerSession,
   endServerSession,
   rebootServerMachine,
@@ -755,6 +757,15 @@ const exploitRun = (params: ExploitRunParams): Promise<ExploitRunResult> =>
   sessionsClientDeps === undefined
     ? Promise.resolve({ ok: false, error: 'network_error' })
     : runExploit(sessionsClientDeps, params);
+
+/** Fire a library CVE on another player's box B holds a session on, server-side (backs
+ *  `env.exploit.elevateLocal`). Degrades to a network error before `startGame` wires the
+ *  sessions client — never to `not_vulnerable`, which would blame the box for the client's
+ *  own wiring. */
+const exploitElevateLocal = (params: ExploitLocalElevateParams): Promise<ExploitRunResult> =>
+  sessionsClientDeps === undefined
+    ? Promise.resolve({ ok: false, error: 'network_error' })
+    : postExploitLocalElevate(sessionsClientDeps, params);
 
 /** Open a database on a LAN host server-side (backs `env.mysql.connect`). Before the
  *  client is wired there is no daemon to ask, and `unreachable` is the honest answer:
@@ -1854,6 +1865,7 @@ const executeLine = async (line: string): Promise<void> => {
     onHydraCrackPublic: hydraCrackPublic,
     onHydraCrackInnerGateway: hydraCrackInnerGateway,
     onExploitRun: exploitRun,
+    onExploitElevateLocal: exploitElevateLocal,
     onScanRecord: recordScanFn,
     onScanRecordDeep: recordDeepScanFn,
     onScanRecordZoneTransfer: recordZoneTransferFn,

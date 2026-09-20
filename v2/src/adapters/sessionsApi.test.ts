@@ -13,6 +13,7 @@ import {
   rebootServerMachine,
   listServerSessions,
   runExploit,
+  postExploitLocalElevate,
   type SessionsClientDeps,
 } from './sessionsApi';
 import { generateIdentity } from '../core/identity/identity';
@@ -1137,6 +1138,195 @@ describe('runExploit', () => {
     const deps = makeDeps(fetchSpy as unknown as typeof fetch);
 
     expect(await runExploit(deps, params)).toEqual({ ok: false, error: 'network_error' });
+  });
+});
+
+describe('postExploitLocalElevate', () => {
+  const params = {
+    sessionId: 'exploit-local-su-1700000000000',
+    machineId: 'alice-workstation-1234',
+    command: 'su',
+    commandPath: '/tmp/msfconsole',
+    parentSessionId: 'guest-1',
+  };
+
+  it('POSTs a signed exploitLocalElevate carrying the box, the command and the tool path, no password', async () => {
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse(200, {
+        ok: true,
+        cve: 'CVE-2026-0184',
+        severity: 'critical',
+        username: 'root',
+        userType: 'root',
+        kind: 'exploit',
+        machine_id: 'alice-workstation-1234',
+      }),
+    );
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    const result = await postExploitLocalElevate(deps, params);
+
+    expect(result).toEqual({
+      ok: true,
+      cve: 'CVE-2026-0184',
+      severity: 'critical',
+      username: 'root',
+      userType: 'root',
+      kind: 'exploit',
+      machineId: 'alice-workstation-1234',
+    });
+    const verified = await verifyPayload(sentEnvelope(fetchSpy));
+    if (!verified.ok) throw new Error('expected a verified envelope');
+    expect(verified.payload).toMatchObject({
+      action: 'exploitLocalElevate',
+      session_id: 'exploit-local-su-1700000000000',
+      machine_id: 'alice-workstation-1234',
+      command: 'su',
+      command_path: '/tmp/msfconsole',
+      parent_session_id: 'guest-1',
+    });
+    // The whole point of the door is that no password crosses it: B's own open session is
+    // the authorization, resolved server-side from the verified key. The server also refuses
+    // an envelope that names a player_key, a writer_key or a userType, so sending any of them
+    // would fail the fire rather than be ignored.
+    expect(verified.payload).not.toHaveProperty('password');
+    expect(verified.payload).not.toHaveProperty('player_key');
+    expect(verified.payload).not.toHaveProperty('writer_key');
+    expect(verified.payload).not.toHaveProperty('userType');
+  });
+
+  it('carries back the weaker grant as its own kind, box renamed the way the wire spells it', async () => {
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse(200, {
+        ok: true,
+        cve: 'CVE-2026-0912',
+        severity: 'medium',
+        username: 'guest',
+        userType: 'guest',
+        kind: 'exploit_limited',
+        machine_id: 'alice-workstation-1234',
+      }),
+    );
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await postExploitLocalElevate(deps, params)).toMatchObject({
+      kind: 'exploit_limited',
+      machineId: 'alice-workstation-1234',
+    });
+  });
+
+  it('carries back a non-shell effect as the effect the server named, not as a shell', async () => {
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse(200, {
+        ok: true,
+        effect: 'file_read',
+        cve: 'CVE-2026-0184',
+        severity: 'high',
+        tier: 'user',
+        read: { ok: true, content: 'root:x:0:0:root:/root:/bin/bash' },
+      }),
+    );
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await postExploitLocalElevate(deps, { ...params, arg: '/etc/passwd' })).toEqual({
+      ok: true,
+      effect: 'file_read',
+      cve: 'CVE-2026-0184',
+      severity: 'high',
+      tier: 'user',
+      read: { ok: true, content: 'root:x:0:0:root:/root:/bin/bash' },
+    });
+  });
+
+  it('forwards the third token and a script’s writes only when the fire carried them', async () => {
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse(200, { ok: true, effect: 'script_exec', cve: 'CVE-2026-0269486', severity: 'high', tier: 'user' }),
+    );
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    await postExploitLocalElevate(deps, {
+      ...params,
+      arg: '/tmp/drop.js',
+      content: 'payload\n',
+      writes: [{ path: '/tmp/dropped.txt', content: 'planted\n' }],
+    });
+
+    const verified = await verifyPayload(sentEnvelope(fetchSpy));
+    if (!verified.ok) throw new Error('expected a verified envelope');
+    expect(verified.payload).toMatchObject({
+      arg: '/tmp/drop.js',
+      content: 'payload\n',
+      writes: [{ path: '/tmp/dropped.txt', content: 'planted\n' }],
+    });
+  });
+
+  it('omits an absent third token rather than signing an undefined the server must verify', async () => {
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse(200, {
+        ok: true,
+        cve: 'CVE-2026-0184',
+        severity: 'critical',
+        username: 'root',
+        userType: 'root',
+        kind: 'exploit',
+        machine_id: 'alice-workstation-1234',
+      }),
+    );
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    await postExploitLocalElevate(deps, params);
+
+    const verified = await verifyPayload(sentEnvelope(fetchSpy));
+    if (!verified.ok) throw new Error('expected a verified envelope');
+    expect(verified.payload).not.toHaveProperty('arg');
+    expect(verified.payload).not.toHaveProperty('content');
+    expect(verified.payload).not.toHaveProperty('writes');
+  });
+
+  it('maps the refusal 404 to not_vulnerable', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(404, { error: 'not_vulnerable' }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await postExploitLocalElevate(deps, params)).toEqual({ ok: false, error: 'not_vulnerable' });
+  });
+
+  it('keeps the unreachable 404 apart from the refusal', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(404, { error: 'host_unreachable' }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await postExploitLocalElevate(deps, params)).toEqual({ ok: false, error: 'host_unreachable' });
+  });
+
+  it('maps a server fault to network_error rather than to a box that held', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(500, { error: 'insert_failed' }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await postExploitLocalElevate(deps, params)).toEqual({ ok: false, error: 'network_error' });
+  });
+
+  it('maps a rejected envelope to network_error', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(401, { error: 'bad_signature' }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await postExploitLocalElevate(deps, params)).toEqual({ ok: false, error: 'network_error' });
+  });
+
+  it('refuses a 200 whose body is neither a grant nor a known effect', async () => {
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse(200, { ok: true, cve: 'CVE-2026-0184', severity: 'catastrophic', kind: 'exploit' }),
+    );
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await postExploitLocalElevate(deps, params)).toEqual({ ok: false, error: 'network_error' });
+  });
+
+  it('maps a thrown fetch (offline) to network_error', async () => {
+    const fetchSpy = vi.fn(async () => {
+      throw new Error('offline');
+    });
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await postExploitLocalElevate(deps, params)).toEqual({ ok: false, error: 'network_error' });
   });
 });
 

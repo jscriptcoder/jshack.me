@@ -35,6 +35,7 @@ import type { OccupantProjection } from '../network/resolveOccupants';
 import type {
   AuthLogEvent,
   CommandResult,
+  ExploitLocalElevateParams,
   ExploitRunParams,
   ExploitRunResult,
   FsView,
@@ -1732,6 +1733,44 @@ const scriptedLocalRun = (opts: Parameters<typeof localBoxEnv>[0]) => {
  *  positional, `--local` a bare flag. */
 const localFlags = new Map<string, string | true>([['--local', true]]);
 
+/** Another player's registered workstation — B is standing on A's box (a session opened
+ *  earlier), so it is neither B's own id nor a box the generator rolls for the ESSID. */
+const FOREIGN_MACHINE_ID = asMachineId(computeWorkstationId('bob', 'f'.repeat(64)));
+
+/** A cross-player `--local` reach: B stands on A's foreign box, and the client cannot read
+ *  A's server-side state, so the fire routes to `env.exploit.elevateLocal` and RENDERS what
+ *  the server answers rather than rolling the outcome itself. `elevateLocal` is captured so
+ *  a test can see the box, command and tool path that crossed the wire. */
+const crossPlayerLocalEnv = (opts: {
+  readonly result?: ExploitRunResult;
+  readonly argv0?: string;
+  readonly fs?: FsView;
+  readonly sessionKind?: SessionKind;
+} = {}) => {
+  const elevateLocal = vi.fn<(params: ExploitLocalElevateParams) => Promise<ExploitRunResult>>(
+    async () => opts.result ?? { ...GRANTED_FULL, machineId: FOREIGN_MACHINE_ID },
+  );
+  const pushed: Session[] = [];
+  const cwds: string[] = [];
+  const env = mockCommandEnv({
+    identity: { publicKeyHex: asPlayerKeyHex(OWNER_KEY), privateKeyHex: 'b'.repeat(64) },
+    session: mockSession({
+      machineId: FOREIGN_MACHINE_ID,
+      username: 'guest',
+      userType: 'guest',
+      kind: opts.sessionKind ?? 'ssh',
+    }),
+    hostname: 'rig',
+    network: mockNetworkViewFromConnectivity(connectedState()),
+    exploit: mockExploitApi({ elevateLocal }),
+    ...(opts.fs === undefined ? {} : { fs: opts.fs }),
+    ...(opts.argv0 === undefined ? {} : { argv0: opts.argv0 }),
+    pushSession: (session) => void pushed.push(session),
+    setCwd: (path) => void cwds.push(path),
+  });
+  return { env, elevateLocal, pushed, cwds };
+};
+
 describe('msfconsole --local', () => {
   it('escalates to a full shell with no password when a linked library CVE is live', async () => {
     const release = rootShellReleaseFor('su', 'libpam');
@@ -2563,21 +2602,157 @@ describe('msfconsole --local', () => {
     expect(pushed[0]).toMatchObject({ userType: 'root', kind: 'exploit_limited' });
   });
 
-  it('does not run client-side on another player’s workstation', async () => {
-    const release = rootShellReleaseFor('su', 'libpam');
-    const foreign = asMachineId(computeWorkstationId('bob', 'f'.repeat(64)));
-    const { env, pushed } = localBoxEnv({
-      library: 'libpam',
-      version: release.version,
-      gameDay: release.publishedAt,
-      machineId: foreign,
+  it('routes another player’s box to the server and stands B in the shell it grants', async () => {
+    const { env, elevateLocal, pushed, cwds } = crossPlayerLocalEnv({
+      argv0: '/tmp/msfconsole',
+      result: {
+        ok: true,
+        cve: 'CVE-2026-0184',
+        severity: 'critical',
+        username: 'root',
+        userType: 'root',
+        kind: 'exploit',
+        machineId: FOREIGN_MACHINE_ID,
+      },
     });
 
-    const result = await msfconsole.execute(env, ['su'], localFlags);
+    const { text, exitCode } = await drain(await msfconsole.execute(env, ['su'], localFlags));
 
-    expect(syncText(result)).toBe('msfconsole: --local not available on this machine');
-    expect(syncExit(result)).toBe(1);
+    expect(exitCode).toBe(0);
+    expect(text).toContain('[*] Vulnerability: CVE-2026-0184 (critical)');
+    expect(text).toContain('[+] Full shell as root@rig');
+    // The box the server named, standing B at the tier the CVE granted with no password.
+    expect(pushed).toEqual([
+      expect.objectContaining({ machineId: FOREIGN_MACHINE_ID, username: 'root', userType: 'root', kind: 'exploit' }),
+    ]);
+    expect(cwds).toEqual(['/root']);
+    // The client sends the box, the command and the PATH it ran the tool from — never a
+    // password, and never anything about the hole.
+    expect(elevateLocal).toHaveBeenCalledTimes(1);
+    const sent = elevateLocal.mock.calls[0]![0];
+    expect(sent).toMatchObject({
+      machineId: FOREIGN_MACHINE_ID,
+      command: 'su',
+      commandPath: '/tmp/msfconsole',
+      parentSessionId: env.session.id,
+    });
+    // Nothing about a third token when none was typed — a signed `arg: undefined` would be
+    // a field the server has to verify, and there is no write half nor script to carry.
+    expect(sent).not.toHaveProperty('arg');
+    expect(sent).not.toHaveProperty('content');
+    expect(sent).not.toHaveProperty('writes');
+  });
+
+  it('names the tool by the path B carried it to', async () => {
+    const { env, elevateLocal } = crossPlayerLocalEnv({ argv0: '/tmp/msfconsole' });
+
+    await drain(await msfconsole.execute(env, ['su'], localFlags));
+
+    expect(elevateLocal.mock.calls[0]![0].commandPath).toBe('/tmp/msfconsole');
+  });
+
+  it('names an installed tool by where it lives on the box, not by the bare word', async () => {
+    // B ran the bare name `msfconsole`; the server needs the path, so the client resolves it
+    // on A's box the way the shell did — the installed copy in /usr/bin.
+    const fs = mockFsViewFromTree(
+      buildDirectory({
+        usr: buildDirectory({ bin: buildDirectory({ msfconsole: buildFile('#!stub msfconsole') }) }),
+      }),
+      { userType: 'guest' },
+    );
+    const { env, elevateLocal } = crossPlayerLocalEnv({ fs });
+
+    await drain(await msfconsole.execute(env, ['su'], localFlags));
+
+    expect(elevateLocal.mock.calls[0]![0].commandPath).toBe('/usr/bin/msfconsole');
+  });
+
+  it('prints the miss line and stands nobody when the server finds no live hole', async () => {
+    const { env, pushed } = crossPlayerLocalEnv({ result: { ok: false, error: 'not_vulnerable' } });
+
+    const { text, exitCode } = await drain(await msfconsole.execute(env, ['su'], localFlags));
+
+    expect(text).toContain('no known vulnerability on su');
+    expect(exitCode).toBe(1);
     expect(pushed).toEqual([]);
+  });
+
+  it('reads a gate refusal as No route to host, telling the attacker only that they did not get in', async () => {
+    const { env, pushed } = crossPlayerLocalEnv({ result: { ok: false, error: 'host_unreachable' } });
+
+    const { text, exitCode } = await drain(await msfconsole.execute(env, ['su'], localFlags));
+
+    expect(text).toContain('No route to host');
+    expect(exitCode).toBe(1);
+    expect(pushed).toEqual([]);
+  });
+
+  it('renders a non-shell effect the way the box’s own --local does, hands back the file', async () => {
+    const { env, pushed } = crossPlayerLocalEnv({
+      result: {
+        ok: true,
+        effect: 'file_read',
+        cve: 'CVE-2026-0184',
+        severity: 'high',
+        tier: 'user',
+        read: { ok: true, content: 'root:x:0:0:root:/root:/bin/bash' },
+      },
+    });
+
+    const { text, exitCode } = await drain(
+      await msfconsole.execute(env, ['ls', '/etc/passwd'], localFlags),
+    );
+
+    expect(text).toContain('[+] Reading /etc/passwd (as user):');
+    expect(text).toContain('root:x:0:0:root:/root:/bin/bash');
+    expect(exitCode).toBe(0);
+    expect(pushed).toEqual([]);
+  });
+
+  it('reads the local half of a write off B’s box and sends the bytes the server cannot see', async () => {
+    const fs = mockFsViewFromTree(
+      buildDirectory({
+        home: buildDirectory({
+          guest: buildDirectory(
+            { 'loot.txt': buildFile(LOCAL_LOOT, { owner: 'guest', perms: { read: ['root', 'user', 'guest'] } }) },
+            { owner: 'guest' },
+          ),
+        }),
+      }),
+      { userType: 'guest', cwd: asAbsPath('/home/guest') },
+    );
+    const { env, elevateLocal } = crossPlayerLocalEnv({
+      fs,
+      result: {
+        ok: true,
+        effect: 'file_write',
+        cve: 'CVE-2026-0184',
+        severity: 'high',
+        tier: 'user',
+        write: { ok: true, bytes: LOCAL_LOOT.length, path: '/tmp/loot.txt' },
+      },
+    });
+
+    const { text } = await drain(
+      await msfconsole.execute(env, ['cat', '/home/guest/loot.txt:/tmp/loot.txt'], localFlags),
+    );
+
+    expect(elevateLocal.mock.calls[0]![0]).toMatchObject({
+      arg: '/home/guest/loot.txt:/tmp/loot.txt',
+      content: LOCAL_LOOT,
+    });
+    expect(text).toContain('[+] Wrote');
+  });
+
+  it('refuses a local half B cannot read before it fires, without troubling the server', async () => {
+    const fs = mockFsViewFromTree(buildDirectory({}), { userType: 'guest', cwd: asAbsPath('/home/guest') });
+    const { env, elevateLocal } = crossPlayerLocalEnv({ fs });
+
+    const result = await msfconsole.execute(env, ['cat', '/home/guest/missing.txt:/tmp/loot.txt'], localFlags);
+
+    expect(syncText(result)).toBe('msfconsole: /home/guest/missing.txt: No such file or directory');
+    expect(syncExit(result)).toBe(1);
+    expect(elevateLocal).not.toHaveBeenCalled();
   });
 
   it('reports a shell rather than entering it when run from a script', async () => {
