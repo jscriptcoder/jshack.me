@@ -6,19 +6,21 @@ record: the epic's `### Slice 8 — resolved decisions (grill-me, 2026-09-18)` s
 slice close-out: "Phase 3 slice 7 — reboot evicts" (#515–#518, v0.231.0–v0.234.0), which closed V3.
 **Slice 9 (firmware) is the only V-series axis left after this.**
 
-**Status:** Active — PR1 ✔ merged (#519, v0.235.0). PR2 ✔ merged (#520, v0.236.0). PR3 ✔ merged (#521, v0.237.0). PR4a ✔ merged (#522, v0.238.0). PR4b ✔ merged (#523, v0.239.0). PR4c ✔ merged (#524, v0.240.0). PR5 next. PR4 split into 4a/4b/4c at its planning (decisions 75–77).
+**Status:** Active — PR1 ✔ merged (#519, v0.235.0). PR2 ✔ merged (#520, v0.236.0). PR3 ✔ merged (#521, v0.237.0). PR4a ✔ merged (#522, v0.238.0). PR4b ✔ merged (#523, v0.239.0). PR4c ✔ merged (#524, v0.240.0). PR5 (server + wire-check) ✔ merged (#525, v0.241.0). PR5b (client) next. PR4 split into 4a/4b/4c at its planning (decisions 75–77); PR5 split into server + client (PR5b) at delivery for review size.
 
-**Delivery:** Eight independent PRs (six until PR4 split into 4a/4b/4c, decision 75), sequenced to trunk (NOT a stack), per decision 72. Each merges
+**Delivery:** Nine independent PRs (six until PR4 split into 4a/4b/4c, decision 75, and PR5 into
+server + client at delivery), sequenced to trunk (NOT a stack), per decision 72. Each merges
 to `main`; the next branches from updated `main`. PRs 1, 2 and 3 are independent of everything and
 of each other; PR4a needs PR2 only for the "guest carries the tool in" story (it runs unaided on a
 box the player already holds root on) and PR3 only for its forecast to be readable; PR4b and PR4c need PR4a's
-`--local` branch; PR5 needs PR4a's interpreter and PR4c's log actions; PR6 widens PR4a's map.
-Versions 0.235.0 → 0.242.0, bumped in both `v2/package.json`
+`--local` branch; PR5 (server) needs PR4a's interpreter and PR4c's log actions; PR5b (client) routes
+to PR5's endpoint; PR6 widens PR4a's map.
+Versions 0.235.0 → 0.243.0, bumped in both `v2/package.json`
 and `v2/package-lock.json` per PR.
 
 **Branches (proposed):** PR1 `feat/ldd-lists-linked-libraries`, PR2 `feat/run-a-carried-binary`,
 PR3 `feat/apt-list-names-the-cve`, PR4a `feat/local-exploit-escalates`,
-PR4b `feat/local-exploit-effects`, PR4c `feat/local-exploit-traces`, PR5 `feat/local-exploit-crosses-players`, PR6 `feat/library-map-covers-the-toolchain`.
+PR4b `feat/local-exploit-effects`, PR4c `feat/local-exploit-traces`, PR5 `feat/local-exploit-crosses-players`, PR5b `feat/local-exploit-client`, PR6 `feat/library-map-covers-the-toolchain`.
 
 ---
 
@@ -334,7 +336,15 @@ supabase for both actions; mutation gate.
 
 ---
 
-### PR5 — the local exploit crosses to another player's box (v0.241.0)
+### PR5 — the local exploit crosses to another player's box — server + wire-check (v0.241.0) ✔ SHIPPED v0.241.0 (#525)
+
+**Delivery note:** shipped the SERVER half — the `exploitLocalElevate` handler
+(`core/sessions/exploitLocalElevate.ts`), its `api/sessions.ts` dispatch, and the two-identity
+`scripts/testCrossPlayerLocalExploit.ts` wire-check (7/7 live). The endpoint is reachable and proven
+by signed requests; the in-game client still refuses cross-player `--local` until **PR5b** routes it
+there. The Path / Acceptance / Evidence below are the as-built record of this server half (the
+`--local` interpreter recompute, the occupancy + open-session gates, the carried-binary check, the
+owner-keyed traces); the client-side items they imply are PR5b's.
 
 **Value:** The PvP face. B, holding a guest shell on A's stale workstation, escalates to root on it
 with no password — and A closing the hole with `apt upgrade` is what stops them. The first route by
@@ -391,7 +401,44 @@ A's box escalate, each turning a check red).
 
 ---
 
-### PR6 — the dependency map covers the game's own toolchain (v0.242.0)
+### PR5b — `msfconsole --local` reaches the cross-player endpoint in-game (v0.242.0)
+
+**Value:** Makes PR5's server door playable: the cross-player `--local` fire, currently refused
+client-side, actually crosses to A's box and stands B where the CVE granted.
+**Actor/trigger/outcome:** B (standing on A's registered workstation) runs `msfconsole --local
+<command>` → the client routes to `exploitLocalElevate` instead of refusing, and renders the
+server's answer — a shell hit pushes the hop, a miss prints the miss line, a gate refusal prints
+`No route to host`.
+**Class:** Behavior change. **Decisions:** 63, 66, 69, 70, 71 (the client halves the PR5 server
+handler already enforces).
+**Path:**
+  - Replace `msfconsole.ts`'s `LOCAL_CROSS_PLAYER` refusal (the `isCrossPlayerWorkstation` branch)
+    with a route to a new `env.exploit.elevateLocal` seam, streaming the local preamble and
+    rendering the server result the way the service `fire` generator renders `env.exploit.run`.
+  - A new `ExploitLocalElevateParams` + `elevateLocal` on `ExploitApi` (`types.ts`); the result
+    reuses `ExploitRunResult` (same effect union). Adapter `postExploitLocalElevate` (posts the
+    signed `exploitLocalElevate`); wire it in `state.ts` alongside `env.exploit.run`.
+  - **Plumb the command's invocation path (argv[0]) from the shell to the command** so the client
+    can name the path it ran `msfconsole` from (`/tmp/msfconsole` carried, `/usr/bin/msfconsole`
+    installed) — the path the server's binary check (decision 71) verifies. `runLine.ts` resolves
+    the binary already and discards the token; carry it onto `CommandEnv` for the command to read.
+  - The local half of a `local:remote` write is read client-side (as the local `--local` and the
+    service path both do); the bytes and any script writes travel to the server.
+**Acceptance:**
+- On A's box, B's `msfconsole --local su` inside a live `libpam` window reaches root at the prompt
+  (a hop is pushed), and a day before the window the same fire prints the miss line.
+- After A's `apt upgrade`, B's next `--local su` prints the miss line rather than a shell.
+- A carried `/tmp/msfconsole` and an installed `/usr/bin/msfconsole` both fire; a box with neither
+  refuses with `No route to host` (the client sent a path the server found nothing at).
+- A non-shell roll renders its effect (read hands back the file, write reports where it landed,
+  etc.), the current box's own `--local` output shapes reused.
+**Evidence:** RED-GREEN command/adapter/state tests (the seam mocked); a **solo browser run** — B
+carries `msfconsole` to A's `/tmp`, `ssh`es in, and `--local su` reaches root at the prompt, with
+A's `auth.log`/`kern.log` showing the trace. No new `api/` (PR5 shipped the endpoint).
+
+---
+
+### PR6 — the dependency map covers the game's own toolchain (v0.243.0)
 
 **Value:** A live library CVE reaches the game's own tools, not just the base system commands — so
 the axis is as wide as legacy's, and a player can pick a payload by picking from a larger set of
