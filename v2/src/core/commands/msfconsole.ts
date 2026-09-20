@@ -22,12 +22,13 @@
  * standing on a box the player was never put on.
  */
 
-import { asAbsPath, asMachineId } from '../types';
+import { asAbsPath, asMachineId, type UserType } from '../types';
 import { connectedWlan0 } from '../network/interfaces';
 import { isPublicIp } from '../generation/ip';
 import { dir } from '../generation/baseFs';
-import { defaultDirectoryPermissions } from '../filesystem/defaultPermissions';
+import { defaultDirectoryPermissions, defaultFilePermissions } from '../filesystem/defaultPermissions';
 import { createFsView } from '../filesystem/fsView';
+import { resolveWriteTarget } from '../filesystem/writeTarget';
 import { describeScriptError, runScript } from '../scripting/runScript';
 import { formatScriptValue } from '../scripting/format';
 import type { ScriptFs } from '../scripting/fsApi';
@@ -41,18 +42,40 @@ import { resolveAbsPath } from '../filesystem/path';
 import { gameDayAt } from '../cve/worldClock';
 import { parseDpkgVersions, readDpkgStatus } from '../packages/dpkgStatus';
 import { localExploitOutcome, type LocalExploitOutcome } from '../cve/localExploit';
-import type { ExploitEffectKind } from '../cve/exploitEffect';
-import { accountsIn, type NamedPasswdAccount } from '../sessions/passwdAccount';
+import { backdoorPortFor } from '../cve/exploitEffect';
+import {
+  formatListenerContent,
+  listenerPidfilePath,
+  PIDFILE_PERMISSIONS,
+} from '../services/pidfile';
+import {
+  accountsIn,
+  withAccountHash,
+  PASSWD_OWNER,
+  PASSWD_PATH,
+  type NamedPasswdAccount,
+} from '../sessions/passwdAccount';
+import { PASSWD_FILE } from '../generation/baseFs';
+import { md5 } from '../generation/md5';
 import { libraryPresent } from './libraryDeps';
 import { SYSTEM_LIBRARIES } from '../generation/libraries';
 import { hasTty } from '../shell/runLine';
 import { errorLine, streamedResult, text } from './streaming';
+import { PATCH_ERROR_REASON } from './types';
 import type { Command, CommandEnv, CommandResult, SessionKind, TerminalLine } from './types';
 
 const PHASE_DELAY_MS = 260;
 const MAX_PORT = 65535;
 const USAGE = 'usage: msfconsole <host> <port>';
 const USAGE_LOCAL = 'usage: msfconsole --local <command>';
+/** A read hole aims at a file on the box the command runs on, named as a fourth token.
+ *  Distinct from the service path's `msfconsole <host> <port> <path>`, which points at a
+ *  target that does not exist here — a `--local` fire has no host or port to name. */
+const USAGE_LOCAL_READ = 'usage: msfconsole --local <command> <path>';
+/** A write hole wants a PAIR, not a single path: the bytes come from a file on this box and
+ *  land on one over there — naming only a destination would leave nothing to send. Both
+ *  halves are on this box for a `--local` fire, but the grammar is the service path's. */
+const USAGE_LOCAL_WRITE = 'usage: msfconsole --local <command> <local:remote>';
 
 /** `--local` reads the box's own manifest and rolls the effect client-side, which it can
  *  only do on a box it can regenerate — its owner's own or an NPC's. Another player's
@@ -66,19 +89,6 @@ const LOCAL_CROSS_PLAYER = 'msfconsole: --local not available on this machine';
  *  box's own manifest, exactly as the service path's single refusal does. */
 const localMiss = (command: string): string => `msfconsole: no known vulnerability on ${command}`;
 
-/** How a non-shell roll names the kind of hole it found. `--local` can walk in through a
- *  shell today; the six holes that act ON the box rather than opening one are PR4b's, so
- *  until then the roll reveals its kind and refuses to fake a shell it never rolled. */
-const NON_SHELL_HOLE: Readonly<
-  Record<Exclude<ExploitEffectKind, 'shell_full' | 'shell_limited'>, string>
-> = {
-  file_read: 'reads a file',
-  dir_list: 'lists a directory',
-  file_write: 'writes a file',
-  password_reset: 'resets a password',
-  backdoor_port_open: 'opens a backdoor port',
-  script_exec: 'runs a script',
-};
 const USAGE_READ = 'usage: msfconsole <host> <port> <path>';
 /** A write takes a PAIR, not a path: the bytes come from a file on this box and land on
  *  one over there, and naming only the destination would leave nothing to send. */
@@ -154,6 +164,14 @@ const localHalfOf = (arg: string): string | undefined => {
   return colon <= 0 || colon === arg.length - 1 ? undefined : arg.slice(0, colon);
 };
 
+/** The REMOTE half of the same token — the path the bytes land at. Splits on the same first
+ *  colon as `localHalfOf`, so the two halves are one reading of the one string the player
+ *  typed once. */
+const remoteHalfOf = (arg: string): string | undefined => {
+  const colon = arg.indexOf(':');
+  return colon <= 0 || colon === arg.length - 1 ? undefined : arg.slice(colon + 1);
+};
+
 /** A script's filesystem when the box it is running against is NOT this one.
  *
  *  Reads come off the target's own regenerated tree. Writes are COLLECTED rather than
@@ -173,8 +191,12 @@ const localHalfOf = (arg: string): string | undefined => {
 const targetScriptFs = (
   tree: Directory,
   collected: { path: string; content: string }[],
+  userType?: UserType,
 ): ScriptFs => {
-  const view = createFsView(tree, { cwd: asAbsPath('/') });
+  const view = createFsView(tree, {
+    cwd: asAbsPath('/'),
+    ...(userType !== undefined ? { userType } : {}),
+  });
   const resolve = (path: string) => resolveAbsPath(view.cwd(), path);
   /** What the script would see at a path: its own latest write there if it has made one,
    *  else the box's own file. Without this an append after a write would reach past the
@@ -479,18 +501,261 @@ async function* fireLocalShell(
   return 0;
 }
 
-/** A non-shell roll: name the kind of hole and stop. The six effects that act ON the box
- *  rather than opening a shell are PR4b's, so until then the roll reveals its kind and
- *  refuses to fake a shell it never rolled — no `[+] Exploit successful!`. */
-async function* fireLocalStandIn(
+/** A read roll: hand back the file the player named, read off THIS box through a view at
+ *  the granted tier — so a file that tier cannot have bounces exactly as it would at a
+ *  shell of that tier, and the same critical/high hole that grants root is what reaches the
+ *  box's own `/etc/passwd`. Nothing is pushed: a read hands back bytes, not a shell, and
+ *  leaves the player where they stood, the bargain every non-shell effect strikes. */
+async function* fireLocalFileRead(
   env: CommandEnv,
   command: string,
   outcome: LocalExploitOutcome,
-  hole: string,
+  path: string | undefined,
 ): AsyncGenerator<TerminalLine, number> {
   yield* localPreamble(env, command, outcome);
-  yield errorLine(`[-] This hole ${hole}, which a local exploit cannot use yet`);
-  return 1;
+
+  // Fired blind, with no file to read: the scan never says which effect a CVE carries, so
+  // a bare fire is how the player learns this one reads. The vulnerability is already
+  // revealed above; here it names the hole and asks for a target rather than claiming a
+  // success it has nothing to show for.
+  if (path === undefined) {
+    yield errorLine(`[-] this exploit reads a file — name one: ${USAGE_LOCAL_READ}`);
+    return 1;
+  }
+
+  yield text('[+] Exploit successful!');
+
+  const view = createFsView(env.fs.root(), { userType: outcome.tier, cwd: env.fs.cwd() });
+  const read = view.read(resolveAbsPath(env.fs.cwd(), path));
+  if (!read.ok) {
+    yield errorLine(`[-] ${READ_DENY[read.error]} (as ${outcome.tier}): ${path}`);
+    return 1;
+  }
+  yield text(`[+] Reading ${path} (as ${outcome.tier}):`);
+  yield text('');
+  for (const line of read.content.split('\n')) yield text(line);
+  return 0;
+}
+
+/** A list roll: hand back the entries of the directory the player named, read off THIS box
+ *  through a view at the granted tier — the read roll's sibling, differing only in listing
+ *  a directory where the read hands back a file. Nothing is pushed. */
+async function* fireLocalDirList(
+  env: CommandEnv,
+  command: string,
+  outcome: LocalExploitOutcome,
+  path: string | undefined,
+): AsyncGenerator<TerminalLine, number> {
+  yield* localPreamble(env, command, outcome);
+
+  if (path === undefined) {
+    yield errorLine(`[-] this exploit lists a directory — name one: ${USAGE_LOCAL_READ}`);
+    return 1;
+  }
+
+  yield text('[+] Exploit successful!');
+
+  const view = createFsView(env.fs.root(), { userType: outcome.tier, cwd: env.fs.cwd() });
+  const listed = view.list(resolveAbsPath(env.fs.cwd(), path));
+  if (!listed.ok) {
+    yield errorLine(`[-] ${LIST_DENY[listed.error]} (as ${outcome.tier}): ${path}`);
+    return 1;
+  }
+  yield text(`[+] Listing ${path} (as ${outcome.tier}):`);
+  yield text('');
+  for (const entry of listed.entries) yield text(entry);
+  return 0;
+}
+
+/** A reset roll: turn the lock on the account the tier names and hand back the new key.
+ *  The plaintext is derived from the CVE the player already earned (`pwned-<cve4>-<tier>`),
+ *  so the box never stores it and the client and server agree on it without either being
+ *  told. Nothing is pushed: a reset changes a lock, it opens no door. */
+async function* fireLocalPasswordReset(
+  env: CommandEnv,
+  command: string,
+  outcome: LocalExploitOutcome,
+  account: NamedPasswdAccount,
+): AsyncGenerator<TerminalLine, number> {
+  yield* localPreamble(env, command, outcome);
+  yield text('[+] Exploit successful!');
+
+  const granted = `pwned-${outcome.cve.slice(-4)}-${outcome.tier}`;
+  // The passwd keeps its own terms — owner root, the passwd file's permissions — so the
+  // rewrite changes one hash and re-owns nothing.
+  const rewritten = withAccountHash(env.fs.root(), account.username, md5(granted));
+  const result = await env.patches.write(PASSWD_PATH, rewritten, {
+    owner: PASSWD_OWNER,
+    permissions: PASSWD_FILE,
+  });
+  if (!result.ok) {
+    yield errorLine(`[-] Password reset failed: ${PATCH_ERROR_REASON[result.error]}`);
+    return 1;
+  }
+
+  // The plaintext verbatim and on its own line: it is the whole prize, and a player who
+  // cannot read the exact string back has been handed nothing.
+  yield text(`[+] Password reset for '${account.username}' — new password: ${granted}`);
+  return 0;
+}
+
+/** A backdoor roll: open a door and walk away from it. The port is a function of the CVE,
+ *  and the pidfile IS the open port — written in exactly the shape `nc -l` leaves, so a
+ *  door a CVE opened and a door a player planted are the same file. Root owns the pidfile
+ *  whoever opened the port, while its content names the account the visitor arrives as.
+ *  Nothing is pushed: the door stands open, but nobody walked through it. */
+async function* fireLocalBackdoor(
+  env: CommandEnv,
+  command: string,
+  outcome: LocalExploitOutcome,
+  account: NamedPasswdAccount,
+): AsyncGenerator<TerminalLine, number> {
+  yield* localPreamble(env, command, outcome);
+  yield text('[+] Exploit successful!');
+
+  const port = backdoorPortFor(outcome.cve);
+  const result = await env.patches.write(
+    listenerPidfilePath(port),
+    formatListenerContent({ port, user: account.username, userType: outcome.tier }),
+    { owner: 'root', permissions: PIDFILE_PERMISSIONS },
+  );
+  if (!result.ok) {
+    yield errorLine(`[-] Backdoor failed: ${PATCH_ERROR_REASON[result.error]}`);
+    return 1;
+  }
+
+  // The port on its own line: it is the whole prize, and the one thing the scan that found
+  // this box never reported.
+  yield text(`[+] Backdoor planted on port ${port}`);
+  return 0;
+}
+
+/** A write roll: plant the bytes of the player's own file at a path on the box, at the
+ *  granted tier. The token is `local:remote` (decision 23), both halves on this box for a
+ *  `--local` fire: the local half is the player's file, read at their own shell tier, and
+ *  the remote half is where it lands, walked at the granted tier by the same resolver the
+ *  box's own shell obeys. Nothing is pushed — a write leaves something behind and stands
+ *  the player nowhere. `actor` owns any file the write newly creates. */
+async function* fireLocalFileWrite(
+  env: CommandEnv,
+  command: string,
+  outcome: LocalExploitOutcome,
+  pair: string | undefined,
+  actor: string,
+): AsyncGenerator<TerminalLine, number> {
+  yield* localPreamble(env, command, outcome);
+
+  const localPath = pair === undefined ? undefined : localHalfOf(pair);
+  const remotePath = pair === undefined ? undefined : remoteHalfOf(pair);
+  // Nothing to write, or nowhere to put it: the fire that REVEALS the effect rather than a
+  // mistake, since a scan never says a CVE writes. Names the hole, asks for a pair, and
+  // leaves nothing behind.
+  if (localPath === undefined || remotePath === undefined) {
+    yield errorLine(`[-] this exploit writes a file — name a pair: ${USAGE_LOCAL_WRITE}`);
+    return 1;
+  }
+
+  // The local half is the player's OWN file, read at their own shell tier — a file this
+  // shell cannot read is not one the exploit can send, and it is refused as their own typo
+  // rather than the target holding out.
+  const source = env.fs.read(resolveAbsPath(env.fs.cwd(), localPath));
+  if (!source.ok) {
+    yield errorLine(`msfconsole: ${localPath}: ${LOCAL_READ_DENY[source.error]}`);
+    return 1;
+  }
+
+  yield text('[+] Exploit successful!');
+
+  const view = createFsView(env.fs.root(), { userType: outcome.tier, cwd: env.fs.cwd() });
+  const destination = resolveWriteTarget(view, remotePath);
+  if (!destination.ok) {
+    yield errorLine(
+      `[-] ${WRITE_DENY[destination.error]} (as ${outcome.tier}): ${resolveAbsPath(view.cwd(), remotePath)}`,
+    );
+    return 1;
+  }
+  // An overwrite leaves the file's own owner alone; a new file takes the tier's actor.
+  // Restamping an existing file's owner would quietly re-own a root's file to whoever wrote
+  // it, handing away more than the bytes.
+  const existingOwner = destination.isNew ? undefined : view.stat(destination.target)?.owner;
+  const result = await env.patches.write(destination.target, source.content, {
+    owner: existingOwner ?? actor,
+    ...(destination.isNew
+      ? { isNew: true, permissions: defaultFilePermissions(outcome.tier) }
+      : {}),
+  });
+  if (!result.ok) {
+    yield errorLine(`[-] Write failed: ${PATCH_ERROR_REASON[result.error]}`);
+    return 1;
+  }
+
+  yield text(
+    `[+] Wrote ${source.content.length} bytes to ${destination.target} (as ${outcome.tier})`,
+  );
+  return 0;
+}
+
+/** A script roll: run the player's own script against THIS box at the granted tier. The
+ *  writes it makes are re-walked at that tier and landed — a write the tier can make lands,
+ *  one it cannot is dropped — exactly as the server re-walks a script's writes. Nothing is
+ *  pushed and nothing is read back: which writes landed would answer a question about the
+ *  box's permissions the player never got to ask. `actor` owns any file a write creates. */
+async function* fireLocalScriptExec(
+  env: CommandEnv,
+  command: string,
+  outcome: LocalExploitOutcome,
+  path: string | undefined,
+  actor: string,
+): AsyncGenerator<TerminalLine, number> {
+  yield* localPreamble(env, command, outcome);
+
+  // Nothing named to run: the fire that REVEALS the effect, since a scan never says a CVE
+  // runs a script. Names the hole, asks for one, and leaves nothing behind.
+  if (path === undefined) {
+    yield errorLine(`[-] this exploit runs a script — name one: ${USAGE_LOCAL_READ}`);
+    return 1;
+  }
+  // The script is the player's OWN file, read at their own shell tier — a file this shell
+  // cannot read is refused as their own typo rather than the box holding out.
+  const script = env.fs.read(resolveAbsPath(env.fs.cwd(), path));
+  if (!script.ok) {
+    yield errorLine(`msfconsole: ${path}: ${LOCAL_READ_DENY[script.error]}`);
+    return 1;
+  }
+
+  yield text('[+] Exploit successful!');
+
+  // Collect the writes the script proposes, then re-walk each at the granted tier and land
+  // it. A run that throws partway still had whatever it wrote first collected, so those land
+  // before the error is told — a side effect that reached the box cannot be unwound.
+  const collected: { path: string; content: string }[] = [];
+  const run = await runScript(script.content, {
+    fs: targetScriptFs(env.fs.root(), collected, outcome.tier),
+  });
+  const view = createFsView(env.fs.root(), { userType: outcome.tier, cwd: env.fs.cwd() });
+  for (const write of collected) {
+    const destination = resolveWriteTarget(view, write.path);
+    if (!destination.ok) continue;
+    const existingOwner = destination.isNew ? undefined : view.stat(destination.target)?.owner;
+    const result = await env.patches.write(destination.target, write.content, {
+      owner: existingOwner ?? actor,
+      ...(destination.isNew
+        ? { isNew: true, permissions: defaultFilePermissions(outcome.tier) }
+        : {}),
+    });
+    if (!result.ok) {
+      yield errorLine(`[-] Script injection failed: ${PATCH_ERROR_REASON[result.error]}`);
+      return 1;
+    }
+  }
+
+  if (!run.ok) {
+    yield errorLine(`[-] Script injection failed: ${describeScriptError(run.error)}`);
+    return 1;
+  }
+
+  yield text(`[+] Script injected on ${env.hostname} as ${outcome.tier}`);
+  return 0;
 }
 
 /**
@@ -501,6 +766,7 @@ async function* fireLocalStandIn(
 const executeLocal = async (
   env: CommandEnv,
   command: string | undefined,
+  path: string | undefined,
 ): Promise<CommandResult> => {
   if (command === undefined) return errorResult(USAGE_LOCAL);
 
@@ -533,22 +799,45 @@ const executeLocal = async (
   const outcome = localExploitOutcome(command, loadable, gameDay);
   if (outcome === undefined) return errorResult(localMiss(command));
 
-  if (outcome.effect === 'shell_full' || outcome.effect === 'shell_limited') {
-    // A shell lands as the first passwd row at the granted tier (the server's own rule).
-    // No such account is the uniform miss, refused before any phase is streamed so it
-    // reads like every other bounce.
-    const account = accountsIn(env.fs.root()).find(
-      (candidate) => candidate.userType === outcome.tier,
-    );
-    if (account === undefined) return errorResult(localMiss(command));
-    return streamedResult(fireLocalShell(env, command, outcome, account));
+  // The account the granted tier names, if the box holds one. Needed as the OWNER a write
+  // stamps on a file it creates, and as the identity a shell or a reset stands on. A write
+  // aims at a path, not a person, so it falls back to the tier itself when no account
+  // exists — the router class runs the write hole and holds only root.
+  const account = accountsIn(env.fs.root()).find((candidate) => candidate.userType === outcome.tier);
+  const actor = account?.username ?? outcome.tier;
+
+  // Path-aimed holes answer whether or not the box holds an account at the granted tier:
+  // they act on a file or directory rather than on a person.
+  if (outcome.effect === 'file_read') {
+    return streamedResult(fireLocalFileRead(env, command, outcome, path));
+  }
+  if (outcome.effect === 'dir_list') {
+    return streamedResult(fireLocalDirList(env, command, outcome, path));
+  }
+  if (outcome.effect === 'file_write') {
+    return streamedResult(fireLocalFileWrite(env, command, outcome, path, actor));
+  }
+  if (outcome.effect === 'script_exec') {
+    return streamedResult(fireLocalScriptExec(env, command, outcome, path, actor));
   }
 
-  return streamedResult(fireLocalStandIn(env, command, outcome, NON_SHELL_HOLE[outcome.effect]));
+  // Everything below stands the player as an account or turns an account's lock, so the box
+  // must hold somebody at the granted tier. No such account is the uniform miss, refused
+  // before any phase is streamed so it reads like every other bounce.
+  if (account === undefined) return errorResult(localMiss(command));
+
+  if (outcome.effect === 'shell_full' || outcome.effect === 'shell_limited') {
+    return streamedResult(fireLocalShell(env, command, outcome, account));
+  }
+  if (outcome.effect === 'password_reset') {
+    return streamedResult(fireLocalPasswordReset(env, command, outcome, account));
+  }
+  // The last kind, so no further guard: a backdoor opens a door on the box at the tier.
+  return streamedResult(fireLocalBackdoor(env, command, outcome, account));
 };
 
 const execute: Command['execute'] = async (env, args, flags) => {
-  if (flags.has('--local')) return executeLocal(env, args[0]);
+  if (flags.has('--local')) return executeLocal(env, args[0], args[1]);
 
   const [rawTarget, rawPort, rawArg] = args;
   if (rawTarget === undefined || rawPort === undefined) return errorResult(USAGE);
@@ -697,11 +986,14 @@ export const msfconsole: Command = {
       'down that you tried. ' +
       'With "--local" the target is not a service but a command on the box you are already ' +
       'standing on — your own or one you hold. If a shared library the command links has a ' +
-      'live vulnerability, the command gives up a shell at a tier that follows the severity, ' +
-      'with no password, exactly as a service does; a critical or high hole lands you as root, ' +
-      'a lesser one as an ordinary user. See what a command links with "ldd", and which of ' +
-      'those libraries is exposed with "apt list -u". A command with no exposed library ' +
-      'refuses.',
+      'live vulnerability, the command gives itself up with no password, exactly as a service ' +
+      'does: most holes hand over a shell at a tier that follows the severity — a critical or ' +
+      'high hole as root, a lesser one as an ordinary user — while the rest act on the box ' +
+      'itself the way they would on a target, reading or listing a path you name, planting a ' +
+      'file from a "local:remote" pair, resetting the account that tier names, opening a ' +
+      'backdoor port, or running a script you name. See what a command links with "ldd", and ' +
+      'which of those libraries is exposed with "apt list -u". A command with no exposed ' +
+      'library refuses.',
     arguments: [
       { name: 'host', description: 'Target host IP or name on your network', required: true },
       { name: 'port', description: 'The port the vulnerable service listens on', required: true },
