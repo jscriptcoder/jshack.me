@@ -3785,9 +3785,9 @@ grill, 2026-09-18). `nmap`, `hydra`, `john`, `nc`, `ftp`, `gpg`, `node`, `gobust
 `dig`, `nslookup`, `mysql`, `redis-cli`, `snmpwalk`, `snmpset`, the aircrack trio, and
 `msfconsole` itself. Daemons stay out — they are the service axis. The eight library-free system
 utilities (`mkdir`, `touch`, `man`, `ping`, `ifconfig`, `nmcli`, `clear`, `whoami`) stay out, as
-the ported comment lists them. So an NPC's local surface stays exactly legacy's seventeen, and
-every tool a player installs widens their own — tooling up becomes a defensive cost, a trade-off
-without a new rule. Libraries come from the existing thematic grouping (network clients link
+the ported comment lists them. So an NPC's local surface stays exactly legacy's seventeen
+(**wrong on the facts — corrected by decision 80**), and every tool a player installs widens their
+own — tooling up becomes a defensive cost, a trade-off without a new rule. Libraries come from the existing thematic grouping (network clients link
 `libssl`, matchers and parsers `libpcre` or `libxml2`, prompt-driven tools `libreadline`). Only
 the pool CONTENTS wait for that PR's planning. A consequence to plan for: mapping a tool switches
 on `wrapWithLibraryCheck` for it, so `rm /lib/libssl.so` starts breaking `nmap`. Rejected: only
@@ -3997,6 +3997,102 @@ NPC hop — does not survive a refresh on the player's own box, where the server
 rows. Rejected: pushing `su` to persist it (the PTY-less case still needs `exploit_limited`, and
 `exit` and refresh would read an exploit as a password switch).
 
+#### 78. The toolchain links by thematic group, and `libcrypt` becomes the crackers' (PR6 planning, 2026-09-20)
+
+Each of decision 68's nineteen links **every thematic group it belongs to** — the rule the
+seventeen already follow (`ssh` is a network client that prompts, so `libssl` + `libreadline`; `su`
+authenticates and hashes, so `libpam` + `libcrypt`), not a new one. Seven link two, the rest one.
+The recovered grill named three groups and left `john`, `gpg` and the aircrack trio with no group
+at all, so a fourth is named here: **`libcrypt` is hashes and ciphers**. That makes it a
+first-class window for the first time — today only `su` links it, always behind `libpam`, so it
+decides an outcome only when strictly higher-severity. `libpam`, `libsystemd` and `libz` stay
+base-only, leaving `su` the authentication window alone.
+
+    nmap, dig, nslookup, nc, snmpwalk, snmpset      libssl
+    ftp, msfconsole, mysql, redis-cli               libssl + libreadline
+    gobuster                                        libssl + libpcre
+    lynx                                            libssl + libxml2
+    hydra                                           libcrypt + libssl
+    john, gpg, airmon-ng, airodump-ng, aircrack-ng  libcrypt
+    node                                            libreadline
+
+Link order is load-bearing — decision 64 breaks ties on it — so the group a tool is *named for*
+comes first: `libssl` leads every row where the tool is a network client before it is anything
+else, and `hydra` leads with `libcrypt` because hydra is a password tool that happens to use the
+network. `libssl` lands on 13 of 19, because most attack tooling genuinely is a network client;
+that concentration is decision 12's thesis working rather than a flaw — one live library, many
+commands, a different payload through each. The aircrack trio shares `libcrypt` rather than
+splitting by job (`airmon-ng` flips an interface, `airodump-ng` captures, `aircrack-ng` breaks),
+because the package is the theme and the pools already differentiate the binaries. Rejected: one
+library each (breaks the seventeen's own rule for tools that sit in two groups); two each uniformly
+(invents a second link for `john`, `gpg` and the trio); all eight in play (puts a second door on
+`su`'s authentication window).
+
+#### 79. Toolchain pools top out at `shell_limited`, and every mapped tool is exploitable (PR6 planning, 2026-09-20)
+
+`shell_full` stays with the system-control verbs and `ssh`. The toolchain's ceiling is
+`shell_limited` — again the seventeen's own rule rather than a new one, since `scp` and `curl`
+already top out there — and it reads exactly right: you exploited a client tool, so you get a room
+you can search, not a door you can pivot onward through. `su` keeps the escalation headline.
+
+**No mapped command is poolless.** Decision 68 allowed that state; PR4a's rule retires it. On a day
+when a tool's library is live, `ldd` lists the library and `apt list -u` names its CVE, so a miss
+reading `no known vulnerability on <command>` would be the exact lie PR4a rejected when it chose to
+name the kind of hole rather than deny one existed. That forces a pool onto the two tools that
+resisted. `node` rolls `script_exec`, whose circularity is cosmetic — the player already owns
+`node`, so the prize is the TIER the library floor rolled, not the ability to run a script, and
+decision 70 already governs a shell roll from inside a script. `airmon-ng` rolls `dir_list`, a
+deliberately weak effect proportionate to the thinnest mapping in the table.
+
+    nmap         dir_list, script_exec
+    dig          file_read, dir_list
+    nslookup     file_read
+    nc           shell_limited, backdoor_port_open
+    ftp          file_read, file_write, dir_list
+    msfconsole   shell_limited, script_exec, backdoor_port_open
+    airmon-ng    dir_list
+    airodump-ng  file_read, file_write
+    aircrack-ng  password_reset, file_read
+    gpg          file_read, password_reset
+    node         script_exec
+    hydra        password_reset, shell_limited
+    gobuster     dir_list
+    lynx         file_read, dir_list
+    snmpwalk     file_read, dir_list
+    snmpset      file_write
+    mysql        file_read, file_write
+    redis-cli    file_read, file_write
+    john         password_reset
+
+Order and repetition stay load-bearing, as in the ported seventeen; none of the nineteen weights a
+duplicate, so each rolls uniformly over its own pool. `msfconsole` maps itself and keeps the
+strongest pool — turning a player's own exploit tool on them is the sharpest form of decision 68's
+defensive cost. Rejected: `shell_full` for the access tools (costs `su` its monopoly and floods the
+game with shell routes); no shells at all (a hole in `nc` that cannot yield a shell is a hard
+sell); weighting each attack tool's signature effect (irreversible once shipped, for a
+distribution nobody asked for).
+
+#### 80. An NPC service box does gain its own clients — corrects decision 68 (PR6 planning, 2026-09-20)
+
+Decision 68 recorded that "an NPC's local surface stays exactly legacy's seventeen". **That was
+wrong on the facts.** `remoteHostFs.ts` lays `binariesForService` onto every generated host, and
+that union hands a box the client binaries of the package its service comes from — so a `dns` box
+already carries `dig` and `nslookup` (bind9 depends on dnsutils), an `ftp` box the `ftp` client, a
+`mysql` box the `mysql` client, a `redis` box `redis-cli`, and an `snmp` box both `snmpwalk` and
+`snmpset`. Mapping the toolchain therefore widens seven kinds of NPC box, not zero.
+
+It is accepted rather than worked around, because the widening is close to inert. `su`, `nano`,
+`ssh`, `curl` and `scp` are base binaries on every box, so the seventeen already cover every
+library group everywhere — `libssl` through `ssh`/`scp`/`curl`, `libcrypt` through `su`,
+`libreadline` through `nano`, `libpcre` through the matchers, `libxml2` through `apt`. An NPC box
+gains **no new library reach, no new effect kind and no new tier**: only alternative pools on
+libraries already covered, standing behind `ssh` and `su`, which both roll `shell_full` and
+outrank every pool the clients add. A DNS box being a little more exploitable for carrying `dig`
+is thematically right. Rejected: a box-dependent map (threads box identity through a flat global
+table and splits one honest answer to "what does `nmap` link" into two); shrinking decision 68's
+boundary to the twelve a player installs by choice (makes `ldd` lie on the player's own box for
+seven common tools, and reopens a boundary decision 68 settled).
+
 ### Forced rather than chosen (planning should not re-litigate)
 
 - **`/var/lib/dpkg/status` is THE version source.** Settled by the catalog's own shipped comment,
@@ -4070,11 +4166,14 @@ libc window?*.
   frozen at its starting version — and irreversible after, because every CVE id, publication date
   and severity derives from it. **Shipping the development value would begin the world months deep
   in CVEs**; re-stamping it is the tripwire's whole job.
-- **The effect pools for the newly-mapped commands** (decision 12) — **scheduled 2026-09-18** by
-  decision 68 as slice 8's final PR, contents decided at that PR's planning. The boundary is set
-  (every apt-installed client tool, decision 68); each of those tools needs a
-  `SYSTEM_COMMAND_EFFECT_POOLS` entry, and what a `node` CVE should yield is
-  a content question with real reach — `script_exec` through the script runner is close to circular.
+- ~~**The effect pools for the newly-mapped commands**~~ (decision 12) — **RESOLVED 2026-09-20 at
+  slice 8's PR6 planning** (decisions 78, 79, 80). All nineteen links and all nineteen pools are
+  fixed; `libcrypt` becomes the crackers' group, the toolchain's ceiling is `shell_limited`, and
+  every mapped tool is exploitable — so "mapped but poolless" no longer exists, because a miss
+  denying a hole `ldd` and `apt list -u` both show would be the lie PR4a rejected. `node` rolls
+  `script_exec` after all: the prize is the tier, not the ability to run a script. The same pass
+  found decision 68's "an NPC's local surface stays exactly legacy's seventeen" to be false and
+  corrected it (decision 80).
 - ~~**The firmware vendor set and its placement**~~ — **RESOLVED 2026-09-09 at slice 1a.** The
   six legacy vendors port as-is (cisco, mikrotik, ddwrt, openwrt, pfsense, ubiquiti), and all
   three device kinds draw from the one pool on their own seeded stream, with no per-kind

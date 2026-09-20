@@ -6,7 +6,7 @@ record: the epic's `### Slice 8 — resolved decisions (grill-me, 2026-09-18)` s
 slice close-out: "Phase 3 slice 7 — reboot evicts" (#515–#518, v0.231.0–v0.234.0), which closed V3.
 **Slice 9 (firmware) is the only V-series axis left after this.**
 
-**Status:** Active — PR1 ✔ merged (#519, v0.235.0). PR2 ✔ merged (#520, v0.236.0). PR3 ✔ merged (#521, v0.237.0). PR4a ✔ merged (#522, v0.238.0). PR4b ✔ merged (#523, v0.239.0). PR4c ✔ merged (#524, v0.240.0). PR5 (server + wire-check) ✔ merged (#525, v0.241.0). PR5b (client) ✔ merged (#526, v0.242.0). PR6 next. PR4 split into 4a/4b/4c at its planning (decisions 75–77); PR5 split into server + client (PR5b) at delivery for review size.
+**Status:** Active — PR1 ✔ merged (#519, v0.235.0). PR2 ✔ merged (#520, v0.236.0). PR3 ✔ merged (#521, v0.237.0). PR4a ✔ merged (#522, v0.238.0). PR4b ✔ merged (#523, v0.239.0). PR4c ✔ merged (#524, v0.240.0). PR5 (server + wire-check) ✔ merged (#525, v0.241.0). PR5b (client) ✔ merged (#526, v0.242.0). **PR6 planned 2026-09-20 (decisions 78–80) — branch cut, both tables fixed, no code yet.** PR4 split into 4a/4b/4c at its planning (decisions 75–77); PR5 split into server + client (PR5b) at delivery for review size.
 
 **Delivery:** Nine independent PRs (six until PR4 split into 4a/4b/4c, decision 75, and PR5 into
 server + client at delivery), sequenced to trunk (NOT a stack), per decision 72. Each merges
@@ -458,35 +458,57 @@ commands (decision 12).
 libraries; `msfconsole --local nmap` inside a window → an effect from that command's own pool.
 **Class:** Behavior change.
 **Decisions:** 12 (map extends, eight libraries kept, thematic grouping intact), 68 (**the boundary
-is every apt-installed client tool and nothing else**; pool contents decided at this PR's
-planning).
-**Path:** add link entries to `libraryDeps` for every apt-installed client tool — `nmap`, `hydra`,
-`john`, `nc`, `ftp`, `gpg`, `node`, `gobuster`, `lynx`, `dig`, `nslookup`, `mysql`, `redis-cli`,
-`snmpwalk`, `snmpset`, the aircrack trio, `msfconsole` — from the existing thematic grouping
-(network clients `libssl`, matchers/parsers `libpcre` or `libxml2`, prompt-driven `libreadline`),
-reusing the eight libraries, no new library, no `/lib` re-roll; and a `SYSTEM_COMMAND_EFFECT_POOLS`
-entry per added command (a mapped command with no pool is not exploitable, decision 12). Daemons
-and the eight library-free system utilities (`mkdir`, `touch`, `man`, `ping`, `ifconfig`, `nmcli`,
-`clear`, `whoami`) stay out, so an NPC box's local surface is unchanged. **Open until this PR's
-planning:** each tool's exact library set and each pool's contents — in particular whether `node`
-gets a pool at all (a `node` CVE yielding `script_exec` through the script runner is
-near-circular); it is mapped either way, so `ldd node` answers. **Known consequence:** mapping a
-tool turns on `wrapWithLibraryCheck` for it, so removing a `.so` it links (`rm /lib/libssl.so`)
-starts breaking it — tests that stage a box without a library must expect that.
-**Acceptance (shape; specifics set at this PR's planning):**
-- Each newly mapped command's `ldd` lists its declared libraries.
-- No daemon and none of the eight system utilities gains a link; an NPC box's `--local` surface is
-  still legacy's seventeen.
-- With a linked `.so` removed, a newly mapped tool refuses to run as the existing mapped commands
-  already do.
-- Each newly mapped command with a pool is exploitable via `--local` inside a window; each without
-  one is not.
+is every apt-installed client tool and nothing else**), 78 (the links), 79 (the pools), 80 (an NPC
+service box does gain its own clients — corrects 68).
+**Path:** add the nineteen link entries to `libraryDeps` and the matching nineteen entries to
+`localExploit.ts`'s `LOCAL_EFFECT_POOLS`, reusing the eight libraries — no new library, no `/lib`
+re-roll, and no interpreter change, since `localExploitOutcome` already walks whatever the two
+tables hold. Both tables in full, as decided:
+
+    nmap         libssl                 dir_list, script_exec
+    dig          libssl                 file_read, dir_list
+    nslookup     libssl                 file_read
+    nc           libssl                 shell_limited, backdoor_port_open
+    snmpwalk     libssl                 file_read, dir_list
+    snmpset      libssl                 file_write
+    ftp          libssl + libreadline   file_read, file_write, dir_list
+    msfconsole   libssl + libreadline   shell_limited, script_exec, backdoor_port_open
+    mysql        libssl + libreadline   file_read, file_write
+    redis-cli    libssl + libreadline   file_read, file_write
+    hydra        libcrypt + libssl      password_reset, shell_limited
+    gobuster     libssl + libpcre       dir_list
+    lynx         libssl + libxml2       file_read, dir_list
+    john         libcrypt               password_reset
+    gpg          libcrypt               file_read, password_reset
+    airmon-ng    libcrypt               dir_list
+    airodump-ng  libcrypt               file_read, file_write
+    aircrack-ng  libcrypt               password_reset, file_read
+    node         libreadline            script_exec
+
+Daemons and the eight library-free system utilities (`mkdir`, `touch`, `man`, `ping`, `ifconfig`,
+`nmcli`, `clear`, `whoami`) stay out. **Known consequence:** mapping a tool turns on
+`wrapWithLibraryCheck` for it, so removing a `.so` it links (`rm /lib/libssl.so`) starts breaking
+it — every existing test that stages a box with a library removed now has to expect these nineteen
+to fail too, and that sweep belongs to this PR rather than a follow-up.
+**Acceptance:**
+- Each newly mapped command's `ldd` lists its declared libraries, in declared order.
+- No daemon and none of the eight library-free system utilities gains a link.
+- An NPC service box gains only its own service's clients (`dns` → `dig`, `nslookup`; `ftp` →
+  `ftp`; `mysql` → `mysql`; `redis` → `redis-cli`; `snmp` → `snmpwalk`, `snmpset`), and no new
+  library reach, effect kind or tier anywhere.
+- With a linked `.so` removed, a newly mapped tool refuses to run exactly as the existing mapped
+  commands already do.
+- Every one of the nineteen is exploitable via `--local` inside a window — none is mapped without a
+  pool, so no miss message ever denies a hole `ldd` and `apt list -u` both show.
+- No toolchain pool rolls `shell_full`; `shell_limited` appears only on `nc`, `msfconsole`, `hydra`.
+- `hydra`'s severity tie falls to `libcrypt`, every other two-link tool's to `libssl` (decision
+  64's link order).
 - The eight-library set is unchanged; no box's `/lib` is re-rolled.
-- The decision on `node` (pool or library-free) is recorded before code.
-**RED:** an `ldd`/interpreter test per newly mapped command; a test that a mapped-but-poolless
-command misses.
-**Evidence:** RED-GREEN unit tests; mutation gate at PR readiness. No wire-check, no browser run
-(pure client, unit-observable) unless the pool decisions reach a cross-player path.
+**RED:** an `ldd` test per newly mapped command; an interpreter test per command that its pool's
+effects are the reachable ones; a test that no toolchain command can roll `shell_full`; a
+link-order tie test on `hydra`.
+**Evidence:** RED-GREEN unit tests; mutation gate at PR readiness. No wire-check and no browser run
+— pure `src/core`, unit-observable, and the server recomputes from these same shared tables.
 
 ---
 
