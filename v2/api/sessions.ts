@@ -11,6 +11,7 @@ import {
   handleExploitCreateSession,
   type ExploitSessionRow,
 } from '../src/core/sessions/exploitCreateSession';
+import { handleExploitLocalElevate } from '../src/core/sessions/exploitLocalElevate';
 import type { NatOccupantRow, ApNetworkLookup } from '../src/core/network/resolvePublicTarget';
 import { computeApGatewayId } from '../src/core/identity/router';
 import {
@@ -518,6 +519,42 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         occupancyLabel: 'exploit source-ip occupancy',
         lookupLabel: 'exploit source-ip lookup',
       }),
+    });
+    res.status(status).json(body);
+    return;
+  }
+
+  if (actionOf(req.body) === 'exploitLocalElevate') {
+    // Cross-PLAYER `msfconsole --local`: B, standing on A's box, fires a library CVE on it
+    // with NO password. Occupancy resolves A — its identity AND its reachability — while the
+    // caller's OWN open session on that machine is the whole authorization (never a
+    // credential). The handler regenerates A's real box (so A's `apt upgrade` history and any
+    // tool B carried in both count), confirms the tool B ran is really there, recomputes the
+    // winning library CVE from A's own manifest, applies the effect at the tier it grants,
+    // and writes A's traces under A's own key. The shape of the occupant lookup mirrors
+    // `suElevate` — one player on N APs has N rows with the same workstation id, so
+    // `.limit(1)` picks any.
+    const findOccupantWorkstationByMachineId = async (machineId: string) => {
+      const { data, error } = await supabase
+        .from('home_network_occupants')
+        .select(
+          'owner_key, workstation_machine_id, essid, workstation_username, workstation_machine_name, workstation_root_hash',
+        )
+        .eq('workstation_machine_id', machineId)
+        .limit(1)
+        .maybeSingle();
+      logFailure('local-exploit occupant lookup', error);
+      return { data: data as OccupantWorkstation | null, error };
+    };
+    const { status, body } = await handleExploitLocalElevate(req.body, {
+      nonceStore: noopNonceStore,
+      now: () => Date.now(),
+      findOccupantWorkstationByMachineId,
+      findActiveSession: findActiveSessionVia({ supabase, label: 'local-exploit active-session' }),
+      findPatches: findPatchesVia({ supabase, label: 'local-exploit boot-state lookup' }),
+      insertSession: insertSessionVia({ supabase, label: 'local-exploit insert' }),
+      readLog: readAuthLogVia({ supabase, label: 'local-exploit trace read' }),
+      upsertPatch: upsertPatchVia({ supabase, label: 'local-exploit trace upsert' }),
     });
     res.status(status).json(body);
     return;
