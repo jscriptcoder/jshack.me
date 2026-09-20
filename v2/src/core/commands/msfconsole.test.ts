@@ -5,9 +5,11 @@ import {
   mockExploitApi,
   mockFsViewFromTree,
   mockNetworkViewFromConnectivity,
+  mockPatchApi,
   mockScanApi,
   mockSession,
 } from '../../test/factories/commandEnv';
+import { md5 } from '../generation/md5';
 import { buildDirectory, buildFile } from '../../test/factories/filesystem';
 import { buildColdStartConnectivity } from '../network/interfaces';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
@@ -25,7 +27,8 @@ import { computeWorkstationId } from '../identity/workstation';
 import { WORLD_EPOCH } from '../cve/worldClock';
 import { localExploitOutcome } from '../cve/localExploit';
 import { packageTimeline } from '../cve/packageTimeline';
-import type { ExploitEffectKind } from '../cve/exploitEffect';
+import { type ExploitEffectKind, backdoorPortFor } from '../cve/exploitEffect';
+import { formatListenerContent, listenerPidfilePath } from '../services/pidfile';
 import { buildEntry, formatDpkgStatus } from '../packages/dpkgStatus';
 import type { SystemLibrary } from '../generation/libraries';
 import type { OccupantProjection } from '../network/resolveOccupants';
@@ -1584,14 +1587,36 @@ const shellReleaseFor = (command: string, library: SystemLibrary, tier: UserType
 const rootShellReleaseFor = (command: string, library: SystemLibrary) =>
   shellReleaseFor(command, library, 'root');
 
-/** A release of `library` on which `command`'s pool rolls exactly `effect` — the way to
- *  reach a specific non-shell hole without pinning a seed's raw output. */
-const effectReleaseFor = (command: string, library: SystemLibrary, effect: ExploitEffectKind) => {
+/** A release of `library` on which `command`'s pool rolls exactly `effect` — and, when
+ *  `tier` is given, floors to that tier too. The way to reach a specific non-shell hole
+ *  without pinning a seed's raw output; the tier filter lets a write test pin the tier its
+ *  destination is actually writable at. */
+const effectReleaseFor = (
+  command: string,
+  library: SystemLibrary,
+  effect: ExploitEffectKind,
+  tier?: UserType,
+) => {
   const release = packageTimeline(library, 400).find((entry) => {
     const outcome = localExploitOutcome(command, new Map([[library, entry.version]]), entry.publishedAt);
-    return outcome?.effect === effect;
+    return outcome?.effect === effect && (tier === undefined || outcome.tier === tier);
   });
-  if (release === undefined) throw new Error(`no ${library} release rolls ${effect} for ${command}`);
+  if (release === undefined) {
+    throw new Error(`no ${library} release rolls ${effect}${tier ? ` at ${tier}` : ''} for ${command}`);
+  }
+  return release;
+};
+
+/** A release of `library` on which `command`'s pool rolls `file_read` at `tier` — the read
+ *  counterpart of `shellReleaseFor`. A read test has to pin the tier as well as the effect,
+ *  because a file is readable only at the tiers its permissions name, so the granted tier
+ *  decides whether the target file comes back or bounces. */
+const readReleaseFor = (command: string, library: SystemLibrary, tier: UserType) => {
+  const release = packageTimeline(library, 400).find((entry) => {
+    const outcome = localExploitOutcome(command, new Map([[library, entry.version]]), entry.publishedAt);
+    return outcome?.effect === 'file_read' && outcome.tier === tier;
+  });
+  if (release === undefined) throw new Error(`no ${library} release rolls a ${tier} file_read for ${command}`);
   return release;
 };
 
@@ -1618,6 +1643,12 @@ const localBoxEnv = (opts: {
   /** A box with no wireless association. `--local` is local, so it must still fire — the
    *  network only decides whether the box is another player's, which own-box short-circuits. */
   readonly offline?: boolean;
+  /** Extra top-level entries merged into the box's tree — a source file a write effect reads
+   *  its bytes from, or a script a `script_exec` effect runs. */
+  readonly extra?: Parameters<typeof buildDirectory>[0];
+  /** Make every `env.patches.write` fail with this reason, to exercise how an effect reports
+   *  a patch layer that refuses — a session gone, a lost round trip. */
+  readonly failWrite?: 'no_session' | 'permission_denied' | 'network_error' | 'modified_since_open';
 }) => {
   const manifest = formatDpkgStatus([buildEntry(opts.library, opts.version)]);
   const lib = buildDirectory(
@@ -1631,9 +1662,14 @@ const localBoxEnv = (opts: {
         dpkg: buildDirectory({ status: buildFile(manifest, { owner: 'root' }) }),
       }),
     }),
+    ...(opts.extra ?? {}),
   });
   const pushed: Session[] = [];
   const cwds: string[] = [];
+  // Every write a local effect makes travels through `env.patches.write`; recording them
+  // lets a test see the lock actually turn (a reset), the bytes actually land (a write) or
+  // the door actually open (a backdoor), not just the line that claims it did.
+  const writes: { path: string; content: string; owner: string | undefined }[] = [];
   const env = mockCommandEnv({
     identity: { publicKeyHex: asPlayerKeyHex(OWNER_KEY), privateKeyHex: 'b'.repeat(64) },
     session: mockSession({
@@ -1648,10 +1684,17 @@ const localBoxEnv = (opts: {
     network: mockNetworkViewFromConnectivity(
       opts.offline === true ? buildColdStartConnectivity(OWNER_KEY) : connectedState(),
     ),
+    patches: mockPatchApi({
+      write: async (path, content, options) => {
+        if (opts.failWrite !== undefined) return { ok: false, error: opts.failWrite };
+        writes.push({ path, content, owner: options?.owner });
+        return { ok: true };
+      },
+    }),
     pushSession: (session) => void pushed.push(session),
     setCwd: (path) => void cwds.push(path),
   });
-  return { env, pushed, cwds };
+  return { env, pushed, cwds, writes };
 };
 
 /** A scripted `--local` reach — through the command context, which is what marks a run
@@ -1751,41 +1794,645 @@ describe('msfconsole --local', () => {
     expect(cwds).toEqual([]);
   });
 
-  // Each non-shell effect names its own kind of hole and refuses to open a shell it never
-  // rolled. Until PR4b wires the six effects, this stand-in is what a rolled read, list,
-  // write, reset, backdoor or script hands back.
+  it('reads the named file off the box at the granted tier when a read hole rolls', async () => {
+    // `cat` links libpcre and its pool is only `file_read`, so a live libpcre CVE rolls a
+    // read every time. A critical/high severity floors the library route at root — the tier
+    // that can read the box's own `/etc/passwd`, which is the prize a local read is for.
+    const release = readReleaseFor('cat', 'libpcre', 'root');
+    const { env, pushed, cwds } = localBoxEnv({
+      library: 'libpcre',
+      version: release.version,
+      gameDay: release.publishedAt,
+    });
+    const outcome = localExploitOutcome(
+      'cat',
+      new Map([['libpcre', release.version]]),
+      release.publishedAt,
+    )!;
+
+    const { text, exitCode } = await drain(
+      await msfconsole.execute(env, ['cat', '/etc/passwd'], localFlags),
+    );
+
+    expect(exitCode).toBe(0);
+    // The whole ordered transcript: a read ends in the file's own bytes, streamed line by
+    // line after a header naming the path and the tier it was read as (decision 77).
+    expect(text.split('\n')).toEqual([
+      '[*] Exploiting cat locally',
+      '[*] Sending exploit payload...',
+      '[*] Payload delivered, waiting for callback...',
+      `[*] Vulnerability: ${outcome.cve} (${outcome.severity}) in libpcre.so`,
+      '[+] Exploit successful!',
+      '[+] Reading /etc/passwd (as root):',
+      '',
+      'root:x:0:0:root:/root:/bin/bash',
+      'alice:hash:1000:1000::/home/alice:/bin/bash',
+      '',
+    ]);
+    // A read hands back bytes, not a shell — the player stays exactly where they stood.
+    expect(pushed).toEqual([]);
+    expect(cwds).toEqual([]);
+  });
+
+  it('asks for a path when a read hole is fired with none', async () => {
+    // The scan never says which effect a CVE carries, so a bare fire is how the player
+    // learns this one reads — it names the hole and asks for a target rather than faking a
+    // shell or claiming it cannot be used. The vulnerability is still revealed, exactly as
+    // the service path reveals it before asking for the same missing argument.
+    const release = readReleaseFor('cat', 'libpcre', 'root');
+    const { env, pushed, cwds } = localBoxEnv({
+      library: 'libpcre',
+      version: release.version,
+      gameDay: release.publishedAt,
+    });
+    const outcome = localExploitOutcome(
+      'cat',
+      new Map([['libpcre', release.version]]),
+      release.publishedAt,
+    )!;
+
+    const { text, exitCode } = await drain(await msfconsole.execute(env, ['cat'], localFlags));
+
+    expect(exitCode).toBe(1);
+    expect(text.split('\n')).toEqual([
+      '[*] Exploiting cat locally',
+      '[*] Sending exploit payload...',
+      '[*] Payload delivered, waiting for callback...',
+      `[*] Vulnerability: ${outcome.cve} (${outcome.severity}) in libpcre.so`,
+      '[-] this exploit reads a file — name one: usage: msfconsole --local <command> <path>',
+    ]);
+    // The hole is real but unaimed: nothing was read, nothing claimed successful.
+    expect(text).not.toContain('[+] Exploit successful!');
+    expect(pushed).toEqual([]);
+    expect(cwds).toEqual([]);
+  });
+
+  it('reads at the granted tier, so a lesser CVE cannot reach a root-only file', async () => {
+    // The read is scoped to the tier the severity granted (decision 9's library floor), not
+    // to whatever the caller's own shell holds. The box's `/etc/passwd` is root-readable
+    // only, so a medium/low libpcre CVE — which floors at user — bounces on the very file
+    // the root test above reads. The two together prove the view is tier-scoped rather than
+    // an unguarded read of the box.
+    const release = readReleaseFor('cat', 'libpcre', 'user');
+    const { env, pushed, cwds } = localBoxEnv({
+      library: 'libpcre',
+      version: release.version,
+      gameDay: release.publishedAt,
+    });
+
+    const { text, exitCode } = await drain(
+      await msfconsole.execute(env, ['cat', '/etc/passwd'], localFlags),
+    );
+
+    expect(exitCode).toBe(1);
+    expect(text).toContain('[+] Exploit successful!');
+    expect(text).toContain('[-] Permission denied (as user): /etc/passwd');
+    expect(text).not.toContain('[+] Reading');
+    expect(pushed).toEqual([]);
+    expect(cwds).toEqual([]);
+  });
+
+  it('reports a missing file rather than reading one when the path is not there', async () => {
+    const release = readReleaseFor('cat', 'libpcre', 'root');
+    const { env, pushed, cwds } = localBoxEnv({
+      library: 'libpcre',
+      version: release.version,
+      gameDay: release.publishedAt,
+    });
+
+    const { text, exitCode } = await drain(
+      await msfconsole.execute(env, ['cat', '/no/such/file'], localFlags),
+    );
+
+    expect(exitCode).toBe(1);
+    expect(text).toContain('[+] Exploit successful!');
+    expect(text).toContain('[-] No such file (as root): /no/such/file');
+    expect(text).not.toContain('[+] Reading');
+    expect(pushed).toEqual([]);
+    expect(cwds).toEqual([]);
+  });
+
+  it('lists the named directory off the box at the granted tier when a list hole rolls', async () => {
+    // `ls` links libpcre and its pool is only `dir_list`, so a live libpcre CVE rolls a
+    // listing every time. A directory is world-readable, so the granted tier only has to
+    // traverse to it — the entries come back whatever the severity floored to.
+    const release = effectReleaseFor('ls', 'libpcre', 'dir_list');
+    const { env, pushed, cwds } = localBoxEnv({
+      library: 'libpcre',
+      version: release.version,
+      gameDay: release.publishedAt,
+    });
+    const outcome = localExploitOutcome(
+      'ls',
+      new Map([['libpcre', release.version]]),
+      release.publishedAt,
+    )!;
+
+    const { text, exitCode } = await drain(
+      await msfconsole.execute(env, ['ls', '/'], localFlags),
+    );
+
+    expect(exitCode).toBe(0);
+    expect(text.split('\n')).toEqual([
+      '[*] Exploiting ls locally',
+      '[*] Sending exploit payload...',
+      '[*] Payload delivered, waiting for callback...',
+      `[*] Vulnerability: ${outcome.cve} (${outcome.severity}) in libpcre.so`,
+      '[+] Exploit successful!',
+      `[+] Listing / (as ${outcome.tier}):`,
+      '',
+      'etc',
+      'lib',
+      'var',
+    ]);
+    // A listing hands back names, not a shell — the player stays where they stood.
+    expect(pushed).toEqual([]);
+    expect(cwds).toEqual([]);
+  });
+
+  it('asks for a directory when a list hole is fired with none', async () => {
+    const release = effectReleaseFor('ls', 'libpcre', 'dir_list');
+    const { env, pushed } = localBoxEnv({
+      library: 'libpcre',
+      version: release.version,
+      gameDay: release.publishedAt,
+    });
+
+    const { text, exitCode } = await drain(await msfconsole.execute(env, ['ls'], localFlags));
+
+    expect(exitCode).toBe(1);
+    expect(text).toContain(
+      '[-] this exploit lists a directory — name one: usage: msfconsole --local <command> <path>',
+    );
+    expect(text).not.toContain('[+] Exploit successful!');
+    expect(pushed).toEqual([]);
+  });
+
+  it('reports a file as not a directory, and a missing path as no directory', async () => {
+    // The list miss is worded for a directory, not a file: a path that is a file is named
+    // as one, and an absent path reads as a missing directory rather than a missing file —
+    // the distinct half of LIST_DENY the read path has no counterpart for.
+    const release = effectReleaseFor('ls', 'libpcre', 'dir_list');
+    const tier = localExploitOutcome(
+      'ls',
+      new Map([['libpcre', release.version]]),
+      release.publishedAt,
+    )!.tier;
+    const onFile = localBoxEnv({
+      library: 'libpcre',
+      version: release.version,
+      gameDay: release.publishedAt,
+    });
+    const onFileOut = await drain(
+      await msfconsole.execute(onFile.env, ['ls', '/etc/passwd'], localFlags),
+    );
+    expect(onFileOut.exitCode).toBe(1);
+    expect(onFileOut.text).toContain(
+      `[-] That is a file, not a directory (as ${tier}): /etc/passwd`,
+    );
+
+    const missing = localBoxEnv({
+      library: 'libpcre',
+      version: release.version,
+      gameDay: release.publishedAt,
+    });
+    const missingOut = await drain(
+      await msfconsole.execute(missing.env, ['ls', '/no/such/dir'], localFlags),
+    );
+    expect(missingOut.exitCode).toBe(1);
+    expect(missingOut.text).toContain('[-] No such directory');
+    expect(missingOut.text).not.toContain('[+] Listing');
+  });
+
+  it('turns the lock and hands back the new password when a reset hole rolls', async () => {
+    // The plaintext is derived from the CVE the player already earned — `pwned-<cve4>-<tier>`
+    // — so the box never stores it and the two sides agree on it without either being told.
+    const release = effectReleaseFor('su', 'libpam', 'password_reset');
+    const { env, pushed, cwds, writes } = localBoxEnv({
+      library: 'libpam',
+      version: release.version,
+      gameDay: release.publishedAt,
+    });
+    const outcome = localExploitOutcome(
+      'su',
+      new Map([['libpam', release.version]]),
+      release.publishedAt,
+    )!;
+    const username = outcome.tier === 'root' ? 'root' : 'alice';
+    const granted = `pwned-${outcome.cve.slice(-4)}-${outcome.tier}`;
+
+    const { text, exitCode } = await drain(await msfconsole.execute(env, ['su'], localFlags));
+
+    expect(exitCode).toBe(0);
+    expect(text).toContain(`[+] Password reset for '${username}' — new password: ${granted}`);
+    // The lock actually turned: `/etc/passwd` rewritten with the account's new hash, still
+    // owned by root as the passwd file always is.
+    expect(writes).toHaveLength(1);
+    expect(writes[0]?.path).toBe('/etc/passwd');
+    expect(writes[0]?.owner).toBe('root');
+    expect(writes[0]?.content).toContain(`${username}:${md5(granted)}:`);
+    // A reset changes a lock; it opens no door, so nobody is stood anywhere.
+    expect(pushed).toEqual([]);
+    expect(cwds).toEqual([]);
+  });
+
+  it('plants a listener on the CVE’s own port when a backdoor hole rolls', async () => {
+    // The port is a function of the CVE, and the pidfile IS the open port — written in the
+    // exact shape `nc -l` leaves, so a door a CVE opened and a door a player planted are the
+    // same file a defender cannot tell apart.
+    const release = effectReleaseFor('systemctl', 'libsystemd', 'backdoor_port_open');
+    const { env, pushed, cwds, writes } = localBoxEnv({
+      library: 'libsystemd',
+      version: release.version,
+      gameDay: release.publishedAt,
+    });
+    const outcome = localExploitOutcome(
+      'systemctl',
+      new Map([['libsystemd', release.version]]),
+      release.publishedAt,
+    )!;
+    const username = outcome.tier === 'root' ? 'root' : 'alice';
+    const port = backdoorPortFor(outcome.cve);
+
+    const { text, exitCode } = await drain(await msfconsole.execute(env, ['systemctl'], localFlags));
+
+    expect(exitCode).toBe(0);
+    expect(text).toContain(`[+] Backdoor planted on port ${port}`);
+    // Root owns the pidfile whoever opened the port; its content names the visitor's
+    // account and the tier they arrive as.
+    expect(writes).toHaveLength(1);
+    expect(writes[0]?.path).toBe(listenerPidfilePath(port));
+    expect(writes[0]?.owner).toBe('root');
+    expect(writes[0]?.content).toBe(
+      formatListenerContent({ port, user: username, userType: outcome.tier }),
+    );
+    // A backdoor opens a door and walks away from it — nobody is stood anywhere.
+    expect(pushed).toEqual([]);
+    expect(cwds).toEqual([]);
+  });
+
+  it('plants a file at the granted tier from a local:remote pair when a write hole rolls', async () => {
+    // Decision 23's grammar, both halves on this box: the bytes come off the local half,
+    // read at the caller's own shell tier, and land at the remote half, written at the tier
+    // the severity granted.
+    const release = effectReleaseFor('rm', 'libpcre', 'file_write', 'root');
+    const { env, pushed, cwds, writes } = localBoxEnv({
+      library: 'libpcre',
+      version: release.version,
+      gameDay: release.publishedAt,
+      extra: { 'payload.txt': buildFile('sabotage', { owner: 'alice' }) },
+    });
+
+    const { text, exitCode } = await drain(
+      await msfconsole.execute(env, ['rm', '/payload.txt:/etc/planted.txt'], localFlags),
+    );
+
+    expect(exitCode).toBe(0);
+    expect(text).toContain('[+] Wrote 8 bytes to /etc/planted.txt (as root)');
+    expect(writes).toHaveLength(1);
+    expect(writes[0]?.path).toBe('/etc/planted.txt');
+    expect(writes[0]?.content).toBe('sabotage');
+    // A newly created file at the granted tier is owned by the account that tier names.
+    expect(writes[0]?.owner).toBe('root');
+    // A write leaves something of the player's on the box and stands them nowhere.
+    expect(pushed).toEqual([]);
+    expect(cwds).toEqual([]);
+  });
+
+  it('asks for a pair when a write hole is fired with a single path or none', async () => {
+    const release = effectReleaseFor('rm', 'libpcre', 'file_write', 'root');
+    const opts = {
+      library: 'libpcre' as const,
+      version: release.version,
+      gameDay: release.publishedAt,
+      extra: { 'payload.txt': buildFile('sabotage', { owner: 'alice' }) },
+    };
+    const ask = '[-] this exploit writes a file — name a pair: usage: msfconsole --local <command> <local:remote>';
+
+    const bare = localBoxEnv(opts);
+    const bareOut = await drain(await msfconsole.execute(bare.env, ['rm'], localFlags));
+    expect(bareOut.exitCode).toBe(1);
+    expect(bareOut.text).toContain(ask);
+    expect(bareOut.text).not.toContain('[+] Exploit successful!');
+
+    // A single path is not a pair either — a write needs somewhere to send the bytes.
+    const single = localBoxEnv(opts);
+    const singleOut = await drain(
+      await msfconsole.execute(single.env, ['rm', '/payload.txt'], localFlags),
+    );
+    expect(singleOut.exitCode).toBe(1);
+    expect(singleOut.text).toContain(ask);
+    expect(bare.writes).toEqual([]);
+    expect(single.writes).toEqual([]);
+  });
+
+  it('cannot write a destination the granted tier is refused, so a lesser CVE bounces', async () => {
+    // The destination is walked at the granted tier, not the caller's shell: a medium/low
+    // CVE floors at user, and `/etc` is root-writable only, so the same pair that lands at
+    // root bounces here — proof the write is tier-scoped, not an unguarded plant.
+    const release = effectReleaseFor('rm', 'libpcre', 'file_write', 'user');
+    const { env, writes } = localBoxEnv({
+      library: 'libpcre',
+      version: release.version,
+      gameDay: release.publishedAt,
+      extra: { 'payload.txt': buildFile('sabotage', { owner: 'alice' }) },
+    });
+
+    const { text, exitCode } = await drain(
+      await msfconsole.execute(env, ['rm', '/payload.txt:/etc/planted.txt'], localFlags),
+    );
+
+    expect(exitCode).toBe(1);
+    expect(text).toContain('[-] Permission denied (as user): /etc/planted.txt');
+    expect(writes).toEqual([]);
+  });
+
+  it('refuses a local half the caller’s own shell cannot read, before any write', async () => {
+    // The bytes come from the player's OWN file at their OWN tier; a root-only file they
+    // cannot read is their typo, not the target holding out, so it is named as their own.
+    const release = effectReleaseFor('rm', 'libpcre', 'file_write', 'root');
+    const { env, writes } = localBoxEnv({
+      library: 'libpcre',
+      version: release.version,
+      gameDay: release.publishedAt,
+    });
+
+    const { text, exitCode } = await drain(
+      await msfconsole.execute(env, ['rm', '/etc/passwd:/etc/planted.txt'], localFlags),
+    );
+
+    expect(exitCode).toBe(1);
+    expect(text).toContain('msfconsole: /etc/passwd: Permission denied');
+    expect(text).not.toContain('[+] Exploit successful!');
+    expect(writes).toEqual([]);
+  });
+
+  it('runs the named script against the box and lands its writes at the granted tier', async () => {
+    // The script is the player's own file; it runs against THIS box and its writes are
+    // re-walked at the granted tier, so a write the tier can make lands and one it cannot is
+    // dropped — the same authorization the server applies, here on the box itself.
+    const release = effectReleaseFor('reboot', 'libsystemd', 'script_exec', 'root');
+    const { env, pushed, cwds, writes } = localBoxEnv({
+      library: 'libsystemd',
+      version: release.version,
+      gameDay: release.publishedAt,
+      extra: {
+        'attack.js': buildFile("await fs.writeFile('/etc/dropped.txt', 'planted')\n", {
+          owner: 'alice',
+        }),
+      },
+    });
+
+    const { text, exitCode } = await drain(
+      await msfconsole.execute(env, ['reboot', '/attack.js'], localFlags),
+    );
+
+    expect(exitCode).toBe(0);
+    expect(text).toContain('[+] Script injected on rig as root');
+    expect(writes).toHaveLength(1);
+    expect(writes[0]?.path).toBe('/etc/dropped.txt');
+    expect(writes[0]?.content).toBe('planted');
+    expect(writes[0]?.owner).toBe('root');
+    // A script leaves its effects behind and stands the player nowhere.
+    expect(pushed).toEqual([]);
+    expect(cwds).toEqual([]);
+  });
+
+  it('asks for a script when a script hole is fired with none', async () => {
+    const release = effectReleaseFor('reboot', 'libsystemd', 'script_exec', 'root');
+    const { env, writes } = localBoxEnv({
+      library: 'libsystemd',
+      version: release.version,
+      gameDay: release.publishedAt,
+    });
+
+    const { text, exitCode } = await drain(await msfconsole.execute(env, ['reboot'], localFlags));
+
+    expect(exitCode).toBe(1);
+    expect(text).toContain(
+      '[-] this exploit runs a script — name one: usage: msfconsole --local <command> <path>',
+    );
+    expect(text).not.toContain('[+] Exploit successful!');
+    expect(writes).toEqual([]);
+  });
+
+  it('drops a write the granted tier cannot make, and still reports the injection', async () => {
+    // The script's writes are re-walked at the granted tier: a user-floored CVE cannot write
+    // root-only `/etc`, so that write is dropped rather than refusing the whole run — the
+    // same authorization the server applies, proving the run is tier-scoped.
+    const release = effectReleaseFor('reboot', 'libsystemd', 'script_exec', 'user');
+    const { env, writes } = localBoxEnv({
+      library: 'libsystemd',
+      version: release.version,
+      gameDay: release.publishedAt,
+      extra: {
+        'attack.js': buildFile("await fs.writeFile('/etc/nope.txt', 'x')\n", { owner: 'alice' }),
+      },
+    });
+
+    const { text, exitCode } = await drain(
+      await msfconsole.execute(env, ['reboot', '/attack.js'], localFlags),
+    );
+
+    expect(exitCode).toBe(0);
+    expect(text).toContain('[+] Script injected on rig as user');
+    expect(writes).toEqual([]);
+  });
+
+  it('lands what a failing script wrote before it stopped, then reports the failure', async () => {
+    // The run may throw partway; whatever it wrote first was already collected, so those
+    // writes land — a side effect that reached the box cannot be unwound — before the error
+    // is told.
+    const release = effectReleaseFor('reboot', 'libsystemd', 'script_exec', 'root');
+    const { env, writes } = localBoxEnv({
+      library: 'libsystemd',
+      version: release.version,
+      gameDay: release.publishedAt,
+      extra: {
+        'attack.js': buildFile(
+          "await fs.writeFile('/etc/first.txt', 'one')\nthrow new Error('boom')\n",
+          { owner: 'alice' },
+        ),
+      },
+    });
+
+    const { text, exitCode } = await drain(
+      await msfconsole.execute(env, ['reboot', '/attack.js'], localFlags),
+    );
+
+    expect(exitCode).toBe(1);
+    expect(text).toContain('[-] Script injection failed: Error: boom');
+    expect(writes).toHaveLength(1);
+    expect(writes[0]?.path).toBe('/etc/first.txt');
+    expect(writes[0]?.content).toBe('one');
+  });
+
+  it('refuses a script the caller’s own shell cannot read', async () => {
+    const release = effectReleaseFor('reboot', 'libsystemd', 'script_exec', 'root');
+    const { env, writes } = localBoxEnv({
+      library: 'libsystemd',
+      version: release.version,
+      gameDay: release.publishedAt,
+    });
+
+    const { text, exitCode } = await drain(
+      await msfconsole.execute(env, ['reboot', '/no/such/script.js'], localFlags),
+    );
+
+    expect(exitCode).toBe(1);
+    expect(text).toContain('msfconsole: /no/such/script.js: No such file or directory');
+    expect(text).not.toContain('[+] Exploit successful!');
+    expect(writes).toEqual([]);
+  });
+
+  it('runs the script at the granted tier, reaching a file only that tier can read', async () => {
+    // The script runs against the box AT the granted tier: a root-floored CVE lets it read
+    // the root-only `/etc/passwd` and copy it elsewhere. Were it run at the caller's own
+    // shell tier the read would bounce and the script would fail — so a successful copy is
+    // proof the run is tier-scoped, not run at whatever the caller happens to hold.
+    const release = effectReleaseFor('reboot', 'libsystemd', 'script_exec', 'root');
+    const { env, writes } = localBoxEnv({
+      library: 'libsystemd',
+      version: release.version,
+      gameDay: release.publishedAt,
+      extra: {
+        'attack.js': buildFile(
+          "const stolen = await fs.readFile('/etc/passwd')\nawait fs.writeFile('/etc/copy.txt', stolen)\n",
+          { owner: 'alice' },
+        ),
+      },
+    });
+
+    const { text, exitCode } = await drain(
+      await msfconsole.execute(env, ['reboot', '/attack.js'], localFlags),
+    );
+
+    expect(exitCode).toBe(0);
+    expect(text).toContain('[+] Script injected on rig as root');
+    expect(writes).toHaveLength(1);
+    expect(writes[0]?.path).toBe('/etc/copy.txt');
+    expect(writes[0]?.content).toBe(ROOT_AND_USER_PASSWD);
+  });
+
+  it('asks when a write hole’s pair has an empty half, not just when it is absent', async () => {
+    // Both halves must be non-empty: a trailing colon names no destination and a leading one
+    // names no source, so each is no pair at all and the hole asks rather than firing.
+    const release = effectReleaseFor('rm', 'libpcre', 'file_write', 'root');
+    const opts = {
+      library: 'libpcre' as const,
+      version: release.version,
+      gameDay: release.publishedAt,
+      extra: { 'payload.txt': buildFile('sabotage', { owner: 'alice' }) },
+    };
+    const ask = '[-] this exploit writes a file — name a pair';
+
+    const emptyRemote = localBoxEnv(opts);
+    const emptyRemoteOut = await drain(
+      await msfconsole.execute(emptyRemote.env, ['rm', '/payload.txt:'], localFlags),
+    );
+    expect(emptyRemoteOut.exitCode).toBe(1);
+    expect(emptyRemoteOut.text).toContain(ask);
+
+    const emptyLocal = localBoxEnv(opts);
+    const emptyLocalOut = await drain(
+      await msfconsole.execute(emptyLocal.env, ['rm', ':/etc/planted.txt'], localFlags),
+    );
+    expect(emptyLocalOut.exitCode).toBe(1);
+    expect(emptyLocalOut.text).toContain(ask);
+    expect(emptyRemote.writes).toEqual([]);
+    expect(emptyLocal.writes).toEqual([]);
+  });
+
+  it('leaves an overwritten file’s own owner alone rather than re-owning it to the tier', async () => {
+    // An overwrite changes the bytes, not the terms: restamping the owner would quietly
+    // re-own a file to whatever tier the write ran at, handing away more than the bytes.
+    const release = effectReleaseFor('rm', 'libpcre', 'file_write', 'root');
+    const { env, writes } = localBoxEnv({
+      library: 'libpcre',
+      version: release.version,
+      gameDay: release.publishedAt,
+      extra: {
+        'payload.txt': buildFile('sabotage', { owner: 'alice' }),
+        'existing.txt': buildFile('old contents', { owner: 'alice' }),
+      },
+    });
+
+    const { text, exitCode } = await drain(
+      await msfconsole.execute(env, ['rm', '/payload.txt:/existing.txt'], localFlags),
+    );
+
+    expect(exitCode).toBe(0);
+    expect(text).toContain('[+] Wrote 8 bytes to /existing.txt (as root)');
+    expect(writes).toHaveLength(1);
+    expect(writes[0]?.content).toBe('sabotage');
+    // The file kept its own owner (alice), not the root tier that wrote it.
+    expect(writes[0]?.owner).toBe('alice');
+  });
+
+  it('owns a newly written file by the account the tier names, not the bare tier', async () => {
+    // A new file takes the actor as its owner — the account at the granted tier, not the
+    // tier word itself, so a user-floored write lands as `alice` rather than as `user`.
+    const release = effectReleaseFor('rm', 'libpcre', 'file_write', 'user');
+    const { env, writes } = localBoxEnv({
+      library: 'libpcre',
+      version: release.version,
+      gameDay: release.publishedAt,
+      extra: {
+        'payload.txt': buildFile('sabotage', { owner: 'alice' }),
+        srv: buildDirectory({}, { owner: 'alice' }),
+      },
+    });
+
+    const { text, exitCode } = await drain(
+      await msfconsole.execute(env, ['rm', '/payload.txt:/srv/new.txt'], localFlags),
+    );
+
+    expect(exitCode).toBe(0);
+    expect(text).toContain('[+] Wrote 8 bytes to /srv/new.txt (as user)');
+    expect(writes).toHaveLength(1);
+    expect(writes[0]?.owner).toBe('alice');
+  });
+
+  // Each write effect goes through `env.patches.write`, which can refuse — a session gone, a
+  // lost round trip. When it does, the effect reports the failure rather than claiming a
+  // success it never landed. `no_session` reads as "Permission denied" (one fact to a player).
   it.each([
-    ['file_read', 'cat', 'libpcre', 'reads a file'],
-    ['dir_list', 'ls', 'libpcre', 'lists a directory'],
-    ['file_write', 'rm', 'libpcre', 'writes a file'],
-    ['password_reset', 'su', 'libpam', 'resets a password'],
-    ['backdoor_port_open', 'systemctl', 'libsystemd', 'opens a backdoor port'],
-    ['script_exec', 'reboot', 'libsystemd', 'runs a script'],
-  ] as const)(
-    'names a %s hole, opens no shell, and pushes nothing',
-    async (effect, command, library, phrase) => {
-      const release = effectReleaseFor(command, library, effect);
-      const { env, pushed, cwds } = localBoxEnv({
-        library,
-        version: release.version,
-        gameDay: release.publishedAt,
-      });
-      const outcome = localExploitOutcome(
-        command,
-        new Map([[library, release.version]]),
-        release.publishedAt,
-      )!;
-
-      const { text, exitCode } = await drain(await msfconsole.execute(env, [command], localFlags));
-
-      expect(text).toContain(`[*] Vulnerability: ${outcome.cve} (${outcome.severity}) in ${library}.so`);
-      expect(text).not.toContain('[+] Exploit successful!');
-      expect(text).toContain(`[-] This hole ${phrase}, which a local exploit cannot use yet`);
-      expect(exitCode).toBe(1);
-      expect(pushed).toEqual([]);
-      expect(cwds).toEqual([]);
+    { effect: 'password_reset', command: 'su', library: 'libpam', args: ['su'], line: '[-] Password reset failed: Permission denied' },
+    { effect: 'backdoor_port_open', command: 'systemctl', library: 'libsystemd', args: ['systemctl'], line: '[-] Backdoor failed: Permission denied' },
+    {
+      effect: 'file_write',
+      command: 'rm',
+      library: 'libpcre',
+      tier: 'root' as const,
+      args: ['rm', '/payload.txt:/etc/planted.txt'],
+      extra: { 'payload.txt': buildFile('sabotage', { owner: 'alice' }) },
+      line: '[-] Write failed: Permission denied',
     },
-  );
+    {
+      effect: 'script_exec',
+      command: 'reboot',
+      library: 'libsystemd',
+      tier: 'root' as const,
+      args: ['reboot', '/attack.js'],
+      extra: { 'attack.js': buildFile("await fs.writeFile('/etc/dropped.txt', 'x')\n", { owner: 'alice' }) },
+      line: '[-] Script injection failed: Permission denied',
+    },
+  ] as const)('reports a refused patch when a $effect write cannot land', async (row) => {
+    const release = effectReleaseFor(row.command, row.library, row.effect, 'tier' in row ? row.tier : undefined);
+    const { env, pushed } = localBoxEnv({
+      library: row.library,
+      version: release.version,
+      gameDay: release.publishedAt,
+      failWrite: 'no_session',
+      ...('extra' in row ? { extra: row.extra } : {}),
+    });
+
+    const { text, exitCode } = await drain(await msfconsole.execute(env, [...row.args], localFlags));
+
+    expect(exitCode).toBe(1);
+    expect(text).toContain(row.line);
+    expect(pushed).toEqual([]);
+  });
 
   it('misses on a command that links no library', async () => {
     // `mkdir` is not in `libraryDeps`, so it has no library to fall through — the same
