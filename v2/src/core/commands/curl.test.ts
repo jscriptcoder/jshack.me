@@ -160,6 +160,7 @@ const runReporting = async (
     network: mockNetworkViewFromConnectivity(onlineConnectivity(ESSID)),
     log: {
       appendAuthLog: async () => undefined,
+      appendKernLog: async () => undefined,
       appendAccessLog: async (fetched) => {
         reported.push(fetched);
         if (options.failing === true) throw new Error('server unreachable');
@@ -638,6 +639,7 @@ describe('curl against the player own address', () => {
       }),
       log: {
         appendAuthLog: async () => undefined,
+        appendKernLog: async () => undefined,
         appendAccessLog: async (fetched) => {
           reported.push(fetched);
         },

@@ -182,6 +182,7 @@ const sweepReporting = async (
   const env = envOn(tree, {
     log: {
       appendAuthLog: async () => undefined,
+      appendKernLog: async () => undefined,
       appendAccessLog: async (fetched) => {
         reported.push(fetched);
       },

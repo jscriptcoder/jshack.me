@@ -77,6 +77,22 @@ describe('handleAppendAuthLog', () => {
     );
   });
 
+  it('accepts a su switch carrying its explicit suSwitch discriminant (what the adapter sends)', async () => {
+    // The client adapter tags every su switch `kind: 'suSwitch'`; the handler must honour
+    // that exact discriminant, not merely tolerate its absence.
+    const id = generateIdentity();
+    const envelope = signRequest(id, 'appendAuthLog', {
+      ...ownEvent(id.publicKeyHex),
+      kind: 'suSwitch',
+    });
+    const { deps, upsertPatch } = makeDeps();
+
+    const result = await handleAppendAuthLog(envelope, deps);
+
+    expect(result).toEqual({ status: 200, body: { ok: true } });
+    expect(upsertPatch.mock.calls[0]![0].content).toContain('Successful su for root by neo');
+  });
+
   it('renders a FAILED line for a failure outcome', async () => {
     const id = generateIdentity();
     const envelope = signRequest(id, 'appendAuthLog', {
@@ -237,5 +253,89 @@ describe('handleAppendAuthLog', () => {
     const result = await handleAppendAuthLog(envelope, deps);
 
     expect(result).toEqual({ status: 500, body: { error: 'upsert_failed' } });
+  });
+});
+
+// A `--local` shell success opens a session with NO authentication before it. It lands in
+// the SAME auth.log as a su switch, through the same appendAuthLog action, disambiguated by
+// a `kind` discriminant.
+describe('handleAppendAuthLog — a no-auth session line', () => {
+  const sessionEvent = (publicKeyHex: string) => ({
+    kind: 'sessionOpened' as const,
+    machine_id: computeWorkstationId('skylab', publicKeyHex),
+    user: 'root',
+    hostname: 'rig',
+  });
+
+  it('stamps the server time+pid into a login session-opened line for the shell user', async () => {
+    const id = generateIdentity();
+    const envelope = signRequest(id, 'appendAuthLog', sessionEvent(id.publicKeyHex));
+    const { deps, upsertPatch } = makeDeps();
+
+    const result = await handleAppendAuthLog(envelope, deps);
+
+    expect(result).toEqual({ status: 200, body: { ok: true } });
+    expect(upsertPatch.mock.calls[0]![0].content).toBe(
+      `Jun  7 14:32:01 rig login[${derivePid(STAMP)}]: session opened for user root\n`,
+    );
+  });
+
+  it('records no password line before the session — the missing auth is the whole tell', async () => {
+    const id = generateIdentity();
+    const envelope = signRequest(id, 'appendAuthLog', sessionEvent(id.publicKeyHex));
+    const { deps, upsertPatch } = makeDeps({
+      readAuthLog: async () => ({ data: { content: 'PRIOR\n' }, error: null }),
+    });
+
+    await handleAppendAuthLog(envelope, deps);
+
+    const content = upsertPatch.mock.calls[0]![0].content ?? '';
+    expect(content).toContain('PRIOR\n');
+    expect(content).toContain('session opened for user root');
+    expect(content).not.toContain('Accepted password');
+  });
+
+  it('writes the session line to the same auth.log row (root, canonical path) as a su switch', async () => {
+    const id = generateIdentity();
+    const envelope = signRequest(id, 'appendAuthLog', sessionEvent(id.publicKeyHex));
+    const { deps, upsertPatch } = makeDeps();
+
+    await handleAppendAuthLog(envelope, deps);
+
+    const row = upsertPatch.mock.calls[0]![0];
+    expect(row.path).toBe(AUTH_LOG_PATH);
+    expect(row.owner).toBe(AUTH_LOG_OWNER);
+    expect(row.permissions).toEqual(AUTH_LOG_PERMISSIONS);
+  });
+
+  it('rejects a session-opened append to a machine that is not the caller’s workstation with 403', async () => {
+    const id = generateIdentity();
+    const envelope = signRequest(id, 'appendAuthLog', {
+      kind: 'sessionOpened',
+      machine_id: computeWorkstationId('victim', 'b'.repeat(64)),
+      user: 'root',
+      hostname: 'rig',
+    });
+    const { deps, upsertPatch } = makeDeps();
+
+    const result = await handleAppendAuthLog(envelope, deps);
+
+    expect(result).toEqual({ status: 403, body: { error: 'no_session' } });
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
+  it('rejects a session-opened event missing its user with 400 payload_invalid', async () => {
+    const id = generateIdentity();
+    const envelope = signRequest(id, 'appendAuthLog', {
+      kind: 'sessionOpened',
+      machine_id: computeWorkstationId('skylab', id.publicKeyHex),
+      hostname: 'rig',
+    });
+    const { deps, upsertPatch } = makeDeps();
+
+    const result = await handleAppendAuthLog(envelope, deps);
+
+    expect(result).toEqual({ status: 400, body: { error: 'payload_invalid' } });
+    expect(upsertPatch).not.toHaveBeenCalled();
   });
 });

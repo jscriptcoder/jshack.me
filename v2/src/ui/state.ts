@@ -114,6 +114,7 @@ import {
   fetchOwnPatches,
   readOwnPatches,
   postAuthLog,
+  postKernLog,
   recordDeepScan,
   recordFtpTransfer,
   recordLanFetch,
@@ -1364,6 +1365,17 @@ const log: LogApi = {
   appendAuthLog: async (event) => {
     if (patchClientDeps === undefined) return;
     const result = await postAuthLog(patchClientDeps, event);
+    if (!result.ok) return;
+    await refetchPatches();
+    syncChannel?.broadcast({ type: 'patches-changed', machineId: patchClientDeps.machineId });
+  },
+  // Backs `env.log.appendKernLog`: posts a `--local` miss crash to the server (which stamps
+  // the time + formats the segfault line — the client never dictates game time), then
+  // reconciles the local journal and hints other tabs, exactly like `appendAuthLog`, so an
+  // immediate `cat /var/log/kern.log` after a miss reflects the new crash line.
+  appendKernLog: async (event) => {
+    if (patchClientDeps === undefined) return;
+    const result = await postKernLog(patchClientDeps, event);
     if (!result.ok) return;
     await refetchPatches();
     syncChannel?.broadcast({ type: 'patches-changed', machineId: patchClientDeps.machineId });

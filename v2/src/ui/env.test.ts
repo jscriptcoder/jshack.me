@@ -16,6 +16,7 @@ const noopPatches: PatchApi = {
 
 const noopLog: LogApi = {
   appendAuthLog: async () => undefined,
+  appendKernLog: async () => undefined,
   appendAccessLog: async () => undefined,
 };
 

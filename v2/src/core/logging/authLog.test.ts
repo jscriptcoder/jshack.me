@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { asGameTime } from '../types';
-import { formatSshdAuthLine, formatSuAuthLine } from './authLog';
+import { formatSessionOpenedLine, formatSshdAuthLine, formatSuAuthLine } from './authLog';
 
 /**
  * Auth-log line formatting — the syslog-style `/var/log/auth.log` entry `su`
@@ -112,5 +112,45 @@ describe('formatSshdAuthLine', () => {
     });
 
     expect(line).toContain('Accepted password for alice from 172.16.4.9');
+  });
+});
+
+describe('formatSessionOpenedLine', () => {
+  it('renders a bare session-opened line for the user the shell landed as', () => {
+    // A `--local` shell success writes the ordinary session line opening such a session
+    // writes (decision 69) — a PAM `login` session-open. The whole tell is what is NOT
+    // here: no "Accepted password" line precedes it and no CVE id names how it happened.
+    const line = formatSessionOpenedLine({
+      user: 'root',
+      hostname: 'workstation',
+      time: JUN_7,
+      pid: 4242,
+    });
+
+    expect(line).toBe('Jun  7 14:32:01 workstation login[4242]: session opened for user root');
+  });
+
+  it('zero-pads time and space-pads the day, naming whichever user opened the session', () => {
+    const line = formatSessionOpenedLine({
+      user: 'neo',
+      hostname: 'rig',
+      time: asGameTime(Date.UTC(2026, 0, 3, 4, 5, 6)),
+      pid: 7,
+    });
+
+    expect(line).toBe('Jan  3 04:05:06 rig login[7]: session opened for user neo');
+  });
+
+  it('names no authentication and no CVE — the missing password line is the tell', () => {
+    const line = formatSessionOpenedLine({
+      user: 'root',
+      hostname: 'box',
+      time: JUN_7,
+      pid: 100,
+    });
+
+    expect(line).toContain('session opened for user root');
+    expect(line).not.toContain('Accepted password');
+    expect(line).not.toMatch(/CVE-/);
   });
 });

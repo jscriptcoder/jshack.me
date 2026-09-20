@@ -72,6 +72,28 @@ export type CredentialAttempt = {
   readonly database?: string;
 };
 
+export type SessionOpenedEvent = {
+  readonly user: string;
+  readonly hostname: string;
+  readonly time: GameTime;
+  readonly pid: number;
+};
+
+/** Render a `msfconsole --local` SHELL SUCCESS as the ordinary session-opened line
+ *  opening such a session writes (decision 69): a PAM `login` session-open naming the
+ *  user the shell landed as. It is deliberately the plain line real login writes — the
+ *  whole tell is what is absent, an `Accepted password` line before it, which every
+ *  legitimate session has and this one cannot. No CVE id: unlike the service axis, a
+ *  local library exploit leaves nothing here that names how the session was opened. */
+export const formatSessionOpenedLine = (event: SessionOpenedEvent): string =>
+  formatSyslogLine({
+    time: event.time,
+    hostname: event.hostname,
+    service: 'login',
+    pid: event.pid,
+    message: `session opened for user ${event.user}`,
+  });
+
 /** Render an ssh login attempt as the REMOTE host's `/var/log/auth.log` line —
  *  `Accepted password for <user> from <ip>` on success, `Failed password …` on a
  *  rejected credential (real sshd logs both). Same syslog core as `su`; the
