@@ -6,7 +6,7 @@ record: the epic's `### Slice 8 — resolved decisions (grill-me, 2026-09-18)` s
 slice close-out: "Phase 3 slice 7 — reboot evicts" (#515–#518, v0.231.0–v0.234.0), which closed V3.
 **Slice 9 (firmware) is the only V-series axis left after this.**
 
-**Status:** Active — PR1 ✔ merged (#519, v0.235.0). PR2 ✔ merged (#520, v0.236.0). PR3 ✔ merged (#521, v0.237.0). PR4a ✔ merged (#522, v0.238.0). PR4b ✔ merged (#523, v0.239.0). PR4c ✔ merged (#524, v0.240.0). PR5 (server + wire-check) ✔ merged (#525, v0.241.0). PR5b (client) next. PR4 split into 4a/4b/4c at its planning (decisions 75–77); PR5 split into server + client (PR5b) at delivery for review size.
+**Status:** Active — PR1 ✔ merged (#519, v0.235.0). PR2 ✔ merged (#520, v0.236.0). PR3 ✔ merged (#521, v0.237.0). PR4a ✔ merged (#522, v0.238.0). PR4b ✔ merged (#523, v0.239.0). PR4c ✔ merged (#524, v0.240.0). PR5 (server + wire-check) ✔ merged (#525, v0.241.0). PR5b (client) ✔ merged (#526, v0.242.0). PR6 next. PR4 split into 4a/4b/4c at its planning (decisions 75–77); PR5 split into server + client (PR5b) at delivery for review size.
 
 **Delivery:** Nine independent PRs (six until PR4 split into 4a/4b/4c, decision 75, and PR5 into
 server + client at delivery), sequenced to trunk (NOT a stack), per decision 72. Each merges
@@ -401,7 +401,7 @@ A's box escalate, each turning a check red).
 
 ---
 
-### PR5b — `msfconsole --local` reaches the cross-player endpoint in-game (v0.242.0)
+### PR5b — `msfconsole --local` reaches the cross-player endpoint in-game (v0.242.0) ✔ SHIPPED v0.242.0 (#526)
 
 **Value:** Makes PR5's server door playable: the cross-player `--local` fire, currently refused
 client-side, actually crosses to A's box and stands B where the CVE granted.
@@ -435,6 +435,17 @@ handler already enforces).
 **Evidence:** RED-GREEN command/adapter/state tests (the seam mocked); a **solo browser run** — B
 carries `msfconsole` to A's `/tmp`, `ssh`es in, and `--local su` reaches root at the prompt, with
 A's `auth.log`/`kern.log` showing the trace. No new `api/` (PR5 shipped the endpoint).
+
+**Delivered as #526 (v0.242.0):** the cross-player refusal in `msfconsole.ts` now routes to a new
+`env.exploit.elevateLocal` seam (`postExploitLocalElevate` adapter → `exploitLocalElevate`), the shell
+carries argv[0] onto `CommandEnv` (via `resolveBinaryPath`) so the client names the tool path, and the
+network fire's result-rendering tail + blind local-half read were extracted to shared
+`renderExploitResult` / `prepareBlindPayload` (both doors read one `ExploitRunResult`). The full
+two-player fire is unstageable in a solo browser (a fresh box has no attack surface; B needs a real
+session on A plus the live server), so that path stayed the wire-check's domain — proven by PR5's
+merged run (#525) — and the client half by RED-GREEN unit tests across command/adapter/state/shell +
+the production build. Gates: `tsc -b`/eslint clean, vitest 5282/5282, `vite build` clean, mutation 83%
+on the handler.
 
 ---
 
