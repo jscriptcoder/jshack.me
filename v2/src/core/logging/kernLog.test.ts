@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { asGameTime } from '../types';
-import { formatNmapScanAggregate } from './kernLog';
+import { formatNmapScanAggregate, formatSegfaultLine } from './kernLog';
 
 /**
  * Kernel-log (`/var/log/kern.log`) line formatting for an nmap port scan — an
@@ -64,5 +64,54 @@ describe('formatNmapScanAggregate', () => {
     expect(line).toBe(
       'Jun  7 14:32:01 idle-host kernel: [iptables] Port scan from 192.168.1.50 — probed ports none (0 hits)',
     );
+  });
+});
+
+describe('formatSegfaultLine', () => {
+  it('renders a kernel segfault crash naming the faulting command and library', () => {
+    // A `--local` miss — the command links a library but none of them is live — is a
+    // crash, and this is what the kernel records: a null-deref segfault under the
+    // `kernel:` tag, the faulting program named as `command[pid]:`, and the library it
+    // fell in. No CVE id and nothing that looks like authentication.
+    const line = formatSegfaultLine({
+      time: JUN_7,
+      hostname: 'workstation',
+      command: 'su',
+      library: 'libpam',
+      pid: 4242,
+    });
+
+    expect(line).toBe(
+      'Jun  7 14:32:01 workstation kernel: su[4242]: segfault at 0 ip 0000000000000000 sp 0000000000000000 error 4 in libpam.so',
+    );
+  });
+
+  it('zero-pads time, space-pads the day, and appends .so to the library name', () => {
+    const line = formatSegfaultLine({
+      time: asGameTime(Date.UTC(2026, 0, 3, 4, 5, 6)),
+      hostname: 'rig',
+      command: 'cat',
+      library: 'libpcre',
+      pid: 7,
+    });
+
+    expect(line).toBe(
+      'Jan  3 04:05:06 rig kernel: cat[7]: segfault at 0 ip 0000000000000000 sp 0000000000000000 error 4 in libpcre.so',
+    );
+  });
+
+  it('names whichever command and library it faulted in, with no CVE id', () => {
+    const line = formatSegfaultLine({
+      time: JUN_7,
+      hostname: 'box',
+      command: 'systemctl',
+      library: 'libsystemd',
+      pid: 100,
+    });
+
+    expect(line).toContain('systemctl[100]: segfault');
+    expect(line).toContain('in libsystemd.so');
+    // The tell of decision 69: a crash names no CVE, unlike the service path's trace.
+    expect(line).not.toMatch(/CVE-/);
   });
 });

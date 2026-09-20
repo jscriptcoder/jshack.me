@@ -117,6 +117,7 @@ export const mockRemoteApi = (): RemoteApi => ({
 
 export const mockLogApi = (): LogApi => ({
   appendAuthLog: async () => undefined,
+  appendKernLog: async () => undefined,
   appendAccessLog: async () => undefined,
 });
 

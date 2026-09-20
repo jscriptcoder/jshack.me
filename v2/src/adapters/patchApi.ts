@@ -28,6 +28,7 @@ import type {
   AuthLogEvent,
   DeepScanRecordParams,
   Identity,
+  KernLogEvent,
   PatchApi,
   PatchResult,
   ScanRecordParams,
@@ -168,21 +169,47 @@ export const createPatchApi = (deps: PatchClientDeps): PatchApi => ({
     }),
 });
 
-/** Record an `su` user-switch to the caller's own `/var/log/auth.log`. Sends
- *  only the EVENT — the server stamps the UTC timestamp and formats the line, so
- *  the client never dictates game time. Returns the same `PatchResult` the UI
- *  uses to decide whether to reconcile the local journal (refetch). */
+/** Record an auth.log event to the caller's own `/var/log/auth.log`: a `su` user-switch,
+ *  or a session opened with no authentication before it (a `--local` shell success). Sends
+ *  only the EVENT — the server stamps the UTC timestamp and formats the line, so the client
+ *  never dictates game time. The `kind` discriminant carries only the fields its shape needs.
+ *  Returns the same `PatchResult` the UI uses to decide whether to reconcile the journal. */
 export const postAuthLog = async (
   deps: PatchClientDeps,
   event: AuthLogEvent,
 ): Promise<PatchResult> => {
+  const fields =
+    event.kind === 'sessionOpened'
+      ? { kind: 'sessionOpened', machine_id: event.machineId, user: event.user, hostname: event.hostname }
+      : {
+          kind: 'suSwitch',
+          machine_id: event.machineId,
+          target_user: event.targetUser,
+          from_user: event.fromUser,
+          outcome: event.outcome,
+          hostname: event.hostname,
+        };
+  try {
+    return toPatchResult(await post(deps, 'appendAuthLog', fields));
+  } catch {
+    return { ok: false, error: 'network_error' };
+  }
+};
+
+/** Record a `--local` MISS crash to the caller's own `/var/log/kern.log`. Sends only the
+ *  command and the library it faulted in — the server stamps the time + pid and formats the
+ *  segfault line. Same `PatchResult` contract as `postAuthLog`, so the UI reconciles the
+ *  journal on success and an immediate `cat /var/log/kern.log` shows the crash. */
+export const postKernLog = async (
+  deps: PatchClientDeps,
+  event: KernLogEvent,
+): Promise<PatchResult> => {
   try {
     return toPatchResult(
-      await post(deps, 'appendAuthLog', {
+      await post(deps, 'appendKernLog', {
         machine_id: event.machineId,
-        target_user: event.targetUser,
-        from_user: event.fromUser,
-        outcome: event.outcome,
+        command: event.command,
+        library: event.library,
         hostname: event.hostname,
       }),
     );

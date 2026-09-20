@@ -351,15 +351,37 @@ export type PublicSweepResult =
     }
   | { readonly ok: false; readonly error: 'host_unreachable' | 'network_error' };
 
-/** The su user-switch event a command hands to `log.appendAuthLog`. Carries no
- *  timestamp: the SERVER stamps the time (UTC) when it records the line, so a
- *  crafted client request can't dictate game time. `machineId` selects the row;
- *  `hostname` is the display name rendered into the syslog line. */
-export type AuthLogEvent = {
+/** An event a command hands to `log.appendAuthLog` for the box's own `/var/log/auth.log`.
+ *  Two shapes today (decision 69): a `su` user-switch, and a session opened with NO
+ *  authentication before it — the trace a `--local` shell success leaves, whose whole tell
+ *  is the missing password line. Neither carries a timestamp: the SERVER stamps the time
+ *  (UTC) and the pid when it records the line, so a crafted client request can't dictate
+ *  game time. `machineId` selects the row; `hostname` is the display name in the line. */
+export type AuthLogEvent =
+  | {
+      readonly kind: 'suSwitch';
+      readonly machineId: MachineId;
+      readonly targetUser: string;
+      readonly fromUser: string;
+      readonly outcome: 'success' | 'failure';
+      readonly hostname: string;
+    }
+  | {
+      readonly kind: 'sessionOpened';
+      readonly machineId: MachineId;
+      readonly user: string;
+      readonly hostname: string;
+    };
+
+/** The crash a `msfconsole --local` MISS hands to `log.appendKernLog` — the command
+ *  links a loadable library but none of them is live, so a real box records a segfault
+ *  (decision 69). Carries no timestamp or pid: the SERVER stamps both when it formats
+ *  the `/var/log/kern.log` line, exactly as the auth.log appender does. `command` and
+ *  `library` name what faulted; `hostname` is the display name rendered into the line. */
+export type KernLogEvent = {
   readonly machineId: MachineId;
-  readonly targetUser: string;
-  readonly fromUser: string;
-  readonly outcome: 'success' | 'failure';
+  readonly command: string;
+  readonly library: string;
   readonly hostname: string;
 };
 
@@ -389,6 +411,7 @@ export type AccessLogFetch = {
 
 export type LogApi = {
   readonly appendAuthLog: (event: AuthLogEvent) => Promise<void>;
+  readonly appendKernLog: (event: KernLogEvent) => Promise<void>;
   readonly appendAccessLog: (fetched: AccessLogFetch) => Promise<void>;
 };
 

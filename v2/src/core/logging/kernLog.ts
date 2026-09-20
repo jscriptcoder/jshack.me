@@ -67,3 +67,32 @@ export const formatNmapScanAggregate = ({
   const portList = probedPorts.length === 0 ? 'none' : probedPorts.join(',');
   return `${formatSyslogTimestamp(time)} ${hostname} kernel: [iptables] Port scan from ${sourceIp} — probed ports ${portList} (${probedPorts.length} hits)`;
 };
+
+export type SegfaultLogEvent = {
+  readonly time: GameTime;
+  readonly hostname: string;
+  /** The program that faulted — rendered `command[pid]:` inside the `kernel:` line,
+   *  the way a real crash names the faulting binary. */
+  readonly command: string;
+  /** The shared library the fault landed in, named WITHOUT its `.so` suffix (as
+   *  `libraryDeps` carries it); the `.so` is appended here so the crash line matches
+   *  what `ldd` and the exploit's own vulnerability line print. */
+  readonly library: string;
+  readonly pid: number;
+};
+
+/** Render a `msfconsole --local` MISS as the crash the kernel records (decision 69):
+ *  the command links a library but none of them is live, so the program faults, and
+ *  what a real box writes is a segfault line — not an "exploit" line, which nothing on
+ *  the system knows to write. Modelled on a null-dereference crash (`at 0`, `ip 0`), so
+ *  the line carries no address the game does not model and no CVE id: the recurring
+ *  library name in these lines is the defender's whole clue to patch it. Same pid-less
+ *  `kernel:` shape as the iptables line above, the command+pid living in the message. */
+export const formatSegfaultLine = ({
+  time,
+  hostname,
+  command,
+  library,
+  pid,
+}: SegfaultLogEvent): string =>
+  `${formatSyslogTimestamp(time)} ${hostname} kernel: ${command}[${pid}]: segfault at 0 ip 0000000000000000 sp 0000000000000000 error 4 in ${library}.so`;

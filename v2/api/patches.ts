@@ -9,6 +9,7 @@ import {
 import { handleListPatches, type ListPatchesQuery } from '../src/core/patches/listPatches';
 import { handleRemovePatch, type PatchTreeQuery } from '../src/core/patches/removePatch';
 import { handleAppendAuthLog, type AuthLogContentQuery } from '../src/core/patches/appendAuthLog';
+import { handleAppendKernLog, type KernLogContentQuery } from '../src/core/patches/appendKernLog';
 import { handleRecordFtpTransfer } from '../src/core/patches/recordFtpTransfer';
 import { handleRecordPackageDowngrade } from '../src/core/patches/recordPackageDowngrade';
 import { handleRecordZoneTransfer } from '../src/core/patches/recordZoneTransfer';
@@ -265,6 +266,32 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       nonceStore: noopNonceStore,
       now: () => Date.now(),
       readAuthLog,
+      upsertPatch,
+    });
+    res.status(status).json(body);
+    return;
+  }
+
+  if (actionOf(req.body) === 'appendKernLog') {
+    // The server reads the current kern.log content (own-workstation, the owner's own
+    // writer_key row) so the append is a read-modify-write the SERVER performs — the client
+    // never supplies content or time. Same shape as the auth.log appender above, pointed at
+    // the box's `/var/log/kern.log` for a `--local` miss crash.
+    const readKernLog = async ({ writer_key, machine_id, path }: KernLogContentQuery) => {
+      const { data, error } = await supabase
+        .from('patches')
+        .select('content')
+        .eq('writer_key', writer_key)
+        .eq('machine_id', machine_id)
+        .eq('path', path)
+        .maybeSingle();
+      if (error) console.error('[patches] kern-log read error:', error);
+      return { data, error };
+    };
+    const { status, body } = await handleAppendKernLog(req.body, {
+      nonceStore: noopNonceStore,
+      now: () => Date.now(),
+      readKernLog,
       upsertPatch,
     });
     res.status(status).json(body);

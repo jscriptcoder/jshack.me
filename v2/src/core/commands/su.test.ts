@@ -100,6 +100,7 @@ const suEnv = (opts: SuEnvOpts = {}) => {
       appendAuthLog: async (event) => {
         authLogs.push(event);
       },
+      appendKernLog: async () => undefined,
       appendAccessLog: async () => undefined,
     },
   });
@@ -375,6 +376,7 @@ describe('su', () => {
           appendAuthLog: async (event) => {
             authLogs.push(event);
           },
+          appendKernLog: async () => undefined,
           appendAccessLog: async () => undefined,
         },
       });
@@ -487,8 +489,10 @@ describe('su', () => {
 
       expect(authLogs).toHaveLength(1);
       // The client sends only the EVENT — no timestamp/pid (the server stamps
-      // those from its own UTC clock). It carries who switched to whom + where.
+      // those from its own UTC clock). It carries who switched to whom + where,
+      // tagged as a su switch (the auth.log event's discriminant).
       expect(authLogs[0]).toEqual({
+        kind: 'suSwitch',
         machineId: MACHINE,
         targetUser: 'root',
         fromUser: 'neo',
@@ -552,6 +556,7 @@ describe('su', () => {
           appendAuthLog: async (event) => {
             authLogs.push(event);
           },
+          appendKernLog: async () => undefined,
           appendAccessLog: async () => undefined,
         },
       });

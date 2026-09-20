@@ -369,6 +369,7 @@ describe('lynx leaves the same trace on the box it read', () => {
       network: mockNetworkViewFromConnectivity(onlineConnectivity(ESSID)),
       log: {
         appendAuthLog: async () => undefined,
+        appendKernLog: async () => undefined,
         appendAccessLog: async (fetch) => {
           logged.push(fetch);
         },
@@ -474,6 +475,7 @@ describe('lynx against the player own address', () => {
       }),
       log: {
         appendAuthLog: async () => undefined,
+        appendKernLog: async () => undefined,
         appendAccessLog: async (fetch) => {
           logged.push(fetch);
         },

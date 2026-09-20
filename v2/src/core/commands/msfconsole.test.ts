@@ -33,10 +33,12 @@ import { buildEntry, formatDpkgStatus } from '../packages/dpkgStatus';
 import type { SystemLibrary } from '../generation/libraries';
 import type { OccupantProjection } from '../network/resolveOccupants';
 import type {
+  AuthLogEvent,
   CommandResult,
   ExploitRunParams,
   ExploitRunResult,
   FsView,
+  KernLogEvent,
   ScanApi,
   Session,
   SessionKind,
@@ -1649,6 +1651,9 @@ const localBoxEnv = (opts: {
   /** Make every `env.patches.write` fail with this reason, to exercise how an effect reports
    *  a patch layer that refuses — a session gone, a lost round trip. */
   readonly failWrite?: 'no_session' | 'permission_denied' | 'network_error' | 'modified_since_open';
+  /** Make every `env.log` append reject, to prove a trace is best-effort: a crash line or a
+   *  session line the server could not record must never fail or reverse the exploit itself. */
+  readonly failLog?: boolean;
 }) => {
   const manifest = formatDpkgStatus([buildEntry(opts.library, opts.version)]);
   const lib = buildDirectory(
@@ -1670,6 +1675,10 @@ const localBoxEnv = (opts: {
   // lets a test see the lock actually turn (a reset), the bytes actually land (a write) or
   // the door actually open (a backdoor), not just the line that claims it did.
   const writes: { path: string; content: string; owner: string | undefined }[] = [];
+  // Every trace a local effect leaves travels through `env.log`; recording the two appends
+  // lets a test see the crash line a miss records and the no-auth session line a shell
+  // success records — and, just as important, their ABSENCE on the quiet effects.
+  const logs: { kern: KernLogEvent[]; auth: AuthLogEvent[] } = { kern: [], auth: [] };
   const env = mockCommandEnv({
     identity: { publicKeyHex: asPlayerKeyHex(OWNER_KEY), privateKeyHex: 'b'.repeat(64) },
     session: mockSession({
@@ -1691,21 +1700,32 @@ const localBoxEnv = (opts: {
         return { ok: true };
       },
     }),
+    log: {
+      appendAuthLog: async (event) => {
+        if (opts.failLog === true) throw new Error('auth.log unreachable');
+        logs.auth.push(event);
+      },
+      appendKernLog: async (event) => {
+        if (opts.failLog === true) throw new Error('kern.log unreachable');
+        logs.kern.push(event);
+      },
+      appendAccessLog: async () => undefined,
+    },
     pushSession: (session) => void pushed.push(session),
     setCwd: (path) => void cwds.push(path),
   });
-  return { env, pushed, cwds, writes };
+  return { env, pushed, cwds, writes, logs };
 };
 
 /** A scripted `--local` reach — through the command context, which is what marks a run
  *  scripted. `emitted` collects what a script does NOT hand back (stderr, dim asides). */
 const scriptedLocalRun = (opts: Parameters<typeof localBoxEnv>[0]) => {
-  const { env, pushed, cwds } = localBoxEnv(opts);
+  const { env, pushed, cwds, logs } = localBoxEnv(opts);
   const emitted: string[] = [];
   const context = buildCommandContext(env, new Map([[msfconsole.name, msfconsole]]), (line) =>
     emitted.push(line.content),
   );
-  return { fire: context.msfconsole, pushed, cwds, emitted };
+  return { fire: context.msfconsole, pushed, cwds, emitted, logs };
 };
 
 /** How the shell parser hands `msfconsole --local su` to `execute`: the command a
@@ -2594,5 +2614,149 @@ describe('msfconsole --local', () => {
     expect([...out]).toContain('[+] Limited shell available on rig as root');
     expect([...out]).not.toContain('[+] Full shell available on rig as root');
     expect(pushed).toEqual([]);
+  });
+
+  it('records a kern.log crash line naming the command and library on a miss with a loadable library', async () => {
+    // Decision 69: a miss where the command links a loadable library is a crash, and a real
+    // box records it — one kern.log segfault line naming the command and the library it fell
+    // in. The library IS present; only its CVE window has not opened. No shell opened, so
+    // nothing lands in auth.log.
+    const firstPam = packageTimeline('libpam', 400)[0]!;
+    const { env, logs } = localBoxEnv({
+      library: 'libpam',
+      version: firstPam.version,
+      gameDay: firstPam.publishedAt - 1,
+    });
+
+    const result = await msfconsole.execute(env, ['su'], localFlags);
+
+    expect(syncText(result)).toBe('msfconsole: no known vulnerability on su');
+    expect(logs.kern).toEqual([
+      { machineId: OWN_MACHINE_ID, command: 'su', library: 'libpam', hostname: 'rig' },
+    ]);
+    expect(logs.auth).toEqual([]);
+  });
+
+  it('records nothing on a miss for a command that links no library — it crashed nothing', async () => {
+    // `mkdir` links no library, so a miss on it faulted nothing: no crash line, and no
+    // shell, so both logs stay empty (decision 69).
+    const firstPam = packageTimeline('libpam', 400)[0]!;
+    const { env, logs } = localBoxEnv({
+      library: 'libpam',
+      version: firstPam.version,
+      gameDay: firstPam.publishedAt - 1,
+    });
+
+    await msfconsole.execute(env, ['mkdir'], localFlags);
+
+    expect(logs.kern).toEqual([]);
+    expect(logs.auth).toEqual([]);
+  });
+
+  it('records nothing on a miss whose linked .so has been deleted — nothing could load it', async () => {
+    // The CVE is live, but the deleted `.so` could not be loaded, so nothing faulted: a
+    // missing library writes no crash line (decision 69).
+    const release = rootShellReleaseFor('su', 'libpam');
+    const { env, logs } = localBoxEnv({
+      library: 'libpam',
+      version: release.version,
+      gameDay: release.publishedAt,
+      soPresent: false,
+    });
+
+    await msfconsole.execute(env, ['su'], localFlags);
+
+    expect(logs.kern).toEqual([]);
+    expect(logs.auth).toEqual([]);
+  });
+
+  it('records a no-auth session line in auth.log on a shell success, and no crash line', async () => {
+    // Decision 69: opening a shell writes the ordinary session line — the tell is the
+    // missing password line before it, so the event carries only the user the shell landed
+    // as. A hit is not a crash, so kern.log stays empty.
+    const release = rootShellReleaseFor('su', 'libpam');
+    const { env, pushed, logs } = localBoxEnv({
+      library: 'libpam',
+      version: release.version,
+      gameDay: release.publishedAt,
+    });
+
+    const { exitCode } = await drain(await msfconsole.execute(env, ['su'], localFlags));
+
+    expect(exitCode).toBe(0);
+    expect(pushed).toHaveLength(1);
+    expect(logs.auth).toEqual([
+      { kind: 'sessionOpened', machineId: OWN_MACHINE_ID, user: 'root', hostname: 'rig' },
+    ]);
+    expect(logs.kern).toEqual([]);
+  });
+
+  it('leaves both logs silent on a non-shell success — a read is quiet', async () => {
+    // Decision 69: stock Linux does not log file access, so a read/list/write/reset/
+    // backdoor/script success writes nothing at all — no crash and no session line.
+    const release = readReleaseFor('cat', 'libpcre', 'root');
+    const { env, logs } = localBoxEnv({
+      library: 'libpcre',
+      version: release.version,
+      gameDay: release.publishedAt,
+    });
+
+    const { exitCode } = await drain(
+      await msfconsole.execute(env, ['cat', '/etc/passwd'], localFlags),
+    );
+
+    expect(exitCode).toBe(0);
+    expect(logs.kern).toEqual([]);
+    expect(logs.auth).toEqual([]);
+  });
+
+  it('opens no auth.log session line when a shell roll is only reported from a script', async () => {
+    // A scripted roll reports the door and opens no session (decision 70), so there is no
+    // session to record — auth.log stays empty.
+    const release = rootShellReleaseFor('su', 'libpam');
+    const { fire, pushed, logs } = scriptedLocalRun({
+      library: 'libpam',
+      version: release.version,
+      gameDay: release.publishedAt,
+    });
+
+    await fire('su', { '--local': true });
+
+    expect(pushed).toEqual([]);
+    expect(logs.auth).toEqual([]);
+    expect(logs.kern).toEqual([]);
+  });
+
+  it('keeps a shell success standing when auth.log is unreachable — the trace is best-effort', async () => {
+    // Decision 69: the append is best-effort. A trace the server could not record must never
+    // reverse a break-in that already stands, so the shell still opens and exits 0.
+    const release = rootShellReleaseFor('su', 'libpam');
+    const { env, pushed } = localBoxEnv({
+      library: 'libpam',
+      version: release.version,
+      gameDay: release.publishedAt,
+      failLog: true,
+    });
+
+    const { text, exitCode } = await drain(await msfconsole.execute(env, ['su'], localFlags));
+
+    expect(exitCode).toBe(0);
+    expect(text).toContain('[+] Full shell as root@rig');
+    expect(pushed).toHaveLength(1);
+  });
+
+  it('still reports the uniform miss when kern.log is unreachable — the crash trace is best-effort', async () => {
+    const firstPam = packageTimeline('libpam', 400)[0]!;
+    const { env } = localBoxEnv({
+      library: 'libpam',
+      version: firstPam.version,
+      gameDay: firstPam.publishedAt - 1,
+      failLog: true,
+    });
+
+    const result = await msfconsole.execute(env, ['su'], localFlags);
+
+    expect(syncText(result)).toBe('msfconsole: no known vulnerability on su');
+    expect(syncExit(result)).toBe(1);
   });
 });

@@ -57,7 +57,7 @@ import {
 } from '../sessions/passwdAccount';
 import { PASSWD_FILE } from '../generation/baseFs';
 import { md5 } from '../generation/md5';
-import { libraryPresent } from './libraryDeps';
+import { libraryDeps, libraryPresent } from './libraryDeps';
 import { SYSTEM_LIBRARIES } from '../generation/libraries';
 import { hasTty } from '../shell/runLine';
 import { errorLine, streamedResult, text } from './streaming';
@@ -451,6 +451,23 @@ async function* localPreamble(
   yield text(`[*] Vulnerability: ${outcome.cve} (${outcome.severity}) in ${outcome.library}.so`);
 }
 
+/** Record the session a shell success opens (decision 69): the ordinary auth.log line an
+ *  opening session writes, the tell being the password line that is NOT before it. The
+ *  client sends only the user; the server stamps the time and formats the line. Best-effort
+ *  — a trace the server could not write must never reverse a break-in that already stands. */
+const appendSessionTrace = async (env: CommandEnv, user: string): Promise<void> => {
+  try {
+    await env.log.appendAuthLog({
+      kind: 'sessionOpened',
+      machineId: env.session.machineId,
+      user,
+      hostname: env.hostname,
+    });
+  } catch {
+    // best-effort: a logging hiccup must never reverse a shell that already opened.
+  }
+};
+
 /** A shell roll: walk the player in at the granted tier, as an account the box actually
  *  has there. */
 async function* fireLocalShell(
@@ -498,6 +515,10 @@ async function* fireLocalShell(
     createdAt: env.now(),
   });
   env.setCwd(homeDirectory({ username: account.username, userType: outcome.tier }));
+  // The session now stands, so the box records it opening — the one trace a shell success
+  // leaves (decision 69). Only the entered path records it: a scripted roll reported the
+  // door above and opened no session, so nothing is written there.
+  await appendSessionTrace(env, account.username);
   return 0;
 }
 
@@ -758,6 +779,37 @@ async function* fireLocalScriptExec(
   return 0;
 }
 
+/** The first library `command` links that is loadable on this box, or undefined when it
+ *  links none or every one's `.so` is gone. `Object.hasOwn`, because `command` is a
+ *  player-typed string and `libraryDeps` is a plain object — a command named `constructor`
+ *  must not read a prototype member. On a miss this names the library the program faulted
+ *  in; when it is undefined the miss crashed nothing and is silent (decision 69). */
+const faultedLibrary = (env: CommandEnv, command: string) =>
+  (Object.hasOwn(libraryDeps, command) ? libraryDeps[command] : []).find((library) =>
+    libraryPresent(env, library),
+  );
+
+/** Record the crash a miss leaves (decision 69): the command links a loadable library but
+ *  none is live, so the kernel logs a segfault naming both. Best-effort — a trace the server
+ *  could not write must never turn a miss into anything else — and the client sends only the
+ *  command and the library, the server stamping the time and formatting the line. */
+const appendCrashTrace = async (
+  env: CommandEnv,
+  command: string,
+  library: string,
+): Promise<void> => {
+  try {
+    await env.log.appendKernLog({
+      machineId: env.session.machineId,
+      command,
+      library,
+      hostname: env.hostname,
+    });
+  } catch {
+    // best-effort: a logging hiccup must never change what the miss reports.
+  }
+};
+
 /**
  * `msfconsole --local <command>`: fire the CVE a library the command links carries, on
  * the box the player is standing on. Everything is read from the box's OWN manifest and
@@ -797,7 +849,14 @@ const executeLocal = async (
     }),
   );
   const outcome = localExploitOutcome(command, loadable, gameDay);
-  if (outcome === undefined) return errorResult(localMiss(command));
+  if (outcome === undefined) {
+    // A miss where the command links a loadable library is a crash the kernel records; a
+    // command that links nothing, or whose every linked `.so` is gone, crashed nothing and
+    // stays silent (decision 69).
+    const faulted = faultedLibrary(env, command);
+    if (faulted !== undefined) await appendCrashTrace(env, command, faulted);
+    return errorResult(localMiss(command));
+  }
 
   // The account the granted tier names, if the box holds one. Needed as the OWNER a write
   // stamps on a file it creates, and as the identity a shell or a reset stands on. A write

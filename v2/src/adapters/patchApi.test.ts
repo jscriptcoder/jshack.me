@@ -5,6 +5,7 @@ import {
   fetchOwnPatches,
   readOwnPatches,
   postAuthLog,
+  postKernLog,
   recordScan,
   type PatchClientDeps,
 } from './patchApi';
@@ -254,6 +255,7 @@ describe('createPatchApi.write and remove', () => {
 
 describe('postAuthLog', () => {
   const event = (machineId: string) => ({
+    kind: 'suSwitch' as const,
     machineId: asMachineId(machineId),
     targetUser: 'root',
     fromUser: 'neo',
@@ -297,6 +299,81 @@ describe('postAuthLog', () => {
         }) as unknown as typeof fetch,
       ),
       event(computeWorkstationId('skylab', 'a'.repeat(64))),
+    );
+
+    expect(forbidden).toEqual({ ok: false, error: 'no_session' });
+    expect(offline).toEqual({ ok: false, error: 'network_error' });
+  });
+
+  it('signs a session-opened event carrying only the user, not the su fields', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    const result = await postAuthLog(deps, {
+      kind: 'sessionOpened',
+      machineId: asMachineId(deps.machineId),
+      user: 'root',
+      hostname: 'rig',
+    });
+
+    expect(result).toEqual({ ok: true });
+    const verified = await verifyPayload(sentEnvelope(fetchSpy));
+    if (!verified.ok) throw new Error('expected verified envelope');
+    expect(verified.payload).toMatchObject({
+      action: 'appendAuthLog',
+      kind: 'sessionOpened',
+      machine_id: deps.machineId,
+      user: 'root',
+      hostname: 'rig',
+    });
+    // A session line has no target/from/outcome — sending them would dress it as a su switch.
+    const keys = Object.keys(verified.payload as object);
+    expect(keys).not.toContain('target_user');
+    expect(keys).not.toContain('outcome');
+  });
+});
+
+describe('postKernLog', () => {
+  it('signs an appendKernLog request carrying the command and library, no client time', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    const result = await postKernLog(deps, {
+      machineId: asMachineId(deps.machineId),
+      command: 'su',
+      library: 'libpam',
+      hostname: 'rig',
+    });
+
+    expect(result).toEqual({ ok: true });
+    const verified = await verifyPayload(sentEnvelope(fetchSpy));
+    if (!verified.ok) throw new Error('expected verified envelope');
+    expect(verified.payload).toMatchObject({
+      action: 'appendKernLog',
+      machine_id: deps.machineId,
+      command: 'su',
+      library: 'libpam',
+      hostname: 'rig',
+    });
+    const keys = Object.keys(verified.payload as object);
+    expect(keys).not.toContain('time');
+    expect(keys).not.toContain('pid');
+  });
+
+  it('maps a 403 to no_session and a thrown fetch to network_error', async () => {
+    const forbidden = await postKernLog(
+      makeDeps(
+        vi.fn(async () => jsonResponse(403, { error: 'no_session' })) as unknown as typeof fetch,
+      ),
+      { machineId: asMachineId(computeWorkstationId('skylab', 'a'.repeat(64))), command: 'su', library: 'libpam', hostname: 'rig' },
+    );
+    const offline = await postKernLog(
+      makeDeps(
+        vi.fn(async () => {
+          throw new Error('offline');
+        }) as unknown as typeof fetch,
+      ),
+      { machineId: asMachineId(computeWorkstationId('skylab', 'a'.repeat(64))), command: 'su', library: 'libpam', hostname: 'rig' },
     );
 
     expect(forbidden).toEqual({ ok: false, error: 'no_session' });

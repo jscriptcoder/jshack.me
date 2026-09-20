@@ -27,6 +27,7 @@ import {
   AUTH_LOG_OWNER,
   AUTH_LOG_PATH,
   AUTH_LOG_PERMISSIONS,
+  formatSessionOpenedLine,
   formatSuAuthLine,
 } from '../logging/authLog';
 import { derivePid } from '../logging/syslog';
@@ -56,19 +57,45 @@ export type HandlerResponse = {
   readonly body: Record<string, unknown>;
 };
 
-// Loose so the always-present envelope fields (action/ts/nonce) pass through;
-// the refine rejects a client-supplied player_key/writer_key (the server stamps
-// the writer). Any client `time`/`pid` is ignored — the server clock is authoritative.
-const appendAuthLogSchema = z
+// The server always stamps the writer, so a client-supplied player_key/writer_key is a
+// forged provenance and rejected outright — shared by both shapes below.
+const noStampedKeys = (payload: Record<string, unknown>): boolean =>
+  !('player_key' in payload) && !('writer_key' in payload);
+
+// A `su` user-switch — the original shape. `kind` is OPTIONAL here so an envelope that
+// predates the discriminant still routes here (absent kind reads as a su switch); the
+// `sessionOpened` shape below carries its own required kind. Loose so the always-present
+// envelope fields (action/ts/nonce) pass through; any client `time`/`pid` is ignored.
+const suSwitchSchema = z
   .looseObject({
     action: z.literal('appendAuthLog'),
+    kind: z.literal('suSwitch').optional(),
     machine_id: z.string().min(1),
     target_user: z.string().min(1),
     from_user: z.string().min(1),
     outcome: z.enum(['success', 'failure']),
     hostname: z.string().min(1),
   })
-  .refine((payload) => !('player_key' in payload) && !('writer_key' in payload));
+  .refine(noStampedKeys);
+
+// A session opened with NO authentication before it — the trace a `--local` shell success
+// leaves (decision 69). It carries only the user the shell landed as; the server formats
+// the ordinary `login` session-opened line, whose whole tell is the password line NOT
+// before it.
+const sessionOpenedSchema = z
+  .looseObject({
+    action: z.literal('appendAuthLog'),
+    kind: z.literal('sessionOpened'),
+    machine_id: z.string().min(1),
+    user: z.string().min(1),
+    hostname: z.string().min(1),
+  })
+  .refine(noStampedKeys);
+
+// `sessionOpened` first, so a payload carrying that discriminant is matched by its own
+// shape rather than falling through to the su schema (which would reject it for missing
+// su fields); a su envelope fails the `sessionOpened` kind literal and routes on.
+const appendAuthLogSchema = z.union([sessionOpenedSchema, suSwitchSchema]);
 
 export const handleAppendAuthLog = async (
   body: unknown,
@@ -97,14 +124,22 @@ export const handleAppendAuthLog = async (
   const current = existing.data?.content ?? '';
 
   const stamp = deps.now();
-  const line = formatSuAuthLine({
-    outcome: payload.outcome,
-    targetUser: payload.target_user,
-    fromUser: payload.from_user,
-    hostname: payload.hostname,
-    time: asGameTime(stamp),
-    pid: derivePid(stamp),
-  });
+  const line =
+    payload.kind === 'sessionOpened'
+      ? formatSessionOpenedLine({
+          user: payload.user,
+          hostname: payload.hostname,
+          time: asGameTime(stamp),
+          pid: derivePid(stamp),
+        })
+      : formatSuAuthLine({
+          outcome: payload.outcome,
+          targetUser: payload.target_user,
+          fromUser: payload.from_user,
+          hostname: payload.hostname,
+          time: asGameTime(stamp),
+          pid: derivePid(stamp),
+        });
 
   const { error } = await deps.upsertPatch({
     writer_key: publicKey,

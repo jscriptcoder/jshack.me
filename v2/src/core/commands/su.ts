@@ -97,6 +97,7 @@ const logSwitch = async (
 ): Promise<void> => {
   try {
     await env.log.appendAuthLog({
+      kind: 'suSwitch',
       machineId: env.session.machineId,
       targetUser: target.username,
       fromUser: env.session.username,
