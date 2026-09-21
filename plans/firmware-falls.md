@@ -245,6 +245,10 @@ version in the game.
       (`eth0` vs `GigabitEthernet0/1`).
 - [ ] No CVE, severity or upgrade state appears anywhere in the walk.
 - [ ] The client-rendered walk and the server-resolved walk agree.
+- [ ] A walkable device with no firmware row — a workstation running its own installed agent, which
+      `deviceKind` answers as a router — still renders `sysDescr` as `Linux <hostname>`, unchanged
+      from today. Every generated router-class box carries firmware, so this fallback reaches only
+      the own-agent case.
 
 **RED**: a walk of a generated switch whose vendor is `openwrt` asserts `OpenWRT` in `sysDescr`;
 fails today against the hardcoded `'Cisco IOS L3 Switch'`.
