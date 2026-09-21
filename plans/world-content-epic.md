@@ -4,6 +4,7 @@
 > status. The grounding section records what v2 held on the day this was grilled; the code wins
 > wherever the two disagree.
 > Grilled 2026-09-21 (`grilling`), 25 locked decisions. Slices 0–3 delivered (as-built below).
+> Slice 4 planned in [`a-web-server-serves-a-site.md`](./a-web-server-serves-a-site.md).
 
 **Where we are now (2026-09-21):** **v0.250.0**. The legacy-parity epic's V-series is closed and
 its next line was "the ship gate". **Ship now waits for this epic** (decision 1). Grilled to 25
@@ -14,8 +15,9 @@ into the slice spine and the "As-built" sections below.
 **Decision 19 was amended at planning** (budget first, memoize on breach) and **decision 6 was
 narrowed at slice 2's planning** (the player workstation gains an empty `/home/guest`). Slice 3's
 planning took three owner decisions (rotated logs name only root and the daemons, gateways wait
-for slice 10, remote lines are neighbours doing routine things). **Slice 4 is next and not yet
-planned.**
+for slice 10, remote lines are neighbours doing routine things). **Slice 4 is planned** in
+[`a-web-server-serves-a-site.md`](./a-web-server-serves-a-site.md) as two PRs (lynx tables/pre,
+then the site), with six owner decisions taken at planning.
 
 ---
 
@@ -396,7 +398,7 @@ See below; planning refines it.
 | 1 | **A workstation reads as somebody's** — network persona (ESSID category as data) + box inhabitant; a workstation's home gets dotfiles, a history true to its network, notes; the first variety test | `ssh` into an NPC workstation as its user → `ls -a ~` → `.bash_history` names a real neighbour that `nmap`/`ssh` reach; `.gitconfig` names the inhabitant | ✅ DONE (#534, v0.248.0) — see as-built below |
 | 2 | **A box admits what it is** — `/etc` breadth, `/root`, `/home/guest` | `/etc/hosts` lists real neighbours; `su` → `/root` holds root's history | ✅ DONE (#535, v0.249.0) — also took `.ssh/` and an empty `/home/guest` on the player box; see as-built below |
 | 3 | **A box remembers** — rotated `.1` log history across every role, plus `syslog` | `ls /var/log` shows `auth.log.1`; its last line is before 2026-07-12; the live `auth.log` holds only player traces | ✅ DONE (#536, v0.250.0) — NPC hosts only (gateways → slice 10); `.1` holds 2026-07-11 alone; see as-built below |
-| 4 | **A web server serves a site** — three layers, lynx `<table>`/`<pre>`, the link-resolution property test | lynx follows links across pages; `robots.txt` names a served path; a default `gobuster` finds a hidden path | ⏳ |
+| 4 | **A web server serves a site** — three layers, lynx `<table>`/`<pre>`, the link-resolution property test | lynx follows links across pages; `robots.txt` names a served path; a default `gobuster` finds a hidden path | 📝 PLANNED — `a-web-server-serves-a-site.md`; two PRs (4a lynx `<table>`/`<pre>`, 4b the site); webservers only |
 | 5 | **A database holds an application** — app archetypes | `SHOW TABLES` on a café network's DB shows a till schema whose staff are that network's inhabitants | ⏳ |
 | 6 | **A store serves that application** — Redis keyspaces paired with the app | `KEYS sess:*` returns sessions for that app's real users | ⏳ |
 | 7 | **Somebody wrote to somebody** — workstation mailboxes, the mail server's spool | a thread in `/var/mail/<user>` is between two real inhabitants of the network | ⏳ |
@@ -572,3 +574,11 @@ Retired here from `a-box-remembers.md` on close-out.
 - **2026-09-21** — slice 3 shipped (#536, v0.250.0); played run on CASA-DE-RAMIREZ recorded;
   slice plan retired into "As-built: slice 3" above and its file deleted. `tail` backlogged in
   conventions §9. Next: slice 4 (not yet planned).
+- **2026-09-21** — slice 4 planned (`a-web-server-serves-a-site.md`; 4a v0.251.0, 4b v0.252.0).
+  Owner decisions at planning: the three layers go on webserver-role hosts only (other http hosts
+  keep one page, rewritten version-free; IoT → slice 9, gateways → slice 10); cross-host links use
+  `.lan` names and the web tools learn to resolve them (display plumbing); two PRs in order;
+  `robots.txt` may `Disallow` one served off-dirlist path; pages name people by full name and role
+  mailboxes, never a username (the no-account-but-root rule holds under `/var/www`); `dump.sql` is
+  schema-only. Resolved: 1–4 hidden dirlist paths per site; no autoindex, so hidden directories are
+  ones that carry their own page.
