@@ -30,26 +30,21 @@ const LAST_DAY_START = WORLD_EPOCH - DAY_MS;
 
 type Built = { readonly box: Box; readonly tree: Directory; readonly onLan: boolean };
 
-let population: readonly Built[] | null = null;
-
-/** Every NPC box on every catalog and non-catalog network, LAN and deep — built once,
- *  on first use, so a mutant that breaks the builder fails the tests that use it
- *  rather than the file's import. */
-const everyBox = (): readonly Built[] => {
-  population ??= [
-    ...lanBoxes(ALL_ESSIDS).map((box) => ({
-      box,
-      tree: buildRemoteHostFs(box.essid, box.host),
-      onLan: true,
-    })),
-    ...deepBoxes(crackableEssidPool).map(({ essid, host }) => ({
-      box: { essid, host },
-      tree: buildDeepHostFs(essid, host),
-      onLan: false,
-    })),
-  ];
-  return population;
-};
+/** Every NPC box on every catalog and non-catalog network, LAN and deep — built inside
+ *  each test that asks, never at import or once for the file, so every test that reads a
+ *  box also exercises the builder that made it. */
+const everyBox = (): readonly Built[] => [
+  ...lanBoxes(ALL_ESSIDS).map((box) => ({
+    box,
+    tree: buildRemoteHostFs(box.essid, box.host),
+    onLan: true,
+  })),
+  ...deepBoxes(crackableEssidPool).map(({ essid, host }) => ({
+    box: { essid, host },
+    tree: buildDeepHostFs(essid, host),
+    onLan: false,
+  })),
+];
 
 const varLogOf = (tree: Directory): Directory => {
   const node = createFsView(tree, { userType: 'root' }).stat(asAbsPath('/var/log'));
@@ -264,6 +259,13 @@ describe('the jobs a box ran', () => {
         true,
       );
       expect(syslog.some((line) => / systemd\[1\]: Finished Rotate log files\.$/.test(line))).toBe(true);
+      const started = syslog.filter((line) => / systemd\[1\]: Starting .*\.\.\.$/.test(line));
+      const finished = syslog.filter((line) => / systemd\[1\]: Finished .*\.$/.test(line));
+      const deactivated = syslog.filter((line) =>
+        / systemd\[1\]: [\w-]+\.service: Deactivated successfully\.$/.test(line),
+      );
+      expect(finished.length).toBe(started.length);
+      expect(deactivated.length).toBe(started.length);
     });
   });
 });
@@ -293,8 +295,42 @@ describe('who reached a box that day', () => {
       const sessions = auth.filter((line) =>
         / sshd\[\d+\]: pam_unix\(sshd:session\): session opened for user root\(uid=0\) by \(uid=0\)$/.test(line),
       );
+      const closed = auth.filter((line) =>
+        / sshd\[\d+\]: pam_unix\(sshd:session\): session closed for user root$/.test(line),
+      );
       expect(sessions.length).toBe(visits.length);
+      expect(closed.length).toBe(visits.length);
     });
+  });
+
+  /** Where a line of each file names the machine it came from. */
+  const SOURCES: Readonly<Record<string, RegExp>> = {
+    'access.log.1': /^(\S+) - - \[/,
+    'redis.log.1': / Client connected from (\S+)$/,
+    'auth.log.1': / Accepted password for root from (\S+)$/,
+  };
+
+  it('names a real machine as every client, a neighbour wherever the box has one', () => {
+    const lanSources = new Set<string>();
+    everyBox().forEach(({ box, tree, onLan }) => {
+      rotatedOf(tree).forEach((content, name) => {
+        const source = SOURCES[name];
+        if (source === undefined) return;
+        linesOf(content)
+          .map((line) => source.exec(line)?.[1])
+          .filter((ip) => ip !== undefined)
+          .forEach((ip) => {
+            expect(ip).toMatch(/^\d{1,3}(?:\.\d{1,3}){3}$/);
+            if (!onLan) expect(ip).toBe('127.0.0.1');
+            if (onLan && ip !== box.host.ip) lanSources.add(`${name} ${ip === '127.0.0.1' ? 'loopback' : 'neighbour'}`);
+          });
+      });
+    });
+    expect([...lanSources].sort()).toEqual([
+      'access.log.1 neighbour',
+      'auth.log.1 neighbour',
+      'redis.log.1 neighbour',
+    ]);
   });
 
   it('shows some admins logging in that day and some not, up to three visits', () => {
@@ -336,7 +372,14 @@ describe('who reached a box that day', () => {
       if (database === null) throw new Error('unreadable datadir');
       const tables = Object.keys(database.tables);
       const lines = linesOf(log ?? '');
-      expect(lines.some((line) => line.includes(' Connect\t'))).toBe(true);
+      const connects = lines.filter((line) => line.includes(' Connect\t'));
+      expect(connects.length).toBeGreaterThan(0);
+      // Every connection ran something: a root session that asked nothing is not one an
+      // admin opens.
+      connects.forEach((connect) => {
+        const session = /\t(\d+) Connect\t/.exec(connect)?.[1];
+        expect(lines.some((line) => line.includes(`\t${session} Query\t`))).toBe(true);
+      });
       lines.forEach((line) => {
         const [, detail = ''] = line.split(/\t\d+ (?:Connect|Query)\t/);
         if (line.includes(' Connect\t')) {
@@ -357,14 +400,29 @@ describe('who reached a box that day', () => {
         expect(log).toBeUndefined();
         return;
       }
-      expect(log).toContain('* DB saved on disk');
+      // A save is one cycle, told in four lines: the rule that fired, the child forked,
+      // the child writing the snapshot, the daemon hearing it finished.
+      const lines = linesOf(log ?? '');
+      const saving = lines.filter((line) => /:M .* \* \d+ changes in \d+ seconds\. Saving\.\.\.$/.test(line));
+      const forked = lines
+        .map((line) => /:M .* \* Background saving started by pid (\d+)$/.exec(line)?.[1])
+        .filter((pid) => pid !== undefined);
+      const written = lines
+        .map((line) => /^(\d+):C .* \* DB saved on disk$/.exec(line)?.[1])
+        .filter((pid) => pid !== undefined);
+      const done = lines.filter((line) => /:M .* \* Background saving terminated with success$/.test(line));
+      expect(saving.length).toBeGreaterThan(0);
+      expect(forked).toHaveLength(saving.length);
+      expect(written).toEqual(forked);
+      expect(done).toHaveLength(saving.length);
     });
   });
 
   it('shows a name server reloading the zone it keeps, at the serial its zone file carries', () => {
-    const nameServers = everyBox().filter(({ box }) => roleOfHostname(box.host.hostname) === 'dns');
+    const boxes = everyBox();
+    const nameServers = boxes.filter(({ box }) => roleOfHostname(box.host.hostname) === 'dns');
     expect(nameServers.length).toBeGreaterThan(0);
-    everyBox().forEach(({ box, tree }) => {
+    boxes.forEach(({ box, tree }) => {
       const log = rotatedOf(tree).get('named.log.1');
       const isServing =
         roleOfHostname(box.host.hostname) === 'dns' && daemonsRunningOn(box).includes('domain');
@@ -386,9 +444,12 @@ describe('who reached a box that day', () => {
   });
 
   it('keeps a kernel log only for a box that restarted, booting the kernel and disk it has', () => {
-    const rebooted = everyBox().filter(({ tree }) => rotatedOf(tree).has('kern.log.1'));
-    expect(rebooted.length).toBeGreaterThan(0);
-    expect(rebooted.length).toBeLessThan(everyBox().length);
+    const boxes = everyBox();
+    const rebooted = boxes.filter(({ tree }) => rotatedOf(tree).has('kern.log.1'));
+    const share = rebooted.length / boxes.length;
+    // A restart is an occasional event, not the ordinary day.
+    expect(share).toBeGreaterThan(0.05);
+    expect(share).toBeLessThan(0.3);
     everyBox().forEach(({ box, tree }) => {
       const kern = rotatedOf(tree).get('kern.log.1');
       const syslog = linesOf(logsOf(tree).get('syslog.1') ?? '');
@@ -401,6 +462,13 @@ describe('who reached a box that day', () => {
       expect(kern).toContain(`Command line: BOOT_IMAGE=/boot/vmlinuz root=UUID=${rootUuid} ro quiet`);
       expect(fileAt(tree, '/boot/vmlinuz')).not.toBe('');
       expect(started.length).toBe(daemonsRunningOn(box).length);
+      const ssh = hostServices(box.essid, box.host).find(({ spec }) => spec.service === 'ssh');
+      const listening = linesOf(rotatedOf(tree).get('auth.log.1') ?? '').filter((line) =>
+        / sshd\[\d+\]: Server listening on 0\.0\.0\.0 port \d+\.$/.test(line),
+      );
+      expect(listening).toEqual(
+        ssh === undefined ? [] : [expect.stringContaining(`port ${ssh.port}.`)],
+      );
     });
   });
 });
@@ -439,6 +507,14 @@ describe('what a box’s logs never say', () => {
     expect([...accounts]).toEqual(['root']);
   });
 
+  it('leaves no blank where a value should be', () => {
+    everyBox().forEach(({ tree }) => {
+      rotatedOf(tree).forEach((content) => {
+        expect(content).not.toMatch(/undefined|NaN|\{\w+\}/);
+      });
+    });
+  });
+
   it('carries no software version', () => {
     everyBox().forEach(({ tree }) => {
       rotatedOf(tree).forEach((content, name) => {
@@ -452,8 +528,9 @@ describe('what a box’s logs never say', () => {
 
 describe('no two boxes lived the same day', () => {
   it('gives no two boxes on one network the same rotated log', () => {
+    const boxes = everyBox();
     ALL_ESSIDS.forEach((essid) => {
-      const rotations = everyBox()
+      const rotations = boxes
         .filter(({ box, onLan }) => onLan && box.essid === essid)
         .flatMap(({ tree }) => [...rotatedOf(tree)].map(([name, content]) => `${name}\n${content}`));
       expect(new Set(rotations).size).toBe(rotations.length);
