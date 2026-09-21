@@ -4,6 +4,7 @@
 > status. The grounding section records what v2 held on the day this was grilled; the code wins
 > wherever the two disagree.
 > Grilled 2026-09-21 (`grilling`), 25 locked decisions. Slices 0–2 delivered (as-built below).
+> Slice 3 planned in [`a-box-remembers.md`](./a-box-remembers.md).
 
 **Where we are now (2026-09-21):** **v0.249.0**. The legacy-parity epic's V-series is closed and
 its next line was "the ship gate". **Ship now waits for this epic** (decision 1). Grilled to 25
@@ -12,7 +13,9 @@ the build budgets, NPC workstation homes, and every NPC box's `/etc`, `/root`, `
 `/home/guest`; their as-built is folded into the slice spine and the "As-built" sections below.
 **Decision 19 was amended at planning** (budget first, memoize on breach) and **decision 6 was
 narrowed at slice 2's planning** (the player workstation gains an empty `/home/guest`). **Slice 3
-is next and not yet planned.**
+is planned** in [`a-box-remembers.md`](./a-box-remembers.md), with three owner decisions taken
+at planning: rotated logs name only root and the daemons, gateways wait for slice 10, and remote
+lines are neighbours doing routine things.
 
 ---
 
@@ -392,7 +395,7 @@ See below; planning refines it.
 | 0 | **The world stays cheap to build and to ship** — the per-box build-time budget and the bundle size check, as a `postbuild` script (memoization deferred until a breach — amended decision 19) | `npm run build` prints both numbers against their ceilings and fails when either breaks | ✅ DONE (#533) — `scripts/checkBudgets.ts`; bundle ceiling 284,975 B, build ceiling 2 ms/box; enforced on local `npm run build` only (Vercel builds the frozen root app) |
 | 1 | **A workstation reads as somebody's** — network persona (ESSID category as data) + box inhabitant; a workstation's home gets dotfiles, a history true to its network, notes; the first variety test | `ssh` into an NPC workstation as its user → `ls -a ~` → `.bash_history` names a real neighbour that `nmap`/`ssh` reach; `.gitconfig` names the inhabitant | ✅ DONE (#534, v0.248.0) — see as-built below |
 | 2 | **A box admits what it is** — `/etc` breadth, `/root`, `/home/guest` | `/etc/hosts` lists real neighbours; `su` → `/root` holds root's history | ✅ DONE (#535, v0.249.0) — also took `.ssh/` and an empty `/home/guest` on the player box; see as-built below |
-| 3 | **A box remembers** — rotated `.1` log history across every role, plus `syslog` | `ls /var/log` shows `auth.log.1`; its last line is before 2026-07-12; the live `auth.log` holds only player traces | ⏳ |
+| 3 | **A box remembers** — rotated `.1` log history across every role, plus `syslog` | `ls /var/log` shows `auth.log.1`; its last line is before 2026-07-12; the live `auth.log` holds only player traces | 📝 PLANNED — `a-box-remembers.md`; NPC hosts only (gateways → slice 10); `.1` holds 2026-07-11 alone |
 | 4 | **A web server serves a site** — three layers, lynx `<table>`/`<pre>`, the link-resolution property test | lynx follows links across pages; `robots.txt` names a served path; a default `gobuster` finds a hidden path | ⏳ |
 | 5 | **A database holds an application** — app archetypes | `SHOW TABLES` on a café network's DB shows a till schema whose staff are that network's inhabitants | ⏳ |
 | 6 | **A store serves that application** — Redis keyspaces paired with the app | `KEYS sess:*` returns sessions for that app's real users | ⏳ |
@@ -486,7 +489,6 @@ Retired here from `a-box-admits-what-it-is.md` on close-out.
   derived network population is memoized alongside the tree — only if the build-time budget breaks.
 - Which archetypes exist and which (role, prefix, persona) picks each; how many dirlist paths a web
   host serves.
-- How far `.2` rotations go, if at all.
 - Where each remaining file's permission constant comes from — reuse `baseFs.ts` constants (now
   including `HOME_FILE`, `ROOT_FILE`, `GUEST_HOME_*`) or add the Debian-default few still missing —
   for logs, mail, `/srv` and web files.
@@ -512,3 +514,9 @@ Retired here from `a-box-admits-what-it-is.md` on close-out.
 - **2026-09-21** — slice 2 shipped (#535, v0.249.0); played run on VANDELAY-INDUSTRIES recorded;
   slice plan retired into "As-built: slice 2" above and its file deleted. Next: slice 3 (not yet
   planned).
+- **2026-09-21** — slice 3 planned (`a-box-remembers.md`, v0.250.0 target). Owner decisions at
+  planning: rotated logs are world-readable, so they name only `root` and the daemons (slice 2's
+  rule kept, though `ls /home` already shows a guest the username); gateway history waits for
+  slice 10; remote lines are routine activity from real LAN neighbours, no brute-force noise.
+  Resolved: `.1` only (Debian's `delaycompress` makes `.2` a `.gz`), one day (2026-07-11) per file,
+  a `.1` exists only when it holds a line.
