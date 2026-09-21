@@ -131,18 +131,20 @@ behaviour test (none exists to write RED against).
 **Decisions**: 18, amended 19.
 
 **Acceptance criteria**
-- [ ] `npm run build` runs the budget check automatically (`postbuild`), locally and on a Vercel
+- [x] `npm run build` runs the budget check automatically (`postbuild`), locally and on a Vercel
       build, and prints both measurements with their ceilings.
-- [ ] **Bundle:** the check fails when the gzipped main chunk exceeds **284,000 bytes** (today's
-      134,282 plus decision 18's 150 KB allowance — re-measure at PR0 and set the ceiling to
-      the measured baseline + 150,000 if it moved).
-- [ ] **Build time:** building every box of the 50 catalog networks — LAN hosts, chain gateways
-      and deep NPCs, through `generatedBaseFsForMachineId` — averages **≤ 2 ms per box** after
-      one warm-up pass (today ~0.18 ms; >10× headroom, so noise on a loaded machine cannot fail
-      it). Fails with the measured average.
-- [ ] Shown to fail: a temporary 1 ms busy-loop in `buildRemoteHostFs` and a temporarily lowered
-      bundle ceiling each turn the check red; both reverted.
-- [ ] `conventions-and-gotchas.md` §3 names the check as a gate and says what to do when it
+- [x] **Bundle:** the check fails when the gzipped main chunk exceeds **284,975 bytes** — the
+      baseline re-measured at PR0 (134,975, default gzip level; the planning figure of 134,282
+      had moved) plus decision 18's 150,000 allowance.
+- [x] **Build time:** building every box of the 50 catalog networks — the AP gateway directly,
+      then LAN hosts, chain gateways and deep NPCs through `generatedBaseFsForMachineId` (615
+      boxes) — averages **≤ 2 ms per box** after one warm-up pass (measured 0.146 ms). Fails
+      with the measured average; a lookup that resolves nothing throws rather than timing fast.
+- [x] Shown to fail: a temporary **3 ms** busy-loop in `buildRemoteHostFs` (2.267 ms/box, exit 1)
+      and a bundle ceiling lowered to 100,000 (exit 1) each turn the check red; both reverted.
+      The planned 1 ms loop did NOT fail it — it slows only NPC trees, not gateways, so the
+      average reached 0.959 ms: the ceiling catches a ~10× regression, not a +1 ms one.
+- [x] `conventions-and-gotchas.md` §3 names the check as a gate and says what to do when it
       fails (memoize with a measured reason — amended decision 19; or trim pools — decision 18).
 
 **Why a script and not a vitest test:** Stryker runs the WHOLE vitest suite under
