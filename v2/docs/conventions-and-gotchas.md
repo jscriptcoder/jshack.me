@@ -663,6 +663,19 @@ architecture doc if the work touches cross-player paths.
   into the typechecked `src/core/`.
 - **Format/lint gate = `npm run lint`** (ESLint). **v2 has NO Prettier** — `npm run format`
   only exists at the legacy root and errors inside `v2/`.
+- **World budget gate = `npm run build`'s `postbuild` (`scripts/checkBudgets.ts`)**, locally
+  and on every Vercel build. It fails the build when either cost of the generated world
+  outgrows its ceiling:
+  - **the gzipped main chunk exceeds 284,975 B**. That is the 134,975 B it weighed before world
+    content, plus the 150 KB that content may add. The remedy is to trim pools; the allowance is
+    fixed, not a number to raise.
+  - **building every box on the 50 catalog networks averages over 2 ms per box**, measured after
+    a warm-up pass. It was about 0.15 ms per box over 615 boxes before world content. Base trees
+    are rebuilt on every lookup with no cache, so the remedy is a cache for the box builders,
+    added for that measured reason and never before one.
+  It is a script, not a vitest test, because Stryker runs the whole suite under instrumentation
+  and aborts its dry run on any failure. A wall-clock assertion there would break mutation runs.
+  To check without a full build, run `npx tsx scripts/checkBudgets.ts` after `vite build`.
 - **v2 UI tests = jsdom + `@solidjs/testing-library`, NOT Browser Mode.** E2E =
   `agent-browser` vs `vercel dev` (port 3100).
 - **E2E (Playwright/agent-browser) is reserved for browser-only behaviour** Vitest can't
