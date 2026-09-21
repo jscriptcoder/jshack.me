@@ -16,8 +16,8 @@ const LATE = 1000;
 /**
  * The vulnerability every box in the world inherits from the version it runs.
  *
- * One derivation over every axis: a daemon, a shared object and (from the
- * firmware slice) a router image are all just a key with a version, because
+ * One derivation over every axis: a daemon, a shared object and a router
+ * image are all just a key with a version, because
  * `/var/lib/dpkg/status` is itself one flat namespace in which they are
  * indistinguishable. What a CVE GRANTS differs per axis and is not decided here.
  */
@@ -67,12 +67,12 @@ describe('a package with a published CVE', () => {
  * EVERY package, not a sample. The derivation is about to learn to walk forward
  * to the versions `apt upgrade` reaches, and the one thing that walk must not do
  * is disturb the entry every box in the world currently sits on — so the lock has
- * to cover the whole table the walk could disturb, libraries included. The
- * coverage case below is what stops a new package slipping in BESIDE the lock
- * instead of under it.
+ * to cover the whole table the walk could disturb, libraries and firmware
+ * included. The coverage case below is what stops a new package slipping in
+ * BESIDE the lock instead of under it.
  *
  * All four severity bands appear here, which is the honest way to show each one
- * is reachable — a distribution assertion over fifteen packages would not be.
+ * is reachable — a distribution assertion over twenty-one packages would not be.
  */
 const WORLD_PINS = [
   ['openssh-server', 'CVE-2026-0149031', 'medium', 8],
@@ -90,6 +90,12 @@ const WORLD_PINS = [
   ['libz', 'CVE-2026-1396234', 'medium', 10],
   ['libxml2', 'CVE-2026-1466733', 'medium', 6],
   ['libpcre', 'CVE-2026-1544019', 'high', 9],
+  ['cisco-firmware', 'CVE-2026-1632786', 'high', 6],
+  ['mikrotik-firmware', 'CVE-2026-1769993', 'critical', 5],
+  ['ddwrt-firmware', 'CVE-2026-1843502', 'high', 10],
+  ['openwrt-firmware', 'CVE-2026-1935221', 'high', 13],
+  ['pfsense-firmware', 'CVE-2026-2014600', 'medium', 5],
+  ['ubiquiti-firmware', 'CVE-2026-2152952', 'high', 9],
 ] as const;
 
 describe('the world these seeds actually produce', () => {

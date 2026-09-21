@@ -283,8 +283,8 @@ const exposureOf = (pkg: string, version: string, gameDay: number): Exposure | u
 };
 
 /** One package's row, or none. Only a package that needs a move is listed, as real
- *  `apt list --upgradable` does; a package with no timeline — a router's firmware —
- *  has nothing to offer and is left out rather than given a version it does not have.
+ *  `apt list --upgradable` does; a package with no timeline has nothing to offer and
+ *  is left out rather than given a version it does not have.
  *  The version shown is the one the FILE claims, as a scan shows it, so a hand-edited
  *  manifest reads back exactly as its owner wrote it. */
 const upgradableRow = (

@@ -2,13 +2,20 @@ import { describe, expect, it } from 'vitest';
 import { buildWorkstationBaseFsFromIdentity } from '../generation/workstationFs';
 import { buildRemoteHostFs, hostServices } from '../generation/remoteHostFs';
 import { buildDeepHostFs } from '../generation/deepHostFs';
-import { buildApGatewayBaseFs, buildSwitchBaseFs } from '../generation/routerFs';
+import {
+  buildApGatewayBaseFs,
+  buildDeepGatewayBaseFs,
+  buildDeepSwitchBaseFs,
+  buildInnerGatewayBaseFs,
+  buildSwitchBaseFs,
+} from '../generation/routerFs';
 import { SYSTEM_LIBRARIES } from '../generation/libraries';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import { readOpenPorts } from '../services/pidfile';
 import { filterTreeForRead, filterTreeToAllowlist } from '../patches/readFilter';
 import { buildEntry, DPKG_STATUS_PATH, formatDpkgStatus, parseDpkgVersions } from './dpkgStatus';
-import { FIRMWARE_TEMPLATES, formatVersion, startingVersionOf } from './packageVersions';
+import { withPackageManifest } from './packageManifest';
+import { displayVersion, PACKAGE_TEMPLATES, startingVersionOf } from './packageVersions';
 import type { LanHost } from '../generation/generateHomeLan';
 import type { Directory, FileNode } from '../filesystem/types';
 
@@ -56,6 +63,10 @@ const manifestTextOf = (fs: Directory): string => {
 /** The manifest of a generated tree, parsed to package → version. */
 const manifestOf = (fs: Directory): ReadonlyMap<string, string> =>
   parseDpkgVersions(manifestTextOf(fs));
+
+/** The firmware rows of a generated tree's manifest. */
+const firmwareOf = (fs: Directory): readonly (readonly [string, string])[] =>
+  [...manifestOf(fs)].filter(([pkg]) => pkg.endsWith('-firmware'));
 
 /** The octets whose generated host runs at least one catalog service — the boxes
  *  whose manifest has a service package to prove, rather than only the pair every
@@ -120,11 +131,22 @@ describe('the package manifest every box carries', () => {
     }
   });
 
-  it('names firmware on router-class boxes and on nothing else', () => {
-    expect(manifestOf(buildApGatewayBaseFs(ESSID)).has('firmware')).toBe(true);
-    expect(manifestOf(buildSwitchBaseFs(ESSID, 21)).has('firmware')).toBe(true);
-    expect(manifestOf(playerBox()).has('firmware')).toBe(false);
-    expect(manifestOf(buildRemoteHostFs(ESSID, host(22))).has('firmware')).toBe(false);
+  it("names the firmware every network device drew, at that vendor's first release", () => {
+    // One exact row per device kind. The vendor is each box's own draw and only the
+    // package name carries it: two vendors' histories can reach the same version, so
+    // a bare version could not say whose image a box is running.
+    expect(firmwareOf(buildApGatewayBaseFs(ESSID))).toEqual([['ddwrt-firmware', '24.0.1']]);
+    expect(firmwareOf(buildSwitchBaseFs(ESSID, 13))).toEqual([['pfsense-firmware', '2.7.2']]);
+    expect(firmwareOf(buildInnerGatewayBaseFs(ESSID, 14))).toEqual([['mikrotik-firmware', '7.14.2']]);
+    expect(firmwareOf(buildDeepGatewayBaseFs('m-1', 15))).toEqual([['pfsense-firmware', '2.7.2']]);
+    expect(firmwareOf(buildDeepSwitchBaseFs('m-1', 16))).toEqual([['cisco-firmware', '15.9.3']]);
+  });
+
+  it('names no firmware on a box that is not a network device', () => {
+    // A row here would put an image the box does not have into `apt list -u`.
+    expect(firmwareOf(playerBox())).toEqual([]);
+    expect(firmwareOf(buildRemoteHostFs(ESSID, host(22)))).toEqual([]);
+    expect(firmwareOf(buildDeepHostFs(ESSID, host(12)))).toEqual([]);
   });
 
   it('records a bare version tuple, never a vendor prefix', () => {
@@ -142,12 +164,17 @@ describe('the package manifest every box carries', () => {
     expect(manifest.get('libpcre')).toBe('10.43.0');
   });
 
-  it('records a real firmware version for the vendor a router drew', () => {
-    const firmware = manifestOf(buildApGatewayBaseFs(ESSID)).get('firmware');
+  it('is born on a real release of every package it can name, firmware included', () => {
+    // A blank here is a manifest row with no version in it — a box that could never be
+    // matched against a CVE, and an `apt list -u` row naming nothing.
+    for (const pkg of Object.keys(PACKAGE_TEMPLATES)) {
+      expect(startingVersionOf(pkg)).toMatch(/^\d+(\.\d+)+$/);
+    }
+  });
 
-    expect(
-      Object.values(FIRMWARE_TEMPLATES).map((template) => formatVersion(template.startTuple)),
-    ).toContain(firmware);
+  it('shows a package it has no product name for by its bare version', () => {
+    expect(displayVersion('metasploit', '6.4.0')).toBe('6.4.0');
+    expect(displayVersion('openssh-server', '9.7.0')).toBe('OpenSSH 9.7.0');
   });
 
   it('has no version to offer for a package it has never heard of', () => {
@@ -155,6 +182,17 @@ describe('the package manifest every box carries', () => {
     // blank version — the entry a `nmap -sV` column would then render as a lie.
     expect(startingVersionOf('vim')).toBeUndefined();
     expect(startingVersionOf('openssh-server')).toBe('9.7.0');
+  });
+
+  it("leaves a network device's port table exactly as it reads without its firmware", () => {
+    // A router's image answers to no port, so the row that names it must not reach a
+    // version scan: stamping the same tree with no vendor is the box as it read before
+    // firmware had a name.
+    const gateway = buildApGatewayBaseFs(ESSID);
+    const ports = readOpenPorts(gateway, { gameDay: 1000 });
+
+    expect(ports.length).toBeGreaterThan(0);
+    expect(ports).toEqual(readOpenPorts(withPackageManifest(gateway), { gameDay: 1000 }));
   });
 
   it('reads at every tier a session hands out, and to a stranger with none', () => {

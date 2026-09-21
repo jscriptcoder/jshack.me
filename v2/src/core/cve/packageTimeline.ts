@@ -371,9 +371,9 @@ export type UpgradeStatus =
    *  ships — the timeline is deterministic and the client already walks it, so an
    *  average would be the game withholding a number it has already handed over. */
   | { readonly kind: 'no-fix-yet'; readonly etaDays: number }
-  /** Nothing to move along: a package this world keeps no history for (a router's
-   *  firmware, which its owner does not upgrade through apt), or a clock set past the
-   *  last release the walk will reach. */
+  /** Nothing to move along: a package this world keeps no history for (a name typed
+   *  into the root-writable manifest by hand), or a clock set past the last release
+   *  the walk will reach. */
   | { readonly kind: 'no-timeline' };
 
 /**
