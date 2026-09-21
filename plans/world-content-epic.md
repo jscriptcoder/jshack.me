@@ -3,19 +3,19 @@
 > **Picking this up cold?** Read "Locked decisions", then the slice table — it carries the live
 > status. The grounding section records what v2 held on the day this was grilled; the code wins
 > wherever the two disagree.
-> Grilled 2026-09-21 (`grilling`), 25 locked decisions. Slices 0–2 delivered (as-built below).
-> Slice 3 planned in [`a-box-remembers.md`](./a-box-remembers.md).
+> Grilled 2026-09-21 (`grilling`), 25 locked decisions. Slices 0–3 delivered (as-built below).
 
-**Where we are now (2026-09-21):** **v0.249.0**. The legacy-parity epic's V-series is closed and
+**Where we are now (2026-09-21):** **v0.250.0**. The legacy-parity epic's V-series is closed and
 its next line was "the ship gate". **Ship now waits for this epic** (decision 1). Grilled to 25
-locked decisions and a twelve-slice spine. **Slices 0, 1 and 2 are DONE** (#533, #534, #535) —
-the build budgets, NPC workstation homes, and every NPC box's `/etc`, `/root`, `.ssh/` and
-`/home/guest`; their as-built is folded into the slice spine and the "As-built" sections below.
+locked decisions and a twelve-slice spine. **Slices 0–3 are DONE** (#533, #534, #535, #536) —
+the build budgets, NPC workstation homes, every NPC box's `/etc`, `/root`, `.ssh/` and
+`/home/guest`, and every NPC box's rotated `.1` history plus `syslog`; their as-built is folded
+into the slice spine and the "As-built" sections below.
 **Decision 19 was amended at planning** (budget first, memoize on breach) and **decision 6 was
-narrowed at slice 2's planning** (the player workstation gains an empty `/home/guest`). **Slice 3
-is planned** in [`a-box-remembers.md`](./a-box-remembers.md), with three owner decisions taken
-at planning: rotated logs name only root and the daemons, gateways wait for slice 10, and remote
-lines are neighbours doing routine things.
+narrowed at slice 2's planning** (the player workstation gains an empty `/home/guest`). Slice 3's
+planning took three owner decisions (rotated logs name only root and the daemons, gateways wait
+for slice 10, remote lines are neighbours doing routine things). **Slice 4 is next and not yet
+planned.**
 
 ---
 
@@ -395,7 +395,7 @@ See below; planning refines it.
 | 0 | **The world stays cheap to build and to ship** — the per-box build-time budget and the bundle size check, as a `postbuild` script (memoization deferred until a breach — amended decision 19) | `npm run build` prints both numbers against their ceilings and fails when either breaks | ✅ DONE (#533) — `scripts/checkBudgets.ts`; bundle ceiling 284,975 B, build ceiling 2 ms/box; enforced on local `npm run build` only (Vercel builds the frozen root app) |
 | 1 | **A workstation reads as somebody's** — network persona (ESSID category as data) + box inhabitant; a workstation's home gets dotfiles, a history true to its network, notes; the first variety test | `ssh` into an NPC workstation as its user → `ls -a ~` → `.bash_history` names a real neighbour that `nmap`/`ssh` reach; `.gitconfig` names the inhabitant | ✅ DONE (#534, v0.248.0) — see as-built below |
 | 2 | **A box admits what it is** — `/etc` breadth, `/root`, `/home/guest` | `/etc/hosts` lists real neighbours; `su` → `/root` holds root's history | ✅ DONE (#535, v0.249.0) — also took `.ssh/` and an empty `/home/guest` on the player box; see as-built below |
-| 3 | **A box remembers** — rotated `.1` log history across every role, plus `syslog` | `ls /var/log` shows `auth.log.1`; its last line is before 2026-07-12; the live `auth.log` holds only player traces | 📝 PLANNED — `a-box-remembers.md`; NPC hosts only (gateways → slice 10); `.1` holds 2026-07-11 alone |
+| 3 | **A box remembers** — rotated `.1` log history across every role, plus `syslog` | `ls /var/log` shows `auth.log.1`; its last line is before 2026-07-12; the live `auth.log` holds only player traces | ✅ DONE (#536, v0.250.0) — NPC hosts only (gateways → slice 10); `.1` holds 2026-07-11 alone; see as-built below |
 | 4 | **A web server serves a site** — three layers, lynx `<table>`/`<pre>`, the link-resolution property test | lynx follows links across pages; `robots.txt` names a served path; a default `gobuster` finds a hidden path | ⏳ |
 | 5 | **A database holds an application** — app archetypes | `SHOW TABLES` on a café network's DB shows a till schema whose staff are that network's inhabitants | ⏳ |
 | 6 | **A store serves that application** — Redis keyspaces paired with the app | `KEYS sess:*` returns sessions for that app's real users | ⏳ |
@@ -483,6 +483,51 @@ Retired here from `a-box-admits-what-it-is.md` on close-out.
 **Resolved from "Open for planning":** permission constants for `/etc`, `/root`, `.ssh/` and
 `/home/guest` (above).
 
+## As-built: slice 3 (delivered 2026-09-21)
+
+Retired here from `a-box-remembers.md` on close-out.
+
+**Slice 3 — a box remembers (#536, v0.250.0).**
+- New: `generation/logHistory.ts` (`buildLogHistory` — reads the box's `/etc/crontab`, `/etc/fstab`,
+  served page and database as built, so the history and the box cannot disagree) and pool
+  `pools/logLines.ts` (daily systemd timers, per-service unit descriptions, a version-free kernel
+  boot, redis save rules). New formatters in their own log's module: `formatRootSessionLine`
+  (`authLog.ts`), `formatKernelLine` (`kernLog.ts`), `formatNamedControlLine` +
+  `formatNamedZoneLoadedLine` (`namedLog.ts`), `formatRedisNoticeLine` (`redisLog.ts`);
+  `SYSLOG_PERMISSIONS` in `syslog.ts`; `ZONE_SERIAL` exported from `generateDnsZone.ts`.
+  `buildEtcContent` now returns a typed `EtcContent`; `buildRemoteHostFs` builds the page, the
+  database and `/etc` once each as values.
+- Every NPC box (all roles, LAN and deep): live `syslog` (empty) and `syslog.1`; `auth.log.1`,
+  `kern.log.1`, `access.log.1`, `mysql.log.1`, `redis.log.1`, `named.log.1` where their rules put
+  them. All `.1` lines are dated 2026-07-11 in order; a `.1` exists only when it holds a line and
+  only beside its live log, with that log's permissions. CRON lines are the crontab's own jobs at
+  every Saturday firing, with root PAM sessions around each; ~15% of boxes restart (kernel boot
+  naming `/boot/vmlinuz` and the fstab root UUID, systemd starting exactly the running services,
+  sshd listening on its real port); 0–3 root ssh logins from real LAN neighbours where sshd runs;
+  `GET /` sized to the served page; root@127.0.0.1 queries (`SHOW TABLES`/`DESCRIBE`/`SELECT`) on
+  the real tables; redis save cycles and clients; a name server's `rndc reload` at the zone
+  file's serial. No line names an account but root; deep boxes name only `127.0.0.1`.
+- **Deviations from the plan:** `named.log.1` carries **no lookup lines** — the live `named.log`
+  deliberately does not log ordinary lookups (BIND's query log off), so a history of queries
+  would contradict it. `vsftpd.log.1` never exists, as planned (every routine ftp line names an
+  account).
+- One new stream: `log-history-<essid>-<ip>`. No existing pin moved; root histories may now name
+  the new logs (slice 2 derives its log reads from `/var/log`).
+- Tests live in `generation/boxMemory.test.ts` (25 property tests over every catalog and
+  non-catalog network, LAN and deep). Variety: no within-network duplicate `.1`; ≥ 95% of
+  `syslog.1` and ≥ 90% of `auth.log.1` distinct across the catalog. **Lesson:** the population is
+  built inside each test, not cached — a file-level cache let Stryker's per-test coverage credit
+  the whole builder to the first test only (68 killed / 218 survived, a false picture).
+- Budgets after: bundle 152,977 B gzipped (+2.7 KB); build ~0.2–0.3 ms/box above the same-machine
+  baseline (0.73–0.98 vs 0.57–0.59 ms/box on a loaded run), under the 2 ms ceiling.
+- Mutation (scoped `logHistory.ts` + the new formatters): 275 killed / 11 survived / 7 no coverage
+  (93.9%), 0 timeouts; the rest are equivalent (destructuring defaults, regex anchor, `<=` on a
+  float draw, seed text) or random-rate/range edges. Played via `v2-e2e` on CASA-DE-RAMIREZ
+  `records-170`: `ls /var/log` showed the rotations; the live `auth.log` held only the player's
+  login; `syslog.1` ended on Jul 11 with the crontab's jobs at their minutes; the admin login's
+  source answered `ping`; `mysql.log.1` named the real database. **Found:** v2 has no `tail`
+  (and `grep` has no `-c`) — tracked in `v2/docs/conventions-and-gotchas.md` §9.
+
 ## Open for planning (named, deliberately not decided)
 
 - The memoization key and cache bound on each end (client, serverless instance), and whether the
@@ -498,6 +543,10 @@ Retired here from `a-box-admits-what-it-is.md` on close-out.
   expand `~` themselves. Either the shell learns tilde expansion or history lines spell home paths
   another way — decide before a slice leans on replaying them.
 - Whether the AP gateway's 5–10 files need their own serialized-size check.
+- **`tail` in replayed history lines.** Generated histories (slice 1's `homeHistory.ts`, slice 2's
+  `rootContent.ts` and `rootHome.ts`'s log reads) type `tail` and `tail -f`, which v2 does not
+  have — allowed by decision 3, but a replayed line answers `command not found`. The command
+  itself is backlogged in `v2/docs/conventions-and-gotchas.md` §9; decide with the `~` item.
 
 ## Status log
 
@@ -520,3 +569,6 @@ Retired here from `a-box-admits-what-it-is.md` on close-out.
   slice 10; remote lines are routine activity from real LAN neighbours, no brute-force noise.
   Resolved: `.1` only (Debian's `delaycompress` makes `.2` a `.gz`), one day (2026-07-11) per file,
   a `.1` exists only when it holds a line.
+- **2026-09-21** — slice 3 shipped (#536, v0.250.0); played run on CASA-DE-RAMIREZ recorded;
+  slice plan retired into "As-built: slice 3" above and its file deleted. `tail` backlogged in
+  conventions §9. Next: slice 4 (not yet planned).

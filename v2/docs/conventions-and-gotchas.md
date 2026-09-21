@@ -2563,6 +2563,21 @@ state costs you more than one wrong attempt.
 
 Forward-looking direction not yet built (preserved as pointers; design when actually built).
 
+- **`tail` is a command the world talks about and nobody can run.** v2 has no `tail` (nor
+  `head`), so `tail /var/log/syslog.1` answers `bash: tail: command not found`. It is the natural
+  way to read the end of a log — and since world-content slice 3 every NPC box keeps rotated `.1`
+  logs a player wants the END of, while the only reader today is `cat`, which prints the whole
+  file on a surface with no pager. Generated shell histories already type it: `homeHistory.ts`
+  (`tail /var/log/auth.log`, `tail -f app.log`, `tail -f device.log`), `rootContent.ts`
+  (`tail /var/log/auth.log`, `tail -f /var/log/auth.log`) and `rootHome.ts`'s drawn log reads
+  (`tail` / `tail -f`) — allowed by the world-content epic's "no new verbs" decision 3, but every
+  such line fails when a player replays it. Scope when built: `tail [-n N] <file>` (default 10
+  lines) reading through the tier-checked fs view like `cat`, and probably `head` beside it;
+  `-f` follows nothing in a frozen base tree and a patch-backed log only changes on the next
+  trace, so decide whether `-f` is refused, prints once, or is left out. Also found in the same
+  played run: `grep -c` answers `grep: unrecognized option: -c` — `grep` takes only `-l`. Found
+  at world-content slice 3's close-out (v0.250.0).
+
 - **A deep TERMINAL NPC box is read-only when rooted — depth alone decides whether you can
   write to an NPC.** The cross-player/deep write gate (`remoteWritePermission` L2,
   `resolveTargetBaseFs`) authorizes a write only when the target resolves as the AP gateway, a
