@@ -3,16 +3,16 @@
 > **Picking this up cold?** Read "Locked decisions", then the slice table — it carries the live
 > status. The grounding section records what v2 held on the day this was grilled; the code wins
 > wherever the two disagree.
-> Grilled 2026-09-21 (`grilling`), 25 locked decisions. Slices 0–1 delivered (as-built below).
-> Slice 2 planned in [`a-box-admits-what-it-is.md`](./a-box-admits-what-it-is.md).
+> Grilled 2026-09-21 (`grilling`), 25 locked decisions. Slices 0–2 delivered (as-built below).
 
-**Where we are now (2026-09-21):** **v0.248.0**. The legacy-parity epic's V-series is closed and
+**Where we are now (2026-09-21):** **v0.249.0**. The legacy-parity epic's V-series is closed and
 its next line was "the ship gate". **Ship now waits for this epic** (decision 1). Grilled to 25
-locked decisions and a twelve-slice spine. **Slices 0 and 1 are DONE** (#533, #534) — the build
-budgets and NPC workstation homes; their as-built is folded into the slice spine and the "As-built:
-slices 0–1" section below, and **decision 19 was amended at planning** (budget first, memoize on
-breach). **Slice 2 is planned** in [`a-box-admits-what-it-is.md`](./a-box-admits-what-it-is.md),
-with one owner decision taken at planning: the player workstation gains an empty `/home/guest`.
+locked decisions and a twelve-slice spine. **Slices 0, 1 and 2 are DONE** (#533, #534, #535) —
+the build budgets, NPC workstation homes, and every NPC box's `/etc`, `/root`, `.ssh/` and
+`/home/guest`; their as-built is folded into the slice spine and the "As-built" sections below.
+**Decision 19 was amended at planning** (budget first, memoize on breach) and **decision 6 was
+narrowed at slice 2's planning** (the player workstation gains an empty `/home/guest`). **Slice 3
+is next and not yet planned.**
 
 ---
 
@@ -391,7 +391,7 @@ See below; planning refines it.
 |---|---|---|---|
 | 0 | **The world stays cheap to build and to ship** — the per-box build-time budget and the bundle size check, as a `postbuild` script (memoization deferred until a breach — amended decision 19) | `npm run build` prints both numbers against their ceilings and fails when either breaks | ✅ DONE (#533) — `scripts/checkBudgets.ts`; bundle ceiling 284,975 B, build ceiling 2 ms/box; enforced on local `npm run build` only (Vercel builds the frozen root app) |
 | 1 | **A workstation reads as somebody's** — network persona (ESSID category as data) + box inhabitant; a workstation's home gets dotfiles, a history true to its network, notes; the first variety test | `ssh` into an NPC workstation as its user → `ls -a ~` → `.bash_history` names a real neighbour that `nmap`/`ssh` reach; `.gitconfig` names the inhabitant | ✅ DONE (#534, v0.248.0) — see as-built below |
-| 2 | **A box admits what it is** — `/etc` breadth, `/root`, `/home/guest` | `/etc/hosts` lists real neighbours; `su` → `/root` holds root's history | 📝 PLANNED — `a-box-admits-what-it-is.md`; also takes `.ssh/` (assigned by slice 1's plan) and an empty `/home/guest` on the player box |
+| 2 | **A box admits what it is** — `/etc` breadth, `/root`, `/home/guest` | `/etc/hosts` lists real neighbours; `su` → `/root` holds root's history | ✅ DONE (#535, v0.249.0) — also took `.ssh/` and an empty `/home/guest` on the player box; see as-built below |
 | 3 | **A box remembers** — rotated `.1` log history across every role, plus `syslog` | `ls /var/log` shows `auth.log.1`; its last line is before 2026-07-12; the live `auth.log` holds only player traces | ⏳ |
 | 4 | **A web server serves a site** — three layers, lynx `<table>`/`<pre>`, the link-resolution property test | lynx follows links across pages; `robots.txt` names a served path; a default `gobuster` finds a hidden path | ⏳ |
 | 5 | **A database holds an application** — app archetypes | `SHOW TABLES` on a café network's DB shows a till schema whose staff are that network's inhabitants | ⏳ |
@@ -440,6 +440,46 @@ catalog; no within-network duplicate history/gitconfig/note); the build-time bud
 the persona data shapes (`EssidCatalogEntry` = essid/category/place; procedural ESSIDs seed a category
 from `network-persona-<essid>`); `HOME_FILE` added to `baseFs.ts` for home files.
 
+## As-built: slice 2 (delivered 2026-09-21)
+
+Retired here from `a-box-admits-what-it-is.md` on close-out.
+
+**Slice 2 — a box admits what it is (#535, v0.249.0).**
+- New: `generation/etcContent.ts` (`buildEtcContent` — never handed the account, so no
+  world-readable file can name it), `generation/rootHome.ts` (`buildRootHome`),
+  `generation/sshContent.ts` (`buildSshDirectories` — root's and the desk owner's `.ssh/` from one
+  stream, root first), pools `etcFiles.ts` (28 motd banners, 4 per category; generic, per-service
+  and name-server cron jobs; Debian crontab/fstab/hosts stock text) and `rootContent.ts` (Debian root
+  dotfiles, 54 generic + 49 role-flavoured history lines, 12 root note templates).
+  `isOnHomeLan` moved into `generateHomeLan.ts`; `npcHome.ts` now exports `isDeskMachine`,
+  `pastDate`, `fillSlots` and `networkLines` for reuse. `/var/log` entries are built as one `logs`
+  value in `buildRemoteHostFs` so root's history names exactly the logs a box writes.
+- Every NPC box (all roles, LAN and deep): `/etc/{hostname,hosts,resolv.conf,fstab,crontab,motd}`
+  (`SERVICE_CONFIG_FILE` tier); `/root/{.bashrc,.profile,.bash_history}` + 0–2 notes (new
+  `ROOT_FILE`); `/home/guest` with the Debian skeleton (new `GUEST_HOME_DIR`/`GUEST_HOME_FILE`,
+  guest reads and writes). LAN boxes with an ssh-running neighbouring machine: `/root/.ssh/known_hosts`
+  (1–4 entries, `[ip]:port` off port 22) and, on desks, `~/.ssh/{known_hosts,config}` (a drawn
+  `Host *` defaults block + 1–2 shortcuts with the neighbour's real account). Deep boxes: `hosts`
+  names only themselves, `resolv.conf` has no `search`, no `.ssh/`, no network history line.
+- Player workstation: an empty guest-tier `/home/guest` (its exact-tree pin updated).
+- Three new streams: `etc-content-`, `root-content-`, `ssh-content-` (all `<essid>-<ip>`). No
+  password, username, service, role-config or page pin moved; the role-config test helper now sets
+  aside the files every box keeps.
+- Tests live in `generation/boxSurface.test.ts`; the shared world-content test helpers
+  (`lanBoxes`, `deepBoxes`, `filesUnder`, `serialise`, `falsehoodIn`, `softwareVersionsIn`) moved to
+  `src/test/worldContent.ts`. Variety: no within-network duplicate motd, root history, root note or
+  `.ssh/config`; ≥ 95% root histories and ≥ 90% root notes distinct across the catalog.
+- Budgets after: bundle 150,300 B gzipped (+5.4 KB), 0.334 ms/box.
+- Mutation (scoped `etcContent`+`rootHome`+`sshContent`): 240 killed / 24 survived (90.9%), 0
+  timeouts, before follow-up tests whose five target mutants were hand-verified killed; the rest are
+  random-rate thresholds and equivalent mutants. Played via `v2-e2e` on VANDELAY-INDUSTRIES: guest on
+  `workstation-31` landed in `/home/guest`; `/etc/hosts`, motd and `resolv.conf` read true;
+  `jchen`'s `.ssh/config` named neighbours' real accounts; root's `systemctl status sshd` and
+  `ssh dbuser@records-206` replayed true.
+
+**Resolved from "Open for planning":** permission constants for `/etc`, `/root`, `.ssh/` and
+`/home/guest` (above).
+
 ## Open for planning (named, deliberately not decided)
 
 - The memoization key and cache bound on each end (client, serverless instance), and whether the
@@ -448,8 +488,13 @@ from `network-persona-<essid>`); `HOME_FILE` added to `baseFs.ts` for home files
   host serves.
 - How far `.2` rotations go, if at all.
 - Where each remaining file's permission constant comes from — reuse `baseFs.ts` constants (now
-  including `HOME_FILE`) or add the Debian-default few that are still missing. Slice 2's plan
-  settles `/etc`, `/root`, `.ssh/` and `/home/guest`; later slices settle their own.
+  including `HOME_FILE`, `ROOT_FILE`, `GUEST_HOME_*`) or add the Debian-default few still missing —
+  for logs, mail, `/srv` and web files.
+- **`~` in replayed history lines.** v2's `cat`/`ls` do not expand `~` (`cd` defers it too), so a
+  slice-1 history line like `cat ~/notes/todo.txt` answers "No such file" when replayed verbatim,
+  while `cat notes/todo.txt` from the home works (seen in slice 2's played run). The truth tests
+  expand `~` themselves. Either the shell learns tilde expansion or history lines spell home paths
+  another way — decide before a slice leans on replaying them.
 - Whether the AP gateway's 5–10 files need their own serialized-size check.
 
 ## Status log
@@ -464,3 +509,6 @@ from `network-persona-<essid>`); `HOME_FILE` added to `baseFs.ts` for home files
   at planning, touching decision 6: the player workstation gains an empty guest-tier `/home/guest`,
   because every `/etc/passwd` names it and a guest session lands there. `.ssh/` taken into slice 2
   as slice 1's plan assigned; gateways stay with slice 10.
+- **2026-09-21** — slice 2 shipped (#535, v0.249.0); played run on VANDELAY-INDUSTRIES recorded;
+  slice plan retired into "As-built: slice 2" above and its file deleted. Next: slice 3 (not yet
+  planned).
