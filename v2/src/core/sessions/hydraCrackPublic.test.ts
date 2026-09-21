@@ -860,11 +860,21 @@ describe('handleHydraCrackPublic', () => {
           databaseDeps(),
         );
 
+        // A one-word wordlist earns every account that chose that word, and the
+        // generator draws its passwords from a shared pool, so a second account
+        // occasionally holds the same one as the known credential. That is the door
+        // working, not a fluke of the seed: the expected set is derived from the same
+        // database the door reads, so it names exactly those accounts in that order
+        // rather than assuming the known one stands alone.
+        const expectedCracked = RESIDENT_DATABASE.credentials
+          .filter((credential) => credential.passwordHash === md5(RESIDENT_DB_ACCOUNT.password))
+          .map((credential) => ({ username: credential.username, password: RESIDENT_DB_ACCOUNT.password }));
+
         expect({ status, body }).toEqual({
           status: 200,
           body: {
             port: MYSQL_FORWARD_PORT,
-            cracked: [RESIDENT_DB_ACCOUNT],
+            cracked: expectedCracked,
             wordlistFound: true,
           },
         });

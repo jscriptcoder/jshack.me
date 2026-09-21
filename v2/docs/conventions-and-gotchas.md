@@ -1092,6 +1092,10 @@ fails at a rate set by the smaller one:
 - a player's LAN octet is drawn from their pubkey while ~10 of 253 octets hold generated hosts,
   so **~1 run in 25** puts a real NPC at the "self" address — which broke `nmapScan`'s
   self-exclusion count (`hostsLogged: 1`, not 0).
+- a player's own database draws its account passwords from the shared generated pool, so on
+  **~1 run in 53** (measured 76/4000) a second account holds the same password as the known
+  credential — which broke `hydraCrackPublic`'s "earns an account in a stranger's database":
+  a one-word wordlist correctly cracked BOTH, so `cracked: [known]` found two entries.
 
 **One of those latent instances has now been found**, and it cost a full gate cycle: `nmapScan`'s
 "self still skipped" test called `generateIdentity()` directly while a sibling test in the SAME
@@ -1104,6 +1108,11 @@ moving tree or tooling noise.
 Fix by **drawing again** — recurse until the candidate identity does not collide — so the
 failure mode is gone by construction rather than merely rarer. That is different from the
 small-pool remedy below, which widens the ASSERTION; here the nondeterminism is in the fixture.
+A THIRD case sits between them: when the collision does not INVALIDATE the scenario but changes
+its result — the `hydraCrackPublic` database above, where cracking two accounts is the door
+working — neither hide it by drawing again nor loosen the assertion. **Derive the expectation
+from the same fixture the code reads** (there, filter the database's own credentials for the
+wordlist's hash) so the golden moves with the seed and stays exact on membership and count.
 Both instances above passed 8-10 consecutive isolated runs, so treat "it passes now" as no
 evidence. Other files mint identities the same way (`resolvePublicScan`, `natHosts`,
 `authCreateSessionSameLan`, `createSession`) and are latent until an assertion depends on the
