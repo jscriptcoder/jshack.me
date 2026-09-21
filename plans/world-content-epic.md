@@ -3,11 +3,14 @@
 > **Picking this up cold?** Read "Locked decisions", then the slice table — it carries the live
 > status. The grounding section records what v2 held on the day this was grilled; the code wins
 > wherever the two disagree.
-> Grilled 2026-09-21 (`grilling`), 25 locked decisions. **Not yet planned.**
+> Grilled 2026-09-21 (`grilling`), 25 locked decisions. Slices 0–1 planned the same day in
+> [`a-workstation-reads-as-somebodys.md`](./a-workstation-reads-as-somebodys.md).
 
 **Where we are now (2026-09-21):** **v0.247.0**. The legacy-parity epic's V-series is closed and
 its next line was "the ship gate". **Ship now waits for this epic** (decision 1). Grilled to 25
-locked decisions and a twelve-slice spine; `planning` for slices 0 and 1 is next.
+locked decisions and a twelve-slice spine. **Slices 0 and 1 are PLANNED** in
+[`a-workstation-reads-as-somebodys.md`](./a-workstation-reads-as-somebodys.md) (PR0 the build
+guards, PR1 a workstation's home); **decision 19 was amended at planning** (below). PR0 is next.
 
 ---
 
@@ -304,10 +307,20 @@ like `resolv.conf` — are exempt because they are facts, not text.
 Generation stays synchronous and the pools ship in the main bundle. **The epic may grow the main
 chunk by at most 150 KB gzipped** (134 KB today), enforced by a size check that lands in slice 0.
 
-### 19. Memoize the base tree first
+### 19. Memoize the base tree first — ⚠️ AMENDED at planning, see below
 
 A behaviour-preserving slice keyed by machine identity, plus a per-box build-time budget, lands
 BEFORE any volume grows — every rebuild site on both ends pays for content otherwise.
+
+**Amended at planning (2026-09-21): the budget lands first; memoization waits for a breach.**
+Measured across all 50 catalog networks: **~0.13 ms per box to build, ~0.18 ms per
+`generatedBaseFsForMachineId` lookup** (415 boxes, 21,249 files, ~55 ms in total), so a server
+`nmap`'s whole LAN costs ~2 ms. A cache (key scheme, bound, serverless lifetime, a no-mutation
+argument) would buy time nobody can observe. The per-box build-time budget is what protects every
+rebuild site; the slice that breaks it adds memoization with a measured reason. Sharing trees stays
+safe for that day — `applyPatches` copies every map it touches. Both budgets run as a `postbuild`
+script, not a vitest test: Stryker runs the whole suite under instrumentation and aborts its dry run
+on any failure, so a wall-clock assertion there would break mutation runs.
 
 ### 20. The persona's domain is the network's `.lan` zone
 
@@ -374,8 +387,8 @@ See below; planning refines it.
 
 | # | Slice | Observable | Status |
 |---|---|---|---|
-| 0 | **The world gets cheaper to build** — base-tree memoization keyed by machine identity, a per-box build-time budget, the bundle size check | behaviour-preserving: every existing test green; the budget and size checks exist and pass | ⏳ to plan |
-| 1 | **A workstation reads as somebody's** — network persona (ESSID category as data) + box inhabitant; a workstation's home gets dotfiles, a history true to its network, notes; the first variety test | `ssh` into an NPC workstation as its user → `ls -a ~` → `.bash_history` names a real neighbour that `nmap`/`ssh` reach; `.gitconfig` names the inhabitant | ⏳ to plan |
+| 0 | **The world stays cheap to build and to ship** — the per-box build-time budget and the bundle size check, as a `postbuild` script (memoization deferred until a breach — amended decision 19) | `npm run build` prints both numbers against their ceilings and fails when either breaks | 📋 PLANNED — PR0 of `a-workstation-reads-as-somebodys.md` |
+| 1 | **A workstation reads as somebody's** — network persona (ESSID category as data) + box inhabitant; a workstation's home gets dotfiles, a history true to its network, notes; the first variety test | `ssh` into an NPC workstation as its user → `ls -a ~` → `.bash_history` names a real neighbour that `nmap`/`ssh` reach; `.gitconfig` names the inhabitant | 📋 PLANNED — PR1 of `a-workstation-reads-as-somebodys.md` (v0.248.0) |
 | 2 | **A box admits what it is** — `/etc` breadth, `/root`, `/home/guest` | `/etc/hosts` lists real neighbours; `su` → `/root` holds root's history | ⏳ |
 | 3 | **A box remembers** — rotated `.1` log history across every role, plus `syslog` | `ls /var/log` shows `auth.log.1`; its last line is before 2026-07-12; the live `auth.log` holds only player traces | ⏳ |
 | 4 | **A web server serves a site** — three layers, lynx `<table>`/`<pre>`, the link-resolution property test | lynx follows links across pages; `robots.txt` names a served path; a default `gobuster` finds a hidden path | ⏳ |
@@ -404,3 +417,6 @@ See below; planning refines it.
 ## Status log
 
 - **2026-09-21** — grilled; 25 locked decisions; ship waits for this epic.
+- **2026-09-21** — slices 0–1 planned (`a-workstation-reads-as-somebodys.md`); decision 19
+  amended on measurement (budget first, memoize on breach). Slice 1 targets the
+  `desktop|laptop|workstation` overlay only — phones and tablets keep empty homes until slice 11.
