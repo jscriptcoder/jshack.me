@@ -4,7 +4,7 @@
 decisions" 1–25 (grilled 2026-09-21). **Decision 19 is amended by this plan** (see "Amended at
 planning" below and in the epic) — measurement found its premise did not hold.
 
-**Status:** Active — planned 2026-09-21. PR0 merged 2026-09-21 (#533). PR1 next.
+**Status:** Active — planned 2026-09-21. PR0 merged 2026-09-21 (#533). PR1 merged 2026-09-21 (#534) at v0.248.0 — the slice is delivered; close-out into the epic follows.
 
 **Delivery:** Two independent PRs, sequenced to trunk (NOT a stack), the convention every parity
 slice used. PR1 branches from `main` after PR0 merges, because PR1 is the first PR that grows
@@ -174,45 +174,45 @@ the named neighbour → it answers.
 **Decisions**: 2, 3, 4, 5, 7, 8, 13, 15, 16, 17, 20, 22.
 
 **Acceptance criteria**
-- [ ] **A home, not a directory.** An NPC box whose prefix is `desktop`, `laptop` or
+- [x] **A home, not a directory.** An NPC box whose prefix is `desktop`, `laptop` or
       `workstation` has, under `/home/<user>/`, owned by that user and at user tier: `.bashrc`,
       `.profile`, `.bash_logout`, `.bash_history`, `.gitconfig`, and a `notes/` directory holding
       2–5 notes. `android`/`iphone`/`tablet` homes and every other role's home are still empty.
-- [ ] **Guest sees none of it.** `ls /home/<user>` as `guest` is refused exactly as today.
-- [ ] **The inhabitant is one person.** `.gitconfig` names the inhabitant — a full name consistent
+- [x] **Guest sees none of it.** `ls /home/<user>` as `guest` is refused exactly as today.
+- [x] **The inhabitant is one person.** `.gitconfig` names the inhabitant — a full name consistent
       with the username (`mrodriguez` → a first name starting with M, surname Rodriguez; a role
       name like `developer` or `admin` gets a drawn full name) — and an email
       `<username>@<essid-slug>.lan`. The same name signs every note that carries a signature.
-- [ ] **The place shows.** On a corporate-parody network the notes read as work at that
+- [x] **The place shows.** On a corporate-parody network the notes read as work at that
       organisation (its name, derived from the ESSID, appears); on a café network as a café; on
       residential, university, public, IoT-default and hacker-scene networks, as those places. An
       ESSID outside the catalog gets a seeded category — it still has a persona.
-- [ ] **Every reference is true** (property test over all 50 catalog networks plus a spread of
+- [x] **Every reference is true** (property test over all 50 catalog networks plus a spread of
       non-catalog ESSIDs, every qualifying box): each IP, hostname and `.lan` name in a home file
       resolves on that network (`resolveLanName` / the generated population); each `ssh` target
       runs `ssh` on the port the line uses and has the account the line names; each `curl` target
       serves `http`; each path named exists on the box. Gateways appear by IP only.
-- [ ] **A deep desktop has a home and names nothing.** A deep-layer NPC with a qualifying prefix
+- [x] **A deep desktop has a home and names nothing.** A deep-layer NPC with a qualifying prefix
       gets the same home, with no network references, and its tree is byte-identical whether or
       not its layer hangs a child.
-- [ ] **Variety.** Within any one network, no two qualifying boxes share a byte-identical
+- [x] **Variety.** Within any one network, no two qualifying boxes share a byte-identical
       `.bash_history`, `.gitconfig` or note. Across the 50 catalog networks, ≥ 98% of
       `.bash_history` bodies and ≥ 90% of note bodies are distinct. (`.profile` and
       `.bash_logout` are stock Debian skeleton — identical everywhere, as on real boxes — and
       are exempt.)
-- [ ] **Nothing already seeded moves.** Every existing hash-for-hash pin (passwords, services,
+- [x] **Nothing already seeded moves.** Every existing hash-for-hash pin (passwords, services,
       pages, configs, DB, Redis, zones) passes unchanged; `crackableEssidPool` keeps its exact
       order, so every ESSID a scan offers is unchanged.
-- [ ] **Deterministic both ends.** Two builds of one box are byte-identical; content comes only
+- [x] **Deterministic both ends.** Two builds of one box are byte-identical; content comes only
       from new streams (`network-persona-<essid>`, `inhabitant-<essid>-<ip>`,
       `home-content-<essid>-<ip>`).
-- [ ] **No version, no secret, one calendar.** No home file carries a software version; none pairs
+- [x] **No version, no secret, one calendar.** No home file carries a software version; none pairs
       an in-game account with a password; every date in a note is ≤ 2026-07-12 and within the
       box's life.
-- [ ] **Played, not just tested** (browser, `v2-e2e`): crack and `ssh` into an NPC desktop on a
+- [x] **Played, not just tested** (browser, `v2-e2e`): crack and `ssh` into an NPC desktop on a
       real network, `cat ~/.bash_history`, pick a neighbour it names, and reach it with the same
       command the history used.
-- [ ] PR0's budgets still pass.
+- [x] PR0's budgets still pass.
 
 **RED**: build an NPC desktop's tree on a catalog network and assert `/home/<user>/.bash_history`
 exists and names at least one neighbour that `generateHomeLan(essid)` contains; fails today
