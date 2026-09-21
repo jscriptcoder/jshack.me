@@ -17,7 +17,8 @@ slice 7` section. **This does NOT close V4** — V4 is delivered as slices 8 and
 the half still standing. **Next is Phase 3 slice 9 — firmware falls**, the third axis on routers,
 switches and the shared AP gateway, and **the last V-series axis before the ship gate**. **GRILLED
 2026-09-21** — ten decisions, 81–90, in `### Slice 9 — resolved decisions` (89 supersedes 82's
-ordering; 81 takes up slice 1a's `<vendor>-firmware` escape hatch) — **not yet planned**. Two of
+ordering; 81 takes up slice 1a's `<vendor>-firmware` escape hatch) and **PLANNED the same day**
+in `plans/firmware-falls.md` — four independent PRs to trunk, v0.244.0-v0.247.0. Two of
 the ten are corrections the grill found rather than choices it made: without 84 the axis lands a
 silent refusal on every router-class box, and without 89 it is unreachable from the world's second
 fortnight on. The `Status`
@@ -421,7 +422,7 @@ PHASE 3 — VULNERABILITIES                             GRILLED 09-09/09-10 + PL
       V slice 6 the exploit crosses networks  ✔ SHIPPED v0.224.0-v0.230.0 (#508-#514)
       V slice 7 reboot evicts                 ✔ SHIPPED v0.231.0-v0.234.0 (#515-#518) <- V3 CLOSED
       V slice 8 libraries fall                ✔ SHIPPED v0.235.0-v0.243.0 (#519-#527)
-      V slice 9 firmware falls                GRILLED 09-21 (10 decisions) <- LAST V-SERIES AXIS, closes V4
+      V slice 9 firmware falls                PLANNED 09-21 (10 decisions, 4 PRs) <- LAST V-SERIES AXIS, closes V4
 ────────────────────────── SHIP ──────────────────────────
 POST-SHIP — MISSIONS
 ```
@@ -460,7 +461,7 @@ POST-SHIP — MISSIONS
 | **V1** ✅ | **A scanner reads what version a service runs** — **GRILLED**, delivered as slices 1-2; **SHIPPED v0.210.0-v0.212.0 (#491, #494, #496)** | `/var/lib/dpkg/status` generated on every box (services + the 8 libraries + firmware on routers); `nmap -sV` VERSION column; `WORLD_EPOCH` + each package's first publication + the severity roll (the forward walk moved to slice 4); a CVE id and severity on a live one | `nmap -sV <host>` → real versions; the world is clean for ~3 days, then CVEs start landing; tier-3 readable (already allowlisted) |
 | **V2** ✔ | **A player breaks in with no credentials** — **GRILLED**, delivered as slices 3, 5, 6; **slice 3 SHIPPED v0.213.0 (#497)**, **slice 5 SHIPPED v0.218.0-v0.223.0 (#502-#507)** and **slice 6 SHIPPED v0.224.0-v0.230.0 (#508-#514)** | `msfconsole <host> <port> [arg]`; all 8 effect kinds; the exploit session row; the `formatExploit` catalog column tracing BOTH outcomes; **server-side CVE recomputation** through the one shared module the client renders from | B finds a vulnerable version → `msfconsole` → `shell_full` with no password; a patched version refuses and the target logs the bounce |
 | **V3** ✅ | **A defender patches and the exploit goes inert** — **GRILLED**, delivered as slices 4 and 7; **slice 4 SHIPPED v0.214.0-v0.215.0 (#498, #499)** and **slice 7 SHIPPED v0.231.0-v0.234.0 (#515-#518)**; `pkg=<version>` pinning moved to the attacker slices by decision 39 and **SHIPPED there at v0.229.0 (#513)**, with the trace it needed at v0.230.0 (#514) | `apt upgrade [pkg]`; `apt list -u` with the ETA status; `apt install pkg=<version>` downgrade-only; install sharing the upgrade resolver; `reboot` ending every session on the machine | A upgrades → B's working exploit now fails; inside the delay window A is told no fix exists; A reboots and B's shell drops |
-| **V4** ✔ | **A player escalates locally through a vulnerable library** — **GRILLED**, now slices 8 and 9; **slice 8 SHIPPED v0.235.0–v0.243.0 (#519–#527)**, leaving firmware (slice 9, **GRILLED 2026-09-21**, decisions 81-90, not yet planned) as the half that closes this row | Library timelines; `ldd`; `msfconsole --local`; the syslog trace; the extended dependency map + its effect pools; `metadata.libraryLinks` deleted; firmware as the third axis | B (guest) `msfconsole --local su` → root without the root password; `ldd /bin/su` shows the vulnerable lib; A upgrades to close it. **Slice 9**: a gateway whose every service scans clean still falls to `msfconsole <gw> 22`, through the firmware its manifest names and `snmpwalk` reports |
+| **V4** ✔ | **A player escalates locally through a vulnerable library** — **GRILLED**, now slices 8 and 9; **slice 8 SHIPPED v0.235.0–v0.243.0 (#519–#527)**, leaving firmware (slice 9, **GRILLED + PLANNED 2026-09-21**, decisions 81-90, `plans/firmware-falls.md`) as the half that closes this row | Library timelines; `ldd`; `msfconsole --local`; the syslog trace; the extended dependency map + its effect pools; `metadata.libraryLinks` deleted; firmware as the third axis | B (guest) `msfconsole --local su` → root without the root password; `ldd /bin/su` shows the vulnerable lib; A upgrades to close it. **Slice 9**: a gateway whose every service scans clean still falls to `msfconsole <gw> 22`, through the firmware its manifest names and `snmpwalk` reports |
 
 **Phase 3 is GRILLED — twenty-three locked decisions and a nine-slice spine** in
 ["Phase 3 — resolved scope & decisions"](#phase-3--resolved-scope--decisions-grill-me-2026-09-09).
@@ -4326,8 +4327,9 @@ than as a firmware-only carve-out.
   `exploitCreateSession` and reads the materialized `hostFs`, so a stranger's AP gateway resolves
   through `resolvePublicTarget` exactly as a same-LAN one does.
 - **`apt list -u` on a rooted router gains its firmware row from the manifest** it already
-  iterates; `displayVersion` needs the firmware table in its lookup so the row reads
-  `MikroTik RouterOS 7.14.2` rather than a bare tuple.
+  iterates, in the raw `<pkg> <version>` shape every other package uses — `upgradableRow` does
+  not call `displayVersion`, so nothing there needs the prefix. `displayVersion` needs the
+  firmware table for decision 88's `sysDescr`, which is the only place the pretty form shows.
 - **`msfconsole --local` on a router is untouched.** Slice 8 put routers in scope for the library
   axis with no carve-out; firmware and libraries do not interact.
 - **`nmap -sV` still never shows firmware** (decision 27) — a router's image answers to no port,
