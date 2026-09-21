@@ -45,6 +45,17 @@ describe('generateWifi', () => {
     expect(bssidsA).not.toEqual(bssidsB);
   });
 
+  it('offers an identity the same crackable networks it has always been offered', () => {
+    // The scan picks from the catalog by position, so this holds the catalog's order:
+    // reordering it would hand every player a different set of networks.
+    const offered = (seedPubkeyHex: string): readonly string[] =>
+      generateWifi({ seedPubkeyHex }).filter(isCrackable).map((network) => network.essid);
+
+    expect(offered('id-0')).toEqual(['CASA-DE-RAMIREZ', 'BREW-AND-CODE', 'FAMILY-WIFI-2G']);
+    expect(offered('id-1')).toEqual(['GLOBEX-NET', 'BOFH-KEEPOUT']);
+    expect(offered('id-2')).toEqual(['AIRPORT-LOUNGE-VIP', 'WEYLAND-NET']);
+  });
+
   it('yields 2-3 crackable and 3-5 noise networks', () => {
     const networks = generateWifi({ seedPubkeyHex: SEED_A });
     const crackable = networks.filter(isCrackable);

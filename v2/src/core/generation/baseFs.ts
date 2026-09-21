@@ -48,6 +48,13 @@ export const HOME_DIR: FilePermissions = {
   write: ['root', 'user'],
   execute: ['root', 'user'],
 };
+/** A file in a user's home: the owner and root read and write it, guest cannot, and
+ *  nothing in it is a program. */
+export const HOME_FILE: FilePermissions = {
+  read: ['root', 'user'],
+  write: ['root', 'user'],
+  execute: [],
+};
 /** `/root`: root-only across the board. */
 export const ROOT_DIR: FilePermissions = { read: ['root'], write: ['root'], execute: ['root'] };
 /** `/tmp`: world-writable scratch space. */

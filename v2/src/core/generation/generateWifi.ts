@@ -34,6 +34,7 @@
 import { bssidFromEssid, type WifiNetwork } from '../network/wifi';
 import { createPrng } from './prng';
 import { secrets } from '../secrets/__encoded';
+import { ESSID_CATALOG } from './pools/essidCatalog';
 
 const wifiPasswords: readonly string[] = JSON.parse(secrets.WIFI_PASSWORDS) as readonly string[];
 
@@ -44,74 +45,9 @@ const wifiPasswords: readonly string[] = JSON.parse(secrets.WIFI_PASSWORDS) as r
 const passwordForEssid = (essid: string): string =>
   createPrng(`wifi-pw-${essid}`).pick(wifiPasswords);
 
-// Crackable ESSID catalog (ported verbatim, minus the `tier` field). Convention:
-// crackable ESSIDs are fictional/parody; real-world brand names live in the
-// noise pool. Grouped by category for readability — selection is flat-random.
-export const crackableEssidPool: readonly string[] = [
-  // Corporate parody — pop-culture / sci-fi mega-corps and small offices (20)
-  'ACME-CORP',
-  'INITECH-5G',
-  'GLOBEX-NET',
-  'WAYSTAR-WIFI',
-  'DUNDER-LAN',
-  'HOOLI-SEC',
-  'UMBRELLA-NET',
-  'STARK-WIFI',
-  'CYBERDYNE-5G',
-  'OSCORP-GUEST',
-  'WEYLAND-NET',
-  'TYRELL-CORP',
-  'APERTURE-WIFI',
-  'SHINRA-5G',
-  'ABSTERGO-NET',
-  'WONKA-LABS',
-  'OMNI-CORP',
-  'PIED-PIPER',
-  'VANDELAY-INDUSTRIES',
-  'NAKATOMI-PLAZA',
-
-  // Café — public seating, high foot traffic (6)
-  'BREW-AND-CODE',
-  'BEAN-THERE-WIFI',
-  'MIDNIGHT-DINER',
-  'NIGHT-OWL-CAFE',
-  'GROUND-ZERO-COFFEE',
-  'ESPRESSO-EXPRESS',
-
-  // Residential — apartments and family homes (6)
-  'APT-3B-WIFI',
-  'UPSTAIRS-NEIGHBOR',
-  'FAMILY-WIFI-2G',
-  'CASA-DE-RAMIREZ',
-  'SUITE-401',
-  'HOUSE-OF-CARDS',
-
-  // University — dorms, labs, campus open networks (5)
-  'UNIV-DORM-7',
-  'CS-DEPT-LAB',
-  'GRAD-STUDENT-WIFI',
-  'CAMPUS-GUEST-OPEN',
-  'LIB-2ND-FLOOR',
-
-  // Public infrastructure — libraries, parks, transit (5)
-  'LIBRARY-PATRON',
-  'CITY-PARK-WIFI',
-  'METRO-COMMUTER',
-  'AIRPORT-LOUNGE-VIP',
-  'TRAIN-STATION-FREE',
-
-  // IoT defaults — single-device APs left in factory config (4)
-  'SMART-FRIDGE-NET',
-  'EV-CHARGER-LOT-3',
-  'DOORBELL-CAM-OPEN',
-  'ROBOVAC-AP',
-
-  // Hacker scene easter eggs (4)
-  'DEFCON-VILLAGE',
-  'HACKERSPACE-2600',
-  'BOFH-KEEPOUT',
-  'NULL-BYTE',
-];
+// The crackable ESSIDs, in the catalog's order: the scan picks from this list by
+// position, so its order decides which networks every player is offered.
+export const crackableEssidPool: readonly string[] = ESSID_CATALOG.map((entry) => entry.essid);
 
 // Noise ESSIDs — cosmetic only, never crackable. Real-world consumer brand
 // names, mobile hotspot defaults, joke / paranoia entries, big-chain free WiFi.
