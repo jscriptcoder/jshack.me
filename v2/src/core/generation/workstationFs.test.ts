@@ -121,8 +121,11 @@ describe('buildWorkstationBaseFs', () => {
     ]);
     expect([...dirAt(fs, 'boot').entries.keys()].sort()).toEqual(['initrd.img', 'vmlinuz']);
     expect([...dirAt(fs, 'etc').entries.keys()]).toEqual(['passwd']);
-    expect([...dirAt(fs, 'home').entries.keys()]).toEqual(['alice']);
+    expect([...dirAt(fs, 'home').entries.keys()].sort()).toEqual(['alice', 'guest']);
     expect(dirAt(fs, 'home', 'alice').entries.size).toBe(0);
+    // Every `/etc/passwd` names a guest home, and a guest session lands in it, so a
+    // fresh install has one — with nothing in it, because nobody has used it.
+    expect(dirAt(fs, 'home', 'guest').entries.size).toBe(0);
     expect(dirAt(fs, 'root').entries.size).toBe(0);
     expect(dirAt(fs, 'tmp').entries.size).toBe(0);
     expect([...dirAt(fs, 'var').entries.keys()].sort()).toEqual(['lib', 'log', 'run', 'www']);
@@ -136,6 +139,13 @@ describe('buildWorkstationBaseFs', () => {
       'kern.log',
     ]);
     expect(dirAt(fs, 'var', 'run').entries.size).toBe(0);
+  });
+
+  it('gives the guest account a home a guest session can list and write in', () => {
+    const guestHome = dirAt(buildWorkstationBaseFs(SEED_A, getConfig()), 'home', 'guest');
+    expect(guestHome.owner).toBe('guest');
+    expect(canRead('guest', guestHome.perms, []).allowed).toBe(true);
+    expect(canWrite('guest', guestHome.perms, [guestHome.perms]).allowed).toBe(true);
   });
 
   describe('/var/log/auth.log', () => {
@@ -585,7 +595,7 @@ describe('buildWorkstationBaseFs', () => {
 
   it('names the home directory and player row from the config username', () => {
     const fs = buildWorkstationBaseFs(SEED_A, getConfig({ username: 'neo' }));
-    expect([...dirAt(fs, 'home').entries.keys()]).toEqual(['neo']);
+    expect([...dirAt(fs, 'home').entries.keys()].sort()).toEqual(['guest', 'neo']);
     expect(passwdRow(fs, 'neo')[5]).toBe('/home/neo');
   });
 

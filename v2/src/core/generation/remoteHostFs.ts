@@ -53,8 +53,9 @@ import {
   dir,
   file,
   generatePasswd,
+  GUEST_HOME_DIR,
+  GUEST_HOME_FILE,
   PASSWD_FILE,
-  ROOT_DIR,
   SERVICE_CONFIG_FILE,
   SHELL,
   TMP_DIR,
@@ -69,6 +70,10 @@ import { roleConfigFile } from './pools/configFiles';
 import { nameServerFilesFor } from './generateDnsZone';
 import { roleOfHostname } from './pools/hostnames';
 import { buildNpcHome } from './npcHome';
+import { buildEtcContent } from './etcContent';
+import { buildRootHome } from './rootHome';
+import { buildSshDirectories } from './sshContent';
+import { DEBIAN_BASH_LOGOUT, DEBIAN_BASHRC, DEBIAN_PROFILE } from './pools/homeSkeleton';
 import { pickUsername } from './pools/usernames';
 import { placementOf } from './rolePlacement';
 import { generateDatabase } from './generateDatabase';
@@ -85,6 +90,20 @@ import type { LanHost } from './generateHomeLan';
 
 const pidfile = (content: string, owner: string): FileEntry =>
   file(content, PIDFILE_PERMISSIONS, owner);
+
+/** The home `/etc/passwd` gives the guest account, and where a guest session lands.
+ *  Nobody has used it: it holds what Debian copies into every new account and nothing
+ *  else, the same on every box. */
+const guestHome = (): Directory =>
+  dir(
+    {
+      '.bashrc': file(DEBIAN_BASHRC, GUEST_HOME_FILE, 'guest'),
+      '.profile': file(DEBIAN_PROFILE, GUEST_HOME_FILE, 'guest'),
+      '.bash_logout': file(DEBIAN_BASH_LOGOUT, GUEST_HOME_FILE, 'guest'),
+    },
+    GUEST_HOME_DIR,
+    'guest',
+  );
 
 export type HostService = { readonly spec: ServiceSpec; readonly port: number };
 
@@ -344,12 +363,52 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
       }
     : {};
 
+  const logs: Readonly<Record<string, FileEntry>> = {
+    'auth.log': file('', AUTH_LOG_PERMISSIONS),
+    'kern.log': file('', KERN_LOG_PERMISSIONS),
+    // The access log follows the http service, like the web root: a box
+    // nothing can fetch never has a line written, so an empty file would
+    // be furniture — and furniture that claims the box once served.
+    ...(serves ? { 'access.log': file('', ACCESS_LOG_PERMISSIONS) } : {}),
+    // Follows the ftp service for the same reason access.log follows http:
+    // a box no client can reach never has a line written, so an empty file
+    // there is furniture claiming the box once ran a daemon it never did.
+    ...(servesFtp ? { 'vsftpd.log': file('', VSFTPD_LOG_PERMISSIONS) } : {}),
+    // Follows its daemon, the third of three. Unlike the /etc config beside
+    // it, which states what the box is SET UP to be and stays true on a box
+    // whose daemon is down, a log claims something happened.
+    ...(servesDatabase ? { 'mysql.log': file('', MYSQL_LOG_PERMISSIONS) } : {}),
+    // The fourth, on the same rule. It is also the only one of them whose
+    // arrival line is the whole record of a visit, because a store that asks
+    // for no password produces no failures to sit beside it.
+    ...(redisService === undefined
+      ? {}
+      : { 'redis.log': file('', REDIS_LOG_PERMISSIONS) }),
+    // Follows the name-server ROLE, not a running daemon — placed by the same
+    // signal as its /etc/bind config beside it, so a box whose `named` is
+    // stopped still keeps the file the zone-transfer trace appends to. A zone
+    // transfer is recorded whenever the box IS authoritative, and an empty
+    // named.log is honest furniture on any name server: BIND opens it before
+    // anyone has crossed the network to read the zone.
+    ...(nameServer === null ? {} : { 'named.log': file('', NAMED_LOG_PERMISSIONS) }),
+  };
+
+  // Root's history names what the box keeps: its configs, and the logs it writes.
+  const configPaths = [
+    ...(config === null ? [] : [`/etc/${config.name}`]),
+    ...(nameServer === null ? [] : ['/etc/bind/named.conf']),
+    ...(redisService === undefined ? [] : ['/etc/redis/redis.conf']),
+  ];
+  const logPaths = Object.keys(logs).map((name) => `/var/log/${name}`);
+  const ssh = buildSshDirectories({ essid, host, username });
+
   const tree = dir(
     {
       bin: dir(createBinaryEntries(SYSTEM_UTILITY_NAMES), TRAVERSABLE_DIR),
       boot: bootDir(),
       etc: dir(
         {
+          ...buildEtcContent({ essid, host, services, role }),
           passwd: file(passwd, PASSWD_FILE),
           ...(config === null ? {} : { [config.name]: file(config.content, SERVICE_CONFIG_FILE) }),
           // Under `/etc/bind` rather than loose in `/etc`, which is where a real bind9
@@ -398,9 +457,23 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
         },
         TRAVERSABLE_DIR,
       ),
-      home: dir({ [username]: buildNpcHome({ essid, host, username }) }, TRAVERSABLE_DIR),
+      home: dir(
+        {
+          [username]: buildNpcHome({ essid, host, username, sshDirectory: ssh.home }),
+          guest: guestHome(),
+        },
+        TRAVERSABLE_DIR,
+      ),
       lib: dir(createLibraryEntries(SYSTEM_LIBRARIES), TRAVERSABLE_DIR),
-      root: dir({}, ROOT_DIR),
+      root: buildRootHome({
+        essid,
+        host,
+        role,
+        services,
+        configPaths,
+        logPaths,
+        sshDirectory: ssh.root,
+      }),
       tmp: dir({}, TMP_DIR),
       usr: dir(
         {
@@ -421,38 +494,7 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
       ),
       var: dir(
         {
-          log: dir(
-            {
-              'auth.log': file('', AUTH_LOG_PERMISSIONS),
-              'kern.log': file('', KERN_LOG_PERMISSIONS),
-              // The access log follows the http service, like the web root: a box
-              // nothing can fetch never has a line written, so an empty file would
-              // be furniture — and furniture that claims the box once served.
-              ...(serves ? { 'access.log': file('', ACCESS_LOG_PERMISSIONS) } : {}),
-              // Follows the ftp service for the same reason access.log follows http:
-              // a box no client can reach never has a line written, so an empty file
-              // there is furniture claiming the box once ran a daemon it never did.
-              ...(servesFtp ? { 'vsftpd.log': file('', VSFTPD_LOG_PERMISSIONS) } : {}),
-              // Follows its daemon, the third of three. Unlike the /etc config beside
-              // it, which states what the box is SET UP to be and stays true on a box
-              // whose daemon is down, a log claims something happened.
-              ...(servesDatabase ? { 'mysql.log': file('', MYSQL_LOG_PERMISSIONS) } : {}),
-              // The fourth, on the same rule. It is also the only one of them whose
-              // arrival line is the whole record of a visit, because a store that asks
-              // for no password produces no failures to sit beside it.
-              ...(redisService === undefined
-                ? {}
-                : { 'redis.log': file('', REDIS_LOG_PERMISSIONS) }),
-              // Follows the name-server ROLE, not a running daemon — placed by the same
-              // signal as its /etc/bind config beside it, so a box whose `named` is
-              // stopped still keeps the file the zone-transfer trace appends to. A zone
-              // transfer is recorded whenever the box IS authoritative, and an empty
-              // named.log is honest furniture on any name server: BIND opens it before
-              // anyone has crossed the network to read the zone.
-              ...(nameServer === null ? {} : { 'named.log': file('', NAMED_LOG_PERMISSIONS) }),
-            },
-            TRAVERSABLE_DIR,
-          ),
+          log: dir(logs, TRAVERSABLE_DIR),
           run: dir(pidfiles, TRAVERSABLE_DIR),
           // /var/lib, where the box's own config says the database is.
           ...datadir,

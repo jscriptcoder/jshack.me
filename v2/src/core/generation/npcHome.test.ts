@@ -8,10 +8,17 @@ import { generateDeepLayer } from './generateDeepLayer';
 import { chainLinks } from './lanTopology';
 import { inhabitant, networkPersona } from './persona';
 import { createFsView } from '../filesystem/fsView';
-import { resolveLanName } from '../network/resolveName';
 import { WORLD_EPOCH } from '../cve/worldClock';
 import { asAbsPath } from '../types';
-import type { Directory, FileNode } from '../filesystem/types';
+import type { Directory } from '../filesystem/types';
+import {
+  ALL_ESSIDS,
+  falsehoodIn,
+  filesUnder,
+  lanBoxes,
+  serialise,
+  type Box,
+} from '../../test/worldContent';
 
 /**
  * An NPC's personal computer is somebody's: its home holds what that person left
@@ -19,22 +26,9 @@ import type { Directory, FileNode } from '../filesystem/types';
  * is really there. Read the way a player reads it: through the box's own tree.
  */
 
-/** Networks outside the catalog: another player's, or a router's factory name. */
-const UNCATALOGUED_ESSIDS = ['Linksys-Kitchen', 'TP-LINK_5G_4A2F', 'HOME-WIFI-2.4G', 'xfinitywifi'];
-const ALL_ESSIDS = [...crackableEssidPool, ...UNCATALOGUED_ESSIDS];
-
 const DESK_PREFIXES = ['desktop', 'laptop', 'workstation'];
 const prefixOf = (host: LanHost): string => host.hostname.slice(0, host.hostname.lastIndexOf('-'));
 const isDesk = (host: LanHost): boolean => DESK_PREFIXES.includes(prefixOf(host));
-
-type Box = { readonly essid: string; readonly host: LanHost };
-
-const lanBoxes = (essids: readonly string[]): readonly Box[] =>
-  essids.flatMap((essid) =>
-    generateHomeLan(essid)
-      .hosts.filter((host) => host.kind === 'machine')
-      .map((host) => ({ essid, host })),
-  );
 
 const deskBoxes = (essids: readonly string[]): readonly Box[] =>
   lanBoxes(essids).filter(({ host }) => isDesk(host));
@@ -46,27 +40,11 @@ const homeOf = (tree: Directory, username: string): Directory => {
   return own;
 };
 
-/** Every file under a directory, keyed by its path relative to it. */
-const filesUnder = (directory: Directory, prefix = ''): ReadonlyMap<string, string> =>
-  new Map(
-    [...directory.entries].flatMap(([name, node]): (readonly [string, string])[] =>
-      node.kind === 'file'
-        ? [[`${prefix}${name}`, node.content]]
-        : [...filesUnder(node, `${prefix}${name}/`)],
-    ),
-  );
-
 const homeFilesOf = (box: Box): ReadonlyMap<string, string> =>
   filesUnder(homeOf(buildRemoteHostFs(box.essid, box.host), npcUsername(box.essid, box.host)));
 
 const notesOf = (files: ReadonlyMap<string, string>): readonly string[] =>
   [...files].filter(([path]) => path.startsWith('notes/')).map(([, content]) => content);
-
-/** A tree as plain data, so two builds can be compared byte for byte. */
-const serialise = (node: FileNode): unknown =>
-  node.kind === 'file'
-    ? node
-    : { ...node, entries: [...node.entries].map(([name, child]) => [name, serialise(child)]) };
 
 describe('an NPC desktop reads as somebody’s', () => {
   it('keeps a shell history that names a machine on its own network', () => {
@@ -164,68 +142,6 @@ describe('an NPC desktop reads as somebody’s', () => {
   });
 });
 
-/** Why a history line is false on this box, or null when everything it names is real.
- *  A player replays these lines exactly as written, so each must succeed the way it
- *  did for the person who typed it. */
-const falsehoodIn = (options: {
-  readonly line: string;
-  readonly box: Box;
-  readonly tree: Directory;
-  readonly username: string;
-}): string | null => {
-  const { line, box, tree, username } = options;
-  const lanHosts = generateHomeLan(box.essid).hosts;
-  const neighbourNamed = (target: string): LanHost | null => {
-    const byIp = lanHosts.find((candidate) => candidate.ip === target);
-    if (byIp !== undefined) return byIp;
-    const resolved = resolveLanName(box.essid, target);
-    const byName = lanHosts.find((candidate) => candidate.ip === resolved?.ip);
-    return byName === undefined || byName.kind !== 'machine' ? null : byName;
-  };
-  const words = line.split(' ');
-  const [command] = words;
-
-  if (command !== 'rm') {
-    const missingPath = words
-      .filter((word) => word.startsWith('~/') || word.startsWith('/'))
-      .map((word) => word.replace(/^~/, `/home/${username}`))
-      .find((path) => createFsView(tree, { userType: 'root' }).stat(asAbsPath(path)) === null);
-    if (missingPath !== undefined) return `names ${missingPath}, which is not on the box`;
-  }
-
-  if (command === 'ping' || command === 'nslookup') {
-    const target = words[1] ?? '';
-    const neighbour = neighbourNamed(target);
-    if (neighbour === null || neighbour.ip === box.host.ip) return `${target} is not a neighbour`;
-    return null;
-  }
-  if (command === 'ssh') {
-    const port = words[1] === '-p' ? Number(words[2]) : 22;
-    const [user, target] = (words.at(-1) ?? '').split('@');
-    const neighbour = neighbourNamed(target ?? '');
-    if (neighbour === null || neighbour.ip === box.host.ip) return `${target} is not a neighbour`;
-    const runsSshThere = hostServices(box.essid, neighbour).some(
-      ({ spec, port: open }) => spec.service === 'ssh' && open === port,
-    );
-    if (!runsSshThere) return `${target} runs no sshd on ${port}`;
-    if (user !== npcUsername(box.essid, neighbour)) return `${target} has no account ${user}`;
-    return null;
-  }
-  if (command === 'curl') {
-    const url = /^http:\/\/([^/:]+)(?::(\d+))?(\/\S*)$/.exec(words[1] ?? '');
-    if (url === null) return 'is not a url curl takes';
-    const neighbour = neighbourNamed(url[1] ?? '');
-    if (neighbour === null) return `${url[1]} is not a neighbour`;
-    const port = url[2] === undefined ? 80 : Number(url[2]);
-    const serves = hostServices(box.essid, neighbour).some(
-      ({ spec, port: open }) => spec.service === 'http' && open === port,
-    );
-    if (!serves) return `${url[1]} serves no http on ${port}`;
-    return url[3] === '/' ? null : `${url[3]} is not a page it serves`;
-  }
-  return null;
-};
-
 describe('what a home names is really there', () => {
   it('names only neighbours that answer the way the history says they did', () => {
     const falsehoods = deskBoxes(ALL_ESSIDS).flatMap((box) => {
@@ -235,7 +151,7 @@ describe('what a home names is really there', () => {
       return history
         .split('\n')
         .filter((line) => line !== '')
-        .map((line) => ({ line, why: falsehoodIn({ line, box, tree, username }) }))
+        .map((line) => ({ line, why: falsehoodIn({ line, box, tree, home: `/home/${username}` }) }))
         .filter(({ why }) => why !== null)
         .map(({ line, why }) => `${box.essid} ${box.host.hostname}: "${line}" ${why}`);
     });
@@ -284,7 +200,7 @@ describe('what a home names is really there', () => {
           const options = machineCommandOptions(essid, neighbour);
           options.forEach((line) => {
             const box = { essid, host: reader };
-            expect(falsehoodIn({ line, box, tree, username })).toBeNull();
+            expect(falsehoodIn({ line, box, tree, home: `/home/${username}` })).toBeNull();
           });
           const services = hostServices(essid, neighbour);
           if (services.some(({ spec }) => spec.service === 'ssh')) {
