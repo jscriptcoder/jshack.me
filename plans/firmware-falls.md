@@ -6,7 +6,7 @@ epic's `### Slice 9 — resolved decisions (grilling, 2026-09-21)` section, deci
 Prior slice close-out: "Phase 3 slice 8 — libraries fall" (#519–#527, v0.235.0–v0.243.0).
 **This is the last V-series axis; it closes V4 and the phase.**
 
-**Status:** Active — PR1 (#528, v0.244.0) and PR2 (#529, v0.245.0) merged. PR3 next.
+**Status:** Active — PR1 (#528, v0.244.0), PR2 (#529, v0.245.0) and PR3 (#531, v0.246.0) merged. PR4 next.
 
 **Delivery:** Four independent PRs, sequenced to trunk (NOT a stack), per the convention slices
 1–8 used. Each merges to `main`; the next branches from updated `main`. **PR1 and PR2 are
@@ -188,18 +188,18 @@ sweep log.
 **Decisions**: 82, 83, 86, 87, 89; 85 observable here.
 
 **Acceptance criteria**
-- [ ] A gateway whose port-22 service has no live CVE falls through firmware; the response carries
+- [x] A gateway whose port-22 service has no live CVE falls through firmware; the response carries
       the firmware CVE and its severity.
-- [ ] When both the service and the firmware have a live CVE, the **higher severity** answers; an
+- [x] When both the service and the firmware have a live CVE, the **higher severity** answers; an
       equal severity falls to the **service**.
-- [ ] The firmware outcome's tier is the library floor — `critical`/`high` → root, `medium`/`low`
+- [x] The firmware outcome's tier is the library floor — `critical`/`high` → root, `medium`/`low`
       → user — and never the service floor.
-- [ ] Each of the eight effect kinds is reachable from the firmware pool, at the documented
+- [x] Each of the eight effect kinds is reachable from the firmware pool, at the documented
       weights, seeded so one box always falls the same way.
-- [ ] The trace lands in the **port's** own sweep log, tagged with that daemon, naming the CVE —
+- [x] The trace lands in the **port's** own sweep log, tagged with that daemon, naming the CVE —
       no firmware-specific log and no new catalog row.
-- [ ] A box with no firmware entry (workstation, NPC host) behaves exactly as today.
-- [ ] Firing at a router port whose service *and* firmware are both clean gives the same refusal it
+- [x] A box with no firmware entry (workstation, NPC host) behaves exactly as today.
+- [x] Firing at a router port whose service *and* firmware are both clean gives the same refusal it
       gives today.
 
 **RED**: `msfconsole <ap gateway> 22` on a day when `openssh-server` is clean and the vendor's
@@ -214,6 +214,16 @@ Assess extraction **after** green, and only if the collapsed version is smaller 
 comparison is the decision-64 shape whose strict `>` is load-bearing for the tie rule, so the suite
 needs an equal-severity pair pinning that the service wins.
 **PR-ready when**: criteria met, wire-check green, gates green, commit approved.
+
+> **As built (#531):** the firmware interpreter (`firmwareExploit.ts`) reads the image from the
+> box's own manifest, and the contest `higherSeverityOutcome` sits at the single resolution point in
+> `handleExploitCreateSession`, weighing the service and firmware outcomes (higher severity wins, an
+> equal severity falls to the service). The REFACTOR extracted one shared `severityRank` into
+> `packageTimeline.ts` — `localExploit.ts` dropped its private copy — but the two tier-floor tables
+> stayed separate per axis, each with its own rationale. The tie-to-service rule is what keeps every
+> router's permanently-live sshd hole reachable. Mutation 40/40 killed / 0 survived (0 timeouts);
+> all four exploit wire-checks green (ApGateway 15/15 with net-new firmware coverage, OwnLan 53/53,
+> DeepChain 11/11, CrossPlayer 14/14).
 
 ---
 
