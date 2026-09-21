@@ -4,7 +4,7 @@
 decisions" 1–25 (grilled 2026-09-21). **Decision 19 is amended by this plan** (see "Amended at
 planning" below and in the epic) — measurement found its premise did not hold.
 
-**Status:** Active — planned 2026-09-21. PR0 next.
+**Status:** Active — planned 2026-09-21. PR0 merged 2026-09-21 (#533). PR1 next.
 
 **Delivery:** Two independent PRs, sequenced to trunk (NOT a stack), the convention every parity
 slice used. PR1 branches from `main` after PR0 merges, because PR1 is the first PR that grows
@@ -131,8 +131,10 @@ behaviour test (none exists to write RED against).
 **Decisions**: 18, amended 19.
 
 **Acceptance criteria**
-- [x] `npm run build` runs the budget check automatically (`postbuild`), locally and on a Vercel
-      build, and prints both measurements with their ceilings.
+- [x] `npm run build` in `v2/` runs the budget check automatically (`postbuild`) and prints both
+      measurements with their ceilings. **Corrected after merge:** it runs on local builds only.
+      The Vercel project builds the frozen root app, so no deploy runs it (seen in #533's preview
+      log, which showed `jshack-me@0.139.0`).
 - [x] **Bundle:** the check fails when the gzipped main chunk exceeds **284,975 bytes** — the
       baseline re-measured at PR0 (134,975, default gzip level; the planning figure of 134,282
       had moved) plus decision 18's 150,000 allowance.
