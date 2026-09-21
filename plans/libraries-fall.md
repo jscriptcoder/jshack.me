@@ -6,7 +6,7 @@ record: the epic's `### Slice 8 — resolved decisions (grill-me, 2026-09-18)` s
 slice close-out: "Phase 3 slice 7 — reboot evicts" (#515–#518, v0.231.0–v0.234.0), which closed V3.
 **Slice 9 (firmware) is the only V-series axis left after this.**
 
-**Status:** Active — PR1 ✔ merged (#519, v0.235.0). PR2 ✔ merged (#520, v0.236.0). PR3 ✔ merged (#521, v0.237.0). PR4a ✔ merged (#522, v0.238.0). PR4b ✔ merged (#523, v0.239.0). PR4c ✔ merged (#524, v0.240.0). PR5 (server + wire-check) ✔ merged (#525, v0.241.0). PR5b (client) ✔ merged (#526, v0.242.0). **PR6 planned 2026-09-20 (decisions 78–80) — branch cut, both tables fixed, no code yet.** PR4 split into 4a/4b/4c at its planning (decisions 75–77); PR5 split into server + client (PR5b) at delivery for review size.
+**Status:** Active — PR1 ✔ merged (#519, v0.235.0). PR2 ✔ merged (#520, v0.236.0). PR3 ✔ merged (#521, v0.237.0). PR4a ✔ merged (#522, v0.238.0). PR4b ✔ merged (#523, v0.239.0). PR4c ✔ merged (#524, v0.240.0). PR5 (server + wire-check) ✔ merged (#525, v0.241.0). PR5b (client) ✔ merged (#526, v0.242.0). **PR6 implemented 2026-09-21 (v0.243.0, decisions 78–80) — both tables filled, PR open for review.** PR4 split into 4a/4b/4c at its planning (decisions 75–77); PR5 split into server + client (PR5b) at delivery for review size.
 
 **Delivery:** Nine independent PRs (six until PR4 split into 4a/4b/4c, decision 75, and PR5 into
 server + client at delivery), sequenced to trunk (NOT a stack), per decision 72. Each merges
@@ -490,6 +490,17 @@ Daemons and the eight library-free system utilities (`mkdir`, `touch`, `man`, `p
 `wrapWithLibraryCheck` for it, so removing a `.so` it links (`rm /lib/libssl.so`) starts breaking
 it — every existing test that stages a box with a library removed now has to expect these nineteen
 to fail too, and that sweep belongs to this PR rather than a follow-up.
+**Second known consequence, found at implementation:** `apt install` has always called
+`installPackageLibraries`, written as a deliberate no-op whose own comment said it "goes live once
+lib-bearing tools and lib-incomplete remote machines exist" — and this PR is that. Installing a tool
+now writes any `/lib/<lib>.so` it links that the box no longer has, so **deleting a library to close
+an exploit surface is undone by installing anything that links it**: `rm /lib/libssl.so` followed by
+`apt install nmap` puts libssl back. Accepted as designed rather than worked around — a tool that
+cannot link is a tool that cannot start, and apt selling one that refuses to run would be apt
+selling a brick. The gameplay shape is the point: hardening by deletion becomes a standing cost a
+player has to keep paying, not a one-off move that buys permanent immunity to a whole library's
+CVEs. It only ever fires on a box whose `/lib` has been emptied by hand, because every generated box
+is stamped with all eight.
 **Acceptance:**
 - Each newly mapped command's `ldd` lists its declared libraries, in declared order.
 - No daemon and none of the eight library-free system utilities gains a link.
