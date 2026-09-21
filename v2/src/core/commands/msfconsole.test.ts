@@ -2529,7 +2529,7 @@ describe('msfconsole --local', () => {
     expect(pushed).toEqual([]);
   });
 
-  it('misses when the box has no account at the granted tier', async () => {
+  it('misses when the box holds nobody at or above the granted tier', async () => {
     // A root shell needs a root row to land as. A box with only a user account has none,
     // so the same live CVE that would open a root shell elsewhere reads as the uniform
     // miss here — refused before any phase is streamed, like every other bounce.
@@ -2579,6 +2579,25 @@ describe('msfconsole --local', () => {
     expect(pushed).toHaveLength(1);
     expect(pushed[0]).toMatchObject({ username: 'alice', userType: 'user', kind: 'exploit' });
     expect(cwds).toEqual(['/home/alice']);
+  });
+
+  it('lands a user-tier CVE on root when the box holds nobody at user', async () => {
+    // The tier is a floor: with the user account gone, the next one up takes the hole. The
+    // shell stands on root but holds only what the CVE earned, so its tier stays user.
+    const release = shellReleaseFor('su', 'libpam', 'user');
+    const { env, pushed } = localBoxEnv({
+      library: 'libpam',
+      version: release.version,
+      gameDay: release.publishedAt,
+      passwd: 'root:hash:0:0:root:/root:/bin/bash\n',
+    });
+
+    const { text, exitCode } = await drain(await msfconsole.execute(env, ['su'], localFlags));
+
+    expect(exitCode).toBe(0);
+    expect(text).toContain('[+] Full shell as root@rig');
+    expect(pushed).toHaveLength(1);
+    expect(pushed[0]).toMatchObject({ username: 'root', userType: 'user', kind: 'exploit' });
   });
 
   it('passes a PTY-less shell onward: a full roll pushes a limited hop', async () => {
