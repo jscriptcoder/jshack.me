@@ -60,6 +60,23 @@ export const accountsIn = (fs: Directory): readonly NamedPasswdAccount[] =>
     userType: userTypeFromPasswdFields(fields),
   }));
 
+/** The tiers from least to most privileged. */
+const TIER_ORDER: readonly UserType[] = ['guest', 'user', 'root'];
+
+/** The account a hole granting `tier` lands on: the least privileged one at or above it,
+ *  or undefined when the box holds nobody that high.
+ *
+ *  The tier is a FLOOR. A router's passwd holds root and nothing else, so reading it as an
+ *  exact match would refuse most of the holes a router has, in words indistinguishable
+ *  from a patched daemon. The cost is deliberate: deleting the `user` account does not
+ *  close a user-tier hole, it promotes that hole to root. */
+export const accountAtOrAbove = (fs: Directory, tier: UserType): NamedPasswdAccount | undefined => {
+  const accounts = accountsIn(fs);
+  return TIER_ORDER.slice(TIER_ORDER.indexOf(tier))
+    .map((candidateTier) => accounts.find((account) => account.userType === candidateTier))
+    .find((account) => account !== undefined);
+};
+
 /** The box's passwd with ONE account's hash replaced and every other byte left where it
  *  was: the other accounts, any field this parser does not read, the blank line a
  *  hand-edited file may carry.

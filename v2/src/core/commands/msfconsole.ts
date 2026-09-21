@@ -49,7 +49,7 @@ import {
   PIDFILE_PERMISSIONS,
 } from '../services/pidfile';
 import {
-  accountsIn,
+  accountAtOrAbove,
   withAccountHash,
   PASSWD_OWNER,
   PASSWD_PATH,
@@ -86,7 +86,7 @@ const USAGE_LOCAL_READ = 'usage: msfconsole --local <command> <path>';
 const USAGE_LOCAL_WRITE = 'usage: msfconsole --local <command> <local:remote>';
 
 /** The one line a service with no live CVE, an unmapped command, a linked library with
- *  no live hole, and no account at the granted tier all bounce with — a `--local` fire
+ *  no live hole, and nobody at or above the granted tier all bounce with — a `--local` fire
  *  that told which of those it was would turn a failed exploit into a free scan of the
  *  box's own manifest, exactly as the service path's single refusal does. */
 const localMiss = (command: string): string => `msfconsole: no known vulnerability on ${command}`;
@@ -1017,11 +1017,11 @@ const executeLocal = async (
     return errorResult(localMiss(command));
   }
 
-  // The account the granted tier names, if the box holds one. Needed as the OWNER a write
-  // stamps on a file it creates, and as the identity a shell or a reset stands on. A write
-  // aims at a path, not a person, so it falls back to the tier itself when no account
-  // exists — the router class runs the write hole and holds only root.
-  const account = accountsIn(env.fs.root()).find((candidate) => candidate.userType === outcome.tier);
+  // The least privileged account at or above the granted tier, if the box holds one. Needed
+  // as the OWNER a write stamps on a file it creates, and as the identity a shell or a
+  // reset stands on. A write aims at a path, not a person, so it falls back to the tier
+  // itself when the box holds nobody that high.
+  const account = accountAtOrAbove(env.fs.root(), outcome.tier);
   const actor = account?.username ?? outcome.tier;
 
   // Path-aimed holes answer whether or not the box holds an account at the granted tier:
@@ -1040,8 +1040,8 @@ const executeLocal = async (
   }
 
   // Everything below stands the player as an account or turns an account's lock, so the box
-  // must hold somebody at the granted tier. No such account is the uniform miss, refused
-  // before any phase is streamed so it reads like every other bounce.
+  // must hold somebody at or above the granted tier. Nobody that high is the uniform miss,
+  // refused before any phase is streamed so it reads like every other bounce.
   if (account === undefined) return errorResult(localMiss(command));
 
   if (outcome.effect === 'shell_full' || outcome.effect === 'shell_limited') {
