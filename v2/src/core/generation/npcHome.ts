@@ -17,7 +17,7 @@
 
 import type { Directory, FileNode } from '../filesystem/types';
 import { dir, file, HOME_DIR, HOME_FILE } from './baseFs';
-import { generateHomeLan, type LanHost } from './generateHomeLan';
+import { generateHomeLan, isOnHomeLan, type LanHost } from './generateHomeLan';
 import { hostServices, npcUsername } from './remoteHostFs';
 import { inhabitant, networkPersona } from './persona';
 import { lanZoneName } from '../network/resolveName';
@@ -37,19 +37,19 @@ import { PERSONAL_HISTORY, WORK_HISTORY } from './pools/homeHistory';
 
 const DESK_PREFIXES: readonly string[] = ['desktop', 'laptop', 'workstation'];
 
-const isDeskMachine = (host: LanHost): boolean =>
+export const isDeskMachine = (host: LanHost): boolean =>
   DESK_PREFIXES.some((prefix) => host.hostname.startsWith(`${prefix}-`));
 
 /** A day some time before the world's epoch, as `YYYY-MM-DD` — always in the past, so
  *  nothing a home says is dated after the day the world stands on. */
-const pastDate = (prng: Prng): string => {
+export const pastDate = (prng: Prng): string => {
   const daysAgo = prng.nextInt(1, 730);
   return new Date(WORLD_EPOCH - daysAgo * 86_400_000).toISOString().slice(0, 10);
 };
 
 /** Fill a template's slots, drawing each distinct slot once so a note reads coherently
  *  (one colleague, one day) even where the slot appears twice. */
-const fillSlots = (
+export const fillSlots = (
   template: string,
   values: Readonly<Record<string, string>>,
 ): string => template.replace(/\{(\w+)\}/g, (whole, slot: string) => values[slot] ?? whole);
@@ -149,7 +149,7 @@ export const machineCommandOptions = (essid: string, neighbour: LanHost): readon
 /** The network lines a LAN desktop's history carries: a handful of real neighbours, each
  *  addressed a way that answers. A gateway is named by its address only, since two
  *  routers on one LAN can share a hostname; a machine may be named any of its ways. */
-const networkLines = (prng: Prng, essid: string, self: LanHost): readonly string[] => {
+export const networkLines = (prng: Prng, essid: string, self: LanHost): readonly string[] => {
   const neighbours = generateHomeLan(essid).hosts.filter((host) => host.ip !== self.ip);
   const machines = neighbours.filter((host) => host.kind === 'machine');
   const gateways = neighbours.filter((host) => host.kind !== 'machine');
@@ -192,8 +192,10 @@ export const buildNpcHome = (options: {
   readonly essid: string;
   readonly host: LanHost;
   readonly username: string;
+  /** The `.ssh/` this person keeps, or null where they have reached nobody. */
+  readonly sshDirectory: Directory | null;
 }): Directory => {
-  const { essid, host, username } = options;
+  const { essid, host, username, sshDirectory } = options;
   if (!isDeskMachine(host)) return dir({}, HOME_DIR, username);
 
   const persona = networkPersona(essid);
@@ -202,9 +204,7 @@ export const buildNpcHome = (options: {
   const prng = createPrng(`home-content-${essid}-${host.ip}`);
 
   const notes = buildNotes({ prng, category: persona.category, place: persona.place, first });
-  const onLan = generateHomeLan(essid).hosts.some(
-    (candidate) => candidate.ip === host.ip && candidate.hostname === host.hostname,
-  );
+  const onLan = isOnHomeLan(essid, host);
   const history = buildHistory({
     prng,
     essid,
@@ -232,6 +232,7 @@ export const buildNpcHome = (options: {
         username,
       ),
       notes: dir(noteEntries, HOME_DIR, username),
+      ...(sshDirectory === null ? {} : { '.ssh': sshDirectory }),
     },
     HOME_DIR,
     username,

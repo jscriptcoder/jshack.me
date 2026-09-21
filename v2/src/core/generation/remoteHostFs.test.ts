@@ -2398,8 +2398,12 @@ describe('buildRemoteHostFs', () => {
       // `/etc/bind`, and the name-service block below owns it.
     ];
 
-    /** The one file in `/etc` that is not `passwd`, or null where the box keeps
-     *  none. It names the file as well as reading it, so a config under the wrong
+    /** The files every box keeps in `/etc` whatever it is for: its accounts, its name,
+     *  its neighbours, its resolver, its mounts, its jobs and its greeting. */
+    const EVERY_BOX_KEEPS = ['passwd', 'hostname', 'hosts', 'resolv.conf', 'fstab', 'crontab', 'motd'];
+
+    /** The one file in `/etc` that says what THIS box is for, or null where the box
+     *  keeps none. It names the file as well as reading it, so a config under the wrong
      *  name fails as loudly as a missing one — and a second config throws rather
      *  than being silently picked between. */
     const roleConfigOf = (
@@ -2408,7 +2412,7 @@ describe('buildRemoteHostFs', () => {
       // Files only: the role config is the one FILE a box keeps for what it is, and
       // /etc now also holds a directory for a config that follows a SERVICE instead.
       const found = [...dirAt(fs, 'etc').entries].filter(
-        ([name, node]) => name !== 'passwd' && node.kind === 'file',
+        ([name, node]) => !EVERY_BOX_KEEPS.includes(name) && node.kind === 'file',
       );
       if (found.length > 1) {
         throw new Error(`expected one config in /etc, found ${found.length}`);

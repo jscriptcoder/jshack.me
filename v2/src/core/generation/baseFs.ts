@@ -55,8 +55,26 @@ export const HOME_FILE: FilePermissions = {
   write: ['root', 'user'],
   execute: [],
 };
+/** `/home/guest`: the guest account's own home. Debian makes a home readable by
+ *  everyone on the box and writable by its owner, and a guest session lands here, so
+ *  guest must be able to list it and add to it. */
+export const GUEST_HOME_DIR: FilePermissions = {
+  read: ['root', 'user', 'guest'],
+  write: ['root', 'guest'],
+  execute: ['root', 'user', 'guest'],
+};
+/** A file in `/home/guest`: readable by everyone, as its directory is, and the guest's
+ *  own to change. */
+export const GUEST_HOME_FILE: FilePermissions = {
+  read: ['root', 'user', 'guest'],
+  write: ['root', 'guest'],
+  execute: [],
+};
 /** `/root`: root-only across the board. */
 export const ROOT_DIR: FilePermissions = { read: ['root'], write: ['root'], execute: ['root'] };
+/** A file in `/root`: root's alone, and never a program. The directory already keeps
+ *  every other tier out; the file says the same, so a copy moved elsewhere stays private. */
+export const ROOT_FILE: FilePermissions = { read: ['root'], write: ['root'], execute: [] };
 /** `/tmp`: world-writable scratch space. */
 export const TMP_DIR: FilePermissions = {
   read: ['root', 'user', 'guest'],

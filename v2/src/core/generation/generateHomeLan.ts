@@ -113,3 +113,12 @@ export const generateHomeLan = (essid: string): HomeLan => {
   );
   return { subnet, hosts };
 };
+
+/** Whether `host` is one of the machines on `essid`'s home LAN, rather than a box on a
+ *  deeper layer. Matched on address AND name: a deep layer's subnet never overlaps the
+ *  home LAN's, but asking both keeps the answer honest if one ever did. A deep box cannot
+ *  know what its own layer holds, so content that names neighbours asks this first. */
+export const isOnHomeLan = (essid: string, host: LanHost): boolean =>
+  generateHomeLan(essid).hosts.some(
+    (candidate) => candidate.ip === host.ip && candidate.hostname === host.hostname,
+  );

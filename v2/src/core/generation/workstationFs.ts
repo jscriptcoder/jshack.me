@@ -35,6 +35,7 @@ import {
   dir,
   file,
   generatePasswd,
+  GUEST_HOME_DIR,
   HOME_DIR,
   PASSWD_FILE,
   ROOT_DIR,
@@ -134,7 +135,15 @@ export const buildWorkstationBaseFsFromIdentity = (identity: {
       bin: dir(createBinaryEntries(SYSTEM_UTILITY_NAMES), TRAVERSABLE_DIR),
       boot: bootDir(),
       etc: dir({ passwd: file(passwd, PASSWD_FILE) }, TRAVERSABLE_DIR),
-      home: dir({ [identity.username]: dir({}, HOME_DIR, identity.username) }, TRAVERSABLE_DIR),
+      // The guest home `/etc/passwd` names, empty: a fresh install has one, and a guest
+      // session lands in it.
+      home: dir(
+        {
+          [identity.username]: dir({}, HOME_DIR, identity.username),
+          guest: dir({}, GUEST_HOME_DIR, 'guest'),
+        },
+        TRAVERSABLE_DIR,
+      ),
       lib: dir(createLibraryEntries(SYSTEM_LIBRARIES), TRAVERSABLE_DIR),
       root: dir({}, ROOT_DIR),
       tmp: dir({}, TMP_DIR),
