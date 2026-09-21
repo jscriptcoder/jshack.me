@@ -7,22 +7,19 @@
 > Split authored 2026-07-29 (`story-splitting`), then grilled to nine locked decisions
 > (`grill-me`, same day).
 
-**Where we are now (2026-09-21):** **v0.243.0**. **Phase 3 slice 8 — libraries fall — is SHIPPED
-and closed out**: nine independent PRs to trunk, #519–#527, v0.235.0–v0.243.0, with its as-built
-retired into the `### Phase 3 slice 8` section near the end of this file and its plan file
-(`libraries-fall.md`) deleted. Eighteen decisions, 63–80, in `### Slice 8 — resolved decisions`
-(69 supersedes 17; 80 corrects 68; 75–77 added at PR4's planning and 78–80 at PR6's). Slice 7
-before it (reboot evicts, #515–#518, v0.231.0–v0.234.0, which closed V3) is in the `### Phase 3
-slice 7` section. **This does NOT close V4** — V4 is delivered as slices 8 and 9, and firmware is
-the half still standing. **Next is Phase 3 slice 9 — firmware falls**, the third axis on routers,
-switches and the shared AP gateway, and **the last V-series axis before the ship gate**. **GRILLED
-2026-09-21** — ten decisions, 81–90, in `### Slice 9 — resolved decisions` (89 supersedes 82's
-ordering; 81 takes up slice 1a's `<vendor>-firmware` escape hatch) and **PLANNED the same day**
-in `plans/firmware-falls.md` — four independent PRs to trunk, v0.244.0-v0.247.0. Two of
-the ten are corrections the grill found rather than choices it made: without 84 the axis lands a
-silent refusal on every router-class box, and without 89 it is unreachable from the world's second
-fortnight on. The `Status`
-block below is an accumulating log, not the current state.
+**Where we are now (2026-09-21):** **v0.247.0**. **Phase 3 slice 9 — firmware falls — is SHIPPED
+and closed out, and with it V4 and the entire V-series are CLOSED**: four independent PRs to trunk,
+#528, #529, #531, #532 (#530 between them was an unrelated sweep-test fix), v0.244.0–v0.247.0, with
+its as-built retired into the `### Phase 3 slice 9` section near the end of this file and its plan
+file (`firmware-falls.md`) deleted. Ten decisions, 81–90, in `### Slice 9 — resolved decisions`
+(89 supersedes 82's ordering; 81 takes up slice 1a's `<vendor>-firmware` escape hatch); two of the
+ten — 84 and 89 — are corrections the grill found rather than choices it made, without which the
+axis lands a silent refusal on every router-class box (84) and is unreachable from the world's
+second fortnight on (89). Slice 8 before it (libraries fall, #519–#527, v0.235.0–v0.243.0) is in the
+`### Phase 3 slice 8` section; together slices 8 and 9 delivered V4. **All nine Phase 3 slices are
+shipped** — the loop, the effect set, the cross-network route, the defender's patch, reboot
+eviction, and both halves of local escalation (libraries and firmware). **Next is the ship gate.**
+The `Status` block below is an accumulating log, not the current state.
 
 **Status**: **D1 shipped** (v0.109.0), with its web follow-ups D1c (v0.123.0-v0.124.0), D1b
 (v0.125.0-v0.129.0) and D1d (v0.130.0) all closed out. **D3 ✅ COMPLETE (v0.136.0)** — six slices,
@@ -422,7 +419,7 @@ PHASE 3 — VULNERABILITIES                             GRILLED 09-09/09-10 + PL
       V slice 6 the exploit crosses networks  ✔ SHIPPED v0.224.0-v0.230.0 (#508-#514)
       V slice 7 reboot evicts                 ✔ SHIPPED v0.231.0-v0.234.0 (#515-#518) <- V3 CLOSED
       V slice 8 libraries fall                ✔ SHIPPED v0.235.0-v0.243.0 (#519-#527)
-      V slice 9 firmware falls                PLANNED 09-21 (10 decisions, 4 PRs) <- LAST V-SERIES AXIS, closes V4
+      V slice 9 firmware falls                ✔ SHIPPED v0.244.0-v0.247.0 (#528,#529,#531,#532) <- CLOSED V4 and the V-SERIES
 ────────────────────────── SHIP ──────────────────────────
 POST-SHIP — MISSIONS
 ```
@@ -461,7 +458,7 @@ POST-SHIP — MISSIONS
 | **V1** ✅ | **A scanner reads what version a service runs** — **GRILLED**, delivered as slices 1-2; **SHIPPED v0.210.0-v0.212.0 (#491, #494, #496)** | `/var/lib/dpkg/status` generated on every box (services + the 8 libraries + firmware on routers); `nmap -sV` VERSION column; `WORLD_EPOCH` + each package's first publication + the severity roll (the forward walk moved to slice 4); a CVE id and severity on a live one | `nmap -sV <host>` → real versions; the world is clean for ~3 days, then CVEs start landing; tier-3 readable (already allowlisted) |
 | **V2** ✔ | **A player breaks in with no credentials** — **GRILLED**, delivered as slices 3, 5, 6; **slice 3 SHIPPED v0.213.0 (#497)**, **slice 5 SHIPPED v0.218.0-v0.223.0 (#502-#507)** and **slice 6 SHIPPED v0.224.0-v0.230.0 (#508-#514)** | `msfconsole <host> <port> [arg]`; all 8 effect kinds; the exploit session row; the `formatExploit` catalog column tracing BOTH outcomes; **server-side CVE recomputation** through the one shared module the client renders from | B finds a vulnerable version → `msfconsole` → `shell_full` with no password; a patched version refuses and the target logs the bounce |
 | **V3** ✅ | **A defender patches and the exploit goes inert** — **GRILLED**, delivered as slices 4 and 7; **slice 4 SHIPPED v0.214.0-v0.215.0 (#498, #499)** and **slice 7 SHIPPED v0.231.0-v0.234.0 (#515-#518)**; `pkg=<version>` pinning moved to the attacker slices by decision 39 and **SHIPPED there at v0.229.0 (#513)**, with the trace it needed at v0.230.0 (#514) | `apt upgrade [pkg]`; `apt list -u` with the ETA status; `apt install pkg=<version>` downgrade-only; install sharing the upgrade resolver; `reboot` ending every session on the machine | A upgrades → B's working exploit now fails; inside the delay window A is told no fix exists; A reboots and B's shell drops |
-| **V4** ✔ | **A player escalates locally through a vulnerable library** — **GRILLED**, now slices 8 and 9; **slice 8 SHIPPED v0.235.0–v0.243.0 (#519–#527)**, leaving firmware (slice 9, **GRILLED + PLANNED 2026-09-21**, decisions 81-90, `plans/firmware-falls.md`) as the half that closes this row | Library timelines; `ldd`; `msfconsole --local`; the syslog trace; the extended dependency map + its effect pools; `metadata.libraryLinks` deleted; firmware as the third axis | B (guest) `msfconsole --local su` → root without the root password; `ldd /bin/su` shows the vulnerable lib; A upgrades to close it. **Slice 9**: a gateway whose every service scans clean still falls to `msfconsole <gw> 22`, through the firmware its manifest names and `snmpwalk` reports |
+| **V4** ✅ | **A player escalates locally through a vulnerable library** — **GRILLED**, delivered as slices 8 and 9; **slice 8 SHIPPED v0.235.0–v0.243.0 (#519–#527)** and **slice 9 SHIPPED v0.244.0–v0.247.0 (#528, #529, #531, #532)**, closed out 2026-09-21 — this row and the whole V-series are CLOSED; as-built in `### Phase 3 slice 8` and `### Phase 3 slice 9` near the end of this file, both plan files deleted | Library timelines; `ldd`; `msfconsole --local`; the syslog trace; the extended dependency map + its effect pools; `metadata.libraryLinks` deleted; firmware as the third axis, its severity contest with the service, and `sysDescr` naming the firmware a walk reports | B (guest) `msfconsole --local su` → root without the root password; `ldd /bin/su` shows the vulnerable lib; A upgrades to close it. **Slice 9**: a gateway whose every service scans clean still falls to `msfconsole <gw> 22`, through the firmware its manifest names and `snmpwalk` reports |
 
 **Phase 3 is GRILLED — twenty-three locked decisions and a nine-slice spine** in
 ["Phase 3 — resolved scope & decisions"](#phase-3--resolved-scope--decisions-grill-me-2026-09-09).
@@ -4398,7 +4395,7 @@ central mechanic unplayable until slice 6.
 | **6** ✅ | **The exploit crosses networks** — **SHIPPED v0.224.0-v0.230.0 (#508-#514)** | Public IPs, NAT forwards, inner gateways and the deep chain, through the resolvers `ssh` and `hydra` already share. The first real route to rooting another player. Seven independent PRs to trunk, one vantage each; decision 34's three cross-player questions answered once in a shared rule, and decision 39's pinning shipped with the trace that makes it visible |
 | **7** ✅ | **Reboot evicts** — **SHIPPED v0.231.0-v0.234.0 (#515-#518)**, decisions 52–62 and four independent PRs to trunk; as-built in ["Phase 3 slice 7"](#phase-3-slice-7--reboot-evicts--shipped-v02310v02340-515518) | `reboot` ends every session row on that machine server-side, not just the rebooter's stack. The defender gets an answer; the intruder who deleted `/boot/vmlinuz` gets the last laugh. A server-minted **boot id** on the box is how a live shell finds out, read through the re-pull `executeLine` already does per line; a failed eviction fails loudly, because silence hands the defender a convincing animation and a live intruder |
 | **8** | **Libraries fall** — ✅ **SHIPPED v0.235.0–v0.243.0 (#519–#527)**, closed out 2026-09-21; decisions 63–80, nine independent PRs (decision 72, PR4 split by 75 and PR5 split at delivery); as-built in `### Phase 3 slice 8` near the end of this file, plan file deleted | ~~Library timelines~~ (already shipped with slice 2); `ldd`; explicit-path execution of a carried binary; `apt list -u` naming the CVE and severity; `msfconsole --local <command>`, client-local on own/NPC boxes and server-side on a player's workstation; the realistic trace (decision 69, superseding 17's syslog line); the extended dependency map with its new effect pools; `metadata.libraryLinks` deleted. Guest becomes root without the root password |
-| **9** | **Firmware falls** | The third axis on routers, switches and the shared AP gateway — a fully patched gateway can still be taken |
+| **9** | **Firmware falls** — ✅ **SHIPPED v0.244.0–v0.247.0 (#528, #529, #531, #532)**, closed out 2026-09-21, **closing V4 and the V-series**; decisions 81–90, four independent PRs to trunk; as-built in `### Phase 3 slice 9` near the end of this file, plan file deleted | The third axis on routers, switches and the shared AP gateway: firmware as a package with its own timeline; the exploit tier as a floor so a root-only router hands over the shell the CVE earned; the service-vs-firmware severity contest (higher wins, tie to the service) so a gateway that scans clean still falls through the image it runs; `snmpwalk`'s `sysDescr` naming that firmware. A fully patched gateway can still be taken |
 
 Slices 1 and 2 could merge; they are split because a VERSION column is independently useful and
 independently wrong-able. 3 needs 2. 4 needs 3 and is the first slice worth playtesting. 5, 6 and 7
@@ -6159,6 +6156,82 @@ exactly as this slice's interpreter did. `apt list -u` already covers services, 
 firmware alike — one manifest, one status view. Still deliberately NOT built on this axis: a full
 re-derivation of the dependency map against real Debian link sets (decision 12), and `libc` as a
 modelled library, whose blast radius would be every command on every box.
+
+---
+
+### Phase 3 slice 9 — firmware falls ✅ SHIPPED v0.244.0–v0.247.0 (#528, #529, #531, #532)
+
+Retired here from `firmware-falls.md`, the way slices 1–8 each were. **This is the slice that
+closes V4 and the entire V-series** — the last of the nine Phase 3 slices, and the last acceptance
+row before the ship gate. **Four independent PRs sequenced to trunk, not a stack**: firmware
+becoming a package with its own timeline (v0.244.0, #528), the exploit tier becoming a floor so a
+root-only router hands over the shell the CVE earned (v0.245.0, #529), the gateway that scans clean
+falling through its firmware (v0.246.0, #531), and `snmpwalk` naming that firmware in `sysDescr`
+(v0.247.0, #532). #530 between the second and third was an unrelated public-database sweep-test fix.
+Ten decisions, 81–90, grilled and planned 2026-09-21; two of them — 84 and 89 — are corrections the
+grill found, not choices it made.
+
+**The axis is a third reader of one timeline, not a third timeline.** Firmware attaches its own
+per-axis interpretation to the same axis-blind `liveRelease(key, version, gameDay)` (decision 25)
+that the service and library axes read, exactly as slice 8's interpreter did — `firmwareExploit.ts`
+sits beside `exploitEffect.ts`'s service reader and `localExploit.ts`'s library one. One manifest,
+one status view: `apt list -u` already covered services, libraries and firmware alike, so the
+defender's half (PR1) was mostly wiring a package the generator had stamped since slice 1a onto the
+readers that had been ignoring it. `startingFirmwareVersionOf` and `FIRMWARE_PACKAGE` were retired
+into the one `PACKAGE_TEMPLATES` table rather than a parallel lookup.
+
+**Firmware answers to no port, so the resolver spots it in the manifest.** There is no dialled port
+to name a router's image (decision 27 keeps it out of `nmap -sV`), so `handleExploitCreateSession`
+reads the firmware straight off the box's own `/var/lib/dpkg/status` and contests it against the
+service the port did name. The contest is decision 64's rule reused verbatim (decision 89): higher
+severity wins, an equal severity falls to the **service**. The tie falling to the service is
+load-bearing, not cosmetic — every router-class box runs `sshd` whose hole is permanently live from
+the world's second fortnight on, so a firmware-first rule would mask the daemon on every box in the
+world. A shared `severityRank` was extracted into `packageTimeline.ts` and `localExploit.ts` dropped
+its private copy; the two per-axis tier-floor tables stayed separate, each with its own rationale.
+
+**The tier is a floor, and that repaired a live silent gap (decision 84).** Router-class boxes carry
+only root, so against the severity roll and the service floor roughly 90% of a router's live service
+CVEs refused today and read exactly like "not vulnerable". PR2 made the exploit land on the lowest
+account **at or above** its tier through one shared `accountAtOrAbove` resolver, replacing three
+exact-tier `.find` lookups across the remote, own-box `--local` and cross-player-elevate sites. The
+firmware axis then reuses the **library** floor (decision 83) — critical/high → root, medium/low →
+user, never guest — because a gateway has no unprivileged half.
+
+**One pool over all six vendors, holding all eight effects (decision 86).** Nobody picks a router's
+vendor, so a per-vendor split would add variance without agency; firmware IS the device, so it is
+the one pool that can legitimately hold the full effect set. The roll is seeded on the release, never
+the box, so a given gateway always falls the same way — a stable identity a player can learn once and
+rely on everywhere that image runs. The trace lands in the **port's** own sweep log tagged with that
+daemon (decision 87) — no firmware-specific log, no new catalog row.
+
+**A version is not a verdict (decision 88).** `walk.ts` had parked this by name — "NO VERSION is
+stated anywhere" — until the game decided where a device version lives; decision 81 is that decision,
+so `sysDescr` now renders the firmware display string the manifest names (`MikroTik RouterOS 7.14.2`,
+`EdgeOS 2.0.9`) without becoming a second authority over it. It kills a lie by construction: the
+hardcoded `Cisco IOS L3 Switch` is gone, so a switch running a non-Cisco image no longer claims to be
+a Cisco, and the router/switch distinction a walk can see moves entirely to interface naming (`eth0`
+vs `GigabitEthernet0/1`). `PLATFORM` collapsed to the interface namer. A box carrying no firmware — a
+workstation that installed an agent of its own — answers `Linux`, the plain machine it is; every
+generated router-class box carries firmware, so that fallback reaches only it. A player still learns
+WHAT a device runs and must fire to find out whether it is holed, so the scan-clean-but-falls
+signature survives intact.
+
+**Accepted costs, named and left standing.** `nmap -sV` can under-forecast a router, showing the
+service's severity while the firmware outranks it — always in the player's favour (decision 89). A
+router's `ssh` and `snmp` pools fire less often, masked by a more severe firmware CVE. Firmware
+downgrade is a free offensive move: `apt install <vendor>-firmware=<earlier release>` on a rooted
+gateway pushes it back onto a holed image — a permanent door the attacker installed. And **no reboot
+to flash** (decision 90): `apt upgrade` writes the manifest and the new version is live, because a
+pending-version state would be a new mechanism for one package that every reader would have to learn;
+the reboot-to-flash tension is worth its own later slice covering all packages, not a firmware-only
+carve-out.
+
+**What the V-series leaves the ship gate.** Three CVE axes — service, library, firmware — read from
+one timeline through one axis-blind derivation, each with its own interpretation and none a second
+authority. A defender patches all three with `apt upgrade` and reboots to evict. The deferred items
+are recorded, not lost: reboot-to-flash as its own cross-package slice (90), and `snmpwalk`'s missing
+own-box local path (D8 §9), untouched here.
 
 ---
 
