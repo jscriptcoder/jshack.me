@@ -4,7 +4,7 @@
 1–25. **Six owner decisions were taken at planning** (2026-09-21), recorded under "Decided at
 planning" below and in the epic's status log.
 
-**Status:** Active — planned 2026-09-21. Not started.
+**Status:** Active — 4a merged 2026-09-21 (#537, 5c42ce5f, v0.251.0); 4b in progress.
 
 **Delivery:** **Two independent PRs against trunk, in order** (decided at planning). PR 4a is
 independently valuable (a player's own hand-written page with a table renders) and merges first;
@@ -12,8 +12,8 @@ PR 4b branches from trunk after 4a lands. Not a stack: 4b does not start before 
 
 | PR | Branch (proposed) | Version | Owns |
 |---|---|---|---|
-| 4a | `feat/lynx-tables-and-pre` | v0.251.0 | lynx renders `<table>` and `<pre>` |
-| 4b | `feat/a-web-server-serves-a-site` | v0.252.0 | the three-layer site, `.lan` names in web tools, the link-resolution property test |
+| 4a | `feat/lynx-tables-and-pre` | v0.251.0 | lynx renders `<table>` and `<pre>` — ✅ merged #537 |
+| 4b | `feat/a-web-server-serves-a-site` | v0.252.0 | the three-layer site, `.lan` names in web tools, the link-resolution property test — 🔨 in progress |
 
 Each PR bumps `v2/package.json` and `v2/package-lock.json` (`npm install --package-lock-only`).
 

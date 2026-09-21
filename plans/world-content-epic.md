@@ -398,7 +398,7 @@ See below; planning refines it.
 | 1 | **A workstation reads as somebody's** — network persona (ESSID category as data) + box inhabitant; a workstation's home gets dotfiles, a history true to its network, notes; the first variety test | `ssh` into an NPC workstation as its user → `ls -a ~` → `.bash_history` names a real neighbour that `nmap`/`ssh` reach; `.gitconfig` names the inhabitant | ✅ DONE (#534, v0.248.0) — see as-built below |
 | 2 | **A box admits what it is** — `/etc` breadth, `/root`, `/home/guest` | `/etc/hosts` lists real neighbours; `su` → `/root` holds root's history | ✅ DONE (#535, v0.249.0) — also took `.ssh/` and an empty `/home/guest` on the player box; see as-built below |
 | 3 | **A box remembers** — rotated `.1` log history across every role, plus `syslog` | `ls /var/log` shows `auth.log.1`; its last line is before 2026-07-12; the live `auth.log` holds only player traces | ✅ DONE (#536, v0.250.0) — NPC hosts only (gateways → slice 10); `.1` holds 2026-07-11 alone; see as-built below |
-| 4 | **A web server serves a site** — three layers, lynx `<table>`/`<pre>`, the link-resolution property test | lynx follows links across pages; `robots.txt` names a served path; a default `gobuster` finds a hidden path | 📝 PLANNED — `a-web-server-serves-a-site.md`; two PRs (4a lynx `<table>`/`<pre>`, 4b the site); webservers only |
+| 4 | **A web server serves a site** — three layers, lynx `<table>`/`<pre>`, the link-resolution property test | lynx follows links across pages; `robots.txt` names a served path; a default `gobuster` finds a hidden path | 🔨 IN PROGRESS — `a-web-server-serves-a-site.md`; 4a ✅ merged (#537, v0.251.0); 4b the site next; webservers only |
 | 5 | **A database holds an application** — app archetypes | `SHOW TABLES` on a café network's DB shows a till schema whose staff are that network's inhabitants | ⏳ |
 | 6 | **A store serves that application** — Redis keyspaces paired with the app | `KEYS sess:*` returns sessions for that app's real users | ⏳ |
 | 7 | **Somebody wrote to somebody** — workstation mailboxes, the mail server's spool | a thread in `/var/mail/<user>` is between two real inhabitants of the network | ⏳ |
@@ -582,3 +582,5 @@ Retired here from `a-box-remembers.md` on close-out.
   mailboxes, never a username (the no-account-but-root rule holds under `/var/www`); `dump.sql` is
   schema-only. Resolved: 1–4 hidden dirlist paths per site; no autoindex, so hidden directories are
   ones that carry their own page.
+- **2026-09-21** — slice 4a merged (#537, v0.251.0): lynx renders `<table>` in aligned columns
+  and `<pre>` as written.
