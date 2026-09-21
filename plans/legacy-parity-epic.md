@@ -18,7 +18,9 @@ axis lands a silent refusal on every router-class box (84) and is unreachable fr
 second fortnight on (89). Slice 8 before it (libraries fall, #519–#527, v0.235.0–v0.243.0) is in the
 `### Phase 3 slice 8` section; together slices 8 and 9 delivered V4. **All nine Phase 3 slices are
 shipped** — the loop, the effect set, the cross-network route, the defender's patch, reboot
-eviction, and both halves of local escalation (libraries and firmware). **Next is the ship gate.**
+eviction, and both halves of local escalation (libraries and firmware). **Next is the ship gate —
+which now WAITS for the generated world content epic** ([`world-content-epic.md`](./world-content-epic.md),
+grilled 2026-09-21, 25 locked decisions; owner decision: content is inside the ship gate).
 The `Status` block below is an accumulating log, not the current state.
 
 **Status**: **D1 shipped** (v0.109.0), with its web follow-ups D1c (v0.123.0-v0.124.0), D1b
@@ -420,6 +422,7 @@ PHASE 3 — VULNERABILITIES                             GRILLED 09-09/09-10 + PL
       V slice 7 reboot evicts                 ✔ SHIPPED v0.231.0-v0.234.0 (#515-#518) <- V3 CLOSED
       V slice 8 libraries fall                ✔ SHIPPED v0.235.0-v0.243.0 (#519-#527)
       V slice 9 firmware falls                ✔ SHIPPED v0.244.0-v0.247.0 (#528,#529,#531,#532) <- CLOSED V4 and the V-SERIES
+WORLD CONTENT — its own epic (world-content-epic.md)     GRILLED 2026-09-21 (25 decisions), ship waits for it
 ────────────────────────── SHIP ──────────────────────────
 POST-SHIP — MISSIONS
 ```
@@ -4499,7 +4502,9 @@ libc window?*.
   epic, by owner decision.
 - **Believable per-machine content** — populating generated machines with random, plausible
   files so a box reads as somebody's rather than as a fixture. Owner intent, stated 2026-09-01;
-  its own later work, not any door's. **It inherits D2.6b's rule**: content that carries a
+  its own later work, not any door's. **Now its own epic, grilled 2026-09-21 and inside the ship
+  gate: [`world-content-epic.md`](./world-content-epic.md)** — believability only, loot stays with
+  missions (its decision 2). **It inherits D2.6b's rule**: content that carries a
   usable credential is loot, and loot arrives through the postponed harvest route, not as
   scenery.
 - **A pre-release realism pass over every command's argument surface.** Named at D10's grill

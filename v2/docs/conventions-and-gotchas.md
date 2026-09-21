@@ -561,10 +561,17 @@ before touching it:
     shared client+server module in the door, so `testCrossPlayerWrite` grew checks 13-15 (15/15)
     and was shown to fail against the pre-slice materializer.
 
-To pick up the next slice: read [`plans/legacy-parity-epic.md`](../../plans/legacy-parity-epic.md)
-— its **"Where we are now"** line near the top, then the Phase 3 tree and the slice table
-for per-slice status. A slice gets its own `plans/*.md` only while it is IN FLIGHT, with a
-top block carrying live status + as-built; it is retired into the epic on close-out, so
+**Next, before ship — generated world content:**
+[`plans/world-content-epic.md`](../../plans/world-content-epic.md), grilled 2026-09-21 to 25 locked
+decisions and a twelve-slice spine. Ship waits for it. Every generated box (never a player
+workstation) gets believable, persona-coherent content — no loot, no new verbs, every reference
+true within its network, history frozen at `WORLD_EPOCH` in rotated `.1` logs.
+
+To pick up the next slice: read [`plans/world-content-epic.md`](../../plans/world-content-epic.md)
+— its "Where we are now" line and slice table — or, for parity history,
+[`plans/legacy-parity-epic.md`](../../plans/legacy-parity-epic.md) — its **"Where we are now"**
+line near the top, then the Phase 3 tree and the slice table for per-slice status. A slice gets
+its own `plans/*.md` only while it is IN FLIGHT, with a top block carrying live status + as-built; it is retired into the epic on close-out, so
 between slices there is no slice plan and that is expected. Then the cross-player
 architecture doc if the work touches cross-player paths.
 
@@ -3107,7 +3114,11 @@ blocks the live PvP loop; each was a scoped owner decision, not a gap.
   So the CVE phase must ship a route producing a plaintext the player did not hold, or the
   progression stays inert however many doors parity adds. The three loot designs worked out before
   the postponement are recorded in the parity epic's "Next action" so the option set survives.
-- **Generated world content ("random noise") — its own epic, owner decision 2026-08-12.** The
+- **Generated world content ("random noise") — its own epic, owner decision 2026-08-12.**
+  **⏩ Superseded 2026-09-21: now [`plans/world-content-epic.md`](../../plans/world-content-epic.md),
+  grilled to 25 locked decisions and inside the ship gate.** What follows is the history that
+  motivated it; the epic's decisions win wherever the two disagree — most of all on loot, which
+  the epic leaves with missions (its decision 2) rather than making this epic its home. The
   generated world is furnished thinly on purpose so far, and making boxes feel inhabited is ONE
   design with one shape rather than a tax on each door: believable per-box files, web trees beyond
   the single `index.html` both generators stamp, and — as those doors land — MySQL schemas and
