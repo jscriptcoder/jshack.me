@@ -5,6 +5,9 @@ import { crackableEssidPool } from './generateWifi';
 import { generateHomeLan, type LanHost } from './generateHomeLan';
 import { generateDeepLayer } from './generateDeepLayer';
 import { networkPersona } from './persona';
+import { roleOfHostname } from './pools/hostnames';
+import { GENERIC_CRON_JOBS, NAME_SERVER_CRON_JOBS, SERVICE_CRON_JOBS } from './pools/etcFiles';
+import { ROLE_ROOT_HISTORY, ROOT_HISTORY } from './pools/rootContent';
 import { DEBIAN_BASHRC, DEBIAN_BASH_LOGOUT, DEBIAN_PROFILE } from './pools/homeSkeleton';
 import { createFsView } from '../filesystem/fsView';
 import { lanZoneName, resolveLanName } from '../network/resolveName';
@@ -315,10 +318,10 @@ describe('what root keeps in /root', () => {
   });
 
   it('shows root reading the config the box keeps for what it is', () => {
+    const roleConfig =
+      /^(cat|vim|nano|less) \/etc\/(ssh_config|device\.conf|httpd\.conf|vsftpd\.conf|mysql\.cnf|postfix\.conf|bind\/named\.conf|redis\/redis\.conf)$/m;
     const readsConfig = lanBoxes(ALL_ESSIDS).filter(({ essid, host }) =>
-      /^(cat|vim|nano|less) \/etc\/\S+\.(conf|cnf)$|^(cat|vim|nano|less) \/etc\/ssh_config$/m.test(
-        rootFilesOf(buildRemoteHostFs(essid, host)).get('.bash_history') ?? '',
-      ),
+      roleConfig.test(rootFilesOf(buildRemoteHostFs(essid, host)).get('.bash_history') ?? ''),
     );
     expect(readsConfig.length).toBeGreaterThan(0);
   });
@@ -554,6 +557,176 @@ describe('who a box remembers meeting', () => {
         )
         .flatMap((result) => (result.ok ? [result.content] : []));
       expect(new Set(configs).size).toBe(configs.length);
+    });
+  });
+});
+
+describe('what a box writes is written the way the real file is', () => {
+  it('keeps nothing in /etc/hosts but addresses and the names they carry', () => {
+    lanBoxes(ALL_ESSIDS).forEach(({ essid, host }) => {
+      statedLines(etcFileOf(buildRemoteHostFs(essid, host), 'hosts')).forEach((line) => {
+        expect(line, `${host.hostname}: ${line}`).toMatch(/^(\d{1,3}(\.\d{1,3}){3}|::1|ff02::\d)\s+\S+/);
+      });
+    });
+  });
+
+  it('gives some boxes a separate /boot and some a swap, but not every box either', () => {
+    const tables = lanBoxes(ALL_ESSIDS).map(({ essid, host }) =>
+      statedLines(etcFileOf(buildRemoteHostFs(essid, host), 'fstab')).map(
+        (line) => line.split(/\s+/)[1],
+      ),
+    );
+    const withBoot = tables.filter((mounts) => mounts.includes('/boot')).length;
+    const withSwap = tables.filter((mounts) => mounts.includes('none')).length;
+    expect(withBoot).toBeGreaterThan(0);
+    expect(withBoot).toBeLessThan(tables.length);
+    expect(withSwap).toBeGreaterThan(0);
+    expect(withSwap).toBeLessThan(tables.length);
+  });
+
+  it('schedules jobs that look after the services a box runs, and a zone check on a name server', () => {
+    const everyJob = lanBoxes(ALL_ESSIDS).flatMap(({ essid, host }) =>
+      statedLines(etcFileOf(buildRemoteHostFs(essid, host), 'crontab')).map((line) =>
+        line.split(/\s+/).slice(6).join(' '),
+      ),
+    );
+    const serviceJobs = Object.values(SERVICE_CRON_JOBS).flat();
+    expect(everyJob.some((job) => serviceJobs.includes(job))).toBe(true);
+    expect(everyJob.some((job) => NAME_SERVER_CRON_JOBS.includes(job))).toBe(true);
+    const known = [...GENERIC_CRON_JOBS, ...serviceJobs, ...NAME_SERVER_CRON_JOBS];
+    everyJob
+      .filter((job) => job !== '')
+      .forEach((job) => {
+        expect(known).toContain(job);
+      });
+  });
+
+  it('writes an ssh config of known settings, and a port only where it is not the standard one', () => {
+    const configs = lanBoxes(ALL_ESSIDS).flatMap(({ essid, host }) => {
+      const result = createFsView(buildRemoteHostFs(essid, host), { userType: 'root' }).read(
+        asAbsPath(`/home/${npcUsername(essid, host)}/.ssh/config`),
+      );
+      return result.ok ? [result.content] : [];
+    });
+    expect(configs.length).toBeGreaterThan(0);
+    configs.forEach((config) => {
+      expect(config.startsWith('Host *\n')).toBe(true);
+      expect(config).not.toMatch(/^\s+Port 22$/m);
+      config
+        .split('\n')
+        .filter((line) => line.startsWith(' '))
+        .forEach((line) => {
+          expect(line).toMatch(
+            /^ {4}(ServerAliveInterval \d+|ServerAliveCountMax \d+|ConnectTimeout \d+|(ForwardAgent|Compression|HashKnownHosts) (yes|no)|AddKeysToAgent (yes|no|confirm)|StrictHostKeyChecking (ask|accept-new)|HostName \S+|User \S+|Port \d+)$/,
+          );
+        });
+    });
+  });
+});
+
+/** The shapes of line root's history may hold beyond the habits in the pools: what it did
+ *  to the box's services, its files, and its neighbours. */
+const GENERATED_ROOT_LINE =
+  /^(systemctl (status|restart|start|stop) \S+|(cat|vim|nano|less) \/\S+|(tail|tail -f|less|grep -i error) \/var\/log\/\S+|(ssh|curl|ping|nslookup) .+)$/;
+
+describe('root’s history is made of what the box is', () => {
+  it('holds only commands root could have typed here', () => {
+    const habits = [...ROOT_HISTORY, ...Object.values(ROLE_ROOT_HISTORY).flat()];
+    everyBox().forEach(({ box, tree }) => {
+      historyLines(rootFilesOf(tree).get('.bash_history') ?? '').forEach((line) => {
+        expect(
+          habits.includes(line) || GENERATED_ROOT_LINE.test(line),
+          `${box.host.hostname}: "${line}"`,
+        ).toBe(true);
+      });
+    });
+  });
+
+  it('keeps a real working history, not a line or two', () => {
+    everyBox().forEach(({ tree }) => {
+      const habits = historyLines(rootFilesOf(tree).get('.bash_history') ?? '').filter((line) =>
+        ROOT_HISTORY.includes(line),
+      );
+      expect(habits.length).toBeGreaterThanOrEqual(8);
+    });
+  });
+
+  it('shows the habits of an admin who knows what the box is for', () => {
+    lanBoxes(ALL_ESSIDS).forEach(({ essid, host }) => {
+      const role = roleOfHostname(host.hostname);
+      if (role === undefined) return;
+      const history = historyLines(
+        rootFilesOf(buildRemoteHostFs(essid, host)).get('.bash_history') ?? '',
+      );
+      expect(
+        history.some((line) => ROLE_ROOT_HISTORY[role].includes(line)),
+        host.hostname,
+      ).toBe(true);
+    });
+  });
+
+  it('shows root reading a log that only a service writes, and a note root kept', () => {
+    const histories = lanBoxes(ALL_ESSIDS).map(
+      ({ essid, host }) => rootFilesOf(buildRemoteHostFs(essid, host)).get('.bash_history') ?? '',
+    );
+    expect(
+      histories.some((history) => /\/var\/log\/(access|vsftpd|mysql|redis|named)\.log$/m.test(history)),
+    ).toBe(true);
+    expect(histories.some((history) => /^(cat|vim) \/root\/[^./]\S*$/m.test(history))).toBe(true);
+  });
+});
+
+describe('no two admins kept house the same way', () => {
+  /** How many boxes do a thing, out of how many could. */
+  const share = (flags: readonly boolean[]) => ({
+    doing: flags.filter(Boolean).length,
+    of: flags.length,
+  });
+
+  it('shows some admins reading their config and opening their notes, and some not', () => {
+    const boxes = lanBoxes(ALL_ESSIDS).map(({ essid, host }) => rootFilesOf(buildRemoteHostFs(essid, host)));
+    const configReads = share(
+      boxes.map((files) =>
+        /^(cat|vim|nano|less) \/etc\/(ssh_config|device\.conf|httpd\.conf|vsftpd\.conf|mysql\.cnf|postfix\.conf|bind\/named\.conf|redis\/redis\.conf)$/m.test(
+          files.get('.bash_history') ?? '',
+        ),
+      ),
+    );
+    const withNotes = boxes.filter((files) => rootNotesOf(files).length > 0);
+    const noteReads = share(
+      withNotes.map((files) => /^(cat|vim) \/root\/[^./]\S*$/m.test(files.get('.bash_history') ?? '')),
+    );
+    [configReads, noteReads].forEach(({ doing, of }) => {
+      expect(doing).toBeGreaterThan(0);
+      expect(doing).toBeLessThan(of);
+    });
+  });
+
+  it('shows some boxes scheduling a job for a service they run, and some leaving it be', () => {
+    const serviceJobs = Object.values(SERVICE_CRON_JOBS).flat();
+    const schedules = share(
+      lanBoxes(ALL_ESSIDS)
+        .filter(({ essid, host }) => hostServices(essid, host).length > 0)
+        .map(({ essid, host }) =>
+          statedLines(etcFileOf(buildRemoteHostFs(essid, host), 'crontab')).some((line) =>
+            serviceJobs.includes(line.split(/\s+/).slice(6).join(' ')),
+          ),
+        ),
+    );
+    expect(schedules.doing).toBeGreaterThan(0);
+    expect(schedules.doing).toBeLessThan(schedules.of);
+  });
+
+  it('writes each ssh config as blocks of settings, one blank line between blocks', () => {
+    lanBoxes(ALL_ESSIDS).forEach(({ essid, host }) => {
+      const result = createFsView(buildRemoteHostFs(essid, host), { userType: 'root' }).read(
+        asAbsPath(`/home/${npcUsername(essid, host)}/.ssh/config`),
+      );
+      if (!result.ok) return;
+      result.content
+        .split('\n')
+        .forEach((line) => expect(line, host.hostname).toMatch(/^(Host \S+| {4}\S.*|)$/));
+      expect(result.content).not.toMatch(/\S\nHost /);
     });
   });
 });
