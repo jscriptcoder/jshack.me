@@ -3,6 +3,9 @@ import { handleSnmpWalk, type SnmpWalkDeps } from './snmpWalk';
 import { signRequest } from '../signedRequest/sign';
 import { generateIdentity } from '../identity/identity';
 import { generateHomeLan } from '../generation/generateHomeLan';
+import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
+import { parseDpkgVersions, readDpkgStatus } from '../packages/dpkgStatus';
+import { displayVersion, isFirmwarePackage } from '../packages/packageVersions';
 import { seedApGatewayCommunity, seedApGatewayHostname } from '../generation/routerFs';
 import { computeApGatewayId } from '../identity/router';
 import { renderIdentityWalk, type SnmpIdentity } from '../snmp/walk';
@@ -57,6 +60,24 @@ const COMMUNITY = seedApGatewayCommunity(TARGET_ESSID);
  *  client sends. Deliberately not the defender's. */
 const ATTACKER_ESSID = 'BEAN-THERE-WIFI';
 const ATTACKER_PUBLIC_IP = '198.51.100.22';
+
+/** The firmware the defender's gateway runs, as `sysDescr` names it across the world —
+ *  derived from that box's own manifest, since which vendor it rolled is seeded. A
+ *  stranger reads the same version string the owner would, which is the whole of decision
+ *  88 reaching across the fronting. */
+const targetApGateway = () => {
+  const gateway = generateHomeLan(TARGET_ESSID).hosts.find((host) => host.ip.endsWith('.1'));
+  if (gateway === undefined) throw new Error('no gateway on the target LAN');
+  return gateway;
+};
+const TARGET_PLATFORM = ((): string => {
+  const versions = parseDpkgVersions(
+    readDpkgStatus(resolveLanHostIdentity(targetApGateway(), TARGET_ESSID).baseFs),
+  );
+  const firmware = [...versions].find(([key]) => isFirmwarePackage(key));
+  if (firmware === undefined) throw new Error('the target gateway carries no firmware');
+  return displayVersion(firmware[0], firmware[1]);
+})();
 
 const TARGET_SUBNET = generateHomeLan(TARGET_ESSID).subnet;
 
@@ -153,6 +174,7 @@ describe('walking a device that belongs to somebody else, by the address the wor
         identity: {
           hostname: seedApGatewayHostname(TARGET_ESSID),
           kind: 'router',
+          platform: TARGET_PLATFORM,
           sysContact: expect.any(String),
           // ONE address. The gateway holds a LAN address as well, and printing it
           // would hand a stranger the first three octets of every box on a network
@@ -176,7 +198,7 @@ describe('walking a device that belongs to somebody else, by the address the wor
         community: 'public',
         identity: identityOf(response),
       }).join('\n'),
-    ).toContain(`Linux ${seedApGatewayHostname(TARGET_ESSID)}`);
+    ).toContain(`${TARGET_PLATFORM} ${seedApGatewayHostname(TARGET_ESSID)}`);
   });
 
   it("renders the forward table out of the defender's own rules file once the community is cracked", async () => {

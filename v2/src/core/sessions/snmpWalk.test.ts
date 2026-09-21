@@ -4,6 +4,8 @@ import { signRequest } from '../signedRequest/sign';
 import { generateIdentity } from '../identity/identity';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
 import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
+import { parseDpkgVersions, readDpkgStatus } from '../packages/dpkgStatus';
+import { displayVersion, isFirmwarePackage } from '../packages/packageVersions';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import { formatPidfileContent, pidfilePath, readOpenPorts } from '../services/pidfile';
 import { formatSnmpdArrivalLine, formatSnmpdAttemptLine, SNMPD_LOG_PATH } from '../logging/snmpdLog';
@@ -54,6 +56,16 @@ const runsAgent = (host: LanHost, essid: string): boolean =>
   readOpenPorts(resolveLanHostIdentity(host, essid).baseFs).some(
     (openPort) => openPort.service === SERVICE_CATALOG.snmp.service,
   );
+
+/** The firmware display string a generated device's own manifest names — the same fact
+ *  `sysDescr` must now carry. Derived from the box rather than pinned to a vendor, since
+ *  which vendor a box rolled is seeded and not this test's to fix. */
+const firmwarePlatformOf = (host: LanHost, essid: string): string => {
+  const versions = parseDpkgVersions(readDpkgStatus(resolveLanHostIdentity(host, essid).baseFs));
+  const firmware = [...versions].find(([key]) => isFirmwarePackage(key));
+  if (firmware === undefined) throw new Error('generated device carries no firmware');
+  return displayVersion(firmware[0], firmware[1]);
+};
 
 /** The access point's own `.1`, which is PINNED to run the agent for every ESSID — the
  *  one device every player can be relied on to have. */
@@ -169,6 +181,7 @@ describe('walking a device with the community it answers to', () => {
         identity: {
           hostname: gateway.hostname,
           kind: 'router',
+          platform: firmwarePlatformOf(gateway, essid),
           sysContact: 'netops@corp.local',
           addresses: [gateway.ip, PUBLIC_IP],
         },
@@ -187,14 +200,15 @@ describe('walking a device with the community it answers to', () => {
     );
 
     // A switch has no outside face, and a second interface here would be an address
-    // that answers nothing. It also names its own platform: a switch reading like a
-    // router would make the two indistinguishable in the only tool that inspects one.
+    // that answers nothing. It names the firmware its own manifest runs — not a label
+    // fixed by its kind, which is what let every switch claim to be a Cisco.
     expect(response.body).toEqual({
       ok: true,
       tier: 'read-only',
       identity: {
         hostname: host.hostname,
         kind: 'switch',
+        platform: firmwarePlatformOf(host, essid),
         sysContact: 'netops@corp.local',
         addresses: [host.ip],
       },
@@ -284,6 +298,7 @@ describe('walking a device with its read-write community', () => {
       identity: {
         hostname: gateway.hostname,
         kind: 'router',
+        platform: firmwarePlatformOf(gateway, essid),
         sysContact: 'netops@corp.local',
         addresses: [gateway.ip, PUBLIC_IP],
       },
@@ -831,6 +846,10 @@ describe('the agent a player installed, walked by a neighbour', () => {
           // two members and this one renders as `Linux` with `eth0` interfaces. A switch
           // is the special case; every other box answers as the Linux machine it is.
           kind: 'router',
+          // The firmware-less fallback: a workstation that installed its own agent runs
+          // no vendor image, so `sysDescr` says the plain machine it is. Every generated
+          // router-class box carries firmware, so only this box ever answers `Linux`.
+          platform: 'Linux',
           sysContact: 'netops@corp.local',
           addresses: [ownerIp],
         },

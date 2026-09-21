@@ -48,6 +48,7 @@ const ANSWERED: SnmpWalkResult = {
   identity: {
     hostname: 'gw-main',
     kind: 'router',
+    platform: 'Linux',
     sysContact: 'netops@corp.local',
     addresses: [GATEWAY_IP, PUBLIC_IP],
   },
@@ -127,6 +128,7 @@ describe('walking a device with a community that reads its port table', () => {
     identity: {
       hostname: 'gw-main',
       kind: 'router',
+      platform: 'Linux',
       sysContact: 'netops@corp.local',
       addresses: [GATEWAY_IP, PUBLIC_IP],
     },

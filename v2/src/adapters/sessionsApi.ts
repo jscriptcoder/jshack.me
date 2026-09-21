@@ -781,6 +781,7 @@ export const connectStore = async (
 const walkedIdentity = z.object({
   hostname: z.string(),
   kind: z.union([z.literal('router'), z.literal('switch')]),
+  platform: z.string(),
   sysContact: z.string(),
   addresses: z.array(z.string()),
 });
