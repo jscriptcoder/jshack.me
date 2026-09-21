@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { runCommandLine } from './runLine';
 import { carriedCommandRegistry, commandRegistry } from '../commands/registry';
 import { binaryStub } from '../generation/binaries';
+import { SYSTEM_LIBRARIES } from '../generation/libraries';
 import { mockCommandEnv, mockFsViewFromTree, mockSession } from '../../test/factories/commandEnv';
 import { buildDirectory, buildFile } from '../../test/factories/filesystem';
 import { asAbsPath, type UserType } from '../types';
@@ -26,10 +27,14 @@ type CarriedOptions = {
 const carried = ({ content, execute = ALL_TIERS }: CarriedOptions): FileNode =>
   buildFile(content, { owner: 'guest', perms: { read: ALL_TIERS, execute } });
 
-/** A box with a readable note, `libpcre` (which `cat` links), and whatever the
- *  test carried into `/tmp`. Nothing but `grep` is installed in the system
- *  directories, so any tool that runs got there by its path. */
-const buildBox = (tmp: Readonly<Record<string, FileNode>>, libs: readonly string[] = ['libpcre']) =>
+/** A box with a readable note, the whole library set every generated box
+ *  carries, and whatever the test carried into `/tmp`. Nothing but `grep` is
+ *  installed in the system directories, so any tool that runs got there by its
+ *  path. Pass a narrower `libs` to stage a box a tool cannot link on. */
+const buildBox = (
+  tmp: Readonly<Record<string, FileNode>>,
+  libs: readonly string[] = SYSTEM_LIBRARIES,
+) =>
   buildDirectory({
     bin: buildDirectory({
       grep: buildFile(binaryStub('grep'), { owner: 'root', perms: { execute: ALL_TIERS } }),

@@ -8,6 +8,7 @@ import {
 } from '../network/interfaces';
 import { isOnline } from '../network/interfaces';
 import { buildDirectory, buildFile } from '../../test/factories/filesystem';
+import { SYSTEM_LIBRARIES } from '../generation/libraries';
 import {
   mockCommandEnv,
   mockFsViewFromTree,
@@ -187,6 +188,13 @@ describe('airmon-ng', () => {
           'airmon-ng': buildFile('', { owner: 'root', perms: { execute: ['root', 'user', 'guest'] } }),
         }),
       }),
+      // The library gate stands behind the binary one, so the box carries
+      // what every generated box carries or the tool never starts.
+      lib: buildDirectory(
+        Object.fromEntries(
+          SYSTEM_LIBRARIES.map((library) => [`${library}.so`, buildFile('', { owner: 'root' })]),
+        ),
+      ),
     });
     let current = buildColdStartConnectivity(PUBKEY);
     const env = mockCommandEnv({

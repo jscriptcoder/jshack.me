@@ -3,6 +3,7 @@ import { commandRegistry } from './registry';
 import { buildDirectory, buildFile } from '../../test/factories/filesystem';
 import { mockCommandEnv, mockFsViewFromTree, mockSession } from '../../test/factories/commandEnv';
 import { binaryStub } from '../generation/binaries';
+import { SYSTEM_LIBRARIES, type SystemLibrary } from '../generation/libraries';
 import { asAbsPath } from '../types';
 import type { FileNode } from '../filesystem/types';
 import type { CommandResult, TerminalLine } from './types';
@@ -70,6 +71,36 @@ const parseLine = (line: string) => {
   if (match === null) throw new Error(`not an ldd line: ${JSON.stringify(line)}`);
   return { library: match[1], resolution: match[2], address: match[3] };
 };
+
+/** Every library an apt-installed client tool links. Libraries are thematic
+ *  capability groups rather than a real dependency chart: a tool that speaks TLS
+ *  or the network links libssl, an interactive prompt links libreadline, a
+ *  pattern matcher libpcre, a markup reader libxml2, and anything that handles
+ *  hashes or ciphers links libcrypt. A tool that belongs to two groups links
+ *  both — and its first link is the one a severity tie falls to, which is why
+ *  hydra leads with libcrypt: it is a password tool that happens to use the
+ *  network, not a network tool that happens to hash. */
+const TOOLCHAIN_LINKS: ReadonlyArray<[string, readonly SystemLibrary[]]> = [
+  ['nmap', ['libssl']],
+  ['dig', ['libssl']],
+  ['nslookup', ['libssl']],
+  ['nc', ['libssl']],
+  ['snmpwalk', ['libssl']],
+  ['snmpset', ['libssl']],
+  ['ftp', ['libssl', 'libreadline']],
+  ['msfconsole', ['libssl', 'libreadline']],
+  ['mysql', ['libssl', 'libreadline']],
+  ['redis-cli', ['libssl', 'libreadline']],
+  ['hydra', ['libcrypt', 'libssl']],
+  ['gobuster', ['libssl', 'libpcre']],
+  ['lynx', ['libssl', 'libxml2']],
+  ['john', ['libcrypt']],
+  ['gpg', ['libcrypt']],
+  ['airmon-ng', ['libcrypt']],
+  ['airodump-ng', ['libcrypt']],
+  ['aircrack-ng', ['libcrypt']],
+  ['node', ['libreadline']],
+];
 
 describe('ldd', () => {
   it('lists every library a command links, in link order, with its path and a load address', async () => {
@@ -143,14 +174,43 @@ describe('ldd', () => {
     expect(linesOfKind(result.lines, 'text')).toHaveLength(2);
   });
 
-  it('reports a present binary that links nothing as not a dynamic executable', async () => {
-    const box = buildBox({ bin: ['mkdir'] });
+  it.each([['mkdir'], ['touch'], ['man'], ['ping'], ['ifconfig'], ['nmcli'], ['clear'], ['whoami']])(
+    'reports %s as not a dynamic executable, because a utility that links nothing is never mapped',
+    async (command) => {
+      const box = buildBox({ bin: [command], libs: SYSTEM_LIBRARIES });
 
-    const result = await runLdd(box, ['mkdir']);
+      const result = await runLdd(box, [command]);
 
-    expect(result.exitCode).toBe(1);
-    expect(linesOfKind(result.lines, 'text')).toEqual(['\tnot a dynamic executable']);
-  });
+      expect(result.exitCode).toBe(1);
+      expect(linesOfKind(result.lines, 'text')).toEqual(['\tnot a dynamic executable']);
+    },
+  );
+
+  it.each(TOOLCHAIN_LINKS)(
+    'lists the libraries %s links, in link order',
+    async (command, libraries) => {
+      const box = buildBox({ bin: [command], libs: libraries });
+
+      const result = await runLdd(box, [command]);
+
+      expect(result.exitCode).toBe(0);
+      expect(linesOfKind(result.lines, 'text').map((line) => parseLine(line).library)).toEqual(
+        libraries.map((library) => `${library}.so`),
+      );
+    },
+  );
+
+  it.each(TOOLCHAIN_LINKS)(
+    'marks the library %s links first as not found once its .so is gone',
+    async (command, libraries) => {
+      const [first, ...rest] = libraries;
+      const box = buildBox({ bin: [command], libs: rest });
+
+      const result = await runLdd(box, [command]);
+
+      expect(linesOfKind(result.lines, 'text')[0]).toBe(`\t${first}.so => not found`);
+    },
+  );
 
   it.each([['su'], ['/bin/su']])(
     'reports %s as missing when the binary is gone, without consulting the library map',
