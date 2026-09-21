@@ -72,6 +72,28 @@ const parseLine = (line: string) => {
   return { library: match[1], resolution: match[2], address: match[3] };
 };
 
+/** Every library a base system command links — the commands on every box in
+ *  the world, whatever its owner has bought. */
+const BASE_LINKS: ReadonlyArray<[string, readonly SystemLibrary[]]> = [
+  ['su', ['libpam', 'libcrypt']],
+  ['systemctl', ['libsystemd']],
+  ['reboot', ['libsystemd']],
+  ['kill', ['libsystemd']],
+  ['nano', ['libreadline']],
+  ['ls', ['libpcre']],
+  ['find', ['libpcre']],
+  ['grep', ['libpcre']],
+  ['cat', ['libpcre']],
+  ['strings', ['libpcre']],
+  ['rm', ['libpcre']],
+  ['chmod', ['libpcre']],
+  ['ps', ['libpcre']],
+  ['apt', ['libz', 'libxml2']],
+  ['ssh', ['libssl', 'libreadline']],
+  ['scp', ['libssl']],
+  ['curl', ['libssl']],
+];
+
 /** Every library an apt-installed client tool links. Libraries are thematic
  *  capability groups rather than a real dependency chart: a tool that speaks TLS
  *  or the network links libssl, an interactive prompt links libreadline, a
@@ -136,15 +158,6 @@ describe('ldd', () => {
     expect(pamLine).toBe('\tlibpam.so => /lib/libpam.so (0x0000c290d755)');
   });
 
-  it('shows the single libpcre dependency of grep', async () => {
-    const box = buildBox({ bin: ['grep'], libs: ['libpcre'] });
-
-    const result = await runLdd(box, ['grep']);
-
-    const libraries = linesOfKind(result.lines, 'text').map((line) => parseLine(line).library);
-    expect(libraries).toEqual(['libpcre.so']);
-  });
-
   it('marks a removed library as not found, keeps listing the rest, and still exits 0', async () => {
     const box = buildBox({ bin: ['su'], libs: ['libcrypt'] });
 
@@ -186,7 +199,7 @@ describe('ldd', () => {
     },
   );
 
-  it.each(TOOLCHAIN_LINKS)(
+  it.each([...BASE_LINKS, ...TOOLCHAIN_LINKS])(
     'lists the libraries %s links, in link order',
     async (command, libraries) => {
       const box = buildBox({ bin: [command], libs: libraries });
@@ -200,7 +213,7 @@ describe('ldd', () => {
     },
   );
 
-  it.each(TOOLCHAIN_LINKS)(
+  it.each([...BASE_LINKS, ...TOOLCHAIN_LINKS])(
     'marks the library %s links first as not found once its .so is gone',
     async (command, libraries) => {
       const [first, ...rest] = libraries;
