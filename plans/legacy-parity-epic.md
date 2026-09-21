@@ -7,17 +7,18 @@
 > Split authored 2026-07-29 (`story-splitting`), then grilled to nine locked decisions
 > (`grill-me`, same day).
 
-**Where we are now (2026-09-18):** **v0.234.0**. **Phase 3 slice 7 — reboot evicts — is SHIPPED
-and closed out, and with it V3 is CLOSED**: four independent PRs to trunk, #515–#518,
-v0.231.0–v0.234.0, with its as-built retired into the `### Phase 3 slice 7` section near the end
-of this file and its plan file (`reboot-evicts.md`) deleted. Slice 6 before it (the exploit
-crosses networks, #508–#514, v0.224.0–v0.230.0) is in the `### Phase 3 slice 6` section. **Next
-is Phase 3 slice 8 — libraries fall** (`ldd` + `msfconsole --local`), the second-to-last V-series
-axis — **GRILLED 2026-09-18** (decisions 63–73 in `### Slice 8 — resolved decisions`; decision 69
-supersedes 17) and `find-gaps`-checked the same day (seven gaps closed), with an earlier lost
-grill's answers recovered into decisions 67–74, and planned as six independent PRs in
-`plans/libraries-fall.md`. The `Status` block below is an accumulating log, not the
-current state.
+**Where we are now (2026-09-21):** **v0.243.0**. **Phase 3 slice 8 — libraries fall — is SHIPPED
+and closed out**: nine independent PRs to trunk, #519–#527, v0.235.0–v0.243.0, with its as-built
+retired into the `### Phase 3 slice 8` section near the end of this file and its plan file
+(`libraries-fall.md`) deleted. Eighteen decisions, 63–80, in `### Slice 8 — resolved decisions`
+(69 supersedes 17; 80 corrects 68; 75–77 added at PR4's planning and 78–80 at PR6's). Slice 7
+before it (reboot evicts, #515–#518, v0.231.0–v0.234.0, which closed V3) is in the `### Phase 3
+slice 7` section. **This does NOT close V4** — V4 is delivered as slices 8 and 9, and firmware is
+the half still standing. **Next is Phase 3 slice 9 — firmware falls**, the third axis on routers,
+switches and the shared AP gateway, and **the last V-series axis before the ship gate** — not yet
+grilled or planned. Note for its grill: routers, switches and the AP gateway were IN slice 8 for
+the library axis with no carve-out, so slice 9 must not assume they were excluded. The `Status`
+block below is an accumulating log, not the current state.
 
 **Status**: **D1 shipped** (v0.109.0), with its web follow-ups D1c (v0.123.0-v0.124.0), D1b
 (v0.125.0-v0.129.0) and D1d (v0.130.0) all closed out. **D3 ✅ COMPLETE (v0.136.0)** — six slices,
@@ -416,8 +417,8 @@ PHASE 3 — VULNERABILITIES                             GRILLED 09-09/09-10 + PL
       V slice 5 six more effects              ✔ SHIPPED v0.218.0-v0.223.0 (#502-#507)
       V slice 6 the exploit crosses networks  ✔ SHIPPED v0.224.0-v0.230.0 (#508-#514)
       V slice 7 reboot evicts                 ✔ SHIPPED v0.231.0-v0.234.0 (#515-#518) <- V3 CLOSED
-      V slice 8 libraries fall                PLANNED 09-18 (decisions 63-74, libraries-fall.md) — ldd + msfconsole --local
-      V slice 9 firmware falls                the third axis
+      V slice 8 libraries fall                ✔ SHIPPED v0.235.0-v0.243.0 (#519-#527)
+      V slice 9 firmware falls                the third axis <- LAST V-SERIES AXIS, closes V4
 ────────────────────────── SHIP ──────────────────────────
 POST-SHIP — MISSIONS
 ```
@@ -456,7 +457,7 @@ POST-SHIP — MISSIONS
 | **V1** ✅ | **A scanner reads what version a service runs** — **GRILLED**, delivered as slices 1-2; **SHIPPED v0.210.0-v0.212.0 (#491, #494, #496)** | `/var/lib/dpkg/status` generated on every box (services + the 8 libraries + firmware on routers); `nmap -sV` VERSION column; `WORLD_EPOCH` + each package's first publication + the severity roll (the forward walk moved to slice 4); a CVE id and severity on a live one | `nmap -sV <host>` → real versions; the world is clean for ~3 days, then CVEs start landing; tier-3 readable (already allowlisted) |
 | **V2** ✔ | **A player breaks in with no credentials** — **GRILLED**, delivered as slices 3, 5, 6; **slice 3 SHIPPED v0.213.0 (#497)**, **slice 5 SHIPPED v0.218.0-v0.223.0 (#502-#507)** and **slice 6 SHIPPED v0.224.0-v0.230.0 (#508-#514)** | `msfconsole <host> <port> [arg]`; all 8 effect kinds; the exploit session row; the `formatExploit` catalog column tracing BOTH outcomes; **server-side CVE recomputation** through the one shared module the client renders from | B finds a vulnerable version → `msfconsole` → `shell_full` with no password; a patched version refuses and the target logs the bounce |
 | **V3** ✅ | **A defender patches and the exploit goes inert** — **GRILLED**, delivered as slices 4 and 7; **slice 4 SHIPPED v0.214.0-v0.215.0 (#498, #499)** and **slice 7 SHIPPED v0.231.0-v0.234.0 (#515-#518)**; `pkg=<version>` pinning moved to the attacker slices by decision 39 and **SHIPPED there at v0.229.0 (#513)**, with the trace it needed at v0.230.0 (#514) | `apt upgrade [pkg]`; `apt list -u` with the ETA status; `apt install pkg=<version>` downgrade-only; install sharing the upgrade resolver; `reboot` ending every session on the machine | A upgrades → B's working exploit now fails; inside the delay window A is told no fix exists; A reboots and B's shell drops |
-| **V4** ✔ | **A player escalates locally through a vulnerable library** — **GRILLED**, now slices 8 and 9 | Library timelines; `ldd`; `msfconsole --local`; the syslog trace; the extended dependency map + its effect pools; `metadata.libraryLinks` deleted; firmware as the third axis | B (guest) `msfconsole --local su` → root without the root password; `ldd /bin/su` shows the vulnerable lib; A upgrades to close it |
+| **V4** ✔ | **A player escalates locally through a vulnerable library** — **GRILLED**, now slices 8 and 9; **slice 8 SHIPPED v0.235.0–v0.243.0 (#519–#527)**, leaving firmware (slice 9) as the half that closes this row | Library timelines; `ldd`; `msfconsole --local`; the syslog trace; the extended dependency map + its effect pools; `metadata.libraryLinks` deleted; firmware as the third axis | B (guest) `msfconsole --local su` → root without the root password; `ldd /bin/su` shows the vulnerable lib; A upgrades to close it |
 
 **Phase 3 is GRILLED — twenty-three locked decisions and a nine-slice spine** in
 ["Phase 3 — resolved scope & decisions"](#phase-3--resolved-scope--decisions-grill-me-2026-09-09).
@@ -3655,10 +3656,13 @@ the blocker that deferred the fix.**
 
 ### Slice 8 — resolved decisions (grill-me, 2026-09-18)
 
-Twelve decisions, numbered 63–74, each grounded in code first. **Decision 69 supersedes decision
-17.** `find-gaps`-checked 2026-09-18 — seven gaps closed and written into decisions 63, 69, 71
-and the routine list (each marked "find-gaps, 2026-09-18"); none parked. Planned in
-`plans/libraries-fall.md`.
+Eighteen decisions, numbered 63–80, each grounded in code first: twelve grilled on this date, three
+added at PR4's planning (75–77, 2026-09-19) and three at PR6's (78–80, 2026-09-20). **Decision 69
+supersedes decision 17**, and **decision 80 corrects decision 68**. `find-gaps`-checked 2026-09-18 —
+seven gaps closed and written into decisions 63, 69, 71 and the routine list (each marked
+"find-gaps, 2026-09-18"); none parked. Shipped as nine independent PRs, #519–#527; the as-built is
+in `### Phase 3 slice 8 — libraries fall` near the end of this file, and the plan file it was
+planned in (`plans/libraries-fall.md`) is deleted.
 
 **An earlier grill the same morning** answered several of these questions, but its record never
 reached the file, and the later grill re-decided some of them without it. Its answers were
@@ -4137,7 +4141,7 @@ central mechanic unplayable until slice 6.
 | **5** ✅ | **Six more effects** — **SHIPPED v0.218.0-v0.223.0 (#502-#507)** | `file_read`, `dir_list`, `file_write`, `password_reset`, `backdoor_port_open`, `script_exec` — decision 23's third-argument grammar, the CVE-authorized write and exec paths, and D5's backdoor chain forwarding reused whole. Six independent PRs to trunk, each peeling one effect off decision 31's collapse; `msfconsole` became scriptable on the way |
 | **6** ✅ | **The exploit crosses networks** — **SHIPPED v0.224.0-v0.230.0 (#508-#514)** | Public IPs, NAT forwards, inner gateways and the deep chain, through the resolvers `ssh` and `hydra` already share. The first real route to rooting another player. Seven independent PRs to trunk, one vantage each; decision 34's three cross-player questions answered once in a shared rule, and decision 39's pinning shipped with the trace that makes it visible |
 | **7** ✅ | **Reboot evicts** — **SHIPPED v0.231.0-v0.234.0 (#515-#518)**, decisions 52–62 and four independent PRs to trunk; as-built in ["Phase 3 slice 7"](#phase-3-slice-7--reboot-evicts--shipped-v02310v02340-515518) | `reboot` ends every session row on that machine server-side, not just the rebooter's stack. The defender gets an answer; the intruder who deleted `/boot/vmlinuz` gets the last laugh. A server-minted **boot id** on the box is how a live shell finds out, read through the re-pull `executeLine` already does per line; a failed eviction fails loudly, because silence hands the defender a convincing animation and a live intruder |
-| **8** | **Libraries fall** — **PLANNED 2026-09-18** (`plans/libraries-fall.md`), decisions 63–74, six independent PRs (decision 72) | ~~Library timelines~~ (already shipped with slice 2); `ldd`; explicit-path execution of a carried binary; `apt list -u` naming the CVE and severity; `msfconsole --local <command>`, client-local on own/NPC boxes and server-side on a player's workstation; the realistic trace (decision 69, superseding 17's syslog line); the extended dependency map with its new effect pools; `metadata.libraryLinks` deleted. Guest becomes root without the root password |
+| **8** | **Libraries fall** — ✅ **SHIPPED v0.235.0–v0.243.0 (#519–#527)**, closed out 2026-09-21; decisions 63–80, nine independent PRs (decision 72, PR4 split by 75 and PR5 split at delivery); as-built in `### Phase 3 slice 8` near the end of this file, plan file deleted | ~~Library timelines~~ (already shipped with slice 2); `ldd`; explicit-path execution of a carried binary; `apt list -u` naming the CVE and severity; `msfconsole --local <command>`, client-local on own/NPC boxes and server-side on a player's workstation; the realistic trace (decision 69, superseding 17's syslog line); the extended dependency map with its new effect pools; `metadata.libraryLinks` deleted. Guest becomes root without the root password |
 | **9** | **Firmware falls** | The third axis on routers, switches and the shared AP gateway — a fully patched gateway can still be taken |
 
 Slices 1 and 2 could merge; they are split because a VERSION column is independently useful and
@@ -5823,6 +5827,79 @@ was first priced.
 backlog entry, with a preferred lazy-re-validation shape), session TTL/expiry (v2 sessions still
 never expire — reboot is *an* answer to a stale session, not a general one), and libraries/firmware
 as exploit axes (slices 8 and 9).
+
+---
+
+### Phase 3 slice 8 — libraries fall ✅ SHIPPED v0.235.0–v0.243.0 (#519–#527)
+
+Retired here from `libraries-fall.md`, the way slices 1–7 each were. **This does NOT close V4** —
+V4 is delivered as slices 8 and 9, and firmware is the half still standing. **Nine independent PRs
+sequenced to trunk, not a stack**: `ldd` and the deletion of `libraryLinks` (v0.235.0, #519), a
+carried binary running by its path (v0.236.0, #520), `apt list -u` naming each CVE and severity
+(v0.237.0, #521), `--local` escalating a shell (v0.238.0, #522), every effect it can roll doing what
+it does (v0.239.0, #523), the trace a real box would record (v0.240.0, #524), the cross-player server
+half with its wire-check (v0.241.0, #525), the client half that reaches it (v0.242.0, #526), and the
+dependency map covering the game's own toolchain (v0.243.0, #527). Eighteen decisions numbered
+63–80: twelve grilled 2026-09-18 and `find-gaps`-checked the same day, three added at PR4's planning
+(75–77, 2026-09-19) and three at PR6's planning (78–80, 2026-09-20).
+
+**The property that makes the axis coherent: one map, two readers.** `libraryDeps` is the single
+authority (decision 11), so what `ldd` shows a player and what `msfconsole --local` actually fires
+through cannot drift apart — the recon IS the exploit surface, read twice. `metadata.libraryLinks`
+was deleted rather than kept in sync, because a second copy is the only way they could disagree.
+
+**Severity beats link order, and the seed carries no machine.** When a command links two libraries
+the highest-severity live CVE wins, ties falling to link order (decision 64), so what `apt list -u`
+forecasts and what `--local` lands can never contradict each other. The effect is drawn on
+`(command, library, release)` and never on the box (decision 65), which is what lets recon compound:
+a hole learned on one machine holds on every machine in the world sitting on that release.
+
+**The library tier floor is a deliberate fork from the service floor, and the risk register said so
+first.** `exploitEffect.ts`'s `tierForSeverity` bottoms at guest; libraries bottom at user
+(decision 9), because the library route IS the privilege route and a critical-only root rate would
+make the trip not worth taking. The plan named reusing the service helper as a risk before any code
+was written, and the interpreter carries its own table.
+
+**Decision 69 superseded 17, and the cost was accepted by name.** The trace is only what a real box
+would record — a `kern.log` crash line on a miss, an ordinary `auth.log` session line on a shell
+success, nothing else. Legacy's `/var/log/syslog` line naming command, library and tier is gone
+because no real system writes it. That makes a working local exploit **quieter than `su`**, which is
+the exact incentive decision 17 existed to close; it is accepted rather than patched over.
+
+**Planning caught what the Evidence line missed, twice.** PR4 split into 4a/4b/4c (decision 75) when
+planning found the traces needed `api/` work nothing had priced: `kern.log` had no client appender,
+and `appendAuthLog` formatted only a `su` switch and refused any box but the caller's own. And PR6's
+grill found a *recorded decision that was false* — decision 68 said an NPC's local surface stays
+exactly the seventeen, while `remoteHostFs.ts` had been laying `binariesForService` onto every
+generated host all along. Decision 80 amends the record rather than working around it, and the
+correction is near-inert only because `su`, `nano`, `ssh`, `curl` and `scp` are base binaries
+everywhere, so the seventeen already cover every library group on every box.
+
+**Mapping a tool has two consequences that only appeared at implementation.** It turns
+`wrapWithLibraryCheck` on for that tool, so removing a linked `.so` starts breaking tools a player
+bought — and it wakes `installPackageLibraries`, wired into `apt install` since the
+binary/availability slice as a deliberate no-op. So `rm /lib/libssl.so` followed by `apt install
+nmap` puts libssl back: **hardening by deleting a library is a standing cost, not a one-off move
+buying permanent immunity to a whole library's CVEs.** Accepted as designed — a tool that cannot
+link is a tool that cannot start.
+
+**Accepted gaps, named and left standing.** On an NPC box a root-tier `file_write`,
+`password_reset`, backdoor or script lands at the caller's ssh-session tier and records no trace
+(decision 76) — a known gap shared with `su`, whose fix is one change for both and its own slice. A
+local `password_reset` leaves no clue, so a player whose root was reset has only `apt list -u` and
+the `pwned-XXXX-<tier>` shape to work back from. A missing `.so` writes no crash line, so a deleted
+library and a patched one are indistinguishable to the caller. An escalated `--local` shell pushes
+`exploit`/`exploit_limited` and does not survive a refresh on the player's own box, where the server
+stores only `su` rows.
+
+**What slice 9 inherits.** Routers, switches and the shared AP gateway are IN this slice for the
+library axis, with no carve-out — **slice 9's planning must not assume they were excluded here.**
+Firmware is a second, separate way in, attaching its own per-axis interpretation to the same
+axis-blind `liveCve(key, version, gameDay)` (decision 25) rather than growing a second derivation,
+exactly as this slice's interpreter did. `apt list -u` already covers services, libraries and
+firmware alike — one manifest, one status view. Still deliberately NOT built on this axis: a full
+re-derivation of the dependency map against real Debian link sets (decision 12), and `libc` as a
+modelled library, whose blast radius would be every command on every box.
 
 ---
 
