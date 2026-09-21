@@ -38,6 +38,8 @@ import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import { computeApGatewayId } from '../identity/router';
 import { parseAclDenies, readAclConf } from '../network/switchAcl';
 import { parseForwardRules, parseInputDenies, readRulesV4 } from '../network/iptablesRules';
+import { parseDpkgVersions, readDpkgStatus } from '../packages/dpkgStatus';
+import { displayVersion, isFirmwarePackage } from '../packages/packageVersions';
 import { parseSnmpdConf, readSnmpdConf } from '../snmp/conf';
 import type { SnmpDeviceKind, SnmpIdentity, SnmpPortTable } from '../snmp/walk';
 import type { Directory } from '../filesystem/types';
@@ -89,6 +91,17 @@ const UNREACHABLE: HandlerResponse = { status: 404, body: { error: 'host_unreach
  *  Rendered from the files on EVERY walk, never cached and never copied: the whole point
  *  of the door is one fact behind two interfaces, and a second copy could tell a player
  *  a port was forwarded that the box does not honour. */
+/** What the device calls itself in `sysDescr`: the display form of the firmware its own
+ *  manifest names, so a MikroTik switch says MikroTik and a switch running someone else's
+ *  image no longer claims to be a Cisco. A box carrying no firmware row — a workstation
+ *  that installed an agent of its own — answers `Linux`, the plain machine it is; every
+ *  generator-built router-class box carries firmware, so that fallback reaches only it. */
+const platformOf = (hostFs: Directory): string => {
+  const versions = parseDpkgVersions(readDpkgStatus(hostFs));
+  const firmware = [...versions].find(([key]) => isFirmwarePackage(key));
+  return firmware === undefined ? 'Linux' : displayVersion(firmware[0], firmware[1]);
+};
+
 const portTablesOf = (hostFs: Directory, kind: SnmpDeviceKind): readonly SnmpPortTable[] => {
   if (kind === 'switch') return [{ kind: 'acl', denies: parseAclDenies(readAclConf(hostFs)) }];
 
@@ -176,6 +189,7 @@ export const handleSnmpWalk = async (
   const identity: SnmpIdentity = {
     hostname,
     kind,
+    platform: platformOf(hostFs),
     sysContact: parseSnmpdConf(readSnmpdConf(hostFs)).sysContact,
     addresses: await addressesOf(deps, { essid: payload.essid, machineId, localIp }),
   };

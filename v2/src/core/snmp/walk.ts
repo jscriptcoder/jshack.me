@@ -20,13 +20,16 @@
  * nothing. What is here maps 1:1 onto something the world actually holds — which is also
  * what stops this block becoming a second source of truth for facts kept elsewhere.
  *
- * NO VERSION is stated anywhere. `sysDescr` is the obvious carrier for a non-Debian
- * device's version, and stating one before the game decides where a device version
- * lives would make this block a competing authority for the fact vulnerabilities are
- * keyed on.
+ * `sysDescr` now CARRIES the firmware version — `MikroTik RouterOS 7.14.2`, not a bare
+ * `Linux`. It once stated none, deliberately, because the game had not yet decided where
+ * a device version lives and a version here would have been a competing authority. The
+ * firmware manifest is now that authority; this block renders the display string the
+ * caller reads off it, so it reports the fact rather than owning it. A version is still
+ * not a verdict — a player learns WHAT a device runs and must fire to find out whether it
+ * is holed.
  *
- * Pure: given an identity, the same block every time. Who the device is and which
- * addresses it holds are the caller's to resolve.
+ * Pure: given an identity, the same block every time. Who the device is, which addresses
+ * it holds and which firmware it runs are the caller's to resolve.
  */
 
 import type { NatForward } from '../network/iptablesRules';
@@ -36,6 +39,12 @@ export type SnmpDeviceKind = 'router' | 'switch';
 export type SnmpIdentity = {
   readonly hostname: string;
   readonly kind: SnmpDeviceKind;
+  /** What the device calls itself in `sysDescr`: the firmware display version its own
+   *  manifest names (`MikroTik RouterOS 7.14.2`), or `Linux` for a box running no vendor
+   *  firmware — a workstation that installed an agent of its own. Resolved by the caller
+   *  from the one authority (the manifest) and passed in, so this block renders that fact
+   *  rather than becoming a second authority over the version vulnerabilities are keyed on. */
+  readonly platform: string;
   /** Who to shout at, per the device's own `snmpd.conf` — the one identity fact no
    *  other file in the world knows. */
   readonly sysContact: string;
@@ -49,25 +58,17 @@ export type SnmpIdentity = {
  *  in the block the caller is actually printing. */
 type OidRow = readonly [name: string, value: string];
 
-/** What each kind of device calls itself and its interfaces. This is the whole of the
- *  difference a walk can see between a router and a switch, and it is the reason a
- *  player bothers walking one: two boxes that answered identically would make the tool
- *  pointless on the very devices it exists for.
+/** How each kind of device numbers its interfaces. Now that `sysDescr` carries the
+ *  firmware the device runs, THIS is the whole of the difference a walk can see between a
+ *  router and a switch — and the reason a player can still tell one from the other in the
+ *  only tool that inspects a device closely.
  *
  *  A switch numbers its ports from 1 and a Linux box numbers its interfaces from 0,
  *  which is true of both platforms and is why the mapping is per-kind rather than one
  *  shared index. */
-const PLATFORM: Readonly<
-  Record<
-    SnmpDeviceKind,
-    { readonly description: string; readonly interfaceName: (index: number) => string }
-  >
-> = {
-  router: { description: 'Linux', interfaceName: (index) => `eth${index}` },
-  switch: {
-    description: 'Cisco IOS L3 Switch',
-    interfaceName: (index) => `GigabitEthernet0/${index + 1}`,
-  },
+const interfaceNameOf: Readonly<Record<SnmpDeviceKind, (index: number) => string>> = {
+  router: (index) => `eth${index}`,
+  switch: (index) => `GigabitEthernet0/${index + 1}`,
 };
 
 const padRight = (value: string, length: number): string =>
@@ -90,15 +91,15 @@ const alignRows = (rows: readonly OidRow[]): readonly string[] => {
  *  sit" had to join the two halves by index; joined here, it is the same two facts with
  *  the work already done — and it halves the rows an interface costs. */
 const identityRows = (identity: SnmpIdentity): readonly OidRow[] => {
-  const platform = PLATFORM[identity.kind];
+  const interfaceName = interfaceNameOf[identity.kind];
   return [
-    ['sysDescr', `${platform.description} ${identity.hostname}`],
+    ['sysDescr', `${identity.platform} ${identity.hostname}`],
     ['sysName', identity.hostname],
     ['sysContact', identity.sysContact],
     ...identity.addresses.map(
       (address, index): OidRow => [
         `interface.${index + 1}`,
-        `${platform.interfaceName(index)} (${address})`,
+        `${interfaceName(index)} (${address})`,
       ],
     ),
   ];

@@ -39,6 +39,8 @@ import { generateIdentity } from '../src/core/identity/identity';
 import { md5 } from '../src/core/generation/md5';
 import { generateHomeLan } from '../src/core/generation/generateHomeLan';
 import { resolveLanHostIdentity } from '../src/core/generation/lanHostIdentity';
+import { parseDpkgVersions, readDpkgStatus } from '../src/core/packages/dpkgStatus';
+import { displayVersion, isFirmwarePackage } from '../src/core/packages/packageVersions';
 import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog';
 import { readOpenPorts } from '../src/core/services/pidfile';
 import { AUTH_LOG_PATH } from '../src/core/logging/authLog';
@@ -99,6 +101,18 @@ if (gateway === undefined) {
 }
 
 const { machineId: targetMachine, baseFs } = resolveLanHostIdentity(gateway, ESSID);
+
+// What `sysDescr` must name: the firmware the gateway's own manifest runs, in display
+// form. Derived from the box rather than pinned to a vendor, since which one it rolled is
+// seeded — the same shape the unit tests assert, proven here against the live tree.
+const firmwareEntry = [...parseDpkgVersions(readDpkgStatus(baseFs))].find(([key]) =>
+  isFirmwarePackage(key),
+);
+if (firmwareEntry === undefined) {
+  console.error(`${gateway.hostname} carries no firmware — a gateway should. Pick another ESSID.`);
+  process.exit(2);
+}
+const EXPECTED_PLATFORM = displayVersion(firmwareEntry[0], firmwareEntry[1]);
 
 if (!readOpenPorts(baseFs).some(({ service }) => service === SERVICE_CATALOG.snmp.service)) {
   console.error(
@@ -254,6 +268,11 @@ const main = async (): Promise<void> => {
       identity['kind'] === 'router' &&
       identity['sysContact'] === 'netops@corp.local',
     JSON.stringify(identity),
+  );
+  check(
+    'and names the firmware its manifest runs in sysDescr, not a kind-fixed label',
+    identity['platform'] === EXPECTED_PLATFORM,
+    `platform ${JSON.stringify(identity['platform'])}, expected ${JSON.stringify(EXPECTED_PLATFORM)}`,
   );
   check(
     'the second address is the network_public_ips row, read live',

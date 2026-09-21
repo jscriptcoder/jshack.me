@@ -21,6 +21,7 @@ const routerIdentity = (
 ) => ({
   hostname: 'gw-main',
   kind: 'router' as const,
+  platform: 'Linux',
   sysContact: 'netops@corp.local',
   addresses: ['10.0.0.1', '82.14.203.77'],
   ...overrides,
@@ -48,10 +49,10 @@ describe('a read-only walk', () => {
     ]);
   });
 
-  it('names a switch by its platform, with the interfaces that platform has', () => {
-    // A switch reading like a router would make the two indistinguishable in the only
-    // tool that ever inspects one closely — and the kind is exactly what a player is
-    // walking the device to learn.
+  it('numbers a switch its own way, so its interfaces read as a switch', () => {
+    // The firmware in sysDescr says what a device runs; the interface naming is what now
+    // tells a switch from a router. A switch numbering its ports like a Linux box would
+    // make the two indistinguishable in the only tool that inspects one closely.
     expect(
       renderIdentityWalk({
         target: '10.0.0.5',
@@ -59,14 +60,43 @@ describe('a read-only walk', () => {
         identity: routerIdentity({
           hostname: 'sw-01',
           kind: 'switch',
+          platform: 'Cisco IOS 15.9.3',
           addresses: ['10.0.0.5'],
         }),
       }),
     ).toEqual([
       '[READ-ONLY] Community "public" accepted on 10.0.0.5.',
       '',
-      'sysDescr    = Cisco IOS L3 Switch sw-01',
+      'sysDescr    = Cisco IOS 15.9.3 sw-01',
       'sysName     = sw-01',
+      'sysContact  = netops@corp.local',
+      'interface.1 = GigabitEthernet0/1 (10.0.0.5)',
+      '',
+      '4 OIDs returned. Community "public" is READ-ONLY.',
+      "Retry with a read-write community to see this device's port table.",
+    ]);
+  });
+
+  it('renders the firmware the device runs in sysDescr, not a name fixed by its kind', () => {
+    // The axis's remote tell: a switch running a non-Cisco image must say so, where the
+    // old block hardcoded 'Cisco IOS L3 Switch' for every switch regardless of vendor.
+    // The router/switch split survives entirely in the interface naming below it.
+    expect(
+      renderIdentityWalk({
+        target: '10.0.0.5',
+        community: 'public',
+        identity: routerIdentity({
+          hostname: 'sw-linksys',
+          kind: 'switch',
+          platform: 'OpenWRT 23.5.0',
+          addresses: ['10.0.0.5'],
+        }),
+      }),
+    ).toEqual([
+      '[READ-ONLY] Community "public" accepted on 10.0.0.5.',
+      '',
+      'sysDescr    = OpenWRT 23.5.0 sw-linksys',
+      'sysName     = sw-linksys',
       'sysContact  = netops@corp.local',
       'interface.1 = GigabitEthernet0/1 (10.0.0.5)',
       '',
@@ -142,13 +172,18 @@ describe('a read-write walk', () => {
       renderReadWriteWalk({
         target: '10.0.0.5',
         community: 'corpnet',
-        identity: routerIdentity({ hostname: 'sw-01', kind: 'switch', addresses: ['10.0.0.5'] }),
+        identity: routerIdentity({
+          hostname: 'sw-01',
+          kind: 'switch',
+          platform: 'Cisco IOS 15.9.3',
+          addresses: ['10.0.0.5'],
+        }),
         portTables: [{ kind: 'acl', denies: [22, 8080] }],
       }),
     ).toEqual([
       '[READ-WRITE] Community "corpnet" accepted on 10.0.0.5.',
       '',
-      'sysDescr     = Cisco IOS L3 Switch sw-01',
+      'sysDescr     = Cisco IOS 15.9.3 sw-01',
       'sysName      = sw-01',
       'sysContact   = netops@corp.local',
       'interface.1  = GigabitEthernet0/1 (10.0.0.5)',
