@@ -13,14 +13,25 @@
  * reports `command not found` first and the linker error only fires once the
  * binary resolves.
  *
- * The mapping is ported VERBATIM from legacy `src/commands/libraryDeps.ts` —
- * these command→library links are the future privilege-escalation surface (a
- * live library CVE → `msfconsole --local <cmd>` → root), so they must not be
- * invented or simplified. Libraries are thematic capability groupings, not a
- * strict real-world dependency chart: regex tools (ls/find/grep/cat/strings/rm/
- * chmod/ps) link libpcre; service-control verbs (systemctl/reboot/kill) link
- * libsystemd; su links libpam+libcrypt; etc. Commands NOT listed (mkdir, echo,
- * man, ping, ifconfig, nmcli, …) run without a library check.
+ * These command→library links ARE the privilege-escalation surface (a live
+ * library CVE → `msfconsole --local <cmd>` → root), so they are never invented
+ * or simplified ad hoc. The base system commands are ported verbatim from
+ * legacy `src/commands/libraryDeps.ts`; the apt-installed toolchain below them
+ * is this game's own, and follows the same rule the ported ones do.
+ *
+ * Libraries are thematic capability groupings, not a strict real-world
+ * dependency chart: regex tools (ls/find/grep/cat/strings/rm/chmod/ps) link
+ * libpcre; service-control verbs (systemctl/reboot/kill) link libsystemd; su
+ * links libpam+libcrypt; anything speaking TLS or the network links libssl; an
+ * interactive prompt links libreadline; a markup reader links libxml2; and
+ * anything handling hashes or ciphers links libcrypt. A tool that belongs to
+ * two groups links BOTH, and the group it belongs to most links first, because
+ * a severity tie falls to link order — which is why hydra leads with libcrypt:
+ * it is a password tool that happens to use the network, not the reverse.
+ *
+ * Daemons stay out (a player never runs one directly), and so do the utilities
+ * that belong to no group at all (mkdir, touch, man, ping, ifconfig, nmcli,
+ * clear, whoami) — they run without a library check.
  */
 
 import { asAbsPath } from '../types';
@@ -45,6 +56,29 @@ export const libraryDeps: Readonly<Record<string, readonly SystemLibrary[]>> = {
   ssh: ['libssl', 'libreadline'],
   scp: ['libssl'],
   curl: ['libssl'],
+
+  // The apt-installed toolchain. Every one of these is a client binary a player
+  // chose to buy and install, so tooling up widens a player's OWN local attack
+  // surface — the defensive cost of being equipped.
+  nmap: ['libssl'],
+  dig: ['libssl'],
+  nslookup: ['libssl'],
+  nc: ['libssl'],
+  snmpwalk: ['libssl'],
+  snmpset: ['libssl'],
+  ftp: ['libssl', 'libreadline'],
+  msfconsole: ['libssl', 'libreadline'],
+  mysql: ['libssl', 'libreadline'],
+  'redis-cli': ['libssl', 'libreadline'],
+  hydra: ['libcrypt', 'libssl'],
+  gobuster: ['libssl', 'libpcre'],
+  lynx: ['libssl', 'libxml2'],
+  john: ['libcrypt'],
+  gpg: ['libcrypt'],
+  'airmon-ng': ['libcrypt'],
+  'airodump-ng': ['libcrypt'],
+  'aircrack-ng': ['libcrypt'],
+  node: ['libreadline'],
 };
 
 /** Whether `<library>.so` is loadable on the current machine — the one test

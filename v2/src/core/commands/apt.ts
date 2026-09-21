@@ -136,11 +136,15 @@ const lockError = (): CommandResult =>
  * library perms (linked, never executed). Present libraries are left untouched;
  * the first write failure stops and is returned.
  *
+ * Every generated box is stamped with all eight libraries, so on an untouched
+ * box this writes nothing. It matters where a library has been DELETED: a tool
+ * that cannot link is a tool that cannot start, and selling one that refuses to
+ * run would be apt selling a brick. It also means deleting a `.so` to close an
+ * exploit surface is undone by installing anything that links it.
+ *
  * `deps` defaults to the real `libraryDeps` and is injectable so the missing/
- * present/perms logic is testable against a lib-incomplete fixture. No apt
- * package's binaries map to a library yet, so this is a no-op against the real
- * catalog today — it goes live once lib-bearing tools and lib-incomplete remote
- * machines exist (installing a tool there fills in the libs it needs to link).
+ * present/perms logic is testable against a single named library rather than
+ * whatever the real catalog happens to map today.
  */
 export const installPackageLibraries = async (
   env: CommandEnv,

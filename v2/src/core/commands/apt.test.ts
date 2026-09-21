@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { binaryStub, stubName } from '../generation/binaries';
-import type { SystemLibrary } from '../generation/libraries';
+import { SYSTEM_LIBRARIES, type SystemLibrary } from '../generation/libraries';
 import type { Directory, FilePermissions } from '../filesystem/types';
 import { asAbsPath, asEpochMs, asPlayerKeyHex, type UserType } from '../types';
 import type { AptApi, CommandEnv, CommandResult, PatchResult, TerminalLine } from './types';
@@ -162,6 +162,9 @@ type AptEnvOpts = {
   readonly withoutPackages?: readonly string[];
   /** No manifest on the box at all — root deleted the file. */
   readonly withoutManifest?: boolean;
+  /** An empty `/lib` — the box of somebody who has deleted the shared libraries
+   *  their tools link, which is the only state an install has any to write. */
+  readonly withoutLibraries?: boolean;
 };
 
 /** One filesystem operation apt performed, in the order it performed them.
@@ -234,7 +237,19 @@ const installedBoxTree = (opts: AptEnvOpts = {}): Directory =>
             }),
           }),
     }),
-    lib: buildDirectory({}),
+    // Every generated box is stamped with the whole library set, so a fixture
+    // without one is a box no generator can produce — and an install writes a
+    // library only where one is genuinely gone.
+    lib: buildDirectory(
+      opts.withoutLibraries === true
+        ? {}
+        : Object.fromEntries(
+            SYSTEM_LIBRARIES.map((library) => [
+              `${library}.so`,
+              buildFile(binaryStub(`${library}.so`), { owner: 'root' }),
+            ]),
+          ),
+    ),
     ...(opts.existingFilter === undefined
       ? {}
       : {
@@ -1318,10 +1333,18 @@ describe('apt', () => {
     expect(text).toContain('[=<version>]');
   });
 
-  it('writes no libraries for a real apt package (none map to a library today)', async () => {
-    // Drives the REAL libraryDeps via apt.execute: installing nmap writes its
-    // binary but no /lib/*.so — locking the wiring as a present-day no-op that
-    // goes live once lib-bearing tools + lib-incomplete machines land.
+  it('brings back the library a tool links when the box no longer has it', async () => {
+    // Drives the REAL libraryDeps via apt.execute. A tool that cannot link is a
+    // tool that cannot start, so selling one onto a box whose /lib has been
+    // emptied and leaving it unrunnable would be apt selling a brick.
+    const { env, writes } = aptEnv({ withoutLibraries: true });
+
+    await streamResult(await apt.execute(env, ['install', 'nmap'], NO_FLAGS));
+
+    expect(writes.map((write) => write.path)).toEqual(['/usr/bin/nmap', '/lib/libssl.so']);
+  });
+
+  it('writes no library for a tool whose libraries the box already has', async () => {
     const { env, writes } = aptEnv();
 
     await streamResult(await apt.execute(env, ['install', 'nmap'], NO_FLAGS));
@@ -1333,10 +1356,10 @@ describe('apt', () => {
 /**
  * `installPackageLibraries` is the lib-install mechanism `apt install` composes:
  * it derives the libraries a package's binaries link (`libraryDeps`) and writes
- * any whose `/lib/<lib>.so` is MISSING, leaving present ones untouched. No real
- * apt package maps to a library yet, so the `deps` map is injected as a fixture
- * — the only way to observe the write/skip/perms logic until lib-bearing tools
- * and lib-incomplete remote machines exist.
+ * any whose `/lib/<lib>.so` is MISSING, leaving present ones untouched. The
+ * `deps` map is injected here so the write/skip/perms logic is pinned against a
+ * single named library, whatever the real catalog maps; the test above drives
+ * the same path through the real one.
  */
 describe('installPackageLibraries', () => {
   /** An env whose `/lib` already holds `presentLibs` (as `.so` files) and whose

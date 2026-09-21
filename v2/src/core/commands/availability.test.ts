@@ -4,6 +4,7 @@ import { wrapWithLibraryCheck } from './libraryDeps';
 import { commandRegistry } from './registry';
 import { buildDirectory, buildFile } from '../../test/factories/filesystem';
 import { mockCommandEnv, mockFsViewFromTree, mockSession } from '../../test/factories/commandEnv';
+import { SYSTEM_LIBRARIES } from '../generation/libraries';
 import { asAbsPath } from '../types';
 import type { Command, CommandEnv, CommandResult, PatchApi, TerminalLine } from './types';
 
@@ -432,6 +433,15 @@ describe('commandRegistry gating (registry wiring)', () => {
 });
 
 /** Build a tree whose `/usr/bin` holds one world-executable stub binary. */
+/** `/lib` as every generated box carries it — the whole set — so a test about
+ *  the BINARY gate is never answered by the library gate standing behind it. */
+const stockedLib = () =>
+  buildDirectory(
+    Object.fromEntries(
+      SYSTEM_LIBRARIES.map((library) => [`${library}.so`, buildFile('', { owner: 'root' })]),
+    ),
+  );
+
 const treeWithUsrBinary = (name: string) =>
   buildDirectory({
     usr: buildDirectory({
@@ -439,6 +449,7 @@ const treeWithUsrBinary = (name: string) =>
         [name]: buildFile('', { owner: 'root', perms: { execute: ['root', 'user', 'guest'] } }),
       }),
     }),
+    lib: stockedLib(),
   });
 
 /** Build a tree whose `/usr/sbin` holds one world-executable stub binary. */
@@ -669,6 +680,33 @@ describe('commandRegistry — binary + library gating composed (slice 3)', () =>
 
     expect(errorLines(result)).toEqual([
       'ls: error while loading shared libraries: libpcre.so: cannot open shared object file: No such file or directory',
+    ]);
+    expect(result.kind === 'sync' && result.exitCode).toBe(127);
+  });
+
+  it('refuses a tool the player bought when the library it links is gone', async () => {
+    // Mapping a tool turns the library check on for it, so a bought tool is as
+    // fragile as a shipped one: deleting a `.so` to close an exploit surface
+    // disarms everything that links it, the player's own toolchain included.
+    const nmap = commandRegistry.get('nmap');
+    if (nmap === undefined) throw new Error('nmap not registered');
+    const tree = buildDirectory({
+      usr: buildDirectory({
+        bin: buildDirectory({
+          nmap: buildFile('', { owner: 'root', perms: { execute: ['root', 'user', 'guest'] } }),
+        }),
+      }),
+      lib: buildDirectory({}),
+      tmp: buildDirectory({}),
+    });
+    const env = mockCommandEnv({
+      fs: mockFsViewFromTree(tree, { userType: 'user', cwd: asAbsPath('/tmp') }),
+    });
+
+    const result = await nmap.execute(env, [], NO_FLAGS);
+
+    expect(errorLines(result)).toEqual([
+      'nmap: error while loading shared libraries: libssl.so: cannot open shared object file: No such file or directory',
     ]);
     expect(result.kind === 'sync' && result.exitCode).toBe(127);
   });
