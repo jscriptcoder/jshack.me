@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { lanZoneName } from '../network/resolveName';
 import { buildDeepHostFs } from './deepHostFs';
-import { buildRemoteHostFs, hostServices } from './remoteHostFs';
+import { buildRemoteHostFs, hostServices, npcUsername } from './remoteHostFs';
+import { asAbsPath } from '../types';
 import { md5 } from './md5';
 import { DEFAULT_WORDLIST } from '../wordlist/defaultWordlist';
 import { resolveWebPath } from '../network/http';
@@ -2735,6 +2736,28 @@ describe('buildRemoteHostFs', () => {
       const fs = buildRemoteHostFs(ESSID, namedHost('www', 42));
 
       expect(dirAt(fs, 'var', 'log').entries.has('named.log')).toBe(false);
+    });
+  });
+});
+
+describe('npcUsername', () => {
+  it('names the account a box was built with, without building the box', () => {
+    // A neighbour's shell history can only name an account that really exists, and
+    // building the neighbour to find out would build its history, which names us.
+    const hosts = [
+      ...Array.from({ length: 40 }, (_unused, index) => namedHost('desktop', index + 2)),
+      ...Array.from({ length: 20 }, (_unused, index) => namedHost('db', index + 60)),
+      host(99),
+    ];
+
+    hosts.forEach((candidate) => {
+      const passwd = createFsView(buildRemoteHostFs(ESSID, candidate), { userType: 'root' }).read(
+        asAbsPath('/etc/passwd'),
+      );
+      const uid1000 = passwd.ok
+        ? passwd.content.split('\n').find((row) => row.split(':')[2] === '1000')
+        : undefined;
+      expect(uid1000?.split(':')[0]).toBe(npcUsername(ESSID, candidate));
     });
   });
 });

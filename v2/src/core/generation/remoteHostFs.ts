@@ -53,7 +53,6 @@ import {
   dir,
   file,
   generatePasswd,
-  HOME_DIR,
   PASSWD_FILE,
   ROOT_DIR,
   SERVICE_CONFIG_FILE,
@@ -69,6 +68,7 @@ import { pickWebPage } from './pools/webPages';
 import { roleConfigFile } from './pools/configFiles';
 import { nameServerFilesFor } from './generateDnsZone';
 import { roleOfHostname } from './pools/hostnames';
+import { buildNpcHome } from './npcHome';
 import { pickUsername } from './pools/usernames';
 import { placementOf } from './rolePlacement';
 import { generateDatabase } from './generateDatabase';
@@ -146,6 +146,17 @@ export const hostServices = (essid: string, host: LanHost): readonly HostService
     return [{ spec, port }];
   });
 };
+
+/** The uid-1000 account on `host`, without building the box. It is the FIRST draw of
+ *  the box's own `host-fs-` stream, the same draw `buildRemoteHostFs` takes before its
+ *  passwords, so the two always agree. A neighbour's content needs this name. Building
+ *  the neighbour to read it would build that neighbour's content, which reads this box
+ *  back. */
+export const npcUsername = (essid: string, host: LanHost): string =>
+  pickUsername({
+    prng: createPrng(`host-fs-${essid}-${host.ip}`),
+    role: roleOfHostname(host.hostname),
+  });
 
 /**
  * The generated base filesystem for `host` — a full operable Linux box, seeded
@@ -387,7 +398,7 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
         },
         TRAVERSABLE_DIR,
       ),
-      home: dir({ [username]: dir({}, HOME_DIR, username) }, TRAVERSABLE_DIR),
+      home: dir({ [username]: buildNpcHome({ essid, host, username }) }, TRAVERSABLE_DIR),
       lib: dir(createLibraryEntries(SYSTEM_LIBRARIES), TRAVERSABLE_DIR),
       root: dir({}, ROOT_DIR),
       tmp: dir({}, TMP_DIR),
