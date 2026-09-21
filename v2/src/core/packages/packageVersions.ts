@@ -39,11 +39,6 @@ export type VersionTemplate = {
 /** The vendors a router-class box's firmware can come from. */
 export type FirmwareVendor = 'cisco' | 'mikrotik' | 'ddwrt' | 'openwrt' | 'pfsense' | 'ubiquiti';
 
-/** The package name every router-class box records its firmware under. Synthetic:
- *  a router is not apt-managed by the player, so this is the one package name in
- *  the manifest that the apt catalog does not own. */
-export const FIRMWARE_PACKAGE = 'firmware';
-
 export const FIRMWARE_TEMPLATES: Readonly<Record<FirmwareVendor, VersionTemplate>> = {
   cisco: { cveNumber: 16, displayPrefix: 'Cisco IOS ', startTuple: [15, 9, 3] },
   mikrotik: { cveNumber: 17, displayPrefix: 'MikroTik RouterOS ', startTuple: [7, 14, 2] },
@@ -80,12 +75,20 @@ const SERVICE_PACKAGE_TEMPLATES: Readonly<Record<string, VersionTemplate>> = {
   snmp: { cveNumber: 7, displayPrefix: 'net-snmp ', startTuple: [5, 9, 4] },
 };
 
-/** Every package that carries a version, across all three axes. Firmware is keyed
- *  by VENDOR rather than by package name, because the six vendors share one
- *  package name and only the box knows which of them it runs. */
+/** The package a vendor's firmware is recorded under. One name per vendor rather
+ *  than one shared by all six, because two vendors' walks can reach the same tuple
+ *  and a bare version then could not say whose image a box is running. */
+export const firmwarePackageOf = (vendor: FirmwareVendor): string => `${vendor}-firmware`;
+
+const FIRMWARE_PACKAGE_TEMPLATES: Readonly<Record<string, VersionTemplate>> = Object.fromEntries(
+  FIRMWARE_VENDORS.map((vendor) => [firmwarePackageOf(vendor), FIRMWARE_TEMPLATES[vendor]]),
+);
+
+/** Every package that carries a version, across all three axes. */
 export const PACKAGE_TEMPLATES: Readonly<Record<string, VersionTemplate>> = {
   ...SERVICE_PACKAGE_TEMPLATES,
   ...LIBRARY_TEMPLATES,
+  ...FIRMWARE_PACKAGE_TEMPLATES,
 };
 
 export const formatVersion = (tuple: readonly number[]): string => tuple.join('.');
@@ -97,9 +100,6 @@ export const startingVersionOf = (pkg: string): string | undefined => {
   const template = PACKAGE_TEMPLATES[pkg];
   return template === undefined ? undefined : formatVersion(template.startTuple);
 };
-
-export const startingFirmwareVersionOf = (vendor: FirmwareVendor): string =>
-  formatVersion(FIRMWARE_TEMPLATES[vendor].startTuple);
 
 /** What a version scan shows for a package at a version: the product's own name in
  *  front of the tuple the manifest holds. A package with no template shows the bare

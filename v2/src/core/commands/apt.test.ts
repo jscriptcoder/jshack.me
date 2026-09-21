@@ -25,7 +25,8 @@ import {
 } from '../packages/dpkgStatus';
 import {
   displayVersion,
-  FIRMWARE_PACKAGE,
+  FIRMWARE_VENDORS,
+  firmwarePackageOf,
   PACKAGE_TEMPLATES,
   startingVersionOf,
 } from '../packages/packageVersions';
@@ -42,6 +43,7 @@ import {
 import { applyPatches } from '../filesystem/applyPatches';
 import { createFsView } from '../filesystem/fsView';
 import { buildWorkstationBaseFs } from '../generation/workstationFs';
+import { buildApGatewayBaseFs } from '../generation/routerFs';
 import { DATADIR_FILE, PASSWD_FILE, SERVICE_CONFIG_FILE } from '../generation/baseFs';
 import { md5 } from '../generation/md5';
 import { DATADIR_OWNER, DATADIR_PATH } from '../mysql/datadir';
@@ -837,6 +839,41 @@ describe('apt', () => {
         expect(exitCode).toBe(0);
       });
 
+      it("rolls a gateway's firmware back onto a release whose hole is open again", async () => {
+        const [older, patched] = packageTimeline(GATEWAY_FIRMWARE, 400);
+        const gameDay = older!.publishedAt + older!.patchDelay;
+        // The fixture is only a downgrade if the repo really holds the release it leaves.
+        expect(newestReleaseOn(GATEWAY_FIRMWARE, gameDay)).toBe(patched!.version);
+        const { env, writes } = aptEnv({
+          gameDay,
+          carries: { [GATEWAY_FIRMWARE]: patched!.version },
+        });
+
+        const { exitCode } = await streamResult(
+          await apt.execute(env, ['install', `${GATEWAY_FIRMWARE}=${older!.version}`], NO_FLAGS),
+        );
+
+        const written = writes.find(({ path }) => path === DPKG_STATUS_PATH);
+        expect(parseDpkgVersions(written?.content ?? '').get(GATEWAY_FIRMWARE)).toBe(older!.version);
+        expect(exitCode).toBe(0);
+      });
+
+      it('refuses to pin firmware onto a box that carries none, and writes nothing', async () => {
+        // A release the repo really holds, so the only thing left to refuse over is the box
+        // having no image to roll back — apt cannot give a workstation a router's firmware.
+        const gameDay = 300;
+        const published = newestReleaseOn(GATEWAY_FIRMWARE, gameDay)!;
+        const { env, writes } = aptEnv({ gameDay });
+
+        const { text, exitCode } = await streamResult(
+          await apt.execute(env, ['install', `${GATEWAY_FIRMWARE}=${published}`], NO_FLAGS),
+        );
+
+        expect(text).toContain(`E: Package '${GATEWAY_FIRMWARE}' is not installed, so not downgraded`);
+        expect(exitCode).toBe(100);
+        expect(writes).toEqual([]);
+      });
+
       it('refuses a release for a package the box does not carry, and writes nothing', async () => {
         const gameDay = 300;
         // A release the repo really holds, so the only thing left to refuse over is the
@@ -1563,15 +1600,18 @@ describe('apt list', () => {
 
   it('lists every package a box can carry a version of, so it never names one it then denies exists', async () => {
     // The manifest and apt share one namespace. Every package a box's manifest can
-    // name is one apt lists — except `firmware`, which is synthetic: a router's owner
-    // does not upgrade its firmware through apt, and nothing here pretends otherwise.
+    // name is one apt lists — except a router's firmware, which apt moves along its
+    // history on the device that carries it but can never hand to a box without one.
     const { env } = listEnv();
+    const firmware = FIRMWARE_VENDORS.map(firmwarePackageOf);
 
     const { lines } = await streamResult(await apt.execute(env, ['list'], NO_FLAGS));
     const listed = lines.slice(1).map((line) => line.content.trim().split(' ')[0]);
 
-    expect(listed).toEqual(expect.arrayContaining(Object.keys(PACKAGE_TEMPLATES)));
-    expect(listed).not.toContain(FIRMWARE_PACKAGE);
+    expect(listed).toEqual(
+      expect.arrayContaining(Object.keys(PACKAGE_TEMPLATES).filter((pkg) => !firmware.includes(pkg))),
+    );
+    for (const pkg of firmware) expect(listed).not.toContain(pkg);
   });
 
   it('treats -i as an alias for --installed', async () => {
@@ -1621,6 +1661,8 @@ describe('apt list', () => {
  */
 const SSH = 'openssh-server';
 const REDIS = 'redis';
+/** The firmware the generated `BEAN-THERE-WIFI` gateway runs. */
+const GATEWAY_FIRMWARE = 'ddwrt-firmware';
 const DAY_MS = 86_400_000;
 
 /** An openssh release whose fix takes the longest the config allows, the release that
@@ -1822,15 +1864,40 @@ describe('apt list --upgradable', () => {
     });
   });
 
+  it("lists a gateway's firmware once its hole has landed, in the row every package gets", async () => {
+    // The firmware a router runs is read off the box the world generated, not named
+    // here: the vendor is the gateway's own draw, and the row has to carry its name.
+    const [firmware, version] =
+      [...parseDpkgVersions(readDpkgStatus(buildApGatewayBaseFs('BEAN-THERE-WIFI')))].find(
+        ([pkg]) => pkg.endsWith('-firmware'),
+      ) ?? [];
+    if (firmware === undefined || version === undefined) throw new Error('the gateway names no firmware');
+    const release = packageTimeline(firmware, 400)[0];
+    if (release === undefined) throw new Error(`${firmware} has no history`);
+    const shipsOn = release.publishedAt + release.patchDelay;
+    const status = upgradeStatusFor(firmware, version, shipsOn);
+    if (status.kind !== 'upgradable') throw new Error(`expected a shipped fix, got ${status.kind}`);
+
+    const { lines } = await listUpgradable(manifestBox({ [firmware]: version }, { gameDay: shipsOn }));
+
+    expect(lines).toEqual([
+      { kind: 'text', content: 'Listing...' },
+      {
+        kind: 'text',
+        content: `  ${firmware} ${version} [${release.cve} ${release.severity} · upgradable → ${status.target}]`,
+      },
+    ]);
+  });
+
   it('leaves out every package that needs nothing, rather than listing it as fine', async () => {
     const { fix, shipsOn } = sshSlowFix();
     const env = manifestBox(
       {
         [SSH]: startingVersionOf(SSH)!,
-        // Past everything published, so up to date; and the router's firmware, which
-        // has no timeline a player moves along through apt.
+        // Past everything published, so up to date; and a package this world keeps
+        // no history for, which has nowhere to move.
         nginx: '999.0.0',
-        [FIRMWARE_PACKAGE]: '1.0.0',
+        metasploit: '1.0.0',
       },
       { gameDay: shipsOn },
     );
@@ -1844,6 +1911,20 @@ describe('apt list --upgradable', () => {
         content: `  ${SSH} ${startingVersionOf(SSH)} [${holeOf(SSH, startingVersionOf(SSH)!)} · upgradable → ${fix.version}]`,
       },
     ]);
+  });
+
+  it("counts down to a gateway firmware's fix in the words every package uses", async () => {
+    const release = packageTimeline(GATEWAY_FIRMWARE, 400)[0]!;
+
+    const { lines } = await listUpgradable(
+      manifestBox({ [GATEWAY_FIRMWARE]: release.version }, { gameDay: release.publishedAt }),
+    );
+
+    const days = release.patchDelay;
+    expect(lines[1]).toEqual({
+      kind: 'text',
+      content: `  ${GATEWAY_FIRMWARE} ${release.version} [${release.cve} ${release.severity} · no fix yet — ETA ~${days} day${days === 1 ? '' : 's'}]`,
+    });
   });
 
   it('says so in one line when nothing on the box needs a move', async () => {
@@ -1972,6 +2053,28 @@ describe('apt upgrade', () => {
     const [first, second] = fixedOn(gameDay).filter(({ pkg }) => pkg !== SSH);
     return { gameDay, waiting: vulnerable.version, first: first!, second: second! };
   };
+
+  it("moves a gateway's firmware onto the release that fixes it, after which list -u has nothing to say", async () => {
+    const release = packageTimeline(GATEWAY_FIRMWARE, 400)[0]!;
+    const gameDay = release.publishedAt + release.patchDelay;
+    const status = upgradeStatusFor(GATEWAY_FIRMWARE, release.version, gameDay);
+    if (status.kind !== 'upgradable') throw new Error(`expected a shipped fix, got ${status.kind}`);
+    const { env, writes } = upgradeBox(manifestOf({ [GATEWAY_FIRMWARE]: release.version }), { gameDay });
+
+    const { text, exitCode } = await upgrade(env);
+
+    const written = writes.find(({ path }) => path === DPKG_STATUS_PATH)?.content ?? '';
+    expect(parseDpkgVersions(written).get(GATEWAY_FIRMWARE)).toBe(status.target);
+    expect(text).toContain(`Setting up ${GATEWAY_FIRMWARE} (${status.target}) ...`);
+    expect(exitCode).toBe(0);
+    const after = await streamResult(
+      await apt.execute(upgradeBox(written, { gameDay }).env, ['list'], new Map([['-u', true]])),
+    );
+    expect(after.lines).toEqual([
+      { kind: 'text', content: 'Listing...' },
+      { kind: 'text', content: 'All packages are up to date.' },
+    ]);
+  });
 
   it('moves a package onto the release that fixes it, in the manifest of the box the player is standing on', async () => {
     const { fix, shipsOn } = sshSlowFix();

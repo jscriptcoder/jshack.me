@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  FIRMWARE_PACKAGE,
-  PACKAGE_TEMPLATES,
-  startingVersionOf,
-} from '../packages/packageVersions';
+import { PACKAGE_TEMPLATES, startingVersionOf } from '../packages/packageVersions';
 import { liveCve } from './liveCve';
 import {
   assertCveTimingInvariants,
@@ -22,6 +18,8 @@ import { WORLD_EPOCH } from './worldClock';
 
 const KEYS = Object.keys(PACKAGE_TEMPLATES);
 const SSH = 'openssh-server';
+/** A package this world keeps no history for. */
+const UNKNOWN = 'metasploit';
 /** Far past any package's first publication, so its CVE is certainly live. */
 const LATE = 1000;
 const DAY_MS = 86_400_000;
@@ -317,8 +315,8 @@ describe('what a box can upgrade to', () => {
     });
   });
 
-  it('has no timeline to offer for firmware, which a player does not move through apt', () => {
-    expect(upgradeStatusFor(FIRMWARE_PACKAGE, '1.0.0', LATE)).toEqual({ kind: 'no-timeline' });
+  it('has no timeline to offer for a package this world keeps no history for', () => {
+    expect(upgradeStatusFor(UNKNOWN, '1.0.0', LATE)).toEqual({ kind: 'no-timeline' });
   });
 
   it('offers nothing past the last release the walk will reach, rather than inventing one', () => {
@@ -365,7 +363,7 @@ describe('the release the repo holds today', () => {
   });
 
   it('is nothing at all for a package this world keeps no history for', () => {
-    expect(newestReleaseOn(FIRMWARE_PACKAGE, LATE)).toBeUndefined();
+    expect(newestReleaseOn(UNKNOWN, LATE)).toBeUndefined();
   });
 });
 
@@ -465,9 +463,9 @@ describe('the releases the repo will hand over by name', () => {
   });
 
   it('holds nothing for a package this world keeps no history for', () => {
-    // A router's firmware is not upgraded through apt, so there is no shelf to take a
-    // release off — naming any version of it is naming something that does not exist.
-    expect(repoHolds(FIRMWARE_PACKAGE, '1.0.0', LATE)).toBe(false);
+    // There is no shelf to take a release off — naming any version of it is naming
+    // something that does not exist.
+    expect(repoHolds(UNKNOWN, '1.0.0', LATE)).toBe(false);
   });
 });
 

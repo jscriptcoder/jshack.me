@@ -29,12 +29,7 @@ import {
   DPKG_STATUS_PERMISSIONS,
   formatDpkgStatus,
 } from './dpkgStatus';
-import {
-  FIRMWARE_PACKAGE,
-  startingFirmwareVersionOf,
-  startingVersionOf,
-  type FirmwareVendor,
-} from './packageVersions';
+import { firmwarePackageOf, startingVersionOf, type FirmwareVendor } from './packageVersions';
 import type { Directory } from '../filesystem/types';
 
 /** Where a box keeps the daemons it can run. */
@@ -59,13 +54,11 @@ const installedPackages = (
   const services = Object.values(SERVICE_CATALOG)
     .filter((spec) => daemons.has(daemonName(spec)))
     .map((spec) => spec.package);
-  const versioned = [...new Set([...services, ...SYSTEM_LIBRARIES])].flatMap((pkg) => {
+  const firmware = firmwareVendor === undefined ? [] : [firmwarePackageOf(firmwareVendor)];
+  return [...new Set([...services, ...SYSTEM_LIBRARIES, ...firmware])].flatMap((pkg) => {
     const version = startingVersionOf(pkg);
     return version === undefined ? [] : [[pkg, version] as const];
   });
-  return firmwareVendor === undefined
-    ? versioned
-    : [...versioned, [FIRMWARE_PACKAGE, startingFirmwareVersionOf(firmwareVendor)] as const];
 };
 
 /**
@@ -73,7 +66,7 @@ const installedPackages = (
  * never mutated.
  *
  * `firmwareVendor` is supplied only by the router-class generators; a workstation
- * or an NPC host has no firmware to name, and a `firmware` entry on one would
+ * or an NPC host has no firmware to name, and a firmware entry on one would
  * advertise an upgrade target that does not exist.
  */
 export const withPackageManifest = (
