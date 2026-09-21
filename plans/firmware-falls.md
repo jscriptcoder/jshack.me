@@ -6,7 +6,7 @@ epic's `### Slice 9 — resolved decisions (grilling, 2026-09-21)` section, deci
 Prior slice close-out: "Phase 3 slice 8 — libraries fall" (#519–#527, v0.235.0–v0.243.0).
 **This is the last V-series axis; it closes V4 and the phase.**
 
-**Status:** Active — not started. PR1 next.
+**Status:** Active — PR1 merged (#528, v0.244.0). PR2 next.
 
 **Delivery:** Four independent PRs, sequenced to trunk (NOT a stack), per the convention slices
 1–8 used. Each merges to `main`; the next branches from updated `main`. **PR1 and PR2 are
@@ -84,17 +84,17 @@ before anything can attack it — the same shape slices 1 and 2 used.
 **Decisions**: 81, plus the free downgrade consequence recorded in the routine list.
 
 **Acceptance criteria**
-- [ ] A generated router, switch, inner gateway, deep gateway and AP gateway each record
+- [x] A generated router, switch, inner gateway, deep gateway and AP gateway each record
       `<vendor>-firmware` in `/var/lib/dpkg/status` at that vendor's start tuple; a workstation and
       an NPC host record no firmware row at all.
-- [ ] `apt list -u` on a box holding firmware lists its row once the hole has landed, in the same
+- [x] `apt list -u` on a box holding firmware lists its row once the hole has landed, in the same
       `<pkg> <version> [<cve> <severity> · upgradable → <target>]` shape every other package uses,
       and the `no fix yet — ETA ~N days` form inside the patch delay.
-- [ ] `apt upgrade` moves the firmware version forward and the row clears.
-- [ ] `apt install <vendor>-firmware=<earlier release>` downgrades it; the same command on a box
+- [x] `apt upgrade` moves the firmware version forward and the row clears.
+- [x] `apt install <vendor>-firmware=<earlier release>` downgrades it; the same command on a box
       carrying no firmware refuses with the existing not-installed error.
-- [ ] `apt list` (the catalog) names no firmware package on any box.
-- [ ] `nmap -sV` output is byte-identical to today on every box, router-class included.
+- [x] `apt list` (the catalog) names no firmware package on any box.
+- [x] `nmap -sV` output is byte-identical to today on every box, router-class included.
 
 **RED**: `apt list -u` on a generated AP gateway at a game day past the vendor's first publication
 asserts the firmware row; fails today because `packageTimeline('firmware', …)` returns `[]` and
@@ -115,6 +115,14 @@ throwaway-config recipe. Expect survivors on the vendor rows — the same untest
 > off"*. Both tests should assert against the six vendor keys rather than the retired `'firmware'`
 > string. `packageTimeline.ts`'s `no-timeline` doc, which names a router's firmware as its example,
 > needs a new example.
+
+> **As built (#528):** firmware joined the one `PACKAGE_TEMPLATES` table instead of a second
+> lookup — that table was never the `apt list` catalog (the catalog is built from
+> `APT_PACKAGES` + `BASE_IMAGE_PACKAGES`), so the split decision 81 asks for already existed.
+> `startingFirmwareVersionOf` and `FIRMWARE_PACKAGE` are retired and `isFirmwarePackage` was
+> never needed, which answers the REFACTOR question: the two start lookups collapsed into one.
+> Mutation 87 killed / 29 survived; the firmware display-prefix survivors are left for PR4's
+> `sysDescr` tests to pin.
 
 ---
 
