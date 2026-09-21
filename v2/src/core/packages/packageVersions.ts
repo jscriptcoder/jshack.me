@@ -84,6 +84,12 @@ const FIRMWARE_PACKAGE_TEMPLATES: Readonly<Record<string, VersionTemplate>> = Ob
   FIRMWARE_VENDORS.map((vendor) => [firmwarePackageOf(vendor), FIRMWARE_TEMPLATES[vendor]]),
 );
 
+/** Whether `key` names a router's firmware image rather than a service or a library. The
+ *  one axis that answers to no port, so the exploit resolver spots it in the manifest —
+ *  there is no dialled port to name it — rather than being handed it by a scan. */
+export const isFirmwarePackage = (key: string): boolean =>
+  Object.hasOwn(FIRMWARE_PACKAGE_TEMPLATES, key);
+
 /** Every package that carries a version, across all three axes. */
 export const PACKAGE_TEMPLATES: Readonly<Record<string, VersionTemplate>> = {
   ...SERVICE_PACKAGE_TEMPLATES,

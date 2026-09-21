@@ -31,6 +31,17 @@ const SERIAL_SPACE = 100_000;
 
 export type CveSeverity = 'critical' | 'high' | 'medium' | 'low';
 
+/** Severity as a comparable rank, low to critical. The order every axis's winner-pick
+ *  reads — the library reduce over a command's linked libraries, and the resolver's
+ *  contest between a box's service hole and its firmware one — so what a scan forecasts
+ *  and what an exploit lands can never disagree about which hole is worse. */
+export const severityRank: Readonly<Record<CveSeverity, number>> = {
+  low: 0,
+  medium: 1,
+  high: 2,
+  critical: 3,
+};
+
 /**
  * How fast the treadmill turns, and how far each step moves. Every number that
  * paces the world is here, so retuning after playtest is a one-line change rather
