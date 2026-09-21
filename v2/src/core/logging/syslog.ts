@@ -9,6 +9,7 @@
  * Framework-agnostic (core/) — no I/O, no env.
  */
 
+import type { FilePermissions } from '../filesystem/types';
 import type { GameTime } from '../types';
 
 /** Shared with the access-log renderer, which needs the same month names in a
@@ -65,3 +66,12 @@ export const formatSyslogLine = ({
  *  (typically `env.now()`). There is no real process model — the pid is cosmetic
  *  syslog realism, so a stable hash of the seed is enough. */
 export const derivePid = (seed: number): number => 1000 + (Math.abs(Math.trunc(seed)) % 9000);
+
+/** `/var/log/syslog`'s tier: world-readable and root-write, the same as `auth.log` beside
+ *  it — once a player is on the box any account may read what the box logged, and only
+ *  the system writes it. */
+export const SYSLOG_PERMISSIONS: FilePermissions = {
+  read: ['root', 'user', 'guest'],
+  write: ['root'],
+  execute: ['root'],
+};

@@ -110,3 +110,29 @@ export const formatSshdAuthLine = (event: CredentialAttempt): string =>
         ? `Accepted password for ${event.user} from ${event.fromIp}`
         : `Failed password for ${event.user} from ${event.fromIp}`,
   });
+
+export type RootSessionEvent = {
+  readonly time: GameTime;
+  readonly hostname: string;
+  /** The program the session belongs to — `CRON` for a scheduled job, `sshd` for a login. */
+  readonly service: 'CRON' | 'sshd';
+  readonly pid: number;
+  readonly phase: 'opened' | 'closed';
+};
+
+/** Render the PAM line that brackets a root session. Root only, because these lines are
+ *  world-readable and root is the one account every box is known to have. */
+export const formatRootSessionLine = ({
+  time,
+  hostname,
+  service,
+  pid,
+  phase,
+}: RootSessionEvent): string =>
+  formatSyslogLine({
+    time,
+    hostname,
+    service,
+    pid,
+    message: `pam_unix(${service === 'CRON' ? 'cron' : 'sshd'}:session): session ${phase} for user root${phase === 'opened' ? '(uid=0) by (uid=0)' : ''}`,
+  });

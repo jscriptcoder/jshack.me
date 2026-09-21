@@ -71,6 +71,7 @@ import { nameServerFilesFor } from './generateDnsZone';
 import { roleOfHostname } from './pools/hostnames';
 import { buildNpcHome } from './npcHome';
 import { buildEtcContent } from './etcContent';
+import { buildLogHistory } from './logHistory';
 import { buildRootHome } from './rootHome';
 import { buildSshDirectories } from './sshContent';
 import { DEBIAN_BASH_LOGOUT, DEBIAN_BASHRC, DEBIAN_PROFILE } from './pools/homeSkeleton';
@@ -289,27 +290,23 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
   // `lib`, the second would REPLACE the first rather than merge with it — and a box
   // running both would silently lose whichever came first, which is a quarter of every
   // box named for a database.
+  const database = servesDatabase
+    ? generateDatabase({
+        seed: `mysql-db-${essid}-${host.ip}`,
+        hostname: host.hostname,
+        account: username,
+        role,
+      })
+    : null;
   const stateEntries = {
-    ...(servesDatabase
-      ? {
+    ...(database === null
+      ? {}
+      : {
           mysql: dir(
-            {
-              'data.json': file(
-                JSON.stringify(
-                  generateDatabase({
-                    seed: `mysql-db-${essid}-${host.ip}`,
-                    hostname: host.hostname,
-                    account: username,
-                    role,
-                  }),
-                ),
-                DATADIR_FILE,
-              ),
-            },
+            { 'data.json': file(JSON.stringify(database), DATADIR_FILE) },
             TRAVERSABLE_DIR,
           ),
-        }
-      : {}),
+        }),
     ...(redisService === undefined
       ? {}
       : {
@@ -340,28 +337,20 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
   // on every box would publish a directory nobody is listening on — and the
   // externally-readable allowlist covers `/var/www/**`, so absence here is what
   // keeps a non-serving host from exposing anything at all.
-  const webRoot = serves
-    ? {
-        www: dir(
-          {
-            html: dir(
-              {
-                'index.html': file(
-                  pickWebPage({
-                    role,
-                    seed: `web-page-${essid}-${host.ip}`,
-                    hostname: host.hostname,
-                  }),
-                  WEB_PAGE_FILE,
-                ),
-              },
-              TRAVERSABLE_DIR,
-            ),
-          },
-          TRAVERSABLE_DIR,
-        ),
-      }
-    : {};
+  const page = serves
+    ? pickWebPage({ role, seed: `web-page-${essid}-${host.ip}`, hostname: host.hostname })
+    : null;
+  const webRoot =
+    page === null
+      ? {}
+      : {
+          www: dir(
+            { html: dir({ 'index.html': file(page, WEB_PAGE_FILE) }, TRAVERSABLE_DIR) },
+            TRAVERSABLE_DIR,
+          ),
+        };
+
+  const etc = buildEtcContent({ essid, host, services, role });
 
   const logs: Readonly<Record<string, FileEntry>> = {
     'auth.log': file('', AUTH_LOG_PERMISSIONS),
@@ -391,6 +380,16 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
     // named.log is honest furniture on any name server: BIND opens it before
     // anyone has crossed the network to read the zone.
     ...(nameServer === null ? {} : { 'named.log': file('', NAMED_LOG_PERMISSIONS) }),
+    ...buildLogHistory({
+      essid,
+      host,
+      services,
+      crontab: etc.crontab.content,
+      fstab: etc.fstab.content,
+      page,
+      database,
+      isNameServer: nameServer !== null,
+    }),
   };
 
   // Root's history names what the box keeps: its configs, and the logs it writes.
@@ -408,7 +407,7 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
       boot: bootDir(),
       etc: dir(
         {
-          ...buildEtcContent({ essid, host, services, role }),
+          ...etc,
           passwd: file(passwd, PASSWD_FILE),
           ...(config === null ? {} : { [config.name]: file(config.content, SERVICE_CONFIG_FILE) }),
           // Under `/etc/bind` rather than loose in `/etc`, which is where a real bind9
