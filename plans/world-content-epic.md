@@ -3,15 +3,16 @@
 > **Picking this up cold?** Read "Locked decisions", then the slice table — it carries the live
 > status. The grounding section records what v2 held on the day this was grilled; the code wins
 > wherever the two disagree.
-> Grilled 2026-09-21 (`grilling`), 25 locked decisions. Slices 0–1 planned the same day in
-> [`a-workstation-reads-as-somebodys.md`](./a-workstation-reads-as-somebodys.md).
+> Grilled 2026-09-21 (`grilling`), 25 locked decisions. Slices 0–1 delivered (as-built below).
+> Slice 2 planned in [`a-box-admits-what-it-is.md`](./a-box-admits-what-it-is.md).
 
 **Where we are now (2026-09-21):** **v0.248.0**. The legacy-parity epic's V-series is closed and
 its next line was "the ship gate". **Ship now waits for this epic** (decision 1). Grilled to 25
 locked decisions and a twelve-slice spine. **Slices 0 and 1 are DONE** (#533, #534) — the build
 budgets and NPC workstation homes; their as-built is folded into the slice spine and the "As-built:
 slices 0–1" section below, and **decision 19 was amended at planning** (budget first, memoize on
-breach). **Slice 2 is next and not yet planned.**
+breach). **Slice 2 is planned** in [`a-box-admits-what-it-is.md`](./a-box-admits-what-it-is.md),
+with one owner decision taken at planning: the player workstation gains an empty `/home/guest`.
 
 ---
 
@@ -390,7 +391,7 @@ See below; planning refines it.
 |---|---|---|---|
 | 0 | **The world stays cheap to build and to ship** — the per-box build-time budget and the bundle size check, as a `postbuild` script (memoization deferred until a breach — amended decision 19) | `npm run build` prints both numbers against their ceilings and fails when either breaks | ✅ DONE (#533) — `scripts/checkBudgets.ts`; bundle ceiling 284,975 B, build ceiling 2 ms/box; enforced on local `npm run build` only (Vercel builds the frozen root app) |
 | 1 | **A workstation reads as somebody's** — network persona (ESSID category as data) + box inhabitant; a workstation's home gets dotfiles, a history true to its network, notes; the first variety test | `ssh` into an NPC workstation as its user → `ls -a ~` → `.bash_history` names a real neighbour that `nmap`/`ssh` reach; `.gitconfig` names the inhabitant | ✅ DONE (#534, v0.248.0) — see as-built below |
-| 2 | **A box admits what it is** — `/etc` breadth, `/root`, `/home/guest` | `/etc/hosts` lists real neighbours; `su` → `/root` holds root's history | ⏳ |
+| 2 | **A box admits what it is** — `/etc` breadth, `/root`, `/home/guest` | `/etc/hosts` lists real neighbours; `su` → `/root` holds root's history | 📝 PLANNED — `a-box-admits-what-it-is.md`; also takes `.ssh/` (assigned by slice 1's plan) and an empty `/home/guest` on the player box |
 | 3 | **A box remembers** — rotated `.1` log history across every role, plus `syslog` | `ls /var/log` shows `auth.log.1`; its last line is before 2026-07-12; the live `auth.log` holds only player traces | ⏳ |
 | 4 | **A web server serves a site** — three layers, lynx `<table>`/`<pre>`, the link-resolution property test | lynx follows links across pages; `robots.txt` names a served path; a default `gobuster` finds a hidden path | ⏳ |
 | 5 | **A database holds an application** — app archetypes | `SHOW TABLES` on a café network's DB shows a till schema whose staff are that network's inhabitants | ⏳ |
@@ -447,7 +448,8 @@ from `network-persona-<essid>`); `HOME_FILE` added to `baseFs.ts` for home files
   host serves.
 - How far `.2` rotations go, if at all.
 - Where each remaining file's permission constant comes from — reuse `baseFs.ts` constants (now
-  including `HOME_FILE`) or add the Debian-default few that are still missing.
+  including `HOME_FILE`) or add the Debian-default few that are still missing. Slice 2's plan
+  settles `/etc`, `/root`, `.ssh/` and `/home/guest`; later slices settle their own.
 - Whether the AP gateway's 5–10 files need their own serialized-size check.
 
 ## Status log
@@ -458,3 +460,7 @@ from `network-persona-<essid>`); `HOME_FILE` added to `baseFs.ts` for home files
   `desktop|laptop|workstation` overlay only — phones and tablets keep empty homes until slice 11.
 - **2026-09-21** — slices 0 (#533) and 1 (#534, v0.248.0) shipped; browser run recorded; slice plan
   retired into "As-built: slices 0–1" above and its file deleted. Next: slice 2 (not yet planned).
+- **2026-09-21** — slice 2 planned (`a-box-admits-what-it-is.md`, v0.249.0 target). Owner decision
+  at planning, touching decision 6: the player workstation gains an empty guest-tier `/home/guest`,
+  because every `/etc/passwd` names it and a guest session lands there. `.ssh/` taken into slice 2
+  as slice 1's plan assigned; gateways stay with slice 10.
