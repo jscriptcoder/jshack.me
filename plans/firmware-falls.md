@@ -6,7 +6,7 @@ epic's `### Slice 9 — resolved decisions (grilling, 2026-09-21)` section, deci
 Prior slice close-out: "Phase 3 slice 8 — libraries fall" (#519–#527, v0.235.0–v0.243.0).
 **This is the last V-series axis; it closes V4 and the phase.**
 
-**Status:** Active — PR1 merged (#528, v0.244.0). PR2 next.
+**Status:** Active — PR1 (#528, v0.244.0) and PR2 (#529, v0.245.0) merged. PR3 next.
 
 **Delivery:** Four independent PRs, sequenced to trunk (NOT a stack), per the convention slices
 1–8 used. Each merges to `main`; the next branches from updated `main`. **PR1 and PR2 are
@@ -139,17 +139,17 @@ effect branches; and the two local paths through `msfconsole --local`.
 **Decisions**: 84, and 85's uniformity falls out of it.
 
 **Acceptance criteria**
-- [ ] On a box carrying all three tiers, a `user`-tier outcome still lands on the `user` account —
+- [x] On a box carrying all three tiers, a `user`-tier outcome still lands on the `user` account —
       today's behaviour, unchanged.
-- [ ] On a root-only router, a `user`-tier outcome lands on **root**: an exploit that refuses today
+- [x] On a root-only router, a `user`-tier outcome lands on **root**: an exploit that refuses today
       opens a shell.
-- [ ] A box holding nobody at or above the granted tier still refuses, and the refusal is the same
+- [x] A box holding nobody at or above the granted tier still refuses, and the refusal is the same
       one a clean box gives.
-- [ ] The session's `userType` stays the **CVE's** tier, not the account's; the filesystem views
+- [x] The session's `userType` stays the **CVE's** tier, not the account's; the filesystem views
       for `file_read`, `dir_list`, `file_write` and `script_exec` stay at the CVE's tier too.
-- [ ] `password_reset` on a root-only router rewrites root's hash, and the granted plaintext still
+- [x] `password_reset` on a root-only router rewrites root's hash, and the granted plaintext still
       keys on the CVE's tier.
-- [ ] The rule is identical on all three call sites — remote, own-box `--local`, and cross-player
+- [x] The rule is identical on all three call sites — remote, own-box `--local`, and cross-player
       local elevate.
 
 **RED**: a `high`-severity service CVE fired at a generated AP gateway asserts a root shell; fails
@@ -166,6 +166,13 @@ call out, so the suite needs a case sitting **on** the tier as well as above and
 > reachable only once a rooted player has edited the file"* — false for every router-class box.
 > **Accepted cost to record in the code, not just here:** deleting a `user` account now promotes a
 > `user`-tier hole to root, so hardening by deleting accounts stops working.
+
+> **As built (#529):** one shared resolver `accountAtOrAbove(fs, tier)` in `passwdAccount.ts`
+> replaced the three exact-tier `.find` lookups across all three sites (remote
+> `exploitCreateSession`, own-box `msfconsole --local`, cross-player `exploitLocalElevate`). A
+> created file's owner follows the resolved account, not the bare tier word (option A), so a
+> user-tier write on a root-only router is owned by root. Mutation 29 killed / 0 survived (0
+> timeouts); all five exploit wire-checks green.
 
 ---
 
