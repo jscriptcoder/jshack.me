@@ -6,11 +6,12 @@
 > Grilled 2026-09-21 (`grilling`), 25 locked decisions. Slices 0–1 planned the same day in
 > [`a-workstation-reads-as-somebodys.md`](./a-workstation-reads-as-somebodys.md).
 
-**Where we are now (2026-09-21):** **v0.247.0**. The legacy-parity epic's V-series is closed and
+**Where we are now (2026-09-21):** **v0.248.0**. The legacy-parity epic's V-series is closed and
 its next line was "the ship gate". **Ship now waits for this epic** (decision 1). Grilled to 25
-locked decisions and a twelve-slice spine. **Slices 0 and 1 are PLANNED** in
-[`a-workstation-reads-as-somebodys.md`](./a-workstation-reads-as-somebodys.md) (PR0 the build
-guards, PR1 a workstation's home); **decision 19 was amended at planning** (below). PR0 is next.
+locked decisions and a twelve-slice spine. **Slices 0 and 1 are DONE** (#533, #534) — the build
+budgets and NPC workstation homes; their as-built is folded into the slice spine and the "As-built:
+slices 0–1" section below, and **decision 19 was amended at planning** (budget first, memoize on
+breach). **Slice 2 is next and not yet planned.**
 
 ---
 
@@ -387,8 +388,8 @@ See below; planning refines it.
 
 | # | Slice | Observable | Status |
 |---|---|---|---|
-| 0 | **The world stays cheap to build and to ship** — the per-box build-time budget and the bundle size check, as a `postbuild` script (memoization deferred until a breach — amended decision 19) | `npm run build` prints both numbers against their ceilings and fails when either breaks | 📋 PLANNED — PR0 of `a-workstation-reads-as-somebodys.md` |
-| 1 | **A workstation reads as somebody's** — network persona (ESSID category as data) + box inhabitant; a workstation's home gets dotfiles, a history true to its network, notes; the first variety test | `ssh` into an NPC workstation as its user → `ls -a ~` → `.bash_history` names a real neighbour that `nmap`/`ssh` reach; `.gitconfig` names the inhabitant | 📋 PLANNED — PR1 of `a-workstation-reads-as-somebodys.md` (v0.248.0) |
+| 0 | **The world stays cheap to build and to ship** — the per-box build-time budget and the bundle size check, as a `postbuild` script (memoization deferred until a breach — amended decision 19) | `npm run build` prints both numbers against their ceilings and fails when either breaks | ✅ DONE (#533) — `scripts/checkBudgets.ts`; bundle ceiling 284,975 B, build ceiling 2 ms/box; enforced on local `npm run build` only (Vercel builds the frozen root app) |
+| 1 | **A workstation reads as somebody's** — network persona (ESSID category as data) + box inhabitant; a workstation's home gets dotfiles, a history true to its network, notes; the first variety test | `ssh` into an NPC workstation as its user → `ls -a ~` → `.bash_history` names a real neighbour that `nmap`/`ssh` reach; `.gitconfig` names the inhabitant | ✅ DONE (#534, v0.248.0) — see as-built below |
 | 2 | **A box admits what it is** — `/etc` breadth, `/root`, `/home/guest` | `/etc/hosts` lists real neighbours; `su` → `/root` holds root's history | ⏳ |
 | 3 | **A box remembers** — rotated `.1` log history across every role, plus `syslog` | `ls /var/log` shows `auth.log.1`; its last line is before 2026-07-12; the live `auth.log` holds only player traces | ⏳ |
 | 4 | **A web server serves a site** — three layers, lynx `<table>`/`<pre>`, the link-resolution property test | lynx follows links across pages; `robots.txt` names a served path; a default `gobuster` finds a hidden path | ⏳ |
@@ -400,18 +401,53 @@ See below; planning refines it.
 | 10 | **A gateway knows its network** — DHCP leases, config backups, admin pages, admin/firmware history | a rooted router's lease table lists exactly the network's generated hosts | ⏳ |
 | 11 | **A phone is a phone** — phone/tablet overlay | an NPC `android-` home holds `DCIM/` and `Download/`, not dotfiles | ⏳ |
 
+## As-built: slices 0–1 (delivered 2026-09-21)
+
+Retired here from `a-workstation-reads-as-somebodys.md` on close-out.
+
+**Slice 0 — build budgets (#533).** `v2/scripts/checkBudgets.ts` runs as `postbuild` and fails the
+build on either breach: the gzipped main chunk over **284,975 B** (134,975 baseline + the 150 KB
+allowance) or the 50 catalog networks averaging over **2 ms per box** (615 boxes, ~0.15 ms measured)
+through `generatedBaseFsForMachineId` plus the AP gateway direct. It is a script, not a vitest test,
+so Stryker's dry run never trips on a wall-clock assertion. **Only local `npm run build` enforces
+it** — the Vercel project builds the frozen repo root, so no deploy runs it. Conventions §3 names it.
+No memoization was needed (amended decision 19 held).
+
+**Slice 1 — NPC workstation homes (#534, v0.248.0).**
+- New: `generation/persona.ts` (`networkPersona` — category/place/`.lan` domain, seeded for
+  uncatalogued ESSIDs; `inhabitant` — full name fitting the username + email on the domain),
+  `generation/npcHome.ts` (`buildNpcHome`, wired into `buildRemoteHostFs`; exported pure
+  `machineCommandOptions`), and pools `essidCatalog.ts`, `people.ts`, `homeSkeleton.ts`,
+  `homeNotes.ts` (84 note templates, 12/category), `homeHistory.ts` (150+ line templates).
+  `npcUsername` extracted from `buildRemoteHostFs`; `HOME_FILE` added to `baseFs.ts`.
+- Homes go to `desktop|laptop|workstation` NPC boxes on every layer: `.bashrc`/`.profile`/
+  `.bash_logout`/`.bash_history`/`.gitconfig` + `notes/` (2–5). Phones, tablets, all other roles and
+  the player's box keep empty homes. Deep desktops get a home but name no neighbour (byte-stable
+  regardless of a hanging child). History network lines name real neighbours in v2 syntax; gateways
+  by IP only.
+- Three new streams: `network-persona-<essid>`, `inhabitant-<essid>-<ip>`, `home-content-<essid>-<ip>`.
+  No existing pin moved; `crackableEssidPool` derives from `ESSID_CATALOG` in the exact scan order
+  (pinned by test). Variety measured 100% distinct across the 41 catalog desktops. Bundle +9.9 KB.
+- Mutation: scoped battery on `persona.ts`+`npcHome.ts`; selection-logic survivors hand-verified
+  killed (Stryker mis-attributes this file's property tests); remaining survivors are pool/flavour
+  text and equivalent mutants. Played via `v2-e2e`: cracked BEAN-THERE-WIFI, `ssh` to laptop-74 as
+  tnguyen (Tomas Nguyen), replayed `curl http://nginx-229.bean-there-wifi.lan/` — the neighbour
+  answered.
+
+**Resolved from "Open for planning":** the variety numbers (98% histories / 90% notes across the
+catalog; no within-network duplicate history/gitconfig/note); the build-time budget number (2 ms/box);
+the persona data shapes (`EssidCatalogEntry` = essid/category/place; procedural ESSIDs seed a category
+from `network-persona-<essid>`); `HOME_FILE` added to `baseFs.ts` for home files.
+
 ## Open for planning (named, deliberately not decided)
 
-- The variety test's numbers (decision 17) and the build-time budget's number (decision 19).
-- The persona data shapes: the ESSID-category record, the organisation/inhabitant fields, and how
-  a procedural ESSID template will carry its category.
 - The memoization key and cache bound on each end (client, serverless instance), and whether the
-  derived network population is memoized alongside the tree.
+  derived network population is memoized alongside the tree — only if the build-time budget breaks.
 - Which archetypes exist and which (role, prefix, persona) picks each; how many dirlist paths a web
   host serves.
 - How far `.2` rotations go, if at all.
-- Where each file's permission constant comes from — reuse `baseFs.ts` constants or add the
-  Debian-default few that are missing.
+- Where each remaining file's permission constant comes from — reuse `baseFs.ts` constants (now
+  including `HOME_FILE`) or add the Debian-default few that are still missing.
 - Whether the AP gateway's 5–10 files need their own serialized-size check.
 
 ## Status log
@@ -420,3 +456,5 @@ See below; planning refines it.
 - **2026-09-21** — slices 0–1 planned (`a-workstation-reads-as-somebodys.md`); decision 19
   amended on measurement (budget first, memoize on breach). Slice 1 targets the
   `desktop|laptop|workstation` overlay only — phones and tablets keep empty homes until slice 11.
+- **2026-09-21** — slices 0 (#533) and 1 (#534, v0.248.0) shipped; browser run recorded; slice plan
+  retired into "As-built: slices 0–1" above and its file deleted. Next: slice 2 (not yet planned).
