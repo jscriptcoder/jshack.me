@@ -246,3 +246,143 @@ describe('the links a page offers', () => {
     expect(asLines(html)).toEqual(['go nowhere [1]ok']);
   });
 });
+
+describe('a table on a page', () => {
+  it('shows one line per row, each column padded to its widest cell with two spaces between', () => {
+    const html =
+      '<body><table>' +
+      '<tr><th>Item</th><th>Price</th><th>Size</th></tr>' +
+      '<tr><td>Flat white</td><td>3</td><td>small</td></tr>' +
+      '<tr><td>Tea</td><td>12</td><td>large</td></tr>' +
+      '</table></body>';
+
+    expect(asLines(html)).toEqual([
+      'Item        Price  Size',
+      'Flat white  3      small',
+      'Tea         12     large',
+    ]);
+  });
+
+  it('sets a table apart from the text around it, as a block', () => {
+    const html = '<body><p>before</p><table><tr><td>a</td><td>b</td></tr></table>after</body>';
+
+    expect(asLines(html)).toEqual(['before', '', 'a  b', '', 'after']);
+  });
+
+  it('reads through thead, tbody and tfoot to the rows inside them, in order', () => {
+    const html =
+      '<body><table><thead><tr><th>Day</th><th>Open</th></tr></thead>' +
+      '<tbody><tr><td>Mon</td><td>8-18</td></tr></tbody>' +
+      '<tfoot><tr><td>Sun</td><td>closed</td></tr></tfoot></table></body>';
+
+    expect(asLines(html)).toEqual(['Day  Open', 'Mon  8-18', 'Sun  closed']);
+  });
+
+  it('shows a caption on its own line above the rows', () => {
+    const html =
+      '<body><table><caption>Opening hours</caption><tr><td>Mon</td><td>8-18</td></tr></table></body>';
+
+    expect(asLines(html)).toEqual(['Opening hours', 'Mon  8-18']);
+  });
+
+  it('leaves a short row short, without failing on the cells it lacks', () => {
+    const html =
+      '<body><table><tr><td>one</td><td>two</td><td>three</td></tr><tr><td>alone</td></tr></table></body>';
+
+    expect(asLines(html)).toEqual(['one    two  three', 'alone']);
+  });
+
+  it('collapses the whitespace inside a cell and keeps a break in it on the same row', () => {
+    const html = '<body><table><tr><td>  two\n  words </td><td>a<br>b</td></tr></table></body>';
+
+    expect(asLines(html)).toEqual(['two words  a b']);
+  });
+
+  it('shows a table inside a wrapper the same way', () => {
+    const html = '<body><div><table><tr><td>a</td><td>b</td></tr></table></div></body>';
+
+    expect(asLines(html)).toEqual(['a  b']);
+  });
+
+  it('shows a table inside a list item under the item, at its indent', () => {
+    const html =
+      '<body><ul><li>Rota<table><tr><td>Mon</td><td>Ana</td></tr><tr><td>Tuesday</td><td>Joe</td></tr></table></li></ul></body>';
+
+    expect(asLines(html)).toEqual(['  * Rota', '    Mon      Ana', '    Tuesday  Joe']);
+  });
+
+  it('numbers the links in its cells row by row, and pads each column to the numbered text', () => {
+    const html =
+      '<body><table>' +
+      '<tr><td><a href="/menu.html">Menu</a></td><td>food</td></tr>' +
+      '<tr><td>Hours</td><td><a href="/hours.html">when</a></td></tr>' +
+      '</table></body>';
+    const lines = renderPage({ html, url: PAGE_URL });
+
+    expect(asLines(html)).toEqual(['[1]Menu  food', 'Hours    [2]when']);
+    expect(lines.flat().filter((segment) => segment.kind === 'link')).toEqual([
+      { kind: 'link', text: '[1]Menu', url: 'http://192.168.1.5/menu.html', index: 1 },
+      { kind: 'link', text: '[2]when', url: 'http://192.168.1.5/hours.html', index: 2 },
+    ]);
+  });
+
+  it('aligns each table on its own widths, not on another table on the same page', () => {
+    const html =
+      '<body><table><tr><td>a-very-long-cell</td><td>x</td></tr></table>' +
+      '<table><tr><td>b</td><td>y</td></tr></table></body>';
+
+    expect(asLines(html)).toEqual(['a-very-long-cell  x', '', 'b  y']);
+  });
+});
+
+describe('preformatted text on a page', () => {
+  it('keeps its own line breaks and runs of spaces exactly', () => {
+    const html = '<body><pre>$ ssh admin@files\nPORT   STATE\n22     open</pre></body>';
+
+    expect(asLines(html)).toEqual(['$ ssh admin@files', 'PORT   STATE', '22     open']);
+  });
+
+  it('keeps a blank line inside the block, but drops blank lines at its edges', () => {
+    const html = '<body><p>before</p><pre>\n\nfirst\n\nsecond\n\n</pre><p>after</p></body>';
+
+    expect(asLines(html)).toEqual(['before', '', 'first', '', 'second', '', 'after']);
+  });
+
+  it('keeps two blank lines in a row inside the block, as written', () => {
+    expect(asLines('<body><pre>a\n\n\nb</pre></body>')).toEqual(['a', '', '', 'b']);
+  });
+
+  it('keeps the indentation a line opens with', () => {
+    expect(asLines('<body><pre>{\n  "status": "ok"\n}</pre></body>')).toEqual([
+      '{',
+      '  "status": "ok"',
+      '}',
+    ]);
+  });
+
+  it('numbers a link inside it and keeps the text around the link as written', () => {
+    const html = '<body><pre>see  <a href="/old/">old/</a>   2026-07-01</pre></body>';
+    const lines = renderPage({ html, url: PAGE_URL });
+
+    expect(asLines(html)).toEqual(['see  [1]old/   2026-07-01']);
+    expect(lines.flat().filter((segment) => segment.kind === 'link')).toEqual([
+      { kind: 'link', text: '[1]old/', url: 'http://192.168.1.5/old/', index: 1 },
+    ]);
+  });
+
+  it('still hides what a script inside it contains, and shows an entity as its character', () => {
+    expect(asLines('<body><pre>a &lt; b<script>x()</script></pre></body>')).toEqual(['a < b']);
+  });
+
+  it('breaks the line where a br sits inside it', () => {
+    expect(asLines('<body><pre>one<br>two</pre></body>')).toEqual(['one', 'two']);
+  });
+
+  it('shows a block inside a list item under the item, at its indent', () => {
+    expect(asLines('<body><ul><li>Run:<pre>make\n  install</pre></li></ul></body>')).toEqual([
+      '  * Run:',
+      '    make',
+      '      install',
+    ]);
+  });
+});

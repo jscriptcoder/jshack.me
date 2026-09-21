@@ -97,7 +97,8 @@ export const lynx: Command = {
     synopsis: 'lynx <url>',
     description:
       'Open a web page in a full-screen text browser. The page is rendered as readable text — ' +
-      'headings, paragraphs and lists — rather than as the markup `curl` prints, so comments ' +
+      'headings, paragraphs, lists, tables in columns and preformatted text as written — ' +
+      'rather than as the markup `curl` prints, so comments ' +
       'and scripts are not shown. Links are numbered: use the arrow keys to select one and ' +
       'Enter to follow it, and Left Arrow or Backspace to go back. Press q or Escape to return ' +
       'to the terminal. Reaches hosts on your own network, including your own address once you ' +
