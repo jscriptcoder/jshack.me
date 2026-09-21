@@ -189,11 +189,7 @@ const renderPreformatted = (pre: Element, base: string): readonly Line[] => {
   );
   const first = lines.findIndex((line) => !isBlank(line));
   const last = lines.findLastIndex((line) => !isBlank(line));
-  return lines
-    .slice(first, last + 1)
-    .map((line) =>
-      isBlank(line) ? [text('')] : line.filter((piece) => piece.kind === 'link' || piece.text !== ''),
-    );
+  return lines.slice(first, last + 1).map((line) => (isBlank(line) ? [text('')] : line));
 };
 
 /** One cell's content as a single run of pieces: a cell is one slot in a row, so a
@@ -386,23 +382,23 @@ const tableOf = (line: readonly (Segment | CellStart)[]): Element | null =>
  * The last cell of a row needs no padding after it, but still counts toward its
  * column's width, so a longer cell in a short row pushes the next column out for
  * every row.
+ *
+ * A line that is not a row needs no case of its own: it has no cells, so it measures
+ * nothing and lays out as its prefix — which is the whole line.
  */
 const aligned = (lines: readonly (readonly (Segment | CellStart)[])[]): readonly RenderedLine[] => {
   const widths = lines.reduce((found, line) => {
     const table = tableOf(line);
-    if (table === null) return found;
     const known = found.get(table) ?? [];
     const cells = rowOf(line).cells.map(widthOf);
     const longest = Array.from({ length: Math.max(known.length, cells.length) }, (_, column) =>
       Math.max(known[column] ?? 0, cells[column] ?? 0),
     );
     return new Map(found).set(table, longest);
-  }, new Map<Element, readonly number[]>());
+  }, new Map<Element | null, readonly number[]>());
 
   return lines.map((line) => {
-    const table = tableOf(line);
-    if (table === null) return line.filter((piece): piece is Segment => piece.kind !== 'cell');
-    const columns = widths.get(table) ?? [];
+    const columns = widths.get(tableOf(line)) ?? [];
     const { prefix, cells } = rowOf(line);
     const laidOut = cells.flatMap((cell, column): readonly Segment[] => {
       const isLast = column === cells.length - 1;

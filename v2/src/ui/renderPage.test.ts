@@ -298,6 +298,38 @@ describe('a table on a page', () => {
     expect(asLines(html)).toEqual(['two words  a b']);
   });
 
+  it('closes up two breaks in a row inside a cell to a single space', () => {
+    expect(asLines('<body><table><tr><td>a<br><br>b</td><td>c</td></tr></table></body>')).toEqual([
+      'a b  c',
+    ]);
+  });
+
+  it('leaves no padding after a row whose last cells are empty', () => {
+    const html =
+      '<body><table><tr><td>a</td><td></td></tr><tr><td>bb</td><td>c</td></tr></table></body>';
+
+    expect(asLines(html)).toEqual(['a', 'bb  c']);
+  });
+
+  it('hands the browser a row as plain text runs and the links inside it, nothing else', () => {
+    const html =
+      '<body><table><tr><td>Menu</td><td><a href="/menu.html">see</a></td></tr>' +
+      '<tr><td>Opening</td><td>8-18</td></tr></table></body>';
+
+    expect(renderPage({ html, url: PAGE_URL })).toEqual([
+      [
+        { kind: 'text', text: 'Menu' },
+        { kind: 'text', text: '     ' },
+        { kind: 'link', text: '[1]see', url: 'http://192.168.1.5/menu.html', index: 1 },
+      ],
+      [
+        { kind: 'text', text: 'Opening' },
+        { kind: 'text', text: '  ' },
+        { kind: 'text', text: '8-18' },
+      ],
+    ]);
+  });
+
   it('shows a table inside a wrapper the same way', () => {
     const html = '<body><div><table><tr><td>a</td><td>b</td></tr></table></div></body>';
 
@@ -309,6 +341,14 @@ describe('a table on a page', () => {
       '<body><ul><li>Rota<table><tr><td>Mon</td><td>Ana</td></tr><tr><td>Tuesday</td><td>Joe</td></tr></table></li></ul></body>';
 
     expect(asLines(html)).toEqual(['  * Rota', '    Mon      Ana', '    Tuesday  Joe']);
+  });
+
+  it('keeps two tables in two list items on their own grids', () => {
+    const html =
+      '<body><ul><li>A<table><tr><td>a-long-cell</td><td>x</td></tr></table></li>' +
+      '<li>B<table><tr><td>b</td><td>y</td></tr></table></li></ul></body>';
+
+    expect(asLines(html)).toEqual(['  * A', '    a-long-cell  x', '  * B', '    b  y']);
   });
 
   it('numbers the links in its cells row by row, and pads each column to the numbered text', () => {
@@ -346,6 +386,14 @@ describe('preformatted text on a page', () => {
     const html = '<body><p>before</p><pre>\n\nfirst\n\nsecond\n\n</pre><p>after</p></body>';
 
     expect(asLines(html)).toEqual(['before', '', 'first', '', 'second', '', 'after']);
+  });
+
+  it('drops an edge line that holds only spaces, as it drops an empty one', () => {
+    expect(asLines('<body><pre>   \nfirst\n  \t\n</pre></body>')).toEqual(['first']);
+  });
+
+  it('keeps a link whose text is empty, even when it is all the block holds', () => {
+    expect(asLines('<body><pre><a href="/x.html"></a></pre></body>')).toEqual(['[1]']);
   });
 
   it('keeps two blank lines in a row inside the block, as written', () => {
