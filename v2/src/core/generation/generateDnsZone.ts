@@ -140,12 +140,16 @@ const TTL_SECONDS = 3600;
  *  than be clipped — a truncated name would be a lie about what the host is called. */
 const NAME_COLUMN = 15;
 
+/** The zone's edition. One value for every zone, since nothing in the game has ever
+ *  edited one; the name server's log names it when the zone loads. */
+export const ZONE_SERIAL = 2024030101;
+
 /** The SOA's five timers, in the order the record fixes them. A serial a secondary
  *  compares, then how often to ask, how soon to retry, when to give up, and how long a
  *  negative answer keeps. Values a plausible home zone would carry; nothing in the game
  *  acts on them, and a zone missing one is a zone a real resolver rejects. */
 const SOA_TIMERS: readonly { readonly value: number; readonly label: string }[] = [
-  { value: 2024030101, label: 'serial' },
+  { value: ZONE_SERIAL, label: 'serial' },
   { value: TTL_SECONDS, label: 'refresh' },
   { value: 1800, label: 'retry' },
   { value: 604800, label: 'expire' },

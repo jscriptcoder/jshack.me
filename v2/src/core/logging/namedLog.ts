@@ -87,3 +87,24 @@ export const formatNamedXfrLine = ({
     ? `${head}transfer of '${zone}/IN': AXFR ended: ${outcome.records} records`
     : `${head}zone transfer '${zone}/IN' denied`;
 };
+
+/** Render the `rndc` command an admin sent the daemon, as BIND records receiving it. */
+export const formatNamedControlLine = ({
+  time,
+  command,
+}: {
+  readonly time: GameTime;
+  readonly command: string;
+}): string => `${formatNamedTimestamp(time)} received control channel command '${command}'`;
+
+/** Render a zone going live, naming the serial the zone file carries — the number a
+ *  secondary compares, and the one line that says which edition of the zone is served. */
+export const formatNamedZoneLoadedLine = ({
+  time,
+  zone,
+  serial,
+}: {
+  readonly time: GameTime;
+  readonly zone: string;
+  readonly serial: number;
+}): string => `${formatNamedTimestamp(time)} zone ${zone}/IN: loaded serial ${serial}`;

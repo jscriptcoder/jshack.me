@@ -96,3 +96,15 @@ export const formatSegfaultLine = ({
   pid,
 }: SegfaultLogEvent): string =>
   `${formatSyslogTimestamp(time)} ${hostname} kernel: ${command}[${pid}]: segfault at 0 ip 0000000000000000 sp 0000000000000000 error 4 in ${library}.so`;
+
+/** Render one line the kernel writes on its own account — a boot message — in the same
+ *  pid-less `kernel:` shape as the iptables and reboot lines above. */
+export const formatKernelLine = ({
+  time,
+  hostname,
+  message,
+}: {
+  readonly time: GameTime;
+  readonly hostname: string;
+  readonly message: string;
+}): string => `${formatSyslogTimestamp(time)} ${hostname} kernel: ${message}`;

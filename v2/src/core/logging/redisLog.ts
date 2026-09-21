@@ -117,3 +117,18 @@ export const formatRedisExploitLine = (event: ExploitEvent): string =>
   event.outcome === 'success'
     ? `${event.pid}:M ${formatRedisTimestamp(event.time)} * Client ${event.fromIp} exploited ${event.cve}; shell opened as ${event.user}`
     : `${event.pid}:M ${formatRedisTimestamp(event.time)} # Client ${event.fromIp} exploit attempt failed`;
+
+/** Render a notice the store writes about itself — a save, a background child finishing.
+ *  `M` is the daemon; `C` is the child it forks to write the snapshot, which real Redis
+ *  marks separately so a reader can tell whose pid is whose. */
+export const formatRedisNoticeLine = ({
+  pid,
+  process,
+  time,
+  message,
+}: {
+  readonly pid: number;
+  readonly process: 'M' | 'C';
+  readonly time: GameTime;
+  readonly message: string;
+}): string => `${pid}:${process} ${formatRedisTimestamp(time)} * ${message}`;

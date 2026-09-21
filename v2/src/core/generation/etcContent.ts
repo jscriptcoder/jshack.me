@@ -113,12 +113,22 @@ const motd = (prng: Prng, essid: string, host: LanHost): string => {
 };
 
 /** The `/etc` files this box keeps beside its accounts and role config, by name. */
+export type EtcContent = {
+  readonly hostname: FileEntry;
+  readonly hosts: FileEntry;
+  readonly 'resolv.conf': FileEntry;
+  readonly fstab: FileEntry;
+  readonly crontab: FileEntry;
+  readonly motd: FileEntry;
+};
+
+/** Build this box's `/etc` files. */
 export const buildEtcContent = (options: {
   readonly essid: string;
   readonly host: LanHost;
   readonly services: readonly HostService[];
   readonly role: DrawnRole | undefined;
-}): Readonly<Record<string, FileEntry>> => {
+}): EtcContent => {
   const { essid, host, services, role } = options;
   const prng = createPrng(`etc-content-${essid}-${host.ip}`);
   const onLan = isOnHomeLan(essid, host);
