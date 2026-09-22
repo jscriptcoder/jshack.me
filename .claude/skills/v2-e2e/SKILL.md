@@ -176,6 +176,51 @@ agent-browser keyboard type "airmon-ng start wlan0"; agent-browser press Enter
 Allow generous sleeps — `aircrack-ng` runs ~14 s of simulated key testing, `nmcli` and `nmap` pace
 their output deliberately.
 
+### Then: the data doors (`redis-cli`, `mysql`)
+
+Every one of these refuses in a way that reads like a broken feature. **Each door's usage string
+is the authority** — when a call is rejected, print it (`redis-cli` with no argument) or read the
+`USAGE` constant in `src/core/commands/<name>.ts` rather than trying flag spellings.
+
+| Trap | What actually works |
+|---|---|
+| `nmap 192.168.x.0/24` → `nmap: usage: ...` | CIDR is not a target. One host, or a range: `nmap 192.168.x.1-254` |
+| `redis-cli -h <ip>` → `unrecognized option: -h` | There are no `-h`/`-a` flags: `redis-cli [-p port] <host> [password]`, the password positional |
+| `mysql: command not found` | `apt install mysql` and `apt install redis` — the clients are not preinstalled, and neither is `nmap` |
+| `mysql -u root -p` | `mysql [-p port] <host> [user]`, then it prompts `Enter password:` on its own line |
+| `SELECT * FROM t WHERE id = 6;` → `ERROR 1064 (42000)` | **Quote every WHERE value and drop the semicolon**: `SELECT * FROM t WHERE id = '6'`. `CONDITION` is `/^(\w+)\s*=\s*'([^']*)'\s*$/` |
+| `SELECT ... LIMIT 3` → `ERROR 1064` | There is no `LIMIT`, `ORDER BY`, `JOIN` or operator but `=`; conditions join with `AND` only |
+
+Inside either door the prompt is `redis> ` / `mysql> `, so **a prompt poller that only matches
+`#`/`$` times out on every statement you send** (§2 covers this — match `>` too). Leave with
+`exit`.
+
+Redis speaks `AUTH`, `KEYS <glob>` (only `*` is a wildcard), `GET`, `DBSIZE`, `SET`, `DEL`. Every
+value is a string; structured ones are JSON. There is no `TTL`, `TYPE` or `SCAN`.
+
+**Getting in without cracking.** Both doors' secrets are seeded, so derive them per §6 rather than
+running `hydra` for minutes. The hashes come out md5; recover the plaintext by matching the pool:
+
+```ts
+import { drawDatabaseCredentials } from './src/core/generation/generateDatabase';
+import { drawStoreLock } from './src/core/generation/generateRedisStore';
+import { ALL_GENERATED_PASSWORDS } from './src/core/generation/passwordPools';
+import { md5 } from './src/core/generation/md5';
+
+const wanted = drawDatabaseCredentials(`mysql-db-${ESSID}-${IP}`); // and drawStoreLock(`redis-store-${ESSID}-${IP}`)
+for (const candidate of ALL_GENERATED_PASSWORDS) {
+  if (wanted.some((credential) => credential.passwordHash === md5(candidate))) console.log(candidate);
+}
+```
+
+A store whose `requirepassHash` is `null` is open and takes no `AUTH` at all. To pick a target
+before touching the browser, walk `generateHomeLan(essid).hosts`, keep the ones whose
+`hostServices(essid, host)` include redis (match `spec.service`, NOT `spec.name` — that is
+`undefined` and silently matches nothing), and read `storeIn(fs)` / `databaseIn(fs)`. Only a box
+carrying both lets you check a cached row against its `SELECT`. **Which networks a player can see
+is drawn from their own identity** (2–3 per scan), so choose the target AFTER the first
+`airodump-ng`, or re-scan to re-roll.
+
 ---
 
 ## 4. Recipe: shell on the AP gateway
