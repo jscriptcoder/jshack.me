@@ -148,7 +148,6 @@ const strangerOccupant = {
 
 const store = ownStore({
   ownerKeyHex: defender.publicKeyHex,
-  hostname: DEFENDER_HOSTNAME,
   fs: materializeWorkstationFs(defenderOccupant, []),
 });
 

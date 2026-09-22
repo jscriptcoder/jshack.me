@@ -471,7 +471,7 @@ describe('the store on your own box', () => {
   };
 
   const BASE = buildWorkstationBaseFs(asPlayerKeyHex(PUBKEY), CONFIG);
-  const STORE = ownStore({ ownerKeyHex: PUBKEY, hostname: CONFIG.machineName, fs: BASE });
+  const STORE = ownStore({ ownerKeyHex: PUBKEY, fs: BASE });
 
   const boxWith = (store: unknown, port: number = SERVICE_CATALOG.redis.defaultPort): Directory =>
     applyPatches(BASE, [

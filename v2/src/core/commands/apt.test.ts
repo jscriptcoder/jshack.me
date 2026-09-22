@@ -2658,15 +2658,6 @@ describe('the store a player buys', () => {
     ]);
   });
 
-  it('holds a store drawn for THIS player — two owners never share one', async () => {
-    const mine = await buyRedis({ ownerKey: OWNER_KEY });
-    const theirs = await buyRedis({ ownerKey: 'e'.repeat(64) });
-
-    expect(mine.store).not.toBeNull();
-    expect(theirs.store).not.toBeNull();
-    expect(theirs.datadir?.content).not.toBe(mine.datadir?.content);
-  });
-
   it('hands one player the same store however often they buy it', async () => {
     const first = await buyRedis();
     const second = await buyRedis();
@@ -2713,35 +2704,13 @@ describe('the store a player buys', () => {
     expect(locks).not.toContain(md5(CONFIG.rootPassword));
   });
 
-  it('draws its keys about the people the box really carries', async () => {
-    // A store's sessions, permissions and caches name somebody. On a generated box that
-    // is the box's own accounts, and a player's box is no different — keys about names
-    // nobody on the machine has ever heard of would read as somebody else's store.
-    const { datadir } = await buyRedis();
+  it('is a fresh install: it holds no keys', async () => {
+    // A new redis-server starts empty, and so does a player's. The player is the only
+    // person on their box, so a working set drawn for it would describe an application
+    // nobody there ever ran.
+    const { store } = await buyRedis();
 
-    expect(datadir?.content).toContain(CONFIG.username);
-  });
-
-  it('names guest on a box that carries no ordinary user at all', async () => {
-    // Which takes a root player editing their own `/etc/passwd`. `guest` is the one
-    // account every box keeps, so the keys still describe somebody who is really there
-    // rather than a name invented to fill them.
-    const tree = buildWorkstationBaseFs(asPlayerKeyHex(OWNER_KEY), CONFIG);
-    const view = createFsView(tree, { userType: 'root', cwd: () => asAbsPath('/') });
-    const passwd = view.stat(asAbsPath('/etc/passwd'));
-    const kept = (passwd !== null && passwd.kind === 'file' ? passwd.content : '')
-      .split('\n')
-      .filter((row) => !row.startsWith(`${CONFIG.username}:`))
-      .join('\n');
-    const userless = applyPatches(tree, [
-      { path: asAbsPath('/etc/passwd'), content: kept, owner: 'root', permissions: PASSWD_FILE },
-    ]);
-
-    const { datadir } = await buyRedis({ onto: userless });
-
-    expect(datadir?.content).toContain('guest');
-    expect(datadir?.content).not.toContain(CONFIG.username);
-    expect(datadir?.content).not.toContain('undefined');
+    expect(store?.keys).toEqual({});
   });
 
   it('publishes a conf that names the datadir and the port, and no secret', async () => {

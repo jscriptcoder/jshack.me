@@ -1098,8 +1098,13 @@ const defenderOccupant: NatOccupantRow = {
   workstation_username: 'neo',
   workstation_root_hash: md5(DEFENDER_ROOT_PW),
 };
-const DEFENDER_STORE = playerStoreOn(defenderOccupant);
-const DEFENDER_KEY = Object.keys(DEFENDER_STORE.keys)[0] ?? '';
+// A bought store starts empty, so the defender has set a key of their own since: the
+// value a caller reads back has to be one the defender put there.
+const DEFENDER_KEY = 'notes:todo';
+const DEFENDER_STORE = {
+  ...playerStoreOn(defenderOccupant),
+  keys: { [DEFENDER_KEY]: 'renew the certificate' },
+};
 
 const PUBLIC_PORT = 46379;
 const publicForward = patchRow(

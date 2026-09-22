@@ -115,6 +115,5 @@ export const deepStoreFixture = (want: { readonly locked: boolean }): DeepStoreF
 export const playerStoreOn = (occupant: NatOccupantRow): RedisStore =>
   ownStore({
     ownerKeyHex: occupant.owner_key,
-    hostname: occupant.workstation_machine_name,
     fs: materializeWorkstationFs(occupant, []),
   });

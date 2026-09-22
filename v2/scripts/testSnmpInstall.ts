@@ -161,7 +161,6 @@ const neighbourOccupant = {
 
 const store = ownStore({
   ownerKeyHex: owner.publicKeyHex,
-  hostname: OWNER_HOSTNAME,
   fs: materializeWorkstationFs(ownerOccupant, []),
 });
 

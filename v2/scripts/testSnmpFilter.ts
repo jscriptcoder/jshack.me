@@ -153,7 +153,6 @@ const DEFENDER_GUEST_PW = workstationGuestPassword(defender.publicKeyHex);
 
 const store = ownStore({
   ownerKeyHex: defender.publicKeyHex,
-  hostname: DEFENDER_HOSTNAME,
   fs: materializeWorkstationFs(defenderOccupant, []),
 });
 
