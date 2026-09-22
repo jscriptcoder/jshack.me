@@ -25,6 +25,7 @@ import { ALL_GENERATED_PASSWORDS } from '../../core/generation/passwordPools';
 import { SERVICE_CATALOG } from '../../core/services/serviceCatalog';
 import { md5 } from '../../core/generation/md5';
 import { parseMysqlDatabase, type MysqlDatabase } from '../../core/mysql/types';
+import { asEpochMs } from '../../core/types';
 import { ownDatabase } from '../../core/mysql/ownDatabase';
 import { materializeWorkstationFs } from '../../core/network/materializeWorkstationFs';
 import type { NatOccupantRow } from '../../core/network/resolvePublicTarget';
@@ -149,6 +150,9 @@ export const knownDatabaseCredential = (
 ): { readonly username: string; readonly password: string } =>
   knownDatabaseCredentialIn(databaseOn(essid, host), host.hostname);
 
+/** When a player's database was bought, for fixtures that need one to exist. */
+const INSTALLED_AT = asEpochMs(Date.UTC(2026, 8, 1, 10, 0, 0));
+
 /** A PLAYER's box that serves a database: the box rebuilt from the occupancy row the
  *  server holds, and the database `apt install mysql` writes onto it — drawn from their
  *  own key, so no two players hold the same one.
@@ -166,6 +170,7 @@ export const playerDatabaseOn = (
     ownerKeyHex: occupant.owner_key,
     hostname: occupant.workstation_machine_name,
     fs: materializeWorkstationFs(occupant, []),
+    installedAt: INSTALLED_AT,
   });
   return {
     database,

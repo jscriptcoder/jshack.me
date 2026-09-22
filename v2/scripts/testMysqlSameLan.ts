@@ -35,6 +35,7 @@ import { readOpenPorts } from '../src/core/services/pidfile';
 import { lanAddressFor } from '../src/core/network/lanAddress';
 import { materializeWorkstationFs } from '../src/core/network/materializeWorkstationFs';
 import { workstationGuestPassword } from '../src/core/generation/workstationFs';
+import { asEpochMs } from '../src/core/types';
 import { ownDatabase } from '../src/core/mysql/ownDatabase';
 import { DATADIR_PATH } from '../src/core/mysql/datadir';
 import { ALL_GENERATED_PASSWORDS } from '../src/core/generation/passwordPools';
@@ -159,6 +160,7 @@ const database = ownDatabase({
   ownerKeyHex: defender.publicKeyHex,
   hostname: DEFENDER_HOSTNAME,
   fs: materializeWorkstationFs(defenderOccupant, []),
+  installedAt: asEpochMs(Date.now()),
 });
 
 /** An account in it whose plaintext this script can recover by matching the pool the
