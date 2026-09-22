@@ -362,7 +362,11 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
   // A box named for the web publishes a whole site; any other box that serves one keeps
   // a single page. The two draw from different streams, so a site arriving on a
   // webserver moves no other box's page.
-  const site = serves && role === 'webserver' ? buildWebSite({ essid, host }) : null;
+  const webPort = services.find(({ spec }) => spec === SERVICE_CATALOG.http)?.port;
+  const site =
+    webPort !== undefined && role === 'webserver'
+      ? buildWebSite({ essid, host, port: webPort, database })
+      : null;
   const webFiles: ReadonlyMap<string, string> | null =
     site !== null
       ? site.files

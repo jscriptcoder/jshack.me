@@ -35,9 +35,15 @@ import {
   PORTAL_PAGES,
   SHARED_PAGES,
   SITE_PAGES,
+  DRAFT_NOTICES,
+  INTERNAL_PAGES,
+  NOTE_HEADINGS,
+  NOTE_LINES,
+  OLD_SITE_PAGES,
   type ApiEndpoint,
   type SitePage,
 } from './pools/webSites';
+import type { MysqlColumn, MysqlDatabase } from '../mysql/types';
 
 export type WebSite = {
   /** Every file the site publishes, keyed by its path beneath the document root. */
@@ -229,12 +235,197 @@ const htmlDocument = (options: {
   ].join('\n');
 };
 
+/** The words a site may keep unlinked, each a path the default list tries. */
+const HIDDEN_WORDS: readonly string[] = [
+  'old',
+  'staging',
+  'test',
+  'admin',
+  'dashboard',
+  'internal',
+  'notes.txt',
+  'todo.txt',
+  'readme.txt',
+  'status',
+  'health',
+  'server-status',
+  'metrics',
+  '.env',
+  'dump.sql',
+];
+
+/** The fewest and the most unlinked paths a site keeps. */
+const MIN_HIDDEN = 1;
+const MAX_HIDDEN = 4;
+
+/** The unlinked words served as a file rather than as a directory holding a page. */
+const STATUS_WORDS: readonly string[] = ['status', 'health', 'server-status', 'metrics'];
+
+const isDirectoryWord = (word: string): boolean =>
+  !word.includes('.') && !STATUS_WORDS.includes(word);
+
+/** How a request names an unlinked path — a directory by its trailing slash. */
+const requestPathOf = (word: string): string => (isDirectoryWord(word) ? `/${word}/` : `/${word}`);
+
+const hex = (prng: Prng, length: number): string =>
+  Array.from({ length }, () => prng.nextInt(0, 15).toString(16)).join('');
+
+const MYSQL_TYPES: Readonly<Record<MysqlColumn['type'], string>> = {
+  INT: 'int',
+  VARCHAR: 'varchar(255)',
+  TEXT: 'text',
+  DATETIME: 'datetime',
+  BOOLEAN: 'tinyint(1)',
+  FLOAT: 'float',
+};
+
+/** A `mysqldump --no-data` of the box's own database: every table and column it really
+ *  has, in its order, and not one row. */
+const schemaDump = (database: MysqlDatabase): string => {
+  const tables = Object.entries(database.tables).map(([table, { columns }]) => {
+    const lines = [
+      ...columns.map(
+        (column) =>
+          `  \`${column.name}\` ${MYSQL_TYPES[column.type]}${column.nullable ? ' DEFAULT NULL' : ' NOT NULL'}`,
+      ),
+      ...columns
+        .filter((column) => column.key === 'PRI')
+        .map((column) => `  PRIMARY KEY (\`${column.name}\`)`),
+      ...columns
+        .filter((column) => column.key === 'UNI')
+        .map((column) => `  UNIQUE KEY \`${column.name}\` (\`${column.name}\`)`),
+    ];
+    return [
+      `DROP TABLE IF EXISTS \`${table}\`;`,
+      `CREATE TABLE \`${table}\` (`,
+      lines.join(',\n'),
+      ') ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;',
+    ].join('\n');
+  });
+  return [
+    '-- MySQL dump',
+    '--',
+    `-- Host: localhost    Database: ${database.name}`,
+    '-- ------------------------------------------------------',
+    '',
+    tables.join('\n\n'),
+    '',
+    '-- Dump completed on 2026-07-02  3:00:01',
+    '',
+  ].join('\n');
+};
+
+const loginForm = (heading: string): string =>
+  [
+    `<h1>${heading}</h1>`,
+    '<form action="#" method="post">',
+    '<p>User <input name="user"></p>',
+    '<p>Password <input type="password" name="password"></p>',
+    '<p><input type="submit" value="Sign in"></p>',
+    '</form>',
+  ].join('\n');
+
+const plainPage = (site: string, body: string): string =>
+  ['<html>', `<head><title>${site}</title></head>`, '<body>', body, '</body>', '</html>'].join('\n');
+
+/** The paths a site keeps that no page links, by the file each is published as. */
+const hiddenFiles = (options: {
+  readonly prng: Prng;
+  readonly words: readonly string[];
+  readonly site: string;
+  readonly front: string;
+  readonly author: string;
+  readonly ownUrl: string;
+  readonly pages: readonly string[];
+  readonly database: MysqlDatabase | null;
+  readonly hostname: string;
+}): readonly (readonly [string, string])[] => {
+  const { prng, words, site, front, author, ownUrl, pages, database, hostname } = options;
+  return words.map((word): readonly [string, string] => {
+    const others = words.filter((other) => other !== word).map(requestPathOf);
+    switch (word) {
+      case 'old':
+        return ['old/index.html', plainPage(site, `<h1>${site}</h1>\n${prng.pick(OLD_SITE_PAGES)}`)];
+      case 'staging':
+      case 'test':
+        return [
+          `${word}/index.html`,
+          plainPage(site, `<h1>${site}</h1>\n${prng.pick(DRAFT_NOTICES)}\n${front}`),
+        ];
+      case 'admin':
+        return ['admin/index.html', plainPage(site, loginForm(`${site} — administration`))];
+      case 'dashboard':
+        return ['dashboard/index.html', plainPage(site, loginForm('Dashboard — sign in'))];
+      case 'internal':
+        return ['internal/index.html', plainPage(site, `<h1>Internal</h1>\n${prng.pick(INTERNAL_PAGES)}`)];
+      case 'notes.txt':
+      case 'todo.txt':
+      case 'readme.txt': {
+        const lines = NOTE_LINES.filter((line) => others.length > 0 || !line.includes('{hidden}'));
+        const notes = prng
+          .pickN(lines, prng.nextInt(2, 4))
+          .map((line) => `- ${fillSlots(line, { page: prng.pick(pages), hidden: prng.pick(others) })}`);
+        return [word, `${prng.pick(NOTE_HEADINGS)} — ${author}\n\n${notes.join('\n')}\n`];
+      }
+      case 'status':
+        return [word, `status: ok\nuptime: ${prng.nextInt(2, 180)} days\n`];
+      case 'health':
+        return [word, '{"status":"ok"}'];
+      case 'server-status':
+        return [
+          word,
+          [
+            `Server Status for ${hostname}`,
+            `Server uptime: ${prng.nextInt(2, 180)} days ${prng.nextInt(0, 23)} hours`,
+            `Total accesses: ${prng.nextInt(10_000, 900_000)}`,
+            `${prng.nextInt(1, 12)} requests currently being processed, ${prng.nextInt(2, 20)} idle workers`,
+            '',
+          ].join('\n'),
+        ];
+      case 'metrics':
+        return [
+          word,
+          [
+            '# HELP http_requests_total Requests served, by status.',
+            '# TYPE http_requests_total counter',
+            `http_requests_total{code="200"} ${prng.nextInt(10_000, 900_000)}`,
+            `http_requests_total{code="404"} ${prng.nextInt(100, 9_000)}`,
+            '# HELP process_open_fds Open file descriptors.',
+            '# TYPE process_open_fds gauge',
+            `process_open_fds ${prng.nextInt(8, 64)}`,
+            '',
+          ].join('\n'),
+        ];
+      case '.env':
+        return [
+          word,
+          [
+            'APP_ENV=production',
+            `APP_URL=${ownUrl}`,
+            `MAIL_API_KEY=key-${hex(prng, 32)}`,
+            `PAYMENT_PUBLIC_KEY=pk_live_${hex(prng, 24)}`,
+            `ANALYTICS_ID=G-${hex(prng, 10).toUpperCase()}`,
+            '',
+          ].join('\n'),
+        ];
+      default:
+        return [word, database === null ? '' : schemaDump(database)];
+    }
+  });
+};
+
 export const buildWebSite = ({
   essid,
   host,
+  port,
+  database,
 }: {
   readonly essid: string;
   readonly host: LanHost;
+  /** The port the box's web server answers on — part of the address the site calls its own. */
+  readonly port: number;
+  /** The database the box runs, or null; a site keeps a dump of it only when there is one. */
+  readonly database: MysqlDatabase | null;
 }): WebSite => {
   const prng = createPrng(`web-site-${essid}-${host.ip}`);
   const persona = networkPersona(essid);
@@ -258,6 +449,35 @@ export const buildWebSite = ({
     .map((page) => ({ file: page.file, title: page.title, body: prng.pick(page.bodies) }));
   const pages = [{ file: 'index.html', title: site, body: plan.front }, ...plan.fixed, ...drawn];
   const nav = navigation(pages);
+  const publicPaths = [
+    ...pages.map((page) => pathOf(page.file)),
+    ...plan.documents.map(({ file }) => `/${file}`),
+  ];
+
+  const served = new Set(publicPaths.map((path) => path.slice(1)));
+  // A box that runs a database always leaves its schema dump behind, among the rest:
+  // the one leak that points a reader at the next door.
+  const candidates = HIDDEN_WORDS.filter((word) => !served.has(word) && word !== 'dump.sql');
+  const count = prng.nextInt(MIN_HIDDEN, MAX_HIDDEN);
+  const words =
+    database === null
+      ? prng.pickN(candidates, count)
+      : ['dump.sql', ...prng.pickN(candidates, count - 1)];
+  const portSuffix = port === 80 ? '' : `:${port}`;
+  const ownUrl = isOnHomeLan(essid, host)
+    ? `http://${host.hostname}.${lanZoneName(essid)}${portSuffix}/`
+    : `http://${host.ip}${portSuffix}/`;
+  const hidden = hiddenFiles({
+    prng,
+    words,
+    site,
+    front: plan.front,
+    author,
+    ownUrl,
+    pages: pages.map((page) => pathOf(page.file)),
+    database,
+    hostname: host.hostname,
+  });
 
   return {
     files: new Map([
@@ -269,10 +489,11 @@ export const buildWebSite = ({
         document.file,
         fillSlots(document.body, slots),
       ]),
+      ...hidden.map(([file, content]): readonly [string, string] => [
+        file,
+        fillSlots(content, slots),
+      ]),
     ]),
-    publicPaths: [
-      ...pages.map((page) => pathOf(page.file)),
-      ...plan.documents.map(({ file }) => `/${file}`),
-    ],
+    publicPaths,
   };
 };

@@ -9,7 +9,17 @@ import { lanZoneName, resolveLanName } from '../network/resolveName';
 import { inhabitant, networkPersona } from './persona';
 import { asAbsPath } from '../types';
 import type { Directory } from '../filesystem/types';
-import { ALL_ESSIDS, deepBoxes, filesUnder, lanBoxes, type Box } from '../../test/worldContent';
+import {
+  ALL_ESSIDS,
+  deepBoxes,
+  filesUnder,
+  lanBoxes,
+  softwareVersionsIn,
+  type Box,
+} from '../../test/worldContent';
+import { DEFAULT_DIRLIST } from '../network/defaultDirlist';
+import { sweepWord } from '../network/webSweep';
+import { parseMysqlDatabase } from '../mysql/types';
 
 /**
  * A web server that serves a site: pages that link each other, read the way a player
@@ -254,7 +264,7 @@ describe('a site belongs to its kind of server', () => {
     expect(lies).toEqual([]);
   });
 
-  it('names no host in its text but a neighbour, and a deep box names none', () => {
+  it('names no host in its text but itself or a neighbour, and a deep box names only its address', () => {
     const strangers = servingBoxes(isWebserver).flatMap(({ box, tree }) => {
       const text = siteText(tree);
       const zone = lanZoneName(box.essid).replace('.', '\\.');
@@ -262,7 +272,12 @@ describe('a site belongs to its kind of server', () => {
         ([, name]) => name ?? '',
       );
       const addresses = text.match(/\b\d{1,3}(?:\.\d{1,3}){3}\b/g) ?? [];
-      const known = new Set(neighboursOf(box).flatMap((host) => [host.hostname, host.ip]));
+      const known = new Set(
+        [...neighboursOf(box), ...(isOnLan(box) ? [box.host] : [])].flatMap((host) => [
+          host.hostname,
+          host.ip,
+        ]),
+      );
       return [...names, ...addresses]
         .filter((named) => !known.has(named) && named !== box.host.ip)
         .map((named) => `${box.host.hostname}: ${named}`);
@@ -345,5 +360,135 @@ describe('a site is written by the people who live on its network', () => {
     );
     expect(named.length).toBeGreaterThan(50);
     expect([...new Set(named)].filter((name) => accounts.has(name))).toEqual([]);
+  });
+});
+
+/** The document-root files a reader never reaches by following links, keyed by the path a
+ *  request names them by — a directory's page by the directory. */
+const hiddenPaths = (built: Built): ReadonlyMap<string, string> => {
+  const reached = new Set([...crawl(built).keys()]);
+  return new Map(
+    [...webRootOf(built.tree)]
+      .map(([file, content]): readonly [string, string] => [
+        file === 'index.html'
+          ? ''
+          : file.endsWith('/index.html')
+            ? file.slice(0, -'/index.html'.length)
+            : file,
+        content,
+      ])
+      .filter(([path]) => !reached.has(`/${path}`) && !reached.has(`/${path}/`)),
+  );
+};
+
+const MONTHS = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+
+/** Every date a text states, written either way a page writes one. */
+const datesIn = (text: string): readonly string[] => [
+  ...(text.match(/\b\d{4}-\d{2}-\d{2}\b/g) ?? []),
+  ...[...text.matchAll(new RegExp(`\\b(\\d{1,2}) (${MONTHS.join('|')}) (\\d{4})\\b`, 'g'))].map(
+    ([, day, month, year]) =>
+      `${year}-${String(MONTHS.indexOf(month ?? '') + 1).padStart(2, '0')}-${(day ?? '').padStart(2, '0')}`,
+  ),
+];
+
+describe('a web server keeps paths nobody linked', () => {
+  it('serves every webserver 1 to 4 paths no page links, each on the default path list', () => {
+    const counts = servingBoxes(isWebserver).map((built) => {
+      const hidden = [...hiddenPaths(built).keys()];
+      expect(hidden.filter((path) => !DEFAULT_DIRLIST.includes(path))).toEqual([]);
+      return hidden.length;
+    });
+    expect(counts.filter((count) => count < 1 || count > 4)).toEqual([]);
+    expect(Math.min(...counts)).toBe(1);
+    expect(Math.max(...counts)).toBe(4);
+  });
+
+  it('lets a default sweep find something on every webserver that no page links', () => {
+    const empty = servingBoxes(isWebserver).filter((built) => {
+      const found = DEFAULT_DIRLIST.flatMap((word) => {
+        const { found: hit } = sweepWord(built.tree, word);
+        return hit === null ? [] : [word];
+      });
+      return found.filter((word) => !['index.html', 'robots.txt', 'sitemap.xml'].includes(word))
+        .length === 0;
+    });
+    expect(empty.map(({ box }) => box.host.hostname)).toEqual([]);
+  });
+
+  it('keeps a schema-only dump beside a database, and never without one', () => {
+    const webservers = servingBoxes(isWebserver);
+    const withDump = webservers.filter(({ tree }) => webRootOf(tree).has('dump.sql'));
+    expect(withDump.length).toBeGreaterThan(2);
+
+    const wrong = webservers.flatMap(({ box, tree }) => {
+      const dump = webRootOf(tree).get('dump.sql');
+      const datafile = createFsView(tree, { userType: 'root' }).read(
+        asAbsPath('/var/lib/mysql/data.json'),
+      );
+      const database = datafile.ok ? parseMysqlDatabase(datafile.content) : null;
+      if (dump === undefined) return [];
+      if (database === null) return [`${box.host.hostname} dumps a database it does not run`];
+      if (/INSERT/i.test(dump)) return [`${box.host.hostname} dumps rows`];
+      const dumped = [...dump.matchAll(/CREATE TABLE `([^`]+)` \(\n([\s\S]*?)\n\)/g)].map(
+        ([, table, body]) => ({
+          table,
+          columns: [...(body ?? '').matchAll(/^ {2}`([^`]+)`/gm)].map(([, column]) => column),
+        }),
+      );
+      const expected = Object.entries(database.tables).map(([table, { columns }]) => ({
+        table,
+        columns: columns.map(({ name }) => name),
+      }));
+      return JSON.stringify(dumped) === JSON.stringify(expected)
+        ? []
+        : [`${box.host.hostname} dumps a schema its database does not have`];
+    });
+    expect(wrong).toEqual([]);
+  });
+
+  it('keeps no database password in an .env, and names its own site in APP_URL', () => {
+    const envs = servingBoxes(isWebserver).flatMap((built) => {
+      const env = webRootOf(built.tree).get('.env');
+      return env === undefined ? [] : [{ built, env }];
+    });
+    expect(envs.length).toBeGreaterThan(2);
+
+    const wrong = envs.flatMap(({ built, env }) => {
+      const url = /^APP_URL=(.*)$/m.exec(env)?.[1];
+      const own = isOnLan(built.box)
+        ? `http://${built.box.host.hostname}.${lanZoneName(built.box.essid)}${built.port === 80 ? '' : `:${built.port}`}/`
+        : `${originOf(built)}/`;
+      return [
+        ...(url === own ? [] : [`${built.box.host.hostname} APP_URL ${url} is not ${own}`]),
+        ...env
+          .split('\n')
+          .filter((line) => /PASS|DB_/i.test(line))
+          .map((line) => `${built.box.host.hostname} ${line}`),
+      ];
+    });
+    expect(wrong).toEqual([]);
+  });
+});
+
+describe('everything a web server publishes is true of the world', () => {
+  it('quotes no version, fills every slot, and dates nothing after the world began', () => {
+    const faults = servingBoxes(() => true).flatMap(({ box, tree }) =>
+      [...webRootOf(tree)].flatMap(([file, content]) => [
+        ...softwareVersionsIn(content).map((version) => `version ${version}`),
+        ...(content.match(/\{\w+\}|\{\{|undefined|NaN/g) ?? []).map((slot) => `slot ${slot}`),
+        ...datesIn(content)
+          .filter((date) => date > '2026-07-11')
+          .map((date) => `date ${date}`),
+      ].map((fault) => `${box.host.hostname} /${file}: ${fault}`)),
+    );
+    expect(faults).toEqual([]);
+  });
+
+  it('reads a date either way a page writes one, so the rule above can fail', () => {
+    expect(datesIn('On 14 June 2026, and again 2026-07-12.')).toEqual(['2026-07-12', '2026-06-14']);
   });
 });

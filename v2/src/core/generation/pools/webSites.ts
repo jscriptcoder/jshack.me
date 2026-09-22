@@ -608,3 +608,47 @@ export const API_PAGES: readonly SitePage[] = [
     ],
   },
 ];
+
+/**
+ * What a site keeps that no page links: the paths a default sweep turns up. Each is a
+ * word on the default path list, because membership in that list is what makes a path
+ * findable at all — and each is something an operator really leaves lying around.
+ *
+ * Directories carry a page of their own, since a sweep finds a directory only by the
+ * index inside it; words that only make sense as a listing (`backup/`, `uploads/`) are
+ * not here, because this world's servers list nothing.
+ */
+
+/** An earlier version of the site, kept until the new one is signed off. */
+export const OLD_SITE_PAGES: readonly string[] = [
+  '<p>This is the old site. It stays up until the new one is signed off.</p>\n<p>Last updated 3 March 2025.</p>',
+  '<p>Archived copy of the previous {site} site. Nothing here is maintained.</p>',
+  '<p>You are looking at the old layout. The current site is at <a href="/">the front page</a>.</p>',
+];
+
+/** A draft copy nobody meant to publish. */
+export const DRAFT_NOTICES: readonly string[] = [
+  '<p><strong>DRAFT — not for publication.</strong></p>',
+  '<p>Staging copy. Changes here go live after review.</p>',
+  '<p>Test build of the front page. Please ignore.</p>',
+];
+
+/** What an internal page says to whoever opens it. */
+export const INTERNAL_PAGES: readonly string[] = [
+  '<p>Staff only. If you are reading this from outside, tell the helpdesk.</p>\n<p>The public site is at <a href="/">the front page</a>.</p>',
+  '<p>Internal notices for {place}. Nothing on this page is for customers.</p>',
+];
+
+/** Lines a webmaster leaves in a text file, with slots for the paths they are about. */
+export const NOTE_LINES: readonly string[] = [
+  'move {page} into the new layout',
+  'check {page} renders in a text browser',
+  'take {hidden} down once the new site is signed off',
+  'nobody reads {page}, delete it?',
+  'ask about the spelling on {page}',
+  'fix the footer on {page}',
+  'tidy {hidden} before the audit',
+];
+
+/** How a text file of notes is headed. */
+export const NOTE_HEADINGS: readonly string[] = ['Notes', 'TODO', 'README', 'Things to fix'];
