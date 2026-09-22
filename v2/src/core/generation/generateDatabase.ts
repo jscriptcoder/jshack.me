@@ -22,16 +22,10 @@ import { CRACK_CHANCE, drawPassword } from './passwordPools';
 import { usernamePool } from './pools/usernames';
 import { generateHomeLan, isOnHomeLan, type LanHost } from './generateHomeLan';
 import { npcUsername } from './remoteHostFs';
-import { usersRows, USERS_COLUMNS } from './databaseApp';
-import { lanZoneName } from '../network/resolveName';
-import {
-  DB_NAME_PREFIXES,
-  DB_NAME_SUFFIXES,
-  DRAWN_TABLE_TEMPLATES,
-  MYSQL_USERNAMES,
-} from './pools/database';
+import { buildApplication } from './databaseApp';
+import { MYSQL_USERNAMES } from './pools/database';
 import type { DrawnRole } from './machineRole';
-import type { MysqlCredential, MysqlDatabase, MysqlTable } from '../mysql/types';
+import type { MysqlCredential, MysqlDatabase } from '../mysql/types';
 
 /** How many logins an application on a deep box keeps beside the box's own account. */
 const DEEP_LOGIN_RANGE = { min: 4, max: 9 } as const;
@@ -65,7 +59,6 @@ export const generateDatabase = ({
   readonly role: DrawnRole | undefined;
 }): MysqlDatabase => {
   const prng = createPrng(appSeed);
-  const name = `${prng.pick(DB_NAME_PREFIXES)}_${prng.pick(DB_NAME_SUFFIXES)}`;
 
   const others = isOnHomeLan(essid, host)
     ? generateHomeLan(essid)
@@ -77,17 +70,7 @@ export const generateDatabase = ({
       );
   const people = [...new Set([account, ...others])];
 
-  const tables: Record<string, MysqlTable> = {
-    users: { columns: USERS_COLUMNS, rows: usersRows({ prng, people, zone: lanZoneName(essid) }) },
-    ...Object.fromEntries(
-      prng
-        .pickN(DRAWN_TABLE_TEMPLATES, prng.nextInt(2, 4))
-        .map((template) => [
-          template.name,
-          { columns: template.columns, rows: template.rowGenerator(prng, people, host.hostname) },
-        ]),
-    ),
-  };
+  const { name, tables } = buildApplication({ prng, essid, host, people });
 
   return { name, tables, credentials: drawDatabaseCredentials(seed) };
 };

@@ -121,7 +121,7 @@ differ by the draw and by their rows.
 | hacker | scoreboard · wiki | `teams`, `challenges`, `solves` · `wiki_pages`, `revisions` |
 | (any) `portal-` | CMS | `posts`, `pages`, `comments`, `categories` |
 | (any) `api-` | API platform | `api_clients`, `request_log`, `webhooks`, `rate_limits` |
-| (any) mail server | mail directory | `domains`, `mailboxes`, `aliases` |
+| (any) mail server | mail directory | `mailboxes`, `aliases`, `delivery_log`, `spam_rules` |
 
 The exact table lists are settled at implementation. Each archetype has at least 4 tables
 including `users`, and draws a subset up to 8 so that two databases on one archetype differ.
@@ -143,8 +143,11 @@ drawn from a small per-archetype list.
   `people.ts` pools), with **no email**. The rule is: an email appears only on a `users` row and
   is always on the zone. There is no invented public domain (decision 20), and a café customer
   on the café's `.lan` zone would be a lie.
-- **A mail directory's mailboxes** are exactly the `users` accounts at the zone, and its
-  `domains` row is the zone itself.
+- **A mail directory's mailboxes** are one per `users` login plus the shared ones an
+  organisation keeps (`info`, `sales`, `postmaster`…, `user_id` NULL). They store only the
+  `local_part`, never a full address, so the "email only on `users`" rule holds with no
+  exception, and the shared mailboxes keep the table above the 5-row floor. There is no
+  `domains` table: it would hold one row, the zone.
 
 ### What "true" means here (decision 4, applied)
 

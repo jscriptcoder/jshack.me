@@ -16,9 +16,8 @@ import {
   type Listener,
 } from '../services/pidfile';
 import { BACKDOOR_PORTS } from './remoteHostFs';
-import { parseMysqlDatabase, type MysqlDatabase, type MysqlRow } from '../mysql/types';
+import { parseMysqlDatabase, type MysqlDatabase } from '../mysql/types';
 import { parseRedisStore, type RedisStore } from '../redis/types';
-import { DB_NAME_PREFIXES, DB_NAME_SUFFIXES, MYSQL_USERNAMES } from './pools/database';
 import { filterTreeToAllowlist } from '../patches/readFilter';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import type { LanHost } from './generateHomeLan';
@@ -658,16 +657,6 @@ describe('buildRemoteHostFs', () => {
     const DATABASES: readonly { readonly box: DatabaseBox; readonly database: MysqlDatabase }[] =
       POPULATION.flatMap((box) => (box.database === null ? [] : [{ box, database: box.database }]));
 
-    /** Every row of one named table, across every database that drew it. */
-    const rowsOf = (table: string): readonly MysqlRow[] =>
-      DATABASES.flatMap(({ database }) => database.tables[table]?.rows ?? []);
-
-    /** The distinct values one column takes across the whole world — a pool's real
-     *  width as a player would experience it, rather than as the source declares it. */
-    const valuesIn = (table: string, column: string): readonly unknown[] => [
-      ...new Set(rowsOf(table).map((row) => row[column])),
-    ];
-
     /** Where a complaint came from: a box's name, never the box. */
     const where = (box: DatabaseBox): string => `${box.prefix}-${box.octet}`;
 
@@ -789,26 +778,6 @@ describe('buildRemoteHostFs', () => {
       expect(noneOf(orphaned)).toEqual(NONE);
     });
 
-    it('calls the site by the name the box answers to, on every box that keeps a config', () => {
-      // The page a serving box publishes is titled with its hostname, so a config row
-      // naming some other company would be the one seam a player who opens both doors
-      // on one box is guaranteed to find. The config table is DRAWN rather than
-      // guaranteed, so this is asserted over the population: a box a player can meet
-      // whose row no test has read is a row that can be blanked unnoticed.
-      const rows = DATABASES.flatMap(({ box, database }) => {
-        const row = (database.tables['config']?.rows ?? []).find(
-          (candidate) => candidate['key'] === 'site_name',
-        );
-        return row === undefined ? [] : [{ box, value: row['value'] }];
-      });
-      const misnamed = rows
-        .filter(({ box, value }) => value !== where(box))
-        .map(({ box, value }) => `${where(box)}: ${String(value)}`);
-
-      expect(rows.length).toBeGreaterThan(20);
-      expect(noneOf(misnamed)).toEqual(NONE);
-    });
-
     it('shows a stranger with no session nothing of the database at all', () => {
       // File permissions guard the box's own tiers; the tier-3 allowlist guards
       // everyone with no session on it, and they are different mechanisms. A datadir
@@ -895,137 +864,6 @@ describe('buildRemoteHostFs', () => {
       expect(noneOf(blanks)).toEqual(NONE);
     });
 
-    it('draws every entry of every pool a table can show, so none of it ships unreachable', () => {
-      // The lesson the role work left behind, and the one this door is most exposed
-      // to: the tables past `users` are drawn two-to-four from seven, so an entry no
-      // database ever draws is content that can be blanked without a test noticing.
-      // Held as WIDTHS: the claim is that the pool is wide enough for two boxes to
-      // read differently, and that none of it is dead.
-      const widths: readonly (readonly [string, string, number])[] = [
-        ['users', 'role', 2],
-        ['audit_log', 'action', 5],
-        ['orders', 'customer', 5],
-        ['orders', 'product', 5],
-        ['orders', 'status', 4],
-        ['employees', 'name', 6],
-        ['employees', 'department', 6],
-        ['employees', 'clearance', 4],
-        ['inventory', 'sku', 6],
-        ['inventory', 'warehouse', 3],
-        ['config', 'key', 5],
-      ];
-      const observed = widths.map(
-        ([table, column]) => [table, column, valuesIn(table, column).length] as const,
-      );
-      const uploadLimits = new Set(
-        rowsOf('config')
-          .filter((row) => row['key'] === 'max_upload_mb')
-          .map((row) => row['value']),
-      );
-
-      expect(observed).toEqual(widths);
-      expect(uploadLimits.size).toBe(4);
-    });
-
-    it('names its database and its application account from the pools those names live in', () => {
-      // A name a generator can produce that no test has read is a name that can be
-      // deleted from the pool unnoticed — and these three are the names a player sees
-      // first, at the prompt and in the credential hydra hands back.
-      const appAccounts = new Set(
-        DATABASES.flatMap(({ database }) =>
-          database.credentials
-            .filter((credential) => credential.userType === 'user')
-            .map((credential) => credential.username),
-        ),
-      );
-      const prefixes = new Set(DATABASES.map(({ database }) => database.name.split('_')[0]));
-      const suffixes = new Set(DATABASES.map(({ database }) => database.name.split('_')[1]));
-
-      expect([...appAccounts].sort()).toEqual([...MYSQL_USERNAMES].sort());
-      expect([...prefixes].sort()).toEqual([...DB_NAME_PREFIXES].sort());
-      expect([...suffixes].sort()).toEqual([...DB_NAME_SUFFIXES].sort());
-    });
-
-    it('numbers its rows the way a table a player has seen before is numbered', () => {
-      // Ascending from the table's own first number, one at a time, no repeats. The
-      // orders table starts at 1000 because a shop whose first order is #1 reads as a
-      // fresh install rather than as a business someone runs.
-      const misnumbered = DATABASES.flatMap(({ box, database }) =>
-        Object.entries(database.tables).flatMap(([table, { rows }]) => {
-          const first = table === 'orders' ? 1000 : 1;
-          const expected = rows.map((_row, index) => first + index).join(',');
-          const actual = rows.map((row) => row['id']).join(',');
-          return actual === expected ? [] : [`${where(box)} ${table}: ${actual}`];
-        }),
-      );
-
-      expect(noneOf(misnumbered)).toEqual(NONE);
-    });
-
-    it('fills each drawn table with as many rows as that table promises', () => {
-      // A table of one row reads as a fixture. The bands are the shape of the
-      // content decision, and they are only visible across the population.
-      const bands: readonly (readonly [string, number, number])[] = [
-        ['audit_log', 3, 8],
-        ['orders', 3, 7],
-        ['employees', 3, 6],
-        ['inventory', 3, 6],
-        ['config', 5, 5],
-      ];
-      const observed = bands.map(([table]) => {
-        const counts = DATABASES.flatMap(({ database }) => {
-          const drawn = database.tables[table];
-          return drawn === undefined ? [] : [drawn.rows.length];
-        });
-        return [table, Math.min(...counts), Math.max(...counts)] as const;
-      });
-
-      expect(observed).toEqual(bands);
-    });
-
-    it('prices what it sells the way a price list does, and never below nothing', () => {
-      // Amounts and prices end in .99 — the arithmetic that builds them is the
-      // difference between a catalogue and a column of round numbers.
-      const money = [
-        ...rowsOf('orders').map((row) => row['amount']),
-        ...rowsOf('inventory').map((row) => row['price']),
-      ];
-      const oddlyPriced = money
-        .filter((value) => !String(value).endsWith('.99') || Number(value) <= 0)
-        .map((value) => String(value));
-
-      expect(money.length).toBeGreaterThan(100);
-      expect(noneOf(oddlyPriced)).toEqual(NONE);
-    });
-
-    it('puts the one cleared employee at the top of the table and leaves the rest mixed', () => {
-      // The row worth reading is the first one. If the condition that places it moved,
-      // either nobody is cleared or everybody is, and the table stops rewarding a read.
-      const leading = new Set(
-        DATABASES.flatMap(({ database }) => {
-          const rows = database.tables['employees']?.rows ?? [];
-          return rows.length === 0 ? [] : [rows[0]?.['clearance']];
-        }),
-      );
-
-      expect([...leading]).toEqual(['top-secret']);
-      expect(valuesIn('employees', 'clearance').length).toBe(4);
-    });
-
-    it('leaves most accounts and keys active, but not all of them', () => {
-      // A flag that is always the same value is a column with nothing to say. Both
-      // values have to appear, and the majority has to be the plausible one.
-      const employees = rowsOf('employees').map((row) => row['active']);
-      const keys = rowsOf('api_keys').map((row) => row['active']);
-      const activeShare = (flags: readonly unknown[]): number =>
-        flags.filter((flag) => flag === 1).length / flags.length;
-
-      expect([...new Set(employees)].sort()).toEqual([0, 1]);
-      expect([...new Set(keys)].sort()).toEqual([0, 1]);
-      expect(activeShare(employees)).toBeGreaterThan(activeShare(keys));
-      expect(activeShare(keys)).toBeGreaterThan(0.5);
-    });
-
     it('lists no item twice in one inventory', () => {
       // The SKU column is declared UNIQUE, so a table repeating one contradicts its
       // own schema in front of a player who ran DESCRIBE.
@@ -1035,42 +873,6 @@ describe('buildRemoteHostFs', () => {
       });
 
       expect(noneOf(repeated)).toEqual(NONE);
-    });
-
-    it('writes every generated string in the shape its column promises', () => {
-      // A token that is not hex, a timestamp that lost its leading zeroes, an address
-      // with no domain after the @ — each still reads as a VALUE, so a sweep looking
-      // for blanks walks straight past them. Shape is the only thing that catches a
-      // string that is present and wrong, and these are the strings a player sees
-      // most: `SELECT * FROM sessions` is a wall of them.
-      const shapes: readonly (readonly [string, string, RegExp])[] = [
-        ['orders', 'created_at', /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:00$/],
-        ['audit_log', 'timestamp', /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:00$/],
-        ['sessions', 'expires_at', /^\d{4}-\d{2}-\d{2} 23:59:59$/],
-        ['sessions', 'token', /^[0-9a-f]{32}$/],
-        ['api_keys', 'key_value', /^ak_[0-9a-f]{24}$/],
-      ];
-      const unread = shapes.filter(([table]) => rowsOf(table).length === 0).map(([table]) => table);
-      const malformed = shapes.flatMap(([table, column, shape]) =>
-        rowsOf(table)
-          .filter((row) => !shape.test(String(row[column])))
-          .map((row) => `${table}.${column}: ${String(row[column])}`),
-      );
-
-      expect(noneOf(unread)).toEqual(NONE);
-      expect(noneOf(malformed)).toEqual(NONE);
-    });
-
-    it('names the database from two pool words, with both halves really there', () => {
-      // A blanked entry in either name pool still produces a name — `_prod`, `app_` —
-      // and a name that is not empty passes every check that asks whether a value is
-      // missing. Comparing the drawn names against the pool cannot catch it either:
-      // the test reads the same pool the generator does, so both sides move together.
-      const malformed = DATABASES.filter(
-        ({ database }) => !/^[a-z]+_[a-z]+$/.test(database.name),
-      ).map(({ box, database }) => `${where(box)}: ${database.name}`);
-
-      expect(noneOf(malformed)).toEqual(NONE);
     });
 
     it('makes the first person in the users table the admin and the rest ordinary', () => {
@@ -1102,33 +904,6 @@ describe('buildRemoteHostFs', () => {
       });
 
       expect(noneOf(dangling)).toEqual(NONE);
-    });
-
-    it('leaves some people without a live session or a key of their own', () => {
-      // Both tables are a SLICE of the people a box knows, never all of them: a world
-      // where every account always holds a live session and an API key is a world
-      // with nothing to notice. One box could legitimately be full, so the claim is
-      // only sayable across the population — somewhere, the slice has to be short.
-      const rowCounts = (table: string): readonly number[] =>
-        DATABASES.flatMap(({ database }) => {
-          const drawn = database.tables[table];
-          return drawn === undefined ? [] : [drawn.rows.length];
-        });
-
-      expect(Math.min(...rowCounts('sessions'))).toBe(1);
-      expect(Math.min(...rowCounts('api_keys'))).toBe(1);
-    });
-
-    it('pays its employees a salary a person could live on', () => {
-      // The arithmetic that scales the draw is the difference between a salary and a
-      // rounding error: a column reading 0.045 is a bug a player would screenshot.
-      const salaries = rowsOf('employees').map((row) => Number(row['salary']));
-      const implausible = salaries
-        .filter((salary) => salary < 45000 || salary > 150000 || salary % 1000 !== 0)
-        .map((salary) => String(salary));
-
-      expect(salaries.length).toBeGreaterThan(100);
-      expect(noneOf(implausible)).toEqual(NONE);
     });
 
     it('gives every database a root and an application account, and a read-only one about half the time', () => {

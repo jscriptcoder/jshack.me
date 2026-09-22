@@ -4,6 +4,18 @@ import { generateHomeLan, isOnHomeLan } from './generateHomeLan';
 import { lanZoneName } from '../network/resolveName';
 import { buildDeepHostFs } from './deepHostFs';
 import { drawDatabaseCredentials } from './generateDatabase';
+import {
+  ARCHETYPES,
+  ARCHETYPES_BY_CATEGORY,
+  buildApplication,
+  databaseArchetype,
+  networkArchetype,
+  type ArchetypeKey,
+} from './databaseApp';
+import { createPrng } from './prng';
+import { networkPersona } from './persona';
+import { roleOfHostname } from './pools/hostnames';
+import { crackableEssidPool } from './generateWifi';
 import { CRACK_CHANCE, CRACKABLE_PASSWORDS } from './passwordPools';
 import { MYSQL_USERNAMES } from './pools/database';
 import { md5 } from './md5';
@@ -200,6 +212,185 @@ describe('the users table every application signs its people in through', () => 
           (index === 0 || (dates[index - 1] ?? '') <= date),
       );
       return valid ? [] : [`${where({ essid, host })}: ${dates.join(', ')}`];
+    });
+
+    expect(noneOf(wrong)).toEqual(NONE);
+  });
+});
+
+const tablesBeyondUsers = (database: MysqlDatabase) =>
+  Object.entries(database.tables).filter(([name]) => name !== 'users');
+
+describe('the application a database holds', () => {
+  it('is four to eight tables including users, each beyond users holding five to forty rows', () => {
+    const wrong = everyDatabase().flatMap((box) => {
+      const tables = Object.keys(box.database.tables);
+      const shapeless =
+        tables.length < 4 || tables.length > 8 || !tables.includes('users')
+          ? [`${where(box)}: ${tables.join(',')}`]
+          : [];
+      const sized = tablesBeyondUsers(box.database)
+        .filter(([, table]) => table.rows.length < 5 || table.rows.length > 40)
+        .map(([name, table]) => `${where(box)} ${name}: ${table.rows.length} rows`);
+      return [...shapeless, ...sized];
+    });
+
+    expect(noneOf(wrong)).toEqual(NONE);
+  });
+
+  it('is the application its archetype describes: its tables, and a name the archetype uses', () => {
+    const wrong = everyDatabase().flatMap((box) => {
+      const archetype = ARCHETYPES[databaseArchetype(box.essid, box.host)];
+      const known = new Set(archetype.tables.map((table) => table.name));
+      const required = archetype.tables.filter((table) => table.required).map((table) => table.name);
+      const tables = Object.keys(box.database.tables);
+      const name = box.database.name.replace(/_dev$/, '');
+      return tables.every((table) => table === 'users' || known.has(table)) &&
+        required.every((table) => tables.includes(table)) &&
+        archetype.names.includes(name)
+        ? []
+        : [`${where(box)}: ${box.database.name} ${tables.join(',')}`];
+    });
+
+    expect(noneOf(wrong)).toEqual(NONE);
+  });
+
+  it('runs a CMS behind a portal, an API platform behind an api box, and a mail directory on a mail server', () => {
+    const boxes = everyDatabase();
+    const expected = (box: Box): string | null =>
+      box.host.hostname.startsWith('portal-')
+        ? 'cms'
+        : box.host.hostname.startsWith('api-')
+          ? 'api'
+          : roleOfHostname(box.host.hostname) === 'mailserver'
+            ? 'mail'
+            : null;
+    const wrong = boxes
+      .filter((box) => expected(box) !== null)
+      .filter((box) => databaseArchetype(box.essid, box.host) !== expected(box))
+      .map(where);
+
+    expect(boxes.some((box) => expected(box) === 'cms')).toBe(true);
+    expect(noneOf(wrong)).toEqual(NONE);
+  });
+
+  it('runs the network’s own application on every other box, one per network, of the kind its place runs', () => {
+    // One organisation runs one application: its database box and its web box's
+    // database are two copies of the same thing, never a helpdesk beside a till.
+    const special = (box: Box) =>
+      box.host.hostname.startsWith('portal-') ||
+      box.host.hostname.startsWith('api-') ||
+      roleOfHostname(box.host.hostname) === 'mailserver';
+    const wrong = everyDatabase()
+      .filter((box) => !special(box))
+      .filter((box) => {
+        const archetype = databaseArchetype(box.essid, box.host);
+        return (
+          archetype !== networkArchetype(box.essid) ||
+          !ARCHETYPES_BY_CATEGORY[networkPersona(box.essid).category].includes(archetype)
+        );
+      })
+      .map(where);
+
+    expect(noneOf(wrong)).toEqual(NONE);
+  });
+
+  it('draws every archetype a kind of place can run on some network', () => {
+    const drawn = new Set(crackableEssidPool.map((essid) => networkArchetype(essid)));
+    const undrawn = Object.values(ARCHETYPES_BY_CATEGORY)
+      .flat()
+      .filter((archetype) => !drawn.has(archetype));
+
+    expect(undrawn).toEqual([]);
+  });
+
+  it('keeps a developer’s local copy on a workstation: named _dev, and smaller', () => {
+    const boxes = everyDatabase();
+    const workstation = (box: Box) => roleOfHostname(box.host.hostname) === 'workstation';
+    const wrong = boxes.flatMap((box) => {
+      const isDev = box.database.name.endsWith('_dev');
+      const largest = Math.max(...tablesBeyondUsers(box.database).map(([, table]) => table.rows.length));
+      return isDev === workstation(box) && (!isDev || largest <= 12)
+        ? []
+        : [`${where(box)}: ${box.database.name}, largest ${largest}`];
+    });
+
+    expect(boxes.some(workstation)).toBe(true);
+    expect(noneOf(wrong)).toEqual(NONE);
+  });
+
+  it('keeps a till on a café’s network: its menu, orders, order lines and shifts', () => {
+    const cafes = everyDatabase().filter(
+      (box) =>
+        networkPersona(box.essid).category === 'cafe' &&
+        databaseArchetype(box.essid, box.host) === networkArchetype(box.essid),
+    );
+    const wrong = cafes
+      .filter(
+        (box) =>
+          !['menu_items', 'orders', 'order_lines', 'shifts', 'users'].every(
+            (table) => table in box.database.tables,
+          ),
+      )
+      .map(where);
+
+    expect(cafes.length).toBeGreaterThan(0);
+    expect(noneOf(wrong)).toEqual(NONE);
+  });
+});
+
+/** One database of every application, on a real network whose people staff it. The
+ *  world holds some applications rarely (a mail server seldom runs mysql), and a rule
+ *  proven only over the world would never read their rows. */
+const oneOfEach = (): readonly (Box & { readonly archetype: ArchetypeKey; readonly database: MysqlDatabase })[] =>
+  (Object.keys(ARCHETYPES) as ArchetypeKey[]).map((archetype) => {
+    const prefix = archetype === 'cms' ? 'portal' : archetype === 'api' ? 'api' : archetype === 'mail' ? 'mail' : 'db';
+    const essid =
+      crackableEssidPool.find((candidate) => networkArchetype(candidate) === archetype) ?? 'BEAN-THERE-WIFI';
+    const host = { ip: '10.40.0.9', hostname: `${prefix}-9`, kind: 'machine' as const };
+    const people = ['mrodriguez', 'jchen', 'agarcia', 'hkim'];
+    const { name, tables } = buildApplication({ prng: createPrng(`sample-${archetype}`), essid, host, people });
+    return { essid, host, archetype, database: { name, tables, credentials: [] } };
+  });
+
+describe('a mail directory', () => {
+  it('keeps a mailbox for every login and the shared ones an organisation keeps, with no address in any cell', () => {
+    const sample = oneOfEach().find((box) => box.archetype === 'mail');
+    const users = usersOf(sample?.database ?? { name: '', tables: {}, credentials: [] });
+    const mailboxes = sample?.database.tables['mailboxes']?.rows ?? [];
+    const personal = mailboxes.filter((row) => row['user_id'] !== null);
+    const shared = mailboxes.filter((row) => row['user_id'] === null);
+    const addresses = Object.entries(sample?.database.tables ?? {})
+      .filter(([name]) => name !== 'users')
+      .flatMap(([, table]) => table.rows.flatMap((row) => Object.values(row)))
+      .filter((cell) => String(cell).includes('@'));
+
+    expect(personal.map((row) => [row['user_id'], row['local_part']])).toEqual(
+      expect.arrayContaining(users.map((row) => [row['id'], row['username']])),
+    );
+    expect(personal).toHaveLength(users.length);
+    expect(shared.length).toBeGreaterThanOrEqual(2);
+    expect(mailboxes.length).toBeGreaterThanOrEqual(5);
+    expect(addresses).toEqual([]);
+  });
+});
+
+describe('every application, sampled once', () => {
+  it('is built as its archetype describes, four to eight tables of five to forty rows', () => {
+    const wrong = oneOfEach().flatMap((box) => {
+      const archetype = ARCHETYPES[box.archetype];
+      const tables = Object.keys(box.database.tables);
+      const required = archetype.tables.filter((table) => table.required).map((table) => table.name);
+      const sized = tablesBeyondUsers(box.database).every(
+        ([, table]) => table.rows.length >= 5 && table.rows.length <= 40,
+      );
+      return databaseArchetype(box.essid, box.host) === box.archetype &&
+        tables.length >= 4 &&
+        tables.length <= 8 &&
+        required.every((table) => tables.includes(table)) &&
+        sized
+        ? []
+        : [`${box.archetype}: ${tables.join(',')}`];
     });
 
     expect(noneOf(wrong)).toEqual(NONE);
