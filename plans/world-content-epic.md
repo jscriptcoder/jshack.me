@@ -4,7 +4,7 @@
 > status. The grounding section records what v2 held on the day this was grilled; the code wins
 > wherever the two disagree.
 > Grilled 2026-09-21 (`grilling`), 25 locked decisions. Slices 0–5 delivered (as-built below).
-> Slice 6 is not yet planned.
+> Slice 6 planned in [`a-store-serves-that-application.md`](./a-store-serves-that-application.md).
 
 **Where we are now (2026-09-22):** **v0.253.0**. The legacy-parity epic's V-series is closed and
 its next line was "the ship gate". **Ship now waits for this epic** (decision 1). Grilled to 25
@@ -19,8 +19,9 @@ narrowed at slice 2's planning** (the player workstation gains an empty `/home/g
 planning took three owner decisions (rotated logs name only root and the daemons, gateways wait
 for slice 10, remote lines are neighbours doing routine things); slice 4's took six (recorded in
 its as-built); slice 5's took four at planning (one amends decision 15) and one during the
-build (recorded in its as-built). **Next: slice 6, a store serves that application** (not yet
-planned).
+build (recorded in its as-built). **Slice 6 is planned** in
+[`a-store-serves-that-application.md`](./a-store-serves-that-application.md) as one PR, with three
+owner decisions taken at planning (one amends decision 15 again).
 
 ---
 
@@ -403,7 +404,7 @@ See below; planning refines it.
 | 3 | **A box remembers** — rotated `.1` log history across every role, plus `syslog` | `ls /var/log` shows `auth.log.1`; its last line is before 2026-07-12; the live `auth.log` holds only player traces | ✅ DONE (#536, v0.250.0) — NPC hosts only (gateways → slice 10); `.1` holds 2026-07-11 alone; see as-built below |
 | 4 | **A web server serves a site** — three layers, lynx `<table>`/`<pre>`, the link-resolution property test | lynx follows links across pages; `robots.txt` names a served path; a default `gobuster` finds a hidden path | ✅ DONE (#537 v0.251.0, #538 v0.252.0) — webservers only; other http hosts keep one version-free page; see as-built below |
 | 5 | **A database holds an application** — app archetypes | `SHOW TABLES` on a café network's DB shows a till schema whose staff are that network's inhabitants | ✅ DONE (#539, v0.253.0) — 15 archetypes; decision 15 amended (DB credentials re-rolled once); a bought DB is a fresh install; see as-built below |
-| 6 | **A store serves that application** — Redis keyspaces paired with the app | `KEYS sess:*` returns sessions for that app's real users | ⏳ |
+| 6 | **A store serves that application** — Redis keyspaces paired with the app | `KEYS sess:*` returns sessions for that app's real users | 📋 PLANNED — `a-store-serves-that-application.md` (v0.254.0); decision 15 amended (store locks re-roll once); a bought store is a fresh install |
 | 7 | **Somebody wrote to somebody** — workstation mailboxes, the mail server's spool | a thread in `/var/mail/<user>` is between two real inhabitants of the network | ⏳ |
 | 8 | **A share holds a department** — fileserver `/srv`, metadata docs | `strings` on a shared PDF names its author, an inhabitant | ⏳ |
 | 9 | **A device is the device it says** — IoT prefix overlays + prefix growth (the one re-roll: refresh pins, wire-checks, the `v2-e2e` skill) | a printer serves a CUPS page and holds spool jobs; a camera a recordings index | ⏳ |
@@ -756,3 +757,8 @@ drawn in a range, not per item.
   plan retired into "As-built: slice 5" above and its file deleted. Owner decision during the build:
   a LAN `users` table holds every machine's account with no floor. `testMysqlDeep`'s pre-existing
   `rowAt` fault fixed in the same PR. Next: slice 6 (not yet planned).
+- **2026-09-22** — slice 6 planned in `a-store-serves-that-application.md` (one PR, v0.254.0).
+  Owner decisions at planning: `redis-store-` keeps only the lock and a new `redis-app-` stream
+  draws the keys (every NPC store's lock re-rolls once, amending decision 15); a store with no
+  database beside it serves the box's own application (the rows `db-app-` would hold), never a
+  neighbour's; a bought store is a fresh install (empty, lock mirrors root).
