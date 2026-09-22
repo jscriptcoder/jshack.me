@@ -27,6 +27,7 @@ import { generateHomeLan } from '../generation/generateHomeLan';
 import { buildRemoteHostFs } from '../generation/remoteHostFs';
 import { readOpenPorts } from '../services/pidfile';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
+import { resolveLanName } from '../network/resolveName';
 import { LOOPBACK_IPV4, LOOPBACK_NAMES, type ConnectedWlan0 } from '../network/interfaces';
 
 /** A server that was reached, in the terms every caller needs. */
@@ -127,8 +128,14 @@ export const reachWebHost = ({
   // leased, before anything else looks at the target. That keeps the tree, the port
   // check, and the trace the server writes talking about one machine under one name —
   // `localhost` cannot end up disagreeing with the LAN address about the same box.
+  //
+  // A name the network gives one of its own hosts resolves here too, through the same
+  // resolver `curl` uses, so an intranet page that links `www-04.<zone>` sends the
+  // browser, a followed link and a sweep to the box a curl of that name reaches.
   const isLoopback = LOOPBACK_NAMES.includes(url.host);
-  const address = isLoopback ? wlan0.ipv4 : url.host;
+  const address = isLoopback
+    ? wlan0.ipv4
+    : (resolveLanName(essid, url.host)?.ip ?? url.host);
   const fs = targetFs({ root, essid, ownIp: wlan0.ipv4, target: address });
   if (fs === null) {
     return { ok: false, failure: error(`${program}: (6) Could not resolve host: ${url.host}`) };

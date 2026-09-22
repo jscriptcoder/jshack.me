@@ -15,6 +15,7 @@ import { assignHomeNetwork } from '../network/homeNetwork';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
 import { buildRemoteHostFs } from '../generation/remoteHostFs';
 import { HTTP_DEFAULT_PORT, parseHttpUrl } from '../network/http';
+import { lanZoneName } from '../network/resolveName';
 import { mockNetworkViewFromConnectivity } from '../../test/factories/commandEnv';
 
 /**
@@ -193,5 +194,29 @@ describe('fetching one page', () => {
 
     expect(result.kind).toBe('page');
     expect(logged.map((line) => line.target)).toEqual([host.ip]);
+  });
+});
+
+describe('fetching a page by the name the network gives a host', () => {
+  it('reaches a LAN host by its .lan name, and the box logs the address it was leased', () => {
+    // An intranet page links its neighbours by name, so a followed link written that
+    // way must land on the same box `curl` reaches by that name.
+    const { host, port } = webHostOnLan();
+    const byName = fetchFrom(ownBox(), `http://${host.hostname}.${lanZoneName(ESSID)}:${port}/`);
+    const byAddress = fetchFrom(ownBox(), `http://${host.ip}:${port}/`);
+
+    expect(byName.result).toEqual(byAddress.result);
+    expect(byName.result.kind).toBe('page');
+    expect(byName.logged.map((line) => line.target)).toEqual([host.ip]);
+  });
+
+  it('cannot resolve a name the network does not hold, and says the name as typed', () => {
+    const { result, logged } = fetchFrom(ownBox(), `http://nobody-here.${lanZoneName(ESSID)}/`);
+
+    if (result.kind !== 'unreachable') throw new Error('expected an unreachable host');
+    expect(result.failure.lines.map((line) => line.content)).toEqual([
+      `lynx: (6) Could not resolve host: nobody-here.${lanZoneName(ESSID)}`,
+    ]);
+    expect(logged).toEqual([]);
   });
 });

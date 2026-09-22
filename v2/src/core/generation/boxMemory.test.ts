@@ -346,19 +346,28 @@ describe('who reached a box that day', () => {
     expect(Math.max(...visitCounts)).toBe(3);
   });
 
-  it('records page fetches only where the box serves, each the size of the page it serves', () => {
+  it('records page fetches only where the box serves, of pages it links, each the size it serves', () => {
+    // A visitor the day before walked the site as anyone does, from the front page along
+    // its links, so a hidden path never appears: finding one is the sweep's job.
+    const requested = new Set<string>();
     everyBox().forEach(({ box, tree }) => {
       const access = rotatedOf(tree).get('access.log.1');
       if (!daemonsRunningOn(box).includes('http')) {
         expect(access).toBeUndefined();
         return;
       }
-      const size = fileAt(tree, '/var/www/html/index.html').length;
+      const front = fileAt(tree, '/var/www/html/index.html');
       expect(access).toBeDefined();
       linesOf(access ?? '').forEach((line) => {
-        expect(line.endsWith(`"GET / HTTP/1.1" 200 ${size}`)).toBe(true);
+        const [, path, size] = /"GET (\S+) HTTP\/1\.1" 200 (\d+)$/.exec(line) ?? [];
+        const linked = path === '/' || front.includes(`href="${path}"`);
+        expect(linked, `${box.host.hostname} ${line}`).toBe(true);
+        const file = path === '/' ? '/var/www/html/index.html' : `/var/www/html${path}`;
+        expect(Number(size)).toBe(fileAt(tree, file).length);
+        requested.add(path === '/' ? '/' : 'another page');
       });
     });
+    expect([...requested].sort()).toEqual(['/', 'another page']);
   });
 
   it('shows the database answering root on the box itself, about tables it really keeps', () => {

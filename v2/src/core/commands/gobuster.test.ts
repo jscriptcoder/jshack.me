@@ -29,6 +29,7 @@ import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces';
 import { assignHomeNetwork } from '../network/homeNetwork';
 import { HTTP_DEFAULT_PORT } from '../network/http';
+import { lanZoneName } from '../network/resolveName';
 import { asAbsPath, asMachineId, asPlayerKeyHex } from '../types';
 
 /**
@@ -472,6 +473,19 @@ describe('gobuster sweeps the neighbours, not only the box it runs on', () => {
     // target to the wrong tree would report the sweeper's own document root back at
     // them, which is the most convincing wrong answer this tool could give.
     expect(drained.text).not.toContain('mine-alone');
+  });
+
+  it('sweeps a neighbour named the way its intranet names it', async () => {
+    const { host, port } = webHostOnLan();
+    const tree = ownBox(installedList('index.html'));
+
+    const { drained, reported } = await sweepReporting(
+      tree,
+      `http://${host.hostname}.${lanZoneName(ESSID)}:${port}`,
+    );
+
+    expect(drained.text).toContain('/index.html');
+    expect(reported[0]?.target).toBe(host.ip);
   });
 });
 

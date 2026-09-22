@@ -66,6 +66,7 @@ import {
 import { md5 } from './md5';
 import { CRACK_CHANCE, drawPassword } from './passwordPools';
 import { pickWebPage } from './pools/webPages';
+import { buildWebSite } from './webSite';
 import { roleConfigFile } from './pools/configFiles';
 import { nameServerFilesFor } from './generateDnsZone';
 import { roleOfHostname } from './pools/hostnames';
@@ -105,6 +106,26 @@ const guestHome = (): Directory =>
     GUEST_HOME_DIR,
     'guest',
   );
+
+/** A document root holding `files`, each keyed by its path beneath the root: every
+ *  directory on the way is traversable, and every file is published the same way. */
+const publishedTree = (files: ReadonlyMap<string, string>): Directory => {
+  const names = [...new Set([...files.keys()].map((path) => path.split('/')[0] ?? path))];
+  return dir(
+    Object.fromEntries(
+      names.map((name) => {
+        const content = files.get(name);
+        if (content !== undefined) return [name, file(content, WEB_PAGE_FILE)];
+        const prefix = `${name}/`;
+        const below = [...files]
+          .filter(([path]) => path.startsWith(prefix))
+          .map(([path, text]): readonly [string, string] => [path.slice(prefix.length), text]);
+        return [name, publishedTree(new Map(below))];
+      }),
+    ),
+    TRAVERSABLE_DIR,
+  );
+};
 
 export type HostService = { readonly spec: ServiceSpec; readonly port: number };
 
@@ -337,18 +358,39 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
   // on every box would publish a directory nobody is listening on — and the
   // externally-readable allowlist covers `/var/www/**`, so absence here is what
   // keeps a non-serving host from exposing anything at all.
-  const page = serves
-    ? pickWebPage({ role, seed: `web-page-${essid}-${host.ip}`, hostname: host.hostname })
-    : null;
+  //
+  // A box named for the web publishes a whole site; any other box that serves one keeps
+  // a single page. The two draw from different streams, so a site arriving on a
+  // webserver moves no other box's page.
+  const webPort = services.find(({ spec }) => spec === SERVICE_CATALOG.http)?.port;
+  const site =
+    webPort !== undefined && role === 'webserver'
+      ? buildWebSite({ essid, host, port: webPort, database })
+      : null;
+  const webFiles: ReadonlyMap<string, string> | null =
+    site !== null
+      ? site.files
+      : serves
+        ? new Map([
+            [
+              'index.html',
+              pickWebPage({ role, seed: `web-page-${essid}-${host.ip}`, hostname: host.hostname }),
+            ],
+          ])
+        : null;
+  // What a visitor walks to, with what each answers: the site's linked pages, or the
+  // one page a box that is not a webserver serves.
+  const visited =
+    webFiles === null
+      ? []
+      : (site?.publicPaths ?? ['/']).map((path) => ({
+          path,
+          size: (webFiles.get(path === '/' ? 'index.html' : path.slice(1)) ?? '').length,
+        }));
   const webRoot =
-    page === null
+    webFiles === null
       ? {}
-      : {
-          www: dir(
-            { html: dir({ 'index.html': file(page, WEB_PAGE_FILE) }, TRAVERSABLE_DIR) },
-            TRAVERSABLE_DIR,
-          ),
-        };
+      : { www: dir({ html: publishedTree(webFiles) }, TRAVERSABLE_DIR) };
 
   const etc = buildEtcContent({ essid, host, services, role });
 
@@ -386,7 +428,7 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
       services,
       crontab: etc.crontab.content,
       fstab: etc.fstab.content,
-      page,
+      pages: visited,
       database,
       isNameServer: nameServer !== null,
     }),
