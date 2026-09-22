@@ -26,6 +26,9 @@ import { roleOfHostname } from './pools/hostnames';
 import { lanZoneName } from '../network/resolveName';
 import {
   API_COMMON_ENDPOINTS,
+  API_STATUS_ENDPOINT,
+  HIDDEN_WORDS,
+  type HiddenWord,
   API_ENDPOINTS,
   API_FRONT_PAGES,
   API_PAGES,
@@ -144,9 +147,8 @@ const servicesPage = (essid: string, neighbours: readonly LanHost[]): Page => {
   };
 };
 
-const apiReference = (intro: string, documents: readonly ApiEndpoint[]): string => {
-  const [example] = documents.filter((document) => document.file.startsWith('api/'));
-  return [
+const apiReference = (intro: string, documents: readonly ApiEndpoint[]): string =>
+  [
     intro,
     '<h2>Endpoints</h2>',
     '<ul>',
@@ -155,11 +157,9 @@ const apiReference = (intro: string, documents: readonly ApiEndpoint[]): string 
         `<li><a href="/${document.file}">GET /${document.file}</a> — ${document.summary}</li>`,
     ),
     '</ul>',
-    ...(example === undefined
-      ? []
-      : ['<h2>Example</h2>', `<pre>\nGET /${example.file}\n${example.body}\n</pre>`]),
+    '<h2>Example</h2>',
+    `<pre>\nGET /${API_STATUS_ENDPOINT.file}\n${API_STATUS_ENDPOINT.body}\n</pre>`,
   ].join('\n');
-};
 
 const planFor = (options: {
   readonly prng: Prng;
@@ -241,24 +241,9 @@ const htmlDocument = (options: {
   ].join('\n');
 };
 
-/** The words a site may keep unlinked, each a path the default list tries. */
-const HIDDEN_WORDS: readonly string[] = [
-  'old',
-  'staging',
-  'test',
-  'admin',
-  'dashboard',
-  'internal',
-  'notes.txt',
-  'todo.txt',
-  'readme.txt',
-  'status',
-  'health',
-  'server-status',
-  'metrics',
-  '.env',
-  'dump.sql',
-];
+/** An unlinked path whose content is drawn here; the schema dump is the one written from
+ *  what the box holds instead. */
+type DrawnWord = Exclude<HiddenWord, 'dump.sql'>;
 
 /** The share of sites that keep a robots.txt, of those the share whose robots.txt names
  *  a directory the default list never tries, the share that keep a sitemap, and the
@@ -355,17 +340,18 @@ const plainPage = (site: string, author: string, body: string): string =>
 /** The paths a site keeps that no page links, by the file each is published as. */
 const hiddenFiles = (options: {
   readonly prng: Prng;
-  readonly words: readonly string[];
+  readonly drawn: readonly DrawnWord[];
+  /** Every unlinked path the site keeps, which a note may mention. */
+  readonly words: readonly HiddenWord[];
   readonly site: string;
   readonly front: string;
   readonly author: string;
   readonly ownUrl: string;
   readonly pages: readonly string[];
-  readonly database: MysqlDatabase | null;
   readonly hostname: string;
 }): readonly (readonly [string, string])[] => {
-  const { prng, words, site, front, author, ownUrl, pages, database, hostname } = options;
-  return words.map((word): readonly [string, string] => {
+  const { prng, drawn, words, site, front, author, ownUrl, pages, hostname } = options;
+  return drawn.map((word): readonly [string, string] => {
     const others = words.filter((other) => other !== word).map(requestPathOf);
     switch (word) {
       case 'old':
@@ -432,8 +418,6 @@ const hiddenFiles = (options: {
             '',
           ].join('\n'),
         ];
-      default:
-        return [word, database === null ? '' : schemaDump(database)];
     }
   });
 };
@@ -481,27 +465,29 @@ export const buildWebSite = ({
   const served = new Set(publicPaths.map((path) => path.slice(1)));
   // A box that runs a database always leaves its schema dump behind, among the rest:
   // the one leak that points a reader at the next door.
-  const candidates = HIDDEN_WORDS.filter((word) => !served.has(word) && word !== 'dump.sql');
+  const candidates = HIDDEN_WORDS.filter(
+    (word): word is DrawnWord => word !== 'dump.sql' && !served.has(word),
+  );
   const count = prng.nextInt(MIN_HIDDEN, MAX_HIDDEN);
-  const words =
-    database === null
-      ? prng.pickN(candidates, count)
-      : ['dump.sql', ...prng.pickN(candidates, count - 1)];
+  const drawnWords = prng.pickN(candidates, database === null ? count : count - 1);
+  const words: readonly HiddenWord[] =
+    database === null ? drawnWords : ['dump.sql', ...drawnWords];
   const portSuffix = port === 80 ? '' : `:${port}`;
   const ownUrl = isOnHomeLan(essid, host)
     ? `http://${host.hostname}.${lanZoneName(essid)}${portSuffix}/`
     : `http://${host.ip}${portSuffix}/`;
   const hidden = hiddenFiles({
     prng,
+    drawn: drawnWords,
     words,
     site,
     front: plan.front,
     author,
     ownUrl,
     pages: pages.map((page) => pathOf(page.file)),
-    database,
     hostname: host.hostname,
   });
+  const dump = database === null ? [] : [['dump.sql', schemaDump(database)] as const];
 
   // The breadcrumbs: what a site says about the paths it did not link. robots.txt asks
   // crawlers to stay out of some of them — which is how a reader learns they exist —
@@ -547,11 +533,15 @@ export const buildWebSite = ({
         ]
       : [];
   const commentWord = prng.next() < COMMENT_SHARE ? prng.pick(words) : null;
-  const commentLines = commentWord === null ? undefined : PATH_COMMENTS[commentWord];
   const comment =
-    commentWord === null || commentLines === undefined
+    commentWord === null
       ? null
-      : { file: prng.pick(pages).file, text: fillSlots(prng.pick(commentLines), { path: requestPathOf(commentWord) }) };
+      : {
+          file: prng.pick(pages).file,
+          text: fillSlots(prng.pick(PATH_COMMENTS[commentWord]), {
+            path: requestPathOf(commentWord),
+          }),
+        };
 
   return {
     files: new Map([
@@ -572,7 +562,7 @@ export const buildWebSite = ({
         document.file,
         fillSlots(document.body, slots),
       ]),
-      ...[...hidden, ...robots, ...sitemap].map(([file, content]): readonly [string, string] => [
+      ...[...hidden, ...dump, ...robots, ...sitemap].map(([file, content]): readonly [string, string] => [
         file,
         fillSlots(content, slots),
       ]),

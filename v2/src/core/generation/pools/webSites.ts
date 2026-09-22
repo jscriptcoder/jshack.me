@@ -518,14 +518,17 @@ export type ApiEndpoint = {
   readonly body: string;
 };
 
+/** The endpoint every API's reference shows as its worked example. */
+export const API_STATUS_ENDPOINT: ApiEndpoint = {
+  file: 'api/v1/status',
+  summary: 'service status',
+  body: '{"service":"{site}","status":"ok","maintenance":false}',
+};
+
 /** The endpoints every API answers, whatever it is for. */
 export const API_COMMON_ENDPOINTS: readonly ApiEndpoint[] = [
   { file: 'health', summary: 'liveness check', body: '{"status":"ok","host":"{hostname}"}' },
-  {
-    file: 'api/v1/status',
-    summary: 'service status',
-    body: '{"service":"{site}","status":"ok","maintenance":false}',
-  },
+  API_STATUS_ENDPOINT,
 ];
 
 /** The endpoints an API serves for its kind of place. */
@@ -619,6 +622,27 @@ export const API_PAGES: readonly SitePage[] = [
  * not here, because this world's servers list nothing.
  */
 
+/** The words a site may keep unlinked, each a path the default list tries. */
+export const HIDDEN_WORDS = [
+  'old',
+  'staging',
+  'test',
+  'admin',
+  'dashboard',
+  'internal',
+  'notes.txt',
+  'todo.txt',
+  'readme.txt',
+  'status',
+  'health',
+  'server-status',
+  'metrics',
+  '.env',
+  'dump.sql',
+] as const;
+
+export type HiddenWord = (typeof HIDDEN_WORDS)[number];
+
 /** An earlier version of the site, kept until the new one is signed off. */
 export const OLD_SITE_PAGES: readonly string[] = [
   '<p>This is the old site. It stays up until the new one is signed off.</p>\n<p>Last updated 3 March 2025.</p>',
@@ -678,7 +702,7 @@ export const ROBOTS_ONLY_PAGES: readonly string[] = [
 
 /** The comments a page's author leaves about an unlinked path, keyed by the word the
  *  path is. `{path}` is filled with the path as a request names it. */
-export const PATH_COMMENTS: Readonly<Record<string, readonly string[]>> = {
+export const PATH_COMMENTS: Readonly<Record<HiddenWord, readonly string[]>> = {
   old: ['old site kept at {path} until the migration is signed off', 'previous layout still at {path}'],
   staging: ['preview changes at {path} before pushing live'],
   test: ['test copy at {path}, remember to take it down'],

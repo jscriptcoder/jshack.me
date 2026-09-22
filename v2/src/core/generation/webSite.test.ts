@@ -18,7 +18,7 @@ import {
   type Box,
 } from '../../test/worldContent';
 import { DEFAULT_DIRLIST } from '../network/defaultDirlist';
-import { ROBOTS_ONLY_DIRECTORIES } from './pools/webSites';
+import { API_PAGES, PORTAL_PAGES, ROBOTS_ONLY_DIRECTORIES } from './pools/webSites';
 import { sweepWord } from '../network/webSweep';
 import { parseMysqlDatabase } from '../mysql/types';
 
@@ -465,15 +465,31 @@ describe('a web server keeps paths nobody linked', () => {
       if (dump === undefined) return [];
       if (database === null) return [`${box.host.hostname} dumps a database it does not run`];
       if (/INSERT/i.test(dump)) return [`${box.host.hostname} dumps rows`];
+      // Each column as mysqldump states it — name, type, whether it may be empty — then
+      // the keys it carries, so a reader learns what the table really enforces.
+      const typeOf: Readonly<Record<string, string>> = {
+        INT: 'int',
+        VARCHAR: 'varchar(255)',
+        TEXT: 'text',
+        DATETIME: 'datetime',
+        BOOLEAN: 'tinyint(1)',
+        FLOAT: 'float',
+      };
       const dumped = [...dump.matchAll(/CREATE TABLE `([^`]+)` \(\n([\s\S]*?)\n\)/g)].map(
-        ([, table, body]) => ({
-          table,
-          columns: [...(body ?? '').matchAll(/^ {2}`([^`]+)`/gm)].map(([, column]) => column),
-        }),
+        ([, table, body]) => ({ table, lines: (body ?? '').split(',\n') }),
       );
       const expected = Object.entries(database.tables).map(([table, { columns }]) => ({
         table,
-        columns: columns.map(({ name }) => name),
+        lines: [
+          ...columns.map(
+            ({ name, type, nullable }) =>
+              `  \`${name}\` ${typeOf[type]} ${nullable ? 'DEFAULT NULL' : 'NOT NULL'}`,
+          ),
+          ...columns.filter(({ key }) => key === 'PRI').map(({ name }) => `  PRIMARY KEY (\`${name}\`)`),
+          ...columns
+            .filter(({ key }) => key === 'UNI')
+            .map(({ name }) => `  UNIQUE KEY \`${name}\` (\`${name}\`)`),
+        ],
       }));
       return JSON.stringify(dumped) === JSON.stringify(expected)
         ? []
@@ -586,6 +602,7 @@ describe('a web server leaves breadcrumbs to what it did not link', () => {
     const sites = servingBoxes(isWebserver);
     const commented = sites.filter((built) => commentedPathsOf(built).length > 0);
     expect(commented.length / sites.length).toBeGreaterThan(0.25);
+    expect(commented.length / sites.length).toBeLessThan(0.75);
 
     const dead = commented.flatMap((built) =>
       commentedPathsOf(built)
@@ -625,5 +642,191 @@ describe('no two web servers read alike', () => {
     // grow without a coincidence failing the build.
     const fronts = servingBoxes(isWebserver).map(({ tree }) => webRootOf(tree).get('index.html'));
     expect(new Set(fronts).size / fronts.length).toBeGreaterThanOrEqual(0.9);
+  });
+});
+
+describe('how a site is written out', () => {
+  it('heads its pages with the place, titles each page after it, and signs every page', () => {
+    const wrong = servingBoxes(isWebserver).flatMap(({ box, tree }) => {
+      const { place } = networkPersona(box.essid);
+      const site = place.charAt(0).toUpperCase() + place.slice(1);
+      const { fullName } = inhabitant({ ...box, username: npcUsername(box.essid, box.host) });
+      return htmlPagesOf(tree).flatMap(([file, page]) => {
+        const heading = /<h1>([^<]*)<\/h1>/.exec(page)?.[1] ?? '';
+        const title = /<title>([^<]*)<\/title>/.exec(page)?.[1];
+        const expectedTitle = file === 'index.html' || !file.endsWith('.html') || file.includes('/')
+          ? null
+          : `${heading} — ${site}`;
+        return [
+          ...(page.startsWith('<html>\n<head><title>') ? [] : ['does not open as a page']),
+          ...(page.endsWith(`<hr>\n<p>Page maintained by ${fullName}.</p>\n</body>\n</html>`)
+            ? []
+            : ['is not signed']),
+          ...(file === 'index.html' && (heading !== site || title !== site) ? ['front is not headed by the place'] : []),
+          ...(expectedTitle !== null && title !== expectedTitle ? [`title ${title}`] : []),
+        ].map((fault) => `${box.host.hostname} /${file} ${fault}`);
+      });
+    });
+    expect(wrong).toEqual([]);
+  });
+
+  it('opens its navigation with Home, then names each page by its heading', () => {
+    const wrong = servingBoxes(isWebserver).flatMap(({ box, tree }) => {
+      const front = webRootOf(tree).get('index.html') ?? '';
+      const nav = [...(/<p>(<a href="\/".*?)<\/p>/.exec(front)?.[1] ?? '').matchAll(/<a href="([^"]+)">([^<]+)<\/a>/g)];
+      const [home, ...rest] = nav;
+      return [
+        ...(home?.[1] === '/' && home[2] === 'Home' ? [] : ['navigation does not open with Home']),
+        ...rest
+          .filter(([, href, label]) => {
+            const page = webRootOf(tree).get((href ?? '').slice(1)) ?? '';
+            return !page.includes(`<h1>${label}</h1>`);
+          })
+          .map(([, href]) => `${href} is not named by its heading`),
+      ].map((fault) => `${box.host.hostname}: ${fault}`);
+    });
+    expect(wrong).toEqual([]);
+  });
+
+  it('keeps a team page only where a place lists its people, as its kind of place calls it', () => {
+    const wrong = servingBoxes(isWebserver).flatMap(({ box, tree }) => {
+      const files = [...webRootOf(tree).keys()];
+      const category = networkPersona(box.essid).category;
+      const expected = hasPrefix('portal')(box.host)
+        ? ['team.html']
+        : hasPrefix('api')(box.host)
+          ? []
+          : category === 'corporate'
+            ? ['team.html']
+            : category === 'university'
+              ? ['people.html']
+              : [];
+      const listed = files.filter((file) => ['team.html', 'people.html'].includes(file));
+      return JSON.stringify(listed) === JSON.stringify(expected)
+        ? []
+        : [`${box.host.hostname} (${category}) lists people in ${listed.join() || 'nothing'}`];
+    });
+    expect(wrong).toEqual([]);
+  });
+
+  it('draws an intranet and an API only from the pages their kind of site keeps', () => {
+    const allowed = (host: LanHost): ReadonlySet<string> =>
+      new Set(
+        hasPrefix('portal')(host)
+          ? ['index.html', 'services.html', 'team.html', 'news.html', 'faq.html', 'contact.html', ...PORTAL_PAGES.map(({ file }) => file)]
+          : ['index.html', 'about.html', 'contact.html', ...API_PAGES.map(({ file }) => file)],
+      );
+    const strays = servingBoxes((host) => hasPrefix('portal')(host) || hasPrefix('api')(host)).flatMap(
+      (built) =>
+        [...crawl(built).keys()]
+          .filter((path) => path === '/' || path.endsWith('.html'))
+          .map((path) => (path === '/' ? 'index.html' : path.slice(1)))
+          .filter((file) => !allowed(built.box.host).has(file))
+          .map((file) => `${built.box.host.hostname} ${file}`),
+    );
+    expect(strays).toEqual([]);
+  });
+
+  it('writes a service port into the services table only where it is not the standard one', () => {
+    const portals = servingBoxes(hasPrefix('portal'));
+    const pages = portals.map(({ tree }) => webRootOf(tree).get('services.html') ?? '');
+    expect(pages.filter((page) => /\.lan:80\/|\.lan:21\//.test(page))).toEqual([]);
+    expect(pages.some((page) => /\.lan:\d+\//.test(page))).toBe(true);
+  });
+
+  it('lists every machine that does something on the network, and says so when none does', () => {
+    const wrong = servingBoxes(hasPrefix('portal')).flatMap(({ box, tree }) => {
+      const page = webRootOf(tree).get('services.html') ?? '';
+      const rows = [...page.matchAll(/<tr><td>/g)].length;
+      const expected = neighboursOf(box).reduce(
+        (total, neighbour) =>
+          total +
+          (portOf({ essid: box.essid, host: neighbour }, 'http') === null ? 0 : 1) +
+          (portOf({ essid: box.essid, host: neighbour }, 'ftp') === null ? 0 : 1) +
+          (roleOfHostname(neighbour.hostname) === 'mailserver' ? 1 : 0),
+        0,
+      );
+      const table = page.match(/<table>[\s\S]*<\/table>/)?.[0];
+      const stray = (table === undefined ? [] : table.split('\n')).filter((line) => !/^<\/?table>$|^<tr>.*<\/tr>$/.test(line));
+      return [
+        ...(rows === expected ? [] : [`${rows} rows for ${expected} services`]),
+        ...(expected === 0 && !page.includes('Nothing else on the network is listed yet.') ? ['says nothing'] : []),
+        ...stray.map((line) => `stray ${line}`),
+      ].map((fault) => `${box.host.hostname}: ${fault}`);
+    });
+    expect(wrong).toEqual([]);
+    expect(servingBoxes(hasPrefix('portal')).some(({ box }) => neighboursOf(box).length === 0)).toBe(true);
+  });
+
+  it('shows the status endpoint as its worked example, exactly as it answers', () => {
+    const wrong = servingBoxes(hasPrefix('api')).flatMap(({ box, tree }) => {
+      const front = webRootOf(tree).get('index.html') ?? '';
+      const status = webRootOf(tree).get('api/v1/status');
+      return front.includes(`<h2>Example</h2>\n<pre>\nGET /api/v1/status\n${status}\n</pre>`)
+        ? []
+        : [box.host.hostname];
+    });
+    expect(wrong).toEqual([]);
+  });
+});
+
+describe('what an unlinked path holds', () => {
+  /** What each unlinked word must hold, read the way a reader reads it. */
+  const PROMISES: readonly (readonly [RegExp, RegExp])[] = [
+    [/^old\/index\.html$/, /old site|old layout|previous/i],
+    [/^(staging|test)\/index\.html$/, /draft|staging copy|test build/i],
+    [/^(admin|dashboard)\/index\.html$/, /<input type="password" name="password">/],
+    [/^internal\/index\.html$/, /<h1>Internal<\/h1>/],
+    [/^status$/, /^status: ok\nuptime: \d+ days\n$/],
+    [/^health$/, /^\{"status":"ok","host":"[a-z0-9-]+"\}$/],
+    [/^server-status$/, /^Server Status for [a-z0-9-]+\nServer uptime: \d+ days \d+ hours\n/],
+    [/^metrics$/, /^# HELP http_requests_total[\s\S]*\nprocess_open_fds \d+\n$/],
+    [/^\.env$/, /^APP_ENV=production\nAPP_URL=\S+\nMAIL_API_KEY=key-[0-9a-f]{32}\nPAYMENT_PUBLIC_KEY=pk_live_[0-9a-f]{24}\nANALYTICS_ID=G-[0-9A-F]{10}\n$/],
+    [/^(notes|todo|readme)\.txt$/, /^[A-Za-z ]+ — [A-Z][^\n]+\n\n(- [^\n]+\n){2,4}$/],
+    [/^robots\.txt$/, /^User-agent: \*\n(Disallow: \/\S+\n)+$/],
+    [/^sitemap\.xml$/, /^<urlset>\n( {2}<url><loc>http:\/\/\S+<\/loc><\/url>\n)+<\/urlset>\n$/],
+  ];
+
+  it('holds what its name promises', () => {
+    const kept = servingBoxes(isWebserver).flatMap((built) =>
+      [...hiddenPaths(built)].flatMap(([path]) => {
+        const file = [...webRootOf(built.tree).keys()].find(
+          (candidate) => candidate === path || candidate === `${path}/index.html`,
+        );
+        return file === undefined ? [] : [{ built, file, content: webRootOf(built.tree).get(file) ?? '' }];
+      }),
+    );
+    const broken = kept.flatMap(({ built, file, content }) => {
+      const promise = PROMISES.find(([name]) => name.test(file));
+      if (promise === undefined) return [];
+      return promise[1].test(content) ? [] : [`${built.box.host.hostname} /${file}`];
+    });
+    expect(broken).toEqual([]);
+    // Every kind of unlinked path is met somewhere, so no promise above goes unread.
+    const met = new Set(kept.map(({ file }) => PROMISES.findIndex(([name]) => name.test(file))));
+    expect([...met].filter((index) => index >= 0).sort((left, right) => left - right)).toEqual(
+      PROMISES.map((_, index) => index),
+    );
+  });
+
+  it('writes notes about paths the site really serves, never about the notes themselves', () => {
+    const wrong = servingBoxes(isWebserver).flatMap((built) =>
+      [...webRootOf(built.tree)]
+        .filter(([file]) => /^(notes|todo|readme)\.txt$/.test(file))
+        .flatMap(([file, content]) =>
+          [...content.matchAll(/(?<![\w.])(\/[\w./-]*)/g)]
+            .map(([, path]) => path ?? '')
+            .filter((path) => path === `/${file}` || served(built.tree, path) === null)
+            .map((path) => `${built.box.host.hostname} /${file} names ${path}`),
+        ),
+    );
+    expect(wrong).toEqual([]);
+  });
+
+  it('leaves its comment in one page at most', () => {
+    const crowded = servingBoxes(isWebserver).filter(
+      ({ tree }) => htmlPagesOf(tree).filter(([, page]) => page.includes('<!--')).length > 1,
+    );
+    expect(crowded.map(({ box }) => box.host.hostname)).toEqual([]);
   });
 });
