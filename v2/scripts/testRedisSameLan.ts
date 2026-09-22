@@ -165,13 +165,16 @@ const attackerOccupant = {
 const DEFENDER_GUEST_PW = workstationGuestPassword(defender.publicKeyHex);
 
 /** The store `apt install redis` writes onto the defender's box, locked to whatever
- *  `/etc/passwd` says root's password is. */
-const store = ownStore({
-  ownerKeyHex: defender.publicKeyHex,
-  hostname: DEFENDER_HOSTNAME,
-  fs: materializeWorkstationFs(defenderOccupant, []),
-});
-const firstKey = Object.keys(store.keys)[0];
+ *  `/etc/passwd` says root's password is. A bought store starts empty, so the defender
+ *  has set one key of their own since: the value step 9 reads back must be theirs. */
+const firstKey = 'notes:todo';
+const store = {
+  ...ownStore({
+    ownerKeyHex: defender.publicKeyHex,
+    fs: materializeWorkstationFs(defenderOccupant, []),
+  }),
+  keys: { [firstKey]: 'renew the certificate' },
+};
 
 const clean = async () => {
   await sr.from('home_network_occupants').delete().eq('essid', ESSID);
@@ -384,7 +387,7 @@ const authed = await post(await statementEnvelope(`GET ${firstKey}`, CHOSEN_ROOT
 const answered = (authed.body as { output?: readonly string[] } | null)?.output?.[0] ?? '';
 check(
   '9. root’s password opens the store, and the value is the defender’s own',
-  authed.status === 200 && answered.includes(store.keys[firstKey ?? ''] ?? ''),
+  authed.status === 200 && answered.includes(store.keys[firstKey]),
   answered,
 );
 

@@ -364,7 +364,7 @@ describe('the player own box, once it runs a store', () => {
       {
         path: DATADIR_PATH,
         content: JSON.stringify(
-          ownStore({ ownerKeyHex: PUBKEY, hostname: CONFIG.machineName, fs: base }),
+          ownStore({ ownerKeyHex: PUBKEY, fs: base }),
         ),
         owner: DATADIR_OWNER,
         permissions: DATADIR_FILE,

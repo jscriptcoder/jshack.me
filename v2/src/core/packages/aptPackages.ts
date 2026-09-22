@@ -259,7 +259,6 @@ export const APT_PACKAGES: readonly AptPackage[] = [
           JSON.stringify(
             ownStore({
               ownerKeyHex: box.identity.publicKeyHex,
-              hostname: box.hostname,
               fs: box.fs.root(),
             }),
           ),

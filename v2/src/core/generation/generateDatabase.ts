@@ -30,34 +30,35 @@ import type { MysqlCredential, MysqlDatabase } from '../mysql/types';
 /** How many logins an application on a deep box keeps beside the box's own account. */
 const DEEP_LOGIN_RANGE = { min: 4, max: 9 } as const;
 
+/** What an application holds: its database name and its tables. */
+export type Application = Pick<MysqlDatabase, 'name' | 'tables'>;
+
 /**
- * The database `host` keeps on `essid`.
+ * The application `host` runs on `essid`, whether or not the box serves it through
+ * mysqld. A store on a box with no database still caches the application the box would
+ * hold, so this is its own function rather than a step inside the database.
  *
  * `account` is the box's REAL user — the one with a home directory a visitor can see —
  * and it leads the `users` table as the application's admin, which is what ties the
- * database to the machine it is on. On a LAN everyone else in the table is a neighbour:
- * every account whose machine shares the network, and nobody whose machine does not.
- * A deep box has no neighbours to give, so its application keeps logins drawn from the
- * same role-keyed pool that named the box.
+ * application to the machine it is on. On a LAN everyone else in the table is a
+ * neighbour: every account whose machine shares the network, and nobody whose machine
+ * does not. A deep box has no neighbours to give, so its application keeps logins drawn
+ * from the same role-keyed pool that named the box.
  */
-export const generateDatabase = ({
-  seed,
+export const generateApplication = ({
   appSeed,
   essid,
   host,
   account,
   role,
 }: {
-  /** The stream the accounts are drawn on, and nothing else. */
-  readonly seed: string;
-  /** The stream the application is drawn on, so reshaping what a database holds never
-   *  moves the passwords that guard it. */
+  /** The stream the application is drawn on, and nothing else. */
   readonly appSeed: string;
   readonly essid: string;
   readonly host: LanHost;
   readonly account: string;
   readonly role: DrawnRole | undefined;
-}): MysqlDatabase => {
+}): Application => {
   const prng = createPrng(appSeed);
 
   const others = isOnHomeLan(essid, host)
@@ -70,8 +71,25 @@ export const generateDatabase = ({
       );
   const people = [...new Set([account, ...others])];
 
-  const { name, tables } = buildApplication({ prng, essid, host, people });
+  return buildApplication({ prng, essid, host, people });
+};
 
+/** The database `host` keeps on `essid`: its application, and the accounts that guard it. */
+export const generateDatabase = ({
+  seed,
+  ...application
+}: {
+  /** The stream the accounts are drawn on, and nothing else. */
+  readonly seed: string;
+  /** The stream the application is drawn on, so reshaping what a database holds never
+   *  moves the passwords that guard it. */
+  readonly appSeed: string;
+  readonly essid: string;
+  readonly host: LanHost;
+  readonly account: string;
+  readonly role: DrawnRole | undefined;
+}): MysqlDatabase => {
+  const { name, tables } = generateApplication(application);
   return { name, tables, credentials: drawDatabaseCredentials(seed) };
 };
 

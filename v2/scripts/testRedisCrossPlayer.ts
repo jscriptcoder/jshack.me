@@ -126,7 +126,6 @@ const storeFor = (rootPassword: string) => {
   const occupant = occupantWithRoot(rootPassword);
   return ownStore({
     ownerKeyHex: defender.publicKeyHex,
-    hostname: DEFENDER_HOSTNAME,
     fs: materializeWorkstationFs(occupant, []),
   });
 };
