@@ -4,6 +4,7 @@ import { buildDeepHostFs } from './deepHostFs';
 import { buildRemoteHostFs, hostServices, npcUsername } from './remoteHostFs';
 import { asAbsPath } from '../types';
 import { md5 } from './md5';
+import { softwareVersionsIn } from '../../test/worldContent';
 import { DEFAULT_WORDLIST } from '../wordlist/defaultWordlist';
 import { resolveWebPath } from '../network/http';
 import { createFsView } from '../filesystem/fsView';
@@ -355,32 +356,24 @@ describe('buildRemoteHostFs', () => {
       expect(offenders).toEqual([]);
     });
 
-    it('still leaks the recon that promises nothing — a version and a careless comment', () => {
-      // Pruning the links must not take the reason to read the page with it: what
-      // is left is the recon that costs nothing to honour, because it points at no
-      // path. The comment matters twice over — it is what `curl` shows and a
-      // browser will not, which is why both commands stay worth running.
+    it('leaves a careless comment for curl to show, and dates the box by no version', () => {
+      // The comment is what `curl` shows and a browser will not, which is why both
+      // commands stay worth running. A version is not recon but a date: only the box's
+      // package manifest states one, so a page quoting its own would contradict it.
       const templates = [
         ...new Set(
-          httpHosts().flatMap(({ octet }) => {
-            const page = servedTemplate(octet);
-            return page === null ? [] : [page];
-          }),
+          ['host', 'cam', 'laptop'].flatMap((prefix) =>
+            OCTETS.flatMap((octet) => {
+              const page =
+                prefix === 'host' ? servedTemplate(octet) : servedTemplateFor(prefix, octet);
+              return page === null ? [] : [page];
+            }),
+          ),
         ),
       ];
-      expect(templates).toHaveLength(4);
-      expect(templates.filter((page) => /<!--[\s\S]*-->/.test(page))).toHaveLength(4);
-
-      const everyPage = templates.join('\n');
-      for (const version of [
-        'Build 4.2.1',
-        'v3.1.0',
-        'nginx/1.24.0',
-        'Node.js v18.17.0',
-        'Express 4.18.2',
-      ]) {
-        expect(everyPage).toContain(version);
-      }
+      expect(templates).toHaveLength(12);
+      expect(templates.filter((page) => /<!--[\s\S]*-->/.test(page))).toHaveLength(12);
+      expect(templates.flatMap((page) => softwareVersionsIn(page))).toEqual([]);
     });
 
     it('recognises an unserved link when there is one', () => {
@@ -557,8 +550,8 @@ describe('buildRemoteHostFs', () => {
 
     it('keeps the general pages themselves untouched', () => {
       // The test above proves nothing moved BETWEEN pools; this proves the pool the
-      // rest fall back to is still the same four pages. Captured before the buckets
-      // existed, so it blesses nothing that this slice did.
+      // rest fall back to is still the same four pages. Recaptured when the pages
+      // stopped quoting versions, and nothing since has had reason to touch them.
       const templates = [
         ...new Set(
           OCTETS.flatMap((octet) => {
@@ -569,7 +562,7 @@ describe('buildRemoteHostFs', () => {
       ];
 
       expect(templates).toHaveLength(4);
-      expect(md5(templates.sort().join('\n'))).toBe('e2ffd35907ba2dce11ad487d6f1286c4');
+      expect(md5(templates.sort().join('\n'))).toBe('eccc054787c6764e4138d8d1e3ba6769');
     });
 
     it('holds every bucket to what the general pages already promise', () => {

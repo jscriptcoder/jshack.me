@@ -3,8 +3,9 @@
  *
  * A web server is the only door that needs no credential, so this content is what
  * a reader actually gets back — it is recon material, not decoration. Each page
- * leaks the kind of thing a real server leaks: a software version, a careless
- * comment. The player's job is to read it and decide what to probe next.
+ * leaks the kind of thing a real server leaks: what it runs, a careless comment.
+ * The player's job is to read it and decide what to probe next. It never quotes a
+ * version: a version dates a box, and only the package manifest states one.
  *
  * Deliberately NOT leaked here: anything that works as a credential. A page hints
  * at where to look; turning a hint into access is the wordlist's job, and pages
@@ -45,24 +46,24 @@ const HOSTNAME_PLACEHOLDER = /\{\{hostname\}\}/g;
 /** What a box with nothing particular to say serves — and what a webserver serves,
  *  since a corporate portal or a reverse proxy is exactly what one is for. */
 const GENERAL_SERVER_PAGES: readonly string[] = [
-  '<html>\n<head><title>{{hostname}} — Status</title></head>\n<body>\n<h1>{{hostname}}</h1>\n<p>Server operational. Build 4.2.1</p>\n<!-- deploy: automated via CI/CD pipeline -->\n</body>\n</html>',
-  '<html>\n<head><title>Welcome — {{hostname}}</title></head>\n<body>\n<h1>Welcome to {{hostname}}</h1>\n<p>Internal corporate portal v3.1.0</p>\n<!-- TODO: remove debug endpoints before release -->\n</body>\n</html>',
-  '<html>\n<head><title>{{hostname}} — nginx</title></head>\n<body>\n<h1>{{hostname}}</h1>\n<p>nginx reverse proxy — upstream: 127.0.0.1:8080</p>\n<p>SSL: enabled | HTTP/2: enabled</p>\n<!-- nginx/1.24.0 -->\n</body>\n</html>',
-  '<html>\n<head><title>{{hostname}} — Application Server</title></head>\n<body>\n<h1>{{hostname}} App Server</h1>\n<p>Node.js v18.17.0 | PM2 cluster mode</p>\n<p>Workers: 4/4 | Memory: 312MB | Uptime: 18d 4h</p>\n<!-- Express 4.18.2 -->\n</body>\n</html>',
+  '<html>\n<head><title>{{hostname}} — Status</title></head>\n<body>\n<h1>{{hostname}}</h1>\n<p>Server operational.</p>\n<!-- deploy: automated via CI/CD pipeline -->\n</body>\n</html>',
+  '<html>\n<head><title>Welcome — {{hostname}}</title></head>\n<body>\n<h1>Welcome to {{hostname}}</h1>\n<p>Internal corporate portal</p>\n<!-- TODO: remove debug endpoints before release -->\n</body>\n</html>',
+  '<html>\n<head><title>{{hostname}} — nginx</title></head>\n<body>\n<h1>{{hostname}}</h1>\n<p>nginx reverse proxy — upstream: 127.0.0.1:8080</p>\n<p>SSL: enabled | HTTP/2: enabled</p>\n<!-- upstream pool cut to one node after the rack move -->\n</body>\n</html>',
+  '<html>\n<head><title>{{hostname}} — Application Server</title></head>\n<body>\n<h1>{{hostname}} App Server</h1>\n<p>Node.js | PM2 cluster mode</p>\n<p>Workers: 4/4 | Memory: 312MB | Uptime: 18d 4h</p>\n<!-- pm2 restarts the workers after every deploy -->\n</body>\n</html>',
 ];
 
 const IOT_PAGES: readonly string[] = [
-  '<html>\n<head><title>{{hostname}} — Live View</title></head>\n<body>\n<h1>{{hostname}}</h1>\n<p>Stream: rtsp://{{hostname}}:554/live — 1920x1080 @ 15fps</p>\n<p>Firmware 2.1.4 | Motion detection: on</p>\n<!-- ONVIF profile S, motion zones last edited 2019 -->\n</body>\n</html>',
-  '<html>\n<head><title>{{hostname}} — Device</title></head>\n<body>\n<h1>{{hostname}}</h1>\n<p>Sensor gateway | Firmware 1.8.2 | Uptime 214d</p>\n<p>Paired devices: 6 | Last reading 21.4C</p>\n<!-- mqtt bridge restarted nightly by cron -->\n</body>\n</html>',
+  '<html>\n<head><title>{{hostname}} — Live View</title></head>\n<body>\n<h1>{{hostname}}</h1>\n<p>Stream: rtsp://{{hostname}}:554/live — 1920x1080 @ 15fps</p>\n<p>Motion detection: on | Firmware auto-update: off</p>\n<!-- ONVIF profile S, motion zones last edited 2019 -->\n</body>\n</html>',
+  '<html>\n<head><title>{{hostname}} — Device</title></head>\n<body>\n<h1>{{hostname}}</h1>\n<p>Sensor gateway | Firmware auto-update: off | Uptime 214d</p>\n<p>Paired devices: 6 | Last reading 21.4C</p>\n<!-- mqtt bridge restarted nightly by cron -->\n</body>\n</html>',
   '<html>\n<head><title>{{hostname}} — Snapshot</title></head>\n<body>\n<h1>{{hostname}}</h1>\n<p>Latest snapshot: 1280x720, 4s ago</p>\n<p>Storage: microSD 32GB, 78% full — oldest clip 2021-03-11</p>\n<!-- snapshot cache served from tmpfs, wiped on reboot -->\n</body>\n</html>',
-  '<html>\n<head><title>{{hostname}} — Camera Admin</title></head>\n<body>\n<h1>{{hostname}}</h1>\n<p>Model IPC-2400 | Firmware 3.0.1-beta | Channel 2 of 4</p>\n<p>Night mode: auto | Timezone: UTC</p>\n<!-- beta firmware flashed by hand, never rolled back -->\n</body>\n</html>',
+  '<html>\n<head><title>{{hostname}} — Camera Admin</title></head>\n<body>\n<h1>{{hostname}}</h1>\n<p>Model IPC-2400 | Beta firmware | Channel 2 of 4</p>\n<p>Night mode: auto | Timezone: UTC</p>\n<!-- beta firmware flashed by hand, never rolled back -->\n</body>\n</html>',
 ];
 
 const WORKSTATION_PAGES: readonly string[] = [
   '<html>\n<head><title>{{hostname}} — dev</title></head>\n<body>\n<h1>{{hostname}}</h1>\n<p>Vite dev server on localhost:5173 — HMR connected</p>\n<!-- npm run dev -- --host, left running over the weekend -->\n</body>\n</html>',
-  '<html>\n<head><title>It works!</title></head>\n<body>\n<h1>It works!</h1>\n<p>nginx/1.18.0 default page on {{hostname}}</p>\n<!-- /var/www/html untouched since the install -->\n</body>\n</html>',
+  '<html>\n<head><title>It works!</title></head>\n<body>\n<h1>It works!</h1>\n<p>nginx default page on {{hostname}}</p>\n<!-- /var/www/html untouched since the install -->\n</body>\n</html>',
   '<html>\n<head><title>{{hostname}} — notes</title></head>\n<body>\n<h1>{{hostname}} notes</h1>\n<p>Personal wiki — 41 pages, last edited yesterday</p>\n<!-- served straight off ~/notes, no backup configured -->\n</body>\n</html>',
-  '<html>\n<head><title>{{hostname}}</title></head>\n<body>\n<h1>{{hostname}}</h1>\n<p>Static site preview — Hugo 0.121.1, built 3h ago</p>\n<p>Serving from localhost, draft posts included</p>\n<!-- python3 -m http.server, still up from this morning -->\n</body>\n</html>',
+  '<html>\n<head><title>{{hostname}}</title></head>\n<body>\n<h1>{{hostname}}</h1>\n<p>Static site preview — Hugo, built 3h ago</p>\n<p>Serving from localhost, draft posts included</p>\n<!-- python3 -m http.server, still up from this morning -->\n</body>\n</html>',
 ];
 
 /** Keyed by role OR by the absence of one, so the lookup is total: a box whose name
