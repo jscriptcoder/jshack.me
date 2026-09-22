@@ -1169,7 +1169,6 @@ describe('buildRemoteHostFs', () => {
       // OFTEN each appears; this is the claim that each appears at all.
       const everyKey = stores().flatMap(({ store }) => Object.keys(store.keys));
       const missing = [
-        'sess:jwt:',
         'sess:',
         'cache:user:',
         'perms:',
@@ -1241,23 +1240,14 @@ describe('buildRemoteHostFs', () => {
       expect(noneOf(disagreeing)).toEqual(NONE);
     });
 
-    it('names the people the box really carries in its keys, and never the guest', () => {
-      // Those keys name real users, and /etc/passwd is guest-unreadable — so an open
-      // store hands out with no credential the names a whole permission rung protects.
-      // Kept on purpose: it is the real-world exposed-store problem, and it gives the
-      // open find a job beyond flavour.
-      const anonymous = stores().filter(
-        ({ box, store }) =>
-          !box.accounts.some((account) =>
-            Object.values(store.keys).some((value) => value.includes(account)),
-          ),
-      ).map(({ box }) => where(box));
+    it('never names the guest in its keys', () => {
+      // Who a store names is the application's logins, which the store's own tests hold
+      // to; guest is an account on the box, never a login of anything it runs.
       const naming = stores().filter(({ store }) =>
         Object.values(store.keys).some((value) => value.includes('guest')),
       ).map(({ box }) => where(box));
 
       expect(stores().length).toBeGreaterThan(0);
-      expect(noneOf(anonymous)).toEqual(NONE);
       expect(noneOf(naming)).toEqual(NONE);
     });
 

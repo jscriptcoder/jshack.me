@@ -46,31 +46,8 @@ type RedisKeyGenerator = (
 ) => { readonly key: string; readonly value: string };
 
 /** A run of hex, the shape every token and secret in a real store takes. */
-const hex = (prng: Prng, length: number): string =>
+export const hex = (prng: Prng, length: number): string =>
   Array.from({ length }, () => prng.nextInt(0, 15).toString(16)).join('');
-
-// --- Session tokens ---
-
-const sessionBasic: RedisKeyGenerator = (prng, { people }) => ({
-  key: `sess:${hex(prng, 16)}`,
-  value: JSON.stringify({
-    username: prng.pick(people),
-    ip: `10.${prng.nextInt(0, 255)}.${prng.nextInt(1, 254)}.${prng.nextInt(2, 254)}`,
-    role: prng.pick(['admin', 'user', 'operator']),
-    created: '2024-01-15T08:30:00Z',
-  }),
-});
-
-const sessionJwt: RedisKeyGenerator = (prng, { people, hostname }) => ({
-  key: `sess:jwt:${hex(prng, 24)}`,
-  value: JSON.stringify({
-    sub: prng.pick(people),
-    iat: 1705312200,
-    exp: 1705398600,
-    scope: prng.pick(['read', 'read write', 'admin', 'read write delete']),
-    iss: `auth.${hostname}`,
-  }),
-});
 
 // --- Cached user profiles ---
 
@@ -270,8 +247,6 @@ const webhookSecret: RedisKeyGenerator = (prng) => {
  *  what a live application actually fills a store with; a store that read as an even
  *  spread of sixteen exotic shapes would read as a fixture. */
 const WEIGHTED_GENERATORS: readonly (readonly [RedisKeyGenerator, number])[] = [
-  [sessionBasic, 3],
-  [sessionJwt, 2],
   [userCache, 3],
   [userPermissions, 1],
   [apiKey, 2],

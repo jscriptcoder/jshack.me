@@ -78,7 +78,7 @@ import { buildSshDirectories } from './sshContent';
 import { DEBIAN_BASH_LOGOUT, DEBIAN_BASHRC, DEBIAN_PROFILE } from './pools/homeSkeleton';
 import { pickUsername } from './pools/usernames';
 import { placementOf } from './rolePlacement';
-import { generateDatabase } from './generateDatabase';
+import { generateApplication, generateDatabase } from './generateDatabase';
 import { formatRedisConf, generateRedisStore } from './generateRedisStore';
 import { ACCESS_LOG_PERMISSIONS } from '../logging/accessLog';
 import { VSFTPD_LOG_PERMISSIONS } from '../logging/vsftpdLog';
@@ -340,11 +340,21 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
                   generateRedisStore({
                     seed: `redis-store-${essid}-${host.ip}`,
                     appSeed: `redis-app-${essid}-${host.ip}`,
-                    hostname: host.hostname,
-                    // The box's own non-guest accounts. An open store hands these out
-                    // with no credential at all, which is the permission rung this door
-                    // crosses on purpose.
-                    people: ['root', username],
+                    essid,
+                    host,
+                    account: username,
+                    // The database's own application where the box serves one, so every
+                    // session names a row `SELECT` returns; otherwise the application
+                    // the box would hold, which is the same function of the same seed.
+                    application:
+                      database ??
+                      generateApplication({
+                        appSeed: `db-app-${essid}-${host.ip}`,
+                        essid,
+                        host,
+                        account: username,
+                        role,
+                      }),
                   }),
                 ),
                 DATADIR_FILE,
