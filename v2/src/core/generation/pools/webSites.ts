@@ -520,7 +520,7 @@ export type ApiEndpoint = {
 
 /** The endpoints every API answers, whatever it is for. */
 export const API_COMMON_ENDPOINTS: readonly ApiEndpoint[] = [
-  { file: 'health', summary: 'liveness check', body: '{"status":"ok"}' },
+  { file: 'health', summary: 'liveness check', body: '{"status":"ok","host":"{hostname}"}' },
   {
     file: 'api/v1/status',
     summary: 'service status',
@@ -603,7 +603,7 @@ export const API_PAGES: readonly SitePage[] = [
     file: 'examples.html',
     title: 'Examples',
     bodies: [
-      '<pre>\nGET /health\n{"status":"ok"}\n</pre>\n<p>Any HTTP client works; so does a browser.</p>',
+      '<pre>\nGET /health\n{"status":"ok","host":"{hostname}"}\n</pre>\n<p>Any HTTP client works; so does a browser.</p>',
       '<p>Fetch any endpoint with a plain GET. Responses are small enough to read by eye.</p>',
     ],
   },

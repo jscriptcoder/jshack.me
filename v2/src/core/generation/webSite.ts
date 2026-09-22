@@ -339,8 +339,18 @@ const loginForm = (heading: string): string =>
     '</form>',
   ].join('\n');
 
-const plainPage = (site: string, body: string): string =>
-  ['<html>', `<head><title>${site}</title></head>`, '<body>', body, '</body>', '</html>'].join('\n');
+/** A page nothing links, signed like every other page on the site. */
+const plainPage = (site: string, author: string, body: string): string =>
+  [
+    '<html>',
+    `<head><title>${site}</title></head>`,
+    '<body>',
+    body,
+    '<hr>',
+    `<p>Page maintained by ${author}.</p>`,
+    '</body>',
+    '</html>',
+  ].join('\n');
 
 /** The paths a site keeps that no page links, by the file each is published as. */
 const hiddenFiles = (options: {
@@ -359,19 +369,19 @@ const hiddenFiles = (options: {
     const others = words.filter((other) => other !== word).map(requestPathOf);
     switch (word) {
       case 'old':
-        return ['old/index.html', plainPage(site, `<h1>${site}</h1>\n${prng.pick(OLD_SITE_PAGES)}`)];
+        return ['old/index.html', plainPage(site, author, `<h1>${site}</h1>\n${prng.pick(OLD_SITE_PAGES)}`)];
       case 'staging':
       case 'test':
         return [
           `${word}/index.html`,
-          plainPage(site, `<h1>${site}</h1>\n${prng.pick(DRAFT_NOTICES)}\n${front}`),
+          plainPage(site, author, `<h1>${site}</h1>\n${prng.pick(DRAFT_NOTICES)}\n${front}`),
         ];
       case 'admin':
-        return ['admin/index.html', plainPage(site, loginForm(`${site} — administration`))];
+        return ['admin/index.html', plainPage(site, author, loginForm(`${site} — administration`))];
       case 'dashboard':
-        return ['dashboard/index.html', plainPage(site, loginForm('Dashboard — sign in'))];
+        return ['dashboard/index.html', plainPage(site, author, loginForm('Dashboard — sign in'))];
       case 'internal':
-        return ['internal/index.html', plainPage(site, `<h1>Internal</h1>\n${prng.pick(INTERNAL_PAGES)}`)];
+        return ['internal/index.html', plainPage(site, author, `<h1>Internal</h1>\n${prng.pick(INTERNAL_PAGES)}`)];
       case 'notes.txt':
       case 'todo.txt':
       case 'readme.txt': {
@@ -384,7 +394,7 @@ const hiddenFiles = (options: {
       case 'status':
         return [word, `status: ok\nuptime: ${prng.nextInt(2, 180)} days\n`];
       case 'health':
-        return [word, '{"status":"ok"}'];
+        return [word, `{"status":"ok","host":"${hostname}"}`];
       case 'server-status':
         return [
           word,
@@ -517,7 +527,7 @@ export const buildWebSite = ({
             : [
                 [
                   `${robotsOnly}/index.html`,
-                  plainPage(site, `<h1>${site}</h1>\n${prng.pick(ROBOTS_ONLY_PAGES)}`),
+                  plainPage(site, author, `<h1>${site}</h1>\n${prng.pick(ROBOTS_ONLY_PAGES)}`),
                 ] as const,
               ]),
         ];

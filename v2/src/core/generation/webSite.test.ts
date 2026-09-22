@@ -595,3 +595,35 @@ describe('a web server leaves breadcrumbs to what it did not link', () => {
     expect(dead).toEqual([]);
   });
 });
+
+describe('no two web servers read alike', () => {
+  it('serves no file on one web server that another on its network serves byte for byte', () => {
+    const copies = servingBoxes(isWebserver).reduce(
+      ({ seen, repeated }, { box, tree }) => {
+        const fresh = [...webRootOf(tree)].flatMap(([file, content]) => {
+          const key = `${box.essid} ${content}`;
+          const first = seen.get(key);
+          return first === undefined ? [] : [`${box.essid}: ${first} = ${box.host.hostname} /${file}`];
+        });
+        return {
+          seen: new Map([
+            ...seen,
+            ...[...webRootOf(tree)].map(
+              ([file, content]): readonly [string, string] => [`${box.essid} ${content}`, `${box.host.hostname} /${file}`],
+            ),
+          ]),
+          repeated: [...repeated, ...fresh],
+        };
+      },
+      { seen: new Map<string, string>(), repeated: [] as readonly string[] },
+    ).repeated;
+    expect(copies).toEqual([]);
+  });
+
+  it('gives nearly every webserver a front page of its own across every network', () => {
+    // Measured with every front page distinct; the band leaves room for the pools to
+    // grow without a coincidence failing the build.
+    const fronts = servingBoxes(isWebserver).map(({ tree }) => webRootOf(tree).get('index.html'));
+    expect(new Set(fronts).size / fronts.length).toBeGreaterThanOrEqual(0.9);
+  });
+});
