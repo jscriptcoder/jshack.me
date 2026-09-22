@@ -44,16 +44,21 @@ const COLLEAGUE_RANGE = { min: 3, max: 7 } as const;
  */
 export const generateDatabase = ({
   seed,
+  appSeed,
   hostname,
   account,
   role,
 }: {
+  /** The stream the accounts are drawn on, and nothing else. */
   readonly seed: string;
+  /** The stream the application is drawn on, so reshaping what a database holds never
+   *  moves the passwords that guard it. */
+  readonly appSeed: string;
   readonly hostname: string;
   readonly account: string;
   readonly role: DrawnRole | undefined;
 }): MysqlDatabase => {
-  const prng = createPrng(seed);
+  const prng = createPrng(appSeed);
   const name = `${prng.pick(DB_NAME_PREFIXES)}_${prng.pick(DB_NAME_SUFFIXES)}`;
 
   const colleagues = Array.from(
@@ -73,24 +78,31 @@ export const generateDatabase = ({
     ]),
   );
 
-  // Always a root and an application account; a read-only one about half the time. The
-  // ladder is the world's existing one, so what a player meets here is the curve they
-  // already know: the read-only account nearly always falls, the application account
-  // usually, and root about one database in eight — which is what makes the statements
-  // only root may run rare rather than routine.
+  return { name, tables, credentials: drawDatabaseCredentials(seed) };
+};
+
+/**
+ * The accounts a database answers to, drawn from `seed` alone.
+ *
+ * Always a root and an application account; a read-only one about half the time. The
+ * ladder is the world's existing one, so what a player meets here is the curve they
+ * already know: the read-only account nearly always falls, the application account
+ * usually, and root about one database in eight — which is what makes the statements
+ * only root may run rare rather than routine.
+ */
+export const drawDatabaseCredentials = (seed: string): readonly MysqlCredential[] => {
+  const prng = createPrng(seed);
   const rootPassword = drawPassword(prng, CRACK_CHANCE.npcRoot);
   const appUsername = prng.pick(MYSQL_USERNAMES);
   const appPassword = drawPassword(prng, CRACK_CHANCE.npcUser);
   const hasReadonly = prng.next() < 0.5;
   const readonlyPassword = drawPassword(prng, CRACK_CHANCE.guest);
 
-  const credentials: readonly MysqlCredential[] = [
+  return [
     { username: 'root', passwordHash: md5(rootPassword), userType: 'root' },
     { username: appUsername, passwordHash: md5(appPassword), userType: 'user' },
     ...(hasReadonly
       ? [{ username: 'readonly', passwordHash: md5(readonlyPassword), userType: 'guest' as const }]
       : []),
   ];
-
-  return { name, tables, credentials };
 };

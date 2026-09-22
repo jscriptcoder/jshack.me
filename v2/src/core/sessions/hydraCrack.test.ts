@@ -1601,11 +1601,11 @@ describe('the database door answers for its own accounts', () => {
     // player holding the database still has to get onto the box. Both directions are
     // checked, because a shared stream would leak either way round.
     //
-    // Each sweep is given the OTHER door's entire set of passwords — not a wordlist
-    // that merely fails, but the one that would open the box next door. The disjoint
-    // check is what keeps that meaningful: if the two ever drew the same password for
-    // the same box, these sweeps would be handed their own key and the claim would
-    // quietly stop being tested.
+    // Each sweep is given the OTHER door's passwords — not a wordlist that merely
+    // fails, but the one that would open the box next door. Both doors draw from one
+    // small wordlist, so a box can share a word between them by chance; that word is
+    // left out of both sweeps, since handing a sweep its own key would stop the claim
+    // being tested. What is left must still be a real wordlist in each direction.
     const identity = generateIdentity();
     const host = mysqlHostOn(ESSID);
     const shellPasswords = accountsWithPasswords(host, KNOWN_POOL).map(
@@ -1614,8 +1614,10 @@ describe('the database door answers for its own accounts', () => {
     const databasePasswords = databaseAccountsWithPasswords(host, KNOWN_POOL).map(
       (account) => account.password,
     );
-    const shell = makeDeps({ wordlist: databasePasswords });
-    const database = makeDeps({ wordlist: shellPasswords });
+    const databaseOnly = databasePasswords.filter((password) => !shellPasswords.includes(password));
+    const shellOnly = shellPasswords.filter((password) => !databasePasswords.includes(password));
+    const shell = makeDeps({ wordlist: databaseOnly });
+    const database = makeDeps({ wordlist: shellOnly });
 
     const throughTheShell = await handleHydraCrack(
       signedCrack(identity, { target_ip: host.ip, service: 'ssh' }),
@@ -1626,9 +1628,8 @@ describe('the database door answers for its own accounts', () => {
       database.deps,
     );
 
-    expect(shellPasswords.filter((password) => databasePasswords.includes(password))).toEqual([]);
-    expect(shellPasswords.length).toBeGreaterThan(0);
-    expect(databasePasswords.length).toBeGreaterThan(0);
+    expect(shellOnly.length).toBeGreaterThan(0);
+    expect(databaseOnly.length).toBeGreaterThan(0);
     expect(throughTheShell.body.cracked).toEqual([]);
     expect(throughTheDatabase.body.cracked).toEqual([]);
   });

@@ -4,7 +4,7 @@
 1–25. **Four owner decisions were taken at planning** (2026-09-22). They are recorded under
 "Decided at planning" below and in the epic's status log.
 
-**Status:** Planned, not started.
+**Status:** In progress on `feat/a-database-holds-an-application`.
 
 **Delivery:** one independent PR against trunk.
 

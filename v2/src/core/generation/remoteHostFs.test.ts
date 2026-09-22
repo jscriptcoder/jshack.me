@@ -1525,7 +1525,14 @@ describe('buildRemoteHostFs', () => {
           pidfiles: [...(varRun(fs)?.entries.keys() ?? [])]
             .filter((name) => name !== 'redis-server.pid')
             .sort(),
-          dbName: datadir === undefined ? null : parseMysqlDatabase(datadir.content)?.name,
+          // The accounts, not the tables: what a database holds is reshaped on purpose,
+          // and its accounts are drawn on a stream of their own that nothing else moves.
+          dbAccounts:
+            datadir === undefined
+              ? null
+              : parseMysqlDatabase(datadir.content)?.credentials.map(
+                  (credential) => `${credential.username}:${credential.passwordHash}`,
+                ),
         };
       };
 
@@ -1536,7 +1543,10 @@ describe('buildRemoteHostFs', () => {
           'guest:4cb9c8a8048fd02294477fcb1a41191a:1001',
         ],
         pidfiles: ['mysqld.pid', 'sshd.pid', 'vsftpd.pid'],
-        dbName: 'main_store',
+        dbAccounts: [
+          'root:df9188ba1a456801ab6848157a2af621',
+          'backup_svc:0307607e60354081e931298517ce2bec',
+        ],
       });
       expect(readBox('www-7', 7)).toEqual({
         passwd: [
@@ -1545,7 +1555,7 @@ describe('buildRemoteHostFs', () => {
           'guest:aabb2100033f0352fe7458e412495148:1001',
         ],
         pidfiles: ['nginx.pid', 'vsftpd.pid'],
-        dbName: null,
+        dbAccounts: null,
       });
       expect(readBox('host-42', 42)).toEqual({
         passwd: [
@@ -1554,7 +1564,7 @@ describe('buildRemoteHostFs', () => {
           'guest:c21f969b5f03d33d43e04f8f136e7682:1001',
         ],
         pidfiles: [],
-        dbName: null,
+        dbAccounts: null,
       });
       expect(readBox('cam-31', 31)).toEqual({
         passwd: [
@@ -1563,7 +1573,7 @@ describe('buildRemoteHostFs', () => {
           'guest:0d107d09f5bbe40cade3de5c71e9e9b7:1001',
         ],
         pidfiles: ['nginx.pid'],
-        dbName: null,
+        dbAccounts: null,
       });
     });
   });

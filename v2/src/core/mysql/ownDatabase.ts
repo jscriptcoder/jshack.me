@@ -71,6 +71,7 @@ export const ownDatabase = ({
   // every value picked after it.
   const drawn = generateDatabase({
     seed: `mysql-db-own-${ownerKeyHex}`,
+    appSeed: `db-app-own-${ownerKeyHex}`,
     hostname,
     account: owner?.username ?? FALLBACK_ACCOUNT,
     role: undefined,

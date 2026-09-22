@@ -600,7 +600,7 @@ describe('a statement on a database behind a forward', () => {
 
   it('refuses a write at the same tier as it would on the caller own LAN', async () => {
     const { deps } = deepDeps([deepLaddered()]);
-    const table = Object.keys(DEEP.database.tables)[0] ?? 'orders';
+    const table = Object.keys(DEEP.database.tables)[0] ?? 'users';
 
     const response = await deepStatement(
       'readonly',
@@ -641,7 +641,7 @@ describe('a statement on a database behind a forward', () => {
 
   it('files a change against the deep box, not the gateway it was reached through', async () => {
     const { deps, upsertPatch } = deepDeps([deepLaddered()]);
-    const table = Object.keys(DEEP.database.tables)[0] ?? 'orders';
+    const table = Object.keys(DEEP.database.tables)[0] ?? 'users';
 
     await deepStatement('dba', ROOT_PASSWORD, `DROP TABLE ${table}`, deps);
 
@@ -655,7 +655,7 @@ describe('a statement on a database behind a forward', () => {
 
   it('reaches the datadir and the daemon own log on the deep box, and nothing else', async () => {
     const { deps, upsertPatch } = deepDeps([deepLaddered()]);
-    const table = Object.keys(DEEP.database.tables)[0] ?? 'orders';
+    const table = Object.keys(DEEP.database.tables)[0] ?? 'users';
 
     const response = await deepStatement('dba', ROOT_PASSWORD, `DROP TABLE ${table}`, deps);
 
@@ -671,7 +671,7 @@ describe('a statement on a database behind a forward', () => {
 
   it('names the address NAT showed the box in the line it leaves behind', async () => {
     const { deps, upsertPatch } = deepDeps([deepLaddered()]);
-    const table = Object.keys(DEEP.database.tables)[0] ?? 'orders';
+    const table = Object.keys(DEEP.database.tables)[0] ?? 'users';
 
     await deepStatement('readonly', GUEST_PASSWORD, `DROP TABLE ${table}`, deps);
 
@@ -1055,7 +1055,7 @@ describe('where a write lands', () => {
     // The machine is half the address and the easier half to get wrong: a change filed
     // against the wrong box vanishes silently, and the player is told Query OK over
     // rows that will not have moved when they look again.
-    const { host, response, upsertPatch } = await write(APP, "UPDATE orders SET id = '1'");
+    const { host, response, upsertPatch } = await write(APP, "UPDATE users SET role = 'auditor'");
     const machine = resolveLanHostIdentity(host, ESSID).machineId;
 
     expect(response.status).toBe(200);
@@ -1069,7 +1069,7 @@ describe('where a write lands', () => {
     // The datadir holds the hashes a sweep has to work for. A write that widened its
     // permissions would hand the answer key to every tier on the box — and it would
     // do it quietly, since nothing about the statement would look different.
-    const { upsertPatch } = await write(APP, "UPDATE orders SET id = '1'");
+    const { upsertPatch } = await write(APP, "UPDATE users SET role = 'auditor'");
     const [row] = upsertPatch.mock.calls[0] ?? [];
 
     expect(row).toMatchObject({
@@ -1081,7 +1081,7 @@ describe('where a write lands', () => {
   });
 
   it('records the change under the key of the player who made it', async () => {
-    const { identity, upsertPatch } = await write(APP, "UPDATE orders SET id = '1'");
+    const { identity, upsertPatch } = await write(APP, "UPDATE users SET role = 'auditor'");
     const [row] = upsertPatch.mock.calls[0] ?? [];
 
     expect(row?.writer_key).toBe(identity.publicKeyHex);
@@ -1090,7 +1090,7 @@ describe('where a write lands', () => {
   it('is what the next occupant of the LAN reads, not just its author', async () => {
     // The claim that makes a database a shared object rather than a private one: the
     // journal is the machine's, so somebody else's next statement meets the change.
-    const first = await write(DBA, 'DROP TABLE orders');
+    const first = await write(DBA, 'DROP TABLE users');
     const [written] = first.upsertPatch.mock.calls[0] ?? [];
     expect(written?.content).toBeDefined();
     if (written?.content === undefined || written.content === null) return;
@@ -1106,14 +1106,14 @@ describe('where a write lands', () => {
       deps,
     );
 
-    expect(String(second.body['output'])).not.toContain('orders');
+    expect(String(second.body['output'])).not.toContain('users');
   });
 
   it('writes back a whole database that still reads as one', async () => {
     // A datadir that stopped parsing would read as "no database on this box" — the
     // reader deliberately cannot tell those apart — and the door would close on
     // everyone. So the account list has to survive a statement about tables.
-    const { host, upsertPatch } = await write(DBA, 'DROP TABLE orders');
+    const { host, upsertPatch } = await write(DBA, 'DROP TABLE users');
     const [row] = upsertPatch.mock.calls[0] ?? [];
     const written = parseMysqlDatabase(row?.content ?? '');
 
@@ -1124,14 +1124,14 @@ describe('where a write lands', () => {
       'app_rw',
       'readonly',
     ]);
-    expect(Object.keys(written?.tables ?? {})).not.toContain('orders');
+    expect(Object.keys(written?.tables ?? {})).not.toContain('users');
   });
 
   it('tells the player nothing landed when the write could not be recorded', async () => {
     // The write IS the statement here, not a note about one. Answering Query OK while
     // nothing persisted would show the player old rows on their next statement and
     // read as the game losing writes.
-    const { response, upsertPatch } = await write(APP, "UPDATE orders SET id = '1'", {
+    const { response, upsertPatch } = await write(APP, "UPDATE users SET role = 'auditor'", {
       error: new Error('journal unreachable'),
     });
 
@@ -1140,7 +1140,7 @@ describe('where a write lands', () => {
   });
 
   it('writes nothing at all for a read', async () => {
-    for (const statement of ['SHOW TABLES', 'DESCRIBE orders', 'SELECT * FROM orders']) {
+    for (const statement of ['SHOW TABLES', 'DESCRIBE users', 'SELECT * FROM users']) {
       const { upsertPatch } = await write(DBA, statement);
       expect(upsertPatch, statement).not.toHaveBeenCalled();
     }
@@ -1153,7 +1153,7 @@ describe('where a write lands', () => {
       calls.map(([row]) => row.path).filter((path) => path === DATADIR);
 
     for (const login of [READONLY, APP]) {
-      const { upsertPatch } = await write(login, 'DROP TABLE orders');
+      const { upsertPatch } = await write(login, 'DROP TABLE users');
       expect(datadirWrites(upsertPatch.mock.calls), login.username).toEqual([]);
     }
     const { upsertPatch } = await write(DBA, "UPDATE credentials SET password_hash = 'x'");
@@ -1198,18 +1198,18 @@ describe('what a statement leaves in the log', () => {
     // mysql's own stamp, its own tab-delimited columns, and the statement as the
     // engine read it. A defender reading this file learns what actually changed,
     // which is what makes a compromised box recoverable rather than merely lost.
-    const { upsertPatch } = await say(APP, "UPDATE orders SET id = '1'");
+    const { upsertPatch } = await say(APP, "UPDATE users SET role = 'auditor'");
 
     expect(loggedLines(upsertPatch)).toEqual([
-      "2026-08-21T09:14:02.000000Z\t6000 Query\tUPDATE orders SET id = '1'",
+      "2026-08-21T09:14:02.000000Z\t6000 Query\tUPDATE users SET role = 'auditor'",
     ]);
   });
 
   it('writes one Denied line for a write the account was not allowed to run', async () => {
-    const { upsertPatch } = await say(READONLY, 'DROP TABLE orders');
+    const { upsertPatch } = await say(READONLY, 'DROP TABLE users');
 
     expect(loggedLines(upsertPatch)).toEqual([
-      `2026-08-21T09:14:02.000000Z\t6000 Denied\tDROP command denied to user 'readonly'@'${CLIENT_IP}' for table 'orders'`,
+      `2026-08-21T09:14:02.000000Z\t6000 Denied\tDROP command denied to user 'readonly'@'${CLIENT_IP}' for table 'users'`,
     ]);
   });
 
@@ -1226,14 +1226,14 @@ describe('what a statement leaves in the log', () => {
         target_ip: host.ip,
         username: APP.username,
         password: APP.password,
-        statement: "UPDATE orders SET id = '1'",
+        statement: "UPDATE users SET role = 'auditor'",
       }),
       deps,
     );
 
     expect(loggedLines(upsertPatch)).toEqual([
       earlier,
-      "2026-08-21T09:14:02.000000Z\t6000 Query\tUPDATE orders SET id = '1'",
+      "2026-08-21T09:14:02.000000Z\t6000 Query\tUPDATE users SET role = 'auditor'",
     ]);
   });
 
@@ -1241,7 +1241,7 @@ describe('what a statement leaves in the log', () => {
     // Readable by any account once you are on the box — getting on the box is the
     // gate. Root-only to WRITE, because the daemon's append models a system write and
     // a visitor must never be able to edit away the record of their visit.
-    const { upsertPatch } = await say(READONLY, 'DROP TABLE orders');
+    const { upsertPatch } = await say(READONLY, 'DROP TABLE users');
     const row = upsertPatch.mock.calls.map(([entry]) => entry).find((entry) => entry.path === MYSQL_LOG_PATH);
 
     expect(row).toMatchObject({
@@ -1252,7 +1252,7 @@ describe('what a statement leaves in the log', () => {
   });
 
   it('writes nothing to the log for any read, refused or not', async () => {
-    for (const statement of ['SHOW TABLES', 'DESCRIBE orders', 'SELECT * FROM orders']) {
+    for (const statement of ['SHOW TABLES', 'DESCRIBE users', 'SELECT * FROM users']) {
       const { upsertPatch, readMysqlLog } = await say(DBA, statement);
       expect(loggedLines(upsertPatch), statement).toEqual([]);
       // Not even the read half: a door that read the log on every SELECT would cost a
@@ -1264,7 +1264,7 @@ describe('what a statement leaves in the log', () => {
   });
 
   it('writes nothing to the log for a write that never became one', async () => {
-    for (const statement of ['UPDATE orders SET', "UPDATE ghosts SET id = '1'"]) {
+    for (const statement of ['UPDATE users SET', "UPDATE ghosts SET id = '1'"]) {
       const { upsertPatch } = await say(DBA, statement);
       expect(loggedLines(upsertPatch), statement).toEqual([]);
     }
@@ -1273,7 +1273,7 @@ describe('what a statement leaves in the log', () => {
   it('records no change it could not persist', async () => {
     // The line says a change happened. If the datadir write failed, none did — and a
     // log claiming otherwise would send a defender looking for an edit nobody made.
-    const { response, upsertPatch } = await say(APP, "UPDATE orders SET id = '1'", {
+    const { response, upsertPatch } = await say(APP, "UPDATE users SET role = 'auditor'", {
       error: new Error('journal unreachable'),
     });
 
