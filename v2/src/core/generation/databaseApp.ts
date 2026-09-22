@@ -306,6 +306,7 @@ export const buildApplication = ({
       madeAt: instantOf(String(row['created_at'])),
     })),
     pick: prng.pick,
+    pickN: prng.pickN,
     nextInt: prng.nextInt,
   };
   const initial: {

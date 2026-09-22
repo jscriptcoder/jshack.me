@@ -15,6 +15,7 @@ import {
 import { createPrng } from './prng';
 import { networkPersona } from './persona';
 import { roleOfHostname } from './pools/hostnames';
+import { usernamePool } from './pools/usernames';
 import { crackableEssidPool } from './generateWifi';
 import { CRACK_CHANCE, CRACKABLE_PASSWORDS } from './passwordPools';
 import { MYSQL_USERNAMES } from './pools/database';
@@ -403,11 +404,11 @@ describe('every application, sampled once', () => {
   });
 });
 
-/** Every database a rule is proven over: the whole world's, and one of each
+/** Every database a rule is proven over: the whole world's, and many of each
  *  application so the rarely drawn ones are read too. */
 const everyApplication = (): readonly (Box & { readonly database: MysqlDatabase })[] => [
   ...everyDatabase(),
-  ...oneOfEach(),
+  ...manyOfEach(),
 ];
 
 /** The columns of one table that refer to another, as the box's application declares
@@ -639,5 +640,231 @@ describe('how databases differ', () => {
     );
 
     expect(noneOf(leftovers)).toEqual(NONE);
+  });
+});
+
+/** How many databases of each application the sample below builds. Enough that every
+ *  value an application can hold turns up somewhere. */
+const SAMPLES_PER_ARCHETYPE = 20;
+
+/** Many databases of every application, each on a real network of its kind and each
+ *  with its own draw. */
+const manyOfEach = (): readonly (Box & { readonly archetype: ArchetypeKey; readonly database: MysqlDatabase })[] =>
+  (Object.keys(ARCHETYPES) as ArchetypeKey[]).flatMap((archetype) =>
+    Array.from({ length: SAMPLES_PER_ARCHETYPE }, (_, index) => {
+      const prefix =
+        archetype === 'cms' ? 'portal' : archetype === 'api' ? 'api' : archetype === 'mail' ? 'mail' : 'db';
+      const essid =
+        crackableEssidPool.find((candidate) => networkArchetype(candidate) === archetype) ?? 'BEAN-THERE-WIFI';
+      const host = { ip: `10.40.0.${index + 1}`, hostname: `${prefix}-${index + 1}`, kind: 'machine' as const };
+      const people = ['mrodriguez', 'jchen', 'agarcia', 'hkim', 'tnguyen'].slice(0, 2 + (index % 4));
+      const { name, tables } = buildApplication({
+        prng: createPrng(`sample-${archetype}-${index}`),
+        essid,
+        host,
+        people,
+      });
+      return { essid, host, archetype, database: { name, tables, credentials: [] } };
+    }),
+  );
+
+/** Every column an application declares, with the table it belongs to. */
+const declaredColumns = (archetype: ArchetypeKey) =>
+  ARCHETYPES[archetype].tables.flatMap((table) =>
+    table.columns.map((column) => ({ table: table.name, column })),
+  );
+
+describe('what DESCRIBE says about a table', () => {
+  it('keys each table on its id, marks unique only what never repeats, and allows NULL only where a row may lack a value', () => {
+    const wrong = manyOfEach().flatMap((box) =>
+      Object.entries(box.database.tables).flatMap(([name, table]) =>
+        table.columns.flatMap((column) => {
+          const declared = declaredColumns(box.archetype).find(
+            (candidate) => candidate.table === name && candidate.column.name === column.name,
+          )?.column;
+          const expectedKey =
+            column.name === 'id'
+              ? 'PRI'
+              : name === 'users' && column.name === 'username'
+                ? 'UNI'
+                : declared?.fill.kind === 'unique' || declared?.fill.kind === 'code'
+                  ? 'UNI'
+                  : undefined;
+          const expectedNullable = declared?.nullable ?? false;
+          return column.key === expectedKey && column.nullable === expectedNullable
+            ? []
+            : [`${box.archetype} ${name}.${column.name}: ${String(column.key)} ${String(column.nullable)}`];
+        }),
+      ),
+    );
+
+    expect(noneOf(wrong)).toEqual(NONE);
+  });
+
+  it('describes the users table as an application declares its login table', () => {
+    const [sample] = manyOfEach();
+
+    expect(sample?.database.tables['users']?.columns).toEqual([
+      { name: 'id', type: 'INT', nullable: false, key: 'PRI' },
+      { name: 'username', type: 'VARCHAR', nullable: false, key: 'UNI' },
+      { name: 'email', type: 'VARCHAR', nullable: false },
+      { name: 'password_hash', type: 'VARCHAR', nullable: false },
+      { name: 'role', type: 'VARCHAR', nullable: false, defaultValue: 'user' },
+      { name: 'created_at', type: 'DATETIME', nullable: false },
+    ]);
+  });
+});
+
+describe('when an application’s people signed up', () => {
+  const DAY_MS = 86_400_000;
+  const worldStopped = Date.UTC(2026, 6, 12);
+  const instant = (datetime: unknown) => Date.parse(`${String(datetime).replace(' ', 'T')}Z`);
+
+  it('has one admin, who installed it a year to four years before the world stopped', () => {
+    const wrong = everyApplication().flatMap((box) => {
+      const [admin, ...others] = usersOf(box.database);
+      const daysAgo = (worldStopped - instant(admin?.['created_at'])) / DAY_MS;
+      return daysAgo >= 399 && daysAgo <= 1501 && others.every((row) => row['role'] === 'user')
+        ? []
+        : [`${where(box)}: installed ${daysAgo.toFixed(1)} days before`];
+    });
+
+    expect(noneOf(wrong)).toEqual(NONE);
+  });
+
+  it('has everyone else join after the admin installed it, at all hours', () => {
+    const databases = everyApplication();
+    const early = databases.flatMap((box) => {
+      const [admin, ...others] = usersOf(box.database);
+      return others
+        .filter((row) => instant(row['created_at']) <= instant(admin?.['created_at']))
+        .map((row) => `${where(box)}: ${String(row['username'])} ${String(row['created_at'])}`);
+    });
+    const installHours = new Set(
+      databases.map((box) => String(usersOf(box.database)[0]?.['created_at']).slice(11)),
+    );
+
+    expect(noneOf(early)).toEqual(NONE);
+    expect(installHours.size).toBeGreaterThan(databases.length / 2);
+  });
+});
+
+describe('what an application’s rows hold', () => {
+  it('sets most flags and leaves some clear', () => {
+    const flags = manyOfEach().flatMap(({ database }) =>
+      Object.values(database.tables).flatMap((table) =>
+        table.columns
+          .filter((column) => column.type === 'BOOLEAN')
+          .flatMap((column) => table.rows.map((row) => row[column.name])),
+      ),
+    );
+    const set = flags.filter((flag) => flag === 1).length;
+
+    expect(set / flags.length).toBeGreaterThan(0.6);
+    expect(set / flags.length).toBeLessThan(0.95);
+  });
+
+  it('keeps every whole number inside the range its column allows, and varies it', () => {
+    const samples = manyOfEach();
+    const wrong = (Object.keys(ARCHETYPES) as ArchetypeKey[]).flatMap((archetype) =>
+      declaredColumns(archetype).flatMap(({ table, column }) => {
+        const { fill } = column;
+        if (fill.kind !== 'int') return [];
+        const values = samples
+          .filter((box) => box.archetype === archetype)
+          .flatMap((box) => (box.database.tables[table]?.rows ?? []).map((row) => Number(row[column.name])));
+        const outside = values.filter((value) => value < fill.min || value > fill.max);
+        return outside.length > 0 || new Set(values).size < 3
+          ? [`${archetype} ${table}.${column.name}: ${[...new Set(values)].slice(0, 5).join(',')}`]
+          : [];
+      }),
+    );
+
+    expect(noneOf(wrong)).toEqual(NONE);
+  });
+
+  it('counts reference numbers up with the rows', () => {
+    const wrong = manyOfEach().flatMap((box) =>
+      declaredColumns(box.archetype).flatMap(({ table, column }) => {
+        const { fill } = column;
+        if (fill.kind !== 'code') return [];
+        const codes = (box.database.tables[table]?.rows ?? []).map((row) => String(row[column.name]));
+        return codes.every((value, index) => value === `${fill.prefix}${fill.start + index}`)
+          ? []
+          : [`${box.archetype} ${table}.${column.name}: ${codes.slice(0, 3).join(',')}`];
+      }),
+    );
+
+    expect(noneOf(wrong)).toEqual(NONE);
+  });
+
+  it('holds some of an application’s optional tables on some boxes and not on others', () => {
+    const samples = manyOfEach();
+    const fixed = (Object.keys(ARCHETYPES) as ArchetypeKey[]).flatMap((archetype) =>
+      ARCHETYPES[archetype].tables
+        .filter((table) => !table.required)
+        .filter((table) => {
+          const holding = samples.filter(
+            (box) => box.archetype === archetype && table.name in box.database.tables,
+          ).length;
+          return holding === 0 || holding === SAMPLES_PER_ARCHETYPE;
+        })
+        .map((table) => `${archetype} ${table.name}`),
+    );
+
+    expect(noneOf(fixed)).toEqual(NONE);
+  });
+
+  it('draws every value an application can hold, so none of it ships unreachable', () => {
+    const samples = manyOfEach();
+    const unreached = (Object.keys(ARCHETYPES) as ArchetypeKey[]).flatMap((archetype) =>
+      declaredColumns(archetype).flatMap(({ table, column }) => {
+        const { fill } = column;
+        if (fill.kind !== 'pick' && fill.kind !== 'unique') return [];
+        const seen = new Set(
+          samples
+            .filter((box) => box.archetype === archetype)
+            .flatMap((box) => (box.database.tables[table]?.rows ?? []).map((row) => row[column.name])),
+        );
+        return fill.values
+          .filter((value) => !seen.has(value))
+          .map((value) => `${archetype} ${table}.${column.name}: ${value}`);
+      }),
+    );
+
+    expect(noneOf(unreached)).toEqual(NONE);
+  });
+});
+
+describe('a deep box’s logins', () => {
+  it('come from the pool its role names people from', () => {
+    const wrong = everyDatabase()
+      .filter(({ essid, host }) => !isOnHomeLan(essid, host))
+      .flatMap((box) => {
+        const pool = usernamePool(roleOfHostname(box.host.hostname));
+        return usersOf(box.database)
+          .slice(1)
+          .filter((row) => !pool.includes(String(row['username'])))
+          .map((row) => `${where(box)}: ${String(row['username'])}`);
+      });
+
+    expect(noneOf(wrong)).toEqual(NONE);
+  });
+});
+
+describe('what SHOW TABLES and DESCRIBE name', () => {
+  it('names every database, table and column as an identifier a player can type', () => {
+    const identifier = /^[a-z][a-z0-9_]*$/;
+    const wrong = everyApplication().flatMap((box) => [
+      ...(identifier.test(box.database.name) ? [] : [`${where(box)}: database ${box.database.name}`]),
+      ...Object.entries(box.database.tables).flatMap(([name, table]) => [
+        ...(identifier.test(name) ? [] : [`${where(box)}: table '${name}'`]),
+        ...table.columns
+          .filter((column) => !identifier.test(column.name))
+          .map((column) => `${where(box)} ${name}: column '${column.name}'`),
+      ]),
+    ]);
+
+    expect(noneOf(wrong)).toEqual(NONE);
   });
 });

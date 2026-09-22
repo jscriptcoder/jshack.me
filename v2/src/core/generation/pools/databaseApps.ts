@@ -48,6 +48,7 @@ export type Draft = { readonly cells: Readonly<Record<string, string | number | 
 export type DraftContext = {
   readonly users: readonly { readonly id: number; readonly username: string; readonly madeAt: number }[];
   readonly pick: <Item>(items: readonly Item[]) => Item;
+  readonly pickN: <Item>(items: readonly Item[], count: number) => readonly Item[];
   readonly nextInt: (min: number, max: number) => number;
 };
 
@@ -829,10 +830,11 @@ const mail: Archetype = {
       ],
       // One mailbox per login, and the shared ones every organisation keeps: the
       // mailboxes ARE the application's accounts, addressed on the network's zone.
-      draft: ({ users, pick, nextInt }) => {
-        const shared = SHARED_MAILBOXES.filter(
-          (local) => !users.some((user) => user.username === local),
-        ).slice(0, nextInt(Math.max(2, 5 - users.length), 5));
+      draft: ({ users, pick, pickN, nextInt }) => {
+        const shared = pickN(
+          SHARED_MAILBOXES.filter((local) => !users.some((user) => user.username === local)),
+          nextInt(Math.max(2, 5 - users.length), 5),
+        );
         const install = users[0]?.madeAt ?? 0;
         return [
           ...users.map((user) => ({
