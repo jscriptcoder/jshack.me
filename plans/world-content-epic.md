@@ -3,25 +3,24 @@
 > **Picking this up cold?** Read "Locked decisions", then the slice table — it carries the live
 > status. The grounding section records what v2 held on the day this was grilled; the code wins
 > wherever the two disagree.
-> Grilled 2026-09-21 (`grilling`), 25 locked decisions. Slices 0–5 delivered (as-built below).
-> Slice 6 planned in [`a-store-serves-that-application.md`](./a-store-serves-that-application.md).
+> Grilled 2026-09-21 (`grilling`), 25 locked decisions. Slices 0–6 delivered (as-built below).
+> Next up: slice 7, not yet planned.
 
-**Where we are now (2026-09-22):** **v0.253.0**. The legacy-parity epic's V-series is closed and
+**Where we are now (2026-09-22):** **v0.254.0**. The legacy-parity epic's V-series is closed and
 its next line was "the ship gate". **Ship now waits for this epic** (decision 1). Grilled to 25
-locked decisions and a twelve-slice spine. **Slices 0–5 are DONE** (#533, #534, #535, #536,
-#537 + #538, #539) — the build budgets, NPC workstation homes, every NPC box's `/etc`, `/root`,
-`.ssh/` and `/home/guest`, every NPC box's rotated `.1` history plus `syslog`, a three-layer site on
-every webserver (with lynx tables/`<pre>` and `.lan` names in the web tools), and an application
-in every NPC database; their as-built is folded into the slice spine and the "As-built" sections
-below.
+locked decisions and a twelve-slice spine. **Slices 0–6 are DONE** (#533, #534, #535, #536,
+#537 + #538, #539, #540) — the build budgets, NPC workstation homes, every NPC box's `/etc`,
+`/root`, `.ssh/` and `/home/guest`, every NPC box's rotated `.1` history plus `syslog`, a
+three-layer site on every webserver (with lynx tables/`<pre>` and `.lan` names in the web tools),
+an application in every NPC database, and that application's working set in every NPC store; their
+as-built is folded into the slice spine and the "As-built" sections below.
 **Decision 19 was amended at planning** (budget first, memoize on breach) and **decision 6 was
 narrowed at slice 2's planning** (the player workstation gains an empty `/home/guest`). Slice 3's
 planning took three owner decisions (rotated logs name only root and the daemons, gateways wait
 for slice 10, remote lines are neighbours doing routine things); slice 4's took six (recorded in
 its as-built); slice 5's took four at planning (one amends decision 15) and one during the
-build (recorded in its as-built). **Slice 6 is planned** in
-[`a-store-serves-that-application.md`](./a-store-serves-that-application.md) as one PR, with three
-owner decisions taken at planning (one amends decision 15 again).
+build (recorded in its as-built). Slice 6's took three at planning (one amends decision 15 again)
+and one during the build (no counter in a spec counts part of another).
 
 ---
 
@@ -404,7 +403,7 @@ See below; planning refines it.
 | 3 | **A box remembers** — rotated `.1` log history across every role, plus `syslog` | `ls /var/log` shows `auth.log.1`; its last line is before 2026-07-12; the live `auth.log` holds only player traces | ✅ DONE (#536, v0.250.0) — NPC hosts only (gateways → slice 10); `.1` holds 2026-07-11 alone; see as-built below |
 | 4 | **A web server serves a site** — three layers, lynx `<table>`/`<pre>`, the link-resolution property test | lynx follows links across pages; `robots.txt` names a served path; a default `gobuster` finds a hidden path | ✅ DONE (#537 v0.251.0, #538 v0.252.0) — webservers only; other http hosts keep one version-free page; see as-built below |
 | 5 | **A database holds an application** — app archetypes | `SHOW TABLES` on a café network's DB shows a till schema whose staff are that network's inhabitants | ✅ DONE (#539, v0.253.0) — 15 archetypes; decision 15 amended (DB credentials re-rolled once); a bought DB is a fresh install; see as-built below |
-| 6 | **A store serves that application** — Redis keyspaces paired with the app | `KEYS sess:*` returns sessions for that app's real users | 📋 PLANNED — `a-store-serves-that-application.md` (v0.254.0); decision 15 amended (store locks re-roll once); a bought store is a fresh install |
+| 6 | **A store serves that application** — Redis keyspaces paired with the app | `KEYS sess:*` returns sessions for that app's real users | ✅ DONE (#540, v0.254.0) — 43 stores, all reading differently; decision 15 amended (store locks re-rolled once); a bought store is a fresh install; see as-built below |
 | 7 | **Somebody wrote to somebody** — workstation mailboxes, the mail server's spool | a thread in `/var/mail/<user>` is between two real inhabitants of the network | ⏳ |
 | 8 | **A share holds a department** — fileserver `/srv`, metadata docs | `strings` on a shared PDF names its author, an inhabitant | ⏳ |
 | 9 | **A device is the device it says** — IoT prefix overlays + prefix growth (the one re-roll: refresh pins, wire-checks, the `v2-e2e` skill) | a printer serves a CUPS page and holds spool jobs; a camera a recordings index | ⏳ |
@@ -686,13 +685,78 @@ databases on one network.
 orders do not reference menu items. An order's `total_eur` is not the sum of its lines. Prices are
 drawn in a range, not per item.
 
+## As-built: slice 6 (delivered 2026-09-22)
+
+Retired here from `a-store-serves-that-application.md` on close-out. One PR (#540, v0.254.0).
+
+**Owner decisions.** At planning (2026-09-22): (1) **decision 15 amended again**:
+`redis-store-<essid>-<ip>` draws only the lock, and a new `redis-app-<essid>-<ip>` draws the keys,
+so every NPC store's lock — and whether it has one — re-rolled once; (2) **a store with no database
+beside it serves the box's own application**, the rows `db-app-<essid>-<ip>` would hold, never a
+neighbour's; (3) a bought store is a **fresh install**: empty, lock mirroring root. During the
+build: (4) **no counter in a spec counts part of another** — a till whose takeaways outnumbered its
+orders would be caught lying by its own two keys, so the pairs were swapped out.
+
+**What shipped.**
+- `generateDatabase.ts` splits: `generateApplication({appSeed, essid, host, account, role})` holds
+  the people and `buildApplication`, and `generateDatabase({seed, ...application})` adds
+  `drawDatabaseCredentials(seed)`. One function both doors call, which is what makes a cached row
+  the real row wherever mysqld runs.
+- `generateRedisStore.ts` rewritten: `drawStoreLock(seed)` alone on the lock stream, and the keys
+  drawn on `appSeed` from `STORE_SPECS[databaseArchetype(essid, host)]` — sessions, cache, queues,
+  locks, permissions, rate limits, counters, flags, webhooks — then shuffled, because a real
+  `KEYS *` answers in hash-table order and never grouped by purpose.
+- `pools/storeApps.ts` (new): `StoreSpec` as data for all 15 archetypes — `cached`, `queues`
+  (name/kind/table), `locks`, `counters`, `flags`, `routes`, `webhooks`. `pools/redis.ts` deleted.
+- `redis/ownStore.ts`: `{keys: {}, requirepassHash: root's hash}`, with
+  `redis-store-own-<pubkey>` left only as the fallback for a box whose passwd names no root. The
+  hostname parameter went with the generic keys that used it.
+- Families: `sess:<32hex>`, `cache:<table>:<id>` (users rows minus `password_hash`),
+  `queue:<name>` (jobs with consecutive ids), `lock:<job>`, `perms:<username>` (admin always
+  writes), `ratelimit:<route>:<ip>`, `stats:<name>`, `flag:<feature>`, `config:webhook:<vendor>`.
+- Sessions reach the box from the machine that person really uses: a neighbour's box on a LAN, the
+  box itself deep in the chain.
+
+**Shares and variety (43 stores: 30 LAN, 13 deep).** 25 locked, 18 open; 13 share a box with a
+database. Keys min 21, max 79, mean 45 — 1,242 cached rows, 149 sessions, 113 counters, 103 rate
+limits, 86 queues, 86 permission sets, 79 flags, 43 webhooks, 42 locks. **43 of 43 read
+differently** with session tokens set aside. Archetypes: library 7, helpdesk 6, cms 6, stock 4,
+api 4, till 3, scoreboard 3, crm 2, household 2, bookings 2, telemetry 2, media 1, wiki 1.
+
+**Evidence.**
+- `generation/store.test.ts` (30 tests): the lock and its stream, sessions against the application's
+  real users, what a store holds (volume, families, cache fidelity, queues, locks, permissions,
+  rate limits, vocabulary, reachability), the shape of a store (key grammar per family, job naming
+  and consecutive ids, permissions, flag mix), what it never holds (password fields and pool words,
+  versions, unfilled slots, off-zone addresses, dates outside the application's life), the spread
+  of its moments, and that no two stores read alike.
+- Budgets: bundle **173,240 B** gzipped (ceiling 284,975), build **0.949 ms/box** (ceiling 2).
+- Mutation (0 timeouts): `generateRedisStore.ts` 82.0% → **87.8%**; `ownStore.ts`, `aptPackages.ts`
+  and `remoteHostFs.ts`'s changed lines 100%; `generateDatabase.ts` 89.2%. `storeApps.ts` scores
+  30% and stays there: its 348 survivors are `StringLiteral`/`ArrayDeclaration` mutants on a data
+  table, equivalent data labels that the reachability test already pins as non-empty and reached.
+  The survivors elsewhere are equivalent fallbacks and unreachable guards, plus five deliberate
+  knobs (two probability inversions that still yield a mix, the session-count `min`, the
+  `LAST_SECOND` ±1 boundary). The gate added the tests for key grammar, job ids, permissions, flag
+  mix and the two draw windows.
+- Wire-checks: `testRedisConnect` 28/28, `Sweep` 10/10, `Deep` 20/20, `SameLan` 16/16,
+  `CrossPlayer` 13/13; `testSnmpFilter` 13/13, `Install` 15/15, `Scan` 12/12.
+- Played via `v2-e2e` on CASA-DE-RAMIREZ (v0.254.0): `datastore-123` runs both doors, its store
+  open. `KEYS sess:*` → one key; `GET` it → `dbsvc` from `192.168.199.170`, which `nmap` listed as
+  `records-170`. `GET cache:recipes:6` matched `SELECT * FROM recipes WHERE id = '6'` field for
+  field, and `cache:users:4` held every column but the `password_hash` the table still shows.
+
+**Known gaps, inside the rules.** A counter is a plausible number, not a count of the rows the
+application holds: `stats:pages_total` need not equal the `wiki_pages` row count. Cached rows are
+drawn to fill the key budget, so a store may cache a row its own queues never mention.
+
 ## Open for planning (named, deliberately not decided)
 
 - The memoization key and cache bound on each end (client, serverless instance), and whether the
   derived network population is memoized alongside the tree — only if the build-time budget breaks.
-- Which store keyspaces pair with which of slice 5's 15 database archetypes (slice 6), and
-  whether IoT (slice 9) and gateways (slice 10) take archetypes of their own. `dump.sql` stays
-  schema-only (slice 5 kept it).
+- Whether IoT (slice 9) and gateways (slice 10) take archetypes of their own. Slice 6 settled the
+  store keyspaces: one `StoreSpec` per database archetype. `dump.sql` stays schema-only (slice 5
+  kept it).
 - **Site ↔ database agreement** (deferred at slice 5's planning): a café's menu page need not
   list its `menu_items`, and a portal's CMS posts are not its pages. Decide if a slice leans on it.
 - Where each remaining file's permission constant comes from — reuse `baseFs.ts` constants (now
@@ -762,3 +826,7 @@ drawn in a range, not per item.
   draws the keys (every NPC store's lock re-rolls once, amending decision 15); a store with no
   database beside it serves the box's own application (the rows `db-app-` would hold), never a
   neighbour's; a bought store is a fresh install (empty, lock mirrors root).
+- **2026-09-22** — slice 6 shipped (#540, v0.254.0); played run on CASA-DE-RAMIREZ recorded, where
+  a cached row matched the `SELECT` on the same box; slice plan retired into "As-built: slice 6"
+  above and its file deleted. Owner decision during the build: no counter in a spec counts part of
+  another. Next: slice 7 (not yet planned).
