@@ -573,3 +573,71 @@ describe('what is true of every row', () => {
     expect(noneOf(wrong)).toEqual(NONE);
   });
 });
+
+/** A table's rows with what is drawn fresh for every row regardless of content (a hash,
+ *  a date) left out, so two tables differ only if what they SAY differs. */
+const contentOf = (table: MysqlTable | undefined): string =>
+  JSON.stringify(
+    (table?.rows ?? []).map((row) =>
+      Object.fromEntries(
+        Object.entries(row).filter(
+          ([column]) =>
+            column !== 'password_hash' &&
+            table?.columns.find((candidate) => candidate.name === column)?.type !== 'DATETIME',
+        ),
+      ),
+    ),
+  );
+
+const distinctShare = (values: readonly string[]): number => new Set(values).size / values.length;
+
+describe('how databases differ', () => {
+  it('never repeats a table between two databases on one network', () => {
+    const databases = everyDatabase();
+    const repeated = databases.flatMap((first, index) =>
+      databases
+        .slice(index + 1)
+        .filter((second) => second.essid === first.essid)
+        .flatMap((second) =>
+          Object.keys(first.database.tables)
+            .filter(
+              (name) =>
+                JSON.stringify(first.database.tables[name]?.rows) ===
+                JSON.stringify(second.database.tables[name]?.rows),
+            )
+            .map((name) => `${where(first)} and ${second.host.hostname}: ${name}`),
+        ),
+    );
+
+    expect(noneOf(repeated)).toEqual(NONE);
+  });
+
+  it('staffs nearly every database with a different set of people', () => {
+    const databases = everyDatabase();
+
+    expect(
+      distinctShare(databases.map(({ database }) => contentOf(database.tables['users']))),
+    ).toBeGreaterThanOrEqual(0.9);
+  });
+
+  it('fills nearly every application’s first table differently', () => {
+    const databases = everyDatabase();
+    const mainTables = databases.map((box) => {
+      const [first] = ARCHETYPES[databaseArchetype(box.essid, box.host)].tables;
+      return contentOf(box.database.tables[first?.name ?? '']);
+    });
+
+    expect(distinctShare(mainTables)).toBeGreaterThanOrEqual(0.9);
+  });
+
+  it('keeps nothing of the generic pool the applications replaced', () => {
+    const leftovers = everyApplication().flatMap((box) =>
+      Object.values(box.database.tables)
+        .flatMap((table) => table.rows.flatMap((row) => Object.values(row)))
+        .filter((cell) => /company\.local|corp\.internal|acme\.local/.test(String(cell)))
+        .map((cell) => `${where(box)}: ${String(cell)}`),
+    );
+
+    expect(noneOf(leftovers)).toEqual(NONE);
+  });
+});
