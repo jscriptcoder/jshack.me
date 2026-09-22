@@ -339,6 +339,7 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
                 JSON.stringify(
                   generateRedisStore({
                     seed: `redis-store-${essid}-${host.ip}`,
+                    appSeed: `redis-app-${essid}-${host.ip}`,
                     hostname: host.hostname,
                     // The box's own non-guest accounts. An open store hands these out
                     // with no credential at all, which is the permission rung this door

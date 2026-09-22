@@ -73,28 +73,39 @@ const drawKeys = (
  */
 export const generateRedisStore = ({
   seed,
+  appSeed,
   hostname,
   people,
 }: {
+  /** The stream the lock is drawn on, and nothing else. */
   readonly seed: string;
+  /** The stream the keys are drawn on, so reshaping what a store holds never moves the
+   *  lock that guards it. */
+  readonly appSeed: string;
   readonly hostname: string;
   readonly people: readonly string[];
 }): RedisStore => {
-  const prng = createPrng(seed);
+  const prng = createPrng(appSeed);
   const keys = drawKeys(
     prng,
     { people, hostname },
     prng.nextInt(KEY_COUNT_RANGE.min, KEY_COUNT_RANGE.max),
   );
 
-  // Drawn on the same two-pool ladder every other credential in the world is drawn on:
-  // a password is crackable because it is in the wordlist the player holds, and nothing
-  // else decides that. At the user tier rather than root's, because the sweep is meant
-  // to be the way in rather than a wall.
-  const requirepassHash =
-    prng.next() < REQUIREPASS_CHANCE ? md5(drawPassword(prng, CRACK_CHANCE.npcUser)) : null;
+  return { keys, requirepassHash: drawStoreLock(seed) };
+};
 
-  return { keys, requirepassHash };
+/**
+ * The md5 of the password a store answers to, or `null` for one that answers to nobody.
+ *
+ * Drawn on the same two-pool ladder every other credential in the world is drawn on: a
+ * password is crackable because it is in the wordlist the player holds, and nothing else
+ * decides that. At the user tier rather than root's, because the sweep is meant to be the
+ * way in rather than a wall.
+ */
+export const drawStoreLock = (seed: string): string | null => {
+  const prng = createPrng(seed);
+  return prng.next() < REQUIREPASS_CHANCE ? md5(drawPassword(prng, CRACK_CHANCE.npcUser)) : null;
 };
 
 /**

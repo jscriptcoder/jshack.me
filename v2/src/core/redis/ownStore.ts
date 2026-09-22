@@ -62,6 +62,7 @@ export const ownStore = ({
   // one would move every value picked after it.
   const drawn = generateRedisStore({
     seed: `redis-store-own-${ownerKeyHex}`,
+    appSeed: `redis-app-own-${ownerKeyHex}`,
     hostname,
     people: [ROOT_ACCOUNT, owner?.username ?? FALLBACK_ACCOUNT],
   });
