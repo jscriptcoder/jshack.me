@@ -28,7 +28,9 @@ export type StoreSpec = {
   readonly queues: readonly QueueSpec[];
   /** Jobs that take a lock while they run, as `lock:<job>`. */
   readonly locks: readonly string[];
-  /** What the application counts, as `stats:<name>`. */
+  /** What the application counts, as `stats:<name>`. Each is drawn on its own, so no
+   *  counter here may count a part of another — a till whose takeaways outnumber its
+   *  orders would be caught lying by its own two keys. */
   readonly counters: readonly string[];
   /** Features it can switch on, as `flag:<feature>`. */
   readonly flags: readonly string[];
@@ -82,7 +84,7 @@ export const STORE_SPECS: Readonly<Record<ArchetypeKey, StoreSpec>> = {
       { name: 'receipts', kind: 'receipt.print', table: 'orders' },
     ],
     locks: ['end_of_day', 'menu_sync'],
-    counters: ['orders_today', 'covers_today', 'takeaway_today', 'card_payments_today'],
+    counters: ['orders_today', 'covers_today', 'tips_today_eur', 'waste_items_today'],
     flags: ['loyalty_stamps', 'table_service', 'oat_milk_default'],
     routes: ['login', 'orders', 'menu'],
     webhooks: ['sumup', 'square'],
@@ -178,7 +180,7 @@ export const STORE_SPECS: Readonly<Record<ArchetypeKey, StoreSpec>> = {
       { name: 'notify', kind: 'page.watched', table: 'wiki_pages' },
     ],
     locks: ['search_reindex', 'backlink_rebuild'],
-    counters: ['pages_total', 'edits_today', 'stale_pages'],
+    counters: ['pages_total', 'edits_today', 'searches_today'],
     flags: ['markdown_editor', 'page_locking', 'backlinks'],
     routes: ['login', 'edit', 'search'],
     webhooks: ['matrix', 'discord'],
@@ -202,7 +204,7 @@ export const STORE_SPECS: Readonly<Record<ArchetypeKey, StoreSpec>> = {
       { name: 'usage', kind: 'usage.rollup', table: 'api_clients' },
     ],
     locks: ['usage_rollup', 'key_rotation'],
-    counters: ['requests_today', 'errors_today', 'clients_active'],
+    counters: ['requests_today', 'webhook_retries_today', 'clients_active'],
     flags: ['v2_endpoints', 'strict_cors', 'request_signing'],
     routes: ['token', 'v1', 'v2'],
     webhooks: ['stripe', 'github'],
@@ -214,7 +216,7 @@ export const STORE_SPECS: Readonly<Record<ArchetypeKey, StoreSpec>> = {
       { name: 'bounces', kind: 'bounce.process', table: 'mailboxes' },
     ],
     locks: ['queue_flush', 'spam_retrain'],
-    counters: ['messages_today', 'bounced_today', 'spam_blocked_today'],
+    counters: ['messages_today', 'imap_logins_today', 'quota_warnings_today'],
     flags: ['greylisting', 'dkim_signing', 'auto_reply'],
     routes: ['smtp', 'imap', 'webmail'],
     webhooks: ['slack', 'pagerduty'],

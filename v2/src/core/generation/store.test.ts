@@ -15,12 +15,19 @@ import { crackableEssidPool } from './generateWifi';
 import { generateApplication, type Application } from './generateDatabase';
 import { generateHomeLan, isOnHomeLan } from './generateHomeLan';
 import { roleOfHostname } from './pools/hostnames';
-import { CRACK_CHANCE, CRACKABLE_PASSWORDS } from './passwordPools';
+import { ALL_GENERATED_PASSWORDS, CRACK_CHANCE, CRACKABLE_PASSWORDS } from './passwordPools';
 import { md5 } from './md5';
 import { storeIn } from '../redis/datadir';
 import { databaseIn } from '../mysql/datadir';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import { ALL_ESSIDS, deepBoxes, lanBoxes, type Box } from '../../test/worldContent';
+import { lanZoneName } from '../network/resolveName';
+import {
+  ALL_ESSIDS,
+  deepBoxes,
+  lanBoxes,
+  softwareVersionsIn,
+  type Box,
+} from '../../test/worldContent';
 import type { RedisStore } from '../redis/types';
 import type { Directory } from '../filesystem/types';
 import type { MysqlRow } from '../mysql/types';
@@ -219,6 +226,7 @@ describe('a store’s sessions', () => {
  *  which kind that application is, and the machines its logins sign in from. */
 type StoreCase = {
   readonly label: string;
+  readonly essid: string;
   readonly store: RedisStore;
   readonly application: Application;
   readonly archetype: ArchetypeKey;
@@ -231,6 +239,7 @@ const worldCases = (): readonly StoreCase[] =>
     const application = applicationOf(box);
     return {
       label: `${box.essid} ${box.host.hostname}`,
+      essid: box.essid,
       store: box.store,
       application,
       archetype: databaseArchetype(box.essid, box.host),
@@ -261,6 +270,7 @@ const sampleCases = (): readonly StoreCase[] =>
       });
       return {
         label: `${archetype} sample ${index}`,
+        essid,
         store: generateRedisStore({
           seed: `sample-lock-${archetype}-${index}`,
           appSeed: `sample-store-${archetype}-${index}`,
@@ -479,5 +489,147 @@ describe('what a store holds', () => {
     });
 
     expect(verdict(unreached)).toEqual(CLEAN);
+  });
+});
+
+/** Every value a key holds, as `[field, text]` pairs down to its leaves: a structured
+ *  value is JSON, and a plain one is a single leaf with no field. */
+const leavesOf = (value: string): readonly (readonly [string, string])[] => {
+  const walk = (node: unknown, field: string): readonly (readonly [string, string])[] => {
+    if (Array.isArray(node)) return node.flatMap((item) => walk(item, field));
+    if (node !== null && typeof node === 'object') {
+      return Object.entries(node).flatMap(([name, child]) => walk(child, name));
+    }
+    return [[field, String(node)]];
+  };
+  try {
+    return walk(JSON.parse(value), '');
+  } catch {
+    return [['', value]];
+  }
+};
+
+/** Every field name a value carries, at any depth. */
+const fieldsOf = (value: string): readonly string[] => {
+  const walk = (node: unknown): readonly string[] => {
+    if (Array.isArray(node)) return node.flatMap(walk);
+    if (node !== null && typeof node === 'object') {
+      return Object.entries(node).flatMap(([name, child]) => [name, ...walk(child)]);
+    }
+    return [];
+  };
+  try {
+    return walk(JSON.parse(value));
+  } catch {
+    return [];
+  }
+};
+
+const POOL_WORDS = new Set(ALL_GENERATED_PASSWORDS);
+const PASSWORD_FIELDS = new Set(['password', 'pass', 'pw', 'passwd', 'db_url']);
+
+describe('what a store never holds', () => {
+  it('no password: no field named for one, and no word a player’s wordlist would try', () => {
+    const offenders = allCases().flatMap(({ label, store }) =>
+      Object.entries(store.keys).flatMap(([key, value]) => [
+        ...fieldsOf(value)
+          .filter((field) => PASSWORD_FIELDS.has(field))
+          .map((field) => `${label}: ${key} has ${field}`),
+        // What the store composes itself. A cached row is the database's own cells copied
+        // exactly (a wiki may well tag a page `admin`), and those answer to the
+        // database's rules; a login's role says what the login is, and `admin` is a role
+        // before it is anybody's password.
+        ...(key.startsWith('cache:') ? [] : leavesOf(value))
+          .filter(([field, text]) => field !== 'role' && POOL_WORDS.has(text))
+          .map(([field, text]) => `${label}: ${key} ${field}=${text}`),
+      ]),
+    );
+
+    expect(verdict(offenders)).toEqual(CLEAN);
+  });
+
+  it('no version, in any key or any value', () => {
+    const offenders = allCases().flatMap(({ label, store }) =>
+      Object.entries(store.keys)
+        .filter(([key, value]) => softwareVersionsIn(`${key} ${value}`).length > 0)
+        .map(([key, value]) => `${label}: ${key} ${softwareVersionsIn(`${key} ${value}`).join(',')}`),
+    );
+
+    expect(verdict(offenders)).toEqual(CLEAN);
+  });
+
+  it('no unfilled slot', () => {
+    const offenders = allCases().flatMap(({ label, store }) =>
+      Object.entries(store.keys)
+        .filter(([key, value]) => /\{\{|\}\}|undefined|NaN|\[object/.test(`${key} ${value}`))
+        .map(([key]) => `${label}: ${key}`),
+    );
+
+    expect(verdict(offenders)).toEqual(CLEAN);
+  });
+
+  it('no address off the network’s own zone, and no host outside the world but a webhook’s vendor', () => {
+    const offenders = allCases().flatMap(({ label, essid, store }) => {
+      const zone = lanZoneName(essid);
+      return Object.entries(store.keys).flatMap(([key, value]) => {
+        const text = `${key} ${value}`;
+        const offZone = [...text.matchAll(/@([a-z0-9.-]+)/g)]
+          .map((match) => match[1])
+          .filter((domain) => domain !== zone);
+        const invented = [...text.matchAll(/[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:lan|local|internal)\b/g)]
+          .map((match) => match[0])
+          .filter((name) => name !== zone && !name.endsWith(`.${zone}`));
+        const outside = key.startsWith('config:webhook:')
+          ? []
+          : [...text.matchAll(/https?:\/\/[^\s"]+/g)].map((match) => match[0]);
+        return [...offZone, ...invented, ...outside].map((found) => `${label}: ${key} ${found}`);
+      });
+    });
+
+    expect(verdict(offenders)).toEqual(CLEAN);
+  });
+
+  it('no date outside the application’s life', () => {
+    const offenders = allCases().flatMap(({ label, store, application }) => {
+      const installed = usersOf(application)
+        .map((row) => String(row.created_at))
+        .reduce((earliest, created) => (created < earliest ? created : earliest));
+      return Object.entries(store.keys).flatMap(([key, value]) =>
+        [...value.matchAll(/\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}/g)]
+          .map((match) => match[0].replace('T', ' '))
+          .filter((moment) => moment < installed || moment > LAST_SECOND)
+          .map((moment) => `${label}: ${key} ${moment}`),
+      );
+    });
+
+    expect(verdict(offenders)).toEqual(CLEAN);
+  });
+});
+
+/** What a store chose to hold: which queues, locks, counters, flags and webhooks. The
+ *  keys naming rows, logins and addresses are set aside, because those differ with the
+ *  application and the network whatever the store itself draws, and would make any two
+ *  stores differ without either reading any differently. */
+const shapeOf = (store: RedisStore): string =>
+  Object.keys(store.keys)
+    .filter((key) => /^(queue|lock|stats|flag|config:webhook):/.test(key))
+    .sort()
+    .join(' ');
+
+describe('stores read differently', () => {
+  it('never alike on one network', () => {
+    const cases = worldCases();
+    const alike = [...new Set(cases.map(({ essid }) => essid))].filter((essid) => {
+      const shapes = cases.filter((candidate) => candidate.essid === essid).map(({ store }) => shapeOf(store));
+      return new Set(shapes).size !== shapes.length;
+    });
+
+    expect(verdict(alike)).toEqual(CLEAN);
+  });
+
+  it('almost never alike across the world', () => {
+    const shapes = worldCases().map(({ store }) => shapeOf(store));
+
+    expect(new Set(shapes).size / shapes.length).toBeGreaterThanOrEqual(0.9);
   });
 });
