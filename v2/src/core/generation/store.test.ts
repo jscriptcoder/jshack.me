@@ -38,16 +38,14 @@ type StoreBox = Box & { readonly store: RedisStore; readonly fs: Directory };
  *  does. Built inside each test rather than cached, so a mutation run credits the test
  *  that actually reads the generator. */
 const everyStore = (): readonly StoreBox[] => {
+  const runsRedis = ({ essid, host }: Box) =>
+    hostServices(essid, host).some(({ spec }) => spec === SERVICE_CATALOG.redis);
   const lan = lanBoxes(ALL_ESSIDS)
-    .filter(({ essid, host }) =>
-      hostServices(essid, host).some(({ spec }) => spec === SERVICE_CATALOG.redis),
-    )
+    .filter(runsRedis)
     .map(({ essid, host }) => ({ essid, host, fs: buildRemoteHostFs(essid, host) }));
-  const deep = deepBoxes(ALL_ESSIDS).map(({ essid, host }) => ({
-    essid,
-    host,
-    fs: buildDeepHostFs(essid, host),
-  }));
+  const deep = deepBoxes(ALL_ESSIDS)
+    .filter(runsRedis)
+    .map(({ essid, host }) => ({ essid, host, fs: buildDeepHostFs(essid, host) }));
   return [...lan, ...deep].flatMap(({ essid, host, fs }) => {
     const store = storeIn(fs);
     return store === null ? [] : [{ essid, host, store, fs }];
@@ -294,6 +292,13 @@ const entriesUnder = (store: RedisStore, prefix: string) =>
     .filter(([key]) => key.startsWith(prefix))
     .map(([key, value]) => ({ name: key.slice(prefix.length), value }));
 
+/** The earliest moment any key under `prefix` states, anywhere in the world. */
+const earliestMomentUnder = (cases: readonly StoreCase[], prefix: string): string =>
+  cases
+    .flatMap(({ store }) => entriesUnder(store, prefix))
+    .flatMap(({ value }) => [...value.matchAll(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/g)])
+    .reduce((earliest, match) => (match[0] < earliest ? match[0] : earliest), LAST_SECOND);
+
 const rowOf = (application: Application, table: string, id: unknown): MysqlRow | undefined =>
   application.tables[table]?.rows.find((row) => row.id === id);
 
@@ -490,6 +495,23 @@ describe('what a store holds', () => {
 
     expect(verdict(unreached)).toEqual(CLEAN);
   });
+
+  it('reaches back over the fortnight for its sessions, and over the last days for its jobs and locks', () => {
+    const cases = allCases();
+
+    // Not everybody signed in, and not every job was queued, in the world's final second:
+    // a working set that all carries one timestamp reads as a snapshot, not as use.
+    const crowded = [
+      { prefix: 'sess:', by: '2026-07-04 23:59:59' },
+      { prefix: 'queue:', by: '2026-07-11 11:59:59' },
+      { prefix: 'lock:', by: '2026-07-11 11:59:59' },
+    ]
+      .map(({ prefix, by }) => ({ prefix, by, earliest: earliestMomentUnder(cases, prefix) }))
+      .filter(({ by, earliest }) => earliest >= by)
+      .map(({ prefix, earliest }) => `${prefix} nothing before ${earliest}`);
+
+    expect(verdict(crowded)).toEqual(CLEAN);
+  });
 });
 
 /** Every value a key holds, as `[field, text]` pairs down to its leaves: a structured
@@ -527,6 +549,95 @@ const fieldsOf = (value: string): readonly string[] => {
 
 const POOL_WORDS = new Set(ALL_GENERATED_PASSWORDS);
 const PASSWORD_FIELDS = new Set(['password', 'pass', 'pw', 'passwd', 'db_url']);
+
+describe('the shape of a store', () => {
+  it('holds sessions, queues, permissions, rate limits, counters, flags and cached rows in every store', () => {
+    const always = ['sess:', 'queue:', 'perms:', 'ratelimit:', 'stats:', 'flag:', 'cache:'];
+    const offenders = allCases().flatMap(({ label, store }) =>
+      always
+        .filter((family) => !Object.keys(store.keys).some((key) => key.startsWith(family)))
+        .map((family) => `${label}: no ${family}`),
+    );
+
+    expect(verdict(offenders)).toEqual(CLEAN);
+  });
+
+  it('holds a lock and an outside webhook in some store of every application', () => {
+    const cases = sampleCases();
+    const missing = (Object.keys(STORE_SPECS) as ArchetypeKey[]).flatMap((archetype) => {
+      const keys = cases
+        .filter((candidate) => candidate.archetype === archetype)
+        .flatMap(({ store }) => Object.keys(store.keys));
+      return ['lock:', 'config:webhook:']
+        .filter((family) => !keys.some((key) => key.startsWith(family)))
+        .map((family) => `${archetype}: no ${family}`);
+    });
+
+    expect(verdict(missing)).toEqual(CLEAN);
+  });
+
+  it('names every key the way its family does, with no empty or spaced part', () => {
+    const IP = String.raw`\d{1,3}(?:\.\d{1,3}){3}`;
+    const shapes = [
+      /^sess:[0-9a-f]{32}$/,
+      /^cache:[a-z_]+:\d+$/,
+      /^queue:[a-z_]+$/,
+      /^lock:[a-z_]+$/,
+      /^perms:[a-z0-9_.-]+$/,
+      new RegExp(`^ratelimit:[a-z0-9_]+:${IP}$`),
+      /^stats:[a-z0-9_]+$/,
+      /^flag:[a-z0-9_]+$/,
+      /^config:webhook:[a-z]+$/,
+    ];
+    const offenders = allCases().flatMap(({ label, store }) =>
+      Object.keys(store.keys)
+        .filter((key) => !shapes.some((shape) => shape.test(key)))
+        .map((key) => `${label}: ${key}`),
+    );
+
+    expect(verdict(offenders)).toEqual(CLEAN);
+  });
+
+  it('names what each queued job does as the application does, and numbers a queue’s jobs in order', () => {
+    const offenders = allCases().flatMap(({ label, store }) =>
+      entriesUnder(store, 'queue:').flatMap(({ name, value }) => {
+        const jobs = JSON.parse(value) as readonly Record<string, unknown>[];
+        const ids = jobs.map((job) => Number(job.id));
+        const inOrder = ids.every((id, index) => index === 0 || id === (ids[index - 1] ?? 0) + 1);
+        const misnamed = jobs.filter((job) => !/^[a-z]+\.[a-z_]+$/.test(String(job.kind)));
+        return inOrder && misnamed.length === 0 ? [] : [`${label}: queue:${name} ${value}`];
+      }),
+    );
+
+    expect(verdict(offenders)).toEqual(CLEAN);
+  });
+
+  it('lets every login read, lets every administrator write, and lets some others write and not all', () => {
+    const permissions = allCases().flatMap(({ store, application }) =>
+      entriesUnder(store, 'perms:').map(({ name, value }) => ({
+        login: userNamed(application, name),
+        perms: JSON.parse(value) as Record<string, unknown>,
+      })),
+    );
+    const others = permissions.filter(({ login }) => login?.role !== 'admin');
+
+    expect(permissions.filter(({ perms }) => perms.read !== true)).toEqual([]);
+    expect(
+      permissions.filter(({ login, perms }) => login?.role === 'admin' && perms.write !== true),
+    ).toEqual([]);
+    expect(others.some(({ perms }) => perms.write === true)).toBe(true);
+    expect(others.some(({ perms }) => perms.write === false)).toBe(true);
+  });
+
+  it('has some features switched on and some off', () => {
+    const flags = allCases().flatMap(({ store }) =>
+      entriesUnder(store, 'flag:').map(({ value }) => JSON.parse(value) as Record<string, unknown>),
+    );
+
+    expect(flags.some((flag) => flag.enabled === true)).toBe(true);
+    expect(flags.some((flag) => flag.enabled === false)).toBe(true);
+  });
+});
 
 describe('what a store never holds', () => {
   it('no password: no field named for one, and no word a player’s wordlist would try', () => {
