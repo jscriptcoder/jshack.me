@@ -514,10 +514,11 @@ describe('buildRemoteHostFs', () => {
       laptop.forEach((page) => expect(page).toMatch(/dev server|localhost|it works|notes/i));
     });
 
-    it('never serves a camera or a laptop what a web server serves', () => {
+    it('never serves a camera or a laptop what the general pages serve', () => {
       // The disjointness is the claim a marker alone cannot make: not merely that a
       // camera page says "stream", but that the corporate portal never lands on one.
-      const general = new Set(servedBy('www'));
+      // A database box has no bucket of its own, so it serves the general pages.
+      const general = new Set(servedBy('db'));
       expect(general.size).toBeGreaterThan(0);
 
       expect(servedBy('cam').filter((page) => general.has(page))).toEqual([]);
@@ -539,10 +540,10 @@ describe('buildRemoteHostFs', () => {
           .filter((octet) => servedTemplateFor(prefix, octet) !== servedTemplate(octet))
           .map((octet) => `${prefix}-${octet}`);
 
-      ['www', 'db', 'mail', 'nas', 'dns'].forEach((prefix) => {
-        // WHICH hosts serve is the placement table's business and differs by role —
-        // a webserver publishes at 0.95 where a nameless box rolls 0.3 — so the
-        // comparison is over the addresses where both have a page at all.
+      // A webserver is absent on purpose: it publishes a whole site of its own.
+      ['db', 'mail', 'nas', 'dns'].forEach((prefix) => {
+        // WHICH hosts serve is the placement table's business and differs by role,
+        // so the comparison is over the addresses where both have a page at all.
         expect(compared(prefix).length).toBeGreaterThan(50);
         expect(moved(prefix)).toEqual([]);
       });
@@ -570,7 +571,7 @@ describe('buildRemoteHostFs', () => {
       // (or the page is wallpaper), link nothing you cannot serve (or the server lies),
       // and leave a comment `curl` shows that a browser will not (or there is no reason
       // to run both).
-      ['cam', 'laptop', 'www'].forEach((prefix) => {
+      ['cam', 'laptop', 'db'].forEach((prefix) => {
         const octets = OCTETS.filter((octet) => servedTemplateFor(prefix, octet) !== null);
         expect(octets.length).toBeGreaterThan(0);
 

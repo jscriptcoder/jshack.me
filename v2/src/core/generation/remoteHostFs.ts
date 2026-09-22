@@ -66,6 +66,7 @@ import {
 import { md5 } from './md5';
 import { CRACK_CHANCE, drawPassword } from './passwordPools';
 import { pickWebPage } from './pools/webPages';
+import { buildWebSite } from './webSite';
 import { roleConfigFile } from './pools/configFiles';
 import { nameServerFilesFor } from './generateDnsZone';
 import { roleOfHostname } from './pools/hostnames';
@@ -104,6 +105,14 @@ const guestHome = (): Directory =>
     },
     GUEST_HOME_DIR,
     'guest',
+  );
+
+/** A document root holding `files`, each keyed by its name in the root and published
+ *  the same way. */
+const publishedTree = (files: ReadonlyMap<string, string>): Directory =>
+  dir(
+    Object.fromEntries([...files].map(([name, content]) => [name, file(content, WEB_PAGE_FILE)])),
+    TRAVERSABLE_DIR,
   );
 
 export type HostService = { readonly spec: ServiceSpec; readonly port: number };
@@ -337,18 +346,27 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
   // on every box would publish a directory nobody is listening on — and the
   // externally-readable allowlist covers `/var/www/**`, so absence here is what
   // keeps a non-serving host from exposing anything at all.
-  const page = serves
-    ? pickWebPage({ role, seed: `web-page-${essid}-${host.ip}`, hostname: host.hostname })
-    : null;
+  //
+  // A box named for the web publishes a whole site; any other box that serves one keeps
+  // a single page. The two draw from different streams, so a site arriving on a
+  // webserver moves no other box's page.
+  const site = serves && role === 'webserver' ? buildWebSite({ essid, host }) : null;
+  const webFiles: ReadonlyMap<string, string> | null =
+    site !== null
+      ? site.files
+      : serves
+        ? new Map([
+            [
+              'index.html',
+              pickWebPage({ role, seed: `web-page-${essid}-${host.ip}`, hostname: host.hostname }),
+            ],
+          ])
+        : null;
+  const page = webFiles?.get('index.html') ?? null;
   const webRoot =
-    page === null
+    webFiles === null
       ? {}
-      : {
-          www: dir(
-            { html: dir({ 'index.html': file(page, WEB_PAGE_FILE) }, TRAVERSABLE_DIR) },
-            TRAVERSABLE_DIR,
-          ),
-        };
+      : { www: dir({ html: publishedTree(webFiles) }, TRAVERSABLE_DIR) };
 
   const etc = buildEtcContent({ essid, host, services, role });
 
