@@ -3,23 +3,24 @@
 > **Picking this up cold?** Read "Locked decisions", then the slice table — it carries the live
 > status. The grounding section records what v2 held on the day this was grilled; the code wins
 > wherever the two disagree.
-> Grilled 2026-09-21 (`grilling`), 25 locked decisions. Slices 0–4 delivered (as-built below).
-> Slice 5 planned in [`a-database-holds-an-application.md`](./a-database-holds-an-application.md).
+> Grilled 2026-09-21 (`grilling`), 25 locked decisions. Slices 0–5 delivered (as-built below).
+> Slice 6 is not yet planned.
 
-**Where we are now (2026-09-22):** **v0.252.0**. The legacy-parity epic's V-series is closed and
+**Where we are now (2026-09-22):** **v0.253.0**. The legacy-parity epic's V-series is closed and
 its next line was "the ship gate". **Ship now waits for this epic** (decision 1). Grilled to 25
-locked decisions and a twelve-slice spine. **Slices 0–4 are DONE** (#533, #534, #535, #536,
-#537 + #538) — the build budgets, NPC workstation homes, every NPC box's `/etc`, `/root`, `.ssh/`
-and `/home/guest`, every NPC box's rotated `.1` history plus `syslog`, and a three-layer site on
-every webserver (with lynx tables/`<pre>` and `.lan` names in the web tools); their as-built is
-folded into the slice spine and the "As-built" sections below.
+locked decisions and a twelve-slice spine. **Slices 0–5 are DONE** (#533, #534, #535, #536,
+#537 + #538, #539) — the build budgets, NPC workstation homes, every NPC box's `/etc`, `/root`,
+`.ssh/` and `/home/guest`, every NPC box's rotated `.1` history plus `syslog`, a three-layer site on
+every webserver (with lynx tables/`<pre>` and `.lan` names in the web tools), and an application
+in every NPC database; their as-built is folded into the slice spine and the "As-built" sections
+below.
 **Decision 19 was amended at planning** (budget first, memoize on breach) and **decision 6 was
 narrowed at slice 2's planning** (the player workstation gains an empty `/home/guest`). Slice 3's
 planning took three owner decisions (rotated logs name only root and the daemons, gateways wait
 for slice 10, remote lines are neighbours doing routine things); slice 4's took six (recorded in
-its as-built). **Slice 5 is planned** in
-[`a-database-holds-an-application.md`](./a-database-holds-an-application.md) as one PR, with four
-owner decisions taken at planning (one amends decision 15).
+its as-built); slice 5's took four at planning (one amends decision 15) and one during the
+build (recorded in its as-built). **Next: slice 6, a store serves that application** (not yet
+planned).
 
 ---
 
@@ -401,7 +402,7 @@ See below; planning refines it.
 | 2 | **A box admits what it is** — `/etc` breadth, `/root`, `/home/guest` | `/etc/hosts` lists real neighbours; `su` → `/root` holds root's history | ✅ DONE (#535, v0.249.0) — also took `.ssh/` and an empty `/home/guest` on the player box; see as-built below |
 | 3 | **A box remembers** — rotated `.1` log history across every role, plus `syslog` | `ls /var/log` shows `auth.log.1`; its last line is before 2026-07-12; the live `auth.log` holds only player traces | ✅ DONE (#536, v0.250.0) — NPC hosts only (gateways → slice 10); `.1` holds 2026-07-11 alone; see as-built below |
 | 4 | **A web server serves a site** — three layers, lynx `<table>`/`<pre>`, the link-resolution property test | lynx follows links across pages; `robots.txt` names a served path; a default `gobuster` finds a hidden path | ✅ DONE (#537 v0.251.0, #538 v0.252.0) — webservers only; other http hosts keep one version-free page; see as-built below |
-| 5 | **A database holds an application** — app archetypes | `SHOW TABLES` on a café network's DB shows a till schema whose staff are that network's inhabitants | 📋 PLANNED — `a-database-holds-an-application.md` (v0.253.0); decision 15 amended (DB credentials re-roll once) |
+| 5 | **A database holds an application** — app archetypes | `SHOW TABLES` on a café network's DB shows a till schema whose staff are that network's inhabitants | ✅ DONE (#539, v0.253.0) — 15 archetypes; decision 15 amended (DB credentials re-rolled once); a bought DB is a fresh install; see as-built below |
 | 6 | **A store serves that application** — Redis keyspaces paired with the app | `KEYS sess:*` returns sessions for that app's real users | ⏳ |
 | 7 | **Somebody wrote to somebody** — workstation mailboxes, the mail server's spool | a thread in `/var/mail/<user>` is between two real inhabitants of the network | ⏳ |
 | 8 | **A share holds a department** — fileserver `/srv`, metadata docs | `strings` on a shared PDF names its author, an inhabitant | ⏳ |
@@ -602,13 +603,97 @@ served off-dirlist path; (5) pages name people by full name and role mailboxes, 
   `.lan` name found `/health`, `/test/`, `/old/` (unlisted in robots), `/readme.txt` and more;
   `curl` of each returned its promised content, and `/readme.txt` named only served pages.
 
+## As-built: slice 5 (delivered 2026-09-22)
+
+Retired here from `a-database-holds-an-application.md` on close-out. One PR (#539, v0.253.0).
+
+**Owner decisions.** At planning (2026-09-22): (1) **decision 15 amended**: `mysql-db-<essid>-<ip>`
+draws only a database's accounts, in the old ladder order, and a new `db-app-<essid>-<ip>` stream
+draws the application, so every NPC database password re-rolled once; (2) a bought database is a
+**fresh install**; (3) every archetype keeps `users` with a bcrypt-shaped `password_hash`; (4) site
+↔ database agreement deferred; plus money as whole euros (`INT`), so the version scan covers
+every cell. During the build: (5) **a LAN `users` table holds everyone and has no floor**: the
+box's own account plus the distinct account of every other machine on the LAN (3–8 rows), because
+every login is somebody whose box `nmap` shows. The 5–40 floor applies to the tables beyond `users`.
+
+**What shipped.**
+- `generateDatabase.ts`: `drawDatabaseCredentials(seed)` (root, one `MYSQL_USERNAMES` account, a
+  read-only one half the time; crack ladder unchanged) and the people: LAN neighbours via
+  `npcUsername`, or 4–9 logins from `usernamePool(role)` on a deep box, never its own account.
+- `databaseApp.ts`: `usersRows` (installed 400–1,500 days before the epoch, the admin at install,
+  everyone else joining later, sorted), the selection rule (`databaseArchetype`: `portal-` → cms,
+  `api-` → api, mailserver → mail, else `networkArchetype(essid)` drawn once on
+  `db-app-network-<essid>` from `ARCHETYPES_BY_CATEGORY`), and the row engine. It builds tables in
+  declared order: a `ref` picks an existing row and lifts the child's earliest moment to the
+  parent's, rows are dated then sorted then numbered, and `code` columns count up with the id.
+  Workstations get `<name>_dev` with 5–12 rows per table; everything else 6–40, capped by any
+  unique pool.
+- `pools/databaseApps.ts`: 15 archetypes as data (`Fill`: serial, stamp, ref, pick, unique, int,
+  flag, person, code): helpdesk, crm, stock, till, media, household, enrolment, library, bookings,
+  telemetry, scoreboard, wiki, cms, api, mail. Required tables come first; optional ones are drawn
+  (up to 8 tables).
+- `mysql/ownDatabase.ts`: one `users` row for the owner, `<user>@<hostname>`, dated at purchase
+  (apt's `PackageFileContext` gained `now`), credentials on `mysql-db-own-<pubkey>`, root mirrors
+  the box. `pools/database.ts` now holds only `MYSQL_USERNAMES`.
+- **Retired:** the seven generic templates, the `DB_NAME_PREFIXES`/`SUFFIXES` name draw,
+  `company.local` / `corp.internal` / `acme.local`, and their hard-coded years (retired in the
+  application increment, once nothing read them).
+
+**Deviations from the plan.**
+- **Mail directory:** there is no `domains` table (it would hold one row). `mailboxes` is one per
+  login plus 2–5 shared ones (`info`, `sales`, `postmaster`…, `user_id` NULL), and stores only
+  the local part. So no email appears outside `users`, with no exception, and the floor holds.
+- The criterion "no 2024/2025 date" was wrong as written. Applications installed one to four years
+  back carry such dates; it now reads "no hard-coded year".
+- The mail directory and media library occur in no catalog database today (mail servers take the
+  flat mysql rate), so the tests add 20 databases of every application beside the world's.
+
+**Shares and variety (catalog, 50 databases; 54 with the uncatalogued networks).** crm 7,
+helpdesk 8, stock 5, till 5, household 7, library 9, telemetry 4, scoreboard 3, bookings 2, cms 1,
+enrolment 1, api 1, wiki 1. **50 of 50** `users` tables distinct (49 of 50 by names alone), **50 of
+50** main tables distinct with hashes and dates set aside, and no table repeated between two
+databases on one network.
+
+**Evidence.**
+- `generation/database.test.ts` (41 tests, built inside each test) and `mysql/ownDatabase.test.ts`:
+  credentials and ladder, `users` properties, selection, café till, shape, referential integrity,
+  keys, types, whole euros, calendar, no version/slot/address, short TEXT, `DESCRIBE` metadata,
+  ranges, codes, optional tables, reachability, identifiers, variety.
+- Fixture fallout: `mysqlStatement.test.ts` moved from the drawn `orders` to `users`; `hydraCrack`'s
+  two-keys test leaves out a word both doors drew by chance (the crackable pool is ~17 words); the
+  store-arrival pin checks database accounts, not the name.
+- Budgets: bundle **171,728 B** gzipped (+6.5 KB, under the estimate). Build **0.478 ms/box**
+  measured on the branch. A later re-measure read ~1.6 ms, but the branch's earlier source read the
+  same then, so that was machine state.
+- Mutation (scoped to the branch's production changes, 0 timeouts): **70.0% → 75.0%** (1,250 killed
+  / 417 survived); `databaseApp.ts` 78.1% → **91.4%**; `ownDatabase.ts`, `remoteHostFs.ts`,
+  `aptPackages.ts` 100%. The gate found a real bug: two shared mailboxes could never be drawn
+  (`slice` instead of `pickN`). The survivors left are equivalent engine fallbacks, labels and
+  `required` flags the tests read from the data, and one judgment call: a deep box drawing its own
+  login, which only bites on a collision.
+- Wire-checks: `testMysqlConnect` 13/13, `Query` 17/17, `Mutate` 14/14, `Deep` 13/13, `SameLan`
+  12/12, `CrossPlayer` 8/8, `SweepTrace` 13/13. `testMysqlDeep` needed a fix that was already
+  failing on `main`: `rowAt` asked for one row where two writers had written.
+- Played via `v2-e2e` on CASA-DE-RAMIREZ (v0.253.0): `nmap` showed `records-170` beside
+  `backup-20`, `doorbell-89`, `datastore-123`, `share-129`; `hydra 192.168.199.170 mysql` →
+  `db_admin` / `root123`; `SHOW TABLES` on `family` → `users`, `recipes`, `bills`, `shopping_list`;
+  `SELECT * FROM users` → `dbsvc` as admin, then `syncuser`, `plcuser`, `reporting`, `uploads` (the
+  four neighbours' accounts), all `@casa-de-ramirez.lan`; `SELECT * FROM bills` → every `paid_by`
+  resolved and no bill predated its payer's sign-up.
+
+**Known gaps, inside the rules.** A café's `orders` can predate its first `menu_items` row, since
+orders do not reference menu items. An order's `total_eur` is not the sum of its lines. Prices are
+drawn in a range, not per item.
+
 ## Open for planning (named, deliberately not decided)
 
 - The memoization key and cache bound on each end (client, serverless instance), and whether the
   derived network population is memoized alongside the tree — only if the build-time budget breaks.
-- Which archetypes exist and which (role, prefix, persona) picks each. (Slice 4 settled the web
-  side: 1–4 hidden dirlist paths per webserver.) Slice 4's `dump.sql` is schema-only; slice 5 may
-  revisit rows.
+- Which store keyspaces pair with which of slice 5's 15 database archetypes (slice 6), and
+  whether IoT (slice 9) and gateways (slice 10) take archetypes of their own. `dump.sql` stays
+  schema-only (slice 5 kept it).
+- **Site ↔ database agreement** (deferred at slice 5's planning): a café's menu page need not
+  list its `menu_items`, and a portal's CMS posts are not its pages. Decide if a slice leans on it.
 - Where each remaining file's permission constant comes from — reuse `baseFs.ts` constants (now
   including `HOME_FILE`, `ROOT_FILE`, `GUEST_HOME_*`) or add the Debian-default few still missing —
   for logs, mail and `/srv` (web files settled on `WEB_PAGE_FILE` / `TRAVERSABLE_DIR`).
@@ -667,3 +752,7 @@ served off-dirlist path; (5) pages name people by full name and role mailboxes, 
   (decision 6); **every archetype keeps `users`** (the app's login table) and gains a bcrypt-shaped
   `password_hash` no in-game tool reverses (john is md5-only — decision 12's inert-hash rule);
   **site ↔ database agreement is deferred** (a menu page need not list `menu_items`).
+- **2026-09-22** — slice 5 shipped (#539, v0.253.0); played run on CASA-DE-RAMIREZ recorded; slice
+  plan retired into "As-built: slice 5" above and its file deleted. Owner decision during the build:
+  a LAN `users` table holds every machine's account with no floor. `testMysqlDeep`'s pre-existing
+  `rowAt` fault fixed in the same PR. Next: slice 6 (not yet planned).
