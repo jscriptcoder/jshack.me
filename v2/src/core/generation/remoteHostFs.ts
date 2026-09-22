@@ -378,7 +378,12 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
             ],
           ])
         : null;
-  const page = webFiles?.get('index.html') ?? null;
+  // What a visitor walks to, with what each answers: the site's linked pages, or the
+  // one page a box that is not a webserver serves.
+  const visited = (site?.publicPaths ?? (webFiles === null ? [] : ['/'])).map((path) => ({
+    path,
+    size: webFiles?.get(path === '/' ? 'index.html' : path.slice(1))?.length ?? 0,
+  }));
   const webRoot =
     webFiles === null
       ? {}
@@ -420,7 +425,7 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
       services,
       crontab: etc.crontab.content,
       fstab: etc.fstab.content,
-      page,
+      pages: visited,
       database,
       isNameServer: nameServer !== null,
     }),

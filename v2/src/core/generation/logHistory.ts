@@ -113,8 +113,9 @@ export type LogHistoryOptions = {
   readonly crontab: string;
   /** `/etc/fstab` as the box keeps it. */
   readonly fstab: string;
-  /** The page the box serves at `/`, or null when it serves none. */
-  readonly page: string | null;
+  /** The pages a visitor walks to on the box's web server, `/` first, each with the
+   *  size it serves; empty when it serves none. */
+  readonly pages: readonly { readonly path: string; readonly size: number }[];
   /** The database the box keeps, or null when it runs no `mysqld`. */
   readonly database: MysqlDatabase | null;
   /** Whether the box is its network's name server. */
@@ -123,7 +124,7 @@ export type LogHistoryOptions = {
 
 /** `syslog` and every `.1` this box keeps, by name, for its `/var/log`. */
 export const buildLogHistory = (options: LogHistoryOptions): Readonly<Record<string, FileEntry>> => {
-  const { essid, host, services, crontab, fstab, page, database, isNameServer } = options;
+  const { essid, host, services, crontab, fstab, pages, database, isNameServer } = options;
   const prng = createPrng(`log-history-${essid}-${host.ip}`);
   const hostname = host.hostname;
   const runs = (service: string): HostService | undefined =>
@@ -247,21 +248,25 @@ export const buildLogHistory = (options: LogHistoryOptions): Readonly<Record<str
           ];
         }).flat();
 
+  const [front] = pages;
   const access =
-    page === null
+    front === undefined
       ? []
       : Array.from(
           { length: neighbours.length === 0 ? prng.nextInt(1, 6) : prng.nextInt(3, 30) },
           () => {
             const second = prng.nextInt(0, LAST_SECOND);
+            // A box serving one page draws nothing more, so its history stays exactly
+            // what it was before a site could have more than one.
+            const page = pages.length === 1 ? front : prng.pick(pages);
             return {
               second,
               line: formatAccessLogLine({
                 time: timeAt(second),
                 sourceIp: client(),
-                path: '/',
+                path: page.path,
                 status: 200,
-                size: page.length,
+                size: page.size,
               }),
             };
           },
