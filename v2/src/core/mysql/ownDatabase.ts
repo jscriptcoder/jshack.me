@@ -9,14 +9,15 @@
  * A wordlist can be a shared constant because knowing it buys nothing. A password
  * file cannot.
  *
- * Drawn through the same `generateDatabase` the world's own boxes are built from, so
- * what a visitor meets on a player's box is what they have already learned to expect
- * on an NPC's: the same name pools, the same two-to-four tables past `users`, the
- * same crack ladder underneath.
+ * A FRESH INSTALL. An NPC's database holds an application its network has been
+ * running for years; a database the player has just bought has been used by nobody.
+ * It holds the login table every application keeps, with one row: the player. The
+ * accounts beneath it are drawn on the same crack ladder every NPC database's are, so
+ * what a visitor sweeps here is the curve they already know.
  *
- * One thing differs, and only one. The database's ROOT answers to the password the
- * player chose for the box itself, read from the box's own `/etc/passwd` — so they
- * reach their own prompt with nothing to look up, print, store or delete. It costs
+ * The database's ROOT answers to the password the player chose for the box itself,
+ * read from the box's own `/etc/passwd` — so they reach their own prompt with nothing
+ * to look up, print, store or delete. It costs
  * exactly what it sounds like: a chosen password is almost never in the wordlist, so
  * this account is out of a SWEEP's reach and an attacker cracking their way in will
  * not reach the statements only root may run. The drawn accounts below it are that
@@ -33,13 +34,19 @@
  * what keeps cracking a box and cracking its database two locks with two keys.
  */
 
-import { generateDatabase } from '../generation/generateDatabase';
+import { drawDatabaseCredentials } from '../generation/generateDatabase';
+import { bcryptHash, datetimeAt, USERS_COLUMNS } from '../generation/databaseApp';
+import { createPrng } from '../generation/prng';
 import { accountIn, accountsIn } from '../sessions/passwdAccount';
 import type { Directory } from '../filesystem/types';
+import type { EpochMs } from '../types';
 import type { MysqlDatabase } from './types';
 
 /** The database account whose password the box's own root password becomes. */
 const ROOT_ACCOUNT = 'root';
+
+/** What the database is called. Nobody has named it anything else yet. */
+const DATABASE_NAME = 'app';
 
 /** Who leads the `users` table on a box that names no ordinary user — which takes
  *  a root player editing their own `/etc/passwd`, and is theirs to do. `guest` is
@@ -51,11 +58,14 @@ export const ownDatabase = ({
   ownerKeyHex,
   hostname,
   fs,
+  installedAt,
 }: {
   readonly ownerKeyHex: string;
   readonly hostname: string;
   /** The box's own filesystem, for the accounts it declares. */
   readonly fs: Directory;
+  /** When the player bought it — the one moment its only row can be dated. */
+  readonly installedAt: EpochMs;
 }): MysqlDatabase => {
   // By NAME, through the reader every auth gate on the box already uses: the password
   // being mirrored is the one `su root` asks for, so it has to be read the way `su`
@@ -66,15 +76,30 @@ export const ownDatabase = ({
   // box called them.
   const owner = accountsIn(fs).find((account) => account.userType === 'user');
 
-  // Its OWN stream, namespaced away from every other draw seeded on this pubkey —
+  // Its OWN streams, namespaced away from every other draw seeded on this pubkey —
   // the workstation tree, the guest password, the home LAN. Sharing one would move
   // every value picked after it.
-  const drawn = generateDatabase({
-    seed: `mysql-db-own-${ownerKeyHex}`,
-    hostname,
-    account: owner?.username ?? FALLBACK_ACCOUNT,
-    role: undefined,
-  });
+  const username = owner?.username ?? FALLBACK_ACCOUNT;
+  const drawn: MysqlDatabase = {
+    name: DATABASE_NAME,
+    tables: {
+      users: {
+        columns: USERS_COLUMNS,
+        rows: [
+          {
+            id: 1,
+            username,
+            // Local mail to the box's own user: the one address this box can honour.
+            email: `${username}@${hostname}`,
+            password_hash: bcryptHash(createPrng(`db-app-own-${ownerKeyHex}`)),
+            role: 'admin',
+            created_at: datetimeAt(installedAt),
+          },
+        ],
+      },
+    },
+    credentials: drawDatabaseCredentials(`mysql-db-own-${ownerKeyHex}`),
+  };
 
   // A box that declares no root account has nothing to mirror, so the drawn password
   // stands. Nothing else could: inventing one here would put a password on the box

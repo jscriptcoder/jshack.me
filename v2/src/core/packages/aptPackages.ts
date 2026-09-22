@@ -22,7 +22,7 @@
  * exploit chains depend on.
  */
 
-import type { AbsPath, PlayerKeyHex } from '../types';
+import type { AbsPath, EpochMs, PlayerKeyHex } from '../types';
 import type { Directory, FilePermissions } from '../filesystem/types';
 import { DATADIR_FILE, SERVICE_CONFIG_FILE } from '../generation/baseFs';
 import { SYSTEM_DAEMON_NAMES } from '../generation/binaries';
@@ -94,6 +94,7 @@ export type PackageFileContext = {
   readonly identity: { readonly publicKeyHex: PlayerKeyHex };
   readonly hostname: string;
   readonly fs: { readonly root: () => Directory };
+  readonly now: () => EpochMs;
 };
 
 /** One installable apt package. `binaries` defaults to `[name]` when the
@@ -231,6 +232,7 @@ export const APT_PACKAGES: readonly AptPackage[] = [
               ownerKeyHex: box.identity.publicKeyHex,
               hostname: box.hostname,
               fs: box.fs.root(),
+              installedAt: box.now(),
             }),
           ),
         permissions: DATADIR_FILE,

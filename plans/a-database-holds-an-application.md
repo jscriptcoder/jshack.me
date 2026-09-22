@@ -4,7 +4,7 @@
 1–25. **Four owner decisions were taken at planning** (2026-09-22). They are recorded under
 "Decided at planning" below and in the epic's status log.
 
-**Status:** Planned, not started.
+**Status:** In progress on `feat/a-database-holds-an-application`.
 
 **Delivery:** one independent PR against trunk.
 
@@ -121,7 +121,7 @@ differ by the draw and by their rows.
 | hacker | scoreboard · wiki | `teams`, `challenges`, `solves` · `wiki_pages`, `revisions` |
 | (any) `portal-` | CMS | `posts`, `pages`, `comments`, `categories` |
 | (any) `api-` | API platform | `api_clients`, `request_log`, `webhooks`, `rate_limits` |
-| (any) mail server | mail directory | `domains`, `mailboxes`, `aliases` |
+| (any) mail server | mail directory | `mailboxes`, `aliases`, `delivery_log`, `spam_rules` |
 
 The exact table lists are settled at implementation. Each archetype has at least 4 tables
 including `users`, and draws a subset up to 8 so that two databases on one archetype differ.
@@ -130,8 +130,9 @@ drawn from a small per-archetype list.
 
 ### Who is in the rows
 
-- **`users`**: the box's own account first, as `admin`, and on the LAN the accounts of real
-  neighbouring boxes (`npcUsername`). A deep box has no neighbours (slice 1's rule), so its
+- **`users`**: the box's own account first, as `admin`, and on the LAN the accounts of every
+  other machine on it (`npcUsername`), each once. No floor: a LAN with few machines has a short
+  `users` table (owner, 2026-09-22), because every login is someone whose box `nmap` shows. A deep box has no neighbours (slice 1's rule), so its
   `users` holds its own account plus the application's other logins, drawn from the
   role-keyed username pool as today. Email is `<username>@<zone>`. `users` sits behind the
   database door, so usernames are allowed here (decision 12: "the helpdesk agent IS
@@ -142,8 +143,11 @@ drawn from a small per-archetype list.
   `people.ts` pools), with **no email**. The rule is: an email appears only on a `users` row and
   is always on the zone. There is no invented public domain (decision 20), and a café customer
   on the café's `.lan` zone would be a lie.
-- **A mail directory's mailboxes** are exactly the `users` accounts at the zone, and its
-  `domains` row is the zone itself.
+- **A mail directory's mailboxes** are one per `users` login plus the shared ones an
+  organisation keeps (`info`, `sales`, `postmaster`…, `user_id` NULL). They store only the
+  `local_part`, never a full address, so the "email only on `users`" rule holds with no
+  exception, and the shared mailboxes keep the table above the 5-row floor. There is no
+  `domains` table: it would hold one row, the zone.
 
 ### What "true" means here (decision 4, applied)
 
@@ -182,8 +186,8 @@ root history.
 ### Acceptance criteria
 
 - [ ] Every NPC database (every role, LAN and deep, every catalog and uncatalogued network)
-      holds one archetype: 4–8 tables including `users`, 5–40 rows each, and a database name
-      from its archetype.
+      holds one archetype: 4–8 tables including `users`, 5–40 rows in each table beyond `users`,
+      and a database name from its archetype.
 - [ ] The archetype follows the selection rule: `portal-` → CMS, `api-` → API platform, a mail
       server → mail directory, a workstation → the network's archetype as `<name>_dev`, anything
       else → the network's archetype. Every database on one network that falls to the network's
@@ -191,7 +195,9 @@ root history.
 - [ ] A café network's database (catalog and uncatalogued) holds a till: `menu_items`, `orders`,
       `order_lines`, `shifts` and `users`, and its `users` names that network's real inhabitants.
 - [ ] `users` has `id`, `username`, `email`, `password_hash`, `role` and `created_at`. The box's
-      own account leads as `admin`. On the LAN the other rows are real neighbours' accounts.
+      own account leads as `admin`. On the LAN the other rows are exactly the distinct accounts
+      of every other machine on it, with no floor (owner, 2026-09-22: 3–8 rows). A deep box
+      keeps its account plus 4–9 role-pool logins.
       Every email is `<username>@<zone>`. Every `password_hash` is bcrypt-shaped and matches the
       md5 of no word in the password pools.
 - [ ] Referential integrity, unique ascending primary keys, unique `UNI` values, cells true to
@@ -206,8 +212,9 @@ root history.
       `mysql-db-` / `db-app-` moves: every other pinned tree, page and password is unchanged.
 - [ ] The player's own bought database holds exactly one table, `users`, with exactly one row
       (the box's user), and its root still answers to the box's root password.
-- [ ] The generic pool is gone: no `company.local` / `corp.internal` / `acme.local` and no
-      2024/2025 date anywhere in a generated database.
+- [ ] The generic pool is gone: no `company.local` / `corp.internal` / `acme.local` anywhere in
+      a generated database, and no hard-coded year. Dates come from the box's own install and
+      the calendar rule, so 2024–2025 dates remain where an application was running then.
 - [ ] `dump.sql` still matches its database's schema, and `mysql.log.1` still queries real
       tables (their existing tests stay green on the new schemas).
 - [ ] Variety: within one network no two databases hold byte-identical rows for any table. Across

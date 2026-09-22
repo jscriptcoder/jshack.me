@@ -761,7 +761,12 @@ describe('the database on your own box', () => {
     const base = buildWorkstationBaseFs(ownerKey, OWN_CONFIG);
     const database =
       opts.database ??
-      ownDatabase({ ownerKeyHex: ownerKey, hostname: OWN_CONFIG.machineName, fs: base });
+      ownDatabase({
+        ownerKeyHex: ownerKey,
+        hostname: OWN_CONFIG.machineName,
+        fs: base,
+        installedAt: asEpochMs(NOW),
+      });
     return applyPatches(base, [
       {
         path: DATADIR_PATH,
@@ -836,6 +841,7 @@ describe('the database on your own box', () => {
       ownerKeyHex: ownerKey,
       hostname: OWN_CONFIG.machineName,
       fs: buildWorkstationBaseFs(ownerKey, OWN_CONFIG),
+      installedAt: asEpochMs(NOW),
     });
 
   type WriteCall = {
@@ -1171,21 +1177,21 @@ describe('the database on your own box', () => {
     expect(logWrites(writes).at(-1)?.content).toContain(INTRUDER_LOG_LINE);
   });
 
-  /** The same database with one row changed by somebody else — the write this client
-   *  never saw, and the one its own next write is in a position to erase. */
+  /** The same database with a row somebody else added — the write this client never
+   *  saw, and the one its own next write is in a position to erase. A player's own
+   *  database starts with one row, so the intruder's edit is a row of their own. */
   const withIntruderRow = (database: MysqlDatabase): MysqlDatabase => {
     const users = database.tables.users;
     if (users === undefined) throw new Error('the fixture database has no users table');
-    if (users.rows.length < 2) throw new Error('the fixture users table has too few rows');
+    const [owner] = users.rows;
+    if (owner === undefined) throw new Error('the fixture users table has no rows');
     return {
       ...database,
       tables: {
         ...database.tables,
         users: {
           ...users,
-          rows: users.rows.map((row, index) =>
-            index === 1 ? { ...row, role: 'intruder' } : row,
-          ),
+          rows: [...users.rows, { ...owner, id: 2, username: 'intruder', role: 'intruder' }],
         },
       },
     };
@@ -1221,7 +1227,7 @@ describe('the database on your own box', () => {
     const result = await run('SELECT * FROM users;');
 
     expect(sync(result).exitCode).toBe(0);
-    expect(linesOf(result)).toContain('rows in set');
+    expect(linesOf(result)).toContain('1 row in set');
     // Reads are the one thing this file stays quiet about: a log that recorded every
     // SELECT would bury the two events a defender is actually looking for.
     expect(writes).toEqual([]);

@@ -314,7 +314,9 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
   const database = servesDatabase
     ? generateDatabase({
         seed: `mysql-db-${essid}-${host.ip}`,
-        hostname: host.hostname,
+        appSeed: `db-app-${essid}-${host.ip}`,
+        essid,
+        host,
         account: username,
         role,
       })
