@@ -1,7 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import { buildRemoteHostFs, hostServices, npcUsername } from './remoteHostFs';
 import { buildDeepHostFs } from './deepHostFs';
-import { drawStoreLock } from './generateRedisStore';
+import { drawStoreLock, generateRedisStore } from './generateRedisStore';
+import {
+  ARCHETYPES,
+  buildApplication,
+  databaseArchetype,
+  networkArchetype,
+  type ArchetypeKey,
+} from './databaseApp';
+import { STORE_SPECS } from './pools/storeApps';
+import { createPrng } from './prng';
+import { crackableEssidPool } from './generateWifi';
 import { generateApplication, type Application } from './generateDatabase';
 import { generateHomeLan, isOnHomeLan } from './generateHomeLan';
 import { roleOfHostname } from './pools/hostnames';
@@ -202,5 +212,272 @@ describe('a store’s sessions', () => {
     });
 
     expect({ count: offenders.length, sample: offenders.slice(0, 3) }).toEqual({ count: 0, sample: [] });
+  });
+});
+
+/** One store with everything its truth is judged against: the application it serves,
+ *  which kind that application is, and the machines its logins sign in from. */
+type StoreCase = {
+  readonly label: string;
+  readonly store: RedisStore;
+  readonly application: Application;
+  readonly archetype: ArchetypeKey;
+  readonly origins: ReadonlySet<unknown>;
+  readonly workstation: boolean;
+};
+
+const worldCases = (): readonly StoreCase[] =>
+  everyStore().map((box) => {
+    const application = applicationOf(box);
+    return {
+      label: `${box.essid} ${box.host.hostname}`,
+      store: box.store,
+      application,
+      archetype: databaseArchetype(box.essid, box.host),
+      origins: new Set(usersOf(application).map((row) => machineOf(box, row.username))),
+      workstation: roleOfHostname(box.host.hostname) === 'workstation',
+    };
+  });
+
+const SAMPLES_PER_ARCHETYPE = 20;
+
+/** Twenty stores of every application, beside the world's: several applications occur on
+ *  no catalog network, and a rule none of the world's stores exercises is untested. */
+const sampleCases = (): readonly StoreCase[] =>
+  (Object.keys(ARCHETYPES) as ArchetypeKey[]).flatMap((archetype) =>
+    Array.from({ length: SAMPLES_PER_ARCHETYPE }, (_, index) => {
+      const prefix =
+        archetype === 'cms' ? 'portal' : archetype === 'api' ? 'api' : archetype === 'mail' ? 'mail' : 'db';
+      const essid =
+        crackableEssidPool.find((candidate) => networkArchetype(candidate) === archetype) ??
+        'BEAN-THERE-WIFI';
+      const host = { ip: `10.40.0.${index + 1}`, hostname: `${prefix}-${index + 1}`, kind: 'machine' as const };
+      const people = ['mrodriguez', 'jchen', 'agarcia', 'hkim', 'tnguyen'].slice(0, 1 + (index % 5));
+      const application = buildApplication({
+        prng: createPrng(`sample-${archetype}-${index}`),
+        essid,
+        host,
+        people,
+      });
+      return {
+        label: `${archetype} sample ${index}`,
+        store: generateRedisStore({
+          seed: `sample-lock-${archetype}-${index}`,
+          appSeed: `sample-store-${archetype}-${index}`,
+          essid,
+          host,
+          account: people[0] ?? '',
+          application,
+        }),
+        application,
+        archetype,
+        origins: new Set([host.ip]),
+        workstation: false,
+      };
+    }),
+  );
+
+const allCases = (): readonly StoreCase[] => [...worldCases(), ...sampleCases()];
+
+const entriesUnder = (store: RedisStore, prefix: string) =>
+  Object.entries(store.keys)
+    .filter(([key]) => key.startsWith(prefix))
+    .map(([key, value]) => ({ name: key.slice(prefix.length), value }));
+
+const rowOf = (application: Application, table: string, id: unknown): MysqlRow | undefined =>
+  application.tables[table]?.rows.find((row) => row.id === id);
+
+const userNamed = (application: Application, username: unknown): MysqlRow | undefined =>
+  usersOf(application).find((row) => row.username === username);
+
+/** The latest moment a row states, so nothing about it is dated before it existed. */
+const latestMomentOf = (row: MysqlRow): string =>
+  Object.values(row)
+    .filter((cell): cell is string => typeof cell === 'string' && DATETIME.test(cell))
+    .reduce((latest, cell) => (cell > latest ? cell : latest), '');
+
+const verdict = (offenders: readonly string[]) => ({
+  count: offenders.length,
+  sample: offenders.slice(0, 3),
+});
+const CLEAN = { count: 0, sample: [] };
+
+describe('what a store holds', () => {
+  it('is a working set of 20 to 80 keys, and a developer’s copy of 20 to 30', () => {
+    const offenders = allCases()
+      .filter(({ store, workstation }) => {
+        const size = Object.keys(store.keys).length;
+        return workstation ? size < 20 || size > 30 : size < 20 || size > 80;
+      })
+      .map(({ label, store }) => `${label}: ${Object.keys(store.keys).length}`);
+
+    expect(worldCases().some(({ workstation }) => workstation)).toBe(true);
+    expect(verdict(offenders)).toEqual(CLEAN);
+  });
+
+  it('keys everything by the application’s own families, and nothing else', () => {
+    const families = /^(sess|cache|queue|lock|perms|ratelimit|stats|flag|config:webhook):/;
+    const offenders = allCases().flatMap(({ label, store }) =>
+      Object.keys(store.keys)
+        .filter((key) => !families.test(key))
+        .map((key) => `${label}: ${key}`),
+    );
+
+    expect(verdict(offenders)).toEqual(CLEAN);
+  });
+
+  it('caches rows exactly as the application holds them, from the tables it caches, never a password hash', () => {
+    const offenders = allCases().flatMap(({ label, store, application, archetype }) =>
+      entriesUnder(store, 'cache:')
+        .filter(({ name, value }) => {
+          const [table = '', id = ''] = name.split(':');
+          const row = rowOf(application, table, Number(id));
+          if (row === undefined || !STORE_SPECS[archetype].cached.includes(table)) return true;
+          const { password_hash: _hash, ...cached } = row;
+          return value !== JSON.stringify(table === 'users' ? cached : row);
+        })
+        .map(({ name }) => `${label}: cache:${name}`),
+    );
+
+    expect(allCases().every(({ store }) => entriesUnder(store, 'cache:').length > 0)).toBe(true);
+    expect(verdict(offenders)).toEqual(CLEAN);
+  });
+
+  it('queues jobs that each point at a real row of the queue’s own table, queued after it existed', () => {
+    const offenders = allCases().flatMap(({ label, store, application, archetype }) =>
+      entriesUnder(store, 'queue:').flatMap(({ name, value }) => {
+        const queue = STORE_SPECS[archetype].queues.find((candidate) => candidate.name === name);
+        const jobs = JSON.parse(value) as readonly Record<string, unknown>[];
+        return jobs
+          .filter((job) => {
+            const row = rowOf(application, String(job.table), job.row_id);
+            const queuedAt = job.queued_at;
+            return (
+              queue === undefined ||
+              job.kind !== queue.kind ||
+              job.table !== queue.table ||
+              row === undefined ||
+              typeof queuedAt !== 'string' ||
+              !DATETIME.test(queuedAt) ||
+              queuedAt < latestMomentOf(row) ||
+              queuedAt > LAST_SECOND ||
+              !Number.isInteger(job.id)
+            );
+          })
+          .map((job) => `${label}: queue:${name} ${JSON.stringify(job)}`);
+      }),
+    );
+
+    expect(verdict(offenders)).toEqual(CLEAN);
+  });
+
+  it('is locked only by real logins, after they signed up, for the jobs the application runs', () => {
+    const offenders = allCases().flatMap(({ label, store, application, archetype }) =>
+      entriesUnder(store, 'lock:')
+        .filter(({ name, value }) => {
+          const lock = JSON.parse(value) as Record<string, unknown>;
+          const holder = userNamed(application, lock.holder);
+          const acquiredAt = lock.acquired_at;
+          return (
+            !STORE_SPECS[archetype].locks.includes(name) ||
+            holder === undefined ||
+            typeof acquiredAt !== 'string' ||
+            !DATETIME.test(acquiredAt) ||
+            acquiredAt < String(holder.created_at) ||
+            acquiredAt > LAST_SECOND ||
+            !Number.isInteger(lock.ttl) ||
+            Number(lock.ttl) <= 0
+          );
+        })
+        .map(({ name, value }) => `${label}: lock:${name} ${value}`),
+    );
+
+    expect(verdict(offenders)).toEqual(CLEAN);
+  });
+
+  it('grants permissions to real logins, and admin exactly to the administrators', () => {
+    const offenders = allCases().flatMap(({ label, store, application }) =>
+      entriesUnder(store, 'perms:')
+        .filter(({ name, value }) => {
+          const login = userNamed(application, name);
+          const perms = JSON.parse(value) as Record<string, unknown>;
+          return login === undefined || perms.admin !== (login.role === 'admin');
+        })
+        .map(({ name, value }) => `${label}: perms:${name} ${value}`),
+    );
+
+    expect(verdict(offenders)).toEqual(CLEAN);
+  });
+
+  it('rate-limits the application’s own routes, for machines its logins really sign in from', () => {
+    const offenders = allCases().flatMap(({ label, store, archetype, origins }) =>
+      entriesUnder(store, 'ratelimit:')
+        .filter(({ name, value }) => {
+          const [route = '', ip = ''] = name.split(':');
+          return (
+            !STORE_SPECS[archetype].routes.includes(route) ||
+            !origins.has(ip) ||
+            !/^\d+$/.test(value)
+          );
+        })
+        .map(({ name }) => `${label}: ratelimit:${name}`),
+    );
+
+    expect(verdict(offenders)).toEqual(CLEAN);
+  });
+
+  it('counts, flags and calls out in the application’s own words', () => {
+    const offenders = allCases().flatMap(({ label, store, archetype }) => {
+      const spec = STORE_SPECS[archetype];
+      const counters = entriesUnder(store, 'stats:').filter(
+        ({ name, value }) => !spec.counters.includes(name) || !/^\d+$/.test(value),
+      );
+      const flags = entriesUnder(store, 'flag:').filter(({ name, value }) => {
+        const flag = JSON.parse(value) as Record<string, unknown>;
+        return (
+          !spec.flags.includes(name) ||
+          typeof flag.enabled !== 'boolean' ||
+          !Number.isInteger(flag.rollout) ||
+          Number(flag.rollout) < 0 ||
+          Number(flag.rollout) > 100
+        );
+      });
+      const webhooks = entriesUnder(store, 'config:webhook:').filter(({ name, value }) => {
+        const webhook = JSON.parse(value) as Record<string, unknown>;
+        return (
+          !spec.webhooks.includes(name) ||
+          JSON.stringify(Object.keys(webhook)) !== JSON.stringify(['url', 'secret']) ||
+          !String(webhook.url).startsWith(`https://hooks.${name}.com/`) ||
+          !/^[0-9a-f]+$/.test(String(webhook.secret))
+        );
+      });
+      return [...counters, ...flags, ...webhooks].map(({ name }) => `${label}: ${name}`);
+    });
+
+    expect(verdict(offenders)).toEqual(CLEAN);
+  });
+
+  it('reaches every counter, flag, lock, queue, route, webhook and cached table an application declares', () => {
+    const cases = sampleCases();
+    const unreached = (Object.keys(STORE_SPECS) as ArchetypeKey[]).flatMap((archetype) => {
+      const keys = cases
+        .filter((candidate) => candidate.archetype === archetype)
+        .flatMap(({ store }) => Object.keys(store.keys));
+      const spec = STORE_SPECS[archetype];
+      const declared = [
+        ...spec.counters.map((name) => `stats:${name}`),
+        ...spec.flags.map((name) => `flag:${name}`),
+        ...spec.locks.map((name) => `lock:${name}`),
+        ...spec.queues.map(({ name }) => `queue:${name}`),
+        ...spec.routes.map((name) => `ratelimit:${name}:`),
+        ...spec.webhooks.map((name) => `config:webhook:${name}`),
+        ...spec.cached.map((name) => `cache:${name}:`),
+      ];
+      return declared
+        .filter((prefix) => !keys.some((key) => key.startsWith(prefix)))
+        .map((prefix) => `${archetype}: ${prefix}`);
+    });
+
+    expect(verdict(unreached)).toEqual(CLEAN);
   });
 });
