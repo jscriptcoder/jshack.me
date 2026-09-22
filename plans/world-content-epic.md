@@ -3,21 +3,21 @@
 > **Picking this up cold?** Read "Locked decisions", then the slice table — it carries the live
 > status. The grounding section records what v2 held on the day this was grilled; the code wins
 > wherever the two disagree.
-> Grilled 2026-09-21 (`grilling`), 25 locked decisions. Slices 0–3 delivered (as-built below).
-> Slice 4 planned in [`a-web-server-serves-a-site.md`](./a-web-server-serves-a-site.md).
+> Grilled 2026-09-21 (`grilling`), 25 locked decisions. Slices 0–4 delivered (as-built below).
+> Slice 5 is next and not yet planned.
 
-**Where we are now (2026-09-21):** **v0.250.0**. The legacy-parity epic's V-series is closed and
+**Where we are now (2026-09-22):** **v0.252.0**. The legacy-parity epic's V-series is closed and
 its next line was "the ship gate". **Ship now waits for this epic** (decision 1). Grilled to 25
-locked decisions and a twelve-slice spine. **Slices 0–3 are DONE** (#533, #534, #535, #536) —
-the build budgets, NPC workstation homes, every NPC box's `/etc`, `/root`, `.ssh/` and
-`/home/guest`, and every NPC box's rotated `.1` history plus `syslog`; their as-built is folded
-into the slice spine and the "As-built" sections below.
+locked decisions and a twelve-slice spine. **Slices 0–4 are DONE** (#533, #534, #535, #536,
+#537 + #538) — the build budgets, NPC workstation homes, every NPC box's `/etc`, `/root`, `.ssh/`
+and `/home/guest`, every NPC box's rotated `.1` history plus `syslog`, and a three-layer site on
+every webserver (with lynx tables/`<pre>` and `.lan` names in the web tools); their as-built is
+folded into the slice spine and the "As-built" sections below.
 **Decision 19 was amended at planning** (budget first, memoize on breach) and **decision 6 was
 narrowed at slice 2's planning** (the player workstation gains an empty `/home/guest`). Slice 3's
 planning took three owner decisions (rotated logs name only root and the daemons, gateways wait
-for slice 10, remote lines are neighbours doing routine things). **Slice 4 is planned** in
-[`a-web-server-serves-a-site.md`](./a-web-server-serves-a-site.md) as two PRs (lynx tables/pre,
-then the site), with six owner decisions taken at planning.
+for slice 10, remote lines are neighbours doing routine things); slice 4's took six (recorded in
+its as-built). **Next: slice 5, a database holds an application** (not yet planned).
 
 ---
 
@@ -398,7 +398,7 @@ See below; planning refines it.
 | 1 | **A workstation reads as somebody's** — network persona (ESSID category as data) + box inhabitant; a workstation's home gets dotfiles, a history true to its network, notes; the first variety test | `ssh` into an NPC workstation as its user → `ls -a ~` → `.bash_history` names a real neighbour that `nmap`/`ssh` reach; `.gitconfig` names the inhabitant | ✅ DONE (#534, v0.248.0) — see as-built below |
 | 2 | **A box admits what it is** — `/etc` breadth, `/root`, `/home/guest` | `/etc/hosts` lists real neighbours; `su` → `/root` holds root's history | ✅ DONE (#535, v0.249.0) — also took `.ssh/` and an empty `/home/guest` on the player box; see as-built below |
 | 3 | **A box remembers** — rotated `.1` log history across every role, plus `syslog` | `ls /var/log` shows `auth.log.1`; its last line is before 2026-07-12; the live `auth.log` holds only player traces | ✅ DONE (#536, v0.250.0) — NPC hosts only (gateways → slice 10); `.1` holds 2026-07-11 alone; see as-built below |
-| 4 | **A web server serves a site** — three layers, lynx `<table>`/`<pre>`, the link-resolution property test | lynx follows links across pages; `robots.txt` names a served path; a default `gobuster` finds a hidden path | 🔨 IN PROGRESS — `a-web-server-serves-a-site.md`; 4a ✅ merged (#537, v0.251.0); 4b the site next; webservers only |
+| 4 | **A web server serves a site** — three layers, lynx `<table>`/`<pre>`, the link-resolution property test | lynx follows links across pages; `robots.txt` names a served path; a default `gobuster` finds a hidden path | ✅ DONE (#537 v0.251.0, #538 v0.252.0) — webservers only; other http hosts keep one version-free page; see as-built below |
 | 5 | **A database holds an application** — app archetypes | `SHOW TABLES` on a café network's DB shows a till schema whose staff are that network's inhabitants | ⏳ |
 | 6 | **A store serves that application** — Redis keyspaces paired with the app | `KEYS sess:*` returns sessions for that app's real users | ⏳ |
 | 7 | **Somebody wrote to somebody** — workstation mailboxes, the mail server's spool | a thread in `/var/mail/<user>` is between two real inhabitants of the network | ⏳ |
@@ -530,15 +530,86 @@ Retired here from `a-box-remembers.md` on close-out.
   source answered `ping`; `mysql.log.1` named the real database. **Found:** v2 has no `tail`
   (and `grep` has no `-c`) — tracked in `v2/docs/conventions-and-gotchas.md` §9.
 
+## As-built: slice 4 (delivered 2026-09-21/22)
+
+Retired here from `a-web-server-serves-a-site.md` on close-out. Two independent PRs in order.
+
+**Owner decisions at planning** (2026-09-21): (1) the three layers go on webserver-role hosts only;
+every other http host keeps one page, rewritten version-free (IoT → slice 9, gateways → slice 10);
+(2) cross-host links use `.lan` names and the web tools resolve them; deep sites link only
+themselves and name themselves by IP; (3) two PRs, in order; (4) `robots.txt` may `Disallow` one
+served off-dirlist path; (5) pages name people by full name and role mailboxes, never a username
+(no account but root under `/var/www`); (6) `dump.sql` is schema-only.
+
+**Slice 4a — lynx renders tables and preformatted text (#537, v0.251.0).**
+- `ui/renderPage.ts`: a `<table>` renders one line per row, each column padded to its widest cell
+  (measured after link numbering, so `[12]` counts), two spaces apart; each table aligns on its
+  own; short rows widen columns without trailing padding; `<caption>` is its own line;
+  `thead`/`tbody`/`tfoot` are transparent. `<pre>` keeps spacing and inner blank lines, dropping
+  blank edge lines; links in either are numbered and followable. Both render nested in a `div` or
+  list item. lynx's manual updated.
+- Mutation (scoped `renderPage.ts`): 403 killed / 6 survived / 6 no coverage (97.1%) — survivors
+  equivalent, no-coverage are unreachable `?? []` fallbacks. Played on the player's own nginx page.
+
+**Slice 4b — a web server serves a site (#538, v0.252.0).**
+- New: `generation/webSite.ts` (`buildWebSite({ essid, host, port, database })` → files plus the
+  public paths) and static pool `pools/webSites.ts`. `buildRemoteHostFs` publishes the site as a
+  nested `/var/www/html` tree (`WEB_PAGE_FILE` / `TRAVERSABLE_DIR`) when the role is webserver and
+  http is served; every other http host keeps one `pickWebPage` page. `reachWebHost` resolves a
+  `.lan` name through `resolveLanName`, so lynx, followed links and gobuster reach the box `curl`
+  reaches; an unknown name answers `Could not resolve host: <name>`. `buildLogHistory` takes
+  `pages` (path + size), so `access.log.1` requests real public pages at their real sizes.
+- **Public tree, 4–12 pages** reachable from `/`, each linking home, navigation opening with
+  "Home" and naming pages by their heading; titles `<Page> — <Site>`, every page signed "Page
+  maintained by <inhabitant>." Shapes: public site = front pages + the category's pages + shared
+  pages (`team.html` on corporate, `people.html` on university); `portal-` = `services.html` (a
+  true Web / File server / Mail table of neighbours by `.lan` name, port only when non-standard,
+  "Nothing else on the network is listed yet." when empty) + `team.html` + intranet pages; `api-` =
+  a reference index with the status endpoint as its worked example, JSON at `/health`,
+  `/api/v1/status` and category endpoints.
+- **Breadcrumbs:** `robots.txt` on ~80% of sites (51 of 66 catalog webservers), 30% of those also
+  `Disallow` one off-dirlist directory (16); `sitemap.xml` on ~50% (31); one HTML comment naming a
+  served path on ~50% (33), never more than one page.
+- **Hidden layer:** 1–4 servable dirlist words (`old/`, `staging/`, `test/`, `admin/`,
+  `dashboard/`, `internal/` with their own `index.html`; `notes`/`todo`/`readme.txt`;
+  `status`/`health`/`server-status`/`metrics`; `.env` with inert external keys and the site's own
+  `APP_URL`; `dump.sql`).
+- **Deviations from the plan:** `webmaster@` is not a mailbox — `webmaster` is a webserver
+  username, so the contact is `helpdesk@` (with `info@`, `jobs@`, `orders@`, `admissions@`).
+  `dump.sql` is **always** present on a mysql webserver rather than drawn (the draw left it too
+  rare to find). `sitemap.xml` has no XML declaration or `xmlns` — `1.0`/`0.9` read as versions to
+  `softwareVersionsIn`. Every `pools/webPages.ts` bucket lost its versions (general-page md5 pin
+  moved to `eccc0547…`), and prices are whole euros for the same reason.
+- One new stream: `web-site-<essid>-<ip>`; non-webservers keep `web-page-` and no other stream
+  moved (draws made conditional where `prng.pick` would consume one on a length-1 list).
+- Tests in `generation/webSite.test.ts` (~37 property tests, built inside each test): no dead link,
+  robots path or sitemap URL on any webserver; only self and real neighbours named; no account but
+  root, no version, no slot, no date after the epoch; hidden paths unlinked and swept; `dump.sql`
+  matches its database's schema; share bands. Variety: **66 of 66** catalog front pages distinct,
+  even with site, place and author stripped; no byte-identical page between webservers of one
+  network.
+- Budgets after: bundle 165,173 B gzipped (+11.6 KB); build 0.436 ms/box on a quiet run, under
+  the 2 ms ceiling.
+- Mutation (scoped `webSite.ts`, the `webHost.ts` change, touched `remoteHostFs.ts`/`logHistory.ts`):
+  481 killed / 66 survived / 1 no coverage (87.8%) — survivors are fixed markup text, equivalent
+  share comparisons and page-count arithmetic that stays in bounds.
+- Played via `v2-e2e` on OMNI-CORP (v0.252.0): `nmap` found `portal-189` (:8080) and `portal-193`
+  (:80); lynx on `portal-189` → Services → followed `portal-193.omni-corp.lan` into the other
+  portal, whose Services linked back to `portal-189.omni-corp.lan:8080`; `robots.txt` named
+  `/readme.txt`, `/health`, `/test/` and the off-list `/archive-2025/`; a default `gobuster` by
+  `.lan` name found `/health`, `/test/`, `/old/` (unlisted in robots), `/readme.txt` and more;
+  `curl` of each returned its promised content, and `/readme.txt` named only served pages.
+
 ## Open for planning (named, deliberately not decided)
 
 - The memoization key and cache bound on each end (client, serverless instance), and whether the
   derived network population is memoized alongside the tree — only if the build-time budget breaks.
-- Which archetypes exist and which (role, prefix, persona) picks each; how many dirlist paths a web
-  host serves.
+- Which archetypes exist and which (role, prefix, persona) picks each. (Slice 4 settled the web
+  side: 1–4 hidden dirlist paths per webserver.) Slice 4's `dump.sql` is schema-only; slice 5 may
+  revisit rows.
 - Where each remaining file's permission constant comes from — reuse `baseFs.ts` constants (now
   including `HOME_FILE`, `ROOT_FILE`, `GUEST_HOME_*`) or add the Debian-default few still missing —
-  for logs, mail, `/srv` and web files.
+  for logs, mail and `/srv` (web files settled on `WEB_PAGE_FILE` / `TRAVERSABLE_DIR`).
 - **`~` in replayed history lines.** v2's `cat`/`ls` do not expand `~` (`cd` defers it too), so a
   slice-1 history line like `cat ~/notes/todo.txt` answers "No such file" when replayed verbatim,
   while `cat notes/todo.txt` from the home works (seen in slice 2's played run). The truth tests
@@ -584,3 +655,5 @@ Retired here from `a-box-remembers.md` on close-out.
   ones that carry their own page.
 - **2026-09-21** — slice 4a merged (#537, v0.251.0): lynx renders `<table>` in aligned columns
   and `<pre>` as written.
+- **2026-09-22** — slice 4b shipped (#538, v0.252.0); played run on OMNI-CORP recorded; slice plan
+  retired into "As-built: slice 4" above and its file deleted. Next: slice 5 (not yet planned).
