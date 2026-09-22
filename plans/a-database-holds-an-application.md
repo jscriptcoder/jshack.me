@@ -212,8 +212,9 @@ root history.
       `mysql-db-` / `db-app-` moves: every other pinned tree, page and password is unchanged.
 - [ ] The player's own bought database holds exactly one table, `users`, with exactly one row
       (the box's user), and its root still answers to the box's root password.
-- [ ] The generic pool is gone: no `company.local` / `corp.internal` / `acme.local` and no
-      2024/2025 date anywhere in a generated database.
+- [ ] The generic pool is gone: no `company.local` / `corp.internal` / `acme.local` anywhere in
+      a generated database, and no hard-coded year. Dates come from the box's own install and
+      the calendar rule, so 2024–2025 dates remain where an application was running then.
 - [ ] `dump.sql` still matches its database's schema, and `mysql.log.1` still queries real
       tables (their existing tests stay green on the new schemas).
 - [ ] Variety: within one network no two databases hold byte-identical rows for any table. Across

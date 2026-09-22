@@ -21,8 +21,14 @@ import { MYSQL_USERNAMES } from './pools/database';
 import { md5 } from './md5';
 import { databaseIn } from '../mysql/datadir';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import { ALL_ESSIDS, deepBoxes, lanBoxes, type Box } from '../../test/worldContent';
-import type { MysqlDatabase } from '../mysql/types';
+import {
+  ALL_ESSIDS,
+  deepBoxes,
+  lanBoxes,
+  softwareVersionsIn,
+  type Box,
+} from '../../test/worldContent';
+import type { MysqlDatabase, MysqlRow, MysqlTable } from '../mysql/types';
 
 type DatabaseBox = Box & { readonly database: MysqlDatabase };
 
@@ -392,6 +398,177 @@ describe('every application, sampled once', () => {
         ? []
         : [`${box.archetype}: ${tables.join(',')}`];
     });
+
+    expect(noneOf(wrong)).toEqual(NONE);
+  });
+});
+
+/** Every database a rule is proven over: the whole world's, and one of each
+ *  application so the rarely drawn ones are read too. */
+const everyApplication = (): readonly (Box & { readonly database: MysqlDatabase })[] => [
+  ...everyDatabase(),
+  ...oneOfEach(),
+];
+
+/** The columns of one table that refer to another, as the box's application declares
+ *  them. Two applications can each hold a table of one name (`comments`), so the lookup
+ *  is always through the application the box runs. */
+const referencesIn = (
+  box: Box,
+  tableName: string,
+): readonly { readonly column: string; readonly table: string }[] =>
+  ARCHETYPES[databaseArchetype(box.essid, box.host)].tables
+    .filter((table) => table.name === tableName)
+    .flatMap((table) =>
+      table.columns.flatMap((column) =>
+        column.fill.kind === 'ref' ? [{ column: column.name, table: column.fill.table }] : [],
+      ),
+    );
+
+/** The one DATETIME a row carries, if its table records one. */
+const madeAt = (table: MysqlTable, row: MysqlRow): string | null => {
+  const column = table.columns.find((candidate) => candidate.type === 'DATETIME');
+  return column === undefined ? null : String(row[column.name]);
+};
+
+describe('what is true of every row', () => {
+  it('refers only to rows that exist', () => {
+    const wrong = everyApplication().flatMap((box) =>
+      Object.entries(box.database.tables).flatMap(([name, table]) =>
+        referencesIn(box, name).flatMap(({ column, table: target }) => {
+          const ids = new Set((box.database.tables[target]?.rows ?? []).map((row) => row['id']));
+          const nullable = table.columns.find((candidate) => candidate.name === column)?.nullable ?? false;
+          return table.rows
+            .filter((row) => !(nullable && row[column] === null) && !ids.has(row[column]))
+            .map((row) => `${where(box)} ${name}.${column}=${String(row[column])} -> ${target}`);
+        }),
+      ),
+    );
+
+    expect(noneOf(wrong)).toEqual(NONE);
+  });
+
+  it('numbers its rows one, two, three, and never repeats a unique value', () => {
+    const wrong = everyApplication().flatMap((box) =>
+      Object.entries(box.database.tables).flatMap(([name, table]) => {
+        const misnumbered = table.rows.some((row, index) => row['id'] !== index + 1)
+          ? [`${where(box)} ${name}: ids out of order`]
+          : [];
+        const repeated = table.columns
+          .filter((column) => column.key === 'UNI')
+          .filter((column) => new Set(table.rows.map((row) => row[column.name])).size !== table.rows.length)
+          .map((column) => `${where(box)} ${name}.${column.name} repeats`);
+        return [...misnumbered, ...repeated];
+      }),
+    );
+
+    expect(noneOf(wrong)).toEqual(NONE);
+  });
+
+  it('holds in every cell what its column’s type promises, and NULL only where a column allows it', () => {
+    const fits = (type: string, cell: string | number | null): boolean => {
+      switch (type) {
+        case 'INT':
+          return Number.isInteger(cell);
+        case 'BOOLEAN':
+          return cell === 0 || cell === 1;
+        case 'DATETIME':
+          return (
+            typeof cell === 'string' &&
+            /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(cell) &&
+            !Number.isNaN(Date.parse(`${cell.replace(' ', 'T')}Z`))
+          );
+        default:
+          return typeof cell === 'string' && cell.length > 0;
+      }
+    };
+    const wrong = everyApplication().flatMap((box) =>
+      Object.entries(box.database.tables).flatMap(([name, table]) =>
+        table.rows.flatMap((row) =>
+          table.columns
+            .filter((column) =>
+              row[column.name] === null || row[column.name] === undefined
+                ? !column.nullable
+                : !fits(column.type, row[column.name] ?? null),
+            )
+            .map((column) => `${where(box)} ${name}.${column.name}=${String(row[column.name])}`),
+        ),
+      ),
+    );
+
+    expect(noneOf(wrong)).toEqual(NONE);
+  });
+
+  it('keeps money in whole euros', () => {
+    const wrong = everyApplication().flatMap((box) =>
+      Object.entries(box.database.tables).flatMap(([name, table]) =>
+        table.columns
+          .filter((column) => column.name.endsWith('_eur') && column.type !== 'INT')
+          .map((column) => `${where(box)} ${name}.${column.name}: ${column.type}`),
+      ),
+    );
+
+    expect(noneOf(wrong)).toEqual(NONE);
+  });
+
+  it('dates every row before the world stopped, in id order, and never before a row it refers to', () => {
+    const wrong = everyApplication().flatMap((box) =>
+      Object.entries(box.database.tables).flatMap(([name, table]) =>
+        table.rows.flatMap((row, index) => {
+          const date = madeAt(table, row);
+          if (date === null) return [];
+          const previous = index === 0 ? null : madeAt(table, table.rows[index - 1] ?? row);
+          const parents = referencesIn(box, name).flatMap(({ column, table: target }) => {
+            const parentTable = box.database.tables[target];
+            const parent = parentTable?.rows.find((candidate) => candidate['id'] === row[column]);
+            const parentDate = parentTable === undefined || parent === undefined ? null : madeAt(parentTable, parent);
+            return parentDate === null ? [] : [parentDate];
+          });
+          const late = date > LAST_MOMENT;
+          const outOfOrder = previous !== null && previous > date;
+          const beforeParent = parents.some((parentDate) => parentDate > date);
+          return late || outOfOrder || beforeParent ? [`${where(box)} ${name} row ${index + 1}: ${date}`] : [];
+        }),
+      ),
+    );
+
+    expect(noneOf(wrong)).toEqual(NONE);
+  });
+
+  it('states no version, leaves no slot unfilled, and names no mail address outside users', () => {
+    const wrong = everyApplication().flatMap((box) =>
+      Object.entries(box.database.tables).flatMap(([name, table]) =>
+        table.rows.flatMap((row) =>
+          Object.entries(row)
+            .filter(([column, cell]) => {
+              const text = String(cell);
+              return (
+                softwareVersionsIn(text).length > 0 ||
+                /[{}]|undefined|NaN/.test(text) ||
+                (text.includes('@') && !(name === 'users' && column === 'email'))
+              );
+            })
+            .map(([column, cell]) => `${where(box)} ${name}.${column}=${String(cell)}`),
+        ),
+      ),
+    );
+
+    expect(noneOf(wrong)).toEqual(NONE);
+  });
+
+  it('keeps every TEXT cell to one short line, so SELECT * still fits a terminal', () => {
+    const wrong = everyApplication().flatMap((box) =>
+      Object.entries(box.database.tables).flatMap(([name, table]) =>
+        table.columns
+          .filter((column) => column.type === 'TEXT')
+          .flatMap((column) =>
+            table.rows
+              .map((row) => String(row[column.name]))
+              .filter((text) => text.length > 60 || text.includes('\n'))
+              .map((text) => `${where(box)} ${name}.${column.name}: ${text}`),
+          ),
+      ),
+    );
 
     expect(noneOf(wrong)).toEqual(NONE);
   });
