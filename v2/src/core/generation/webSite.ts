@@ -40,6 +40,9 @@ import {
   NOTE_HEADINGS,
   NOTE_LINES,
   OLD_SITE_PAGES,
+  PATH_COMMENTS,
+  ROBOTS_ONLY_DIRECTORIES,
+  ROBOTS_ONLY_PAGES,
   type ApiEndpoint,
   type SitePage,
 } from './pools/webSites';
@@ -219,8 +222,10 @@ const htmlDocument = (options: {
   readonly nav: string;
   readonly page: Page;
   readonly author: string;
+  /** A note its author left in the source, which `curl` shows and a browser does not. */
+  readonly comment: string | null;
 }): string => {
-  const { site, nav, page, author } = options;
+  const { site, nav, page, author, comment } = options;
   return [
     '<html>',
     `<head><title>${page.title === site ? site : `${page.title} — ${site}`}</title></head>`,
@@ -228,6 +233,7 @@ const htmlDocument = (options: {
     nav,
     `<h1>${page.title}</h1>`,
     page.body,
+    ...(comment === null ? [] : [`<!-- ${comment} -->`]),
     '<hr>',
     `<p>Page maintained by ${author}.</p>`,
     '</body>',
@@ -253,6 +259,14 @@ const HIDDEN_WORDS: readonly string[] = [
   '.env',
   'dump.sql',
 ];
+
+/** The share of sites that keep a robots.txt, of those the share whose robots.txt names
+ *  a directory the default list never tries, the share that keep a sitemap, and the
+ *  share with a comment in one page naming an unlinked path. */
+const ROBOTS_SHARE = 0.8;
+const ROBOTS_ONLY_SHARE = 0.3;
+const SITEMAP_SHARE = 0.5;
+const COMMENT_SHARE = 0.5;
 
 /** The fewest and the most unlinked paths a site keeps. */
 const MIN_HIDDEN = 1;
@@ -479,17 +493,76 @@ export const buildWebSite = ({
     hostname: host.hostname,
   });
 
+  // The breadcrumbs: what a site says about the paths it did not link. robots.txt asks
+  // crawlers to stay out of some of them — which is how a reader learns they exist —
+  // and now and then of a directory no default list would ever try.
+  const disallowed = prng.next() < ROBOTS_SHARE ? prng.pickN(words, prng.nextInt(1, words.length)) : null;
+  const robotsOnly =
+    disallowed !== null && prng.next() < ROBOTS_ONLY_SHARE ? prng.pick(ROBOTS_ONLY_DIRECTORIES) : null;
+  const robots =
+    disallowed === null
+      ? []
+      : [
+          [
+            'robots.txt',
+            [
+              'User-agent: *',
+              ...disallowed.map((word) => `Disallow: ${requestPathOf(word)}`),
+              ...(robotsOnly === null ? [] : [`Disallow: /${robotsOnly}/`]),
+              '',
+            ].join('\n'),
+          ] as const,
+          ...(robotsOnly === null
+            ? []
+            : [
+                [
+                  `${robotsOnly}/index.html`,
+                  plainPage(site, `<h1>${site}</h1>\n${prng.pick(ROBOTS_ONLY_PAGES)}`),
+                ] as const,
+              ]),
+        ];
+  const origin = ownUrl.slice(0, -1);
+  const sitemap =
+    prng.next() < SITEMAP_SHARE
+      ? [
+          [
+            'sitemap.xml',
+            [
+              '<urlset>',
+              ...publicPaths.map((path) => `  <url><loc>${origin}${path}</loc></url>`),
+              '</urlset>',
+              '',
+            ].join('\n'),
+          ] as const,
+        ]
+      : [];
+  const commentWord = prng.next() < COMMENT_SHARE ? prng.pick(words) : null;
+  const commentLines = commentWord === null ? undefined : PATH_COMMENTS[commentWord];
+  const comment =
+    commentWord === null || commentLines === undefined
+      ? null
+      : { file: prng.pick(pages).file, text: fillSlots(prng.pick(commentLines), { path: requestPathOf(commentWord) }) };
+
   return {
     files: new Map([
       ...pages.map((page): readonly [string, string] => [
         page.file,
-        fillSlots(htmlDocument({ site, nav, page, author }), slots),
+        fillSlots(
+          htmlDocument({
+            site,
+            nav,
+            page,
+            author,
+            comment: comment !== null && comment.file === page.file ? comment.text : null,
+          }),
+          slots,
+        ),
       ]),
       ...plan.documents.map((document): readonly [string, string] => [
         document.file,
         fillSlots(document.body, slots),
       ]),
-      ...hidden.map(([file, content]): readonly [string, string] => [
+      ...[...hidden, ...robots, ...sitemap].map(([file, content]): readonly [string, string] => [
         file,
         fillSlots(content, slots),
       ]),

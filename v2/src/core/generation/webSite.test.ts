@@ -18,6 +18,7 @@ import {
   type Box,
 } from '../../test/worldContent';
 import { DEFAULT_DIRLIST } from '../network/defaultDirlist';
+import { ROBOTS_ONLY_DIRECTORIES } from './pools/webSites';
 import { sweepWord } from '../network/webSweep';
 import { parseMysqlDatabase } from '../mysql/types';
 
@@ -134,13 +135,14 @@ const deadLink = (built: Built, path: string, href: string): string | null => {
   const url = parseHttpUrl(target);
   if (url === null) return `${href} is not a url`;
   const { essid, host } = built.box;
-  if (url.host === host.ip && url.port === built.port) {
+  const onLan = isOnLan(built.box);
+  // A LAN box may name itself as its network does; nothing on a deep layer has a name.
+  const address = onLan ? (resolveLanName(essid, url.host)?.ip ?? url.host) : url.host;
+  if (address === host.ip && url.port === built.port) {
     return served(built.tree, url.path) === null ? `${url.path} is not served here` : null;
   }
-  const lan = generateHomeLan(essid).hosts;
-  const onLan = lan.some((candidate) => candidate.ip === host.ip && candidate.hostname === host.hostname);
   if (!onLan) return `${target} leaves a deep box, which names no neighbour`;
-  const address = resolveLanName(essid, url.host)?.ip ?? url.host;
+  const lan = generateHomeLan(essid).hosts;
   const neighbour = lan.find((candidate) => candidate.ip === address && candidate.kind === 'machine');
   if (neighbour === undefined || neighbour.ip === host.ip) return `${url.host} is not a neighbour`;
   if (httpPort({ essid, host: neighbour }) !== url.port) return `${url.host} serves no web on ${url.port}`;
@@ -181,8 +183,14 @@ describe('a web server serves a site', () => {
     expect(strays).toEqual([]);
   });
 
-  it('never links a page nothing serves, on any network', () => {
-    const offenders = servingBoxes(isWebserver).flatMap(deadLinksOn);
+  it('never links a page nothing serves, nor names one in robots.txt or a sitemap, on any network', () => {
+    const offenders = servingBoxes(isWebserver).flatMap((built) => [
+      ...deadLinksOn(built),
+      ...[...robotsPathsOf(built), ...sitemapUrlsOf(built)].flatMap((href) => {
+        const reason = deadLink(built, '/', href);
+        return reason === null ? [] : [`${built.box.host.hostname} breadcrumb: ${reason}`];
+      }),
+    ]);
     expect(offenders).toEqual([]);
   });
 
@@ -381,6 +389,26 @@ const hiddenPaths = (built: Built): ReadonlyMap<string, string> => {
   );
 };
 
+/** The paths a site's robots.txt asks crawlers to stay out of. */
+const robotsPathsOf = (built: Built): readonly string[] =>
+  [...(webRootOf(built.tree).get('robots.txt') ?? '').matchAll(/^Disallow: (\S+)$/gm)].map(
+    ([, path]) => path ?? '',
+  );
+
+/** The addresses a site's sitemap lists. */
+const sitemapUrlsOf = (built: Built): readonly string[] =>
+  [...(webRootOf(built.tree).get('sitemap.xml') ?? '').matchAll(/<loc>([^<]+)<\/loc>/g)].map(
+    ([, url]) => url ?? '',
+  );
+
+/** Every path an HTML comment on the site names. */
+const commentedPathsOf = (built: Built): readonly string[] =>
+  htmlPagesOf(built.tree).flatMap(([, page]) =>
+    [...page.matchAll(/<!--([\s\S]*?)-->/g)].flatMap(([, comment]) =>
+      [...(comment ?? '').matchAll(/(?<![\w.])(\/[\w./-]*)/g)].map(([, path]) => path ?? ''),
+    ),
+  );
+
 const MONTHS = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December',
@@ -396,11 +424,15 @@ const datesIn = (text: string): readonly string[] => [
 ];
 
 describe('a web server keeps paths nobody linked', () => {
-  it('serves every webserver 1 to 4 paths no page links, each on the default path list', () => {
+  it('serves every webserver 1 to 4 paths no page links from the default path list, and at most the one other robots.txt names', () => {
     const counts = servingBoxes(isWebserver).map((built) => {
-      const hidden = [...hiddenPaths(built).keys()];
-      expect(hidden.filter((path) => !DEFAULT_DIRLIST.includes(path))).toEqual([]);
-      return hidden.length;
+      const hidden = [...hiddenPaths(built).keys()].filter(
+        (path) => !['robots.txt', 'sitemap.xml'].includes(path),
+      );
+      const offList = hidden.filter((path) => !DEFAULT_DIRLIST.includes(path));
+      expect(offList.filter((path) => !robotsPathsOf(built).includes(`/${path}/`))).toEqual([]);
+      expect(offList.length).toBeLessThanOrEqual(1);
+      return hidden.length - offList.length;
     });
     expect(counts.filter((count) => count < 1 || count > 4)).toEqual([]);
     expect(Math.min(...counts)).toBe(1);
@@ -490,5 +522,76 @@ describe('everything a web server publishes is true of the world', () => {
 
   it('reads a date either way a page writes one, so the rule above can fail', () => {
     expect(datesIn('On 14 June 2026, and again 2026-07-12.')).toEqual(['2026-07-12', '2026-06-14']);
+  });
+});
+
+describe('a web server leaves breadcrumbs to what it did not link', () => {
+  it('keeps a robots.txt on most sites and a sitemap on some', () => {
+    const sites = servingBoxes(isWebserver);
+    const robots = sites.filter(({ tree }) => webRootOf(tree).has('robots.txt')).length;
+    const sitemaps = sites.filter(({ tree }) => webRootOf(tree).has('sitemap.xml')).length;
+    expect(robots / sites.length).toBeGreaterThan(0.6);
+    expect(robots).toBeLessThan(sites.length);
+    expect(sitemaps / sites.length).toBeGreaterThan(0.25);
+    expect(sitemaps / sites.length).toBeLessThan(0.75);
+  });
+
+  it('asks crawlers to stay out of paths it really serves and never links', () => {
+    const wrong = servingBoxes(isWebserver).flatMap((built) => {
+      const reached = new Set(crawl(built).keys());
+      const paths = robotsPathsOf(built);
+      if (webRootOf(built.tree).has('robots.txt') && paths.length === 0) {
+        return [`${built.box.host.hostname} robots.txt names nothing`];
+      }
+      return paths.flatMap((path) => [
+        ...(deadLink(built, '/robots.txt', path) === null ? [] : [`${path} is not served`]),
+        ...(reached.has(path) ? [`${path} is linked`] : []),
+      ]).map((fault) => `${built.box.host.hostname}: ${fault}`);
+    });
+    expect(wrong).toEqual([]);
+  });
+
+  it('names a path off the default list in a seeded share of robots files', () => {
+    const robots = servingBoxes(isWebserver).filter(({ tree }) => webRootOf(tree).has('robots.txt'));
+    const offList = robots.filter((built) =>
+      robotsPathsOf(built).some((path) => !DEFAULT_DIRLIST.includes(path.replace(/^\/|\/$/g, ''))),
+    );
+    expect(offList.length / robots.length).toBeGreaterThan(0.15);
+    expect(offList.length / robots.length).toBeLessThan(0.5);
+  });
+
+  it('draws that path from names the default list does not try', () => {
+    expect(ROBOTS_ONLY_DIRECTORIES.filter((name) => DEFAULT_DIRLIST.includes(name))).toEqual([]);
+    expect(ROBOTS_ONLY_DIRECTORIES.length).toBeGreaterThan(3);
+  });
+
+  it('lists in a sitemap exactly the pages a reader can walk to, at the address the site answers on', () => {
+    const wrong = servingBoxes(isWebserver).flatMap((built) => {
+      const urls = sitemapUrlsOf(built);
+      if (urls.length === 0) return [];
+      const zone = lanZoneName(built.box.essid);
+      const own = isOnLan(built.box)
+        ? `http://${built.box.host.hostname}.${zone}${built.port === 80 ? '' : `:${built.port}`}`
+        : originOf(built);
+      const listed = urls.map((url) => (url.startsWith(own) ? url.slice(own.length) : url));
+      const walkable = [...crawl(built).keys()];
+      return JSON.stringify([...listed].sort()) === JSON.stringify([...walkable].sort())
+        ? []
+        : [`${built.box.host.hostname} lists ${listed.join(' ')}`];
+    });
+    expect(wrong).toEqual([]);
+  });
+
+  it('leaves comments in some pages that name a path it serves', () => {
+    const sites = servingBoxes(isWebserver);
+    const commented = sites.filter((built) => commentedPathsOf(built).length > 0);
+    expect(commented.length / sites.length).toBeGreaterThan(0.25);
+
+    const dead = commented.flatMap((built) =>
+      commentedPathsOf(built)
+        .filter((path) => served(built.tree, path) === null)
+        .map((path) => `${built.box.host.hostname} ${path}`),
+    );
+    expect(dead).toEqual([]);
   });
 });

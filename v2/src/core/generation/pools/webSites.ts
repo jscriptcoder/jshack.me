@@ -652,3 +652,46 @@ export const NOTE_LINES: readonly string[] = [
 
 /** How a text file of notes is headed. */
 export const NOTE_HEADINGS: readonly string[] = ['Notes', 'TODO', 'README', 'Things to fix'];
+
+/**
+ * Directories a robots.txt may ask crawlers to stay out of that the default path list
+ * never tries — found only by reading robots.txt and adding the name to your own list,
+ * the loop an editable path list exists for. None may be on the default list, or a
+ * sweep would find it without the reading.
+ */
+export const ROBOTS_ONLY_DIRECTORIES: readonly string[] = [
+  'drafts',
+  'archive-2025',
+  'intranet-old',
+  'preview',
+  'wip',
+  'legacy',
+  'beta',
+];
+
+/** What such a directory holds: the page it was kept for. */
+export const ROBOTS_ONLY_PAGES: readonly string[] = [
+  '<p>Work in progress. Not linked from anywhere on purpose.</p>',
+  '<p>Kept for reference after the redesign. Do not update.</p>',
+  '<p>Preview of the next version of the front page. Not live yet.</p>',
+];
+
+/** The comments a page's author leaves about an unlinked path, keyed by the word the
+ *  path is. `{path}` is filled with the path as a request names it. */
+export const PATH_COMMENTS: Readonly<Record<string, readonly string[]>> = {
+  old: ['old site kept at {path} until the migration is signed off', 'previous layout still at {path}'],
+  staging: ['preview changes at {path} before pushing live'],
+  test: ['test copy at {path}, remember to take it down'],
+  admin: ['admin login moved to {path}'],
+  dashboard: ['stats are on {path} now'],
+  internal: ['staff notices live at {path}'],
+  'notes.txt': ['see {path} for what is left to do'],
+  'todo.txt': ['todo list in {path}'],
+  'readme.txt': ['deploy notes in {path}'],
+  status: ['monitoring polls {path}'],
+  health: ['load balancer checks {path}'],
+  'server-status': ['{path} is open to the LAN only, right?'],
+  metrics: ['scraped from {path} every minute'],
+  '.env': ['keys are in {path} now, not in the page'],
+  'dump.sql': ['nightly schema dump lands in {path}'],
+};
