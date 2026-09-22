@@ -182,12 +182,17 @@ const statement = (username: string, password: string, line: string, port = FORW
     }),
   );
 
+// The newest writer's row. A statement's write is keyed to a different writer from
+// `plant`'s, so a path the run has both planted and changed holds two rows, and asking
+// for exactly one would answer with none.
 const rowAt = async (machineId: string, path: string) => {
   const { data } = await sr
     .from('patches')
     .select('content, owner, machine_id')
     .eq('machine_id', machineId)
     .eq('path', path)
+    .order('updated_at', { ascending: false })
+    .limit(1)
     .maybeSingle();
   if (typeof data !== 'object' || data === null) return null;
   const at = (field: string): unknown => Object.getOwnPropertyDescriptor(data, field)?.value;
