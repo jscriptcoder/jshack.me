@@ -4,7 +4,7 @@
 > status. The grounding section records what v2 held on the day this was grilled; the code wins
 > wherever the two disagree.
 > Grilled 2026-09-21 (`grilling`), 25 locked decisions. Slices 0–4 delivered (as-built below).
-> Slice 5 is next and not yet planned.
+> Slice 5 planned in [`a-database-holds-an-application.md`](./a-database-holds-an-application.md).
 
 **Where we are now (2026-09-22):** **v0.252.0**. The legacy-parity epic's V-series is closed and
 its next line was "the ship gate". **Ship now waits for this epic** (decision 1). Grilled to 25
@@ -17,7 +17,9 @@ folded into the slice spine and the "As-built" sections below.
 narrowed at slice 2's planning** (the player workstation gains an empty `/home/guest`). Slice 3's
 planning took three owner decisions (rotated logs name only root and the daemons, gateways wait
 for slice 10, remote lines are neighbours doing routine things); slice 4's took six (recorded in
-its as-built). **Next: slice 5, a database holds an application** (not yet planned).
+its as-built). **Slice 5 is planned** in
+[`a-database-holds-an-application.md`](./a-database-holds-an-application.md) as one PR, with four
+owner decisions taken at planning (one amends decision 15).
 
 ---
 
@@ -399,7 +401,7 @@ See below; planning refines it.
 | 2 | **A box admits what it is** — `/etc` breadth, `/root`, `/home/guest` | `/etc/hosts` lists real neighbours; `su` → `/root` holds root's history | ✅ DONE (#535, v0.249.0) — also took `.ssh/` and an empty `/home/guest` on the player box; see as-built below |
 | 3 | **A box remembers** — rotated `.1` log history across every role, plus `syslog` | `ls /var/log` shows `auth.log.1`; its last line is before 2026-07-12; the live `auth.log` holds only player traces | ✅ DONE (#536, v0.250.0) — NPC hosts only (gateways → slice 10); `.1` holds 2026-07-11 alone; see as-built below |
 | 4 | **A web server serves a site** — three layers, lynx `<table>`/`<pre>`, the link-resolution property test | lynx follows links across pages; `robots.txt` names a served path; a default `gobuster` finds a hidden path | ✅ DONE (#537 v0.251.0, #538 v0.252.0) — webservers only; other http hosts keep one version-free page; see as-built below |
-| 5 | **A database holds an application** — app archetypes | `SHOW TABLES` on a café network's DB shows a till schema whose staff are that network's inhabitants | ⏳ |
+| 5 | **A database holds an application** — app archetypes | `SHOW TABLES` on a café network's DB shows a till schema whose staff are that network's inhabitants | 📋 PLANNED — `a-database-holds-an-application.md` (v0.253.0); decision 15 amended (DB credentials re-roll once) |
 | 6 | **A store serves that application** — Redis keyspaces paired with the app | `KEYS sess:*` returns sessions for that app's real users | ⏳ |
 | 7 | **Somebody wrote to somebody** — workstation mailboxes, the mail server's spool | a thread in `/var/mail/<user>` is between two real inhabitants of the network | ⏳ |
 | 8 | **A share holds a department** — fileserver `/srv`, metadata docs | `strings` on a shared PDF names its author, an inhabitant | ⏳ |
@@ -657,3 +659,11 @@ served off-dirlist path; (5) pages name people by full name and role mailboxes, 
   and `<pre>` as written.
 - **2026-09-22** — slice 4b shipped (#538, v0.252.0); played run on OMNI-CORP recorded; slice plan
   retired into "As-built: slice 4" above and its file deleted. Next: slice 5 (not yet planned).
+- **2026-09-22** — slice 5 planned (`a-database-holds-an-application.md`, v0.253.0 target). Owner
+  decisions at planning: **decision 15 amended** — `mysql-db-` keeps only the credentials and a new
+  `db-app-` stream draws the application, so every NPC database password re-rolls once (nothing
+  pins them hash-for-hash; crack chances unchanged), accepted like decision 7's re-roll; **the
+  player's own bought database is a fresh install** — a `users` table holding its owner alone
+  (decision 6); **every archetype keeps `users`** (the app's login table) and gains a bcrypt-shaped
+  `password_hash` no in-game tool reverses (john is md5-only — decision 12's inert-hash rule);
+  **site ↔ database agreement is deferred** (a menu page need not list `menu_items`).
