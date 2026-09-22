@@ -90,7 +90,7 @@ export const SHARED_PAGES: readonly SitePage[] = [
     file: 'contact.html',
     title: 'Contact',
     bodies: [
-      '<p>General enquiries: <a href="mailto:info@{domain}">info@{domain}</a></p>\n<p>Problems with this site: <a href="mailto:webmaster@{domain}">webmaster@{domain}</a></p>',
+      '<p>General enquiries: <a href="mailto:info@{domain}">info@{domain}</a></p>\n<p>Problems with this site: <a href="mailto:helpdesk@{domain}">helpdesk@{domain}</a></p>',
       '<p>Write to us at <a href="mailto:info@{domain}">info@{domain}</a>. We answer within two working days.</p>',
       '<p>Something broken? Tell the helpdesk: <a href="mailto:helpdesk@{domain}">helpdesk@{domain}</a></p>\n<p>Everything else: <a href="mailto:info@{domain}">info@{domain}</a></p>',
     ],
@@ -436,3 +436,175 @@ export const SITE_PAGES: Readonly<Record<NetworkCategory, readonly SitePage[]>> 
     },
   ],
 };
+
+/** What a place calls the people it lists, by kind of place — the roles a team page
+ *  gives the people on the network, never their logins. */
+export const PEOPLE_ROLES: Readonly<Record<NetworkCategory, readonly string[]>> = {
+  corporate: ['Operations', 'Finance', 'Sales', 'Support', 'Facilities', 'Legal'],
+  cafe: ['Manager', 'Barista', 'Kitchen', 'Front of house'],
+  residential: ['Housemate', 'Family', 'Flatmate'],
+  university: ['Lecturer', 'Research fellow', 'Doctoral student', 'Administrator', 'Lab technician'],
+  public: ['Duty manager', 'Librarian', 'Volunteer', 'Facilities'],
+  iot: ['Resident', 'Owner', 'Guest room'],
+  hacker: ['Keyholder', 'Treasurer', 'Member', 'Events'],
+};
+
+/** What an intranet portal says on its front page. */
+export const PORTAL_FRONT_PAGES: readonly string[] = [
+  '<p>Intranet for {place}. Everything here is internal — please do not share links outside.</p>',
+  '<p>Welcome to the {site} intranet. Start with Services to find what runs where.</p>',
+  '<p>Internal wiki for {place}. If a page is wrong, fix it or tell the helpdesk.</p>',
+  '<p>The {site} staff portal: how-tos, the people, and the machines on the network.</p>',
+];
+
+/** An intranet's how-tos and notes, the same kind of page at any kind of place. */
+export const PORTAL_PAGES: readonly SitePage[] = [
+  {
+    file: 'printing.html',
+    title: 'Printing',
+    bodies: [
+      '<p>Send jobs to the printer by the door. Jam? Open tray two, not tray one.</p>',
+      '<p>Colour printing is for client work only. Toner is in the cupboard under the stairs.</p>',
+    ],
+  },
+  {
+    file: 'wifi.html',
+    title: 'Wi-Fi',
+    bodies: [
+      '<p>Staff and guests share one network. The password is on the card behind reception.</p>',
+      '<p>If the Wi-Fi drops, the access point is in the hallway. Unplug it, count to ten, plug it back in.</p>',
+    ],
+  },
+  {
+    file: 'shared-drive.html',
+    title: 'Shared drive',
+    bodies: [
+      '<p>Documents go on the shared drive, not on your desktop. Your desktop is not backed up.</p>\n<pre>\nDocuments/   everyone\nInvoices/    finance only\nArchive/     read only\n</pre>',
+      '<p>The Services page says where the shared drive lives. Ask the helpdesk for an account.</p>',
+    ],
+  },
+  {
+    file: 'new-starters.html',
+    title: 'New starters',
+    bodies: [
+      '<ol>\n<li>Collect a key from reception</li>\n<li>Read the Wi-Fi page</li>\n<li>Say hello to the team</li>\n</ol>',
+      '<p>Welcome! Your manager will walk you through your first week. Lunch on day one is on us.</p>',
+    ],
+  },
+  {
+    file: 'backups.html',
+    title: 'Backups',
+    bodies: [
+      '<p>The shared drive is backed up every night at two. Restores take a day — ask the helpdesk.</p>',
+      '<pre>\nnightly   02:00   shared drive\nweekly    Sunday  everything else\n</pre>',
+    ],
+  },
+  {
+    file: 'holidays.html',
+    title: 'Holidays',
+    bodies: [
+      '<table>\n<tr><th>Closed</th><th>Why</th></tr>\n<tr><td>25–26 December</td><td>Christmas</td></tr>\n<tr><td>1 January</td><td>New year</td></tr>\n<tr><td>1 May</td><td>Bank holiday</td></tr>\n</table>',
+      '<p>Book holidays with your manager at least two weeks ahead.</p>',
+    ],
+  },
+];
+
+/** An API's endpoint: a document a client fetches, and what the reference says of it. */
+export type ApiEndpoint = {
+  /** Its path beneath the document root, e.g. `api/v1/menu`. */
+  readonly file: string;
+  readonly summary: string;
+  /** The JSON it returns, with slots. */
+  readonly body: string;
+};
+
+/** The endpoints every API answers, whatever it is for. */
+export const API_COMMON_ENDPOINTS: readonly ApiEndpoint[] = [
+  { file: 'health', summary: 'liveness check', body: '{"status":"ok"}' },
+  {
+    file: 'api/v1/status',
+    summary: 'service status',
+    body: '{"service":"{site}","status":"ok","maintenance":false}',
+  },
+];
+
+/** The endpoints an API serves for its kind of place. */
+export const API_ENDPOINTS: Readonly<Record<NetworkCategory, readonly ApiEndpoint[]>> = {
+  corporate: [
+    { file: 'api/v1/offices', summary: 'office locations', body: '{"offices":[{"name":"Head office","floor":4},{"name":"Warehouse","floor":0}]}' },
+    { file: 'api/v1/services', summary: 'services offered', body: '{"services":["infrastructure","consulting","support"]}' },
+    { file: 'api/v1/tickets/summary', summary: 'open support tickets', body: '{"open":12,"closed_this_week":31}' },
+  ],
+  cafe: [
+    { file: 'api/v1/menu', summary: 'the menu, prices in euros', body: '{"items":[{"name":"Espresso","price":2},{"name":"Flat white","price":3},{"name":"Carrot cake","price":4}]}' },
+    { file: 'api/v1/hours', summary: 'opening hours', body: '{"weekdays":"07:30-18:00","saturday":"09:00-17:00","sunday":null}' },
+    { file: 'api/v1/orders/queue', summary: 'orders waiting', body: '{"waiting":3}' },
+  ],
+  residential: [
+    { file: 'api/v1/posts', summary: 'latest posts', body: '{"posts":[{"title":"Fixed the boiler (again)"},{"title":"Garden update"}]}' },
+    { file: 'api/v1/weather', summary: 'balcony weather station', body: '{"temperature_c":17,"humidity":61}' },
+  ],
+  university: [
+    { file: 'api/v1/courses', summary: 'courses this year', body: '{"courses":[{"code":"CS101","term":"autumn"},{"code":"CS204","term":"spring"}]}' },
+    { file: 'api/v1/rooms', summary: 'bookable rooms', body: '{"rooms":["B12","Lab 3","Reading room"]}' },
+    { file: 'api/v1/seminars', summary: 'upcoming seminars', body: '{"seminars":[{"day":"Wednesday","time":"16:00"}]}' },
+  ],
+  public: [
+    { file: 'api/v1/hours', summary: 'opening hours', body: '{"weekdays":"09:00-20:00","saturday":"10:00-16:00","sunday":null}' },
+    { file: 'api/v1/notices', summary: 'current notices', body: '{"notices":["East lift out of service"]}' },
+    { file: 'api/v1/departures', summary: 'next departures', body: '{"departures":[{"line":1,"in_minutes":4},{"line":4,"in_minutes":11}]}' },
+  ],
+  iot: [
+    { file: 'api/v1/devices', summary: 'devices and their state', body: '{"devices":[{"name":"front door lock","state":"locked"},{"name":"porch light","state":"off"}]}' },
+    { file: 'api/v1/readings', summary: 'latest sensor readings', body: '{"kitchen_c":21,"hallway_c":18}' },
+    { file: 'api/v1/energy', summary: 'energy use today', body: '{"used_kwh":9,"solar_kwh":4}' },
+  ],
+  hacker: [
+    { file: 'api/v1/events', summary: 'meetups this month', body: '{"events":[{"night":"Thursday","what":"open night"}]}' },
+    { file: 'api/v1/space', summary: 'is the space open', body: '{"open":true,"keyholders_present":2}' },
+    { file: 'api/v1/projects', summary: 'current projects', body: '{"projects":["morse badge","toaster reflow oven"]}' },
+  ],
+};
+
+/** What an API's reference says around its endpoint list. */
+export const API_FRONT_PAGES: readonly string[] = [
+  '<p>JSON API for {site}. Responses are UTF-8, and every endpoint answers GET.</p>',
+  '<p>Internal API used by the {site} apps. Documented here for whoever maintains it next.</p>',
+  '<p>This service answers read-only requests from inside the network.</p>',
+];
+
+/** An API's other documentation pages. */
+export const API_PAGES: readonly SitePage[] = [
+  {
+    file: 'authentication.html',
+    title: 'Authentication',
+    bodies: [
+      '<p>Read-only endpoints need no key from inside the network. Write access is not offered.</p>',
+      '<p>Clients outside the network are refused at the firewall, so nothing here asks for a key.</p>',
+    ],
+  },
+  {
+    file: 'errors.html',
+    title: 'Errors',
+    bodies: [
+      '<table>\n<tr><th>Status</th><th>Meaning</th></tr>\n<tr><td>404</td><td>No such endpoint</td></tr>\n<tr><td>503</td><td>Down for maintenance</td></tr>\n</table>',
+      '<p>Errors come back as JSON with an <code>error</code> field and the matching HTTP status.</p>',
+    ],
+  },
+  {
+    file: 'rate-limits.html',
+    title: 'Rate limits',
+    bodies: [
+      '<p>Sixty requests a minute per client. Past that, you get a 429 and a lecture.</p>',
+      '<p>No rate limits yet. Please do not make us add them.</p>',
+    ],
+  },
+  {
+    file: 'examples.html',
+    title: 'Examples',
+    bodies: [
+      '<pre>\nGET /health\n{"status":"ok"}\n</pre>\n<p>Any HTTP client works; so does a browser.</p>',
+      '<p>Fetch any endpoint with a plain GET. Responses are small enough to read by eye.</p>',
+    ],
+  },
+];

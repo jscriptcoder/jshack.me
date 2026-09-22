@@ -107,13 +107,25 @@ const guestHome = (): Directory =>
     'guest',
   );
 
-/** A document root holding `files`, each keyed by its name in the root and published
- *  the same way. */
-const publishedTree = (files: ReadonlyMap<string, string>): Directory =>
-  dir(
-    Object.fromEntries([...files].map(([name, content]) => [name, file(content, WEB_PAGE_FILE)])),
+/** A document root holding `files`, each keyed by its path beneath the root: every
+ *  directory on the way is traversable, and every file is published the same way. */
+const publishedTree = (files: ReadonlyMap<string, string>): Directory => {
+  const names = [...new Set([...files.keys()].map((path) => path.split('/')[0] ?? path))];
+  return dir(
+    Object.fromEntries(
+      names.map((name) => {
+        const content = files.get(name);
+        if (content !== undefined) return [name, file(content, WEB_PAGE_FILE)];
+        const prefix = `${name}/`;
+        const below = [...files]
+          .filter(([path]) => path.startsWith(prefix))
+          .map(([path, text]): readonly [string, string] => [path.slice(prefix.length), text]);
+        return [name, publishedTree(new Map(below))];
+      }),
+    ),
     TRAVERSABLE_DIR,
   );
+};
 
 export type HostService = { readonly spec: ServiceSpec; readonly port: number };
 
