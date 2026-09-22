@@ -917,7 +917,6 @@ describe('buildRemoteHostFs', () => {
       const observed = widths.map(
         ([table, column]) => [table, column, valuesIn(table, column).length] as const,
       );
-      const domains = new Set(rowsOf('users').map((row) => String(row['email']).split('@')[1]));
       const uploadLimits = new Set(
         rowsOf('config')
           .filter((row) => row['key'] === 'max_upload_mb')
@@ -925,7 +924,6 @@ describe('buildRemoteHostFs', () => {
       );
 
       expect(observed).toEqual(widths);
-      expect(domains.size).toBe(3);
       expect(uploadLimits.size).toBe(4);
     });
 
@@ -1046,8 +1044,6 @@ describe('buildRemoteHostFs', () => {
       // string that is present and wrong, and these are the strings a player sees
       // most: `SELECT * FROM sessions` is a wall of them.
       const shapes: readonly (readonly [string, string, RegExp])[] = [
-        ['users', 'created_at', /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:00$/],
-        ['users', 'email', /^[a-z0-9._-]+@[a-z]+\.[a-z]+$/],
         ['orders', 'created_at', /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:00$/],
         ['audit_log', 'timestamp', /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:00$/],
         ['sessions', 'expires_at', /^\d{4}-\d{2}-\d{2} 23:59:59$/],

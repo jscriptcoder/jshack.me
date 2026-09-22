@@ -179,6 +179,10 @@ const USERNAMES_BY_ROLE: Readonly<Record<DrawnRole, readonly string[]>> = {
 
 /** The account `role`'s box carries, drawn from the caller's stream at the position
  *  the flat pool was drawn from. */
+/** Every login a box of this role might be given. */
+export const usernamePool = (role: DrawnRole | undefined): readonly string[] =>
+  role === undefined ? GENERIC_USERNAMES : USERNAMES_BY_ROLE[role];
+
 export const pickUsername = ({
   prng,
   role,

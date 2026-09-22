@@ -130,8 +130,9 @@ drawn from a small per-archetype list.
 
 ### Who is in the rows
 
-- **`users`**: the box's own account first, as `admin`, and on the LAN the accounts of real
-  neighbouring boxes (`npcUsername`). A deep box has no neighbours (slice 1's rule), so its
+- **`users`**: the box's own account first, as `admin`, and on the LAN the accounts of every
+  other machine on it (`npcUsername`), each once. No floor: a LAN with few machines has a short
+  `users` table (owner, 2026-09-22), because every login is someone whose box `nmap` shows. A deep box has no neighbours (slice 1's rule), so its
   `users` holds its own account plus the application's other logins, drawn from the
   role-keyed username pool as today. Email is `<username>@<zone>`. `users` sits behind the
   database door, so usernames are allowed here (decision 12: "the helpdesk agent IS
@@ -182,8 +183,8 @@ root history.
 ### Acceptance criteria
 
 - [ ] Every NPC database (every role, LAN and deep, every catalog and uncatalogued network)
-      holds one archetype: 4–8 tables including `users`, 5–40 rows each, and a database name
-      from its archetype.
+      holds one archetype: 4–8 tables including `users`, 5–40 rows in each table beyond `users`,
+      and a database name from its archetype.
 - [ ] The archetype follows the selection rule: `portal-` → CMS, `api-` → API platform, a mail
       server → mail directory, a workstation → the network's archetype as `<name>_dev`, anything
       else → the network's archetype. Every database on one network that falls to the network's
@@ -191,7 +192,9 @@ root history.
 - [ ] A café network's database (catalog and uncatalogued) holds a till: `menu_items`, `orders`,
       `order_lines`, `shifts` and `users`, and its `users` names that network's real inhabitants.
 - [ ] `users` has `id`, `username`, `email`, `password_hash`, `role` and `created_at`. The box's
-      own account leads as `admin`. On the LAN the other rows are real neighbours' accounts.
+      own account leads as `admin`. On the LAN the other rows are exactly the distinct accounts
+      of every other machine on it, with no floor (owner, 2026-09-22: 3–8 rows). A deep box
+      keeps its account plus 4–9 role-pool logins.
       Every email is `<username>@<zone>`. Every `password_hash` is bcrypt-shaped and matches the
       md5 of no word in the password pools.
 - [ ] Referential integrity, unique ascending primary keys, unique `UNI` values, cells true to

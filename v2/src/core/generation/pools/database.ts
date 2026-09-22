@@ -49,27 +49,6 @@ const timestamp = (prng: Prng, year: number, fromHour: number, toHour: number): 
   return `${year}-${month}-${day} ${hour}:${minute}:00`;
 };
 
-const usersTable: TableTemplate = {
-  name: 'users',
-  columns: [
-    { name: 'id', type: 'INT', nullable: false, key: 'PRI' },
-    { name: 'username', type: 'VARCHAR', nullable: false, key: 'UNI' },
-    { name: 'email', type: 'VARCHAR', nullable: false },
-    { name: 'role', type: 'VARCHAR', nullable: true, defaultValue: 'user' },
-    { name: 'created_at', type: 'DATETIME', nullable: true },
-  ],
-  rowGenerator: (prng, people) => {
-    const domain = prng.pick(['company.local', 'corp.internal', 'acme.local']);
-    return people.map((username, index) => ({
-      id: index + 1,
-      username,
-      email: `${username}@${domain}`,
-      role: index === 0 ? 'admin' : 'user',
-      created_at: timestamp(prng, 2024, 8, 18),
-    }));
-  },
-};
-
 const sessionsTable: TableTemplate = {
   name: 'sessions',
   columns: [
@@ -241,8 +220,6 @@ export const DRAWN_TABLE_TEMPLATES: readonly TableTemplate[] = [
   employeesTable,
   inventoryTable,
 ];
-
-export const USERS_TABLE: TableTemplate = usersTable;
 
 /** The account a database runs its application as — never a system account, which is
  *  the whole point of the door: `/etc/passwd` cannot answer who you are to a database. */
