@@ -78,6 +78,8 @@ import { buildRootHome } from './rootHome';
 import { buildSshDirectories } from './sshContent';
 import { mailEntries } from './mailbox';
 import { MAIL_LOG_PERMISSIONS } from '../logging/mailLog';
+import { buildShare } from './share';
+import { peopleOn } from './networkMail';
 import { DEBIAN_BASH_LOGOUT, DEBIAN_BASHRC, DEBIAN_PROFILE } from './pools/homeSkeleton';
 import { pickUsername } from './pools/usernames';
 import { placementOf } from './rolePlacement';
@@ -91,7 +93,7 @@ import { MYSQL_LOG_PERMISSIONS } from '../logging/mysqlLog';
 import { REDIS_LOG_PERMISSIONS } from '../logging/redisLog';
 import { NAMED_LOG_PERMISSIONS } from '../logging/namedLog';
 import type { Directory, FileEntry } from '../filesystem/types';
-import type { LanHost } from './generateHomeLan';
+import { isOnHomeLan, type LanHost } from './generateHomeLan';
 
 const pidfile = (content: string, owner: string): FileEntry =>
   file(content, PIDFILE_PERMISSIONS, owner);
@@ -473,6 +475,14 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
     ...(redisService === undefined ? [] : ['/etc/redis/redis.conf']),
   ];
   const logPaths = Object.keys(logs).map((name) => `/var/log/${name}`);
+
+  // A file server keeps its network's work under /srv, written by the network's own
+  // people. Its own stream, like the page and the mailboxes: giving a box a share moves
+  // nothing else about it.
+  const share =
+    role === 'fileserver' && isOnHomeLan(essid, host)
+      ? buildShare({ essid, host, account: username, people: peopleOn(essid) })
+      : null;
   const ssh = buildSshDirectories({ essid, host, username });
 
   const tree = dir(
@@ -551,6 +561,7 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
         logPaths,
         sshDirectory: ssh.root,
       }),
+      ...(share === null ? {} : { srv: share }),
       tmp: dir({}, TMP_DIR),
       usr: dir(
         {

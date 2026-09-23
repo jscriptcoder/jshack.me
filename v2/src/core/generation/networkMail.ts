@@ -128,7 +128,7 @@ export const subjectOf = (message: MailMessage): string =>
   message.inReplyTo === null ? message.subject : `Re: ${message.subject}`;
 
 /** Every account on the network that has a mailbox, in address order along the LAN. */
-const peopleOn = (essid: string): readonly MailPerson[] => {
+export const peopleOn = (essid: string): readonly MailPerson[] => {
   const zone = lanZoneName(essid);
   const byUsername = new Map<string, MailPerson>();
   for (const host of generateHomeLan(essid).hosts) {

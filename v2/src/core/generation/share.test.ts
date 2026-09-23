@@ -3,10 +3,23 @@ import { strings } from '../commands/strings';
 import type { TerminalLine } from '../commands/types';
 import { buildDirectory, buildFile } from '../../test/factories/filesystem';
 import { mockCommandEnv, mockFsViewFromTree } from '../../test/factories/commandEnv';
-import { softwareVersionsIn } from '../../test/worldContent';
+import {
+  ALL_ESSIDS,
+  filesUnder,
+  lanBoxes,
+  softwareVersionsIn,
+  type Box,
+} from '../../test/worldContent';
 import { asAbsPath } from '../types';
+import { WORLD_EPOCH } from '../cve/worldClock';
+import { createFsView } from '../filesystem/fsView';
+import type { Directory } from '../filesystem/types';
 import { createPrng } from './prng';
 import { renderDocument, type DocumentMetadata } from './documentFormats';
+import { buildRemoteHostFs, npcUsername } from './remoteHostFs';
+import { networkPersona } from './persona';
+import { networkMail } from './networkMail';
+import type { NetworkCategory } from './pools/essidCatalog';
 
 const NO_FLAGS = new Map<string, string | true>();
 
@@ -198,4 +211,157 @@ describe('a document on a share is the real format, not text wearing its name', 
       expect(content.includes('\u001b')).toBe(false);
     },
   );
+});
+
+/** Which department folders each kind of place keeps, written out here rather than read
+ *  from the pool that builds them, so a pool that drifted would fail this. */
+const FOLDERS_BY_CATEGORY: Readonly<Record<NetworkCategory, readonly string[]>> = {
+  corporate: ['finance', 'hr', 'legal', 'sales', 'it', 'marketing', 'facilities'],
+  cafe: ['menus', 'rota', 'suppliers', 'invoices', 'inspections', 'photos'],
+  residential: ['paperwork', 'taxes', 'house', 'school', 'photos', 'recipes'],
+  university: ['research', 'theses', 'lectures', 'admin', 'grants'],
+  public: ['minutes', 'planning', 'notices', 'budgets', 'maintenance'],
+  hacker: ['talks', 'zines', 'writeups', 'meetups', 'photos'],
+  iot: ['datasheets', 'qa', 'certification', 'manuals'],
+};
+
+const WORKING_SHARE_PREFIXES: readonly string[] = ['share', 'files', 'nas'];
+
+const prefixOf = (hostname: string): string => hostname.slice(0, hostname.lastIndexOf('-'));
+
+const keepsWorkingShare = ({ host }: Box): boolean =>
+  WORKING_SHARE_PREFIXES.includes(prefixOf(host.hostname));
+
+const workingShareBoxes = (): readonly Box[] => lanBoxes(ALL_ESSIDS).filter(keepsWorkingShare);
+
+const directoryAt = (tree: Directory, path: readonly string[]): Directory => {
+  const found = path.reduce<Directory | undefined>((current, name) => {
+    const next = current?.entries.get(name);
+    return next?.kind === 'directory' ? next : undefined;
+  }, tree);
+  if (found === undefined) throw new Error(`no /${path.join('/')}`);
+  return found;
+};
+
+/** Every directory under `directory`, as its path relative to it. */
+const directoriesUnder = (directory: Directory, prefix = ''): readonly string[] =>
+  [...directory.entries].flatMap(([name, node]) =>
+    node.kind === 'directory'
+      ? [`${prefix}${name}`, ...directoriesUnder(node, `${prefix}${name}/`)]
+      : [],
+  );
+
+/** A PDF date (`D:20260402102902Z`) as the moment it names. */
+const pdfMoment = (stamp: string): number => {
+  const [, year, month, day, hours, minutes, seconds] =
+    stamp.match(/^D:(\d{4})(\d\d)(\d\d)(\d\d)(\d\d)(\d\d)Z$/) ?? [];
+  return Date.UTC(
+    Number(year),
+    Number(month) - 1,
+    Number(day),
+    Number(hours),
+    Number(minutes),
+    Number(seconds),
+  );
+};
+
+describe('a working share holds the departments of the place it serves', () => {
+  it('keeps /srv/share on every file server named for a working share, and on no other box', () => {
+    lanBoxes(ALL_ESSIDS).forEach((box) => {
+      const tree = buildRemoteHostFs(box.essid, box.host);
+      const srv = tree.entries.get('srv');
+
+      if (!keepsWorkingShare(box)) {
+        expect(srv, `${box.essid} ${box.host.hostname}`).toBeUndefined();
+        return;
+      }
+      expect(srv?.kind).toBe('directory');
+      expect([...directoryAt(tree, ['srv']).entries.keys()]).toEqual(['share']);
+    });
+  });
+
+  it("keeps three or more of its place's own departments, each holding files", () => {
+    const boxes = workingShareBoxes();
+    expect(boxes.length).toBeGreaterThan(0);
+
+    boxes.forEach(({ essid, host }) => {
+      const share = directoryAt(buildRemoteHostFs(essid, host), ['srv', 'share']);
+      const folders = [...share.entries.keys()];
+      const allowed = FOLDERS_BY_CATEGORY[networkPersona(essid).category];
+
+      expect(folders.length, `${essid} ${host.hostname}`).toBeGreaterThanOrEqual(3);
+      folders.forEach((folder) => {
+        expect(allowed, `${essid} ${host.hostname}`).toContain(folder);
+        expect(filesUnder(directoryAt(share, [folder])).size).toBeGreaterThan(0);
+      });
+    });
+  });
+
+  it('is written by people who really are on the network, whose mail the network carries', async () => {
+    let signedDocuments = 0;
+    for (const { essid, host } of workingShareBoxes()) {
+      const people = networkMail(essid).people.map((person) => person.fullName);
+      const files = filesUnder(directoryAt(buildRemoteHostFs(essid, host), ['srv']));
+
+      for (const [path, content] of files) {
+        if (path.endsWith('.pdf')) {
+          expect(people, `${essid} ${path}`).toContain(
+            pdfEntry(await readableLinesOf(content), 'Author'),
+          );
+          signedDocuments++;
+        }
+        if (path.endsWith('.jpg')) {
+          // Exif's strings come out in tag order, and the artist is the last of them.
+          const artist = (await readableLinesOf(content))[5];
+          if (artist !== undefined) {
+            expect(people, `${essid} ${path}`).toContain(artist);
+            signedDocuments++;
+          }
+        }
+      }
+    }
+    expect(signedDocuments).toBeGreaterThan(0);
+  });
+
+  it('dates every PDF as created before it was last saved, and both before the world stopped', async () => {
+    for (const { essid, host } of workingShareBoxes()) {
+      const files = filesUnder(directoryAt(buildRemoteHostFs(essid, host), ['srv']));
+      for (const [path, content] of files) {
+        if (!path.endsWith('.pdf')) continue;
+        const lines = await readableLinesOf(content);
+        const created = pdfMoment(pdfEntry(lines, 'CreationDate') ?? '');
+        const modified = pdfMoment(pdfEntry(lines, 'ModDate') ?? '');
+
+        expect(created, `${essid} ${path}`).toBeLessThanOrEqual(modified);
+        expect(modified, `${essid} ${path}`).toBeLessThan(WORLD_EPOCH);
+      }
+    }
+  });
+
+  it("is anyone's to read and only the box's own account's to change", () => {
+    workingShareBoxes().forEach(({ essid, host }) => {
+      const tree = buildRemoteHostFs(essid, host);
+      const srv = directoryAt(tree, ['srv']);
+      const guest = createFsView(tree, { userType: 'guest' });
+      const user = createFsView(tree, { userType: 'user' });
+
+      // /srv itself is root's, as Debian ships it; what is under it is the account's.
+      expect(guest.list(asAbsPath('/srv')).ok).toBe(true);
+      expect(user.canWrite(asAbsPath('/srv/dropped.txt')).allowed).toBe(false);
+      directoriesUnder(srv).forEach((path) => {
+        const directory = `/srv/${path}`;
+        expect(guest.list(asAbsPath(directory)).ok, directory).toBe(true);
+        expect(guest.canWrite(asAbsPath(`${directory}/dropped.txt`)).allowed).toBe(false);
+        expect(user.canWrite(asAbsPath(`${directory}/dropped.txt`)).allowed).toBe(true);
+      });
+      [...filesUnder(srv).keys()].forEach((path) => {
+        const location = asAbsPath(`/srv/${path}`);
+        expect(guest.read(location).ok, location).toBe(true);
+        expect(guest.canWrite(location).allowed).toBe(false);
+        expect(user.canWrite(location).allowed).toBe(true);
+      });
+      // `ls -l` names who uploaded it all: the box's one account.
+      expect(directoryAt(srv, ['share']).owner).toBe(npcUsername(essid, host));
+    });
+  });
 });

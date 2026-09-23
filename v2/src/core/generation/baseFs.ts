@@ -122,6 +122,22 @@ export const MAIL_SPOOL_DIR: FilePermissions = {
   execute: ['root'],
 };
 export const MAIL_SPOOL_FILE: FilePermissions = { read: ['root'], write: ['root'], execute: [] };
+/** A directory of a department share under `/srv`: every tier lists and enters it, as
+ *  Debian's `/srv` is world-readable, and the box's own account writes it beside root,
+ *  because that account is who uploaded everything in it. A guest who logs in over ftp
+ *  can read the share and cannot drop anything into it. */
+export const SHARE_DIR: FilePermissions = {
+  read: ['root', 'user', 'guest'],
+  write: ['root', 'user'],
+  execute: ['root', 'user', 'guest'],
+};
+/** A file on a share: anyone's to read, the account's and root's to change, and never a
+ *  program — a spreadsheet is data. */
+export const SHARE_FILE: FilePermissions = {
+  read: ['root', 'user', 'guest'],
+  write: ['root', 'user'],
+  execute: [],
+};
 /** `/etc/aliases`: the same tier as `/etc/passwd` beside it, and for the same reason.
  *  Every line of it is an account name — the spool's own roster, written out in `/etc` —
  *  and account names are what the cracking curve exists to make a player earn. It holds
