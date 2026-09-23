@@ -4,7 +4,7 @@
 > status. The grounding section records what v2 held on the day this was grilled; the code wins
 > wherever the two disagree.
 > Grilled 2026-09-21 (`grilling`), 25 locked decisions. Slices 0–7 delivered (as-built below).
-> Slice 8 is next and not yet planned.
+> Slice 8 planned in [`a-share-holds-a-department.md`](./a-share-holds-a-department.md).
 
 **Where we are now (2026-09-23):** **v0.256.0**. The legacy-parity epic's V-series is closed and
 its next line was "the ship gate". **Ship now waits for this epic** (decision 1). Grilled to 25
@@ -409,7 +409,7 @@ See below; planning refines it.
 | 5 | **A database holds an application** — app archetypes | `SHOW TABLES` on a café network's DB shows a till schema whose staff are that network's inhabitants | ✅ DONE (#539, v0.253.0) — 15 archetypes; decision 15 amended (DB credentials re-rolled once); a bought DB is a fresh install; see as-built below |
 | 6 | **A store serves that application** — Redis keyspaces paired with the app | `KEYS sess:*` returns sessions for that app's real users | ✅ DONE (#540, v0.254.0) — 43 stores, all reading differently; decision 15 amended (store locks re-rolled once); a bought store is a fresh install; see as-built below |
 | 7 | **Somebody wrote to somebody** — workstation mailboxes, the mail server's spool | a thread in `/var/mail/<user>` is between two real inhabitants of the network | ✅ **DONE** (#541 v0.255.0, #542 v0.256.0) — the correspondence, desk mailboxes, the spool and its database agreement; then `mail.log.1` carrying the spool's own queue ids, `/etc/aliases`, the postfix config honesty fixes and cron's mail to root. A phone keeps no mailbox but may hold cron's |
-| 8 | **A share holds a department** — fileserver `/srv`, metadata docs | `strings` on a shared PDF names its author, an inhabitant | ⏳ |
+| 8 | **A share holds a department** — fileserver `/srv`, metadata docs | `strings` on a shared PDF names its author, an inhabitant | 📋 PLANNED — `a-share-holds-a-department.md`, two PRs (v0.257.0, v0.258.0); the share and its documents, then the box corroborating it; no new door, no archive files and no stream re-roll |
 | 9 | **A device is the device it says** — IoT prefix overlays + prefix growth (the one re-roll: refresh pins, wire-checks, the `v2-e2e` skill) | a printer serves a CUPS page and holds spool jobs; a camera a recordings index | ⏳ |
 | 10 | **A gateway knows its network** — DHCP leases, config backups, admin pages, admin/firmware history | a rooted router's lease table lists exactly the network's generated hosts | ⏳ |
 | 11 | **A phone is a phone** — phone/tablet overlay | an NPC `android-` home holds `DCIM/` and `Download/`, not dotfiles | ⏳ |
@@ -873,9 +873,11 @@ session refused the spool, the log and the alias table while still reading `post
   list its `menu_items`, and a portal's CMS posts are not its pages. Decide if a slice leans on it.
 - Where each remaining file's permission constant comes from — reuse `baseFs.ts` constants (now
   including `HOME_FILE`, `ROOT_FILE`, `GUEST_HOME_*`) or add the Debian-default few still missing —
-  for logs and `/srv` (web files settled on `WEB_PAGE_FILE` / `TRAVERSABLE_DIR`). Slice 7's
+  for logs (web files settled on `WEB_PAGE_FILE` / `TRAVERSABLE_DIR`). Slice 7's
   planning settled mail's tiers: a desk's own mailbox is user-tier, the mail server's spool and
   every `/var/mail/root` are root-only, since three tiers cannot express per-user ownership.
+  Slice 8's planning settled `/srv`'s: every tier reads it, root and the box's one account write
+  it, because that account is who uploaded everything on the share.
 - **`~` in replayed history lines.** v2's `cat`/`ls` do not expand `~` (`cd` defers it too), so a
   slice-1 history line like `cat ~/notes/todo.txt` answers "No such file" when replayed verbatim,
   while `cat notes/todo.txt` from the home works (seen in slice 2's played run). The truth tests
@@ -990,3 +992,25 @@ session refused the spool, the log and the alias table while still reading `post
   self-referential-test lesson, and the whole-world byte-diff technique are recorded in
   `v2/docs/conventions-and-gotchas.md`. Slice plan retired into "As-built: slice 7" above and its
   file deleted. Next: **slice 8** (a share holds a department), not yet planned.
+- **2026-09-23** — slice 8 grilled and planned in `a-share-holds-a-department.md` (two PRs in
+  order, v0.257.0 and v0.258.0). Four owner decisions, then the owner said "from now on, go with your
+  recommendation" and confirmed the rest as shared understanding. **Owner:** (1) every
+  fileserver-role box gets a `/srv`, LAN and deep (44 + 21), whether or not ftp is up; (2) documents
+  are binary-shaped NUL-free imitations of the real format, like the ELF stubs, the version sweep
+  skipping the format signature (`%PDF-1.7`) and producer names staying version-free; (3) PDF and
+  JPEG carry metadata `strings` reads, while `.docx`/`.xlsx` are faithful zips whose `strings` shows
+  member names and **never the author** (Word deflates `core.xml`), amending decision 9's wording;
+  (4) the network category decides what a share holds, the hostname prefix its shape —
+  `share-`/`files-`/`nas-` a working tree, `backup-`/`vault-` dated snapshots of one. **Confirmed
+  recommendations:** `/srv/share/…` and `/srv/backup/<date>/…` with **no archive files** (a `.tar`
+  or `.gz` implies a verb, as decision 10 reasoned; amends decision 9's "backup archives"); authors
+  are the network's own people — the LAN roster slice 7's mail uses (11 of the 31 networks with a
+  fileserver have no desk), a deep box's own application's logins by slice 7's deep rule; JPEG
+  make/model from the network's own phones where it has any; every date on the calendar; plain
+  `.txt`/`.csv`/`.md` beside the documents, 25–60 files on a working share and ≤ ~80 on a backup
+  box; `/srv` readable by every tier and writable by root and the account; `vsftpd.conf` stops
+  claiming an anonymous door, a chroot and a `local_root` the door does not have, with the door
+  itself unchanged; PR 8b adds `vsftpd.log.1` (each file's upload from its author's machine, byte
+  count exact), a `/srv` mount in `fstab`, `/etc/vsftpd.userlist`, and root's fileserver history
+  purged of samba/nfs/zfs; deep shares take no transfer history; new streams only, proven by the
+  whole-world byte-diff; no new pointer into the share from existing pools.
