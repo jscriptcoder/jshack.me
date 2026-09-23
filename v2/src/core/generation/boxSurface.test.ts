@@ -4,6 +4,7 @@ import { buildDeepHostFs } from './deepHostFs';
 import { crackableEssidPool } from './generateWifi';
 import { generateHomeLan, type LanHost } from './generateHomeLan';
 import { generateDeepLayer } from './generateDeepLayer';
+import { generateApplication } from './generateDatabase';
 import { networkPersona } from './persona';
 import { roleOfHostname } from './pools/hostnames';
 import { GENERIC_CRON_JOBS, NAME_SERVER_CRON_JOBS, SERVICE_CRON_JOBS } from './pools/etcFiles';
@@ -727,6 +728,111 @@ describe('no two admins kept house the same way', () => {
         .split('\n')
         .forEach((line) => expect(line, host.hostname).toMatch(/^(Host \S+| {4}\S.*|)$/));
       expect(result.content).not.toMatch(/\S\nHost /);
+    });
+  });
+});
+
+/** Every box that carries a network's mail, on the LAN and below it. */
+const mailCarriers = (): readonly Box[] =>
+  [...lanBoxes(ALL_ESSIDS), ...deepBoxes(ALL_ESSIDS)].filter(
+    ({ host }) => roleOfHostname(host.hostname) === 'mailserver',
+  );
+
+const treeOf = ({ essid, host }: Box): Directory =>
+  generateHomeLan(essid).hosts.some((candidate) => candidate.ip === host.ip)
+    ? buildRemoteHostFs(essid, host)
+    : buildDeepHostFs(essid, host);
+
+/** What the box's own mail directory says it keeps: the mailboxes, and the addresses it
+ *  answers for that are not mailboxes. */
+const directoryOf = (box: Box) =>
+  generateApplication({
+    appSeed: `db-app-${box.essid}-${box.host.ip}`,
+    essid: box.essid,
+    host: box.host,
+    account: npcUsername(box.essid, box.host),
+    role: roleOfHostname(box.host.hostname),
+  });
+
+/** `alias: target` as `/etc/aliases` writes each one, in the order the file keeps them. */
+const aliasPairs = (content: string): readonly (readonly [string, string])[] =>
+  statedLines(content).map((line) => {
+    const at = line.indexOf(':');
+    return [line.slice(0, at).trim(), line.slice(at + 1).trim()] as const;
+  });
+
+describe('the addresses a mail server answers for that are not mailboxes', () => {
+  it('keeps an /etc/aliases exactly where the mail is carried', () => {
+    const carriers = mailCarriers();
+    expect(carriers.length).toBeGreaterThan(0);
+    [...lanBoxes(ALL_ESSIDS), ...deepBoxes(ALL_ESSIDS)].forEach((box) => {
+      const carries = roleOfHostname(box.host.hostname) === 'mailserver';
+      expect(existsOn(treeOf(box), '/etc/aliases')).toBe(carries);
+    });
+  });
+
+  it('points every alias at a mailbox the box really keeps', () => {
+    mailCarriers().forEach((box) => {
+      const tree = treeOf(box);
+      const read = createFsView(tree, { userType: 'root' }).read(asAbsPath('/etc/aliases'));
+      if (!read.ok) throw new Error(`/etc/aliases on ${box.host.hostname}: ${read.error}`);
+      const spool = createFsView(tree, { userType: 'root' }).list(asAbsPath('/var/mail'));
+      expect(spool.ok).toBe(true);
+      const mailboxes = new Set(spool.ok ? spool.entries : []);
+      const pairs = aliasPairs(read.content);
+      expect(pairs.length).toBeGreaterThan(0);
+      pairs.forEach(([alias, target]) => {
+        expect(mailboxes.has(target), `${box.host.hostname}: ${alias} -> ${target}`).toBe(true);
+        expect(mailboxes.has(alias)).toBe(false);
+      });
+    });
+  });
+
+  it('answers for exactly what its own directory says, where a directory is served', () => {
+    mailCarriers().forEach((box) => {
+      const directory = directoryOf(box);
+      const byId = new Map(
+        (directory.tables.mailboxes?.rows ?? []).map((row) => [
+          Number(row.id),
+          String(row.local_part),
+        ]),
+      );
+      const expected = (directory.tables.aliases?.rows ?? []).map(
+        (row) => [String(row.alias), byId.get(Number(row.mailbox_id)) ?? ''] as const,
+      );
+      const read = createFsView(treeOf(box), { userType: 'root' }).read(
+        asAbsPath('/etc/aliases'),
+      );
+      expect(read.ok && aliasPairs(read.content).filter(([alias]) => alias !== 'root')).toEqual(
+        expected,
+      );
+    });
+  });
+
+  it('sends root’s own mail on to the person who runs the box', () => {
+    mailCarriers().forEach((box) => {
+      const read = createFsView(treeOf(box), { userType: 'root' }).read(
+        asAbsPath('/etc/aliases'),
+      );
+      expect(read.ok && aliasPairs(read.content)[0]).toEqual([
+        'root',
+        npcUsername(box.essid, box.host),
+      ]);
+    });
+  });
+
+  it('keeps it out of a guest’s reach, because every line of it names an account', () => {
+    mailCarriers().forEach((box) => {
+      const tree = treeOf(box);
+      expect(createFsView(tree, { userType: 'guest' }).read(asAbsPath('/etc/aliases')).ok).toBe(
+        false,
+      );
+      expect(createFsView(tree, { userType: 'user' }).read(asAbsPath('/etc/aliases')).ok).toBe(
+        true,
+      );
+      expect(createFsView(tree, { userType: 'user' }).canWrite(asAbsPath('/etc/aliases')).allowed).toBe(
+        false,
+      );
     });
   });
 });

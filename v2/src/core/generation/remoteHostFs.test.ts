@@ -2137,6 +2137,11 @@ describe('buildRemoteHostFs', () => {
      *  its neighbours, its resolver, its mounts, its jobs and its greeting. */
     const EVERY_BOX_KEEPS = ['passwd', 'hostname', 'hosts', 'resolv.conf', 'fstab', 'crontab', 'motd'];
 
+    /** In `/etc` for its role, but not the file that says what the box is for: the mail
+     *  directory's alias table, which postfix READS rather than is configured by. It has
+     *  to agree with the spool beside it, so `boxSurface.test.ts` holds it to that. */
+    const NOT_A_ROLE_CONFIG = ['aliases'];
+
     /** The one file in `/etc` that says what THIS box is for, or null where the box
      *  keeps none. It names the file as well as reading it, so a config under the wrong
      *  name fails as loudly as a missing one — and a second config throws rather
@@ -2147,7 +2152,10 @@ describe('buildRemoteHostFs', () => {
       // Files only: the role config is the one FILE a box keeps for what it is, and
       // /etc now also holds a directory for a config that follows a SERVICE instead.
       const found = [...dirAt(fs, 'etc').entries].filter(
-        ([name, node]) => !EVERY_BOX_KEEPS.includes(name) && node.kind === 'file',
+        ([name, node]) =>
+          !EVERY_BOX_KEEPS.includes(name) &&
+          !NOT_A_ROLE_CONFIG.includes(name) &&
+          node.kind === 'file',
       );
       if (found.length > 1) {
         throw new Error(`expected one config in /etc, found ${found.length}`);

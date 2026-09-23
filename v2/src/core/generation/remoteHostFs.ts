@@ -479,6 +479,10 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
           ...etc,
           passwd: file(passwd, PASSWD_FILE),
           ...(config === null ? {} : { [config.name]: file(config.content, SERVICE_CONFIG_FILE) }),
+          // The addresses the box answers for that are not mailboxes, built beside the
+          // spool so no alias can name a mailbox `/var/mail` does not keep. It is what
+          // this box's own postfix.conf already points `alias_maps` at.
+          ...(mail.aliases === null ? {} : { aliases: mail.aliases }),
           // Under `/etc/bind` rather than loose in `/etc`, which is where a real bind9
           // puts them — and it keeps the config beside the zone it names instead of two
           // unrelated paths a player has to learn separately.

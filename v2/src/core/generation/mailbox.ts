@@ -32,6 +32,7 @@ import {
 } from './networkMail';
 import { generateApplication, type Application } from './generateDatabase';
 import {
+  ALIASES_FILE,
   dir,
   file,
   MAIL_FILE,
@@ -293,11 +294,52 @@ const spoolOf = ({
   return { entries, deliveries: [...deliveries.values()] };
 };
 
+const ALIASES_HEADER = [
+  '# /etc/aliases - the addresses this machine answers for that are not mailboxes.',
+  '# See man 5 aliases. Run newaliases after editing.',
+  '',
+].join('\n');
+
+/**
+ * `/etc/aliases` as the machine that carries the mail keeps it: every address its own
+ * directory says it answers for, pointed at the mailbox that really holds that mail.
+ *
+ * Built here rather than with the rest of `/etc` because it is the spool written out in
+ * another place — an alias naming a mailbox `/var/mail` does not keep would be the box
+ * promising to deliver somewhere it cannot, which is the one thing this file can get
+ * wrong. Deriving both from the same directory is what makes that impossible.
+ *
+ * `root:` opens it, as it opens a real one: root reads no mail on a box nobody sits at,
+ * so what arrives for it goes on to whoever runs the machine.
+ */
+const aliasFile = ({
+  application,
+  account,
+}: {
+  readonly application: Application;
+  readonly account: string;
+}): string => {
+  const mailboxes = new Map(
+    (application.tables.mailboxes?.rows ?? []).map((row) => [
+      Number(row.id),
+      String(row.local_part),
+    ]),
+  );
+  const answered = (application.tables.aliases?.rows ?? []).flatMap((row) => {
+    const mailbox = mailboxes.get(Number(row.mailbox_id));
+    return mailbox === undefined ? [] : [`${String(row.alias)}: ${mailbox}`];
+  });
+  return `${ALIASES_HEADER}\nroot: ${account}\n${answered.map((line) => `${line}\n`).join('')}`;
+};
+
 /** What a box keeps of its network's mail: the `/var/mail` to spread into its `/var`,
- *  and — on the machine that carries the mail — the deliveries its own log records. */
+ *  the `/etc/aliases` that has to agree with it, and — on the machine that carries the
+ *  mail — the deliveries its own log records. */
 export type BoxMailbox = {
   readonly entries: Readonly<Record<string, Directory>>;
   readonly deliveries: readonly MailDelivery[];
+  /** The box's `/etc/aliases`, or null where it carries no mail to answer for. */
+  readonly aliases: ReturnType<typeof file> | null;
 };
 
 /**
@@ -319,7 +361,8 @@ export const mailEntries = ({
   readonly username: string;
 }): BoxMailbox => {
   const carriesMail = roleOfHostname(host.hostname) === 'mailserver';
-  if (!carriesMail && !isDesk(host.hostname)) return { entries: {}, deliveries: [] };
+  if (!carriesMail && !isDesk(host.hostname))
+    return { entries: {}, deliveries: [], aliases: null };
 
   // The correspondence is derived ONCE for the box. It is the same value for every
   // mailbox on it, and deriving it per mailbox doubled the world's build time.
@@ -338,7 +381,11 @@ export const mailEntries = ({
   const relay = onLan ? relayOf(essid) : host;
   if (application !== undefined && carriesMail) {
     const spool = spoolOf({ essid, host, application, mail, zone });
-    return { entries: { mail: dir(spool.entries, MAIL_SPOOL_DIR) }, deliveries: spool.deliveries };
+    return {
+      entries: { mail: dir(spool.entries, MAIL_SPOOL_DIR) },
+      deliveries: spool.deliveries,
+      aliases: file(aliasFile({ application, account: username }), ALIASES_FILE),
+    };
   }
 
   const { recipient, messages } = arrivedIn({ essid, host, local: username, mail });
@@ -347,5 +394,6 @@ export const mailEntries = ({
     entries:
       mbox === null ? {} : { mail: dir({ [username]: file(mbox, MAIL_FILE) }, TRAVERSABLE_DIR) },
     deliveries: [],
+    aliases: null,
   };
 };
