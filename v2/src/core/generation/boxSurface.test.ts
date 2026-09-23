@@ -907,4 +907,23 @@ describe('what every scheduled job prints', () => {
     // And nothing the table answers for is a job no box is ever given.
     expect(Object.keys(CRON_OUTPUT).filter((command) => !scheduled.includes(command))).toEqual([]);
   });
+
+  it('is these eleven jobs and no others, so what cron mails root is a decision', () => {
+    // Stated here rather than read off the table, so moving a job between silent and
+    // reporting has to be done on purpose: it changes which boxes in the world keep a
+    // /var/mail/root at all, and what is in it.
+    expect(Object.keys(CRON_OUTPUT).filter((command) => CRON_OUTPUT[command]?.length).sort()).toEqual([
+      'du -sh /var/lib/mysql',
+      'du -sh /var/lib/redis',
+      'du -sh /var/log /home /root',
+      'du -sh /var/www/html',
+      'fstrim -av',
+      'journalctl --vacuum-time=2weeks',
+      'redis-cli bgsave',
+      'systemctl is-active named',
+      'systemctl is-active snmpd',
+      'systemctl is-active sshd',
+      'systemctl is-active vsftpd',
+    ]);
+  });
 });

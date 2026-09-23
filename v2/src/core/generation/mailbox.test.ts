@@ -1215,7 +1215,129 @@ describe('the mail cron left for root', () => {
         const ran = new Date(Date.parse(message.headers.get('Date') ?? ''));
         expect(ran.getUTCMinutes()).toBe(when?.minute);
         if (when?.hour !== '*') expect(ran.getUTCHours()).toBe(Number(when?.hour));
-        if (when?.weekday !== '*') expect(ran.getUTCDay()).toBe(Number(when?.weekday));
+        // A job with no day of its own last ran on the last day the world has, which is
+        // the day `syslog.1` records every cron run on: the two have to name one instant.
+        if (when?.weekday === '*') {
+          expect(ran.toISOString().slice(0, 10)).toBe('2026-07-11');
+          // An hourly job's last run is the last hour of that day.
+          if (when.hour === '*') expect(ran.getUTCHours()).toBe(23);
+        } else {
+          expect(ran.getUTCDay()).toBe(Number(when?.weekday));
+          // The most recent such day, which is the last day or one of the six before it.
+          expect(WORLD_EPOCH - ran.getTime()).toBeLessThanOrEqual(7 * 86_400_000);
+        }
+        checked += 1;
+      }
+    }
+    expect(checked).toBeGreaterThan(0);
+  });
+});
+
+describe('how cron posted what it had to say', () => {
+  const rootMailboxes = (): readonly { readonly box: Box; readonly content: string }[] =>
+    [...lanBoxes(ALL_ESSIDS), ...deepBoxes(ALL_ESSIDS)].flatMap((box) => {
+      const read = rootMailOn(box);
+      return read.ok ? [{ box, content: read.content }] : [];
+    });
+
+  it('took it over the loopback, because it never crossed the network', () => {
+    let read = 0;
+    for (const { content } of rootMailboxes()) {
+      for (const message of parseMbox(content)) {
+        expect(message.received).toHaveLength(1);
+        expect(message.received[0]).toMatch(/^from localhost \(127\.0\.0\.1\) by \S+ with local id [0-9A-F]{6} for </);
+        read += 1;
+      }
+    }
+    expect(read).toBeGreaterThan(0);
+  });
+
+  it('leaves the oldest at the top, as every mailbox in the world does', () => {
+    let ordered = 0;
+    for (const { content } of rootMailboxes()) {
+      const moments = parseMbox(content).map((message) =>
+        Date.parse(message.headers.get('Date') ?? ''),
+      );
+      expect(moments).toEqual([...moments].sort((earlier, later) => earlier - later));
+      if (moments.length > 1) ordered += 1;
+    }
+    // Boxes with more than one job really exist, so the ordering is a claim about
+    // something rather than a list of one.
+    expect(ordered).toBeGreaterThan(0);
+  });
+
+  it('stamps a different id on every box, so no two share a transfer', () => {
+    const stamped = rootMailboxes().flatMap(({ content }) =>
+      [...content.matchAll(/with local id ([0-9A-F]{6})/g)].map(([, id]) => id ?? ''),
+    );
+    expect(stamped.length).toBeGreaterThan(100);
+    expect(new Set(stamped).size).toBe(stamped.length);
+  });
+
+  it('reports a trim in whole gibibytes beside the byte count that matches it', () => {
+    let trimmed = 0;
+    for (const { content } of rootMailboxes()) {
+      for (const [, gibibytes = '', bytes = ''] of content.matchAll(
+        /^\/: (\d+) GiB \((\d+) bytes\) trimmed$/gm,
+      )) {
+        expect(Number(bytes)).toBe(Number(gibibytes) * 1_073_741_824);
+        // Never more free space than the box has disk: `kern.log.1` puts it at ~16 GB.
+        expect(Number(gibibytes)).toBeLessThanOrEqual(14);
+        trimmed += 1;
+      }
+    }
+    expect(trimmed).toBeGreaterThan(0);
+  });
+});
+
+/** Each message of an mbox exactly as the file holds it, separators and all, so a size
+ *  a log claims can be checked against the bytes really written. */
+const rawMessagesIn = (mbox: string): readonly string[] =>
+  mbox
+    .split(/^(?=From )/m)
+    .filter((message) => message !== '');
+
+describe('what a mail server’s log says about the message itself', () => {
+  it('names the part of postfix that wrote every line, and none but those four', () => {
+    const wrote = new Set<string>();
+    for (const box of mailCarriers()) {
+      for (const line of readMailLog(box).split('\n').filter((text) => text !== '')) {
+        const daemon = /^\S+ [ \d]\d \S+ \S+ postfix\/(\w+)\[\d+\]: /.exec(line)?.[1];
+        expect(daemon, line).toBeDefined();
+        wrote.add(`${daemon} ${/: [0-9A-F]{6}: ([\w-]+[=:]?)/.exec(line)?.[1] ?? ''}`);
+      }
+    }
+    // Each kind of line comes from the daemon that really writes it: the one that took
+    // the message in, the one that stamped its id, the queue, and local delivery.
+    expect([...wrote].sort()).toEqual([
+      'cleanup message-id=',
+      'local to=',
+      'qmgr from=',
+      'qmgr removed',
+      'smtpd client=',
+    ]);
+  });
+
+  it('records the size of a copy it really wrote, and how many mailboxes it wrote to', () => {
+    let checked = 0;
+    for (const box of mailCarriers()) {
+      // The bytes of each copy, by the queue id its own Received: line carries.
+      const written = new Map<string, number[]>();
+      for (const local of rosterOf(box)) {
+        for (const raw of rawMessagesIn(readMailbox(box, local))) {
+          const queueId = /with ESMTP id ([0-9A-F]{6})/.exec(raw)?.[1] ?? '';
+          written.set(queueId, [...(written.get(queueId) ?? []), raw.length]);
+        }
+      }
+      const delivered = new Map<string, number>();
+      for (const { queueId } of deliveriesIn(readMailLog(box))) {
+        delivered.set(queueId, (delivered.get(queueId) ?? 0) + 1);
+      }
+      for (const [, queueId = '', size = '', recipients = ''] of readMailLog(box).matchAll(
+        /: ([0-9A-F]{6}): from=<[^>]+>, size=(\d+), nrcpt=(\d+) \(queue active\)$/gm,
+      )) {
+        expect(written.get(queueId)).toContain(Number(size));
+        expect(Number(recipients)).toBe(delivered.get(queueId));
         checked += 1;
       }
     }

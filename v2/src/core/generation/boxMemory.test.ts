@@ -260,6 +260,10 @@ describe('what a box remembers of its last day', () => {
           const node = directory.entries.get(name);
           if (node?.kind !== 'file') throw new Error(`no ${name}`);
           expect(node.perms.read).toEqual(['root']);
+          // And nobody but root writes it, for the reason every log here is root-write:
+          // the record of a visit must not be editable by whoever made it.
+          expect(node.perms.write).toEqual(['root']);
+          expect(node.perms.execute).toEqual(['root']);
         });
       });
   });
