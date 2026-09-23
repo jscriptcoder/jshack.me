@@ -4,7 +4,7 @@
 > status. The grounding section records what v2 held on the day this was grilled; the code wins
 > wherever the two disagree.
 > Grilled 2026-09-21 (`grilling`), 25 locked decisions. Slices 0–6 delivered (as-built below).
-> Next up: slice 7, not yet planned.
+> Slice 7 planned in [`somebody-wrote-to-somebody.md`](./somebody-wrote-to-somebody.md).
 
 **Where we are now (2026-09-22):** **v0.254.0**. The legacy-parity epic's V-series is closed and
 its next line was "the ship gate". **Ship now waits for this epic** (decision 1). Grilled to 25
@@ -404,7 +404,7 @@ See below; planning refines it.
 | 4 | **A web server serves a site** — three layers, lynx `<table>`/`<pre>`, the link-resolution property test | lynx follows links across pages; `robots.txt` names a served path; a default `gobuster` finds a hidden path | ✅ DONE (#537 v0.251.0, #538 v0.252.0) — webservers only; other http hosts keep one version-free page; see as-built below |
 | 5 | **A database holds an application** — app archetypes | `SHOW TABLES` on a café network's DB shows a till schema whose staff are that network's inhabitants | ✅ DONE (#539, v0.253.0) — 15 archetypes; decision 15 amended (DB credentials re-rolled once); a bought DB is a fresh install; see as-built below |
 | 6 | **A store serves that application** — Redis keyspaces paired with the app | `KEYS sess:*` returns sessions for that app's real users | ✅ DONE (#540, v0.254.0) — 43 stores, all reading differently; decision 15 amended (store locks re-rolled once); a bought store is a fresh install; see as-built below |
-| 7 | **Somebody wrote to somebody** — workstation mailboxes, the mail server's spool | a thread in `/var/mail/<user>` is between two real inhabitants of the network | ⏳ |
+| 7 | **Somebody wrote to somebody** — workstation mailboxes, the mail server's spool | a thread in `/var/mail/<user>` is between two real inhabitants of the network | 📋 PLANNED — `somebody-wrote-to-somebody.md`, two PRs (v0.255.0, v0.256.0); one correspondence per network read from both ends; no new door and no stream re-roll |
 | 8 | **A share holds a department** — fileserver `/srv`, metadata docs | `strings` on a shared PDF names its author, an inhabitant | ⏳ |
 | 9 | **A device is the device it says** — IoT prefix overlays + prefix growth (the one re-roll: refresh pins, wire-checks, the `v2-e2e` skill) | a printer serves a CUPS page and holds spool jobs; a camera a recordings index | ⏳ |
 | 10 | **A gateway knows its network** — DHCP leases, config backups, admin pages, admin/firmware history | a rooted router's lease table lists exactly the network's generated hosts | ⏳ |
@@ -761,7 +761,9 @@ drawn to fill the key budget, so a store may cache a row its own queues never me
   list its `menu_items`, and a portal's CMS posts are not its pages. Decide if a slice leans on it.
 - Where each remaining file's permission constant comes from — reuse `baseFs.ts` constants (now
   including `HOME_FILE`, `ROOT_FILE`, `GUEST_HOME_*`) or add the Debian-default few still missing —
-  for logs, mail and `/srv` (web files settled on `WEB_PAGE_FILE` / `TRAVERSABLE_DIR`).
+  for logs and `/srv` (web files settled on `WEB_PAGE_FILE` / `TRAVERSABLE_DIR`). Slice 7's
+  planning settled mail's tiers: a desk's own mailbox is user-tier, the mail server's spool and
+  every `/var/mail/root` are root-only, since three tiers cannot express per-user ownership.
 - **`~` in replayed history lines.** v2's `cat`/`ls` do not expand `~` (`cd` defers it too), so a
   slice-1 history line like `cat ~/notes/todo.txt` answers "No such file" when replayed verbatim,
   while `cat notes/todo.txt` from the home works (seen in slice 2's played run). The truth tests
@@ -830,3 +832,16 @@ drawn to fill the key budget, so a store may cache a row its own queues never me
   a cached row matched the `SELECT` on the same box; slice plan retired into "As-built: slice 6"
   above and its file deleted. Owner decision during the build: no counter in a spec counts part of
   another. Next: slice 7 (not yet planned).
+- **2026-09-23** — slice 7 planned in `somebody-wrote-to-somebody.md` (two PRs in order, v0.255.0
+  and v0.256.0). Eleven owner decisions at planning: mail goes to desks, mail servers and root's
+  cron mail; ONE correspondence per network on `mail-network-<essid>`, so both ends of a thread
+  agree; no smtp/imap door, but mailserver-role boxes get `mail.log` + `mail.log.1`; mbox
+  everywhere and the `postfix.conf` that promised `/var/mail/vhosts` is rewritten; the spool's
+  roster is the application's `mailboxes`, pinned to agree where mysqld runs; every address on the
+  `.lan` zone, with real machines among the senders; topics from `MAIL_SPECS` keyed by archetype
+  plus a category-keyed personal layer; 3–6 threads of 1–4 messages; `/etc/aliases` shipped and
+  `mynetworks = 10.0.0.0/24` fixed; desk mailboxes user-tier, spool and root mail root-only;
+  `delivery_log` names real deliveries and its pick list retires. Confirmed as derived: no
+  decision-15 amendment and **no re-roll** (mail is new streams only), deep boxes take their cast
+  from the role pool as deep databases do, the two copies of a message differ by their true
+  `Received:` chain so decision 17 needs no exemption, and headers stay version-free.
