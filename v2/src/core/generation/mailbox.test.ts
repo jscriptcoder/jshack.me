@@ -927,3 +927,135 @@ describe('the headers as a terminal shows them', () => {
     expect(addressed).toBeGreaterThan(0);
   });
 });
+
+/** `/var/log/mail.log.1` as the box keeps it, read as root — the file is the spool's own
+ *  record of the same people, so it sits at the spool's tier. */
+const readMailLog = (box: Box): string => {
+  const result = createFsView(treeOf(box), { userType: 'root' }).read(
+    asAbsPath('/var/log/mail.log.1'),
+  );
+  if (!result.ok) throw new Error(`/var/log/mail.log.1 on ${box.host.hostname}: ${result.error}`);
+  return result.content;
+};
+
+/** One delivery as the log records it, read the way a player pairs the log against the
+ *  spool: the queue id the message's own `Received:` line carries, the address it went
+ *  to, and the moment it went. */
+type LoggedDelivery = { readonly queueId: string; readonly to: string; readonly at: string };
+
+const DELIVERED =
+  /^(\w{3} [ \d]\d \d\d:\d\d:\d\d) \S+ postfix\/local\[\d+\]: ([0-9A-F]{6}): to=<([^>]+)>/;
+
+const deliveriesIn = (log: string): readonly LoggedDelivery[] =>
+  log.split('\n').flatMap((line) => {
+    const match = DELIVERED.exec(line);
+    return match === null
+      ? []
+      : [{ at: match[1] ?? '', queueId: match[2] ?? '', to: match[3] ?? '' }];
+  });
+
+/** A `Date:` header as the log's own stamp writes the same moment: `Jun 18 09:12:04`. */
+const syslogStamp = (rfc: string): string => {
+  const [, date = '', month = '', , time = ''] = rfc.split(' ');
+  return `${month} ${String(Number(date)).padStart(2, ' ')} ${time}`;
+};
+
+/** When a log line was written, from the stamp it opens with. Every message in the world
+ *  is dated in 2026, which is the year syslog's own stamp leaves out. */
+const momentOf = (line: string): number => {
+  const [month = '', date = '', time = ''] = line.slice(0, 15).split(/\s+/);
+  return Date.parse(`${month} ${date} 2026 ${time} GMT`);
+};
+
+/** The id the box's transfer agent stamped on the copy it delivered, which is what its
+ *  queue called the message. */
+const stampedId = (received: readonly string[]): string =>
+  /with ESMTP id ([0-9A-F]{6})/.exec(received[received.length - 1] ?? '')?.[1] ?? '';
+
+const asText = (delivery: LoggedDelivery): string =>
+  `${delivery.at} ${delivery.queueId} ${delivery.to}`;
+
+/** Every box that carries a network's mail, on the LAN and below it. */
+const mailCarriers = (): readonly Box[] => [...mailServers(), ...deepMailServers()];
+
+describe('what a mail server logged itself doing', () => {
+  it('records one delivery for every message its spool holds, and none it does not', () => {
+    const carriers = mailCarriers();
+    expect(carriers.length).toBeGreaterThan(0);
+    for (const box of carriers) {
+      const held = rosterOf(box).flatMap((local) =>
+        parseMbox(readMailbox(box, local)).map((message) => ({
+          queueId: stampedId(message.received),
+          to: (message.headers.get('Delivered-To') ?? '').replace(/[<>]/g, ''),
+          at: syslogStamp(message.headers.get('Date') ?? ''),
+        })),
+      );
+      expect(held.length).toBeGreaterThan(0);
+      expect(deliveriesIn(readMailLog(box)).map(asText).sort()).toEqual(held.map(asText).sort());
+    }
+  });
+
+  it('names the machine each message came from, and the loopback for one written on it', () => {
+    for (const box of mailCarriers()) {
+      const zone = lanZoneName(box.essid);
+      const queued = new Set(
+        rosterOf(box).flatMap((local) =>
+          parseMbox(readMailbox(box, local)).map((message) => stampedId(message.received)),
+        ),
+      );
+      const clients = [...readMailLog(box).matchAll(/([0-9A-F]{6}): client=(\S+)\[([\d.]+)\]$/gm)];
+      expect(clients.map(([, queueId]) => queueId).sort()).toEqual([...queued].sort());
+      for (const [, , named = '', ip = ''] of clients) {
+        // A message written on the mail server itself came in over the loopback, which is
+        // what postfix names it; every other one came from a machine really on the LAN.
+        if (ip === '127.0.0.1') {
+          expect(named).toBe('localhost');
+          continue;
+        }
+        const sender = generateHomeLan(box.essid).hosts.find((host) => host.ip === ip);
+        expect(sender).toBeDefined();
+        expect(named).toBe(`${sender?.hostname}.${zone}`);
+      }
+    }
+  });
+
+  it('carries each message’s own id, so the log and the mailbox name the same message', () => {
+    for (const box of mailCarriers()) {
+      const held = new Set(
+        rosterOf(box).flatMap((local) =>
+          parseMbox(readMailbox(box, local)).map((message) =>
+            (message.headers.get('Message-ID') ?? '').replace(/[<>]/g, ''),
+          ),
+        ),
+      );
+      const logged = [...readMailLog(box).matchAll(/message-id=<([^>]+)>$/gm)].map(
+        ([, id]) => id ?? '',
+      );
+      expect(new Set(logged)).toEqual(held);
+    }
+  });
+
+  it('takes each message in and lets it go again, in the order the deliveries happened', () => {
+    for (const box of mailCarriers()) {
+      const lines = readMailLog(box)
+        .split('\n')
+        .filter((line) => line !== '');
+      const queued = lines.flatMap((line) => /: ([0-9A-F]{6}): from=</.exec(line)?.[1] ?? []);
+      const removed = lines.flatMap((line) => /: ([0-9A-F]{6}): removed$/.exec(line)?.[1] ?? []);
+      expect(removed).toEqual(queued);
+      const moments = lines.map(momentOf);
+      moments.forEach((moment) => expect(Number.isNaN(moment)).toBe(false));
+      expect(moments).toEqual([...moments].sort((earlier, later) => earlier - later));
+      expect(Math.max(...moments)).toBeLessThan(WORLD_EPOCH);
+    }
+  });
+
+  it('leaves the live mail log empty, for the deliveries a player’s own world makes', () => {
+    for (const box of mailCarriers()) {
+      const live = createFsView(treeOf(box), { userType: 'root' }).read(
+        asAbsPath('/var/log/mail.log'),
+      );
+      expect(live.ok && live.content).toBe('');
+    }
+  });
+});

@@ -210,44 +210,94 @@ const applicationOn = ({
 const loginsIn = (application: Application): readonly string[] =>
   (application.tables.users?.rows ?? []).map((row) => String(row.username));
 
+/** One message the machine that carries the mail took in and delivered, as its own log
+ *  records it. The queue id is the id its transfer agent stamped, which is also what the
+ *  delivered copy carries in its `Received:` line — so the log and the mailbox name the
+ *  same message and neither can drift from the other. */
+export type MailDelivery = {
+  readonly queueId: string;
+  /** The `Message-ID:` the copy carries, without its angle brackets. */
+  readonly messageId: string;
+  readonly from: string;
+  /** The machine it was written on, which the server names as the client it took it
+   *  from. Where that is the server itself, the message came in over the loopback. */
+  readonly fromHost: LanHost;
+  /** Every mailbox on this box the message was dropped into. One message written to two
+   *  people is one delivery with two recipients, which is what a queue really does. */
+  readonly recipients: readonly string[];
+  readonly sentAt: number;
+  /** The size of the copy the box wrote, which is what its queue recorded. */
+  readonly size: number;
+};
+
 /**
  * Every mailbox the machine that carries the network's mail keeps: one for each login on
- * the network and one for each role address, exactly as its own directory says.
+ * the network and one for each role address, exactly as its own directory says — and the
+ * deliveries that put them there.
  *
  * A person's mailbox here holds the same messages their desk holds — it is one
  * correspondence — but each copy carries the route it really took, and this one arrived
  * in a single hop because this is the machine that made it.
+ *
+ * The files and the deliveries are built together rather than derived twice: the log is
+ * the record OF these writes, and a second derivation could only ever disagree with them.
  */
-const spoolEntries = ({
+const spoolOf = ({
   essid,
   host,
   application,
   mail,
   zone,
-  prng,
 }: {
   readonly essid: string;
   readonly host: LanHost;
   readonly application: Application;
   readonly mail: NetworkMail;
   readonly zone: string;
-  readonly prng: Prng;
-}): Readonly<Record<string, ReturnType<typeof file>>> => {
+}): {
+  readonly entries: Readonly<Record<string, ReturnType<typeof file>>>;
+  readonly deliveries: readonly MailDelivery[];
+} => {
   const roster = (application.tables.mailboxes?.rows ?? []).map((row) => String(row.local_part));
+  const deliveries = new Map<string, MailDelivery>();
 
-  return Object.fromEntries(
+  const entries = Object.fromEntries(
     roster.map((local) => {
       const { recipient, messages } = arrivedIn({ essid, host, local, mail });
-      // This IS the machine that carries the mail, so nothing relayed it here.
-      return [
-        local,
-        file(
-          mboxFor({ zone, box: host, relay: host, recipient, messages, prng }) ?? '',
-          MAIL_SPOOL_FILE,
-        ),
-      ];
+      const written = messages.map((message) =>
+        // This IS the machine that carries the mail, so nothing relayed it here and there
+        // is no second transfer id to stamp.
+        formatMessage({ message, recipient, box: host, relay: host, stamp: '', zone }),
+      );
+      messages.forEach((message, index) => {
+        const already = deliveries.get(message.transferId);
+        deliveries.set(
+          message.transferId,
+          already === undefined
+            ? {
+                queueId: message.transferId,
+                messageId: message.id,
+                from: message.from.address,
+                fromHost: message.from.host,
+                recipients: [recipient.address],
+                sentAt: message.sentAt,
+                size: (written[index] ?? '').length,
+              }
+            : { ...already, recipients: [...already.recipients, recipient.address] },
+        );
+      });
+      return [local, file(written.join(''), MAIL_SPOOL_FILE)];
     }),
   );
+
+  return { entries, deliveries: [...deliveries.values()] };
+};
+
+/** What a box keeps of its network's mail: the `/var/mail` to spread into its `/var`,
+ *  and — on the machine that carries the mail — the deliveries its own log records. */
+export type BoxMailbox = {
+  readonly entries: Readonly<Record<string, Directory>>;
+  readonly deliveries: readonly MailDelivery[];
 };
 
 /**
@@ -255,7 +305,8 @@ const spoolEntries = ({
  * nobody reads mail on.
  *
  * A desk keeps its own user's; the machine that carries the mail keeps the roster's. A
- * box nobody sits at and nothing is addressed through keeps none.
+ * box nobody sits at and nothing is addressed through keeps none. Only the machine that
+ * carries the mail ever made a delivery, so only it has any to report.
  */
 export const mailEntries = ({
   essid,
@@ -266,17 +317,16 @@ export const mailEntries = ({
   readonly host: LanHost;
   /** The account this box belongs to, whose mailbox it keeps. */
   readonly username: string;
-}): Readonly<Record<string, Directory>> => {
+}): BoxMailbox => {
   const carriesMail = roleOfHostname(host.hostname) === 'mailserver';
-  if (!carriesMail && !isDesk(host.hostname)) return {};
+  if (!carriesMail && !isDesk(host.hostname)) return { entries: {}, deliveries: [] };
 
   // The correspondence is derived ONCE for the box. It is the same value for every
   // mailbox on it, and deriving it per mailbox doubled the world's build time.
   const onLan = isOnHomeLan(essid, host);
   // The box's own application is read only where it is needed: to name a mail server's
   // roster, and to name the only people a box below the LAN is allowed to know.
-  const application =
-    carriesMail || !onLan ? applicationOn({ essid, host, username }) : undefined;
+  const application = carriesMail || !onLan ? applicationOn({ essid, host, username }) : undefined;
   const mail =
     application === undefined || onLan
       ? networkMail(essid)
@@ -287,12 +337,15 @@ export const mailEntries = ({
   // box itself for one below it, where these accounts are the only accounts there are.
   const relay = onLan ? relayOf(essid) : host;
   if (application !== undefined && carriesMail) {
-    return {
-      mail: dir(spoolEntries({ essid, host, application, mail, zone, prng }), MAIL_SPOOL_DIR),
-    };
+    const spool = spoolOf({ essid, host, application, mail, zone });
+    return { entries: { mail: dir(spool.entries, MAIL_SPOOL_DIR) }, deliveries: spool.deliveries };
   }
 
   const { recipient, messages } = arrivedIn({ essid, host, local: username, mail });
   const mbox = mboxFor({ zone, box: host, relay, recipient, messages, prng });
-  return mbox === null ? {} : { mail: dir({ [username]: file(mbox, MAIL_FILE) }, TRAVERSABLE_DIR) };
+  return {
+    entries:
+      mbox === null ? {} : { mail: dir({ [username]: file(mbox, MAIL_FILE) }, TRAVERSABLE_DIR) },
+    deliveries: [],
+  };
 };
