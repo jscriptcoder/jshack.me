@@ -1,15 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { networkMail, type MailMessage } from './networkMail';
 import { buildRemoteHostFs, npcUsername } from './remoteHostFs';
+import { buildDeepHostFs } from './deepHostFs';
 import { inhabitant } from './persona';
-import { generateHomeLan } from './generateHomeLan';
+import { generateHomeLan, isOnHomeLan } from './generateHomeLan';
 import { generateApplication } from './generateDatabase';
 import { roleOfHostname } from './pools/hostnames';
 import { lanZoneName } from '../network/resolveName';
 import { createFsView } from '../filesystem/fsView';
 import { asAbsPath } from '../types';
 import { WORLD_EPOCH } from '../cve/worldClock';
-import { ALL_ESSIDS, lanBoxes, type Box } from '../../test/worldContent';
+import { ALL_ESSIDS, deepBoxes, lanBoxes, type Box } from '../../test/worldContent';
 
 const DAY_MS = 86_400_000;
 
@@ -178,10 +179,15 @@ const parseMbox = (text: string): readonly MboxMessage[] => {
   }));
 };
 
+/** The box as it really is: a box below the LAN is built through the deep builder, which
+ *  is the only tree a player ever reaches down there. */
+const treeOf = (box: Box) =>
+  isOnHomeLan(box.essid, box.host)
+    ? buildRemoteHostFs(box.essid, box.host)
+    : buildDeepHostFs(box.essid, box.host);
+
 const mailboxOn = (box: Box, name: string, as: 'root' | 'user' | 'guest' = 'root') =>
-  createFsView(buildRemoteHostFs(box.essid, box.host), { userType: as }).read(
-    asAbsPath(`/var/mail/${name}`),
-  );
+  createFsView(treeOf(box), { userType: as }).read(asAbsPath(`/var/mail/${name}`));
 
 const readMailbox = (box: Box, name: string): string => {
   const result = mailboxOn(box, name);
@@ -305,9 +311,7 @@ const rosterOf = (box: Box): readonly string[] =>
   ).map((row) => String(row.local_part));
 
 const listMail = (box: Box, as: 'root' | 'user' | 'guest' = 'root') =>
-  createFsView(buildRemoteHostFs(box.essid, box.host), { userType: as }).list(
-    asAbsPath('/var/mail'),
-  );
+  createFsView(treeOf(box), { userType: as }).list(asAbsPath('/var/mail'));
 
 describe('a mail server spool', () => {
   it('keeps a mailbox for every mailbox its own application names', () => {
@@ -386,5 +390,86 @@ describe('a mail server spool', () => {
       }
     }
     expect(read).toBeGreaterThan(0);
+  });
+});
+
+/** Every box on a layer below the LAN, which cannot see what else is down there. */
+const deepDesks = (): readonly Box[] =>
+  deepBoxes(ALL_ESSIDS).filter(({ host }) => DESK_PREFIXES.includes(prefixOf(host.hostname)));
+
+const deepMailServers = (): readonly Box[] =>
+  deepBoxes(ALL_ESSIDS).filter(({ host }) => roleOfHostname(host.hostname) === 'mailserver');
+
+/** The logins the box's own application keeps — on a deep box these are the only people
+ *  there are, because it has no neighbours it is allowed to read. */
+const loginsOf = (box: Box): readonly string[] =>
+  (
+    generateApplication({
+      appSeed: `db-app-${box.essid}-${box.host.ip}`,
+      essid: box.essid,
+      host: box.host,
+      account: npcUsername(box.essid, box.host),
+      role: roleOfHostname(box.host.hostname),
+    }).tables.users?.rows ?? []
+  ).map((row) => String(row.username));
+
+describe('a deep box mailbox', () => {
+  it('is kept by a desk down there, and by a mail server for its whole roster', () => {
+    expect(deepDesks().length).toBeGreaterThan(0);
+    for (const box of deepDesks()) {
+      const username = npcUsername(box.essid, box.host);
+      const messages = parseMbox(readMailbox(box, username));
+      const subjects = new Set(messages.map((message) => message.headers.get('Subject')?.replace(/^Re: /, '')));
+      expect(subjects.size).toBeGreaterThanOrEqual(3);
+      expect(subjects.size).toBeLessThanOrEqual(6);
+    }
+    expect(deepMailServers().length).toBeGreaterThan(0);
+    for (const box of deepMailServers()) {
+      const listed = listMail(box);
+      expect(listed.ok && [...listed.entries].sort()).toEqual([...rosterOf(box)].sort());
+    }
+  });
+
+  it('is written by the people its own application knows, on the network zone', () => {
+    for (const box of [...deepDesks(), ...deepMailServers()]) {
+      const logins = loginsOf(box);
+      const zone = lanZoneName(box.essid);
+      const username = npcUsername(box.essid, box.host);
+      const local = DESK_PREFIXES.includes(prefixOf(box.host.hostname)) ? username : (rosterOf(box)[0] as string);
+      for (const message of parseMbox(readMailbox(box, local))) {
+        const sender = message.separator.split(' ')[0] ?? '';
+        expect(sender.slice(sender.indexOf('@') + 1)).toBe(zone);
+        expect([...logins]).toContain(sender.slice(0, sender.indexOf('@')));
+      }
+    }
+  });
+
+  it('names no machine but its own, because it cannot see what shares its layer', () => {
+    for (const box of [...deepDesks(), ...deepMailServers()]) {
+      const zone = lanZoneName(box.essid);
+      const username = npcUsername(box.essid, box.host);
+      const local = DESK_PREFIXES.includes(prefixOf(box.host.hostname)) ? username : (rosterOf(box)[0] as string);
+      const mbox = readMailbox(box, local);
+      for (const message of parseMbox(mbox)) {
+        for (const hop of message.received) {
+          const named = [...hop.matchAll(/(?:from|by) (\S+)/g)].map((found) => found[1] ?? '');
+          expect(named).toEqual([`${box.host.hostname}.${zone}`, `${box.host.hostname}.${zone}`]);
+          expect(hop).toContain(`(${box.host.ip})`);
+        }
+      }
+      // Nothing up on the LAN is nameable from down here.
+      for (const lanHost of generateHomeLan(box.essid).hosts) {
+        expect(mbox).not.toContain(lanHost.hostname);
+        expect(mbox).not.toContain(lanHost.ip);
+      }
+    }
+  });
+
+  it('is the same bytes however often it is built, with nothing below it to read', () => {
+    for (const box of [...deepDesks(), ...deepMailServers()].slice(0, 12)) {
+      const username = npcUsername(box.essid, box.host);
+      const local = DESK_PREFIXES.includes(prefixOf(box.host.hostname)) ? username : (rosterOf(box)[0] as string);
+      expect(readMailbox(box, local)).toBe(readMailbox(box, local));
+    }
   });
 });

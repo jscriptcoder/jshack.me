@@ -23,13 +23,14 @@ import { roleOfHostname } from './pools/hostnames';
 import {
   mailMessageId,
   mailMoment,
+  boxMail,
   networkMail,
   transferId,
   type MailMessage,
   type MailPerson,
   type NetworkMail,
 } from './networkMail';
-import { generateApplication } from './generateDatabase';
+import { generateApplication, type Application } from './generateDatabase';
 import {
   dir,
   file,
@@ -184,6 +185,28 @@ const mboxFor = ({
     .join('');
 };
 
+/** What the box's own application holds, whether or not mysqld is serving it — the
+ *  roster of a mail server's spool, and the only people a box below the LAN knows. */
+const applicationOn = ({
+  essid,
+  host,
+  username,
+}: {
+  readonly essid: string;
+  readonly host: LanHost;
+  readonly username: string;
+}): Application =>
+  generateApplication({
+    appSeed: `db-app-${essid}-${host.ip}`,
+    essid,
+    host,
+    account: username,
+    role: roleOfHostname(host.hostname),
+  });
+
+const loginsIn = (application: Application): readonly string[] =>
+  (application.tables.users?.rows ?? []).map((row) => String(row.username));
+
 /** Everything a correspondence wrote to one account, oldest first. */
 const deliveredTo = (mail: NetworkMail, username: string): readonly MailMessage[] =>
   mail.threads
@@ -290,29 +313,19 @@ const sharedMail = ({
  * in a single hop because this is the machine that made it.
  */
 const spoolEntries = ({
-  essid,
   host,
-  username,
+  application,
   mail,
   zone,
   prng,
 }: {
-  readonly essid: string;
   readonly host: LanHost;
-  readonly username: string;
+  readonly application: Application;
   readonly mail: NetworkMail;
   readonly zone: string;
   readonly prng: Prng;
 }): Readonly<Record<string, ReturnType<typeof file>>> => {
-  const roster = (
-    generateApplication({
-      appSeed: `db-app-${essid}-${host.ip}`,
-      essid,
-      host,
-      account: username,
-      role: roleOfHostname(host.hostname),
-    }).tables.mailboxes?.rows ?? []
-  ).map((row) => String(row.local_part));
+  const roster = (application.tables.mailboxes?.rows ?? []).map((row) => String(row.local_part));
 
   return Object.fromEntries(
     roster.map((local) => {
@@ -337,9 +350,8 @@ const spoolEntries = ({
  * The `/var/mail` a box keeps, ready to spread into its `/var`, or nothing for a box
  * nobody reads mail on.
  *
- * Only a desk on the network's own LAN has one today: a deep box cannot read the layer it
- * stands on, so its mail is drawn differently, and a box nobody sits at has no inbox to
- * keep.
+ * A desk keeps its own user's; the machine that carries the mail keeps the roster's. A
+ * box nobody sits at and nothing is addressed through keeps none.
  */
 export const mailEntries = ({
   essid,
@@ -352,15 +364,28 @@ export const mailEntries = ({
   readonly username: string;
 }): Readonly<Record<string, Directory>> => {
   const carriesMail = roleOfHostname(host.hostname) === 'mailserver';
-  if ((!carriesMail && !isDesk(host.hostname)) || !isOnHomeLan(essid, host)) return {};
+  if (!carriesMail && !isDesk(host.hostname)) return {};
 
-  // The network's correspondence is derived ONCE for the box. It is the same value for
-  // every mailbox on it, and deriving it per mailbox doubled the world's build time.
-  const mail = networkMail(essid);
+  // The correspondence is derived ONCE for the box. It is the same value for every
+  // mailbox on it, and deriving it per mailbox doubled the world's build time.
+  const onLan = isOnHomeLan(essid, host);
+  // The box's own application is read only where it is needed: to name a mail server's
+  // roster, and to name the only people a box below the LAN is allowed to know.
+  const application =
+    carriesMail || !onLan ? applicationOn({ essid, host, username }) : undefined;
+  const mail =
+    application === undefined || onLan
+      ? networkMail(essid)
+      : boxMail({ essid, host, account: username, people: loginsIn(application) });
   const zone = lanZoneName(essid);
   const prng = createPrng(`mail-box-${essid}-${host.ip}`);
-  if (carriesMail) {
-    return { mail: dir(spoolEntries({ essid, host, username, mail, zone, prng }), MAIL_SPOOL_DIR) };
+  // Where the mail came through: the network's mail server for a box on the LAN, and the
+  // box itself for one below it, where these accounts are the only accounts there are.
+  const relay = onLan ? relayOf(essid) : host;
+  if (application !== undefined && carriesMail) {
+    return {
+      mail: dir(spoolEntries({ host, application, mail, zone, prng }), MAIL_SPOOL_DIR),
+    };
   }
 
   const recipient = mail.people.find((person) => person.username === username);
@@ -368,7 +393,7 @@ export const mailEntries = ({
   const mbox = mboxFor({
     zone,
     box: host,
-    relay: relayOf(essid),
+    relay,
     recipient,
     messages: deliveredTo(mail, username),
     prng,

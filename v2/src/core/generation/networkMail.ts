@@ -21,7 +21,7 @@
 import { WORLD_EPOCH } from '../cve/worldClock';
 import { lanZoneName } from '../network/resolveName';
 import { createPrng, type Prng } from './prng';
-import { inhabitant } from './persona';
+import { inhabitant, personBehind } from './persona';
 import { generateHomeLan, type LanHost } from './generateHomeLan';
 import { npcUsername } from './remoteHostFs';
 
@@ -275,21 +275,26 @@ const threadFrom = ({
 };
 
 /**
- * The mail a network's people wrote to each other, drawn once for the whole network.
+ * The threads a cast wrote to each other, drawn on `prng`.
  *
  * Threads go to whoever has been written to the least, until everybody has enough to fill
- * a mailbox — a correspondence is not a correspondence if half the network is outside it.
+ * a mailbox — a correspondence is not a correspondence if half the cast is outside it.
  * It is being WRITTEN TO that counts, because a mailbox holds what arrived: opening a
  * thread nobody answered leaves its opener with nothing to read.
  */
-export const networkMail = (essid: string): NetworkMail => {
-  const people = peopleOn(essid);
-  // One person is nobody to write to. No LAN this small exists, but a mailbox built on
-  // one would be a person talking to themselves.
+const weave = ({
+  people,
+  zone,
+  prng,
+}: {
+  readonly people: readonly MailPerson[];
+  readonly zone: string;
+  readonly prng: Prng;
+}): NetworkMail => {
+  // One person is nobody to write to. No network this small exists, but a mailbox built
+  // on one would be a person talking to themselves.
   if (people.length < 2) return { people, threads: [] };
 
-  const prng = createPrng(`mail-network-${essid}`);
-  const zone = lanZoneName(essid);
   const templates = prng.shuffle(THREAD_TEMPLATES);
   const reached = new Map(people.map((person) => [person.username, 0]));
   const threads: MailThread[] = [];
@@ -320,4 +325,60 @@ export const networkMail = (essid: string): NetworkMail => {
   }
 
   return { people, threads };
+};
+
+/**
+ * The mail the people on a network wrote to each other, drawn once for the whole network
+ * so both ends of a thread agree about it.
+ */
+export const networkMail = (essid: string): NetworkMail =>
+  weave({
+    people: peopleOn(essid),
+    zone: lanZoneName(essid),
+    prng: createPrng(`mail-network-${essid}`),
+  });
+
+/**
+ * The mail on a box that is not on the network's own LAN — a machine on a deeper layer,
+ * reached through a gateway.
+ *
+ * Such a box may not read what shares its layer: what hangs below a gateway can change
+ * while the box itself does not, so a mailbox built from its neighbours would rewrite
+ * itself when something unrelated appeared. Its correspondents are therefore the logins
+ * its own application keeps, and the only machine any of them writes from is this one —
+ * which is the truth about a box where those accounts are the only accounts there are.
+ */
+export const boxMail = ({
+  essid,
+  host,
+  account,
+  people,
+}: {
+  readonly essid: string;
+  readonly host: LanHost;
+  /** The box's own account, whose person the rest of the box already names. */
+  readonly account: string;
+  /** The logins the box's own application keeps. */
+  readonly people: readonly string[];
+}): NetworkMail => {
+  const zone = lanZoneName(essid);
+  return weave({
+    people: people.map((username) => ({
+      username,
+      // The box's own user is the person the box already says they are, everywhere else
+      // on it. The rest have no machine of their own, so each is drawn under their own
+      // name — one seed for all of them would make them all the same person.
+      fullName: personBehind({
+        seed:
+          username === account
+            ? `inhabitant-${essid}-${host.ip}`
+            : `inhabitant-${essid}-${host.ip}-${username}`,
+        username,
+      }),
+      address: `${username}@${zone}`,
+      host,
+    })),
+    zone,
+    prng: createPrng(`mail-box-${essid}-${host.ip}`),
+  });
 };
