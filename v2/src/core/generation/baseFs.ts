@@ -122,6 +122,16 @@ export const MAIL_SPOOL_DIR: FilePermissions = {
   execute: ['root'],
 };
 export const MAIL_SPOOL_FILE: FilePermissions = { read: ['root'], write: ['root'], execute: [] };
+/** `/etc/aliases`: the same tier as `/etc/passwd` beside it, and for the same reason.
+ *  Every line of it is an account name — the spool's own roster, written out in `/etc` —
+ *  and account names are what the cracking curve exists to make a player earn. It holds
+ *  no hash, so it is not kept as narrowly as the spool it describes: a user who already
+ *  reached the box may read who it answers for, and only root may edit it. */
+export const ALIASES_FILE: FilePermissions = {
+  read: ['root', 'user'],
+  write: ['root'],
+  execute: [],
+};
 /** `/boot/{vmlinuz,initrd.img}`: world-readable, root-only write, root-only
  *  execute. Only root can delete a boot file — and that deletion IS the brick
  *  (the box can't come up without it; see `core/boot/bootFiles.ts`). */

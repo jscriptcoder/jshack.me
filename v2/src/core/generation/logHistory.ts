@@ -51,6 +51,15 @@ import {
   formatNamedZoneLoadedLine,
   NAMED_LOG_PERMISSIONS,
 } from '../logging/namedLog';
+import {
+  formatPostfixClientLine,
+  formatPostfixDeliveredLine,
+  formatPostfixMessageIdLine,
+  formatPostfixQueuedLine,
+  formatPostfixRemovedLine,
+  MAIL_LOG_PERMISSIONS,
+} from '../logging/mailLog';
+import type { MailDelivery } from './mailbox';
 import { daemonName } from '../services/pidfile';
 import {
   DAILY_TIMERS,
@@ -68,7 +77,10 @@ const SATURDAY = 6;
 const LOOPBACK = '127.0.0.1';
 const REBOOT_CHANCE = 0.15;
 
-/** One line and the second of the day it was written. */
+/** One line and the moment it was written, as a number that orders it inside its own
+ *  file. Every daily log counts seconds into 2026-07-11; the mail log, whose rotation
+ *  spans the whole correspondence, counts seconds since the epoch. Nothing ever compares
+ *  a second from one file against a second from another. */
 type Entry = { readonly second: number; readonly line: string };
 
 const timeAt = (second: number): GameTime => asGameTime(DAY_START + second * 1000);
@@ -120,11 +132,14 @@ export type LogHistoryOptions = {
   readonly database: MysqlDatabase | null;
   /** Whether the box is its network's name server. */
   readonly isNameServer: boolean;
+  /** Every delivery the box's own spool records, empty on a box that carries no mail. */
+  readonly deliveries: readonly MailDelivery[];
 };
 
 /** `syslog` and every `.1` this box keeps, by name, for its `/var/log`. */
 export const buildLogHistory = (options: LogHistoryOptions): Readonly<Record<string, FileEntry>> => {
-  const { essid, host, services, crontab, fstab, pages, database, isNameServer } = options;
+  const { essid, host, services, crontab, fstab, pages, database, isNameServer, deliveries } =
+    options;
   const prng = createPrng(`log-history-${essid}-${host.ip}`);
   const hostname = host.hostname;
   const runs = (service: string): HostService | undefined =>
@@ -354,6 +369,72 @@ export const buildLogHistory = (options: LogHistoryOptions): Readonly<Record<str
         })()
       : [];
 
+  /**
+   * Every message the box took in and dropped into its own spool, from the spool itself,
+   * so the log can only ever say what the mailboxes beside it hold.
+   *
+   * This rotation is the one that is NOT a day's worth. Postfix's own logrotate is
+   * size-bound, and an organisation of a dozen people never writes enough mail to reach
+   * the threshold, so the file logrotate moved aside on the last morning holds every
+   * delivery the box ever made rather than yesterday's. That is also what makes it worth
+   * reading: a `mail.log.1` of one quiet day would corroborate almost nothing.
+   *
+   * Its pids come from a stream of their own. Appending them to this box's history would
+   * have re-rolled every line above, and a mail server is a box like any other.
+   */
+  const mail = ((): readonly Entry[] => {
+    if (deliveries.length === 0) return [];
+    const mailPrng = createPrng(`mail-log-${essid}-${host.ip}`);
+    // One long-running queue manager and a fresh pair of workers per message, which is
+    // the process model postfix really has.
+    const queue = pidFrom(mailPrng);
+    const mailZone = lanZoneName(essid);
+    return deliveries.flatMap((delivery) => {
+      // Taking a message in, writing each copy and closing the queue entry all happen in
+      // the second the message is dated: the world keeps time to the second, so a delay
+      // in hundredths would be a precision nothing here models.
+      const second = Math.floor(delivery.sentAt / 1000);
+      const stamp = { time: asGameTime(delivery.sentAt), hostname, queueId: delivery.queueId };
+      // A message written on the mail server itself came in over the loopback, which is
+      // how postfix names a client it did not reach across the network for.
+      const local = delivery.fromHost.ip === host.ip;
+      return [
+        {
+          second,
+          line: formatPostfixClientLine({
+            ...stamp,
+            pid: pidFrom(mailPrng),
+            client: local ? 'localhost' : `${delivery.fromHost.hostname}.${mailZone}`,
+            clientIp: local ? LOOPBACK : delivery.fromHost.ip,
+          }),
+        },
+        {
+          second,
+          line: formatPostfixMessageIdLine({
+            ...stamp,
+            pid: pidFrom(mailPrng),
+            messageId: delivery.messageId,
+          }),
+        },
+        {
+          second,
+          line: formatPostfixQueuedLine({
+            ...stamp,
+            pid: queue,
+            from: delivery.from,
+            size: delivery.size,
+            recipients: delivery.recipients.length,
+          }),
+        },
+        ...delivery.recipients.map((recipient) => ({
+          second,
+          line: formatPostfixDeliveredLine({ ...stamp, pid: pidFrom(mailPrng), recipient }),
+        })),
+        { second, line: formatPostfixRemovedLine({ ...stamp, pid: queue }) },
+      ];
+    });
+  })();
+
   const rotations: readonly (readonly [string, readonly Entry[], FileEntry['perms']])[] = [
     ['syslog.1', [...housekeeping, ...cron.map((run) => run.syslog), ...boot.syslog], SYSLOG_PERMISSIONS],
     ['auth.log.1', [...cron.flatMap((run) => run.auth), ...boot.auth, ...visits], AUTH_LOG_PERMISSIONS],
@@ -362,6 +443,7 @@ export const buildLogHistory = (options: LogHistoryOptions): Readonly<Record<str
     ['mysql.log.1', queries, MYSQL_LOG_PERMISSIONS],
     ['redis.log.1', store, REDIS_LOG_PERMISSIONS],
     ['named.log.1', zone, NAMED_LOG_PERMISSIONS],
+    ['mail.log.1', mail, MAIL_LOG_PERMISSIONS],
   ];
   return {
     syslog: file('', SYSLOG_PERMISSIONS),

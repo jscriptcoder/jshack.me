@@ -70,12 +70,14 @@ import { buildWebSite } from './webSite';
 import { roleConfigFile } from './pools/configFiles';
 import { nameServerFilesFor } from './generateDnsZone';
 import { roleOfHostname } from './pools/hostnames';
+import { lanZoneName } from '../network/resolveName';
 import { buildNpcHome } from './npcHome';
 import { buildEtcContent } from './etcContent';
 import { buildLogHistory } from './logHistory';
 import { buildRootHome } from './rootHome';
 import { buildSshDirectories } from './sshContent';
 import { mailEntries } from './mailbox';
+import { MAIL_LOG_PERMISSIONS } from '../logging/mailLog';
 import { DEBIAN_BASH_LOGOUT, DEBIAN_BASHRC, DEBIAN_PROFILE } from './pools/homeSkeleton';
 import { pickUsername } from './pools/usernames';
 import { placementOf } from './rolePlacement';
@@ -295,6 +297,10 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
           // draws would have re-rolled every account and password in the world.
           seed: `etc-config-${essid}-${host.ip}`,
           ports: new Map(services.map(({ spec, port }) => [spec.service, port])),
+          // What the box stands on and answers for, so a setting that names either can
+          // be read against a scan rather than being furniture.
+          cidr: `${host.ip.split('.').slice(0, 3).join('.')}.0/24`,
+          zone: lanZoneName(essid),
         });
 
   const serves = services.some(({ spec }) => spec === SERVICE_CATALOG.http);
@@ -408,6 +414,11 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
 
   const etc = buildEtcContent({ essid, host, services, role });
 
+  // What the box keeps of its network's mail, derived ONCE: the spool it holds and the
+  // deliveries that filled it are one answer, so the log below cannot disagree with the
+  // mailboxes a player reads beside it.
+  const mail = mailEntries({ essid, host, username, crontab: etc.crontab.content });
+
   const logs: Readonly<Record<string, FileEntry>> = {
     'auth.log': file('', AUTH_LOG_PERMISSIONS),
     'kern.log': file('', KERN_LOG_PERMISSIONS),
@@ -436,6 +447,12 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
     // named.log is honest furniture on any name server: BIND opens it before
     // anyone has crossed the network to read the zone.
     ...(nameServer === null ? {} : { 'named.log': file('', NAMED_LOG_PERMISSIONS) }),
+    // Follows the mail server ROLE, on the same rule as named.log above it: no smtpd
+    // exists in the world to be running, but the role already asserts postfix — its
+    // /etc/postfix.conf, its spool, its A record — so the file postfix opens is there.
+    // Root's alone, unlike every other log here, because its lines name the same
+    // correspondents the spool beside it is kept at that tier to protect.
+    ...(role === 'mailserver' ? { 'mail.log': file('', MAIL_LOG_PERMISSIONS) } : {}),
     ...buildLogHistory({
       essid,
       host,
@@ -445,6 +462,7 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
       pages: visited,
       database,
       isNameServer: nameServer !== null,
+      deliveries: mail.deliveries,
     }),
   };
 
@@ -466,6 +484,10 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
           ...etc,
           passwd: file(passwd, PASSWD_FILE),
           ...(config === null ? {} : { [config.name]: file(config.content, SERVICE_CONFIG_FILE) }),
+          // The addresses the box answers for that are not mailboxes, built beside the
+          // spool so no alias can name a mailbox `/var/mail` does not keep. It is what
+          // this box's own postfix.conf already points `alias_maps` at.
+          ...(mail.aliases === null ? {} : { aliases: mail.aliases }),
           // Under `/etc/bind` rather than loose in `/etc`, which is where a real bind9
           // puts them — and it keeps the config beside the zone it names instead of two
           // unrelated paths a player has to learn separately.
@@ -557,7 +579,7 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
           // /var/mail, where a machine somebody sits at keeps what the network wrote to
           // them. Built from the network's own stream, like the page and the database, so
           // giving a box a mailbox moves nothing else about it.
-          ...mailEntries({ essid, host, username }),
+          ...mail.entries,
         },
         TRAVERSABLE_DIR,
       ),

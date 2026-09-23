@@ -78,7 +78,17 @@ const STAMPS: Readonly<Record<string, RegExp>> = {
   'mysql.log': /^2026-07-11T(\d\d):(\d\d):(\d\d)\.000000Z/,
   'redis.log': /^\d+:[MC] 11 Jul 2026 (\d\d):(\d\d):(\d\d)\.000/,
   'named.log': /^11-Jul-2026 (\d\d):(\d\d):(\d\d)\.\d{3} /,
+  // syslog's own stamp, which carries no year — and here no fixed day either, for the
+  // reason SPANS_THE_CORRESPONDENCE gives.
+  'mail.log': /^\w{3} [ \d]\d (\d\d):(\d\d):(\d\d) /,
 };
+
+/** The one rotation that is not a day's worth, so the day rule below does not reach it.
+ *  Postfix's logrotate is size-bound, and an organisation of a dozen people never writes
+ *  enough mail to trip it, so the file the mail server rotated out on the last morning
+ *  holds every delivery it ever made. What it must agree with instead is its own spool,
+ *  which `mailbox.test.ts` holds it to, message for message. */
+const SPANS_THE_CORRESPONDENCE = 'mail.log.1';
 
 const stampOf = (rotatedName: string): RegExp => {
   const stamp = STAMPS[rotatedName.slice(0, -'.1'.length)];
@@ -95,9 +105,15 @@ const secondOfDay = (rotatedName: string, line: string): number | null => {
 };
 
 /** A line with its date taken out, so a clock's decimals never read as a version — and
- *  the protocol a web request names, which is the request's, not the server's. */
+ *  the protocol a web request names, which is the request's, not the server's, and the
+ *  id a mail transfer agent stamped, which is a moment beside a queue id rather than
+ *  anything's version. The same id sits in the delivered message's own `Message-ID:`,
+ *  where the mailbox sweep reads bodies for the same reason. */
 const withoutStamp = (rotatedName: string, line: string): string =>
-  line.replace(stampOf(rotatedName), '').replace(' HTTP/1.1"', '"');
+  line
+    .replace(stampOf(rotatedName), '')
+    .replace(' HTTP/1.1"', '"')
+    .replace(/message-id=<[^>]+>/, '');
 
 type CronJob = {
   readonly minute: number;
@@ -193,6 +209,7 @@ describe('what a box remembers of its last day', () => {
     expect(new Date(LAST_DAY_START).toISOString()).toBe('2026-07-11T00:00:00.000Z');
     everyBox().forEach(({ tree }) => {
       rotatedOf(tree).forEach((content, name) => {
+        if (name === SPANS_THE_CORRESPONDENCE) return;
         const seconds = linesOf(content).map((line) => secondOfDay(name, line));
         seconds.forEach((second) => expect(second).not.toBeNull());
         const sorted = [...seconds].sort((left, right) => (left ?? 0) - (right ?? 0));
@@ -217,6 +234,38 @@ describe('what a box remembers of its last day', () => {
       expect(entry('syslog').perms).toEqual(entry('auth.log').perms);
       expect(entry('syslog').owner).toBe('root');
     });
+  });
+
+  it('keeps a mail log exactly on the boxes that carry their network’s mail', () => {
+    let carriers = 0;
+    everyBox().forEach(({ box, tree }) => {
+      const logs = logsOf(tree);
+      const carries = roleOfHostname(box.host.hostname) === 'mailserver';
+      expect(logs.has('mail.log')).toBe(carries);
+      expect(logs.has('mail.log.1')).toBe(carries);
+      if (carries) carriers += 1;
+    });
+    expect(carriers).toBeGreaterThan(0);
+  });
+
+  it('keeps the mail log at the spool’s tier, since its lines name the same people', () => {
+    everyBox()
+      .filter(({ box }) => roleOfHostname(box.host.hostname) === 'mailserver')
+      .forEach(({ tree }) => {
+        const directory = varLogOf(tree);
+        // Every other log on the box is world-readable: once a player is on it, what the
+        // box logged is theirs. This one is the index of the whole organisation's
+        // correspondence, which is the escalation /var/mail is kept behind.
+        ['mail.log', 'mail.log.1'].forEach((name) => {
+          const node = directory.entries.get(name);
+          if (node?.kind !== 'file') throw new Error(`no ${name}`);
+          expect(node.perms.read).toEqual(['root']);
+          // And nobody but root writes it, for the reason every log here is root-write:
+          // the record of a visit must not be editable by whoever made it.
+          expect(node.perms.write).toEqual(['root']);
+          expect(node.perms.execute).toEqual(['root']);
+        });
+      });
   });
 });
 
