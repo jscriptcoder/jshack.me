@@ -3,19 +3,18 @@
 > **Picking this up cold?** Read "Locked decisions", then the slice table — it carries the live
 > status. The grounding section records what v2 held on the day this was grilled; the code wins
 > wherever the two disagree.
-> Grilled 2026-09-21 (`grilling`), 25 locked decisions. Slices 0–6 delivered (as-built below),
-> slice 7's first PR delivered.
-> Slice 7 planned in [`somebody-wrote-to-somebody.md`](./somebody-wrote-to-somebody.md), which
-> carries PR 7a's as-built and is kept until 7b ships.
+> Grilled 2026-09-21 (`grilling`), 25 locked decisions. Slices 0–7 delivered (as-built below).
+> Slice 8 is next and not yet planned.
 
-**Where we are now (2026-09-23):** **v0.255.0**. The legacy-parity epic's V-series is closed and
+**Where we are now (2026-09-23):** **v0.256.0**. The legacy-parity epic's V-series is closed and
 its next line was "the ship gate". **Ship now waits for this epic** (decision 1). Grilled to 25
-locked decisions and a twelve-slice spine. **Slices 0–6 are DONE** (#533, #534, #535, #536,
-#537 + #538, #539, #540), and **slice 7's PR 7a is DONE** (#541) — the build budgets, NPC
+locked decisions and a twelve-slice spine. **Slices 0–7 are DONE** (#533, #534, #535, #536,
+#537 + #538, #539, #540, #541 + #542) — the build budgets, NPC
 workstation homes, every NPC box's `/etc`, `/root`, `.ssh/` and `/home/guest`, every NPC box's
 rotated `.1` history plus `syslog`, a
 three-layer site on every webserver (with lynx tables/`<pre>` and `.lan` names in the web tools),
-an application in every NPC database, and that application's working set in every NPC store; their
+an application in every NPC database, that application's working set in every NPC store, and the
+network's own correspondence in `/var/mail` with the mail server's records agreeing with it; their
 as-built is folded into the slice spine and the "As-built" sections below.
 **Decision 19 was amended at planning** (budget first, memoize on breach) and **decision 6 was
 narrowed at slice 2's planning** (the player workstation gains an empty `/home/guest`). Slice 3's
@@ -23,7 +22,9 @@ planning took three owner decisions (rotated logs name only root and the daemons
 for slice 10, remote lines are neighbours doing routine things); slice 4's took six (recorded in
 its as-built); slice 5's took four at planning (one amends decision 15) and one during the
 build (recorded in its as-built). Slice 6's took three at planning (one amends decision 15 again)
-and one during the build (no counter in a spec counts part of another).
+and one during the build (no counter in a spec counts part of another). Slice 7's took eleven at
+planning and four derived from precedent, with no decision-15 amendment — mail is new content on
+new streams, so nothing already generated re-rolled.
 
 ---
 
@@ -407,7 +408,7 @@ See below; planning refines it.
 | 4 | **A web server serves a site** — three layers, lynx `<table>`/`<pre>`, the link-resolution property test | lynx follows links across pages; `robots.txt` names a served path; a default `gobuster` finds a hidden path | ✅ DONE (#537 v0.251.0, #538 v0.252.0) — webservers only; other http hosts keep one version-free page; see as-built below |
 | 5 | **A database holds an application** — app archetypes | `SHOW TABLES` on a café network's DB shows a till schema whose staff are that network's inhabitants | ✅ DONE (#539, v0.253.0) — 15 archetypes; decision 15 amended (DB credentials re-rolled once); a bought DB is a fresh install; see as-built below |
 | 6 | **A store serves that application** — Redis keyspaces paired with the app | `KEYS sess:*` returns sessions for that app's real users | ✅ DONE (#540, v0.254.0) — 43 stores, all reading differently; decision 15 amended (store locks re-rolled once); a bought store is a fresh install; see as-built below |
-| 7 | **Somebody wrote to somebody** — workstation mailboxes, the mail server's spool | a thread in `/var/mail/<user>` is between two real inhabitants of the network | 🔨 **7a DONE** (#541, v0.255.0) — the correspondence, desk mailboxes, the spool, and the delivery agreement with the mail database; a phone keeps none. **7b next** (v0.256.0): `mail.log`, `/etc/aliases`, root's cron mail. See `somebody-wrote-to-somebody.md` |
+| 7 | **Somebody wrote to somebody** — workstation mailboxes, the mail server's spool | a thread in `/var/mail/<user>` is between two real inhabitants of the network | ✅ **DONE** (#541 v0.255.0, #542 v0.256.0) — the correspondence, desk mailboxes, the spool and its database agreement; then `mail.log.1` carrying the spool's own queue ids, `/etc/aliases`, the postfix config honesty fixes and cron's mail to root. A phone keeps no mailbox but may hold cron's |
 | 8 | **A share holds a department** — fileserver `/srv`, metadata docs | `strings` on a shared PDF names its author, an inhabitant | ⏳ |
 | 9 | **A device is the device it says** — IoT prefix overlays + prefix growth (the one re-roll: refresh pins, wire-checks, the `v2-e2e` skill) | a printer serves a CUPS page and holds spool jobs; a camera a recordings index | ⏳ |
 | 10 | **A gateway knows its network** — DHCP leases, config backups, admin pages, admin/firmware history | a rooted router's lease table lists exactly the network's generated hosts | ⏳ |
@@ -753,6 +754,114 @@ api 4, till 3, scoreboard 3, crm 2, household 2, bookings 2, telemetry 2, media 
 application holds: `stats:pages_total` need not equal the `wiki_pages` row count. Cached rows are
 drawn to fill the key budget, so a store may cache a row its own queues never mention.
 
+## As-built: slice 7 (delivered 2026-09-23)
+
+Retired here from `somebody-wrote-to-somebody.md` on close-out. Two PRs: **7a** (#541, v0.255.0) —
+the network's correspondence, `/var/mail/<user>` on desks, the mail server's spool, and the roster
+and delivery agreement with the mail database; **7b** (#542, v0.256.0) — the mail server's own
+records agreeing with that spool.
+
+**Owner decisions.** Eleven at planning (2026-09-23), four derived from precedent and confirmed.
+The load-bearing ones: (1) desks get `/var/mail/<user>`, mailserver-role boxes get the network's
+spool, and every NPC box whose crontab really prints gets a root-only `/var/mail/root`; phones,
+tablets, IoT and the player's box get nothing; (2) **one correspondence per network**, drawn once
+on `mail-network-<essid>`, so a thread read on the desk that sent it and on the server that carried
+it is the same thread message for message; (3) mbox, one file per mailbox, never Maildir; (4) the
+roster is the box's own application's; (5) `delivery_log` names real deliveries and its six-subject
+pick list retires; (6) tiers — a desk's mailbox is user-tier, the spool and every `/var/mail/root`
+are root-only. **No decision-15 amendment and no re-roll:** mail is new content on new streams
+(`mail-network-<essid>`, `mail-box-<essid>-<ip>`, and 7b's `mail-log-…` / `mail-cron-…`), so
+nothing already generated moved.
+
+### PR 7a — somebody wrote to somebody
+
+Six RED-GREEN increments, plus one test commit from the mutation gate and the version bump.
+
+**Deviations from the plan.** Increments 4 and 5 swapped: `oneOfEach()`'s synthetic mail box is
+off-LAN and no real mail server runs mysqld, so off-LAN mail had to exist before the database could
+agree with it. `MAIL_SPECS` has **12** entries, not 15 — `cms`, `api` and `mail` are box-level
+archetypes `networkArchetype` can never return, so the record keys on `NetworkArchetypeKey` and the
+compiler enforces the set. `delivery_log`'s pick list was retired rather than extended, which
+needed a new `before` bound on `Draft` so a mailbox row is opened *before* its first delivery.
+
+**Found during the build.** A body line beginning `From ` splits an mbox — one authored line did,
+silently turning a mailbox into five malformed messages; fixed at the renderer with real `>From `
+quoting, not by rewording prose. The inert sweep must read **bodies**, not whole files
+(`OSCORP-GUEST` → zone `oscorp-guest.lan` fails on the word *guest*). Reachability splits in two:
+all 128 authored threads are written, but 25 land only on networks of phones with no mail server.
+The emptiness guard in `mboxFor` is unreachable on a desk and was recorded `N/A` with measured
+evidence rather than tested into existence.
+
+**Mutation gate.** Headline claims were unproven: removing the mail server so nothing carries mail,
+dating role-mailbox mail to 1970, and never quoting the message a reply answers all passed the full
+suite. Ten tests closed them — `mailbox.ts` 78.47% → 88.89%, `networkMail.ts` 77.39% → 86.43%.
+`networkMail.ts`'s 11 timeouts are genuine non-terminating loops, hand-verified.
+
+**Verified:** 5,739 tests; wire-checks 47/47; bundle 192,258 B (+15.2 KB, all authored prose);
+build 0.559 ms/box; played run on `WAYSTAR-WIFI`, `guest` refused on the same file.
+
+### PR 7b — a mail box corroborates itself
+
+Four RED-GREEN increments, plus one commit closing the mutation gate and the version bump.
+
+**The queue id is the message's own.** `mail.log.1`'s per-delivery id is the id the delivered copy
+carries in its `Received:` header and inside its `Message-ID`, so one `grep` pairs the log against
+the mailbox. The spool and the log come out of **one** derivation (`mailEntries` returns both), so a
+second pass cannot drift from the first.
+
+**Deviations from the plan.**
+- **`/etc/aliases` is built in `mailbox.ts`, not `buildEtcContent`.** `buildEtcContent` cannot see
+  the box's application, so building it there would mean a second derivation that could name a
+  mailbox `/var/mail` does not keep — the one thing that file can get wrong.
+- **`mail.log.1` spans the correspondence, not the last day** — the only rotation that does.
+  Postfix's logrotate is size-bound and a dozen people never trip it. A one-day mail log would
+  corroborate almost nothing, which is the whole point of the PR. `boxMemory`'s day rule now names
+  this exception so no future spanning rotation can be added silently.
+- **The config fixes are the two the decisions named**, not every path. The line, stated in
+  `pools/configFiles.ts`: a setting that describes where data already is can be read against that
+  data and must agree with it (`virtual_mailbox_base`, `mynetworks`); one that names what a running
+  daemon would create stays true on a box whose daemon is down (`queue_directory`,
+  `data_directory`, the TLS paths). Decision 3 rules out shipping `/var/spool/postfix`, so making
+  those true was not available. `virtual_mailbox_domains` was fixed too — it pointed at a
+  `vdomains` file no box has, and now names the zone.
+
+**Found during the build.**
+- **No output line may carry a decimal.** `dsn=2.0.0`, `delay=0.31` and `1.2G` all read as versions
+  to the world's own version sweep. Real postfix writes `delay=`/`dsn=`; both are dropped, on the
+  same ground `mysql.log` stamps `.000000` — the world keeps no time finer than a second.
+- **`root` is both an alias and a mailbox** on a mail server, which is true of any Debian one: cron
+  delivers to `/var/mail/root` locally while `/etc/aliases` forwards what arrives for root.
+- **`/etc/aliases` sits at `/etc/passwd`'s tier**, not `/etc`'s usual guest-readable one: every line
+  of it is an account name. `mail.log` is narrower still — root-only, like the spool it indexes.
+- **Tree pins moved, deliberately** (decision 23): the spool listings exclude `root` (root's mailbox
+  is cron's, not the directory's); a phone keeps no person's mailbox but may hold cron's;
+  `remoteHostFs.test.ts`'s "one role config in `/etc`" now names `aliases` as a table postfix READS
+  rather than a config; and root's `.bash_history` gained `mail.log.1` as a log it can tail.
+- **`systemctl is-active snmpd` is scheduled on 0 of 428 boxes.** Unreachable content predating this
+  slice; recorded rather than tested into existence.
+
+**Mutation gate.** Run twice, **0 timeouts both times**, so the scores compare honestly.
+`pools/cronMail.ts` 30.95% → **97.62%**, `logging/mailLog.ts` 69.23% → **100%**, `mailbox.ts`
+86.86% → **90.15%**, `pools/configFiles.ts` **100%** throughout; survivors 72 → 28. Seven real
+holes, all passing the full suite: a mail log only root could READ but anyone could write; a
+weekday branch forced always-on, dating every daily and hourly job's mail six days early; a byte
+count that could stop matching the gibibytes beside it; and the loopback, ordering, `size=`/`nrcpt=`
+and daemon tags unpinned. Every remaining survivor accounted for: 16 on lines 7a shipped, one
+hand-proven false survivor, four equivalent (two hand-proven), two unreachable on measured evidence,
+four the `/etc/aliases` comment header.
+
+**No existing stream gained a draw** — proved by building the whole world on `main` and on the
+branch and diffing every file: **31,801 identical**. Everything that moved is the mail surface, plus
+one line each in `/root/.bash_history` on 10 boxes, all mail servers.
+
+**Verified:** 5,772 tests (241 files); wire-checks 17/17; bundle 193,843 B; build 0.617 ms/box;
+played run on `NULL-BYTE`/`mx-159` tracing queue id `8574C4` from `mail.log.1` into
+`/var/mail/bpatel`, with `/var/mail/root` holding one `fstrim -av` message at Sat Jul 11 14:24:00
+matching `24 14 * * 6` in the crontab, the silent `ntpdate -s` job leaving nothing, and a `guest`
+session refused the spool, the log and the alias table while still reading `postfix.conf`.
+
+---
+
 ## Open for planning (named, deliberately not decided)
 
 - The memoization key and cache bound on each end (client, serverless instance), and whether the
@@ -863,3 +972,21 @@ drawn to fill the key budget, so a store may cache a row its own queues never me
   is recorded `N/A` as unreachable rather than tested into existence (a desk never has an empty
   mailbox; only a deep spool does). PR 7a's as-built stays in the slice plan, which is kept until
   7b ships. Next: **PR 7b** (`feat/a-mail-box-corroborates-itself`, v0.256.0).
+- **2026-09-23** — **slice 7 COMPLETE**: PR 7b shipped (#542, v0.256.0) after 7a (#541,
+  v0.255.0). 7b gave every mailserver-role box a `mail.log` and a `mail.log.1` whose per-delivery
+  queue id IS the id the delivered copy carries, an `/etc/aliases` built from the same directory as
+  the spool, the two config falsehoods fixed (`mynetworks` was nobody's network; the virtual-mailbox
+  template named a spool the box does not keep), and `/var/mail/root` holding the output of jobs the
+  box's own crontab really schedules. Three shapes changed on contact: `/etc/aliases` is built in
+  `mailbox.ts` rather than `buildEtcContent`, because only one derivation can guarantee no alias
+  dangles; `mail.log.1` spans the correspondence rather than the last day, the one rotation that
+  does, and `boxMemory` now names that exception; and the config fixes are the two the decisions
+  named, with the rule written into the pool — a setting describing where data already is must agree
+  with it, one naming what a running daemon would create need not. The mutation gate ran twice at 0
+  timeouts: `cronMail.ts` 30.95% → 97.62%, `mailLog.ts` 69.23% → 100%, `mailbox.ts` 86.86% → 90.15%.
+  Its best find was a **self-referential test** — the `/var/mail/root` placement test read the very
+  table it was checking, so flipping any job between silent and reporting was invisible. That the
+  `perTest` false-survivor family reached **9/9** with a new shape (a method-chain collapse), the
+  self-referential-test lesson, and the whole-world byte-diff technique are recorded in
+  `v2/docs/conventions-and-gotchas.md`. Slice plan retired into "As-built: slice 7" above and its
+  file deleted. Next: **slice 8** (a share holds a department), not yet planned.

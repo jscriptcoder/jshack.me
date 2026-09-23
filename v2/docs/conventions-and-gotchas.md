@@ -805,6 +805,17 @@ initial test run` and NOTHING else — no failing spec, no missing-file message.
 `src/core/secrets/__encoded.ts`, which is generated and gitignored. Either use the npm script or run
 `npm run encode` first.
 
+**A test that reads the table it is checking cannot fail, and mutation testing is what tells
+you.** Slice 7b's `pools/cronMail.ts` scored **30.95%** while every one of its tests passed. The
+cause was not missing coverage: the test deciding which boxes keep a `/var/mail/root` asked
+`CRON_OUTPUT` whether each job prints — the same table the mutants were editing — so it moved with
+every mutant and flipping any job between silent and reporting was invisible. Restating the answer
+in the test (the eleven reporting commands, written out by hand) took the file to **97.62%**. The
+smell is general and worth hunting directly: **if a test imports the production constant that
+decides its expected value, it is describing the code rather than checking it.** A low score on a
+file that is mostly data is the usual way this surfaces, because there is nothing else there to be
+under-tested.
+
 **A surviving mutant is a hypothesis, not a hole — hand-check it before writing a test.**
 `coverageAnalysis: "perTest"` decides which specs to run per mutant from an instrumented dry run,
 and it can get that wrong: D10 slice 3 reported `find.ts`'s usage guard
@@ -842,6 +853,14 @@ LATER than the mutated line**, comparator included. Eight for eight. Budget one 
 hand-check per non-prose survivor before writing a single test against it; the run that found
 these took 30 seconds each and would otherwise have bought three tests for gaps that did not
 exist.
+
+**A ninth, and it is a whole method chain.** Slice 7b reported `printingRuns`'s
+`crontab.split('\n').filter(...).flatMap(...).sort(...)` collapsed to `crontab.split('\n')` — a
+`MethodExpression` mutant on a module-level helper, which would hand every caller raw strings where
+it promised parsed records. Hand-mutating it fails **eight tests at once**, loudly. Nine for nine,
+and the shapes now run guard clause, usage check, routing condition, array literal, sort comparator
+and method chain — which is the point: the shape never mattered, only that the damage shows up
+downstream of the line. Hand-check first, every time.
 
 **The same slice shows the gate working, so do not read the above as "ignore the report."** That
 run found the mail work's headline claims genuinely unproven: making `relayOf`'s `find` return
@@ -1215,6 +1234,25 @@ somebody else's mutants; it named 44 survivors in `pools/database.ts` while the 
 just finished was 13 survivors in `mysql/datadir.ts`. Read the FRESH `mutation.html` instead
 (the payload is at `app.report = `, with `"+"` string splices to strip before `raw_decode`), or
 work from the clear-text output. Check the file's mtime before trusting it.
+
+**To prove a slice moved no existing generator stream, diff the whole world — it costs one
+minute.** "No existing stream gained a draw" is the claim every content slice makes and no unit
+test states, because a shifted stream still produces valid output and every pinned test keeps
+passing. Build every NPC box on `main` and on the branch, serialise `filesUnder(tree)` keyed by
+`essid/ip/path`, and compare:
+
+```bash
+npx tsx ./probe.tmp.ts "$SP/world-after.json"
+git checkout main -- src && npx tsx ./probe.tmp.ts "$SP/world-before.json"
+git checkout HEAD -- src
+```
+
+Then classify every differing path and assert nothing falls outside the slice's own surface. Slice
+7b's run read **31,801 files identical**, with the only surprise being one line each of
+`/root/.bash_history` on 10 boxes — root now tails `mail.log.1`, because root's history is built
+from `logPaths` and the box gained a log. That is correct, and it is exactly the kind of ripple
+nothing else would have shown. The probe is untracked and deleted after; put it at the **v2 root**,
+not in a scratch directory, for the same module-resolution reason the Stryker configs go there.
 
 **Do NOT run Stryker and the v2 dev server at the same time.** A concurrent `vercel:dev`
 (vite/3100) makes Stryker report **false survivors** (verify by hand-mutating) and silently
