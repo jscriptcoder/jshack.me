@@ -21,7 +21,15 @@
 import { WORLD_EPOCH } from '../cve/worldClock';
 import { lanZoneName } from '../network/resolveName';
 import { createPrng, type Prng } from './prng';
-import { inhabitant, personBehind } from './persona';
+import { inhabitant, networkPersona, personBehind } from './persona';
+import { networkArchetype } from './databaseApp';
+import {
+  GENERIC_ROLE_MAIL,
+  MAIL_SPECS,
+  PERSONAL_THREADS,
+  ROLE_MAILBOX_MAIL,
+  type MailThreadSpec,
+} from './pools/mailThreads';
 import { generateHomeLan, type LanHost } from './generateHomeLan';
 import { npcUsername } from './remoteHostFs';
 
@@ -39,7 +47,13 @@ const MIN_THREADS_PER_MAILBOX = 3;
 const MAX_OTHERS = 2;
 
 /** How often a third person is copied in, rather than two people writing to each other. */
-const COPIED_IN_CHANCE = 0.4;
+const COPIED_IN_CHANCE = 0.6;
+
+/** How many people one correspondence runs between. A network's own LAN never holds more
+ *  accounts than this; a box below it can keep more logins than that, and the ones past
+ *  the count simply have a mailbox nothing arrives in — which is what an account nobody
+ *  writes to really looks like. */
+const MAX_CAST = 8;
 
 /** How many messages a thread runs to. */
 const THREAD_LENGTH = { min: 1, max: 4 } as const;
@@ -84,91 +98,6 @@ export type NetworkMail = {
   readonly people: readonly MailPerson[];
   readonly threads: readonly MailThread[];
 };
-
-/** What people on a network write to each other about. Replaced per archetype when the
- *  thread pools land; until then one generic set, so every network's people have
- *  something to say to each other. */
-type ThreadTemplate = {
-  readonly subject: string;
-  readonly opener: readonly string[];
-  readonly replies: readonly (readonly string[])[];
-};
-
-const THREAD_TEMPLATES: readonly ThreadTemplate[] = [
-  {
-    subject: "Friday's deploy",
-    opener: ['Are we still pushing the release on Friday?', 'The checklist is done apart from the backups.'],
-    replies: [
-      ['Not before the backups run. I moved it to Monday.'],
-      ['Monday works. I will be around all morning.'],
-    ],
-  },
-  {
-    subject: 'Disk on the file share',
-    opener: ['The share is filling up again.', 'Most of it is last quarter, which nobody has opened since.'],
-    replies: [['I will archive anything older than a year.'], ['Archived. It is down to half.']],
-  },
-  {
-    subject: 'Printer on the landing',
-    opener: ['The printer has stopped answering again.', 'It worked on Tuesday.'],
-    replies: [['Power cycled it. Try again.'], ['Working, thank you.']],
-  },
-  {
-    subject: 'Meeting moved',
-    opener: ['Moving the catch-up to eleven, the room was double booked.'],
-    replies: [['Eleven is fine.'], ['I will be five minutes late.']],
-  },
-  {
-    subject: 'Backup report',
-    opener: ['Last night finished clean for the first time in a fortnight.'],
-    replies: [['Good. Leave the schedule alone then.']],
-  },
-  {
-    subject: 'New starter',
-    opener: ['Someone new starts Monday and will need an account.', 'Same setup as the last one.'],
-    replies: [['Account is ready.'], ['Thanks, I will show them round.']],
-  },
-  {
-    subject: 'Keys to the cupboard',
-    opener: ['Who has the key to the cupboard by the window?'],
-    replies: [['It is on the hook in the kitchen.'], ['Found it, thanks.']],
-  },
-  {
-    subject: 'Kettle fund',
-    opener: ['The kettle has died. Collecting for a new one.'],
-    replies: [['Put me down for a share.'], ['Ordered. It arrives Thursday.']],
-  },
-  {
-    subject: 'Old laptops',
-    opener: ['There are four old laptops under the desk. Anyone want them before they go?'],
-    replies: [['I will take one for spares.'], ['The rest can go.']],
-  },
-  {
-    subject: 'Notes from the review',
-    opener: ['Wrote the review notes up, they are on the share.'],
-    replies: [['Read them. Nothing to add.']],
-  },
-  {
-    subject: 'Heating',
-    opener: ['It is freezing in here. Is the heating on a timer?'],
-    replies: [['It comes on at seven. I put it forward an hour.'], ['Much better.']],
-  },
-  {
-    subject: 'Parcel',
-    opener: ['A parcel came for you, it is behind the desk.'],
-    replies: [['Got it, thanks.']],
-  },
-  {
-    subject: 'Lunch',
-    opener: ['Anyone going out for lunch?'],
-    replies: [['Give me ten minutes.'], ['Wait for me.']],
-  },
-  {
-    subject: 'Door code',
-    opener: ['The side door sticks when it is cold. Pull it towards you as you push.'],
-    replies: [['That worked, thank you.']],
-  },
-];
 
 /** A run of hex, as a mail transfer agent stamps a delivery. */
 export const transferId = (prng: Prng): string =>
@@ -237,7 +166,7 @@ const threadFrom = ({
   zone,
 }: {
   readonly prng: Prng;
-  readonly template: ThreadTemplate;
+  readonly template: MailThreadSpec;
   readonly participants: readonly MailPerson[];
   readonly zone: string;
 }): MailThread => {
@@ -246,7 +175,9 @@ const threadFrom = ({
     template.replies.length + 1,
   );
   const moments = momentsOf(prng, count);
-  const replies = prng.pickN(template.replies, count - 1);
+  // In the order they were written: the first reply answers the opener and the second
+  // answers that, so a thread that stops early still reads as a finished exchange.
+  const replies = template.replies.slice(0, count - 1);
 
   const messages = moments.reduce<readonly MailMessage[]>((sent, second, index) => {
     const previous = sent[index - 1];
@@ -290,36 +221,45 @@ const threadFrom = ({
  */
 const weave = ({
   people,
+  templates: written,
   zone,
   prng,
 }: {
   readonly people: readonly MailPerson[];
+  /** What this network's people have to write about: the business it is in, and the
+   *  ordinary traffic of the kind of place it is. */
+  readonly templates: NetworkThreads;
   readonly zone: string;
   readonly prng: Prng;
 }): NetworkMail => {
   // One person is nobody to write to. No network this small exists, but a mailbox built
   // on one would be a person talking to themselves.
-  if (people.length < 2) return { people, threads: [] };
+  const cast = people.slice(0, MAX_CAST);
+  if (cast.length < 2) return { people, threads: [] };
 
-  const templates = prng.shuffle(THREAD_TEMPLATES);
-  const reached = new Map(people.map((person) => [person.username, 0]));
+  const templates = ordered(prng, written);
+  const reached = new Map(cast.map((person) => [person.username, 0]));
   const threads: MailThread[] = [];
 
-  while (Math.min(...reached.values()) < MIN_THREADS_PER_MAILBOX) {
-    const byNeed = [...people].sort(
+  // Every thread in one correspondence is about something different: a place that ran out
+  // of things to say would otherwise say one of them twice, word for word.
+  while (
+    Math.min(...reached.values()) < MIN_THREADS_PER_MAILBOX &&
+    threads.length < templates.length
+  ) {
+    const byNeed = [...cast].sort(
       (left, right) => (reached.get(left.username) ?? 0) - (reached.get(right.username) ?? 0),
     );
     // Whoever has been written to least is written to next: they are a RECIPIENT of the
     // thread's opening message, so this round always leaves them with something. Somebody
-    // from the next least written to opens it, and a third may be copied in. The network
+    // from the next least written to opens it, and a third may be copied in. The cast
     // holds two people at the very least, which is what lets the head be taken as given.
     const [needy, ...rest] = byNeed as [MailPerson, ...MailPerson[]];
     const [opener = needy, ...spare] = prng.shuffle(rest.slice(0, MAX_OTHERS + 1));
     const copied = spare.slice(0, prng.next() < COPIED_IN_CHANCE ? 1 : 0);
     const thread = threadFrom({
       prng,
-      // Subjects run through the shuffled set before any of them comes round again.
-      template: templates[threads.length % templates.length] as ThreadTemplate,
+      template: templates[threads.length] as MailThreadSpec,
       participants: [opener, needy, ...copied],
       zone,
     });
@@ -340,9 +280,41 @@ const weave = ({
 export const networkMail = (essid: string): NetworkMail =>
   weave({
     people: peopleOn(essid),
+    templates: threadsFor(essid),
     zone: lanZoneName(essid),
     prng: createPrng(`mail-network-${essid}`),
   });
+
+/** What the people on a network have to write about: the business their organisation is
+ *  in, and the ordinary traffic of the kind of place they are in. */
+type NetworkThreads = {
+  readonly business: readonly MailThreadSpec[];
+  readonly personal: readonly MailThreadSpec[];
+};
+
+const threadsFor = (essid: string): NetworkThreads => ({
+  business: MAIL_SPECS[networkArchetype(essid)],
+  personal: PERSONAL_THREADS[networkPersona(essid).category],
+});
+
+/** The order a network takes its subjects in: two of its business to one of the ordinary
+ *  traffic, each half in its own shuffled order. A place talks about its work more than
+ *  it talks about the kettle, and it starts with its work — but the kettle comes up
+ *  early enough that a small network is not all invoices. */
+const ordered = (prng: Prng, threads: NetworkThreads): readonly MailThreadSpec[] => {
+  const business = prng.shuffle(threads.business);
+  const personal = prng.shuffle(threads.personal);
+  const mixed: MailThreadSpec[] = [];
+  let atBusiness = 0;
+  let atPersonal = 0;
+  while (atBusiness < business.length || atPersonal < personal.length) {
+    for (let taken = 0; taken < 2 && atBusiness < business.length; taken++) {
+      mixed.push(business[atBusiness++] as MailThreadSpec);
+    }
+    if (atPersonal < personal.length) mixed.push(personal[atPersonal++] as MailThreadSpec);
+  }
+  return mixed;
+};
 
 /**
  * The mail on a box that is not on the network's own LAN — a machine on a deeper layer,
@@ -384,6 +356,7 @@ export const boxMail = ({
       address: `${username}@${zone}`,
       host,
     })),
+    templates: threadsFor(essid),
     zone,
     prng: createPrng(`mail-box-${essid}-${host.ip}`),
   });
@@ -395,52 +368,6 @@ export const deliveredTo = (mail: NetworkMail, username: string): readonly MailM
     .flatMap((thread) => thread.messages)
     .filter((message) => message.to.some((person) => person.username === username))
     .sort((earlier, later) => earlier.sentAt - later.sentAt);
-
-/**
- * What arrives at a mailbox nobody in particular owns. A role mailbox is the address an
- * organisation publishes, so what lands in it is somebody there writing to the role
- * rather than to a person — which is why these are single messages and not threads.
- */
-const SHARED_MAIL: Readonly<
-  Record<string, readonly { readonly subject: string; readonly body: readonly string[] }[]>
-> = {
-  info: [
-    { subject: 'Opening hours', body: ['Somebody asked what time we open on Saturdays.', 'I have told them ten.'] },
-    { subject: 'Website contact form', body: ['Three enquiries came through the form this week.', 'All answered.'] },
-  ],
-  sales: [
-    { subject: 'Quote for the Harper job', body: ['They want the quote broken down by week.', 'I said I would send it Monday.'] },
-    { subject: 'Renewal list', body: ['Six renewals due next month.', 'Two of them have not answered the first letter.'] },
-  ],
-  support: [
-    { subject: 'Ticket backlog', body: ['We are down to eleven open tickets.', 'The oldest is from a fortnight ago.'] },
-    { subject: 'Call handover', body: ['Nothing outstanding from this morning.', 'The one about the printer can wait.'] },
-  ],
-  billing: [
-    { subject: 'Unpaid from March', body: ['Two invoices from March are still unpaid.', 'Chased both today.'] },
-    { subject: 'New bank details', body: ['The bank details on the invoice template are out of date.', 'Please use the ones on the letterhead.'] },
-  ],
-  postmaster: [
-    { subject: 'Queue was backed up', body: ['Mail sat in the queue for an hour this morning.', 'It cleared on its own once the disk was tidied.'] },
-    { subject: 'Alias for the new starter', body: ['Can somebody add the new starter to the everyone alias.'] },
-  ],
-  office: [
-    { subject: 'Stationery order', body: ['Putting an order in on Friday.', 'Tell me before then if you need anything.'] },
-    { subject: 'Cleaner comes Tuesday', body: ['Please clear the desks before you leave on Monday.'] },
-  ],
-  accounts: [
-    { subject: 'Expenses cut-off', body: ['Expenses for the quarter have to be in by the end of the month.'] },
-    { subject: 'Filing', body: ['The paperwork for last year is boxed and in the cupboard.'] },
-  ],
-};
-
-/** For a role mailbox nothing above names — the roster is drawn from a pool this one
- *  tracks, so it is a fallback rather than a common case. */
-const GENERIC_SHARED_MAIL: readonly { readonly subject: string; readonly body: readonly string[] }[] =
-  [
-    { subject: 'Nothing outstanding', body: ['Nothing outstanding on this address today.'] },
-    { subject: 'Passing this on', body: ['Passing this on to whoever picks the address up.'] },
-  ];
 
 /** How much mail a role mailbox is holding when the world stops. */
 const SHARED_MESSAGE_COUNT = { min: 1, max: 3 } as const;
@@ -467,7 +394,7 @@ const sharedMail = ({
   // lives on the machine that carries the mail.
   const recipient: MailPerson = { username: local, fullName: '', address: `${local}@${zone}`, host };
   const notes = prng.pickN(
-    SHARED_MAIL[local] ?? GENERIC_SHARED_MAIL,
+    ROLE_MAILBOX_MAIL[local] ?? GENERIC_ROLE_MAIL,
     prng.nextInt(SHARED_MESSAGE_COUNT.min, SHARED_MESSAGE_COUNT.max),
   );
   const messages = notes

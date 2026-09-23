@@ -294,7 +294,9 @@ describe('the application a database holds', () => {
         const archetype = databaseArchetype(box.essid, box.host);
         return (
           archetype !== networkArchetype(box.essid) ||
-          !ARCHETYPES_BY_CATEGORY[networkPersona(box.essid).category].includes(archetype)
+          !ARCHETYPES_BY_CATEGORY[networkPersona(box.essid).category].some(
+            (candidate) => candidate === archetype,
+          )
         );
       })
       .map(where);

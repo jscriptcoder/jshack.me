@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { networkMail, type MailMessage } from './networkMail';
+import { boxMail, networkMail, type MailMessage } from './networkMail';
 import { buildRemoteHostFs, npcUsername } from './remoteHostFs';
 import { buildDeepHostFs } from './deepHostFs';
 import { inhabitant } from './persona';
@@ -10,7 +10,16 @@ import { lanZoneName } from '../network/resolveName';
 import { createFsView } from '../filesystem/fsView';
 import { asAbsPath } from '../types';
 import { WORLD_EPOCH } from '../cve/worldClock';
-import { ALL_ESSIDS, deepBoxes, lanBoxes, type Box } from '../../test/worldContent';
+import { networkArchetype } from './databaseApp';
+import { MAIL_SPECS, PERSONAL_THREADS } from './pools/mailThreads';
+import { ALL_GENERATED_PASSWORDS } from './passwordPools';
+import {
+  ALL_ESSIDS,
+  deepBoxes,
+  lanBoxes,
+  softwareVersionsIn,
+  type Box,
+} from '../../test/worldContent';
 
 const DAY_MS = 86_400_000;
 
@@ -132,6 +141,9 @@ type MboxMessage = {
 /** An mbox as a mail reader parses one: messages split on the `From ` line, headers
  *  unfolded at their continuation lines, the body starting after the blank line. */
 const parseMbox = (text: string): readonly MboxMessage[] => {
+  // A mailbox nothing has ever arrived in is an empty file, which is a mailbox with no
+  // messages rather than a malformed one.
+  if (text === '') return [];
   const messages: MboxMessage[] = [];
   let current: { separator: string; headerLines: string[]; body: string[] } | null = null;
   let inBody = false;
@@ -157,7 +169,9 @@ const parseMbox = (text: string): readonly MboxMessage[] => {
     }
     if (current === null) throw new Error(`an mbox that does not open with a separator: ${line}`);
     if (inBody) {
-      current.body.push(line);
+      // A body line quoted because it begins like a separator comes back as it was
+      // written, which is what a mail reader shows.
+      current.body.push(line.startsWith('>From ') ? line.slice(1) : line);
       continue;
     }
     if (line === '') {
@@ -185,6 +199,11 @@ const treeOf = (box: Box) =>
   isOnHomeLan(box.essid, box.host)
     ? buildRemoteHostFs(box.essid, box.host)
     : buildDeepHostFs(box.essid, box.host);
+
+/** Only what people wrote: an mbox file is mostly headers the generator addressed, and a
+ *  sweep for authored words has no business reading those. */
+const bodiesIn = (mbox: string): readonly string[] =>
+  parseMbox(mbox).flatMap((message) => message.body);
 
 const mailboxOn = (box: Box, name: string, as: 'root' | 'user' | 'guest' = 'root') =>
   createFsView(treeOf(box), { userType: as }).read(asAbsPath(`/var/mail/${name}`));
@@ -421,9 +440,12 @@ describe('a deep box mailbox', () => {
     for (const box of deepDesks()) {
       const username = npcUsername(box.essid, box.host);
       const messages = parseMbox(readMailbox(box, username));
-      const subjects = new Set(messages.map((message) => message.headers.get('Subject')?.replace(/^Re: /, '')));
+      const subjects = new Set(
+        messages.map((message) => message.headers.get('Subject')?.replace(/^Re: /, '')),
+      );
       expect(subjects.size).toBeGreaterThanOrEqual(3);
       expect(subjects.size).toBeLessThanOrEqual(6);
+      expect(messages.length).toBeGreaterThanOrEqual(subjects.size);
     }
     expect(deepMailServers().length).toBeGreaterThan(0);
     for (const box of deepMailServers()) {
@@ -535,5 +557,123 @@ describe('a mail directory and the spool beside it', () => {
       const subjects = log.map((row) => String(row.subject));
       expect(subjects.filter((subject) => retired.includes(subject))).toEqual([]);
     }
+  });
+});
+
+/** Every mailbox the world holds, as its own file: each desk's, and every mailbox in
+ *  every spool, above the LAN and below it. Built inside the test rather than cached, so
+ *  a mutation run credits the test that actually reads the generator. */
+const everyMailbox = (): readonly { readonly box: Box; readonly local: string; readonly content: string }[] =>
+  [...lanBoxes(ALL_ESSIDS), ...deepBoxes(ALL_ESSIDS)].flatMap((box) => {
+    const view = createFsView(treeOf(box), { userType: 'root' });
+    const listed = view.list(asAbsPath('/var/mail'));
+    if (!listed.ok) return [];
+    return listed.entries.flatMap((local) => {
+      const read = view.read(asAbsPath(`/var/mail/${local}`));
+      return read.ok ? [{ box, local, content: read.content }] : [];
+    });
+  });
+
+const everySubject = (): readonly string[] => [
+  ...Object.values(MAIL_SPECS).flatMap((threads) => threads.map((thread) => thread.subject)),
+  ...Object.values(PERSONAL_THREADS).flatMap((threads) => threads.map((thread) => thread.subject)),
+];
+
+describe('what the mail is about', () => {
+  it('speaks the business the network runs', () => {
+    for (const essid of ALL_ESSIDS) {
+      const theirs = new Set(
+        MAIL_SPECS[networkArchetype(essid)].map((thread) => thread.subject),
+      );
+      const spoken = networkMail(essid).threads.map((thread) => thread.subject);
+      expect(spoken.some((subject) => theirs.has(subject))).toBe(true);
+    }
+  });
+
+  it('leaves no thread it was given unwritten anywhere in the world', () => {
+    const spoken = new Set([
+      ...ALL_ESSIDS.flatMap((essid) => networkMail(essid).threads.map((thread) => thread.subject)),
+      ...deepBoxes(ALL_ESSIDS).flatMap((box) =>
+        boxMail({
+          essid: box.essid,
+          host: box.host,
+          account: npcUsername(box.essid, box.host),
+          people: loginsOf(box),
+        }).threads.map((thread) => thread.subject),
+      ),
+    ]);
+    expect(everySubject().filter((subject) => !spoken.has(subject))).toEqual([]);
+  });
+
+  it('puts some of every set where a player can read it', () => {
+    // Not every thread lands somewhere readable: a network of phones with no mail server
+    // writes mail that only its own people could have opened, and a phone keeps no
+    // mailbox. What must never happen is a whole set of writing nobody can reach.
+    const read = new Set(
+      everyMailbox()
+        .flatMap(({ content }) => parseMbox(content))
+        .map((message) => (message.headers.get('Subject') ?? '').replace(/^Re: /, '')),
+    );
+    const unreadable = [
+      ...Object.entries(MAIL_SPECS),
+      ...Object.entries(PERSONAL_THREADS),
+    ].filter(([, threads]) => !threads.some((thread) => read.has(thread.subject)));
+    expect(unreadable.map(([name]) => name)).toEqual([]);
+  });
+
+  it('carries no word a player could try as a password', () => {
+    const pool = ALL_GENERATED_PASSWORDS.map((password) => password.toLowerCase());
+    for (const { box, local, content } of everyMailbox()) {
+      // What people wrote, not what the generator addressed: a network can be called
+      // OSCORP-GUEST, and every address on it then carries a pool word that is its own
+      // public name rather than anybody's secret.
+      const written = bodiesIn(content).join(' ').toLowerCase();
+      const words = new Set(written.match(/[a-z0-9]+/g) ?? []);
+      const leaked = pool.filter((password) => words.has(password));
+      expect(`${box.host.hostname}/${local}: ${leaked.join(',')}`).toBe(
+        `${box.host.hostname}/${local}: `,
+      );
+    }
+  });
+
+  it('states no version and leaves no slot unfilled', () => {
+    for (const { box, local, content } of everyMailbox()) {
+      const wrong = [
+        // A `Message-ID` is a moment and a stamp rather than a version, so the version
+        // sweep reads the writing; the slot sweep reads the whole file, headers included.
+        ...softwareVersionsIn(bodiesIn(content).join(' ')),
+        ...(content.match(/\{\{|\}\}|undefined|NaN|\[object|Mailer/g) ?? []),
+      ];
+      expect(`${box.host.hostname}/${local}: ${wrong.join(',')}`).toBe(
+        `${box.host.hostname}/${local}: `,
+      );
+    }
+  });
+
+  it('writes to nobody outside the network zone', () => {
+    for (const { box, local, content } of everyMailbox()) {
+      const zone = lanZoneName(box.essid);
+      const offZone = (content.match(/[A-Za-z0-9._-]+@[A-Za-z0-9.-]+/g) ?? []).filter(
+        (address) => !address.endsWith(`@${zone}`),
+      );
+      expect(`${box.host.hostname}/${local}: ${offZone.join(',')}`).toBe(
+        `${box.host.hostname}/${local}: `,
+      );
+    }
+  });
+
+  it('reads differently on every machine that keeps one', () => {
+    // A mailbox nothing arrived in is empty, and every empty file reads the same. It is
+    // the ones with mail in them that must not repeat.
+    const mailboxes = everyMailbox().filter(({ content }) => content !== '');
+    const byNetwork = new Map<string, string[]>();
+    for (const { box, content } of mailboxes) {
+      byNetwork.set(box.essid, [...(byNetwork.get(box.essid) ?? []), content]);
+    }
+    for (const [essid, contents] of byNetwork) {
+      expect(`${essid}: ${contents.length - new Set(contents).size}`).toBe(`${essid}: 0`);
+    }
+    const distinct = new Set(mailboxes.map(({ content }) => content)).size;
+    expect(distinct / mailboxes.length).toBeGreaterThan(0.9);
   });
 });

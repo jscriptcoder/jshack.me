@@ -146,7 +146,10 @@ const formatMessage = ({
     `Delivered-To: <${recipient.address}>`,
     'Status: RO',
     '',
-    ...message.body,
+    // A body line that begins like a separator is quoted, as every mail store that keeps
+    // mbox has to: unquoted, one sentence of ordinary prose would split the file in two
+    // and the rest of the mailbox would read as a message with no headers.
+    ...message.body.map((line) => (line.startsWith('From ') ? `>${line}` : line)),
     '',
   ].join('\n');
 };

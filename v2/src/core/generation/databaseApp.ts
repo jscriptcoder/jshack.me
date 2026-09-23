@@ -105,8 +105,10 @@ const instantOf = (datetime: string): number => Date.parse(`${datetime.replace('
 export const ARCHETYPES = ARCHETYPE_DEFINITIONS;
 export type ArchetypeKey = keyof typeof ARCHETYPES;
 
-/** The applications each kind of place runs. */
-export const ARCHETYPES_BY_CATEGORY: Readonly<Record<NetworkCategory, readonly ArchetypeKey[]>> = {
+/** The applications each kind of place runs. Written `as const` so the archetypes a
+ *  NETWORK can draw are readable as a type: content keyed by that set stays complete
+ *  without carrying entries for the three no network ever draws. */
+export const ARCHETYPES_BY_CATEGORY = {
   corporate: ['helpdesk', 'crm', 'stock'],
   cafe: ['till'],
   residential: ['media', 'household'],
@@ -114,11 +116,16 @@ export const ARCHETYPES_BY_CATEGORY: Readonly<Record<NetworkCategory, readonly A
   public: ['library', 'bookings'],
   iot: ['telemetry'],
   hacker: ['scoreboard', 'wiki'],
-};
+} as const satisfies Readonly<Record<NetworkCategory, readonly ArchetypeKey[]>>;
+
+/** The applications a network can run — every archetype some kind of place draws, which
+ *  is not all of them: a CMS, an API platform and a mail directory belong to a BOX whose
+ *  name says what it is for, never to a network. */
+export type NetworkArchetypeKey = (typeof ARCHETYPES_BY_CATEGORY)[NetworkCategory][number];
 
 /** The application a network's organisation runs. Its OWN stream, keyed by the network
  *  alone, so no box's stream gains a draw and every box on the network agrees. */
-export const networkArchetype = (essid: string): ArchetypeKey =>
+export const networkArchetype = (essid: string): NetworkArchetypeKey =>
   createPrng(`db-app-network-${essid}`).pick(ARCHETYPES_BY_CATEGORY[networkPersona(essid).category]);
 
 export const databaseArchetype = (essid: string, host: LanHost): ArchetypeKey => {
