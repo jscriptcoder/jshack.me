@@ -70,6 +70,7 @@ import { buildWebSite } from './webSite';
 import { roleConfigFile } from './pools/configFiles';
 import { nameServerFilesFor } from './generateDnsZone';
 import { roleOfHostname } from './pools/hostnames';
+import { lanZoneName } from '../network/resolveName';
 import { buildNpcHome } from './npcHome';
 import { buildEtcContent } from './etcContent';
 import { buildLogHistory } from './logHistory';
@@ -296,6 +297,10 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
           // draws would have re-rolled every account and password in the world.
           seed: `etc-config-${essid}-${host.ip}`,
           ports: new Map(services.map(({ spec, port }) => [spec.service, port])),
+          // What the box stands on and answers for, so a setting that names either can
+          // be read against a scan rather than being furniture.
+          cidr: `${host.ip.split('.').slice(0, 3).join('.')}.0/24`,
+          zone: lanZoneName(essid),
         });
 
   const serves = services.some(({ spec }) => spec === SERVICE_CATALOG.http);

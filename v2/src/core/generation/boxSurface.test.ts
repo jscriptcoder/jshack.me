@@ -836,3 +836,58 @@ describe('the addresses a mail server answers for that are not mailboxes', () =>
     });
   });
 });
+
+/** The `postfix.conf` a mail server keeps, whichever layer it stands on. */
+const postfixConfOf = (box: Box): string => {
+  const read = createFsView(treeOf(box), { userType: 'guest' }).read(
+    asAbsPath('/etc/postfix.conf'),
+  );
+  if (!read.ok) throw new Error(`/etc/postfix.conf on ${box.host.hostname}: ${read.error}`);
+  return read.content;
+};
+
+/** What one `setting = value` line of a postfix config sets, or null for anything else. */
+const settingIn = (config: string, setting: string): string | null =>
+  new RegExp(`^${setting} = (.+)$`, 'm').exec(config)?.[1]?.trim() ?? null;
+
+describe('what a mail server’s own config claims about it', () => {
+  it('stands on the network it is really on, not on one nobody is on', () => {
+    let stated = 0;
+    mailCarriers().forEach((box) => {
+      const config = postfixConfOf(box);
+      // The address block every template used to claim. It is nobody's: LANs are
+      // 192.168.<subnet>.0/24 and the layers below them 10.<x>.<y>.0/24.
+      expect(config).not.toContain('10.0.0.0/24');
+      const networks = settingIn(config, 'mynetworks');
+      if (networks === null) return;
+      expect(networks).toBe(`${subnetOf(box.host.ip)}.0/24, 127.0.0.0/8`);
+      stated += 1;
+    });
+    expect(stated).toBeGreaterThan(0);
+  });
+
+  it('points at the spool it really keeps, and the zone it really answers for', () => {
+    let stated = 0;
+    mailCarriers().forEach((box) => {
+      const tree = treeOf(box);
+      const config = postfixConfOf(box);
+      const base = settingIn(config, 'virtual_mailbox_base');
+      if (base === null) return;
+      expect(existsOn(tree, base)).toBe(true);
+      expect(settingIn(config, 'virtual_mailbox_domains')).toBe(lanZoneName(box.essid));
+      stated += 1;
+    });
+    expect(stated).toBeGreaterThan(0);
+  });
+
+  it('promises an alias map that is really there', () => {
+    let stated = 0;
+    mailCarriers().forEach((box) => {
+      const maps = settingIn(postfixConfOf(box), 'alias_maps');
+      if (maps === null) return;
+      expect(existsOn(treeOf(box), maps.replace(/^hash:/, ''))).toBe(true);
+      stated += 1;
+    });
+    expect(stated).toBeGreaterThan(0);
+  });
+});

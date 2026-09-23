@@ -33,6 +33,10 @@ import type { DrawnRole } from '../machineRole';
 const HOSTNAME_PLACEHOLDER = /\{\{hostname\}\}/g;
 /** Interpolated wherever the port the box's own daemon listens on belongs. */
 const PORT_PLACEHOLDER = /\{\{port\}\}/g;
+/** Interpolated wherever the address block the box itself stands on belongs. */
+const CIDR_PLACEHOLDER = /\{\{cidr\}\}/g;
+/** Interpolated wherever the zone the box's network answers for belongs. */
+const ZONE_PLACEHOLDER = /\{\{zone\}\}/g;
 
 type RoleConfig = {
   readonly filename: string;
@@ -122,12 +126,18 @@ const CONFIG_BY_ROLE: Readonly<Record<PooledConfigRole, RoleConfig>> = {
   },
   mailserver: {
     filename: 'postfix.conf',
+    // Every one of these is checkable on the box that keeps it. Two of them used not to
+    // be: one claimed the box trusted 10.0.0.0/24, which is nobody's network, and one
+    // said the mailboxes lived under /var/mail/vhosts when the spool is /var/mail. A
+    // setting that describes where data already is can be read against the data, so it
+    // has to agree with it — unlike `queue_directory` or `data_directory`, which name
+    // what a running postfix would make and stay true on a box whose daemon is down.
     templates: [
       'myhostname = {{hostname}}\nsmtpd_banner = $myhostname ESMTP\nmydestination = $myhostname, localhost\ninet_interfaces = all\nmailbox_size_limit = 51200000',
       'myhostname = {{hostname}}\nsmtpd_relay_restrictions = permit_mynetworks permit_sasl_authenticated defer_unauth_destination\nalias_maps = hash:/etc/aliases\nrecipient_delimiter = +\ninet_protocols = ipv4',
-      'myhostname = {{hostname}}\nqueue_directory = /var/spool/postfix\ncommand_directory = /usr/sbin\ndata_directory = /var/lib/postfix\nmail_owner = postfix\nmynetworks = 10.0.0.0/24, 127.0.0.0/8',
+      'myhostname = {{hostname}}\nqueue_directory = /var/spool/postfix\ncommand_directory = /usr/sbin\ndata_directory = /var/lib/postfix\nmail_owner = postfix\nmynetworks = {{cidr}}, 127.0.0.0/8',
       'myhostname = {{hostname}}\nsmtpd_tls_cert_file = /etc/ssl/certs/ssl-cert.pem\nsmtpd_tls_key_file = /etc/ssl/private/ssl-cert.key\nsmtpd_tls_security_level = may\ninet_interfaces = all',
-      'myhostname = {{hostname}}\nvirtual_mailbox_domains = /etc/postfix/vdomains\nvirtual_mailbox_base = /var/mail/vhosts\nmessage_size_limit = 20480000\nmaximal_queue_lifetime = 5d',
+      'myhostname = {{hostname}}\nvirtual_mailbox_domains = {{zone}}\nvirtual_mailbox_base = /var/mail\nmessage_size_limit = 20480000\nmaximal_queue_lifetime = 5d',
     ],
   },
 };
@@ -150,15 +160,24 @@ export const roleConfigFile = ({
   hostname,
   seed,
   ports,
+  cidr,
+  zone,
 }: {
   readonly role: PooledConfigRole;
   readonly hostname: string;
   readonly seed: string;
   readonly ports: ReadonlyMap<string, number>;
+  /** The address block the box itself stands on, `192.168.4.0/24` or `10.9.2.0/24`. */
+  readonly cidr: string;
+  /** The zone the box's network answers for, `acme-corp.lan`. */
+  readonly zone: string;
 }): { readonly name: string; readonly content: string } => {
   const config = CONFIG_BY_ROLE[role];
   const template = createPrng(seed).pick(config.templates);
-  const named = template.replace(HOSTNAME_PLACEHOLDER, hostname);
+  const named = template
+    .replace(HOSTNAME_PLACEHOLDER, hostname)
+    .replace(CIDR_PLACEHOLDER, cidr)
+    .replace(ZONE_PLACEHOLDER, zone);
   if (config.service === undefined) return { name: config.filename, content: named };
 
   const listening = ports.get(config.service.service);
