@@ -417,7 +417,7 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
   // What the box keeps of its network's mail, derived ONCE: the spool it holds and the
   // deliveries that filled it are one answer, so the log below cannot disagree with the
   // mailboxes a player reads beside it.
-  const mail = mailEntries({ essid, host, username });
+  const mail = mailEntries({ essid, host, username, crontab: etc.crontab.content });
 
   const logs: Readonly<Record<string, FileEntry>> = {
     'auth.log': file('', AUTH_LOG_PERMISSIONS),

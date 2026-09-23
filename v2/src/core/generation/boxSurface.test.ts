@@ -8,6 +8,7 @@ import { generateApplication } from './generateDatabase';
 import { networkPersona } from './persona';
 import { roleOfHostname } from './pools/hostnames';
 import { GENERIC_CRON_JOBS, NAME_SERVER_CRON_JOBS, SERVICE_CRON_JOBS } from './pools/etcFiles';
+import { CRON_OUTPUT } from './pools/cronMail';
 import { ROLE_ROOT_HISTORY, ROOT_HISTORY } from './pools/rootContent';
 import { DEBIAN_BASHRC, DEBIAN_BASH_LOGOUT, DEBIAN_PROFILE } from './pools/homeSkeleton';
 import { createFsView } from '../filesystem/fsView';
@@ -783,7 +784,10 @@ describe('the addresses a mail server answers for that are not mailboxes', () =>
       expect(pairs.length).toBeGreaterThan(0);
       pairs.forEach(([alias, target]) => {
         expect(mailboxes.has(target), `${box.host.hostname}: ${alias} -> ${target}`).toBe(true);
-        expect(mailboxes.has(alias)).toBe(false);
+        // An address the directory answers for is an alias or a mailbox, never both.
+        // `root` is the one exception, and it is one on any Debian mail server: cron
+        // delivers to it on the box itself, while what arrives for it is forwarded on.
+        if (alias !== 'root') expect(mailboxes.has(alias)).toBe(false);
       });
     });
   });
@@ -889,5 +893,18 @@ describe('what a mail server’s own config claims about it', () => {
       stated += 1;
     });
     expect(stated).toBeGreaterThan(0);
+  });
+});
+
+describe('what every scheduled job prints', () => {
+  it('is decided for every job a box can be given, so none is silent by omission', () => {
+    const scheduled = [
+      ...GENERIC_CRON_JOBS,
+      ...Object.values(SERVICE_CRON_JOBS).flat(),
+      ...NAME_SERVER_CRON_JOBS,
+    ];
+    expect(scheduled.filter((command) => CRON_OUTPUT[command] === undefined)).toEqual([]);
+    // And nothing the table answers for is a job no box is ever given.
+    expect(Object.keys(CRON_OUTPUT).filter((command) => !scheduled.includes(command))).toEqual([]);
   });
 });

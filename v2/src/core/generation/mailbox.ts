@@ -23,6 +23,7 @@ import { roleOfHostname } from './pools/hostnames';
 import {
   arrivedIn,
   boxMail,
+  mailMessageId,
   networkMail,
   subjectOf,
   transferId,
@@ -30,6 +31,8 @@ import {
   type MailPerson,
   type NetworkMail,
 } from './networkMail';
+import { CRON_OUTPUT } from './pools/cronMail';
+import { WORLD_EPOCH } from '../cve/worldClock';
 import { generateApplication, type Application } from './generateDatabase';
 import {
   ALIASES_FILE,
@@ -186,6 +189,134 @@ const mboxFor = ({
         zone,
       }),
     )
+    .join('');
+};
+
+const LOOPBACK = '127.0.0.1';
+const DAY_MS = 86_400_000;
+const GIB = 1_073_741_824;
+/** The last day the world has: 2026-07-11, the day logrotate ran. Cron's last run of any
+ *  job is on it or, for a weekly job, on the most recent matching day before it. */
+const LAST_DAY = WORLD_EPOCH - DAY_MS;
+
+/** One job of the box's own `/etc/crontab`, with the last moment it fired. */
+type CronRun = { readonly command: string; readonly ranAt: number };
+
+/**
+ * The last time a job fired before the world stopped, read from the schedule the box's
+ * own crontab states — so the mail cron left is dated the same instant `syslog.1` records
+ * the run at, and a player can put the two beside each other.
+ *
+ * An hourly job last ran in the final hour of the last day; a daily one at its own hour
+ * that day; a weekly one on the most recent day of the week it names, which is that day
+ * or one of the six before it.
+ */
+const lastRun = ({
+  minute,
+  hour,
+  weekday,
+}: {
+  readonly minute: number;
+  readonly hour: number | null;
+  readonly weekday: number | null;
+}): number => {
+  const day = new Date(LAST_DAY);
+  const backBy = weekday === null ? 0 : (day.getUTCDay() - weekday + 7) % 7;
+  return Date.UTC(
+    day.getUTCFullYear(),
+    day.getUTCMonth(),
+    day.getUTCDate() - backBy,
+    hour ?? 23,
+    minute,
+  );
+};
+
+/** The jobs in the box's own crontab that really print something, each with the last
+ *  moment it ran, oldest first. Read from the file as the box keeps it, so the mail and
+ *  the crontab can never disagree about what is scheduled. */
+const printingRuns = (crontab: string): readonly CronRun[] =>
+  crontab
+    .split('\n')
+    .filter((line) => /^\d/.test(line))
+    .flatMap((line) => {
+      const [minuteHour = '', days = '', , command = ''] = line.split('\t');
+      if ((CRON_OUTPUT[command] ?? []).length === 0) return [];
+      const [minute = '0', hour = '*'] = minuteHour.split(' ');
+      const weekday = days.split(' ')[2] ?? '*';
+      return [
+        {
+          command,
+          ranAt: lastRun({
+            minute: Number(minute),
+            hour: hour === '*' ? null : Number(hour),
+            weekday: weekday === '*' ? null : Number(weekday),
+          }),
+        },
+      ];
+    })
+    .sort((earlier, later) => earlier.ranAt - later.ranAt);
+
+/** One line of a job's output with its sizes filled in. Each `{size}` is drawn on its
+ *  own, so `du -sh` of three places answers with three sizes rather than one repeated. */
+const withSizes = (line: string, prng: Prng): string =>
+  line
+    .replace(/\{size\}/g, () => prng.pick([`${prng.nextInt(4, 980)}K`, `${prng.nextInt(1, 940)}M`]))
+    .replace(/\{trimmed\}/g, () => {
+      // Never more than the disk the box boots off: `kern.log.1` puts its memory at
+      // ~16 GB, and trimming more free space than the machine has would read as a lie
+      // to anyone who compared the two.
+      const gibibytes = prng.nextInt(2, 14);
+      return `${gibibytes} GiB (${gibibytes * GIB} bytes)`;
+    });
+
+/**
+ * `/var/mail/root` as cron left it: one message per job of the box's own crontab that
+ * really prints something, holding what that job printed the last time it ran.
+ *
+ * This is the one mailbox that is not correspondence — nobody wrote it, the machine did,
+ * to itself. It is on every box whose jobs report, mail server or doorbell, because every
+ * box here runs the same cron; a box whose jobs are all silent has none, which is what an
+ * untouched `/var/mail/root` really looks like.
+ *
+ * It is root's alone. A job's output names what the box keeps and where, which is recon
+ * a player should have had to become root for.
+ */
+const cronMailbox = ({
+  essid,
+  host,
+  crontab,
+}: {
+  readonly essid: string;
+  readonly host: LanHost;
+  readonly crontab: string;
+}): string | null => {
+  const runs = printingRuns(crontab);
+  if (runs.length === 0) return null;
+  const zone = lanZoneName(essid);
+  const address = `root@${zone}`;
+  const prng = createPrng(`mail-cron-${essid}-${host.ip}`);
+  return runs
+    .map(({ command, ranAt }) => {
+      const stamped = transferId(prng);
+      return [
+        `From ${address} ${asctime(ranAt)}`,
+        // Cron hands its mail to the box's own transfer agent over the loopback: the
+        // message never crossed the network, and there is no other machine to name.
+        `Received: from localhost (${LOOPBACK})`,
+        `\tby ${host.hostname}.${zone} with local id ${stamped}`,
+        `\tfor <${address}>; ${rfcDate(ranAt)}`,
+        `Message-ID: <${mailMessageId({ sentAt: ranAt, transferId: stamped, zone })}>`,
+        `Date: ${rfcDate(ranAt)}`,
+        `From: ${address} (Cron Daemon)`,
+        `To: ${address}`,
+        `Subject: Cron <${address}> ${command}`,
+        `Delivered-To: <${address}>`,
+        'Status: RO',
+        '',
+        ...(CRON_OUTPUT[command] ?? []).map((line) => withSizes(line, prng)),
+        '',
+      ].join('\n');
+    })
     .join('');
 };
 
@@ -354,15 +485,27 @@ export const mailEntries = ({
   essid,
   host,
   username,
+  crontab,
 }: {
   readonly essid: string;
   readonly host: LanHost;
   /** The account this box belongs to, whose mailbox it keeps. */
   readonly username: string;
+  /** `/etc/crontab` as the box keeps it, which decides whether cron left root any mail. */
+  readonly crontab: string;
 }): BoxMailbox => {
   const carriesMail = roleOfHostname(host.hostname) === 'mailserver';
-  if (!carriesMail && !isDesk(host.hostname))
-    return { entries: {}, deliveries: [], aliases: null };
+  // Cron writes to root on any box it has something to report on, whether or not anybody
+  // reads mail there: a doorbell runs the same crontab a mail server does.
+  const fromCron = cronMailbox({ essid, host, crontab });
+  const rootMail = fromCron === null ? {} : { root: file(fromCron, MAIL_SPOOL_FILE) };
+  if (!carriesMail && !isDesk(host.hostname)) {
+    return {
+      entries: fromCron === null ? {} : { mail: dir(rootMail, TRAVERSABLE_DIR) },
+      deliveries: [],
+      aliases: null,
+    };
+  }
 
   // The correspondence is derived ONCE for the box. It is the same value for every
   // mailbox on it, and deriving it per mailbox doubled the world's build time.
@@ -382,7 +525,7 @@ export const mailEntries = ({
   if (application !== undefined && carriesMail) {
     const spool = spoolOf({ essid, host, application, mail, zone });
     return {
-      entries: { mail: dir(spool.entries, MAIL_SPOOL_DIR) },
+      entries: { mail: dir({ ...spool.entries, ...rootMail }, MAIL_SPOOL_DIR) },
       deliveries: spool.deliveries,
       aliases: file(aliasFile({ application, account: username }), ALIASES_FILE),
     };
@@ -390,9 +533,12 @@ export const mailEntries = ({
 
   const { recipient, messages } = arrivedIn({ essid, host, local: username, mail });
   const mbox = mboxFor({ zone, box: host, relay, recipient, messages, prng });
+  const kept = {
+    ...(mbox === null ? {} : { [username]: file(mbox, MAIL_FILE) }),
+    ...rootMail,
+  };
   return {
-    entries:
-      mbox === null ? {} : { mail: dir({ [username]: file(mbox, MAIL_FILE) }, TRAVERSABLE_DIR) },
+    entries: Object.keys(kept).length === 0 ? {} : { mail: dir(kept, TRAVERSABLE_DIR) },
     deliveries: [],
     aliases: null,
   };

@@ -12,6 +12,7 @@ import { asAbsPath } from '../types';
 import { WORLD_EPOCH } from '../cve/worldClock';
 import { networkArchetype } from './databaseApp';
 import { MAIL_SPECS, PERSONAL_THREADS } from './pools/mailThreads';
+import { CRON_OUTPUT } from './pools/cronMail';
 import { ALL_GENERATED_PASSWORDS } from './passwordPools';
 import {
   ALL_ESSIDS,
@@ -308,7 +309,11 @@ describe('a desk mailbox', () => {
     expect(personal.length).toBeGreaterThan(0);
     for (const box of personal) {
       const view = createFsView(buildRemoteHostFs(box.essid, box.host), { userType: 'root' });
-      expect(view.stat(asAbsPath('/var/mail'))).toBeNull();
+      const listed = view.list(asAbsPath('/var/mail'));
+      // Nothing is addressed to whoever carries the phone. What can be there is cron's
+      // own mail to root, which every box in the world gets on the same rule and which
+      // nobody reads over a terminal either way.
+      expect(listed.ok ? [...listed.entries] : []).toEqual(listed.ok ? ['root'] : []);
     }
   });
 });
@@ -334,6 +339,12 @@ const rosterOf = (box: Box): readonly string[] =>
 const listMail = (box: Box, as: 'root' | 'user' | 'guest' = 'root') =>
   createFsView(treeOf(box), { userType: as }).list(asAbsPath('/var/mail'));
 
+/** The mailboxes a spool keeps for the people its directory names - everything but
+ *  root's, which cron writes on every box in the world whether or not mail is carried
+ *  there. */
+const spoolRoster = (entries: readonly string[]): readonly string[] =>
+  [...entries].filter((name) => name !== 'root').sort();
+
 describe('a mail server spool', () => {
   it('keeps a mailbox for every mailbox its own application names', () => {
     const servers = mailServers();
@@ -341,9 +352,9 @@ describe('a mail server spool', () => {
     for (const box of servers) {
       const listed = listMail(box);
       expect(listed.ok).toBe(true);
-      expect(listed.ok && [...listed.entries].sort()).toEqual(
-        [...rosterOf(box)].sort(),
-      );
+      // `root` is cron's own mailbox rather than one the directory names, so it is left
+      // out here and held to the box's crontab by `the mail cron left for root`.
+      expect(listed.ok && spoolRoster(listed.entries)).toEqual([...rosterOf(box)].sort());
     }
   });
 
@@ -450,7 +461,7 @@ describe('a deep box mailbox', () => {
     expect(deepMailServers().length).toBeGreaterThan(0);
     for (const box of deepMailServers()) {
       const listed = listMail(box);
-      expect(listed.ok && [...listed.entries].sort()).toEqual([...rosterOf(box)].sort());
+      expect(listed.ok && spoolRoster(listed.entries)).toEqual([...rosterOf(box)].sort());
     }
   });
 
@@ -546,7 +557,7 @@ describe('a mail directory and the spool beside it', () => {
         String(row.local_part),
       );
       const listed = listMail(box);
-      expect(listed.ok && [...listed.entries].sort()).toEqual([...roster].sort());
+      expect(listed.ok && spoolRoster(listed.entries)).toEqual([...roster].sort());
     }
   });
 
@@ -1057,5 +1068,157 @@ describe('what a mail server logged itself doing', () => {
       );
       expect(live.ok && live.content).toBe('');
     }
+  });
+});
+
+/** The jobs a box's own `/etc/crontab` schedules, read back from the file a player can
+ *  `cat`, with what each one prints when it runs. */
+const cronJobsOn = (box: Box): readonly { readonly command: string; readonly prints: boolean }[] => {
+  const read = createFsView(treeOf(box), { userType: 'guest' }).read(asAbsPath('/etc/crontab'));
+  if (!read.ok) throw new Error(`/etc/crontab on ${box.host.hostname}: ${read.error}`);
+  return read.content
+    .split('\n')
+    .filter((line) => /^\d/.test(line))
+    .map((line) => {
+      const command = line.split('\t')[3] ?? '';
+      return { command, prints: (CRON_OUTPUT[command]?.length ?? 0) > 0 };
+    });
+};
+
+const rootMailOn = (box: Box, as: 'root' | 'user' | 'guest' = 'root') =>
+  createFsView(treeOf(box), { userType: as }).read(asAbsPath('/var/mail/root'));
+
+/** Every path a line of cron output names, which the box has to really have. */
+const pathsIn = (body: readonly string[]): readonly string[] =>
+  body.flatMap((line) =>
+    line
+      .split(/[\s()]+/)
+      .filter((word) => word.startsWith('/'))
+      // `fstrim` reports the root filesystem as `/:`, where the colon is punctuation.
+      .map((word) => word.replace(/:$/, '')),
+  );
+
+describe('the mail cron left for root', () => {
+  it('is there exactly where a job in the box’s own crontab really prints', () => {
+    let kept = 0;
+    let empty = 0;
+    for (const box of [...lanBoxes(ALL_ESSIDS), ...deepBoxes(ALL_ESSIDS)]) {
+      const prints = cronJobsOn(box).some((job) => job.prints);
+      expect(rootMailOn(box).ok, `${box.host.hostname}`).toBe(prints);
+      if (prints) kept += 1;
+      else empty += 1;
+    }
+    // Both sides really happen, so neither branch is a claim nothing exercises.
+    expect(kept).toBeGreaterThan(0);
+    expect(empty).toBeGreaterThan(0);
+  });
+
+  it('is root’s alone, wherever the box keeps it', () => {
+    let checked = 0;
+    for (const box of [...lanBoxes(ALL_ESSIDS), ...deepBoxes(ALL_ESSIDS)]) {
+      if (!rootMailOn(box).ok) continue;
+      expect(rootMailOn(box, 'user')).toEqual({ ok: false, error: 'permission_denied' });
+      expect(rootMailOn(box, 'guest')).toEqual({ ok: false, error: 'permission_denied' });
+      checked += 1;
+    }
+    expect(checked).toBeGreaterThan(0);
+  });
+
+  it('names the job each message is the output of, and holds nothing for a silent one', () => {
+    let read = 0;
+    for (const box of [...lanBoxes(ALL_ESSIDS), ...deepBoxes(ALL_ESSIDS)]) {
+      const mail = rootMailOn(box);
+      if (!mail.ok) continue;
+      const jobs = cronJobsOn(box);
+      const printing = jobs.filter((job) => job.prints).map((job) => job.command);
+      const messages = parseMbox(mail.content);
+      const zone = lanZoneName(box.essid);
+      expect(messages.map((message) => message.headers.get('Subject') ?? '').sort()).toEqual(
+        printing.map((command) => `Cron <root@${zone}> ${command}`).sort(),
+      );
+      for (const message of messages) {
+        expect(message.body.length).toBeGreaterThan(0);
+        expect(message.headers.get('Delivered-To')).toBe(`<root@${zone}>`);
+        for (const path of pathsIn(message.body)) {
+          expect(
+            createFsView(treeOf(box), { userType: 'root' }).stat(asAbsPath(path)),
+            `${box.host.hostname}: ${path}`,
+          ).not.toBeNull();
+        }
+      }
+      read += messages.length;
+    }
+    expect(read).toBeGreaterThan(0);
+  });
+
+  it('answers is-active with active, and du -sh with a size for each place it asked about', () => {
+    const answered = new Set<string>();
+    for (const box of [...lanBoxes(ALL_ESSIDS), ...deepBoxes(ALL_ESSIDS)]) {
+      const mail = rootMailOn(box);
+      if (!mail.ok) continue;
+      for (const message of parseMbox(mail.content)) {
+        const subject = message.headers.get('Subject') ?? '';
+        const command = subject.slice(subject.indexOf('> ') + 2);
+        if (command.startsWith('systemctl is-active')) {
+          expect(message.body).toEqual(['active']);
+          answered.add('is-active');
+        }
+        if (command.startsWith('du -sh')) {
+          const places = command.split(' ').slice(2);
+          expect(message.body.map((line) => line.split('\t')[1])).toEqual(places);
+          message.body.forEach((line) => expect(line.split('\t')[0]).toMatch(/^\d+[KMG]$/));
+          answered.add('du');
+        }
+      }
+    }
+    expect([...answered].sort()).toEqual(['du', 'is-active']);
+  });
+
+  it('is dated when the job last ran before the world stopped, never after', () => {
+    let dated = 0;
+    for (const box of [...lanBoxes(ALL_ESSIDS), ...deepBoxes(ALL_ESSIDS)]) {
+      const mail = rootMailOn(box);
+      if (!mail.ok) continue;
+      for (const message of parseMbox(mail.content)) {
+        const sentAt = Date.parse(message.headers.get('Date') ?? '');
+        expect(Number.isNaN(sentAt)).toBe(false);
+        expect(sentAt).toBeLessThan(WORLD_EPOCH);
+        // Cron fires on the minute, and the world keeps no finer time than a second.
+        expect(new Date(sentAt).getUTCSeconds()).toBe(0);
+        dated += 1;
+      }
+    }
+    expect(dated).toBeGreaterThan(0);
+  });
+
+  it('runs the job at the minute its own crontab schedules it for', () => {
+    let checked = 0;
+    for (const box of [...lanBoxes(ALL_ESSIDS), ...deepBoxes(ALL_ESSIDS)]) {
+      const mail = rootMailOn(box);
+      if (!mail.ok) continue;
+      const read = createFsView(treeOf(box), { userType: 'guest' }).read(
+        asAbsPath('/etc/crontab'),
+      );
+      const scheduled = new Map(
+        (read.ok ? read.content : '')
+          .split('\n')
+          .filter((line) => /^\d/.test(line))
+          .map((line) => {
+            const [minuteHour = '', days = '', , command = ''] = line.split('\t');
+            const [minute = '0', hour = '*'] = minuteHour.split(' ');
+            return [command, { minute: Number(minute), hour, weekday: days.split(' ')[2] ?? '*' }];
+          }),
+      );
+      for (const message of parseMbox(mail.content)) {
+        const subject = message.headers.get('Subject') ?? '';
+        const when = scheduled.get(subject.slice(subject.indexOf('> ') + 2));
+        const ran = new Date(Date.parse(message.headers.get('Date') ?? ''));
+        expect(ran.getUTCMinutes()).toBe(when?.minute);
+        if (when?.hour !== '*') expect(ran.getUTCHours()).toBe(Number(when?.hour));
+        if (when?.weekday !== '*') expect(ran.getUTCDay()).toBe(Number(when?.weekday));
+        checked += 1;
+      }
+    }
+    expect(checked).toBeGreaterThan(0);
   });
 });
