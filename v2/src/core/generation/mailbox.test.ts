@@ -3,7 +3,7 @@ import { boxMail, networkMail, type MailMessage } from './networkMail';
 import { buildRemoteHostFs, npcUsername } from './remoteHostFs';
 import { buildDeepHostFs } from './deepHostFs';
 import { inhabitant } from './persona';
-import { generateHomeLan, isOnHomeLan } from './generateHomeLan';
+import { generateHomeLan, isOnHomeLan, type LanHost } from './generateHomeLan';
 import { generateApplication } from './generateDatabase';
 import { roleOfHostname } from './pools/hostnames';
 import { lanZoneName } from '../network/resolveName';
@@ -675,5 +675,255 @@ describe('what the mail is about', () => {
     }
     const distinct = new Set(mailboxes.map(({ content }) => content)).size;
     expect(distinct / mailboxes.length).toBeGreaterThan(0.9);
+  });
+});
+
+/** The machine that carries a network's mail, where the network runs one. */
+const relayFor = (essid: string): LanHost | undefined =>
+  generateHomeLan(essid).hosts.find(
+    (host) => host.kind === 'machine' && roleOfHostname(host.hostname) === 'mailserver',
+  );
+
+describe('the route a message took to get here', () => {
+  it('shows two hops on a desk whose network carries its own mail', () => {
+    const served = desks().filter((desk) => relayFor(desk.essid) !== undefined);
+    expect(served.length).toBeGreaterThan(0);
+    for (const box of served) {
+      const relay = relayFor(box.essid) as LanHost;
+      const zone = lanZoneName(box.essid);
+      const username = npcUsername(box.essid, box.host);
+      for (const message of parseMbox(readMailbox(box, username))) {
+        // The sender's machine handed it to the mail server, and the mail server handed
+        // it to this desk. Both machines are real hosts a player can find with a scan.
+        expect(message.received.length).toBe(2);
+        const [delivered = '', collected = ''] = message.received;
+        expect(delivered).toContain(`from ${relay.hostname}.${zone} (${relay.ip})`);
+        expect(delivered).toContain(`by ${box.host.hostname}.${zone}`);
+        expect(collected).toContain(`by ${relay.hostname}.${zone}`);
+      }
+    }
+  });
+
+  it('shows one hop where the network has no mail server to route through', () => {
+    const direct = desks().filter((desk) => relayFor(desk.essid) === undefined);
+    expect(direct.length).toBeGreaterThan(0);
+    for (const box of direct) {
+      const zone = lanZoneName(box.essid);
+      const username = npcUsername(box.essid, box.host);
+      for (const message of parseMbox(readMailbox(box, username))) {
+        // Desk to desk, because there is no machine in between to stamp a second id.
+        expect(message.received.length).toBe(1);
+        expect(message.received[0]).toContain(`by ${box.host.hostname}.${zone}`);
+      }
+    }
+  });
+
+  it('shows one hop in the spool, because that is the machine that made the delivery', () => {
+    const servers = mailServers();
+    expect(servers.length).toBeGreaterThan(0);
+    for (const box of servers) {
+      const zone = lanZoneName(box.essid);
+      for (const local of rosterOf(box)) {
+        for (const message of parseMbox(readMailbox(box, local))) {
+          expect(message.received.length).toBe(1);
+          expect(message.received[0]).toContain(`by ${box.host.hostname}.${zone}`);
+        }
+      }
+    }
+  });
+
+  it('names every recipient separately in the header a reader shows', () => {
+    const several = desks().flatMap((box) => {
+      const username = npcUsername(box.essid, box.host);
+      return parseMbox(readMailbox(box, username))
+        .filter((message) => (message.headers.get('To') ?? '').split(', ').length > 1)
+        .map((message) => ({ box, message }));
+    });
+    // A thread that copies somebody in is the whole point of two mailboxes agreeing, so
+    // the world has to contain some.
+    expect(several.length).toBeGreaterThan(0);
+    for (const { box, message } of several) {
+      const zone = lanZoneName(box.essid);
+      for (const recipient of (message.headers.get('To') ?? '').split(', ')) {
+        expect(recipient).toMatch(new RegExp(`<[a-z0-9._-]+@${zone.replace(/\./g, '[.]')}>$`));
+      }
+    }
+  });
+
+  it('marks a reply as answering the message above it, and an opener as answering nothing', () => {
+    let answered = 0;
+    for (const box of desks()) {
+      const username = npcUsername(box.essid, box.host);
+      const messages = parseMbox(readMailbox(box, username));
+      for (const message of messages) {
+        const answers = message.headers.get('In-Reply-To');
+        if (answers === undefined) continue;
+        // Whatever it answers is a real message id, stamped the way every other id in
+        // the world is stamped.
+        expect(answers).toMatch(/^<[0-9]{14}[.][0-9A-F]{6}@[a-z0-9.-]+>$/);
+        expect(answers).not.toBe(message.headers.get('Message-ID'));
+        answered += 1;
+      }
+      // An opener answers nothing at all, so the header is absent rather than empty.
+      expect(messages.some((message) => !message.headers.has('In-Reply-To'))).toBe(true);
+    }
+    expect(answered).toBeGreaterThan(0);
+  });
+});
+
+describe('how a reply reads', () => {
+  it('quotes the line it is answering above its own words', () => {
+    let quoted = 0;
+    for (const essid of ALL_ESSIDS) {
+      for (const thread of networkMail(essid).threads) {
+        thread.messages.forEach((message, index) => {
+          const previous = thread.messages[index - 1];
+          if (previous === undefined) return;
+          // What a mail reader does when you hit reply: the line above, marked, then a
+          // blank line, then the answer. It is also the only place the owner's own side
+          // of a thread appears in their own mailbox.
+          expect(message.body[0]).toBe(`> ${previous.body[0] ?? ''}`);
+          expect(message.body[1]).toBe('');
+          expect(message.body.length).toBeGreaterThan(2);
+          quoted += 1;
+        });
+      }
+    }
+    expect(quoted).toBeGreaterThan(0);
+  });
+});
+
+describe('a mailbox with nothing in it', () => {
+  it('is an empty file in the spool, because the roster names it either way', () => {
+    const empty = [...mailServers(), ...deepMailServers()].flatMap((box) =>
+      rosterOf(box)
+        .filter((local) => readMailbox(box, local) === '')
+        .map((local) => `${box.host.hostname}/${local}`),
+    );
+    // A mail server's directory names every mailbox it keeps whether or not anything has
+    // arrived in one. An account beyond the cast the correspondence draws on is a file
+    // with nothing in it, which is what an unused account on a real spool looks like.
+    expect(empty.length).toBeGreaterThan(0);
+  });
+
+  it('is never what a desk keeps, because the network writes to whoever sits there', () => {
+    const boxes = deepDesks();
+    expect(boxes.length).toBeGreaterThan(0);
+    for (const box of boxes) {
+      const account = npcUsername(box.essid, box.host);
+      const written = boxMail({
+        essid: box.essid,
+        host: box.host,
+        account,
+        people: loginsOf(box),
+      }).threads.some((thread) =>
+        thread.messages.some((message) =>
+          message.to.some((person) => person.username === account),
+        ),
+      );
+      // The account a desk belongs to is always in the cast its own box draws on, so a
+      // desk always has a mailbox and it always holds something.
+      expect(`${box.host.hostname}: ${written} ${mailboxOn(box, account).ok}`).toBe(
+        `${box.host.hostname}: true true`,
+      );
+    }
+  });
+});
+
+describe('mail sent to a role mailbox', () => {
+  it('is dated in the same window as everything else the world holds', () => {
+    const servers = mailServers();
+    expect(servers.length).toBeGreaterThan(0);
+    let notes = 0;
+    for (const box of servers) {
+      const logins = new Set(loginsOf(box));
+      for (const local of rosterOf(box).filter((name) => !logins.has(name))) {
+        for (const message of parseMbox(readMailbox(box, local))) {
+          const sentAt = Date.parse(message.headers.get('Date') ?? '');
+          expect(sentAt).toBeLessThanOrEqual(LAST_SECOND);
+          expect(sentAt).toBeGreaterThan(EARLIEST_INSTALL);
+          notes += 1;
+        }
+      }
+    }
+    expect(notes).toBeGreaterThan(0);
+  });
+});
+
+describe('the order a mailbox opens in', () => {
+  it('leads with the work the network is there to do, then lets a personal thread in', () => {
+    const personal = new Set(
+      Object.values(PERSONAL_THREADS).flatMap((threads) =>
+        threads.map((thread) => thread.subject),
+      ),
+    );
+    let checked = 0;
+    for (const essid of ALL_ESSIDS) {
+      const business = new Set(
+        MAIL_SPECS[networkArchetype(essid)].map((thread) => thread.subject),
+      );
+      const subjects = networkMail(essid).threads.map((thread) => thread.subject);
+      // Two of the network's own business, then one of its people's, and round again —
+      // so whatever a player reads first is the thing the place is actually for.
+      expect(business.has(subjects[0] ?? '')).toBe(true);
+      expect(business.has(subjects[1] ?? '')).toBe(true);
+      if (subjects.length > 2) {
+        expect(business.has(subjects[2] ?? '')).toBe(false);
+        expect(personal.has(subjects[2] ?? '')).toBe(true);
+        checked += 1;
+      }
+    }
+    expect(checked).toBeGreaterThan(0);
+  });
+});
+
+describe('the headers as a terminal shows them', () => {
+  it('folds each delivery line under its own tab, the way a mail header folds', () => {
+    let folded = 0;
+    for (const box of desks()) {
+      const raw = readMailbox(box, npcUsername(box.essid, box.host));
+      for (const line of raw.split('\n').filter((text) => text.startsWith('Received: '))) {
+        expect(line).not.toContain(' by ');
+      }
+      // A header longer than a line continues on the next one, indented. Written flat it
+      // would still parse, but it would not look like mail in a pager.
+      expect(raw).toContain('\n\tby ');
+      expect(raw).toContain('\n\tfor <');
+      folded += 1;
+    }
+    expect(folded).toBeGreaterThan(0);
+  });
+
+  it('gives each machine that handled a message its own transfer id', () => {
+    const served = desks().filter((desk) => relayFor(desk.essid) !== undefined);
+    expect(served.length).toBeGreaterThan(0);
+    for (const box of served) {
+      for (const message of parseMbox(readMailbox(box, npcUsername(box.essid, box.host)))) {
+        const ids = message.received.map(
+          (hop) => hop.match(/with ESMTP id ([0-9A-F]+)/)?.[1] ?? '',
+        );
+        expect(ids.every((id) => /^[0-9A-F]{6}$/.test(id))).toBe(true);
+        // The desk stamped its own delivery; the mail server stamped the one before it.
+        // Two machines, two ids, and neither is the other's.
+        expect(new Set(ids).size).toBe(ids.length);
+      }
+    }
+  });
+
+  it('writes a role mailbox as an address with nobody behind it', () => {
+    let addressed = 0;
+    for (const box of [...mailServers(), ...deepMailServers()]) {
+      const logins = new Set(loginsOf(box));
+      const zone = lanZoneName(box.essid);
+      for (const local of rosterOf(box).filter((name) => !logins.has(name))) {
+        for (const message of parseMbox(readMailbox(box, local))) {
+          // Nobody is called postmaster, so the header carries the address alone rather
+          // than inventing a person to stand behind it.
+          expect(message.headers.get('To')).toBe(`<${local}@${zone}>`);
+          addressed += 1;
+        }
+      }
+    }
+    expect(addressed).toBeGreaterThan(0);
   });
 });
