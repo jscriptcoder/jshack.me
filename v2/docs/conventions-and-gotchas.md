@@ -760,6 +760,16 @@ minutes. Anything a mutant needs that the narrowed `include` omits reports as **
 rather than as survived, so the narrowing is visible in the report rather than silent. Keep
 both files out of the repo — the `mutate` and `include` lists are per-slice and would rot.
 
+**"Keep both files out of the repo" means untracked-and-deleted, not "somewhere else on disk."**
+Writing the throwaway vitest config to a scratch directory outside the project looks tidier and
+does not work: node resolves `vite-plugin-solid` by walking up from the CONFIG FILE's own
+directory, so a config under `AppData/Local/Temp` dies with `ERR_MODULE_NOT_FOUND` and a
+`requireStack` naming the plugin — which reads exactly like a missing dependency and sends you to
+`npm install`. Write both files at the v2 root, run, then `rm` them; `reports/` and `.stryker-tmp`
+are already gitignored, so only those two need removing. Same for the `vitest.configFile` path
+inside the stryker config: keep it project-relative, because Stryker copies the project into a
+sandbox and an absolute path escapes it.
+
 **That throwaway vitest config must carry three things the real one supplies, or NOTHING runs.**
 Copy `include` alone and the battery dies with `ConfigError: No tests were executed`, which reads
 like a bad `--mutate` glob and is not. It needs `setupFiles: './src/test/setup.ts'`,
@@ -821,6 +831,33 @@ throw, which is exactly where `perTest` coverage mapping is least reliable.
 that identical `nmap` routing condition as SURVIVED again — by hand it failed **46** tests. A line
 that has produced a false survivor twice is not going to stop, so do not re-litigate it: hand-check
 and move on. The hand-check is one scripted run and it has now been right five times out of five.
+
+**A sixth, seventh and eighth — and the eighth is not a guard, a usage check or a routing
+condition.** The mail slice reported three more: `In-Reply-To`'s array (killed 2 tests by hand),
+the reply-quoting guard `previous === undefined || reply === undefined` → `false` (**107 tests**),
+and — the new shape — `.sort((earlier, later) => earlier.sentAt - later.sentAt)` → `+`, an
+ordinary comparator with no branch in it at all (2 tests). So the rule is not about guard clauses,
+usage checks or routing: **`perTest` mis-maps any mutant whose effect surfaces in code that runs
+LATER than the mutated line**, comparator included. Eight for eight. Budget one scripted
+hand-check per non-prose survivor before writing a single test against it; the run that found
+these took 30 seconds each and would otherwise have bought three tests for gaps that did not
+exist.
+
+**The same slice shows the gate working, so do not read the above as "ignore the report."** That
+run found the mail work's headline claims genuinely unproven: making `relayOf`'s `find` return
+`undefined` — no network carries its own mail, every message arrives in one hop — passed all 5,730
+tests, as did dropping the `* 1000` from a role mailbox's date (putting that mail in 1970) and
+never quoting the message a reply answers. Six of seven hand-checked survivors were real. The
+report is a hypothesis generator worth running; the hand-check is what turns a hypothesis into
+work.
+
+**A timeout is ambiguous in general but not always — check whether the mutant HANGS.** The mail
+slice's 11 timeouts all sat on one weave loop, and applying one by hand hung past 60 seconds:
+mutating `<` to `<=` in `while (atBusiness < business.length || atPersonal < personal.length)`
+leaves both inner guards untouched, so neither counter advances. That is a deterministic
+non-terminating loop, not a slow test, and counting it as killed is correct on any machine. One
+hand-run separates this case from the load-dependent one the section above warns about — worth
+doing before quoting a score that leans on timeouts.
 
 **A codec tested only through its own round trip cannot see format drift — pin it with a vector
 from the OTHER implementation.** Every encrypt/decrypt test writes and reads with the same code, so

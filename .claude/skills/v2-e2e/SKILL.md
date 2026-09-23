@@ -216,7 +216,12 @@ for (const candidate of ALL_GENERATED_PASSWORDS) {
 A store whose `requirepassHash` is `null` is open and takes no `AUTH` at all. To pick a target
 before touching the browser, walk `generateHomeLan(essid).hosts`, keep the ones whose
 `hostServices(essid, host)` include redis (match `spec.service`, NOT `spec.name` — that is
-`undefined` and silently matches nothing), and read `storeIn(fs)` / `databaseIn(fs)`. Only a box
+`undefined` and silently matches nothing), and read `storeIn(fs)` / `databaseIn(fs)`. **The
+element is `{ spec, port }`, so it is `entry.spec.service` — `entry.service` is `undefined` too**,
+and every wrong read here fails the same silent way: an empty list, no error, which reads as a
+world where nothing runs. 2026-09-23 it produced "**0** boxes in the world have both a mailbox and
+an ssh door" and nearly got a shipped feature reported as unreachable in play; the true number was
+22 of 51. Print the mapped values once before filtering on them. Only a box
 carrying both lets you check a cached row against its `SELECT`. **Which networks a player can see
 is drawn from their own identity** (2–3 per scan), so choose the target AFTER the first
 `airodump-ng`, or re-scan to re-roll.

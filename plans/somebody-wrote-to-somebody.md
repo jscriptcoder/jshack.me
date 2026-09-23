@@ -5,14 +5,58 @@
 precedent and confirmed. All are recorded under "Decided at planning" below and in the epic's
 status log.
 
-**Status:** Planned, not started.
+**Status:** PR 7a DELIVERED (#541, v0.255.0, 2026-09-23). PR 7b not started — it is unblocked.
 
 **Delivery:** two independent PRs against trunk, in order. PR 7b starts once 7a merges.
 
 | PR | Branch (proposed) | Version | Owns |
 |---|---|---|---|
-| 7a | `feat/somebody-wrote-to-somebody` | v0.255.0 | the network's correspondence, `/var/mail/<user>` on desks, the mail server's spool, the roster and delivery agreement with the mail database |
-| 7b | `feat/a-mail-box-corroborates-itself` | v0.256.0 | `mail.log` + `mail.log.1`, `/etc/aliases` and the postfix config fixes, root's cron mail |
+| 7a | `feat/somebody-wrote-to-somebody` | v0.255.0 | ✅ **DONE** (#541) — the network's correspondence, `/var/mail/<user>` on desks, the mail server's spool, the roster and delivery agreement with the mail database |
+| 7b | `feat/a-mail-box-corroborates-itself` | v0.256.0 | ⏳ `mail.log` + `mail.log.1`, `/etc/aliases` and the postfix config fixes, root's cron mail |
+
+### As-built: PR 7a
+
+Six RED-GREEN increments, plus one test commit from the mutation gate and the version bump.
+
+**Deviations from this plan, and why.**
+- **Increments 4 and 5 were swapped.** `oneOfEach()` builds its synthetic mail box at
+  `10.40.0.9`/`mail-9`, which is off-LAN, and no real mail server runs mysqld — so off-LAN mail
+  had to exist before the database could be made to agree with it.
+- **`MAIL_SPECS` has 12 entries, not the planned 15.** `cms`, `api` and `mail` are box-level
+  archetypes `networkArchetype` can never return, so the record is keyed on `NetworkArchetypeKey`
+  (the union derived from `ARCHETYPES_BY_CATEGORY`, now `as const satisfies`). Every entry stays
+  reachable and the compiler enforces the set.
+- **`delivery_log`'s six-subject pick list was retired**, not extended: the log drafts from the
+  deliveries that really happened. This needed a new `before` bound on `Draft` so a mailbox row is
+  opened *before* its first delivery, rather than a filter applied after the fact.
+
+**Found during the build.**
+- A body line beginning `From ` splits an mbox. One authored line did
+  (`'From about seven, and people drift in until nine.'`), silently turning one mailbox into five
+  malformed messages. Fixed at the renderer with real `>From ` quoting, so no future line can
+  corrupt a file — not by rewording the prose.
+- The inert sweep must read **bodies**, not whole files: `OSCORP-GUEST` → zone
+  `oscorp-guest.lan` made it fail on the word *guest*, and Message-IDs tripped the version sweep
+  the same way.
+- **Reachability splits in two.** All 128 authored threads are written somewhere, but 25 land only
+  on networks of phones with no mail server, and a phone keeps no mailbox (decision 1). So there
+  are two tests: nothing authored goes unwritten, and no whole set is unreadable.
+- **The emptiness guard in `mboxFor` is unreachable.** Measured across every desk on and below the
+  LAN: the account a desk belongs to is always in the cast, so a desk never has an empty mailbox.
+  Empty mailboxes exist only in a **deep** mail server's spool, where the roster names more
+  accounts than `MAX_CAST`. Recorded as `N/A` with reachability evidence at the gate, not tested
+  into existence.
+
+**Mutation gate.** It found the headline claims unproven: making the mail-server lookup return
+`undefined` (so nothing carries mail and every message arrives in one hop) passed the whole suite,
+as did dropping the `* 1000` from a role mailbox's date and never quoting the message a reply
+answers. Ten tests closed those — `mailbox.ts` 78.47% → 88.89%, `networkMail.ts` 77.39% → 86.43%.
+`networkMail.ts`'s 11 timeouts are genuine non-terminating loops in the weave, hand-verified.
+
+**Verified:** 5,739 unit tests; wire-checks 47/47 (`testSameLanConnect`, `testCrossPlayerRead`,
+`testDeepChainReach`, `testMysqlQuery`, `testMysqlDeep`); bundle 192,258 B gzipped (+15.2 KB, all
+authored prose); build 0.559 ms/box; played run on `WAYSTAR-WIFI` reading `/var/mail/nwilliams`
+over ssh, with `guest` refused on the same file.
 
 Each PR bumps `v2/package.json` and `v2/package-lock.json` (`npm install --package-lock-only`).
 

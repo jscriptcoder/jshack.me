@@ -3,14 +3,17 @@
 > **Picking this up cold?** Read "Locked decisions", then the slice table — it carries the live
 > status. The grounding section records what v2 held on the day this was grilled; the code wins
 > wherever the two disagree.
-> Grilled 2026-09-21 (`grilling`), 25 locked decisions. Slices 0–6 delivered (as-built below).
-> Slice 7 planned in [`somebody-wrote-to-somebody.md`](./somebody-wrote-to-somebody.md).
+> Grilled 2026-09-21 (`grilling`), 25 locked decisions. Slices 0–6 delivered (as-built below),
+> slice 7's first PR delivered.
+> Slice 7 planned in [`somebody-wrote-to-somebody.md`](./somebody-wrote-to-somebody.md), which
+> carries PR 7a's as-built and is kept until 7b ships.
 
-**Where we are now (2026-09-22):** **v0.254.0**. The legacy-parity epic's V-series is closed and
+**Where we are now (2026-09-23):** **v0.255.0**. The legacy-parity epic's V-series is closed and
 its next line was "the ship gate". **Ship now waits for this epic** (decision 1). Grilled to 25
 locked decisions and a twelve-slice spine. **Slices 0–6 are DONE** (#533, #534, #535, #536,
-#537 + #538, #539, #540) — the build budgets, NPC workstation homes, every NPC box's `/etc`,
-`/root`, `.ssh/` and `/home/guest`, every NPC box's rotated `.1` history plus `syslog`, a
+#537 + #538, #539, #540), and **slice 7's PR 7a is DONE** (#541) — the build budgets, NPC
+workstation homes, every NPC box's `/etc`, `/root`, `.ssh/` and `/home/guest`, every NPC box's
+rotated `.1` history plus `syslog`, a
 three-layer site on every webserver (with lynx tables/`<pre>` and `.lan` names in the web tools),
 an application in every NPC database, and that application's working set in every NPC store; their
 as-built is folded into the slice spine and the "As-built" sections below.
@@ -404,7 +407,7 @@ See below; planning refines it.
 | 4 | **A web server serves a site** — three layers, lynx `<table>`/`<pre>`, the link-resolution property test | lynx follows links across pages; `robots.txt` names a served path; a default `gobuster` finds a hidden path | ✅ DONE (#537 v0.251.0, #538 v0.252.0) — webservers only; other http hosts keep one version-free page; see as-built below |
 | 5 | **A database holds an application** — app archetypes | `SHOW TABLES` on a café network's DB shows a till schema whose staff are that network's inhabitants | ✅ DONE (#539, v0.253.0) — 15 archetypes; decision 15 amended (DB credentials re-rolled once); a bought DB is a fresh install; see as-built below |
 | 6 | **A store serves that application** — Redis keyspaces paired with the app | `KEYS sess:*` returns sessions for that app's real users | ✅ DONE (#540, v0.254.0) — 43 stores, all reading differently; decision 15 amended (store locks re-rolled once); a bought store is a fresh install; see as-built below |
-| 7 | **Somebody wrote to somebody** — workstation mailboxes, the mail server's spool | a thread in `/var/mail/<user>` is between two real inhabitants of the network | 📋 PLANNED — `somebody-wrote-to-somebody.md`, two PRs (v0.255.0, v0.256.0); one correspondence per network read from both ends; no new door and no stream re-roll |
+| 7 | **Somebody wrote to somebody** — workstation mailboxes, the mail server's spool | a thread in `/var/mail/<user>` is between two real inhabitants of the network | 🔨 **7a DONE** (#541, v0.255.0) — the correspondence, desk mailboxes, the spool, and the delivery agreement with the mail database; a phone keeps none. **7b next** (v0.256.0): `mail.log`, `/etc/aliases`, root's cron mail. See `somebody-wrote-to-somebody.md` |
 | 8 | **A share holds a department** — fileserver `/srv`, metadata docs | `strings` on a shared PDF names its author, an inhabitant | ⏳ |
 | 9 | **A device is the device it says** — IoT prefix overlays + prefix growth (the one re-roll: refresh pins, wire-checks, the `v2-e2e` skill) | a printer serves a CUPS page and holds spool jobs; a camera a recordings index | ⏳ |
 | 10 | **A gateway knows its network** — DHCP leases, config backups, admin pages, admin/firmware history | a rooted router's lease table lists exactly the network's generated hosts | ⏳ |
@@ -845,3 +848,18 @@ drawn to fill the key budget, so a store may cache a row its own queues never me
   decision-15 amendment and **no re-roll** (mail is new streams only), deep boxes take their cast
   from the role pool as deep databases do, the two copies of a message differ by their true
   `Received:` chain so decision 17 needs no exemption, and headers stay version-free.
+- **2026-09-23** — **slice 7's PR 7a shipped** (#541, v0.255.0): `networkMail.ts`, `mailbox.ts`,
+  `pools/mailThreads.ts`, `/var/mail` in the `var:` assembly, and `delivery_log` redrafted from
+  real deliveries. Played run on `WAYSTAR-WIFI` recorded; `guest` refused on the same file.
+  Two planned shapes changed on contact: increments 4 and 5 swapped (off-LAN mail had to exist
+  before the database could agree with it, because `oneOfEach()`'s synthetic mail box is off-LAN
+  and no real mail server runs mysqld), and `MAIL_SPECS` keys on the twelve archetypes a *network*
+  can be drawn as rather than all fifteen — `cms`, `api` and `mail` belong to a box, so keying on
+  `NetworkArchetypeKey` keeps every entry reachable and compiler-enforced. The `delivery_log`
+  rewrite needed a `before` bound on `Draft` so a mailbox is opened before its first delivery.
+  The mutation gate earned its place here: removing the mail server entirely — so nothing carries
+  mail and every message arrives in one hop — passed all 5,730 tests, as did dating role-mailbox
+  mail to 1970 and never quoting the message a reply answers; ten tests closed those. One survivor
+  is recorded `N/A` as unreachable rather than tested into existence (a desk never has an empty
+  mailbox; only a deep spool does). PR 7a's as-built stays in the slice plan, which is kept until
+  7b ships. Next: **PR 7b** (`feat/a-mail-box-corroborates-itself`, v0.256.0).
