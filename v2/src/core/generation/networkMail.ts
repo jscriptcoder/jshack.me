@@ -192,6 +192,12 @@ export const mailMessageId = (options: {
 export const mailMoment = (prng: Prng): number =>
   prng.nextInt(LAST_SECOND - WINDOW_SECONDS, LAST_SECOND) * 1000;
 
+/** The subject the message really went out with: a reply wears `Re:`. Written here
+ *  rather than at the mbox, because the directory's delivery log records the same
+ *  string and the two have to match. */
+export const subjectOf = (message: MailMessage): string =>
+  message.inReplyTo === null ? message.subject : `Re: ${message.subject}`;
+
 /** Every account on the network that has a mailbox, in address order along the LAN. */
 const peopleOn = (essid: string): readonly MailPerson[] => {
   const zone = lanZoneName(essid);
@@ -381,4 +387,130 @@ export const boxMail = ({
     zone,
     prng: createPrng(`mail-box-${essid}-${host.ip}`),
   });
+};
+
+/** Everything a correspondence wrote to one account, oldest first. */
+export const deliveredTo = (mail: NetworkMail, username: string): readonly MailMessage[] =>
+  mail.threads
+    .flatMap((thread) => thread.messages)
+    .filter((message) => message.to.some((person) => person.username === username))
+    .sort((earlier, later) => earlier.sentAt - later.sentAt);
+
+/**
+ * What arrives at a mailbox nobody in particular owns. A role mailbox is the address an
+ * organisation publishes, so what lands in it is somebody there writing to the role
+ * rather than to a person — which is why these are single messages and not threads.
+ */
+const SHARED_MAIL: Readonly<
+  Record<string, readonly { readonly subject: string; readonly body: readonly string[] }[]>
+> = {
+  info: [
+    { subject: 'Opening hours', body: ['Somebody asked what time we open on Saturdays.', 'I have told them ten.'] },
+    { subject: 'Website contact form', body: ['Three enquiries came through the form this week.', 'All answered.'] },
+  ],
+  sales: [
+    { subject: 'Quote for the Harper job', body: ['They want the quote broken down by week.', 'I said I would send it Monday.'] },
+    { subject: 'Renewal list', body: ['Six renewals due next month.', 'Two of them have not answered the first letter.'] },
+  ],
+  support: [
+    { subject: 'Ticket backlog', body: ['We are down to eleven open tickets.', 'The oldest is from a fortnight ago.'] },
+    { subject: 'Call handover', body: ['Nothing outstanding from this morning.', 'The one about the printer can wait.'] },
+  ],
+  billing: [
+    { subject: 'Unpaid from March', body: ['Two invoices from March are still unpaid.', 'Chased both today.'] },
+    { subject: 'New bank details', body: ['The bank details on the invoice template are out of date.', 'Please use the ones on the letterhead.'] },
+  ],
+  postmaster: [
+    { subject: 'Queue was backed up', body: ['Mail sat in the queue for an hour this morning.', 'It cleared on its own once the disk was tidied.'] },
+    { subject: 'Alias for the new starter', body: ['Can somebody add the new starter to the everyone alias.'] },
+  ],
+  office: [
+    { subject: 'Stationery order', body: ['Putting an order in on Friday.', 'Tell me before then if you need anything.'] },
+    { subject: 'Cleaner comes Tuesday', body: ['Please clear the desks before you leave on Monday.'] },
+  ],
+  accounts: [
+    { subject: 'Expenses cut-off', body: ['Expenses for the quarter have to be in by the end of the month.'] },
+    { subject: 'Filing', body: ['The paperwork for last year is boxed and in the cupboard.'] },
+  ],
+};
+
+/** For a role mailbox nothing above names — the roster is drawn from a pool this one
+ *  tracks, so it is a fallback rather than a common case. */
+const GENERIC_SHARED_MAIL: readonly { readonly subject: string; readonly body: readonly string[] }[] =
+  [
+    { subject: 'Nothing outstanding', body: ['Nothing outstanding on this address today.'] },
+    { subject: 'Passing this on', body: ['Passing this on to whoever picks the address up.'] },
+  ];
+
+/** How much mail a role mailbox is holding when the world stops. */
+const SHARED_MESSAGE_COUNT = { min: 1, max: 3 } as const;
+
+/** The mail a role mailbox is holding: written by people who really work on the network,
+ *  to the address rather than to each other. */
+const sharedMail = ({
+  essid,
+  host,
+  local,
+  people,
+}: {
+  readonly essid: string;
+  readonly host: LanHost;
+  readonly local: string;
+  readonly people: readonly MailPerson[];
+}): { readonly recipient: MailPerson; readonly messages: readonly MailMessage[] } => {
+  const zone = lanZoneName(essid);
+  // Its OWN stream, keyed by the mailbox: what a role address holds must be the same
+  // whether the spool file is being written or the directory's log is being read, and
+  // neither may depend on the order the other happened to ask in.
+  const prng = createPrng(`mail-box-${essid}-${host.ip}-${local}`);
+  // A role mailbox is an address, not a person, so it has no name to sign with — and it
+  // lives on the machine that carries the mail.
+  const recipient: MailPerson = { username: local, fullName: '', address: `${local}@${zone}`, host };
+  const notes = prng.pickN(
+    SHARED_MAIL[local] ?? GENERIC_SHARED_MAIL,
+    prng.nextInt(SHARED_MESSAGE_COUNT.min, SHARED_MESSAGE_COUNT.max),
+  );
+  const messages = notes
+    .map((note) => {
+      const sentAt = mailMoment(prng);
+      const stamped = transferId(prng);
+      return {
+        id: mailMessageId({ sentAt, transferId: stamped, zone }),
+        transferId: stamped,
+        from: prng.pick(people),
+        to: [recipient],
+        subject: note.subject,
+        sentAt,
+        body: note.body,
+        inReplyTo: null,
+      };
+    })
+    .sort((earlier, later) => earlier.sentAt - later.sentAt);
+  return { recipient, messages };
+};
+
+/**
+ * What really arrived in one mailbox on `box`, oldest first, with the person or the role
+ * address it belongs to.
+ *
+ * One answer for two readers: the spool file writes these messages out, and the mail
+ * directory's own delivery log records the same ones. A log that named a message no
+ * mailbox holds would be the box contradicting itself.
+ */
+export const arrivedIn = ({
+  essid,
+  host,
+  local,
+  mail,
+}: {
+  readonly essid: string;
+  readonly host: LanHost;
+  /** The local part of the mailbox: an account of the correspondence, or a role address. */
+  readonly local: string;
+  readonly mail: NetworkMail;
+}): { readonly recipient: MailPerson; readonly messages: readonly MailMessage[] } => {
+  const person = mail.people.find((candidate) => candidate.username === local);
+  return person === undefined
+    ? sharedMail({ essid, host, local, people: mail.people })
+    : { recipient: person, messages: deliveredTo(mail, local) };
 };

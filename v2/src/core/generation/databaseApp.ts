@@ -21,6 +21,8 @@
 import { WORLD_EPOCH } from '../cve/worldClock';
 import { createPrng, type Prng } from './prng';
 import { networkPersona } from './persona';
+import { arrivedIn, boxMail, networkMail, subjectOf } from './networkMail';
+import { isOnHomeLan } from './generateHomeLan';
 import { roleOfHostname } from './pools/hostnames';
 import { FIRST_NAMES_BY_INITIAL, SURNAMES } from './pools/people';
 import {
@@ -136,6 +138,11 @@ const DEV_ROWS = { min: 5, max: 12 } as const;
 const ALL_FIRST_NAMES: readonly string[] = Object.values(FIRST_NAMES_BY_INITIAL).flat();
 const ALL_SURNAMES: readonly string[] = [...SURNAMES.values()];
 
+/** What a drafting table is told before the table it belongs to is reached: the rest —
+ *  the rows already built and this table's own row count — is known only inside
+ *  `buildTable`, which fills it in. */
+type TableContext = Omit<DraftContext, 'rowsOf' | 'count'>;
+
 /** A table as built so far: its rows, and the moment each was made (null when the
  *  table records none). */
 type Built = { readonly rows: readonly MysqlRow[]; readonly madeAt: readonly (number | null)[] };
@@ -201,11 +208,22 @@ const draftRow = ({
         case 'serial':
         case 'stamp':
         case 'code':
+        case 'given':
           return draft;
       }
     },
     { cells: {}, after: install },
   );
+
+/** When a row with no moment of its own was made: after whatever it refers to, before
+ *  whatever it must precede, and never after the world stopped. An impossible window —
+ *  a login that joined after mail was already arriving — collapses to its earliest
+ *  moment, because a row may not predate the row it refers to. */
+const drawnMoment = (prng: Prng, draft: Draft, lastSecond: number): number => {
+  const earliest = Math.ceil(draft.after / 1000);
+  const latest = draft.before === undefined ? lastSecond : Math.min(lastSecond, draft.before / 1000 - 1);
+  return prng.nextInt(earliest, Math.max(earliest, Math.floor(latest))) * 1000;
+};
 
 const buildTable = ({
   prng,
@@ -217,7 +235,7 @@ const buildTable = ({
   readonly prng: Prng;
   readonly spec: TableSpec;
   readonly built: ReadonlyMap<string, Built>;
-  readonly context: DraftContext;
+  readonly context: TableContext;
   readonly rows: { readonly min: number; readonly max: number };
 }): { readonly table: MysqlTable; readonly built: Built } => {
   const install = context.users[0]?.madeAt ?? WORLD_EPOCH;
@@ -232,7 +250,13 @@ const buildTable = ({
     uniques.map((column) => [column.name, prng.pickN(column.values, count)] as const),
   );
   const drafts =
-    spec.draft?.(context) ??
+    // A table that drafts its own rows sees what came before it, and how many rows it
+    // would otherwise have held.
+    spec.draft?.({
+      ...context,
+      count,
+      rowsOf: (table) => built.get(table)?.rows ?? [],
+    }) ??
     Array.from({ length: count }, (_, index) =>
       draftRow({ prng, spec, built, drawnUniques, index, install }),
     );
@@ -241,7 +265,9 @@ const buildTable = ({
   const lastSecond = WORLD_EPOCH / 1000 - 1;
   const dated = drafts.map((draft) => ({
     draft,
-    madeAt: hasStamp ? prng.nextInt(Math.ceil(draft.after / 1000), lastSecond) * 1000 : null,
+    // A row recording something that happened at a known moment is dated to it; the rest
+    // are dated somewhere after whatever they refer to.
+    madeAt: draft.at ?? (hasStamp ? drawnMoment(prng, draft, lastSecond) : null),
   }));
   // Rows are numbered in the order they were made, so ids and dates ascend together.
   const ordered = hasStamp
@@ -299,7 +325,17 @@ export const buildApplication = ({
   );
   const specs = archetype.tables.filter((table) => table.required || chosen.has(table.name));
 
-  const context: DraftContext = {
+  // What really arrived in each mailbox of the box's spool, for the one application that
+  // keeps a delivery log. Read from the same correspondence the spool itself is written
+  // from, so the log and the files cannot disagree.
+  const mail =
+    databaseArchetype(essid, host) !== 'mail'
+      ? null
+      : isOnHomeLan(essid, host)
+        ? networkMail(essid)
+        : boxMail({ essid, host, account: people[0] ?? '', people });
+
+  const context: TableContext = {
     users: users.map((row) => ({
       id: Number(row['id']),
       username: String(row['username']),
@@ -308,6 +344,15 @@ export const buildApplication = ({
     pick: prng.pick,
     pickN: prng.pickN,
     nextInt: prng.nextInt,
+    momentOf: instantOf,
+    deliveries: (localPart) =>
+      mail === null
+        ? []
+        : arrivedIn({ essid, host, local: localPart, mail }).messages.map((message) => ({
+            senderName: message.from.fullName,
+            subject: subjectOf(message),
+            sentAt: message.sentAt,
+          })),
   };
   const initial: {
     readonly built: ReadonlyMap<string, Built>;

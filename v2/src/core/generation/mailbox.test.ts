@@ -297,18 +297,20 @@ describe('a desk mailbox', () => {
 const mailServers = (): readonly Box[] =>
   lanBoxes(ALL_ESSIDS).filter(({ host }) => roleOfHostname(host.hostname) === 'mailserver');
 
+/** What the box's own application holds, whether or not mysqld serves it. */
+const applicationOf = (box: Box) =>
+  generateApplication({
+    appSeed: `db-app-${box.essid}-${box.host.ip}`,
+    essid: box.essid,
+    host: box.host,
+    account: npcUsername(box.essid, box.host),
+    role: roleOfHostname(box.host.hostname),
+  });
+
 /** The mailboxes a mail server's own application says it keeps: one per login on the
  *  network, plus the shared ones every organisation has. */
 const rosterOf = (box: Box): readonly string[] =>
-  (
-    generateApplication({
-      appSeed: `db-app-${box.essid}-${box.host.ip}`,
-      essid: box.essid,
-      host: box.host,
-      account: npcUsername(box.essid, box.host),
-      role: roleOfHostname(box.host.hostname),
-    }).tables.mailboxes?.rows ?? []
-  ).map((row) => String(row.local_part));
+  (applicationOf(box).tables.mailboxes?.rows ?? []).map((row) => String(row.local_part));
 
 const listMail = (box: Box, as: 'root' | 'user' | 'guest' = 'root') =>
   createFsView(treeOf(box), { userType: as }).list(asAbsPath('/var/mail'));
@@ -470,6 +472,68 @@ describe('a deep box mailbox', () => {
       const username = npcUsername(box.essid, box.host);
       const local = DESK_PREFIXES.includes(prefixOf(box.host.hostname)) ? username : (rosterOf(box)[0] as string);
       expect(readMailbox(box, local)).toBe(readMailbox(box, local));
+    }
+  });
+});
+
+/** A mail server that also serves its directory through mysqld. The world has none —
+ *  the role takes the flat placement rate and never draws the database — so the only way
+ *  to read the two against each other is to stand one up, as the database tests do. */
+const servedMailDirectories = (): readonly Box[] =>
+  ALL_ESSIDS.slice(0, 8).map((essid) => ({
+    essid,
+    host: { ip: '10.40.0.9', hostname: 'mail-9', kind: 'machine' as const },
+  }));
+
+const instantOf = (datetime: string): number => Date.parse(`${datetime.replace(' ', 'T')}Z`);
+
+describe('a mail directory and the spool beside it', () => {
+  it('logs deliveries that really sit in the mailbox the log names', () => {
+    let checked = 0;
+    for (const box of [...mailServers(), ...deepMailServers(), ...servedMailDirectories()]) {
+      const application = applicationOf(box);
+      const mailboxes = new Map(
+        (application.tables.mailboxes?.rows ?? []).map((row) => [row.id, String(row.local_part)]),
+      );
+      const log = application.tables.delivery_log?.rows ?? [];
+      expect(log.length).toBeGreaterThanOrEqual(5);
+      expect(log.length).toBeLessThanOrEqual(40);
+
+      for (const row of log) {
+        const local = mailboxes.get(row.mailbox_id);
+        expect(local).toBeDefined();
+        const delivered = parseMbox(readMailbox(box, local as string)).find(
+          (message) => Date.parse(message.headers.get('Date') ?? '') === instantOf(String(row.delivered_at)),
+        );
+        expect(delivered?.headers.get('From')).toBe(
+          `${String(row.sender_name)} <${delivered?.separator.split(' ')[0]}>`,
+        );
+        expect(delivered?.headers.get('Subject')).toBe(String(row.subject));
+        expect(delivered?.headers.get('Delivered-To')).toBe(
+          `<${local}@${lanZoneName(box.essid)}>`,
+        );
+        checked += 1;
+      }
+    }
+    expect(checked).toBeGreaterThan(0);
+  });
+
+  it('names the same mailboxes the spool keeps', () => {
+    for (const box of servedMailDirectories()) {
+      const roster = (applicationOf(box).tables.mailboxes?.rows ?? []).map((row) =>
+        String(row.local_part),
+      );
+      const listed = listMail(box);
+      expect(listed.ok && [...listed.entries].sort()).toEqual([...roster].sort());
+    }
+  });
+
+  it('keeps no delivery whose subject was never written by anybody', () => {
+    const retired = ['Invoice attached', 'Meeting tomorrow', 'Re: quote', 'Delivery update', 'Your order', 'Minutes'];
+    for (const box of [...mailServers(), ...servedMailDirectories()]) {
+      const log = applicationOf(box).tables.delivery_log?.rows ?? [];
+      const subjects = log.map((row) => String(row.subject));
+      expect(subjects.filter((subject) => retired.includes(subject))).toEqual([]);
     }
   });
 });
