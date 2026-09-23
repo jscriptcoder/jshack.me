@@ -38,6 +38,9 @@ const MIN_THREADS_PER_MAILBOX = 3;
 /** How many people one thread is between: the opener and one or two others. */
 const MAX_OTHERS = 2;
 
+/** How often a third person is copied in, rather than two people writing to each other. */
+const COPIED_IN_CHANCE = 0.4;
+
 /** How many messages a thread runs to. */
 const THREAD_LENGTH = { min: 1, max: 4 } as const;
 
@@ -56,6 +59,9 @@ export type MailPerson = {
 export type MailMessage = {
   /** What a `Message-ID:` holds, without its angle brackets. */
   readonly id: string;
+  /** The id the sending machine's transfer agent stamped on it, which its own
+   *  `Received:` line carries and its `Message-ID` is built from. */
+  readonly transferId: string;
   readonly from: MailPerson;
   readonly to: readonly MailPerson[];
   /** The thread's subject, bare: a reply wears its own `Re:` when it is written out. */
@@ -235,10 +241,12 @@ const threadFrom = ({
         ? template.opener
         : [`> ${previous.body[0] ?? ''}`, '', ...reply];
     const sentAt = second * 1000;
+    const stamped = transferId(prng);
     return [
       ...sent,
       {
-        id: `${stampOf(sentAt)}.${transferId(prng)}@${zone}`,
+        id: `${stampOf(sentAt)}.${stamped}@${zone}`,
+        transferId: stamped,
         from,
         to: participants.filter((person) => person.username !== from.username),
         subject: template.subject,
@@ -255,8 +263,10 @@ const threadFrom = ({
 /**
  * The mail a network's people wrote to each other, drawn once for the whole network.
  *
- * Threads are handed out to whoever has the fewest, until everybody has enough to fill a
- * mailbox — a correspondence is not a correspondence if half the network is outside it.
+ * Threads go to whoever has been written to the least, until everybody has enough to fill
+ * a mailbox — a correspondence is not a correspondence if half the network is outside it.
+ * It is being WRITTEN TO that counts, because a mailbox holds what arrived: opening a
+ * thread nobody answered leaves its opener with nothing to read.
  */
 export const networkMail = (essid: string): NetworkMail => {
   const people = peopleOn(essid);
@@ -274,27 +284,25 @@ export const networkMail = (essid: string): NetworkMail => {
     const byNeed = [...people].sort(
       (left, right) => (reached.get(left.username) ?? 0) - (reached.get(right.username) ?? 0),
     );
-    // Whoever has the least mail writes next, to one or two of the next least written to,
-    // so the correspondence spreads instead of pooling around one desk. The network holds
-    // two people at the very least, which is what lets the head be taken as given.
-    const [opener, ...rest] = byNeed as [MailPerson, ...MailPerson[]];
-    const others = prng.pickN(
-      rest.slice(0, MAX_OTHERS + 1),
-      prng.nextInt(1, Math.min(MAX_OTHERS, rest.length)),
+    // Whoever has been written to least is written to next: they are a RECIPIENT of the
+    // thread's opening message, so this round always leaves them with something. Somebody
+    // from the next least written to opens it, and a third may be copied in. The network
+    // holds two people at the very least, which is what lets the head be taken as given.
+    const [needy, ...rest] = byNeed as [MailPerson, ...MailPerson[]];
+    const [opener = needy, ...spare] = prng.shuffle(rest.slice(0, MAX_OTHERS + 1));
+    const copied = spare.slice(0, prng.next() < COPIED_IN_CHANCE ? 1 : 0);
+    const thread = threadFrom({
+      prng,
+      // Subjects run through the shuffled set before any of them comes round again.
+      template: templates[threads.length % templates.length] as ThreadTemplate,
+      participants: [opener, needy, ...copied],
+      zone,
+    });
+    threads.push(thread);
+    const written = new Set(
+      thread.messages.flatMap((message) => message.to.map((person) => person.username)),
     );
-    const participants = [opener, ...others];
-    threads.push(
-      threadFrom({
-        prng,
-        // Subjects run through the shuffled set before any of them comes round again.
-        template: templates[threads.length % templates.length] as ThreadTemplate,
-        participants,
-        zone,
-      }),
-    );
-    for (const person of participants) {
-      reached.set(person.username, (reached.get(person.username) ?? 0) + 1);
-    }
+    for (const username of written) reached.set(username, (reached.get(username) ?? 0) + 1);
   }
 
   return { people, threads };

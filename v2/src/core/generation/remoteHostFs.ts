@@ -75,6 +75,7 @@ import { buildEtcContent } from './etcContent';
 import { buildLogHistory } from './logHistory';
 import { buildRootHome } from './rootHome';
 import { buildSshDirectories } from './sshContent';
+import { mailEntries } from './mailbox';
 import { DEBIAN_BASH_LOGOUT, DEBIAN_BASHRC, DEBIAN_PROFILE } from './pools/homeSkeleton';
 import { pickUsername } from './pools/usernames';
 import { placementOf } from './rolePlacement';
@@ -553,6 +554,10 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
           // /var/lib, where the box's own config says the database is.
           ...datadir,
           ...webRoot,
+          // /var/mail, where a machine somebody sits at keeps what the network wrote to
+          // them. Built from the network's own stream, like the page and the database, so
+          // giving a box a mailbox moves nothing else about it.
+          ...mailEntries({ essid, host, username }),
         },
         TRAVERSABLE_DIR,
       ),

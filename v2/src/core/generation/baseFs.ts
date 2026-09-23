@@ -102,6 +102,15 @@ export const SERVICE_CONFIG_FILE: FilePermissions = {
   write: ['root'],
   execute: [],
 };
+/** `/var/mail/<user>`: the same rung as a file in that person's home, because it holds
+ *  the same thing — what somebody wrote to them. Debian gives a mailbox to its owner and
+ *  keeps everyone else out; three tiers cannot name an owner, so it is the box's user who
+ *  reads it, and a guest who does not. Never executable: it is a file of letters. */
+export const MAIL_FILE: FilePermissions = {
+  read: ['root', 'user'],
+  write: ['root', 'user'],
+  execute: [],
+};
 /** `/boot/{vmlinuz,initrd.img}`: world-readable, root-only write, root-only
  *  execute. Only root can delete a boot file — and that deletion IS the brick
  *  (the box can't come up without it; see `core/boot/bootFiles.ts`). */
