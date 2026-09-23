@@ -171,12 +171,26 @@ const THREAD_TEMPLATES: readonly ThreadTemplate[] = [
 ];
 
 /** A run of hex, as a mail transfer agent stamps a delivery. */
-const transferId = (prng: Prng): string =>
+export const transferId = (prng: Prng): string =>
   Array.from({ length: 6 }, () => prng.nextInt(0, 15).toString(16).toUpperCase()).join('');
 
 /** The moment part of a `Message-ID`, as a mail transfer agent writes it. */
 const stampOf = (sentAt: number): string =>
   new Date(sentAt).toISOString().replace(/[-:T]/g, '').slice(0, 14);
+
+/** What a `Message-ID:` holds: when the transfer agent stamped it, what it stamped, and
+ *  the network it stamped it on. Written here so every message in the world — a thread's,
+ *  or one a machine sent on its own — carries the same shape. */
+export const mailMessageId = (options: {
+  readonly sentAt: number;
+  readonly transferId: string;
+  readonly zone: string;
+}): string => `${stampOf(options.sentAt)}.${options.transferId}@${options.zone}`;
+
+/** A moment inside the window the correspondence lives in: late enough in the world that
+ *  no application on the network was installed after it, and before the world stopped. */
+export const mailMoment = (prng: Prng): number =>
+  prng.nextInt(LAST_SECOND - WINDOW_SECONDS, LAST_SECOND) * 1000;
 
 /** Every account on the network that has a mailbox, in address order along the LAN. */
 const peopleOn = (essid: string): readonly MailPerson[] => {
@@ -245,7 +259,7 @@ const threadFrom = ({
     return [
       ...sent,
       {
-        id: `${stampOf(sentAt)}.${stamped}@${zone}`,
+        id: mailMessageId({ sentAt, transferId: stamped, zone }),
         transferId: stamped,
         from,
         to: participants.filter((person) => person.username !== from.username),

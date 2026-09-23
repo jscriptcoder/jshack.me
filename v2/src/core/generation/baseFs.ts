@@ -111,6 +111,17 @@ export const MAIL_FILE: FilePermissions = {
   write: ['root', 'user'],
   execute: [],
 };
+/** `/var/mail` on the machine that carries a network's mail, and every mailbox in it:
+ *  root's alone, directory included — listing the spool names every account on the
+ *  network, which is recon in itself. This is the whole organisation's correspondence
+ *  rather than one person's, so it sits where the escalation is: a box's own user reads
+ *  their own mail, not everybody's. */
+export const MAIL_SPOOL_DIR: FilePermissions = {
+  read: ['root'],
+  write: ['root'],
+  execute: ['root'],
+};
+export const MAIL_SPOOL_FILE: FilePermissions = { read: ['root'], write: ['root'], execute: [] };
 /** `/boot/{vmlinuz,initrd.img}`: world-readable, root-only write, root-only
  *  execute. Only root can delete a boot file — and that deletion IS the brick
  *  (the box can't come up without it; see `core/boot/bootFiles.ts`). */

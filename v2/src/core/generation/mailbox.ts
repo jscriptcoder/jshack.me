@@ -20,8 +20,24 @@ import { createPrng, type Prng } from './prng';
 import { lanZoneName } from '../network/resolveName';
 import { generateHomeLan, isOnHomeLan, type LanHost } from './generateHomeLan';
 import { roleOfHostname } from './pools/hostnames';
-import { networkMail, type MailMessage, type MailPerson } from './networkMail';
-import { dir, file, MAIL_FILE, TRAVERSABLE_DIR } from './baseFs';
+import {
+  mailMessageId,
+  mailMoment,
+  networkMail,
+  transferId,
+  type MailMessage,
+  type MailPerson,
+  type NetworkMail,
+} from './networkMail';
+import { generateApplication } from './generateDatabase';
+import {
+  dir,
+  file,
+  MAIL_FILE,
+  MAIL_SPOOL_DIR,
+  MAIL_SPOOL_FILE,
+  TRAVERSABLE_DIR,
+} from './baseFs';
 import type { Directory } from '../filesystem/types';
 
 /** The machines somebody sits at. A phone and a tablet on the same LAN belong to somebody
@@ -50,11 +66,10 @@ const asctime = (sentAt: number): string => {
   return `${day.replace(',', '')} ${month} ${date} ${time} ${year}`;
 };
 
-const addressed = (person: MailPerson): string => `${person.fullName} <${person.address}>`;
-
-/** A run of hex, as a transfer agent stamps the delivery it just made. */
-const transferId = (prng: Prng): string =>
-  Array.from({ length: 6 }, () => prng.nextInt(0, 15).toString(16).toUpperCase()).join('');
+/** How a header names somebody. A role mailbox is an address with nobody behind it, so
+ *  it is written as an address alone. */
+const addressed = (person: MailPerson): string =>
+  person.fullName === '' ? `<${person.address}>` : `${person.fullName} <${person.address}>`;
 
 /** One hop, folded the way a mail header folds: the machine it came from, the machine
  *  that took it, and who it was for. */
@@ -138,28 +153,184 @@ const formatMessage = ({
 /** `recipient`'s mailbox as it sits on `box`: everything the network wrote to them,
  *  oldest first, or null when nothing ever did. */
 const mboxFor = ({
-  essid,
+  zone,
   box,
+  relay,
   recipient,
+  messages,
+  prng,
+}: {
+  readonly zone: string;
+  readonly box: LanHost;
+  readonly relay: LanHost | undefined;
+  readonly recipient: MailPerson;
+  readonly messages: readonly MailMessage[];
+  readonly prng: Prng;
+}): string | null => {
+  if (messages.length === 0) return null;
+  // A stamp is drawn only where this box really made a delivery of its own — on the mail
+  // server itself the message arrived in one hop, and there is no second id to invent.
+  return messages
+    .map((message) =>
+      formatMessage({
+        message,
+        recipient,
+        box,
+        relay,
+        stamp: relay !== undefined && relay.ip !== box.ip ? transferId(prng) : '',
+        zone,
+      }),
+    )
+    .join('');
+};
+
+/** Everything a correspondence wrote to one account, oldest first. */
+const deliveredTo = (mail: NetworkMail, username: string): readonly MailMessage[] =>
+  mail.threads
+    .flatMap((thread) => thread.messages)
+    .filter((message) => message.to.some((person) => person.username === username))
+    .sort((earlier, later) => earlier.sentAt - later.sentAt);
+
+/**
+ * What arrives at a mailbox nobody in particular owns. A role mailbox is the address an
+ * organisation publishes, so what lands in it is somebody there writing to the role
+ * rather than to a person — which is why these are single messages and not threads.
+ */
+const SHARED_MAIL: Readonly<
+  Record<string, readonly { readonly subject: string; readonly body: readonly string[] }[]>
+> = {
+  info: [
+    { subject: 'Opening hours', body: ['Somebody asked what time we open on Saturdays.', 'I have told them ten.'] },
+    { subject: 'Website contact form', body: ['Three enquiries came through the form this week.', 'All answered.'] },
+  ],
+  sales: [
+    { subject: 'Quote for the Harper job', body: ['They want the quote broken down by week.', 'I said I would send it Monday.'] },
+    { subject: 'Renewal list', body: ['Six renewals due next month.', 'Two of them have not answered the first letter.'] },
+  ],
+  support: [
+    { subject: 'Ticket backlog', body: ['We are down to eleven open tickets.', 'The oldest is from a fortnight ago.'] },
+    { subject: 'Call handover', body: ['Nothing outstanding from this morning.', 'The one about the printer can wait.'] },
+  ],
+  billing: [
+    { subject: 'Unpaid from March', body: ['Two invoices from March are still unpaid.', 'Chased both today.'] },
+    { subject: 'New bank details', body: ['The bank details on the invoice template are out of date.', 'Please use the ones on the letterhead.'] },
+  ],
+  postmaster: [
+    { subject: 'Queue was backed up', body: ['Mail sat in the queue for an hour this morning.', 'It cleared on its own once the disk was tidied.'] },
+    { subject: 'Alias for the new starter', body: ['Can somebody add the new starter to the everyone alias.'] },
+  ],
+  office: [
+    { subject: 'Stationery order', body: ['Putting an order in on Friday.', 'Tell me before then if you need anything.'] },
+    { subject: 'Cleaner comes Tuesday', body: ['Please clear the desks before you leave on Monday.'] },
+  ],
+  accounts: [
+    { subject: 'Expenses cut-off', body: ['Expenses for the quarter have to be in by the end of the month.'] },
+    { subject: 'Filing', body: ['The paperwork for last year is boxed and in the cupboard.'] },
+  ],
+};
+
+/** For a role mailbox nothing above names — the roster is drawn from a pool this one
+ *  tracks, so it is a fallback rather than a common case. */
+const GENERIC_SHARED_MAIL: readonly { readonly subject: string; readonly body: readonly string[] }[] =
+  [
+    { subject: 'Nothing outstanding', body: ['Nothing outstanding on this address today.'] },
+    { subject: 'Passing this on', body: ['Passing this on to whoever picks the address up.'] },
+  ];
+
+/** How much mail a role mailbox is holding when the world stops. */
+const SHARED_MESSAGE_COUNT = { min: 1, max: 3 } as const;
+
+/** The mail a role mailbox is holding: written by people who really work on the network,
+ *  to the address rather than to each other. */
+const sharedMail = ({
+  prng,
+  local,
+  people,
+  host,
+  zone,
+}: {
+  readonly prng: Prng;
+  readonly local: string;
+  readonly people: readonly MailPerson[];
+  readonly host: LanHost;
+  readonly zone: string;
+}): { readonly recipient: MailPerson; readonly messages: readonly MailMessage[] } => {
+  // A role mailbox is an address, not a person, so it has no name to sign with — and it
+  // lives on the machine that carries the mail.
+  const recipient: MailPerson = { username: local, fullName: '', address: `${local}@${zone}`, host };
+  const notes = prng.pickN(
+    SHARED_MAIL[local] ?? GENERIC_SHARED_MAIL,
+    prng.nextInt(SHARED_MESSAGE_COUNT.min, SHARED_MESSAGE_COUNT.max),
+  );
+  const messages = notes
+    .map((note) => {
+      const sentAt = mailMoment(prng);
+      const stamped = transferId(prng);
+      return {
+        id: mailMessageId({ sentAt, transferId: stamped, zone }),
+        transferId: stamped,
+        from: prng.pick(people),
+        to: [recipient],
+        subject: note.subject,
+        sentAt,
+        body: note.body,
+        inReplyTo: null,
+      };
+    })
+    .sort((earlier, later) => earlier.sentAt - later.sentAt);
+  return { recipient, messages };
+};
+
+/**
+ * Every mailbox the machine that carries the network's mail keeps: one for each login on
+ * the network and one for each role address, exactly as its own directory says.
+ *
+ * A person's mailbox here holds the same messages their desk holds — it is one
+ * correspondence — but each copy carries the route it really took, and this one arrived
+ * in a single hop because this is the machine that made it.
+ */
+const spoolEntries = ({
+  essid,
+  host,
+  username,
+  mail,
+  zone,
   prng,
 }: {
   readonly essid: string;
-  readonly box: LanHost;
-  readonly recipient: MailPerson;
+  readonly host: LanHost;
+  readonly username: string;
+  readonly mail: NetworkMail;
+  readonly zone: string;
   readonly prng: Prng;
-}): string | null => {
-  const zone = lanZoneName(essid);
-  const relay = relayOf(essid);
-  const delivered = networkMail(essid)
-    .threads.flatMap((thread) => thread.messages)
-    .filter((message) => message.to.some((person) => person.username === recipient.username))
-    .sort((earlier, later) => earlier.sentAt - later.sentAt);
-  if (delivered.length === 0) return null;
-  return delivered
-    .map((message) =>
-      formatMessage({ message, recipient, box, relay, stamp: transferId(prng), zone }),
-    )
-    .join('');
+}): Readonly<Record<string, ReturnType<typeof file>>> => {
+  const roster = (
+    generateApplication({
+      appSeed: `db-app-${essid}-${host.ip}`,
+      essid,
+      host,
+      account: username,
+      role: roleOfHostname(host.hostname),
+    }).tables.mailboxes?.rows ?? []
+  ).map((row) => String(row.local_part));
+
+  return Object.fromEntries(
+    roster.map((local) => {
+      const person = mail.people.find((candidate) => candidate.username === local);
+      const { recipient, messages } =
+        person === undefined
+          ? sharedMail({ prng, local, people: mail.people, host, zone })
+          : { recipient: person, messages: deliveredTo(mail, local) };
+      // This IS the machine that carries the mail, so nothing relayed it here.
+      return [
+        local,
+        file(
+          mboxFor({ zone, box: host, relay: host, recipient, messages, prng }) ?? '',
+          MAIL_SPOOL_FILE,
+        ),
+      ];
+    }),
+  );
 };
 
 /**
@@ -180,14 +351,27 @@ export const mailEntries = ({
   /** The account this box belongs to, whose mailbox it keeps. */
   readonly username: string;
 }): Readonly<Record<string, Directory>> => {
-  if (!isDesk(host.hostname) || !isOnHomeLan(essid, host)) return {};
-  const recipient = networkMail(essid).people.find((person) => person.username === username);
+  const carriesMail = roleOfHostname(host.hostname) === 'mailserver';
+  if ((!carriesMail && !isDesk(host.hostname)) || !isOnHomeLan(essid, host)) return {};
+
+  // The network's correspondence is derived ONCE for the box. It is the same value for
+  // every mailbox on it, and deriving it per mailbox doubled the world's build time.
+  const mail = networkMail(essid);
+  const zone = lanZoneName(essid);
+  const prng = createPrng(`mail-box-${essid}-${host.ip}`);
+  if (carriesMail) {
+    return { mail: dir(spoolEntries({ essid, host, username, mail, zone, prng }), MAIL_SPOOL_DIR) };
+  }
+
+  const recipient = mail.people.find((person) => person.username === username);
   if (recipient === undefined) return {};
   const mbox = mboxFor({
-    essid,
+    zone,
     box: host,
+    relay: relayOf(essid),
     recipient,
-    prng: createPrng(`mail-box-${essid}-${host.ip}`),
+    messages: deliveredTo(mail, username),
+    prng,
   });
   return mbox === null ? {} : { mail: dir({ [username]: file(mbox, MAIL_FILE) }, TRAVERSABLE_DIR) };
 };

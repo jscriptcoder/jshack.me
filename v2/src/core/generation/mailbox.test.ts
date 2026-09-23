@@ -3,6 +3,8 @@ import { networkMail, type MailMessage } from './networkMail';
 import { buildRemoteHostFs, npcUsername } from './remoteHostFs';
 import { inhabitant } from './persona';
 import { generateHomeLan } from './generateHomeLan';
+import { generateApplication } from './generateDatabase';
+import { roleOfHostname } from './pools/hostnames';
 import { lanZoneName } from '../network/resolveName';
 import { createFsView } from '../filesystem/fsView';
 import { asAbsPath } from '../types';
@@ -283,5 +285,106 @@ describe('a desk mailbox', () => {
       const view = createFsView(buildRemoteHostFs(box.essid, box.host), { userType: 'root' });
       expect(view.stat(asAbsPath('/var/mail'))).toBeNull();
     }
+  });
+});
+
+const mailServers = (): readonly Box[] =>
+  lanBoxes(ALL_ESSIDS).filter(({ host }) => roleOfHostname(host.hostname) === 'mailserver');
+
+/** The mailboxes a mail server's own application says it keeps: one per login on the
+ *  network, plus the shared ones every organisation has. */
+const rosterOf = (box: Box): readonly string[] =>
+  (
+    generateApplication({
+      appSeed: `db-app-${box.essid}-${box.host.ip}`,
+      essid: box.essid,
+      host: box.host,
+      account: npcUsername(box.essid, box.host),
+      role: roleOfHostname(box.host.hostname),
+    }).tables.mailboxes?.rows ?? []
+  ).map((row) => String(row.local_part));
+
+const listMail = (box: Box, as: 'root' | 'user' | 'guest' = 'root') =>
+  createFsView(buildRemoteHostFs(box.essid, box.host), { userType: as }).list(
+    asAbsPath('/var/mail'),
+  );
+
+describe('a mail server spool', () => {
+  it('keeps a mailbox for every mailbox its own application names', () => {
+    const servers = mailServers();
+    expect(servers.length).toBeGreaterThan(0);
+    for (const box of servers) {
+      const listed = listMail(box);
+      expect(listed.ok).toBe(true);
+      expect(listed.ok && [...listed.entries].sort()).toEqual(
+        [...rosterOf(box)].sort(),
+      );
+    }
+  });
+
+  it("is root-only, because it holds everybody's mail and not just one person's", () => {
+    for (const box of mailServers()) {
+      const roster = rosterOf(box);
+      expect(listMail(box, 'user')).toEqual({ ok: false, error: 'permission_denied' });
+      expect(listMail(box, 'guest')).toEqual({ ok: false, error: 'permission_denied' });
+      for (const local of roster) {
+        expect(mailboxOn(box, local, 'user')).toEqual({ ok: false, error: 'permission_denied' });
+        expect(mailboxOn(box, local, 'root').ok).toBe(true);
+      }
+    }
+  });
+
+  it('holds the same thread the desk at the other end holds', () => {
+    let compared = 0;
+    for (const box of mailServers()) {
+      const desksHere = desks().filter((desk) => desk.essid === box.essid);
+      for (const desk of desksHere) {
+        const username = npcUsername(desk.essid, desk.host);
+        const onServer = parseMbox(readMailbox(box, username));
+        const onDesk = parseMbox(readMailbox(desk, username));
+        expect(onServer.map((message) => message.headers.get('Message-ID'))).toEqual(
+          onDesk.map((message) => message.headers.get('Message-ID')),
+        );
+        expect(onServer.map((message) => message.body)).toEqual(
+          onDesk.map((message) => message.body),
+        );
+        expect(onServer.map((message) => message.headers.get('Subject'))).toEqual(
+          onDesk.map((message) => message.headers.get('Subject')),
+        );
+        // The same message, read where it was carried rather than where it landed: one
+        // hop, stamped by this machine, so the two copies are never the same bytes.
+        const zone = lanZoneName(box.essid);
+        for (const message of onServer) {
+          expect(message.received).toHaveLength(1);
+          expect(message.received[0]).toContain(`by ${box.host.hostname}.${zone} `);
+        }
+        expect(readMailbox(box, username)).not.toBe(readMailbox(desk, username));
+        compared += 1;
+      }
+    }
+    expect(compared).toBeGreaterThan(0);
+  });
+
+  it('holds mail for the shared mailboxes, written by people who really work there', () => {
+    let read = 0;
+    for (const box of mailServers()) {
+      const logins = new Set(networkMail(box.essid).people.map((person) => person.username));
+      const shared = rosterOf(box).filter((local) => !logins.has(local));
+      expect(shared.length).toBeGreaterThanOrEqual(2);
+      const zone = lanZoneName(box.essid);
+      for (const local of shared) {
+        const messages = parseMbox(readMailbox(box, local));
+        expect(messages.length).toBeGreaterThan(0);
+        for (const message of messages) {
+          expect(message.headers.get('To')).toBe(`<${local}@${zone}>`);
+          expect(message.headers.get('Delivered-To')).toBe(`<${local}@${zone}>`);
+          const sender = message.separator.split(' ')[0] ?? '';
+          expect([...logins]).toContain(sender.slice(0, sender.indexOf('@')));
+          expect(sender.slice(sender.indexOf('@') + 1)).toBe(zone);
+        }
+        read += 1;
+      }
+    }
+    expect(read).toBeGreaterThan(0);
   });
 });
