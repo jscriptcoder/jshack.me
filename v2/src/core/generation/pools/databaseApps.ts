@@ -12,7 +12,7 @@
  * software version: a version dates a box, and only its package manifest may.
  */
 
-import type { MysqlColumnType } from '../../mysql/types';
+import type { MysqlColumnType, MysqlRow } from '../../mysql/types';
 
 /** How one column's value is drawn for a row. */
 export type Fill =
@@ -31,7 +31,10 @@ export type Fill =
   /** A fictional person's full name — a customer, a member, a student. */
   | { readonly kind: 'person' }
   /** A unique reference number: the prefix, then a number counting up from `start`. */
-  | { readonly kind: 'code'; readonly prefix: string; readonly start: number };
+  | { readonly kind: 'code'; readonly prefix: string; readonly start: number }
+  /** A value the table's own drafting supplies, because it follows from something this
+   *  file cannot see — a delivery that really happened, say. No pool stands behind it. */
+  | { readonly kind: 'given' };
 
 export type ColumnSpec = {
   readonly name: string;
@@ -40,16 +43,38 @@ export type ColumnSpec = {
   readonly nullable?: boolean;
 };
 
-/** A row before it is dated and numbered: its cells, and the earliest moment it can
- *  have been made. */
-export type Draft = { readonly cells: Readonly<Record<string, string | number | null>>; readonly after: number };
+/** A row before it is dated and numbered: its cells, the earliest moment it can have
+ *  been made, and — where the row records something that happened at a known moment —
+ *  exactly when. */
+export type Draft = {
+  readonly cells: Readonly<Record<string, string | number | null>>;
+  readonly after: number;
+  /** The latest moment it can have been made — a mailbox exists before mail arrives in
+   *  it. Absent, or ignored when it would fall before `after`. */
+  readonly before?: number | undefined;
+  readonly at?: number;
+};
 
-/** What a table's own drafting can see: the logins, with the moment each was made. */
+/** One delivery a box's spool really holds, as the directory beside it records one. */
+export type Delivery = {
+  readonly senderName: string;
+  readonly subject: string;
+  readonly sentAt: number;
+};
+
+/** What a table's own drafting can see: the logins with the moment each was made, the
+ *  rows of the tables built before it, how many rows it would otherwise hold, and what
+ *  really arrived in each mailbox of the box it is on. */
 export type DraftContext = {
   readonly users: readonly { readonly id: number; readonly username: string; readonly madeAt: number }[];
   readonly pick: <Item>(items: readonly Item[]) => Item;
   readonly pickN: <Item>(items: readonly Item[], count: number) => readonly Item[];
   readonly nextInt: (min: number, max: number) => number;
+  readonly rowsOf: (table: string) => readonly MysqlRow[];
+  readonly count: number;
+  readonly deliveries: (localPart: string) => readonly Delivery[];
+  /** A `DATETIME` cell as the moment it states, for comparing one against another. */
+  readonly momentOf: (datetime: string) => number;
 };
 
 export type TableSpec = {
@@ -81,6 +106,7 @@ const unique = (name: string, values: readonly string[]) =>
 const whole = (name: string, min: number, max: number) => column(name, 'INT', { kind: 'int', min, max });
 const flag = (name: string, chance: number) => column(name, 'BOOLEAN', { kind: 'flag', chance });
 const person = (name: string) => column(name, 'VARCHAR', { kind: 'person' });
+const given = (name: string, type: MysqlColumnType) => column(name, type, { kind: 'given' });
 const code = (name: string, prefix: string, start: number) =>
   column(name, 'VARCHAR', { kind: 'code', prefix, start });
 
@@ -830,20 +856,29 @@ const mail: Archetype = {
       ],
       // One mailbox per login, and the shared ones every organisation keeps: the
       // mailboxes ARE the application's accounts, addressed on the network's zone.
-      draft: ({ users, pick, pickN, nextInt }) => {
+      draft: ({ users, pick, pickN, nextInt, deliveries }) => {
         const shared = pickN(
           SHARED_MAILBOXES.filter((local) => !users.some((user) => user.username === local)),
           nextInt(Math.max(2, 5 - users.length), 5),
         );
         const install = users[0]?.madeAt ?? 0;
+        // A mailbox is opened before anything is delivered to it.
+        const firstDelivery = (local: string): number | undefined =>
+          deliveries(local).reduce<number | undefined>(
+            (earliest, delivery) =>
+              earliest === undefined ? delivery.sentAt : Math.min(earliest, delivery.sentAt),
+            undefined,
+          );
         return [
           ...users.map((user) => ({
             cells: { user_id: user.id, local_part: user.username, quota_mb: pick([512, 1024, 2048]), active: 1 },
             after: user.madeAt,
+            before: firstDelivery(user.username),
           })),
           ...shared.map((local) => ({
             cells: { user_id: null, local_part: local, quota_mb: pick([1024, 2048, 4096]), active: 1 },
             after: install,
+            before: firstDelivery(local),
           })),
         ];
       },
@@ -859,11 +894,35 @@ const mail: Archetype = {
       columns: [
         id,
         ref('mailbox_id', 'mailboxes'),
-        person('sender_name'),
-        pick('subject', ['Invoice attached', 'Meeting tomorrow', 'Re: quote', 'Delivery update', 'Your order', 'Minutes']),
+        given('sender_name', 'VARCHAR'),
+        given('subject', 'VARCHAR'),
         whole('size_kb', 2, 4800),
         stamp('delivered_at'),
       ],
+      // Every row is a message really sitting in the mailbox it names, at the moment it
+      // arrived — a directory that logged a delivery no mailbox holds would be the box
+      // contradicting itself. A log is rotated, so it keeps the most recent of them
+      // rather than every delivery ever made.
+      draft: ({ rowsOf, deliveries, momentOf, count, nextInt }) => {
+        const arrived = rowsOf('mailboxes')
+          .flatMap((mailbox) =>
+            deliveries(String(mailbox.local_part))
+              // A mailbox opened late holds nothing older than itself.
+              .filter((delivery) => delivery.sentAt >= momentOf(String(mailbox.created_at)))
+              .map((delivery) => ({ mailbox, delivery })),
+          )
+          .sort((earlier, later) => earlier.delivery.sentAt - later.delivery.sentAt);
+        return arrived.slice(-Math.min(count, arrived.length)).map(({ mailbox, delivery }) => ({
+          cells: {
+            mailbox_id: Number(mailbox.id),
+            sender_name: delivery.senderName,
+            subject: delivery.subject,
+            size_kb: nextInt(2, 4800),
+          },
+          after: delivery.sentAt,
+          at: delivery.sentAt,
+        }));
+      },
     },
     {
       name: 'spam_rules',

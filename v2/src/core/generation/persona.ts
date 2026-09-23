@@ -71,12 +71,27 @@ export const inhabitant = (options: {
   readonly username: string;
 }): Inhabitant => {
   const { essid, host, username } = options;
-  const prng = createPrng(`inhabitant-${essid}-${host.ip}`);
+  return {
+    fullName: personBehind({ seed: `inhabitant-${essid}-${host.ip}`, username }),
+    email: `${username}@${lanZoneName(essid)}`,
+  };
+};
+
+/** The name drawn for an account on `seed`, by the rule above. Its own function because
+ *  one box can hold several accounts that no machine of their own stands behind — the
+ *  logins of an application on a box below the LAN — and they must not all be one
+ *  person, which is what sharing a seed would make them. */
+export const personBehind = ({
+  seed,
+  username,
+}: {
+  readonly seed: string;
+  readonly username: string;
+}): string => {
+  const prng = createPrng(seed);
   const surname = SURNAMES.get(username.slice(1));
   const initialNames = FIRST_NAMES_BY_INITIAL[username.charAt(0)];
-  const fullName =
-    surname === undefined || initialNames === undefined
-      ? `${prng.pick(ALL_FIRST_NAMES)} ${prng.pick(ALL_SURNAMES)}`
-      : `${prng.pick(initialNames)} ${surname}`;
-  return { fullName, email: `${username}@${lanZoneName(essid)}` };
+  return surname === undefined || initialNames === undefined
+    ? `${prng.pick(ALL_FIRST_NAMES)} ${prng.pick(ALL_SURNAMES)}`
+    : `${prng.pick(initialNames)} ${surname}`;
 };
