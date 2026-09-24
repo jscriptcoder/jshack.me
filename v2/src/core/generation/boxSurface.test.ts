@@ -9,6 +9,7 @@ import { networkPersona } from './persona';
 import { roleOfHostname } from './pools/hostnames';
 import { GENERIC_CRON_JOBS, NAME_SERVER_CRON_JOBS, SERVICE_CRON_JOBS } from './pools/etcFiles';
 import { CRON_OUTPUT } from './pools/cronMail';
+import { roleConfigFile } from './pools/configFiles';
 import { ROLE_ROOT_HISTORY, ROOT_HISTORY } from './pools/rootContent';
 import { DEBIAN_BASHRC, DEBIAN_BASH_LOGOUT, DEBIAN_PROFILE } from './pools/homeSkeleton';
 import { createFsView } from '../filesystem/fsView';
@@ -893,6 +894,62 @@ describe('what a mail server’s own config claims about it', () => {
       stated += 1;
     });
     expect(stated).toBeGreaterThan(0);
+  });
+});
+
+/** A setting `vsftpd.conf` may not claim, because the ftp door does not do it: nobody
+ *  logs in anonymously, nobody is jailed in their home, and every login lands in its own
+ *  home rather than a directory the config names. */
+const FTP_FALSEHOODS: readonly RegExp[] = [
+  /^anonymous_enable=YES$/m,
+  /^anon_root=/m,
+  /^chroot_local_user=/m,
+  /^local_root=/m,
+];
+
+const fileServers = (): readonly Box[] =>
+  [...lanBoxes(ALL_ESSIDS), ...deepBoxes(ALL_ESSIDS)].filter(
+    ({ host }) => roleOfHostname(host.hostname) === 'fileserver',
+  );
+
+describe('what a file server’s own config claims about it', () => {
+  it('claims no door the ftp daemon does not open, on any file server in the world', () => {
+    let stated = 0;
+    fileServers().forEach((box) => {
+      const read = createFsView(treeOf(box), { userType: 'guest' }).read(
+        asAbsPath('/etc/vsftpd.conf'),
+      );
+      if (!read.ok) return;
+      FTP_FALSEHOODS.forEach((falsehood) => {
+        expect(read.content, `${box.essid} ${box.host.hostname}`).not.toMatch(falsehood);
+      });
+      stated += 1;
+    });
+    expect(stated).toBeGreaterThan(0);
+  });
+
+  it('claims none in any config the pool can write', () => {
+    // The world need not hold every template, so each is drawn here directly.
+    const configs = new Set(
+      Array.from(
+        { length: 200 },
+        (_, index) =>
+          roleConfigFile({
+            role: 'fileserver',
+            hostname: 'share-9',
+            seed: `vsftpd-${index}`,
+            ports: new Map([['ftp', 21]]),
+            cidr: '192.168.4.0/24',
+            zone: 'acme-corp.lan',
+          }).content,
+      ),
+    );
+    expect(configs.size).toBeGreaterThan(1);
+    configs.forEach((config) => {
+      FTP_FALSEHOODS.forEach((falsehood) => {
+        expect(config).not.toMatch(falsehood);
+      });
+    });
   });
 });
 
