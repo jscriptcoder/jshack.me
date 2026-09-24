@@ -243,6 +243,13 @@ offline by walking `generateHomeLan(essid).hosts` for a `share-`/`files-`/`nas-`
 hostname whose `hostServices` include `ftp`, and recover its guest password by matching
 `/etc/passwd`'s md5 against `ALL_GENERATED_PASSWORDS`, as for the data doors.
 
+A LAN file server running vsftpd keeps `/var/log/vsftpd.log.1`, readable by guest: `get` it, then
+`grep <file name>` to find the upload that put a share file there — the client IP is the author's
+machine (`nmap` it), the byte count is what `get` printed for the file, and on a working share the
+time is the PDF's `ModDate` to the second. Not every guest-readable log carries home: `auth.log.1`
+is over the signed-write cap on most boxes and fails with `I/O error` (see the conventions doc
+§9).
+
 ---
 
 ## 4. Recipe: shell on the AP gateway

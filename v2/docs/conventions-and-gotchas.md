@@ -1256,6 +1256,13 @@ run did. The rule: binary-looking content uses characters JSON writes as themsel
 `¡`–`ÿ` works — `strings` ignores it as well as it ignores control characters), and a test sends
 the largest generated files through the real `createPatchApi` and checks each request against
 `signedEnvelopeSchema`. `share.test.ts` holds the pattern.
+It came back one PR later on a **log**: slice 8b wrote each upload to `vsftpd.log.1` as a whole
+visit (CONNECT, OK LOGIN, OK UPLOAD), and a guest's `get` of it failed on most file servers at
+4–13K characters; one line per arrival brought it to 2–6K, and the same test now covers every
+transfer log. So the rule is not about binaries: **any generated file a tier can read is a file a
+player may carry home**, and a slice that makes one grow with the world (a log spanning a share, a
+spool, a data file) measures its largest instance in JSON. Measuring the whole world at 8b's
+close-out found older files already over the cap — see §9.
 
 **To prove a slice moved no existing generator stream, diff the whole world — it costs one
 minute.** "No existing stream gained a draw" is the claim every content slice makes and no unit
@@ -2659,6 +2666,18 @@ state costs you more than one wrong attempt.
 ## 9. Deferred backlog & future content ideas
 
 Forward-looking direction not yet built (preserved as pointers; design when actually built).
+
+- **Generated files too big to carry home.** Saving a file a player fetched (`ftp get`, `scp`,
+  `cp` onto their own box) is one signed write whose payload `signedEnvelopeSchema` caps at 8192
+  characters of JSON, so a larger file fails with `local: <path>: I/O error`. Measured across every
+  NPC box at world-content slice 8b's close-out (v0.258.0), files over ~7.5K escaped: `auth.log.1`
+  on **102 boxes (max 19,940), readable by every tier**; `syslog.1` on 4 (max 9,717), every tier;
+  `mail.log.1` on 15 (max 19,214), root only; `/var/lib/mysql/*` on 46 (max 18,464) and
+  `/var/lib/redis/*` on 19 (max 13,708), root only. The guest-readable logs are the ones a player
+  meets first. Decide between shrinking what generation writes (as 8a did for documents and 8b for
+  the transfer log) and letting the patch write carry larger payloads (an `api/` change with its
+  own wire-check and a reason the guard can grow). `share.test.ts`'s transport tests are the
+  pattern for holding any fix.
 
 - **`tail` is a command the world talks about and nobody can run.** v2 has no `tail` (nor
   `head`), so `tail /var/log/syslog.1` answers `bash: tail: command not found`. It is the natural

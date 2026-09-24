@@ -3,21 +3,20 @@
 > **Picking this up cold?** Read "Locked decisions", then the slice table — it carries the live
 > status. The grounding section records what v2 held on the day this was grilled; the code wins
 > wherever the two disagree.
-> Grilled 2026-09-21 (`grilling`), 25 locked decisions. Slices 0–7 delivered (as-built below),
-> slice 8's first PR delivered.
-> Slice 8 planned in [`a-share-holds-a-department.md`](./a-share-holds-a-department.md), which
-> carries PR 8a's as-built and is kept until 8b ships.
+> Grilled 2026-09-21 (`grilling`), 25 locked decisions. Slices 0–8 delivered (as-built below).
+> Slice 9 is next and not yet planned.
 
-**Where we are now (2026-09-24):** **v0.257.0**. The legacy-parity epic's V-series is closed and
+**Where we are now (2026-09-24):** **v0.258.0**. The legacy-parity epic's V-series is closed and
 its next line was "the ship gate". **Ship now waits for this epic** (decision 1). Grilled to 25
-locked decisions and a twelve-slice spine. **Slices 0–7 are DONE** (#533, #534, #535, #536,
-#537 + #538, #539, #540, #541 + #542), and **slice 8's PR 8a is DONE** (#543) — the build budgets, NPC
+locked decisions and a twelve-slice spine. **Slices 0–8 are DONE** (#533, #534, #535, #536,
+#537 + #538, #539, #540, #541 + #542, #543 + #544) — the build budgets, NPC
 workstation homes, every NPC box's `/etc`, `/root`, `.ssh/` and `/home/guest`, every NPC box's
 rotated `.1` history plus `syslog`, a
 three-layer site on every webserver (with lynx tables/`<pre>` and `.lan` names in the web tools),
 an application in every NPC database, that application's working set in every NPC store, the
 network's own correspondence in `/var/mail` with the mail server's records agreeing with it, and
-a department share under `/srv` on every file server; their
+a department share under `/srv` on every file server with the server's own records agreeing
+with it; their
 as-built is folded into the slice spine and the "As-built" sections below.
 **Decision 19 was amended at planning** (budget first, memoize on breach) and **decision 6 was
 narrowed at slice 2's planning** (the player workstation gains an empty `/home/guest`). Slice 3's
@@ -27,7 +26,9 @@ its as-built); slice 5's took four at planning (one amends decision 15) and one 
 build (recorded in its as-built). Slice 6's took three at planning (one amends decision 15 again)
 and one during the build (no counter in a spec counts part of another). Slice 7's took eleven at
 planning and four derived from precedent, with no decision-15 amendment — mail is new content on
-new streams, so nothing already generated re-rolled.
+new streams, so nothing already generated re-rolled. Slice 8's took four at planning with eleven
+confirmed recommendations, and three during the build (recorded in its as-built), again with no
+re-roll.
 
 ---
 
@@ -412,7 +413,7 @@ See below; planning refines it.
 | 5 | **A database holds an application** — app archetypes | `SHOW TABLES` on a café network's DB shows a till schema whose staff are that network's inhabitants | ✅ DONE (#539, v0.253.0) — 15 archetypes; decision 15 amended (DB credentials re-rolled once); a bought DB is a fresh install; see as-built below |
 | 6 | **A store serves that application** — Redis keyspaces paired with the app | `KEYS sess:*` returns sessions for that app's real users | ✅ DONE (#540, v0.254.0) — 43 stores, all reading differently; decision 15 amended (store locks re-rolled once); a bought store is a fresh install; see as-built below |
 | 7 | **Somebody wrote to somebody** — workstation mailboxes, the mail server's spool | a thread in `/var/mail/<user>` is between two real inhabitants of the network | ✅ **DONE** (#541 v0.255.0, #542 v0.256.0) — the correspondence, desk mailboxes, the spool and its database agreement; then `mail.log.1` carrying the spool's own queue ids, `/etc/aliases`, the postfix config honesty fixes and cron's mail to root. A phone keeps no mailbox but may hold cron's |
-| 8 | **A share holds a department** — fileserver `/srv`, metadata docs | `strings` on a shared PDF names its author, an inhabitant | 🔨 **8a DONE** (#543, v0.257.0) — `/srv` on every file server, LAN and deep: a working share or dated snapshots by prefix, the category's departments, PDF/JPEG/office stubs whose metadata `strings` reads, authors from the one roster mail uses, `vsftpd.conf` stops claiming doors. **8b next** (v0.258.0): `vsftpd.log.1`, the `/srv` mount, `/etc/vsftpd.userlist`, root's history. See `a-share-holds-a-department.md` |
+| 8 | **A share holds a department** — fileserver `/srv`, metadata docs | `strings` on a shared PDF names its author, an inhabitant | ✅ **DONE** (#543 v0.257.0, #544 v0.258.0) — `/srv` on every file server, LAN and deep: a working share or dated snapshots by prefix, the category's departments, PDF/JPEG/office stubs whose metadata `strings` reads, authors from the one roster mail uses, `vsftpd.conf` stops claiming doors; then `vsftpd.log.1` recording every arrival from its author's machine to the byte, the `/srv` data disk in `fstab`, an allow-list `/etc/vsftpd.userlist`, and root's history naming `/srv` instead of samba, nfs and zfs. See as-built below |
 | 9 | **A device is the device it says** — IoT prefix overlays + prefix growth (the one re-roll: refresh pins, wire-checks, the `v2-e2e` skill) | a printer serves a CUPS page and holds spool jobs; a camera a recordings index | ⏳ |
 | 10 | **A gateway knows its network** — DHCP leases, config backups, admin pages, admin/firmware history | a rooted router's lease table lists exactly the network's generated hosts | ⏳ |
 | 11 | **A phone is a phone** — phone/tablet overlay | an NPC `android-` home holds `DCIM/` and `Download/`, not dotfiles | ⏳ |
@@ -863,6 +864,124 @@ played run on `NULL-BYTE`/`mx-159` tracing queue id `8574C4` from `mail.log.1` i
 matching `24 14 * * 6` in the crontab, the silent `ntpdate -s` job leaving nothing, and a `guest`
 session refused the spool, the log and the alias table while still reading `postfix.conf`.
 
+## As-built: slice 8 (delivered 2026-09-24)
+
+Retired here from `a-share-holds-a-department.md` on close-out. Two PRs: **8a** (#543, v0.257.0) —
+`/srv` on every file server, its documents in their real formats, and an honest `vsftpd.conf`;
+**8b** (#544, v0.258.0) — the file server's own records agreeing with that share.
+
+**Owner decisions.** Four at planning (2026-09-23) and eleven confirmed recommendations, recorded
+in the status log below: the share is `/srv`, reached through the existing ftp door with no door
+change; documents are binary-shaped NUL-free stubs whose metadata `strings` reads, and office
+files never give up their author; the network's category decides what a share holds and the
+hostname prefix its shape; no archive files. Three more during 8b's build, below. **No
+decision-15 amendment and no re-roll:** the share, its disk and its log are new content on new
+streams (`share-<essid>-<ip>`, `share-phone-<essid>-<ip>`, `document-noise`, and 8b's
+`share-log-<essid>-<ip>` and `share-disk-<essid>-<ip>`); the edits to existing pools change text
+at unchanged pick indices.
+
+### PR 8a — a share holds a department
+
+Six RED-GREEN increments as planned, then one test commit from the mutation gate and one fix from
+the played run.
+
+**Shapes that changed on contact, and why.**
+- **Noise is Latin-1 (`¡` to `ÿ`), not control characters.** The played run failed a guest `get`
+  of an `.xlsx` with `I/O error`: saving a fetched file is one signed write whose JSON payload is
+  capped at 8192 characters (`signedEnvelopeSchema`), and JSON writes a control character as six,
+  so a 2.3 KB spreadsheet came to 14 KB. Latin-1 is just as invisible to `strings`, JSON writes it
+  as itself, and `cat` shows the mojibake a real binary shows. Nothing in the game counts real
+  bytes (`get` and the transfer log both measure `content.length`).
+- **Noise is one 4 KB block drawn once, cut at a drawn offset.** Drawing it a character at a time
+  made a share cost more than the rest of its file server (114 ms a world against 18).
+- **`buildShare` takes a budget, not a per-folder range**: a working share's 25–60 files and a
+  backup box's 80-across-all-snapshots are totals, divided among the departments drawn.
+- **Snapshots are a timeline.** Each file enters in one snapshot, may be revised in a later one,
+  and every later night adds at least one file. A version renders once, so an untouched file is
+  byte-identical across snapshots. Photos and notes are never revised.
+- **Phones are drawn per phone** on `share-phone-<essid>-<ip>`, so every file server on a network
+  agrees which model each phone is. Deep boxes see no phones and use cameras.
+- **`peopleKnownOn`** (`mailbox.ts`) is the one roster mail and the share read: the network's
+  people on the LAN, a deep box's own application's logins below it (`boxPeople`).
+- **`iot` shares are a device owner's documentation** — the catalog's `iot` networks are single
+  devices (`SMART-FRIDGE-NET`), not factories.
+- **The `vsftpd.conf` swaps:** `anonymous_enable=YES`→`NO`, `anon_root`→`connect_from_port_20=YES`,
+  `chroot_local_user`→`use_localtime=YES`, `local_root`→`pam_service_name=vsftpd`.
+
+**Mutation gate.** `share.ts` 71.30% → 93.17%, `documentFormats.ts` 82.65% → 92.31%,
+`pools/shareFiles.ts` 50.73% → 100%, 0 timeouts. The first run showed **the whole revision path
+could be deleted with every test passing** — the snapshot test was satisfied by the forced nightly
+arrival alone.
+
+**Verified:** 5,841 tests; wire-checks 37/37; bundle 203,638 B (+9.8 KB); build 0.635 ms/box;
+world byte-diff only `/srv` added and the four `vsftpd.conf` swaps; played run on DEFCON-VILLAGE
+`files-143` finding a PDF's author in Sunil Thompson's mailbox on `workstation-252`.
+
+### PR 8b — a share corroborates itself
+
+Four RED-GREEN increments as planned, then one test commit from the mutation gate and one fix from
+the played run.
+
+**What a file server now says about its share.**
+- **`/var/log/vsftpd.log.1`** on the 40 LAN file servers running vsftpd: one `OK UPLOAD` line per
+  arrival, naming the box's account, the author's machine (`127.0.0.1` when they sit at the file
+  server), the path and the exact `content.length`. `buildShare` returns `{ tree, uploads }`, so
+  the log and `/srv` are one derivation, as `mailEntries` is for the spool and `mail.log.1`. It is
+  the second rotation that spans more than a day; `boxMemory.test.ts` names both. Deep boxes keep
+  none. Pids on `share-log-<essid>-<ip>`.
+- **`/etc/fstab`** mounts a data disk at `/srv` (`ext4 defaults 0 2`, after `/boot`, before swap)
+  on every file server, LAN and deep, and on no other role.
+- **`/etc/vsftpd.userlist`** where the config names it (18 boxes), at `/etc/aliases`'s tier.
+- **Root's history** swaps `smbstatus`, `zpool status`, `exportfs -v` and `testparm` in place for
+  `du -sh /srv`, `df -h /srv`, `findmnt /srv` and `ls -l /srv`.
+
+**Where it differs from the plan, and why.**
+- **A backup box logs nightly pushes (owner decision).** Its files live in
+  `/srv/backup/<YYYY-MM-DD>/`, so an upload dated when the file was saved would write into a
+  directory named for a night that had not come. Each desk pushes what it saved since the night
+  before while the job runs (02:00–03:00), to that night's snapshot; an untouched file is not sent
+  again. Only a working share's lines are dated at the file's own save, which is the PDF's
+  `ModDate` to the second.
+- **One line per arrival, not a visit (owner decision, reversed on evidence).** Increment 1 wrote
+  each upload as CONNECT, OK LOGIN and OK UPLOAD under one pid. The played run's guest
+  `get /var/log/vsftpd.log.1` then failed with `I/O error` on most boxes: the logs were 4.3–13.6K
+  characters of JSON against the 8192 cap on the one signed write that saves a fetched file. The
+  UPLOAD lines alone are 2.0–6.3K. A test now sends every transfer log in the world through the
+  real `createPatchApi` and checks each request against `signedEnvelopeSchema`.
+- **The user list is an allow list (owner decision).** The template enabled a list without
+  `userlist_deny`, and real vsftpd refuses everyone such a list names — so a list naming the
+  account would have claimed the account that uploaded everything was refused. The template gains
+  `userlist_deny=NO`, and the list names every account in `passwd` (root, the account, guest),
+  since the ftp door admits any of them.
+- **The disk's UUID is on `share-disk-<essid>-<ip>`, not `share-log-`.** The plan named the log's
+  stream; sharing one seed between the upload pids and the UUID would have correlated their first
+  draws. Still a new stream, so nothing re-rolled.
+- **The history lines name `/srv`, not `/srv/share`**, because a backup box has no `/srv/share`.
+- **The log names the box's account**, which the rotated logs' "no account but root" rule forbids
+  elsewhere. `ls /home` and `ls -l /srv` already show that account to every tier, so the rule's
+  wording now says so rather than carving out an exception.
+
+**Mutation gate.** Two runs scoped to the changed lines, 0 timeouts: `share.ts` 100% (49/49), the
+transfer log 94.74%. One real gap: deleting the userlist's blank-line filter went unseen, because
+the test read the file through a helper that drops blank lines; it now checks the exact content.
+The rest are equivalent (the pid stream's seed, the userlist regex's anchors) or pre-existing
+`fstab` lines that fell inside the mutated range.
+
+**Verified:** 5,856 tests; wire-checks 53/53 (`testSameLanConnect`, `testCrossPlayerRead`,
+`testDeepChainReach`, `testFtpRemoteRead`, `testFtpTransferTrace`, `testFtpPut`,
+`testFtpSession`); bundle 204,101 B (+463 B); build 0.752 ms/box; world byte-diff 34,672
+identical, 58 added (40 `vsftpd.log.1`, 18 userlists), 142 changed (65 `fstab`, 18
+`vsftpd.conf`, 59 root histories), all on file servers — on 29 of those histories a log-reading
+line also picks a different log, since the log list it picks from grew by one. Played run on
+DEFCON-VILLAGE `files-143` as a fresh guest: `get` of `special-issue.pdf` (1024 bytes) and of
+`vsftpd.log.1` (4769 bytes); the log's line for the PDF names `192.168.97.252`, 1024 bytes, at the
+PDF's `ModDate` second; `strings` names Sunil Thompson; `nmap 192.168.97.252` reports
+`workstation-252`; the carried `fstab` mounts `/srv`; the userlist refused with `550`.
+
+**Found beyond the slice.** The same cap already bites content earlier slices generate: `auth.log.1`
+is over it on 102 boxes, and every tier reads it, so a guest who `get`s it meets the same
+`I/O error`. Backlogged in `v2/docs/conventions-and-gotchas.md` §9.
+
 ---
 
 ## Open for planning (named, deliberately not decided)
@@ -1029,3 +1148,14 @@ session refused the spool, the log and the alias table while still reading `post
   revision path could be deleted with every test passing. `iot` shares read as a device owner's
   documentation, since the catalog's `iot` networks are single devices. World byte-diff: only
   `/srv` added and the four `vsftpd.conf` line swaps. Next: **PR 8b**.
+- **2026-09-24** — **slice 8's PR 8b shipped** (#544, v0.258.0), **closing slice 8**: `vsftpd.log.1`
+  on the 40 LAN file servers running vsftpd, one line per arrival read from the share itself; a
+  `/srv` data disk in every file server's `fstab`; an allow-list `/etc/vsftpd.userlist` where the
+  config names one; root's history naming `/srv` rather than samba, nfs or zfs. Three owner
+  decisions during the build: a backup box logs each desk's nightly push into that night's
+  snapshot; the user list lets in every account the box has (`userlist_deny=NO`); and one line per
+  arrival rather than a whole visit — reversed after the played run's guest `get` of the log failed
+  the 8192-character signed-write cap, 8a's lesson found again on a log. The same audit found
+  `auth.log.1` over the cap on 102 boxes (backlogged). The disk's UUID is on its own
+  `share-disk-` stream. World byte-diff: only file servers moved. Slice plan retired into the
+  as-built above. Next: **slice 9**, not yet planned.
