@@ -679,6 +679,35 @@ describe('root’s history is made of what the box is', () => {
   });
 });
 
+/** What a file server here never runs: samba, nfs or zfs. Its only door is ftp. */
+const NOT_ON_A_FILE_SERVER = /\b(smb\w*|testparm|exportfs|nfs\w*|zpool|zfs)\b/;
+
+describe('root’s history on a file server', () => {
+  it('names no samba, nfs or zfs in any line the pool can write', () => {
+    ROLE_ROOT_HISTORY.fileserver.forEach((line) => {
+      expect(line).not.toMatch(NOT_ON_A_FILE_SERVER);
+    });
+  });
+
+  it('names none on any file server in the world', () => {
+    fileServers().forEach((box) => {
+      historyLines(rootFilesOf(treeOf(box)).get('.bash_history') ?? '').forEach((line) => {
+        expect(line, `${box.essid} ${box.host.hostname}`).not.toMatch(NOT_ON_A_FILE_SERVER);
+      });
+    });
+  });
+
+  it('looks after the share where the box mounts it', () => {
+    const lookedAfter = fileServers().filter((box) =>
+      historyLines(rootFilesOf(treeOf(box)).get('.bash_history') ?? '').some((line) =>
+        / \/srv$/.test(line),
+      ),
+    );
+    expect(lookedAfter.length).toBeGreaterThan(0);
+    lookedAfter.forEach((box) => expect(existsOn(treeOf(box), '/srv')).toBe(true));
+  });
+});
+
 describe('no two admins kept house the same way', () => {
   /** How many boxes do a thing, out of how many could. */
   const share = (flags: readonly boolean[]) => ({

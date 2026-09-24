@@ -112,7 +112,8 @@ export const ROOT_HISTORY: readonly string[] = [
 ];
 
 /** Commands flavoured by what the box is for — still local, still naming only paths
- *  every box has. Keyed by role; a box whose name claims no role gets none of these. */
+ *  every box of that role has. Keyed by role; a box whose name claims no role gets none
+ *  of these. */
 export const ROLE_ROOT_HISTORY: Readonly<Record<DrawnRole, readonly string[]>> = {
   workstation: [
     'apt install htop',
@@ -141,14 +142,16 @@ export const ROLE_ROOT_HISTORY: Readonly<Record<DrawnRole, readonly string[]>> =
     'ls -la /var/log',
     'nginx -t',
   ],
+  // A file server here shares over ftp alone and keeps its share on the disk mounted at
+  // /srv, so its admin names no samba, nfs or zfs.
   fileserver: [
-    'smbstatus',
-    'zpool status',
+    'du -sh /srv',
+    'df -h /srv',
     'rsync --help',
     'smartctl --scan',
     'du -sh /home',
-    'exportfs -v',
-    'testparm',
+    'findmnt /srv',
+    'ls -l /srv',
   ],
   database: [
     'mysql -u root',
