@@ -2138,9 +2138,10 @@ describe('buildRemoteHostFs', () => {
     const EVERY_BOX_KEEPS = ['passwd', 'hostname', 'hosts', 'resolv.conf', 'fstab', 'crontab', 'motd'];
 
     /** In `/etc` for its role, but not the file that says what the box is for: the mail
-     *  directory's alias table, which postfix READS rather than is configured by. It has
-     *  to agree with the spool beside it, so `boxSurface.test.ts` holds it to that. */
-    const NOT_A_ROLE_CONFIG = ['aliases'];
+     *  directory's alias table, which postfix READS rather than is configured by, and
+     *  the ftp daemon's user list, which vsftpd reads the same way. Each has to agree
+     *  with what it lists, so `boxSurface.test.ts` holds them to that. */
+    const NOT_A_ROLE_CONFIG = ['aliases', 'vsftpd.userlist'];
 
     /** The one file in `/etc` that says what THIS box is for, or null where the box
      *  keeps none. It names the file as well as reading it, so a config under the wrong

@@ -55,6 +55,7 @@ import {
   generatePasswd,
   GUEST_HOME_DIR,
   GUEST_HOME_FILE,
+  ALIASES_FILE,
   PASSWD_FILE,
   SERVICE_CONFIG_FILE,
   SHELL,
@@ -306,6 +307,9 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
 
   const serves = services.some(({ spec }) => spec === SERVICE_CATALOG.http);
   const servesFtp = services.some(({ spec }) => spec === SERVICE_CATALOG.ftp);
+  // The file under /etc the ftp daemon's config names as its user list, if it keeps one.
+  const userlist =
+    config === null ? null : (/^userlist_file=\/etc\/(\S+)$/m.exec(config.content)?.[1] ?? null);
   const servesDatabase = services.some(({ spec }) => spec === SERVICE_CATALOG.mysql);
   const redisService = services.find(({ spec }) => spec === SERVICE_CATALOG.redis);
 
@@ -501,6 +505,21 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
           ...etc,
           passwd: file(passwd, PASSWD_FILE),
           ...(config === null ? {} : { [config.name]: file(config.content, SERVICE_CONFIG_FILE) }),
+          // The accounts vsftpd lets in, where its config keeps a list of them: every
+          // account in passwd, since the door admits any of them. Kept at passwd's own
+          // tier, for the reason /etc/aliases is — every line of it is an account name.
+          ...(userlist === null
+            ? {}
+            : {
+                [userlist]: file(
+                  passwd
+                    .split('\n')
+                    .filter((line) => line !== '')
+                    .map((line) => `${line.slice(0, line.indexOf(':'))}\n`)
+                    .join(''),
+                  ALIASES_FILE,
+                ),
+              }),
           // The addresses the box answers for that are not mailboxes, built beside the
           // spool so no alias can name a mailbox `/var/mail` does not keep. It is what
           // this box's own postfix.conf already points `alias_maps` at.

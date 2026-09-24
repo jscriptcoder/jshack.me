@@ -107,13 +107,15 @@ const CONFIG_BY_ROLE: Readonly<Record<PooledConfigRole, RoleConfig>> = {
   // nobody logs in anonymously, nobody is jailed in their home, and every login lands in
   // its own home rather than a root the config names. So no template claims
   // `anonymous_enable=YES`, `anon_root`, `chroot_local_user` or `local_root`; the rest
-  // describe what the daemon would do that no command can see either way.
+  // describe what the daemon would do that no command can see either way. A user list
+  // is always one of who may log in (`userlist_deny=NO`), and the box keeps it naming
+  // every account it has, since the door admits any of them.
   fileserver: {
     filename: 'vsftpd.conf',
     service: SERVICE_CATALOG.ftp,
     templates: [
       '# {{hostname}}\nlisten=YES\nlisten_port={{port}}\nanonymous_enable=NO\nlocal_enable=YES\nwrite_enable=YES\nuse_localtime=YES',
-      '# {{hostname}}\nlisten=YES\nlisten_port={{port}}\nlocal_enable=YES\nwrite_enable=YES\npasv_min_port=30000\npasv_max_port=31000\nuserlist_enable=YES\nuserlist_file=/etc/vsftpd.userlist',
+      '# {{hostname}}\nlisten=YES\nlisten_port={{port}}\nlocal_enable=YES\nwrite_enable=YES\npasv_min_port=30000\npasv_max_port=31000\nuserlist_enable=YES\nuserlist_file=/etc/vsftpd.userlist\nuserlist_deny=NO',
       '# {{hostname}}\nlisten=YES\nlisten_port={{port}}\nanonymous_enable=NO\nconnect_from_port_20=YES\nlocal_enable=YES\nxferlog_enable=YES\nxferlog_file=/var/log/vsftpd.log',
       '# {{hostname}}\nlisten=YES\nlisten_port={{port}}\npam_service_name=vsftpd\nlocal_enable=YES\nwrite_enable=YES\nidle_session_timeout=600\ndirmessage_enable=YES',
       '# {{hostname}}\nlisten=YES\nlisten_port={{port}}\nlocal_enable=YES\nwrite_enable=YES\nssl_enable=NO\nmax_clients=50\nmax_per_ip=4\nlocal_umask=022',

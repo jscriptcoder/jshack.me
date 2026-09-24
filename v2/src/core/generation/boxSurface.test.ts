@@ -957,6 +957,64 @@ describe('what a file server’s own config claims about it', () => {
 const mountsOf = (box: Box): readonly (readonly string[])[] =>
   statedLines(etcFileOf(treeOf(box), 'fstab')).map((line) => line.split(/\s+/));
 
+/** `path` as a login of `userType` reads it, or null where it cannot. */
+const readAs = (tree: Directory, userType: 'root' | 'user' | 'guest', path: string): string | null => {
+  const read = createFsView(tree, { userType }).read(asAbsPath(path));
+  return read.ok ? read.content : null;
+};
+
+describe('the users a file server lets in over ftp', () => {
+  it('keeps the list its config names, and lets in by it exactly the accounts the box has', () => {
+    let listed = 0;
+    [...lanBoxes(ALL_ESSIDS), ...deepBoxes(ALL_ESSIDS)].forEach((box) => {
+      const tree = treeOf(box);
+      const label = `${box.essid} ${box.host.hostname}`;
+      const config = readAs(tree, 'root', '/etc/vsftpd.conf') ?? '';
+      const named = /^userlist_file=(\S+)$/m.exec(config)?.[1];
+      if (named === undefined) {
+        expect(readAs(tree, 'root', '/etc/vsftpd.userlist'), label).toBeNull();
+        return;
+      }
+      // The list is who may log in, not who may not: without this, vsftpd refuses
+      // everyone it names.
+      expect(config, label).toMatch(/^userlist_enable=YES$/m);
+      expect(config, label).toMatch(/^userlist_deny=NO$/m);
+      const accounts = statedLines(readAs(tree, 'root', '/etc/passwd') ?? '').map(
+        (line) => line.split(':')[0],
+      );
+      expect(statedLines(readAs(tree, 'root', named) ?? ''), label).toEqual(accounts);
+      listed += 1;
+    });
+    expect(listed).toBeGreaterThan(0);
+  });
+
+  it('keeps the list at the tier of the passwd file it names the accounts of', () => {
+    fileServers().forEach((box) => {
+      const tree = treeOf(box);
+      if (readAs(tree, 'root', '/etc/vsftpd.userlist') === null) return;
+      expect(readAs(tree, 'user', '/etc/vsftpd.userlist')).not.toBeNull();
+      expect(readAs(tree, 'guest', '/etc/vsftpd.userlist')).toBeNull();
+    });
+  });
+
+  it('turns every list the pool can enable into the one that lets its users in', () => {
+    const configs = Array.from(
+      { length: 200 },
+      (_, index) =>
+        roleConfigFile({
+          role: 'fileserver',
+          hostname: 'share-9',
+          seed: `vsftpd-${index}`,
+          ports: new Map([['ftp', 21]]),
+          cidr: '192.168.4.0/24',
+          zone: 'acme-corp.lan',
+        }).content,
+    ).filter((config) => /^userlist_enable=YES$/m.test(config));
+    expect(configs.length).toBeGreaterThan(0);
+    configs.forEach((config) => expect(config).toMatch(/^userlist_deny=NO$/m));
+  });
+});
+
 describe('where a file server keeps its share', () => {
   it('mounts /srv from a disk of its own on every file server, and on no other box', () => {
     const boxes = [...lanBoxes(ALL_ESSIDS), ...deepBoxes(ALL_ESSIDS)];
