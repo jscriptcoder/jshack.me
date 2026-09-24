@@ -55,6 +55,7 @@ import {
   generatePasswd,
   GUEST_HOME_DIR,
   GUEST_HOME_FILE,
+  ALIASES_FILE,
   PASSWD_FILE,
   SERVICE_CONFIG_FILE,
   SHELL,
@@ -306,6 +307,9 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
 
   const serves = services.some(({ spec }) => spec === SERVICE_CATALOG.http);
   const servesFtp = services.some(({ spec }) => spec === SERVICE_CATALOG.ftp);
+  // The file under /etc the ftp daemon's config names as its user list, if it keeps one.
+  const userlist =
+    config === null ? null : (/^userlist_file=\/etc\/(\S+)$/m.exec(config.content)?.[1] ?? null);
   const servesDatabase = services.some(({ spec }) => spec === SERVICE_CATALOG.mysql);
   const redisService = services.find(({ spec }) => spec === SERVICE_CATALOG.redis);
 
@@ -420,6 +424,20 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
   // mailboxes a player reads beside it.
   const mail = mailEntries({ essid, host, username, crontab: etc.crontab.content });
 
+  // A file server keeps its network's work under /srv, written by the network's own
+  // people. Its own stream, like the page and the mailboxes: giving a box a share moves
+  // nothing else about it. Its uploads are the transfer log's, derived once for
+  // the same reason as the mail.
+  const share =
+    role === 'fileserver'
+      ? buildShare({
+          essid,
+          host,
+          account: username,
+          people: peopleKnownOn({ essid, host, username }),
+        })
+      : null;
+
   const logs: Readonly<Record<string, FileEntry>> = {
     'auth.log': file('', AUTH_LOG_PERMISSIONS),
     'kern.log': file('', KERN_LOG_PERMISSIONS),
@@ -464,6 +482,7 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
       database,
       isNameServer: nameServer !== null,
       deliveries: mail.deliveries,
+      uploads: share?.uploads ?? [],
     }),
   };
 
@@ -475,18 +494,6 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
   ];
   const logPaths = Object.keys(logs).map((name) => `/var/log/${name}`);
 
-  // A file server keeps its network's work under /srv, written by the network's own
-  // people. Its own stream, like the page and the mailboxes: giving a box a share moves
-  // nothing else about it.
-  const share =
-    role === 'fileserver'
-      ? buildShare({
-          essid,
-          host,
-          account: username,
-          people: peopleKnownOn({ essid, host, username }),
-        })
-      : null;
   const ssh = buildSshDirectories({ essid, host, username });
 
   const tree = dir(
@@ -498,6 +505,21 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
           ...etc,
           passwd: file(passwd, PASSWD_FILE),
           ...(config === null ? {} : { [config.name]: file(config.content, SERVICE_CONFIG_FILE) }),
+          // The accounts vsftpd lets in, where its config keeps a list of them: every
+          // account in passwd, since the door admits any of them. Kept at passwd's own
+          // tier, for the reason /etc/aliases is — every line of it is an account name.
+          ...(userlist === null
+            ? {}
+            : {
+                [userlist]: file(
+                  passwd
+                    .split('\n')
+                    .filter((line) => line !== '')
+                    .map((line) => `${line.slice(0, line.indexOf(':'))}\n`)
+                    .join(''),
+                  ALIASES_FILE,
+                ),
+              }),
           // The addresses the box answers for that are not mailboxes, built beside the
           // spool so no alias can name a mailbox `/var/mail` does not keep. It is what
           // this box's own postfix.conf already points `alias_maps` at.
@@ -565,7 +587,7 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
         logPaths,
         sshDirectory: ssh.root,
       }),
-      ...(share === null ? {} : { srv: share }),
+      ...(share === null ? {} : { srv: share.tree }),
       tmp: dir({}, TMP_DIR),
       usr: dir(
         {

@@ -679,6 +679,35 @@ describe('root’s history is made of what the box is', () => {
   });
 });
 
+/** What a file server here never runs: samba, nfs or zfs. Its only door is ftp. */
+const NOT_ON_A_FILE_SERVER = /\b(smb\w*|testparm|exportfs|nfs\w*|zpool|zfs)\b/;
+
+describe('root’s history on a file server', () => {
+  it('names no samba, nfs or zfs in any line the pool can write', () => {
+    ROLE_ROOT_HISTORY.fileserver.forEach((line) => {
+      expect(line).not.toMatch(NOT_ON_A_FILE_SERVER);
+    });
+  });
+
+  it('names none on any file server in the world', () => {
+    fileServers().forEach((box) => {
+      historyLines(rootFilesOf(treeOf(box)).get('.bash_history') ?? '').forEach((line) => {
+        expect(line, `${box.essid} ${box.host.hostname}`).not.toMatch(NOT_ON_A_FILE_SERVER);
+      });
+    });
+  });
+
+  it('looks after the share where the box mounts it', () => {
+    const lookedAfter = fileServers().filter((box) =>
+      historyLines(rootFilesOf(treeOf(box)).get('.bash_history') ?? '').some((line) =>
+        / \/srv$/.test(line),
+      ),
+    );
+    expect(lookedAfter.length).toBeGreaterThan(0);
+    lookedAfter.forEach((box) => expect(existsOn(treeOf(box), '/srv')).toBe(true));
+  });
+});
+
 describe('no two admins kept house the same way', () => {
   /** How many boxes do a thing, out of how many could. */
   const share = (flags: readonly boolean[]) => ({
@@ -950,6 +979,109 @@ describe('what a file server’s own config claims about it', () => {
         expect(config).not.toMatch(falsehood);
       });
     });
+  });
+});
+
+/** Every mount `/etc/fstab` states, as its device, mount point, type and fsck pass. */
+const mountsOf = (box: Box): readonly (readonly string[])[] =>
+  statedLines(etcFileOf(treeOf(box), 'fstab')).map((line) => line.split(/\s+/));
+
+/** `path` as a login of `userType` reads it, or null where it cannot. */
+const readAs = (tree: Directory, userType: 'root' | 'user' | 'guest', path: string): string | null => {
+  const read = createFsView(tree, { userType }).read(asAbsPath(path));
+  return read.ok ? read.content : null;
+};
+
+describe('the users a file server lets in over ftp', () => {
+  it('keeps the list its config names, and lets in by it exactly the accounts the box has', () => {
+    let listed = 0;
+    [...lanBoxes(ALL_ESSIDS), ...deepBoxes(ALL_ESSIDS)].forEach((box) => {
+      const tree = treeOf(box);
+      const label = `${box.essid} ${box.host.hostname}`;
+      const config = readAs(tree, 'root', '/etc/vsftpd.conf') ?? '';
+      const named = /^userlist_file=(\S+)$/m.exec(config)?.[1];
+      if (named === undefined) {
+        expect(readAs(tree, 'root', '/etc/vsftpd.userlist'), label).toBeNull();
+        return;
+      }
+      // The list is who may log in, not who may not: without this, vsftpd refuses
+      // everyone it names.
+      expect(config, label).toMatch(/^userlist_enable=YES$/m);
+      expect(config, label).toMatch(/^userlist_deny=NO$/m);
+      const accounts = statedLines(readAs(tree, 'root', '/etc/passwd') ?? '').map(
+        (line) => line.split(':')[0],
+      );
+      // One account a line, and nothing after the last.
+      expect(readAs(tree, 'root', named), label).toBe(
+        accounts.map((account) => `${account}\n`).join(''),
+      );
+      listed += 1;
+    });
+    expect(listed).toBeGreaterThan(0);
+  });
+
+  it('keeps the list at the tier of the passwd file it names the accounts of', () => {
+    fileServers().forEach((box) => {
+      const tree = treeOf(box);
+      if (readAs(tree, 'root', '/etc/vsftpd.userlist') === null) return;
+      expect(readAs(tree, 'user', '/etc/vsftpd.userlist')).not.toBeNull();
+      expect(readAs(tree, 'guest', '/etc/vsftpd.userlist')).toBeNull();
+    });
+  });
+
+  it('turns every list the pool can enable into the one that lets its users in', () => {
+    const configs = Array.from(
+      { length: 200 },
+      (_, index) =>
+        roleConfigFile({
+          role: 'fileserver',
+          hostname: 'share-9',
+          seed: `vsftpd-${index}`,
+          ports: new Map([['ftp', 21]]),
+          cidr: '192.168.4.0/24',
+          zone: 'acme-corp.lan',
+        }).content,
+    ).filter((config) => /^userlist_enable=YES$/m.test(config));
+    expect(configs.length).toBeGreaterThan(0);
+    configs.forEach((config) => expect(config).toMatch(/^userlist_deny=NO$/m));
+  });
+});
+
+describe('where a file server keeps its share', () => {
+  it('mounts /srv from a disk of its own on every file server, and on no other box', () => {
+    const boxes = [...lanBoxes(ALL_ESSIDS), ...deepBoxes(ALL_ESSIDS)];
+    expect(boxes.filter(({ host }) => roleOfHostname(host.hostname) === 'fileserver').length).toBeGreaterThan(0);
+
+    boxes.forEach((box) => {
+      const mounts = mountsOf(box);
+      const label = `${box.essid} ${box.host.hostname}`;
+      const data = mounts.filter(([, mountPoint]) => mountPoint === '/srv');
+      if (roleOfHostname(box.host.hostname) !== 'fileserver') {
+        expect(data, label).toEqual([]);
+        return;
+      }
+      const root = mounts.find(([, mountPoint]) => mountPoint === '/');
+      expect(data.length, label).toBe(1);
+      const [device, , type, options, dump, pass] = data[0] ?? [];
+      expect(device, label).not.toBe(root?.[0]);
+      expect([type, options, dump, pass], label).toEqual(['ext4', 'defaults', '0', '2']);
+    });
+  });
+
+  it('mounts it after the disks the system boots from, and before swap', () => {
+    fileServers().forEach((box) => {
+      const order = mountsOf(box).map(([, mountPoint]) => mountPoint);
+      const srv = order.indexOf('/srv');
+      expect(order.slice(0, srv).every((mountPoint) => mountPoint === '/' || mountPoint === '/boot')).toBe(true);
+      expect(order.slice(srv + 1).every((mountPoint) => mountPoint === 'none')).toBe(true);
+    });
+  });
+
+  it('gives every file server its own data disk', () => {
+    const disks = fileServers().map((box) =>
+      mountsOf(box).find(([, mountPoint]) => mountPoint === '/srv')?.[0],
+    );
+    expect(new Set(disks).size).toBe(disks.length);
   });
 });
 
