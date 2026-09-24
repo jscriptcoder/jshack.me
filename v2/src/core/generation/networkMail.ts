@@ -338,28 +338,44 @@ export const boxMail = ({
   readonly account: string;
   /** The logins the box's own application keeps. */
   readonly people: readonly string[];
-}): NetworkMail => {
-  const zone = lanZoneName(essid);
-  return weave({
-    people: people.map((username) => ({
-      username,
-      // The box's own user is the person the box already says they are, everywhere else
-      // on it. The rest have no machine of their own, so each is drawn under their own
-      // name — one seed for all of them would make them all the same person.
-      fullName: personBehind({
-        seed:
-          username === account
-            ? `inhabitant-${essid}-${host.ip}`
-            : `inhabitant-${essid}-${host.ip}-${username}`,
-        username,
-      }),
-      address: `${username}@${zone}`,
-      host,
-    })),
+}): NetworkMail =>
+  weave({
+    people: boxPeople({ essid, host, account, logins: people }),
     templates: threadsFor(essid),
-    zone,
+    zone: lanZoneName(essid),
     prng: createPrng(`mail-box-${essid}-${host.ip}`),
   });
+
+/** The people behind the logins a box below the LAN keeps, each writing from the box
+ *  itself, which is the only machine any of them has. */
+export const boxPeople = ({
+  essid,
+  host,
+  account,
+  logins,
+}: {
+  readonly essid: string;
+  readonly host: LanHost;
+  /** The box's own account, whose person the rest of the box already names. */
+  readonly account: string;
+  readonly logins: readonly string[];
+}): readonly MailPerson[] => {
+  const zone = lanZoneName(essid);
+  return logins.map((username) => ({
+    username,
+    // The box's own user is the person the box already says they are, everywhere else
+    // on it. The rest have no machine of their own, so each is drawn under their own
+    // name — one seed for all of them would make them all the same person.
+    fullName: personBehind({
+      seed:
+        username === account
+          ? `inhabitant-${essid}-${host.ip}`
+          : `inhabitant-${essid}-${host.ip}-${username}`,
+      username,
+    }),
+    address: `${username}@${zone}`,
+    host,
+  }));
 };
 
 /** Everything a correspondence wrote to one account, oldest first. */

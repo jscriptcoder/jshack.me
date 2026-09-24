@@ -5,11 +5,16 @@ import { buildDirectory, buildFile } from '../../test/factories/filesystem';
 import { mockCommandEnv, mockFsViewFromTree } from '../../test/factories/commandEnv';
 import {
   ALL_ESSIDS,
+  deepBoxes,
   filesUnder,
   lanBoxes,
   softwareVersionsIn,
   type Box,
 } from '../../test/worldContent';
+import { buildDeepHostFs } from './deepHostFs';
+import { generateApplication } from './generateDatabase';
+import { generateHomeLan } from './generateHomeLan';
+import { roleOfHostname } from './pools/hostnames';
 import { asAbsPath } from '../types';
 import { WORLD_EPOCH } from '../cve/worldClock';
 import { createFsView } from '../filesystem/fsView';
@@ -18,7 +23,7 @@ import { createPrng } from './prng';
 import { renderDocument, type DocumentMetadata } from './documentFormats';
 import { buildRemoteHostFs, npcUsername } from './remoteHostFs';
 import { networkPersona } from './persona';
-import { networkMail } from './networkMail';
+import { boxMail, networkMail } from './networkMail';
 import type { NetworkCategory } from './pools/essidCatalog';
 
 const NO_FLAGS = new Map<string, string | true>();
@@ -484,5 +489,125 @@ describe('a backup box keeps dated snapshots of the same kind of share', () => {
       }
     }
     expect(unchanged).toBeGreaterThan(0);
+  });
+});
+
+/** Every file server on a layer below the LAN, which cannot see what else is down there. */
+const deepFileServers = (): readonly Box[] =>
+  deepBoxes(ALL_ESSIDS).filter((box) => keepsWorkingShare(box) || keepsBackups(box));
+
+/** The people a box below the LAN knows: the logins its own application keeps, as its
+ *  own mail names them. */
+const deepCastOf = ({ essid, host }: Box): readonly string[] => {
+  const account = npcUsername(essid, host);
+  const logins = (
+    generateApplication({
+      appSeed: `db-app-${essid}-${host.ip}`,
+      essid,
+      host,
+      account,
+      role: roleOfHostname(host.hostname),
+    }).tables.users?.rows ?? []
+  ).map((row) => String(row.username));
+  return boxMail({ essid, host, account, people: logins }).people.map(
+    (person) => person.fullName,
+  );
+};
+
+/** What any tree keeps under /srv, or nothing. */
+const srvFilesOf = (tree: Directory): ReadonlyMap<string, string> => {
+  const srv = tree.entries.get('srv');
+  return srv?.kind === 'directory' ? filesUnder(srv) : new Map();
+};
+
+/** A file server of every shape on a network of every kind, stood up below the LAN so no
+ *  pairing goes untested for want of a network that happens to have it. */
+const everyKindOfFileServer = (): readonly Box[] => {
+  const byCategory = new Map(
+    [...ALL_ESSIDS].reverse().map((essid) => [networkPersona(essid).category, essid] as const),
+  );
+  return [...byCategory.values()].flatMap((essid) =>
+    [...WORKING_SHARE_PREFIXES, ...BACKUP_PREFIXES].map((prefix) => ({
+      essid,
+      host: { ip: '10.40.0.9', hostname: `${prefix}-9`, kind: 'machine' as const },
+    })),
+  );
+};
+
+describe('a share below the LAN', () => {
+  it('is kept by every file server down there, in the shape its name says', () => {
+    const boxes = deepFileServers();
+    expect(boxes.length).toBeGreaterThan(0);
+
+    boxes.forEach((box) => {
+      const srv = directoryAt(buildDeepHostFs(box.essid, box.host), ['srv']);
+      expect([...srv.entries.keys()], `${box.essid} ${box.host.hostname}`).toEqual(
+        keepsWorkingShare(box) ? ['share'] : ['backup'],
+      );
+    });
+  });
+
+  it('is written only by the people its own application knows', async () => {
+    let signedDocuments = 0;
+    for (const box of deepFileServers()) {
+      const cast = deepCastOf(box);
+      for (const [path, content] of srvFilesOf(buildDeepHostFs(box.essid, box.host))) {
+        if (!path.endsWith('.pdf')) continue;
+        expect(cast, `${box.essid} ${path}`).toContain(
+          pdfEntry(await readableLinesOf(content), 'Author'),
+        );
+        signedDocuments++;
+      }
+    }
+    expect(signedDocuments).toBeGreaterThan(0);
+  });
+
+  it('names no machine up on the LAN, because it cannot see past its own layer', () => {
+    deepFileServers().forEach((box) => {
+      const files = [...srvFilesOf(buildDeepHostFs(box.essid, box.host)).values()];
+      generateHomeLan(box.essid)
+        .hosts.filter((lanHost) => lanHost.kind === 'machine')
+        .forEach((lanHost) => {
+          files.forEach((content) => {
+            expect(content).not.toContain(lanHost.hostname);
+            expect(content).not.toContain(lanHost.ip);
+          });
+        });
+    });
+  });
+
+  it('is the same bytes however often it is built', () => {
+    deepFileServers().forEach((box) => {
+      expect(srvFilesOf(buildDeepHostFs(box.essid, box.host))).toEqual(
+        srvFilesOf(buildDeepHostFs(box.essid, box.host)),
+      );
+    });
+  });
+
+  it("keeps its place's own departments on every kind of network, in every shape", () => {
+    const boxes = everyKindOfFileServer();
+    expect(new Set(boxes.map((box) => networkPersona(box.essid).category)).size).toBe(
+      Object.keys(FOLDERS_BY_CATEGORY).length,
+    );
+
+    boxes.forEach((box) => {
+      const srv = directoryAt(buildDeepHostFs(box.essid, box.host), ['srv']);
+      const allowed = FOLDERS_BY_CATEGORY[networkPersona(box.essid).category];
+      const label = `${box.essid} ${box.host.hostname}`;
+      const trees = keepsWorkingShare(box)
+        ? [directoryAt(srv, ['share'])]
+        : [...directoryAt(srv, ['backup']).entries.values()].map((snapshot) => {
+            if (snapshot.kind !== 'directory') throw new Error(`${label}: a file in /srv/backup`);
+            return snapshot;
+          });
+
+      expect(trees.length, label).toBeGreaterThan(0);
+      trees.forEach((tree) => {
+        expect(tree.entries.size, label).toBeGreaterThan(0);
+        [...tree.entries.keys()].forEach((folder) => {
+          expect(allowed, label).toContain(folder);
+        });
+      });
+    });
   });
 });

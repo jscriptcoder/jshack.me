@@ -76,10 +76,9 @@ import { buildEtcContent } from './etcContent';
 import { buildLogHistory } from './logHistory';
 import { buildRootHome } from './rootHome';
 import { buildSshDirectories } from './sshContent';
-import { mailEntries } from './mailbox';
+import { mailEntries, peopleKnownOn } from './mailbox';
 import { MAIL_LOG_PERMISSIONS } from '../logging/mailLog';
 import { buildShare } from './share';
-import { peopleOn } from './networkMail';
 import { DEBIAN_BASH_LOGOUT, DEBIAN_BASHRC, DEBIAN_PROFILE } from './pools/homeSkeleton';
 import { pickUsername } from './pools/usernames';
 import { placementOf } from './rolePlacement';
@@ -93,7 +92,7 @@ import { MYSQL_LOG_PERMISSIONS } from '../logging/mysqlLog';
 import { REDIS_LOG_PERMISSIONS } from '../logging/redisLog';
 import { NAMED_LOG_PERMISSIONS } from '../logging/namedLog';
 import type { Directory, FileEntry } from '../filesystem/types';
-import { isOnHomeLan, type LanHost } from './generateHomeLan';
+import type { LanHost } from './generateHomeLan';
 
 const pidfile = (content: string, owner: string): FileEntry =>
   file(content, PIDFILE_PERMISSIONS, owner);
@@ -480,8 +479,13 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
   // people. Its own stream, like the page and the mailboxes: giving a box a share moves
   // nothing else about it.
   const share =
-    role === 'fileserver' && isOnHomeLan(essid, host)
-      ? buildShare({ essid, host, account: username, people: peopleOn(essid) })
+    role === 'fileserver'
+      ? buildShare({
+          essid,
+          host,
+          account: username,
+          people: peopleKnownOn({ essid, host, username }),
+        })
       : null;
   const ssh = buildSshDirectories({ essid, host, username });
 
