@@ -4,7 +4,9 @@ import { WORLD_EPOCH } from '../../cve/worldClock';
 import { softwareVersionsIn } from '../../../test/worldContent';
 import {
   contentOf,
+  pagesOf,
   read,
+  servesHttp,
   syntheticBoxes,
   syntheticLanBoxes,
   worldBoxesNamed,
@@ -180,5 +182,38 @@ describe('a smart plug', () => {
       ),
     );
     expect(specs).toEqual(new Set(Object.keys(DAY_SPECS)));
+  });
+});
+
+
+/** The cells of every table row on a page, row by row. */
+const rowsOf = (page: string | undefined): readonly (readonly string[])[] =>
+  (page ?? '')
+    .split('\n')
+    .filter((line) => line.startsWith('<tr><td>'))
+    .map((line) => Array.from(line.matchAll(/<td>([^<]*)<\/td>/g)).map((match) => match[1] ?? ''));
+
+describe("a smart plug's own pages", () => {
+  const serving = (): readonly BuiltBox[] => plugs().filter(servesHttp);
+
+  it('show what it switches, and each day it logged newest first, as its energy file holds it', () => {
+    const boxes = serving();
+    expect(boxes.length).toBeGreaterThan(0);
+    boxes.forEach(({ tree }) => {
+      const page = pagesOf(tree).get('index.html');
+      expect(page).toContain(`${setting(tree, 'name')}, ${setting(tree, 'load_watts')} W`);
+      const held = [...energyOf(tree)].reverse().map(({ date, kwh }) => [date, `${kwh.toFixed(3)} kWh`]);
+      expect(rowsOf(page)).toEqual(held);
+    });
+  });
+
+  it('list on its Schedule page every rule it keeps', () => {
+    serving().forEach(({ tree }) => {
+      const kept = contentOf(tree, SCHEDULE)
+        .split('\n')
+        .filter((line) => line !== '' && !line.startsWith('#'))
+        .map((line) => line.split(' '));
+      expect(rowsOf(pagesOf(tree).get('schedule.html'))).toEqual(kept);
+    });
   });
 });

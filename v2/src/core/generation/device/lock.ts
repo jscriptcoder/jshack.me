@@ -12,7 +12,7 @@ import type { MailPerson } from '../networkMail';
 import { npcUsername } from '../remoteHostFs';
 import { phoneModel } from '../share';
 import { LOCK_DOORS, LOCK_MODELS, LOCK_ROLE_SLOTS } from '../pools/devices';
-import { DAY_SECONDS, LAST_SECOND, stamp, userTree, type DeviceFiles } from './common';
+import { DAY_SECONDS, LAST_SECOND, stamp, uiPage, userTree, type DeviceFiles } from './common';
 
 const SLOTS_PATH = '/var/lib/lockd/slots.conf';
 const LOG_PATH = '/var/log/lockd/access.log';
@@ -99,6 +99,52 @@ const lockdConf = ({
     '',
   ].join('\n');
 
+/** The lock's own pages: the door and when it last opened, and how it is set. Who came
+ *  in, and who holds a slot, are its log's and its account's, so no page names them. */
+const lockPages = ({
+  door,
+  model,
+  autoLock,
+  slots,
+  lastUnlock,
+}: {
+  readonly door: string;
+  readonly model: string;
+  readonly autoLock: number;
+  readonly slots: number;
+  readonly lastUnlock: number | undefined;
+}): ReadonlyMap<string, string> => {
+  const nav = [
+    ['/', 'Status'],
+    ['/settings.html', 'Settings'],
+  ] as const;
+  return new Map([
+    [
+      'index.html',
+      uiPage({
+        title: `${door} - Status`,
+        body: [
+          `<p>${model}: locked.</p>`,
+          ...(lastUnlock === undefined ? [] : [`<p>Last unlocked: ${stamp(lastUnlock)}</p>`]),
+        ],
+        nav,
+      }),
+    ],
+    [
+      'settings.html',
+      uiPage({
+        title: `${door} - Settings`,
+        body: [
+          `<p>Locks again after ${autoLock} seconds.</p>`,
+          '<p>Unlocks by phone over bluetooth, or by keypad.</p>',
+          `<p>${slots} keypad slots.</p>`,
+        ],
+        nav,
+      }),
+    ],
+  ]);
+};
+
 export const lockFiles = ({
   prng,
   essid,
@@ -121,11 +167,10 @@ export const lockFiles = ({
     ...residents.filter((resident) => resident.phone === undefined).map((resident) => resident.fullName),
     ...roles,
   ];
-  const lines = Array.from({ length: prng.nextInt(UNLOCKS.min, UNLOCKS.max) }, () =>
+  const times = Array.from({ length: prng.nextInt(UNLOCKS.min, UNLOCKS.max) }, () =>
     prng.nextInt(LAST_SECOND - UNLOCK_WINDOW_SECONDS, LAST_SECOND),
-  )
-    .sort((earlier, later) => earlier - later)
-    .map((at) =>
+  ).sort((earlier, later) => earlier - later);
+  const lines = times.map((at) =>
       residents.length === 0 || prng.next() < ROLE_CHANCE
         ? unlockLine(at, null, prng.pick(roles))
         : unlockLine(at, prng.pick(residents), ''),
@@ -165,7 +210,7 @@ export const lockFiles = ({
       ),
     },
     var: {},
-    pages: new Map(),
+    pages: lockPages({ door, model, autoLock, slots: slots.length, lastUnlock: times.at(-1) }),
     configPaths: ['/etc/lockd/lockd.conf'],
     printed: [],
   };

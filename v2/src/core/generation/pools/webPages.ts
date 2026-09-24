@@ -26,11 +26,11 @@
  * **Which roles get their own bucket was measured, not guessed.** Across 40
  * generated LANs the boxes answering on `:80` are 30% webservers, 27% workstations
  * and 24% cameras, the rest a long tail. The general bucket already reads as a
- * webserver's, so the two buckets that close the contradiction are `iot` and
- * `workstation` — a `cam-31` serving an internal corporate portal is the obvious
- * lie, and a `laptop-7` serving one is the same lie a player happens to meet more
- * often. `database` and `fileserver` are the deferred tail; both already say what
- * they are through the config file in `/etc`.
+ * webserver's, so the bucket that closes the contradiction is `workstation`: a
+ * `laptop-7` serving an internal corporate portal is a lie a player meets often. An
+ * IoT box serves no page from here at all, since every device publishes its own
+ * (`generation/device.ts`). `database` and `fileserver` are the deferred tail; both
+ * already say what they are through the config file in `/etc`.
  *
  * The table is sparse on purpose, unlike `rolePlacement`'s full record: an absent
  * row here means "nothing particular to serve", and falling back to the general
@@ -52,13 +52,6 @@ const GENERAL_SERVER_PAGES: readonly string[] = [
   '<html>\n<head><title>{{hostname}} — Application Server</title></head>\n<body>\n<h1>{{hostname}} App Server</h1>\n<p>Node.js | PM2 cluster mode</p>\n<p>Workers: 4/4 | Memory: 312MB | Uptime: 18d 4h</p>\n<!-- pm2 restarts the workers after every deploy -->\n</body>\n</html>',
 ];
 
-const IOT_PAGES: readonly string[] = [
-  '<html>\n<head><title>{{hostname}} — Live View</title></head>\n<body>\n<h1>{{hostname}}</h1>\n<p>Stream: rtsp://{{hostname}}:554/live — 1920x1080 @ 15fps</p>\n<p>Motion detection: on | Firmware auto-update: off</p>\n<!-- ONVIF profile S, motion zones last edited 2019 -->\n</body>\n</html>',
-  '<html>\n<head><title>{{hostname}} — Device</title></head>\n<body>\n<h1>{{hostname}}</h1>\n<p>Sensor gateway | Firmware auto-update: off | Uptime 214d</p>\n<p>Paired devices: 6 | Last reading 21.4C</p>\n<!-- mqtt bridge restarted nightly by cron -->\n</body>\n</html>',
-  '<html>\n<head><title>{{hostname}} — Snapshot</title></head>\n<body>\n<h1>{{hostname}}</h1>\n<p>Latest snapshot: 1280x720, 4s ago</p>\n<p>Storage: microSD 32GB, 78% full — oldest clip 2021-03-11</p>\n<!-- snapshot cache served from tmpfs, wiped on reboot -->\n</body>\n</html>',
-  '<html>\n<head><title>{{hostname}} — Camera Admin</title></head>\n<body>\n<h1>{{hostname}}</h1>\n<p>Model IPC-2400 | Beta firmware | Channel 2 of 4</p>\n<p>Night mode: auto | Timezone: UTC</p>\n<!-- beta firmware flashed by hand, never rolled back -->\n</body>\n</html>',
-];
-
 const WORKSTATION_PAGES: readonly string[] = [
   '<html>\n<head><title>{{hostname}} — dev</title></head>\n<body>\n<h1>{{hostname}}</h1>\n<p>Vite dev server on localhost:5173 — HMR connected</p>\n<!-- npm run dev -- --host, left running over the weekend -->\n</body>\n</html>',
   '<html>\n<head><title>It works!</title></head>\n<body>\n<h1>It works!</h1>\n<p>nginx default page on {{hostname}}</p>\n<!-- /var/www/html untouched since the install -->\n</body>\n</html>',
@@ -72,7 +65,6 @@ const PAGES_BY_ROLE: ReadonlyMap<DrawnRole | undefined, readonly string[]> = new
   DrawnRole | undefined,
   readonly string[]
 >([
-  ['iot', IOT_PAGES],
   ['workstation', WORKSTATION_PAGES],
 ]);
 

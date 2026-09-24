@@ -160,6 +160,11 @@ export const archiveOf = (tree: Directory): ReadonlyMap<string, string> => {
 export const archivedSources = (tree: Directory): ReadonlySet<string> =>
   new Set([...archiveOf(tree).keys()].map((path) => path.slice(0, path.indexOf('/'))));
 
+/** A page with its measurements taken out: a reading, a set point or a day's energy is
+ *  written with its unit, and a version never carries one, so a version sweep reads a
+ *  device's page without them. */
+export const withoutMeasurements = (page: string): string => page.replace(/\d+\.\d+ (?:°C|kWh)/g, '');
+
 export const servesHttp = ({ essid, host }: Box): boolean =>
   hostServices(essid, host).some(({ spec }) => spec.service === 'http');
 

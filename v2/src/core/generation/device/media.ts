@@ -11,7 +11,15 @@ import { peopleOn } from '../networkMail';
 import { npcUsername } from '../remoteHostFs';
 import { phoneModel } from '../share';
 import { MEDIA_APPS, MEDIA_MODELS, MEDIA_ROOMS, MEDIA_TITLES } from '../pools/devices';
-import { DAY_SECONDS, LAST_SECOND, prefixOf, stamp, userTree, type DeviceFiles } from './common';
+import {
+  DAY_SECONDS,
+  LAST_SECOND,
+  prefixOf,
+  stamp,
+  uiPage,
+  userTree,
+  type DeviceFiles,
+} from './common';
 
 const PAIRED_PATH = '/var/lib/mediad/paired.conf';
 const RECENT_PATH = '/var/lib/mediad/recent.log';
@@ -145,6 +153,61 @@ const mediadConf = ({
     '',
   ].join('\n');
 
+/** The device's own pages: what it played, newest first, and the phones it is paired
+ *  with. Where it was cast from is left to its history, which is its account's. */
+const mediaPages = ({
+  hostname,
+  name,
+  model,
+  played,
+  pairings,
+}: {
+  readonly hostname: string;
+  readonly name: string;
+  readonly model: string;
+  readonly played: readonly Played[];
+  readonly pairings: readonly Pairing[];
+}): ReadonlyMap<string, string> => {
+  const nav = [
+    ['/', 'Now playing'],
+    ['/devices.html', 'Devices'],
+  ] as const;
+  return new Map([
+    [
+      'index.html',
+      uiPage({
+        title: `${name} - Now playing`,
+        body: [
+          `<p>${model} (${hostname}).</p>`,
+          '<table>',
+          '<tr><th>Time</th><th>App</th><th>Title</th></tr>',
+          ...[...played]
+            .reverse()
+            .map(({ at, app, title }) => `<tr><td>${stamp(at)}</td><td>${app}</td><td>${title}</td></tr>`),
+          '</table>',
+        ],
+        nav,
+      }),
+    ],
+    [
+      'devices.html',
+      uiPage({
+        title: `${name} - Devices`,
+        body:
+          pairings.length === 0
+            ? ['<p>No devices paired.</p>']
+            : [
+                '<table>',
+                '<tr><th>Device</th><th>Paired</th></tr>',
+                ...pairings.map(({ name: phone, at }) => `<tr><td>${phone}</td><td>${stamp(at)}</td></tr>`),
+                '</table>',
+              ],
+        nav,
+      }),
+    ],
+  ]);
+};
+
 export const mediaFiles = ({
   prng,
   essid,
@@ -181,7 +244,7 @@ export const mediaFiles = ({
     },
     log: {},
     var: {},
-    pages: new Map(),
+    pages: mediaPages({ hostname: host.hostname, name, model, played, pairings }),
     configPaths: ['/etc/mediad/mediad.conf'],
     printed: [],
   };

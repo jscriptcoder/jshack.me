@@ -4,8 +4,10 @@ import { WORLD_EPOCH } from '../../cve/worldClock';
 import { softwareVersionsIn } from '../../../test/worldContent';
 import {
   contentOf,
+  pagesOf,
   prefixOf,
   read,
+  servesHttp,
   syntheticBoxes,
   syntheticLanBoxes,
   worldBoxesNamed,
@@ -272,6 +274,54 @@ describe("a thermostat's schedule", () => {
         host: host.hostname,
         warmer: true,
       });
+    });
+  });
+});
+
+/** A moment in milliseconds as a device's page shows it. */
+const shown = (at: number): string => new Date(at).toISOString().slice(0, 19).replace('T', ' ');
+
+/** The cells of every table row on a page, row by row. */
+const rowsOf = (page: string | undefined): readonly (readonly string[])[] =>
+  (page ?? '')
+    .split('\n')
+    .filter((line) => line.startsWith('<tr><td>'))
+    .map((line) => Array.from(line.matchAll(/<td>([^<]*)<\/td>/g)).map((match) => match[1] ?? ''));
+
+describe("a climate device's own pages", () => {
+  const serving = (): readonly BuiltBox[] => climates().filter(servesHttp);
+
+  it('show its latest readings newest first, as its readings file holds them', () => {
+    const boxes = serving();
+    expect(boxes.length).toBeGreaterThan(0);
+    boxes.forEach(({ tree }) => {
+      const held = readingsOf(tree)
+        .slice(-24)
+        .reverse()
+        .map(({ at, temperature, humidity }) => [shown(at), `${temperature.toFixed(1)} °C`, `${humidity} %`]);
+      expect(rowsOf(pagesOf(tree).get('index.html'))).toEqual(held);
+    });
+  });
+
+  it('name on its Sensor page the chip, the room and how often it reads', () => {
+    serving().forEach(({ tree }) => {
+      const page = pagesOf(tree).get('settings.html') ?? '';
+      expect(page).toContain(setting(tree, 'chip'));
+      expect(page).toContain(setting(tree, 'room'));
+      expect(page).toContain(`every ${Number(setting(tree, 'interval')) / 60} minutes`);
+    });
+  });
+
+  it("list on a thermostat's Schedule page every set point it keeps", () => {
+    const boxes = serving().filter(({ host }) => prefixOf(host.hostname) === 'thermostat');
+    expect(boxes.length).toBeGreaterThan(0);
+    boxes.forEach(({ tree }) => {
+      const kept = scheduleOf(tree).map(({ days, from, celsius }) => [
+        days,
+        `${String(Math.floor(from / 60)).padStart(2, '0')}:${String(from % 60).padStart(2, '0')}`,
+        `${celsius.toFixed(1)} °C`,
+      ]);
+      expect(rowsOf(pagesOf(tree).get('schedule.html'))).toEqual(kept);
     });
   });
 });

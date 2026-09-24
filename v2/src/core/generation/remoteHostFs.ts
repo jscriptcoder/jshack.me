@@ -287,15 +287,15 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
   // most of the world's name servers stand on a deep layer.
   const nameServer = role === 'dns' ? nameServerFilesFor(essid, host) : null;
 
-  // What the device keeps because of what it is — a printer its print server. Where its
-  // kind keeps its own configs they replace the generic device config below.
+  // What the device keeps because of what it is — a printer its print server, a lock
+  // who came in. Every IoT box is one, and keeps its daemon's config in place of a role's.
   const device = buildDevice({ essid, host, username });
 
   // A name no role claims keeps no config: there is nothing for such a box to admit
-  // to. `dns` is excluded at the type level rather than here — the pool has nothing
-  // for it, so a caller that forgot the branch above would not compile.
+  // to. `dns` and `iot` are excluded at the type level rather than here — the pool has
+  // nothing for either, so a caller that forgot the branches above would not compile.
   const config =
-    role === undefined || role === 'dns' || device !== null
+    role === undefined || role === 'dns' || role === 'iot'
       ? null
       : roleConfigFile({
           role,
@@ -400,8 +400,8 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
     webPort !== undefined && role === 'webserver'
       ? buildWebSite({ essid, host, port: webPort, database })
       : null;
-  // A device with a UI of its own publishes it; any other box that serves keeps its page.
-  const devicePages = serves && device !== null && device.pages.size > 0 ? device.pages : null;
+  // A device publishes its own pages; any other box that serves keeps its one page.
+  const devicePages = serves && device !== null ? device.pages : null;
   const webFiles: ReadonlyMap<string, string> | null =
     site?.files ??
     devicePages ??

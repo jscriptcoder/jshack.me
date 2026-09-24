@@ -7,7 +7,15 @@ import type { Prng } from '../prng';
 import { dir, file, SERVICE_CONFIG_FILE, TRAVERSABLE_DIR } from '../baseFs';
 import type { LanHost } from '../generateHomeLan';
 import { PLUG_APPLIANCES, PLUG_DAYS } from '../pools/devices';
-import { DAY_SECONDS, LAST_SECOND, pad2, stamp, userTree, type DeviceFiles } from './common';
+import {
+  DAY_SECONDS,
+  LAST_SECOND,
+  pad2,
+  stamp,
+  uiPage,
+  userTree,
+  type DeviceFiles,
+} from './common';
 
 const SCHEDULE_PATH = '/var/lib/plugd/schedule.conf';
 const ENERGY_PATH = '/var/lib/plugd/energy.csv';
@@ -68,18 +76,71 @@ const minutesOn = (rules: readonly Rule[], weekday: number): number => {
   return on.size;
 };
 
+type Day = { readonly date: string; readonly kwh: number };
+
 /** The last thirty whole days before the world began, each with what the appliance drew:
  *  its load for as long as it was on, less what its own switching left off. */
-const energyFile = (prng: Prng, rules: readonly Rule[], watts: number): string => {
+const energyOf = (prng: Prng, rules: readonly Rule[], watts: number): readonly Day[] => {
   const lastDay = Math.floor((LAST_SECOND + 1) / DAY_SECONDS) * DAY_SECONDS - DAY_SECONDS;
   const rows = Array.from({ length: KEEP_DAYS }, (_, index) => {
     const day = lastDay - (KEEP_DAYS - 1 - index) * DAY_SECONDS;
     const minutes = minutesOn(rules, new Date(day * 1000).getUTCDay());
     const duty = prng.nextInt(DUTY.min, DUTY.max) / 100;
     const kwh = minutes === 0 ? 0 : Math.max(0.001, (watts * minutes * duty) / 60 / 1000);
-    return `${stamp(day).slice(0, 10)},${kwh.toFixed(3)}`;
+    return { date: stamp(day).slice(0, 10), kwh };
   });
-  return ['date,kwh', ...rows, ''].join('\n');
+  return rows;
+};
+
+const energyFile = (days: readonly Day[]): string =>
+  ['date,kwh', ...days.map(({ date, kwh }) => `${date},${kwh.toFixed(3)}`), ''].join('\n');
+
+/** The plug's own pages: what it switches and what that drew each day, newest first, and
+ *  the schedule it switches it to. */
+const plugPages = ({
+  hostname,
+  appliance,
+  days,
+  rules,
+}: {
+  readonly hostname: string;
+  readonly appliance: (typeof PLUG_APPLIANCES)[number];
+  readonly days: readonly Day[];
+  readonly rules: readonly Rule[];
+}): ReadonlyMap<string, string> => {
+  const nav = [
+    ['/', 'Status'],
+    ['/schedule.html', 'Schedule'],
+  ] as const;
+  return new Map([
+    [
+      'index.html',
+      uiPage({
+        title: `${hostname} - Status`,
+        body: [
+          `<p>Switching: ${appliance.name}, ${appliance.watts} W.</p>`,
+          '<table>',
+          '<tr><th>Day</th><th>Energy</th></tr>',
+          ...[...days].reverse().map(({ date, kwh }) => `<tr><td>${date}</td><td>${kwh.toFixed(3)} kWh</td></tr>`),
+          '</table>',
+        ],
+        nav,
+      }),
+    ],
+    [
+      'schedule.html',
+      uiPage({
+        title: `${hostname} - Schedule`,
+        body: [
+          '<table>',
+          '<tr><th>Days</th><th>On</th><th>Off</th></tr>',
+          ...rules.map(({ days: when, on, off }) => `<tr><td>${when}</td><td>${clock(on)}</td><td>${clock(off)}</td></tr>`),
+          '</table>',
+        ],
+        nav,
+      }),
+    ],
+  ]);
 };
 
 /** `/etc/plugd/plugd.conf`: what it switches and at what load, where its schedule and
@@ -115,6 +176,7 @@ export const plugFiles = ({
 }): DeviceFiles => {
   const appliance = prng.pick(PLUG_APPLIANCES);
   const rules = rulesOf(prng);
+  const days = energyOf(prng, rules, appliance.watts);
   return {
     etc: {
       plugd: dir(
@@ -126,14 +188,14 @@ export const plugFiles = ({
       plugd: userTree(
         new Map([
           ['schedule.conf', scheduleFile(rules)],
-          ['energy.csv', energyFile(prng, rules, appliance.watts)],
+          ['energy.csv', energyFile(days)],
         ]),
         username,
       ),
     },
     log: {},
     var: {},
-    pages: new Map(),
+    pages: plugPages({ hostname: host.hostname, appliance, days, rules }),
     configPaths: ['/etc/plugd/plugd.conf'],
     printed: [],
   };

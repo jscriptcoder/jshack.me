@@ -361,7 +361,7 @@ describe('buildRemoteHostFs', () => {
       // package manifest states one, so a page quoting its own would contradict it.
       const templates = [
         ...new Set(
-          ['host', 'sensor', 'laptop'].flatMap((prefix) =>
+          ['host', 'laptop'].flatMap((prefix) =>
             OCTETS.flatMap((octet) => {
               const page =
                 prefix === 'host' ? servedTemplate(octet) : servedTemplateFor(prefix, octet);
@@ -370,8 +370,8 @@ describe('buildRemoteHostFs', () => {
           ),
         ),
       ];
-      expect(templates).toHaveLength(12);
-      expect(templates.filter((page) => /<!--[\s\S]*-->/.test(page))).toHaveLength(12);
+      expect(templates).toHaveLength(8);
+      expect(templates.filter((page) => /<!--[\s\S]*-->/.test(page))).toHaveLength(8);
       expect(templates.flatMap((page) => softwareVersionsIn(page))).toEqual([]);
     });
 
@@ -496,35 +496,27 @@ describe('buildRemoteHostFs', () => {
       ),
     ];
 
-    it('serves a device something a device would serve, and a laptop its owner something of theirs', () => {
+    it('serves a laptop its owner something of theirs', () => {
       // What makes the page recon rather than wallpaper is that it fits the box the
-      // scan already named. A `cam-31` answering with an internal corporate portal
-      // tells the player the world is furniture; these vocabularies are what "reads
-      // as its kind" means, and the general pages use none of them.
-      // A sensor, since a printer, a camera and a recorder serve UIs of their own
-      // (`device.test.ts`), and the device pool is what the rest still draw.
-      const device = servedBy('sensor');
+      // scan already named. A `laptop-7` answering with an internal corporate portal
+      // tells the player the world is furniture; this vocabulary is what "reads as its
+      // kind" means, and the general pages use none of it. A device publishes pages of
+      // its own, which the tests under `device/` hold.
       const laptop = servedBy('laptop');
-      // Every entry of a bucket is reached across this sample, the same width the
+      // Every entry of the bucket is reached across this sample, the same width the
       // general pool is pinned to above: a page a player can meet that no test has
       // read is a page that can be blanked with nothing noticing.
-      expect(device).toHaveLength(4);
       expect(laptop).toHaveLength(4);
-
-      device.forEach((page) => expect(page).toMatch(/stream|camera|firmware|snapshot/i));
       laptop.forEach((page) => expect(page).toMatch(/dev server|localhost|it works|notes/i));
     });
 
-    it('never serves a device or a laptop what the general pages serve', () => {
+    it('never serves a laptop what the general pages serve', () => {
       // The disjointness is the claim a marker alone cannot make: not merely that a
-      // camera page says "stream", but that the corporate portal never lands on one.
+      // laptop page says "localhost", but that the corporate portal never lands on one.
       // A database box has no bucket of its own, so it serves the general pages.
       const general = new Set(servedBy('db'));
       expect(general.size).toBeGreaterThan(0);
-
-      expect(servedBy('sensor').filter((page) => general.has(page))).toEqual([]);
       expect(servedBy('laptop').filter((page) => general.has(page))).toEqual([]);
-      expect(servedBy('sensor').filter((page) => new Set(servedBy('laptop')).has(page))).toEqual([]);
     });
 
     it('leaves every other role serving exactly what it served before, host for host', () => {
@@ -572,7 +564,7 @@ describe('buildRemoteHostFs', () => {
       // (or the page is wallpaper), link nothing you cannot serve (or the server lies),
       // and leave a comment `curl` shows that a browser will not (or there is no reason
       // to run both).
-      ['sensor', 'laptop', 'db'].forEach((prefix) => {
+      ['laptop', 'db'].forEach((prefix) => {
         const octets = OCTETS.filter((octet) => servedTemplateFor(prefix, octet) !== null);
         expect(octets.length).toBeGreaterThan(0);
 

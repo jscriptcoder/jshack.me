@@ -8,8 +8,10 @@ import { WORLD_EPOCH } from '../../cve/worldClock';
 import { softwareVersionsIn } from '../../../test/worldContent';
 import {
   contentOf,
+  pagesOf,
   prefixOf,
   read,
+  servesHttp,
   syntheticBoxes,
   syntheticLanBoxes,
   worldBoxesNamed,
@@ -231,6 +233,38 @@ describe('a media device', () => {
       const ofFlavour = boxes.filter((box) => flavourOf(box) === flavour);
       expect(new Set(ofFlavour.map(({ tree }) => setting(tree, 'model')))).toEqual(new Set(MEDIA_MODELS[flavour]));
       expect(new Set(ofFlavour.flatMap(({ tree }) => appsOn(tree)))).toEqual(new Set(MEDIA_APPS[flavour]));
+    });
+  });
+});
+
+/** A moment in milliseconds as a device's page shows it. */
+const shown = (at: number): string => new Date(at).toISOString().slice(0, 19).replace('T', ' ');
+
+/** The cells of every table row on a page, row by row. */
+const rowsOf = (page: string | undefined): readonly (readonly string[])[] =>
+  (page ?? '')
+    .split('\n')
+    .filter((line) => line.startsWith('<tr><td>'))
+    .map((line) => Array.from(line.matchAll(/<td>([^<]*)<\/td>/g)).map((match) => match[1] ?? ''));
+
+describe("a media device's own pages", () => {
+  const serving = (): readonly BuiltBox[] => mediaBoxes().filter(servesHttp);
+
+  it('show what it played newest first, on which app, as its history holds it', () => {
+    const boxes = serving();
+    expect(boxes.length).toBeGreaterThan(0);
+    boxes.forEach(({ tree }) => {
+      const held = [...playedOn(tree)].reverse().map(({ at, app, title }) => [shown(at), app, title]);
+      expect(rowsOf(pagesOf(tree).get('index.html'))).toEqual(held);
+    });
+  });
+
+  it('name on its Devices page every phone it is paired with, and when, and no other', () => {
+    serving().forEach(({ tree }) => {
+      const page = pagesOf(tree).get('devices.html');
+      const paired = pairingsOf(tree).map(({ name, at }) => [name, shown(at)]);
+      expect(rowsOf(page)).toEqual(paired);
+      if (paired.length === 0) expect(page).toContain('No devices paired.');
     });
   });
 });

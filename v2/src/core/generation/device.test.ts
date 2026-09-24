@@ -18,16 +18,17 @@ import {
   servesHttp,
   syntheticBoxes,
   syntheticLanBoxes,
+  withoutMeasurements,
   worldBoxesNamed,
   type BuiltBox,
 } from '../../test/deviceBoxes';
 
 /**
  * What every generated device shares: which kind a box is, that each keeps its own kind's
- * files and no other's, the pages every kind publishes and what ftp can carry home off any of them.
- * Each kind's own files are tested beside it, under `device/`. Read the way a player
- * reads it, through the box's own tree at the tier the player holds, over every such box
- * in the world and over synthetic boxes for the kinds the world holds few of.
+ * files and no other's, the pages every kind publishes, and what ftp can carry home off
+ * any of them. Each kind's own files are tested beside it, under `device/`. Read the way
+ * a player reads it, through the box's own tree at the tier the player holds, over every
+ * such box in the world and over synthetic boxes for the kinds the world holds few of.
  */
 
 /** Which device each IoT name is, restated here rather than imported so the test says
@@ -112,16 +113,24 @@ describe("a device's root history", () => {
   });
 });
 
-/** The pages each device kind publishes, by file name beneath `/var/www/html`. */
+/** The pages each device publishes, by file name beneath `/var/www/html`, by the name
+ *  it goes by: a thermostat's schedule is the one page a plain sensor lacks. */
 const UI_PAGES: Readonly<Record<string, readonly string[]>> = {
   printer: ['index.html', 'printers.html', 'jobs.html'],
-  camera: ['index.html', 'events.html'],
-  recorder: ['index.html', 'recordings.html'],
+  cam: ['index.html', 'events.html'],
+  doorbell: ['index.html', 'events.html'],
+  babycam: ['index.html', 'events.html'],
+  nvr: ['index.html', 'recordings.html'],
+  sensor: ['index.html', 'settings.html'],
+  thermostat: ['index.html', 'settings.html', 'schedule.html'],
+  tv: ['index.html', 'devices.html'],
+  speaker: ['index.html', 'devices.html'],
+  plug: ['index.html', 'schedule.html'],
+  lock: ['index.html', 'settings.html'],
 };
 
-/** The devices with pages of their own, and every device built so far. */
-const WITH_PAGES = ['printer', 'nvr', ...CAMERA_PREFIXES];
 const BUILT = Object.keys(KIND_BY_PREFIX);
+
 
 /** Every device of these prefixes, world and synthetic, on both layers. */
 const devicesNamed = (prefixes: readonly string[]): readonly BuiltBox[] => [
@@ -135,21 +144,21 @@ const hrefsIn = (page: string): readonly string[] =>
   Array.from(page.matchAll(/<a\s[^>]*href="([^"]*)"/g)).map((match) => match[1] ?? '');
 
 describe("a device's own pages", () => {
-  const serving = (): readonly (BuiltBox & { readonly kind: string })[] =>
-    devicesNamed(WITH_PAGES)
+  const serving = (): readonly (BuiltBox & { readonly prefix: string })[] =>
+    devicesNamed(BUILT)
       .filter(servesHttp)
-      .map((box) => ({ ...box, kind: deviceKindOf(box.host.hostname) ?? '' }));
+      .map((box) => ({ ...box, prefix: prefixOf(box.host.hostname) }));
 
   it('are published only where the box serves the web, as its kind\'s two to four pages', () => {
     const boxes = serving();
-    expect(new Set(boxes.map(({ kind }) => kind))).toEqual(new Set(['printer', 'camera', 'recorder']));
-    boxes.forEach(({ host, kind, tree }) => {
+    expect(new Set(boxes.map(({ prefix }) => prefix))).toEqual(new Set(BUILT));
+    boxes.forEach(({ host, prefix, tree }) => {
       expect({ host: host.hostname, pages: [...pagesOf(tree).keys()].sort() }).toEqual({
         host: host.hostname,
-        pages: [...(UI_PAGES[kind] ?? [])].sort(),
+        pages: [...(UI_PAGES[prefix] ?? [])].sort(),
       });
     });
-    devicesNamed(WITH_PAGES)
+    devicesNamed(BUILT)
       .filter((box) => !servesHttp(box))
       .forEach(({ tree }) => expect(pagesOf(tree).size).toBe(0));
   });
@@ -181,7 +190,7 @@ describe("a device's own pages", () => {
           name,
           rtsp: false,
         });
-        expect(softwareVersionsIn(page)).toEqual([]);
+        expect(softwareVersionsIn(withoutMeasurements(page))).toEqual([]);
         expect({ host: host.hostname, name, account: page.includes(`>${account}<`) }).toEqual({
           host: host.hostname,
           name,
@@ -193,7 +202,7 @@ describe("a device's own pages", () => {
 
   it('record visitors walking to each of its pages, at the size each serves', () => {
     const visited = new Set<string>();
-    serving().forEach(({ kind, tree }) => {
+    serving().forEach(({ prefix, tree }) => {
       const log = read(tree, '/var/log/access.log.1');
       if (!log.ok) return;
       const pages = pagesOf(tree);
@@ -204,15 +213,15 @@ describe("a device's own pages", () => {
           const [, path = '', size] = /"GET (\S+) HTTP\/1\.1" 200 (\d+)$/.exec(line) ?? [];
           const page = pages.get(path === '/' ? 'index.html' : path.slice(1));
           expect({ path, served: page?.length }).toEqual({ path, served: Number(size) });
-          visited.add(`${kind}:${path}`);
+          visited.add(`${prefix}:${path}`);
         });
     });
-    // Across the world, every page of every kind is walked to by somebody.
-    Object.entries(UI_PAGES).forEach(([kind, names]) => {
+    // Across the world, every page of every device is walked to by somebody.
+    Object.entries(UI_PAGES).forEach(([prefix, names]) => {
       names.forEach((name) => {
         const path = name === 'index.html' ? '/' : `/${name}`;
-        expect({ kind, path, visited: visited.has(`${kind}:${path}`) }).toEqual({
-          kind,
+        expect({ prefix, path, visited: visited.has(`${prefix}:${path}`) }).toEqual({
+          prefix,
           path,
           visited: true,
         });

@@ -26,9 +26,9 @@ export { cameraRecordings, type CameraEvent, type CameraRecordings } from './dev
 export { deviceKindOf, type DeviceFiles, type DeviceKind } from './device/common';
 export type { PrintedJob } from './device/printer';
 
-/** What the device `host` is keeps on disk, or null where its kind keeps nothing of its
- *  own yet and the box keeps the generic device config instead. `username` is the box's
- *  own account, which is who a box below the LAN knows beside its application's logins. */
+/** What the device `host` is keeps on disk, or null for a box that is no device.
+ *  `username` is the box's own account, which is who a box below the LAN knows beside
+ *  its application's logins. */
 export const buildDevice = ({
   essid,
   host,
@@ -48,6 +48,8 @@ export const buildDevice = ({
     return lockFiles({ prng, essid, host, username, people: peopleKnownOn({ essid, host, username }) });
   }
   if (kind === 'recorder') return recorderFiles({ prng, essid, host, username });
-  if (kind !== 'printer') return null;
-  return printerFiles({ prng, essid, host, people: peopleKnownOn({ essid, host, username }) });
+  if (kind === 'printer') {
+    return printerFiles({ prng, essid, host, people: peopleKnownOn({ essid, host, username }) });
+  }
+  return null;
 };

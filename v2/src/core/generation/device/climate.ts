@@ -8,7 +8,16 @@ import type { Prng } from '../prng';
 import { dir, file, SERVICE_CONFIG_FILE, TRAVERSABLE_DIR } from '../baseFs';
 import type { LanHost } from '../generateHomeLan';
 import { CLIMATE_CHIPS, CLIMATE_ROOMS } from '../pools/devices';
-import { DAY_SECONDS, LAST_SECOND, pad2, prefixOf, stamp, userTree, type DeviceFiles } from './common';
+import {
+  DAY_SECONDS,
+  LAST_SECOND,
+  pad2,
+  prefixOf,
+  stamp,
+  uiPage,
+  userTree,
+  type DeviceFiles,
+} from './common';
 
 const CONF_PATH = '/etc/sensord/sensord.conf';
 const READINGS_PATH = '/var/lib/sensord/readings.csv';
@@ -175,6 +184,86 @@ const sensordConf = ({
     '',
   ].join('\n');
 
+/** How many of its readings a climate device's own page shows. */
+const READINGS_SHOWN = 24;
+
+/** The device's own pages: its latest readings, what it reads with and where, and on a
+ *  thermostat the schedule it heats to. */
+const climatePages = ({
+  hostname,
+  chip,
+  room,
+  interval,
+  readings,
+  schedule,
+}: {
+  readonly hostname: string;
+  readonly chip: string;
+  readonly room: string;
+  readonly interval: number;
+  readonly readings: readonly Reading[];
+  readonly schedule: readonly SetPoint[] | null;
+}): ReadonlyMap<string, string> => {
+  const nav: readonly (readonly [string, string])[] = [
+    ['/', 'Readings'],
+    ['/settings.html', 'Sensor'],
+    ...(schedule === null ? [] : [['/schedule.html', 'Schedule'] as const]),
+  ];
+  return new Map([
+    [
+      'index.html',
+      uiPage({
+        title: `${hostname} - Readings`,
+        body: [
+          '<table>',
+          '<tr><th>Time</th><th>Temperature</th><th>Humidity</th></tr>',
+          ...readings
+            .slice(-READINGS_SHOWN)
+            .reverse()
+            .map(
+              ({ at, temperature, humidity }) =>
+                `<tr><td>${stamp(at)}</td><td>${temperature.toFixed(1)} °C</td><td>${humidity} %</td></tr>`,
+            ),
+          '</table>',
+        ],
+        nav,
+      }),
+    ],
+    [
+      'settings.html',
+      uiPage({
+        title: `${hostname} - Sensor`,
+        body: [
+          `<p>${chip} in the ${room}, read every ${interval / 60} minutes.</p>`,
+          '<p>Readings are published on this device only.</p>',
+        ],
+        nav,
+      }),
+    ],
+    ...(schedule === null
+      ? []
+      : [
+          [
+            'schedule.html',
+            uiPage({
+              title: `${hostname} - Schedule`,
+              body: [
+                '<table>',
+                '<tr><th>Days</th><th>From</th><th>Set point</th></tr>',
+                ...schedule.map(
+                  ({ days, from, celsius }) =>
+                    `<tr><td>${days}</td><td>${pad2(Math.floor(from / 60))}:${pad2(from % 60)}</td>` +
+                    `<td>${celsius.toFixed(1)} °C</td></tr>`,
+                ),
+                '</table>',
+              ],
+              nav,
+            }),
+          ] as const,
+        ]),
+  ]);
+};
+
 export const climateFiles = ({
   prng,
   host,
@@ -205,7 +294,7 @@ export const climateFiles = ({
     },
     log: {},
     var: {},
-    pages: new Map(),
+    pages: climatePages({ hostname: host.hostname, chip: chip.chip, room, interval, readings, schedule }),
     configPaths: [CONF_PATH],
     printed: [],
   };

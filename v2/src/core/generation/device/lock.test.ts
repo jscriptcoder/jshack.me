@@ -8,7 +8,9 @@ import { WORLD_EPOCH } from '../../cve/worldClock';
 import { softwareVersionsIn } from '../../../test/worldContent';
 import {
   contentOf,
+  pagesOf,
   read,
+  servesHttp,
   syntheticBoxes,
   syntheticLanBoxes,
   worldBoxesNamed,
@@ -205,5 +207,50 @@ describe('a smart lock', () => {
     expect(new Set(boxes.flatMap(({ tree }) => slotsOf(tree)).filter((slot) => LOCK_ROLE_SLOTS.includes(slot)))).toEqual(
       new Set(LOCK_ROLE_SLOTS),
     );
+  });
+});
+
+/** A moment in milliseconds as a device's page shows it. */
+const shown = (at: number): string => new Date(at).toISOString().slice(0, 19).replace('T', ' ');
+
+
+describe("a smart lock's own pages", () => {
+  const serving = (): readonly BuiltBox[] => locks().filter(servesHttp);
+
+  it('show the door, and when it was last unlocked as its log has it', () => {
+    const boxes = serving();
+    expect(boxes.length).toBeGreaterThan(0);
+    boxes.forEach(({ tree }) => {
+      const page = pagesOf(tree).get('index.html') ?? '';
+      const last = entriesOf(tree).at(-1);
+      expect(page).toContain(`<h1>${setting(tree, 'name')}`);
+      expect(page).toContain(`Last unlocked: ${shown(last?.at ?? 0)}`);
+    });
+  });
+
+  it('say on its Settings page how soon it locks again and how many slots it keeps', () => {
+    serving().forEach(({ tree }) => {
+      const page = pagesOf(tree).get('settings.html') ?? '';
+      expect(page).toContain(`Locks again after ${setting(tree, 'auto_lock_seconds')} seconds.`);
+      expect(page).toContain(`${slotsOf(tree).length} keypad slots.`);
+    });
+  });
+
+  it('name nobody it lets in, no slot and no phone, since its slots and its log are not the web\'s to show', () => {
+    serving().forEach((box) => {
+      const pages = [...pagesOf(box.tree).values()].join('\n');
+      const named = [
+        ...castOf(box).keys(),
+        ...slotsOf(box.tree),
+        ...entriesOf(box.tree).flatMap(({ phone }) => (phone === null ? [] : [phone.hostname])),
+      ];
+      named.forEach((name) => {
+        expect({ host: box.host.hostname, name, shown: pages.includes(name) }).toEqual({
+          host: box.host.hostname,
+          name,
+          shown: false,
+        });
+      });
+    });
   });
 });
