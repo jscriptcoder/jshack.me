@@ -338,10 +338,10 @@ describe('what the zone says about the layers behind the gateways', () => {
     // The same kind of device, in on one layer and out on another, and the difference is
     // the network rather than the box: a home LAN hands its phones and cameras DHCP
     // leases, while a deep host sits at an address somebody chose. Three of ACME-CORP's
-    // four deep hosts are cameras and doorbells and televisions, and dropping them would
-    // empty most of the file.
+    // four deep hosts are devices, a television, a lock and a camera, and dropping them
+    // would empty most of the file.
     expect(names).not.toContain('cam-138');
-    expect(names).toEqual(expect.arrayContaining(['doorbell-87', 'tv-137', 'cam-189']));
+    expect(names).toEqual(expect.arrayContaining(['tv-87', 'lock-137', 'cam-189']));
   });
 });
 

@@ -25,7 +25,19 @@ import { DRAWN_ROLES, type DrawnRole } from '../machineRole';
 
 export const HOSTNAME_PREFIXES: Readonly<Record<DrawnRole, readonly string[]>> = {
   workstation: DEVICE_TYPES,
-  iot: ['cam', 'sensor', 'thermostat', 'doorbell', 'printer', 'tv', 'speaker'],
+  iot: [
+    'cam',
+    'sensor',
+    'thermostat',
+    'doorbell',
+    'printer',
+    'tv',
+    'speaker',
+    'plug',
+    'lock',
+    'nvr',
+    'babycam',
+  ],
   webserver: ['web', 'www', 'portal', 'nginx', 'api'],
   fileserver: ['nas', 'files', 'share', 'backup', 'vault'],
   database: ['db', 'mysql', 'datastore', 'records', 'warehouse'],
