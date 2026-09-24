@@ -39,6 +39,7 @@ import {
 } from './pools/devices';
 import { SHARE_FOLDERS } from './pools/shareFiles';
 import { WORLD_EPOCH } from '../cve/worldClock';
+import { lanZoneName } from '../network/resolveName';
 import type { Directory, FileNode } from '../filesystem/types';
 
 export type DeviceKind = 'camera' | 'recorder' | 'printer' | 'climate' | 'media' | 'plug' | 'lock';
@@ -528,6 +529,130 @@ const cameraFiles = ({
   };
 };
 
+/** How many PoE channels a recorder below the LAN has cameras on. */
+const CHANNEL_COUNT = { min: 2, max: 4 } as const;
+
+/** One camera a recorder archives: the name it files it under, the address it reaches it
+ *  at (none for a camera on its own PoE port), and what that camera recorded. */
+type RecordedSource = {
+  readonly name: string;
+  readonly address: string | null;
+  readonly recordings: CameraRecordings;
+};
+
+/**
+ * What a recorder records. On the LAN, every camera on the network, by its `.lan` name,
+ * each one's snapshots re-derived from that camera's own stream so the copies are its
+ * own. Below the LAN it can see no neighbour, so its cameras hang off its own PoE ports,
+ * each a camera no box stands for.
+ */
+const recordedSources = (prng: Prng, essid: string, host: LanHost): readonly RecordedSource[] => {
+  if (isOnHomeLan(essid, host)) {
+    const zone = lanZoneName(essid);
+    return generateHomeLan(essid)
+      .hosts.filter(
+        (camera) => camera.kind === 'machine' && deviceKindOf(camera.hostname) === 'camera',
+      )
+      .map((camera) => ({
+        name: `${camera.hostname}.${zone}`,
+        address: camera.ip,
+        recordings: cameraRecordings(essid, camera),
+      }));
+  }
+  return Array.from({ length: prng.nextInt(CHANNEL_COUNT.min, CHANNEL_COUNT.max) }, (_, index) => ({
+    name: `ch${pad2(index + 1)}`,
+    address: null,
+    recordings: recordingsOf(prng, 'cam'),
+  }));
+};
+
+/** Where a recorder files one event's snapshot beneath `/var/lib/nvr`: the camera, the
+ *  day, and the camera's own file name for it. */
+const archivedPath = (source: RecordedSource, event: CameraEvent): string =>
+  `${source.name}/${stamp(event.at).slice(0, 10)}/${event.snapshot.slice('snapshots/'.length)}`;
+
+/** `/etc/nvr/nvr.conf`: where the recorder stores, how long, and a section per camera.
+ *  A LAN camera is named with the address the network gives it and no port, since the
+ *  recorder takes each snapshot as the camera makes it and nothing on the network
+ *  serves a stream; a channel names the PoE port it hangs off. */
+const nvrConf = (hostname: string, sources: readonly RecordedSource[]): string =>
+  [
+    `# network video recorder: ${hostname}`,
+    'storage = /var/lib/nvr',
+    `retention_days = ${EVENT_WINDOW_SECONDS / DAY_SECONDS}`,
+    'snapshot_on_event = yes',
+    ...sources.flatMap((source, index) => [
+      '',
+      `[${source.name}]`,
+      source.address === null ? `port = PoE${index + 1}` : `address = ${source.address}`,
+      `camera = ${source.recordings.make} ${source.recordings.model}`,
+    ]),
+    '',
+  ].join('\n');
+
+/** A directory holding `files`, each keyed by its path beneath it, every directory and
+ *  file the box's own user's. */
+const userTree = (files: ReadonlyMap<string, string>, username: string): Directory => {
+  const names = [...new Set([...files.keys()].map((path) => path.split('/')[0] ?? path))];
+  return dir(
+    Object.fromEntries(
+      names.map((name) => {
+        const content = files.get(name);
+        if (content !== undefined) return [name, file(content, HOME_FILE, username)];
+        const prefix = `${name}/`;
+        const below = [...files]
+          .filter(([path]) => path.startsWith(prefix))
+          .map(([path, text]): readonly [string, string] => [path.slice(prefix.length), text]);
+        return [name, userTree(new Map(below), username)];
+      }),
+    ),
+    HOME_DIR,
+    username,
+  );
+};
+
+const recorderFiles = ({
+  prng,
+  essid,
+  host,
+  username,
+}: {
+  readonly prng: Prng;
+  readonly essid: string;
+  readonly host: LanHost;
+  readonly username: string;
+}): DeviceFiles => {
+  const sources = recordedSources(prng, essid, host);
+  const archived = sources
+    .flatMap((source) =>
+      source.recordings.events.map((event) => ({ source, event, path: archivedPath(source, event) })),
+    )
+    .sort((earlier, later) => earlier.event.at - later.event.at);
+  const index = archived
+    .map(({ source, event, path }) => `${stamp(event.at)} ${source.name} ${event.kind} ${path}\n`)
+    .join('');
+  return {
+    etc: {
+      nvr: dir(
+        { 'nvr.conf': file(nvrConf(host.hostname, sources), SERVICE_CONFIG_FILE) },
+        TRAVERSABLE_DIR,
+      ),
+    },
+    lib: {
+      nvr: userTree(
+        new Map([
+          ['index.log', index],
+          ...archived.map(({ event, path }): readonly [string, string] => [path, event.content]),
+        ]),
+        username,
+      ),
+    },
+    var: {},
+    configPaths: ['/etc/nvr/nvr.conf'],
+    printed: [],
+  };
+};
+
 /** What the device `host` is keeps on disk, or null where its kind keeps nothing of its
  *  own yet and the box keeps the generic device config instead. `username` is the box's
  *  own account, which is who a box below the LAN knows beside its application's logins. */
@@ -543,6 +668,7 @@ export const buildDevice = ({
   const kind = deviceKindOf(host.hostname);
   const prng = createPrng(`device-${essid}-${host.ip}`);
   if (kind === 'camera') return cameraFiles({ prng, host, username });
+  if (kind === 'recorder') return recorderFiles({ prng, essid, host, username });
   if (kind !== 'printer') return null;
   return printerFiles({ prng, essid, host, people: peopleKnownOn({ essid, host, username }) });
 };
