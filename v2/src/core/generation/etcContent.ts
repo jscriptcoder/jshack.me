@@ -38,7 +38,7 @@ const HEX_DIGITS = '0123456789abcdef';
 const hex = (prng: Prng, length: number): string =>
   Array.from({ length }, () => HEX_DIGITS[prng.nextInt(0, 15)]).join('');
 
-const uuid = (prng: Prng): string =>
+export const uuid = (prng: Prng): string =>
   [hex(prng, 8), hex(prng, 4), hex(prng, 4), hex(prng, 4), hex(prng, 12)].join('-');
 
 const hostsFile = (options: {

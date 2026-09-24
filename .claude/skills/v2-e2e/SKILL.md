@@ -235,6 +235,18 @@ is drawn from their own identity** (2–3 per scan), so choose the target AFTER 
 | Looking for a `local_root` or a chroot | There is none: every login lands in its own home and can `cd` anywhere its tier allows, so `cd /srv` works for `guest` |
 | `local: <path>: I/O error` on `get` | The copy's signed write was refused — the payload is over 8192 characters of JSON. That is a content bug, not a flaky network: check the file's `JSON.stringify(content).length` |
 | Reading another box's mailbox | `ftp <host> <user>` as that box's own user, then `get /var/mail/<user> inbox` — a mailbox is user-tier, so `guest` is refused |
+| `cat <path>` at `ftp> ` → `?Invalid command: cat` | There is no remote `cat`: `get <remote> <local>`, `quit`, then `cat`/`strings` the local copy |
+| A door on a non-default port | `ftp -p 2121 <host> <user>` — the port is a flag BEFORE the host, as nmap reported it |
+| `lynx printer-111` → `lynx: (3) URL rejected` | lynx wants a URL: `lynx http://printer-111/`. It is interactive: `ArrowDown` moves between the numbered links, `Enter` follows, `q` quits |
+
+**A device's own files** (a printer, camera or recorder — see `device.test.ts`): a camera keeps
+`/var/lib/motion/events.log` and `snapshots/` at its account's tier; a recorder keeps
+`/var/lib/nvr/<camera>.<zone>.lan/<date>/<snapshot>.jpg`, byte for byte the camera's own, and an
+`index.log`; a printer keeps its spool, `/var/log/cups/page_log.1` and `/etc/cups` for root only.
+Where one runs http it publishes its own pages (a printer's Jobs page shows `Withheld`). No LAN
+printer in the catalog runs ftp or ssh, so its root-only spool is unreachable in play on the LAN;
+a recorder beside real cameras is `nvr-12` on LIB-2ND-FLOOR (ftp on 2121) with `doorbell-125`
+serving its Events page.
 
 The prompt inside is `ftp> `, so a prompt poller must match `>` as well as `#`/`$` (§2). `get`
 prints `<n> bytes received`, where `n` is the file's length in characters, the same number the

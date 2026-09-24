@@ -19,11 +19,11 @@
  * layer hangs a child. Everything here draws from the box's own `log-history` stream.
  */
 
-import type { FileEntry } from '../filesystem/types';
+import type { FileEntry, FileNode } from '../filesystem/types';
 import type { MysqlDatabase } from '../mysql/types';
 import { WORLD_EPOCH } from '../cve/worldClock';
 import { asAbsPath, asGameTime, type GameTime } from '../types';
-import { file } from './baseFs';
+import { dir, file, TRAVERSABLE_DIR } from './baseFs';
 import { generateHomeLan, isOnHomeLan, type LanHost } from './generateHomeLan';
 import { createPrng, type Prng } from './prng';
 import { fillSlots } from './npcHome';
@@ -64,6 +64,8 @@ import {
 import type { MailDelivery } from './mailbox';
 import type { ShareUpload } from './share';
 import { formatVsftpdTransferLine, VSFTPD_LOG_PERMISSIONS } from '../logging/vsftpdLog';
+import { formatPageLogLine, PAGE_LOG_PERMISSIONS } from '../logging/pageLog';
+import type { PrintedJob } from './device';
 import { daemonName } from '../services/pidfile';
 import {
   DAILY_TIMERS,
@@ -141,10 +143,44 @@ export type LogHistoryOptions = {
   readonly deliveries: readonly MailDelivery[];
   /** Every file that arrived on the box's share, empty on a box that keeps none. */
   readonly uploads: readonly ShareUpload[];
+  /** Every job the box printed, empty on a box that is not a printer. */
+  readonly printed: readonly PrintedJob[];
 };
 
+/** Every page a print job's paper is logged as: the one size the world's printers load. */
+const PAPER = 'iso_a4_210x297mm';
+
+/**
+ * `/var/log/cups`, on a printer: the live page log empty and the rotated one holding a
+ * line for every job the spool remembers, read from the same job list as the spool so the
+ * two can only agree. The third rotation that spans more than a day, for the mail log's
+ * reason: a printer that prints a few pages a day never fills its log to the size that
+ * rotates it. Root's alone, like the spool it indexes.
+ */
+const pageLogDirectory = (printed: readonly PrintedJob[]): Readonly<Record<string, FileNode>> =>
+  printed.length === 0
+    ? {}
+    : {
+        cups: dir(
+          {
+            page_log: file('', PAGE_LOG_PERMISSIONS),
+            'page_log.1': file(
+              printed
+                .map(
+                  (job) =>
+                    `${formatPageLogLine({ ...job, time: asGameTime(job.at), media: PAPER })}
+`,
+                )
+                .join(''),
+              PAGE_LOG_PERMISSIONS,
+            ),
+          },
+          TRAVERSABLE_DIR,
+        ),
+      };
+
 /** `syslog` and every `.1` this box keeps, by name, for its `/var/log`. */
-export const buildLogHistory = (options: LogHistoryOptions): Readonly<Record<string, FileEntry>> => {
+export const buildLogHistory = (options: LogHistoryOptions): Readonly<Record<string, FileNode>> => {
   const {
     essid,
     host,
@@ -500,6 +536,7 @@ export const buildLogHistory = (options: LogHistoryOptions): Readonly<Record<str
   ];
   return {
     syslog: file('', SYSLOG_PERMISSIONS),
+    ...pageLogDirectory(options.printed),
     ...Object.fromEntries(
       rotations
         .filter(([, entries]) => entries.length > 0)

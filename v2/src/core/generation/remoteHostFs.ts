@@ -69,6 +69,7 @@ import { CRACK_CHANCE, drawPassword } from './passwordPools';
 import { pickWebPage } from './pools/webPages';
 import { buildWebSite } from './webSite';
 import { roleConfigFile } from './pools/configFiles';
+import { buildDevice } from './device';
 import { nameServerFilesFor } from './generateDnsZone';
 import { roleOfHostname } from './pools/hostnames';
 import { lanZoneName } from '../network/resolveName';
@@ -92,7 +93,7 @@ import { KERN_LOG_PERMISSIONS } from '../logging/kernLog';
 import { MYSQL_LOG_PERMISSIONS } from '../logging/mysqlLog';
 import { REDIS_LOG_PERMISSIONS } from '../logging/redisLog';
 import { NAMED_LOG_PERMISSIONS } from '../logging/namedLog';
-import type { Directory, FileEntry } from '../filesystem/types';
+import type { Directory, FileEntry, FileNode } from '../filesystem/types';
 import type { LanHost } from './generateHomeLan';
 
 const pidfile = (content: string, owner: string): FileEntry =>
@@ -286,11 +287,15 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
   // most of the world's name servers stand on a deep layer.
   const nameServer = role === 'dns' ? nameServerFilesFor(essid, host) : null;
 
+  // What the device keeps because of what it is — a printer its print server. Where its
+  // kind keeps its own configs they replace the generic device config below.
+  const device = buildDevice({ essid, host, username });
+
   // A name no role claims keeps no config: there is nothing for such a box to admit
   // to. `dns` is excluded at the type level rather than here — the pool has nothing
   // for it, so a caller that forgot the branch above would not compile.
   const config =
-    role === undefined || role === 'dns'
+    role === undefined || role === 'dns' || device !== null
       ? null
       : roleConfigFile({
           role,
@@ -334,6 +339,9 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
       })
     : null;
   const stateEntries = {
+    // A device's own state (a camera's events) sits in the same /var/lib, for the reason
+    // the daemons below share it.
+    ...device?.lib,
     ...(database === null
       ? {}
       : {
@@ -392,23 +400,30 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
     webPort !== undefined && role === 'webserver'
       ? buildWebSite({ essid, host, port: webPort, database })
       : null;
+  // A device with a UI of its own publishes it; any other box that serves keeps its page.
+  const devicePages = serves && device !== null && device.pages.size > 0 ? device.pages : null;
   const webFiles: ReadonlyMap<string, string> | null =
-    site !== null
-      ? site.files
-      : serves
-        ? new Map([
-            [
-              'index.html',
-              pickWebPage({ role, seed: `web-page-${essid}-${host.ip}`, hostname: host.hostname }),
-            ],
-          ])
-        : null;
-  // What a visitor walks to, with what each answers: the site's linked pages, or the
-  // one page a box that is not a webserver serves.
+    site?.files ??
+    devicePages ??
+    (serves
+      ? new Map([
+          [
+            'index.html',
+            pickWebPage({ role, seed: `web-page-${essid}-${host.ip}`, hostname: host.hostname }),
+          ],
+        ])
+      : null);
+  // What a visitor walks to, with what each answers: the site's linked pages, a
+  // device's own pages, or the one page any other box serves.
+  const publicPaths =
+    site?.publicPaths ??
+    (devicePages === null
+      ? ['/']
+      : [...devicePages.keys()].map((name) => (name === 'index.html' ? '/' : `/${name}`)));
   const visited =
     webFiles === null
       ? []
-      : (site?.publicPaths ?? ['/']).map((path) => ({
+      : publicPaths.map((path) => ({
           path,
           size: (webFiles.get(path === '/' ? 'index.html' : path.slice(1)) ?? '').length,
         }));
@@ -438,7 +453,7 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
         })
       : null;
 
-  const logs: Readonly<Record<string, FileEntry>> = {
+  const logs: Readonly<Record<string, FileNode>> = {
     'auth.log': file('', AUTH_LOG_PERMISSIONS),
     'kern.log': file('', KERN_LOG_PERMISSIONS),
     // The access log follows the http service, like the web root: a box
@@ -483,16 +498,24 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
       isNameServer: nameServer !== null,
       deliveries: mail.deliveries,
       uploads: share?.uploads ?? [],
+      printed: device?.printed ?? [],
     }),
   };
 
   // Root's history names what the box keeps: its configs, and the logs it writes.
   const configPaths = [
     ...(config === null ? [] : [`/etc/${config.name}`]),
+    ...(device?.configPaths ?? []),
     ...(nameServer === null ? [] : ['/etc/bind/named.conf']),
     ...(redisService === undefined ? [] : ['/etc/redis/redis.conf']),
   ];
-  const logPaths = Object.keys(logs).map((name) => `/var/log/${name}`);
+  // A log kept in a directory of its own (a printer's `/var/log/cups`) is named by its
+  // files: `tail` on the directory would fail for whoever typed it.
+  const logPaths = Object.entries(logs).flatMap(([name, node]) =>
+    node.kind === 'file'
+      ? [`/var/log/${name}`]
+      : [...node.entries.keys()].map((child) => `/var/log/${name}/${child}`),
+  );
 
   const ssh = buildSshDirectories({ essid, host, username });
 
@@ -505,6 +528,7 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
           ...etc,
           passwd: file(passwd, PASSWD_FILE),
           ...(config === null ? {} : { [config.name]: file(config.content, SERVICE_CONFIG_FILE) }),
+          ...device?.etc,
           // The accounts vsftpd lets in, where its config keeps a list of them: every
           // account in passwd, since the door admits any of them. Kept at passwd's own
           // tier, for the reason /etc/aliases is — every line of it is an account name.
@@ -617,6 +641,8 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
           // them. Built from the network's own stream, like the page and the database, so
           // giving a box a mailbox moves nothing else about it.
           ...mail.entries,
+          // /var/spool, where a printer keeps the jobs it was sent.
+          ...device?.var,
         },
         TRAVERSABLE_DIR,
       ),
