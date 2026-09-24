@@ -67,21 +67,23 @@ const DEVICE_ROOTS = [
   '/etc/motion',
   '/etc/nvr',
   '/etc/sensord',
+  '/etc/mediad',
   '/var/spool/cups',
   '/var/log/cups',
   '/var/lib/motion',
   '/var/lib/nvr',
   '/var/lib/sensord',
+  '/var/lib/mediad',
 ];
 
 describe('the devices not yet built', () => {
   it('keep the generic device config and none of the files a built device keeps', () => {
-    const others = ['tv', 'speaker', 'plug', 'lock'];
+    const others = ['plug', 'lock'];
     const boxes = [
       ...worldBoxesNamed(others),
       ...others.flatMap((prefix) => syntheticBoxes(prefix).slice(0, 5)),
     ];
-    expect(boxes.length).toBeGreaterThan(30);
+    expect(boxes.length).toBeGreaterThan(10);
     boxes.forEach(({ host, tree }) => {
       const root = createFsView(tree, { userType: 'root' });
       expect(read(tree, '/etc/device.conf').ok).toBe(true);
@@ -115,6 +117,7 @@ describe("a device's root history", () => {
     expect(histories(CAMERA_PREFIXES)).toContain('/etc/motion/motion.conf');
     expect(histories(['nvr'])).toContain('/etc/nvr/nvr.conf');
     expect(histories(['sensor', 'thermostat'])).toContain('/etc/sensord/sensord.conf');
+    expect(histories(['tv', 'speaker'])).toContain('/etc/mediad/mediad.conf');
   });
 });
 
@@ -127,7 +130,7 @@ const UI_PAGES: Readonly<Record<string, readonly string[]>> = {
 
 /** The devices with pages of their own, and every device built so far. */
 const WITH_PAGES = ['printer', 'nvr', ...CAMERA_PREFIXES];
-const BUILT = [...WITH_PAGES, 'sensor', 'thermostat'];
+const BUILT = [...WITH_PAGES, 'sensor', 'thermostat', 'tv', 'speaker'];
 
 /** Every device of these prefixes, world and synthetic, on both layers. */
 const devicesNamed = (prefixes: readonly string[]): readonly BuiltBox[] => [

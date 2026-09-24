@@ -169,3 +169,70 @@ export const CLIMATE_ROOMS: readonly string[] = [
   'reception',
   'server-cupboard',
 ];
+
+/** The televisions and speakers a media box may be, by flavour. */
+export const MEDIA_MODELS: Readonly<Record<'tv' | 'speaker', readonly string[]>> = {
+  tv: [
+    'Samsung QN90B',
+    'LG OLED C2',
+    'Sony Bravia XR-55A80K',
+    'TCL 55C735',
+    'Hisense 55U8H',
+    'Philips 55OLED807',
+  ],
+  speaker: [
+    'Sonos One',
+    'Sonos Era 100',
+    'Bose Home Speaker 500',
+    'Amazon Echo Studio',
+    'Google Nest Audio',
+    'Apple HomePod mini',
+  ],
+};
+
+/** The apps each flavour installs. A television plays music too, so it may carry a music
+ *  app; a speaker plays nothing with a picture. */
+export const MEDIA_APPS: Readonly<Record<'tv' | 'speaker', readonly string[]>> = {
+  tv: ['Netflix', 'YouTube', 'Prime Video', 'Disney+', 'BBC iPlayer', 'Plex', 'Twitch', 'Spotify'],
+  speaker: ['Spotify', 'TuneIn', 'BBC Sounds', 'Apple Music', 'Deezer', 'Podcasts'],
+};
+
+/** What is played: programmes on an app with a picture, and audio on any other. */
+export const MEDIA_TITLES: Readonly<Record<'video' | 'audio', readonly string[]>> = {
+  video: [
+    'Evening News',
+    'The Long Coast',
+    'Harbour Lights',
+    'Cooking for Two',
+    'Match of the Week',
+    'The Quiet Valley',
+    'Planet Underwater',
+    'Detective Hale',
+    'Late Show Highlights',
+    'Cartoon Morning',
+  ],
+  audio: [
+    'Morning Focus',
+    'Deep Work Mix',
+    'Rainy Day Jazz',
+    'Kitchen Radio',
+    'Evening Chill',
+    'Daily Briefing',
+    'Classic Rock Hour',
+    'Sleep Sounds',
+    'Workout Mix',
+    'Sunday Papers',
+  ],
+};
+
+/** Where a television or a speaker stands, as its friendly name gives it. */
+export const MEDIA_ROOMS: readonly string[] = [
+  'Living Room',
+  'Kitchen',
+  'Bedroom',
+  'Office',
+  'Meeting Room',
+  'Reception',
+  'Lounge',
+  'Studio',
+];

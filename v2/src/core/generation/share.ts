@@ -335,7 +335,7 @@ const treeAt = ({
 
 /** What a phone of each kind is, one model for its whole life: drawn on its own share
  *  stream keyed by the phone, so every file server on the network agrees on it. */
-const phoneModel = (essid: string, phone: LanHost): Device | undefined => {
+export const phoneModel = (essid: string, phone: LanHost): Device | undefined => {
   const models = PHONE_MODELS[prefixOf(phone.hostname)];
   return models === undefined
     ? undefined
