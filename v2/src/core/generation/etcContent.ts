@@ -68,11 +68,15 @@ const resolvConf = (essid: string, host: LanHost, onLan: boolean): string => {
   return `${onLan ? `search ${lanZoneName(essid)}\n` : ''}nameserver ${gateway}\n`;
 };
 
-const fstab = (prng: Prng): string => {
+/** The disks a box mounts. A file server keeps its share on a data disk of its own at
+ *  `/srv`, whose UUID is drawn on a stream of its own so every other line stays put. */
+const fstab = (prng: Prng, dataDisk: Prng | null): string => {
   const root = `UUID=${uuid(prng)} /               ext4    errors=remount-ro 0       1\n`;
   const boot = prng.next() < 0.4 ? `UUID=${uuid(prng)} /boot           ext4    defaults        0       2\n` : '';
   const swap = prng.next() < 0.75 ? `UUID=${uuid(prng)} none            swap    sw              0       0\n` : '';
-  return `${DEBIAN_FSTAB_HEADER}${root}${boot}${swap}`;
+  const srv =
+    dataDisk === null ? '' : `UUID=${uuid(dataDisk)} /srv            ext4    defaults        0       2\n`;
+  return `${DEBIAN_FSTAB_HEADER}${root}${boot}${srv}${swap}`;
 };
 
 /** A schedule in cron's five fields: hourly, daily or weekly, at a drawn time. */
@@ -137,7 +141,9 @@ export const buildEtcContent = (options: {
     hostname: etcFile(`${host.hostname}\n`),
     hosts: etcFile(hostsFile({ prng, essid, host, onLan })),
     'resolv.conf': etcFile(resolvConf(essid, host, onLan)),
-    fstab: etcFile(fstab(prng)),
+    fstab: etcFile(
+      fstab(prng, role === 'fileserver' ? createPrng(`share-disk-${essid}-${host.ip}`) : null),
+    ),
     crontab: etcFile(crontab({ prng, services, role })),
     motd: etcFile(motd(prng, essid, host)),
   };

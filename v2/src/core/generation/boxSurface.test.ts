@@ -953,6 +953,48 @@ describe('what a file server’s own config claims about it', () => {
   });
 });
 
+/** Every mount `/etc/fstab` states, as its device, mount point, type and fsck pass. */
+const mountsOf = (box: Box): readonly (readonly string[])[] =>
+  statedLines(etcFileOf(treeOf(box), 'fstab')).map((line) => line.split(/\s+/));
+
+describe('where a file server keeps its share', () => {
+  it('mounts /srv from a disk of its own on every file server, and on no other box', () => {
+    const boxes = [...lanBoxes(ALL_ESSIDS), ...deepBoxes(ALL_ESSIDS)];
+    expect(boxes.filter(({ host }) => roleOfHostname(host.hostname) === 'fileserver').length).toBeGreaterThan(0);
+
+    boxes.forEach((box) => {
+      const mounts = mountsOf(box);
+      const label = `${box.essid} ${box.host.hostname}`;
+      const data = mounts.filter(([, mountPoint]) => mountPoint === '/srv');
+      if (roleOfHostname(box.host.hostname) !== 'fileserver') {
+        expect(data, label).toEqual([]);
+        return;
+      }
+      const root = mounts.find(([, mountPoint]) => mountPoint === '/');
+      expect(data.length, label).toBe(1);
+      const [device, , type, options, dump, pass] = data[0] ?? [];
+      expect(device, label).not.toBe(root?.[0]);
+      expect([type, options, dump, pass], label).toEqual(['ext4', 'defaults', '0', '2']);
+    });
+  });
+
+  it('mounts it after the disks the system boots from, and before swap', () => {
+    fileServers().forEach((box) => {
+      const order = mountsOf(box).map(([, mountPoint]) => mountPoint);
+      const srv = order.indexOf('/srv');
+      expect(order.slice(0, srv).every((mountPoint) => mountPoint === '/' || mountPoint === '/boot')).toBe(true);
+      expect(order.slice(srv + 1).every((mountPoint) => mountPoint === 'none')).toBe(true);
+    });
+  });
+
+  it('gives every file server its own data disk', () => {
+    const disks = fileServers().map((box) =>
+      mountsOf(box).find(([, mountPoint]) => mountPoint === '/srv')?.[0],
+    );
+    expect(new Set(disks).size).toBe(disks.length);
+  });
+});
+
 describe('what every scheduled job prints', () => {
   it('is decided for every job a box can be given, so none is silent by omission', () => {
     const scheduled = [
