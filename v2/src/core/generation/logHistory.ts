@@ -10,7 +10,7 @@
  *
  * The files are readable by anyone on the box, like the live logs they rotated out of,
  * so no line names an account but root — save the file server's transfer log, whose
- * every visit logs in as the box's one account, which `ls /home` and `ls -l /srv`
+ * every arrival came in as the box's one account, which `ls /home` and `ls -l /srv`
  * already show anyone. A `.1` exists only when it holds a line, which is logrotate's own
  * rule for an empty log, and only beside the live log it came from.
  *
@@ -63,12 +63,7 @@ import {
 } from '../logging/mailLog';
 import type { MailDelivery } from './mailbox';
 import type { ShareUpload } from './share';
-import {
-  formatVsftpdConnectLine,
-  formatVsftpdLoginLine,
-  formatVsftpdTransferLine,
-  VSFTPD_LOG_PERMISSIONS,
-} from '../logging/vsftpdLog';
+import { formatVsftpdTransferLine, VSFTPD_LOG_PERMISSIONS } from '../logging/vsftpdLog';
 import { daemonName } from '../services/pidfile';
 import {
   DAILY_TIMERS,
@@ -458,9 +453,12 @@ export const buildLogHistory = (options: LogHistoryOptions): Readonly<Record<str
   })();
 
   /**
-   * Every file that arrived on the share, each a visit of its own: the sender's machine
-   * connects, logs in as the box's account and sends the one file. Read from the share
-   * itself, so the log can only say what `/srv` holds, to the byte.
+   * Every file that arrived on the share, one line each, read from the share itself so
+   * the log can only say what `/srv` holds, to the byte.
+   *
+   * The arrivals alone, without the connect and login around each: a player carries this
+   * file home with `ftp get`, which saves it in one signed write capped at 8192
+   * characters, and a whole share's visits would not fit in it.
    *
    * The second rotation that spans more than a day, for the mail log's reason: a share
    * written by a handful of people never fills vsftpd's log to the size that rotates it.
@@ -472,39 +470,20 @@ export const buildLogHistory = (options: LogHistoryOptions): Readonly<Record<str
   const transfers = ((): readonly Entry[] => {
     if (runs('ftp') === undefined || !isOnHomeLan(essid, host)) return [];
     const transferPrng = createPrng(`share-log-${essid}-${host.ip}`);
-    return uploads.flatMap((upload) => {
+    return uploads.map((upload) => {
       const second = Math.floor(upload.at / 1000);
-      const loggedIn = second - transferPrng.nextInt(1, 3);
-      const connected = loggedIn - transferPrng.nextInt(0, 1);
-      const pid = pidFrom(transferPrng);
-      const fromIp = upload.from.ip === host.ip ? LOOPBACK : upload.from.ip;
-      const at = (moment: number): GameTime => asGameTime(moment * 1000);
-      return [
-        { second: connected, line: formatVsftpdConnectLine({ fromIp, time: at(connected), pid }) },
-        {
-          second: loggedIn,
-          line: formatVsftpdLoginLine({
-            outcome: 'success',
-            user: upload.user,
-            fromIp,
-            hostname,
-            time: at(loggedIn),
-            pid,
-          }),
-        },
-        {
-          second,
-          line: formatVsftpdTransferLine({
-            direction: 'upload',
-            user: upload.user,
-            fromIp,
-            time: at(second),
-            pid,
-            path: asAbsPath(upload.path),
-            bytes: upload.bytes,
-          }),
-        },
-      ];
+      return {
+        second,
+        line: formatVsftpdTransferLine({
+          direction: 'upload',
+          user: upload.user,
+          fromIp: upload.from.ip === host.ip ? LOOPBACK : upload.from.ip,
+          time: asGameTime(second * 1000),
+          pid: pidFrom(transferPrng),
+          path: asAbsPath(upload.path),
+          bytes: upload.bytes,
+        }),
+      };
     });
   })();
 

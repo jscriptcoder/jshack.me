@@ -1296,31 +1296,51 @@ describe("the file server's own record of what arrived on its share", () => {
     expect(corroborated).toBeGreaterThan(0);
   });
 
-  it('shows every upload as a visit: the machine connects, the account logs in, then the file arrives', () => {
+  it('writes one line for each arrival and nothing else, each its own session', () => {
     fileServerBoxes()
       .filter(runsFtp)
       .forEach((box) => {
         const lines = ftpLogLinesOf(transferHistoryOf(buildRemoteHostFs(box.essid, box.host)) ?? '');
         const label = `${box.essid} ${box.host.hostname}`;
-        const visits = lines.reduce<ReadonlyMap<string, readonly FtpLogLine[]>>(
-          (byPid, line) => new Map([...byPid, [line.pid, [...(byPid.get(line.pid) ?? []), line]]]),
-          new Map(),
-        );
-        expect(visits.size, label).toBe(lines.filter((line) => line.event === 'OK UPLOAD').length);
-        visits.forEach((visit, pid) => {
-          expect(visit.map((line) => line.event), `${label} pid ${pid}`).toEqual([
-            'CONNECT',
-            'OK LOGIN',
-            'OK UPLOAD',
-          ]);
-          expect(new Set(visit.map((line) => line.client)).size, `${label} pid ${pid}`).toBe(1);
-          expect(visit.map((line) => line.user), `${label} pid ${pid}`).toEqual([
-            null,
-            npcUsername(box.essid, box.host),
-            npcUsername(box.essid, box.host),
-          ]);
+        expect(lines.length, label).toBeGreaterThan(0);
+        lines.forEach((line) => {
+          expect(line.event, label).toBe('OK UPLOAD');
+          expect(line.user, label).toBe(npcUsername(box.essid, box.host));
         });
+        expect(new Set(lines.map((line) => line.pid)).size, label).toBe(lines.length);
       });
+  });
+
+  it('fits every transfer log into the one signed write that saves it on the player box', async () => {
+    const identity = generateIdentity();
+    const sent: string[] = [];
+    const patches = createPatchApi({
+      identity,
+      machineId: asMachineId(computeWorkstationId('deskbox', identity.publicKeyHex)),
+      owner: 'operator',
+      tier: 'user',
+      fetchImpl: async (_url, init) => {
+        sent.push(String(init?.body));
+        return new Response('{}', { status: 200 });
+      },
+    });
+    const logs = fileServerBoxes()
+      .filter(runsFtp)
+      .map((box) => ({
+        label: `${box.essid} ${box.host.hostname}`,
+        log: transferHistoryOf(buildRemoteHostFs(box.essid, box.host)) ?? '',
+      }));
+
+    for (const { log } of logs) {
+      await patches.write(asAbsPath('/home/operator/transfers.log'), log, { isNew: true });
+    }
+    expect(sent).toHaveLength(logs.length);
+    sent.forEach((body, index) => {
+      expect(
+        signedEnvelopeSchema.safeParse(JSON.parse(body)).success,
+        `${logs[index]?.label}: ${JSON.stringify(logs[index]?.log).length} escaped`,
+      ).toBe(true);
+    });
   });
 
   it('writes the uploads in the order they happened, all before the world began', () => {
