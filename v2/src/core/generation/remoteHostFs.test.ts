@@ -2122,7 +2122,9 @@ describe('buildRemoteHostFs', () => {
      *  meant in the app this one replaces. */
     const ROLE_FILES: readonly { readonly prefix: string; readonly filename: string }[] = [
       { prefix: 'desktop', filename: 'ssh_config' },
-      { prefix: 'cam', filename: 'device.conf' },
+      // A sensor, since a printer and a camera keep their daemons' configs under a
+      // directory of their own (`device.test.ts` owns those).
+      { prefix: 'sensor', filename: 'device.conf' },
       { prefix: 'www', filename: 'httpd.conf' },
       { prefix: 'nas', filename: 'vsftpd.conf' },
       { prefix: 'db', filename: 'mysql.cnf' },

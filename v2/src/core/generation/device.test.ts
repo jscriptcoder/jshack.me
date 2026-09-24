@@ -2,7 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { buildRemoteHostFs } from './remoteHostFs';
 import { buildDeepHostFs } from './deepHostFs';
 import { deviceKindOf } from './device';
-import { CUPSD_CONFS, PRINTER_MODELS } from './pools/devices';
+import {
+  CAMERA_MODELS,
+  CAMERA_RESOLUTIONS,
+  CUPSD_CONFS,
+  PRINTER_MODELS,
+} from './pools/devices';
 import { peopleKnownOn } from './mailbox';
 import { npcUsername } from './remoteHostFs';
 import { roleOfHostname } from './pools/hostnames';
@@ -569,5 +574,172 @@ describe("a printer's page log", () => {
         expect(['one-sided', 'two-sided-long-edge']).toContain(line.sides);
       });
     });
+  });
+});
+
+const CAMERA_PREFIXES = ['cam', 'doorbell', 'babycam'];
+
+/** Every camera-kind box: the world's, LAN and deep, and synthetic ones of each flavour
+ *  on both layers, since the world holds only a few of each. */
+const cameras = (): readonly BuiltBox[] => [
+  ...worldBoxesNamed(CAMERA_PREFIXES),
+  ...syntheticLanBoxes(CAMERA_PREFIXES).slice(0, 40),
+  ...CAMERA_PREFIXES.flatMap((prefix) => syntheticBoxes(prefix).slice(0, 15)),
+];
+
+/** One entry of a camera's event index. */
+type CameraEvent = {
+  /** When it happened, in milliseconds. */
+  readonly at: number;
+  readonly kind: string;
+  readonly snapshot: string;
+};
+
+const EVENT_LINE = /^(\d{4})-(\d\d)-(\d\d) (\d\d):(\d\d):(\d\d) (\S+) (snapshots\/\S+\.jpg)$/;
+
+const eventsOf = (tree: Directory): readonly CameraEvent[] =>
+  contentOf(tree, '/var/lib/motion/events.log')
+    .split('\n')
+    .filter((line) => line !== '')
+    .map((line) => {
+      const match = EVENT_LINE.exec(line);
+      if (match === null) throw new Error(`not an event line: ${line}`);
+      const [, year, month, day, hours, minutes, seconds, kind = '', snapshot = ''] = match;
+      return {
+        at: Date.UTC(
+          Number(year),
+          Number(month) - 1,
+          Number(day),
+          Number(hours),
+          Number(minutes),
+          Number(seconds),
+        ),
+        kind,
+        snapshot,
+      };
+    });
+
+const snapshotNamesOf = (tree: Directory): readonly string[] => {
+  const listing = createFsView(tree, { userType: 'root' }).list(asAbsPath('/var/lib/motion/snapshots'));
+  if (!listing.ok) throw new Error(`/var/lib/motion/snapshots: ${listing.error}`);
+  return listing.entries;
+};
+
+/** A photo's Exif date, as `strings` shows it. */
+const exifDate = (at: number): string => {
+  const iso = new Date(at).toISOString();
+  return `${iso.slice(0, 10).replaceAll('-', ':')} ${iso.slice(11, 19)}`;
+};
+
+/** The camera a motion config names, as `camera_name <make> <model>` spells it. */
+const cameraNameOf = (tree: Directory): string =>
+  /^camera_name (.+)$/m.exec(contentOf(tree, '/etc/motion/motion.conf'))?.[1] ?? '';
+
+describe('a camera', () => {
+  it('is found on home LANs and below them, in every flavour', () => {
+    const boxes = worldBoxesNamed(CAMERA_PREFIXES);
+    expect(new Set(boxes.map(({ layer }) => layer))).toEqual(new Set(['lan', 'deep']));
+    const flavours = new Set(cameras().map(({ host }) => prefixOf(host.hostname)));
+    expect(flavours).toEqual(new Set(CAMERA_PREFIXES));
+  });
+
+  it('keeps a motion config naming where its events and snapshots go, in place of device.conf', () => {
+    cameras().forEach(({ host, tree }) => {
+      expect({ host: host.hostname, device: read(tree, '/etc/device.conf').ok }).toEqual({
+        host: host.hostname,
+        device: false,
+      });
+      const conf = contentOf(tree, '/etc/motion/motion.conf');
+      expect(conf).toMatch(/^target_dir \/var\/lib\/motion$/m);
+      expect(conf).toMatch(/^picture_filename snapshots\/%Y%m%d-%H%M%S$/m);
+      expect(softwareVersionsIn(conf)).toEqual([]);
+    });
+  });
+
+  it('serves its stream and its controls on the loopback only, so no file claims a port a scan cannot see', () => {
+    cameras().forEach(({ tree }) => {
+      const conf = contentOf(tree, '/etc/motion/motion.conf');
+      expect(conf).toMatch(/^stream_localhost on$/m);
+      expect(conf).toMatch(/^webcontrol_localhost on$/m);
+    });
+  });
+
+  it('indexes every event against a snapshot it holds, and holds no snapshot no event names', () => {
+    cameras().forEach(({ host, tree }) => {
+      const events = eventsOf(tree);
+      const held = snapshotNamesOf(tree).map((name) => `snapshots/${name}`);
+      expect({ host: host.hostname, some: events.length > 0 }).toEqual({ host: host.hostname, some: true });
+      expect([...events.map((event) => event.snapshot)].sort()).toEqual([...held].sort());
+    });
+  });
+
+  it('logs its events in order, each before the world began', () => {
+    cameras().forEach(({ tree }) => {
+      const times = eventsOf(tree).map((event) => event.at);
+      expect(times).toEqual([...times].sort((earlier, later) => earlier - later));
+      times.forEach((at) => expect(at).toBeLessThan(WORLD_EPOCH));
+    });
+  });
+
+  it("stamps each snapshot, through strings, with the camera's own make and model and the event's time", async () => {
+    for (const { tree } of cameras()) {
+      const name = cameraNameOf(tree);
+      for (const event of eventsOf(tree)) {
+        const lines = await readableLinesOf(contentOf(tree, `/var/lib/motion/${event.snapshot}`));
+        const model = CAMERA_MODELS.find((camera) => `${camera.make} ${camera.model}` === name);
+        expect({ name, known: model !== undefined }).toEqual({ name, known: true });
+        expect(lines).toContain(model?.make);
+        expect(lines).toContain(model?.model);
+        expect(lines).toContain(exifDate(event.at));
+      }
+    }
+  });
+
+  it('records rings on a doorbell, sound on a baby monitor, and motion alone on any other camera', () => {
+    cameras().forEach(({ host, tree }) => {
+      const kinds = new Set(eventsOf(tree).map((event) => event.kind));
+      const flavour = prefixOf(host.hostname);
+      const allowed =
+        flavour === 'doorbell' ? ['motion', 'ring'] : flavour === 'babycam' ? ['motion', 'sound'] : ['motion'];
+      kinds.forEach((kind) => expect({ host: host.hostname, kind, allowed: allowed.includes(kind) }).toEqual({
+        host: host.hostname,
+        kind,
+        allowed: true,
+      }));
+      if (flavour === 'doorbell') expect(kinds).toContain('ring');
+      if (flavour === 'babycam') expect(kinds).toContain('sound');
+    });
+  });
+
+  it("keeps its events for the box's own user to read, and not a guest", () => {
+    cameras().forEach(({ tree }) => {
+      const first = snapshotNamesOf(tree)[0] ?? '';
+      expect(read(tree, '/var/lib/motion/events.log', 'user').ok).toBe(true);
+      expect(read(tree, `/var/lib/motion/snapshots/${first}`, 'user').ok).toBe(true);
+      expect(read(tree, '/var/lib/motion/events.log', 'guest').ok).toBe(false);
+      expect(createFsView(tree, { userType: 'guest' }).list(asAbsPath('/var/lib/motion')).ok).toBe(false);
+    });
+  });
+
+  it('is a model of the flavour its name says, drawing every model in the pool somewhere', () => {
+    const named = cameras().map(({ host, tree }) => ({ host, name: cameraNameOf(tree) }));
+    const drawn = new Set(named.map(({ name }) => name));
+    CAMERA_MODELS.forEach(({ make, model, flavour }) => {
+      const name = `${make} ${model}`;
+      expect({ name, drawn: drawn.has(name) }).toEqual({ name, drawn: true });
+      named
+        .filter((camera) => camera.name === name)
+        .forEach(({ host }) => expect(prefixOf(host.hostname)).toBe(flavour));
+    });
+  });
+
+  it('streams at every frame size in the pool somewhere', () => {
+    const sizes = new Set(
+      cameras().map(({ tree }) => {
+        const conf = contentOf(tree, '/etc/motion/motion.conf');
+        return `${/^width (\d+)$/m.exec(conf)?.[1]}x${/^height (\d+)$/m.exec(conf)?.[1]}`;
+      }),
+    );
+    expect(sizes).toEqual(new Set(CAMERA_RESOLUTIONS.map(([width, height]) => `${width}x${height}`)));
   });
 });

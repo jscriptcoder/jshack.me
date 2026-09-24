@@ -109,3 +109,41 @@ export const CUPSD_CONFS: readonly string[] = [
     '',
   ].join('\n'),
 ];
+
+/** The cameras a camera-kind box may be, each with the flavour of box it is: `cam` a
+ *  fixed security camera, `doorbell` a video doorbell, `babycam` a baby monitor. Each
+ *  make and model stands alone in a `strings` listing of a snapshot's Exif block, so
+ *  every one is at least four characters, and none carries a decimal. */
+export const CAMERA_MODELS: readonly {
+  readonly make: string;
+  readonly model: string;
+  readonly flavour: string;
+}[] = [
+  { make: 'Reolink', model: 'RLC-510A', flavour: 'cam' },
+  { make: 'Hikvision', model: 'DS-2CD2043G2-I', flavour: 'cam' },
+  { make: 'Amcrest', model: 'IP4M-1041B', flavour: 'cam' },
+  { make: 'Axis', model: 'M3106-L', flavour: 'cam' },
+  { make: 'TP-Link', model: 'Tapo C200', flavour: 'cam' },
+  { make: 'Ring', model: 'Video Doorbell Pro', flavour: 'doorbell' },
+  { make: 'Eufy', model: 'Video Doorbell Dual', flavour: 'doorbell' },
+  { make: 'Reolink', model: 'Video Doorbell PoE', flavour: 'doorbell' },
+  { make: 'Google', model: 'Nest Doorbell', flavour: 'doorbell' },
+  { make: 'Nanit', model: 'Nanit Pro', flavour: 'babycam' },
+  { make: 'Owlet', model: 'Owlet Cam', flavour: 'babycam' },
+  { make: 'Motorola', model: 'VM44 Connect', flavour: 'babycam' },
+  { make: 'Eufy', model: 'SpaceView Pro', flavour: 'babycam' },
+];
+
+/** What a camera of each flavour records beside plain motion: a doorbell its rings, a
+ *  baby monitor the sound it hears. */
+export const FLAVOUR_EVENTS: Readonly<Record<string, string>> = {
+  doorbell: 'ring',
+  babycam: 'sound',
+};
+
+/** The frame sizes a camera streams and snapshots at. */
+export const CAMERA_RESOLUTIONS: readonly (readonly [number, number])[] = [
+  [1280, 720],
+  [1920, 1080],
+  [2560, 1440],
+];

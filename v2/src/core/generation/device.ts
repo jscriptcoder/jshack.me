@@ -11,7 +11,16 @@
  */
 
 import { createPrng, type Prng } from './prng';
-import { dir, file, ROOT_DIR, ROOT_FILE, TRAVERSABLE_DIR } from './baseFs';
+import {
+  dir,
+  file,
+  HOME_DIR,
+  HOME_FILE,
+  ROOT_DIR,
+  ROOT_FILE,
+  SERVICE_CONFIG_FILE,
+  TRAVERSABLE_DIR,
+} from './baseFs';
 import { uuid } from './etcContent';
 import { renderControlFile, renderDocument } from './documentFormats';
 import { generateHomeLan, isOnHomeLan, type LanHost } from './generateHomeLan';
@@ -21,7 +30,13 @@ import { networkPersona } from './persona';
 import { roleOfHostname } from './pools/hostnames';
 import { npcUsername } from './remoteHostFs';
 import { buildShare, type ShareUpload } from './share';
-import { CUPSD_CONFS, PRINTER_MODELS } from './pools/devices';
+import {
+  CAMERA_MODELS,
+  CAMERA_RESOLUTIONS,
+  CUPSD_CONFS,
+  FLAVOUR_EVENTS,
+  PRINTER_MODELS,
+} from './pools/devices';
 import { SHARE_FOLDERS } from './pools/shareFiles';
 import { WORLD_EPOCH } from '../cve/worldClock';
 import type { Directory, FileNode } from '../filesystem/types';
@@ -56,6 +71,8 @@ export const deviceKindOf = (hostname: string): DeviceKind | undefined => {
 export type DeviceFiles = {
   readonly etc: Readonly<Record<string, FileNode>>;
   readonly var: Readonly<Record<string, FileNode>>;
+  /** Entries for `/var/lib`, where a device keeps its own state beside any daemon's. */
+  readonly lib: Readonly<Record<string, FileNode>>;
   readonly configPaths: readonly string[];
   /** Every job a printer printed, oldest first, for its page log; empty on any other
    *  device. Derived once with the spool, so the log cannot disagree with it. */
@@ -334,6 +351,7 @@ const printerFiles = ({
   const jobs = printJobs(prng, host, printables);
   return {
     etc: { cups },
+    lib: {},
     var: { spool: dir({ cups: spoolFor(prng, queue, jobs) }, TRAVERSABLE_DIR) },
     configPaths: ['/etc/cups/cupsd.conf', '/etc/cups/printers.conf'],
     printed: jobs.map(({ id, document, host, at, pages, sides }) => ({
@@ -346,6 +364,167 @@ const printerFiles = ({
       title: document.title,
       sides,
     })),
+  };
+};
+
+/** How many events a camera still holds, and how far back its storage reaches. */
+const EVENT_COUNT = { min: 4, max: 12 } as const;
+const EVENT_WINDOW_SECONDS = 14 * DAY_SECONDS;
+/** How often an event on a doorbell or baby monitor is its flavour's own rather than
+ *  plain motion. */
+const FLAVOUR_EVENT_CHANCE = 0.4;
+
+const pad2 = (value: number): string => String(value).padStart(2, '0');
+
+/** A moment in seconds, as `YYYY-MM-DD HH:MM:SS` in UTC. */
+const stamp = (second: number): string => {
+  const date = new Date(second * 1000);
+  return (
+    `${date.getUTCFullYear()}-${pad2(date.getUTCMonth() + 1)}-${pad2(date.getUTCDate())} ` +
+    `${pad2(date.getUTCHours())}:${pad2(date.getUTCMinutes())}:${pad2(date.getUTCSeconds())}`
+  );
+};
+
+/** A snapshot's file name, as motion's `picture_filename` pattern writes it. */
+const snapshotName = (second: number): string =>
+  `${stamp(second).replaceAll('-', '').replace(' ', '-').replaceAll(':', '')}.jpg`;
+
+const prefixOf = (hostname: string): string => hostname.slice(0, hostname.lastIndexOf('-'));
+
+/** One event a camera recorded: when, what set it off, and the snapshot it took. */
+export type CameraEvent = {
+  /** In seconds. */
+  readonly at: number;
+  readonly kind: string;
+  /** Its path beneath `/var/lib/motion`. */
+  readonly snapshot: string;
+  readonly content: string;
+};
+
+/** A camera as it is: the model it is and the events it still holds, oldest first. */
+export type CameraRecordings = {
+  readonly make: string;
+  readonly model: string;
+  readonly events: readonly CameraEvent[];
+};
+
+const recordingsOf = (prng: Prng, flavour: string): CameraRecordings => {
+  const camera = prng.pick(CAMERA_MODELS.filter((candidate) => candidate.flavour === flavour));
+  const count = prng.nextInt(EVENT_COUNT.min, EVENT_COUNT.max);
+  // One second holds one snapshot, so two events drawn into the same second are one.
+  const seconds = [
+    ...new Set(
+      Array.from({ length: count }, () =>
+        prng.nextInt(LAST_SECOND - EVENT_WINDOW_SECONDS, LAST_SECOND),
+      ),
+    ),
+  ].sort((earlier, later) => earlier - later);
+  const flavourEvent = FLAVOUR_EVENTS[flavour];
+  // A doorbell that never rang would not be one, so one event is always its own kind.
+  const certain = prng.nextInt(0, seconds.length - 1);
+  const events = seconds.map((second, index) => ({
+    at: second,
+    kind:
+      flavourEvent !== undefined && (index === certain || prng.next() < FLAVOUR_EVENT_CHANCE)
+        ? flavourEvent
+        : 'motion',
+    snapshot: `snapshots/${snapshotName(second)}`,
+    content: renderDocument(
+      {
+        format: 'jpeg',
+        make: camera.make,
+        model: camera.model,
+        takenAt: second * 1000,
+        artist: null,
+      },
+      prng,
+    ),
+  }));
+  return { make: camera.make, model: camera.model, events };
+};
+
+/** What a camera-kind box records, without building the box: the first draws of its own
+ *  `device-` stream, the same ones `buildDevice` takes. A recorder archiving the camera
+ *  reads this, so its copies are the camera's own snapshots byte for byte. */
+export const cameraRecordings = (essid: string, host: LanHost): CameraRecordings =>
+  recordingsOf(createPrng(`device-${essid}-${host.ip}`), prefixOf(host.hostname));
+
+/** `/etc/motion/motion.conf`: the camera it drives, where it writes, and how it decides
+ *  something moved. Its stream and its controls answer on the loopback only, since
+ *  nothing on the network answers on their ports. */
+const motionConf = (prng: Prng, hostname: string, recordings: CameraRecordings): string => {
+  const [width, height] = prng.pick(CAMERA_RESOLUTIONS);
+  return [
+    `# motion configuration for ${hostname}`,
+    'daemon on',
+    'setup_mode off',
+    `camera_name ${recordings.make} ${recordings.model}`,
+    'videodevice /dev/video0',
+    `width ${width}`,
+    `height ${height}`,
+    `framerate ${prng.pick([10, 15, 20])}`,
+    `threshold ${prng.pick([1500, 2500, 4000])}`,
+    `event_gap ${prng.pick([30, 60, 120])}`,
+    'target_dir /var/lib/motion',
+    `picture_output ${prng.pick(['first', 'best', 'center'])}`,
+    'picture_filename snapshots/%Y%m%d-%H%M%S',
+    'movie_output off',
+    'stream_port 8081',
+    'stream_localhost on',
+    'webcontrol_port 8080',
+    'webcontrol_localhost on',
+    '',
+  ].join('\n');
+};
+
+/** `/var/lib/motion`: the event index and the snapshot each event took. The daemon runs
+ *  as the box's own account, so they are that user's to read and a guest's not. */
+const motionState = (recordings: CameraRecordings, username: string): Directory =>
+  dir(
+    {
+      'events.log': file(
+        recordings.events
+          .map(({ at, kind, snapshot }) => `${stamp(at)} ${kind} ${snapshot}\n`)
+          .join(''),
+        HOME_FILE,
+        username,
+      ),
+      snapshots: dir(
+        Object.fromEntries(
+          recordings.events.map(({ snapshot, content }) => [
+            snapshot.slice('snapshots/'.length),
+            file(content, HOME_FILE, username),
+          ]),
+        ),
+        HOME_DIR,
+        username,
+      ),
+    },
+    HOME_DIR,
+    username,
+  );
+
+const cameraFiles = ({
+  prng,
+  host,
+  username,
+}: {
+  readonly prng: Prng;
+  readonly host: LanHost;
+  readonly username: string;
+}): DeviceFiles => {
+  const recordings = recordingsOf(prng, prefixOf(host.hostname));
+  return {
+    etc: {
+      motion: dir(
+        { 'motion.conf': file(motionConf(prng, host.hostname, recordings), SERVICE_CONFIG_FILE) },
+        TRAVERSABLE_DIR,
+      ),
+    },
+    lib: { motion: motionState(recordings, username) },
+    var: {},
+    configPaths: ['/etc/motion/motion.conf'],
+    printed: [],
   };
 };
 
@@ -362,11 +541,8 @@ export const buildDevice = ({
   readonly username: string;
 }): DeviceFiles | null => {
   const kind = deviceKindOf(host.hostname);
+  const prng = createPrng(`device-${essid}-${host.ip}`);
+  if (kind === 'camera') return cameraFiles({ prng, host, username });
   if (kind !== 'printer') return null;
-  return printerFiles({
-    prng: createPrng(`device-${essid}-${host.ip}`),
-    essid,
-    host,
-    people: peopleKnownOn({ essid, host, username }),
-  });
+  return printerFiles({ prng, essid, host, people: peopleKnownOn({ essid, host, username }) });
 };

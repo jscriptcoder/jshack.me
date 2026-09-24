@@ -339,6 +339,9 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
       })
     : null;
   const stateEntries = {
+    // A device's own state (a camera's events) sits in the same /var/lib, for the reason
+    // the daemons below share it.
+    ...device?.lib,
     ...(database === null
       ? {}
       : {
