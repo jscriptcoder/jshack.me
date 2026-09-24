@@ -69,6 +69,7 @@ import { CRACK_CHANCE, drawPassword } from './passwordPools';
 import { pickWebPage } from './pools/webPages';
 import { buildWebSite } from './webSite';
 import { roleConfigFile } from './pools/configFiles';
+import { buildDevice } from './device';
 import { nameServerFilesFor } from './generateDnsZone';
 import { roleOfHostname } from './pools/hostnames';
 import { lanZoneName } from '../network/resolveName';
@@ -286,11 +287,15 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
   // most of the world's name servers stand on a deep layer.
   const nameServer = role === 'dns' ? nameServerFilesFor(essid, host) : null;
 
+  // What the device keeps because of what it is — a printer its print server. Where its
+  // kind keeps its own configs they replace the generic device config below.
+  const device = buildDevice(essid, host);
+
   // A name no role claims keeps no config: there is nothing for such a box to admit
   // to. `dns` is excluded at the type level rather than here — the pool has nothing
   // for it, so a caller that forgot the branch above would not compile.
   const config =
-    role === undefined || role === 'dns'
+    role === undefined || role === 'dns' || device !== null
       ? null
       : roleConfigFile({
           role,
@@ -489,6 +494,7 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
   // Root's history names what the box keeps: its configs, and the logs it writes.
   const configPaths = [
     ...(config === null ? [] : [`/etc/${config.name}`]),
+    ...(device?.configPaths ?? []),
     ...(nameServer === null ? [] : ['/etc/bind/named.conf']),
     ...(redisService === undefined ? [] : ['/etc/redis/redis.conf']),
   ];
@@ -505,6 +511,7 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
           ...etc,
           passwd: file(passwd, PASSWD_FILE),
           ...(config === null ? {} : { [config.name]: file(config.content, SERVICE_CONFIG_FILE) }),
+          ...device?.etc,
           // The accounts vsftpd lets in, where its config keeps a list of them: every
           // account in passwd, since the door admits any of them. Kept at passwd's own
           // tier, for the reason /etc/aliases is — every line of it is an account name.
