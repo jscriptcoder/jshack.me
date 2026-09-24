@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { buildRemoteHostFs } from './remoteHostFs';
+import { buildRemoteHostFs, hostServices } from './remoteHostFs';
+import { createPatchApi } from '../../adapters/patchApi';
+import { generateIdentity } from '../identity/identity';
+import { computeWorkstationId } from '../identity/workstation';
+import { signedEnvelopeSchema } from '../signedRequest/types';
+import { asMachineId } from '../types';
 import { buildDeepHostFs } from './deepHostFs';
 import { deviceKindOf } from './device';
 import {
@@ -861,6 +866,183 @@ describe('a recorder', () => {
       expect(read(tree, '/var/lib/nvr/index.log', 'user').ok).toBe(true);
       expect(read(tree, '/var/lib/nvr/index.log', 'guest').ok).toBe(false);
       expect(createFsView(tree, { userType: 'guest' }).list(asAbsPath('/var/lib/nvr')).ok).toBe(false);
+    });
+  });
+});
+
+/** The pages each device kind publishes, by file name beneath `/var/www/html`. */
+const UI_PAGES: Readonly<Record<string, readonly string[]>> = {
+  printer: ['index.html', 'printers.html', 'jobs.html'],
+  camera: ['index.html', 'events.html'],
+  recorder: ['index.html', 'recordings.html'],
+};
+
+const servesHttp = ({ essid, host }: Box): boolean =>
+  hostServices(essid, host).some(({ spec }) => spec.service === 'http');
+
+/** Every printer, camera and recorder, world and synthetic, on both layers. */
+const devicesOfThisSlice = (): readonly BuiltBox[] => [
+  ...worldBoxesNamed(['printer', 'nvr', ...CAMERA_PREFIXES]),
+  ...syntheticLanBoxes(['printer', 'nvr', ...CAMERA_PREFIXES]).slice(0, 80),
+  ...['printer', 'nvr', ...CAMERA_PREFIXES].flatMap((prefix) => syntheticBoxes(prefix).slice(0, 30)),
+];
+
+const pagesOf = (tree: Directory): ReadonlyMap<string, string> => {
+  const node = createFsView(tree, { userType: 'root' }).stat(asAbsPath('/var/www/html'));
+  return node?.kind === 'directory' ? filesUnder(node) : new Map();
+};
+
+const hrefsIn = (page: string): readonly string[] =>
+  Array.from(page.matchAll(/<a\s[^>]*href="([^"]*)"/g)).map((match) => match[1] ?? '');
+
+describe("a device's own pages", () => {
+  const serving = (): readonly (BuiltBox & { readonly kind: string })[] =>
+    devicesOfThisSlice()
+      .filter(servesHttp)
+      .map((box) => ({ ...box, kind: deviceKindOf(box.host.hostname) ?? '' }));
+
+  it('are published only where the box serves the web, as its kind\'s two to four pages', () => {
+    const boxes = serving();
+    expect(new Set(boxes.map(({ kind }) => kind))).toEqual(new Set(['printer', 'camera', 'recorder']));
+    boxes.forEach(({ host, kind, tree }) => {
+      expect({ host: host.hostname, pages: [...pagesOf(tree).keys()].sort() }).toEqual({
+        host: host.hostname,
+        pages: [...(UI_PAGES[kind] ?? [])].sort(),
+      });
+    });
+    devicesOfThisSlice()
+      .filter((box) => !servesHttp(box))
+      .forEach(({ tree }) => expect(pagesOf(tree).size).toBe(0));
+  });
+
+  it('link only to one another, so no link is dead', () => {
+    serving().forEach(({ host, tree }) => {
+      const pages = pagesOf(tree);
+      pages.forEach((page) => {
+        const hrefs = hrefsIn(page);
+        expect(hrefs.length).toBeGreaterThan(0);
+        hrefs.forEach((href) => {
+          const target = href === '/' ? 'index.html' : href.replace(/^\//, '');
+          expect({ host: host.hostname, href, live: pages.has(target) }).toEqual({
+            host: host.hostname,
+            href,
+            live: true,
+          });
+        });
+      });
+    });
+  });
+
+  it('name no port nothing serves, no software version and no account', () => {
+    serving().forEach(({ essid, host, tree }) => {
+      const account = npcUsername(essid, host);
+      pagesOf(tree).forEach((page, name) => {
+        expect({ host: host.hostname, name, rtsp: /rtsp|:554\b/.test(page) }).toEqual({
+          host: host.hostname,
+          name,
+          rtsp: false,
+        });
+        expect(softwareVersionsIn(page)).toEqual([]);
+        expect({ host: host.hostname, name, account: page.includes(`>${account}<`) }).toEqual({
+          host: host.hostname,
+          name,
+          account: false,
+        });
+      });
+    });
+  });
+
+  it("list a printer's jobs with their user and title withheld, as CUPS does by default", () => {
+    const printers = serving().filter(({ kind }) => kind === 'printer');
+    expect(printers.length).toBeGreaterThan(0);
+    printers.forEach(({ tree }) => {
+      const page = pagesOf(tree).get('jobs.html') ?? '';
+      const rows = page.split('\n').filter((line) => line.startsWith('<tr><td>'));
+      const logged = pageLinesOf(contentOf(tree, '/var/log/cups/page_log.1'));
+      expect(rows).toHaveLength(logged.length);
+      logged.forEach((line) => {
+        const row = rows.find((candidate) => candidate.startsWith(`<tr><td>${line.queue}-${line.jobId}</td>`));
+        expect(row).toBeDefined();
+        expect(row?.match(/<td>Withheld<\/td>/g)).toHaveLength(2);
+        expect(page).not.toContain(line.title);
+      });
+    });
+  });
+
+  it("list a camera's events as its index holds them", () => {
+    const cameraBoxes = serving().filter(({ kind }) => kind === 'camera');
+    expect(cameraBoxes.length).toBeGreaterThan(0);
+    cameraBoxes.forEach(({ tree }) => {
+      const page = pagesOf(tree).get('events.html') ?? '';
+      eventsOf(tree).forEach((event) => {
+        const when = new Date(event.at).toISOString().slice(0, 19).replace('T', ' ');
+        expect(page).toContain(`<td>${when}</td><td>${event.kind}</td>`);
+      });
+    });
+  });
+
+  it("name on a recorder's Cameras page every camera it records", () => {
+    const recorderBoxes = serving().filter(({ kind }) => kind === 'recorder');
+    expect(recorderBoxes.length).toBeGreaterThan(0);
+    recorderBoxes.forEach(({ tree }) => {
+      const page = pagesOf(tree).get('index.html') ?? '';
+      archivedSources(tree).forEach((source) => expect(page).toContain(source));
+    });
+  });
+});
+
+/** Where a printer, camera or recorder keeps what it is: every file a player could
+ *  fetch off one and carry home. */
+const DEVICE_PATHS = [
+  '/etc/cups',
+  '/etc/motion',
+  '/etc/nvr',
+  '/var/spool/cups',
+  '/var/log/cups',
+  '/var/lib/motion',
+  '/var/lib/nvr',
+  '/var/www/html',
+];
+
+describe('what ftp get can carry home off a device', () => {
+  it('fits every device file into the one signed write that saves it on the player box', async () => {
+    const identity = generateIdentity();
+    const sent: string[] = [];
+    const patches = createPatchApi({
+      identity,
+      machineId: asMachineId(computeWorkstationId('deskbox', identity.publicKeyHex)),
+      owner: 'operator',
+      tier: 'user',
+      fetchImpl: async (_url, init) => {
+        sent.push(String(init?.body));
+        return new Response('{}', { status: 200 });
+      },
+    });
+    // The write's size is what the transport limits, and a file's escaped length is
+    // what decides it, so the files hardest to carry are the ones sent.
+    const hardest = devicesOfThisSlice()
+      .flatMap(({ host, tree }) =>
+        DEVICE_PATHS.flatMap((root) => {
+          const node = createFsView(tree, { userType: 'root' }).stat(asAbsPath(root));
+          return node?.kind === 'directory'
+            ? [...filesUnder(node)].map(([path, content]) => [`${host.hostname}:${root}/${path}`, content] as const)
+            : [];
+        }),
+      )
+      .sort(([, one], [, other]) => JSON.stringify(other).length - JSON.stringify(one).length)
+      .slice(0, 20);
+
+    for (const [path, content] of hardest) {
+      await patches.write(asAbsPath(`/home/operator/${path.split('/').pop() ?? ''}`), content, {
+        isNew: true,
+      });
+    }
+    expect(sent).toHaveLength(hardest.length);
+    sent.forEach((body, index) => {
+      expect(
+        signedEnvelopeSchema.safeParse(JSON.parse(body)).success,
+        `${hardest[index]?.[0]}: ${JSON.stringify(hardest[index]?.[1]).length} escaped`,
+      ).toBe(true);
     });
   });
 });

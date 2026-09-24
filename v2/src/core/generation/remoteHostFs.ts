@@ -400,23 +400,30 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
     webPort !== undefined && role === 'webserver'
       ? buildWebSite({ essid, host, port: webPort, database })
       : null;
+  // A device with a UI of its own publishes it; any other box that serves keeps its page.
+  const devicePages = serves && device !== null && device.pages.size > 0 ? device.pages : null;
   const webFiles: ReadonlyMap<string, string> | null =
-    site !== null
-      ? site.files
-      : serves
-        ? new Map([
-            [
-              'index.html',
-              pickWebPage({ role, seed: `web-page-${essid}-${host.ip}`, hostname: host.hostname }),
-            ],
-          ])
-        : null;
-  // What a visitor walks to, with what each answers: the site's linked pages, or the
-  // one page a box that is not a webserver serves.
+    site?.files ??
+    devicePages ??
+    (serves
+      ? new Map([
+          [
+            'index.html',
+            pickWebPage({ role, seed: `web-page-${essid}-${host.ip}`, hostname: host.hostname }),
+          ],
+        ])
+      : null);
+  // What a visitor walks to, with what each answers: the site's linked pages, a
+  // device's own pages, or the one page any other box serves.
+  const publicPaths =
+    site?.publicPaths ??
+    (devicePages === null
+      ? ['/']
+      : [...devicePages.keys()].map((name) => (name === 'index.html' ? '/' : `/${name}`)));
   const visited =
     webFiles === null
       ? []
-      : (site?.publicPaths ?? ['/']).map((path) => ({
+      : publicPaths.map((path) => ({
           path,
           size: (webFiles.get(path === '/' ? 'index.html' : path.slice(1)) ?? '').length,
         }));

@@ -74,6 +74,9 @@ export type DeviceFiles = {
   readonly var: Readonly<Record<string, FileNode>>;
   /** Entries for `/var/lib`, where a device keeps its own state beside any daemon's. */
   readonly lib: Readonly<Record<string, FileNode>>;
+  /** The pages the device's own UI serves where the box runs a web server, by file name
+   *  beneath the web root, `index.html` first. */
+  readonly pages: ReadonlyMap<string, string>;
   readonly configPaths: readonly string[];
   /** Every job a printer printed, oldest first, for its page log; empty on any other
    *  device. Derived once with the spool, so the log cannot disagree with it. */
@@ -326,6 +329,104 @@ const spoolFor = (prng: Prng, queue: string, jobs: readonly PrintJob[]): Directo
     ROOT_DIR,
   );
 
+/** One page of a device's UI: its title, its heading, what it says, and a link to every
+ *  other page of the UI, so none is a dead end and no link leads anywhere else. */
+const uiPage = ({
+  title,
+  body,
+  nav,
+}: {
+  readonly title: string;
+  readonly body: readonly string[];
+  readonly nav: readonly (readonly [string, string])[];
+}): string =>
+  [
+    '<html>',
+    `<head><title>${title}</title></head>`,
+    '<body>',
+    `<h1>${title}</h1>`,
+    `<p>${nav.map(([href, label]) => `<a href="${href}">${label}</a>`).join(' | ')}</p>`,
+    ...body,
+    '</body>',
+    '</html>',
+    '',
+  ].join('\n');
+
+/** A moment in milliseconds as a UI shows it: `YYYY-MM-DD HH:MM:SS`, in UTC. */
+const shownAt = (milliseconds: number): string =>
+  new Date(milliseconds).toISOString().slice(0, 19).replace('T', ' ');
+
+/**
+ * The print server's pages, as CUPS publishes them: a home page, the one printer, and the
+ * jobs it remembers. The scheduler listens on the loopback only, so these are its pages
+ * published by the box's own web server. A job's user and title are `Withheld`, which is
+ * CUPS's default for anyone not signed in as its admin.
+ */
+const printerPages = ({
+  hostname,
+  model,
+  queue,
+  jobs,
+}: {
+  readonly hostname: string;
+  readonly model: string;
+  readonly queue: string;
+  readonly jobs: readonly PrintJob[];
+}): ReadonlyMap<string, string> => {
+  const nav = [
+    ['/', 'Home'],
+    ['/printers.html', 'Printers'],
+    ['/jobs.html', 'Jobs'],
+  ] as const;
+  return new Map([
+    [
+      'index.html',
+      uiPage({
+        title: `Home - CUPS on ${hostname}`,
+        body: [
+          '<p>The print server for this network. Printing is shared with every machine on it.</p>',
+          `<p>One printer: ${model}.</p>`,
+        ],
+        nav,
+      }),
+    ],
+    [
+      'printers.html',
+      uiPage({
+        title: `Printers - CUPS on ${hostname}`,
+        body: [
+          '<table>',
+          '<tr><th>Queue Name</th><th>Description</th><th>Make and Model</th><th>Status</th></tr>',
+          `<tr><td>${queue}</td><td>${model}</td><td>${model}</td><td>Idle, Accepting Jobs</td></tr>`,
+          '</table>',
+        ],
+        nav,
+      }),
+    ],
+    [
+      'jobs.html',
+      uiPage({
+        title: `Jobs - CUPS on ${hostname}`,
+        body: [
+          '<h2>Completed Jobs</h2>',
+          '<table>',
+          '<tr><th>ID</th><th>Name</th><th>User</th><th>Size</th><th>Pages</th><th>State</th></tr>',
+          ...[...jobs]
+            .reverse()
+            .map(
+              ({ id, document, pages, at }) =>
+                `<tr><td>${queue}-${id}</td><td>Withheld</td><td>Withheld</td>` +
+                `<td>${Math.max(1, Math.round(document.content.length / 1024))}k</td>` +
+                `<td>${pages}</td><td>completed at ${shownAt(at * 1000)}</td></tr>`,
+            ),
+          '</table>',
+        ],
+        nav,
+      }),
+    ],
+  ]);
+};
+
 const printerFiles = ({
   prng,
   essid,
@@ -354,6 +455,7 @@ const printerFiles = ({
     etc: { cups },
     lib: {},
     var: { spool: dir({ cups: spoolFor(prng, queue, jobs) }, TRAVERSABLE_DIR) },
+    pages: printerPages({ hostname: host.hostname, model, queue, jobs }),
     configPaths: ['/etc/cups/cupsd.conf', '/etc/cups/printers.conf'],
     printed: jobs.map(({ id, document, host, at, pages, sides }) => ({
       queue,
@@ -453,9 +555,18 @@ export const cameraRecordings = (essid: string, host: LanHost): CameraRecordings
 /** `/etc/motion/motion.conf`: the camera it drives, where it writes, and how it decides
  *  something moved. Its stream and its controls answer on the loopback only, since
  *  nothing on the network answers on their ports. */
-const motionConf = (prng: Prng, hostname: string, recordings: CameraRecordings): string => {
-  const [width, height] = prng.pick(CAMERA_RESOLUTIONS);
-  return [
+const motionConf = ({
+  prng,
+  hostname,
+  recordings,
+  frame: [width, height],
+}: {
+  readonly prng: Prng;
+  readonly hostname: string;
+  readonly recordings: CameraRecordings;
+  readonly frame: readonly [number, number];
+}): string =>
+  [
     `# motion configuration for ${hostname}`,
     'daemon on',
     'setup_mode off',
@@ -476,6 +587,51 @@ const motionConf = (prng: Prng, hostname: string, recordings: CameraRecordings):
     'webcontrol_localhost on',
     '',
   ].join('\n');
+
+/** The camera's own pages: what it is and that its picture stays on the box, and the
+ *  events it holds, newest first. */
+const cameraPages = ({
+  hostname,
+  recordings,
+  frame: [width, height],
+}: {
+  readonly hostname: string;
+  readonly recordings: CameraRecordings;
+  readonly frame: readonly [number, number];
+}): ReadonlyMap<string, string> => {
+  const nav = [
+    ['/', 'Live'],
+    ['/events.html', 'Events'],
+  ] as const;
+  return new Map([
+    [
+      'index.html',
+      uiPage({
+        title: `${hostname} - Live`,
+        body: [
+          `<p>${recordings.make} ${recordings.model}, ${width}x${height}.</p>`,
+          '<p>The live picture is viewed on this device only.</p>',
+          `<p>${recordings.events.length} events held.</p>`,
+        ],
+        nav,
+      }),
+    ],
+    [
+      'events.html',
+      uiPage({
+        title: `${hostname} - Events`,
+        body: [
+          '<table>',
+          '<tr><th>Time</th><th>Event</th></tr>',
+          ...[...recordings.events]
+            .reverse()
+            .map(({ at, kind }) => `<tr><td>${shownAt(at * 1000)}</td><td>${kind}</td></tr>`),
+          '</table>',
+        ],
+        nav,
+      }),
+    ],
+  ]);
 };
 
 /** `/var/lib/motion`: the event index and the snapshot each event took. The daemon runs
@@ -515,15 +671,15 @@ const cameraFiles = ({
   readonly username: string;
 }): DeviceFiles => {
   const recordings = recordingsOf(prng, prefixOf(host.hostname));
+  const frame = prng.pick(CAMERA_RESOLUTIONS);
+  const conf = motionConf({ prng, hostname: host.hostname, recordings, frame });
   return {
     etc: {
-      motion: dir(
-        { 'motion.conf': file(motionConf(prng, host.hostname, recordings), SERVICE_CONFIG_FILE) },
-        TRAVERSABLE_DIR,
-      ),
+      motion: dir({ 'motion.conf': file(conf, SERVICE_CONFIG_FILE) }, TRAVERSABLE_DIR),
     },
     lib: { motion: motionState(recordings, username) },
     var: {},
+    pages: cameraPages({ hostname: host.hostname, recordings, frame }),
     configPaths: ['/etc/motion/motion.conf'],
     printed: [],
   };
@@ -648,9 +804,56 @@ const recorderFiles = ({
       ),
     },
     var: {},
+    pages: recorderPages(host.hostname, sources),
     configPaths: ['/etc/nvr/nvr.conf'],
     printed: [],
   };
+};
+
+/** The recorder's own pages: the cameras it records, and how many snapshots it holds of
+ *  each, day by day. */
+const recorderPages = (
+  hostname: string,
+  sources: readonly RecordedSource[],
+): ReadonlyMap<string, string> => {
+  const nav = [
+    ['/', 'Cameras'],
+    ['/recordings.html', 'Recordings'],
+  ] as const;
+  const days = sources.flatMap((source) => {
+    const byDay = new Map<string, number>();
+    source.recordings.events.forEach((event) => {
+      const day = stamp(event.at).slice(0, 10);
+      byDay.set(day, (byDay.get(day) ?? 0) + 1);
+    });
+    return [...byDay].map(([day, count]) => `<tr><td>${source.name}</td><td>${day}</td><td>${count}</td></tr>`);
+  });
+  return new Map([
+    [
+      'index.html',
+      uiPage({
+        title: `${hostname} - Cameras`,
+        body: [
+          '<table>',
+          '<tr><th>Camera</th><th>Model</th></tr>',
+          ...sources.map(
+            (source) =>
+              `<tr><td>${source.name}</td><td>${source.recordings.make} ${source.recordings.model}</td></tr>`,
+          ),
+          '</table>',
+        ],
+        nav,
+      }),
+    ],
+    [
+      'recordings.html',
+      uiPage({
+        title: `${hostname} - Recordings`,
+        body: ['<table>', '<tr><th>Camera</th><th>Day</th><th>Snapshots</th></tr>', ...days, '</table>'],
+        nav,
+      }),
+    ],
+  ]);
 };
 
 /** What the device `host` is keeps on disk, or null where its kind keeps nothing of its

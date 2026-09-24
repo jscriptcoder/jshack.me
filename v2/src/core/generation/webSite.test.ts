@@ -3,6 +3,7 @@ import { buildRemoteHostFs, hostServices, npcUsername } from './remoteHostFs';
 import { buildDeepHostFs } from './deepHostFs';
 import { generateHomeLan, type LanHost } from './generateHomeLan';
 import { roleOfHostname } from './pools/hostnames';
+import { deviceKindOf } from './device';
 import { createFsView } from '../filesystem/fsView';
 import { parseHttpUrl, resolveHref, resolveWebPath } from '../network/http';
 import { lanZoneName, resolveLanName } from '../network/resolveName';
@@ -219,7 +220,13 @@ describe('a web server serves a site', () => {
   });
 
   it('leaves every other box that serves the web exactly one page', () => {
-    const roots = servingBoxes((host) => !isWebserver(host)).map(({ tree }) => [...webRootOf(tree).keys()]);
+    // A printer, a camera or a recorder publishes its own UI instead; `device.test.ts`
+    // holds those pages.
+    const hasOwnUi = (host: LanHost): boolean =>
+      ['printer', 'camera', 'recorder'].includes(deviceKindOf(host.hostname) ?? '');
+    const roots = servingBoxes((host) => !isWebserver(host) && !hasOwnUi(host)).map(({ tree }) => [
+      ...webRootOf(tree).keys(),
+    ]);
     expect(roots.length).toBeGreaterThan(50);
     expect(roots.filter((files) => files.join() !== 'index.html')).toEqual([]);
   });
