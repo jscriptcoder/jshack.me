@@ -17,7 +17,7 @@
  * JPEG's 0xFF, a PDF's binary comment) sit above it, one character each.
  */
 
-import type { Prng } from './prng';
+import { createPrng, type Prng } from './prng';
 
 export type DocumentMetadata =
   | {
@@ -45,8 +45,18 @@ const NOISE_CHARACTERS: readonly string[] = [
   ...[28, 29, 30, 31, 127],
 ].map((code) => String.fromCharCode(code));
 
-const noise = (rng: Prng, length: number): string =>
-  Array.from({ length }, () => rng.pick(NOISE_CHARACTERS)).join('');
+/** Noise drawn once for the whole world. A stub takes a run of it from wherever its
+ *  own stream says, which is one draw however long the run: drawing every character
+ *  afresh cost more than the rest of a file server put together. */
+const NOISE_BLOCK = (() => {
+  const blockRng = createPrng('document-noise');
+  return Array.from({ length: 4096 }, () => blockRng.pick(NOISE_CHARACTERS)).join('');
+})();
+
+const noise = (rng: Prng, length: number): string => {
+  const start = rng.nextInt(0, NOISE_BLOCK.length - length);
+  return NOISE_BLOCK.slice(start, start + length);
+};
 
 const pad = (value: number, width: number): string => String(value).padStart(width, '0');
 
@@ -74,7 +84,7 @@ const exifDate = (epochMs: number): string => {
 
 /** The binary comment a real PDF writer puts on line two, so transfer tools
  *  treat the file as binary: four characters above 0x7F. */
-const PDF_HEADER = '%PDF-1.7\n%âãÏÓ\n';
+const PDF_HEADER = '%PDF-1.7\n%\u00e2\u00e3\u00cf\u00d3\n';
 
 const renderPdf = (
   metadata: Extract<DocumentMetadata, { readonly format: 'pdf' }>,
@@ -110,7 +120,7 @@ const renderPdf = (
 };
 
 /** A JPEG marker: 0xFF then the marker's code, each one character. */
-const marker = (code: number): string => `ÿ${String.fromCharCode(code)}`;
+const marker = (code: number): string => `\u00ff${String.fromCharCode(code)}`;
 
 const renderJpeg = (
   metadata: Extract<DocumentMetadata, { readonly format: 'jpeg' }>,

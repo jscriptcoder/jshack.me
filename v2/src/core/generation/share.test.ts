@@ -24,6 +24,8 @@ import { renderDocument, type DocumentMetadata } from './documentFormats';
 import { buildRemoteHostFs, npcUsername } from './remoteHostFs';
 import { networkPersona } from './persona';
 import { boxMail, networkMail } from './networkMail';
+import { ALL_GENERATED_PASSWORDS } from './passwordPools';
+import { SHARE_FOLDERS } from './pools/shareFiles';
 import type { NetworkCategory } from './pools/essidCatalog';
 
 const NO_FLAGS = new Map<string, string | true>();
@@ -609,5 +611,188 @@ describe('a share below the LAN', () => {
         });
       });
     });
+  });
+});
+
+/** Many file servers of every shape on every kind of network, below the LAN: enough
+ *  draws that anything a pool holds but a share could never be given would show. */
+const manyFileServers = (): readonly Box[] =>
+  everyKindOfFileServer().flatMap(({ essid, host }) =>
+    Array.from({ length: 12 }, (_, index) => ({
+      essid,
+      host: { ...host, ip: `10.40.${index}.9` },
+    })),
+  );
+
+/** Every file a share holds, once: a snapshot copy of a file is the same file. */
+const uniqueShareFiles = (tree: Directory): ReadonlyMap<string, string> => {
+  const srv = directoryAt(tree, ['srv']);
+  const backup = srv.entries.get('backup');
+  if (backup?.kind !== 'directory') return filesUnder(srv);
+  return new Map(
+    [...backup.entries.values()].flatMap((snapshot) =>
+      snapshot.kind === 'directory' ? [...filesUnder(snapshot)] : [],
+    ),
+  );
+};
+
+const TEXT_EXTENSIONS: readonly string[] = ['.txt', '.csv', '.md'];
+
+const isText = (path: string): boolean =>
+  TEXT_EXTENSIONS.some((extension) => path.endsWith(extension));
+
+/** What a player can read in a file: all of a text file, and a document's readable runs
+ *  past its format signature. */
+const writtenIn = async (path: string, content: string): Promise<string> =>
+  isText(path) ? content : (await readableLinesOf(content)).slice(1).join('\n');
+
+/** What each kind of phone a network holds could have taken a photo with. */
+const PHONE_MAKERS: Readonly<Record<string, readonly string[]>> = {
+  iphone: ['Apple'],
+  android: ['Google', 'Samsung'],
+};
+
+/** Every model line a phone of that make would stamp starts with its range's name. */
+const MODEL_RANGE: Readonly<Record<string, string>> = {
+  Apple: 'iPhone',
+  Google: 'Pixel',
+  Samsung: 'Galaxy',
+};
+
+describe('what a share holds', () => {
+  it('keeps twenty-five to sixty files on a working share', () => {
+    [...workingShareBoxes(), ...manyFileServers().filter(keepsWorkingShare)].forEach((box) => {
+      const count = filesUnder(directoryAt(buildRemoteHostFs(box.essid, box.host), ['srv'])).size;
+      expect(count, `${box.essid} ${box.host.hostname}`).toBeGreaterThanOrEqual(25);
+      expect(count, `${box.essid} ${box.host.hostname}`).toBeLessThanOrEqual(60);
+    });
+  });
+
+  it('keeps no more than eighty files across every snapshot on a backup box', () => {
+    [...backupBoxes(), ...manyFileServers().filter(keepsBackups)].forEach((box) => {
+      const count = filesUnder(directoryAt(buildRemoteHostFs(box.essid, box.host), ['srv'])).size;
+      expect(count, `${box.essid} ${box.host.hostname}`).toBeLessThanOrEqual(80);
+    });
+  });
+
+  it("dates photos with a phone the network really has, or a camera where it has none", async () => {
+    let fromPhones = 0;
+    let fromCameras = 0;
+    for (const essid of ALL_ESSIDS) {
+      const servers = fileServerBoxes().filter((box) => box.essid === essid);
+      if (servers.length === 0) continue;
+      const phones = generateHomeLan(essid).hosts.filter(
+        (host) => prefixOf(host.hostname) in PHONE_MAKERS,
+      );
+      const makers = phones.flatMap((phone) => PHONE_MAKERS[prefixOf(phone.hostname)] ?? []);
+      const stamped = new Set<string>();
+      for (const box of servers) {
+        const files = uniqueShareFiles(buildRemoteHostFs(box.essid, box.host));
+        for (const [path, content] of files) {
+          if (!path.endsWith('.jpg')) continue;
+          const [, , make = '', model = ''] = await readableLinesOf(content);
+          if (phones.length === 0) {
+            expect(Object.keys(MODEL_RANGE), `${essid} ${path}`).not.toContain(make);
+            fromCameras++;
+            continue;
+          }
+          expect(makers, `${essid} ${path}`).toContain(make);
+          expect(model.startsWith(MODEL_RANGE[make] ?? '?'), `${essid} ${path}: ${model}`).toBe(
+            true,
+          );
+          stamped.add(`${make} ${model}`);
+          fromPhones++;
+        }
+      }
+      // Each phone is one model, so a network cannot have taken photos on more models
+      // than it has phones.
+      expect(stamped.size, essid).toBeLessThanOrEqual(phones.length);
+    }
+    expect(fromPhones).toBeGreaterThan(0);
+    expect(fromCameras).toBeGreaterThan(0);
+  });
+
+  it('carries no word a player could try as a password', async () => {
+    const pool = new Set(ALL_GENERATED_PASSWORDS.map((password) => password.toLowerCase()));
+    for (const box of [...fileServerBoxes(), ...deepFileServers()]) {
+      for (const [path, content] of uniqueShareFiles(buildDeepHostFs(box.essid, box.host))) {
+        const words = (await writtenIn(path, content)).toLowerCase().match(/[a-z0-9]+/g) ?? [];
+        expect(`${path}: ${words.filter((word) => pool.has(word)).join(',')}`).toBe(`${path}: `);
+      }
+    }
+  });
+
+  it('states no version and leaves no slot unfilled', async () => {
+    for (const box of [...fileServerBoxes(), ...deepFileServers()]) {
+      for (const [path, content] of uniqueShareFiles(buildDeepHostFs(box.essid, box.host))) {
+        const written = await writtenIn(path, content);
+        const wrong = [
+          ...softwareVersionsIn(written),
+          ...(written.match(/[{}]|undefined|NaN|\[object/g) ?? []),
+        ];
+        expect(`${box.host.hostname} ${path}: ${wrong.join(',')}`).toBe(
+          `${box.host.hostname} ${path}: `,
+        );
+      }
+    }
+  });
+
+  it('can be given every department and every file its pools hold', () => {
+    const seen = new Set(
+      manyFileServers().flatMap((box) =>
+        [...uniqueShareFiles(buildRemoteHostFs(box.essid, box.host)).keys()].map(
+          (path) => `${networkPersona(box.essid).category}:${path.split('/').slice(-2).join('/')}`,
+        ),
+      ),
+    );
+    const unreached = Object.entries(SHARE_FOLDERS).flatMap(([category, folders]) =>
+      Object.entries(folders).flatMap(([folder, specs]) =>
+        specs
+          .map((spec) => `${category}:${folder}/${spec.name}`)
+          .filter((entry) => !seen.has(entry)),
+      ),
+    );
+    expect(unreached).toEqual([]);
+  });
+
+  it('keeps ten or more files in every department a pool offers', () => {
+    // Three departments of up to ten files each is how a working share reaches its
+    // twenty-five, so a department that could not fill ten would cap one short.
+    Object.entries(SHARE_FOLDERS).forEach(([category, folders]) => {
+      Object.entries(folders).forEach(([folder, specs]) => {
+        expect(specs.length, `${category}/${folder}`).toBeGreaterThanOrEqual(10);
+      });
+    });
+  });
+
+  it('never holds the same file on two boxes of one network', () => {
+    ALL_ESSIDS.forEach((essid) => {
+      const servers = fileServerBoxes().filter((box) => box.essid === essid);
+      const seenOn = new Map<string, string>();
+      servers.forEach((box) => {
+        const files = uniqueShareFiles(buildRemoteHostFs(box.essid, box.host));
+        new Set(files.values()).forEach((content) => {
+          const other = seenOn.get(content);
+          expect(other, `${essid}: ${box.host.hostname} repeats ${other}`).toBeUndefined();
+          seenOn.set(content, box.host.hostname);
+        });
+      });
+    });
+  });
+
+  it('reads as a different share on nearly every file server in the world', () => {
+    const shares = fileServerBoxes().map((box) =>
+      uniqueShareFiles(buildRemoteHostFs(box.essid, box.host)),
+    );
+    const nameSets = new Set(
+      shares.map((files) => [...files.keys()].map((path) => path.split('/').pop()).sort().join()),
+    );
+    expect(nameSets.size / shares.length).toBeGreaterThanOrEqual(0.9);
+
+    const bodies = shares.flatMap((files) =>
+      [...new Set([...files].filter(([path]) => isText(path)).map(([, content]) => content))],
+    );
+    expect(bodies.length).toBeGreaterThan(0);
+    expect(new Set(bodies).size / bodies.length).toBeGreaterThanOrEqual(0.9);
   });
 });

@@ -14,10 +14,10 @@ import { WORLD_EPOCH } from '../cve/worldClock';
 import type { Directory, FileEntry } from '../filesystem/types';
 import { dir, file, SHARE_DIR, SHARE_FILE, TRAVERSABLE_DIR } from './baseFs';
 import { renderDocument } from './documentFormats';
-import type { LanHost } from './generateHomeLan';
+import { generateHomeLan, isOnHomeLan, type LanHost } from './generateHomeLan';
 import type { MailPerson } from './networkMail';
 import { networkPersona } from './persona';
-import { CAMERAS, SHARE_FOLDERS, type ShareFileSpec } from './pools/shareFiles';
+import { CAMERAS, PHONE_MODELS, SHARE_FOLDERS, type ShareFileSpec } from './pools/shareFiles';
 import { createPrng, type Prng } from './prng';
 
 const DAY_SECONDS = 86_400;
@@ -33,6 +33,12 @@ const EDITING_SECONDS = 30 * DAY_SECONDS;
 
 const FOLDER_COUNT = { min: 3, max: 6 } as const;
 const FILES_PER_FOLDER = { min: 3, max: 10 } as const;
+
+/** How many files a working share holds in all. */
+const WORKING_SHARE_FILES = { min: 25, max: 60 } as const;
+/** How many files a backup box holds across every snapshot it keeps: a nightly copy of
+ *  a whole department share would bury the box in the same files. */
+const BACKUP_FILES_MAX = 80;
 
 /** How often a photo carries the name of whoever took it. */
 const SIGNED_PHOTO_CHANCE = 0.5;
@@ -107,29 +113,75 @@ const spanBefore = (boundaries: readonly number[], index: number): Span => ({
 
 const secondIn = (prng: Prng, span: Span): number => prng.nextInt(span.from, span.to);
 
+type Device = { readonly make: string; readonly model: string };
+
+/** Who and what a share's files can name: the people who may have written them, what
+ *  they call the place, and the devices a photo there could have been taken on. */
+type ShareCast = {
+  readonly people: readonly MailPerson[];
+  readonly place: string;
+  readonly devices: readonly Device[];
+};
+
+const firstNameOf = (person: MailPerson): string => person.fullName.split(' ')[0] ?? '';
+
+/** A text body with every slot filled. A slot nothing fills is left as written, so a
+ *  misspelt one shows up in the file rather than vanishing. */
+const fillSlots = ({
+  body,
+  cast,
+  createdAt,
+  prng,
+}: {
+  readonly body: string;
+  readonly cast: ShareCast;
+  readonly createdAt: number;
+  readonly prng: Prng;
+}): string =>
+  body.replace(/\{(\w+)\}/g, (slot, name: string) => {
+    switch (name) {
+      case 'place':
+        return cast.place;
+      case 'person':
+        return prng.pick(cast.people).fullName;
+      case 'first':
+        return firstNameOf(prng.pick(cast.people));
+      case 'date':
+        return new Date(createdAt).toISOString().slice(0, 10);
+      case 'number':
+        return String(prng.nextInt(2, 40));
+      case 'amount':
+        return String(prng.nextInt(20, 4000));
+      default:
+        return slot;
+    }
+  });
+
 const renderVersion = ({
   spec,
   author,
+  cast,
   createdAt,
   modifiedAt,
   prng,
 }: {
   readonly spec: ShareFileSpec;
   readonly author: MailPerson;
+  readonly cast: ShareCast;
   readonly createdAt: number;
   readonly modifiedAt: number;
   readonly prng: Prng;
 }): string => {
   switch (spec.format) {
     case 'text':
-      return spec.body;
+      return fillSlots({ body: spec.body, cast, createdAt, prng });
     case 'pdf':
       return renderDocument(
         { format: 'pdf', title: spec.title, author: author.fullName, createdAt, modifiedAt },
         prng,
       );
     case 'jpeg': {
-      const camera = prng.pick(CAMERAS);
+      const camera = prng.pick(cast.devices);
       return renderDocument(
         {
           format: 'jpeg',
@@ -158,13 +210,16 @@ const isRevisable = (spec: ShareFileSpec): boolean =>
 const drawFiles = ({
   essid,
   prng,
-  people,
+  cast,
   boundaries,
+  budget,
 }: {
   readonly essid: string;
   readonly prng: Prng;
-  readonly people: readonly MailPerson[];
+  readonly cast: ShareCast;
   readonly boundaries: readonly number[];
+  /** How many files the share may hold in all. */
+  readonly budget: { readonly min: number; readonly max: number };
 }): readonly ShareFile[] => {
   const departments = SHARE_FOLDERS[networkPersona(essid).category];
   const folderNames = Object.keys(departments);
@@ -172,9 +227,15 @@ const drawFiles = ({
     folderNames,
     prng.nextInt(FOLDER_COUNT.min, Math.min(FOLDER_COUNT.max, folderNames.length)),
   );
+  // Each department's share of the budget, so the whole lands inside it however many
+  // departments were drawn.
+  const perFolder = {
+    min: Math.max(FILES_PER_FOLDER.min, Math.ceil(budget.min / chosen.length)),
+    max: Math.min(FILES_PER_FOLDER.max, Math.floor(budget.max / chosen.length)),
+  };
   const specs = chosen.flatMap((folder) =>
     prng
-      .pickN(departments[folder] ?? [], prng.nextInt(FILES_PER_FOLDER.min, FILES_PER_FOLDER.max))
+      .pickN(departments[folder] ?? [], prng.nextInt(perFolder.min, perFolder.max))
       .map((spec) => ({ folder, spec })),
   );
 
@@ -190,7 +251,7 @@ const drawFiles = ({
     const firstIn =
       arrivals.get(entry) ??
       (lastIndex > 0 && prng.next() < LATE_ARRIVAL_CHANCE ? prng.nextInt(1, lastIndex) : 0);
-    const author = prng.pick(people);
+    const author = prng.pick(cast.people);
     const span = spanBefore(boundaries, firstIn);
     const createdSecond = secondIn(prng, span);
     const firstSaved = prng.nextInt(
@@ -216,6 +277,7 @@ const drawFiles = ({
         content: renderVersion({
           spec,
           author,
+          cast,
           createdAt: createdSecond * 1000,
           modifiedAt: savedSecond * 1000,
           prng,
@@ -260,6 +322,27 @@ const treeAt = ({
   );
 };
 
+/** What a phone of each kind is, one model for its whole life: drawn on its own share
+ *  stream keyed by the phone, so every file server on the network agrees on it. */
+const phoneModel = (essid: string, phone: LanHost): Device | undefined => {
+  const models = PHONE_MODELS[prefixOf(phone.hostname)];
+  return models === undefined
+    ? undefined
+    : createPrng(`share-phone-${essid}-${phone.ip}`).pick(models);
+};
+
+/**
+ * What a photo on this box could have been taken with: the network's own phones, where
+ * it has any, and a camera otherwise. A box below the LAN cannot see the phones on it, so
+ * its photos came off a camera.
+ */
+const photoDevices = (essid: string, host: LanHost): readonly Device[] => {
+  const phones = isOnHomeLan(essid, host)
+    ? generateHomeLan(essid).hosts.flatMap((neighbour) => phoneModel(essid, neighbour) ?? [])
+    : [];
+  return phones.length > 0 ? phones : CAMERAS;
+};
+
 /**
  * The `/srv` of a file server, or null for a box that keeps no share.
  *
@@ -282,8 +365,19 @@ export const buildShare = ({
   if (!keepsBackups && !WORKING_SHARE_PREFIXES.includes(prefix)) return null;
 
   const prng = createPrng(`share-${essid}-${host.ip}`);
+  const cast: ShareCast = {
+    people,
+    place: networkPersona(essid).place,
+    devices: photoDevices(essid, host),
+  };
   if (!keepsBackups) {
-    const files = drawFiles({ essid, prng, people, boundaries: [LAST_SECOND] });
+    const files = drawFiles({
+      essid,
+      prng,
+      cast,
+      boundaries: [LAST_SECOND],
+      budget: WORKING_SHARE_FILES,
+    });
     return dir(
       { share: treeAt({ files, index: 0, boundary: LAST_SECOND, account }) },
       TRAVERSABLE_DIR,
@@ -292,7 +386,14 @@ export const buildShare = ({
 
   const nights = snapshotNights(prng);
   const boundaries = nights.map((night) => night.at);
-  const files = drawFiles({ essid, prng, people, boundaries });
+  // Every snapshot can hold the whole tree, so the tree is what the cap divides.
+  const files = drawFiles({
+    essid,
+    prng,
+    cast,
+    boundaries,
+    budget: { min: 0, max: Math.floor(BACKUP_FILES_MAX / nights.length) },
+  });
   const snapshots = Object.fromEntries(
     nights.map((night, index) => [
       night.date,
