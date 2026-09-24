@@ -1011,7 +1011,10 @@ describe('the users a file server lets in over ftp', () => {
       const accounts = statedLines(readAs(tree, 'root', '/etc/passwd') ?? '').map(
         (line) => line.split(':')[0],
       );
-      expect(statedLines(readAs(tree, 'root', named) ?? ''), label).toEqual(accounts);
+      // One account a line, and nothing after the last.
+      expect(readAs(tree, 'root', named), label).toBe(
+        accounts.map((account) => `${account}\n`).join(''),
+      );
       listed += 1;
     });
     expect(listed).toBeGreaterThan(0);
