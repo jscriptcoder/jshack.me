@@ -203,6 +203,7 @@ export const climateFiles = ({
         username,
       ),
     },
+    log: {},
     var: {},
     pages: new Map(),
     configPaths: [CONF_PATH],

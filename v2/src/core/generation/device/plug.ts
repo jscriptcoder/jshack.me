@@ -131,6 +131,7 @@ export const plugFiles = ({
         username,
       ),
     },
+    log: {},
     var: {},
     pages: new Map(),
     configPaths: ['/etc/plugd/plugd.conf'],

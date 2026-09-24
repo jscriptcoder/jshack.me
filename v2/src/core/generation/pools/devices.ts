@@ -262,3 +262,27 @@ export const PLUG_DAYS: readonly string[] = [
   'sat',
   'sun',
 ];
+
+/** The smart locks a door may be fitted with. */
+export const LOCK_MODELS: readonly string[] = [
+  'Nuki Smart Lock Pro',
+  'Yale Linus',
+  'August Smart Lock',
+  'Schlage Encode Plus',
+  'Ultraloq U-Bolt Pro',
+  'Eufy Smart Lock Touch',
+];
+
+/** The doors a lock is fitted to, as its name gives it. */
+export const LOCK_DOORS: readonly string[] = [
+  'Front Door',
+  'Back Door',
+  'Side Gate',
+  'Office Door',
+  'Server Room',
+  'Garage',
+];
+
+/** Keypad slots kept for a role rather than a person: whoever comes to clean, walk the
+ *  dog or deliver is let in by the slot, and the lock never knows their name. */
+export const LOCK_ROLE_SLOTS: readonly string[] = ['Cleaner', 'Dog Walker', 'Guest', 'Deliveries', 'Maintenance'];

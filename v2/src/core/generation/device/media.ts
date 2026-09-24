@@ -179,6 +179,7 @@ export const mediaFiles = ({
         username,
       ),
     },
+    log: {},
     var: {},
     pages: new Map(),
     configPaths: ['/etc/mediad/mediad.conf'],

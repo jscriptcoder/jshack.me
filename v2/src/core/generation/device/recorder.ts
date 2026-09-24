@@ -121,6 +121,7 @@ export const recorderFiles = ({
         username,
       ),
     },
+    log: {},
     var: {},
     pages: recorderPages(host.hostname, sources),
     configPaths: ['/etc/nvr/nvr.conf'],

@@ -500,6 +500,8 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
       uploads: share?.uploads ?? [],
       printed: device?.printed ?? [],
     }),
+    // A device's own daemon's log, in a directory of its own (a lock's `/var/log/lockd`).
+    ...device?.log,
   };
 
   // Root's history names what the box keeps: its configs, and the logs it writes.

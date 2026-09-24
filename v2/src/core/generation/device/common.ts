@@ -40,6 +40,8 @@ export type DeviceFiles = {
   readonly var: Readonly<Record<string, FileNode>>;
   /** Entries for `/var/lib`, where a device keeps its own state beside any daemon's. */
   readonly lib: Readonly<Record<string, FileNode>>;
+  /** Entries for `/var/log`, where a device's daemon logs beside the box's own. */
+  readonly log: Readonly<Record<string, FileNode>>;
   /** The pages the device's own UI serves where the box runs a web server, by file name
    *  beneath the web root, `index.html` first. */
   readonly pages: ReadonlyMap<string, string>;

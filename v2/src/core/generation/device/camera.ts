@@ -217,6 +217,7 @@ export const cameraFiles = ({
       motion: dir({ 'motion.conf': file(conf, SERVICE_CONFIG_FILE) }, TRAVERSABLE_DIR),
     },
     lib: { motion: motionState(recordings, username) },
+    log: {},
     var: {},
     pages: cameraPages({ hostname: host.hostname, recordings, frame }),
     configPaths: ['/etc/motion/motion.conf'],

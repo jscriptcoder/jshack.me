@@ -362,6 +362,7 @@ export const printerFiles = ({
   return {
     etc: { cups },
     lib: {},
+    log: {},
     var: { spool: dir({ cups: spoolFor(prng, queue, jobs) }, TRAVERSABLE_DIR) },
     pages: printerPages({ hostname: host.hostname, model, queue, jobs }),
     configPaths: ['/etc/cups/cupsd.conf', '/etc/cups/printers.conf'],

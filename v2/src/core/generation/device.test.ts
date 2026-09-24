@@ -10,12 +10,11 @@ import { createFsView } from '../filesystem/fsView';
 import { asAbsPath } from '../types';
 import { filesUnder, softwareVersionsIn } from '../../test/worldContent';
 import {
-  cameras,
   CAMERA_PREFIXES,
   contentOf,
   pagesOf,
+  prefixOf,
   read,
-  recorders,
   servesHttp,
   syntheticBoxes,
   syntheticLanBoxes,
@@ -24,8 +23,8 @@ import {
 } from '../../test/deviceBoxes';
 
 /**
- * What every generated device shares: which kind a box is, what a box keeps that is no
- * device, the pages every kind publishes and what ftp can carry home off any of them.
+ * What every generated device shares: which kind a box is, that each keeps its own kind's
+ * files and no other's, the pages every kind publishes and what ftp can carry home off any of them.
  * Each kind's own files are tested beside it, under `device/`. Read the way a player
  * reads it, through the box's own tree at the tier the player holds, over every such box
  * in the world and over synthetic boxes for the kinds the world holds few of.
@@ -61,47 +60,35 @@ describe('which device a box is', () => {
   });
 });
 
-/** Where the devices built so far keep what they are. */
-const DEVICE_ROOTS = [
-  '/etc/cups',
-  '/etc/motion',
-  '/etc/nvr',
-  '/etc/sensord',
-  '/etc/mediad',
-  '/etc/plugd',
-  '/var/spool/cups',
-  '/var/log/cups',
-  '/var/lib/motion',
-  '/var/lib/nvr',
-  '/var/lib/sensord',
-  '/var/lib/mediad',
-  '/var/lib/plugd',
-];
+/** Where each kind keeps what it is. */
+const ROOTS_BY_KIND: Readonly<Record<string, readonly string[]>> = {
+  printer: ['/etc/cups', '/var/spool/cups', '/var/log/cups'],
+  camera: ['/etc/motion', '/var/lib/motion'],
+  recorder: ['/etc/nvr', '/var/lib/nvr'],
+  climate: ['/etc/sensord', '/var/lib/sensord'],
+  media: ['/etc/mediad', '/var/lib/mediad'],
+  plug: ['/etc/plugd', '/var/lib/plugd'],
+  lock: ['/etc/lockd', '/var/lib/lockd', '/var/log/lockd'],
+};
 
-describe('the devices not yet built', () => {
-  it('keep the generic device config and none of the files a built device keeps', () => {
-    const others = ['lock'];
-    const boxes = [
-      ...worldBoxesNamed(others),
-      ...others.flatMap((prefix) => syntheticBoxes(prefix).slice(0, 5)),
-    ];
-    expect(boxes.length).toBeGreaterThan(5);
-    boxes.forEach(({ host, tree }) => {
+const DEVICE_ROOTS = Object.values(ROOTS_BY_KIND).flat();
+
+describe('every IoT box', () => {
+  it("keeps its own kind's files, no other kind's, and no generic device config", () => {
+    devicesNamed(Object.keys(KIND_BY_PREFIX)).forEach(({ host, tree }) => {
       const root = createFsView(tree, { userType: 'root' });
-      expect(read(tree, '/etc/device.conf').ok).toBe(true);
+      const own = ROOTS_BY_KIND[KIND_BY_PREFIX[prefixOf(host.hostname)] ?? ''] ?? [];
+      expect({ host: host.hostname, device: read(tree, '/etc/device.conf').ok }).toEqual({
+        host: host.hostname,
+        device: false,
+      });
       DEVICE_ROOTS.forEach((path) => {
         expect({ host: host.hostname, path, held: root.stat(asAbsPath(path)) !== null }).toEqual({
           host: host.hostname,
           path,
-          held: false,
+          held: own.includes(path),
         });
       });
-    });
-  });
-
-  it('keep no page log on a camera or a recorder, which print nothing', () => {
-    [...cameras(), ...recorders()].forEach(({ tree }) => {
-      expect(createFsView(tree, { userType: 'root' }).stat(asAbsPath('/var/log/cups'))).toBeNull();
     });
   });
 });
@@ -121,6 +108,7 @@ describe("a device's root history", () => {
     expect(histories(['sensor', 'thermostat'])).toContain('/etc/sensord/sensord.conf');
     expect(histories(['tv', 'speaker'])).toContain('/etc/mediad/mediad.conf');
     expect(histories(['plug'])).toContain('/etc/plugd/plugd.conf');
+    expect(histories(['lock'])).toContain('/etc/lockd/lockd.conf');
   });
 });
 
@@ -133,7 +121,7 @@ const UI_PAGES: Readonly<Record<string, readonly string[]>> = {
 
 /** The devices with pages of their own, and every device built so far. */
 const WITH_PAGES = ['printer', 'nvr', ...CAMERA_PREFIXES];
-const BUILT = [...WITH_PAGES, 'sensor', 'thermostat', 'tv', 'speaker', 'plug'];
+const BUILT = Object.keys(KIND_BY_PREFIX);
 
 /** Every device of these prefixes, world and synthetic, on both layers. */
 const devicesNamed = (prefixes: readonly string[]): readonly BuiltBox[] => [

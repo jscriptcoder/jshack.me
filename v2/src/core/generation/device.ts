@@ -15,6 +15,7 @@ import type { LanHost } from './generateHomeLan';
 import { peopleKnownOn } from './mailbox';
 import { cameraFiles } from './device/camera';
 import { climateFiles } from './device/climate';
+import { lockFiles } from './device/lock';
 import { mediaFiles } from './device/media';
 import { plugFiles } from './device/plug';
 import { deviceKindOf, type DeviceFiles } from './device/common';
@@ -43,6 +44,9 @@ export const buildDevice = ({
   if (kind === 'climate') return climateFiles({ prng, host, username });
   if (kind === 'media') return mediaFiles({ prng, essid, host, username });
   if (kind === 'plug') return plugFiles({ prng, host, username });
+  if (kind === 'lock') {
+    return lockFiles({ prng, essid, host, username, people: peopleKnownOn({ essid, host, username }) });
+  }
   if (kind === 'recorder') return recorderFiles({ prng, essid, host, username });
   if (kind !== 'printer') return null;
   return printerFiles({ prng, essid, host, people: peopleKnownOn({ essid, host, username }) });
