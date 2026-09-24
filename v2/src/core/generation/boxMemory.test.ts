@@ -79,16 +79,20 @@ const STAMPS: Readonly<Record<string, RegExp>> = {
   'redis.log': /^\d+:[MC] 11 Jul 2026 (\d\d):(\d\d):(\d\d)\.000/,
   'named.log': /^11-Jul-2026 (\d\d):(\d\d):(\d\d)\.\d{3} /,
   // syslog's own stamp, which carries no year — and here no fixed day either, for the
-  // reason SPANS_THE_CORRESPONDENCE gives.
+  // reason SPANS_MORE_THAN_A_DAY gives.
   'mail.log': /^\w{3} [ \d]\d (\d\d):(\d\d):(\d\d) /,
+  // vsftpd's, with its weekday and year, and no fixed day for the same reason.
+  'vsftpd.log': /^\w{3} \w{3} [ \d]\d (\d\d):(\d\d):(\d\d) \d{4} /,
 };
 
-/** The one rotation that is not a day's worth, so the day rule below does not reach it.
- *  Postfix's logrotate is size-bound, and an organisation of a dozen people never writes
- *  enough mail to trip it, so the file the mail server rotated out on the last morning
- *  holds every delivery it ever made. What it must agree with instead is its own spool,
- *  which `mailbox.test.ts` holds it to, message for message. */
-const SPANS_THE_CORRESPONDENCE = 'mail.log.1';
+/** The rotations that are not a day's worth, so the day rule below does not reach them.
+ *  Postfix's and vsftpd's logrotate are size-bound, and an organisation of a dozen people
+ *  never writes enough mail or saves enough files to trip them, so the file rotated out on
+ *  the last morning holds everything the box ever took in. What each must agree with
+ *  instead is what it took in: the mail log its spool, which `mailbox.test.ts` holds it
+ *  to message for message, and the transfer log its share, which `share.test.ts` holds
+ *  it to file for file. */
+const SPANS_MORE_THAN_A_DAY: readonly string[] = ['mail.log.1', 'vsftpd.log.1'];
 
 const stampOf = (rotatedName: string): RegExp => {
   const stamp = STAMPS[rotatedName.slice(0, -'.1'.length)];
@@ -209,7 +213,7 @@ describe('what a box remembers of its last day', () => {
     expect(new Date(LAST_DAY_START).toISOString()).toBe('2026-07-11T00:00:00.000Z');
     everyBox().forEach(({ tree }) => {
       rotatedOf(tree).forEach((content, name) => {
-        if (name === SPANS_THE_CORRESPONDENCE) return;
+        if (SPANS_MORE_THAN_A_DAY.includes(name)) return;
         const seconds = linesOf(content).map((line) => secondOfDay(name, line));
         seconds.forEach((second) => expect(second).not.toBeNull());
         const sorted = [...seconds].sort((left, right) => (left ?? 0) - (right ?? 0));
@@ -542,7 +546,9 @@ describe('what a box’s logs never say', () => {
   it('names no account but root, since anyone on the box can read them', () => {
     // Every place a line of these formats puts an account: a PAM session, an ssh login,
     // a cron job's owner, a database client, a home directory. A daemon may share its
-    // name with an account (`vsftpd`), so the rule is read at those places.
+    // name with an account (`vsftpd`), so the rule is read at those places. The one
+    // other place is vsftpd's `[account]`, where the transfer log names the box's own
+    // login, which `ls /home` shows anyone already; `share.test.ts` holds it to that.
     const accountPositions = [
       /for user ([\w.-]+)/g,
       /Accepted password for ([\w.-]+)/g,

@@ -420,6 +420,20 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
   // mailboxes a player reads beside it.
   const mail = mailEntries({ essid, host, username, crontab: etc.crontab.content });
 
+  // A file server keeps its network's work under /srv, written by the network's own
+  // people. Its own stream, like the page and the mailboxes: giving a box a share moves
+  // nothing else about it. Its uploads are the transfer log's, derived once for
+  // the same reason as the mail.
+  const share =
+    role === 'fileserver'
+      ? buildShare({
+          essid,
+          host,
+          account: username,
+          people: peopleKnownOn({ essid, host, username }),
+        })
+      : null;
+
   const logs: Readonly<Record<string, FileEntry>> = {
     'auth.log': file('', AUTH_LOG_PERMISSIONS),
     'kern.log': file('', KERN_LOG_PERMISSIONS),
@@ -464,6 +478,7 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
       database,
       isNameServer: nameServer !== null,
       deliveries: mail.deliveries,
+      uploads: share?.uploads ?? [],
     }),
   };
 
@@ -475,18 +490,6 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
   ];
   const logPaths = Object.keys(logs).map((name) => `/var/log/${name}`);
 
-  // A file server keeps its network's work under /srv, written by the network's own
-  // people. Its own stream, like the page and the mailboxes: giving a box a share moves
-  // nothing else about it.
-  const share =
-    role === 'fileserver'
-      ? buildShare({
-          essid,
-          host,
-          account: username,
-          people: peopleKnownOn({ essid, host, username }),
-        })
-      : null;
   const ssh = buildSshDirectories({ essid, host, username });
 
   const tree = dir(
@@ -565,7 +568,7 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
         logPaths,
         sshDirectory: ssh.root,
       }),
-      ...(share === null ? {} : { srv: share }),
+      ...(share === null ? {} : { srv: share.tree }),
       tmp: dir({}, TMP_DIR),
       usr: dir(
         {

@@ -9,8 +9,10 @@
  * on the box or reach what it names on the network.
  *
  * The files are readable by anyone on the box, like the live logs they rotated out of,
- * so no line names an account but root. A `.1` exists only when it holds a line, which
- * is logrotate's own rule for an empty log, and only beside the live log it came from.
+ * so no line names an account but root — save the file server's transfer log, whose
+ * every visit logs in as the box's one account, which `ls /home` and `ls -l /srv`
+ * already show anyone. A `.1` exists only when it holds a line, which is logrotate's own
+ * rule for an empty log, and only beside the live log it came from.
  *
  * A box that is not on the home LAN (a deep-layer NPC) has no neighbours it can know
  * about, so its history is local only and its tree stays the same whether or not its
@@ -20,7 +22,7 @@
 import type { FileEntry } from '../filesystem/types';
 import type { MysqlDatabase } from '../mysql/types';
 import { WORLD_EPOCH } from '../cve/worldClock';
-import { asGameTime, type GameTime } from '../types';
+import { asAbsPath, asGameTime, type GameTime } from '../types';
 import { file } from './baseFs';
 import { generateHomeLan, isOnHomeLan, type LanHost } from './generateHomeLan';
 import { createPrng, type Prng } from './prng';
@@ -60,6 +62,13 @@ import {
   MAIL_LOG_PERMISSIONS,
 } from '../logging/mailLog';
 import type { MailDelivery } from './mailbox';
+import type { ShareUpload } from './share';
+import {
+  formatVsftpdConnectLine,
+  formatVsftpdLoginLine,
+  formatVsftpdTransferLine,
+  VSFTPD_LOG_PERMISSIONS,
+} from '../logging/vsftpdLog';
 import { daemonName } from '../services/pidfile';
 import {
   DAILY_TIMERS,
@@ -78,9 +87,10 @@ const LOOPBACK = '127.0.0.1';
 const REBOOT_CHANCE = 0.15;
 
 /** One line and the moment it was written, as a number that orders it inside its own
- *  file. Every daily log counts seconds into 2026-07-11; the mail log, whose rotation
- *  spans the whole correspondence, counts seconds since the epoch. Nothing ever compares
- *  a second from one file against a second from another. */
+ *  file. Every daily log counts seconds into 2026-07-11; the mail and transfer logs,
+ *  whose rotations span the whole correspondence and the whole share, count seconds
+ *  since the epoch. Nothing ever compares a second from one file against a second from
+ *  another. */
 type Entry = { readonly second: number; readonly line: string };
 
 const timeAt = (second: number): GameTime => asGameTime(DAY_START + second * 1000);
@@ -134,12 +144,24 @@ export type LogHistoryOptions = {
   readonly isNameServer: boolean;
   /** Every delivery the box's own spool records, empty on a box that carries no mail. */
   readonly deliveries: readonly MailDelivery[];
+  /** Every file that arrived on the box's share, empty on a box that keeps none. */
+  readonly uploads: readonly ShareUpload[];
 };
 
 /** `syslog` and every `.1` this box keeps, by name, for its `/var/log`. */
 export const buildLogHistory = (options: LogHistoryOptions): Readonly<Record<string, FileEntry>> => {
-  const { essid, host, services, crontab, fstab, pages, database, isNameServer, deliveries } =
-    options;
+  const {
+    essid,
+    host,
+    services,
+    crontab,
+    fstab,
+    pages,
+    database,
+    isNameServer,
+    deliveries,
+    uploads,
+  } = options;
   const prng = createPrng(`log-history-${essid}-${host.ip}`);
   const hostname = host.hostname;
   const runs = (service: string): HostService | undefined =>
@@ -435,6 +457,57 @@ export const buildLogHistory = (options: LogHistoryOptions): Readonly<Record<str
     });
   })();
 
+  /**
+   * Every file that arrived on the share, each a visit of its own: the sender's machine
+   * connects, logs in as the box's account and sends the one file. Read from the share
+   * itself, so the log can only say what `/srv` holds, to the byte.
+   *
+   * The second rotation that spans more than a day, for the mail log's reason: a share
+   * written by a handful of people never fills vsftpd's log to the size that rotates it.
+   * Only a box on the LAN keeps one — below it, the only people a share has are logins
+   * on the box itself, and a box there names no machine it could have come from.
+   *
+   * Its pids come from a stream of their own, so the share moved nothing above.
+   */
+  const transfers = ((): readonly Entry[] => {
+    if (runs('ftp') === undefined || !isOnHomeLan(essid, host)) return [];
+    const transferPrng = createPrng(`share-log-${essid}-${host.ip}`);
+    return uploads.flatMap((upload) => {
+      const second = Math.floor(upload.at / 1000);
+      const loggedIn = second - transferPrng.nextInt(1, 3);
+      const connected = loggedIn - transferPrng.nextInt(0, 1);
+      const pid = pidFrom(transferPrng);
+      const fromIp = upload.from.ip === host.ip ? LOOPBACK : upload.from.ip;
+      const at = (moment: number): GameTime => asGameTime(moment * 1000);
+      return [
+        { second: connected, line: formatVsftpdConnectLine({ fromIp, time: at(connected), pid }) },
+        {
+          second: loggedIn,
+          line: formatVsftpdLoginLine({
+            outcome: 'success',
+            user: upload.user,
+            fromIp,
+            hostname,
+            time: at(loggedIn),
+            pid,
+          }),
+        },
+        {
+          second,
+          line: formatVsftpdTransferLine({
+            direction: 'upload',
+            user: upload.user,
+            fromIp,
+            time: at(second),
+            pid,
+            path: asAbsPath(upload.path),
+            bytes: upload.bytes,
+          }),
+        },
+      ];
+    });
+  })();
+
   const rotations: readonly (readonly [string, readonly Entry[], FileEntry['perms']])[] = [
     ['syslog.1', [...housekeeping, ...cron.map((run) => run.syslog), ...boot.syslog], SYSLOG_PERMISSIONS],
     ['auth.log.1', [...cron.flatMap((run) => run.auth), ...boot.auth, ...visits], AUTH_LOG_PERMISSIONS],
@@ -444,6 +517,7 @@ export const buildLogHistory = (options: LogHistoryOptions): Readonly<Record<str
     ['redis.log.1', store, REDIS_LOG_PERMISSIONS],
     ['named.log.1', zone, NAMED_LOG_PERMISSIONS],
     ['mail.log.1', mail, MAIL_LOG_PERMISSIONS],
+    ['vsftpd.log.1', transfers, VSFTPD_LOG_PERMISSIONS],
   ];
   return {
     syslog: file('', SYSLOG_PERMISSIONS),

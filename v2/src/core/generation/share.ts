@@ -62,12 +62,17 @@ const REVISION_CHANCE = 0.2;
 
 const prefixOf = (hostname: string): string => hostname.slice(0, hostname.lastIndexOf('-'));
 
-/** One saved state of a file: when it was saved, and what it held. */
-type Version = { readonly savedAt: number; readonly content: string };
+/** How long the nightly job takes to collect everything the desks send it. */
+const PUSH_SPREAD_SECONDS = 1200;
+
+/** One saved state of a file: when it was saved, what it held, and the first snapshot
+ *  that holds it. */
+type Version = { readonly savedAt: number; readonly content: string; readonly enters: number };
 
 type ShareFile = {
   readonly folder: string;
   readonly name: string;
+  readonly author: MailPerson;
   /** The first snapshot it is in: the snapshot after it was first saved. */
   readonly firstIn: number;
   /** Oldest first. */
@@ -263,18 +268,20 @@ const drawFiles = ({
       isRevisable(spec) && firstIn < lastIndex && prng.next() < REVISION_CHANCE
         ? prng.nextInt(firstIn + 1, lastIndex)
         : null;
-    const savedSeconds = [
-      firstSaved,
+    const saves = [
+      { savedSecond: firstSaved, enters: firstIn },
       ...(revisedIn === null
         ? []
-        : [secondIn(prng, spanBefore(boundaries, revisedIn))]),
+        : [{ savedSecond: secondIn(prng, spanBefore(boundaries, revisedIn)), enters: revisedIn }]),
     ];
     return {
       folder,
       name: spec.name,
+      author,
       firstIn,
-      versions: savedSeconds.map((savedSecond) => ({
+      versions: saves.map(({ savedSecond, enters }) => ({
         savedAt: savedSecond,
+        enters,
         content: renderVersion({
           spec,
           author,
@@ -347,12 +354,28 @@ const photoDevices = (essid: string, host: LanHost): readonly Device[] => {
   return phones.length > 0 ? phones : CAMERAS;
 };
 
+/** One file arriving on the share over ftp: who sent it from which machine, where it
+ *  landed and how long it was, at the moment, in milliseconds, it arrived. */
+export type ShareUpload = {
+  readonly at: number;
+  readonly from: LanHost;
+  readonly user: string;
+  readonly path: string;
+  readonly bytes: number;
+};
+
+export type Share = {
+  readonly tree: Directory;
+  /** Every arrival that built the share, in the order the files were drawn. */
+  readonly uploads: readonly ShareUpload[];
+};
+
 /**
  * The `/srv` of a file server: dated snapshots on a backup box, the working tree on any
- * other.
+ * other, with the uploads that put each file there.
  *
  * `people` are who may have written what is on it; `account` is the box's own login,
- * which uploaded all of it and so owns it.
+ * which every upload logged in as and which so owns it all.
  */
 export const buildShare = ({
   essid,
@@ -364,7 +387,7 @@ export const buildShare = ({
   readonly host: LanHost;
   readonly account: string;
   readonly people: readonly MailPerson[];
-}): Directory => {
+}): Share => {
   const keepsBackups = BACKUP_PREFIXES.includes(prefixOf(host.hostname));
   const prng = createPrng(`share-${essid}-${host.ip}`);
   const cast: ShareCast = {
@@ -380,10 +403,22 @@ export const buildShare = ({
       boundaries: [LAST_SECOND],
       budget: WORKING_SHARE_FILES,
     });
-    return dir(
-      { share: treeAt({ files, index: 0, boundary: LAST_SECOND, account }) },
-      TRAVERSABLE_DIR,
-    );
+    // Saved straight onto the share, so each file arrived the moment it was saved.
+    return {
+      tree: dir(
+        { share: treeAt({ files, index: 0, boundary: LAST_SECOND, account }) },
+        TRAVERSABLE_DIR,
+      ),
+      uploads: files.flatMap(({ folder, name, author, versions }) =>
+        versions.map((version) => ({
+          at: version.savedAt * 1000,
+          from: author.host,
+          user: account,
+          path: `/srv/share/${folder}/${name}`,
+          bytes: version.content.length,
+        })),
+      ),
+    };
   }
 
   const nights = snapshotNights(prng);
@@ -402,5 +437,20 @@ export const buildShare = ({
       treeAt({ files, index, boundary: night.at, account }),
     ]),
   );
-  return dir({ backup: dir(snapshots, SHARE_DIR, account) }, TRAVERSABLE_DIR);
+  // Each desk sends the nightly job what it saved since the night before, so a file
+  // arrives in the first snapshot to hold each state of it and is not sent again.
+  const uploads = nights.flatMap((night, index) =>
+    files.flatMap(({ folder, name, author, versions }) =>
+      versions
+        .filter((version) => version.enters === index)
+        .map((version) => ({
+          at: (night.at + prng.nextInt(0, PUSH_SPREAD_SECONDS)) * 1000,
+          from: author.host,
+          user: account,
+          path: `/srv/backup/${night.date}/${folder}/${name}`,
+          bytes: version.content.length,
+        })),
+    ),
+  );
+  return { tree: dir({ backup: dir(snapshots, SHARE_DIR, account) }, TRAVERSABLE_DIR), uploads };
 };

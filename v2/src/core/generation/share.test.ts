@@ -25,7 +25,7 @@ import { createFsView } from '../filesystem/fsView';
 import type { Directory } from '../filesystem/types';
 import { createPrng } from './prng';
 import { renderDocument, type DocumentMetadata } from './documentFormats';
-import { buildRemoteHostFs, npcUsername } from './remoteHostFs';
+import { buildRemoteHostFs, hostServices, npcUsername } from './remoteHostFs';
 import { networkPersona } from './persona';
 import { boxMail, networkMail } from './networkMail';
 import { ALL_GENERATED_PASSWORDS } from './passwordPools';
@@ -1148,5 +1148,202 @@ describe('what the photos and notes on a share say', () => {
       'keys.txt',
       'printer-setup.txt',
     ]);
+  });
+});
+
+const LOOPBACK = '127.0.0.1';
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** One line of a vsftpd log, read back the way a player reads it. */
+type FtpLogLine = {
+  readonly at: number;
+  readonly pid: string;
+  readonly user: string | null;
+  readonly event: string;
+  readonly client: string;
+  readonly path: string | null;
+  readonly bytes: number | null;
+};
+
+const FTP_LOG_LINE =
+  /^\w{3} (\w{3}) ([ \d]\d) (\d\d):(\d\d):(\d\d) (\d{4}) \[pid (\d+)\] (?:\[([\w.-]+)\] )?(CONNECT|OK LOGIN|OK UPLOAD): Client "([\d.]+)"(?:, "([^"]+)", (\d+) bytes)?$/;
+
+const ftpLogLinesOf = (log: string): readonly FtpLogLine[] =>
+  log
+    .split('\n')
+    .filter((line) => line !== '')
+    .map((line) => {
+      const match = FTP_LOG_LINE.exec(line);
+      if (match === null) throw new Error(`not a vsftpd line: ${line}`);
+      const [, month, day, hours, minutes, seconds, year, pid, user, event, client, path, bytes] =
+        match;
+      return {
+        at: Date.UTC(
+          Number(year),
+          MONTHS.indexOf(month ?? ''),
+          Number(day),
+          Number(hours),
+          Number(minutes),
+          Number(seconds),
+        ),
+        pid: pid ?? '',
+        user: user ?? null,
+        event: event ?? '',
+        client: client ?? '',
+        path: path ?? null,
+        bytes: bytes === undefined ? null : Number(bytes),
+      };
+    });
+
+const runsFtp = ({ essid, host }: Box): boolean =>
+  hostServices(essid, host).some(({ spec }) => spec.service === 'ftp');
+
+/** `/var/log/vsftpd.log.1` as root reads it, or null where the box keeps none. */
+const transferHistoryOf = (tree: Directory): string | null => {
+  const result = createFsView(tree, { userType: 'root' }).read(
+    asAbsPath('/var/log/vsftpd.log.1'),
+  );
+  return result.ok ? result.content : null;
+};
+
+const uploadsIn = (log: string): readonly FtpLogLine[] =>
+  ftpLogLinesOf(log).filter((line) => line.event === 'OK UPLOAD');
+
+/** The machine a person on the network writes from, as the file server sees it: across
+ *  the LAN, or over the loopback when they sit at the file server itself. */
+const clientOf = (box: Box, fullName: string | undefined): string | undefined => {
+  const person = networkMail(box.essid).people.find((known) => known.fullName === fullName);
+  if (person === undefined) return undefined;
+  return person.host.ip === box.host.ip ? LOOPBACK : person.host.ip;
+};
+
+describe("the file server's own record of what arrived on its share", () => {
+  it('logs the arrival of every file a working share holds, from the machine of whoever wrote it, to the byte', async () => {
+    const boxes = workingShareBoxes().filter(runsFtp);
+    expect(boxes.length).toBeGreaterThan(0);
+    let corroborated = 0;
+
+    for (const box of boxes) {
+      const tree = buildRemoteHostFs(box.essid, box.host);
+      const files = filesUnder(directoryAt(tree, ['srv', 'share']));
+      const uploads = uploadsIn(transferHistoryOf(tree) ?? '');
+      const label = `${box.essid} ${box.host.hostname}`;
+
+      expect(uploads.map((upload) => upload.path).sort(), label).toEqual(
+        [...files.keys()].map((path) => `/srv/share/${path}`).sort(),
+      );
+      for (const upload of uploads) {
+        const content = files.get((upload.path ?? '').slice('/srv/share/'.length)) ?? '';
+        expect(upload.bytes, `${label} ${upload.path}`).toBe(content.length);
+        expect(upload.user, label).toBe(npcUsername(box.essid, box.host));
+        if (!(upload.path ?? '').endsWith('.pdf')) continue;
+        const lines = await readableLinesOf(content);
+        expect(upload.client, `${label} ${upload.path}`).toBe(
+          clientOf(box, pdfEntry(lines, 'Author')),
+        );
+        // Saved straight onto the share: the moment it arrived is the moment the PDF
+        // says it was last saved.
+        expect(upload.at, `${label} ${upload.path}`).toBe(pdfMoment(pdfEntry(lines, 'ModDate') ?? ''));
+        corroborated++;
+      }
+    }
+    expect(corroborated).toBeGreaterThan(0);
+  });
+
+  it("logs each night's new and changed files arriving from their authors' machines while the backup ran", async () => {
+    const boxes = backupBoxes().filter(runsFtp);
+    expect(boxes.length).toBeGreaterThan(0);
+    let corroborated = 0;
+
+    for (const box of boxes) {
+      const tree = buildRemoteHostFs(box.essid, box.host);
+      const label = `${box.essid} ${box.host.hostname}`;
+      const snapshots = snapshotsOf(box).map(([date, snapshot]) => ({
+        date,
+        files: filesUnder(snapshot),
+      }));
+      // What each night had that the night before did not: a file new that night, or
+      // saved again since. A file nobody touched is not sent again.
+      const arrived = snapshots.flatMap(({ date, files }, index) =>
+        [...files]
+          .filter(([path, content]) => snapshots[index - 1]?.files.get(path) !== content)
+          .map(([path]) => `/srv/backup/${date}/${path}`),
+      );
+      const uploads = uploadsIn(transferHistoryOf(tree) ?? '');
+
+      expect(uploads.map((upload) => upload.path).sort(), label).toEqual(arrived.sort());
+      for (const upload of uploads) {
+        const [, date = '', path = ''] = /^\/srv\/backup\/([\d-]+)\/(.+)$/.exec(upload.path ?? '') ?? [];
+        const content = snapshots.find((snapshot) => snapshot.date === date)?.files.get(path) ?? '';
+        expect(upload.bytes, `${label} ${upload.path}`).toBe(content.length);
+        expect(upload.user, label).toBe(npcUsername(box.essid, box.host));
+        // The nightly job runs in the small hours of the day the snapshot is named for.
+        expect(new Date(upload.at).toISOString().slice(0, 10), `${label} ${upload.path}`).toBe(date);
+        expect(new Date(upload.at).getUTCHours(), `${label} ${upload.path}`).toBeGreaterThanOrEqual(2);
+        expect(new Date(upload.at).getUTCHours(), `${label} ${upload.path}`).toBeLessThan(3);
+        if (!path.endsWith('.pdf')) continue;
+        const lines = await readableLinesOf(content);
+        expect(upload.client, `${label} ${upload.path}`).toBe(
+          clientOf(box, pdfEntry(lines, 'Author')),
+        );
+        expect(pdfMoment(pdfEntry(lines, 'ModDate') ?? ''), `${label} ${upload.path}`).toBeLessThanOrEqual(
+          upload.at,
+        );
+        corroborated++;
+      }
+    }
+    expect(corroborated).toBeGreaterThan(0);
+  });
+
+  it('shows every upload as a visit: the machine connects, the account logs in, then the file arrives', () => {
+    fileServerBoxes()
+      .filter(runsFtp)
+      .forEach((box) => {
+        const lines = ftpLogLinesOf(transferHistoryOf(buildRemoteHostFs(box.essid, box.host)) ?? '');
+        const label = `${box.essid} ${box.host.hostname}`;
+        const visits = lines.reduce<ReadonlyMap<string, readonly FtpLogLine[]>>(
+          (byPid, line) => new Map([...byPid, [line.pid, [...(byPid.get(line.pid) ?? []), line]]]),
+          new Map(),
+        );
+        expect(visits.size, label).toBe(lines.filter((line) => line.event === 'OK UPLOAD').length);
+        visits.forEach((visit, pid) => {
+          expect(visit.map((line) => line.event), `${label} pid ${pid}`).toEqual([
+            'CONNECT',
+            'OK LOGIN',
+            'OK UPLOAD',
+          ]);
+          expect(new Set(visit.map((line) => line.client)).size, `${label} pid ${pid}`).toBe(1);
+          expect(visit.map((line) => line.user), `${label} pid ${pid}`).toEqual([
+            null,
+            npcUsername(box.essid, box.host),
+            npcUsername(box.essid, box.host),
+          ]);
+        });
+      });
+  });
+
+  it('writes the uploads in the order they happened, all before the world began', () => {
+    fileServerBoxes()
+      .filter(runsFtp)
+      .forEach((box) => {
+        const moments = ftpLogLinesOf(
+          transferHistoryOf(buildRemoteHostFs(box.essid, box.host)) ?? '',
+        ).map((line) => line.at);
+        expect(moments.length).toBeGreaterThan(0);
+        expect(moments).toEqual([...moments].sort((earlier, later) => earlier - later));
+        moments.forEach((moment) => expect(moment).toBeLessThan(WORLD_EPOCH));
+      });
+  });
+
+  it('keeps no transfer history where no ftp runs, off a file server, or below the LAN', () => {
+    lanBoxes(ALL_ESSIDS)
+      .filter((box) => !runsFtp(box) || !(keepsWorkingShare(box) || keepsBackups(box)))
+      .forEach((box) => {
+        expect(transferHistoryOf(buildRemoteHostFs(box.essid, box.host)), box.host.hostname).toBeNull();
+      });
+    deepFileServers().forEach((box) => {
+      expect(transferHistoryOf(buildDeepHostFs(box.essid, box.host)), box.host.hostname).toBeNull();
+    });
   });
 });
