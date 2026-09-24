@@ -805,6 +805,16 @@ initial test run` and NOTHING else — no failing spec, no missing-file message.
 `src/core/secrets/__encoded.ts`, which is generated and gitignored. Either use the npm script or run
 `npm run encode` first.
 
+**A test that asks for "some" of a behaviour can pass with the behaviour deleted.** Slice 8a's
+backup snapshots could revise a document between nights, and the test said "every later night adds
+or changes something". It passed — and went on passing with `isRevisable` returning `false`, the
+revision draw forced off, and the snapshot reading only a file's first version, because a forced
+nightly *arrival* already satisfied "adds or changes". Stryker showed the whole revision path could
+be removed. The fix was to ask for the specific thing: a file present in two snapshots with
+different content, a later `ModDate` and the same `CreationDate`, every kind of document revised
+somewhere, and most left untouched. When a rule has two ways to be satisfied, test each way on its
+own.
+
 **A test that reads the table it is checking cannot fail, and mutation testing is what tells
 you.** Slice 7b's `pools/cronMail.ts` scored **30.95%** while every one of its tests passed. The
 cause was not missing coverage: the test deciding which boxes keep a `/var/mail/root` asked
@@ -1234,6 +1244,18 @@ somebody else's mutants; it named 44 survivors in `pools/database.ts` while the 
 just finished was 13 survivors in `mysql/datadir.ts`. Read the FRESH `mutation.html` instead
 (the payload is at `app.report = `, with `"+"` string splices to strip before `raw_decode`), or
 work from the clear-text output. Check the file's mtime before trusting it.
+
+**Generated content a player can carry home must fit one signed write — measure it in JSON.**
+`ftp get`, `scp` and `cp` onto the player's own box persist through one `/api/patches` upsert, and
+`signedEnvelopeSchema` caps its payload at **8192 characters of JSON**. JSON writes a control
+character as six (`\u0001`), so content built from them balloons: slice 8a's first document
+stubs were control-character noise, and a 2.3 KB spreadsheet became a 14 KB payload that failed
+with `400 envelope_invalid`, which the client shows as `local: <path>: I/O error`. No unit test
+and no wire-check saw it, because neither writes generated content to the patch store; the played
+run did. The rule: binary-looking content uses characters JSON writes as themselves (Latin-1
+`¡`–`ÿ` works — `strings` ignores it as well as it ignores control characters), and a test sends
+the largest generated files through the real `createPatchApi` and checks each request against
+`signedEnvelopeSchema`. `share.test.ts` holds the pattern.
 
 **To prove a slice moved no existing generator stream, diff the whole world — it costs one
 minute.** "No existing stream gained a draw" is the claim every content slice makes and no unit

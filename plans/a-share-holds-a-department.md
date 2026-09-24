@@ -6,14 +6,68 @@
 then confirmed the whole set as shared understanding. All are recorded under "Decided at planning"
 below and in the epic's status log.
 
-**Status:** Planned, not started.
+**Status:** PR 8a DELIVERED (#543, v0.257.0, 2026-09-24). PR 8b not started — it is unblocked.
 
 **Delivery:** two independent PRs against trunk, in order. PR 8b starts once 8a merges.
 
 | PR | Branch (proposed) | Version | Owns |
 |---|---|---|---|
-| 8a | `feat/a-share-holds-a-department` | v0.257.0 | `/srv` on every fileserver, the document formats, the category × prefix pools, tiers, the `vsftpd.conf` honesty fixes |
-| 8b | `feat/a-share-corroborates-itself` | v0.258.0 | `vsftpd.log.1` uploads, the `/srv` mount in `fstab`, `/etc/vsftpd.userlist`, root's fileserver history made true |
+| 8a | `feat/a-share-holds-a-department` | v0.257.0 | ✅ **DONE** (#543) — `/srv` on every fileserver, the document formats, the category × prefix pools, tiers, the `vsftpd.conf` honesty fixes |
+| 8b | `feat/a-share-corroborates-itself` | v0.258.0 | ⏳ `vsftpd.log.1` uploads, the `/srv` mount in `fstab`, `/etc/vsftpd.userlist`, root's fileserver history made true |
+
+### As-built: PR 8a
+
+Six RED-GREEN increments as planned, then one test commit from the mutation gate and one fix from
+the played run.
+
+**Shapes that changed on contact, and why.**
+- **Noise is Latin-1 (`¡` to `ÿ`), not control characters.** Increment 1 kept noise below 0x80
+  so a file's length was its byte count. The played run then failed a guest `get` of an `.xlsx`
+  with `I/O error`: saving a fetched file is one signed write whose JSON payload is capped at
+  8192 characters (`signedEnvelopeSchema`), and JSON writes a control character as six, so a
+  2.3 KB spreadsheet came to 14 KB. Latin-1 is just as invisible to `strings`, JSON writes it
+  as itself, and `cat` shows the mojibake a real binary shows. Nothing in the game counts real
+  bytes (`get` and the transfer log both measure `content.length`), so the two-byte encoding
+  changes nothing a player sees. 8b's byte counts stay `content.length`.
+- **Noise is one 4 KB block drawn once, cut at a drawn offset.** Drawing it a character at a
+  time made a share cost more than the rest of its file server (114 ms a world against 18).
+- **`buildShare` takes a budget, not a per-folder range.** A working share's 25–60 files and a
+  backup box's 80-across-all-snapshots are totals, so each department's range is derived from
+  the total and the number of departments drawn.
+- **Snapshots are a timeline.** Each file enters in one snapshot, may be revised in a later one,
+  and every later night adds at least one file (forced). A version renders once, so an untouched
+  file is byte-identical across snapshots. Photos and notes are never revised.
+- **Phones are drawn per phone** on `share-phone-<essid>-<ip>`, so every file server on a
+  network agrees which model each phone is. Deep boxes see no phones and use cameras.
+- **`peopleKnownOn`** (`mailbox.ts`) is now the one roster mail and the share read: the network's
+  people on the LAN, a deep box's own application's logins below it (`boxPeople`, extracted from
+  `boxMail`).
+- **`iot` shares are a device owner's documentation** — datasheets, test logs, conformity
+  certificates, manuals. The catalog's `iot` networks are single devices (`SMART-FRIDGE-NET`,
+  `EV-CHARGER-LOT-3`), not factories, so the planned folders were kept and their contents read
+  as the paperwork that comes with one.
+- **The `vsftpd.conf` swaps:** `anonymous_enable=YES`→`NO`, `anon_root`→`connect_from_port_20=YES`,
+  `chroot_local_user`→`use_localtime=YES`, `local_root`→`pam_service_name=vsftpd`.
+
+**Mutation gate.** Three runs, 0 timeouts each: `share.ts` 71.30% → 93.17%,
+`documentFormats.ts` 82.65% → 92.31%, `pools/shareFiles.ts` 50.73% → 100%. The first run showed
+**the whole revision path could be deleted with every test passing** — the snapshot test was
+satisfied by the forced nightly arrival alone — and that emptied PDF titles, file names, note
+lines and phone models went unseen. Remaining survivors are equivalent or unreachable (a `<` vs
+`<=` on a random draw, the nightly job's exact minute, one-second window edges, a revision drawn
+after the last snapshot).
+
+**Verified:** 5,841 unit tests; wire-checks 37/37 (`testSameLanConnect`, `testCrossPlayerRead`,
+`testDeepChainReach`, `testFtpRemoteRead`, `testFtpTransferTrace`); bundle 203,638 B gzipped
+(+9.8 KB); build 0.635 ms/box; world byte-diff 32,083 identical, 2,697 added (all `/srv`), 34
+changed (all `vsftpd.conf`, only the four swaps). Played run on DEFCON-VILLAGE `files-143`: guest
+`ftp`, `get` of a PDF, an `.xlsx` and a photo, `put` refused with `553`, `strings` on all three,
+and the PDF's author found by `grep` in Sunil Thompson's mailbox fetched from `workstation-252`.
+
+**For 8b.** The upload log must read the same derivation `buildShare` builds: each `ShareFile`
+version is one upload, with its author's machine, path, `savedAt` and `content.length`.
+`buildShare` currently returns only the `Directory`, so 8b widens its return, as `mailEntries`
+returns entries and deliveries together.
 
 Each PR bumps `v2/package.json` and `v2/package-lock.json` (`npm install --package-lock-only`).
 

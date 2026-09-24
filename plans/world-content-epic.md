@@ -3,18 +3,21 @@
 > **Picking this up cold?** Read "Locked decisions", then the slice table — it carries the live
 > status. The grounding section records what v2 held on the day this was grilled; the code wins
 > wherever the two disagree.
-> Grilled 2026-09-21 (`grilling`), 25 locked decisions. Slices 0–7 delivered (as-built below).
-> Slice 8 planned in [`a-share-holds-a-department.md`](./a-share-holds-a-department.md).
+> Grilled 2026-09-21 (`grilling`), 25 locked decisions. Slices 0–7 delivered (as-built below),
+> slice 8's first PR delivered.
+> Slice 8 planned in [`a-share-holds-a-department.md`](./a-share-holds-a-department.md), which
+> carries PR 8a's as-built and is kept until 8b ships.
 
-**Where we are now (2026-09-23):** **v0.256.0**. The legacy-parity epic's V-series is closed and
+**Where we are now (2026-09-24):** **v0.257.0**. The legacy-parity epic's V-series is closed and
 its next line was "the ship gate". **Ship now waits for this epic** (decision 1). Grilled to 25
 locked decisions and a twelve-slice spine. **Slices 0–7 are DONE** (#533, #534, #535, #536,
-#537 + #538, #539, #540, #541 + #542) — the build budgets, NPC
+#537 + #538, #539, #540, #541 + #542), and **slice 8's PR 8a is DONE** (#543) — the build budgets, NPC
 workstation homes, every NPC box's `/etc`, `/root`, `.ssh/` and `/home/guest`, every NPC box's
 rotated `.1` history plus `syslog`, a
 three-layer site on every webserver (with lynx tables/`<pre>` and `.lan` names in the web tools),
-an application in every NPC database, that application's working set in every NPC store, and the
-network's own correspondence in `/var/mail` with the mail server's records agreeing with it; their
+an application in every NPC database, that application's working set in every NPC store, the
+network's own correspondence in `/var/mail` with the mail server's records agreeing with it, and
+a department share under `/srv` on every file server; their
 as-built is folded into the slice spine and the "As-built" sections below.
 **Decision 19 was amended at planning** (budget first, memoize on breach) and **decision 6 was
 narrowed at slice 2's planning** (the player workstation gains an empty `/home/guest`). Slice 3's
@@ -409,7 +412,7 @@ See below; planning refines it.
 | 5 | **A database holds an application** — app archetypes | `SHOW TABLES` on a café network's DB shows a till schema whose staff are that network's inhabitants | ✅ DONE (#539, v0.253.0) — 15 archetypes; decision 15 amended (DB credentials re-rolled once); a bought DB is a fresh install; see as-built below |
 | 6 | **A store serves that application** — Redis keyspaces paired with the app | `KEYS sess:*` returns sessions for that app's real users | ✅ DONE (#540, v0.254.0) — 43 stores, all reading differently; decision 15 amended (store locks re-rolled once); a bought store is a fresh install; see as-built below |
 | 7 | **Somebody wrote to somebody** — workstation mailboxes, the mail server's spool | a thread in `/var/mail/<user>` is between two real inhabitants of the network | ✅ **DONE** (#541 v0.255.0, #542 v0.256.0) — the correspondence, desk mailboxes, the spool and its database agreement; then `mail.log.1` carrying the spool's own queue ids, `/etc/aliases`, the postfix config honesty fixes and cron's mail to root. A phone keeps no mailbox but may hold cron's |
-| 8 | **A share holds a department** — fileserver `/srv`, metadata docs | `strings` on a shared PDF names its author, an inhabitant | 📋 PLANNED — `a-share-holds-a-department.md`, two PRs (v0.257.0, v0.258.0); the share and its documents, then the box corroborating it; no new door, no archive files and no stream re-roll |
+| 8 | **A share holds a department** — fileserver `/srv`, metadata docs | `strings` on a shared PDF names its author, an inhabitant | 🔨 **8a DONE** (#543, v0.257.0) — `/srv` on every file server, LAN and deep: a working share or dated snapshots by prefix, the category's departments, PDF/JPEG/office stubs whose metadata `strings` reads, authors from the one roster mail uses, `vsftpd.conf` stops claiming doors. **8b next** (v0.258.0): `vsftpd.log.1`, the `/srv` mount, `/etc/vsftpd.userlist`, root's history. See `a-share-holds-a-department.md` |
 | 9 | **A device is the device it says** — IoT prefix overlays + prefix growth (the one re-roll: refresh pins, wire-checks, the `v2-e2e` skill) | a printer serves a CUPS page and holds spool jobs; a camera a recordings index | ⏳ |
 | 10 | **A gateway knows its network** — DHCP leases, config backups, admin pages, admin/firmware history | a rooted router's lease table lists exactly the network's generated hosts | ⏳ |
 | 11 | **A phone is a phone** — phone/tablet overlay | an NPC `android-` home holds `DCIM/` and `Download/`, not dotfiles | ⏳ |
@@ -1014,3 +1017,15 @@ session refused the spool, the log and the alias table while still reading `post
   count exact), a `/srv` mount in `fstab`, `/etc/vsftpd.userlist`, and root's fileserver history
   purged of samba/nfs/zfs; deep shares take no transfer history; new streams only, proven by the
   whole-world byte-diff; no new pointer into the share from existing pools.
+- **2026-09-24** — **slice 8's PR 8a shipped** (#543, v0.257.0): `share.ts`, `documentFormats.ts`,
+  `pools/shareFiles.ts`, a `srv:` branch in `buildRemoteHostFs`, `SHARE_DIR`/`SHARE_FILE`, and the
+  three `vsftpd.conf` templates made honest in place. Two shapes changed on contact. **Noise
+  became Latin-1**: the played run's guest `get` of an `.xlsx` failed with `I/O error`, because the
+  signed write that saves a fetched file caps its JSON at 8192 characters and JSON writes a control
+  character as six — the plan's patch-store risk, found where it said only a played run could find
+  it, and now held by a test that sends the world's hardest files through the real client adapter.
+  And **the share is a timeline**, each file entering one snapshot and perhaps revised in a later
+  one, so a backup is the tree as it stood that night. The mutation gate's best find: the whole
+  revision path could be deleted with every test passing. `iot` shares read as a device owner's
+  documentation, since the catalog's `iot` networks are single devices. World byte-diff: only
+  `/srv` added and the four `vsftpd.conf` line swaps. Next: **PR 8b**.

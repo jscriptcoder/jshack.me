@@ -226,6 +226,23 @@ carrying both lets you check a cached row against its `SELECT`. **Which networks
 is drawn from their own identity** (2–3 per scan), so choose the target AFTER the first
 `airodump-ng`, or re-scan to re-roll.
 
+### Then: the ftp door (`ftp`, `get`, `put`)
+
+| Trap | What actually works |
+|---|---|
+| `ftp: command not found` | `su root`, `apt install ftp`, `exit` — the client is not preinstalled, like `nmap` and `mysql` |
+| `ftp <host>` then a user prompt | `ftp <host> <user>`, the user positional; it then asks `Password:` on its own line |
+| Looking for a `local_root` or a chroot | There is none: every login lands in its own home and can `cd` anywhere its tier allows, so `cd /srv` works for `guest` |
+| `local: <path>: I/O error` on `get` | The copy's signed write was refused — the payload is over 8192 characters of JSON. That is a content bug, not a flaky network: check the file's `JSON.stringify(content).length` |
+| Reading another box's mailbox | `ftp <host> <user>` as that box's own user, then `get /var/mail/<user> inbox` — a mailbox is user-tier, so `guest` is refused |
+
+The prompt inside is `ftp> `, so a prompt poller must match `>` as well as `#`/`$` (§2). `get`
+prints `<n> bytes received`, where `n` is the file's length in characters, the same number the
+transfer log records. A file server's share is at `/srv/share` or `/srv/backup/<date>`; find one
+offline by walking `generateHomeLan(essid).hosts` for a `share-`/`files-`/`nas-`/`backup-`/`vault-`
+hostname whose `hostServices` include `ftp`, and recover its guest password by matching
+`/etc/passwd`'s md5 against `ALL_GENERATED_PASSWORDS`, as for the data doors.
+
 ---
 
 ## 4. Recipe: shell on the AP gateway
