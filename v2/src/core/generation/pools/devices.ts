@@ -236,3 +236,29 @@ export const MEDIA_ROOMS: readonly string[] = [
   'Lounge',
   'Studio',
 ];
+
+/** What a smart plug switches, and the load it draws while on, in watts. */
+export const PLUG_APPLIANCES: readonly { readonly name: string; readonly watts: number }[] = [
+  { name: 'Desk Lamp', watts: 12 },
+  { name: 'Hallway Lamp', watts: 9 },
+  { name: 'Coffee Machine', watts: 1100 },
+  { name: 'Fish Tank', watts: 45 },
+  { name: 'Desk Fan', watts: 35 },
+  { name: 'Space Heater', watts: 1500 },
+  { name: 'Dehumidifier', watts: 280 },
+  { name: 'Grow Light', watts: 60 },
+];
+
+/** The days a plug's rule may run on: every day, working days, the weekend, or one day. */
+export const PLUG_DAYS: readonly string[] = [
+  'daily',
+  'mon-fri',
+  'sat-sun',
+  'mon',
+  'tue',
+  'wed',
+  'thu',
+  'fri',
+  'sat',
+  'sun',
+];
