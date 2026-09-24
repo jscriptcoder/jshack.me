@@ -196,7 +196,26 @@ describe('a printer', () => {
 
   it('is attached over USB, so its device URI names no host or port on the network', () => {
     printers().forEach(({ tree }) => {
-      expect(contentOf(tree, '/etc/cups/printers.conf')).toMatch(/^DeviceURI usb:\/\/[^\s]+$/m);
+      const conf = contentOf(tree, '/etc/cups/printers.conf');
+      expect(conf).toMatch(/^DeviceURI usb:\/\/[^\s]+$/m);
+      // The URI names the printer as USB enumerates it: its make, then the rest of its name.
+      const [make, ...product] = (modelOf(tree) ?? '').split(' ');
+      expect(conf).toContain(`DeviceURI usb://${make}/${encodeURIComponent(product.join(' '))}?serial=`);
+    });
+  });
+
+  it('tells its scheduler to keep exactly what the spool and the page log hold', () => {
+    // The page log is written in the format asked for here, and the spool keeps thirty
+    // days of history and a day of documents: a config saying otherwise would contradict
+    // the files a player reads beside it.
+    printers().forEach(({ tree }) => {
+      const conf = contentOf(tree, '/etc/cups/cupsd.conf');
+      expect(conf).toContain(
+        'PageLogFormat %p %u %j %T %P %C %{job-billing} %{job-originating-host-name} %{job-name} %{media} %{sides}\n',
+      );
+      expect(conf).toMatch(/^PreserveJobHistory 30d$/m);
+      expect(conf).toMatch(/^PreserveJobFiles 1d$/m);
+      expect(conf).toMatch(/^Listen \/run\/cups\/cups\.sock$/m);
     });
   });
 
@@ -279,6 +298,7 @@ type SpooledJob = {
   readonly host: string | undefined;
   readonly title: string | undefined;
   readonly printerUri: string | undefined;
+  readonly format: string | undefined;
 };
 
 const spoolOf = (tree: Directory): ReadonlyMap<string, string> => {
@@ -299,6 +319,7 @@ const jobsIn = async (tree: Directory): Promise<readonly SpooledJob[]> =>
           host: attributeOf(lines, 'job-originating-host-name'),
           title: attributeOf(lines, 'job-name'),
           printerUri: attributeOf(lines, 'printer-uri'),
+          format: attributeOf(lines, 'document-format'),
         };
       }),
   );
@@ -581,6 +602,115 @@ describe("a printer's page log", () => {
       });
     });
   });
+
+  it('prints some jobs on one side and some on both', () => {
+    const sides = new Set(
+      printers().flatMap(({ tree }) =>
+        pageLinesOf(contentOf(tree, '/var/log/cups/page_log.1')).map((line) => line.sides),
+      ),
+    );
+    expect(sides).toEqual(new Set(['one-sided', 'two-sided-long-edge']));
+  });
+});
+
+/** An entry of a PDF's Info dictionary, as `strings` shows it. */
+const pdfEntry = (lines: readonly string[], key: string): string | undefined =>
+  lines.join('\n').match(new RegExp(`/${key} \\(([^)]*)\\)`))?.[1];
+
+/** A PDF date, `D:YYYYMMDDHHMMSSZ`, in milliseconds. */
+const pdfTime = (value: string): number =>
+  Date.UTC(
+    Number(value.slice(2, 6)),
+    Number(value.slice(6, 8)) - 1,
+    Number(value.slice(8, 10)),
+    Number(value.slice(10, 12)),
+    Number(value.slice(12, 14)),
+    Number(value.slice(14, 16)),
+  );
+
+/** How each kind of document a job may carry begins, by its extension. */
+const SIGNATURES: Readonly<Record<string, string>> = {
+  pdf: '%PDF',
+  docx: 'PK',
+  xlsx: 'PK',
+  jpg: '\u00ff\u00d8',
+};
+
+/** The media type a client declares for each extension; plain text for any other. */
+const MEDIA_TYPES: Readonly<Record<string, string>> = {
+  pdf: 'application/pdf',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  jpg: 'image/jpeg',
+};
+
+const extensionOf = (title: string): string => title.slice(title.lastIndexOf('.') + 1);
+
+describe('a printed document', () => {
+  /** Printers of every sort: beside shares, and drafting their own. */
+  const printers = (): readonly BuiltBox[] => [
+    ...worldBoxesNamed(['printer']),
+    ...syntheticLanBoxes(['printer']).slice(0, 40),
+    ...syntheticBoxes('printer').slice(0, 40),
+  ];
+
+  /** Every kept document with the page-log line of the job that printed it. */
+  const keptDocuments = (tree: Directory) => {
+    const spool = spoolOf(tree);
+    return pageLinesOf(contentOf(tree, '/var/log/cups/page_log.1')).flatMap((line) => {
+      const content = spool.get(`d${jobFileName(line.jobId).slice(1)}-001`);
+      return content === undefined ? [] : [{ line, content }];
+    });
+  };
+
+  it('is kept in the format its title names', () => {
+    let kept = 0;
+    printers().forEach(({ tree }) => {
+      keptDocuments(tree).forEach(({ line, content }) => {
+        kept += 1;
+        const signature = SIGNATURES[extensionOf(line.title)];
+        if (signature !== undefined) {
+          expect({ title: line.title, starts: content.startsWith(signature) }).toEqual({
+            title: line.title,
+            starts: true,
+          });
+        }
+      });
+    });
+    expect(kept).toBeGreaterThan(10);
+  });
+
+  it('is sent with the media type its name declares', async () => {
+    for (const { tree } of printers()) {
+      for (const job of await jobsIn(tree)) {
+        expect(job.format).toBe(MEDIA_TYPES[extensionOf(job.title ?? '')] ?? 'text/plain');
+      }
+    }
+  });
+
+  it('is printed by the person who wrote it, saved before it was printed', async () => {
+    let read = 0;
+    for (const { essid, host, tree } of printers()) {
+      const people = peopleKnownOn({ essid, host, username: npcUsername(essid, host) });
+      for (const { line, content } of keptDocuments(tree)) {
+        if (!content.startsWith('%PDF')) continue;
+        read += 1;
+        const lines = await readableLinesOf(content);
+        const writer = people.find((person) => person.username === line.user);
+        expect({ title: line.title, author: pdfEntry(lines, 'Author') }).toEqual({
+          title: line.title,
+          author: writer?.fullName,
+        });
+        const saved = pdfTime(pdfEntry(lines, 'ModDate') ?? '');
+        const created = pdfTime(pdfEntry(lines, 'CreationDate') ?? '');
+        expect(created).toBeLessThanOrEqual(saved);
+        expect(created).toBeGreaterThan(WORLD_EPOCH - 400 * 86_400_000);
+        expect(saved).toBeLessThanOrEqual(line.at);
+        expect(saved).toBeGreaterThan(WORLD_EPOCH - 400 * 86_400_000);
+      }
+    }
+    expect(read).toBeGreaterThan(3);
+  });
 });
 
 const CAMERA_PREFIXES = ['cam', 'doorbell', 'babycam'];
@@ -717,6 +847,31 @@ describe('a camera', () => {
     });
   });
 
+  it('sees plain motion on a doorbell and a baby monitor too, not only its own kind of event', () => {
+    ['doorbell', 'babycam'].forEach((flavour) => {
+      const kinds = new Set(
+        cameras()
+          .filter(({ host }) => prefixOf(host.hostname) === flavour)
+          .flatMap(({ tree }) => eventsOf(tree).map((event) => event.kind)),
+      );
+      expect({ flavour, motion: kinds.has('motion') }).toEqual({ flavour, motion: true });
+    });
+  });
+
+  it('holds the last two weeks of events, over more than a day', () => {
+    const boxes = cameras();
+    boxes.forEach(({ tree }) => {
+      eventsOf(tree).forEach((event) =>
+        expect(event.at).toBeGreaterThanOrEqual(WORLD_EPOCH - 14 * 86_400_000),
+      );
+    });
+    const spans = boxes.map(({ tree }) => {
+      const times = eventsOf(tree).map((event) => event.at);
+      return Math.max(...times) - Math.min(...times);
+    });
+    expect(spans.filter((span) => span > 86_400_000).length).toBeGreaterThan(spans.length / 2);
+  });
+
   it("keeps its events for the box's own user to read, and not a guest", () => {
     cameras().forEach(({ tree }) => {
       const first = snapshotNamesOf(tree)[0] ?? '';
@@ -736,6 +891,19 @@ describe('a camera', () => {
       named
         .filter((camera) => camera.name === name)
         .forEach(({ host }) => expect(prefixOf(host.hostname)).toBe(flavour));
+    });
+  });
+
+  it('states a real frame size, and shows the same one on its Live page', () => {
+    cameras().forEach(({ essid, host, tree }) => {
+      const conf = contentOf(tree, '/etc/motion/motion.conf');
+      const width = Number(/^width (\d+)$/m.exec(conf)?.[1]);
+      const height = Number(/^height (\d+)$/m.exec(conf)?.[1]);
+      expect(width).toBeGreaterThanOrEqual(1280);
+      expect(height).toBeGreaterThanOrEqual(720);
+      if (servesHttp({ essid, host })) {
+        expect(pagesOf(tree).get('index.html')).toContain(`${width}x${height}`);
+      }
     });
   });
 
@@ -861,12 +1029,92 @@ describe('a recorder', () => {
     });
   });
 
+  it('keeps nothing older than the retention its config states', () => {
+    recorders().forEach(({ tree }) => {
+      const days = Number(/^retention_days = (\d+)$/m.exec(contentOf(tree, '/etc/nvr/nvr.conf'))?.[1]);
+      // The same two weeks a camera keeps of its own events.
+      expect(days).toBe(14);
+      contentOf(tree, '/var/lib/nvr/index.log')
+        .split('\n')
+        .filter((line) => line !== '')
+        .forEach((line) => {
+          const at = Date.parse(`${line.slice(0, 19).replace(' ', 'T')}Z`);
+          expect(at).toBeGreaterThanOrEqual(WORLD_EPOCH - days * 86_400_000);
+        });
+    });
+  });
+
+  it('numbers each PoE port after the channel on it', () => {
+    recorders()
+      .filter(({ layer }) => layer === 'deep')
+      .forEach(({ tree }) => {
+        const conf = contentOf(tree, '/etc/nvr/nvr.conf');
+        [...archivedSources(tree)].forEach((channel) => {
+          expect(conf).toContain(`[${channel}]\nport = PoE${Number(channel.slice(2))}\n`);
+        });
+      });
+  });
+
   it("keeps its archive for the box's own user to read, and not a guest", () => {
     recorders().forEach(({ tree }) => {
       expect(read(tree, '/var/lib/nvr/index.log', 'user').ok).toBe(true);
       expect(read(tree, '/var/lib/nvr/index.log', 'guest').ok).toBe(false);
       expect(createFsView(tree, { userType: 'guest' }).list(asAbsPath('/var/lib/nvr')).ok).toBe(false);
     });
+  });
+});
+
+/** Where the three devices built so far keep what they are. */
+const DEVICE_ROOTS = [
+  '/etc/cups',
+  '/etc/motion',
+  '/etc/nvr',
+  '/var/spool/cups',
+  '/var/log/cups',
+  '/var/lib/motion',
+  '/var/lib/nvr',
+];
+
+describe('the devices not yet built', () => {
+  it("keep the generic device config and none of a printer's, camera's or recorder's files", () => {
+    const others = ['sensor', 'thermostat', 'tv', 'speaker', 'plug', 'lock'];
+    const boxes = [
+      ...worldBoxesNamed(others),
+      ...others.flatMap((prefix) => syntheticBoxes(prefix).slice(0, 5)),
+    ];
+    expect(boxes.length).toBeGreaterThan(30);
+    boxes.forEach(({ host, tree }) => {
+      const root = createFsView(tree, { userType: 'root' });
+      expect(read(tree, '/etc/device.conf').ok).toBe(true);
+      DEVICE_ROOTS.forEach((path) => {
+        expect({ host: host.hostname, path, held: root.stat(asAbsPath(path)) !== null }).toEqual({
+          host: host.hostname,
+          path,
+          held: false,
+        });
+      });
+    });
+  });
+
+  it('keep no page log on a camera or a recorder, which print nothing', () => {
+    [...cameras(), ...recorders()].forEach(({ tree }) => {
+      expect(createFsView(tree, { userType: 'root' }).stat(asAbsPath('/var/log/cups'))).toBeNull();
+    });
+  });
+});
+
+describe("a device's root history", () => {
+  it("names the device's own configs and logs, on some box of each kind", () => {
+    const histories = (prefixes: readonly string[]): string =>
+      worldBoxesNamed(prefixes)
+        .map(({ tree }) => contentOf(tree, '/root/.bash_history'))
+        .join('\n');
+    const printerHistory = histories(['printer']);
+    ['/etc/cups/cupsd.conf', '/etc/cups/printers.conf', '/var/log/cups/page_log.1'].forEach((path) =>
+      expect(printerHistory).toContain(path),
+    );
+    expect(histories(CAMERA_PREFIXES)).toContain('/etc/motion/motion.conf');
+    expect(histories(['nvr'])).toContain('/etc/nvr/nvr.conf');
   });
 });
 
@@ -965,6 +1213,97 @@ describe("a device's own pages", () => {
         expect(row).toBeDefined();
         expect(row?.match(/<td>Withheld<\/td>/g)).toHaveLength(2);
         expect(page).not.toContain(line.title);
+      });
+    });
+  });
+
+  it('list the jobs newest first, each completed when the page log says it printed', () => {
+    serving()
+      .filter(({ kind }) => kind === 'printer')
+      .forEach(({ tree }) => {
+        const rows = (pagesOf(tree).get('jobs.html') ?? '')
+          .split('\n')
+          .filter((line) => line.startsWith('<tr><td>'));
+        const logged = [...pageLinesOf(contentOf(tree, '/var/log/cups/page_log.1'))].reverse();
+        rows.forEach((row, index) => {
+          const line = logged[index];
+          const completed = new Date(line?.at ?? 0).toISOString().slice(0, 19).replace('T', ' ');
+          expect(row.startsWith(`<tr><td>${line?.queue}-${line?.jobId}</td>`)).toBe(true);
+          expect(row).toContain(`completed at ${completed}`);
+        });
+      });
+  });
+
+  it("list a camera's events newest first", () => {
+    serving()
+      .filter(({ kind }) => kind === 'camera')
+      .forEach(({ tree }) => {
+        const shown = (pagesOf(tree).get('events.html') ?? '')
+          .split('\n')
+          .filter((line) => line.startsWith('<tr><td>'))
+          .map((line) => line.slice('<tr><td>'.length, '<tr><td>'.length + 19));
+        const held = [...eventsOf(tree)]
+          .reverse()
+          .map((event) => new Date(event.at).toISOString().slice(0, 19).replace('T', ' '));
+        expect(shown).toEqual(held);
+      });
+  });
+
+  it("name on a camera's Live page the camera it is", () => {
+    serving()
+      .filter(({ kind }) => kind === 'camera')
+      .forEach(({ tree }) => {
+        expect(pagesOf(tree).get('index.html')).toContain(cameraNameOf(tree));
+      });
+  });
+
+  it("count on a recorder's Recordings page the snapshots it holds of each camera each day", () => {
+    serving()
+      .filter(({ kind }) => kind === 'recorder')
+      .forEach(({ tree }) => {
+        const held = new Map<string, number>();
+        [...archiveOf(tree).keys()].forEach((path) => {
+          const [source, day] = path.split('/');
+          const key = `${source}|${day}`;
+          held.set(key, (held.get(key) ?? 0) + 1);
+        });
+        const shown = new Map(
+          (pagesOf(tree).get('recordings.html') ?? '')
+            .split('\n')
+            .map((line) => /^<tr><td>([^<]+)<\/td><td>(\d{4}-\d\d-\d\d)<\/td><td>(\d+)<\/td><\/tr>$/.exec(line))
+            .flatMap((match) =>
+              match === null ? [] : [[`${match[1]}|${match[2]}`, Number(match[3])] as const],
+            ),
+        );
+        expect(shown).toEqual(held);
+      });
+  });
+
+  it('record visitors walking to each of its pages, at the size each serves', () => {
+    const visited = new Set<string>();
+    serving().forEach(({ kind, tree }) => {
+      const log = read(tree, '/var/log/access.log.1');
+      if (!log.ok) return;
+      const pages = pagesOf(tree);
+      log.content
+        .split('\n')
+        .filter((line) => line !== '')
+        .forEach((line) => {
+          const [, path = '', size] = /"GET (\S+) HTTP\/1\.1" 200 (\d+)$/.exec(line) ?? [];
+          const page = pages.get(path === '/' ? 'index.html' : path.slice(1));
+          expect({ path, served: page?.length }).toEqual({ path, served: Number(size) });
+          visited.add(`${kind}:${path}`);
+        });
+    });
+    // Across the world, every page of every kind is walked to by somebody.
+    Object.entries(UI_PAGES).forEach(([kind, names]) => {
+      names.forEach((name) => {
+        const path = name === 'index.html' ? '/' : `/${name}`;
+        expect({ kind, path, visited: visited.has(`${kind}:${path}`) }).toEqual({
+          kind,
+          path,
+          visited: true,
+        });
       });
     });
   });
