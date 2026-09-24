@@ -234,6 +234,27 @@ const keepsWorkingShare = ({ host }: Box): boolean =>
 
 const workingShareBoxes = (): readonly Box[] => lanBoxes(ALL_ESSIDS).filter(keepsWorkingShare);
 
+const BACKUP_PREFIXES: readonly string[] = ['backup', 'vault'];
+
+const keepsBackups = ({ host }: Box): boolean => BACKUP_PREFIXES.includes(prefixOf(host.hostname));
+
+const backupBoxes = (): readonly Box[] => lanBoxes(ALL_ESSIDS).filter(keepsBackups);
+
+const fileServerBoxes = (): readonly Box[] =>
+  lanBoxes(ALL_ESSIDS).filter((box) => keepsWorkingShare(box) || keepsBackups(box));
+
+/** The snapshots a backup box keeps, oldest first, each as its date and its tree. */
+const snapshotsOf = ({ essid, host }: Box): readonly (readonly [string, Directory])[] =>
+  [...directoryAt(buildRemoteHostFs(essid, host), ['srv', 'backup']).entries]
+    .map(([date, node]): readonly [string, Directory] => {
+      if (node.kind !== 'directory') throw new Error(`${date} is not a snapshot`);
+      return [date, node];
+    })
+    .sort(([earlier], [later]) => earlier.localeCompare(later));
+
+/** The last moment of a `YYYY-MM-DD` day. */
+const endOfDay = (date: string): number => Date.parse(`${date}T23:59:59Z`);
+
 const directoryAt = (tree: Directory, path: readonly string[]): Directory => {
   const found = path.reduce<Directory | undefined>((current, name) => {
     const next = current?.entries.get(name);
@@ -266,17 +287,20 @@ const pdfMoment = (stamp: string): number => {
 };
 
 describe('a working share holds the departments of the place it serves', () => {
-  it('keeps /srv/share on every file server named for a working share, and on no other box', () => {
+  it('keeps a working share on a share box, backups on a backup box, and /srv on no other box', () => {
     lanBoxes(ALL_ESSIDS).forEach((box) => {
       const tree = buildRemoteHostFs(box.essid, box.host);
       const srv = tree.entries.get('srv');
+      const label = `${box.essid} ${box.host.hostname}`;
 
-      if (!keepsWorkingShare(box)) {
-        expect(srv, `${box.essid} ${box.host.hostname}`).toBeUndefined();
+      if (!keepsWorkingShare(box) && !keepsBackups(box)) {
+        expect(srv, label).toBeUndefined();
         return;
       }
-      expect(srv?.kind).toBe('directory');
-      expect([...directoryAt(tree, ['srv']).entries.keys()]).toEqual(['share']);
+      expect(srv?.kind, label).toBe('directory');
+      expect([...directoryAt(tree, ['srv']).entries.keys()], label).toEqual(
+        keepsWorkingShare(box) ? ['share'] : ['backup'],
+      );
     });
   });
 
@@ -299,7 +323,7 @@ describe('a working share holds the departments of the place it serves', () => {
 
   it('is written by people who really are on the network, whose mail the network carries', async () => {
     let signedDocuments = 0;
-    for (const { essid, host } of workingShareBoxes()) {
+    for (const { essid, host } of fileServerBoxes()) {
       const people = networkMail(essid).people.map((person) => person.fullName);
       const files = filesUnder(directoryAt(buildRemoteHostFs(essid, host), ['srv']));
 
@@ -324,7 +348,7 @@ describe('a working share holds the departments of the place it serves', () => {
   });
 
   it('dates every PDF as created before it was last saved, and both before the world stopped', async () => {
-    for (const { essid, host } of workingShareBoxes()) {
+    for (const { essid, host } of fileServerBoxes()) {
       const files = filesUnder(directoryAt(buildRemoteHostFs(essid, host), ['srv']));
       for (const [path, content] of files) {
         if (!path.endsWith('.pdf')) continue;
@@ -339,7 +363,7 @@ describe('a working share holds the departments of the place it serves', () => {
   });
 
   it("is anyone's to read and only the box's own account's to change", () => {
-    workingShareBoxes().forEach(({ essid, host }) => {
+    fileServerBoxes().forEach(({ essid, host }) => {
       const tree = buildRemoteHostFs(essid, host);
       const srv = directoryAt(tree, ['srv']);
       const guest = createFsView(tree, { userType: 'guest' });
@@ -361,7 +385,104 @@ describe('a working share holds the departments of the place it serves', () => {
         expect(user.canWrite(location).allowed).toBe(true);
       });
       // `ls -l` names who uploaded it all: the box's one account.
-      expect(directoryAt(srv, ['share']).owner).toBe(npcUsername(essid, host));
+      [...srv.entries.values()].forEach((top) => {
+        expect(top.owner).toBe(npcUsername(essid, host));
+      });
     });
+  });
+});
+
+describe('a backup box keeps dated snapshots of the same kind of share', () => {
+  it('keeps two to four snapshots, each named for a day before the world stopped', () => {
+    const boxes = backupBoxes();
+    expect(boxes.length).toBeGreaterThan(0);
+
+    boxes.forEach((box) => {
+      const dates = snapshotsOf(box).map(([date]) => date);
+      const label = `${box.essid} ${box.host.hostname}`;
+
+      expect(dates.length, label).toBeGreaterThanOrEqual(2);
+      expect(dates.length, label).toBeLessThanOrEqual(4);
+      dates.forEach((date) => {
+        expect(date, label).toMatch(/^\d{4}-\d\d-\d\d$/);
+        expect(endOfDay(date), label).toBeLessThan(WORLD_EPOCH);
+      });
+    });
+  });
+
+  it("holds its place's own departments in every snapshot", () => {
+    backupBoxes().forEach((box) => {
+      const allowed = FOLDERS_BY_CATEGORY[networkPersona(box.essid).category];
+      snapshotsOf(box).forEach(([date, snapshot]) => {
+        expect(snapshot.entries.size, `${box.host.hostname} ${date}`).toBeGreaterThan(0);
+        [...snapshot.entries.keys()].forEach((folder) => {
+          expect(allowed, `${box.host.hostname} ${date}`).toContain(folder);
+        });
+      });
+    });
+  });
+
+  it('holds nothing saved after the night it was taken', async () => {
+    for (const box of backupBoxes()) {
+      for (const [date, snapshot] of snapshotsOf(box)) {
+        for (const [path, content] of filesUnder(snapshot)) {
+          const lines = await readableLinesOf(content);
+          const label = `${box.host.hostname} ${date}/${path}`;
+          if (path.endsWith('.pdf')) {
+            expect(pdfMoment(pdfEntry(lines, 'ModDate') ?? ''), label).toBeLessThanOrEqual(
+              endOfDay(date),
+            );
+          }
+          if (path.endsWith('.jpg')) {
+            const taken = Date.parse(
+              (lines[4] ?? '').replace(/^(\d{4}):(\d\d):(\d\d) /, '$1-$2-$3T') + 'Z',
+            );
+            expect(taken, label).toBeLessThanOrEqual(endOfDay(date));
+          }
+        }
+      }
+    }
+  });
+
+  it('keeps everything the night before kept, and adds or changes something every night', () => {
+    backupBoxes().forEach((box) => {
+      const snapshots = snapshotsOf(box).map(([date, snapshot]) => ({
+        date,
+        files: filesUnder(snapshot),
+      }));
+      snapshots.slice(1).forEach((later, index) => {
+        const earlier = snapshots[index];
+        if (earlier === undefined) throw new Error('no earlier snapshot');
+        const label = `${box.host.hostname} ${earlier.date} -> ${later.date}`;
+
+        [...earlier.files.keys()].forEach((path) => {
+          expect([...later.files.keys()], label).toContain(path);
+        });
+        const moved = [...later.files].filter(
+          ([path, content]) => earlier.files.get(path) !== content,
+        );
+        expect(moved.length, label).toBeGreaterThan(0);
+      });
+    });
+  });
+
+  it('keeps a file nobody touched between two nights byte for byte the same in both', async () => {
+    let unchanged = 0;
+    for (const box of backupBoxes()) {
+      const snapshots = snapshotsOf(box).map(([, snapshot]) => filesUnder(snapshot));
+      for (const [index, later] of snapshots.slice(1).entries()) {
+        const earlier = snapshots[index] ?? new Map<string, string>();
+        for (const [path, content] of later) {
+          const before = earlier.get(path);
+          if (before === undefined || !path.endsWith('.pdf')) continue;
+          const savedThen = pdfEntry(await readableLinesOf(before), 'ModDate');
+          const savedNow = pdfEntry(await readableLinesOf(content), 'ModDate');
+          if (savedThen !== savedNow) continue;
+          expect(content, path).toBe(before);
+          unchanged++;
+        }
+      }
+    }
+    expect(unchanged).toBeGreaterThan(0);
   });
 });

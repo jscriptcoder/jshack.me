@@ -3,9 +3,11 @@
  *
  * What a share holds is the network's kind of place — a café's menus and rotas, a
  * family's paperwork and photos — and who wrote it is the network's own people, so a
- * PDF's author is somebody whose mail the network really carries. It is drawn on its
- * own stream, keyed by the box: a share arriving on a file server moves nothing else
- * the world already generated.
+ * PDF's author is somebody whose mail the network really carries. The box's name says
+ * what shape it is kept in: a share box keeps the working tree, a backup box keeps
+ * dated snapshots of one, each the tree as it stood that night. It is drawn on its own
+ * stream, keyed by the box: a share arriving on a file server moves nothing else the
+ * world already generated.
  */
 
 import { WORLD_EPOCH } from '../cve/worldClock';
@@ -20,6 +22,7 @@ import { createPrng, type Prng } from './prng';
 
 const DAY_SECONDS = 86_400;
 const LAST_SECOND = WORLD_EPOCH / 1000 - 1;
+const EPOCH_DAY = Math.floor(WORLD_EPOCH / 1000 / DAY_SECONDS);
 
 /** How far back a share's files reach: most of a year, and never before the box could
  *  have been installed. */
@@ -34,28 +37,89 @@ const FILES_PER_FOLDER = { min: 3, max: 10 } as const;
 /** How often a photo carries the name of whoever took it. */
 const SIGNED_PHOTO_CHANCE = 0.5;
 
-/** The hostname prefixes that name a working share, as against a backup box. */
+/** The hostname prefixes that name each shape a share is kept in. */
 const WORKING_SHARE_PREFIXES: readonly string[] = ['share', 'files', 'nas'];
+const BACKUP_PREFIXES: readonly string[] = ['backup', 'vault'];
+
+const SNAPSHOT_COUNT = { min: 2, max: 4 } as const;
+/** Days from the last snapshot to the world stopping, and between two snapshots. */
+const DAYS_SINCE_LAST_SNAPSHOT = { min: 1, max: 7 } as const;
+const DAYS_BETWEEN_SNAPSHOTS = { min: 5, max: 30 } as const;
+/** The nightly job runs in the small hours, for up to half an hour. */
+const SNAPSHOT_HOUR_SECONDS = 2 * 3600;
+const SNAPSHOT_SPREAD_SECONDS = 1800;
+
+/** How often a file first appears in a later snapshot rather than the first, and how
+ *  often a document already backed up is saved again before a later one. */
+const LATE_ARRIVAL_CHANCE = 0.15;
+const REVISION_CHANCE = 0.2;
 
 const prefixOf = (hostname: string): string => hostname.slice(0, hostname.lastIndexOf('-'));
 
-/** When a file was first saved and when it was last, in that order, before the world
- *  stopped. */
-const savedMoments = (prng: Prng) => {
-  const createdSecond = prng.nextInt(LAST_SECOND - WINDOW_SECONDS, LAST_SECOND);
-  const modifiedSecond = Math.min(
-    createdSecond + prng.nextInt(0, EDITING_SECONDS),
-    LAST_SECOND,
-  );
-  return { createdAt: createdSecond * 1000, modifiedAt: modifiedSecond * 1000 };
+/** One saved state of a file: when it was saved, and what it held. */
+type Version = { readonly savedAt: number; readonly content: string };
+
+type ShareFile = {
+  readonly folder: string;
+  readonly name: string;
+  /** The first snapshot it is in: the snapshot after it was first saved. */
+  readonly firstIn: number;
+  /** Oldest first. */
+  readonly versions: readonly Version[];
 };
 
-const contentOf = (
-  spec: ShareFileSpec,
-  author: MailPerson,
-  prng: Prng,
-): string => {
-  const { createdAt, modifiedAt } = savedMoments(prng);
+/** A snapshot's moment, in seconds, and the day it is named for. */
+type Snapshot = { readonly at: number; readonly date: string };
+
+const dateOf = (day: number): string =>
+  new Date(day * DAY_SECONDS * 1000).toISOString().slice(0, 10);
+
+/** The nights the backup job ran, oldest first. */
+const snapshotNights = (prng: Prng): readonly Snapshot[] => {
+  const count = prng.nextInt(SNAPSHOT_COUNT.min, SNAPSHOT_COUNT.max);
+  const lastDay =
+    EPOCH_DAY - prng.nextInt(DAYS_SINCE_LAST_SNAPSHOT.min, DAYS_SINCE_LAST_SNAPSHOT.max);
+  const days = Array.from({ length: count - 1 }).reduce<readonly number[]>(
+    (later) => [
+      (later[0] ?? lastDay) -
+        prng.nextInt(DAYS_BETWEEN_SNAPSHOTS.min, DAYS_BETWEEN_SNAPSHOTS.max),
+      ...later,
+    ],
+    [lastDay],
+  );
+  return days.map((day) => ({
+    at: day * DAY_SECONDS + SNAPSHOT_HOUR_SECONDS + prng.nextInt(0, SNAPSHOT_SPREAD_SECONDS),
+    date: dateOf(day),
+  }));
+};
+
+type Span = { readonly from: number; readonly to: number };
+
+/** The span, in seconds, between snapshot `index` and the one before it: where anything
+ *  that snapshot is the first to hold was saved. */
+const spanBefore = (boundaries: readonly number[], index: number): Span => ({
+  from:
+    index === 0
+      ? (boundaries[0] ?? LAST_SECOND) - WINDOW_SECONDS
+      : (boundaries[index - 1] ?? 0) + 1,
+  to: boundaries[index] ?? LAST_SECOND,
+});
+
+const secondIn = (prng: Prng, span: Span): number => prng.nextInt(span.from, span.to);
+
+const renderVersion = ({
+  spec,
+  author,
+  createdAt,
+  modifiedAt,
+  prng,
+}: {
+  readonly spec: ShareFileSpec;
+  readonly author: MailPerson;
+  readonly createdAt: number;
+  readonly modifiedAt: number;
+  readonly prng: Prng;
+}): string => {
   switch (spec.format) {
     case 'text':
       return spec.body;
@@ -83,6 +147,119 @@ const contentOf = (
   }
 };
 
+/** A photo is taken once and a note is rewritten whole; the documents are what people
+ *  keep saving over. */
+const isRevisable = (spec: ShareFileSpec): boolean =>
+  spec.format === 'pdf' || spec.format === 'docx' || spec.format === 'xlsx';
+
+/** Every file the share has ever held, each with the states it was saved in. `boundaries`
+ *  are the moments, in seconds, the share was captured: a backup box's snapshots, or the
+ *  last moment of the world for a working share. */
+const drawFiles = ({
+  essid,
+  prng,
+  people,
+  boundaries,
+}: {
+  readonly essid: string;
+  readonly prng: Prng;
+  readonly people: readonly MailPerson[];
+  readonly boundaries: readonly number[];
+}): readonly ShareFile[] => {
+  const departments = SHARE_FOLDERS[networkPersona(essid).category];
+  const folderNames = Object.keys(departments);
+  const chosen = prng.pickN(
+    folderNames,
+    prng.nextInt(FOLDER_COUNT.min, Math.min(FOLDER_COUNT.max, folderNames.length)),
+  );
+  const specs = chosen.flatMap((folder) =>
+    prng
+      .pickN(departments[folder] ?? [], prng.nextInt(FILES_PER_FOLDER.min, FILES_PER_FOLDER.max))
+      .map((spec) => ({ folder, spec })),
+  );
+
+  // Every snapshot after the first holds at least one file the one before it did not:
+  // a backup that never changed would be the same night kept twice.
+  const lastIndex = boundaries.length - 1;
+  const arrivals = new Map(
+    prng.pickN(specs, lastIndex).map((entry, index) => [entry, index + 1] as const),
+  );
+
+  return specs.map((entry) => {
+    const { folder, spec } = entry;
+    const firstIn =
+      arrivals.get(entry) ??
+      (lastIndex > 0 && prng.next() < LATE_ARRIVAL_CHANCE ? prng.nextInt(1, lastIndex) : 0);
+    const author = prng.pick(people);
+    const span = spanBefore(boundaries, firstIn);
+    const createdSecond = secondIn(prng, span);
+    const firstSaved = prng.nextInt(
+      createdSecond,
+      Math.min(createdSecond + EDITING_SECONDS, span.to),
+    );
+    const revisedIn =
+      isRevisable(spec) && firstIn < lastIndex && prng.next() < REVISION_CHANCE
+        ? prng.nextInt(firstIn + 1, lastIndex)
+        : null;
+    const savedSeconds = [
+      firstSaved,
+      ...(revisedIn === null
+        ? []
+        : [secondIn(prng, spanBefore(boundaries, revisedIn))]),
+    ];
+    return {
+      folder,
+      name: spec.name,
+      firstIn,
+      versions: savedSeconds.map((savedSecond) => ({
+        savedAt: savedSecond,
+        content: renderVersion({
+          spec,
+          author,
+          createdAt: createdSecond * 1000,
+          modifiedAt: savedSecond * 1000,
+          prng,
+        }),
+      })),
+    };
+  });
+};
+
+/** The share as it stood at snapshot `index`: every file already in it, in the last
+ *  state it was saved in by then, under the department it belongs to. */
+const treeAt = ({
+  files,
+  index,
+  boundary,
+  account,
+}: {
+  readonly files: readonly ShareFile[];
+  readonly index: number;
+  readonly boundary: number;
+  readonly account: string;
+}): Directory => {
+  const present = files.filter((shareFile) => shareFile.firstIn <= index);
+  const folders = [...new Set(present.map((shareFile) => shareFile.folder))];
+  return dir(
+    Object.fromEntries(
+      folders.map((folder) => {
+        const entries: Record<string, FileEntry> = Object.fromEntries(
+          present
+            .filter((shareFile) => shareFile.folder === folder)
+            .map((shareFile) => {
+              const saved = shareFile.versions.filter((version) => version.savedAt <= boundary);
+              const current = saved.at(-1) ?? shareFile.versions[0];
+              return [shareFile.name, file(current?.content ?? '', SHARE_FILE, account)];
+            }),
+        );
+        return [folder, dir(entries, SHARE_DIR, account)];
+      }),
+    ),
+    SHARE_DIR,
+    account,
+  );
+};
+
 /**
  * The `/srv` of a file server, or null for a box that keeps no share.
  *
@@ -100,30 +277,27 @@ export const buildShare = ({
   readonly account: string;
   readonly people: readonly MailPerson[];
 }): Directory | null => {
-  if (!WORKING_SHARE_PREFIXES.includes(prefixOf(host.hostname))) return null;
+  const prefix = prefixOf(host.hostname);
+  const keepsBackups = BACKUP_PREFIXES.includes(prefix);
+  if (!keepsBackups && !WORKING_SHARE_PREFIXES.includes(prefix)) return null;
 
   const prng = createPrng(`share-${essid}-${host.ip}`);
-  const departments = SHARE_FOLDERS[networkPersona(essid).category];
-  const folderNames = Object.keys(departments);
-  const chosen = prng.pickN(
-    folderNames,
-    prng.nextInt(FOLDER_COUNT.min, Math.min(FOLDER_COUNT.max, folderNames.length)),
+  if (!keepsBackups) {
+    const files = drawFiles({ essid, prng, people, boundaries: [LAST_SECOND] });
+    return dir(
+      { share: treeAt({ files, index: 0, boundary: LAST_SECOND, account }) },
+      TRAVERSABLE_DIR,
+    );
+  }
+
+  const nights = snapshotNights(prng);
+  const boundaries = nights.map((night) => night.at);
+  const files = drawFiles({ essid, prng, people, boundaries });
+  const snapshots = Object.fromEntries(
+    nights.map((night, index) => [
+      night.date,
+      treeAt({ files, index, boundary: night.at, account }),
+    ]),
   );
-  const folders = Object.fromEntries(
-    chosen.map((folder) => {
-      const specs = departments[folder] ?? [];
-      const picked = prng.pickN(
-        specs,
-        prng.nextInt(FILES_PER_FOLDER.min, FILES_PER_FOLDER.max),
-      );
-      const files: Record<string, FileEntry> = Object.fromEntries(
-        picked.map((spec) => [
-          spec.name,
-          file(contentOf(spec, prng.pick(people), prng), SHARE_FILE, account),
-        ]),
-      );
-      return [folder, dir(files, SHARE_DIR, account)];
-    }),
-  );
-  return dir({ share: dir(folders, SHARE_DIR, account) }, TRAVERSABLE_DIR);
+  return dir({ backup: dir(snapshots, SHARE_DIR, account) }, TRAVERSABLE_DIR);
 };
