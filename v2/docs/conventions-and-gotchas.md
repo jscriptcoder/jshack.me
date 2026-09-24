@@ -3087,7 +3087,7 @@ blocks the live PvP loop; each was a scoped owner decision, not a gap.
   boundary 1, re-confirmed live 2026-08-31; a fix is an own-box branch in `snmpwalk`, deferred.
 - **A wire-check sweep should read 585/585 across 57 scripts; `testFtpSession` spent from #394
   to v0.183.0 red at 12/14 for a FIXTURE reason.** It picked its target because the host serves
-  **ftp** (`kind === 'machine' && serves(ftp)` → `speaker-26` on `VSFTPD-LAB`, `ftp:2121`), then
+  **ftp** (`kind === 'machine' && serves(ftp)` → `babycam-26` on `VSFTPD-LAB`, `ftp:2121`), then
   asserted a plain **ssh** `authCreateSession` against that same host — which runs no sshd, so
   the login was refused, no session row was written, and the two `kind`-default checks read an
   absent row. Fixed 2026-08-26 by giving the ssh half its own host and credential; the guard now

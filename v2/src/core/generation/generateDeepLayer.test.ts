@@ -121,7 +121,7 @@ describe('generateDeepLayer', () => {
     // so a mutated kind-seed namespace also shifts it and fails here.
     expect(generateDeepLayer(ESSID, ROUTER_GW)).toEqual({
       subnet: '10.252.148',
-      host: { ip: '10.252.148.179', hostname: 'speaker-179', kind: 'machine' },
+      host: { ip: '10.252.148.179', hostname: 'nvr-179', kind: 'machine' },
       childGateway: { ip: '10.252.148.160', hostname: 'core-rtr-160', kind: 'switch' },
     });
   });

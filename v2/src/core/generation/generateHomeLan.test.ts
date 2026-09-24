@@ -3,7 +3,7 @@ import { generateHomeLan, type LanHost } from './generateHomeLan';
 import { assignHomeNetwork } from '../network/homeNetwork';
 import { seedApGatewayHostname, seedInnerGatewayHostname } from './routerFs';
 import { DRAWN_ROLES, machineRole } from './machineRole';
-import { HOSTNAME_PREFIXES } from './pools/hostnames';
+import { HOSTNAME_PREFIXES, roleOfHostname } from './pools/hostnames';
 
 /**
  * `generateHomeLan` is the pure topology generator behind `nmap <subnet>`. Given an
@@ -27,7 +27,7 @@ const ESSID = 'BEAN-THERE-WIFI';
 // is what keeps an occupant off these octets.
 //
 // This reads as somebody's flat, which is what it is: four personal devices, a NAS,
-// a couple of web boxes and a television. NAMES here are expected to move when the
+// a couple of web boxes and a video recorder. NAMES here are expected to move when the
 // roles or their pools change — the addresses beside them are not, and are pinned
 // separately so updating this literal cannot quietly re-bless a drifted octet.
 const GOLDEN_HOSTS = [
@@ -39,7 +39,7 @@ const GOLDEN_HOSTS = [
   { ip: '192.168.29.149', hostname: 'tablet-149', kind: 'machine' },
   { ip: '192.168.29.154', hostname: 'www-154', kind: 'machine' },
   { ip: '192.168.29.164', hostname: 'desktop-164', kind: 'machine' },
-  { ip: '192.168.29.187', hostname: 'tv-187', kind: 'machine' },
+  { ip: '192.168.29.187', hostname: 'nvr-187', kind: 'machine' },
   { ip: '192.168.29.213', hostname: 'pfsense01', kind: 'switch' },
   { ip: '192.168.29.229', hostname: 'nginx-229', kind: 'machine' },
 ];
@@ -290,6 +290,26 @@ describe('generateHomeLan', () => {
     );
 
     expect(shared).toEqual([]);
+  });
+
+  it('names plugs, locks, recorders and baby monitors among the devices, and draws each', () => {
+    // A home or office network holds more than cameras and thermostats. Each of these
+    // must read back as a device and actually turn up on some network, or a player
+    // would never meet one.
+    const deviceNames = ['plug', 'lock', 'nvr', 'babycam'];
+    const drawnPrefixes = new Set(sampledMachines().map(({ host }) => prefixOf(host.hostname)));
+
+    expect(deviceNames.map((name) => roleOfHostname(`${name}-12`))).toEqual(
+      deviceNames.map(() => 'iot'),
+    );
+    expect(deviceNames.filter((name) => !drawnPrefixes.has(name))).toEqual([]);
+  });
+
+  it('reads no role off a name without the octet, even one that starts like a prefix', () => {
+    // Players name their own workstations freely. A box a player calls `nas1` is
+    // theirs, not a file server, and must not grow a file server's services.
+    expect(roleOfHostname('nas1')).toBeUndefined();
+    expect(roleOfHostname('nas-1')).toBe('fileserver');
   });
 
   it('keeps the octet in the name, so a name still says where the box is', () => {
