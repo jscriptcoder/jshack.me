@@ -4,18 +4,52 @@
 1–25, plus **twelve owner decisions and the derived points confirmed with them** (2026-09-24),
 recorded in the epic's status log and restated under "Decided at planning" below.
 
-**Status:** Planned, not started.
+**Status:** PR 9a DELIVERED (#545, v0.259.0, 2026-09-24). PR 9b not started — it is unblocked.
 
 **Delivery:** three independent PRs against trunk, in order. Each starts once the one before it
 merges.
 
 | PR | Branch (proposed) | Version | Owns |
 |---|---|---|---|
-| 9a | `feat/iot-prefix-growth` | v0.259.0 | `plug`, `lock`, `nvr`, `babycam` join iot; the one re-roll, its pins, docs and journal reset |
-| 9b | `feat/a-device-is-the-device-it-says` | v0.260.0 | device kinds; printer (CUPS config, spool, `page_log.1`, UI), camera (events, snapshots, UI), recorder (archive, UI), LAN and deep |
+| 9a | `feat/iot-prefix-growth` | v0.259.0 | ✅ **DONE** (#545) — `plug`, `lock`, `nvr`, `babycam` join iot; the one re-roll, its pins, docs and journal reset |
+| 9b | `feat/a-device-is-the-device-it-says` | v0.260.0 | ⏳ device kinds; printer (CUPS config, spool, `page_log.1`, UI), camera (events, snapshots, UI), recorder (archive, UI), LAN and deep |
 | 9c | `feat/every-device-says-what-it-is` | v0.261.0 | climate, media, plug, lock (configs, data, UIs), LAN and deep; `device.conf` and the generic IoT page pool retire |
 
 Each PR bumps `v2/package.json` and `v2/package-lock.json` (`npm install --package-lock-only`).
+
+### As-built: PR 9a
+
+One RED-GREEN increment as planned, then one test from the mutation gate.
+
+- **The re-roll, measured.** 90 IoT boxes renamed in place (14 `plug`, 11 `nvr`, 7 `lock`,
+  6 `babycam` among them); no box's role or services moved, no file added or removed. The three
+  pins moved as predicted: `tv-187` → `nvr-187` (home LAN golden), `speaker-179` → `nvr-179`
+  (deep golden), `doorbell-87`/`tv-137` → `tv-87`/`lock-137` on ACME-CORP's deep zone (`cam-189`
+  and the home LAN's `cam-138` unchanged). The conventions doc's ftp example is the same `.26`
+  host, now `babycam-26`. No script, skill or doc hardcoded an IoT name.
+- **The byte-diff, and how 9b and 9c should run it.** The probe keyed every file by
+  `<essid>/<ip>/<path>`, plus three pseudo-files per box (`#hostname`, `#role`, `#services`), so
+  a moved role or service shows as a differing path rather than hiding inside content. The
+  classifier builds each network's old→new name table from `#hostname`, substitutes it into the
+  `main` side, and requires the result to equal the branch. That explained all but 34 files;
+  those move a number or a column that depends on a name's length — an access log's page size, a
+  mail log's `size=`, four zone files' padding — and pass once those are normalised, each
+  access-log size also checked against the page it serves. 9b and 9c change content rather than
+  names, so their classifier is per path, but the pseudo-files carry over unchanged.
+- **Sizes are characters, not bytes, everywhere.** The access log's size is the page's
+  `content.length`, so a page holding `—` logs a few bytes under its UTF-8 size. That is the
+  game's one convention (`get` and `vsftpd.log.1` count the same way, as 8a recorded), not a
+  defect; 9b's `page_log.1` and spool sizes follow it.
+- **Mutation** (`pools/hostnames.ts` alone): 47 → 48 killed of 52, 0 timeouts. The gate found a
+  gap on an unchanged line: nothing held that a name without the octet claims no role, so a
+  player's workstation called `nas1` could have read as a file server; a test now does. Of the
+  four survivors, `separator <= 0` is equivalent, and three are load-time throws (the table as
+  `{}`, either map callback as `() => undefined`) that the narrowed runner reports as "no tests"
+  — applied by hand, the suite fails.
+
+**Verified:** 5,858 unit tests; wire-checks `testSameLanConnect` 4/4, `testCrossPlayerRead` 7/7,
+`testDeepChainReach` 6/6, `testFtpRemoteRead` 7/7 and `testFtpSession` 14/14 on a reset local
+stack; bundle 204,118 B of 284,975 B; build 0.69–1.09 ms per box of 2 ms.
 
 ---
 
