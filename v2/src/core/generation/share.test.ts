@@ -25,7 +25,7 @@ import { buildRemoteHostFs, npcUsername } from './remoteHostFs';
 import { networkPersona } from './persona';
 import { boxMail, networkMail } from './networkMail';
 import { ALL_GENERATED_PASSWORDS } from './passwordPools';
-import { SHARE_FOLDERS } from './pools/shareFiles';
+import { PHONE_MODELS, SHARE_FOLDERS } from './pools/shareFiles';
 import type { NetworkCategory } from './pools/essidCatalog';
 
 const NO_FLAGS = new Map<string, string | true>();
@@ -124,6 +124,44 @@ describe('a document on a share is the real format, not text wearing its name', 
     const startxref = Number(content.match(/startxref\n(\d+)\n/)?.[1]);
     expect(content.slice(startxref, startxref + 4)).toBe('xref');
   });
+
+  it('a PDF holds one A4 page, and its cross-reference and trailer count every object', async () => {
+    const content = renderDocument(getPdf(), createPrng('pdf'));
+    const lines = await readableLinesOf(content);
+
+    expect(lines).toContain('<< /Type /Catalog /Pages 2 0 R >>');
+    expect(lines).toContain('<< /Type /Pages /Kids [3 0 R] /Count 1 >>');
+    expect(lines).toContain(
+      '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R >>',
+    );
+    const xref = content.slice(content.indexOf('\nxref\n') + 1, content.indexOf('trailer'));
+    expect(xref.split('\n').slice(0, 3)).toEqual(['xref', '0 6', '0000000000 65535 f ']);
+    expect(xref.match(/^\d{10} \d{5} [fn] $/gm)).toHaveLength(6);
+    // The heading, the subsection line and the six entries: nothing else.
+    expect(xref.trimEnd().split('\n')).toHaveLength(8);
+    expect(lines).toContain('<< /Size 6 /Root 1 0 R /Info 5 0 R >>');
+  });
+
+  it('a photo opens and closes with the JPEG markers, and its Exif says its byte order', () => {
+    const content = renderDocument(getPhoto(), createPrng('jpeg'));
+
+    expect(content.startsWith('\u00ff\u00d8\u00ff\u00e0')).toBe(true);
+    expect(content.endsWith('\u00ff\u00d9')).toBe(true);
+    expect(content.slice(content.indexOf('Exif'), content.indexOf('Exif') + 12)).toContain('MM');
+  });
+
+  it.each(['docx', 'xlsx'] as const)(
+    'a %s opens with a zip member header and closes with the end of its directory',
+    (format) => {
+      const content = renderDocument({ format }, createPrng('zip'));
+
+      expect(content.startsWith('PK\u0003\u0004')).toBe(true);
+      const end = content.lastIndexOf('PK\u0005\u0006');
+      expect(end).toBeGreaterThan(0);
+      // The end record is fixed-size: its signature and eighteen bytes after it.
+      expect(content.length - end).toBe(22);
+    },
+  );
 
   it('a PDF names no software version, only its format', async () => {
     const lines = await readableLinesOf(renderDocument(getPdf(), createPrng('pdf')));
@@ -794,5 +832,270 @@ describe('what a share holds', () => {
     );
     expect(bodies.length).toBeGreaterThan(0);
     expect(new Set(bodies).size / bodies.length).toBeGreaterThanOrEqual(0.9);
+  });
+});
+
+/** A backup box's snapshots, oldest first, each as its date and its files. */
+const snapshotFilesOf = (box: Box) =>
+  snapshotsOf(box).map(([date, snapshot]) => ({ date, files: filesUnder(snapshot) }));
+
+/** Every pair of consecutive snapshots on every backup box in the world. */
+const consecutiveNights = () =>
+  backupBoxes().flatMap((box) => {
+    const snapshots = snapshotFilesOf(box);
+    return snapshots.slice(1).map((later, index) => ({
+      box,
+      earlier: snapshots[index] ?? later,
+      later,
+    }));
+  });
+
+/** The earliest a box could have been installed: nothing on it predates that. */
+const EARLIEST_INSTALL = WORLD_EPOCH - 400 * 86_400_000;
+
+describe('how a share changed over time', () => {
+  it('shows a document saved again between two nights with its later save', async () => {
+    let revised = 0;
+    for (const { box, earlier, later } of consecutiveNights()) {
+      for (const [path, content] of later.files) {
+        const before = earlier.files.get(path);
+        if (before === undefined || before === content) continue;
+        const label = `${box.host.hostname} ${earlier.date} -> ${later.date} ${path}`;
+        // A photo is taken once and a note is rewritten whole; only a document is saved
+        // over, so only a document may differ from one night to the next.
+        expect(/\.(pdf|docx|xlsx)$/.test(path), label).toBe(true);
+        if (path.endsWith('.pdf')) {
+          const then = await readableLinesOf(before);
+          const now = await readableLinesOf(content);
+          expect(pdfEntry(now, 'CreationDate'), label).toBe(pdfEntry(then, 'CreationDate'));
+          expect(pdfMoment(pdfEntry(now, 'ModDate') ?? ''), label).toBeGreaterThan(
+            pdfMoment(pdfEntry(then, 'ModDate') ?? ''),
+          );
+        }
+        revised++;
+      }
+    }
+    expect(revised).toBeGreaterThan(0);
+  });
+
+  it('saves over every kind of document, and leaves most of them as they were', () => {
+    const revisedKinds = new Set<string>();
+    let kept = 0;
+    let changed = 0;
+    backupBoxes().forEach((box) => {
+      const snapshots = snapshotFilesOf(box);
+      const first = snapshots[0]?.files ?? new Map<string, string>();
+      const last = snapshots.at(-1)?.files ?? new Map<string, string>();
+      [...first].forEach(([path, content]) => {
+        if (!/\.(pdf|docx|xlsx)$/.test(path)) return;
+        if (last.get(path) === content) {
+          kept++;
+          return;
+        }
+        changed++;
+        revisedKinds.add(path.slice(path.lastIndexOf('.')));
+      });
+    });
+    expect([...revisedKinds].sort()).toEqual(['.docx', '.pdf', '.xlsx']);
+    // A few documents are saved again between backups; most sit untouched.
+    expect(changed).toBeLessThan(kept);
+  });
+
+  it('sometimes gains more than one file in a night', () => {
+    const gains = consecutiveNights().map(
+      ({ earlier, later }) =>
+        [...later.files.keys()].filter((path) => !earlier.files.has(path)).length,
+    );
+    expect(Math.max(...gains)).toBeGreaterThan(1);
+  });
+
+  it('dates every document within the life of the box', async () => {
+    for (const box of fileServerBoxes()) {
+      for (const [path, content] of uniqueShareFiles(buildRemoteHostFs(box.essid, box.host))) {
+        if (!path.endsWith('.pdf')) continue;
+        const lines = await readableLinesOf(content);
+        const created = pdfMoment(pdfEntry(lines, 'CreationDate') ?? '');
+        expect(created, `${box.host.hostname} ${path}`).toBeGreaterThanOrEqual(EARLIEST_INSTALL);
+      }
+    }
+  });
+
+  it('shows documents on a working share worked on for days after they were started', async () => {
+    let workedOn = 0;
+    for (const box of workingShareBoxes()) {
+      for (const [path, content] of uniqueShareFiles(buildRemoteHostFs(box.essid, box.host))) {
+        if (!path.endsWith('.pdf')) continue;
+        const lines = await readableLinesOf(content);
+        const days =
+          (pdfMoment(pdfEntry(lines, 'ModDate') ?? '') -
+            pdfMoment(pdfEntry(lines, 'CreationDate') ?? '')) /
+          86_400_000;
+        if (days > 1) workedOn++;
+      }
+    }
+    expect(workedOn).toBeGreaterThan(0);
+  });
+
+  it('keeps some departments full and some not', () => {
+    const counts = workingShareBoxes().flatMap((box) =>
+      [...directoryAt(buildRemoteHostFs(box.essid, box.host), ['srv', 'share']).entries.values()].map(
+        (folder) => (folder.kind === 'directory' ? folder.entries.size : 0),
+      ),
+    );
+    expect(Math.max(...counts)).toBe(10);
+    expect(Math.min(...counts)).toBeLessThan(10);
+  });
+});
+
+describe('what the photos and notes on a share say', () => {
+  it('names a camera on every photo, signs some and leaves others unsigned', async () => {
+    let signed = 0;
+    let unsigned = 0;
+    for (const box of [...fileServerBoxes(), ...deepFileServers()]) {
+      for (const [path, content] of uniqueShareFiles(buildDeepHostFs(box.essid, box.host))) {
+        if (!path.endsWith('.jpg')) continue;
+        const lines = await readableLinesOf(content);
+        expect(lines.length, `${box.host.hostname} ${path}`).toBeGreaterThanOrEqual(5);
+        expect(lines[2], path).toMatch(/^\S.{3,}$/);
+        expect(lines[3], path).toMatch(/^\S.{3,}$/);
+        if (lines.length === 6) signed++;
+        else unsigned++;
+      }
+    }
+    expect(signed).toBeGreaterThan(0);
+    expect(unsigned).toBeGreaterThan(0);
+  });
+
+  it('takes photos below the LAN on a camera, since no phone there can be seen', async () => {
+    let photos = 0;
+    for (const box of deepFileServers()) {
+      for (const [path, content] of uniqueShareFiles(buildDeepHostFs(box.essid, box.host))) {
+        if (!path.endsWith('.jpg')) continue;
+        const make = (await readableLinesOf(content))[2] ?? '';
+        expect(Object.keys(MODEL_RANGE), `${box.host.hostname} ${path}`).not.toContain(make);
+        expect(make.length).toBeGreaterThanOrEqual(4);
+        photos++;
+      }
+    }
+    expect(photos).toBeGreaterThan(0);
+  });
+
+  it('knows each phone in the world as its own model, not every phone as one', async () => {
+    const models = new Map<string, Set<string>>();
+    for (const box of fileServerBoxes()) {
+      for (const [path, content] of uniqueShareFiles(buildRemoteHostFs(box.essid, box.host))) {
+        if (!path.endsWith('.jpg')) continue;
+        const [, , make = '', model = ''] = await readableLinesOf(content);
+        if (!(make in MODEL_RANGE)) continue;
+        models.set(make, (models.get(make) ?? new Set()).add(model));
+      }
+    }
+    expect([...models.values()].some((seen) => seen.size > 1)).toBe(true);
+  });
+
+  it('names every file the way a person saves one, its extension its format', () => {
+    for (const box of manyFileServers()) {
+      for (const path of uniqueShareFiles(buildRemoteHostFs(box.essid, box.host)).keys()) {
+        expect(path.split('/').pop(), path).toMatch(
+          /^(README|[a-z0-9]+(-[a-z0-9]+)*)\.(pdf|jpg|docx|xlsx|txt|csv|md)$/,
+        );
+      }
+    }
+  });
+
+  it('can have been taken on every model of phone a network may hold', async () => {
+    // The catalog holds too few phones to draw every model, so these networks are
+    // stood up only to be read: any file server on them with a phone beside it.
+    const seen = new Set<string>();
+    for (let index = 0; index < 400; index++) {
+      const essid = `PHONE-SURVEY-${index}`;
+      const hosts = generateHomeLan(essid).hosts;
+      if (!hosts.some((host) => prefixOf(host.hostname) in PHONE_MAKERS)) continue;
+      for (const host of hosts.filter(
+        (candidate) => roleOfHostname(candidate.hostname) === 'fileserver',
+      )) {
+        for (const [path, content] of uniqueShareFiles(buildRemoteHostFs(essid, host))) {
+          if (!path.endsWith('.jpg')) continue;
+          const [, , make = '', model = ''] = await readableLinesOf(content);
+          seen.add(`${make}|${model}`);
+        }
+      }
+    }
+    const everyModel = Object.values(PHONE_MODELS)
+      .flat()
+      .map(({ make, model }) => `${make}|${model}`);
+    expect(everyModel.filter((model) => !seen.has(model))).toEqual([]);
+  });
+
+  it('gives every PDF a title', async () => {
+    for (const box of manyFileServers()) {
+      for (const [path, content] of uniqueShareFiles(buildRemoteHostFs(box.essid, box.host))) {
+        if (!path.endsWith('.pdf')) continue;
+        expect(pdfEntry(await readableLinesOf(content), 'Title'), path).toMatch(/^\S/);
+      }
+    }
+  });
+
+  it('writes every note without a stray blank line', () => {
+    for (const box of manyFileServers()) {
+      for (const [path, content] of uniqueShareFiles(buildRemoteHostFs(box.essid, box.host))) {
+        if (!isText(path)) continue;
+        const lines = content.replace(/\n$/, '').split('\n');
+        const label = `${path}: ${JSON.stringify(content)}`;
+        expect(content.endsWith('\n'), label).toBe(true);
+        expect(lines[0], label).toMatch(/\S/);
+        expect(lines.at(-1), label).toMatch(/\S/);
+        // Markdown keeps one blank line under its heading and nowhere else is one needed.
+        const blanks = lines.filter((line) => line.trim() === '').length;
+        expect(blanks, label).toBe(path.endsWith('.md') && lines[0]?.startsWith('# ') ? 1 : 0);
+        if (path.endsWith('.md')) expect(lines[1], label).toBe('');
+      }
+    }
+  });
+
+  it("fills a note's slots with the place, its people, a day and a number", () => {
+    const checked = new Set<string>();
+    for (const box of manyFileServers()) {
+      const cast = deepCastOf(box);
+      const firstNames = cast.map((name) => name.split(' ')[0]);
+      const place = networkPersona(box.essid).place;
+      for (const [path, content] of uniqueShareFiles(buildRemoteHostFs(box.essid, box.host))) {
+        const name = path.split('/').pop() ?? '';
+        const lines = content.split('\n');
+        const label = `${box.host.hostname} ${path}`;
+        if (name === 'keys.txt') {
+          const [, where, day] = lines[0]?.match(/^Who holds a key to (.+), as of (.+)$/) ?? [];
+          expect(where, label).toBe(place);
+          expect(day, label).toMatch(/^\d{4}-\d\d-\d\d$/);
+          expect(Date.parse(`${day ?? ''}T00:00:00Z`), label).toBeLessThan(WORLD_EPOCH);
+          lines.slice(1, 4).forEach((line) => expect(cast, label).toContain(line));
+          checked.add(name);
+        }
+        if (name === 'printer-setup.txt') {
+          const [, first] = lines[2]?.match(/^Still stuck\? Ask (\S+)\. Updated \S+\.$/) ?? [];
+          expect(firstNames, label).toContain(first);
+          checked.add(name);
+        }
+        if (name === 'fridge-temps.csv') {
+          const [, count, person] = lines[1]?.match(/^\S+,display,(\d+),(.+)$/) ?? [];
+          expect(Number(count), label).toBeGreaterThanOrEqual(2);
+          expect(Number(count), label).toBeLessThanOrEqual(40);
+          expect(cast, label).toContain(person);
+          checked.add(name);
+        }
+        if (name === 'banking.txt') {
+          const [, amount] = lines[0]?.match(/^Banked on \d{4}-\d\d-\d\d: (\d+)$/) ?? [];
+          expect(Number(amount), label).toBeGreaterThanOrEqual(20);
+          expect(Number(amount), label).toBeLessThanOrEqual(4000);
+          checked.add(name);
+        }
+      }
+    }
+    expect([...checked].sort()).toEqual([
+      'banking.txt',
+      'fridge-temps.csv',
+      'keys.txt',
+      'printer-setup.txt',
+    ]);
   });
 });

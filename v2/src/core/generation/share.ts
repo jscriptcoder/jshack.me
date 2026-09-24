@@ -43,8 +43,8 @@ const BACKUP_FILES_MAX = 80;
 /** How often a photo carries the name of whoever took it. */
 const SIGNED_PHOTO_CHANCE = 0.5;
 
-/** The hostname prefixes that name each shape a share is kept in. */
-const WORKING_SHARE_PREFIXES: readonly string[] = ['share', 'files', 'nas'];
+/** The hostname prefixes of a file server that keeps backups; every other file server
+ *  (`share-`, `files-`, `nas-`) keeps the working tree. */
 const BACKUP_PREFIXES: readonly string[] = ['backup', 'vault'];
 
 const SNAPSHOT_COUNT = { min: 2, max: 4 } as const;
@@ -123,7 +123,9 @@ type ShareCast = {
   readonly devices: readonly Device[];
 };
 
-const firstNameOf = (person: MailPerson): string => person.fullName.split(' ')[0] ?? '';
+/** Every person is drawn with a first name and a surname, so the first space ends it. */
+const firstNameOf = (person: MailPerson): string =>
+  person.fullName.slice(0, person.fullName.indexOf(' '));
 
 /** A text body with every slot filled. A slot nothing fills is left as written, so a
  *  misspelt one shows up in the file rather than vanishing. */
@@ -221,11 +223,10 @@ const drawFiles = ({
   /** How many files the share may hold in all. */
   readonly budget: { readonly min: number; readonly max: number };
 }): readonly ShareFile[] => {
-  const departments = SHARE_FOLDERS[networkPersona(essid).category];
-  const folderNames = Object.keys(departments);
+  const departments = Object.entries(SHARE_FOLDERS[networkPersona(essid).category]);
   const chosen = prng.pickN(
-    folderNames,
-    prng.nextInt(FOLDER_COUNT.min, Math.min(FOLDER_COUNT.max, folderNames.length)),
+    departments,
+    prng.nextInt(FOLDER_COUNT.min, Math.min(FOLDER_COUNT.max, departments.length)),
   );
   // Each department's share of the budget, so the whole lands inside it however many
   // departments were drawn.
@@ -233,9 +234,9 @@ const drawFiles = ({
     min: Math.max(FILES_PER_FOLDER.min, Math.ceil(budget.min / chosen.length)),
     max: Math.min(FILES_PER_FOLDER.max, Math.floor(budget.max / chosen.length)),
   };
-  const specs = chosen.flatMap((folder) =>
+  const specs = chosen.flatMap(([folder, pool]) =>
     prng
-      .pickN(departments[folder] ?? [], prng.nextInt(perFolder.min, perFolder.max))
+      .pickN(pool, prng.nextInt(perFolder.min, perFolder.max))
       .map((spec) => ({ folder, spec })),
   );
 
@@ -309,9 +310,12 @@ const treeAt = ({
           present
             .filter((shareFile) => shareFile.folder === folder)
             .map((shareFile) => {
-              const saved = shareFile.versions.filter((version) => version.savedAt <= boundary);
-              const current = saved.at(-1) ?? shareFile.versions[0];
-              return [shareFile.name, file(current?.content ?? '', SHARE_FILE, account)];
+              // The first version was saved before the snapshot that first holds the
+              // file, so there is always one to start from.
+              const current = shareFile.versions.reduce((latest, version) =>
+                version.savedAt <= boundary ? version : latest,
+              );
+              return [shareFile.name, file(current.content, SHARE_FILE, account)];
             }),
         );
         return [folder, dir(entries, SHARE_DIR, account)];
@@ -344,7 +348,8 @@ const photoDevices = (essid: string, host: LanHost): readonly Device[] => {
 };
 
 /**
- * The `/srv` of a file server, or null for a box that keeps no share.
+ * The `/srv` of a file server: dated snapshots on a backup box, the working tree on any
+ * other.
  *
  * `people` are who may have written what is on it; `account` is the box's own login,
  * which uploaded all of it and so owns it.
@@ -359,11 +364,8 @@ export const buildShare = ({
   readonly host: LanHost;
   readonly account: string;
   readonly people: readonly MailPerson[];
-}): Directory | null => {
-  const prefix = prefixOf(host.hostname);
-  const keepsBackups = BACKUP_PREFIXES.includes(prefix);
-  if (!keepsBackups && !WORKING_SHARE_PREFIXES.includes(prefix)) return null;
-
+}): Directory => {
+  const keepsBackups = BACKUP_PREFIXES.includes(prefixOf(host.hostname));
   const prng = createPrng(`share-${essid}-${host.ip}`);
   const cast: ShareCast = {
     people,
