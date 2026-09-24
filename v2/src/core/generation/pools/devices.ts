@@ -32,7 +32,7 @@ export const PAGE_LOG_FORMAT =
 
 /** The scheduler's config, as Debian ships it and an admin then tunes it. Every one
  *  listens on the loopback and its socket only, since nothing on the network answers
- *  on 631; logs pages; keeps every job's history; and keeps a job's document for a day,
+ *  on 631; logs pages; keeps a job's history for thirty days and its document for one,
  *  which is why the spool holds data files for the last day's jobs and no older. */
 export const CUPSD_CONFS: readonly string[] = [
   [
@@ -46,7 +46,7 @@ export const CUPSD_CONFS: readonly string[] = [
     'Browsing No',
     'DefaultAuthType Basic',
     'WebInterface Yes',
-    'PreserveJobHistory Yes',
+    'PreserveJobHistory 30d',
     'PreserveJobFiles 1d',
     '<Location />',
     '  Order allow,deny',
@@ -71,7 +71,7 @@ export const CUPSD_CONFS: readonly string[] = [
     'DefaultAuthType Basic',
     'WebInterface Yes',
     'IdleExitTimeout 60',
-    'PreserveJobHistory Yes',
+    'PreserveJobHistory 30d',
     'PreserveJobFiles 1d',
     '<Location />',
     '  Order allow,deny',
@@ -96,7 +96,7 @@ export const CUPSD_CONFS: readonly string[] = [
     'DefaultAuthType Basic',
     'DefaultEncryption IfRequested',
     'WebInterface Yes',
-    'PreserveJobHistory Yes',
+    'PreserveJobHistory 30d',
     'PreserveJobFiles 1d',
     '<Location />',
     '  Order allow,deny',

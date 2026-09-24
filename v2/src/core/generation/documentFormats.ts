@@ -195,6 +195,48 @@ const renderOfficeFile = (format: 'docx' | 'xlsx', rng: Prng): string => {
   return [...localEntries, ...centralEntries, `PK\u0005\u0006${noise(rng, 18)}`].join('');
 };
 
+/** What a print job's control file records. */
+export type ControlFileJob = {
+  readonly queue: string;
+  readonly user: string;
+  /** The address the job came from, or `localhost` for one sent on the box itself. */
+  readonly host: string;
+  readonly title: string;
+  /** The document's media type, as the client declared it. */
+  readonly format: string;
+};
+
+/** An IPP attribute as cupsd writes it: a tag and the name's length, the name, the
+ *  value's length, the value. The tag and lengths are binary, so `strings` shows the
+ *  name and the value as two runs, one after the other. */
+const ippAttribute = (rng: Prng, name: string, value: string): string =>
+  `${noise(rng, 3)}${name}${noise(rng, 2)}${value}`;
+
+/** An integer attribute: its four bytes are binary, so only the name shows. */
+const ippInteger = (rng: Prng, name: string): string => `${noise(rng, 3)}${name}${noise(rng, 6)}`;
+
+/**
+ * A CUPS control file, `c<job id>`: the job's IPP attributes as the scheduler saved
+ * them. `strings` gives up who sent it, from where and what it was called; its times
+ * and its state are integers and do not show.
+ */
+export const renderControlFile = (job: ControlFileJob, rng: Prng): string =>
+  [
+    noise(rng, 8),
+    ippAttribute(rng, 'attributes-charset', 'utf-8'),
+    ippAttribute(rng, 'attributes-natural-language', 'en-us'),
+    ippAttribute(rng, 'printer-uri', `ipp://localhost/printers/${job.queue}`),
+    ippAttribute(rng, 'job-originating-user-name', job.user),
+    ippAttribute(rng, 'job-name', job.title),
+    ippAttribute(rng, 'document-format', job.format),
+    ippAttribute(rng, 'job-originating-host-name', job.host),
+    ippInteger(rng, 'job-id'),
+    ippInteger(rng, 'job-state'),
+    ippInteger(rng, 'time-at-creation'),
+    ippInteger(rng, 'time-at-completed'),
+    noise(rng, 1),
+  ].join('');
+
 /** A document's content, its binary parts drawn from `rng`. */
 export const renderDocument = (metadata: DocumentMetadata, rng: Prng): string => {
   switch (metadata.format) {

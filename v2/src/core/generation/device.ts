@@ -11,11 +11,20 @@
  */
 
 import { createPrng, type Prng } from './prng';
-import { dir, file, ROOT_FILE, TRAVERSABLE_DIR } from './baseFs';
+import { dir, file, ROOT_DIR, ROOT_FILE, TRAVERSABLE_DIR } from './baseFs';
 import { uuid } from './etcContent';
+import { renderControlFile, renderDocument } from './documentFormats';
+import { generateHomeLan, isOnHomeLan, type LanHost } from './generateHomeLan';
+import { peopleKnownOn } from './mailbox';
+import type { MailPerson } from './networkMail';
+import { networkPersona } from './persona';
+import { roleOfHostname } from './pools/hostnames';
+import { npcUsername } from './remoteHostFs';
+import { buildShare, type ShareUpload } from './share';
 import { CUPSD_CONFS, PRINTER_MODELS } from './pools/devices';
+import { SHARE_FOLDERS } from './pools/shareFiles';
+import { WORLD_EPOCH } from '../cve/worldClock';
 import type { Directory, FileNode } from '../filesystem/types';
-import type { LanHost } from './generateHomeLan';
 
 export type DeviceKind = 'camera' | 'recorder' | 'printer' | 'climate' | 'media' | 'plug' | 'lock';
 
@@ -42,10 +51,11 @@ export const deviceKindOf = (hostname: string): DeviceKind | undefined => {
   return KIND_BY_PREFIX.get(hostname.slice(0, separator));
 };
 
-/** What a device adds to its box: entries for `/etc`, and the configs among them that
- *  root's history may name. */
+/** What a device adds to its box: entries for `/etc` and `/var`, and the configs among
+ *  them that root's history may name. */
 export type DeviceFiles = {
   readonly etc: Readonly<Record<string, FileNode>>;
+  readonly var: Readonly<Record<string, FileNode>>;
   readonly configPaths: readonly string[];
 };
 
@@ -85,7 +95,204 @@ const printersConf = (prng: Prng, model: string, queue: string): string => {
   ].join('\n');
 };
 
-const printerFiles = (prng: Prng): DeviceFiles => {
+/** A document somebody on the network could send to the printer: what it is called,
+ *  what it holds, who saved it and when, in seconds. */
+type Printable = {
+  readonly title: string;
+  readonly content: string;
+  readonly savedAt: number;
+  readonly author: MailPerson;
+};
+
+/** The file at `path` beneath `root`, or undefined where nothing is. */
+const contentAt = (root: Directory, path: string): string | undefined => {
+  const node = path
+    .split('/')
+    .reduce<FileNode | undefined>(
+      (current, name) => (current?.kind === 'directory' ? current.entries.get(name) : undefined),
+      root,
+    );
+  return node?.kind === 'file' ? node.content : undefined;
+};
+
+/** A share keeps its tree under `/srv`, and names each upload by its full path. */
+const SRV_PREFIX = '/srv/';
+
+/**
+ * Every document on the shares of `essid`'s home LAN, as each share holds it now, with
+ * the person who last saved it. Each file server's share is built exactly as that box
+ * builds it, so a document printed here is byte for byte the one a player finds there.
+ */
+const sharedPrintables = (essid: string, people: readonly MailPerson[]): readonly Printable[] =>
+  generateHomeLan(essid)
+    .hosts.filter(
+      (server) => server.kind === 'machine' && roleOfHostname(server.hostname) === 'fileserver',
+    )
+    .flatMap((server) => {
+      const account = npcUsername(essid, server);
+      const share = buildShare({
+        essid,
+        host: server,
+        account,
+        people: peopleKnownOn({ essid, host: server, username: account }),
+      });
+      const latest = new Map<string, ShareUpload>();
+      share.uploads.forEach((upload) => {
+        const earlier = latest.get(upload.path);
+        if (earlier === undefined || upload.at >= earlier.at) latest.set(upload.path, upload);
+      });
+      return [...latest.values()].flatMap((upload): readonly Printable[] => {
+        const content = contentAt(share.tree, upload.path.slice(SRV_PREFIX.length));
+        const author = people.find((person) => person.host.ip === upload.from.ip);
+        if (content === undefined || author === undefined) return [];
+        return [
+          {
+            title: upload.path.slice(upload.path.lastIndexOf('/') + 1),
+            content,
+            savedAt: Math.floor(upload.at / 1000),
+            author,
+          },
+        ];
+      });
+    });
+
+/**
+ * Documents of the kind the place keeps, written by its own people, for a printer with
+ * no share to print from: a network without a file server, or a box below the LAN that
+ * knows no neighbours. Only what an office prints — its PDFs and office files.
+ */
+const draftedPrintables = (
+  prng: Prng,
+  essid: string,
+  people: readonly MailPerson[],
+): readonly Printable[] =>
+  Object.values(SHARE_FOLDERS[networkPersona(essid).category])
+    .flat()
+    .flatMap((spec): readonly Printable[] => {
+      if (spec.format !== 'pdf' && spec.format !== 'docx' && spec.format !== 'xlsx') return [];
+      const author = prng.pick(people);
+      const savedAt = prng.nextInt(LAST_SECOND - DRAFTED_WINDOW_SECONDS, LAST_SECOND);
+      const content = renderDocument(
+        spec.format === 'pdf'
+          ? {
+              format: 'pdf',
+              title: spec.title,
+              author: author.fullName,
+              createdAt: savedAt * 1000,
+              modifiedAt: savedAt * 1000,
+            }
+          : { format: spec.format },
+        prng,
+      );
+      return [{ title: spec.name, content, savedAt, author }];
+    });
+
+/** The media type a client declares for a document, read off its extension. */
+const MEDIA_TYPES: Readonly<Record<string, string>> = {
+  pdf: 'application/pdf',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  jpg: 'image/jpeg',
+};
+
+const mediaTypeOf = (title: string): string =>
+  MEDIA_TYPES[title.slice(title.lastIndexOf('.') + 1)] ?? 'text/plain';
+
+const DAY_SECONDS = 86_400;
+const LAST_SECOND = WORLD_EPOCH / 1000 - 1;
+
+/** How long the scheduler keeps a job's history, as every `cupsd.conf` here says. */
+const HISTORY_SECONDS = 30 * DAY_SECONDS;
+/** How long it keeps a job's document, as every `cupsd.conf` here says. */
+const DOCUMENT_SECONDS = DAY_SECONDS;
+/** How far back a drafted document may have been saved. */
+const DRAFTED_WINDOW_SECONDS = 90 * DAY_SECONDS;
+
+const JOB_COUNT = { min: 3, max: 12 } as const;
+/** The job ids already used and purged before the history the spool still keeps. */
+const EARLIER_JOBS = { min: 1, max: 900 } as const;
+
+type PrintJob = {
+  readonly id: number;
+  readonly document: Printable;
+  /** Where it came from: the sender's address, or `localhost` for the box's own. */
+  readonly host: string;
+  /** When it printed, in seconds. */
+  readonly at: number;
+};
+
+/** A job's files are named for its id, five digits wide. */
+const jobName = (id: number): string => String(id).padStart(5, '0');
+
+/**
+ * The jobs the scheduler still remembers, oldest first: each a document somebody sent
+ * from their own machine, after it was saved and inside the history kept.
+ */
+const printJobs = (
+  prng: Prng,
+  host: LanHost,
+  printables: readonly Printable[],
+): readonly PrintJob[] => {
+  const drawn = Array.from({ length: prng.nextInt(JOB_COUNT.min, JOB_COUNT.max) }, () => {
+    const document = prng.pick(printables);
+    const span = LAST_SECOND - Math.max(document.savedAt, LAST_SECOND - HISTORY_SECONDS);
+    // Squared, so a job is likelier recent than old: a printer in use is printing this
+    // week, and the history thins out towards the edge of what the scheduler keeps.
+    const age = Math.floor(span * prng.next() ** 2);
+    return { document, at: LAST_SECOND - age };
+  });
+  const firstId = prng.nextInt(EARLIER_JOBS.min, EARLIER_JOBS.max);
+  return [...drawn]
+    .sort((earlier, later) => earlier.at - later.at)
+    .map(({ document, at }, index) => ({
+      id: firstId + index,
+      document,
+      host: document.author.host.ip === host.ip ? 'localhost' : document.author.host.ip,
+      at,
+    }));
+};
+
+/** `/var/spool/cups`: a control file for every job remembered, and the document of each
+ *  one printed inside the last day. Root's alone, as the scheduler keeps it. */
+const spoolFor = (prng: Prng, queue: string, jobs: readonly PrintJob[]): Directory =>
+  dir(
+    Object.fromEntries(
+      jobs.flatMap(({ id, document, host, at }) => [
+        [
+          `c${jobName(id)}`,
+          file(
+            renderControlFile(
+              {
+                queue,
+                user: document.author.username,
+                host,
+                title: document.title,
+                format: mediaTypeOf(document.title),
+              },
+              prng,
+            ),
+            ROOT_FILE,
+          ),
+        ],
+        ...(at > LAST_SECOND - DOCUMENT_SECONDS
+          ? [[`d${jobName(id)}-001`, file(document.content, ROOT_FILE)] as const]
+          : []),
+      ]),
+    ),
+    ROOT_DIR,
+  );
+
+const printerFiles = ({
+  prng,
+  essid,
+  host,
+  people,
+}: {
+  readonly prng: Prng;
+  readonly essid: string;
+  readonly host: LanHost;
+  readonly people: readonly MailPerson[];
+}): DeviceFiles => {
   const model = prng.pick(PRINTER_MODELS);
   const queue = model.replaceAll(' ', '_');
   const cupsd = prng.pick(CUPSD_CONFS);
@@ -96,16 +303,34 @@ const printerFiles = (prng: Prng): DeviceFiles => {
     },
     TRAVERSABLE_DIR,
   );
+  const shared = isOnHomeLan(essid, host) ? sharedPrintables(essid, people) : [];
+  const printables = shared.length > 0 ? shared : draftedPrintables(prng, essid, people);
+  const jobs = printJobs(prng, host, printables);
   return {
     etc: { cups },
+    var: { spool: dir({ cups: spoolFor(prng, queue, jobs) }, TRAVERSABLE_DIR) },
     configPaths: ['/etc/cups/cupsd.conf', '/etc/cups/printers.conf'],
   };
 };
 
 /** What the device `host` is keeps on disk, or null where its kind keeps nothing of its
- *  own yet and the box keeps the generic device config instead. */
-export const buildDevice = (essid: string, host: LanHost): DeviceFiles | null => {
+ *  own yet and the box keeps the generic device config instead. `username` is the box's
+ *  own account, which is who a box below the LAN knows beside its application's logins. */
+export const buildDevice = ({
+  essid,
+  host,
+  username,
+}: {
+  readonly essid: string;
+  readonly host: LanHost;
+  readonly username: string;
+}): DeviceFiles | null => {
   const kind = deviceKindOf(host.hostname);
   if (kind !== 'printer') return null;
-  return printerFiles(createPrng(`device-${essid}-${host.ip}`));
+  return printerFiles({
+    prng: createPrng(`device-${essid}-${host.ip}`),
+    essid,
+    host,
+    people: peopleKnownOn({ essid, host, username }),
+  });
 };

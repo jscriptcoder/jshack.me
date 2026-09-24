@@ -289,7 +289,7 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
 
   // What the device keeps because of what it is — a printer its print server. Where its
   // kind keeps its own configs they replace the generic device config below.
-  const device = buildDevice(essid, host);
+  const device = buildDevice({ essid, host, username });
 
   // A name no role claims keeps no config: there is nothing for such a box to admit
   // to. `dns` is excluded at the type level rather than here — the pool has nothing
@@ -624,6 +624,8 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
           // them. Built from the network's own stream, like the page and the database, so
           // giving a box a mailbox moves nothing else about it.
           ...mail.entries,
+          // /var/spool, where a printer keeps the jobs it was sent.
+          ...device?.var,
         },
         TRAVERSABLE_DIR,
       ),
