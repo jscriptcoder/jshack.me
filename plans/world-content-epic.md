@@ -4,7 +4,7 @@
 > status. The grounding section records what v2 held on the day this was grilled; the code wins
 > wherever the two disagree.
 > Grilled 2026-09-21 (`grilling`), 25 locked decisions. Slices 0–8 delivered (as-built below).
-> Slice 9 grilled 2026-09-24 (record in the status log); its plan is next.
+> Slice 9 grilled and planned 2026-09-24 in `a-device-is-the-device-it-says.md`; PR 9a is next.
 
 **Where we are now (2026-09-24):** **v0.258.0**. The legacy-parity epic's V-series is closed and
 its next line was "the ship gate". **Ship now waits for this epic** (decision 1). Grilled to 25
