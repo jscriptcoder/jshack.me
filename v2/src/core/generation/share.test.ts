@@ -15,7 +15,11 @@ import { buildDeepHostFs } from './deepHostFs';
 import { generateApplication } from './generateDatabase';
 import { generateHomeLan } from './generateHomeLan';
 import { roleOfHostname } from './pools/hostnames';
-import { asAbsPath } from '../types';
+import { asAbsPath, asMachineId } from '../types';
+import { createPatchApi } from '../../adapters/patchApi';
+import { generateIdentity } from '../identity/identity';
+import { computeWorkstationId } from '../identity/workstation';
+import { signedEnvelopeSchema } from '../signedRequest/types';
 import { WORLD_EPOCH } from '../cve/worldClock';
 import { createFsView } from '../filesystem/fsView';
 import type { Directory } from '../filesystem/types';
@@ -245,6 +249,17 @@ describe('a document on a share is the real format, not text wearing its name', 
         return code < 32 ? code !== 9 && code !== 10 : code > 126;
       });
       expect(unreadable.length).toBeGreaterThanOrEqual(64);
+    },
+  );
+
+  it.each(ALL_FORMATS)(
+    'a $format shows its noise to cat, with nothing that reads as a space or as nothing',
+    (metadata) => {
+      ['one', 'two', 'three', 'four', 'five'].forEach((seed) => {
+        const content = renderDocument(metadata, createPrng(seed));
+        expect(content.includes('\u00a0'), seed).toBe(false);
+        expect(content.includes('\u00ad'), seed).toBe(false);
+      });
     },
   );
 
@@ -832,6 +847,42 @@ describe('what a share holds', () => {
     );
     expect(bodies.length).toBeGreaterThan(0);
     expect(new Set(bodies).size / bodies.length).toBeGreaterThanOrEqual(0.9);
+  });
+});
+
+describe('what ftp get can carry home', () => {
+  it('fits every file a share holds into the one signed write that saves it on the player box', async () => {
+    const identity = generateIdentity();
+    const sent: string[] = [];
+    const patches = createPatchApi({
+      identity,
+      machineId: asMachineId(computeWorkstationId('deskbox', identity.publicKeyHex)),
+      owner: 'operator',
+      tier: 'user',
+      fetchImpl: async (_url, init) => {
+        sent.push(String(init?.body));
+        return new Response('{}', { status: 200 });
+      },
+    });
+    // The write's size is what the transport limits, and a file's escaped length is
+    // what decides it, so the files hardest to carry are the ones sent.
+    const hardest = [...fileServerBoxes(), ...manyFileServers()]
+      .flatMap((box) => [...uniqueShareFiles(buildRemoteHostFs(box.essid, box.host))])
+      .sort(([, one], [, other]) => JSON.stringify(other).length - JSON.stringify(one).length)
+      .slice(0, 20);
+
+    for (const [path, content] of hardest) {
+      await patches.write(asAbsPath(`/home/operator/${path.split('/').pop() ?? ''}`), content, {
+        isNew: true,
+      });
+    }
+    expect(sent).toHaveLength(hardest.length);
+    sent.forEach((body, index) => {
+      expect(
+        signedEnvelopeSchema.safeParse(JSON.parse(body)).success,
+        `${hardest[index]?.[0]}: ${JSON.stringify(hardest[index]?.[1]).length} escaped`,
+      ).toBe(true);
+    });
   });
 });
 

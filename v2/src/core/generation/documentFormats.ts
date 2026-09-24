@@ -12,9 +12,14 @@
  * not keep, so the readable runs are exactly the ones written on purpose. None
  * is NUL: a file `ftp get` copies is persisted to the patch store's Postgres
  * TEXT column, which rejects U+0000. None is a carriage return or an escape,
- * which a terminal would act on rather than show. Noise stays below 0x80, so a
- * file's length is its size in bytes; only a format's own marker bytes (a
- * JPEG's 0xFF, a PDF's binary comment) sit above it, one character each.
+ * which a terminal would act on rather than show.
+ *
+ * Noise is drawn from Latin-1's letters and symbols (`¡` to `ÿ`), which is also what
+ * `cat` shows of a real binary. Control characters would read the same to
+ * `strings`, but JSON writes each as six characters, and the one signed write
+ * that saves a file `get` fetched is capped at 8192 of them: a spreadsheet of
+ * control noise could not be carried home. Every size the game states is the
+ * file's length, so a character above 0x7F counting once is consistent.
  */
 
 import { createPrng, type Prng } from './prng';
@@ -37,13 +42,12 @@ export type DocumentMetadata =
   | { readonly format: 'docx' }
   | { readonly format: 'xlsx' };
 
-/** Control characters, less NUL, tab, newline, the vertical whitespace, a
- *  carriage return and escape, plus DEL. */
-const NOISE_CHARACTERS: readonly string[] = [
-  ...[1, 2, 3, 4, 5, 6, 7, 8],
-  ...[14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26],
-  ...[28, 29, 30, 31, 127],
-].map((code) => String.fromCharCode(code));
+/** Latin-1 from `¡` (0xA1) to `ÿ` (0xFF): above the range `strings` keeps, written
+ *  by JSON as themselves, and visible. The no-break space and the soft hyphen are
+ *  left out, because one reads as a space and the other as nothing. */
+const NOISE_CHARACTERS: readonly string[] = Array.from({ length: 0xff - 0xa1 + 1 }, (_, index) =>
+  String.fromCharCode(0xa1 + index),
+).filter((character) => character !== '\u00ad');
 
 /** Noise drawn once for the whole world. A stub takes a run of it from wherever its
  *  own stream says, which is one draw however long the run: drawing every character
