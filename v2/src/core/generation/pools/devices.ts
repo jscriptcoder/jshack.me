@@ -147,3 +147,25 @@ export const CAMERA_RESOLUTIONS: readonly (readonly [number, number])[] = [
   [1920, 1080],
   [2560, 1440],
 ];
+
+/** The temperature and humidity chips a climate board reads over I2C, each at the
+ *  address that chip answers on out of the box. */
+export const CLIMATE_CHIPS: readonly { readonly chip: string; readonly address: string }[] = [
+  { chip: 'BME280', address: '0x76' },
+  { chip: 'SHT31', address: '0x44' },
+  { chip: 'HTU21D', address: '0x40' },
+  { chip: 'AHT20', address: '0x38' },
+  { chip: 'SHTC3', address: '0x70' },
+];
+
+/** Where a climate device is fitted, as its topic names it. */
+export const CLIMATE_ROOMS: readonly string[] = [
+  'hallway',
+  'kitchen',
+  'office',
+  'living-room',
+  'bedroom',
+  'landing',
+  'reception',
+  'server-cupboard',
+];

@@ -61,21 +61,22 @@ describe('which device a box is', () => {
   });
 });
 
-
-/** Where the three devices built so far keep what they are. */
+/** Where the devices built so far keep what they are. */
 const DEVICE_ROOTS = [
   '/etc/cups',
   '/etc/motion',
   '/etc/nvr',
+  '/etc/sensord',
   '/var/spool/cups',
   '/var/log/cups',
   '/var/lib/motion',
   '/var/lib/nvr',
+  '/var/lib/sensord',
 ];
 
 describe('the devices not yet built', () => {
-  it("keep the generic device config and none of a printer's, camera's or recorder's files", () => {
-    const others = ['sensor', 'thermostat', 'tv', 'speaker', 'plug', 'lock'];
+  it('keep the generic device config and none of the files a built device keeps', () => {
+    const others = ['tv', 'speaker', 'plug', 'lock'];
     const boxes = [
       ...worldBoxesNamed(others),
       ...others.flatMap((prefix) => syntheticBoxes(prefix).slice(0, 5)),
@@ -113,6 +114,7 @@ describe("a device's root history", () => {
     );
     expect(histories(CAMERA_PREFIXES)).toContain('/etc/motion/motion.conf');
     expect(histories(['nvr'])).toContain('/etc/nvr/nvr.conf');
+    expect(histories(['sensor', 'thermostat'])).toContain('/etc/sensord/sensord.conf');
   });
 });
 
@@ -123,13 +125,15 @@ const UI_PAGES: Readonly<Record<string, readonly string[]>> = {
   recorder: ['index.html', 'recordings.html'],
 };
 
+/** The devices with pages of their own, and every device built so far. */
+const WITH_PAGES = ['printer', 'nvr', ...CAMERA_PREFIXES];
+const BUILT = [...WITH_PAGES, 'sensor', 'thermostat'];
 
-
-/** Every printer, camera and recorder, world and synthetic, on both layers. */
-const devicesOfThisSlice = (): readonly BuiltBox[] => [
-  ...worldBoxesNamed(['printer', 'nvr', ...CAMERA_PREFIXES]),
-  ...syntheticLanBoxes(['printer', 'nvr', ...CAMERA_PREFIXES]).slice(0, 80),
-  ...['printer', 'nvr', ...CAMERA_PREFIXES].flatMap((prefix) => syntheticBoxes(prefix).slice(0, 30)),
+/** Every device of these prefixes, world and synthetic, on both layers. */
+const devicesNamed = (prefixes: readonly string[]): readonly BuiltBox[] => [
+  ...worldBoxesNamed(prefixes),
+  ...syntheticLanBoxes(prefixes).slice(0, 80),
+  ...prefixes.flatMap((prefix) => syntheticBoxes(prefix).slice(0, 30)),
 ];
 
 
@@ -138,7 +142,7 @@ const hrefsIn = (page: string): readonly string[] =>
 
 describe("a device's own pages", () => {
   const serving = (): readonly (BuiltBox & { readonly kind: string })[] =>
-    devicesOfThisSlice()
+    devicesNamed(WITH_PAGES)
       .filter(servesHttp)
       .map((box) => ({ ...box, kind: deviceKindOf(box.host.hostname) ?? '' }));
 
@@ -151,7 +155,7 @@ describe("a device's own pages", () => {
         pages: [...(UI_PAGES[kind] ?? [])].sort(),
       });
     });
-    devicesOfThisSlice()
+    devicesNamed(WITH_PAGES)
       .filter((box) => !servesHttp(box))
       .forEach(({ tree }) => expect(pagesOf(tree).size).toBe(0));
   });
@@ -223,18 +227,9 @@ describe("a device's own pages", () => {
   });
 });
 
-/** Where a printer, camera or recorder keeps what it is: every file a player could
+/** Where a device keeps what it is, and the pages it serves: every file a player could
  *  fetch off one and carry home. */
-const DEVICE_PATHS = [
-  '/etc/cups',
-  '/etc/motion',
-  '/etc/nvr',
-  '/var/spool/cups',
-  '/var/log/cups',
-  '/var/lib/motion',
-  '/var/lib/nvr',
-  '/var/www/html',
-];
+const DEVICE_PATHS = [...DEVICE_ROOTS, '/var/www/html'];
 
 describe('what ftp get can carry home off a device', () => {
   it('fits every device file into the one signed write that saves it on the player box', async () => {
@@ -252,7 +247,7 @@ describe('what ftp get can carry home off a device', () => {
     });
     // The write's size is what the transport limits, and a file's escaped length is
     // what decides it, so the files hardest to carry are the ones sent.
-    const hardest = devicesOfThisSlice()
+    const hardest = devicesNamed(BUILT)
       .flatMap(({ host, tree }) =>
         DEVICE_PATHS.flatMap((root) => {
           const node = createFsView(tree, { userType: 'root' }).stat(asAbsPath(root));
