@@ -4,7 +4,7 @@
 > status. The grounding section records what v2 held on the day this was grilled; the code wins
 > wherever the two disagree.
 > Grilled 2026-09-21 (`grilling`), 25 locked decisions. Slices 0–8 delivered (as-built below).
-> Slice 9 is next and not yet planned.
+> Slice 9 grilled 2026-09-24 (record in the status log); its plan is next.
 
 **Where we are now (2026-09-24):** **v0.258.0**. The legacy-parity epic's V-series is closed and
 its next line was "the ship gate". **Ship now waits for this epic** (decision 1). Grilled to 25
@@ -414,7 +414,7 @@ See below; planning refines it.
 | 6 | **A store serves that application** — Redis keyspaces paired with the app | `KEYS sess:*` returns sessions for that app's real users | ✅ DONE (#540, v0.254.0) — 43 stores, all reading differently; decision 15 amended (store locks re-rolled once); a bought store is a fresh install; see as-built below |
 | 7 | **Somebody wrote to somebody** — workstation mailboxes, the mail server's spool | a thread in `/var/mail/<user>` is between two real inhabitants of the network | ✅ **DONE** (#541 v0.255.0, #542 v0.256.0) — the correspondence, desk mailboxes, the spool and its database agreement; then `mail.log.1` carrying the spool's own queue ids, `/etc/aliases`, the postfix config honesty fixes and cron's mail to root. A phone keeps no mailbox but may hold cron's |
 | 8 | **A share holds a department** — fileserver `/srv`, metadata docs | `strings` on a shared PDF names its author, an inhabitant | ✅ **DONE** (#543 v0.257.0, #544 v0.258.0) — `/srv` on every file server, LAN and deep: a working share or dated snapshots by prefix, the category's departments, PDF/JPEG/office stubs whose metadata `strings` reads, authors from the one roster mail uses, `vsftpd.conf` stops claiming doors; then `vsftpd.log.1` recording every arrival from its author's machine to the byte, the `/srv` data disk in `fstab`, an allow-list `/etc/vsftpd.userlist`, and root's history naming `/srv` instead of samba, nfs and zfs. See as-built below |
-| 9 | **A device is the device it says** — IoT prefix overlays + prefix growth (the one re-roll: refresh pins, wire-checks, the `v2-e2e` skill) | a printer serves a CUPS page and holds spool jobs; a camera a recordings index | ⏳ |
+| 9 | **A device is the device it says** — IoT prefix overlays + prefix growth (the one re-roll: refresh pins, wire-checks, the `v2-e2e` skill) | a printer serves a CUPS page and holds spool jobs; a camera a recordings index | ⏳ grilled 2026-09-24 — three PRs: 9a the re-roll, 9b printer/camera/recorder, 9c climate/media/plug/lock |
 | 10 | **A gateway knows its network** — DHCP leases, config backups, admin pages, admin/firmware history | a rooted router's lease table lists exactly the network's generated hosts | ⏳ |
 | 11 | **A phone is a phone** — phone/tablet overlay | an NPC `android-` home holds `DCIM/` and `Download/`, not dotfiles | ⏳ |
 
@@ -1159,3 +1159,45 @@ is over it on 102 boxes, and every tier reads it, so a guest who `get`s it meets
   `auth.log.1` over the cap on 102 boxes (backlogged). The disk's UUID is on its own
   `share-disk-` stream. World byte-diff: only file servers moved. Slice plan retired into the
   as-built above. Next: **slice 9**, not yet planned.
+- **2026-09-24** — **slice 9 grilled** (a device is the device it says). Measured first: 104 IoT
+  boxes (70 LAN, 34 deep) — sensor 20, printer 16, speaker 15, doorbell 14, thermostat 14, tv 14,
+  cam 11 — of which only 29 serve http (3 of 16 printers); `device.conf` quotes versions
+  (`BusyBox v1.31.1`, `firmware=v2.1.4`) against decision 21 and no test reads it; the camera page
+  advertises `rtsp://…:554`, a port nothing serves (decision 4); growing the prefix list renames
+  IoT boxes only, because `prng.pick` takes one draw whatever the list's length, and an http
+  door is also an exploit route (nginx CVEs grant `shell_full`). Twelve owner decisions:
+  (1) **an IoT box stays the small Linux board** slices 2–3 made it, with a device layer on top;
+  only the falsehoods are fixed; (2) iot gains **`plug`, `lock`, `nvr`, `babycam`** — the one
+  re-roll, IoT hostnames only; (3) **seven device kinds** key the overlays: camera (`cam`,
+  `doorbell`, `babycam`), recorder (`nvr`), printer, climate (`sensor`, `thermostat`), media (`tv`,
+  `speaker`), plug, lock — prefixes share one only when they are the same device in another
+  flavour; (4) **placement is unchanged**: the device UI shows wherever http already runs, and the
+  device's data is on disk behind the doors players have; (5) a device serves **a small UI of 2–4
+  linked pages per kind** under slice 4's no-dead-link test, with no robots, sitemap or hidden
+  layer (still webserver-only); (6) **print jobs are real people at their real machines printing
+  real documents** — share documents where the network has a file server, the category's titles
+  where it has none; control files are NUL-free stubs whose attributes `strings` reads, and a
+  `page_log.1` agrees with them; (7) a camera's recordings are **an event index with JPEG
+  snapshots** (slice 8's stub, the camera's own model), and a recorder archives the network's real
+  cameras by `.lan` name, byte-identical to each camera's own — no video format, decision 9 not
+  amended; (8) climate keeps readings and a thermostat's schedule, media its paired devices (the
+  network's real phones), recently played and apps, a plug its schedule and daily energy, a lock
+  an access log of real people from their real phones plus its code slots; MQTT stays on
+  `127.0.0.1`, since mqtt is no service in the game; (9) **each kind's own config replaces the
+  generic `device.conf`** on the existing `etc-config-` pick, text only; (10) **deep devices get
+  the same overlay, self-contained**: a printer's jobs are its own people at `localhost`, a
+  recorder's cameras are PoE channels on its own ports, a lock's people use keypad codes, media
+  pairs nothing; no transfer history; (11) **tiers follow Debian**, with the box's one account as
+  the device's daemon user: device data is user-tier; the CUPS spool, its logs, `/etc/cups` and
+  the lock's access log are root-only, and the UI's job list shows "Withheld" for user and title,
+  as CUPS does by default; (12) **three PRs in order** — 9a the re-roll alone (v0.259.0), so the
+  world byte-diff shows only renames and the files naming them; 9b printer, camera and recorder
+  (v0.260.0); 9c climate, media, plug and lock, retiring `device.conf` (v0.261.0).
+  **Derived from precedent and confirmed:** device content on a new `device-<essid>-<ip>` stream,
+  an IoT page moving from `web-page-` to the device UI (IoT text only); 9a refreshes the three
+  pins naming IoT boxes (`generateHomeLan`, the deep layer, the DNS zone), the conventions doc's
+  `speaker-26` example, confirms every wire-check picks its host dynamically, and resets the
+  local journal; `page_log.1` spans more than a day beside an empty live `page_log`, the third
+  such rotation in `boxMemory`'s list; every device file passes the 8192-character carry-cap test
+  through the real `createPatchApi`; version-free, one calendar, no account in a world-readable
+  file, a variety test, and the budgets.
