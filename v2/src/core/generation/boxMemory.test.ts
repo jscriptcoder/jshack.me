@@ -8,7 +8,7 @@ import { createFsView } from '../filesystem/fsView';
 import { parseMysqlDatabase } from '../mysql/types';
 import { lanZoneName } from '../network/resolveName';
 import { asAbsPath } from '../types';
-import type { Directory, FileEntry } from '../filesystem/types';
+import type { Directory, FileEntry, FileNode } from '../filesystem/types';
 import { WORLD_EPOCH } from '../cve/worldClock';
 import {
   ALL_ESSIDS,
@@ -83,16 +83,20 @@ const STAMPS: Readonly<Record<string, RegExp>> = {
   'mail.log': /^\w{3} [ \d]\d (\d\d):(\d\d):(\d\d) /,
   // vsftpd's, with its weekday and year, and no fixed day for the same reason.
   'vsftpd.log': /^\w{3} \w{3} [ \d]\d (\d\d):(\d\d):(\d\d) \d{4} /,
+  // CUPS's, the common-log stamp, and no fixed day for the same reason. Kept in a
+  // directory of its own, which is where a printer's scheduler writes it.
+  'cups/page_log': /\[\d\d\/\w{3}\/\d{4}:(\d\d):(\d\d):(\d\d) \+0000\]/,
 };
 
 /** The rotations that are not a day's worth, so the day rule below does not reach them.
- *  Postfix's and vsftpd's logrotate are size-bound, and an organisation of a dozen people
- *  never writes enough mail or saves enough files to trip them, so the file rotated out on
- *  the last morning holds everything the box ever took in. What each must agree with
- *  instead is what it took in: the mail log its spool, which `mailbox.test.ts` holds it
- *  to message for message, and the transfer log its share, which `share.test.ts` holds
- *  it to file for file. */
-const SPANS_MORE_THAN_A_DAY: readonly string[] = ['mail.log.1', 'vsftpd.log.1'];
+ *  Postfix's, vsftpd's and CUPS's logs rotate by size, and an organisation of a dozen
+ *  people never writes enough mail, saves enough files or prints enough pages to trip
+ *  them, so the file rotated out on the last morning holds everything the box still
+ *  remembers. What each must agree with instead is what it took in: the mail log its
+ *  spool, which `mailbox.test.ts` holds it to message for message; the transfer log its
+ *  share, which `share.test.ts` holds it to file for file; and the page log the print
+ *  spool, which `device.test.ts` holds it to job for job. */
+const SPANS_MORE_THAN_A_DAY: readonly string[] = ['mail.log.1', 'vsftpd.log.1', 'cups/page_log.1'];
 
 const stampOf = (rotatedName: string): RegExp => {
   const stamp = STAMPS[rotatedName.slice(0, -'.1'.length)];
@@ -225,8 +229,14 @@ describe('what a box remembers of its last day', () => {
   it('gives each rotation its live log’s permissions and owner, and syslog the same tier', () => {
     everyBox().forEach(({ tree }) => {
       const directory = varLogOf(tree);
+      // A name may reach into a directory of its own, as a printer's `cups/page_log.1` does.
       const entry = (name: string): FileEntry => {
-        const node = directory.entries.get(name);
+        const node = name
+          .split('/')
+          .reduce<FileNode | undefined>(
+            (current, part) => (current?.kind === 'directory' ? current.entries.get(part) : undefined),
+            directory,
+          );
         if (node?.kind !== 'file') throw new Error(`no ${name}`);
         return node;
       };

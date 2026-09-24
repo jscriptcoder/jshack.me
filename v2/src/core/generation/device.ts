@@ -57,6 +57,9 @@ export type DeviceFiles = {
   readonly etc: Readonly<Record<string, FileNode>>;
   readonly var: Readonly<Record<string, FileNode>>;
   readonly configPaths: readonly string[];
+  /** Every job a printer printed, oldest first, for its page log; empty on any other
+   *  device. Derived once with the spool, so the log cannot disagree with it. */
+  readonly printed: readonly PrintedJob[];
 };
 
 const ALPHANUMERIC = 'ABCDEFGHJKLMNPQRSTUVWXYZ0123456789';
@@ -219,7 +222,26 @@ type PrintJob = {
   readonly host: string;
   /** When it printed, in seconds. */
   readonly at: number;
+  readonly pages: number;
+  readonly sides: string;
 };
+
+/** A job as the page log records it once it has printed. */
+export type PrintedJob = {
+  readonly queue: string;
+  readonly user: string;
+  readonly jobId: number;
+  /** When it printed, in milliseconds. */
+  readonly at: number;
+  readonly pages: number;
+  readonly host: string;
+  readonly title: string;
+  readonly sides: string;
+};
+
+const PAGES = { min: 1, max: 12 } as const;
+/** How often a job asks for both sides of the paper. */
+const DUPLEX_CHANCE = 0.4;
 
 /** A job's files are named for its id, five digits wide. */
 const jobName = (id: number): string => String(id).padStart(5, '0');
@@ -239,16 +261,20 @@ const printJobs = (
     // Squared, so a job is likelier recent than old: a printer in use is printing this
     // week, and the history thins out towards the edge of what the scheduler keeps.
     const age = Math.floor(span * prng.next() ** 2);
-    return { document, at: LAST_SECOND - age };
+    const pages = prng.nextInt(PAGES.min, PAGES.max);
+    const sides = prng.next() < DUPLEX_CHANCE ? 'two-sided-long-edge' : 'one-sided';
+    return { document, at: LAST_SECOND - age, pages, sides };
   });
   const firstId = prng.nextInt(EARLIER_JOBS.min, EARLIER_JOBS.max);
   return [...drawn]
     .sort((earlier, later) => earlier.at - later.at)
-    .map(({ document, at }, index) => ({
+    .map(({ document, at, pages, sides }, index) => ({
       id: firstId + index,
       document,
       host: document.author.host.ip === host.ip ? 'localhost' : document.author.host.ip,
       at,
+      pages,
+      sides,
     }));
 };
 
@@ -310,6 +336,16 @@ const printerFiles = ({
     etc: { cups },
     var: { spool: dir({ cups: spoolFor(prng, queue, jobs) }, TRAVERSABLE_DIR) },
     configPaths: ['/etc/cups/cupsd.conf', '/etc/cups/printers.conf'],
+    printed: jobs.map(({ id, document, host, at, pages, sides }) => ({
+      queue,
+      user: document.author.username,
+      jobId: id,
+      at: at * 1000,
+      pages,
+      host,
+      title: document.title,
+      sides,
+    })),
   };
 };
 

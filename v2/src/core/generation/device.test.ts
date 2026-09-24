@@ -7,6 +7,7 @@ import { peopleKnownOn } from './mailbox';
 import { npcUsername } from './remoteHostFs';
 import { roleOfHostname } from './pools/hostnames';
 import { strings } from '../commands/strings';
+import { WORLD_EPOCH } from '../cve/worldClock';
 import type { TerminalLine } from '../commands/types';
 import { createFsView } from '../filesystem/fsView';
 import { asAbsPath } from '../types';
@@ -236,10 +237,28 @@ const readableLinesOf = async (content: string): Promise<readonly string[]> => {
     .map((line) => line.content);
 };
 
-/** The value `strings` shows straight after an attribute's name in a control file. */
+/** The attribute names a control file carries, as `strings` shows them. */
+const ATTRIBUTE_NAMES = [
+  'attributes-charset',
+  'attributes-natural-language',
+  'printer-uri',
+  'job-originating-user-name',
+  'job-name',
+  'document-format',
+  'job-originating-host-name',
+  'job-id',
+  'job-state',
+  'time-at-creation',
+  'time-at-completed',
+];
+
+/** The value `strings` shows straight after an attribute's name in a control file, or
+ *  undefined where it shows none: a value under four characters is below `strings`'
+ *  minimum, so the next thing shown is the next attribute's name. */
 const attributeOf = (lines: readonly string[], name: string): string | undefined => {
   const at = lines.indexOf(name);
-  return at < 0 ? undefined : lines[at + 1];
+  const value = at < 0 ? undefined : lines[at + 1];
+  return value === undefined || ATTRIBUTE_NAMES.includes(value) ? undefined : value;
 };
 
 /** A print job as its control file tells it, with the file's own name. */
@@ -409,5 +428,146 @@ describe("a printer's spool", () => {
         expect(job.title).toBeDefined();
       }
     }
+  });
+});
+
+/** One line of `page_log`, read back in the format every `cupsd.conf` here asks for. */
+type PageLine = {
+  readonly queue: string;
+  readonly user: string;
+  readonly jobId: number;
+  /** When it printed, in milliseconds. */
+  readonly at: number;
+  readonly pages: number;
+  readonly billing: string;
+  readonly host: string;
+  readonly title: string;
+  readonly media: string;
+  readonly sides: string;
+};
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+const PAGE_LINE =
+  /^(\S+) (\S+) (\d+) \[(\d\d)\/(\w{3})\/(\d{4}):(\d\d):(\d\d):(\d\d) \+0000\] total (\d+) (\S+) (\S+) (\S+) (\S+) (\S+)$/;
+
+const pageLinesOf = (content: string): readonly PageLine[] =>
+  content
+    .split('\n')
+    .filter((line) => line !== '')
+    .map((line) => {
+      const match = PAGE_LINE.exec(line);
+      if (match === null) throw new Error(`not a page_log line: ${line}`);
+      const [, queue = '', user = '', jobId, day, month = '', year, hours, minutes, seconds] = match;
+      return {
+        queue,
+        user,
+        jobId: Number(jobId),
+        at: Date.UTC(
+          Number(year),
+          MONTHS.indexOf(month),
+          Number(day),
+          Number(hours),
+          Number(minutes),
+          Number(seconds),
+        ),
+        pages: Number(match[10]),
+        billing: match[11] ?? '',
+        host: match[12] ?? '',
+        title: match[13] ?? '',
+        media: match[14] ?? '',
+        sides: match[15] ?? '',
+      };
+    });
+
+const jobFileName = (jobId: number): string => `c${String(jobId).padStart(5, '0')}`;
+
+describe("a printer's page log", () => {
+  const printers = (): readonly BuiltBox[] => [
+    ...worldBoxesNamed(['printer']),
+    ...syntheticLanBoxes(['printer']).slice(0, 20),
+    ...syntheticBoxes('printer').slice(0, 30),
+  ];
+
+  const DAY_MS = 86_400_000;
+
+  it('keeps the rotated log beside an empty live one, both for root alone', () => {
+    printers().forEach(({ tree }) => {
+      expect(contentOf(tree, '/var/log/cups/page_log')).toBe('');
+      expect(contentOf(tree, '/var/log/cups/page_log.1')).not.toBe('');
+      ['/var/log/cups/page_log', '/var/log/cups/page_log.1'].forEach((path) => {
+        expect(read(tree, path, 'user').ok).toBe(false);
+        expect(read(tree, path, 'guest').ok).toBe(false);
+      });
+    });
+  });
+
+  it('writes one line for every job the spool remembers, agreeing with its control file', async () => {
+    for (const { host, tree } of printers()) {
+      const lines = pageLinesOf(contentOf(tree, '/var/log/cups/page_log.1'));
+      const jobs = await jobsIn(tree);
+      const queue = /^<DefaultPrinter ([^>]+)>$/m.exec(contentOf(tree, '/etc/cups/printers.conf'))?.[1];
+      expect({ host: host.hostname, lines: lines.length }).toEqual({
+        host: host.hostname,
+        lines: jobs.length,
+      });
+      jobs.forEach((job) => {
+        const line = lines.find((candidate) => jobFileName(candidate.jobId) === job.name);
+        expect({ job: job.name, logged: line !== undefined }).toEqual({ job: job.name, logged: true });
+        if (line === undefined) return;
+        expect(line.queue).toBe(queue);
+        expect(line.host).toBe(job.host);
+        expect(line.title).toBe(job.title);
+        if (job.user !== undefined) expect(line.user).toBe(job.user);
+        expect(line.pages).toBeGreaterThan(0);
+      });
+    }
+  });
+
+  it('logs in the order the jobs printed, each inside the history kept and before the world began', () => {
+    printers().forEach(({ tree }) => {
+      const lines = pageLinesOf(contentOf(tree, '/var/log/cups/page_log.1'));
+      const times = lines.map((line) => line.at);
+      expect(times).toEqual([...times].sort((earlier, later) => earlier - later));
+      expect(lines.map((line) => line.jobId)).toEqual(
+        lines.map((_, index) => (lines[0]?.jobId ?? 0) + index),
+      );
+      times.forEach((at) => {
+        expect(at).toBeLessThan(WORLD_EPOCH);
+        expect(at).toBeGreaterThanOrEqual(WORLD_EPOCH - 30 * DAY_MS);
+      });
+    });
+  });
+
+  it('spans more than a day on some printer, since a quiet printer never fills it to rotation', () => {
+    const spans = printers().map(({ tree }) => {
+      const times = pageLinesOf(contentOf(tree, '/var/log/cups/page_log.1')).map((line) => line.at);
+      return Math.max(...times) - Math.min(...times);
+    });
+    expect(spans.some((span) => span > DAY_MS)).toBe(true);
+  });
+
+  it("keeps a job's document exactly when the job printed inside the last day", () => {
+    let kept = 0;
+    printers().forEach(({ tree }) => {
+      const spool = spoolOf(tree);
+      pageLinesOf(contentOf(tree, '/var/log/cups/page_log.1')).forEach((line) => {
+        const name = `d${jobFileName(line.jobId).slice(1)}-001`;
+        const recent = line.at >= WORLD_EPOCH - DAY_MS;
+        expect({ name, kept: spool.has(name) }).toEqual({ name, kept: recent });
+        if (recent) kept += 1;
+      });
+    });
+    expect(kept).toBeGreaterThan(0);
+  });
+
+  it('logs A4 paper and the sides each job asked for, and no billing code nobody set', () => {
+    printers().forEach(({ tree }) => {
+      pageLinesOf(contentOf(tree, '/var/log/cups/page_log.1')).forEach((line) => {
+        expect(line.billing).toBe('-');
+        expect(line.media).toBe('iso_a4_210x297mm');
+        expect(['one-sided', 'two-sided-long-edge']).toContain(line.sides);
+      });
+    });
   });
 });

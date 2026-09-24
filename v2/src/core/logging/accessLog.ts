@@ -48,9 +48,10 @@ export type AccessLogEvent = {
   readonly size: number;
 };
 
-/** Format the Apache request timestamp `DD/MMM/YYYY:HH:MM:SS +0000` (UTC). The offset
- *  is literal: the universe clock has no timezones, and Apache always renders one. */
-const formatAccessTimestamp = (time: GameTime): string => {
+/** Format the common-log timestamp `DD/MMM/YYYY:HH:MM:SS +0000` (UTC) that Apache and
+ *  CUPS both write. The offset is literal: the universe clock has no timezones, and both
+ *  always render one. */
+export const formatAccessTimestamp = (time: GameTime): string => {
   const date = new Date(time);
   const day = date.getUTCDate().toString().padStart(2, '0');
   const month = MONTHS[date.getUTCMonth()];

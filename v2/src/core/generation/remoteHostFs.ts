@@ -93,7 +93,7 @@ import { KERN_LOG_PERMISSIONS } from '../logging/kernLog';
 import { MYSQL_LOG_PERMISSIONS } from '../logging/mysqlLog';
 import { REDIS_LOG_PERMISSIONS } from '../logging/redisLog';
 import { NAMED_LOG_PERMISSIONS } from '../logging/namedLog';
-import type { Directory, FileEntry } from '../filesystem/types';
+import type { Directory, FileEntry, FileNode } from '../filesystem/types';
 import type { LanHost } from './generateHomeLan';
 
 const pidfile = (content: string, owner: string): FileEntry =>
@@ -443,7 +443,7 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
         })
       : null;
 
-  const logs: Readonly<Record<string, FileEntry>> = {
+  const logs: Readonly<Record<string, FileNode>> = {
     'auth.log': file('', AUTH_LOG_PERMISSIONS),
     'kern.log': file('', KERN_LOG_PERMISSIONS),
     // The access log follows the http service, like the web root: a box
@@ -488,6 +488,7 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
       isNameServer: nameServer !== null,
       deliveries: mail.deliveries,
       uploads: share?.uploads ?? [],
+      printed: device?.printed ?? [],
     }),
   };
 
@@ -498,7 +499,13 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
     ...(nameServer === null ? [] : ['/etc/bind/named.conf']),
     ...(redisService === undefined ? [] : ['/etc/redis/redis.conf']),
   ];
-  const logPaths = Object.keys(logs).map((name) => `/var/log/${name}`);
+  // A log kept in a directory of its own (a printer's `/var/log/cups`) is named by its
+  // files: `tail` on the directory would fail for whoever typed it.
+  const logPaths = Object.entries(logs).flatMap(([name, node]) =>
+    node.kind === 'file'
+      ? [`/var/log/${name}`]
+      : [...node.entries.keys()].map((child) => `/var/log/${name}/${child}`),
+  );
 
   const ssh = buildSshDirectories({ essid, host, username });
 
