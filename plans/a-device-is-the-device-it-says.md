@@ -4,7 +4,8 @@
 1–25, plus **twelve owner decisions and the derived points confirmed with them** (2026-09-24),
 recorded in the epic's status log and restated under "Decided at planning" below.
 
-**Status:** PR 9a DELIVERED (#545, v0.259.0, 2026-09-24). PR 9b not started — it is unblocked.
+**Status:** PR 9a DELIVERED (#545, v0.259.0, 2026-09-24). PR 9b DELIVERED (#546, v0.260.0,
+2026-09-24). PR 9c not started — it is unblocked.
 
 **Delivery:** three independent PRs against trunk, in order. Each starts once the one before it
 merges.
@@ -12,8 +13,8 @@ merges.
 | PR | Branch (proposed) | Version | Owns |
 |---|---|---|---|
 | 9a | `feat/iot-prefix-growth` | v0.259.0 | ✅ **DONE** (#545) — `plug`, `lock`, `nvr`, `babycam` join iot; the one re-roll, its pins, docs and journal reset |
-| 9b | `feat/a-device-is-the-device-it-says` | v0.260.0 | ⏳ device kinds; printer (CUPS config, spool, `page_log.1`, UI), camera (events, snapshots, UI), recorder (archive, UI), LAN and deep |
-| 9c | `feat/every-device-says-what-it-is` | v0.261.0 | climate, media, plug, lock (configs, data, UIs), LAN and deep; `device.conf` and the generic IoT page pool retire |
+| 9b | `feat/a-device-is-the-device-it-says` | v0.260.0 | ✅ **DONE** (#546) — device kinds; printer (CUPS config, spool, `page_log.1`, UI), camera (events, snapshots, UI), recorder (archive, UI), LAN and deep |
+| 9c | `feat/every-device-says-what-it-is` | v0.261.0 | ⏳ climate, media, plug, lock (configs, data, UIs), LAN and deep; `device.conf` and the generic IoT page pool retire |
 
 Each PR bumps `v2/package.json` and `v2/package-lock.json` (`npm install --package-lock-only`).
 
@@ -50,6 +51,65 @@ One RED-GREEN increment as planned, then one test from the mutation gate.
 **Verified:** 5,858 unit tests; wire-checks `testSameLanConnect` 4/4, `testCrossPlayerRead` 7/7,
 `testDeepChainReach` 6/6, `testFtpRemoteRead` 7/7 and `testFtpSession` 14/14 on a reset local
 stack; bundle 204,118 B of 284,975 B; build 0.69–1.09 ms per box of 2 ms.
+
+### As-built: PR 9b
+
+Six RED-GREEN increments as planned, then a mutation gate that added sixteen tests or
+assertions. Everything lives in `generation/device.ts` (the kind table, the three kinds' files,
+their pages) and `pools/devices.ts`; `logging/pageLog.ts` formats the page log and
+`documentFormats.ts` gained `renderControlFile`.
+
+- **Where each kind keeps what.** Printer: `/etc/cups/{cupsd,printers}.conf`, `/var/spool/cups/
+  c<id>` and `d<id>-001`, `/var/log/cups/page_log(.1)`, all root-only. Camera:
+  `/etc/motion/motion.conf` (world-readable, like every role config) and `/var/lib/motion/
+  {events.log,snapshots/}` at the account's tier. Recorder: `/etc/nvr/nvr.conf` and
+  `/var/lib/nvr/<camera>.<zone>.lan/<date>/<snapshot>.jpg` plus `index.log`, user-tier. Deep
+  recorders file PoE channels as `ch01`…`ch04`, each port `PoE<n>`.
+- **`cupsd.conf` is what the other files obey.** Every variant states the page-log format,
+  `PreserveJobHistory 30d` (the spool's window) and `PreserveJobFiles 1d` (which jobs keep a data
+  file), and the gate pinned that, so no config contradicts the spool it sits beside.
+- **Jobs.** On a LAN with file servers each job is a share document as that server holds it, sent
+  by the person who last saved it from their own machine (`localhost` when that is the printer's
+  own account); elsewhere the category's PDFs and office files, drafted for the network's people.
+  Job ages are squared toward the present — a printer in use is printing this week — which is also
+  what makes the last day's data files common enough to test.
+- **A camera's recordings are re-derived, not built.** `cameraRecordings(essid, host)` replays
+  the first draws of the camera's `device-` stream, so a recorder's copies are the camera's
+  snapshots byte for byte without building the camera box.
+- **Pages are built from the device's data, with no stream of their own.** The planned
+  `device-ui-` stream was not added: nothing on them is drawn. Which boxes serve http is
+  unchanged; a device that serves one publishes its pages instead of the generic IoT page, and
+  `access.log.1`'s visitors walk every page.
+- **Three things that differ from what the plan implied.** Paper is always A4 — CUPS's Letter
+  name `na_letter_8.5x11in` reads as a version to the sweep. `strings` does not show a login under
+  four characters (`pi`, `dev`), exactly as on a real box; `page_log.1` names every user. And the
+  world holds few of these boxes (7 printers, 31 cameras, 11 recorders), so the tests read 120
+  synthetic home LANs (`HOME-NET-<n>`: any ESSID generates a whole network) beside it.
+- **Reachable in play, and not.** No LAN printer in the catalog runs ftp or ssh, so its root-only
+  spool is unreachable on a home LAN; the played run read a printer's Jobs page with lynx, and a
+  recorder's archive over ftp on LIB-2ND-FLOOR (`nvr-12`, ftp on 2121) against `doorbell-125`'s
+  own Events page. A deep printer (sshd forced) waits on a deep-chain pivot recipe.
+- **The byte-diff** (the 9a probe, `main` against the branch, 36,841 files): 0 unexpected paths.
+  Only the 49 printer, camera and recorder boxes moved — `device.conf` removed, their files added,
+  pages, `access.log.1` and root's history rewritten. The history moves because the extra config
+  paths shift that stream's later draws (its neighbour and log lines), all still true.
+- **Mutation**, split into three runs after a whole-scope run was projected at two hours: `device.ts`
+  67.9% → 77.5% (427 killed, 124 survived, 4 not covered); pools, `pageLog.ts` and the control-file
+  stub 98/83; `logHistory.ts` 12/0; `remoteHostFs.ts`'s changed lines 75/23. The survivors left are
+  fixed config and page text, equivalent guards and one-second boundaries, two mutants the runner
+  misreports (each dies by hand), and 18 on unchanged lines (root history's `named.conf` and
+  `redis.conf` paths — a gap older than this PR).
+
+**Verified:** 5,925 unit tests; wire-checks `testSameLanConnect` 4/4, `testCrossPlayerRead` 7/7,
+`testDeepChainReach` 6/6, `testFtpRemoteRead` 7/7 and `testFtpTransferTrace` 13/13 on a reset local
+stack; the largest device file 2,167 characters of JSON against the 8,192 cap; bundle 208,763 B of
+284,975 B; build 1.177 ms per box of 2 ms.
+
+**For 9c.** `device.ts` is ~900 lines with three kinds; four more will want it split per kind.
+`buildDevice` returns null for a kind with nothing of its own, which is what keeps `device.conf`
+on the rest; once every kind returns files, that branch, `CONFIG_BY_ROLE.iot` and `IOT_PAGES`
+retire together. The pins that move then: `remoteHostFs.test.ts`'s `sensor` rows and
+`device.test.ts`'s "devices not yet built" block.
 
 ---
 

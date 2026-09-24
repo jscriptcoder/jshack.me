@@ -4,10 +4,10 @@
 > status. The grounding section records what v2 held on the day this was grilled; the code wins
 > wherever the two disagree.
 > Grilled 2026-09-21 (`grilling`), 25 locked decisions. Slices 0–8 delivered (as-built below).
-> Slice 9 grilled and planned 2026-09-24 in `a-device-is-the-device-it-says.md`; PR 9a shipped
-> (#545, v0.259.0); PR 9b is next.
+> Slice 9 grilled and planned 2026-09-24 in `a-device-is-the-device-it-says.md`; PRs 9a (#545,
+> v0.259.0) and 9b (#546, v0.260.0) shipped; PR 9c is next.
 
-**Where we are now (2026-09-24):** **v0.258.0**. The legacy-parity epic's V-series is closed and
+**Where we are now (2026-09-24):** **v0.260.0**. The legacy-parity epic's V-series is closed and
 its next line was "the ship gate". **Ship now waits for this epic** (decision 1). Grilled to 25
 locked decisions and a twelve-slice spine. **Slices 0–8 are DONE** (#533, #534, #535, #536,
 #537 + #538, #539, #540, #541 + #542, #543 + #544) — the build budgets, NPC
@@ -415,7 +415,7 @@ See below; planning refines it.
 | 6 | **A store serves that application** — Redis keyspaces paired with the app | `KEYS sess:*` returns sessions for that app's real users | ✅ DONE (#540, v0.254.0) — 43 stores, all reading differently; decision 15 amended (store locks re-rolled once); a bought store is a fresh install; see as-built below |
 | 7 | **Somebody wrote to somebody** — workstation mailboxes, the mail server's spool | a thread in `/var/mail/<user>` is between two real inhabitants of the network | ✅ **DONE** (#541 v0.255.0, #542 v0.256.0) — the correspondence, desk mailboxes, the spool and its database agreement; then `mail.log.1` carrying the spool's own queue ids, `/etc/aliases`, the postfix config honesty fixes and cron's mail to root. A phone keeps no mailbox but may hold cron's |
 | 8 | **A share holds a department** — fileserver `/srv`, metadata docs | `strings` on a shared PDF names its author, an inhabitant | ✅ **DONE** (#543 v0.257.0, #544 v0.258.0) — `/srv` on every file server, LAN and deep: a working share or dated snapshots by prefix, the category's departments, PDF/JPEG/office stubs whose metadata `strings` reads, authors from the one roster mail uses, `vsftpd.conf` stops claiming doors; then `vsftpd.log.1` recording every arrival from its author's machine to the byte, the `/srv` data disk in `fstab`, an allow-list `/etc/vsftpd.userlist`, and root's history naming `/srv` instead of samba, nfs and zfs. See as-built below |
-| 9 | **A device is the device it says** — IoT prefix overlays + prefix growth (the one re-roll: refresh pins, wire-checks, the `v2-e2e` skill) | a printer serves a CUPS page and holds spool jobs; a camera a recordings index | ⏳ 9a ✅ (#545, v0.259.0) — 9b printer/camera/recorder next, then 9c climate/media/plug/lock |
+| 9 | **A device is the device it says** — IoT prefix overlays + prefix growth (the one re-roll: refresh pins, wire-checks, the `v2-e2e` skill) | a printer serves a CUPS page and holds spool jobs; a camera a recordings index | ⏳ 9a ✅ (#545, v0.259.0), 9b ✅ (#546, v0.260.0) — 9c climate/media/plug/lock next |
 | 10 | **A gateway knows its network** — DHCP leases, config backups, admin pages, admin/firmware history | a rooted router's lease table lists exactly the network's generated hosts | ⏳ |
 | 11 | **A phone is a phone** — phone/tablet overlay | an NPC `android-` home holds `DCIM/` and `Download/`, not dotfiles | ⏳ |
 
@@ -1211,3 +1211,12 @@ is over it on 102 boxes, and every tier reads it, so a guest who `get`s it meets
   mutation gate found a gap on an unchanged line — a name without the octet had no test saying it
   claims no role, so a player's `nas1` could have read as a file server — now held. Next:
   **PR 9b** (printer, camera, recorder).
+- **2026-09-24** — **slice 9's PR 9b shipped** (#546, v0.260.0): a printer keeps CUPS's configs,
+  a spool of real jobs (a share's documents, sent by whoever saved them from their own machine)
+  and a `page_log.1` agreeing with it, all root-only; a camera keeps a motion config, an event
+  index and Exif-stamped snapshots (doorbells ring, baby monitors hear); a recorder archives the
+  network's cameras byte for byte under their `.lan` names, or PoE channels below the LAN; and
+  each serves its own pages where http already runs. The byte-diff moved only those 49 boxes. The
+  mutation gate ran as three scoped runs and added sixteen tests; no LAN printer in the catalog
+  runs ftp or ssh, so the played run read a printer through its Jobs page and a recorder over ftp.
+  Next: **PR 9c** (climate, media, plug, lock; `device.conf` and the generic IoT pages retire).
