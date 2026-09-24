@@ -23,8 +23,10 @@ import { roleOfHostname } from './pools/hostnames';
 import {
   arrivedIn,
   boxMail,
+  boxPeople,
   mailMessageId,
   networkMail,
+  peopleOn,
   subjectOf,
   transferId,
   type MailMessage,
@@ -341,6 +343,27 @@ const applicationOn = ({
 
 const loginsIn = (application: Application): readonly string[] =>
   (application.tables.users?.rows ?? []).map((row) => String(row.username));
+
+/** Who a box knows: the network's own people for a box on the LAN, and for a box below
+ *  it only the logins its own application keeps — what hangs below a gateway can change
+ *  while the box does not, so a roster built from its neighbours would rewrite itself. */
+export const peopleKnownOn = ({
+  essid,
+  host,
+  username,
+}: {
+  readonly essid: string;
+  readonly host: LanHost;
+  readonly username: string;
+}): readonly MailPerson[] =>
+  isOnHomeLan(essid, host)
+    ? peopleOn(essid)
+    : boxPeople({
+        essid,
+        host,
+        account: username,
+        logins: loginsIn(applicationOn({ essid, host, username })),
+      });
 
 /** One message the machine that carries the mail took in and delivered, as its own log
  *  records it. The queue id is the id its transfer agent stamped, which is also what the
