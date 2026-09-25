@@ -268,6 +268,28 @@ time is the PDF's `ModDate` to the second. Not every guest-readable log carries 
 is over the signed-write cap on most boxes and fails with `I/O error` (see the conventions doc
 §9).
 
+### Then: an NPC phone or tablet
+
+An `android-`, `iphone-` or `tablet-` keeps a device's storage in its person's home instead of
+dotfiles. Only about one in three catalog LANs has one that runs sshd, so pick it offline and
+AFTER a scan (§3): walk `generateHomeLan(essid).hosts` for those prefixes, keep the ones whose
+`hostServices` include `ssh` (`entry.spec.service`), and recover the account's password from
+`/etc/passwd`'s md5 against `ALL_GENERATED_PASSWORDS` (§6). `deviceModel(essid, host)`
+(`generation/phoneHome.ts`) names the make and model its photos will carry. Played 2026-09-25 on
+ESPRESSO-EXPRESS: `ssh agarcia@192.168.232.180`, password `letmein` (a Galaxy Tab A8).
+
+| Trap | What actually works |
+|---|---|
+| `ls -a ~` → `cannot access '~'` | v2's `ls` does not expand `~`; you land in the home, so `ls -a` there |
+| Looking for `Download/` on an iPhone | The layout follows the MAKER: Android devices (and non-Apple tablets) keep `DCIM/Camera/IMG_YYYYMMDD_HHMMSS.jpg`, `Download/`, `Documents/`, `Movies/`, `Music/`, `Pictures/`; an iPhone or iPad keeps `DCIM/100APPLE/IMG_NNNN.JPG`, `Downloads/`, `Documents/` |
+| `cat` on a photo or PDF shows noise | `strings` it: a photo gives `JFIF`, `Exif`, make, model, the moment it was taken (no artist line); a PDF's Info line gives its title and author |
+
+A phone's photos carry the model that file servers' photos, media boxes' pairings and locks'
+logs already credit to it. On a home LAN a download may be the place's own paperwork (a café's
+`menu.pdf`, an office's `expenses-policy.pdf`): its `/Author` is a real inhabitant, whose machine
+`peopleOn(essid)` names and `ping` reaches — on ESPRESSO-EXPRESS, `menu.pdf` is Nina Williams at
+`workstation-140`. Every other PDF is credited to an invented issuer.
+
 ---
 
 ## 4. Recipe: shell on the AP gateway

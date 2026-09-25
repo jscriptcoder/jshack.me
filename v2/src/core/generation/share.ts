@@ -118,7 +118,7 @@ const spanBefore = (boundaries: readonly number[], index: number): Span => ({
 
 const secondIn = (prng: Prng, span: Span): number => prng.nextInt(span.from, span.to);
 
-type Device = { readonly make: string; readonly model: string };
+export type Device = { readonly make: string; readonly model: string };
 
 /** Who and what a share's files can name: the people who may have written them, what
  *  they call the place, and the devices a photo there could have been taken on. */

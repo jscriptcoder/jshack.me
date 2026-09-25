@@ -86,9 +86,9 @@ describe('an NPC desktop reads as somebody’s', () => {
     });
   });
 
-  it('leaves a phone, a tablet and every box that is not a personal computer with an empty home', () => {
+  it('leaves every box that is not a personal computer, a phone or a tablet with an empty home', () => {
     lanBoxes(crackableEssidPool)
-      .filter(({ host }) => !isDesk(host))
+      .filter(({ host }) => !isDesk(host) && !['android', 'iphone', 'tablet'].includes(prefixOf(host)))
       .forEach((box) => {
         expect(homeFilesOf(box).size).toBe(0);
       });

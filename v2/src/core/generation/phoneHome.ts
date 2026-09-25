@@ -1,0 +1,292 @@
+/**
+ * The home of the person a phone or tablet belongs to, which on such a device is its own
+ * storage: the photos it took, the PDFs its person saved, a few notes they typed, and the
+ * folders every device of its maker keeps. A shell never ran there, so nothing a shell
+ * writes — no dotfile, no history — is in it.
+ *
+ * Every photo was taken on this device, so its Exif names the model the rest of the
+ * network already credits to it (`phoneModel`; a tablet's own `tabletModel`), and its
+ * file name is what the maker's camera app calls it. A paper of the place's own is
+ * written by somebody who lives on the network. Everything is drawn from the box's own
+ * `phone-content` stream, so two builds of one device are identical and no draw of any
+ * other concern moves.
+ */
+
+import type { Directory, FileNode } from '../filesystem/types';
+import { WORLD_EPOCH } from '../cve/worldClock';
+import { dir, file, HOME_DIR, HOME_FILE } from './baseFs';
+import { renderDocument } from './documentFormats';
+import { isOnHomeLan, type LanHost } from './generateHomeLan';
+import { peopleOn } from './networkMail';
+import { networkPersona } from './persona';
+import { createPrng, type Prng } from './prng';
+import { phoneModel, type Device } from './share';
+import { fillSlots } from './npcHome';
+import { COLLEAGUES } from './pools/homeNotes';
+import {
+  PERSONAL_DOWNLOADS,
+  PHONE_NOTES,
+  PLACE_DOWNLOADS,
+  TABLET_MODELS,
+  type DownloadSpec,
+} from './pools/phoneFiles';
+
+const DAY_SECONDS = 86_400;
+const EPOCH_SECONDS = WORLD_EPOCH / 1000;
+
+const PHOTO_COUNT = { min: 6, max: 16 } as const;
+const PHOTO_DAYS = { min: 4, max: 10 } as const;
+/** Two years back, the window every home in the world dates itself within. */
+const DAYS_BACK = 730;
+const BURST_START_SECONDS = { min: 8 * 3600, max: 20 * 3600 } as const;
+const BURST_GAP_SECONDS = { min: 3, max: 300 } as const;
+
+const DOWNLOAD_COUNT = { min: 2, max: 6 } as const;
+/** How often a device on a home LAN kept one of the place's own papers. */
+const PLACE_PAPER_CHANCE = 0.6;
+const REFERENCE = { min: 10_000, max: 99_999 } as const;
+/** A document is saved again within a couple of days of being made, if at all. */
+const MAX_EDIT_SECONDS = 2 * DAY_SECONDS;
+
+/** What a phone or tablet holds in all (decision 9), and at most how many notes. The
+ *  notes take up the slack: a device with few photos and downloads typed more. */
+const CONTENT_FILES = { min: 10, max: 25 } as const;
+const MAX_NOTES = 3;
+const NOTE_COUNT = { min: 2, max: 9 } as const;
+
+const pad = (value: number): string => String(value).padStart(2, '0');
+
+/** `IMG_20250901_070309.jpg`: the name Android's camera gives the photo it took at that
+ *  moment, in UTC like every date in the world. */
+const androidPhotoName = (takenAt: number): string => {
+  const moment = new Date(takenAt);
+  const date = `${moment.getUTCFullYear()}${pad(moment.getUTCMonth() + 1)}${pad(moment.getUTCDate())}`;
+  const time = `${pad(moment.getUTCHours())}${pad(moment.getUTCMinutes())}${pad(moment.getUTCSeconds())}`;
+  return `IMG_${date}_${time}.jpg`;
+};
+
+/** A photo as the camera app saved it: the name it gave the file, and the moment, in
+ *  milliseconds, it was taken. */
+type NamedPhoto = { readonly name: string; readonly takenAt: number };
+
+/** An iPhone numbers what it shoots on one counter that only ever goes up, so a photo
+ *  deleted along the way leaves a gap: `IMG_4127.JPG`, `IMG_4129.JPG`. */
+const APPLE_COUNTER_START = { min: 1, max: 7000 } as const;
+const APPLE_COUNTER_STEP = { min: 1, max: 4 } as const;
+
+const nameOnAppleCounter = (prng: Prng, takenAt: readonly number[]): readonly NamedPhoto[] =>
+  takenAt.reduce<{ readonly counter: number; readonly photos: readonly NamedPhoto[] }>(
+    ({ counter, photos }, moment) => ({
+      counter: counter + prng.nextInt(APPLE_COUNTER_STEP.min, APPLE_COUNTER_STEP.max),
+      photos: [...photos, { name: `IMG_${String(counter).padStart(4, '0')}.JPG`, takenAt: moment }],
+    }),
+    { counter: prng.nextInt(APPLE_COUNTER_START.min, APPLE_COUNTER_START.max), photos: [] },
+  ).photos;
+
+/** Where a maker's camera app keeps the roll, what the rest of its storage looks like
+ *  before anything is saved there, and how it names what it took, oldest first. */
+type Layout = {
+  readonly cameraFolder: string;
+  readonly downloadFolder: string;
+  readonly folders: readonly string[];
+  readonly namePhotos: (prng: Prng, takenAt: readonly number[]) => readonly NamedPhoto[];
+};
+
+const ANDROID_LAYOUT: Layout = {
+  cameraFolder: 'Camera',
+  downloadFolder: 'Download',
+  folders: ['Movies', 'Music', 'Pictures'],
+  namePhotos: (_prng, takenAt) =>
+    takenAt.map((moment) => ({ name: androidPhotoName(moment), takenAt: moment })),
+};
+
+/** What an iPhone shows over a file share: the camera roll and the Files app's own two
+ *  folders. */
+const APPLE_LAYOUT: Layout = {
+  cameraFolder: '100APPLE',
+  downloadFolder: 'Downloads',
+  folders: [],
+  namePhotos: nameOnAppleCounter,
+};
+
+/** A shooting day, as how many days before the epoch it fell, and how many photos were
+ *  taken on it. */
+type ShootingDay = { readonly daysAgo: number; readonly photoCount: number };
+
+/** A few distinct days, every one with at least one photo and the rest wherever they
+ *  fell. */
+const shootingDays = (prng: Prng, photoCount: number): readonly ShootingDay[] => {
+  const dayCount = prng.nextInt(PHOTO_DAYS.min, Math.min(PHOTO_DAYS.max, photoCount));
+  const days = prng
+    .pickN(
+      Array.from({ length: DAYS_BACK }, (_, index) => index + 1),
+      dayCount,
+    )
+    .map((daysAgo) => ({ daysAgo, photoCount: 1 }));
+  return Array.from({ length: photoCount - dayCount }).reduce<readonly ShootingDay[]>(
+    (sofar) => {
+      const lucky = prng.nextInt(0, dayCount - 1);
+      return sofar.map((day, index) =>
+        index === lucky ? { ...day, photoCount: day.photoCount + 1 } : day,
+      );
+    },
+    days,
+  );
+};
+
+/** One day's burst: the first photo some time between breakfast and the evening, each
+ *  after it seconds to minutes later, so no two share a second. */
+const burstOn = (prng: Prng, day: ShootingDay): readonly number[] =>
+  Array.from({ length: day.photoCount }).reduce<{
+    readonly second: number;
+    readonly moments: readonly number[];
+  }>(
+    ({ second, moments }) => ({
+      second: second + prng.nextInt(BURST_GAP_SECONDS.min, BURST_GAP_SECONDS.max),
+      moments: [...moments, second * 1000],
+    }),
+    {
+      second:
+        EPOCH_SECONDS -
+        day.daysAgo * DAY_SECONDS +
+        prng.nextInt(BURST_START_SECONDS.min, BURST_START_SECONDS.max),
+      moments: [],
+    },
+  ).moments;
+
+/** The moment, in milliseconds, each photo was taken, oldest first. */
+const photoMoments = (prng: Prng): readonly number[] =>
+  shootingDays(prng, prng.nextInt(PHOTO_COUNT.min, PHOTO_COUNT.max))
+    .flatMap((day) => burstOn(prng, day))
+    .sort((left, right) => left - right);
+
+const TABLET_PREFIX = 'tablet';
+
+/** What a tablet is, one model for its whole life, drawn on its own stream so that no
+ *  phone the network already names moves. */
+const tabletModel = (essid: string, host: LanHost): Device =>
+  createPrng(`tablet-${essid}-${host.ip}`).pick(TABLET_MODELS);
+
+/** The phone or tablet a box is, or undefined for every box that is neither. */
+export const deviceModel = (essid: string, host: LanHost): Device | undefined =>
+  host.hostname.startsWith(`${TABLET_PREFIX}-`)
+    ? tabletModel(essid, host)
+    : phoneModel(essid, host);
+
+/** A PDF the device kept, and who its Info dictionary credits. */
+type Paper = { readonly spec: DownloadSpec; readonly author: string };
+
+/** What the person saved: a few things organisations sent them and, on a home LAN, now
+ *  and then a paper of the place's own, written by somebody who lives on the network. A
+ *  device below the LAN knows nobody there. */
+const papersFor = (prng: Prng, essid: string, host: LanHost): readonly Paper[] => {
+  const personal = prng
+    .pickN(PERSONAL_DOWNLOADS, prng.nextInt(DOWNLOAD_COUNT.min, DOWNLOAD_COUNT.max))
+    .map((spec) => ({ spec, author: spec.author }));
+  if (!isOnHomeLan(essid, host) || prng.next() >= PLACE_PAPER_CHANCE) return personal;
+  const writer = prng.pick(peopleOn(essid));
+  return [
+    ...personal,
+    {
+      spec: prng.pick(PLACE_DOWNLOADS[networkPersona(essid).category]),
+      author: writer.fullName,
+    },
+  ];
+};
+
+/** A paper as saved: its reference filled in, made some time in the two years before the
+ *  epoch, and saved again within its edit window. It is made at least that window before
+ *  the epoch, so no save of it can fall on or after the day the world stands on. */
+const renderPaper = (prng: Prng, paper: Paper): readonly [string, string] => {
+  const reference = String(prng.nextInt(REFERENCE.min, REFERENCE.max));
+  const createdSecond =
+    EPOCH_SECONDS - prng.nextInt(MAX_EDIT_SECONDS + 1, DAYS_BACK * DAY_SECONDS);
+  const editSeconds = prng.nextInt(0, MAX_EDIT_SECONDS);
+  return [
+    paper.spec.name.replaceAll('{ref}', reference),
+    renderDocument(
+      {
+        format: 'pdf',
+        title: paper.spec.title.replaceAll('{ref}', reference),
+        author: paper.author,
+        createdAt: createdSecond * 1000,
+        modifiedAt: (createdSecond + editSeconds) * 1000,
+      },
+      prng,
+    ),
+  ];
+};
+
+/** The notes the person typed, as many as keep the device's files within its band. */
+const notesFor = (options: {
+  readonly prng: Prng;
+  readonly essid: string;
+  readonly filesSoFar: number;
+}): readonly (readonly [string, string])[] => {
+  const { prng, essid, filesSoFar } = options;
+  const count = prng.nextInt(
+    Math.max(0, CONTENT_FILES.min - filesSoFar),
+    Math.min(MAX_NOTES, CONTENT_FILES.max - filesSoFar),
+  );
+  const place = networkPersona(essid).place;
+  return prng.pickN(PHONE_NOTES, count).map(({ file: name, body }) => [
+    name,
+    fillSlots(body, {
+      place,
+      colleague: prng.pick(COLLEAGUES),
+      count: String(prng.nextInt(NOTE_COUNT.min, NOTE_COUNT.max)),
+    }),
+  ]);
+};
+
+export const buildPhoneHome = (options: {
+  readonly essid: string;
+  readonly host: LanHost;
+  readonly username: string;
+  readonly device: Device;
+}): Directory => {
+  const { essid, host, username, device } = options;
+  const prng = createPrng(`phone-content-${essid}-${host.ip}`);
+
+  const layout = device.make === 'Apple' ? APPLE_LAYOUT : ANDROID_LAYOUT;
+
+  const photos: Record<string, FileNode> = Object.fromEntries(
+    layout.namePhotos(prng, photoMoments(prng)).map(({ name, takenAt }) => [
+      name,
+      file(
+        renderDocument(
+          { format: 'jpeg', make: device.make, model: device.model, takenAt, artist: null },
+          prng,
+        ),
+        HOME_FILE,
+        username,
+      ),
+    ]),
+  );
+
+  const downloads: Record<string, FileNode> = Object.fromEntries(
+    papersFor(prng, essid, host).map((paper) => {
+      const [name, content] = renderPaper(prng, paper);
+      return [name, file(content, HOME_FILE, username)];
+    }),
+  );
+
+  const notes: Record<string, FileNode> = Object.fromEntries(
+    notesFor({
+      prng,
+      essid,
+      filesSoFar: Object.keys(photos).length + Object.keys(downloads).length,
+    }).map(([name, body]) => [name, file(body, HOME_FILE, username)]),
+  );
+
+  return dir(
+    {
+      DCIM: dir({ [layout.cameraFolder]: dir(photos, HOME_DIR, username) }, HOME_DIR, username),
+      [layout.downloadFolder]: dir(downloads, HOME_DIR, username),
+      Documents: dir(notes, HOME_DIR, username),
+      ...Object.fromEntries(layout.folders.map((folder) => [folder, dir({}, HOME_DIR, username)])),
+    },
+    HOME_DIR,
+    username,
+  );
+};

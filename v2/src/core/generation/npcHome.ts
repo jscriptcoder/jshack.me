@@ -4,9 +4,11 @@
  * machines on this network they really talked to.
  *
  * A home is stamped only on a box whose name says somebody sits at it (a desktop, a
- * laptop, a workstation); a phone, a tablet, a server or a gateway keeps the empty home
- * it always had. Everything here is drawn from the box's own `home-content` stream, so
- * two builds of one box are identical and no draw of any other concern moves.
+ * laptop, a workstation). A phone or a tablet is its person's too, but what it keeps is
+ * a device's storage rather than a shell's, so it is built by `buildPhoneHome`; a server
+ * or a gateway keeps the empty home it always had. Everything here is drawn from the
+ * box's own `home-content` stream, so two builds of one box are identical and no draw of
+ * any other concern moves.
  *
  * A network line names a real neighbour, resolved from the LAN itself, never from a
  * template — so every `ssh`, `curl`, `ping` and `nslookup` a history holds is one a
@@ -34,6 +36,7 @@ import {
 } from './pools/homeSkeleton';
 import { COLLEAGUES, NOTE_TEMPLATES, TIMES, WEEKDAYS } from './pools/homeNotes';
 import { PERSONAL_HISTORY, WORK_HISTORY } from './pools/homeHistory';
+import { buildPhoneHome, deviceModel } from './phoneHome';
 
 const DESK_PREFIXES: readonly string[] = ['desktop', 'laptop', 'workstation'];
 
@@ -196,6 +199,10 @@ export const buildNpcHome = (options: {
   readonly sshDirectory: Directory | null;
 }): Directory => {
   const { essid, host, username, sshDirectory } = options;
+  const device = deviceModel(essid, host);
+  if (device !== undefined) {
+    return buildPhoneHome({ essid, host, username, device });
+  }
   if (!isDeskMachine(host)) return dir({}, HOME_DIR, username);
 
   const persona = networkPersona(essid);
