@@ -199,7 +199,7 @@ export const buildNpcHome = (options: {
 }): Directory => {
   const { essid, host, username, sshDirectory } = options;
   const phone = phoneModel(essid, host);
-  if (phone !== undefined && phone.make !== 'Apple') {
+  if (phone !== undefined) {
     return buildPhoneHome({ essid, host, username, device: phone });
   }
   if (!isDeskMachine(host)) return dir({}, HOME_DIR, username);
