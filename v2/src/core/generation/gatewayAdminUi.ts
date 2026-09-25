@@ -18,7 +18,7 @@ import type { FileEntry } from '../filesystem/types';
 import type { FirmwareVendor } from '../packages/packageVersions';
 import { file, SERVICE_CONFIG_FILE, WEB_PAGE_FILE } from './baseFs';
 import { createPrng } from './prng';
-import { gatewaySite } from './gatewayHistory';
+import type { GatewaySite } from './gatewayHistory';
 import { lanHostOctet } from './lanTopology';
 import type { DhcpGrant, DhcpService, SwitchPort } from './gatewayNetwork';
 
@@ -115,8 +115,9 @@ const render = (options: {
 /** The admin UI's files, by absolute path; none for a gateway the network does not
  *  generate. */
 export const gatewayAdminUi = (options: {
-  readonly essid: string;
   readonly machineId: string;
+  /** Where the gateway stands, or undefined for one the network does not generate. */
+  readonly site: GatewaySite | undefined;
   readonly vendor: FirmwareVendor;
   readonly grants: readonly DhcpGrant[];
   readonly dhcp: DhcpService | null;
@@ -124,8 +125,7 @@ export const gatewayAdminUi = (options: {
   readonly denies: readonly number[];
   readonly snmp: boolean;
 }): readonly (readonly [string, FileEntry])[] => {
-  const { essid, machineId, vendor, grants, dhcp, ports, denies, snmp } = options;
-  const site = gatewaySite(essid, machineId);
+  const { machineId, site, vendor, grants, dhcp, ports, denies, snmp } = options;
   if (site === undefined) return [];
   const prng = createPrng(`gw-history-ui-${machineId}`);
   const { product, root } = VENDOR_UIS[vendor];

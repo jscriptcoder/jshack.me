@@ -10,8 +10,9 @@
  * logs, the hosts its network files list, and their own machine.
  *
  * The history is root-only, like any root's history; the logs are as readable as the live
- * logs beside them. Both draw from streams of the gateway's own, keyed by its machine id
- * (`gw-history-`, and `gw-history-logs-` for the logs), so no other concern's draws move.
+ * logs beside them. The admin, the history and the logs each draw from a stream of the
+ * gateway's own, keyed by its machine id (`gw-admin-`, `gw-history-` and
+ * `gw-history-logs-`), so no other concern's draws move.
  */
 
 import type { FileEntry, FileNode } from '../filesystem/types';
@@ -52,15 +53,14 @@ const placeOf = (
   return link === undefined ? undefined : { host: link.host, onLan: link.parentMachineId === null };
 };
 
-/** The admin's address: the FIRST draw of the gateway's history stream, so the history
- *  and anything else that names the admin always agree. */
+/** The admin's address, on a stream of its own. */
 const drawAdminIp = (options: {
-  readonly prng: Prng;
   readonly essid: string;
+  readonly machineId: string;
   readonly host: LanHost;
   readonly onLan: boolean;
 }): string => {
-  const { prng, essid, host, onLan } = options;
+  const { essid, machineId, host, onLan } = options;
   if (!onLan) return `${host.ip.split('.').slice(0, 3).join('.')}.1`;
   const machines = generateHomeLan(essid).hosts.filter((candidate) => candidate.kind === 'machine');
   const desks = machines.filter(isDeskMachine);
@@ -68,10 +68,8 @@ const drawAdminIp = (options: {
     (candidate) => roleOfHostname(candidate.hostname) === 'workstation',
   );
   const [tier = machines] = [desks, personal].filter((hosts) => hosts.length > 0);
-  return prng.pick(tier).ip;
+  return createPrng(`gw-admin-${machineId}`).pick(tier).ip;
 };
-
-const historyStream = (machineId: string): Prng => createPrng(`gw-history-${machineId}`);
 
 /** A gateway the network generates: the host it is, whether it stands on the home LAN,
  *  and the address its admin works from. */
@@ -82,12 +80,13 @@ export type GatewaySite = {
 };
 
 /** Where a gateway stands and who runs it, or undefined for a gateway the network does
- *  not generate. */
+ *  not generate. Finding it walks the network's chain, so a gateway's build looks it up
+ *  once and hands it to everything that names it. */
 export const gatewaySite = (essid: string, machineId: string): GatewaySite | undefined => {
   const place = placeOf(essid, machineId);
   return place === undefined
     ? undefined
-    : { ...place, adminIp: drawAdminIp({ prng: historyStream(machineId), essid, ...place }) };
+    : { ...place, adminIp: drawAdminIp({ essid, machineId, ...place }) };
 };
 
 /** The address the gateway's admin works from, or undefined for a gateway the network
@@ -105,8 +104,9 @@ const filePaths = (prefix: string, entries: Readonly<Record<string, FileNode>>):
 
 /** Root's `.bash_history` on a gateway, from what the gateway holds. */
 export const gatewayRootHistory = (options: {
-  readonly essid: string;
   readonly machineId: string;
+  /** Where the gateway stands, or undefined for one the network does not generate. */
+  readonly site: GatewaySite | undefined;
   /** The configs that make the device what it is (its NAT rules or its ACL), which
    *  its admin always has edited. */
   readonly deviceConfig: Readonly<Record<string, FileNode>>;
@@ -121,10 +121,9 @@ export const gatewayRootHistory = (options: {
   /** The hosts the gateway's network files list. */
   readonly hosts: readonly string[];
 }): string => {
-  const { essid, machineId, deviceConfig, otherConfig, state, logs, daemons, hosts } = options;
-  const prng = historyStream(machineId);
-  const place = placeOf(essid, machineId);
-  const adminIp = place === undefined ? undefined : drawAdminIp({ prng, essid, ...place });
+  const { machineId, site, deviceConfig, otherConfig, state, logs, daemons, hosts } = options;
+  const prng = createPrng(`gw-history-${machineId}`);
+  const adminIp = site?.adminIp;
 
   const habits = prng.pickN(GATEWAY_ROOT_HISTORY, prng.nextInt(5, 9));
   const edits = filePaths('/etc', deviceConfig).map((path) => `nano ${path}`);
@@ -187,14 +186,14 @@ const inOrder = (entries: readonly Entry[]): string =>
  * account but root. A gateway the network does not generate remembers nothing.
  */
 export const gatewayLogRotations = (options: {
-  readonly essid: string;
   readonly machineId: string;
+  /** Where the gateway stands, or undefined for one the network does not generate. */
+  readonly site: GatewaySite | undefined;
   /** Every lease the gateway granted, none on a switch. */
   readonly grants: readonly DhcpGrant[];
   readonly hasSnmp: boolean;
 }): Readonly<Record<string, FileNode>> => {
-  const { essid, machineId, grants, hasSnmp } = options;
-  const site = gatewaySite(essid, machineId);
+  const { machineId, site, grants, hasSnmp } = options;
   if (site === undefined) return {};
   const { adminIp } = site;
   const { hostname } = site.host;

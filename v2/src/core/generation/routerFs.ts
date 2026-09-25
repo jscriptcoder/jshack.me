@@ -61,7 +61,7 @@ import {
   computeDeepGatewayId,
   computeInnerGatewayId,
 } from '../identity/router';
-import { gatewayLogRotations, gatewayRootHistory } from './gatewayHistory';
+import { gatewayLogRotations, gatewayRootHistory, gatewaySite } from './gatewayHistory';
 import { SYSLOG_PERMISSIONS } from '../logging/syslog';
 
 /** The AP gateway's root account plaintext password, seeded from the ESSID alone
@@ -187,7 +187,7 @@ const buildGatewayBaseFs = (
   },
   configEntries: Record<string, FileNode>,
   /** Which gateway this is, so it can know who ran it. */
-  site: { readonly essid: string; readonly machineId: string },
+  gateway: { readonly essid: string; readonly machineId: string },
   network: GatewayNetworkEntries = {
     etc: {},
     varLib: {},
@@ -253,6 +253,8 @@ const buildGatewayBaseFs = (
       }
     : {};
   const varLibEntries: Record<string, FileNode> = { ...snmpStateEntries, ...network.varLib };
+  // Found once: every part of the box that names who ran it reads the same answer.
+  const site = gatewaySite(gateway.essid, gateway.machineId);
   const logEntries: Record<string, FileNode> = {
     'access.log': file('', ACCESS_LOG_PERMISSIONS),
     'auth.log': file('', AUTH_LOG_PERMISSIONS),
@@ -261,21 +263,24 @@ const buildGatewayBaseFs = (
     ...snmpLogEntries,
   };
   const rotations = gatewayLogRotations({
-    ...site,
+    machineId: gateway.machineId,
+    site,
     grants: network.grants,
     hasSnmp: identity.hasSnmp,
   });
   const firmwareVendor = pickFirmwareVendor(identity.firmwareSeed);
   const denies = aclDeniesIn(configEntries);
   const backups = gatewayBackups({
-    ...site,
+    machineId: gateway.machineId,
+    site,
     vendor: firmwareVendor,
     dhcp: network.dhcp,
     denies,
     snmp: identity.hasSnmp,
   });
   const adminUi = gatewayAdminUi({
-    ...site,
+    machineId: gateway.machineId,
+    site,
     vendor: firmwareVendor,
     grants: network.grants,
     dhcp: network.dhcp,
@@ -284,7 +289,8 @@ const buildGatewayBaseFs = (
     snmp: identity.hasSnmp,
   });
   const history = gatewayRootHistory({
-    ...site,
+    machineId: gateway.machineId,
+    site,
     deviceConfig: configEntries,
     otherConfig: { ...snmpConfigEntries, ...network.etc },
     state: varLibEntries,

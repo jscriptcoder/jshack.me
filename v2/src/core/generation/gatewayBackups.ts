@@ -18,7 +18,7 @@ import { WORLD_EPOCH } from '../cve/worldClock';
 import type { FirmwareVendor } from '../packages/packageVersions';
 import { dir, file, ROOT_DIR, ROOT_FILE } from './baseFs';
 import { createPrng } from './prng';
-import { gatewaySite } from './gatewayHistory';
+import type { GatewaySite } from './gatewayHistory';
 import { lanHostOctet } from './lanTopology';
 import type { DhcpService } from './gatewayNetwork';
 
@@ -407,15 +407,15 @@ const EXPORTS: Readonly<
 /** `/root/backups` on a gateway, as the entry `/root` holds it; nothing for a gateway the
  *  network does not generate. */
 export const gatewayBackups = (options: {
-  readonly essid: string;
   readonly machineId: string;
+  /** Where the gateway stands, or undefined for one the network does not generate. */
+  readonly site: GatewaySite | undefined;
   readonly vendor: FirmwareVendor;
   readonly dhcp: DhcpService | null;
   readonly denies: readonly number[];
   readonly snmp: boolean;
 }): Readonly<Record<string, FileNode>> => {
-  const { essid, machineId, vendor, dhcp, denies, snmp } = options;
-  const site = gatewaySite(essid, machineId);
+  const { machineId, site, vendor, dhcp, denies, snmp } = options;
   if (site === undefined) return {};
   const prng = createPrng(`gw-history-backups-${machineId}`);
   const isAccessPoint = site.onLan && lanHostOctet(site.host) === 1;

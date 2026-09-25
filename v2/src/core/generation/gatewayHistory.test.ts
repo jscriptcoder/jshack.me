@@ -84,11 +84,10 @@ describe('who administers a gateway', () => {
   });
 
   it('draws the admin per gateway, so a LAN is not always run from one desk', () => {
+    const gateways = everyGateway();
     const lanAdmins = ALL_ESSIDS.map((essid) =>
       new Set(
-        everyGateway()
-          .filter((gateway) => gateway.essid === essid && gateway.onLan)
-          .map(adminOf),
+        gateways.filter((gateway) => gateway.essid === essid && gateway.onLan).map(adminOf),
       ),
     );
     expect(lanAdmins.some((admins) => admins.size > 1)).toBe(true);
@@ -203,8 +202,8 @@ describe("root's shell history on a gateway", () => {
 
   it('names no admin on a gateway the network does not generate', () => {
     const history = gatewayRootHistory({
-      essid: ALL_ESSIDS[0] ?? '',
       machineId: 'no-such-gateway',
+      site: undefined,
       deviceConfig: {},
       otherConfig: {},
       state: {},
