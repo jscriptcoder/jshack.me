@@ -674,7 +674,12 @@ architecture doc if the work touches cross-player paths.
   - **building every box on the 50 catalog networks averages over 2 ms per box**, measured after
     a warm-up pass. It was about 0.15 ms per box over 615 boxes before world content. Base trees
     are rebuilt on every lookup with no cache, so the remedy is a cache for the box builders,
-    added for that measured reason and never before one.
+    added for that measured reason and never before one. **Before reaching for the cache, look
+    for a lookup made twice inside one build.** At v0.263.0 four gateway content builders each
+    found where their gateway stands (the home LAN plus the whole `chainLinks` walk, ~0.34 ms)
+    and the gate read 1.93–2.31 ms; finding it once in `buildGatewayBaseFs` and handing it down
+    read 1.53–1.67, no cache needed. The gate is noisy near the line (one run of the same tree
+    failed at 2.31 and the next passed at 1.93), so measure three runs before believing either.
   It is a script, not a vitest test, because Stryker runs the whole suite under instrumentation
   and aborts its dry run on any failure. A wall-clock assertion there would break mutation runs.
   To check without a full build, run `npx tsx scripts/checkBudgets.ts` after `vite build`.
@@ -1136,6 +1141,16 @@ The fix has one shape: sweep the 253 host octets against each role's hostname pr
 distinct results, and assert on the SET — its width, its membership, and that no entry came back
 empty. Six survivors and fifteen timeouts became 91/91 with none, and the run fell from 8 minutes to
 3, because the sweep also replaced per-test regeneration with one shared pass.
+
+**Generated TEXT in a fixed format is mutation-tested by a reader of that format, not by pinning
+lines.** A config or page template's boilerplate lines (`!`, `}`, `<domain>…</domain>`) each mutate
+to `""` or `"Stryker was here!"` and survive any test that only extracts the facts it cares about:
+the gateway backups first scored 58% and the admin pages 45%. One well-formedness check per format
+killed most of them without pinning a single line — IOS lines indented under a header and ending
+`end`, RouterOS `add`/`set` under a `/section`, uci `option` under `config` under `package`, nvram
+unique and sorted, XML tags balanced, EdgeOS braces balanced at four spaces a level, HTML a
+doctype, balanced tags and full tables — lifting them to 90% and 93%. Break the production code on
+purpose once per check to see it fail: a checker that parses nothing passes everything.
 
 **Compute a population sweep ONCE per block, never per test.** Regenerating it inside each `it` is
 fast in a normal run and slow enough under mutation instrumentation to race Stryker's timeout —

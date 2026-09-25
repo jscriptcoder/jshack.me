@@ -3,15 +3,14 @@
 > **Picking this up cold?** Read "Locked decisions", then the slice table — it carries the live
 > status. The grounding section records what v2 held on the day this was grilled; the code wins
 > wherever the two disagree.
-> Grilled 2026-09-21 (`grilling`), 25 locked decisions. Slices 0–9 delivered (as-built below).
-> Slice 9 grilled and planned 2026-09-24 and delivered in three PRs (#545, #546, #547; v0.261.0).
-> Slice 10 grilled 2026-09-25 (eight owner decisions, status log); its plan is `plans/a-gateway-knows-its-network.md`.
-> Its PR 10a shipped (#548, v0.262.0); PR 10b is next.
+> Grilled 2026-09-21 (`grilling`), 25 locked decisions. Slices 0–10 delivered (as-built below).
+> Slice 10 grilled and planned 2026-09-25 (eight owner decisions, status log) and delivered in two
+> PRs (#548, #549; v0.263.0). Slice 11 is next and is not yet grilled.
 
-**Where we are now (2026-09-25):** **v0.262.0** — slice 10's first PR (#548) is in; PR 10b is next. The legacy-parity epic's V-series is closed and
+**Where we are now (2026-09-25):** **v0.263.0** — slice 10 is DONE (#548, #549); slice 11 is next. The legacy-parity epic's V-series is closed and
 its next line was "the ship gate". **Ship now waits for this epic** (decision 1). Grilled to 25
-locked decisions and a twelve-slice spine. **Slices 0–9 are DONE** (#533, #534, #535, #536,
-#537 + #538, #539, #540, #541 + #542, #543 + #544, #545 + #546 + #547) — the build budgets, NPC
+locked decisions and a twelve-slice spine. **Slices 0–10 are DONE** (#533, #534, #535, #536,
+#537 + #538, #539, #540, #541 + #542, #543 + #544, #545 + #546 + #547, #548 + #549) — the build budgets, NPC
 workstation homes, every NPC box's `/etc`, `/root`, `.ssh/` and `/home/guest`, every NPC box's
 rotated `.1` history plus `syslog`, a
 three-layer site on every webserver (with lynx tables/`<pre>` and `.lan` names in the web tools),
@@ -19,7 +18,8 @@ an application in every NPC database, that application's working set in every NP
 network's own correspondence in `/var/mail` with the mail server's records agreeing with it, and
 a department share under `/srv` on every file server with the server's own records agreeing
 with it, and every IoT box the device its name says (its daemon's config, its data and its own
-pages); their
+pages), and every gateway a map of its network and a memory of who ran it (leases or a port
+table, its admin's history and logins, vendor backups and admin pages); their
 as-built is folded into the slice spine and the "As-built" sections below.
 **Decision 19 was amended at planning** (budget first, memoize on breach) and **decision 6 was
 narrowed at slice 2's planning** (the player workstation gains an empty `/home/guest`). Slice 3's
@@ -419,7 +419,7 @@ See below; planning refines it.
 | 7 | **Somebody wrote to somebody** — workstation mailboxes, the mail server's spool | a thread in `/var/mail/<user>` is between two real inhabitants of the network | ✅ **DONE** (#541 v0.255.0, #542 v0.256.0) — the correspondence, desk mailboxes, the spool and its database agreement; then `mail.log.1` carrying the spool's own queue ids, `/etc/aliases`, the postfix config honesty fixes and cron's mail to root. A phone keeps no mailbox but may hold cron's |
 | 8 | **A share holds a department** — fileserver `/srv`, metadata docs | `strings` on a shared PDF names its author, an inhabitant | ✅ **DONE** (#543 v0.257.0, #544 v0.258.0) — `/srv` on every file server, LAN and deep: a working share or dated snapshots by prefix, the category's departments, PDF/JPEG/office stubs whose metadata `strings` reads, authors from the one roster mail uses, `vsftpd.conf` stops claiming doors; then `vsftpd.log.1` recording every arrival from its author's machine to the byte, the `/srv` data disk in `fstab`, an allow-list `/etc/vsftpd.userlist`, and root's history naming `/srv` instead of samba, nfs and zfs. See as-built below |
 | 9 | **A device is the device it says** — IoT prefix overlays + prefix growth (the one re-roll: refresh pins, wire-checks, the `v2-e2e` skill) | a printer serves a CUPS page and holds spool jobs; a camera a recordings index | ✅ **DONE** — 9a (#545, v0.259.0), 9b (#546, v0.260.0), 9c (#547, v0.261.0); every IoT box keeps its daemon's config, its data and its own pages, and `device.conf` retired. See as-built below |
-| 10 | **A gateway knows its network** — DHCP leases, config backups, admin pages, admin/firmware history | a rooted router's lease table lists exactly the network's generated hosts | 🚧 10a DONE (#548, v0.262.0) — leases and reservations on every router, a port table on every switch, one MAC per host; 10b (backups, admin UI, history) next. See the plan's as-built |
+| 10 | **A gateway knows its network** — DHCP leases, config backups, admin pages, admin/firmware history | a rooted router's lease table lists exactly the network's generated hosts | ✅ **DONE** — 10a (#548, v0.262.0), 10b (#549, v0.263.0); every router leases its segment and every switch maps its port, and every gateway remembers its admin, their history, its last day, its backups and its admin pages. See as-built below |
 | 11 | **A phone is a phone** — phone/tablet overlay | an NPC `android-` home holds `DCIM/` and `Download/`, not dotfiles | ⏳ |
 
 ## As-built: slices 0–1 (delivered 2026-09-21)
@@ -1450,3 +1450,14 @@ arc to be read in play.
   moved nothing else; the mutation gate added four tests; the played run matched the AP's leases
   to `nmap` on SMART-FRIDGE-NET. Two collapses from the plan (one maker pool; a switch row names
   its host), and `testSharedApForwards` recorded as a random-identity flake. Next: **PR 10b**.
+- **2026-09-25** — **slice 10's PR 10b shipped; slice 10 is DONE** (#549, v0.263.0). Every gateway
+  has an admin — on the LAN an inhabitant at a desk machine, else a phone or tablet, else any
+  machine; below it, its parent's `.1` — and keeps root's `.bash_history` of their work, `.1`
+  rotations of 2026-07-11 (logrotate, a `DHCPACK` per lease, the admin's logins, link drops, the
+  admin polling the agent), 2–4 vendor-format backups (one on the AP) that state the live box with
+  secrets masked, and the vendor's admin pages in a web root off `/var/www`, served on the loopback
+  alone. Two owner decisions during the build (the admin's fallback tiers; the web server's config
+  is not content). A 10a fix keeps every listed lease live at the epoch. The build budget broke on
+  four site lookups per gateway and was fixed by one. Mutation 90–93% per file after a gate that
+  added a format reader per vendor; the byte-diff moved gateways only; the played run on HOOLI-SEC
+  went from the AP's backup to the admin's own home. Next: **slice 11**, not yet grilled.

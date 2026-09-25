@@ -4,14 +4,14 @@
 1–25, plus **eight owner decisions** (2026-09-25) recorded in the epic's status log and restated
 under "Decided at planning" below, with the derived points that follow from them.
 
-**Status:** PR 10a DELIVERED (#548, v0.262.0, 2026-09-25). PR 10b not started — it is unblocked.
+**Status:** DELIVERED — PR 10a (#548, v0.262.0) and PR 10b (#549, v0.263.0), both 2026-09-25.
 
 **Delivery:** two independent PRs against trunk, in order. 10b starts once 10a merges.
 
 | PR | Branch (proposed) | Version | Owns |
 |---|---|---|---|
 | 10a | `feat/a-gateway-knows-its-network` | v0.262.0 | ✅ **DONE** (#548) — per-host MACs; the ESSID reaches the deep gateway builders; dnsmasq leases and config on every router; a MAC table on every switch; the AP's serialized-size check |
-| 10b | `feat/a-gateway-remembers` | v0.263.0 | ⏳ vendor-format config backups; the admin UI on disk; root's history; `.1` rotations of the gateway's live logs |
+| 10b | `feat/a-gateway-remembers` | v0.263.0 | ✅ **DONE** (#549) — vendor-format config backups; the admin UI on disk; root's history; `.1` rotations of the gateway's live logs |
 
 Each PR bumps `v2/package.json` and `v2/package-lock.json` (`npm install --package-lock-only`).
 
@@ -323,6 +323,68 @@ set. A played run: root an AP, read a backup and root's history, `nmap` the admi
 2. **Rotations** for the gateway's live logs.
 3. **Backups**, one vendor at a time, each agreeing with the base box and redacting secrets.
 4. **The admin UI** on disk and its localhost httpd config; the `dir_list` rationale.
+
+### As-built: PR 10b
+
+Four RED-GREEN increments as planned, one fix to 10a, a mutation gate that added one test commit,
+and one performance fix the build budget forced. Squash-merged as `b2f7df99` (#549, v0.263.0).
+
+- **Where it lives.** `generation/gatewayHistory.ts` (`gatewaySite`, `gatewayAdminIp`,
+  `gatewayRootHistory`, `gatewayLogRotations`), `generation/gatewayBackups.ts` (six vendor
+  renderers) and `generation/gatewayAdminUi.ts` (pages and server config), with the pool
+  `GATEWAY_ROOT_HISTORY` in `pools/rootContent.ts`. `buildGatewayBaseFs` takes the gateway's ESSID
+  and machine id, finds its site ONCE and hands it to all four; `baseFs.withFiles` places the UI's
+  files at absolute paths. `GatewayNetworkEntries` grew `hosts`, `grants`, `dhcp` and `ports`, so
+  the leases, `syslog.1`, the backups and the UI all read the same rows as the files 10a writes.
+- **Streams are keyed by machine id, not the seed key** — `gw-admin-`, `gw-history-`,
+  `gw-history-logs-`, `gw-history-backups-`, `gw-history-ui-` — because every layer already
+  agrees on the id and the tests know every gateway by it.
+- **Two owner decisions during the build.** (1) 22 of 54 LANs have no desk machine, so a LAN
+  gateway's admin sits at a desk machine, else a phone or tablet, else any machine. (2) The web
+  server's config is the daemon's own configuration, not content, so the AP holds 10 content files
+  (leases, `dnsmasq.conf`, history, four `.1` logs, one backup, two pages) and the rest 8–15.
+- **The AP keeps one backup and two pages** (point 14), not the 2–4 the criteria said; every other
+  gateway keeps 2–4 of each, and somewhere in the world gateways on and below the LAN have 3 and 4
+  pages.
+- **Rotations.** `syslog.1` holds the morning's logrotate and a `DHCPREQUEST`/`DHCPACK` pair for
+  every lease at its grant second; `auth.log.1` the admin's 1–3 root logins from their machine;
+  `kern.log.1` one or two `eth0`/`eth1` drops, each back within two minutes; `snmpd.log.1` the
+  admin's machine polling the agent. Gateways gained an empty live `syslog`, because a `.1` sits
+  only beside the log it came from; `boxMemory.test.ts`'s rotation rules now run over gateways.
+- **Backups agree with the box** (hostname, serving address, DHCP subnet, lease time and
+  reservations, ACL denies, agent on or off). The seeded boxes forward nothing, so no backup shows
+  a forward — rendering one would be code no base tree exercises. Masks: IOS `<removed>`, uci and
+  nvram `********`, pfSense `xxxxx`, EdgeOS `****************`; MikroTik's export omits them.
+  pfSense's revision names `root@<admin>`, OpenWrt's agent answers the admin's IP. One box's
+  community was `default`, a word uci's `option source` also used — so no backup word may be any
+  password-pool word at all.
+- **The admin UI** lives in `/www` (OpenWrt, DD-WRT), `/usr/local/www` (pfSense) or
+  `/usr/share/<vendor>/www` — never `/var/www`, which the tier-3 allowlist publishes to readers
+  off the box. uhttpd, nginx or lighttpd binds `127.0.0.1:80`; no pidfile, so no port moves.
+- **The lease fix (10a).** 12-hour leases granted early on 2026-07-11 had run out before the
+  epoch, so the UI listed expired "active" leases. Each grant now falls within one term of the
+  epoch — still always on the last day.
+- **The build budget broke, and why.** Four builders each looked up where the gateway stands,
+  walking the LAN and the whole chain (~0.34 ms each): 1.93–2.31 ms/box against 2 ms. One lookup
+  per build, with the admin on a stream of its own so the history need not re-draw it: 1.53–1.67.
+- **Mutation** (json reporter, one file at a time, no timeouts): `gatewayHistory.ts` 80% → 92%,
+  `gatewayAdminUi.ts` 45% → 93%, `gatewayBackups.ts` 58% → 90%, `gatewayNetwork.ts` 90%. The
+  low first scores were template text no test read; a well-formedness reader per vendor format
+  (IOS blocks, RouterOS sections, uci packages, sorted nvram, balanced XML, EdgeOS braces) and
+  well-formed HTML with each page's facts checked killed most of it, and each was seen to fail when
+  the production code was broken on purpose. Left: boilerplate lines, draw thresholds,
+  equivalents.
+- **Byte-diff** (every box on 54 networks): 60,761 identical, 0 removed, 3,486 added on gateway
+  trees only, 123 changed — every one a router's `dnsmasq.leases`, from the lease fix. No NPC box
+  moved.
+- **Budgets:** bundle 218,958 B of 284,975 B; build 1.53–1.67 ms/box of 2 ms. The AP's wire size
+  is at most 25,167 of 32,768 characters.
+- **Wire-checks:** all eight clean, 82/82 checks (`testSharedApForwards` did not collide this time).
+- **Played run** (HOOLI-SEC, v0.263.0): the AP's one backup `core-rtr-2024-09-17.uci` stated the
+  box (`192.168.6.1`, 12h leases, `opnsense` `.35` and `fw-dmz` `.189` reserved, the agent answering
+  `192.168.6.130`); root's history pinged `192.168.6.130` and `auth.log.1` logged root in from it;
+  uhttpd bound `127.0.0.1:80` over `/www/{index,dhcp}.html`. `nmap 192.168.6.130` found
+  `workstation-130` with ssh open, and `ssh rjohnson@` landed in a lived-in `/home/rjohnson`.
 
 ---
 
