@@ -1,14 +1,24 @@
 import { describe, expect, it } from 'vitest';
 import { npcUsername } from './remoteHostFs';
 import { phoneModel } from './share';
-import { PERSONAL_DOWNLOADS, PLACE_DOWNLOADS, TABLET_MODELS } from './pools/phoneFiles';
+import {
+  PERSONAL_DOWNLOADS,
+  PHONE_NOTES,
+  PLACE_DOWNLOADS,
+  TABLET_MODELS,
+} from './pools/phoneFiles';
+import { ALL_GENERATED_PASSWORDS } from './passwordPools';
+import { createPatchApi } from '../../adapters/patchApi';
+import { generateIdentity } from '../identity/identity';
+import { computeWorkstationId } from '../identity/workstation';
+import { signedEnvelopeSchema } from '../signedRequest/types';
 import { peopleOn } from './networkMail';
 import { networkPersona } from './persona';
 import { WORLD_EPOCH } from '../cve/worldClock';
 import { createFsView } from '../filesystem/fsView';
-import { asAbsPath } from '../types';
+import { asAbsPath, asMachineId } from '../types';
 import type { Directory } from '../filesystem/types';
-import { filesUnder, serialise } from '../../test/worldContent';
+import { filesUnder, serialise, softwareVersionsIn } from '../../test/worldContent';
 import {
   readableLinesOf,
   syntheticBoxes,
@@ -395,6 +405,110 @@ describe('a device keeps a few things its person typed', () => {
         expect(body, `${box.host.hostname} ${name}`).not.toMatch(/pass(word|wd|code)?\s*[:=]/i);
         expect(body, `${box.host.hostname} ${name}`).not.toMatch(/\bpin\b\s*[:=]?\s*\d/i);
       });
+    });
+  });
+});
+
+/** What a player can read in a file: a note as it is, a photo or a PDF as `strings`
+ *  shows it, past the format's own header line. */
+const writtenIn = async (path: string, content: string): Promise<string> =>
+  path.endsWith('.txt') ? content : (await readableLinesOf(content)).slice(1).join('\n');
+
+/** A pool file name as a pattern, its `{ref}` whatever reference was stamped in. */
+const namePattern = (template: string): RegExp =>
+  new RegExp(`^${template.replaceAll('.', '\\.').replace('{ref}', '\\d{5}')}$`);
+
+describe('a device keeps to the world’s rules', () => {
+  it('states no version and leaves no slot unfilled', async () => {
+    for (const box of devices()) {
+      for (const [path, content] of filesUnder(homeOf(box))) {
+        const written = await writtenIn(path, content);
+        const wrong = [
+          ...softwareVersionsIn(written),
+          ...(written.match(/[{}]|undefined|NaN|\[object/g) ?? []),
+        ];
+        expect(`${box.host.hostname} ${path}: ${wrong.join(',')}`).toBe(
+          `${box.host.hostname} ${path}: `,
+        );
+      }
+    }
+  });
+
+  it('carries no word a player could try as a password', async () => {
+    const pool = new Set(ALL_GENERATED_PASSWORDS.map((password) => password.toLowerCase()));
+    for (const box of devices()) {
+      for (const [path, content] of filesUnder(homeOf(box))) {
+        const words = (await writtenIn(path, content)).toLowerCase().match(/[a-z0-9]+/g) ?? [];
+        expect(`${path}: ${words.filter((word) => pool.has(word)).join(',')}`).toBe(`${path}: `);
+      }
+    }
+  });
+
+  it('can be given every tablet, download, paper and note its pools hold', async () => {
+    const everywhere = [...devices(), ...syntheticLanBoxes(['android', 'iphone', 'tablet'])];
+    const names = everywhere.flatMap((box) => [...filesUnder(homeOf(box)).keys()]);
+    const drawn = (template: string): boolean =>
+      names.some((path) => namePattern(template).test(path.slice(path.lastIndexOf('/') + 1)));
+
+    PERSONAL_DOWNLOADS.forEach(({ name }) => expect(drawn(name), name).toBe(true));
+    Object.values(PLACE_DOWNLOADS)
+      .flat()
+      .forEach(({ name }) => expect(drawn(name), name).toBe(true));
+    PHONE_NOTES.forEach(({ file }) => expect(drawn(file), file).toBe(true));
+
+    const models = new Set<string>();
+    for (const box of everywhere.filter(({ host }) => host.hostname.startsWith('tablet-'))) {
+      const [firstPhoto] = cameraRollOf(box).values();
+      const [, , make = '', model = ''] = await readableLinesOf(firstPhoto ?? '');
+      models.add(`${make} ${model}`);
+    }
+    expect(models).toEqual(new Set(TABLET_MODELS.map(({ make, model }) => `${make} ${model}`)));
+  });
+
+  it('keeps a home no other device keeps, on one network or across the world', () => {
+    // Only machines a network really placed: the synthetic deep boxes reuse one address
+    // for every kind, which no network does.
+    const placed = [
+      ...worldBoxesNamed(['android', 'iphone', 'tablet']),
+      ...syntheticLanBoxes(['android', 'iphone', 'tablet']),
+    ];
+    const homes = placed.map((box) => [...filesUnder(homeOf(box)).keys()].sort().join('|'));
+    expect(new Set(homes).size).toBe(homes.length);
+  });
+});
+
+describe('what a player can carry home from a device', () => {
+  it('fits every file into the one signed write that saves it on the player box', async () => {
+    const identity = generateIdentity();
+    const sent: string[] = [];
+    const patches = createPatchApi({
+      identity,
+      machineId: asMachineId(computeWorkstationId('deskbox', identity.publicKeyHex)),
+      owner: 'operator',
+      tier: 'user',
+      fetchImpl: async (_url, init) => {
+        sent.push(String(init?.body));
+        return new Response('{}', { status: 200 });
+      },
+    });
+    // The write's size is what the transport limits, and a file's escaped length is
+    // what decides it, so the files hardest to carry are the ones sent.
+    const hardest = devices()
+      .flatMap((box) => [...filesUnder(homeOf(box))])
+      .sort(([, one], [, other]) => JSON.stringify(other).length - JSON.stringify(one).length)
+      .slice(0, 20);
+
+    for (const [path, content] of hardest) {
+      await patches.write(asAbsPath(`/home/operator/${path.split('/').pop() ?? ''}`), content, {
+        isNew: true,
+      });
+    }
+    expect(sent).toHaveLength(hardest.length);
+    sent.forEach((body, index) => {
+      expect(
+        signedEnvelopeSchema.safeParse(JSON.parse(body)).success,
+        `${hardest[index]?.[0]}: ${JSON.stringify(hardest[index]?.[1]).length} escaped`,
+      ).toBe(true);
     });
   });
 });
