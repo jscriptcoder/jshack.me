@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { npcUsername } from './remoteHostFs';
+import { buildRemoteHostFs, npcUsername } from './remoteHostFs';
 import { phoneModel } from './share';
 import {
   PERSONAL_DOWNLOADS,
@@ -18,7 +18,7 @@ import { WORLD_EPOCH } from '../cve/worldClock';
 import { createFsView } from '../filesystem/fsView';
 import { asAbsPath, asMachineId } from '../types';
 import type { Directory } from '../filesystem/types';
-import { filesUnder, serialise, softwareVersionsIn } from '../../test/worldContent';
+import { filesUnder, lanBoxes, serialise, softwareVersionsIn } from '../../test/worldContent';
 import {
   readableLinesOf,
   syntheticBoxes,
@@ -329,10 +329,32 @@ describe('a device keeps what its person downloaded', () => {
     }
   });
 
+  it('was saved again, if at all, within two days of being made', async () => {
+    let savedAgain = 0;
+    for (const box of devices()) {
+      for (const download of await readDownloads(box)) {
+        const edited = download.modifiedAt - download.createdAt;
+        expect(edited, `${box.host.hostname} ${download.name}`).toBeLessThanOrEqual(2 * DAY_MS);
+        savedAgain += edited > 0 ? 1 : 0;
+      }
+    }
+    expect(savedAgain).toBeGreaterThan(0);
+  });
+
+  it('was made on days spread across those two years, not all at once', async () => {
+    const made: number[] = [];
+    for (const box of devices()) {
+      for (const download of await readDownloads(box)) made.push(download.createdAt);
+    }
+    expect(Math.max(...made) - Math.min(...made)).toBeGreaterThan(365 * DAY_MS);
+  });
+
   it('credits what a person fetched to whoever issued it', async () => {
     for (const box of devices().filter((device) => device.layer === 'deep')) {
       for (const download of await readDownloads(box)) {
         expect(ISSUERS.has(download.author), `${box.host.hostname} ${download.name}`).toBe(true);
+        expect(download.title, `${box.host.hostname} ${download.name}: no title`).not.toBe('');
+        expect(download.author, `${box.host.hostname} ${download.name}: no author`).not.toBe('');
       }
     }
   });
@@ -345,6 +367,11 @@ describe('a device keeps what its person downloaded', () => {
       const category = networkPersona(box.essid).category;
       const titles = new Set(PLACE_DOWNLOADS[category].map(({ title }) => title));
       const downloads = await readDownloads(box);
+      downloads.forEach(({ title, author, name }) => {
+        expect(name, box.host.hostname).toMatch(/^[\w.-]+\.pdf$/);
+        expect(title, `${box.host.hostname} ${name}: no title`).not.toBe('');
+        expect(author, `${box.host.hostname} ${name}: no author`).not.toBe('');
+      });
       const fromNeighbours = downloads.filter(({ author }) => people.has(author));
       downloads
         .filter(({ author }) => !people.has(author))
@@ -514,11 +541,31 @@ describe('what a player can carry home from a device', () => {
 });
 
 describe('a device holds as much as its kind does', () => {
-  it('keeps ten to twenty-five files in all', () => {
-    devices().forEach((box) => {
-      const count = filesUnder(homeOf(box)).size;
-      expect(count, box.host.hostname).toBeGreaterThanOrEqual(10);
-      expect(count, box.host.hostname).toBeLessThanOrEqual(25);
+  it('keeps ten to twenty-five files in all, and a full device types no note past that', () => {
+    const counts = [...devices(), ...syntheticLanBoxes(['android', 'iphone', 'tablet'])].map(
+      (box) => {
+        const count = filesUnder(homeOf(box)).size;
+        expect(count, box.host.hostname).toBeGreaterThanOrEqual(10);
+        expect(count, box.host.hostname).toBeLessThanOrEqual(25);
+        return count;
+      },
+    );
+    // Both edges are reached, so the notes really are what holds a device inside them.
+    expect(counts).toContain(10);
+    expect(counts).toContain(25);
+  });
+
+  it('types fewer notes on a device its photos and papers have nearly filled', () => {
+    // A device with the most photos and papers a draw allows is a rare one, so it is
+    // looked for across many more home LANs than the other tests read.
+    const essids = Array.from({ length: 1500 }, (_, index) => `HOME-NET-${index}`);
+    const nearlyFull = lanBoxes(essids)
+      .filter(({ host }) => /^(android|iphone|tablet)-/.test(host.hostname))
+      .map((box) => filesUnder(homeOf({ ...box, tree: buildRemoteHostFs(box.essid, box.host), layer: 'lan' })))
+      .filter((files) => [...files.keys()].filter((path) => !path.startsWith('Documents/')).length >= 23);
+    expect(nearlyFull.length).toBeGreaterThan(0);
+    nearlyFull.forEach((files) => {
+      expect(files.size).toBeLessThanOrEqual(25);
     });
   });
 });

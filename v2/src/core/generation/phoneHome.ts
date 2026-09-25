@@ -194,13 +194,14 @@ const papersFor = (prng: Prng, essid: string, host: LanHost): readonly Paper[] =
   ];
 };
 
-/** A paper as saved: its reference filled in, made on a day before the epoch and saved
- *  again no later than the epoch. */
+/** A paper as saved: its reference filled in, made some time in the two years before the
+ *  epoch, and saved again within its edit window. It is made at least that window before
+ *  the epoch, so no save of it can fall on or after the day the world stands on. */
 const renderPaper = (prng: Prng, paper: Paper): readonly [string, string] => {
   const reference = String(prng.nextInt(REFERENCE.min, REFERENCE.max));
   const createdSecond =
-    EPOCH_SECONDS - prng.nextInt(1, DAYS_BACK) * DAY_SECONDS + prng.nextInt(0, DAY_SECONDS - 1);
-  const editSeconds = prng.nextInt(0, Math.min(MAX_EDIT_SECONDS, EPOCH_SECONDS - 1 - createdSecond));
+    EPOCH_SECONDS - prng.nextInt(MAX_EDIT_SECONDS + 1, DAYS_BACK * DAY_SECONDS);
+  const editSeconds = prng.nextInt(0, MAX_EDIT_SECONDS);
   return [
     paper.spec.name.replaceAll('{ref}', reference),
     renderDocument(
