@@ -1175,6 +1175,137 @@ the 8,192 cap; bundle 212,718 B of 284,975 B; build 0.689 ms per box of 2 ms.
 phone-naming files wait for a door (a service on a media box or lock beside a phone) or the CVE
 arc to be read in play.
 
+## As-built: slice 10 (delivered 2026-09-25)
+
+Retired here from `a-gateway-knows-its-network.md` on close-out. Two PRs: **10a** (#548,
+v0.262.0) — a gateway knows its network: one MAC per host, dnsmasq leases and reservations on
+every router, a MAC table on every switch; **10b** (#549, v0.263.0) — a gateway remembers: its
+admin, root's history, `.1` rotations, vendor backups and admin pages.
+
+**Owner decisions.** Eight at planning (2026-09-25), recorded in the status log below: the admin
+UI on disk, bound to localhost; leases as one dnsmasq file on the Debian path; routers lease,
+switches map, from one per-host MAC stream; two PRs; backups in the vendor's own export format,
+secrets redacted; the admin a real inhabitant at their real machine (a deep gateway run from its
+parent's IP); no new daemon; no `/etc` breadth. Two more during 10b's build: a LAN with no desk
+machine gives its gateways' admin a phone or tablet, else any machine; and a web server's config
+is the daemon's own configuration, not content, when counting a gateway's files.
+
+**Derived at planning, as they held.** Leases hold the segment's machines and the other gateways
+are `dhcp-host` reservations. A lease's expiry is the one timestamp past the epoch, and every
+listed lease is still held at it (10b's fix). Rotations follow slice 3, with no `access.log.1`
+because nothing on a gateway served the web. Tiers are Debian's: leases, `dnsmasq.conf`, the UI
+and its config world-readable; backups and root's history root-only; rotations as their live
+logs. The AP stays small because it crosses the wire (at most 25,167 of its 32,768-character
+ceiling). `firmwareExploit.ts`'s `dir_list` rationale was rewritten; its weights did not change.
+The deep builders, `resolveDeepGatewayIdentity` and `resolveChildGatewayHop` take the ESSID, with
+no machine id moved.
+
+### PR 10a — a gateway knows its network
+
+Four RED-GREEN increments and one guard increment as planned, one behaviour-preserving move
+before the second, then a mutation gate that added four tests. Squash-merged as `ab8a48b7`.
+
+- **Where it lives.** `generation/hostMac.ts` (`hostMac(machineId)`, stream `mac-<machineId>`) and
+  `generation/gatewayNetwork.ts`: one private `dhcpServer` writes `/etc/dnsmasq.conf` and
+  `/var/lib/misc/dnsmasq.leases`; `apGatewayNetwork`, `chainRouterNetwork` and `chainSwitchNetwork`
+  feed it or write `/var/lib/switch/mac-table`, each on `gw-net-<the gateway's own seed key>`.
+  `buildGatewayBaseFs` takes an optional `network` merged into `/etc` and `/var/lib`.
+- **The move first.** `ROUTER_HOSTNAMES` and the two gateway hostname seeds went to
+  `generation/gatewayHostname.ts`, unchanged: `routerFs` reading `generateHomeLan` would otherwise
+  import a module that imports it back. 18 importers followed, four of them wire-checks.
+- **A chain gateway finds itself on `chainLinks`.** Only the walk knows whether the layer it fronts
+  hangs a child (the depth bound), so both chain functions look the gateway up there; one the
+  network does not generate gets no network files (tested). The deep builders,
+  `resolveDeepGatewayIdentity` and `resolveChildGatewayHop` take the ESSID first; ids unchanged.
+- **Two departures from the plan.** MAC maker prefixes come from ONE pool of 14, not a pool shaped
+  by what the host is — no file shows a maker yet, so nothing could catch a wrong one (point 9
+  collapsed). And a switch's row carries the admin's port description `<hostname> (<ip>)`: a
+  switch runs no DHCP, so on a switch-fronted layer a bare MAC would lead nowhere.
+- **Every switch table is one row**, because a switch never hangs a child and a deep layer holds
+  one machine. 10b's UI and backups can say more about the switch; its table cannot.
+- **The AP's wire ceiling is 32,768 characters** of its root-tier serialized tree: ~15.2 KB before
+  the slice, ~16 KB after (10a adds 0.9–1.2 KB), leaving 10b about 16 KB. Both it and the carry-cap
+  test were seen to fail when broken on purpose (no production change, so no RED).
+- **Byte-diff** (every LAN host, chain gateway and deep machine on 54 networks): 46,777 files
+  identical, 0 changed, 0 removed, 363 added — the three files on 146 routers and 71 switches.
+- **Mutation:** 144 killed / 30 survived, 0 timeouts. `hostMac.ts` 8/8; `gatewayNetwork.ts` 89/99,
+  its survivors cosmetic config text or equivalent (`DAY_SECONDS + 1`, the `'switch'` kind
+  literal); the new `seed:` lines 8/8; the rest older `routerFs.ts` lines inside the reindented
+  ranges. The gate's four tests: the lease-file path, own-stream draws, unknown gateways, port and
+  VLAN shape. Fixtures are built inside each test (a file-level cache hides coverage).
+- **Budgets:** bundle 213,575 B of 284,975 B; build ~1.15 ms/box, the same as `main` measured on
+  the same machine that day (1.12–1.42 ms). The 0.689 ms recorded at slice 9 was a quieter machine.
+- **Wire-checks:** 13 of 14 clean. `testSharedApForwards` failed 2 of 4 runs on "B's guest
+  password on A's forwarded port is 401" — a random-identity collision in the guest pool, recorded
+  in the conventions doc beside the unit-test instances; not fixed here.
+- **Played run** (SMART-FRIDGE-NET): the AP's leases were `backup-34`, `android-115`, `nas-133`,
+  reserving `dist-rtr` (`.28`) and `net-gateway` (`.156`); `nmap` found exactly those plus the
+  player's `deskbox`. On `net-gateway` the leases named `nginx-106` and reserved switch
+  `fw-dmz-78`. A switch's table was not read in play: every switch fronts a deep layer, reached
+  only through a forward — the deep-chain pivot recipe is still unwritten.
+
+### PR 10b — a gateway remembers
+
+Four RED-GREEN increments as planned, one fix to 10a, a mutation gate that added one test commit,
+and one performance fix the build budget forced. Squash-merged as `b2f7df99` (#549, v0.263.0).
+
+- **Where it lives.** `generation/gatewayHistory.ts` (`gatewaySite`, `gatewayAdminIp`,
+  `gatewayRootHistory`, `gatewayLogRotations`), `generation/gatewayBackups.ts` (six vendor
+  renderers) and `generation/gatewayAdminUi.ts` (pages and server config), with the pool
+  `GATEWAY_ROOT_HISTORY` in `pools/rootContent.ts`. `buildGatewayBaseFs` takes the gateway's ESSID
+  and machine id, finds its site ONCE and hands it to all four; `baseFs.withFiles` places the UI's
+  files at absolute paths. `GatewayNetworkEntries` grew `hosts`, `grants`, `dhcp` and `ports`, so
+  the leases, `syslog.1`, the backups and the UI all read the same rows as the files 10a writes.
+- **Streams are keyed by machine id, not the seed key** — `gw-admin-`, `gw-history-`,
+  `gw-history-logs-`, `gw-history-backups-`, `gw-history-ui-` — because every layer already
+  agrees on the id and the tests know every gateway by it.
+- **Two owner decisions during the build.** (1) 22 of 54 LANs have no desk machine, so a LAN
+  gateway's admin sits at a desk machine, else a phone or tablet, else any machine. (2) The web
+  server's config is the daemon's own configuration, not content, so the AP holds 10 content files
+  (leases, `dnsmasq.conf`, history, four `.1` logs, one backup, two pages) and the rest 8–15.
+- **The AP keeps one backup and two pages** (point 14), not the 2–4 the criteria said; every other
+  gateway keeps 2–4 of each, and somewhere in the world gateways on and below the LAN have 3 and 4
+  pages.
+- **Rotations.** `syslog.1` holds the morning's logrotate and a `DHCPREQUEST`/`DHCPACK` pair for
+  every lease at its grant second; `auth.log.1` the admin's 1–3 root logins from their machine;
+  `kern.log.1` one or two `eth0`/`eth1` drops, each back within two minutes; `snmpd.log.1` the
+  admin's machine polling the agent. Gateways gained an empty live `syslog`, because a `.1` sits
+  only beside the log it came from; `boxMemory.test.ts`'s rotation rules now run over gateways.
+- **Backups agree with the box** (hostname, serving address, DHCP subnet, lease time and
+  reservations, ACL denies, agent on or off). The seeded boxes forward nothing, so no backup shows
+  a forward — rendering one would be code no base tree exercises. Masks: IOS `<removed>`, uci and
+  nvram `********`, pfSense `xxxxx`, EdgeOS `****************`; MikroTik's export omits them.
+  pfSense's revision names `root@<admin>`, OpenWrt's agent answers the admin's IP. One box's
+  community was `default`, a word uci's `option source` also used — so no backup word may be any
+  password-pool word at all.
+- **The admin UI** lives in `/www` (OpenWrt, DD-WRT), `/usr/local/www` (pfSense) or
+  `/usr/share/<vendor>/www` — never `/var/www`, which the tier-3 allowlist publishes to readers
+  off the box. uhttpd, nginx or lighttpd binds `127.0.0.1:80`; no pidfile, so no port moves.
+- **The lease fix (10a).** 12-hour leases granted early on 2026-07-11 had run out before the
+  epoch, so the UI listed expired "active" leases. Each grant now falls within one term of the
+  epoch — still always on the last day.
+- **The build budget broke, and why.** Four builders each looked up where the gateway stands,
+  walking the LAN and the whole chain (~0.34 ms each): 1.93–2.31 ms/box against 2 ms. One lookup
+  per build, with the admin on a stream of its own so the history need not re-draw it: 1.53–1.67.
+- **Mutation** (json reporter, one file at a time, no timeouts): `gatewayHistory.ts` 80% → 92%,
+  `gatewayAdminUi.ts` 45% → 93%, `gatewayBackups.ts` 58% → 90%, `gatewayNetwork.ts` 90%. The
+  low first scores were template text no test read; a well-formedness reader per vendor format
+  (IOS blocks, RouterOS sections, uci packages, sorted nvram, balanced XML, EdgeOS braces) and
+  well-formed HTML with each page's facts checked killed most of it, and each was seen to fail when
+  the production code was broken on purpose. Left: boilerplate lines, draw thresholds,
+  equivalents.
+- **Byte-diff** (every box on 54 networks): 60,761 identical, 0 removed, 3,486 added on gateway
+  trees only, 123 changed — every one a router's `dnsmasq.leases`, from the lease fix. No NPC box
+  moved.
+- **Budgets:** bundle 218,958 B of 284,975 B; build 1.53–1.67 ms/box of 2 ms. The AP's wire size
+  is at most 25,167 of 32,768 characters.
+- **Wire-checks:** all eight clean, 82/82 checks (`testSharedApForwards` did not collide this time).
+- **Played run** (HOOLI-SEC, v0.263.0): the AP's one backup `core-rtr-2024-09-17.uci` stated the
+  box (`192.168.6.1`, 12h leases, `opnsense` `.35` and `fw-dmz` `.189` reserved, the agent answering
+  `192.168.6.130`); root's history pinged `192.168.6.130` and `auth.log.1` logged root in from it;
+  uhttpd bound `127.0.0.1:80` over `/www/{index,dhcp}.html`. `nmap 192.168.6.130` found
+  `workstation-130` with ssh open, and `ssh rjohnson@` landed in a lived-in `/home/rjohnson`.
+
 ## Open for planning (named, deliberately not decided)
 
 - The memoization key and cache bound on each end (client, serverless instance), and whether the
@@ -1440,7 +1571,7 @@ arc to be read in play.
   parent gateway's IP; firmware lines version-free; (7) **no new daemon** — dnsmasq and the UI's
   httpd get config and binary, no pidfile, so `ps`/`systemctl` do not change; (8) **no `/etc`
   breadth** — decision 9's gateway list only, keeping the AP at 5–10 files. Leases name generated
-  machines only, never occupants (decision 4). Plan: `plans/a-gateway-knows-its-network.md`.
+  machines only, never occupants (decision 4). Plan: `plans/a-gateway-knows-its-network.md`, retired into slice 10's as-built on close-out.
 - **2026-09-25** — **slice 10's PR 10a shipped** (#548, v0.262.0): a rooted router's
   `dnsmasq.leases` lists exactly the generated machines on the segment it serves (the AP its LAN,
   an inner or deep router the layer it fronts), its `dnsmasq.conf` reserves the other gateways
