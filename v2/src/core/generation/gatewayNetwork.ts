@@ -36,15 +36,26 @@ export type DhcpService = {
   readonly reservations: readonly DhcpReservation[];
 };
 
+/** One row of a switch's MAC table: the card seen on a port, and the host its admin
+ *  labelled the port with. */
+export type SwitchPort = {
+  readonly port: string;
+  readonly mac: string;
+  readonly vlan: number;
+  readonly hostname: string;
+  readonly ip: string;
+};
+
 /** The files a gateway's network knowledge adds, grouped by the directory they join; the
- *  addresses of the hosts those files name; every lease it granted; and the DHCP it
- *  serves, null on a switch. */
+ *  addresses of the hosts those files name; every lease it granted; the DHCP it serves,
+ *  null on a switch; and a switch's ports, none on a router. */
 export type GatewayNetworkEntries = {
   readonly etc: Record<string, FileNode>;
   readonly varLib: Record<string, FileNode>;
   readonly hosts: readonly string[];
   readonly grants: readonly DhcpGrant[];
   readonly dhcp: DhcpService | null;
+  readonly ports: readonly SwitchPort[];
 };
 
 /** A host on the segment, with the machine id that fixes its MAC. */
@@ -107,6 +118,7 @@ const dhcpServer = (options: {
     hosts: [...machines, ...gateways].map(({ host }) => host.ip),
     grants,
     dhcp: { subnet, leaseHours, reservations: reserved },
+    ports: [],
   };
 };
 
@@ -167,11 +179,16 @@ export const chainSwitchNetwork = (options: {
   }
   const prng = createPrng(`gw-net-${seed}`);
   const { host } = generateDeepLayer(essid, { machineId, kind: 'switch' });
-  const port = `gi1/0/${prng.nextInt(1, 24)}`;
-  const vlan = prng.pick([1, 10, 20, 100]);
+  const row: SwitchPort = {
+    port: `gi1/0/${prng.nextInt(1, 24)}`,
+    vlan: prng.pick([1, 10, 20, 100]),
+    mac: hostMac(hostMachineId(host, essid)),
+    hostname: host.hostname,
+    ip: host.ip,
+  };
   const table = [
     '# port     mac                vlan  description',
-    `${port.padEnd(10)} ${hostMac(hostMachineId(host, essid))}  ${String(vlan).padEnd(5)} ${host.hostname} (${host.ip})`,
+    `${row.port.padEnd(10)} ${row.mac}  ${String(row.vlan).padEnd(5)} ${row.hostname} (${row.ip})`,
     '',
   ].join('\n');
   return {
@@ -180,5 +197,6 @@ export const chainSwitchNetwork = (options: {
     hosts: [host.ip],
     grants: [],
     dhcp: null,
+    ports: [row],
   };
 };

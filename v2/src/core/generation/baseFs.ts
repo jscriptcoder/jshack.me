@@ -177,6 +177,35 @@ export const dir = (
   entries: new Map(Object.entries(entries)),
 });
 
+/** `tree` with `entry` placed at the absolute `path`, making any directory on the way
+ *  that is not there yet traversable by anyone, as a system directory is. Pure: the
+ *  input tree is never mutated. */
+const withFileAt = (tree: Directory, path: readonly string[], entry: FileEntry): Directory => {
+  const [name, ...rest] = path;
+  if (name === undefined) return tree;
+  const existing = tree.entries.get(name);
+  const placed: FileNode =
+    rest.length === 0
+      ? entry
+      : withFileAt(existing?.kind === 'directory' ? existing : dir({}, TRAVERSABLE_DIR), rest, entry);
+  return { ...tree, entries: new Map([...tree.entries, [name, placed]]) };
+};
+
+/** `tree` with every file placed at its absolute path. */
+export const withFiles = (
+  tree: Directory,
+  files: readonly (readonly [string, FileEntry])[],
+): Directory =>
+  files.reduce(
+    (current, [path, entry]) =>
+      withFileAt(
+        current,
+        path.split('/').filter((segment) => segment !== ''),
+        entry,
+      ),
+    tree,
+  );
+
 // --- /boot ---
 
 /** The `/boot` directory every box ships with: the kernel (`vmlinuz`) and

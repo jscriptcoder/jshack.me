@@ -35,6 +35,7 @@ import {
   SHELL,
   TMP_DIR,
   TRAVERSABLE_DIR,
+  withFiles,
 } from './baseFs';
 import { ACCESS_LOG_PERMISSIONS } from '../logging/accessLog';
 import { AUTH_LOG_PERMISSIONS } from '../logging/authLog';
@@ -43,6 +44,7 @@ import { SNMPD_LOG_PERMISSIONS } from '../logging/snmpdLog';
 import { RULES_V4_PERMISSIONS } from '../network/iptablesRules';
 import { ACL_CONF_PERMISSIONS, parseAclDenies } from '../network/switchAcl';
 import { gatewayBackups } from './gatewayBackups';
+import { gatewayAdminUi } from './gatewayAdminUi';
 import { SNMPD_CONF_PERMISSIONS, SNMPD_CONF_SEED } from '../snmp/conf';
 import { formatSnmpdState, SNMPD_STATE_PERMISSIONS } from '../snmp/rwCommunity';
 import { placementOf } from './rolePlacement';
@@ -186,7 +188,14 @@ const buildGatewayBaseFs = (
   configEntries: Record<string, FileNode>,
   /** Which gateway this is, so it can know who ran it. */
   site: { readonly essid: string; readonly machineId: string },
-  network: GatewayNetworkEntries = { etc: {}, varLib: {}, hosts: [], grants: [], dhcp: null },
+  network: GatewayNetworkEntries = {
+    etc: {},
+    varLib: {},
+    hosts: [],
+    grants: [],
+    dhcp: null,
+    ports: [],
+  },
 ): Directory => {
   const passwd = generatePasswd([
     {
@@ -257,11 +266,21 @@ const buildGatewayBaseFs = (
     hasSnmp: identity.hasSnmp,
   });
   const firmwareVendor = pickFirmwareVendor(identity.firmwareSeed);
+  const denies = aclDeniesIn(configEntries);
   const backups = gatewayBackups({
     ...site,
     vendor: firmwareVendor,
     dhcp: network.dhcp,
-    denies: aclDeniesIn(configEntries),
+    denies,
+    snmp: identity.hasSnmp,
+  });
+  const adminUi = gatewayAdminUi({
+    ...site,
+    vendor: firmwareVendor,
+    grants: network.grants,
+    dhcp: network.dhcp,
+    ports: network.ports,
+    denies,
     snmp: identity.hasSnmp,
   });
   const history = gatewayRootHistory({
@@ -313,7 +332,7 @@ const buildGatewayBaseFs = (
     },
     TRAVERSABLE_DIR,
   );
-  return withPackageManifest(tree, { firmwareVendor });
+  return withPackageManifest(withFiles(tree, adminUi), { firmwareVendor });
 };
 
 /**
