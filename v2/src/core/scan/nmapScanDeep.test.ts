@@ -155,7 +155,7 @@ const expectedDeepLayer = (
     const identity =
       host.kind === 'machine'
         ? { machineId: hostMachineId(host, essid), baseFs: buildDeepHostFs(essid, host) }
-        : resolveDeepGatewayIdentity(vantage.machineId, host.ip, host.kind);
+        : resolveDeepGatewayIdentity(essid, vantage.machineId, host.ip, host.kind);
     const ports = readOpenPorts(identity.baseFs)
       .map((port) => port.port)
       .filter((port) => !deniedPorts.has(port));

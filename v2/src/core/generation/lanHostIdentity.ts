@@ -118,6 +118,7 @@ export const resolveLanHostIdentity = (host: LanHost, essid: string): LanHostIde
  *  reach gate, the upstream-scan port resolver, and the pivot scan can't disagree on which
  *  box the chain door is. */
 export const resolveDeepGatewayIdentity = (
+  essid: string,
   parentMachineId: string,
   childIp: string,
   kind: LanHostKind,
@@ -127,8 +128,8 @@ export const resolveDeepGatewayIdentity = (
     machineId: computeDeepGatewayId(parentMachineId, octet),
     baseFs:
       kind === 'switch'
-        ? buildDeepSwitchBaseFs(parentMachineId, octet)
-        : buildDeepGatewayBaseFs(parentMachineId, octet),
+        ? buildDeepSwitchBaseFs(essid, parentMachineId, octet)
+        : buildDeepGatewayBaseFs(essid, parentMachineId, octet),
   };
 };
 
@@ -193,7 +194,7 @@ export type ChainGatewayVantage = PivotVantage & { readonly baseFs: Directory };
 const chainGatewayBaseFs = (essid: string, link: ChainLink): Directory =>
   link.parentMachineId === null
     ? baseFsForLanHost(link.host, essid)
-    : resolveDeepGatewayIdentity(link.parentMachineId, link.host.ip, link.host.kind).baseFs;
+    : resolveDeepGatewayIdentity(essid, link.parentMachineId, link.host.ip, link.host.kind).baseFs;
 
 /** The full chain gateway (vantage + base FS) whose machine_id matches — an L1 inner
  *  gateway or a deep child gateway below it — or null when none matches. The single

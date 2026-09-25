@@ -6,11 +6,8 @@ import { computeWorkstationId } from '../identity/workstation';
 import { computeApGatewayId } from '../identity/router';
 import { generateHomeLan } from '../generation/generateHomeLan';
 import { machineIdForLanHost } from '../generation/lanHostIdentity';
-import {
-  seedApGatewayAdminPw,
-  seedApGatewayCommunity,
-  seedApGatewayHostname,
-} from '../generation/routerFs';
+import { seedApGatewayAdminPw, seedApGatewayCommunity } from '../generation/routerFs';
+import { seedApGatewayHostname } from '../generation/gatewayHostname';
 import { workstationGuestPassword } from '../generation/workstationFs';
 import { md5 } from '../generation/md5';
 import { DATADIR_PATH } from '../mysql/datadir';

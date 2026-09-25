@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { generateHomeLan, type LanHost } from './generateHomeLan';
 import { assignHomeNetwork } from '../network/homeNetwork';
-import { seedApGatewayHostname, seedInnerGatewayHostname } from './routerFs';
+import { seedApGatewayHostname, seedInnerGatewayHostname } from './gatewayHostname';
 import { DRAWN_ROLES, machineRole } from './machineRole';
 import { HOSTNAME_PREFIXES, roleOfHostname } from './pools/hostnames';
 

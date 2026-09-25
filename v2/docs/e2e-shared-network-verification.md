@@ -1301,7 +1301,8 @@ only from there and `npx tsx -e` produces no output in this environment.
 ```bash
 cd v2
 cat > ./g.tmp.ts << 'EOF'
-import { seedApGatewayAdminPw, seedApGatewayHostname } from './src/core/generation/routerFs';
+import { seedApGatewayAdminPw } from './src/core/generation/routerFs';
+import { seedApGatewayHostname } from './src/core/generation/gatewayHostname';
 import { computeApGatewayId } from './src/core/identity/router';
 import { workstationGuestPassword } from './src/core/generation/workstationFs';
 const ESSID = 'SHINRA-5G';                       // ← X

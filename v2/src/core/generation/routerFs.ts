@@ -46,6 +46,13 @@ import { formatSnmpdState, SNMPD_STATE_PERMISSIONS } from '../snmp/rwCommunity';
 import { placementOf } from './rolePlacement';
 import { daemonName, formatPidfileContent, PIDFILE_PERMISSIONS } from '../services/pidfile';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
+import {
+  apGatewayNetwork,
+  chainRouterNetwork,
+  chainSwitchNetwork,
+  type GatewayNetworkEntries,
+} from './gatewayNetwork';
+import { computeDeepGatewayId, computeInnerGatewayId } from '../identity/router';
 
 /** The AP gateway's root account plaintext password, seeded from the ESSID alone
  *  (the `ap-gw-admin-` namespace) so every occupant of the access point faces the
@@ -79,44 +86,6 @@ export const seedSnmpCommunity = (namespace: string): string =>
  *  the server can recover it for a cross-player walk. */
 export const seedApGatewayCommunity = (essid: string): string =>
   seedSnmpCommunity(`ap-gw-community-${essid}`);
-
-/** Router display names, ported verbatim from the legacy generator
- *  (`hostnamesByRole.router`). A router is just another machine with NAT config,
- *  so it carries a real name rather than a universal `gateway`; the cross-player
- *  scan/auth log lines (Story 6) read this name to identify the router. */
-export const ROUTER_HOSTNAMES: readonly string[] = [
-  'router01',
-  'gw-main',
-  'border-gw',
-  'core-rtr',
-  'firewall01',
-  'edge-rtr',
-  'fw-dmz',
-  'switch-core',
-  'vpn-gw',
-  'net-gateway',
-  'wan-rtr',
-  'pfsense01',
-  'opnsense',
-  'mikrotik01',
-  'dist-rtr',
-];
-
-/** The AP gateway's hostname, seeded from the ESSID alone (the `ap-gw-host-`
- *  namespace — SEPARATE from `ap-gw-admin-`/`ap-gw-ssh-` so the name never
- *  correlates with the secrets). Server-recoverable from the ESSID without an FS
- *  read, so a cross-player log line can name the gateway it was written on. */
-export const seedApGatewayHostname = (essid: string): string =>
-  createPrng(`ap-gw-host-${essid}`).pick(ROUTER_HOSTNAMES);
-
-/** The inner gateway's hostname, seeded from the ESSID AND its LAN octet (the
- *  `inner-gw-host-` namespace — SEPARATE from the edge router's `router-host-` so a
- *  second router on the LAN draws its name independently). It reuses the router name
- *  pool because an inner gateway is still a router. ESSID-keyed like everything else
- *  about the box: an inner gateway stands on the access point's LAN, so every
- *  occupant meets the same router under the same name. */
-export const seedInnerGatewayHostname = (essid: string, octet: number): string =>
-  createPrng(`inner-gw-host-${essid}:${octet}`).pick(ROUTER_HOSTNAMES);
 
 /** Whether this AP's gateway runs `sshd`, seeded deterministically from the ESSID
  *  (the `ap-gw-ssh-` namespace). The rate is the router row's, read from the same
@@ -182,9 +151,10 @@ const pickFirmwareVendor = (seed: string): FirmwareVendor =>
  * RECONSTRUCT cross-player: the root password ALREADY HASHED and whether it runs
  * `sshd`. A gateway is a root-ONLY box (no player/guest accounts), with a full
  * toolchain (so `nano`/`ls`/`cat`/`sshd` resolve), a `/boot` brick surface, and
- * empty `/var/log/{auth,kern}.log`. The ONLY thing that differs between device
- * TYPES is the config subtree under `/etc` — a router's NAT `iptables/rules.v4`
- * vs a switch's `switch/acl.conf` — so the caller supplies it as `configEntries`.
+ * empty `/var/log/{auth,kern}.log`. What differs between device TYPES is the config
+ * subtree under `/etc` — a router's NAT `iptables/rules.v4` vs a switch's
+ * `switch/acl.conf` — so the caller supplies it as `configEntries`; what differs
+ * between devices is what each knows of the network it serves, supplied as `network`.
  */
 const buildGatewayBaseFs = (
   identity: {
@@ -198,6 +168,7 @@ const buildGatewayBaseFs = (
     readonly firmwareSeed: string;
   },
   configEntries: Record<string, FileNode>,
+  network: GatewayNetworkEntries = { etc: {}, varLib: {} },
 ): Directory => {
   const passwd = generatePasswd([
     {
@@ -254,6 +225,7 @@ const buildGatewayBaseFs = (
         ),
       }
     : {};
+  const varLibEntries: Record<string, FileNode> = { ...snmpStateEntries, ...network.varLib };
   const daemonBinaries = identity.hasSnmp
     ? [...SYSTEM_DAEMON_NAMES, daemonName(SERVICE_CATALOG.snmp)]
     : [...SYSTEM_DAEMON_NAMES];
@@ -267,6 +239,7 @@ const buildGatewayBaseFs = (
           passwd: file(passwd, PASSWD_FILE),
           ...snmpConfigEntries,
           ...configEntries,
+          ...network.etc,
         },
         TRAVERSABLE_DIR,
       ),
@@ -291,9 +264,9 @@ const buildGatewayBaseFs = (
             },
             TRAVERSABLE_DIR,
           ),
-          ...(Object.keys(snmpStateEntries).length === 0
+          ...(Object.keys(varLibEntries).length === 0
             ? {}
-            : { lib: dir(snmpStateEntries, TRAVERSABLE_DIR) }),
+            : { lib: dir(varLibEntries, TRAVERSABLE_DIR) }),
           run: dir(runEntries, TRAVERSABLE_DIR),
         },
         TRAVERSABLE_DIR,
@@ -310,22 +283,29 @@ const buildGatewayBaseFs = (
  * (root hash, sshd-on?)) plus `/etc/iptables/rules.v4` as the single NAT source of
  * truth. The owner-key→secret derivation lives in the composing layer.
  */
-export const buildRouterBaseFsFromIdentity = (identity: {
-  readonly adminPwHash: string;
-  readonly hasSsh: boolean;
-  readonly hasSnmp: boolean;
-  readonly snmpCommunityHash: string;
-  /** Seeds the box's firmware vendor, on its OWN stream rather than borrowed
-   *  from a credential: the vendor is what the box IS, and deriving it from a
-   *  password would move it whenever that password moved. */
-  readonly firmwareSeed: string;
-}): Directory =>
-  buildGatewayBaseFs(identity, {
-    iptables: dir(
-      { 'rules.v4': file(RULES_V4_SEED, RULES_V4_PERMISSIONS) },
-      TRAVERSABLE_DIR,
-    ),
-  });
+export const buildRouterBaseFsFromIdentity = (
+  identity: {
+    readonly adminPwHash: string;
+    readonly hasSsh: boolean;
+    readonly hasSnmp: boolean;
+    readonly snmpCommunityHash: string;
+    /** Seeds the box's firmware vendor, on its OWN stream rather than borrowed
+     *  from a credential: the vendor is what the box IS, and deriving it from a
+     *  password would move it whenever that password moved. */
+    readonly firmwareSeed: string;
+  },
+  network?: GatewayNetworkEntries,
+): Directory =>
+  buildGatewayBaseFs(
+    identity,
+    {
+      iptables: dir(
+        { 'rules.v4': file(RULES_V4_SEED, RULES_V4_PERMISSIONS) },
+        TRAVERSABLE_DIR,
+      ),
+    },
+    network,
+  );
 
 /**
  * Build the AP gateway's base FS from the ESSID alone — the one place the
@@ -337,19 +317,22 @@ export const buildRouterBaseFsFromIdentity = (identity: {
  * gateway's journal over this base separately.
  */
 export const buildApGatewayBaseFs = (essid: string): Directory =>
-  buildRouterBaseFsFromIdentity({
-    adminPwHash: md5(seedApGatewayAdminPw(essid)),
-    snmpCommunityHash: md5(seedApGatewayCommunity(essid)),
-    firmwareSeed: `ap-gw-${essid}`,
-    hasSsh: seedApGatewayHasSsh(essid),
-    // PINNED, and deliberately not read from the placement table. `ssh` can be pinned
-    // there because `router: { ssh: 1 }` makes every gateway's roll succeed; the agent
-    // cannot, because generated routers must roll at the router rate WHILE this one is
-    // always on, and a single cell cannot say both. Routed through `placementOf` it
-    // would go missing from 40% of players' own networks — the box this whole door aims
-    // them at, absent for two players in five, decided by their ESSID.
-    hasSnmp: true,
-  });
+  buildRouterBaseFsFromIdentity(
+    {
+      adminPwHash: md5(seedApGatewayAdminPw(essid)),
+      snmpCommunityHash: md5(seedApGatewayCommunity(essid)),
+      firmwareSeed: `ap-gw-${essid}`,
+      hasSsh: seedApGatewayHasSsh(essid),
+      // PINNED, and deliberately not read from the placement table. `ssh` can be pinned
+      // there because `router: { ssh: 1 }` makes every gateway's roll succeed; the agent
+      // cannot, because generated routers must roll at the router rate WHILE this one is
+      // always on, and a single cell cannot say both. Routed through `placementOf` it
+      // would go missing from 40% of players' own networks — the box this whole door aims
+      // them at, absent for two players in five, decided by their ESSID.
+      hasSnmp: true,
+    },
+    apGatewayNetwork(essid),
+  );
 
 /** The inner gateway root ("admin") password, seeded from the ESSID AND the gateway's
  *  LAN octet (the `inner-gw-admin-` namespace — SEPARATE from the edge router's
@@ -366,13 +349,20 @@ export const seedInnerGatewayAdminPw = (essid: string, octet: number): string =>
  *  inner credential (never the edge's) and `sshd` is always up: an inner gateway is
  *  a reachable target by design. */
 export const buildInnerGatewayBaseFs = (essid: string, octet: number): Directory =>
-  buildRouterBaseFsFromIdentity({
-    adminPwHash: md5(seedInnerGatewayAdminPw(essid, octet)),
-    snmpCommunityHash: md5(seedSnmpCommunity(`inner-gw-community-${essid}:${octet}`)),
-    firmwareSeed: `inner-gw-${essid}:${octet}`,
-    hasSsh: true,
-    hasSnmp: seedHasSnmp(`inner-gw-snmp-${essid}:${octet}`, 'router'),
-  });
+  buildRouterBaseFsFromIdentity(
+    {
+      adminPwHash: md5(seedInnerGatewayAdminPw(essid, octet)),
+      snmpCommunityHash: md5(seedSnmpCommunity(`inner-gw-community-${essid}:${octet}`)),
+      firmwareSeed: `inner-gw-${essid}:${octet}`,
+      hasSsh: true,
+      hasSnmp: seedHasSnmp(`inner-gw-snmp-${essid}:${octet}`, 'router'),
+    },
+    chainRouterNetwork({
+      essid,
+      machineId: computeInnerGatewayId(essid, octet),
+      seed: `inner-gw-${essid}:${octet}`,
+    }),
+  );
 
 /** A DEEP gateway's root ("admin") password, seeded from its PARENT gateway's machine_id
  *  AND its octet (the `deep-gw-admin-` namespace — SEPARATE from the inner gateway's
@@ -389,14 +379,25 @@ export const seedDeepGatewayAdminPw = (parentMachineId: string, octet: number): 
  *  is a reachable target by design), but the admin password is seeded off the unique
  *  deep discriminator (parent machine_id + octet), so it never aliases an inner
  *  gateway's credential even at a colliding octet. */
-export const buildDeepGatewayBaseFs = (parentMachineId: string, octet: number): Directory =>
-  buildRouterBaseFsFromIdentity({
-    adminPwHash: md5(seedDeepGatewayAdminPw(parentMachineId, octet)),
-    snmpCommunityHash: md5(seedSnmpCommunity(`deep-gw-community-${parentMachineId}:${octet}`)),
-    firmwareSeed: `deep-gw-${parentMachineId}:${octet}`,
-    hasSsh: true,
-    hasSnmp: seedHasSnmp(`deep-gw-snmp-${parentMachineId}:${octet}`, 'router'),
-  });
+export const buildDeepGatewayBaseFs = (
+  essid: string,
+  parentMachineId: string,
+  octet: number,
+): Directory =>
+  buildRouterBaseFsFromIdentity(
+    {
+      adminPwHash: md5(seedDeepGatewayAdminPw(parentMachineId, octet)),
+      snmpCommunityHash: md5(seedSnmpCommunity(`deep-gw-community-${parentMachineId}:${octet}`)),
+      firmwareSeed: `deep-gw-${parentMachineId}:${octet}`,
+      hasSsh: true,
+      hasSnmp: seedHasSnmp(`deep-gw-snmp-${parentMachineId}:${octet}`, 'router'),
+    },
+    chainRouterNetwork({
+      essid,
+      machineId: computeDeepGatewayId(parentMachineId, octet),
+      seed: `deep-gw-${parentMachineId}:${octet}`,
+    }),
+  );
 
 /** Build a DEEP switch's base FS — a deep gateway seeded as a switch rather than a
  *  router. It is the deep counterpart of `buildSwitchBaseFs` (an `acl.conf` box, no NAT
@@ -404,7 +405,11 @@ export const buildDeepGatewayBaseFs = (parentMachineId: string, octet: number): 
  *  deep discriminator (parent machine_id + octet), REUSING `seedDeepGatewayAdminPw` — a
  *  given slot is one kind, so the deep namespace is unambiguous, the same way the inner
  *  switch reuses `inner-gw-admin-`. */
-export const buildDeepSwitchBaseFs = (parentMachineId: string, octet: number): Directory =>
+export const buildDeepSwitchBaseFs = (
+  essid: string,
+  parentMachineId: string,
+  octet: number,
+): Directory =>
   buildGatewayBaseFs(
     {
       adminPwHash: md5(seedDeepGatewayAdminPw(parentMachineId, octet)),
@@ -414,6 +419,11 @@ export const buildDeepSwitchBaseFs = (parentMachineId: string, octet: number): D
       hasSnmp: seedHasSnmp(`deep-sw-snmp-${parentMachineId}:${octet}`, 'switch'),
     },
     { switch: dir({ 'acl.conf': file(ACL_CONF_SEED, ACL_CONF_PERMISSIONS) }, TRAVERSABLE_DIR) },
+    chainSwitchNetwork({
+      essid,
+      machineId: computeDeepGatewayId(parentMachineId, octet),
+      seed: `deep-sw-${parentMachineId}:${octet}`,
+    }),
   );
 
 /** Build a switch's base FS — the same root-only gateway toolkit as an inner
@@ -431,4 +441,9 @@ export const buildSwitchBaseFs = (essid: string, octet: number): Directory =>
       hasSnmp: seedHasSnmp(`inner-sw-snmp-${essid}:${octet}`, 'switch'),
     },
     { switch: dir({ 'acl.conf': file(ACL_CONF_SEED, ACL_CONF_PERMISSIONS) }, TRAVERSABLE_DIR) },
+    chainSwitchNetwork({
+      essid,
+      machineId: computeInnerGatewayId(essid, octet),
+      seed: `inner-sw-${essid}:${octet}`,
+    }),
   );

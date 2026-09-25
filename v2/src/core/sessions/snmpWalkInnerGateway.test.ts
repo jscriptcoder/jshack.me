@@ -71,8 +71,8 @@ const deepDevice = (): {
     const deviceOctet = octetOf(device);
     const baseFs =
       device.kind === 'switch'
-        ? buildDeepSwitchBaseFs(gatewayId, deviceOctet)
-        : buildDeepGatewayBaseFs(gatewayId, deviceOctet);
+        ? buildDeepSwitchBaseFs(essid, gatewayId, deviceOctet)
+        : buildDeepGatewayBaseFs(essid, gatewayId, deviceOctet);
     if (!runsAgent(baseFs)) continue;
     return {
       essid,

@@ -4,7 +4,7 @@ import { generateIdentity } from '../identity/identity';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
 import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
 import { computeApGatewayId } from '../identity/router';
-import { seedApGatewayHostname } from '../generation/routerFs';
+import { seedApGatewayHostname } from '../generation/gatewayHostname';
 import { frontedSegment } from '../network/frontedSegment';
 import { lanAddressFor, type LanLeaseRow } from '../network/lanAddress';
 import { materializeWorkstationFs } from '../network/materializeWorkstationFs';

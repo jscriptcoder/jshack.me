@@ -54,13 +54,14 @@ const replayBox = async (
 /** The child gateway fronting the next layer down. Its `kind` is the caller's to supply —
  *  the caller already holds the `childGateway` LanHost. */
 export const resolveChildGatewayHop = async (args: {
+  readonly essid: string;
   readonly parentMachineId: string;
   readonly childIp: string;
   readonly childKind: LanHostKind;
   readonly findPatches: FindPatches;
 }): Promise<DeepBoxHop> =>
   replayBox(
-    resolveDeepGatewayIdentity(args.parentMachineId, args.childIp, args.childKind),
+    resolveDeepGatewayIdentity(args.essid, args.parentMachineId, args.childIp, args.childKind),
     args.findPatches,
   );
 

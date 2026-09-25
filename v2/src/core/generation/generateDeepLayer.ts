@@ -25,7 +25,7 @@
  */
 
 import { createPrng } from './prng';
-import { ROUTER_HOSTNAMES } from './routerFs';
+import { ROUTER_HOSTNAMES } from './gatewayHostname';
 import { machineRole } from './machineRole';
 import { HOSTNAME_PREFIXES } from './pools/hostnames';
 import type { LanHost, LanHostKind } from './generateHomeLan';

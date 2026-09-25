@@ -31,7 +31,8 @@ import { lanAddressFor } from '../src/core/network/lanAddress';
 import { formatPidfileContent } from '../src/core/services/pidfile';
 import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog';
 import { md5 } from '../src/core/generation/md5';
-import { seedApGatewayHostname, seedApGatewayAdminPw } from '../src/core/generation/routerFs';
+import { seedApGatewayAdminPw } from '../src/core/generation/routerFs';
+import { seedApGatewayHostname } from '../src/core/generation/gatewayHostname';
 import { workstationGuestPassword } from '../src/core/generation/workstationFs';
 import { clearPublicIps, seedPublicIps } from './networkFixture';
 

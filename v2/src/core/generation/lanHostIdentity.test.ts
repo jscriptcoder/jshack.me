@@ -132,7 +132,7 @@ describe('resolving a machine id back to its box', () => {
     const doorId = computeDeepGatewayId(innerId, octetOf(child));
 
     expect(generatedBaseFsForMachineId(ESSID, doorId)).toEqual(
-      resolveDeepGatewayIdentity(innerId, child.ip, child.kind).baseFs,
+      resolveDeepGatewayIdentity(ESSID, innerId, child.ip, child.kind).baseFs,
     );
   });
 

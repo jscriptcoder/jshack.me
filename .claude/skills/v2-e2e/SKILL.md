@@ -285,6 +285,20 @@ an empty foreign tree means the hop resolved but the fetch didn't:
 - `cat /etc/iptables/rules.v4` → the seeded NAT table with its comment header
 - `cat /etc/passwd` → root-only, exactly one line, no guest account
 
+**What the gateway knows of its network** — every router hands out the addresses of the segment
+it serves, and every switch keeps a table of the card on each port:
+
+- `cat /var/lib/misc/dnsmasq.leases` (routers) → one row per generated machine on the segment:
+  expiry, MAC, IP, hostname, `*`. On the AP that is every NPC `nmap` finds on the LAN, never a
+  player; on an inner or deep router, the one machine on the layer it fronts.
+- `cat /etc/dnsmasq.conf` → the `dhcp-range` and a `dhcp-host=<mac>,<ip>,<name>` reservation
+  for each other gateway on the segment (the AP reserves the inner router and switch).
+- `cat /var/lib/switch/mac-table` (switches) → one port row: the MAC the routers give that host,
+  and a description naming it and its IP.
+
+A MAC is one fact of the network (`hostMac(machineId)`), so the same host carries the same MAC
+in every table that names it.
+
 The gateway is nobody's own box, so it always routes through the cross-player path. Its
 hostname in scans and log traces is `seedApGatewayHostname(<ESSID>)`; note the shell prompt
 shows the machine-id name part (`ap-gw`) instead, which is a known cosmetic mismatch.
@@ -326,7 +340,8 @@ a `/tmp` path will not work:
 
 ```bash
 cat > ./g.tmp.ts << 'EOF'
-import { seedApGatewayAdminPw, seedApGatewayHostname } from './src/core/generation/routerFs';
+import { seedApGatewayAdminPw } from './src/core/generation/routerFs';
+import { seedApGatewayHostname } from './src/core/generation/gatewayHostname';
 import { computeApGatewayId } from './src/core/identity/router';
 console.log('adminpw=' + seedApGatewayAdminPw('SHINRA-5G'));
 EOF

@@ -93,7 +93,7 @@ const deepSwitchWithAnAgent = (): {
     const device = generateDeepLayer(essid, { machineId: gatewayId, kind: 'router' }).childGateway;
     if (device === null || device.kind !== 'switch') continue;
     const deviceOctet = octetOf(device);
-    if (!runsAgent(buildDeepSwitchBaseFs(gatewayId, deviceOctet))) continue;
+    if (!runsAgent(buildDeepSwitchBaseFs(essid, gatewayId, deviceOctet))) continue;
     return {
       essid,
       gateway,
