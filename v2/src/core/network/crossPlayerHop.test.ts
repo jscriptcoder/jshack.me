@@ -97,7 +97,7 @@ describe('isCrossPlayerWorkstation', () => {
     const innerId = innerGatewayId();
     const child = generateDeepLayer(ESSID, { machineId: innerId, kind: 'router' }).childGateway;
     if (child === null) throw new Error('fixture chain has no deep gateway');
-    const deepGatewayId = resolveDeepGatewayIdentity(innerId, child.ip, child.kind).machineId;
+    const deepGatewayId = resolveDeepGatewayIdentity(ESSID, innerId, child.ip, child.kind).machineId;
     expect(
       isCrossPlayerWorkstation({ machineId: deepGatewayId, publicKeyHex: PUBKEY, essid: ESSID }),
     ).toBe(false);

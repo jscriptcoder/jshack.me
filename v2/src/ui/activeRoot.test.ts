@@ -220,7 +220,7 @@ describe('resolveActiveRoot', () => {
     const innerId = computeInnerGatewayId(ESSID, innerGatewayOctet());
     const child = generateDeepLayer(ESSID, { machineId: innerId, kind: 'router' }).childGateway;
     if (child === null) throw new Error('fixture chain has no deep gateway');
-    return resolveDeepGatewayIdentity(innerId, child.ip, child.kind);
+    return resolveDeepGatewayIdentity(ESSID, innerId, child.ip, child.kind);
   };
 
   const deepNpcHost = () => {

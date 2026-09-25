@@ -46,7 +46,12 @@ import { formatSnmpdState, SNMPD_STATE_PERMISSIONS } from '../snmp/rwCommunity';
 import { placementOf } from './rolePlacement';
 import { daemonName, formatPidfileContent, PIDFILE_PERMISSIONS } from '../services/pidfile';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import { apGatewayNetwork, type GatewayNetworkEntries } from './gatewayNetwork';
+import {
+  apGatewayNetwork,
+  chainRouterNetwork,
+  type GatewayNetworkEntries,
+} from './gatewayNetwork';
+import { computeDeepGatewayId, computeInnerGatewayId } from '../identity/router';
 
 /** The AP gateway's root account plaintext password, seeded from the ESSID alone
  *  (the `ap-gw-admin-` namespace) so every occupant of the access point faces the
@@ -343,13 +348,20 @@ export const seedInnerGatewayAdminPw = (essid: string, octet: number): string =>
  *  inner credential (never the edge's) and `sshd` is always up: an inner gateway is
  *  a reachable target by design. */
 export const buildInnerGatewayBaseFs = (essid: string, octet: number): Directory =>
-  buildRouterBaseFsFromIdentity({
-    adminPwHash: md5(seedInnerGatewayAdminPw(essid, octet)),
-    snmpCommunityHash: md5(seedSnmpCommunity(`inner-gw-community-${essid}:${octet}`)),
-    firmwareSeed: `inner-gw-${essid}:${octet}`,
-    hasSsh: true,
-    hasSnmp: seedHasSnmp(`inner-gw-snmp-${essid}:${octet}`, 'router'),
-  });
+  buildRouterBaseFsFromIdentity(
+    {
+      adminPwHash: md5(seedInnerGatewayAdminPw(essid, octet)),
+      snmpCommunityHash: md5(seedSnmpCommunity(`inner-gw-community-${essid}:${octet}`)),
+      firmwareSeed: `inner-gw-${essid}:${octet}`,
+      hasSsh: true,
+      hasSnmp: seedHasSnmp(`inner-gw-snmp-${essid}:${octet}`, 'router'),
+    },
+    chainRouterNetwork({
+      essid,
+      machineId: computeInnerGatewayId(essid, octet),
+      seed: `inner-gw-${essid}:${octet}`,
+    }),
+  );
 
 /** A DEEP gateway's root ("admin") password, seeded from its PARENT gateway's machine_id
  *  AND its octet (the `deep-gw-admin-` namespace — SEPARATE from the inner gateway's
@@ -366,14 +378,25 @@ export const seedDeepGatewayAdminPw = (parentMachineId: string, octet: number): 
  *  is a reachable target by design), but the admin password is seeded off the unique
  *  deep discriminator (parent machine_id + octet), so it never aliases an inner
  *  gateway's credential even at a colliding octet. */
-export const buildDeepGatewayBaseFs = (parentMachineId: string, octet: number): Directory =>
-  buildRouterBaseFsFromIdentity({
-    adminPwHash: md5(seedDeepGatewayAdminPw(parentMachineId, octet)),
-    snmpCommunityHash: md5(seedSnmpCommunity(`deep-gw-community-${parentMachineId}:${octet}`)),
-    firmwareSeed: `deep-gw-${parentMachineId}:${octet}`,
-    hasSsh: true,
-    hasSnmp: seedHasSnmp(`deep-gw-snmp-${parentMachineId}:${octet}`, 'router'),
-  });
+export const buildDeepGatewayBaseFs = (
+  essid: string,
+  parentMachineId: string,
+  octet: number,
+): Directory =>
+  buildRouterBaseFsFromIdentity(
+    {
+      adminPwHash: md5(seedDeepGatewayAdminPw(parentMachineId, octet)),
+      snmpCommunityHash: md5(seedSnmpCommunity(`deep-gw-community-${parentMachineId}:${octet}`)),
+      firmwareSeed: `deep-gw-${parentMachineId}:${octet}`,
+      hasSsh: true,
+      hasSnmp: seedHasSnmp(`deep-gw-snmp-${parentMachineId}:${octet}`, 'router'),
+    },
+    chainRouterNetwork({
+      essid,
+      machineId: computeDeepGatewayId(parentMachineId, octet),
+      seed: `deep-gw-${parentMachineId}:${octet}`,
+    }),
+  );
 
 /** Build a DEEP switch's base FS — a deep gateway seeded as a switch rather than a
  *  router. It is the deep counterpart of `buildSwitchBaseFs` (an `acl.conf` box, no NAT

@@ -201,6 +201,7 @@ const resolveTargetAt = async (
   // child's own `:22` (land on the child) or another forward (continue the chain).
   if (deep.childGateway !== null && served.internalIp === deep.childGateway.ip) {
     const hop = await resolveChildGatewayHop({
+      essid: context.essid,
       parentMachineId: frontingGateway.machineId,
       childIp: deep.childGateway.ip,
       childKind: deep.childGateway.kind,

@@ -455,8 +455,8 @@ describe('the agent a network device runs', () => {
     return {
       ap: count((essid) => runsAgent(buildApGatewayBaseFs(essid))),
       inner: count((essid, index) => runsAgent(buildInnerGatewayBaseFs(essid, octetFor(index)))),
-      deepRouter: count((_unused, index) =>
-        runsAgent(buildDeepGatewayBaseFs(`gw-${index}`, octetFor(index))),
+      deepRouter: count((essid, index) =>
+        runsAgent(buildDeepGatewayBaseFs(essid, `gw-${index}`, octetFor(index))),
       ),
       innerSwitch: count((essid, index) => runsAgent(buildSwitchBaseFs(essid, octetFor(index)))),
       deepSwitch: count((_unused, index) =>
@@ -530,25 +530,25 @@ describe('the agent a network device runs', () => {
 
 describe('buildDeepGatewayBaseFs', () => {
   it('is a root-only FS whose admin hash is the deep-gateway pw seeded off parent + octet', () => {
-    const rows = passwdRows(buildDeepGatewayBaseFs(PARENT_GW, 50));
+    const rows = passwdRows(buildDeepGatewayBaseFs(ESSID_A, PARENT_GW, 50));
     expect(rows).toHaveLength(1);
     expect(rows[0]![0]).toBe('root');
     expect(rows[0]![1]).toBe(md5(seedDeepGatewayAdminPw(PARENT_GW, 50)));
   });
 
   it('runs sshd:22 — a deep gateway is a reachable target by design', () => {
-    expect(portsByDesign(buildDeepGatewayBaseFs(PARENT_GW, 50))).toEqual([
+    expect(portsByDesign(buildDeepGatewayBaseFs(ESSID_A, PARENT_GW, 50))).toEqual([
       { port: 22, service: 'ssh', version: 'OpenSSH 9.7.0' },
     ]);
   });
 
   it('seeds rules.v4 with no active forward (a router that forwards to its own deeper layer)', () => {
-    const rules = fileAt(buildDeepGatewayBaseFs(PARENT_GW, 50), ['etc', 'iptables'], 'rules.v4');
+    const rules = fileAt(buildDeepGatewayBaseFs(ESSID_A, PARENT_GW, 50), ['etc', 'iptables'], 'rules.v4');
     expect(parseForwardRules(rules)).toEqual([]);
   });
 
   it('is deterministic: same parent+octet yields a byte-identical tree', () => {
-    expect(buildDeepGatewayBaseFs(PARENT_GW, 50)).toEqual(buildDeepGatewayBaseFs(PARENT_GW, 50));
+    expect(buildDeepGatewayBaseFs(ESSID_A, PARENT_GW, 50)).toEqual(buildDeepGatewayBaseFs(ESSID_A, PARENT_GW, 50));
   });
 });
 

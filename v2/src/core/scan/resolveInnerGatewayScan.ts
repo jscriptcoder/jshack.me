@@ -145,6 +145,7 @@ const resolveGatewayExposedPorts = async (
   const childGateway = deep.childGateway;
   if (childGateway !== null && forwards.some((forward) => forward.internalIp === childGateway.ip)) {
     const hop = await resolveChildGatewayHop({
+      essid: context.essid,
       parentMachineId: frontingGateway.machineId,
       childIp: childGateway.ip,
       childKind: childGateway.kind,
