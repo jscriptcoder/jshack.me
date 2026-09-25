@@ -46,6 +46,7 @@ import { formatSnmpdState, SNMPD_STATE_PERMISSIONS } from '../snmp/rwCommunity';
 import { placementOf } from './rolePlacement';
 import { daemonName, formatPidfileContent, PIDFILE_PERMISSIONS } from '../services/pidfile';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
+import { apGatewayNetwork, type GatewayNetworkEntries } from './gatewayNetwork';
 
 /** The AP gateway's root account plaintext password, seeded from the ESSID alone
  *  (the `ap-gw-admin-` namespace) so every occupant of the access point faces the
@@ -144,9 +145,10 @@ const pickFirmwareVendor = (seed: string): FirmwareVendor =>
  * RECONSTRUCT cross-player: the root password ALREADY HASHED and whether it runs
  * `sshd`. A gateway is a root-ONLY box (no player/guest accounts), with a full
  * toolchain (so `nano`/`ls`/`cat`/`sshd` resolve), a `/boot` brick surface, and
- * empty `/var/log/{auth,kern}.log`. The ONLY thing that differs between device
- * TYPES is the config subtree under `/etc` — a router's NAT `iptables/rules.v4`
- * vs a switch's `switch/acl.conf` — so the caller supplies it as `configEntries`.
+ * empty `/var/log/{auth,kern}.log`. What differs between device TYPES is the config
+ * subtree under `/etc` — a router's NAT `iptables/rules.v4` vs a switch's
+ * `switch/acl.conf` — so the caller supplies it as `configEntries`; what differs
+ * between devices is what each knows of the network it serves, supplied as `network`.
  */
 const buildGatewayBaseFs = (
   identity: {
@@ -160,6 +162,7 @@ const buildGatewayBaseFs = (
     readonly firmwareSeed: string;
   },
   configEntries: Record<string, FileNode>,
+  network: GatewayNetworkEntries = { etc: {}, varLib: {} },
 ): Directory => {
   const passwd = generatePasswd([
     {
@@ -216,6 +219,7 @@ const buildGatewayBaseFs = (
         ),
       }
     : {};
+  const varLibEntries: Record<string, FileNode> = { ...snmpStateEntries, ...network.varLib };
   const daemonBinaries = identity.hasSnmp
     ? [...SYSTEM_DAEMON_NAMES, daemonName(SERVICE_CATALOG.snmp)]
     : [...SYSTEM_DAEMON_NAMES];
@@ -229,6 +233,7 @@ const buildGatewayBaseFs = (
           passwd: file(passwd, PASSWD_FILE),
           ...snmpConfigEntries,
           ...configEntries,
+          ...network.etc,
         },
         TRAVERSABLE_DIR,
       ),
@@ -253,9 +258,9 @@ const buildGatewayBaseFs = (
             },
             TRAVERSABLE_DIR,
           ),
-          ...(Object.keys(snmpStateEntries).length === 0
+          ...(Object.keys(varLibEntries).length === 0
             ? {}
-            : { lib: dir(snmpStateEntries, TRAVERSABLE_DIR) }),
+            : { lib: dir(varLibEntries, TRAVERSABLE_DIR) }),
           run: dir(runEntries, TRAVERSABLE_DIR),
         },
         TRAVERSABLE_DIR,
@@ -272,22 +277,29 @@ const buildGatewayBaseFs = (
  * (root hash, sshd-on?)) plus `/etc/iptables/rules.v4` as the single NAT source of
  * truth. The owner-key→secret derivation lives in the composing layer.
  */
-export const buildRouterBaseFsFromIdentity = (identity: {
-  readonly adminPwHash: string;
-  readonly hasSsh: boolean;
-  readonly hasSnmp: boolean;
-  readonly snmpCommunityHash: string;
-  /** Seeds the box's firmware vendor, on its OWN stream rather than borrowed
-   *  from a credential: the vendor is what the box IS, and deriving it from a
-   *  password would move it whenever that password moved. */
-  readonly firmwareSeed: string;
-}): Directory =>
-  buildGatewayBaseFs(identity, {
-    iptables: dir(
-      { 'rules.v4': file(RULES_V4_SEED, RULES_V4_PERMISSIONS) },
-      TRAVERSABLE_DIR,
-    ),
-  });
+export const buildRouterBaseFsFromIdentity = (
+  identity: {
+    readonly adminPwHash: string;
+    readonly hasSsh: boolean;
+    readonly hasSnmp: boolean;
+    readonly snmpCommunityHash: string;
+    /** Seeds the box's firmware vendor, on its OWN stream rather than borrowed
+     *  from a credential: the vendor is what the box IS, and deriving it from a
+     *  password would move it whenever that password moved. */
+    readonly firmwareSeed: string;
+  },
+  network?: GatewayNetworkEntries,
+): Directory =>
+  buildGatewayBaseFs(
+    identity,
+    {
+      iptables: dir(
+        { 'rules.v4': file(RULES_V4_SEED, RULES_V4_PERMISSIONS) },
+        TRAVERSABLE_DIR,
+      ),
+    },
+    network,
+  );
 
 /**
  * Build the AP gateway's base FS from the ESSID alone — the one place the
@@ -299,19 +311,22 @@ export const buildRouterBaseFsFromIdentity = (identity: {
  * gateway's journal over this base separately.
  */
 export const buildApGatewayBaseFs = (essid: string): Directory =>
-  buildRouterBaseFsFromIdentity({
-    adminPwHash: md5(seedApGatewayAdminPw(essid)),
-    snmpCommunityHash: md5(seedApGatewayCommunity(essid)),
-    firmwareSeed: `ap-gw-${essid}`,
-    hasSsh: seedApGatewayHasSsh(essid),
-    // PINNED, and deliberately not read from the placement table. `ssh` can be pinned
-    // there because `router: { ssh: 1 }` makes every gateway's roll succeed; the agent
-    // cannot, because generated routers must roll at the router rate WHILE this one is
-    // always on, and a single cell cannot say both. Routed through `placementOf` it
-    // would go missing from 40% of players' own networks — the box this whole door aims
-    // them at, absent for two players in five, decided by their ESSID.
-    hasSnmp: true,
-  });
+  buildRouterBaseFsFromIdentity(
+    {
+      adminPwHash: md5(seedApGatewayAdminPw(essid)),
+      snmpCommunityHash: md5(seedApGatewayCommunity(essid)),
+      firmwareSeed: `ap-gw-${essid}`,
+      hasSsh: seedApGatewayHasSsh(essid),
+      // PINNED, and deliberately not read from the placement table. `ssh` can be pinned
+      // there because `router: { ssh: 1 }` makes every gateway's roll succeed; the agent
+      // cannot, because generated routers must roll at the router rate WHILE this one is
+      // always on, and a single cell cannot say both. Routed through `placementOf` it
+      // would go missing from 40% of players' own networks — the box this whole door aims
+      // them at, absent for two players in five, decided by their ESSID.
+      hasSnmp: true,
+    },
+    apGatewayNetwork(essid),
+  );
 
 /** The inner gateway root ("admin") password, seeded from the ESSID AND the gateway's
  *  LAN octet (the `inner-gw-admin-` namespace — SEPARATE from the edge router's
