@@ -18,6 +18,7 @@ import {
   softwareVersionsIn,
   type Box,
 } from '../../test/worldContent';
+import { withoutMeasurements } from '../../test/deviceBoxes';
 import { DEFAULT_DIRLIST } from '../network/defaultDirlist';
 import { API_PAGES, PORTAL_PAGES, ROBOTS_ONLY_DIRECTORIES } from './pools/webSites';
 import { sweepWord } from '../network/webSweep';
@@ -220,10 +221,8 @@ describe('a web server serves a site', () => {
   });
 
   it('leaves every other box that serves the web exactly one page', () => {
-    // A printer, a camera or a recorder publishes its own UI instead; `device.test.ts`
-    // holds those pages.
-    const hasOwnUi = (host: LanHost): boolean =>
-      ['printer', 'camera', 'recorder'].includes(deviceKindOf(host.hostname) ?? '');
+    // A device publishes its own UI instead; the tests under `device/` hold those pages.
+    const hasOwnUi = (host: LanHost): boolean => deviceKindOf(host.hostname) !== undefined;
     const roots = servingBoxes((host) => !isWebserver(host) && !hasOwnUi(host)).map(({ tree }) => [
       ...webRootOf(tree).keys(),
     ]);
@@ -533,7 +532,7 @@ describe('everything a web server publishes is true of the world', () => {
   it('quotes no version, fills every slot, and dates nothing after the world began', () => {
     const faults = servingBoxes(() => true).flatMap(({ box, tree }) =>
       [...webRootOf(tree)].flatMap(([file, content]) => [
-        ...softwareVersionsIn(content).map((version) => `version ${version}`),
+        ...softwareVersionsIn(withoutMeasurements(content)).map((version) => `version ${version}`),
         ...(content.match(/\{\w+\}|\{\{|undefined|NaN/g) ?? []).map((slot) => `slot ${slot}`),
         ...datesIn(content)
           .filter((date) => date > '2026-07-11')

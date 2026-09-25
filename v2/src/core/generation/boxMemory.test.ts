@@ -86,17 +86,26 @@ const STAMPS: Readonly<Record<string, RegExp>> = {
   // CUPS's, the common-log stamp, and no fixed day for the same reason. Kept in a
   // directory of its own, which is where a printer's scheduler writes it.
   'cups/page_log': /\[\d\d\/\w{3}\/\d{4}:(\d\d):(\d\d):(\d\d) \+0000\]/,
+  // A lock daemon's, a plain date and time, and no fixed day for the same reason.
+  'lockd/access.log': /^\d{4}-\d\d-\d\d (\d\d):(\d\d):(\d\d) /,
 };
 
 /** The rotations that are not a day's worth, so the day rule below does not reach them.
- *  Postfix's, vsftpd's and CUPS's logs rotate by size, and an organisation of a dozen
- *  people never writes enough mail, saves enough files or prints enough pages to trip
- *  them, so the file rotated out on the last morning holds everything the box still
- *  remembers. What each must agree with instead is what it took in: the mail log its
- *  spool, which `mailbox.test.ts` holds it to message for message; the transfer log its
- *  share, which `share.test.ts` holds it to file for file; and the page log the print
- *  spool, which `device.test.ts` holds it to job for job. */
-const SPANS_MORE_THAN_A_DAY: readonly string[] = ['mail.log.1', 'vsftpd.log.1', 'cups/page_log.1'];
+ *  Postfix's, vsftpd's, CUPS's and a lock's logs rotate by size, and an organisation of
+ *  a dozen people never writes enough mail, saves enough files, prints enough pages or
+ *  opens a door often enough to trip them, so the file rotated out on the last morning
+ *  holds everything the box still remembers. What each must agree with instead is what
+ *  it took in: the mail log its spool, which `mailbox.test.ts` holds it to message for
+ *  message; the transfer log its share, which `share.test.ts` holds it to file for file;
+ *  the page log the print spool, which `device/printer.test.ts` holds it to job for job;
+ *  and the lock's log its people and their phones, which `device/lock.test.ts` holds it
+ *  to. */
+const SPANS_MORE_THAN_A_DAY: readonly string[] = [
+  'mail.log.1',
+  'vsftpd.log.1',
+  'cups/page_log.1',
+  'lockd/access.log.1',
+];
 
 const stampOf = (rotatedName: string): RegExp => {
   const stamp = STAMPS[rotatedName.slice(0, -'.1'.length)];

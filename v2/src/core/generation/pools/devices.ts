@@ -147,3 +147,142 @@ export const CAMERA_RESOLUTIONS: readonly (readonly [number, number])[] = [
   [1920, 1080],
   [2560, 1440],
 ];
+
+/** The temperature and humidity chips a climate board reads over I2C, each at the
+ *  address that chip answers on out of the box. */
+export const CLIMATE_CHIPS: readonly { readonly chip: string; readonly address: string }[] = [
+  { chip: 'BME280', address: '0x76' },
+  { chip: 'SHT31', address: '0x44' },
+  { chip: 'HTU21D', address: '0x40' },
+  { chip: 'AHT20', address: '0x38' },
+  { chip: 'SHTC3', address: '0x70' },
+];
+
+/** Where a climate device is fitted, as its topic names it. */
+export const CLIMATE_ROOMS: readonly string[] = [
+  'hallway',
+  'kitchen',
+  'office',
+  'living-room',
+  'bedroom',
+  'landing',
+  'reception',
+  'server-cupboard',
+];
+
+/** The televisions and speakers a media box may be, by flavour. */
+export const MEDIA_MODELS: Readonly<Record<'tv' | 'speaker', readonly string[]>> = {
+  tv: [
+    'Samsung QN90B',
+    'LG OLED C2',
+    'Sony Bravia XR-55A80K',
+    'TCL 55C735',
+    'Hisense 55U8H',
+    'Philips 55OLED807',
+  ],
+  speaker: [
+    'Sonos One',
+    'Sonos Era 100',
+    'Bose Home Speaker 500',
+    'Amazon Echo Studio',
+    'Google Nest Audio',
+    'Apple HomePod mini',
+  ],
+};
+
+/** The apps each flavour installs. A television plays music too, so it may carry a music
+ *  app; a speaker plays nothing with a picture. */
+export const MEDIA_APPS: Readonly<Record<'tv' | 'speaker', readonly string[]>> = {
+  tv: ['Netflix', 'YouTube', 'Prime Video', 'Disney+', 'BBC iPlayer', 'Plex', 'Twitch', 'Spotify'],
+  speaker: ['Spotify', 'TuneIn', 'BBC Sounds', 'Apple Music', 'Deezer', 'Podcasts'],
+};
+
+/** What is played: programmes on an app with a picture, and audio on any other. */
+export const MEDIA_TITLES: Readonly<Record<'video' | 'audio', readonly string[]>> = {
+  video: [
+    'Evening News',
+    'The Long Coast',
+    'Harbour Lights',
+    'Cooking for Two',
+    'Match of the Week',
+    'The Quiet Valley',
+    'Planet Underwater',
+    'Detective Hale',
+    'Late Show Highlights',
+    'Cartoon Morning',
+  ],
+  audio: [
+    'Morning Focus',
+    'Deep Work Mix',
+    'Rainy Day Jazz',
+    'Kitchen Radio',
+    'Evening Chill',
+    'Daily Briefing',
+    'Classic Rock Hour',
+    'Sleep Sounds',
+    'Workout Mix',
+    'Sunday Papers',
+  ],
+};
+
+/** Where a television or a speaker stands, as its friendly name gives it. */
+export const MEDIA_ROOMS: readonly string[] = [
+  'Living Room',
+  'Kitchen',
+  'Bedroom',
+  'Office',
+  'Meeting Room',
+  'Reception',
+  'Lounge',
+  'Studio',
+];
+
+/** What a smart plug switches, and the load it draws while on, in watts. */
+export const PLUG_APPLIANCES: readonly { readonly name: string; readonly watts: number }[] = [
+  { name: 'Desk Lamp', watts: 12 },
+  { name: 'Hallway Lamp', watts: 9 },
+  { name: 'Coffee Machine', watts: 1100 },
+  { name: 'Fish Tank', watts: 45 },
+  { name: 'Desk Fan', watts: 35 },
+  { name: 'Space Heater', watts: 1500 },
+  { name: 'Dehumidifier', watts: 280 },
+  { name: 'Grow Light', watts: 60 },
+];
+
+/** The days a plug's rule may run on: every day, working days, the weekend, or one day. */
+export const PLUG_DAYS: readonly string[] = [
+  'daily',
+  'mon-fri',
+  'sat-sun',
+  'mon',
+  'tue',
+  'wed',
+  'thu',
+  'fri',
+  'sat',
+  'sun',
+];
+
+/** The smart locks a door may be fitted with. */
+export const LOCK_MODELS: readonly string[] = [
+  'Nuki Smart Lock Pro',
+  'Yale Linus',
+  'August Smart Lock',
+  'Schlage Encode Plus',
+  'Ultraloq U-Bolt Pro',
+  'Eufy Smart Lock Touch',
+];
+
+/** The doors a lock is fitted to, as its name gives it. */
+export const LOCK_DOORS: readonly string[] = [
+  'Front Door',
+  'Back Door',
+  'Side Gate',
+  'Office Door',
+  'Server Room',
+  'Garage',
+];
+
+/** Keypad slots kept for a role rather than a person: whoever comes to clean, walk the
+ *  dog or deliver is let in by the slot, and the lock never knows their name. */
+export const LOCK_ROLE_SLOTS: readonly string[] = ['Cleaner', 'Dog Walker', 'Guest', 'Deliveries', 'Maintenance'];

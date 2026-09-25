@@ -50,17 +50,19 @@ type RoleConfig = {
   readonly templates: readonly string[];
 };
 
-/** Every role a template is DRAWN for — which is every role but `dns`.
+/** Every role a template is DRAWN for — which is every role but `dns` and `iot`.
  *
  *  A name server's `/etc/bind/named.conf` describes the network it stands on: which
  *  zone it is authoritative for, where that zone file is, and whether it will hand the
  *  whole thing over. No template could have written any of that, so it is generated
- *  (`generateDnsZone`) rather than picked from five guesses.
+ *  (`generateDnsZone`) rather than picked from five guesses. An IoT box is the device
+ *  its name says, and keeps that device's daemon's config under a directory of its own
+ *  (`generation/device.ts`), as a real one does.
  *
  *  Stated in the TYPE rather than left to a runtime check, so a caller that reached for
  *  a pooled config for a name server would fail to compile instead of silently getting
  *  nothing — or, worse, getting a second file contradicting the generated one. */
-export type PooledConfigRole = Exclude<DrawnRole, 'dns'>;
+export type PooledConfigRole = Exclude<DrawnRole, 'dns' | 'iot'>;
 
 const CONFIG_BY_ROLE: Readonly<Record<PooledConfigRole, RoleConfig>> = {
   workstation: {
@@ -71,16 +73,6 @@ const CONFIG_BY_ROLE: Readonly<Record<PooledConfigRole, RoleConfig>> = {
       '# {{hostname}}\nHost *\n  Compression yes\n  ControlMaster auto\n  ControlPath ~/.ssh/cm-%r@%h:%p\n  ControlPersist 10m',
       '# {{hostname}}\nHost fileserver\n  HostName 192.168.1.20\n  Port 21\nHost *\n  ServerAliveInterval 120\n  TCPKeepAlive yes',
       '# {{hostname}}\nHost *\n  PubkeyAuthentication yes\n  PasswordAuthentication yes\n  IdentitiesOnly yes\n  LogLevel INFO',
-    ],
-  },
-  iot: {
-    filename: 'device.conf',
-    templates: [
-      '# BusyBox v1.31.1\nhostname={{hostname}}\ndevice_type=sensor_gateway\nfirmware=v2.1.4\nmqtt_broker=127.0.0.1\nmqtt_port=1883\nlog_level=warn',
-      '# Device configuration\n[network]\ndhcp=yes\nhostname={{hostname}}\n[mqtt]\nbroker=localhost\nport=1883\ntopic_prefix=devices/{{hostname}}\n[sensor]\ninterval=60\nthreshold=25.0',
-      '# Zigbee coordinator\nhostname={{hostname}}\nserial_port=/dev/ttyUSB0\nbaud_rate=115200\npan_id=0x1A62\nchannel=15\nnetwork_key=01030507090B0D0F00020406080A0C0E',
-      '# OTA update manifest\n[firmware]\ncurrent=2.1.4\nchannel=stable\ncheck_url=https://ota.vendor.io/{{hostname}}\nverify_sig=true\nauto_install=false\nrollback_slot=A',
-      '# Modbus RTU — {{hostname}}\n[modbus]\ndevice=/dev/ttyS0\nbaudrate=9600\nparity=N\nstopbits=1\nunit_id=1\nregisters=0x0000-0x00FF\npoll_interval=5',
     ],
   },
   // Every template here is NGINX's, and deliberately so. A generated webserver runs

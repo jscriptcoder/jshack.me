@@ -91,7 +91,7 @@ export const WEB_PAGE_FILE: FilePermissions = {
   write: ['root'],
   execute: [],
 };
-/** A role's config in `/etc` (`mysql.cnf`, `device.conf`): world-readable because
+/** A role's config in `/etc` (`mysql.cnf`, `motion.conf`): world-readable because
  *  saying what a box is FOR is the lowest tier of recon and costs no credential,
  *  root-only write because configuring the box is root's job, and never executable —
  *  a config is data, the same reasoning `WEB_PAGE_FILE` carries. Deliberately wider
