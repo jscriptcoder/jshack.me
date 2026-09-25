@@ -41,7 +41,8 @@ import { AUTH_LOG_PERMISSIONS } from '../logging/authLog';
 import { KERN_LOG_PERMISSIONS } from '../logging/kernLog';
 import { SNMPD_LOG_PERMISSIONS } from '../logging/snmpdLog';
 import { RULES_V4_PERMISSIONS } from '../network/iptablesRules';
-import { ACL_CONF_PERMISSIONS } from '../network/switchAcl';
+import { ACL_CONF_PERMISSIONS, parseAclDenies } from '../network/switchAcl';
+import { gatewayBackups } from './gatewayBackups';
 import { SNMPD_CONF_PERMISSIONS, SNMPD_CONF_SEED } from '../snmp/conf';
 import { formatSnmpdState, SNMPD_STATE_PERMISSIONS } from '../snmp/rwCommunity';
 import { placementOf } from './rolePlacement';
@@ -153,6 +154,14 @@ const ACL_CONF_SEED = [
 const pickFirmwareVendor = (seed: string): FirmwareVendor =>
   createPrng(`firmware-${seed}`).pick(FIRMWARE_VENDORS);
 
+/** The ports a switch's ACL denies, read from the `acl.conf` it is built with; none on a
+ *  router, which keeps no ACL. */
+const aclDeniesIn = (configEntries: Record<string, FileNode>): readonly number[] => {
+  const switchDir = configEntries.switch;
+  const acl = switchDir?.kind === 'directory' ? switchDir.entries.get('acl.conf') : undefined;
+  return acl?.kind === 'file' ? parseAclDenies(acl.content) : [];
+};
+
 /**
  * Build a gateway device's base filesystem from the IDENTITY the server can
  * RECONSTRUCT cross-player: the root password ALREADY HASHED and whether it runs
@@ -177,7 +186,7 @@ const buildGatewayBaseFs = (
   configEntries: Record<string, FileNode>,
   /** Which gateway this is, so it can know who ran it. */
   site: { readonly essid: string; readonly machineId: string },
-  network: GatewayNetworkEntries = { etc: {}, varLib: {}, hosts: [], grants: [] },
+  network: GatewayNetworkEntries = { etc: {}, varLib: {}, hosts: [], grants: [], dhcp: null },
 ): Directory => {
   const passwd = generatePasswd([
     {
@@ -247,6 +256,14 @@ const buildGatewayBaseFs = (
     grants: network.grants,
     hasSnmp: identity.hasSnmp,
   });
+  const firmwareVendor = pickFirmwareVendor(identity.firmwareSeed);
+  const backups = gatewayBackups({
+    ...site,
+    vendor: firmwareVendor,
+    dhcp: network.dhcp,
+    denies: aclDeniesIn(configEntries),
+    snmp: identity.hasSnmp,
+  });
   const history = gatewayRootHistory({
     ...site,
     deviceConfig: configEntries,
@@ -274,7 +291,7 @@ const buildGatewayBaseFs = (
         TRAVERSABLE_DIR,
       ),
       lib: dir(createLibraryEntries(SYSTEM_LIBRARIES), TRAVERSABLE_DIR),
-      root: dir({ '.bash_history': file(history, ROOT_FILE) }, ROOT_DIR),
+      root: dir({ '.bash_history': file(history, ROOT_FILE), ...backups }, ROOT_DIR),
       tmp: dir({}, TMP_DIR),
       usr: dir(
         {
@@ -296,7 +313,7 @@ const buildGatewayBaseFs = (
     },
     TRAVERSABLE_DIR,
   );
-  return withPackageManifest(tree, { firmwareVendor: pickFirmwareVendor(identity.firmwareSeed) });
+  return withPackageManifest(tree, { firmwareVendor });
 };
 
 /**

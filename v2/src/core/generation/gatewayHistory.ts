@@ -73,14 +73,27 @@ const drawAdminIp = (options: {
 
 const historyStream = (machineId: string): Prng => createPrng(`gw-history-${machineId}`);
 
-/** The address the gateway's admin works from, or undefined for a gateway the network
- *  does not generate. */
-export const gatewayAdminIp = (essid: string, machineId: string): string | undefined => {
+/** A gateway the network generates: the host it is, whether it stands on the home LAN,
+ *  and the address its admin works from. */
+export type GatewaySite = {
+  readonly host: LanHost;
+  readonly onLan: boolean;
+  readonly adminIp: string;
+};
+
+/** Where a gateway stands and who runs it, or undefined for a gateway the network does
+ *  not generate. */
+export const gatewaySite = (essid: string, machineId: string): GatewaySite | undefined => {
   const place = placeOf(essid, machineId);
   return place === undefined
     ? undefined
-    : drawAdminIp({ prng: historyStream(machineId), essid, ...place });
+    : { ...place, adminIp: drawAdminIp({ prng: historyStream(machineId), essid, ...place }) };
 };
+
+/** The address the gateway's admin works from, or undefined for a gateway the network
+ *  does not generate. */
+export const gatewayAdminIp = (essid: string, machineId: string): string | undefined =>
+  gatewaySite(essid, machineId)?.adminIp;
 
 /** Every file's absolute path under a directory's entries. */
 const filePaths = (prefix: string, entries: Readonly<Record<string, FileNode>>): string[] =>
@@ -181,10 +194,10 @@ export const gatewayLogRotations = (options: {
   readonly hasSnmp: boolean;
 }): Readonly<Record<string, FileNode>> => {
   const { essid, machineId, grants, hasSnmp } = options;
-  const place = placeOf(essid, machineId);
-  if (place === undefined) return {};
-  const adminIp = drawAdminIp({ prng: historyStream(machineId), essid, ...place });
-  const { hostname } = place.host;
+  const site = gatewaySite(essid, machineId);
+  if (site === undefined) return {};
+  const { adminIp } = site;
+  const { hostname } = site.host;
   const prng = createPrng(`gw-history-logs-${machineId}`);
   const syslog = (second: number, service: string, pid: number, message: string): Entry => ({
     second,

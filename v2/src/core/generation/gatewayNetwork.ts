@@ -25,13 +25,26 @@ export type DhcpGrant = {
   readonly hostname: string;
 };
 
+/** A card the router keeps an address for, whoever asks. */
+export type DhcpReservation = Omit<DhcpGrant, 'at'>;
+
+/** The DHCP a router serves: the /24 it hands out, for how long, and the addresses it
+ *  keeps for the segment's gateways. */
+export type DhcpService = {
+  readonly subnet: string;
+  readonly leaseHours: number;
+  readonly reservations: readonly DhcpReservation[];
+};
+
 /** The files a gateway's network knowledge adds, grouped by the directory they join; the
- *  addresses of the hosts those files name; and every lease it granted. */
+ *  addresses of the hosts those files name; every lease it granted; and the DHCP it
+ *  serves, null on a switch. */
 export type GatewayNetworkEntries = {
   readonly etc: Record<string, FileNode>;
   readonly varLib: Record<string, FileNode>;
   readonly hosts: readonly string[];
   readonly grants: readonly DhcpGrant[];
+  readonly dhcp: DhcpService | null;
 };
 
 /** A host on the segment, with the machine id that fixes its MAC. */
@@ -67,8 +80,13 @@ const dhcpServer = (options: {
     .map(({ at, mac, ip, hostname }) => `${at + leaseHours * 60 * 60} ${mac} ${ip} ${hostname} *\n`)
     .join('');
 
-  const reservations = gateways
-    .map(({ host, machineId }) => `dhcp-host=${hostMac(machineId)},${host.ip},${host.hostname}\n`)
+  const reserved: readonly DhcpReservation[] = gateways.map(({ host, machineId }) => ({
+    mac: hostMac(machineId),
+    ip: host.ip,
+    hostname: host.hostname,
+  }));
+  const reservations = reserved
+    .map(({ mac, ip, hostname }) => `dhcp-host=${mac},${ip},${hostname}\n`)
     .join('');
 
   const config = [
@@ -88,6 +106,7 @@ const dhcpServer = (options: {
     varLib: { misc: dir({ 'dnsmasq.leases': file(leases, SERVICE_CONFIG_FILE) }, TRAVERSABLE_DIR) },
     hosts: [...machines, ...gateways].map(({ host }) => host.ip),
     grants,
+    dhcp: { subnet, leaseHours, reservations: reserved },
   };
 };
 
@@ -160,5 +179,6 @@ export const chainSwitchNetwork = (options: {
     varLib: { switch: dir({ 'mac-table': file(table, SERVICE_CONFIG_FILE) }, TRAVERSABLE_DIR) },
     hosts: [host.ip],
     grants: [],
+    dhcp: null,
   };
 };
