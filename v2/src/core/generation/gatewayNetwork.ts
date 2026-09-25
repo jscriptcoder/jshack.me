@@ -64,7 +64,6 @@ type SegmentHost = { readonly host: LanHost; readonly machineId: string };
 const LEASE_FILE = '/var/lib/misc/dnsmasq.leases';
 const LEASE_HOURS = [12, 24] as const;
 const EPOCH_SECONDS = WORLD_EPOCH / 1000;
-const DAY_SECONDS = 24 * 60 * 60;
 
 const lastOctet = (host: LanHost): number => Number(host.ip.split('.')[3]);
 
@@ -81,14 +80,17 @@ const dhcpServer = (options: {
   const prng = createPrng(`gw-net-${seed}`);
   const leaseHours = prng.pick(LEASE_HOURS);
 
+  // Every lease is still held at the epoch, so each was granted within one term of it —
+  // which, for a term of a day or less, is always on the last day.
+  const term = leaseHours * 60 * 60;
   const grants: readonly DhcpGrant[] = machines.map(({ host, machineId }) => ({
-    at: EPOCH_SECONDS - DAY_SECONDS + prng.nextInt(0, DAY_SECONDS - 1),
+    at: EPOCH_SECONDS - term + prng.nextInt(1, term - 1),
     mac: hostMac(machineId),
     ip: host.ip,
     hostname: host.hostname,
   }));
   const leases = grants
-    .map(({ at, mac, ip, hostname }) => `${at + leaseHours * 60 * 60} ${mac} ${ip} ${hostname} *\n`)
+    .map(({ at, mac, ip, hostname }) => `${at + term} ${mac} ${ip} ${hostname} *\n`)
     .join('');
 
   const reserved: readonly DhcpReservation[] = gateways.map(({ host, machineId }) => ({

@@ -177,6 +177,14 @@ describe('a router knows the segment it serves', () => {
     }
   });
 
+  it('still holds every lease when the world begins, so none it lists has run out', () => {
+    for (const router of routers()) {
+      for (const row of leaseRows(router)) {
+        expect(row.expiry, `${router.name} ${row.ip}`).toBeGreaterThan(EPOCH_SECONDS);
+      }
+    }
+  });
+
   it('keeps its leases in the file its config names', () => {
     for (const router of routers()) {
       expect(settings(router, 'dhcp-leasefile'), router.name).toEqual([`/${LEASES_PATH}`]);
