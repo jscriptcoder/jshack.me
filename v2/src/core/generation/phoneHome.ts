@@ -14,10 +14,17 @@ import type { Directory, FileNode } from '../filesystem/types';
 import { WORLD_EPOCH } from '../cve/worldClock';
 import { dir, file, HOME_DIR, HOME_FILE } from './baseFs';
 import { renderDocument } from './documentFormats';
-import type { LanHost } from './generateHomeLan';
+import { isOnHomeLan, type LanHost } from './generateHomeLan';
+import { peopleOn } from './networkMail';
+import { networkPersona } from './persona';
 import { createPrng, type Prng } from './prng';
 import { phoneModel, type Device } from './share';
-import { TABLET_MODELS } from './pools/phoneFiles';
+import {
+  PERSONAL_DOWNLOADS,
+  PLACE_DOWNLOADS,
+  TABLET_MODELS,
+  type DownloadSpec,
+} from './pools/phoneFiles';
 
 const DAY_SECONDS = 86_400;
 const EPOCH_SECONDS = WORLD_EPOCH / 1000;
@@ -28,6 +35,13 @@ const PHOTO_DAYS = { min: 4, max: 10 } as const;
 const DAYS_BACK = 730;
 const BURST_START_SECONDS = { min: 8 * 3600, max: 20 * 3600 } as const;
 const BURST_GAP_SECONDS = { min: 3, max: 300 } as const;
+
+const DOWNLOAD_COUNT = { min: 2, max: 6 } as const;
+/** How often a device on a home LAN kept one of the place's own papers. */
+const PLACE_PAPER_CHANCE = 0.6;
+const REFERENCE = { min: 10_000, max: 99_999 } as const;
+/** A document is saved again within a couple of days of being made, if at all. */
+const MAX_EDIT_SECONDS = 2 * DAY_SECONDS;
 
 const pad = (value: number): string => String(value).padStart(2, '0');
 
@@ -62,13 +76,15 @@ const nameOnAppleCounter = (prng: Prng, takenAt: readonly number[]): readonly Na
  *  before anything is saved there, and how it names what it took, oldest first. */
 type Layout = {
   readonly cameraFolder: string;
+  readonly downloadFolder: string;
   readonly folders: readonly string[];
   readonly namePhotos: (prng: Prng, takenAt: readonly number[]) => readonly NamedPhoto[];
 };
 
 const ANDROID_LAYOUT: Layout = {
   cameraFolder: 'Camera',
-  folders: ['Documents', 'Download', 'Movies', 'Music', 'Pictures'],
+  downloadFolder: 'Download',
+  folders: ['Documents', 'Movies', 'Music', 'Pictures'],
   namePhotos: (_prng, takenAt) =>
     takenAt.map((moment) => ({ name: androidPhotoName(moment), takenAt: moment })),
 };
@@ -77,7 +93,8 @@ const ANDROID_LAYOUT: Layout = {
  *  folders. */
 const APPLE_LAYOUT: Layout = {
   cameraFolder: '100APPLE',
-  folders: ['Documents', 'Downloads'],
+  downloadFolder: 'Downloads',
+  folders: ['Documents'],
   namePhotos: nameOnAppleCounter,
 };
 
@@ -145,6 +162,49 @@ export const deviceModel = (essid: string, host: LanHost): Device | undefined =>
     ? tabletModel(essid, host)
     : phoneModel(essid, host);
 
+/** A PDF the device kept, and who its Info dictionary credits. */
+type Paper = { readonly spec: DownloadSpec; readonly author: string };
+
+/** What the person saved: a few things organisations sent them and, on a home LAN, now
+ *  and then a paper of the place's own, written by somebody who lives on the network. A
+ *  device below the LAN knows nobody there. */
+const papersFor = (prng: Prng, essid: string, host: LanHost): readonly Paper[] => {
+  const personal = prng
+    .pickN(PERSONAL_DOWNLOADS, prng.nextInt(DOWNLOAD_COUNT.min, DOWNLOAD_COUNT.max))
+    .map((spec) => ({ spec, author: spec.author }));
+  if (!isOnHomeLan(essid, host) || prng.next() >= PLACE_PAPER_CHANCE) return personal;
+  const writer = prng.pick(peopleOn(essid));
+  return [
+    ...personal,
+    {
+      spec: prng.pick(PLACE_DOWNLOADS[networkPersona(essid).category]),
+      author: writer.fullName,
+    },
+  ];
+};
+
+/** A paper as saved: its reference filled in, made on a day before the epoch and saved
+ *  again no later than the epoch. */
+const renderPaper = (prng: Prng, paper: Paper): readonly [string, string] => {
+  const reference = String(prng.nextInt(REFERENCE.min, REFERENCE.max));
+  const createdSecond =
+    EPOCH_SECONDS - prng.nextInt(1, DAYS_BACK) * DAY_SECONDS + prng.nextInt(0, DAY_SECONDS - 1);
+  const editSeconds = prng.nextInt(0, Math.min(MAX_EDIT_SECONDS, EPOCH_SECONDS - 1 - createdSecond));
+  return [
+    paper.spec.name.replaceAll('{ref}', reference),
+    renderDocument(
+      {
+        format: 'pdf',
+        title: paper.spec.title.replaceAll('{ref}', reference),
+        author: paper.author,
+        createdAt: createdSecond * 1000,
+        modifiedAt: (createdSecond + editSeconds) * 1000,
+      },
+      prng,
+    ),
+  ];
+};
+
 export const buildPhoneHome = (options: {
   readonly essid: string;
   readonly host: LanHost;
@@ -170,9 +230,17 @@ export const buildPhoneHome = (options: {
     ]),
   );
 
+  const downloads: Record<string, FileNode> = Object.fromEntries(
+    papersFor(prng, essid, host).map((paper) => {
+      const [name, content] = renderPaper(prng, paper);
+      return [name, file(content, HOME_FILE, username)];
+    }),
+  );
+
   return dir(
     {
       DCIM: dir({ [layout.cameraFolder]: dir(photos, HOME_DIR, username) }, HOME_DIR, username),
+      [layout.downloadFolder]: dir(downloads, HOME_DIR, username),
       ...Object.fromEntries(layout.folders.map((folder) => [folder, dir({}, HOME_DIR, username)])),
     },
     HOME_DIR,

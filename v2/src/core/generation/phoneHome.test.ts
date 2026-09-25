@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { npcUsername } from './remoteHostFs';
 import { phoneModel } from './share';
-import { TABLET_MODELS } from './pools/phoneFiles';
+import { PERSONAL_DOWNLOADS, PLACE_DOWNLOADS, TABLET_MODELS } from './pools/phoneFiles';
+import { peopleOn } from './networkMail';
+import { networkPersona } from './persona';
 import { WORLD_EPOCH } from '../cve/worldClock';
 import { createFsView } from '../filesystem/fsView';
 import { asAbsPath } from '../types';
@@ -10,6 +12,7 @@ import { filesUnder, serialise } from '../../test/worldContent';
 import {
   readableLinesOf,
   syntheticBoxes,
+  syntheticLanBoxes,
   worldBoxesNamed,
   type BuiltBox,
 } from '../../test/deviceBoxes';
@@ -236,5 +239,116 @@ describe('a tablet is a tablet', () => {
     tablets().forEach((box) => {
       expect(phoneModel(box.essid, box.host), box.host.hostname).toBeUndefined();
     });
+  });
+});
+
+/** An entry of a PDF's Info dictionary, as `strings` shows it. */
+const pdfEntry = (lines: readonly string[], key: string): string | undefined =>
+  lines.join('\n').match(new RegExp(`/${key} \\(([^)]*)\\)`))?.[1];
+
+/** `D:20250901070309Z` → its instant. */
+const pdfInstant = (pdfDate: string): number =>
+  Date.parse(
+    pdfDate.replace(
+      /^D:(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})Z$/,
+      '$1-$2-$3T$4:$5:$6Z',
+    ),
+  );
+
+/** Every file in the device's download folder, whichever its maker calls it. */
+const downloadsOf = (box: BuiltBox): ReadonlyMap<string, string> =>
+  new Map(
+    [...filesUnder(homeOf(box))].filter(([path]) => /^Downloads?\//.test(path)),
+  );
+
+type Download = {
+  readonly name: string;
+  readonly title: string;
+  readonly author: string;
+  readonly createdAt: number;
+  readonly modifiedAt: number;
+};
+
+const readDownloads = async (box: BuiltBox): Promise<readonly Download[]> => {
+  const read: Download[] = [];
+  for (const [path, content] of downloadsOf(box)) {
+    const lines = await readableLinesOf(content);
+    expect(lines[0], `${box.host.hostname} ${path}`).toBe('%PDF-1.7');
+    read.push({
+      name: path.slice(path.indexOf('/') + 1),
+      title: pdfEntry(lines, 'Title') ?? '',
+      author: pdfEntry(lines, 'Author') ?? '',
+      createdAt: pdfInstant(pdfEntry(lines, 'CreationDate') ?? ''),
+      modifiedAt: pdfInstant(pdfEntry(lines, 'ModDate') ?? ''),
+    });
+  }
+  return read;
+};
+
+/** Devices on home LANs the catalog does not hold, for the kinds of place it has few of. */
+const lanDevices = (): readonly BuiltBox[] => [
+  ...devices().filter((box) => box.layer === 'lan'),
+  ...syntheticLanBoxes(['android', 'iphone', 'tablet']),
+];
+
+const ISSUERS = new Set(PERSONAL_DOWNLOADS.map(({ author }) => author));
+
+const neighbourNames = (box: BuiltBox): ReadonlySet<string> =>
+  new Set(peopleOn(box.essid).map(({ fullName }) => fullName));
+
+describe('a device keeps what its person downloaded', () => {
+  it('keeps two to seven PDFs in its download folder, and nothing else', async () => {
+    for (const box of devices()) {
+      const downloads = await readDownloads(box);
+      expect(downloads.length, box.host.hostname).toBeGreaterThanOrEqual(2);
+      expect(downloads.length, box.host.hostname).toBeLessThanOrEqual(7);
+      downloads.forEach(({ name }) => {
+        expect(name, box.host.hostname).toMatch(/^[\w.-]+\.pdf$/);
+      });
+    }
+  });
+
+  it('was made within the two years before the epoch, and saved no earlier than it was made', async () => {
+    for (const box of devices()) {
+      for (const download of await readDownloads(box)) {
+        const label = `${box.host.hostname} ${download.name}`;
+        expect(download.createdAt, label).toBeGreaterThanOrEqual(WORLD_EPOCH - TWO_YEARS_MS);
+        expect(download.modifiedAt, label).toBeGreaterThanOrEqual(download.createdAt);
+        expect(download.modifiedAt, label).toBeLessThan(WORLD_EPOCH);
+      }
+    }
+  });
+
+  it('credits what a person fetched to whoever issued it', async () => {
+    for (const box of devices().filter((device) => device.layer === 'deep')) {
+      for (const download of await readDownloads(box)) {
+        expect(ISSUERS.has(download.author), `${box.host.hostname} ${download.name}`).toBe(true);
+      }
+    }
+  });
+
+  it("keeps at most one of the place's own papers on a home LAN, written by somebody who lives there", async () => {
+    let placePapers = 0;
+    let devicesWithout = 0;
+    for (const box of lanDevices()) {
+      const people = neighbourNames(box);
+      const category = networkPersona(box.essid).category;
+      const titles = new Set(PLACE_DOWNLOADS[category].map(({ title }) => title));
+      const downloads = await readDownloads(box);
+      const fromNeighbours = downloads.filter(({ author }) => people.has(author));
+      downloads
+        .filter(({ author }) => !people.has(author))
+        .forEach(({ author, name }) => {
+          expect(ISSUERS.has(author), `${box.host.hostname} ${name}: ${author}`).toBe(true);
+        });
+      fromNeighbours.forEach(({ title, name }) => {
+        expect(titles.has(title), `${box.host.hostname} ${name}: ${title} (${category})`).toBe(true);
+      });
+      expect(fromNeighbours.length, box.host.hostname).toBeLessThanOrEqual(1);
+      placePapers += fromNeighbours.length;
+      devicesWithout += fromNeighbours.length === 0 ? 1 : 0;
+    }
+    expect(placePapers).toBeGreaterThan(0);
+    expect(devicesWithout).toBeGreaterThan(0);
   });
 });
