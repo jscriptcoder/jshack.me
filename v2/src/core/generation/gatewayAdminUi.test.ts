@@ -46,7 +46,61 @@ const SERVER_CONFIGS: Readonly<Record<FirmwareVendor, string>> = {
   ubiquiti: '/etc/lighttpd/lighttpd.conf',
 };
 
+/** What each vendor calls its admin UI, which every page heads itself with. */
+const PRODUCTS: Readonly<Record<FirmwareVendor, string>> = {
+  cisco: 'Cisco Device Manager',
+  mikrotik: 'WebFig',
+  openwrt: 'LuCI',
+  ddwrt: 'DD-WRT Control Panel',
+  pfsense: 'pfSense webConfigurator',
+  ubiquiti: 'EdgeOS',
+};
+
+/** How each web server's config reads: uhttpd's uci section, nginx's server block, and
+ *  lighttpd's `key = value` lines for every other vendor. */
+const SERVER_CONFIG_SHAPES: Partial<Record<FirmwareVendor, RegExp>> = {
+  openwrt: /^config uhttpd 'main'\n(\t(list|option) \w+ '[^']+'\n)+$/,
+  pfsense: /^server \{\n(\t[^\n]+;\n)+\}\n$/,
+};
+const LIGHTTPD_SHAPE = /^([\w.-]+ = [^\n]+\n)+$/;
+
 const everyGateway = (): readonly Gateway[] => gatewaysOn(ALL_ESSIDS);
+
+/** Why a page is not a document a browser would render as its author meant, or null. */
+const malformation = (page: string): string | null => {
+  if (!page.startsWith('<!DOCTYPE html>\n<html>\n<head>\n<title>')) return 'opens wrongly';
+  if (!page.endsWith('</body>\n</html>\n')) return 'closes wrongly';
+  const open: string[] = [];
+  for (const [, closing, name = ''] of page.matchAll(/<(\/?)([a-z][a-z\d]*)[^>]*>/g)) {
+    if (closing === '/') {
+      if (open.pop() !== name) return `</${name}> closes nothing open`;
+    } else {
+      open.push(name);
+    }
+  }
+  return open.length === 0 ? null : `leaves <${open.join('>, <')}> open`;
+};
+
+/** A page's tables, each as its heading cells and its rows of cells. */
+const tablesIn = (page: string) =>
+  [...page.matchAll(/<table>\n([\s\S]*?)\n<\/table>/g)].map(([, body = '']) => {
+    const [heading = '', ...rows] = body.split('\n');
+    const cells = (row: string, tag: string) =>
+      [...row.matchAll(new RegExp(`<${tag}>(.*?)</${tag}>`, 'g'))].map(([, cell = '']) => cell);
+    return { headings: cells(heading, 'th'), rows: rows.map((row) => cells(row, 'td')) };
+  });
+
+/** The value a settings table gives a setting, on any of the gateway's pages. */
+const settingOn = (page: string, setting: string): string | undefined =>
+  tablesIn(page)
+    .flatMap(({ rows }) => rows)
+    .find(([name]) => name === setting)?.[1];
+
+const headingOf = (page: string): string => /<h2>(.*)<\/h2>/.exec(page)?.[1] ?? '';
+
+/** A moment of the epoch as the admin UI prints it. */
+const printed = (epochSeconds: number): string =>
+  new Date(epochSeconds * 1000).toISOString().slice(0, 19).replace('T', ' ');
 
 const view = (gateway: Gateway, userType: 'root' | 'guest' = 'root') =>
   createFsView(gateway.tree, { userType });
@@ -232,6 +286,138 @@ describe("a gateway's admin pages", () => {
   });
 });
 
+describe("what a gateway's admin pages say", () => {
+  it('is well-formed HTML, headed with the vendor’s own product and the page’s title', () => {
+    for (const gateway of everyGateway()) {
+      const product = PRODUCTS[vendorOf(gateway)];
+      for (const [name, page] of pagesOf(gateway)) {
+        expect(malformation(page), `${gateway.name} ${name}`).toBeNull();
+        const title = headingOf(page);
+        expect(title, `${gateway.name} ${name}`).not.toBe('');
+        expect(page, `${gateway.name} ${name}`).toContain(`<h1>${product}</h1>`);
+        expect(page, `${gateway.name} ${name}`).toContain(
+          `<title>${title} - ${gateway.host.hostname} - ${product}</title>`,
+        );
+      }
+    }
+  });
+
+  it('names every link after the page it opens', () => {
+    for (const gateway of everyGateway()) {
+      const pages = pagesOf(gateway);
+      for (const [name, page] of pages) {
+        for (const [, target = '', text] of page.matchAll(/<a href="([^"]+)">([^<]*)<\/a>/g)) {
+          expect(text, `${gateway.name} ${name} -> ${target}`).toBe(headingOf(pages.get(target) ?? ''));
+        }
+      }
+    }
+  });
+
+  it('heads every column, and fills every row to the width of its heading', () => {
+    for (const gateway of everyGateway()) {
+      for (const [name, page] of pagesOf(gateway)) {
+        for (const { headings, rows } of tablesIn(page)) {
+          expect(headings.length, `${gateway.name} ${name}`).toBeGreaterThan(0);
+          for (const heading of headings) expect(heading, `${gateway.name} ${name}`).not.toBe('');
+          for (const row of rows) {
+            expect(row.length, `${gateway.name} ${name}`).toBe(headings.length);
+            for (const cell of row) expect(cell, `${gateway.name} ${name}`).not.toBe('');
+          }
+        }
+      }
+    }
+  });
+
+  it('states on its front page the name and address the box answers on', () => {
+    for (const gateway of everyGateway()) {
+      const front = pagesOf(gateway).get('index.html') ?? '';
+      const serves = /^dhcp-range=(\S+)\.2,/m.exec(contentAt(gateway, '/etc/dnsmasq.conf'))?.[1];
+      expect(settingOn(front, 'Hostname'), gateway.name).toBe(gateway.host.hostname);
+      expect(settingOn(front, 'LAN address'), gateway.name).toBe(
+        serves === undefined ? gateway.host.ip : `${serves}.1`,
+      );
+    }
+  });
+
+  it('lists each lease a router holds, until the moment its lease file says it runs out', () => {
+    for (const gateway of everyGateway().filter(({ host }) => host.kind === 'router')) {
+      const page = pagesOf(gateway).get('dhcp.html') ?? '';
+      const [active, reserved] = tablesIn(page);
+      expect(page, gateway.name).toMatch(/<h3>Active leases<\/h3>\n<table>[\s\S]*<h3>Static leases<\/h3>\n<table>/);
+      const leases = contentAt(gateway, '/var/lib/misc/dnsmasq.leases').split('\n').filter((row) => row !== '');
+      expect(active?.rows, gateway.name).toEqual(
+        leases.map((row) => {
+          const [expiry = '', mac = '', ip = '', hostname = ''] = row.split(' ');
+          return [hostname, ip, mac, printed(Number(expiry))];
+        }),
+      );
+      const reservations = [
+        ...contentAt(gateway, '/etc/dnsmasq.conf').matchAll(/^dhcp-host=([^,]+),([^,]+),(\S+)$/gm),
+      ].map(([, mac = '', ip = '', hostname = '']) => [hostname, ip, mac]);
+      expect(reserved?.rows, gateway.name).toEqual(reservations);
+    }
+  });
+
+  it("lists a switch's port as its MAC table does", () => {
+    for (const gateway of everyGateway().filter(({ host }) => host.kind === 'switch')) {
+      const [ports] = tablesIn(pagesOf(gateway).get('ports.html') ?? '');
+      const rows = contentAt(gateway, '/var/lib/switch/mac-table')
+        .split('\n')
+        .filter((row) => /^gi/.test(row))
+        .map((row) => {
+          const [port = '', mac = '', vlan = '', ...description] = row.split(/\s+/);
+          return [port, mac, vlan, description.join(' ')];
+        });
+      expect(ports?.rows, gateway.name).toEqual(rows);
+    }
+  });
+
+  it('says a router forwards nothing and a switch denies what its ACL does, where it shows its firewall', () => {
+    let shown = 0;
+    for (const gateway of everyGateway()) {
+      const page = pagesOf(gateway).get('firewall.html');
+      if (page === undefined) continue;
+      shown += 1;
+      if (gateway.host.kind === 'router') {
+        expect(headingOf(page), gateway.name).toBe('Port forwards');
+        expect(page, gateway.name).toContain('<p>No port forwards are configured.</p>');
+      } else {
+        expect(headingOf(page), gateway.name).toBe('Access control');
+        const denies = [...contentAt(gateway, '/etc/switch/acl.conf').matchAll(/^deny (\d+)$/gm)].map(
+          ([, port = '']) => ['deny', 'tcp', port],
+        );
+        expect(tablesIn(page)[0]?.rows, gateway.name).toEqual(denies);
+      }
+    }
+    expect(shown).toBeGreaterThan(0);
+  });
+
+  it('states on its system page what runs on the box, and where it is managed from', () => {
+    let shown = 0;
+    for (const gateway of everyGateway()) {
+      const page = pagesOf(gateway).get('system.html');
+      if (page === undefined) continue;
+      shown += 1;
+      const runsAgent = nodeAt(gateway, '/var/run/snmpd.pid') !== null;
+      expect(headingOf(page), gateway.name).toBe('System');
+      expect(settingOn(page, 'Hostname'), gateway.name).toBe(gateway.host.hostname);
+      expect(settingOn(page, 'SSH'), gateway.name).toBe('enabled');
+      expect(settingOn(page, 'SNMP agent'), gateway.name).toBe(runsAgent ? 'enabled' : 'disabled');
+      expect(settingOn(page, 'Managed from'), gateway.name).toBe(
+        gatewayAdminIp(gateway.essid, gateway.machineId),
+      );
+    }
+    expect(shown).toBeGreaterThan(0);
+  });
+
+  it('gives some gateways on the LAN and some below it three pages and some four', () => {
+    const counts = (keep: (gateway: Gateway) => boolean) =>
+      [...new Set(everyGateway().filter(keep).map((gateway) => pagesOf(gateway).size))].sort();
+    expect(counts((gateway) => gateway.onLan && !isAccessPoint(gateway))).toEqual([2, 3, 4]);
+    expect(counts((gateway) => !gateway.onLan)).toEqual([2, 3, 4]);
+  });
+});
+
 describe("a gateway's admin web server", () => {
   it('listens on the loopback alone, serving the web root the pages are in', () => {
     for (const gateway of everyGateway()) {
@@ -241,6 +427,10 @@ describe("a gateway's admin web server", () => {
       const addresses = config.match(IPV4) ?? [];
       expect(addresses.length, gateway.name).toBeGreaterThan(0);
       for (const address of addresses) expect(address, gateway.name).toBe(LOOPBACK);
+      expect(config, gateway.name).toMatch(/(:| = )80\b/);
+      // Each server's config in the shape that server reads.
+      expect(config, gateway.name).toMatch(SERVER_CONFIG_SHAPES[vendor] ?? LIGHTTPD_SHAPE);
+      expect(config, gateway.name).toContain('index.html');
     }
   });
 

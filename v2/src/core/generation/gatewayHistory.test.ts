@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { gatewayAdminIp } from './gatewayHistory';
+import { gatewayAdminIp, gatewayRootHistory } from './gatewayHistory';
+import { GATEWAY_ROOT_HISTORY } from './pools/rootContent';
 import { generateHomeLan, type LanHost } from './generateHomeLan';
 import { isDeskMachine } from './npcHome';
 import { roleOfHostname } from './pools/hostnames';
@@ -163,8 +164,56 @@ describe("root's shell history on a gateway", () => {
     for (const gateway of everyGateway()) {
       const history = historyOf(gateway);
       expect(history.endsWith('\n'), gateway.name).toBe(true);
-      expect(history.split('\n').slice(0, -1), gateway.name).not.toContain('');
+      for (const line of history.split('\n').slice(0, -1)) {
+        expect(line, `${gateway.name}: ${JSON.stringify(line)}`).toMatch(/^[a-z]/);
+        expect(line, gateway.name).not.toMatch(/undefined|NaN/);
+      }
     }
+  });
+
+  it('controls only the daemons that run on it, and somewhere in the world controls each', () => {
+    const controlled = new Set<string>();
+    for (const gateway of everyGateway()) {
+      for (const line of historyOf(gateway).split('\n').filter((row) => row.startsWith('systemctl'))) {
+        expect(line, gateway.name).toMatch(/^systemctl (status|restart) \S+$/);
+      }
+      for (const [, daemon = ''] of historyOf(gateway).matchAll(/^systemctl (?:status|restart) (\S+)$/gm)) {
+        controlled.add(daemon);
+        expect(nodeAt(gateway.tree, `/var/run/${daemon}.pid`), `${gateway.name} ${daemon}`).not.toBeNull();
+      }
+    }
+    expect([...controlled].sort()).toEqual(['snmpd', 'sshd']);
+  });
+
+  it('reads what the box keeps somewhere in the world: its network state, its agent and its logs', () => {
+    const histories = everyGateway().map(historyOf).join('\n');
+    for (const path of [
+      '/etc/dnsmasq.conf',
+      '/var/lib/misc/dnsmasq.leases',
+      '/var/lib/switch/mac-table',
+      '/etc/snmp/snmpd.conf',
+      '/var/lib/snmp/snmpd.conf',
+    ]) {
+      expect(histories, path).toMatch(new RegExp(`^(cat|less|nano) ${path}$`, 'm'));
+    }
+    for (const reader of ['tail', 'tail -f', 'less', 'grep -i error']) {
+      expect(histories, reader).toMatch(new RegExp(`^${reader} /var/log/\\S+$`, 'm'));
+    }
+  });
+
+  it('names no admin on a gateway the network does not generate', () => {
+    const history = gatewayRootHistory({
+      essid: ALL_ESSIDS[0] ?? '',
+      machineId: 'no-such-gateway',
+      deviceConfig: {},
+      otherConfig: {},
+      state: {},
+      logs: {},
+      daemons: [],
+      hosts: [],
+    });
+    // With nothing of its own to name, all it keeps is its admin's habits.
+    for (const line of history.trimEnd().split('\n')) expect(GATEWAY_ROOT_HISTORY).toContain(line);
   });
 });
 
@@ -193,6 +242,9 @@ describe('what a gateway remembers of its last day', () => {
       const closed = auth.filter((line) => line.includes('session closed for user root'));
       expect(opened.length, gateway.name).toBe(logins.length);
       expect(closed.length, gateway.name).toBe(logins.length);
+      for (const line of [...opened, ...closed]) {
+        expect(line, gateway.name).toMatch(/ sshd\[\d+\]: pam_unix\(sshd:session\)/);
+      }
     }
   });
 
@@ -218,7 +270,27 @@ describe('what a gateway remembers of its last day', () => {
           ),
           `${gateway.name} acknowledges ${ip}`,
         ).toBe(true);
+        const request = syslog.findIndex((line) => line.endsWith(`DHCPREQUEST(br-lan) ${ip} ${mac}`));
+        const ack = syslog.findIndex((line) => line.includes(`DHCPACK(br-lan) ${ip} `));
+        expect(request, `${gateway.name} asked for ${ip}`).toBeGreaterThanOrEqual(0);
+        expect(request, `${gateway.name} asked for ${ip} first`).toBeLessThan(ack);
+        expect(syslog[request], gateway.name).toContain(`${syslogStamp(granted)} `);
+        expect(syslog[request], gateway.name).toMatch(/ dnsmasq-dhcp\[\d+\]: /);
+        expect(syslog[ack], gateway.name).toMatch(/ dnsmasq-dhcp\[\d+\]: /);
       }
+    }
+  });
+
+  it("opens syslog.1 with the morning's log rotation, which is what emptied the live logs", () => {
+    for (const gateway of everyGateway()) {
+      const syslog = linesOf(rotatedLog(gateway, 'syslog.1'));
+      expect(syslog[0], gateway.name).toMatch(/^Jul 11 00:00:0\d \S+ systemd\[1\]: Starting Rotate log files\.\.\.$/);
+      expect(syslog, gateway.name).toContainEqual(
+        expect.stringMatching(/ systemd\[1\]: logrotate\.service: Deactivated successfully\.$/),
+      );
+      expect(syslog, gateway.name).toContainEqual(
+        expect.stringMatching(/ systemd\[1\]: Finished Rotate log files\.$/),
+      );
     }
   });
 

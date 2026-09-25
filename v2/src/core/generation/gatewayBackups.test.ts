@@ -126,6 +126,7 @@ const captured = (pattern: RegExp, text: string): string => {
 const all = (pattern: RegExp, text: string): readonly string[] =>
   [...text.matchAll(pattern)].map((match) => match[1] ?? '');
 
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 /** A dotted `aabb.ccdd.eeff` hardware address in the colon form every other table uses. */
@@ -140,7 +141,14 @@ const READERS: Readonly<Record<FirmwareVendor, (text: string) => Reading>> = {
       .slice(1)
       .map((block) => block.split('\n!')[0] ?? '');
     const lan = pools.find((block) => /^ network /m.test(block));
-    const changed = /^! Last configuration change at [\d:]+ UTC \w+ (\w+) (\d+) (\d{4})$/m.exec(text);
+    const changed = /^! Last configuration change at [\d:]+ UTC (\w+) (\w+) (\d+) (\d{4})$/m.exec(text);
+    if (changed === null) throw new Error(`no change stamp in:\n${text}`);
+    const [, weekday = '', month = '', date = '', year = ''] = changed;
+    const takenOn = `${year}-${String(MONTHS.indexOf(month) + 1).padStart(2, '0')}-${date.padStart(2, '0')}`;
+    // The weekday IOS prints is the one that date fell on.
+    if (WEEKDAYS[new Date(`${takenOn}T00:00:00Z`).getUTCDay()] !== weekday) {
+      throw new Error(`${weekday} is not the weekday of ${takenOn}`);
+    }
     return {
       hostname: captured(/^hostname (\S+)$/m, text),
       address: captured(/^ ip address (\S+) 255\.255\.255\.0$/m, text),
@@ -161,10 +169,7 @@ const READERS: Readonly<Record<FirmwareVendor, (text: string) => Reading>> = {
       denies: all(/^ deny tcp any any eq (\d+)$/gm, text).map(Number),
       snmp: /^snmp-server community /m.test(text),
       secrets: all(/(?:secret 5|community) (\S+)/g, text),
-      takenOn:
-        changed === null
-          ? null
-          : `${changed[3]}-${String(MONTHS.indexOf(changed[1] ?? '') + 1).padStart(2, '0')}-${(changed[2] ?? '').padStart(2, '0')}`,
+      takenOn,
     };
   },
   mikrotik: (text) => {
@@ -187,7 +192,7 @@ const READERS: Readonly<Record<FirmwareVendor, (text: string) => Reading>> = {
       denies: all(/^add action=drop chain=forward dst-port=(\d+) protocol=tcp$/gm, text).map(Number),
       snmp: captured(/^\/snmp\nset enabled=(\w+)$/m, text) === 'yes',
       secrets: [],
-      takenOn: /^# (\d{4}-\d\d-\d\d) [\d:]+ by RouterOS$/m.exec(text)?.[1] ?? null,
+      takenOn: captured(/^# (\d{4}-\d\d-\d\d) [\d:]+ by RouterOS$/m, text),
     };
   },
   openwrt: (text) => {
@@ -309,6 +314,88 @@ const MASKS: Readonly<Record<FirmwareVendor, string | null>> = {
 };
 
 /** Where every vendor's export starts, so a player knows the format at a glance. */
+/** Why a backup is not a file its vendor's own tools would load, or null when it is. */
+const MALFORMATIONS: Readonly<Record<FirmwareVendor, (text: string) => string | null>> = {
+  // Top-level commands, each block's lines indented one space under a header, `!`
+  // between blocks, and `end` last.
+  cisco: (text) => {
+    const rows = text.trimEnd().split('\n');
+    if (rows.at(-1) !== 'end') return 'does not end with end';
+    for (const [index, row] of rows.entries()) {
+      if (!/^(!|! \S.*|\S.*| \S.*)$/.test(row)) return `line ${index + 1} is ${JSON.stringify(row)}`;
+      if (row.startsWith(' ') && (rows[index - 1] ?? '!').startsWith('!')) {
+        return `line ${index + 1} is indented under no command`;
+      }
+    }
+    return null;
+  },
+  // A comment, then `/section` headers, each followed by the `add` and `set` lines it
+  // takes.
+  mikrotik: (text) => {
+    const rows = text.trimEnd().split('\n').slice(1);
+    for (const [index, row] of rows.entries()) {
+      const header = /^\/[a-z]+( [a-z-]+)*$/.test(row);
+      if (!header && !/^(add|set) [a-z-]+=\S+( [a-z-]+=\S+)*$/.test(row)) {
+        return `line ${index + 2} is ${JSON.stringify(row)}`;
+      }
+      if (header && !/^(add|set) /.test(rows[index + 1] ?? '')) return `${row} takes nothing`;
+    }
+    return rows[0]?.startsWith('/') === true ? null : 'opens with no section';
+  },
+  // `package`, a blank line, then `config` sections of tab-indented options.
+  openwrt: (text) => {
+    const rows = text.trimEnd().split('\n');
+    for (const [index, row] of rows.entries()) {
+      const previous = rows[index - 1] ?? '';
+      if (/^package \w+$/.test(row)) {
+        if (rows[index + 1] !== '' || !/^config /.test(rows[index + 2] ?? '')) {
+          return `${row} opens no section`;
+        }
+      } else if (/^config \w+( '[\w-]+')?$/.test(row)) {
+        if (previous !== '') return `${row} follows ${JSON.stringify(previous)}`;
+      } else if (/^\t(option|list) \w+ '[^']*'$/.test(row)) {
+        if (!/^(config |\t)/.test(previous)) return `${row.trim()} sits in no section`;
+      } else if (row !== '') {
+        return `line ${index + 1} is ${JSON.stringify(row)}`;
+      }
+    }
+    return null;
+  },
+  // One `key=value` to a line, each key once, in the order `sort` leaves them.
+  ddwrt: (text) => {
+    const keys = text.trimEnd().split('\n').map((row) => /^([a-z_\d]+)=/.exec(row)?.[1]);
+    if (keys.includes(undefined)) return 'holds a line that is not key=value';
+    if (new Set(keys).size !== keys.length) return 'repeats a key';
+    return JSON.stringify(keys) === JSON.stringify([...keys].sort()) ? null : 'is not sorted';
+  },
+  // Every tag closed in the order it opened, inside one `<pfsense>`.
+  pfsense: (text) => {
+    const open: string[] = [];
+    for (const [, closing, name = '', rest] of text.matchAll(/<(\/?)([a-z-]+)>([^<]*)/g)) {
+      if (closing === '/') {
+        if (open.pop() !== name) return `</${name}> closes nothing open`;
+      } else {
+        open.push(name);
+      }
+      if (rest !== undefined && rest.trim() !== '' && closing === '/') return `text after </${name}>`;
+    }
+    const body = text.replace(/^<\?xml version="1\.0"\?>\n/, '');
+    if (!/^<pfsense>\n[\s\S]*<\/pfsense>\n$/.test(body)) return 'is not one <pfsense> document';
+    return open.length === 0 ? null : `leaves <${open.join('>, <')}> open`;
+  },
+  // Blocks in braces, four spaces deeper at each level, every brace closed.
+  ubiquiti: (text) => {
+    let depth = 0;
+    for (const [index, row] of text.trimEnd().split('\n').entries()) {
+      if (row === '}' || row.endsWith(' }')) depth -= 1;
+      const indent = row.length - row.trimStart().length;
+      if (indent !== depth * 4 || row.trim() === '') return `line ${index + 1} is ${JSON.stringify(row)}`;
+      if (row.endsWith(' {')) depth += 1;
+    }
+    return depth === 0 ? null : 'leaves a brace open';
+  },
+};
+
 const OPENINGS: Readonly<Record<FirmwareVendor, RegExp>> = {
   cisco: /^!\n! Last configuration change at /,
   mikrotik: /^# \d{4}-\d\d-\d\d [\d:]+ by RouterOS\n/,
@@ -381,6 +468,7 @@ describe("a gateway's configuration backups", () => {
       for (const [name, content] of backupsOf(gateway)) {
         expect(name, `${gateway.name} (${vendor})`).toMatch(EXTENSIONS[vendor]);
         expect(content, `${gateway.name} ${name}`).toMatch(OPENINGS[vendor]);
+        expect(MALFORMATIONS[vendor](content), `${gateway.name} ${name}`).toBeNull();
       }
     }
   });
