@@ -16,12 +16,22 @@ import { hostMachineId } from './remoteHostId';
 import { computeDeepGatewayId } from '../identity/router';
 import { WORLD_EPOCH } from '../cve/worldClock';
 
-/** The files a gateway's network knowledge adds, grouped by the directory they join,
- *  and the addresses of the hosts those files name. */
+/** One lease as dnsmasq granted it: the second of the epoch it was granted at, and the
+ *  card and address it went to. */
+export type DhcpGrant = {
+  readonly at: number;
+  readonly mac: string;
+  readonly ip: string;
+  readonly hostname: string;
+};
+
+/** The files a gateway's network knowledge adds, grouped by the directory they join; the
+ *  addresses of the hosts those files name; and every lease it granted. */
 export type GatewayNetworkEntries = {
   readonly etc: Record<string, FileNode>;
   readonly varLib: Record<string, FileNode>;
   readonly hosts: readonly string[];
+  readonly grants: readonly DhcpGrant[];
 };
 
 /** A host on the segment, with the machine id that fixes its MAC. */
@@ -47,12 +57,14 @@ const dhcpServer = (options: {
   const prng = createPrng(`gw-net-${seed}`);
   const leaseHours = prng.pick(LEASE_HOURS);
 
-  const leases = machines
-    .map(({ host, machineId }) => {
-      const granted = EPOCH_SECONDS - DAY_SECONDS + prng.nextInt(0, DAY_SECONDS - 1);
-      const expiry = granted + leaseHours * 60 * 60;
-      return `${expiry} ${hostMac(machineId)} ${host.ip} ${host.hostname} *\n`;
-    })
+  const grants: readonly DhcpGrant[] = machines.map(({ host, machineId }) => ({
+    at: EPOCH_SECONDS - DAY_SECONDS + prng.nextInt(0, DAY_SECONDS - 1),
+    mac: hostMac(machineId),
+    ip: host.ip,
+    hostname: host.hostname,
+  }));
+  const leases = grants
+    .map(({ at, mac, ip, hostname }) => `${at + leaseHours * 60 * 60} ${mac} ${ip} ${hostname} *\n`)
     .join('');
 
   const reservations = gateways
@@ -75,6 +87,7 @@ const dhcpServer = (options: {
     etc: { 'dnsmasq.conf': file(`${config}\n${reservations}`, SERVICE_CONFIG_FILE) },
     varLib: { misc: dir({ 'dnsmasq.leases': file(leases, SERVICE_CONFIG_FILE) }, TRAVERSABLE_DIR) },
     hosts: [...machines, ...gateways].map(({ host }) => host.ip),
+    grants,
   };
 };
 
@@ -146,5 +159,6 @@ export const chainSwitchNetwork = (options: {
     etc: {},
     varLib: { switch: dir({ 'mac-table': file(table, SERVICE_CONFIG_FILE) }, TRAVERSABLE_DIR) },
     hosts: [host.ip],
+    grants: [],
   };
 };

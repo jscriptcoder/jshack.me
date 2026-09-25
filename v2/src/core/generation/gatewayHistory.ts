@@ -1,5 +1,6 @@
 /**
- * Who ran a gateway, and root's shell history on it.
+ * Who ran a gateway, root's shell history on it, and what its logs remember of the day
+ * before the world began.
  *
  * A gateway's admin is somebody real. On the home LAN they are one of the network's
  * inhabitants, at their own machine: a desk machine where the LAN has one, else a phone
@@ -8,11 +9,29 @@
  * layer it fronts. Root's history on the gateway is theirs: the box's own configs and
  * logs, the hosts its network files list, and their own machine.
  *
- * Root-only, like any root's history. Everything draws from the gateway's own
- * `gw-history-` stream, keyed by its machine id, so no other concern's draws move.
+ * The history is root-only, like any root's history; the logs are as readable as the live
+ * logs beside them. Both draw from streams of the gateway's own, keyed by its machine id
+ * (`gw-history-`, and `gw-history-logs-` for the logs), so no other concern's draws move.
  */
 
-import type { FileNode } from '../filesystem/types';
+import type { FileEntry, FileNode } from '../filesystem/types';
+import { asGameTime, type GameTime } from '../types';
+import { WORLD_EPOCH } from '../cve/worldClock';
+import { file } from './baseFs';
+import type { DhcpGrant } from './gatewayNetwork';
+import { formatSyslogLine, SYSLOG_PERMISSIONS } from '../logging/syslog';
+import {
+  AUTH_LOG_PERMISSIONS,
+  formatRootSessionLine,
+  formatSshdAuthLine,
+} from '../logging/authLog';
+import { formatKernelLine, KERN_LOG_PERMISSIONS } from '../logging/kernLog';
+import {
+  formatSnmpdArrivalLine,
+  formatSnmpdAttemptLine,
+  SNMPD_LOG_PERMISSIONS,
+} from '../logging/snmpdLog';
+import { LOGROTATE_TIMER } from './pools/logLines';
 import { createPrng, type Prng } from './prng';
 import { generateHomeLan, type LanHost } from './generateHomeLan';
 import { chainLinks, lanHostOctet, machineIdForLanHost } from './lanTopology';
@@ -120,4 +139,142 @@ export const gatewayRootHistory = (options: {
     ...adminLines,
   ]);
   return `${history.join('\n')}\n`;
+};
+
+const DAY_SECONDS = 86_400;
+const LAST_SECOND = DAY_SECONDS - 1;
+/** 2026-07-11 00:00:00, in seconds of the epoch. */
+const DAY_START = WORLD_EPOCH / 1000 - DAY_SECONDS;
+const LINK_SPEEDS = ['100Mbps', '1000Mbps'] as const;
+
+/** One line and the second of 2026-07-11 it was written at. */
+type Entry = { readonly second: number; readonly line: string };
+
+const timeAt = (second: number): GameTime => asGameTime((DAY_START + second) * 1000);
+
+const laterBy = (second: number, seconds: number): number => Math.min(second + seconds, LAST_SECOND);
+
+const pidFrom = (prng: Prng): number => prng.nextInt(1000, 99999);
+
+/** A file's lines in the order they happened; the sort is stable, so lines written in the
+ *  same second keep the order they were written in. */
+const inOrder = (entries: readonly Entry[]): string =>
+  [...entries]
+    .sort((left, right) => left.second - right.second)
+    .map(({ line }) => `${line}\n`)
+    .join('');
+
+/**
+ * The `.1` rotations of a gateway's logs: what it remembers of 2026-07-11, the day before
+ * logrotate ran at the epoch. The morning's rotation and every lease the router granted
+ * that day (`syslog.1`), its admin logging in from their own machine (`auth.log.1`), a
+ * link or two dropping and coming back (`kern.log.1`), and, where the agent runs, the
+ * admin's machine polling it (`snmpd.log.1`). Nothing served the web, so no `access.log`
+ * rotated. World-readable, like the live logs they rotated out of, so no line names an
+ * account but root. A gateway the network does not generate remembers nothing.
+ */
+export const gatewayLogRotations = (options: {
+  readonly essid: string;
+  readonly machineId: string;
+  /** Every lease the gateway granted, none on a switch. */
+  readonly grants: readonly DhcpGrant[];
+  readonly hasSnmp: boolean;
+}): Readonly<Record<string, FileNode>> => {
+  const { essid, machineId, grants, hasSnmp } = options;
+  const place = placeOf(essid, machineId);
+  if (place === undefined) return {};
+  const adminIp = drawAdminIp({ prng: historyStream(machineId), essid, ...place });
+  const { hostname } = place.host;
+  const prng = createPrng(`gw-history-logs-${machineId}`);
+  const syslog = (second: number, service: string, pid: number, message: string): Entry => ({
+    second,
+    line: formatSyslogLine({ time: timeAt(second), hostname, service, pid, message }),
+  });
+
+  const rotated = prng.nextInt(0, 5);
+  const rotationDone = laterBy(rotated, prng.nextInt(1, 40));
+  const rotation = [
+    syslog(rotated, 'systemd', 1, `Starting ${LOGROTATE_TIMER.description}...`),
+    syslog(rotationDone, 'systemd', 1, `${LOGROTATE_TIMER.unit}: Deactivated successfully.`),
+    syslog(rotationDone, 'systemd', 1, `Finished ${LOGROTATE_TIMER.description}.`),
+  ];
+  const dnsmasq = pidFrom(prng);
+  const leases = grants.flatMap(({ at, mac, ip, hostname: client }) => [
+    syslog(at - DAY_START, 'dnsmasq-dhcp', dnsmasq, `DHCPREQUEST(br-lan) ${ip} ${mac}`),
+    syslog(at - DAY_START, 'dnsmasq-dhcp', dnsmasq, `DHCPACK(br-lan) ${ip} ${mac} ${client}`),
+  ]);
+
+  const visits = Array.from({ length: prng.nextInt(1, 3) }, () => {
+    const second = prng.nextInt(0, LAST_SECOND - 60);
+    const pid = pidFrom(prng);
+    const session = (at: number, phase: 'opened' | 'closed'): Entry => ({
+      second: at,
+      line: formatRootSessionLine({ time: timeAt(at), hostname, service: 'sshd', pid, phase }),
+    });
+    return [
+      {
+        second,
+        line: formatSshdAuthLine({
+          outcome: 'success',
+          user: 'root',
+          fromIp: adminIp,
+          hostname,
+          time: timeAt(second),
+          pid,
+        }),
+      },
+      session(second, 'opened'),
+      session(laterBy(second, prng.nextInt(60, 3600)), 'closed'),
+    ];
+  }).flat();
+
+  // Each drop falls in an hour of its own and lasts under two minutes, so one link is
+  // back before the next goes down.
+  const kernel = (second: number, message: string): Entry => ({
+    second,
+    line: formatKernelLine({ time: timeAt(second), hostname, message }),
+  });
+  const drops = prng
+    .pickN(
+      Array.from({ length: 24 }, (_, hour) => hour),
+      prng.nextInt(1, 2),
+    )
+    .flatMap((hour) => {
+      const link = prng.pick(['eth0', 'eth1']);
+      const down = hour * 3600 + prng.nextInt(0, 3000);
+      return [
+        kernel(down, `${link}: link down`),
+        kernel(
+          laterBy(down, prng.nextInt(2, 90)),
+          `${link}: link up, ${prng.pick(LINK_SPEEDS)}, full-duplex`,
+        ),
+      ];
+    });
+
+  const agent = pidFrom(prng);
+  const polls = hasSnmp
+    ? Array.from({ length: prng.nextInt(1, 4) }, () => {
+        const second = prng.nextInt(0, LAST_SECOND);
+        const attempt = { fromIp: adminIp, hostname, time: timeAt(second), pid: agent };
+        return [
+          { second, line: formatSnmpdArrivalLine(attempt) },
+          {
+            second,
+            line: formatSnmpdAttemptLine({ ...attempt, outcome: 'success', user: 'root' }),
+          },
+        ];
+      }).flat()
+    : [];
+
+  const rotations: readonly (readonly [string, readonly Entry[], FileEntry['perms']])[] = [
+    ['syslog.1', [...rotation, ...leases], SYSLOG_PERMISSIONS],
+    ['auth.log.1', visits, AUTH_LOG_PERMISSIONS],
+    ['kern.log.1', drops, KERN_LOG_PERMISSIONS],
+    ['snmpd.log.1', polls, SNMPD_LOG_PERMISSIONS],
+  ];
+  return Object.fromEntries(
+    rotations
+      .filter(([, entries]) => entries.length > 0)
+      .map(([name, entries, perms]) => [name, file(inOrder(entries), perms)]),
+  );
 };

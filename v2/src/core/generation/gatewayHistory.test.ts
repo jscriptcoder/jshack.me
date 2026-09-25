@@ -1,61 +1,22 @@
 import { describe, expect, it } from 'vitest';
 import { gatewayAdminIp } from './gatewayHistory';
-import { buildApGatewayBaseFs } from './routerFs';
 import { generateHomeLan, type LanHost } from './generateHomeLan';
-import { chainLinks, machineIdForLanHost } from './lanTopology';
-import { chainGatewayBaseFsForMachineId } from './lanHostIdentity';
 import { isDeskMachine } from './npcHome';
 import { roleOfHostname } from './pools/hostnames';
 import { createFsView } from '../filesystem/fsView';
 import { asAbsPath } from '../types';
 import type { Directory, FileNode } from '../filesystem/types';
-import { ALL_ESSIDS, softwareVersionsIn } from '../../test/worldContent';
+import {
+  ALL_ESSIDS,
+  gatewaysOn,
+  softwareVersionsIn,
+  type Gateway,
+} from '../../test/worldContent';
 
 const HISTORY_PATH = '/root/.bash_history';
 const IPV4 = /\b\d{1,3}(?:\.\d{1,3}){3}\b/g;
 
-/** A gateway as the world places it: where it stands, and the tree it is built with. */
-type Gateway = {
-  readonly name: string;
-  readonly essid: string;
-  readonly machineId: string;
-  readonly host: LanHost;
-  /** Whether it stands on the home LAN (the access point and the Layer-1 gateways)
-   *  rather than on a layer below it. */
-  readonly onLan: boolean;
-  readonly tree: Directory;
-};
-
-/** Every gateway on every network: the access point and each gateway down its chain,
- *  built inside each test that asks for them. */
-const everyGateway = (): readonly Gateway[] =>
-  ALL_ESSIDS.flatMap((essid) => {
-    const accessPoint = generateHomeLan(essid).hosts.find((host) => host.ip.endsWith('.1'));
-    if (accessPoint === undefined) throw new Error(`${essid} has no access point`);
-    const chain = chainLinks(essid).map((link): Gateway => {
-      const tree = chainGatewayBaseFsForMachineId(essid, link.machineId);
-      if (tree === null) throw new Error(`no tree for ${link.machineId}`);
-      return {
-        name: `${essid} ${link.host.ip}`,
-        essid,
-        machineId: link.machineId,
-        host: link.host,
-        onLan: link.parentMachineId === null,
-        tree,
-      };
-    });
-    return [
-      {
-        name: `${essid} ${accessPoint.ip}`,
-        essid,
-        machineId: machineIdForLanHost(accessPoint, essid),
-        host: accessPoint,
-        onLan: true,
-        tree: buildApGatewayBaseFs(essid),
-      },
-      ...chain,
-    ];
-  });
+const everyGateway = (): readonly Gateway[] => gatewaysOn(ALL_ESSIDS);
 
 const nodeAt = (tree: Directory, path: string): FileNode | null =>
   createFsView(tree, { userType: 'root' }).stat(asAbsPath(path));
@@ -203,6 +164,100 @@ describe("root's shell history on a gateway", () => {
       const history = historyOf(gateway);
       expect(history.endsWith('\n'), gateway.name).toBe(true);
       expect(history.split('\n').slice(0, -1), gateway.name).not.toContain('');
+    }
+  });
+});
+
+const rotatedLog = (gateway: Gateway, name: string): string | null => {
+  const node = nodeAt(gateway.tree, `/var/log/${name}`);
+  return node?.kind === 'file' ? node.content : null;
+};
+
+const linesOf = (content: string | null): readonly string[] =>
+  (content ?? '').split('\n').filter((line) => line !== '');
+
+/** A second of the epoch as the syslog stamp it is logged under. */
+const syslogStamp = (epochSeconds: number): string => {
+  const time = new Date(epochSeconds * 1000).toISOString();
+  return `Jul ${time.slice(8, 10)} ${time.slice(11, 19)}`;
+};
+
+describe('what a gateway remembers of its last day', () => {
+  it('logs its admin in over ssh that day, from their own machine and nowhere else', () => {
+    for (const gateway of everyGateway()) {
+      const auth = linesOf(rotatedLog(gateway, 'auth.log.1'));
+      const logins = auth.flatMap((line) => /Accepted password for root from (\S+)/.exec(line)?.[1] ?? []);
+      expect(logins.length, gateway.name).toBeGreaterThan(0);
+      expect(new Set(logins), gateway.name).toEqual(new Set([adminOf(gateway)]));
+      const opened = auth.filter((line) => line.includes('session opened for user root'));
+      const closed = auth.filter((line) => line.includes('session closed for user root'));
+      expect(opened.length, gateway.name).toBe(logins.length);
+      expect(closed.length, gateway.name).toBe(logins.length);
+    }
+  });
+
+  it('acknowledges every lease a router holds, at the second it was granted', () => {
+    const routers = everyGateway().filter(({ host }) => host.kind === 'router');
+    for (const gateway of routers) {
+      const config = nodeAt(gateway.tree, '/etc/dnsmasq.conf');
+      const leases = nodeAt(gateway.tree, '/var/lib/misc/dnsmasq.leases');
+      if (config?.kind !== 'file' || leases?.kind !== 'file') throw new Error(gateway.name);
+      const leaseHours = Number(/^dhcp-range=.*,(\d+)h$/m.exec(config.content)?.[1]);
+      const syslog = linesOf(rotatedLog(gateway, 'syslog.1'));
+      const acks = syslog.filter((line) => line.includes('DHCPACK('));
+      const rows = linesOf(leases.content);
+      expect(acks.length, gateway.name).toBe(rows.length);
+      for (const row of rows) {
+        const [expiry = '', mac = '', ip = '', hostname = ''] = row.split(' ');
+        const granted = Number(expiry) - leaseHours * 3600;
+        expect(
+          syslog.some(
+            (line) =>
+              line.startsWith(`${syslogStamp(granted)} `) &&
+              line.endsWith(`DHCPACK(br-lan) ${ip} ${mac} ${hostname}`),
+          ),
+          `${gateway.name} acknowledges ${ip}`,
+        ).toBe(true);
+      }
+    }
+  });
+
+  it('hands out no address from a switch', () => {
+    for (const gateway of everyGateway().filter(({ host }) => host.kind === 'switch')) {
+      expect(rotatedLog(gateway, 'syslog.1') ?? '', gateway.name).not.toContain('dnsmasq');
+    }
+  });
+
+  it("keeps an snmpd.log.1 exactly where the agent runs, polled from the admin's machine", () => {
+    let polled = 0;
+    for (const gateway of everyGateway()) {
+      const runsAgent = nodeAt(gateway.tree, '/var/run/snmpd.pid') !== null;
+      const log = rotatedLog(gateway, 'snmpd.log.1');
+      expect(log !== null, gateway.name).toBe(runsAgent);
+      if (log === null) continue;
+      polled += 1;
+      const clients = [...log.matchAll(/UDP: \[([\d.]+)\]/g)].map(([, client]) => client);
+      expect(clients.length, gateway.name).toBeGreaterThan(0);
+      expect(new Set(clients), gateway.name).toEqual(new Set([adminOf(gateway)]));
+      expect(log, gateway.name).not.toContain('failure');
+    }
+    expect(polled).toBeGreaterThan(0);
+  });
+
+  it('keeps a kern.log.1 of links that went down that day, each coming back up', () => {
+    for (const gateway of everyGateway()) {
+      const kernel = linesOf(rotatedLog(gateway, 'kern.log.1'));
+      expect(kernel.length, gateway.name).toBeGreaterThan(0);
+      const down = kernel.flatMap((line) => /kernel: (\w+): link down$/.exec(line)?.[1] ?? []);
+      const up = kernel.flatMap((line) => /kernel: (\w+): link up\b/.exec(line)?.[1] ?? []);
+      expect(down.length, gateway.name).toBeGreaterThan(0);
+      expect(up, gateway.name).toEqual(down);
+    }
+  });
+
+  it('keeps no rotated access log, since nothing on a gateway served the web', () => {
+    for (const gateway of everyGateway()) {
+      expect(rotatedLog(gateway, 'access.log.1'), gateway.name).toBeNull();
     }
   });
 });

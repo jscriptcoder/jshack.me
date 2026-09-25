@@ -14,6 +14,7 @@ import {
   ALL_ESSIDS,
   deepBoxes,
   filesUnder,
+  gatewaysOn,
   lanBoxes,
   softwareVersionsIn,
   type Box,
@@ -44,6 +45,13 @@ const everyBox = (): readonly Built[] => [
     tree: buildDeepHostFs(essid, host),
     onLan: false,
   })),
+];
+
+/** Every tree whose logs these rules hold: each NPC box above, and each gateway on the
+ *  same networks, whose rotations follow the same rules as any box's. */
+const everyLoggingTree = (): readonly Directory[] => [
+  ...everyBox().map(({ tree }) => tree),
+  ...gatewaysOn(ALL_ESSIDS).map(({ tree }) => tree),
 ];
 
 const varLogOf = (tree: Directory): Directory => {
@@ -88,6 +96,8 @@ const STAMPS: Readonly<Record<string, RegExp>> = {
   'cups/page_log': /\[\d\d\/\w{3}\/\d{4}:(\d\d):(\d\d):(\d\d) \+0000\]/,
   // A lock daemon's, a plain date and time, and no fixed day for the same reason.
   'lockd/access.log': /^\d{4}-\d\d-\d\d (\d\d):(\d\d):(\d\d) /,
+  // A gateway's agent, which logs in syslog's shape to a file of its own.
+  'snmpd.log': /^Jul 11 (\d\d):(\d\d):(\d\d) /,
 };
 
 /** The rotations that are not a day's worth, so the day rule below does not reach them.
@@ -182,7 +192,7 @@ const IPV4 = /\b\d{1,3}(?:\.\d{1,3}){3}\b/g;
 
 describe('what a box remembers of its last day', () => {
   it('keeps an empty live syslog beside a syslog.1 that holds the day', () => {
-    everyBox().forEach(({ tree }) => {
+    everyLoggingTree().forEach((tree) => {
       const logs = logsOf(tree);
       expect(logs.get('syslog')).toBe('');
       expect(linesOf(logs.get('syslog.1') ?? '').length).toBeGreaterThan(0);
@@ -197,7 +207,7 @@ describe('what a box remembers of its last day', () => {
   });
 
   it('rotates a log only beside the live log it came from', () => {
-    everyBox().forEach(({ tree }) => {
+    everyLoggingTree().forEach((tree) => {
       const logs = logsOf(tree);
       [...rotatedOf(tree).keys()].forEach((rotated) => {
         expect(logs.get(rotated.slice(0, -'.1'.length))).toBe('');
@@ -206,7 +216,7 @@ describe('what a box remembers of its last day', () => {
   });
 
   it('never keeps an empty rotation, and ends every line it keeps', () => {
-    everyBox().forEach(({ tree }) => {
+    everyLoggingTree().forEach((tree) => {
       rotatedOf(tree).forEach((content) => {
         expect(content).not.toBe('');
         expect(content.endsWith('\n')).toBe(true);
@@ -215,7 +225,7 @@ describe('what a box remembers of its last day', () => {
   });
 
   it('keeps every live log empty, for players to fill', () => {
-    everyBox().forEach(({ tree }) => {
+    everyLoggingTree().forEach((tree) => {
       [...logsOf(tree)]
         .filter(([name]) => !name.endsWith('.1'))
         .forEach(([, content]) => expect(content).toBe(''));
@@ -224,7 +234,7 @@ describe('what a box remembers of its last day', () => {
 
   it('dates every line to the last day before the world began, in the order it happened', () => {
     expect(new Date(LAST_DAY_START).toISOString()).toBe('2026-07-11T00:00:00.000Z');
-    everyBox().forEach(({ tree }) => {
+    everyLoggingTree().forEach((tree) => {
       rotatedOf(tree).forEach((content, name) => {
         if (SPANS_MORE_THAN_A_DAY.includes(name)) return;
         const seconds = linesOf(content).map((line) => secondOfDay(name, line));
@@ -236,7 +246,7 @@ describe('what a box remembers of its last day', () => {
   });
 
   it('gives each rotation its live log’s permissions and owner, and syslog the same tier', () => {
-    everyBox().forEach(({ tree }) => {
+    everyLoggingTree().forEach((tree) => {
       const directory = varLogOf(tree);
       // A name may reach into a directory of its own, as a printer's `cups/page_log.1` does.
       const entry = (name: string): FileEntry => {
@@ -587,11 +597,20 @@ describe('what a box’s logs never say', () => {
         });
       });
     });
+    // A gateway has no account but root to name, so every account its logs put in
+    // those places must be root.
+    gatewaysOn(ALL_ESSIDS).forEach(({ tree }) => {
+      rotatedOf(tree).forEach((content) => {
+        accountPositions.forEach((position) => {
+          [...content.matchAll(position)].forEach(([, account]) => accounts.add(account ?? ''));
+        });
+      });
+    });
     expect([...accounts]).toEqual(['root']);
   });
 
   it('leaves no blank where a value should be', () => {
-    everyBox().forEach(({ tree }) => {
+    everyLoggingTree().forEach((tree) => {
       rotatedOf(tree).forEach((content) => {
         expect(content).not.toMatch(/undefined|NaN|\{\w+\}/);
       });
@@ -599,7 +618,7 @@ describe('what a box’s logs never say', () => {
   });
 
   it('carries no software version', () => {
-    everyBox().forEach(({ tree }) => {
+    everyLoggingTree().forEach((tree) => {
       rotatedOf(tree).forEach((content, name) => {
         linesOf(content).forEach((line) => {
           expect(softwareVersionsIn(withoutStamp(name, line))).toEqual([]);

@@ -58,7 +58,8 @@ import {
   computeDeepGatewayId,
   computeInnerGatewayId,
 } from '../identity/router';
-import { gatewayRootHistory } from './gatewayHistory';
+import { gatewayLogRotations, gatewayRootHistory } from './gatewayHistory';
+import { SYSLOG_PERMISSIONS } from '../logging/syslog';
 
 /** The AP gateway's root account plaintext password, seeded from the ESSID alone
  *  (the `ap-gw-admin-` namespace) so every occupant of the access point faces the
@@ -176,7 +177,7 @@ const buildGatewayBaseFs = (
   configEntries: Record<string, FileNode>,
   /** Which gateway this is, so it can know who ran it. */
   site: { readonly essid: string; readonly machineId: string },
-  network: GatewayNetworkEntries = { etc: {}, varLib: {}, hosts: [] },
+  network: GatewayNetworkEntries = { etc: {}, varLib: {}, hosts: [], grants: [] },
 ): Directory => {
   const passwd = generatePasswd([
     {
@@ -238,8 +239,14 @@ const buildGatewayBaseFs = (
     'access.log': file('', ACCESS_LOG_PERMISSIONS),
     'auth.log': file('', AUTH_LOG_PERMISSIONS),
     'kern.log': file('', KERN_LOG_PERMISSIONS),
+    syslog: file('', SYSLOG_PERMISSIONS),
     ...snmpLogEntries,
   };
+  const rotations = gatewayLogRotations({
+    ...site,
+    grants: network.grants,
+    hasSnmp: identity.hasSnmp,
+  });
   const history = gatewayRootHistory({
     ...site,
     deviceConfig: configEntries,
@@ -278,7 +285,7 @@ const buildGatewayBaseFs = (
       ),
       var: dir(
         {
-          log: dir(logEntries, TRAVERSABLE_DIR),
+          log: dir({ ...logEntries, ...rotations }, TRAVERSABLE_DIR),
           ...(Object.keys(varLibEntries).length === 0
             ? {}
             : { lib: dir(varLibEntries, TRAVERSABLE_DIR) }),
