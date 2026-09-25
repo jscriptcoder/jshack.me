@@ -8,7 +8,9 @@ import { hostServices, npcUsername } from '../core/generation/remoteHostFs';
 import { crackableEssidPool } from '../core/generation/generateWifi';
 import { generateHomeLan, type LanHost } from '../core/generation/generateHomeLan';
 import { generateDeepLayer } from '../core/generation/generateDeepLayer';
-import { chainLinks } from '../core/generation/lanTopology';
+import { chainLinks, machineIdForLanHost } from '../core/generation/lanTopology';
+import { buildApGatewayBaseFs } from '../core/generation/routerFs';
+import { chainGatewayBaseFsForMachineId } from '../core/generation/lanHostIdentity';
 import { createFsView } from '../core/filesystem/fsView';
 import { resolveLanName } from '../core/network/resolveName';
 import { asAbsPath } from '../core/types';
@@ -41,6 +43,49 @@ export const deepBoxes = (essids: readonly string[]) =>
       return { essid, gateway, host: generateDeepLayer(essid, gateway).host };
     }),
   );
+
+/** A gateway as the world places it: where it stands, and the tree it is built with. */
+export type Gateway = {
+  readonly name: string;
+  readonly essid: string;
+  readonly machineId: string;
+  readonly host: LanHost;
+  /** Whether it stands on the home LAN (the access point and the Layer-1 gateways)
+   *  rather than on a layer below it. */
+  readonly onLan: boolean;
+  readonly tree: Directory;
+};
+
+/** Every gateway on these networks: the access point and each gateway down its chain.
+ *  Built on each call, so a test that asks for them also exercises their builders. */
+export const gatewaysOn = (essids: readonly string[]): readonly Gateway[] =>
+  essids.flatMap((essid) => {
+    const accessPoint = generateHomeLan(essid).hosts.find((host) => host.ip.endsWith('.1'));
+    if (accessPoint === undefined) throw new Error(`${essid} has no access point`);
+    const chain = chainLinks(essid).map((link): Gateway => {
+      const tree = chainGatewayBaseFsForMachineId(essid, link.machineId);
+      if (tree === null) throw new Error(`no tree for ${link.machineId}`);
+      return {
+        name: `${essid} ${link.host.ip}`,
+        essid,
+        machineId: link.machineId,
+        host: link.host,
+        onLan: link.parentMachineId === null,
+        tree,
+      };
+    });
+    return [
+      {
+        name: `${essid} ${accessPoint.ip}`,
+        essid,
+        machineId: machineIdForLanHost(accessPoint, essid),
+        host: accessPoint,
+        onLan: true,
+        tree: buildApGatewayBaseFs(essid),
+      },
+      ...chain,
+    ];
+  });
 
 /** Every file under a directory, keyed by its path relative to it. */
 export const filesUnder = (directory: Directory, prefix = ''): ReadonlyMap<string, string> =>

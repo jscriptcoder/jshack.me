@@ -299,6 +299,28 @@ it serves, and every switch keeps a table of the card on each port:
 A MAC is one fact of the network (`hostMac(machineId)`), so the same host carries the same MAC
 in every table that names it.
 
+**What the gateway remembers** — who ran it, and what they left:
+
+- `ls /root/backups` (root-only) → dated exports in the firmware vendor's own format (one on the
+  AP, two to four elsewhere; the vendor is the `<vendor>-firmware` row in `/var/lib/dpkg/status`).
+  Each states the live box: hostname, address, DHCP range and reservations, ACL denies, agent on
+  or off. Secrets read as the vendor's mask (`<removed>`, `********`, `xxxxx`); MikroTik's omit
+  them.
+- `cat /root/.bash_history` → the admin at work, and a `ping` of their own machine. A LAN
+  gateway's admin sits at a desk machine on the LAN (else a phone or tablet, else any machine); a
+  gateway below the LAN is run from its parent's `.1`. `gatewayAdminIp(essid, machineId)` gives it
+  offline.
+- `/var/log/{syslog,auth.log,kern.log,snmpd.log}.1` → 2026-07-11: the morning's logrotate, a
+  `DHCPACK` for every lease at the second it was granted, the admin's root logins from their
+  machine, links dropping, and the admin's machine polling the agent.
+- The vendor's admin pages (`/www`, `/usr/local/www` or `/usr/share/<vendor>/www`, never
+  `/var/www`) and a web server config bound to `127.0.0.1`; nothing new answers on the network.
+
+To go on to the admin's machine, pick a network offline whose AP admin runs sshd, and recover
+their password from `/etc/passwd`'s md5 against `ALL_GENERATED_PASSWORDS` (§6). On HOOLI-SEC the
+AP's admin is `workstation-130` (`rjohnson`, ssh on 22); `nmap` it, `ssh` in, and their home is
+there.
+
 The gateway is nobody's own box, so it always routes through the cross-player path. Its
 hostname in scans and log traces is `seedApGatewayHostname(<ESSID>)`; note the shell prompt
 shows the machine-id name part (`ap-gw`) instead, which is a known cosmetic mismatch.

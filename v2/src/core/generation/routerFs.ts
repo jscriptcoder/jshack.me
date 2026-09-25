@@ -31,16 +31,20 @@ import {
   generatePasswd,
   PASSWD_FILE,
   ROOT_DIR,
+  ROOT_FILE,
   SHELL,
   TMP_DIR,
   TRAVERSABLE_DIR,
+  withFiles,
 } from './baseFs';
 import { ACCESS_LOG_PERMISSIONS } from '../logging/accessLog';
 import { AUTH_LOG_PERMISSIONS } from '../logging/authLog';
 import { KERN_LOG_PERMISSIONS } from '../logging/kernLog';
 import { SNMPD_LOG_PERMISSIONS } from '../logging/snmpdLog';
 import { RULES_V4_PERMISSIONS } from '../network/iptablesRules';
-import { ACL_CONF_PERMISSIONS } from '../network/switchAcl';
+import { ACL_CONF_PERMISSIONS, parseAclDenies } from '../network/switchAcl';
+import { gatewayBackups } from './gatewayBackups';
+import { gatewayAdminUi } from './gatewayAdminUi';
 import { SNMPD_CONF_PERMISSIONS, SNMPD_CONF_SEED } from '../snmp/conf';
 import { formatSnmpdState, SNMPD_STATE_PERMISSIONS } from '../snmp/rwCommunity';
 import { placementOf } from './rolePlacement';
@@ -52,7 +56,13 @@ import {
   chainSwitchNetwork,
   type GatewayNetworkEntries,
 } from './gatewayNetwork';
-import { computeDeepGatewayId, computeInnerGatewayId } from '../identity/router';
+import {
+  computeApGatewayId,
+  computeDeepGatewayId,
+  computeInnerGatewayId,
+} from '../identity/router';
+import { gatewayLogRotations, gatewayRootHistory, gatewaySite } from './gatewayHistory';
+import { SYSLOG_PERMISSIONS } from '../logging/syslog';
 
 /** The AP gateway's root account plaintext password, seeded from the ESSID alone
  *  (the `ap-gw-admin-` namespace) so every occupant of the access point faces the
@@ -146,6 +156,14 @@ const ACL_CONF_SEED = [
 const pickFirmwareVendor = (seed: string): FirmwareVendor =>
   createPrng(`firmware-${seed}`).pick(FIRMWARE_VENDORS);
 
+/** The ports a switch's ACL denies, read from the `acl.conf` it is built with; none on a
+ *  router, which keeps no ACL. */
+const aclDeniesIn = (configEntries: Record<string, FileNode>): readonly number[] => {
+  const switchDir = configEntries.switch;
+  const acl = switchDir?.kind === 'directory' ? switchDir.entries.get('acl.conf') : undefined;
+  return acl?.kind === 'file' ? parseAclDenies(acl.content) : [];
+};
+
 /**
  * Build a gateway device's base filesystem from the IDENTITY the server can
  * RECONSTRUCT cross-player: the root password ALREADY HASHED and whether it runs
@@ -168,7 +186,16 @@ const buildGatewayBaseFs = (
     readonly firmwareSeed: string;
   },
   configEntries: Record<string, FileNode>,
-  network: GatewayNetworkEntries = { etc: {}, varLib: {} },
+  /** Which gateway this is, so it can know who ran it. */
+  gateway: { readonly essid: string; readonly machineId: string },
+  network: GatewayNetworkEntries = {
+    etc: {},
+    varLib: {},
+    hosts: [],
+    grants: [],
+    dhcp: null,
+    ports: [],
+  },
 ): Directory => {
   const passwd = generatePasswd([
     {
@@ -226,6 +253,51 @@ const buildGatewayBaseFs = (
       }
     : {};
   const varLibEntries: Record<string, FileNode> = { ...snmpStateEntries, ...network.varLib };
+  // Found once: every part of the box that names who ran it reads the same answer.
+  const site = gatewaySite(gateway.essid, gateway.machineId);
+  const logEntries: Record<string, FileNode> = {
+    'access.log': file('', ACCESS_LOG_PERMISSIONS),
+    'auth.log': file('', AUTH_LOG_PERMISSIONS),
+    'kern.log': file('', KERN_LOG_PERMISSIONS),
+    syslog: file('', SYSLOG_PERMISSIONS),
+    ...snmpLogEntries,
+  };
+  const rotations = gatewayLogRotations({
+    machineId: gateway.machineId,
+    site,
+    grants: network.grants,
+    hasSnmp: identity.hasSnmp,
+  });
+  const firmwareVendor = pickFirmwareVendor(identity.firmwareSeed);
+  const denies = aclDeniesIn(configEntries);
+  const backups = gatewayBackups({
+    machineId: gateway.machineId,
+    site,
+    vendor: firmwareVendor,
+    dhcp: network.dhcp,
+    denies,
+    snmp: identity.hasSnmp,
+  });
+  const adminUi = gatewayAdminUi({
+    machineId: gateway.machineId,
+    site,
+    vendor: firmwareVendor,
+    grants: network.grants,
+    dhcp: network.dhcp,
+    ports: network.ports,
+    denies,
+    snmp: identity.hasSnmp,
+  });
+  const history = gatewayRootHistory({
+    machineId: gateway.machineId,
+    site,
+    deviceConfig: configEntries,
+    otherConfig: { ...snmpConfigEntries, ...network.etc },
+    state: varLibEntries,
+    logs: logEntries,
+    daemons: Object.keys(runEntries).map((pidfile) => pidfile.replace(/\.pid$/, '')),
+    hosts: network.hosts,
+  });
   const daemonBinaries = identity.hasSnmp
     ? [...SYSTEM_DAEMON_NAMES, daemonName(SERVICE_CATALOG.snmp)]
     : [...SYSTEM_DAEMON_NAMES];
@@ -244,7 +316,7 @@ const buildGatewayBaseFs = (
         TRAVERSABLE_DIR,
       ),
       lib: dir(createLibraryEntries(SYSTEM_LIBRARIES), TRAVERSABLE_DIR),
-      root: dir({}, ROOT_DIR),
+      root: dir({ '.bash_history': file(history, ROOT_FILE), ...backups }, ROOT_DIR),
       tmp: dir({}, TMP_DIR),
       usr: dir(
         {
@@ -255,15 +327,7 @@ const buildGatewayBaseFs = (
       ),
       var: dir(
         {
-          log: dir(
-            {
-              'access.log': file('', ACCESS_LOG_PERMISSIONS),
-              'auth.log': file('', AUTH_LOG_PERMISSIONS),
-              'kern.log': file('', KERN_LOG_PERMISSIONS),
-              ...snmpLogEntries,
-            },
-            TRAVERSABLE_DIR,
-          ),
+          log: dir({ ...logEntries, ...rotations }, TRAVERSABLE_DIR),
           ...(Object.keys(varLibEntries).length === 0
             ? {}
             : { lib: dir(varLibEntries, TRAVERSABLE_DIR) }),
@@ -274,7 +338,7 @@ const buildGatewayBaseFs = (
     },
     TRAVERSABLE_DIR,
   );
-  return withPackageManifest(tree, { firmwareVendor: pickFirmwareVendor(identity.firmwareSeed) });
+  return withPackageManifest(withFiles(tree, adminUi), { firmwareVendor });
 };
 
 /**
@@ -294,6 +358,7 @@ export const buildRouterBaseFsFromIdentity = (
      *  password would move it whenever that password moved. */
     readonly firmwareSeed: string;
   },
+  site: { readonly essid: string; readonly machineId: string },
   network?: GatewayNetworkEntries,
 ): Directory =>
   buildGatewayBaseFs(
@@ -304,6 +369,7 @@ export const buildRouterBaseFsFromIdentity = (
         TRAVERSABLE_DIR,
       ),
     },
+    site,
     network,
   );
 
@@ -331,6 +397,7 @@ export const buildApGatewayBaseFs = (essid: string): Directory =>
       // them at, absent for two players in five, decided by their ESSID.
       hasSnmp: true,
     },
+    { essid, machineId: computeApGatewayId(essid) },
     apGatewayNetwork(essid),
   );
 
@@ -357,6 +424,7 @@ export const buildInnerGatewayBaseFs = (essid: string, octet: number): Directory
       hasSsh: true,
       hasSnmp: seedHasSnmp(`inner-gw-snmp-${essid}:${octet}`, 'router'),
     },
+    { essid, machineId: computeInnerGatewayId(essid, octet) },
     chainRouterNetwork({
       essid,
       machineId: computeInnerGatewayId(essid, octet),
@@ -392,6 +460,7 @@ export const buildDeepGatewayBaseFs = (
       hasSsh: true,
       hasSnmp: seedHasSnmp(`deep-gw-snmp-${parentMachineId}:${octet}`, 'router'),
     },
+    { essid, machineId: computeDeepGatewayId(parentMachineId, octet) },
     chainRouterNetwork({
       essid,
       machineId: computeDeepGatewayId(parentMachineId, octet),
@@ -419,6 +488,7 @@ export const buildDeepSwitchBaseFs = (
       hasSnmp: seedHasSnmp(`deep-sw-snmp-${parentMachineId}:${octet}`, 'switch'),
     },
     { switch: dir({ 'acl.conf': file(ACL_CONF_SEED, ACL_CONF_PERMISSIONS) }, TRAVERSABLE_DIR) },
+    { essid, machineId: computeDeepGatewayId(parentMachineId, octet) },
     chainSwitchNetwork({
       essid,
       machineId: computeDeepGatewayId(parentMachineId, octet),
@@ -441,6 +511,7 @@ export const buildSwitchBaseFs = (essid: string, octet: number): Directory =>
       hasSnmp: seedHasSnmp(`inner-sw-snmp-${essid}:${octet}`, 'switch'),
     },
     { switch: dir({ 'acl.conf': file(ACL_CONF_SEED, ACL_CONF_PERMISSIONS) }, TRAVERSABLE_DIR) },
+    { essid, machineId: computeInnerGatewayId(essid, octet) },
     chainSwitchNetwork({
       essid,
       machineId: computeInnerGatewayId(essid, octet),

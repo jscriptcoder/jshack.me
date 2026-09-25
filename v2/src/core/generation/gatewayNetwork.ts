@@ -16,10 +16,46 @@ import { hostMachineId } from './remoteHostId';
 import { computeDeepGatewayId } from '../identity/router';
 import { WORLD_EPOCH } from '../cve/worldClock';
 
-/** The files a gateway's network knowledge adds, grouped by the directory they join. */
+/** One lease as dnsmasq granted it: the second of the epoch it was granted at, and the
+ *  card and address it went to. */
+export type DhcpGrant = {
+  readonly at: number;
+  readonly mac: string;
+  readonly ip: string;
+  readonly hostname: string;
+};
+
+/** A card the router keeps an address for, whoever asks. */
+export type DhcpReservation = Omit<DhcpGrant, 'at'>;
+
+/** The DHCP a router serves: the /24 it hands out, for how long, and the addresses it
+ *  keeps for the segment's gateways. */
+export type DhcpService = {
+  readonly subnet: string;
+  readonly leaseHours: number;
+  readonly reservations: readonly DhcpReservation[];
+};
+
+/** One row of a switch's MAC table: the card seen on a port, and the host its admin
+ *  labelled the port with. */
+export type SwitchPort = {
+  readonly port: string;
+  readonly mac: string;
+  readonly vlan: number;
+  readonly hostname: string;
+  readonly ip: string;
+};
+
+/** The files a gateway's network knowledge adds, grouped by the directory they join; the
+ *  addresses of the hosts those files name; every lease it granted; the DHCP it serves,
+ *  null on a switch; and a switch's ports, none on a router. */
 export type GatewayNetworkEntries = {
   readonly etc: Record<string, FileNode>;
   readonly varLib: Record<string, FileNode>;
+  readonly hosts: readonly string[];
+  readonly grants: readonly DhcpGrant[];
+  readonly dhcp: DhcpService | null;
+  readonly ports: readonly SwitchPort[];
 };
 
 /** A host on the segment, with the machine id that fixes its MAC. */
@@ -28,7 +64,6 @@ type SegmentHost = { readonly host: LanHost; readonly machineId: string };
 const LEASE_FILE = '/var/lib/misc/dnsmasq.leases';
 const LEASE_HOURS = [12, 24] as const;
 const EPOCH_SECONDS = WORLD_EPOCH / 1000;
-const DAY_SECONDS = 24 * 60 * 60;
 
 const lastOctet = (host: LanHost): number => Number(host.ip.split('.')[3]);
 
@@ -45,16 +80,26 @@ const dhcpServer = (options: {
   const prng = createPrng(`gw-net-${seed}`);
   const leaseHours = prng.pick(LEASE_HOURS);
 
-  const leases = machines
-    .map(({ host, machineId }) => {
-      const granted = EPOCH_SECONDS - DAY_SECONDS + prng.nextInt(0, DAY_SECONDS - 1);
-      const expiry = granted + leaseHours * 60 * 60;
-      return `${expiry} ${hostMac(machineId)} ${host.ip} ${host.hostname} *\n`;
-    })
+  // Every lease is still held at the epoch, so each was granted within one term of it —
+  // which, for a term of a day or less, is always on the last day.
+  const term = leaseHours * 60 * 60;
+  const grants: readonly DhcpGrant[] = machines.map(({ host, machineId }) => ({
+    at: EPOCH_SECONDS - term + prng.nextInt(1, term - 1),
+    mac: hostMac(machineId),
+    ip: host.ip,
+    hostname: host.hostname,
+  }));
+  const leases = grants
+    .map(({ at, mac, ip, hostname }) => `${at + term} ${mac} ${ip} ${hostname} *\n`)
     .join('');
 
-  const reservations = gateways
-    .map(({ host, machineId }) => `dhcp-host=${hostMac(machineId)},${host.ip},${host.hostname}\n`)
+  const reserved: readonly DhcpReservation[] = gateways.map(({ host, machineId }) => ({
+    mac: hostMac(machineId),
+    ip: host.ip,
+    hostname: host.hostname,
+  }));
+  const reservations = reserved
+    .map(({ mac, ip, hostname }) => `dhcp-host=${mac},${ip},${hostname}\n`)
     .join('');
 
   const config = [
@@ -72,6 +117,10 @@ const dhcpServer = (options: {
   return {
     etc: { 'dnsmasq.conf': file(`${config}\n${reservations}`, SERVICE_CONFIG_FILE) },
     varLib: { misc: dir({ 'dnsmasq.leases': file(leases, SERVICE_CONFIG_FILE) }, TRAVERSABLE_DIR) },
+    hosts: [...machines, ...gateways].map(({ host }) => host.ip),
+    grants,
+    dhcp: { subnet, leaseHours, reservations: reserved },
+    ports: [],
   };
 };
 
@@ -132,15 +181,24 @@ export const chainSwitchNetwork = (options: {
   }
   const prng = createPrng(`gw-net-${seed}`);
   const { host } = generateDeepLayer(essid, { machineId, kind: 'switch' });
-  const port = `gi1/0/${prng.nextInt(1, 24)}`;
-  const vlan = prng.pick([1, 10, 20, 100]);
+  const row: SwitchPort = {
+    port: `gi1/0/${prng.nextInt(1, 24)}`,
+    vlan: prng.pick([1, 10, 20, 100]),
+    mac: hostMac(hostMachineId(host, essid)),
+    hostname: host.hostname,
+    ip: host.ip,
+  };
   const table = [
     '# port     mac                vlan  description',
-    `${port.padEnd(10)} ${hostMac(hostMachineId(host, essid))}  ${String(vlan).padEnd(5)} ${host.hostname} (${host.ip})`,
+    `${row.port.padEnd(10)} ${row.mac}  ${String(row.vlan).padEnd(5)} ${row.hostname} (${row.ip})`,
     '',
   ].join('\n');
   return {
     etc: {},
     varLib: { switch: dir({ 'mac-table': file(table, SERVICE_CONFIG_FILE) }, TRAVERSABLE_DIR) },
+    hosts: [host.ip],
+    grants: [],
+    dhcp: null,
+    ports: [row],
   };
 };

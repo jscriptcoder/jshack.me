@@ -616,14 +616,17 @@ describe('buildRouterBaseFsFromIdentity', () => {
       firmwareSeed: string;
     }> = {},
   ): Directory =>
-    buildRouterBaseFsFromIdentity({
-      adminPwHash: ADMIN_HASH,
-      snmpCommunityHash: COMMUNITY_HASH,
-      hasSsh: true,
-      hasSnmp: false,
-      firmwareSeed: 'router-under-test',
-      ...overrides,
-    });
+    buildRouterBaseFsFromIdentity(
+      {
+        adminPwHash: ADMIN_HASH,
+        snmpCommunityHash: COMMUNITY_HASH,
+        hasSsh: true,
+        hasSnmp: false,
+        firmwareSeed: 'router-under-test',
+        ...overrides,
+      },
+      { essid: 'ROUTER-UNDER-TEST', machineId: 'router-under-test' },
+    );
 
   it('has a root-ONLY /etc/passwd (no player, no guest) using the given admin hash', () => {
     const rows = passwdRows(routerFs());
