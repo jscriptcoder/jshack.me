@@ -5,9 +5,10 @@
 > wherever the two disagree.
 > Grilled 2026-09-21 (`grilling`), 25 locked decisions. Slices 0–10 delivered (as-built below).
 > Slice 10 grilled and planned 2026-09-25 (eight owner decisions, status log) and delivered in two
-> PRs (#548, #549; v0.263.0). Slice 11 is next and is not yet grilled.
+> PRs (#548, #549; v0.263.0). Slice 11 grilled 2026-09-25 (thirteen decisions, owner-delegated,
+> status log); its plan is next.
 
-**Where we are now (2026-09-25):** **v0.263.0** — slice 10 is DONE (#548, #549); slice 11 is next. The legacy-parity epic's V-series is closed and
+**Where we are now (2026-09-25):** **v0.263.0** — slice 10 is DONE (#548, #549); slice 11 is grilled and its plan is next. The legacy-parity epic's V-series is closed and
 its next line was "the ship gate". **Ship now waits for this epic** (decision 1). Grilled to 25
 locked decisions and a twelve-slice spine. **Slices 0–10 are DONE** (#533, #534, #535, #536,
 #537 + #538, #539, #540, #541 + #542, #543 + #544, #545 + #546 + #547, #548 + #549) — the build budgets, NPC
@@ -420,7 +421,7 @@ See below; planning refines it.
 | 8 | **A share holds a department** — fileserver `/srv`, metadata docs | `strings` on a shared PDF names its author, an inhabitant | ✅ **DONE** (#543 v0.257.0, #544 v0.258.0) — `/srv` on every file server, LAN and deep: a working share or dated snapshots by prefix, the category's departments, PDF/JPEG/office stubs whose metadata `strings` reads, authors from the one roster mail uses, `vsftpd.conf` stops claiming doors; then `vsftpd.log.1` recording every arrival from its author's machine to the byte, the `/srv` data disk in `fstab`, an allow-list `/etc/vsftpd.userlist`, and root's history naming `/srv` instead of samba, nfs and zfs. See as-built below |
 | 9 | **A device is the device it says** — IoT prefix overlays + prefix growth (the one re-roll: refresh pins, wire-checks, the `v2-e2e` skill) | a printer serves a CUPS page and holds spool jobs; a camera a recordings index | ✅ **DONE** — 9a (#545, v0.259.0), 9b (#546, v0.260.0), 9c (#547, v0.261.0); every IoT box keeps its daemon's config, its data and its own pages, and `device.conf` retired. See as-built below |
 | 10 | **A gateway knows its network** — DHCP leases, config backups, admin pages, admin/firmware history | a rooted router's lease table lists exactly the network's generated hosts | ✅ **DONE** — 10a (#548, v0.262.0), 10b (#549, v0.263.0); every router leases its segment and every switch maps its port, and every gateway remembers its admin, their history, its last day, its backups and its admin pages. See as-built below |
-| 11 | **A phone is a phone** — phone/tablet overlay | an NPC `android-` home holds `DCIM/` and `Download/`, not dotfiles | ⏳ |
+| 11 | **A phone is a phone** — phone/tablet overlay | an NPC `android-` home holds `DCIM/` and `Download/`, not dotfiles | ⏳ grilled 2026-09-25 (status log); one PR; plan next |
 
 ## As-built: slices 0–1 (delivered 2026-09-21)
 
@@ -1592,3 +1593,49 @@ and one performance fix the build budget forced. Squash-merged as `b2f7df99` (#5
   four site lookups per gateway and was fixed by one. Mutation 90–93% per file after a gate that
   added a format reader per vendor; the byte-diff moved gateways only; the played run on HOOLI-SEC
   went from the AP's backup to the admin's own home. Next: **slice 11**, not yet grilled.
+- **2026-09-25** — **slice 11 grilled** (a phone is a phone); the owner delegated every call to the
+  recommendations, to be reviewed as a set. Measured first: the 50 catalog networks hold 76 phones
+  and tablets — tablet 37 (22 LAN, 15 deep), iphone 20 (12, 8), android 19 (9, 10) — on 32 of the
+  50 LANs; 15 of the LAN ones run ssh (tablet 7, iphone 5, android 3), so a player reaches one on
+  roughly every third network. All three prefixes are the `workstation` role; each has had an
+  empty home since slice 1 (`npcHome.ts`, `isDeskMachine`) and no `.ssh/`, but already carries
+  slices 2–3's `/etc`, `/root` and `.1` logs and slice 7's cron mail. `phoneModel`
+  (`share-phone-<essid>-<ip>`) names iphone and android models only; **tablets have none**, and
+  share photos, media pairings, lock logs and gateway admins already name phones. Thirteen
+  decisions: (1) **the content lives in the home** — `/home/<user>` stands for the device's
+  storage; no Android `/sdcard` or iOS `/var/mobile` layout, and `/etc`, `/root` and the logs stay
+  the workstation role's (no role overlay beyond the home); (2) **no dotfiles** — no `.bashrc`,
+  `.profile`, `.bash_logout`, `.bash_history`, `.gitconfig`, `notes/` or `.ssh/`; the home is the
+  device's media and files, nothing a shell wrote; (3) **the layout follows the maker** — an
+  Android device (every `android-`, a non-Apple tablet) keeps `DCIM/Camera/IMG_YYYYMMDD_HHMMSS.jpg`,
+  `Download/`, `Documents/` and the empty standard folders (`Pictures/`, `Music/`, `Movies/`); an
+  Apple one (every `iphone-`, an iPad) keeps `DCIM/100APPLE/IMG_NNNN.JPG` in a running counter
+  and `Downloads/` beside `Documents/`; (4) **a photo is the device's own** — a JPEG stub from
+  `renderDocument` whose Exif make and model are this device's, `artist` null (a phone does not
+  sign), taken in bursts on 4–10 days across the two years before the epoch, the file name
+  agreeing with `takenAt`; (5) **tablets get models on their own stream** — a `TABLET_MODELS`
+  pool (iPad, Galaxy Tab, Lenovo Tab, Fire HD) drawn by a `tabletModel` keyed
+  `tablet-<essid>-<ip>`, and tablets stay OUT of the share's photo devices, media pairings and lock
+  logs, so `phoneModel` and everything reading it is byte-identical (deferred, below); (6)
+  **downloads are PDFs a person fetched** — 2–6 from a personal pool (boarding pass, invoice,
+  ticket, appliance manual, tenancy agreement, payslip …) whose Info author is a fictional issuer,
+  plus on a LAN at most one from the network persona's category (a rota, a menu, a price list)
+  authored by a real inhabitant of the network (decision 4); a deep device draws personal ones
+  only; (7) **a few typed notes** — 0–3 plain-text files in `Documents/` from a new phone-note
+  pool (shopping, packing, gift ideas, a recipe), slot-filled with the persona's place and a
+  colleague; no credential, key or code anywhere (decision 2); (8) **volume is decision 9's
+  10–25** — photos 6–16, downloads 2–6, notes 0–3, clamped to the band, empty folders not counted;
+  (9) **one new stream**, `phone-content-<essid>-<ip>`, plus (5)'s — no decision-15 amendment,
+  nothing already generated re-rolls, and the byte-diff must move phone and tablet homes only;
+  (10) **the player's box is untouched** (decision 6) whatever its prefix; (11) **no agreement with
+  the share** — a share photo credited to a phone need not sit in that phone's `DCIM/`, as a
+  site need not list its database (the site ↔ database item); (12) **tests** — every JPEG's
+  model is its own device's, every `takenAt` falls before the epoch, file names agree with it,
+  counts stay in the band, no dotfile appears, an Apple and an Android home differ in layout, the
+  variety test holds across the population, a LAN persona document's author is a real
+  inhabitant, and the build budget holds; (13) **one PR** on `feat/a-phone-is-a-phone`, a minor
+  bump (v0.264.0); client generation only, so no `api/` change and no wire-check; a played run via
+  `v2-e2e` onto an ssh-reachable phone; docs follow (decision 24) — `npcHome.ts`'s header and
+  `conventions-and-gotchas.md` wherever they say phones keep empty homes. **Deferred:** tablets as
+  photo devices, pairings and lock entries (it would re-roll slices 8 and 9's content); phone-shaped
+  `/root` and `/etc`; screenshots (PNG is a new format). Next: **the slice plan**.
