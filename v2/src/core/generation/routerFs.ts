@@ -49,6 +49,7 @@ import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import {
   apGatewayNetwork,
   chainRouterNetwork,
+  chainSwitchNetwork,
   type GatewayNetworkEntries,
 } from './gatewayNetwork';
 import { computeDeepGatewayId, computeInnerGatewayId } from '../identity/router';
@@ -404,7 +405,11 @@ export const buildDeepGatewayBaseFs = (
  *  deep discriminator (parent machine_id + octet), REUSING `seedDeepGatewayAdminPw` — a
  *  given slot is one kind, so the deep namespace is unambiguous, the same way the inner
  *  switch reuses `inner-gw-admin-`. */
-export const buildDeepSwitchBaseFs = (parentMachineId: string, octet: number): Directory =>
+export const buildDeepSwitchBaseFs = (
+  essid: string,
+  parentMachineId: string,
+  octet: number,
+): Directory =>
   buildGatewayBaseFs(
     {
       adminPwHash: md5(seedDeepGatewayAdminPw(parentMachineId, octet)),
@@ -414,6 +419,11 @@ export const buildDeepSwitchBaseFs = (parentMachineId: string, octet: number): D
       hasSnmp: seedHasSnmp(`deep-sw-snmp-${parentMachineId}:${octet}`, 'switch'),
     },
     { switch: dir({ 'acl.conf': file(ACL_CONF_SEED, ACL_CONF_PERMISSIONS) }, TRAVERSABLE_DIR) },
+    chainSwitchNetwork({
+      essid,
+      machineId: computeDeepGatewayId(parentMachineId, octet),
+      seed: `deep-sw-${parentMachineId}:${octet}`,
+    }),
   );
 
 /** Build a switch's base FS — the same root-only gateway toolkit as an inner
@@ -431,4 +441,9 @@ export const buildSwitchBaseFs = (essid: string, octet: number): Directory =>
       hasSnmp: seedHasSnmp(`inner-sw-snmp-${essid}:${octet}`, 'switch'),
     },
     { switch: dir({ 'acl.conf': file(ACL_CONF_SEED, ACL_CONF_PERMISSIONS) }, TRAVERSABLE_DIR) },
+    chainSwitchNetwork({
+      essid,
+      machineId: computeInnerGatewayId(essid, octet),
+      seed: `inner-sw-${essid}:${octet}`,
+    }),
   );

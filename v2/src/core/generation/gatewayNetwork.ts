@@ -116,3 +116,31 @@ export const chainRouterNetwork = (options: {
         : [{ host: child, machineId: computeDeepGatewayId(machineId, lastOctet(child)) }],
   });
 };
+
+/** A switch hands out no addresses, but it knows which card sits on which port: the one
+ *  machine on the layer it fronts (a switch forwards nothing onward, so hangs no child).
+ *  Its admin labelled the port with the host's name and address, as a managed switch's
+ *  port descriptions usually read. `seed` is the switch's own seed key. */
+export const chainSwitchNetwork = (options: {
+  readonly essid: string;
+  readonly machineId: string;
+  readonly seed: string;
+}): GatewayNetworkEntries | undefined => {
+  const { essid, machineId, seed } = options;
+  if (!chainLinks(essid).some((candidate) => candidate.machineId === machineId)) {
+    return undefined;
+  }
+  const prng = createPrng(`gw-net-${seed}`);
+  const { host } = generateDeepLayer(essid, { machineId, kind: 'switch' });
+  const port = `gi1/0/${prng.nextInt(1, 24)}`;
+  const vlan = prng.pick([1, 10, 20, 100]);
+  const table = [
+    '# port     mac                vlan  description',
+    `${port.padEnd(10)} ${hostMac(hostMachineId(host, essid))}  ${String(vlan).padEnd(5)} ${host.hostname} (${host.ip})`,
+    '',
+  ].join('\n');
+  return {
+    etc: {},
+    varLib: { switch: dir({ 'mac-table': file(table, SERVICE_CONFIG_FILE) }, TRAVERSABLE_DIR) },
+  };
+};

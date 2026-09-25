@@ -459,8 +459,8 @@ describe('the agent a network device runs', () => {
         runsAgent(buildDeepGatewayBaseFs(essid, `gw-${index}`, octetFor(index))),
       ),
       innerSwitch: count((essid, index) => runsAgent(buildSwitchBaseFs(essid, octetFor(index)))),
-      deepSwitch: count((_unused, index) =>
-        runsAgent(buildDeepSwitchBaseFs(`gw-${index}`, octetFor(index))),
+      deepSwitch: count((essid, index) =>
+        runsAgent(buildDeepSwitchBaseFs(essid, `gw-${index}`, octetFor(index))),
       ),
     };
   })();
@@ -593,7 +593,7 @@ describe('buildDeepSwitchBaseFs', () => {
     // is default-ALLOW, so a deep switch that lost its seeded deny would silently open
     // the port it was meant to filter rather than fail visibly. The snmp write path
     // arrives at this exact file, which is what makes the gap worth closing now.
-    const acl = fileAt(buildDeepSwitchBaseFs(PARENT, 42), ['etc', 'switch'], 'acl.conf');
+    const acl = fileAt(buildDeepSwitchBaseFs(ESSID_A, PARENT, 42), ['etc', 'switch'], 'acl.conf');
 
     expect(acl.startsWith('#')).toBe(true);
     expect(parseAclDenies(acl)).toEqual([8080]);
@@ -602,7 +602,7 @@ describe('buildDeepSwitchBaseFs', () => {
   it('forwards nothing — no rules.v4 at all, so its segment is dark from upstream', () => {
     // The whole difference between the two deep device kinds. A switch caps the chain
     // by construction rather than by an empty forward table it could be given.
-    expect(dirAt(buildDeepSwitchBaseFs(PARENT, 42), 'etc').entries.has('iptables')).toBe(false);
+    expect(dirAt(buildDeepSwitchBaseFs(ESSID_A, PARENT, 42), 'etc').entries.has('iptables')).toBe(false);
   });
 });
 

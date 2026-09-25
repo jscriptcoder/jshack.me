@@ -106,7 +106,7 @@ const topology = (() => {
     const deviceOctet = octetOf(device);
     const deviceFs =
       device.kind === 'switch'
-        ? buildDeepSwitchBaseFs(gatewayId, deviceOctet)
+        ? buildDeepSwitchBaseFs(essid, gatewayId, deviceOctet)
         : buildDeepGatewayBaseFs(essid, gatewayId, deviceOctet);
     if (!runsAgent(deviceFs)) continue;
     return {

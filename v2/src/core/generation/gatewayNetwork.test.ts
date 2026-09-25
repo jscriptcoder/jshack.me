@@ -169,3 +169,70 @@ describe('a router knows the segment it serves', () => {
     }
   });
 });
+
+const MAC_TABLE_PATH = 'var/lib/switch/mac-table';
+
+/** Every switch in the world, with the layer it fronts stated from the population the
+ *  network generates. A switch forwards nothing onward, so its layer is one machine. */
+const SWITCHES = ALL_ESSIDS.flatMap((essid) =>
+  chainLinks(essid)
+    .filter((link) => link.host.kind === 'switch')
+    .map((link) => {
+      const layer = generateDeepLayer(essid, { machineId: link.machineId, kind: 'switch' });
+      const tree = chainGatewayBaseFsForMachineId(essid, link.machineId);
+      if (tree === null) throw new Error(`no tree for ${link.machineId}`);
+      return {
+        name: `${essid} ${link.host.ip}`,
+        tree,
+        inner: link.parentMachineId === null,
+        host: layer.host,
+        mac: hostMac(hostMachineId(layer.host, essid)),
+      };
+    }),
+);
+
+/** The table's rows past its header: port, MAC, VLAN, then the port's description. */
+const tableRows = (tree: Directory) =>
+  contentAt(tree, MAC_TABLE_PATH)
+    .split('\n')
+    .filter((line) => line !== '' && !line.startsWith('#'))
+    .map((line) => {
+      const [port = '', mac = '', vlan = '', ...description] = line.split(/\s+/);
+      return { port, mac, vlan, description: description.join(' ') };
+    });
+
+describe('a switch knows the layer it fronts', () => {
+  it('covers every inner and deep switch in the world', () => {
+    expect(SWITCHES.some((device) => device.inner)).toBe(true);
+    expect(SWITCHES.some((device) => !device.inner)).toBe(true);
+  });
+
+  it('lists exactly the machine on its layer, by the MAC every other table gives it', () => {
+    for (const device of SWITCHES) {
+      expect(tableRows(device.tree).map((row) => row.mac), device.name).toEqual([device.mac]);
+    }
+  });
+
+  it('describes each port by the name and address of the host plugged into it', () => {
+    for (const device of SWITCHES) {
+      for (const row of tableRows(device.tree)) {
+        expect(row.description, device.name).toBe(`${device.host.hostname} (${device.host.ip})`);
+      }
+    }
+  });
+
+  it('lets anyone on the box read the table, and only root change it', () => {
+    for (const device of SWITCHES) {
+      const node = nodeAt(device.tree, MAC_TABLE_PATH);
+      expect(node?.perms.read, device.name).toEqual(['root', 'user', 'guest']);
+      expect(node?.perms.write, device.name).toEqual(['root']);
+    }
+  });
+
+  it('hands out no addresses, because a switch runs no DHCP', () => {
+    for (const device of SWITCHES) {
+      expect(nodeAt(device.tree, CONFIG_PATH), device.name).toBeUndefined();
+      expect(nodeAt(device.tree, LEASES_PATH), device.name).toBeUndefined();
+    }
+  });
+});

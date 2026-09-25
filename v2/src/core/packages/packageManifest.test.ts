@@ -139,7 +139,7 @@ describe('the package manifest every box carries', () => {
     expect(firmwareOf(buildSwitchBaseFs(ESSID, 13))).toEqual([['pfsense-firmware', '2.7.2']]);
     expect(firmwareOf(buildInnerGatewayBaseFs(ESSID, 14))).toEqual([['mikrotik-firmware', '7.14.2']]);
     expect(firmwareOf(buildDeepGatewayBaseFs(ESSID, 'm-1', 15))).toEqual([['pfsense-firmware', '2.7.2']]);
-    expect(firmwareOf(buildDeepSwitchBaseFs('m-1', 16))).toEqual([['cisco-firmware', '15.9.3']]);
+    expect(firmwareOf(buildDeepSwitchBaseFs(ESSID, 'm-1', 16))).toEqual([['cisco-firmware', '15.9.3']]);
   });
 
   it('names no firmware on a box that is not a network device', () => {

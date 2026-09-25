@@ -128,7 +128,7 @@ export const resolveDeepGatewayIdentity = (
     machineId: computeDeepGatewayId(parentMachineId, octet),
     baseFs:
       kind === 'switch'
-        ? buildDeepSwitchBaseFs(parentMachineId, octet)
+        ? buildDeepSwitchBaseFs(essid, parentMachineId, octet)
         : buildDeepGatewayBaseFs(essid, parentMachineId, octet),
   };
 };
