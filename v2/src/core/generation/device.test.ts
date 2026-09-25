@@ -181,6 +181,20 @@ describe("a device's own pages", () => {
     });
   });
 
+  it('link each to every other, so a visitor can reach them all from any one', () => {
+    serving().forEach(({ host, tree }) => {
+      const pages = pagesOf(tree);
+      pages.forEach((page, name) => {
+        const linked = new Set(hrefsIn(page).map((href) => (href === '/' ? 'index.html' : href.slice(1))));
+        expect({ host: host.hostname, name, linked: [...linked].sort() }).toEqual({
+          host: host.hostname,
+          name,
+          linked: [...pages.keys()].sort(),
+        });
+      });
+    });
+  });
+
   it('name no port nothing serves, no software version and no account', () => {
     serving().forEach(({ essid, host, tree }) => {
       const account = npcUsername(essid, host);

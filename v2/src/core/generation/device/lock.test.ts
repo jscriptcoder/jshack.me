@@ -149,6 +149,10 @@ describe('a smart lock', () => {
           expect({ person: entry.person, known: phones !== undefined }).toEqual({ person: entry.person, known: true });
           if ((phones ?? []).length > 0) {
             byPhone += 1;
+            expect({ person: entry.person, byPhone: entry.phone !== null }).toEqual({
+              person: entry.person,
+              byPhone: true,
+            });
             const phone = phones?.find((candidate) => candidate.hostname === entry.phone?.hostname);
             expect({ person: entry.person, phone: entry.phone?.hostname, own: phone?.ip }).toEqual({
               person: entry.person,
@@ -186,6 +190,29 @@ describe('a smart lock', () => {
         });
     });
     expect(roles).toBeGreaterThan(5);
+  });
+
+  it('keeps one or two slots for a role, beside its people\'s', () => {
+    locks().forEach(({ host, tree }) => {
+      const roles = slotsOf(tree).filter((slot) => LOCK_ROLE_SLOTS.includes(slot)).length;
+      expect({ host: host.hostname, roles: roles >= 1 && roles <= 2 }).toEqual({ host: host.hostname, roles: true });
+    });
+  });
+
+  it('remembers two weeks of comings and goings, not one morning', () => {
+    const spans = locks().map(({ tree }) => {
+      const times = entriesOf(tree).map(({ at }) => at);
+      return (Math.max(...times) - Math.min(...times)) / 86_400_000;
+    });
+    expect(Math.max(...spans)).toBeGreaterThan(10);
+    spans.forEach((days) => expect(days).toBeLessThanOrEqual(14));
+  });
+
+  it('locks itself again after a real number of seconds', () => {
+    locks().forEach(({ tree }) => {
+      expect(Number(setting(tree, 'auto_lock_seconds'))).toBeGreaterThanOrEqual(15);
+      expect(Number(setting(tree, 'auto_lock_seconds'))).toBeLessThanOrEqual(120);
+    });
   });
 
   it('keeps a slot for exactly the people and roles that use the keypad', () => {

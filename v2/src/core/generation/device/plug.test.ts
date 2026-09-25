@@ -147,6 +147,8 @@ describe('a smart plug', () => {
           drew: minutes > 0,
         });
         expect(kwh).toBeLessThanOrEqual((watts * minutes) / 60 / 1000 + 0.0005);
+        // An appliance cycles, but draws at least a third of its load while it is on.
+        expect(kwh).toBeGreaterThanOrEqual((0.3 * watts * minutes) / 60 / 1000 - 0.0005);
       });
     });
     expect(offDays).toBeGreaterThan(50);

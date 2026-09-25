@@ -185,6 +185,36 @@ describe('a media device', () => {
     });
   });
 
+  it('was cast to from a phone only after that phone was paired', () => {
+    mediaBoxes().forEach(({ host, tree }) => {
+      const pairedAt = new Map(pairingsOf(tree).map(({ hostname, at }) => [hostname, at]));
+      playedOn(tree).forEach(({ at, source }) => {
+        const paired = pairedAt.get(source);
+        if (paired === undefined) return;
+        expect({ host: host.hostname, source, after: paired < at }).toEqual({
+          host: host.hostname,
+          source,
+          after: true,
+        });
+      });
+    });
+  });
+
+  it('remembers weeks of what it played, not one evening', () => {
+    const spans = mediaBoxes().map(({ tree }) => {
+      const times = playedOn(tree).map(({ at }) => at);
+      return (Math.max(...times) - Math.min(...times)) / 86_400_000;
+    });
+    expect(Math.max(...spans)).toBeGreaterThan(14);
+    spans.forEach((days) => expect(days).toBeLessThanOrEqual(21));
+  });
+
+  it('calls itself a TV or a Speaker, by what it is', () => {
+    mediaBoxes().forEach((box) => {
+      expect(setting(box.tree, 'name')).toMatch(flavourOf(box) === 'tv' ? / TV$/ : / Speaker$/);
+    });
+  });
+
   it('was cast to only from a phone it is paired with, and otherwise played from its own remote or by voice', () => {
     let cast = 0;
     mediaBoxes().forEach((box) => {
@@ -203,10 +233,13 @@ describe('a media device', () => {
     expect(cast).toBeGreaterThan(20);
   });
 
-  it('installs only apps made for its flavour, each once', () => {
+  it('installs a handful of apps made for its flavour, each once', () => {
+    const counts = { tv: [4, 7], speaker: [2, 4] } as const;
     mediaBoxes().forEach((box) => {
       const installed = appsOn(box.tree);
-      expect(installed.length).toBeGreaterThan(1);
+      const [fewest, most] = counts[flavourOf(box)];
+      expect(installed.length).toBeGreaterThanOrEqual(fewest);
+      expect(installed.length).toBeLessThanOrEqual(most);
       expect(new Set(installed).size).toBe(installed.length);
       installed.forEach((app) => expect(MEDIA_APPS[flavourOf(box)]).toContain(app));
     });

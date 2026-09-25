@@ -195,6 +195,45 @@ describe('a climate device', () => {
   });
 });
 
+describe("a room's air", () => {
+  it('is warmer in a plain sensor\'s afternoon than before its dawn', () => {
+    const sensors = climates().filter(({ host }) => prefixOf(host.hostname) === 'sensor');
+    expect(sensors.length).toBeGreaterThan(10);
+    sensors.forEach(({ host, tree }) => {
+      const readings = readingsOf(tree);
+      const hourOf = (at: number) => new Date(at).getUTCHours();
+      const mean = (from: number, to: number) => {
+        const during = readings.filter(({ at }) => hourOf(at) >= from && hourOf(at) < to);
+        return during.reduce((sum, { temperature }) => sum + temperature, 0) / during.length;
+      };
+      expect({ host: host.hostname, warmer: mean(12, 18) > mean(0, 6) }).toEqual({
+        host: host.hostname,
+        warmer: true,
+      });
+    });
+  });
+
+  it('holds less moisture the warmer it is', () => {
+    let compared = 0;
+    climates().forEach(({ host, tree }) => {
+      const readings = [...readingsOf(tree)].sort((one, other) => one.temperature - other.temperature);
+      const third = Math.floor(readings.length / 3);
+      const coolest = readings.slice(0, third);
+      const warmest = readings.slice(-third);
+      const spread = (warmest[warmest.length - 1]?.temperature ?? 0) - (coolest[0]?.temperature ?? 0);
+      if (spread < 3) return;
+      compared += 1;
+      const mean = (group: readonly Reading[]) =>
+        group.reduce((sum, { humidity }) => sum + humidity, 0) / group.length;
+      expect({ host: host.hostname, drier: mean(warmest) < mean(coolest) }).toEqual({
+        host: host.hostname,
+        drier: true,
+      });
+    });
+    expect(compared).toBeGreaterThan(10);
+  });
+});
+
 describe("a thermostat's schedule", () => {
   it('is kept on every thermostat, named by its config, and on no plain sensor', () => {
     climates().forEach(({ host, tree }) => {
@@ -254,6 +293,30 @@ describe("a thermostat's schedule", () => {
       });
     });
     expect(settled).toBeGreaterThan(100);
+  });
+
+  it('takes time to warm to a raised set point, so the first reading after is still short of it', () => {
+    let raised = 0;
+    thermostats().forEach(({ host, tree }) => {
+      const schedule = scheduleOf(tree);
+      const readings = readingsOf(tree);
+      readings.slice(1).forEach((reading, index) => {
+        const before = readings[index];
+        if (before === undefined) return;
+        const was = inForce(schedule, before.at).celsius;
+        const now = inForce(schedule, reading.at).celsius;
+        // Only where the heating stepped up by two degrees or more from a room that had
+        // settled on the old set point.
+        if (now - was < 2 || Math.abs(before.temperature - was) > 1) return;
+        raised += 1;
+        expect({ host: host.hostname, at: reading.at, short: reading.temperature < now - 0.25 }).toEqual({
+          host: host.hostname,
+          at: reading.at,
+          short: true,
+        });
+      });
+    });
+    expect(raised).toBeGreaterThan(10);
   });
 
   it('follows the set point down as well as up', () => {

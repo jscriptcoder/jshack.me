@@ -239,11 +239,17 @@ is drawn from their own identity** (2–3 per scan), so choose the target AFTER 
 | A door on a non-default port | `ftp -p 2121 <host> <user>` — the port is a flag BEFORE the host, as nmap reported it |
 | `lynx printer-111` → `lynx: (3) URL rejected` | lynx wants a URL: `lynx http://printer-111/`. It is interactive: `ArrowDown` moves between the numbered links, `Enter` follows, `q` quits |
 
-**A device's own files** (a printer, camera or recorder — see `device.test.ts`): a camera keeps
-`/var/lib/motion/events.log` and `snapshots/` at its account's tier; a recorder keeps
-`/var/lib/nvr/<camera>.<zone>.lan/<date>/<snapshot>.jpg`, byte for byte the camera's own, and an
-`index.log`; a printer keeps its spool, `/var/log/cups/page_log.1` and `/etc/cups` for root only.
-Where one runs http it publishes its own pages (a printer's Jobs page shows `Withheld`). No LAN
+**A device's own files** (every IoT box is one — see the tests under `generation/device/`): each
+keeps its daemon's config world-readable under `/etc/<daemon>/` and its data under
+`/var/lib/<daemon>/` at its account's tier. A camera keeps `/var/lib/motion/events.log` and
+`snapshots/`; a recorder keeps `/var/lib/nvr/<camera>.<zone>.lan/<date>/<snapshot>.jpg`, byte for
+byte the camera's own, and an `index.log`; a printer keeps its spool, `/var/log/cups/page_log.1`
+and `/etc/cups` for root only. A sensor or thermostat keeps `/var/lib/sensord/readings.csv` (and a
+thermostat `schedule.conf`); a TV or speaker `/var/lib/mediad/{paired.conf,recent.log,apps.list}`,
+its pairings the network's real phones; a plug `/var/lib/plugd/{schedule.conf,energy.csv}`; a lock
+`/var/lib/lockd/slots.conf` and, root only, `/var/log/lockd/access.log.1`, naming who came in and
+the phone (hostname and IP) they came in by. Where one runs http it publishes its own pages (a
+printer's Jobs page shows `Withheld`; a lock's name nobody). No LAN
 printer in the catalog runs ftp or ssh, so its root-only spool is unreachable in play on the LAN;
 a recorder beside real cameras is `nvr-12` on LIB-2ND-FLOOR (ftp on 2121) with `doorbell-125`
 serving its Events page.
