@@ -6,8 +6,9 @@
 > Grilled 2026-09-21 (`grilling`), 25 locked decisions. Slices 0–9 delivered (as-built below).
 > Slice 9 grilled and planned 2026-09-24 and delivered in three PRs (#545, #546, #547; v0.261.0).
 > Slice 10 grilled 2026-09-25 (eight owner decisions, status log); its plan is `plans/a-gateway-knows-its-network.md`.
+> Its PR 10a shipped (#548, v0.262.0); PR 10b is next.
 
-**Where we are now (2026-09-25):** **v0.261.0**. The legacy-parity epic's V-series is closed and
+**Where we are now (2026-09-25):** **v0.262.0** — slice 10's first PR (#548) is in; PR 10b is next. The legacy-parity epic's V-series is closed and
 its next line was "the ship gate". **Ship now waits for this epic** (decision 1). Grilled to 25
 locked decisions and a twelve-slice spine. **Slices 0–9 are DONE** (#533, #534, #535, #536,
 #537 + #538, #539, #540, #541 + #542, #543 + #544, #545 + #546 + #547) — the build budgets, NPC
@@ -418,7 +419,7 @@ See below; planning refines it.
 | 7 | **Somebody wrote to somebody** — workstation mailboxes, the mail server's spool | a thread in `/var/mail/<user>` is between two real inhabitants of the network | ✅ **DONE** (#541 v0.255.0, #542 v0.256.0) — the correspondence, desk mailboxes, the spool and its database agreement; then `mail.log.1` carrying the spool's own queue ids, `/etc/aliases`, the postfix config honesty fixes and cron's mail to root. A phone keeps no mailbox but may hold cron's |
 | 8 | **A share holds a department** — fileserver `/srv`, metadata docs | `strings` on a shared PDF names its author, an inhabitant | ✅ **DONE** (#543 v0.257.0, #544 v0.258.0) — `/srv` on every file server, LAN and deep: a working share or dated snapshots by prefix, the category's departments, PDF/JPEG/office stubs whose metadata `strings` reads, authors from the one roster mail uses, `vsftpd.conf` stops claiming doors; then `vsftpd.log.1` recording every arrival from its author's machine to the byte, the `/srv` data disk in `fstab`, an allow-list `/etc/vsftpd.userlist`, and root's history naming `/srv` instead of samba, nfs and zfs. See as-built below |
 | 9 | **A device is the device it says** — IoT prefix overlays + prefix growth (the one re-roll: refresh pins, wire-checks, the `v2-e2e` skill) | a printer serves a CUPS page and holds spool jobs; a camera a recordings index | ✅ **DONE** — 9a (#545, v0.259.0), 9b (#546, v0.260.0), 9c (#547, v0.261.0); every IoT box keeps its daemon's config, its data and its own pages, and `device.conf` retired. See as-built below |
-| 10 | **A gateway knows its network** — DHCP leases, config backups, admin pages, admin/firmware history | a rooted router's lease table lists exactly the network's generated hosts | ⏳ |
+| 10 | **A gateway knows its network** — DHCP leases, config backups, admin pages, admin/firmware history | a rooted router's lease table lists exactly the network's generated hosts | 🚧 10a DONE (#548, v0.262.0) — leases and reservations on every router, a port table on every switch, one MAC per host; 10b (backups, admin UI, history) next. See the plan's as-built |
 | 11 | **A phone is a phone** — phone/tablet overlay | an NPC `android-` home holds `DCIM/` and `Download/`, not dotfiles | ⏳ |
 
 ## As-built: slices 0–1 (delivered 2026-09-21)
@@ -1440,3 +1441,12 @@ arc to be read in play.
   httpd get config and binary, no pidfile, so `ps`/`systemctl` do not change; (8) **no `/etc`
   breadth** — decision 9's gateway list only, keeping the AP at 5–10 files. Leases name generated
   machines only, never occupants (decision 4). Plan: `plans/a-gateway-knows-its-network.md`.
+- **2026-09-25** — **slice 10's PR 10a shipped** (#548, v0.262.0): a rooted router's
+  `dnsmasq.leases` lists exactly the generated machines on the segment it serves (the AP its LAN,
+  an inner or deep router the layer it fronts), its `dnsmasq.conf` reserves the other gateways
+  there, and a switch's `mac-table` names the one machine on its layer by MAC, hostname and IP. A
+  host's MAC is one fact of the network (`hostMac`, stream `mac-<machineId>`). The ESSID now
+  reaches the deep gateway builders; ids unchanged. The byte-diff added 363 files on gateways and
+  moved nothing else; the mutation gate added four tests; the played run matched the AP's leases
+  to `nmap` on SMART-FRIDGE-NET. Two collapses from the plan (one maker pool; a switch row names
+  its host), and `testSharedApForwards` recorded as a random-identity flake. Next: **PR 10b**.

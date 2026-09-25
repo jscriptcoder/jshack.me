@@ -4,14 +4,14 @@
 1–25, plus **eight owner decisions** (2026-09-25) recorded in the epic's status log and restated
 under "Decided at planning" below, with the derived points that follow from them.
 
-**Status:** Planned, not started.
+**Status:** PR 10a DELIVERED (#548, v0.262.0, 2026-09-25). PR 10b not started — it is unblocked.
 
 **Delivery:** two independent PRs against trunk, in order. 10b starts once 10a merges.
 
 | PR | Branch (proposed) | Version | Owns |
 |---|---|---|---|
-| 10a | `feat/a-gateway-knows-its-network` | v0.262.0 | per-host MACs; the ESSID reaches the deep gateway builders; dnsmasq leases and config on every router; a MAC table on every switch; the AP's serialized-size check |
-| 10b | `feat/a-gateway-remembers` | v0.263.0 | vendor-format config backups; the admin UI on disk; root's history; `.1` rotations of the gateway's live logs |
+| 10a | `feat/a-gateway-knows-its-network` | v0.262.0 | ✅ **DONE** (#548) — per-host MACs; the ESSID reaches the deep gateway builders; dnsmasq leases and config on every router; a MAC table on every switch; the AP's serialized-size check |
+| 10b | `feat/a-gateway-remembers` | v0.263.0 | ⏳ vendor-format config backups; the admin UI on disk; root's history; `.1` rotations of the gateway's live logs |
 
 Each PR bumps `v2/package.json` and `v2/package-lock.json` (`npm install --package-lock-only`).
 
@@ -230,6 +230,50 @@ read the leases, `nmap` the LAN and match every row; hop to a deep router and ma
 4. **Switch MAC tables**, inner and deep.
 5. **The AP's wire size and the carry cap.** The ceiling is measured and set; the transport test
    covers every gateway file.
+
+### As-built: PR 10a
+
+Four RED-GREEN increments and one guard increment as planned, one behaviour-preserving move
+before the second, then a mutation gate that added four tests. Squash-merged as `ab8a48b7`.
+
+- **Where it lives.** `generation/hostMac.ts` (`hostMac(machineId)`, stream `mac-<machineId>`) and
+  `generation/gatewayNetwork.ts`: one private `dhcpServer` writes `/etc/dnsmasq.conf` and
+  `/var/lib/misc/dnsmasq.leases`; `apGatewayNetwork`, `chainRouterNetwork` and `chainSwitchNetwork`
+  feed it or write `/var/lib/switch/mac-table`, each on `gw-net-<the gateway's own seed key>`.
+  `buildGatewayBaseFs` takes an optional `network` merged into `/etc` and `/var/lib`.
+- **The move first.** `ROUTER_HOSTNAMES` and the two gateway hostname seeds went to
+  `generation/gatewayHostname.ts`, unchanged: `routerFs` reading `generateHomeLan` would otherwise
+  import a module that imports it back. 18 importers followed, four of them wire-checks.
+- **A chain gateway finds itself on `chainLinks`.** Only the walk knows whether the layer it fronts
+  hangs a child (the depth bound), so both chain functions look the gateway up there; one the
+  network does not generate gets no network files (tested). The deep builders,
+  `resolveDeepGatewayIdentity` and `resolveChildGatewayHop` take the ESSID first; ids unchanged.
+- **Two departures from the plan.** MAC maker prefixes come from ONE pool of 14, not a pool shaped
+  by what the host is — no file shows a maker yet, so nothing could catch a wrong one (point 9
+  collapsed). And a switch's row carries the admin's port description `<hostname> (<ip>)`: a
+  switch runs no DHCP, so on a switch-fronted layer a bare MAC would lead nowhere.
+- **Every switch table is one row**, because a switch never hangs a child and a deep layer holds
+  one machine. 10b's UI and backups can say more about the switch; its table cannot.
+- **The AP's wire ceiling is 32,768 characters** of its root-tier serialized tree: ~15.2 KB before
+  the slice, ~16 KB after (10a adds 0.9–1.2 KB), leaving 10b about 16 KB. Both it and the carry-cap
+  test were seen to fail when broken on purpose (no production change, so no RED).
+- **Byte-diff** (every LAN host, chain gateway and deep machine on 54 networks): 46,777 files
+  identical, 0 changed, 0 removed, 363 added — the three files on 146 routers and 71 switches.
+- **Mutation:** 144 killed / 30 survived, 0 timeouts. `hostMac.ts` 8/8; `gatewayNetwork.ts` 89/99,
+  its survivors cosmetic config text or equivalent (`DAY_SECONDS + 1`, the `'switch'` kind
+  literal); the new `seed:` lines 8/8; the rest older `routerFs.ts` lines inside the reindented
+  ranges. The gate's four tests: the lease-file path, own-stream draws, unknown gateways, port and
+  VLAN shape. Fixtures are built inside each test (a file-level cache hides coverage).
+- **Budgets:** bundle 213,575 B of 284,975 B; build ~1.15 ms/box, the same as `main` measured on
+  the same machine that day (1.12–1.42 ms). The 0.689 ms recorded at slice 9 was a quieter machine.
+- **Wire-checks:** 13 of 14 clean. `testSharedApForwards` failed 2 of 4 runs on "B's guest
+  password on A's forwarded port is 401" — a random-identity collision in the guest pool, recorded
+  in the conventions doc beside the unit-test instances; not fixed here.
+- **Played run** (SMART-FRIDGE-NET): the AP's leases were `backup-34`, `android-115`, `nas-133`,
+  reserving `dist-rtr` (`.28`) and `net-gateway` (`.156`); `nmap` found exactly those plus the
+  player's `deskbox`. On `net-gateway` the leases named `nginx-106` and reserved switch
+  `fw-dmz-78`. A switch's table was not read in play: every switch fronts a deep layer, reached
+  only through a forward — the deep-chain pivot recipe is still unwritten.
 
 ---
 

@@ -1174,9 +1174,14 @@ construction.** `generateIdentity()` draws fresh keys every run, while the world
 LAN octets, hostnames) is seeded from the ESSID. Wherever those two spaces can collide, the test
 fails at a rate set by the smaller one:
 
-- guest passwords come from an **8-word** pool, so two random identities share one about **1 run
-  in 8** — which broke "Bob's password is refused on Alice's box": on a collision it was not a
-  wrong password at all.
+- guest passwords come from the crackable pool (**17 words** as of v0.262.0; it was 8 when this
+  was first written), so two random identities share one about **1 run in 17** — which broke
+  "Bob's password is refused on Alice's box": on a collision it was not a wrong password at all.
+  **The wire-check `testSharedApForwards` has the same shape and is not fixed**: its "B's guest
+  password on A's forwarded port is 401" check mints both players fresh, and failed 2 runs of 4
+  at 10a's gate (2026-09-25) while passing 8/8 between them. Draw B again until its guest
+  password differs from A's, per the remedy below; until then, re-run it before reading a
+  failure there as a regression.
 - a player's LAN octet is drawn from their pubkey while ~10 of 253 octets hold generated hosts,
   so **~1 run in 25** puts a real NPC at the "self" address — which broke `nmapScan`'s
   self-exclusion count (`hostsLogged: 1`, not 0).
