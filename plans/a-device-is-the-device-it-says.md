@@ -4,8 +4,8 @@
 1–25, plus **twelve owner decisions and the derived points confirmed with them** (2026-09-24),
 recorded in the epic's status log and restated under "Decided at planning" below.
 
-**Status:** PR 9a DELIVERED (#545, v0.259.0, 2026-09-24). PR 9b DELIVERED (#546, v0.260.0,
-2026-09-24). PR 9c not started — it is unblocked.
+**Status:** DELIVERED. PR 9a (#545, v0.259.0, 2026-09-24), PR 9b (#546, v0.260.0, 2026-09-24)
+and PR 9c (#547, v0.261.0, 2026-09-25) all merged; slice 9 is closed.
 
 **Delivery:** three independent PRs against trunk, in order. Each starts once the one before it
 merges.
@@ -14,7 +14,7 @@ merges.
 |---|---|---|---|
 | 9a | `feat/iot-prefix-growth` | v0.259.0 | ✅ **DONE** (#545) — `plug`, `lock`, `nvr`, `babycam` join iot; the one re-roll, its pins, docs and journal reset |
 | 9b | `feat/a-device-is-the-device-it-says` | v0.260.0 | ✅ **DONE** (#546) — device kinds; printer (CUPS config, spool, `page_log.1`, UI), camera (events, snapshots, UI), recorder (archive, UI), LAN and deep |
-| 9c | `feat/every-device-says-what-it-is` | v0.261.0 | ⏳ climate, media, plug, lock (configs, data, UIs), LAN and deep; `device.conf` and the generic IoT page pool retire |
+| 9c | `feat/every-device-says-what-it-is` | v0.261.0 | ✅ **DONE** (#547) — climate, media, plug, lock (configs, data, UIs), LAN and deep; `device.conf` and the generic IoT page pool retire |
 
 Each PR bumps `v2/package.json` and `v2/package-lock.json` (`npm install --package-lock-only`).
 
@@ -110,6 +110,71 @@ stack; the largest device file 2,167 characters of JSON against the 8,192 cap; b
 on the rest; once every kind returns files, that branch, `CONFIG_BY_ROLE.iot` and `IOT_PAGES`
 retire together. The pins that move then: `remoteHostFs.test.ts`'s `sensor` rows and
 `device.test.ts`'s "devices not yet built" block.
+
+### As-built: PR 9c
+
+A behaviour-preserving split first, then four RED-GREEN kinds, then the pages with the
+retirement, then a mutation gate that added ten tests and closed one hole.
+
+- **The split.** `generation/device.ts` keeps `buildDevice` and re-exports the public names; each
+  kind lives in `device/<kind>.ts` with its tests beside it, and `device/common.ts` holds the
+  kind table, `DeviceFiles`, the clock and `uiPage`. Shared test readers are in
+  `src/test/deviceBoxes.ts`; `device.test.ts` holds only what every kind shares.
+- **Where each kind keeps what.** Config world-readable under `/etc/<daemon>/`, data at the
+  account's tier under `/var/lib/<daemon>/`: `sensord` (`readings.csv`, a thermostat's
+  `schedule.conf`), `mediad` (`paired.conf`, `recent.log`, `apps.list`), `plugd`
+  (`schedule.conf`, `energy.csv`), `lockd` (`slots.conf`). The lock's log is root-only in
+  `/var/log/lockd/`, an empty `access.log` beside `access.log.1` — the fourth rotation that
+  spans more than a day. `DeviceFiles` gained a `log` field that merges into `/var/log`, so root's
+  history names it without a special case.
+- **Phones have owners already.** A phone's account is `npcUsername(essid, phone)`, the same
+  person `peopleOn` lists, so a pairing's name (`Duc's Pixel 6a`) and a lock's phone entry need no
+  new ownership stream; the model is `share.ts`'s `phoneModel`, now exported, so a TV and a
+  file server's photos agree.
+- **Values that behave.** A sensor's room follows the day; a thermostat's closes on the set point
+  in force (settling from a day before the first reading kept) and holds within a degree after
+  three hours; humidity falls as the air warms. Set points come in warm/cool pairs so a day ends
+  cool. A plug draws 30–100 % of its load only on days a rule ran. A play is cast only from a
+  phone paired before it.
+- **Pages.** 2–3 per kind, keyed by prefix in the shared test (a thermostat has the one page a
+  sensor lacks); every page links every other. The lock's pages show when it last opened and
+  how it is set, never who, which slot or which phone: those are its account's and root's.
+- **Version sweeps read measurements out.** A value with a unit (`21.4 °C`, `0.041 kWh`) is a
+  reading; `withoutMeasurements` strips it before the page sweeps in `device.test.ts` and
+  `webSite.test.ts`.
+- **Retired.** `CONFIG_BY_ROLE.iot` (`PooledConfigRole` now excludes `iot` at the type level),
+  `IOT_PAGES` and its row, `buildDevice`'s "kind keeps nothing yet" null; the config branch in
+  `remoteHostFs` reads `role === 'iot'`, and a device always publishes its own pages.
+- **Three things that differ from what the plan implied.** The "6–15 content files" clause is
+  not tested — every IoT box already holds 61–83 files, so a whole-box count cannot be 6–15. The
+  lock's UI is Status and Settings, not a slot list, since slot names are people and user-tier.
+  The media pairing test's floor is ten, not twenty: the world and 120 synthetic LANs hold only
+  ten media boxes beside a phone.
+- **Reachable in play, and not.** Played on v0.261.0: `thermostat-155` (STARK-WIFI) over curl,
+  readings following Saturday's set points; `plug-146` (PIED-PIPER, ftp on 2121 as `camadmin`),
+  energy only on its three scheduled days; `lock-200` (HOOLI-SEC, ftp as root), its log refused
+  to guest and 21 keypad unlocks matching `slots.conf`, its pages naming nobody. **No file that
+  names a phone is reachable on a catalog LAN:** the one lock whose log names a phone
+  (`lock-248`, GROUND-ZERO-COFFEE) runs http alone, and the two media boxes with pairings run no
+  service; the unit tests hold them.
+- **The byte-diff** (`main` against the branch, 36,980 files): 0 unexpected paths. Only the 55
+  climate, media, plug and lock boxes moved — `device.conf` removed, their files added, pages and
+  `access.log.1` rewritten where http runs, root's history where it names the new configs.
+- **Mutation**, three scoped runs: `climate.ts` 73.9 % → 79.4 %, `media.ts` 75.3 % → 82.4 %,
+  `plug.ts` 79.0 % → 80.5 %, `lock.ts` 77.1 % → 80.2 %; `device.ts` and `remoteHostFs.ts`'s
+  changed lines 58/3. The gate's hole: the lock test compared `undefined` with `undefined` for a
+  phone owner, so a lock letting everyone in by keypad passed. All 21 targeted mutants were
+  applied by hand and fail, three of them runner misreports. Left: fixed text, tuning values,
+  guards equivalent on a generated world, and mutants `device.test.ts` kills outside the runs.
+
+**Verified:** 5,990 unit tests; wire-checks `testSameLanConnect` 4/4, `testCrossPlayerRead` 7/7,
+`testDeepChainReach` 6/6, `testFtpRemoteRead` 7/7 and `testFtpTransferTrace` 13/13 on a reset local
+stack; the largest device file 5,603 characters of JSON (a thermostat's `readings.csv`) against
+the 8,192 cap; bundle 212,718 B of 284,975 B; build 0.689 ms per box of 2 ms.
+
+**Left open.** A lock's unlocks are drawn evenly over the day, so some fall at 3 a.m.; and the
+phone-naming files wait for a door (a service on a media box or lock beside a phone) or the CVE
+arc to be read in play.
 
 ---
 

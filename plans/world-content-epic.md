@@ -4,20 +4,21 @@
 > status. The grounding section records what v2 held on the day this was grilled; the code wins
 > wherever the two disagree.
 > Grilled 2026-09-21 (`grilling`), 25 locked decisions. Slices 0–8 delivered (as-built below).
-> Slice 9 grilled and planned 2026-09-24 in `a-device-is-the-device-it-says.md`; PRs 9a (#545,
-> v0.259.0) and 9b (#546, v0.260.0) shipped; PR 9c is next.
+> Slice 9 grilled and planned 2026-09-24 in `a-device-is-the-device-it-says.md` and delivered in
+> three PRs (#545, #546, #547; v0.261.0). Slice 10 is next.
 
-**Where we are now (2026-09-24):** **v0.260.0**. The legacy-parity epic's V-series is closed and
+**Where we are now (2026-09-25):** **v0.261.0**. The legacy-parity epic's V-series is closed and
 its next line was "the ship gate". **Ship now waits for this epic** (decision 1). Grilled to 25
-locked decisions and a twelve-slice spine. **Slices 0–8 are DONE** (#533, #534, #535, #536,
-#537 + #538, #539, #540, #541 + #542, #543 + #544) — the build budgets, NPC
+locked decisions and a twelve-slice spine. **Slices 0–9 are DONE** (#533, #534, #535, #536,
+#537 + #538, #539, #540, #541 + #542, #543 + #544, #545 + #546 + #547) — the build budgets, NPC
 workstation homes, every NPC box's `/etc`, `/root`, `.ssh/` and `/home/guest`, every NPC box's
 rotated `.1` history plus `syslog`, a
 three-layer site on every webserver (with lynx tables/`<pre>` and `.lan` names in the web tools),
 an application in every NPC database, that application's working set in every NPC store, the
 network's own correspondence in `/var/mail` with the mail server's records agreeing with it, and
 a department share under `/srv` on every file server with the server's own records agreeing
-with it; their
+with it, and every IoT box the device its name says (its daemon's config, its data and its own
+pages); their
 as-built is folded into the slice spine and the "As-built" sections below.
 **Decision 19 was amended at planning** (budget first, memoize on breach) and **decision 6 was
 narrowed at slice 2's planning** (the player workstation gains an empty `/home/guest`). Slice 3's
@@ -29,7 +30,8 @@ and one during the build (no counter in a spec counts part of another). Slice 7'
 planning and four derived from precedent, with no decision-15 amendment — mail is new content on
 new streams, so nothing already generated re-rolled. Slice 8's took four at planning with eleven
 confirmed recommendations, and three during the build (recorded in its as-built), again with no
-re-roll.
+re-roll. Slice 9's took twelve owner decisions at planning, with decision 7's one re-roll (the
+four new IoT prefixes, 9a).
 
 ---
 
@@ -415,7 +417,7 @@ See below; planning refines it.
 | 6 | **A store serves that application** — Redis keyspaces paired with the app | `KEYS sess:*` returns sessions for that app's real users | ✅ DONE (#540, v0.254.0) — 43 stores, all reading differently; decision 15 amended (store locks re-rolled once); a bought store is a fresh install; see as-built below |
 | 7 | **Somebody wrote to somebody** — workstation mailboxes, the mail server's spool | a thread in `/var/mail/<user>` is between two real inhabitants of the network | ✅ **DONE** (#541 v0.255.0, #542 v0.256.0) — the correspondence, desk mailboxes, the spool and its database agreement; then `mail.log.1` carrying the spool's own queue ids, `/etc/aliases`, the postfix config honesty fixes and cron's mail to root. A phone keeps no mailbox but may hold cron's |
 | 8 | **A share holds a department** — fileserver `/srv`, metadata docs | `strings` on a shared PDF names its author, an inhabitant | ✅ **DONE** (#543 v0.257.0, #544 v0.258.0) — `/srv` on every file server, LAN and deep: a working share or dated snapshots by prefix, the category's departments, PDF/JPEG/office stubs whose metadata `strings` reads, authors from the one roster mail uses, `vsftpd.conf` stops claiming doors; then `vsftpd.log.1` recording every arrival from its author's machine to the byte, the `/srv` data disk in `fstab`, an allow-list `/etc/vsftpd.userlist`, and root's history naming `/srv` instead of samba, nfs and zfs. See as-built below |
-| 9 | **A device is the device it says** — IoT prefix overlays + prefix growth (the one re-roll: refresh pins, wire-checks, the `v2-e2e` skill) | a printer serves a CUPS page and holds spool jobs; a camera a recordings index | ⏳ 9a ✅ (#545, v0.259.0), 9b ✅ (#546, v0.260.0) — 9c climate/media/plug/lock next |
+| 9 | **A device is the device it says** — IoT prefix overlays + prefix growth (the one re-roll: refresh pins, wire-checks, the `v2-e2e` skill) | a printer serves a CUPS page and holds spool jobs; a camera a recordings index | ✅ **DONE** — 9a (#545, v0.259.0), 9b (#546, v0.260.0), 9c (#547, v0.261.0) |
 | 10 | **A gateway knows its network** — DHCP leases, config backups, admin pages, admin/firmware history | a rooted router's lease table lists exactly the network's generated hosts | ⏳ |
 | 11 | **A phone is a phone** — phone/tablet overlay | an NPC `android-` home holds `DCIM/` and `Download/`, not dotfiles | ⏳ |
 
@@ -1220,3 +1222,12 @@ is over it on 102 boxes, and every tier reads it, so a guest who `get`s it meets
   mutation gate ran as three scoped runs and added sixteen tests; no LAN printer in the catalog
   runs ftp or ssh, so the played run read a printer through its Jobs page and a recorder over ftp.
   Next: **PR 9c** (climate, media, plug, lock; `device.conf` and the generic IoT pages retire).
+- **2026-09-25** — **slice 9's PR 9c shipped** (#547, v0.261.0), **closing slice 9**: a sensor
+  keeps readings that follow the day and a thermostat readings that follow its schedule; a TV or
+  speaker the network's phones, named for their owners, and what was cast from them; a plug the
+  energy its schedule drew; a lock named keypad slots and a root-only log of who came in, by
+  their own phone where they have one. `device.conf` and the generic IoT pages retired, so every
+  IoT box is the device its name says. The byte-diff moved only those 55 boxes; the mutation
+  gate added ten tests and closed a lock test that compared `undefined` with `undefined`. No
+  file naming a phone is reachable on a catalog LAN yet. Next: **slice 10** (a gateway knows its
+  network).
