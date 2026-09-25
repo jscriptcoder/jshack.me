@@ -10,6 +10,13 @@ import { computeDeepGatewayId } from '../identity/router';
 import { WORLD_EPOCH } from '../cve/worldClock';
 import { ALL_ESSIDS } from '../../test/worldContent';
 import type { Directory, FileNode } from '../filesystem/types';
+import { serializeTree } from '../filesystem/treeCodec';
+import { filterTreeForRead } from '../patches/readFilter';
+import { createPatchApi } from '../../adapters/patchApi';
+import { generateIdentity } from '../identity/identity';
+import { computeWorkstationId } from '../identity/workstation';
+import { signedEnvelopeSchema } from '../signedRequest/types';
+import { asAbsPath, asMachineId } from '../types';
 
 const LEASES_PATH = 'var/lib/misc/dnsmasq.leases';
 const CONFIG_PATH = 'etc/dnsmasq.conf';
@@ -234,5 +241,59 @@ describe('a switch knows the layer it fronts', () => {
       expect(nodeAt(device.tree, CONFIG_PATH), device.name).toBeUndefined();
       expect(nodeAt(device.tree, LEASES_PATH), device.name).toBeUndefined();
     }
+  });
+});
+
+/** The ceiling on the access point's tree as it crosses the wire to a remote reader: the
+ *  only gateway tree that is serialized, sent to every occupant who reads it. Measured at
+ *  about 16 KB with the leases in, and set at double to leave room for the box's history
+ *  without letting it grow unwatched. */
+const AP_WIRE_CEILING = 32_768;
+
+describe('what a gateway costs to carry', () => {
+  it('keeps the access point small on the wire, at the most a reader can see', () => {
+    for (const essid of ALL_ESSIDS) {
+      const wire = JSON.stringify(serializeTree(filterTreeForRead(buildApGatewayBaseFs(essid), 'root')));
+      expect(wire.length, essid).toBeLessThan(AP_WIRE_CEILING);
+    }
+  });
+
+  it('fits every file a gateway knows of its network into the one signed write that saves it', async () => {
+    const identity = generateIdentity();
+    const sent: string[] = [];
+    const patches = createPatchApi({
+      identity,
+      machineId: asMachineId(computeWorkstationId('deskbox', identity.publicKeyHex)),
+      owner: 'operator',
+      tier: 'user',
+      fetchImpl: async (_url, init) => {
+        sent.push(String(init?.body));
+        return new Response('{}', { status: 200 });
+      },
+    });
+    // The write's size is what the transport limits, and a file's escaped length is what
+    // decides it, so the files hardest to carry are the ones sent.
+    const files = [
+      ...ROUTERS.flatMap((router) => [LEASES_PATH, CONFIG_PATH].map((path) => [router.name, router.tree, path] as const)),
+      ...SWITCHES.map((device) => [device.name, device.tree, MAC_TABLE_PATH] as const),
+    ];
+    expect(files.length).toBeGreaterThan(0);
+    const hardest = files
+      .map(([name, tree, path]) => [`${name}:/${path}`, contentAt(tree, path)] as const)
+      .sort(([, one], [, other]) => JSON.stringify(other).length - JSON.stringify(one).length)
+      .slice(0, 20);
+
+    for (const [path, content] of hardest) {
+      await patches.write(asAbsPath(`/home/operator/${path.split('/').pop() ?? ''}`), content, {
+        isNew: true,
+      });
+    }
+    expect(sent).toHaveLength(hardest.length);
+    sent.forEach((body, index) => {
+      expect(
+        signedEnvelopeSchema.safeParse(JSON.parse(body)).success,
+        `${hardest[index]?.[0]}: ${JSON.stringify(hardest[index]?.[1]).length} escaped`,
+      ).toBe(true);
+    });
   });
 });
