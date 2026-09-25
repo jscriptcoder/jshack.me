@@ -18,9 +18,10 @@ axis lands a silent refusal on every router-class box (84) and is unreachable fr
 second fortnight on (89). Slice 8 before it (libraries fall, #519–#527, v0.235.0–v0.243.0) is in the
 `### Phase 3 slice 8` section; together slices 8 and 9 delivered V4. **All nine Phase 3 slices are
 shipped** — the loop, the effect set, the cross-network route, the defender's patch, reboot
-eviction, and both halves of local escalation (libraries and firmware). **Next is the ship gate —
-which now WAITS for the generated world content epic** ([`world-content-epic.md`](./world-content-epic.md),
-grilled 2026-09-21, 25 locked decisions; owner decision: content is inside the ship gate).
+eviction, and both halves of local escalation (libraries and firmware). **Next is the ship gate**,
+which waited for the generated world content epic ([`world-content-epic.md`](./world-content-epic.md);
+owner decision: content is inside the ship gate). **That epic is DONE** (2026-09-25, v0.264.0, all
+twelve slices, #533–#550), so the ship gate is unblocked.
 The `Status` block below is an accumulating log, not the current state.
 
 **Status**: **D1 shipped** (v0.109.0), with its web follow-ups D1c (v0.123.0-v0.124.0), D1b
@@ -422,7 +423,7 @@ PHASE 3 — VULNERABILITIES                             GRILLED 09-09/09-10 + PL
       V slice 7 reboot evicts                 ✔ SHIPPED v0.231.0-v0.234.0 (#515-#518) <- V3 CLOSED
       V slice 8 libraries fall                ✔ SHIPPED v0.235.0-v0.243.0 (#519-#527)
       V slice 9 firmware falls                ✔ SHIPPED v0.244.0-v0.247.0 (#528,#529,#531,#532) <- CLOSED V4 and the V-SERIES
-WORLD CONTENT — its own epic (world-content-epic.md)     GRILLED 2026-09-21 (25 decisions), ship waits for it
+WORLD CONTENT — its own epic (world-content-epic.md)     ✔ DONE v0.248.0-v0.264.0 (#533-#550) <- SHIP UNBLOCKED
 ────────────────────────── SHIP ──────────────────────────
 POST-SHIP — MISSIONS
 ```

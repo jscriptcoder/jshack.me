@@ -561,11 +561,12 @@ before touching it:
     shared client+server module in the door, so `testCrossPlayerWrite` grew checks 13-15 (15/15)
     and was shown to fail against the pre-slice materializer.
 
-**Next, before ship — generated world content:**
+**Generated world content — DONE (2026-09-25, v0.264.0):**
 [`plans/world-content-epic.md`](../../plans/world-content-epic.md), grilled 2026-09-21 to 25 locked
-decisions and a twelve-slice spine. Ship waits for it. Every generated box (never a player
-workstation) gets believable, persona-coherent content — no loot, no new verbs, every reference
-true within its network, history frozen at `WORLD_EPOCH` in rotated `.1` logs.
+decisions and a twelve-slice spine, all twelve shipped (#533–#550). Every generated box (never a
+player workstation) holds believable, persona-coherent content — no loot, no new verbs, every
+reference true within its network, history frozen at `WORLD_EPOCH` in rotated `.1` logs. Ship
+waited for it; **the ship gate is next** (see the legacy-parity epic's "Where we are now").
 
 To pick up the next slice: read [`plans/world-content-epic.md`](../../plans/world-content-epic.md)
 — its "Where we are now" line and slice table — or, for parity history,

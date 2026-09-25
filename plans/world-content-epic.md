@@ -3,15 +3,17 @@
 > **Picking this up cold?** Read "Locked decisions", then the slice table — it carries the live
 > status. The grounding section records what v2 held on the day this was grilled; the code wins
 > wherever the two disagree.
-> Grilled 2026-09-21 (`grilling`), 25 locked decisions. Slices 0–10 delivered (as-built below).
+> Grilled 2026-09-21 (`grilling`), 25 locked decisions. **All twelve slices (0–11) delivered —
+> the epic is DONE** (as-built below).
 > Slice 10 grilled and planned 2026-09-25 (eight owner decisions, status log) and delivered in two
-> PRs (#548, #549; v0.263.0). Slice 11 grilled 2026-09-25 (thirteen decisions, owner-delegated,
-> status log) and planned (`plans/a-phone-is-a-phone.md`); implementation is next.
+> PRs (#548, #549; v0.263.0). Slice 11 grilled and planned 2026-09-25 (thirteen decisions,
+> owner-delegated, status log) and delivered in one PR (#550, v0.264.0).
 
-**Where we are now (2026-09-25):** **v0.263.0** — slice 10 is DONE (#548, #549); slice 11 is grilled and planned; implementation is next. The legacy-parity epic's V-series is closed and
-its next line was "the ship gate". **Ship now waits for this epic** (decision 1). Grilled to 25
-locked decisions and a twelve-slice spine. **Slices 0–10 are DONE** (#533, #534, #535, #536,
-#537 + #538, #539, #540, #541 + #542, #543 + #544, #545 + #546 + #547, #548 + #549) — the build budgets, NPC
+**Where we are now (2026-09-25):** **v0.264.0** — **the epic is DONE**: slice 11 shipped (#550)
+and closed out. The legacy-parity epic's V-series is closed and its next line was "the ship gate",
+which waited for this epic (decision 1) — **the ship gate is next**. Grilled to 25 locked
+decisions and a twelve-slice spine. **All twelve slices are DONE** (#533, #534, #535, #536,
+#537 + #538, #539, #540, #541 + #542, #543 + #544, #545 + #546 + #547, #548 + #549, #550) — the build budgets, NPC
 workstation homes, every NPC box's `/etc`, `/root`, `.ssh/` and `/home/guest`, every NPC box's
 rotated `.1` history plus `syslog`, a
 three-layer site on every webserver (with lynx tables/`<pre>` and `.lan` names in the web tools),
@@ -20,7 +22,8 @@ network's own correspondence in `/var/mail` with the mail server's records agree
 a department share under `/srv` on every file server with the server's own records agreeing
 with it, and every IoT box the device its name says (its daemon's config, its data and its own
 pages), and every gateway a map of its network and a memory of who ran it (leases or a port
-table, its admin's history and logins, vendor backups and admin pages); their
+table, its admin's history and logins, vendor backups and admin pages), and every phone and
+tablet a device's storage (its own photos, its person's downloads and notes); their
 as-built is folded into the slice spine and the "As-built" sections below.
 **Decision 19 was amended at planning** (budget first, memoize on breach) and **decision 6 was
 narrowed at slice 2's planning** (the player workstation gains an empty `/home/guest`). Slice 3's
@@ -421,7 +424,7 @@ See below; planning refines it.
 | 8 | **A share holds a department** — fileserver `/srv`, metadata docs | `strings` on a shared PDF names its author, an inhabitant | ✅ **DONE** (#543 v0.257.0, #544 v0.258.0) — `/srv` on every file server, LAN and deep: a working share or dated snapshots by prefix, the category's departments, PDF/JPEG/office stubs whose metadata `strings` reads, authors from the one roster mail uses, `vsftpd.conf` stops claiming doors; then `vsftpd.log.1` recording every arrival from its author's machine to the byte, the `/srv` data disk in `fstab`, an allow-list `/etc/vsftpd.userlist`, and root's history naming `/srv` instead of samba, nfs and zfs. See as-built below |
 | 9 | **A device is the device it says** — IoT prefix overlays + prefix growth (the one re-roll: refresh pins, wire-checks, the `v2-e2e` skill) | a printer serves a CUPS page and holds spool jobs; a camera a recordings index | ✅ **DONE** — 9a (#545, v0.259.0), 9b (#546, v0.260.0), 9c (#547, v0.261.0); every IoT box keeps its daemon's config, its data and its own pages, and `device.conf` retired. See as-built below |
 | 10 | **A gateway knows its network** — DHCP leases, config backups, admin pages, admin/firmware history | a rooted router's lease table lists exactly the network's generated hosts | ✅ **DONE** — 10a (#548, v0.262.0), 10b (#549, v0.263.0); every router leases its segment and every switch maps its port, and every gateway remembers its admin, their history, its last day, its backups and its admin pages. See as-built below |
-| 11 | **A phone is a phone** — phone/tablet overlay | an NPC `android-` home holds `DCIM/` and `Download/`, not dotfiles | ⏳ grilled and planned 2026-09-25 (status log); one PR; plan `plans/a-phone-is-a-phone.md` |
+| 11 | **A phone is a phone** — phone/tablet overlay | an NPC `android-` home holds `DCIM/` and `Download/`, not dotfiles | ✅ **DONE** (#550, v0.264.0) — every NPC phone and tablet, LAN and deep: a maker-shaped layout, photos stamped with its own model (tablets gained models on their own stream), downloaded PDFs with now and then a place paper by a real inhabitant, a few notes, 10–25 files. See as-built below |
 
 ## As-built: slices 0–1 (delivered 2026-09-21)
 
@@ -1307,7 +1310,94 @@ and one performance fix the build budget forced. Squash-merged as `b2f7df99` (#5
   uhttpd bound `127.0.0.1:80` over `/www/{index,dhcp}.html`. `nmap 192.168.6.130` found
   `workstation-130` with ssh open, and `ssh rjohnson@` landed in a lived-in `/home/rjohnson`.
 
+## As-built: slice 11 (delivered 2026-09-25)
+
+Retired here from `a-phone-is-a-phone.md` on close-out. One PR, **#550** (v0.264.0), squash-merged
+as `852277bc`: every NPC `android-`, `iphone-` and `tablet-`, on the LAN and below it, keeps a
+device's storage in its person's home instead of the empty one it had since slice 1.
+
+**Owner decisions.** Thirteen at grilling (2026-09-25), all delegated to the recommendations and
+confirmed as a set; recorded in the status log below. None changed during the build.
+
+### PR 11 — a phone is a phone
+
+Seven increments as planned (five RED-GREEN, one guard-only sweep, one doc), then a mutation gate
+that added five tests and one draw rewrite.
+
+- **Where it lives.** `generation/phoneHome.ts` — `buildPhoneHome` and `deviceModel` (a tablet's
+  `tabletModel` on stream `tablet-<essid>-<ip>`, otherwise the share's `phoneModel`) — and
+  `generation/pools/phoneFiles.ts` (`TABLET_MODELS`, `PERSONAL_DOWNLOADS`, `PLACE_DOWNLOADS` per
+  network category, `PHONE_NOTES`). `buildNpcHome` hands any box `deviceModel` names to
+  `buildPhoneHome` before its desk check; `share.ts` now exports its `Device` type. Every draw is
+  on one new stream, `phone-content-<essid>-<ip>`; nothing already generated re-rolled.
+- **A layout per maker.** Android (every `android-`, a non-Apple tablet): `DCIM/Camera/`,
+  `Download/`, `Documents/`, empty `Movies/`, `Music/`, `Pictures/`. Apple (every `iphone-`, an
+  iPad): `DCIM/100APPLE/`, `Downloads/`, `Documents/`. The layout keys on `make === 'Apple'`.
+- **Photos.** 6–16 `renderDocument` JPEGs on 4–10 distinct shooting days in the 730 before the
+  epoch, each day a burst that starts between 08:00 and 20:00 and steps 3–300 s, sorted oldest
+  first. Android names them `IMG_YYYYMMDD_HHMMSS.jpg` from the moment; Apple numbers them on one
+  counter that starts at 1–7000 and rises 1–4 a photo. Exif carries the device's make and model
+  and no artist.
+- **Downloads.** 2–6 distinct personal PDFs credited to their invented issuer; on a home LAN a 0.6
+  chance of one more from the persona category's pool, credited to a `peopleOn` inhabitant (any,
+  the device's own person included). A `{ref}` slot takes a five-digit number. A paper is made
+  `MAX_EDIT_SECONDS + 1` to 730 days before the epoch in ONE draw and saved 0–2 days later, so no
+  save reaches the epoch — the gate showed the first version's day-plus-second draw and
+  `Math.min` edit cap could, on a one-in-86,400 draw.
+- **Notes.** 0–3 of ten `PHONE_NOTES`, filled by `npcHome`'s `fillSlots` with the persona's place,
+  a `COLLEAGUES` first name and a small count. The count is drawn in
+  `[max(0, 10 − n), min(3, 25 − n)]` where `n` is photos plus downloads (8–23), so every device
+  holds 10–25 files by construction. `phoneHome` and `npcHome` import each other; neither calls
+  the other at load, and lint accepts it.
+- **Tiers.** Everything is the box's account's at `HOME_DIR`/`HOME_FILE`; a guest lists none of it.
+- **Two findings worth keeping.** `strings` breaks a run at the first character above ASCII, so
+  titles and authors are ASCII and a place paper's title never carries the place's name (`the
+  café`). And the synthetic deep boxes `test/deviceBoxes.ts` builds put every prefix on the SAME
+  address, so two of them share a `phone-content` stream; variety is measured over machines a
+  network really placed.
+
+**Deviations from the plan.** None in scope. The plan's `.ssh/`, mailbox and history exclusions
+held without code (`sshContent` and `mailbox` already skipped non-desk boxes). The conventions doc
+never claimed phones were empty, so step 7 touched only `npcHome.ts`'s header; the `v2-e2e` recipe
+was written from the played run instead.
+
+**Evidence.**
+- **Tests:** `phoneHome.test.ts` (29), reading every device through its tree and `strings`: layout
+  per maker, photo count, model, artist, name-to-moment agreement, burst days and window, the
+  Apple counter's order, tablet models and layout, `phoneModel` untouched for tablets, download
+  count, dates, edit window and spread, issuers, at most one place paper by a real inhabitant,
+  notes, the 10–25 band with both edges reached, a 1,500-network sweep for the cap on a nearly
+  full device, no version, no generated password, every pool entry drawn, no two placed devices
+  alike, the carry cap. `npcHome.test.ts`'s empty-home pin narrowed to non-personal boxes.
+- **Mutation** (json reporter, one file at a time, 0 timeouts): `phoneHome.ts` 122/125 (97.6%),
+  `pools/phoneFiles.ts` 193/193, `npcHome.ts`'s routing lines 8/8. Survivors: a burst walked
+  backwards (equivalent — the moments are sorted), `>=` against 0.6 (equivalent), and
+  `MAX_EDIT_SECONDS + 1` → `- 1` (a two-second boundary no deterministic world reaches). The
+  gate's kills: nothing had required a paper to be saved again or its title, author and name to
+  be non-empty (60 pool mutants, because the tests compared against the pool itself); the note
+  cap only binds at 23 files, which one device in ~90 reaches.
+- **Byte-diff** (`main` vs branch, 2,416 boxes over the catalog, the four uncatalogued and 120
+  synthetic networks): 5,588 paths added, all under an `android-`, `iphone-` or `tablet-` home; 0
+  changed, 0 removed.
+- **Budgets:** bundle 221,518 B of 284,975 B; build 0.863 ms/box of 2 ms (0.854 after step 1,
+  0.866 after the downloads — `peopleOn` per LAN device cost nothing measurable).
+- **No wire-check:** no `api/` file changed and no gateway or AP tree moved.
+- **Played run** (ESPRESSO-EXPRESS, v0.264.0): `ssh agarcia@192.168.232.180` (`tablet-180`, a
+  Galaxy Tab A8); `ls -a` showed the six Android folders and no dotfile; `strings` on
+  `IMG_20260708_120018.jpg` read `Samsung` / `Galaxy Tab A8` / `2026:07:08 12:00:18`; `Download/`
+  held seven PDFs, `menu.pdf` by Nina Williams, who is `nwilliams` at `workstation-140` and
+  answered `ping 192.168.232.140`; `Documents/` held `books.txt` and `wishlist.txt`. No scan offered
+  an ssh-reachable Apple device, so Apple's layout rests on the tests.
+
 ## Open for planning (named, deliberately not decided)
+
+- **Tablets as photo devices, pairings and lock entries** (deferred at slice 11's grill). A share's
+  photos, a media box's pairings and a lock's log name phones only; letting them name tablets
+  re-rolls slices 8 and 9's content. Whoever does it reads `tabletModel`, never extends
+  `PHONE_MODELS`, or the two will disagree.
+- **A phone-shaped `/root` and `/etc`, and screenshots** (deferred at slice 11's grill). A phone's
+  `/root`, `/etc` and logs are still the workstation role's; a screenshot needs PNG, a new
+  document format.
 
 - The memoization key and cache bound on each end (client, serverless instance), and whether the
   derived network population is memoized alongside the tree — only if the build-time budget breaks.
@@ -1638,5 +1728,13 @@ and one performance fix the build budget forced. Squash-merged as `b2f7df99` (#5
   `v2-e2e` onto an ssh-reachable phone; docs follow (decision 24) — `npcHome.ts`'s header and
   `conventions-and-gotchas.md` wherever they say phones keep empty homes. **Deferred:** tablets as
   photo devices, pairings and lock entries (it would re-roll slices 8 and 9's content); phone-shaped
-  `/root` and `/etc`; screenshots (PNG is a new format). Plan: `plans/a-phone-is-a-phone.md`, seven
+  `/root` and `/etc`; screenshots (PNG is a new format). Plan: `plans/a-phone-is-a-phone.md`, retired into slice 11's as-built on close-out; seven
   TDD increments in one PR; its main risk is the build budget (1.53–1.67 of 2 ms/box).
+- **2026-09-25** — **slice 11 shipped; the epic is DONE** (#550, v0.264.0, `852277bc`). Every NPC
+  phone and tablet keeps a device's storage in its person's home: a maker-shaped layout, 6–16
+  photos stamped with its own model, 2–6 downloaded PDFs plus now and then a place paper by a real
+  inhabitant, and 0–3 notes, 10–25 files in all. Tablets gained models on their own stream;
+  `phoneModel` untouched. Mutation 97.6% / 100% / 100% after a gate that added five tests and made
+  a paper's date one draw; the byte-diff added files under phone and tablet homes only; the
+  played run on ESPRESSO-EXPRESS traced `menu.pdf` to its author's machine. **Next: the ship gate**
+  (`legacy-parity-epic.md`), which waited on this epic.
