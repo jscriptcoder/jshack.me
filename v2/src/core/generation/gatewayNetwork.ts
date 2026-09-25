@@ -16,10 +16,12 @@ import { hostMachineId } from './remoteHostId';
 import { computeDeepGatewayId } from '../identity/router';
 import { WORLD_EPOCH } from '../cve/worldClock';
 
-/** The files a gateway's network knowledge adds, grouped by the directory they join. */
+/** The files a gateway's network knowledge adds, grouped by the directory they join,
+ *  and the addresses of the hosts those files name. */
 export type GatewayNetworkEntries = {
   readonly etc: Record<string, FileNode>;
   readonly varLib: Record<string, FileNode>;
+  readonly hosts: readonly string[];
 };
 
 /** A host on the segment, with the machine id that fixes its MAC. */
@@ -72,6 +74,7 @@ const dhcpServer = (options: {
   return {
     etc: { 'dnsmasq.conf': file(`${config}\n${reservations}`, SERVICE_CONFIG_FILE) },
     varLib: { misc: dir({ 'dnsmasq.leases': file(leases, SERVICE_CONFIG_FILE) }, TRAVERSABLE_DIR) },
+    hosts: [...machines, ...gateways].map(({ host }) => host.ip),
   };
 };
 
@@ -142,5 +145,6 @@ export const chainSwitchNetwork = (options: {
   return {
     etc: {},
     varLib: { switch: dir({ 'mac-table': file(table, SERVICE_CONFIG_FILE) }, TRAVERSABLE_DIR) },
+    hosts: [host.ip],
   };
 };

@@ -111,6 +111,38 @@ export const ROOT_HISTORY: readonly string[] = [
   'clear',
 ];
 
+/** Commands a gateway's admin types, whatever the gateway is. A gateway keeps far less
+ *  than a server — no homes, no crontab, no `/etc/hosts` — so every path here is one
+ *  every gateway has, and nothing names the firmware's version. */
+export const GATEWAY_ROOT_HISTORY: readonly string[] = [
+  'uptime',
+  'free -m',
+  'df -h',
+  'ps',
+  'ps aux',
+  'top',
+  'who',
+  'w',
+  'last',
+  'date',
+  'dmesg | tail',
+  'ip a',
+  'ip route',
+  'ip neigh',
+  'ifconfig',
+  'ss -tlnp',
+  'netstat -rn',
+  'cat /etc/passwd',
+  'ls /etc',
+  'ls -la /var/log',
+  'ls /var/run',
+  'dpkg -l',
+  'history',
+  'reboot',
+  'exit',
+  'clear',
+];
+
 /** Commands flavoured by what the box is for — still local, still naming only paths
  *  every box of that role has. Keyed by role; a box whose name claims no role gets none
  *  of these. */

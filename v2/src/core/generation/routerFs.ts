@@ -31,6 +31,7 @@ import {
   generatePasswd,
   PASSWD_FILE,
   ROOT_DIR,
+  ROOT_FILE,
   SHELL,
   TMP_DIR,
   TRAVERSABLE_DIR,
@@ -52,7 +53,12 @@ import {
   chainSwitchNetwork,
   type GatewayNetworkEntries,
 } from './gatewayNetwork';
-import { computeDeepGatewayId, computeInnerGatewayId } from '../identity/router';
+import {
+  computeApGatewayId,
+  computeDeepGatewayId,
+  computeInnerGatewayId,
+} from '../identity/router';
+import { gatewayRootHistory } from './gatewayHistory';
 
 /** The AP gateway's root account plaintext password, seeded from the ESSID alone
  *  (the `ap-gw-admin-` namespace) so every occupant of the access point faces the
@@ -168,7 +174,9 @@ const buildGatewayBaseFs = (
     readonly firmwareSeed: string;
   },
   configEntries: Record<string, FileNode>,
-  network: GatewayNetworkEntries = { etc: {}, varLib: {} },
+  /** Which gateway this is, so it can know who ran it. */
+  site: { readonly essid: string; readonly machineId: string },
+  network: GatewayNetworkEntries = { etc: {}, varLib: {}, hosts: [] },
 ): Directory => {
   const passwd = generatePasswd([
     {
@@ -226,6 +234,21 @@ const buildGatewayBaseFs = (
       }
     : {};
   const varLibEntries: Record<string, FileNode> = { ...snmpStateEntries, ...network.varLib };
+  const logEntries: Record<string, FileNode> = {
+    'access.log': file('', ACCESS_LOG_PERMISSIONS),
+    'auth.log': file('', AUTH_LOG_PERMISSIONS),
+    'kern.log': file('', KERN_LOG_PERMISSIONS),
+    ...snmpLogEntries,
+  };
+  const history = gatewayRootHistory({
+    ...site,
+    deviceConfig: configEntries,
+    otherConfig: { ...snmpConfigEntries, ...network.etc },
+    state: varLibEntries,
+    logs: logEntries,
+    daemons: Object.keys(runEntries).map((pidfile) => pidfile.replace(/\.pid$/, '')),
+    hosts: network.hosts,
+  });
   const daemonBinaries = identity.hasSnmp
     ? [...SYSTEM_DAEMON_NAMES, daemonName(SERVICE_CATALOG.snmp)]
     : [...SYSTEM_DAEMON_NAMES];
@@ -244,7 +267,7 @@ const buildGatewayBaseFs = (
         TRAVERSABLE_DIR,
       ),
       lib: dir(createLibraryEntries(SYSTEM_LIBRARIES), TRAVERSABLE_DIR),
-      root: dir({}, ROOT_DIR),
+      root: dir({ '.bash_history': file(history, ROOT_FILE) }, ROOT_DIR),
       tmp: dir({}, TMP_DIR),
       usr: dir(
         {
@@ -255,15 +278,7 @@ const buildGatewayBaseFs = (
       ),
       var: dir(
         {
-          log: dir(
-            {
-              'access.log': file('', ACCESS_LOG_PERMISSIONS),
-              'auth.log': file('', AUTH_LOG_PERMISSIONS),
-              'kern.log': file('', KERN_LOG_PERMISSIONS),
-              ...snmpLogEntries,
-            },
-            TRAVERSABLE_DIR,
-          ),
+          log: dir(logEntries, TRAVERSABLE_DIR),
           ...(Object.keys(varLibEntries).length === 0
             ? {}
             : { lib: dir(varLibEntries, TRAVERSABLE_DIR) }),
@@ -294,6 +309,7 @@ export const buildRouterBaseFsFromIdentity = (
      *  password would move it whenever that password moved. */
     readonly firmwareSeed: string;
   },
+  site: { readonly essid: string; readonly machineId: string },
   network?: GatewayNetworkEntries,
 ): Directory =>
   buildGatewayBaseFs(
@@ -304,6 +320,7 @@ export const buildRouterBaseFsFromIdentity = (
         TRAVERSABLE_DIR,
       ),
     },
+    site,
     network,
   );
 
@@ -331,6 +348,7 @@ export const buildApGatewayBaseFs = (essid: string): Directory =>
       // them at, absent for two players in five, decided by their ESSID.
       hasSnmp: true,
     },
+    { essid, machineId: computeApGatewayId(essid) },
     apGatewayNetwork(essid),
   );
 
@@ -357,6 +375,7 @@ export const buildInnerGatewayBaseFs = (essid: string, octet: number): Directory
       hasSsh: true,
       hasSnmp: seedHasSnmp(`inner-gw-snmp-${essid}:${octet}`, 'router'),
     },
+    { essid, machineId: computeInnerGatewayId(essid, octet) },
     chainRouterNetwork({
       essid,
       machineId: computeInnerGatewayId(essid, octet),
@@ -392,6 +411,7 @@ export const buildDeepGatewayBaseFs = (
       hasSsh: true,
       hasSnmp: seedHasSnmp(`deep-gw-snmp-${parentMachineId}:${octet}`, 'router'),
     },
+    { essid, machineId: computeDeepGatewayId(parentMachineId, octet) },
     chainRouterNetwork({
       essid,
       machineId: computeDeepGatewayId(parentMachineId, octet),
@@ -419,6 +439,7 @@ export const buildDeepSwitchBaseFs = (
       hasSnmp: seedHasSnmp(`deep-sw-snmp-${parentMachineId}:${octet}`, 'switch'),
     },
     { switch: dir({ 'acl.conf': file(ACL_CONF_SEED, ACL_CONF_PERMISSIONS) }, TRAVERSABLE_DIR) },
+    { essid, machineId: computeDeepGatewayId(parentMachineId, octet) },
     chainSwitchNetwork({
       essid,
       machineId: computeDeepGatewayId(parentMachineId, octet),
@@ -441,6 +462,7 @@ export const buildSwitchBaseFs = (essid: string, octet: number): Directory =>
       hasSnmp: seedHasSnmp(`inner-sw-snmp-${essid}:${octet}`, 'switch'),
     },
     { switch: dir({ 'acl.conf': file(ACL_CONF_SEED, ACL_CONF_PERMISSIONS) }, TRAVERSABLE_DIR) },
+    { essid, machineId: computeInnerGatewayId(essid, octet) },
     chainSwitchNetwork({
       essid,
       machineId: computeInnerGatewayId(essid, octet),
