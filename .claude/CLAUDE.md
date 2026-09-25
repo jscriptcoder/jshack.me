@@ -16,7 +16,7 @@ When a prompt, plan, or commit uses this terminology, interpret it in this game-
 
 **The active development surface is the Solid.js rewrite under `/v2`; the legacy React app at the repo root is FROZEN.** Run all v2 commands from `v2/`.
 
-**Start every v2 session at [`v2/docs/conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md)** — it holds the current project status + where to pick up (the live per-slice status is in `plans/*.md`), all working conventions, build/test/type gates, operational gotchas, wire-check infra, architecture invariants, and the deferred backlog. As-built cross-player system: `v2/docs/cross-player-architecture.md`.
+**Start every v2 session at [`v2/docs/conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md)** — it holds the current project status + where to pick up (the live per-slice status is in `plans/*.md`), all working conventions, build/test/type gates, operational gotchas, wire-check infra, architecture invariants, and the deferred backlog. As-built cross-player system: `v2/docs/cross-player-architecture.md`; as-built generated world content: `v2/docs/world-content-architecture.md`.
 
 Always-apply project rules (full detail + rationale in that doc):
 

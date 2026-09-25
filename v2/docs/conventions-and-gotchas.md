@@ -2,7 +2,8 @@
 
 Durable working knowledge for the v2 rewrite, graduated out of author-local `~/.claude`
 memory so it survives and is shared. Pairs with [`cross-player-architecture.md`](./cross-player-architecture.md)
-(as-built system) and the live plans in `plans/`. When this doc and the code disagree, the
+and [`world-content-architecture.md`](./world-content-architecture.md) (as-built systems) and the
+live plans in `plans/`. When this doc and the code disagree, the
 code wins — fix the doc.
 
 ---
@@ -561,15 +562,16 @@ before touching it:
     shared client+server module in the door, so `testCrossPlayerWrite` grew checks 13-15 (15/15)
     and was shown to fail against the pre-slice materializer.
 
-**Generated world content — DONE (2026-09-25, v0.264.0):**
-[`plans/world-content-epic.md`](../../plans/world-content-epic.md), grilled 2026-09-21 to 25 locked
+**Generated world content — DONE (2026-09-25, v0.264.0):** grilled 2026-09-21 to 25 locked
 decisions and a twelve-slice spine, all twelve shipped (#533–#550). Every generated box (never a
 player workstation) holds believable, persona-coherent content — no loot, no new verbs, every
-reference true within its network, history frozen at `WORLD_EPOCH` in rotated `.1` logs. Ship
-waited for it; **the ship gate is next** (see the legacy-parity epic's "Where we are now").
+reference true within its network, history frozen at `WORLD_EPOCH` in rotated `.1` logs. As-built
+and its standing rules: [`world-content-architecture.md`](./world-content-architecture.md); the
+epic's plan file was retired on close-out and its open questions are in §9 under "World content
+deferred". Ship waited for it; **the ship gate is next** (see the legacy-parity epic's "Where we
+are now").
 
-To pick up the next slice: read [`plans/world-content-epic.md`](../../plans/world-content-epic.md)
-— its "Where we are now" line and slice table — or, for parity history,
+To pick up the next work: the ship gate has no plan yet, so start from
 [`plans/legacy-parity-epic.md`](../../plans/legacy-parity-epic.md) — its **"Where we are now"**
 line near the top, then the Phase 3 tree and the slice table for per-slice status. A slice gets
 its own `plans/*.md` only while it is IN FLIGHT, with a top block carrying live status + as-built; it is retired into the epic on close-out, so
@@ -1892,6 +1894,14 @@ state costs you more than one wrong attempt.
 ---
 
 ## 7. Architecture invariants
+
+- **Generated content obeys the world-content rules.** Any change that writes into a generated
+  base tree follows [`world-content-architecture.md`](./world-content-architecture.md) "The
+  rules": never a player workstation, never a working in-game secret, every in-network reference
+  true, version-free (no decimal that reads as a version), history only in `.1` rotations ending
+  at `WORLD_EPOCH`, and **a new concern draws on a new stream** — adding a draw to an existing
+  one re-rolls everything after it, including pinned passwords. Prove the last with the world
+  byte-diff that doc describes.
 
 - **Spend realism where the player READS; spend legibility where the player AUTHORS.** The rule
   that settled the long-running "is `rules.v4` too simple, or is SNMP too complex" question at
@@ -3281,44 +3291,27 @@ blocks the live PvP loop; each was a scoped owner decision, not a gap.
   So the CVE phase must ship a route producing a plaintext the player did not hold, or the
   progression stays inert however many doors parity adds. The three loot designs worked out before
   the postponement are recorded in the parity epic's "Next action" so the option set survives.
-- **Generated world content ("random noise") — its own epic, owner decision 2026-08-12.**
-  **⏩ Superseded 2026-09-21: now [`plans/world-content-epic.md`](../../plans/world-content-epic.md),
-  grilled to 25 locked decisions and inside the ship gate.** What follows is the history that
-  motivated it; the epic's decisions win wherever the two disagree — most of all on loot, which
-  the epic leaves with missions (its decision 2) rather than making this epic its home. The
-  generated world is furnished thinly on purpose so far, and making boxes feel inhabited is ONE
-  design with one shape rather than a tax on each door: believable per-box files, web trees beyond
-  the single `index.html` both generators stamp, and — as those doors land — MySQL schemas and
-  Redis keyspaces worth reading. The rule that follows: **a door slice does not invent its own
-  content system to have something to point at.** D1c is the worked example — sweeping for unlinked
-  paths obviously wants generated unlinked paths, and building a narrow version there would have set
-  the pool shape, the per-box volume, and the variation model this epic should own. `gobuster` ships
-  proven against content the PLAYER makes by hand (`mkdir` + `nano` under `/var/www/html`) instead.
-  Three things are already waiting for this epic:
-  - **~~A shipped D1 defect: the pages advertise paths that 404.~~ Fixed 2026-08-13 by removing the
-    advertisements, not by adding the pages.** Every entry in `generation/pools/webPages.ts` linked
-    `/admin/`, `/status`, `/server-status`, `/.well-known/security.txt`, `/api/health` or
-    `/metrics` and `curl` 404'd on all six, so a player doing the recon the page invited was told
-    the server lies. Found 2026-08-12 planning D1c; forced 2026-08-13 by D1b, because a text
-    browser renders links numbered and following one is the whole point, which turns a footnote
-    into the headline interaction. Serving the promised pages was the tempting fix and is exactly
-    what this epic owns, so the links went instead. **What is still owed here:** generated hosts
-    now serve one page with no links at all, so a browser has nothing to follow on an NPC box and
-    link-following is proven against pages the player writes. When this epic gives a host pages
-    that link each other, the markup comes back — and a property test in `remoteHostFs.test.ts`
-    (no page links a path its host does not serve) is what keeps content and links honest.
-  - **D2.6b's harvestable loot placement** — postponed as a credential-layer item above, and it is
-    content too: a file on a reachable box holding an uncrackable-pool plaintext behind a tier gate.
-    If this epic runs before the CVE phase, it is the natural home.
-  - **~~Role-keyed pools at D5b.~~ Landed 2026-08-19 (v0.153.0-v0.157.0).** A generated box now
-    keeps an `/etc` config, serves a page and carries an account that all fit what it is. What is
-    still owed here is the VOLUME, not the keying: one page per box and one config per box, where an
-    inhabited box would have several. Two roles were also deliberately left on the general page
-    bucket — `database` and `fileserver`, 15% of served pages between them, on the reading that
-    slice 3's `/etc` config already speaks for both. Widening either is a content decision, and this
-    epic is where it belongs.
-  Until it lands, expect thin worlds behind working tools — the accepted trade, and NOT the same
-  failure as a mechanic with no input (D2.6b): here the tool is correct and the world is empty.
+- **World content deferred.** The generated world content epic shipped (#533–#550, as-built in
+  [`world-content-architecture.md`](./world-content-architecture.md)); its motivating backlog
+  entry, which stood here since the owner decision of 2026-08-12, is retired. Named at its grills
+  and deliberately not decided — design when a slice leans on one:
+  - **Tablets as photo devices, pairing and lock entries.** A share's photos, a media box's
+    pairings and a lock's log name phones only; letting them name tablets re-rolls the share and
+    device content. Read `tabletModel`, never extend `PHONE_MODELS`, or the two will disagree.
+  - **A phone-shaped `/root` and `/etc`, and screenshots.** A phone's `/root`, `/etc` and logs are
+    still the workstation role's; a screenshot needs PNG, a new document format.
+  - **Site ↔ database agreement.** A café's menu page need not list its `menu_items`, and a
+    portal's CMS posts are not its pages.
+  - **`~` in replayed history lines.** v2's `cat`/`ls` do not expand `~` (`cd` defers it too), so
+    a history line like `cat ~/notes/todo.txt` answers "No such file" when replayed, while `cat
+    notes/todo.txt` from the home works. Either the shell learns tilde expansion or histories
+    spell home paths another way; decide together with `tail` (above).
+  - **Memoization of base trees** — the key, the cache bound on each end, and whether the derived
+    network population is memoized alongside — only when `checkBudgets.ts`'s build budget breaks.
+  - **Archetypes for IoT and gateways**, as databases have; and whether the AP gateway's content
+    files need their own serialized-size check beside the wire ceiling.
+  - **Log permission constants** — reuse `baseFs.ts`'s or add the few Debian defaults still
+    missing, for whichever log next needs one.
 - **Three things D1b left behind** (plan closed 2026-08-14 at v0.129.0, Act 9 green; the plan file
   was deleted on close-out and these are the only parts that outlived it):
   - **The renderer has no tables and no preformatted blocks.** Deliberate: no page in

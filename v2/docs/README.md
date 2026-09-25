@@ -32,6 +32,10 @@ disagree, the code wins; fix the doc.
   enters, reads, and modifies another player's machine: the shared patch journal, the
   public-IP registry, L1/L2 authorization, and the server-side read filter (Stories 1–3
   of the multiplayer/cross-player epic, shipped).
+- [world-content-architecture.md](./world-content-architecture.md) — what every generated
+  machine holds and the standing rules for adding to it: personas, true references, frozen
+  history in `.1` rotations, one stream per concern, version-free content, and the budgets
+  (the generated world content epic, shipped).
 - [rewrite-blueprint/](./rewrite-blueprint/) — the design-intent blueprint for the rewrite
   (sections 01–07 + `core-contracts.md` + `decisions.md`). Split-by-section is the single
   source of truth; the old monolithic `rewrite-blueprint.md` was dropped (it had drifted
