@@ -1,12 +1,14 @@
 /**
- * The home of the person a phone belongs to, which on a phone is the device's own
- * storage: the photos it took and the folders every phone of its kind keeps. A shell
- * never ran there, so nothing a shell writes — no dotfile, no history — is in it.
+ * The home of the person a phone or tablet belongs to, which on such a device is its own
+ * storage: the photos it took, the PDFs its person saved, a few notes they typed, and the
+ * folders every device of its maker keeps. A shell never ran there, so nothing a shell
+ * writes — no dotfile, no history — is in it.
  *
- * Every photo was taken on this phone, so its Exif names the model the rest of the
- * network already credits to it (`phoneModel`), and its file name is the second it was
- * taken, the way the camera app names it. Everything is drawn from the box's own
- * `phone-content` stream, so two builds of one phone are identical and no draw of any
+ * Every photo was taken on this device, so its Exif names the model the rest of the
+ * network already credits to it (`phoneModel`; a tablet's own `tabletModel`), and its
+ * file name is what the maker's camera app calls it. A paper of the place's own is
+ * written by somebody who lives on the network. Everything is drawn from the box's own
+ * `phone-content` stream, so two builds of one device are identical and no draw of any
  * other concern moves.
  */
 
@@ -19,8 +21,11 @@ import { peopleOn } from './networkMail';
 import { networkPersona } from './persona';
 import { createPrng, type Prng } from './prng';
 import { phoneModel, type Device } from './share';
+import { fillSlots } from './npcHome';
+import { COLLEAGUES } from './pools/homeNotes';
 import {
   PERSONAL_DOWNLOADS,
+  PHONE_NOTES,
   PLACE_DOWNLOADS,
   TABLET_MODELS,
   type DownloadSpec,
@@ -42,6 +47,12 @@ const PLACE_PAPER_CHANCE = 0.6;
 const REFERENCE = { min: 10_000, max: 99_999 } as const;
 /** A document is saved again within a couple of days of being made, if at all. */
 const MAX_EDIT_SECONDS = 2 * DAY_SECONDS;
+
+/** What a phone or tablet holds in all (decision 9), and at most how many notes. The
+ *  notes take up the slack: a device with few photos and downloads typed more. */
+const CONTENT_FILES = { min: 10, max: 25 } as const;
+const MAX_NOTES = 3;
+const NOTE_COUNT = { min: 2, max: 9 } as const;
 
 const pad = (value: number): string => String(value).padStart(2, '0');
 
@@ -84,7 +95,7 @@ type Layout = {
 const ANDROID_LAYOUT: Layout = {
   cameraFolder: 'Camera',
   downloadFolder: 'Download',
-  folders: ['Documents', 'Movies', 'Music', 'Pictures'],
+  folders: ['Movies', 'Music', 'Pictures'],
   namePhotos: (_prng, takenAt) =>
     takenAt.map((moment) => ({ name: androidPhotoName(moment), takenAt: moment })),
 };
@@ -94,7 +105,7 @@ const ANDROID_LAYOUT: Layout = {
 const APPLE_LAYOUT: Layout = {
   cameraFolder: '100APPLE',
   downloadFolder: 'Downloads',
-  folders: ['Documents'],
+  folders: [],
   namePhotos: nameOnAppleCounter,
 };
 
@@ -205,6 +216,28 @@ const renderPaper = (prng: Prng, paper: Paper): readonly [string, string] => {
   ];
 };
 
+/** The notes the person typed, as many as keep the device's files within its band. */
+const notesFor = (options: {
+  readonly prng: Prng;
+  readonly essid: string;
+  readonly filesSoFar: number;
+}): readonly (readonly [string, string])[] => {
+  const { prng, essid, filesSoFar } = options;
+  const count = prng.nextInt(
+    Math.max(0, CONTENT_FILES.min - filesSoFar),
+    Math.min(MAX_NOTES, CONTENT_FILES.max - filesSoFar),
+  );
+  const place = networkPersona(essid).place;
+  return prng.pickN(PHONE_NOTES, count).map(({ file: name, body }) => [
+    name,
+    fillSlots(body, {
+      place,
+      colleague: prng.pick(COLLEAGUES),
+      count: String(prng.nextInt(NOTE_COUNT.min, NOTE_COUNT.max)),
+    }),
+  ]);
+};
+
 export const buildPhoneHome = (options: {
   readonly essid: string;
   readonly host: LanHost;
@@ -237,10 +270,19 @@ export const buildPhoneHome = (options: {
     }),
   );
 
+  const notes: Record<string, FileNode> = Object.fromEntries(
+    notesFor({
+      prng,
+      essid,
+      filesSoFar: Object.keys(photos).length + Object.keys(downloads).length,
+    }).map(([name, body]) => [name, file(body, HOME_FILE, username)]),
+  );
+
   return dir(
     {
       DCIM: dir({ [layout.cameraFolder]: dir(photos, HOME_DIR, username) }, HOME_DIR, username),
       [layout.downloadFolder]: dir(downloads, HOME_DIR, username),
+      Documents: dir(notes, HOME_DIR, username),
       ...Object.fromEntries(layout.folders.map((folder) => [folder, dir({}, HOME_DIR, username)])),
     },
     HOME_DIR,

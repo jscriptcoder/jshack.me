@@ -83,3 +83,19 @@ export const PLACE_DOWNLOADS: Readonly<Record<NetworkCategory, readonly Download
     { name: 'workshop-schedule.pdf', title: 'Workshop schedule' },
   ],
 };
+
+/** What a person types into their phone's notes and saves as text: `{place}` is what the
+ *  network's people call where they are, `{colleague}` somebody they know by first name,
+ *  `{count}` a small number. */
+export const PHONE_NOTES: readonly { readonly file: string; readonly body: string }[] = [
+  { file: 'shopping.txt', body: 'milk\neggs\nbread\ncoffee beans\n{count} lemons\nbin bags\n' },
+  { file: 'packing.txt', body: 'passport\nchargers\nadapter\nsunscreen\n{count} pairs of socks\nbook for the flight\n' },
+  { file: 'gift-ideas.txt', body: 'gift ideas\n- {colleague}: nice notebook, or that cookbook\n- mum: scarf\n- dad: ask {colleague}\n' },
+  { file: 'banana-bread.txt', body: 'banana bread\n{count} ripe bananas\n75g butter\n150g sugar\n1 egg\n190g flour\n1 tsp bicarb\n180C for an hour\n' },
+  { file: 'todo.txt', body: 'call the dentist\nreturn the parcel\npay {colleague} back for lunch\nbook a table near {place}\n' },
+  { file: 'books.txt', body: 'books to read\n- the one {colleague} lent me\n- something short for the train\n- {count} on the library list\n' },
+  { file: 'car.txt', body: 'car\nMOT due in spring\ntyres checked\nparking by {place} is free after six\n' },
+  { file: 'weekend.txt', body: 'weekend\nsat: market, then {colleague} for lunch\nsun: long walk, laundry, nothing else\n' },
+  { file: 'meeting-notes.txt', body: 'notes from {place}\n- {colleague} is off next week\n- {count} things to follow up\n- ask about the new rota\n' },
+  { file: 'wishlist.txt', body: 'wishlist\nheadphones\nrunning shoes\na proper coffee grinder\n' },
+];

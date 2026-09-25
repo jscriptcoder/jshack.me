@@ -352,3 +352,59 @@ describe('a device keeps what its person downloaded', () => {
     expect(devicesWithout).toBeGreaterThan(0);
   });
 });
+
+/** Every note the person typed, keyed by its file name. */
+const notesOf = (box: BuiltBox): ReadonlyMap<string, string> =>
+  new Map(
+    [...filesUnder(homeOf(box))]
+      .filter(([path]) => path.startsWith('Documents/'))
+      .map(([path, content]) => [path.slice('Documents/'.length), content]),
+  );
+
+describe('a device keeps a few things its person typed', () => {
+  it('keeps up to three plain-text notes in Documents, every blank filled in', () => {
+    devices().forEach((box) => {
+      const notes = notesOf(box);
+      expect(notes.size, box.host.hostname).toBeLessThanOrEqual(3);
+      notes.forEach((body, name) => {
+        const label = `${box.host.hostname} ${name}`;
+        expect(name, label).toMatch(/^[\w.-]+\.txt$/);
+        expect(body.trim(), label).not.toBe('');
+        expect(body.endsWith('\n'), label).toBe(true);
+        expect(body, label).not.toMatch(/[{}]/);
+      });
+    });
+  });
+
+  it('writes about the place the network belongs to, somewhere in the world', () => {
+    const mentions = devices().filter((box) =>
+      [...notesOf(box).values()].some((body) => body.includes(networkPersona(box.essid).place)),
+    );
+    expect(mentions.length).toBeGreaterThan(0);
+  });
+
+  it('leaves some devices with nothing typed at all, and gives others notes', () => {
+    const counts = devices().map((box) => notesOf(box).size);
+    expect(counts).toContain(0);
+    expect(counts.some((count) => count > 0)).toBe(true);
+  });
+
+  it('writes no password down', () => {
+    devices().forEach((box) => {
+      notesOf(box).forEach((body, name) => {
+        expect(body, `${box.host.hostname} ${name}`).not.toMatch(/pass(word|wd|code)?\s*[:=]/i);
+        expect(body, `${box.host.hostname} ${name}`).not.toMatch(/\bpin\b\s*[:=]?\s*\d/i);
+      });
+    });
+  });
+});
+
+describe('a device holds as much as its kind does', () => {
+  it('keeps ten to twenty-five files in all', () => {
+    devices().forEach((box) => {
+      const count = filesUnder(homeOf(box)).size;
+      expect(count, box.host.hostname).toBeGreaterThanOrEqual(10);
+      expect(count, box.host.hostname).toBeLessThanOrEqual(25);
+    });
+  });
+});
