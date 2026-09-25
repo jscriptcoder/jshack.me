@@ -6,9 +6,9 @@
 > Grilled 2026-09-21 (`grilling`), 25 locked decisions. Slices 0–10 delivered (as-built below).
 > Slice 10 grilled and planned 2026-09-25 (eight owner decisions, status log) and delivered in two
 > PRs (#548, #549; v0.263.0). Slice 11 grilled 2026-09-25 (thirteen decisions, owner-delegated,
-> status log); its plan is next.
+> status log) and planned (`plans/a-phone-is-a-phone.md`); implementation is next.
 
-**Where we are now (2026-09-25):** **v0.263.0** — slice 10 is DONE (#548, #549); slice 11 is grilled and its plan is next. The legacy-parity epic's V-series is closed and
+**Where we are now (2026-09-25):** **v0.263.0** — slice 10 is DONE (#548, #549); slice 11 is grilled and planned; implementation is next. The legacy-parity epic's V-series is closed and
 its next line was "the ship gate". **Ship now waits for this epic** (decision 1). Grilled to 25
 locked decisions and a twelve-slice spine. **Slices 0–10 are DONE** (#533, #534, #535, #536,
 #537 + #538, #539, #540, #541 + #542, #543 + #544, #545 + #546 + #547, #548 + #549) — the build budgets, NPC
@@ -421,7 +421,7 @@ See below; planning refines it.
 | 8 | **A share holds a department** — fileserver `/srv`, metadata docs | `strings` on a shared PDF names its author, an inhabitant | ✅ **DONE** (#543 v0.257.0, #544 v0.258.0) — `/srv` on every file server, LAN and deep: a working share or dated snapshots by prefix, the category's departments, PDF/JPEG/office stubs whose metadata `strings` reads, authors from the one roster mail uses, `vsftpd.conf` stops claiming doors; then `vsftpd.log.1` recording every arrival from its author's machine to the byte, the `/srv` data disk in `fstab`, an allow-list `/etc/vsftpd.userlist`, and root's history naming `/srv` instead of samba, nfs and zfs. See as-built below |
 | 9 | **A device is the device it says** — IoT prefix overlays + prefix growth (the one re-roll: refresh pins, wire-checks, the `v2-e2e` skill) | a printer serves a CUPS page and holds spool jobs; a camera a recordings index | ✅ **DONE** — 9a (#545, v0.259.0), 9b (#546, v0.260.0), 9c (#547, v0.261.0); every IoT box keeps its daemon's config, its data and its own pages, and `device.conf` retired. See as-built below |
 | 10 | **A gateway knows its network** — DHCP leases, config backups, admin pages, admin/firmware history | a rooted router's lease table lists exactly the network's generated hosts | ✅ **DONE** — 10a (#548, v0.262.0), 10b (#549, v0.263.0); every router leases its segment and every switch maps its port, and every gateway remembers its admin, their history, its last day, its backups and its admin pages. See as-built below |
-| 11 | **A phone is a phone** — phone/tablet overlay | an NPC `android-` home holds `DCIM/` and `Download/`, not dotfiles | ⏳ grilled 2026-09-25 (status log); one PR; plan next |
+| 11 | **A phone is a phone** — phone/tablet overlay | an NPC `android-` home holds `DCIM/` and `Download/`, not dotfiles | ⏳ grilled and planned 2026-09-25 (status log); one PR; plan `plans/a-phone-is-a-phone.md` |
 
 ## As-built: slices 0–1 (delivered 2026-09-21)
 
@@ -1638,4 +1638,5 @@ and one performance fix the build budget forced. Squash-merged as `b2f7df99` (#5
   `v2-e2e` onto an ssh-reachable phone; docs follow (decision 24) — `npcHome.ts`'s header and
   `conventions-and-gotchas.md` wherever they say phones keep empty homes. **Deferred:** tablets as
   photo devices, pairings and lock entries (it would re-roll slices 8 and 9's content); phone-shaped
-  `/root` and `/etc`; screenshots (PNG is a new format). Next: **the slice plan**.
+  `/root` and `/etc`; screenshots (PNG is a new format). Plan: `plans/a-phone-is-a-phone.md`, seven
+  TDD increments in one PR; its main risk is the build budget (1.53–1.67 of 2 ms/box).
