@@ -5,7 +5,7 @@
 > wherever the two disagree.
 > Grilled 2026-09-21 (`grilling`), 25 locked decisions. Slices 0–9 delivered (as-built below).
 > Slice 9 grilled and planned 2026-09-24 and delivered in three PRs (#545, #546, #547; v0.261.0).
-> Slice 10 is next; it has no plan yet.
+> Slice 10 grilled 2026-09-25 (eight owner decisions, status log); its plan is `plans/a-gateway-knows-its-network.md`.
 
 **Where we are now (2026-09-25):** **v0.261.0**. The legacy-parity epic's V-series is closed and
 its next line was "the ship gate". **Ship now waits for this epic** (decision 1). Grilled to 25
@@ -1418,3 +1418,25 @@ arc to be read in play.
   gate added ten tests and closed a lock test that compared `undefined` with `undefined`. No
   file naming a phone is reachable on a catalog LAN yet. Next: **slice 10** (a gateway knows its
   network).
+- **2026-09-25** — **slice 10 grilled** (a gateway knows its network). Measured first: 200
+  gateways on the 50 catalog networks — 50 AP (`.1`), 50 inner routers, 50 inner switches, 33 deep
+  routers, 17 deep switches; firmware ddwrt 42, cisco 36, openwrt 35, ubiquiti 31, pfsense 28,
+  mikrotik 28. Gateways missed every earlier slice by construction (`routerFs.ts`, not
+  `buildRemoteHostFs`); none serves http, and an http port on the AP would shadow players' forwards
+  (`machineServing` answers the box's own ports first); NPC hosts carry no MAC; the deep gateway
+  builders take no ESSID. Eight owner decisions: (1) **the admin UI is on disk, bound to
+  localhost** — the vendor's web root holds its pages, the httpd config listens on `127.0.0.1`,
+  placement is unchanged; (2) **leases are one dnsmasq file on the Debian path**
+  (`/var/lib/misc/dnsmasq.leases` plus `dnsmasq.conf`), the vendor showing in backups and UI;
+  (3) **routers lease, switches map** — the AP leases its LAN's machines, an inner or deep router
+  the layer it fronts, a switch keeps a MAC address table of its layer, and every MAC comes from one
+  new per-host stream so every table agrees; (4) **two PRs** — 10a a gateway knows its network
+  (MACs, ESSID threaded to the deep builders, leases, reservations, switch tables, an AP
+  serialized-size check), 10b a gateway remembers (backups, admin UI, root's history, `.1`
+  rotations); (5) **backups in the vendor's own export format, secrets redacted** the way that
+  vendor's export does, agreeing with the base box; (6) **the admin is a real inhabitant at their
+  real machine** — on a LAN, a network inhabitant from their own workstation's IP; deep, from the
+  parent gateway's IP; firmware lines version-free; (7) **no new daemon** — dnsmasq and the UI's
+  httpd get config and binary, no pidfile, so `ps`/`systemctl` do not change; (8) **no `/etc`
+  breadth** — decision 9's gateway list only, keeping the AP at 5–10 files. Leases name generated
+  machines only, never occupants (decision 4). Plan: `plans/a-gateway-knows-its-network.md`.
