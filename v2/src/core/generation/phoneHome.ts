@@ -16,7 +16,8 @@ import { dir, file, HOME_DIR, HOME_FILE } from './baseFs';
 import { renderDocument } from './documentFormats';
 import type { LanHost } from './generateHomeLan';
 import { createPrng, type Prng } from './prng';
-import type { Device } from './share';
+import { phoneModel, type Device } from './share';
+import { TABLET_MODELS } from './pools/phoneFiles';
 
 const DAY_SECONDS = 86_400;
 const EPOCH_SECONDS = WORLD_EPOCH / 1000;
@@ -130,6 +131,19 @@ const photoMoments = (prng: Prng): readonly number[] =>
   shootingDays(prng, prng.nextInt(PHOTO_COUNT.min, PHOTO_COUNT.max))
     .flatMap((day) => burstOn(prng, day))
     .sort((left, right) => left - right);
+
+const TABLET_PREFIX = 'tablet';
+
+/** What a tablet is, one model for its whole life, drawn on its own stream so that no
+ *  phone the network already names moves. */
+const tabletModel = (essid: string, host: LanHost): Device =>
+  createPrng(`tablet-${essid}-${host.ip}`).pick(TABLET_MODELS);
+
+/** The phone or tablet a box is, or undefined for every box that is neither. */
+export const deviceModel = (essid: string, host: LanHost): Device | undefined =>
+  host.hostname.startsWith(`${TABLET_PREFIX}-`)
+    ? tabletModel(essid, host)
+    : phoneModel(essid, host);
 
 export const buildPhoneHome = (options: {
   readonly essid: string;

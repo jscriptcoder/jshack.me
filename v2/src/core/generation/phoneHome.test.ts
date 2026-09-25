@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { npcUsername } from './remoteHostFs';
 import { phoneModel } from './share';
+import { TABLET_MODELS } from './pools/phoneFiles';
 import { WORLD_EPOCH } from '../cve/worldClock';
 import { createFsView } from '../filesystem/fsView';
 import { asAbsPath } from '../types';
@@ -29,6 +30,12 @@ const boxesNamed = (prefix: string): readonly BuiltBox[] => [
 const androids = (): readonly BuiltBox[] => boxesNamed('android');
 const iphones = (): readonly BuiltBox[] => boxesNamed('iphone');
 const phones = (): readonly BuiltBox[] => [...androids(), ...iphones()];
+const tablets = (): readonly BuiltBox[] => boxesNamed('tablet');
+const devices = (): readonly BuiltBox[] => [...phones(), ...tablets()];
+
+/** The top of each maker's storage, as `ls ~` lists it, and the camera app's folder. */
+const ANDROID_HOME = ['DCIM', 'Documents', 'Download', 'Movies', 'Music', 'Pictures'];
+const APPLE_HOME = ['DCIM', 'Documents', 'Downloads'];
 
 const homeOf = (box: BuiltBox): Directory => {
   const home = box.tree.entries.get('home');
@@ -80,9 +87,9 @@ const instantOf = (exifMoment: string): number => {
   return Date.parse(`${date.replaceAll(':', '-')}T${time}Z`);
 };
 
-describe('an NPC phone reads as a phone', () => {
+describe('an NPC phone or tablet reads as the device it is', () => {
   it('holds six to sixteen photos', () => {
-    phones().forEach((box) => {
+    devices().forEach((box) => {
       const roll = cameraRollOf(box);
       expect(roll.size, box.host.hostname).toBeGreaterThanOrEqual(6);
       expect(roll.size, box.host.hostname).toBeLessThanOrEqual(16);
@@ -107,7 +114,7 @@ describe('an NPC phone reads as a phone', () => {
   });
 
   it('took its photos in bursts on four to ten days, within the two years before the epoch', async () => {
-    for (const box of phones()) {
+    for (const box of devices()) {
       const instants = [...(await momentsOf(box)).values()].map(instantOf);
       instants.forEach((instant) => {
         expect(instant, box.host.hostname).toBeLessThan(WORLD_EPOCH);
@@ -120,7 +127,7 @@ describe('an NPC phone reads as a phone', () => {
   });
 
   it("is its person's to read and write, and shows a guest none of it", () => {
-    phones().forEach((box) => {
+    devices().forEach((box) => {
       const username = npcUsername(box.essid, box.host);
       const user = createFsView(box.tree, { userType: 'user' });
       const guest = createFsView(box.tree, { userType: 'guest' });
@@ -135,8 +142,8 @@ describe('an NPC phone reads as a phone', () => {
   });
 
   it('is built the same way every time it is read', () => {
-    const first = worldBoxesNamed(['android', 'iphone']);
-    const again = worldBoxesNamed(['android', 'iphone']);
+    const first = worldBoxesNamed(['android', 'iphone', 'tablet']);
+    const again = worldBoxesNamed(['android', 'iphone', 'tablet']);
     expect(first.length).toBeGreaterThan(0);
     first.forEach((box, index) => {
       const twin = again[index];
@@ -149,14 +156,7 @@ describe('an NPC phone reads as a phone', () => {
 describe('an android keeps what Android keeps', () => {
   it("keeps the camera roll and a phone's storage folders, and nothing a shell wrote", () => {
     androids().forEach((box) => {
-      expect([...homeOf(box).entries.keys()].sort(), box.host.hostname).toEqual([
-        'DCIM',
-        'Documents',
-        'Download',
-        'Movies',
-        'Music',
-        'Pictures',
-      ]);
+      expect([...homeOf(box).entries.keys()].sort(), box.host.hostname).toEqual(ANDROID_HOME);
       expect(entriesOf(homeOf(box), 'DCIM'), box.host.hostname).toEqual(['Camera']);
       expect(dotfilesIn(box)).toEqual([]);
     });
@@ -175,11 +175,7 @@ describe('an android keeps what Android keeps', () => {
 describe('an iPhone keeps what an iPhone keeps', () => {
   it("keeps the camera roll, the Files app's downloads and documents, and nothing a shell wrote", () => {
     iphones().forEach((box) => {
-      expect([...homeOf(box).entries.keys()].sort(), box.host.hostname).toEqual([
-        'DCIM',
-        'Documents',
-        'Downloads',
-      ]);
+      expect([...homeOf(box).entries.keys()].sort(), box.host.hostname).toEqual(APPLE_HOME);
       expect(entriesOf(homeOf(box), 'DCIM'), box.host.hostname).toEqual(['100APPLE']);
       expect(dotfilesIn(box)).toEqual([]);
     });
@@ -200,5 +196,45 @@ describe('an iPhone keeps what an iPhone keeps', () => {
         );
       });
     }
+  });
+});
+
+describe('a tablet is a tablet', () => {
+  it('is one model for its whole life, drawn from the tablets a household buys', async () => {
+    const known = new Set(TABLET_MODELS.map(({ make, model }) => `${make} ${model}`));
+    for (const box of tablets()) {
+      const stamped = new Set<string>();
+      for (const content of cameraRollOf(box).values()) {
+        const [, , make = '', model = ''] = await readableLinesOf(content);
+        stamped.add(`${make} ${model}`);
+      }
+      expect(stamped.size, box.host.hostname).toBe(1);
+      [...stamped].forEach((device) => {
+        expect(known.has(device), `${box.host.hostname}: ${device}`).toBe(true);
+      });
+    }
+  });
+
+  it("keeps its maker's storage: an iPad an iPhone's, every other tablet an android's", async () => {
+    const makers = new Set<string>();
+    for (const box of tablets()) {
+      const [firstPhoto] = cameraRollOf(box).values();
+      const [, , make = ''] = await readableLinesOf(firstPhoto ?? '');
+      makers.add(make === 'Apple' ? 'Apple' : 'other');
+      const expected = make === 'Apple' ? APPLE_HOME : ANDROID_HOME;
+      expect([...homeOf(box).entries.keys()].sort(), `${box.host.hostname} (${make})`).toEqual(
+        expected,
+      );
+      expect(entriesOf(homeOf(box), 'DCIM'), box.host.hostname).toEqual([
+        make === 'Apple' ? '100APPLE' : 'Camera',
+      ]);
+    }
+    expect(makers).toEqual(new Set(['Apple', 'other']));
+  });
+
+  it("is no phone to the boxes that already name the network's phones", () => {
+    tablets().forEach((box) => {
+      expect(phoneModel(box.essid, box.host), box.host.hostname).toBeUndefined();
+    });
   });
 });

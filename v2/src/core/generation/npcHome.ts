@@ -34,8 +34,7 @@ import {
 } from './pools/homeSkeleton';
 import { COLLEAGUES, NOTE_TEMPLATES, TIMES, WEEKDAYS } from './pools/homeNotes';
 import { PERSONAL_HISTORY, WORK_HISTORY } from './pools/homeHistory';
-import { phoneModel } from './share';
-import { buildPhoneHome } from './phoneHome';
+import { buildPhoneHome, deviceModel } from './phoneHome';
 
 const DESK_PREFIXES: readonly string[] = ['desktop', 'laptop', 'workstation'];
 
@@ -198,9 +197,9 @@ export const buildNpcHome = (options: {
   readonly sshDirectory: Directory | null;
 }): Directory => {
   const { essid, host, username, sshDirectory } = options;
-  const phone = phoneModel(essid, host);
-  if (phone !== undefined) {
-    return buildPhoneHome({ essid, host, username, device: phone });
+  const device = deviceModel(essid, host);
+  if (device !== undefined) {
+    return buildPhoneHome({ essid, host, username, device });
   }
   if (!isDeskMachine(host)) return dir({}, HOME_DIR, username);
 
