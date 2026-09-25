@@ -29,7 +29,7 @@ import { generateIdentity } from '../src/core/identity/identity';
 import { computeWorkstationId } from '../src/core/identity/workstation';
 import { computeApGatewayId } from '../src/core/identity/router';
 import { md5 } from '../src/core/generation/md5';
-import { seedApGatewayHostname } from '../src/core/generation/routerFs';
+import { seedApGatewayHostname } from '../src/core/generation/gatewayHostname';
 import { clearPublicIps, seedPublicIps } from './networkFixture';
 import { liveCve } from '../src/core/cve/liveCve';
 import { gameDayAt } from '../src/core/cve/worldClock';

@@ -19,7 +19,7 @@ import { buildRemoteHostFs } from '../generation/remoteHostFs';
 import { readOpenPorts } from '../services/pidfile';
 import { buildEntry, formatDpkgStatus } from '../packages/dpkgStatus';
 import { bindFlags } from '../shell/bindFlags';
-import { seedApGatewayHostname } from '../generation/routerFs';
+import { seedApGatewayHostname } from '../generation/gatewayHostname';
 import { baseFsForLanHost, machineIdForLanHost } from '../generation/lanHostIdentity';
 import { generateDeepLayer, seedNetworkDepth } from '../generation/generateDeepLayer';
 import { crackableEssidPool } from '../generation/generateWifi';

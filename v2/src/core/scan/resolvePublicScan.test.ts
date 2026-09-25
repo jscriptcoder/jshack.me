@@ -10,7 +10,7 @@ import { generateIdentity } from '../identity/identity';
 import { computeApGatewayId } from '../identity/router';
 import { lanAddressFor, type LanLeaseRow } from '../network/lanAddress';
 import { md5 } from '../generation/md5';
-import { seedApGatewayHostname } from '../generation/routerFs';
+import { seedApGatewayHostname } from '../generation/gatewayHostname';
 import { formatNmapScanAggregate, KERN_LOG_OWNER, KERN_LOG_PERMISSIONS } from '../logging/kernLog';
 import { asGameTime } from '../types';
 import {

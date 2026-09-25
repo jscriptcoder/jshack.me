@@ -26,7 +26,7 @@ import { parseForwardRules, readRulesV4 } from '../network/iptablesRules';
 import { scanResult } from './scanResult';
 import { bootableOccupantFs, natPortResolver } from '../network/natHosts';
 import { lanAddressesByOwner, type LanLeaseRow } from '../network/lanAddress';
-import { seedApGatewayHostname } from '../generation/routerFs';
+import { seedApGatewayHostname } from '../generation/gatewayHostname';
 import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter';
 import {
   formatNmapScanAggregate,

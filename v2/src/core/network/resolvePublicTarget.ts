@@ -23,7 +23,7 @@
  * status and reason its caller returns verbatim, mirroring `authorizeMachineAccess`.
  */
 
-import { seedApGatewayHostname } from '../generation/routerFs';
+import { seedApGatewayHostname } from '../generation/gatewayHostname';
 import { materializeApGatewayFs } from './materializeRouterFs';
 import type { OwnerPatchRow } from './materializeWorkstationFs';
 import { machineServing, type ServedMachine } from './machineServing';

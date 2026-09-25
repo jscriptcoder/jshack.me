@@ -26,7 +26,7 @@ import { createPrng } from './prng';
 import { machineRole } from './machineRole';
 import { HOSTNAME_PREFIXES } from './pools/hostnames';
 import { lanSubnetPrefix } from '../network/lanAddress';
-import { seedApGatewayHostname, seedInnerGatewayHostname } from './routerFs';
+import { seedApGatewayHostname, seedInnerGatewayHostname } from './gatewayHostname';
 import type { Ipv4 } from '../network/interfaces';
 
 export type LanHostKind = 'machine' | 'router' | 'switch';

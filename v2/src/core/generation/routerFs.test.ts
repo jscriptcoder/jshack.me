@@ -8,14 +8,13 @@ import {
   buildInnerGatewayBaseFs,
   buildRouterBaseFsFromIdentity,
   buildSwitchBaseFs,
-  ROUTER_HOSTNAMES,
   seedDeepGatewayAdminPw,
   seedInnerGatewayAdminPw,
   seedApGatewayAdminPw,
   seedApGatewayCommunity,
   seedApGatewayHasSsh,
-  seedApGatewayHostname,
 } from './routerFs';
+import { ROUTER_HOSTNAMES, seedApGatewayHostname } from './gatewayHostname';
 import { computeInnerGatewayId } from '../identity/router';
 import { workstationGuestPassword } from './workstationFs';
 import {

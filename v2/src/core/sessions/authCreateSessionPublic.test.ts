@@ -6,7 +6,8 @@ import {
 import type { ApNetworkLookup, NatOccupantRow } from '../network/resolvePublicTarget';
 import type { AuthSessionRow } from './authCreateSession';
 import { md5 } from '../generation/md5';
-import { seedApGatewayAdminPw, seedApGatewayHostname } from '../generation/routerFs';
+import { seedApGatewayAdminPw } from '../generation/routerFs';
+import { seedApGatewayHostname } from '../generation/gatewayHostname';
 import { workstationGuestPassword } from '../generation/workstationFs';
 import { signRequest } from '../signedRequest/sign';
 import { generateIdentity } from '../identity/identity';
