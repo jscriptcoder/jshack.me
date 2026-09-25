@@ -3,9 +3,9 @@
 > **Picking this up cold?** Read "Locked decisions", then the slice table — it carries the live
 > status. The grounding section records what v2 held on the day this was grilled; the code wins
 > wherever the two disagree.
-> Grilled 2026-09-21 (`grilling`), 25 locked decisions. Slices 0–8 delivered (as-built below).
-> Slice 9 grilled and planned 2026-09-24 in `a-device-is-the-device-it-says.md` and delivered in
-> three PRs (#545, #546, #547; v0.261.0). Slice 10 is next.
+> Grilled 2026-09-21 (`grilling`), 25 locked decisions. Slices 0–9 delivered (as-built below).
+> Slice 9 grilled and planned 2026-09-24 and delivered in three PRs (#545, #546, #547; v0.261.0).
+> Slice 10 is next; it has no plan yet.
 
 **Where we are now (2026-09-25):** **v0.261.0**. The legacy-parity epic's V-series is closed and
 its next line was "the ship gate". **Ship now waits for this epic** (decision 1). Grilled to 25
@@ -417,7 +417,7 @@ See below; planning refines it.
 | 6 | **A store serves that application** — Redis keyspaces paired with the app | `KEYS sess:*` returns sessions for that app's real users | ✅ DONE (#540, v0.254.0) — 43 stores, all reading differently; decision 15 amended (store locks re-rolled once); a bought store is a fresh install; see as-built below |
 | 7 | **Somebody wrote to somebody** — workstation mailboxes, the mail server's spool | a thread in `/var/mail/<user>` is between two real inhabitants of the network | ✅ **DONE** (#541 v0.255.0, #542 v0.256.0) — the correspondence, desk mailboxes, the spool and its database agreement; then `mail.log.1` carrying the spool's own queue ids, `/etc/aliases`, the postfix config honesty fixes and cron's mail to root. A phone keeps no mailbox but may hold cron's |
 | 8 | **A share holds a department** — fileserver `/srv`, metadata docs | `strings` on a shared PDF names its author, an inhabitant | ✅ **DONE** (#543 v0.257.0, #544 v0.258.0) — `/srv` on every file server, LAN and deep: a working share or dated snapshots by prefix, the category's departments, PDF/JPEG/office stubs whose metadata `strings` reads, authors from the one roster mail uses, `vsftpd.conf` stops claiming doors; then `vsftpd.log.1` recording every arrival from its author's machine to the byte, the `/srv` data disk in `fstab`, an allow-list `/etc/vsftpd.userlist`, and root's history naming `/srv` instead of samba, nfs and zfs. See as-built below |
-| 9 | **A device is the device it says** — IoT prefix overlays + prefix growth (the one re-roll: refresh pins, wire-checks, the `v2-e2e` skill) | a printer serves a CUPS page and holds spool jobs; a camera a recordings index | ✅ **DONE** — 9a (#545, v0.259.0), 9b (#546, v0.260.0), 9c (#547, v0.261.0) |
+| 9 | **A device is the device it says** — IoT prefix overlays + prefix growth (the one re-roll: refresh pins, wire-checks, the `v2-e2e` skill) | a printer serves a CUPS page and holds spool jobs; a camera a recordings index | ✅ **DONE** — 9a (#545, v0.259.0), 9b (#546, v0.260.0), 9c (#547, v0.261.0); every IoT box keeps its daemon's config, its data and its own pages, and `device.conf` retired. See as-built below |
 | 10 | **A gateway knows its network** — DHCP leases, config backups, admin pages, admin/firmware history | a rooted router's lease table lists exactly the network's generated hosts | ⏳ |
 | 11 | **A phone is a phone** — phone/tablet overlay | an NPC `android-` home holds `DCIM/` and `Download/`, not dotfiles | ⏳ |
 
@@ -986,6 +986,193 @@ is over it on 102 boxes, and every tier reads it, so a guest who `get`s it meets
 `I/O error`. Backlogged in `v2/docs/conventions-and-gotchas.md` §9.
 
 ---
+
+## As-built: slice 9 (delivered 2026-09-24/25)
+
+Retired here from `a-device-is-the-device-it-says.md` on close-out. Three PRs: **9a** (#545,
+v0.259.0) — `plug`, `lock`, `nvr` and `babycam` join iot, decision 7's one re-roll; **9b** (#546,
+v0.260.0) — device kinds, and a printer, camera and recorder that hold what their names say;
+**9c** (#547, v0.261.0) — climate, media, plug and lock the same, and `device.conf` and the
+generic IoT pages retire.
+
+**Owner decisions.** Twelve at planning (2026-09-24), recorded in the status log below: an IoT box
+stays the small Linux board slices 2–3 made it, with a device layer on top; seven device kinds
+over eleven prefixes, sharing a kind only where one device comes in another flavour; placement
+unchanged (no kind serves http, ftp or ssh more often, so nginx's exploit route does not widen);
+2–4 linked pages per kind where http already runs; print jobs are real people at their real
+machines printing real share documents; a camera's recordings are events with JPEG snapshots, a
+recorder's copies byte-identical to its cameras'; each kind's own config replaces `device.conf`;
+deep devices get the same layer, self-contained; tiers follow Debian with the box's one account
+as the daemon's user; three PRs in order. **Decision 15:** device content draws on a new
+`device-<essid>-<ip>` stream; the only re-roll is 9a's rename. No `device-ui-` stream was needed.
+
+| Kind | Prefixes | Config (`/etc`) | Data | UI pages |
+|---|---|---|---|---|
+| printer | `printer` | `cups/cupsd.conf` (pooled), `cups/printers.conf` (generated: the queue) | `/var/spool/cups/c<id>` control stubs; `d<id>-001` for the last day's jobs; `/var/log/cups/page_log` + `page_log.1` | Home, Printers, Jobs (`Withheld`) |
+| camera | `cam`, `doorbell`, `babycam` | a camera config naming its event and snapshot directories | an event index; snapshot `.jpg` stubs | Live, Events |
+| recorder | `nvr` | a recorder config listing the cameras it pulls | an archive per camera: `<camera .lan name>/<date>/…jpg`, plus an index | Cameras, Recordings |
+| climate | `sensor`, `thermostat` | a sensor config (interval, units, local broker) | `readings.csv`; a thermostat's schedule | Readings, Schedule |
+| media | `tv`, `speaker` | a cast/media config | paired devices, recently played, installed apps | Now playing, Devices |
+| plug | `plug` | a plug config | schedule; daily energy log | Status, Schedule |
+| lock | `lock` | a lock config | code slots (named, no codes); access log (root-only) | Status |
+
+Paths follow what real Linux devices do (`/var/lib/<daemon>/…` for a daemon's state, `/etc/<daemon>/…`
+for its config); each kind's exact paths are fixed in its increment and pinned by test.
+
+(As built, the lock's UI is Status and Settings, and each kind keeps its config under
+`/etc/<daemon>/` and its data under `/var/lib/<daemon>/`.)
+
+### PR 9a — IoT grows four devices
+
+One RED-GREEN increment as planned, then one test from the mutation gate.
+
+- **The re-roll, measured.** 90 IoT boxes renamed in place (14 `plug`, 11 `nvr`, 7 `lock`,
+  6 `babycam` among them); no box's role or services moved, no file added or removed. The three
+  pins moved as predicted: `tv-187` → `nvr-187` (home LAN golden), `speaker-179` → `nvr-179`
+  (deep golden), `doorbell-87`/`tv-137` → `tv-87`/`lock-137` on ACME-CORP's deep zone (`cam-189`
+  and the home LAN's `cam-138` unchanged). The conventions doc's ftp example is the same `.26`
+  host, now `babycam-26`. No script, skill or doc hardcoded an IoT name.
+- **The byte-diff, and how 9b and 9c should run it.** The probe keyed every file by
+  `<essid>/<ip>/<path>`, plus three pseudo-files per box (`#hostname`, `#role`, `#services`), so
+  a moved role or service shows as a differing path rather than hiding inside content. The
+  classifier builds each network's old→new name table from `#hostname`, substitutes it into the
+  `main` side, and requires the result to equal the branch. That explained all but 34 files;
+  those move a number or a column that depends on a name's length — an access log's page size, a
+  mail log's `size=`, four zone files' padding — and pass once those are normalised, each
+  access-log size also checked against the page it serves. 9b and 9c change content rather than
+  names, so their classifier is per path, but the pseudo-files carry over unchanged.
+- **Sizes are characters, not bytes, everywhere.** The access log's size is the page's
+  `content.length`, so a page holding `—` logs a few bytes under its UTF-8 size. That is the
+  game's one convention (`get` and `vsftpd.log.1` count the same way, as 8a recorded), not a
+  defect; 9b's `page_log.1` and spool sizes follow it.
+- **Mutation** (`pools/hostnames.ts` alone): 47 → 48 killed of 52, 0 timeouts. The gate found a
+  gap on an unchanged line: nothing held that a name without the octet claims no role, so a
+  player's workstation called `nas1` could have read as a file server; a test now does. Of the
+  four survivors, `separator <= 0` is equivalent, and three are load-time throws (the table as
+  `{}`, either map callback as `() => undefined`) that the narrowed runner reports as "no tests"
+  — applied by hand, the suite fails.
+
+**Verified:** 5,858 unit tests; wire-checks `testSameLanConnect` 4/4, `testCrossPlayerRead` 7/7,
+`testDeepChainReach` 6/6, `testFtpRemoteRead` 7/7 and `testFtpSession` 14/14 on a reset local
+stack; bundle 204,118 B of 284,975 B; build 0.69–1.09 ms per box of 2 ms.
+
+### PR 9b — a printer prints, a camera watches, a recorder keeps both
+
+Six RED-GREEN increments as planned, then a mutation gate that added sixteen tests or
+assertions. Everything lives in `generation/device.ts` (the kind table, the three kinds' files,
+their pages) and `pools/devices.ts`; `logging/pageLog.ts` formats the page log and
+`documentFormats.ts` gained `renderControlFile`.
+
+- **Where each kind keeps what.** Printer: `/etc/cups/{cupsd,printers}.conf`, `/var/spool/cups/
+  c<id>` and `d<id>-001`, `/var/log/cups/page_log(.1)`, all root-only. Camera:
+  `/etc/motion/motion.conf` (world-readable, like every role config) and `/var/lib/motion/
+  {events.log,snapshots/}` at the account's tier. Recorder: `/etc/nvr/nvr.conf` and
+  `/var/lib/nvr/<camera>.<zone>.lan/<date>/<snapshot>.jpg` plus `index.log`, user-tier. Deep
+  recorders file PoE channels as `ch01`…`ch04`, each port `PoE<n>`.
+- **`cupsd.conf` is what the other files obey.** Every variant states the page-log format,
+  `PreserveJobHistory 30d` (the spool's window) and `PreserveJobFiles 1d` (which jobs keep a data
+  file), and the gate pinned that, so no config contradicts the spool it sits beside.
+- **Jobs.** On a LAN with file servers each job is a share document as that server holds it, sent
+  by the person who last saved it from their own machine (`localhost` when that is the printer's
+  own account); elsewhere the category's PDFs and office files, drafted for the network's people.
+  Job ages are squared toward the present — a printer in use is printing this week — which is also
+  what makes the last day's data files common enough to test.
+- **A camera's recordings are re-derived, not built.** `cameraRecordings(essid, host)` replays
+  the first draws of the camera's `device-` stream, so a recorder's copies are the camera's
+  snapshots byte for byte without building the camera box.
+- **Pages are built from the device's data, with no stream of their own.** The planned
+  `device-ui-` stream was not added: nothing on them is drawn. Which boxes serve http is
+  unchanged; a device that serves one publishes its pages instead of the generic IoT page, and
+  `access.log.1`'s visitors walk every page.
+- **Three things that differ from what the plan implied.** Paper is always A4 — CUPS's Letter
+  name `na_letter_8.5x11in` reads as a version to the sweep. `strings` does not show a login under
+  four characters (`pi`, `dev`), exactly as on a real box; `page_log.1` names every user. And the
+  world holds few of these boxes (7 printers, 31 cameras, 11 recorders), so the tests read 120
+  synthetic home LANs (`HOME-NET-<n>`: any ESSID generates a whole network) beside it.
+- **Reachable in play, and not.** No LAN printer in the catalog runs ftp or ssh, so its root-only
+  spool is unreachable on a home LAN; the played run read a printer's Jobs page with lynx, and a
+  recorder's archive over ftp on LIB-2ND-FLOOR (`nvr-12`, ftp on 2121) against `doorbell-125`'s
+  own Events page. A deep printer (sshd forced) waits on a deep-chain pivot recipe.
+- **The byte-diff** (the 9a probe, `main` against the branch, 36,841 files): 0 unexpected paths.
+  Only the 49 printer, camera and recorder boxes moved — `device.conf` removed, their files added,
+  pages, `access.log.1` and root's history rewritten. The history moves because the extra config
+  paths shift that stream's later draws (its neighbour and log lines), all still true.
+- **Mutation**, split into three runs after a whole-scope run was projected at two hours: `device.ts`
+  67.9% → 77.5% (427 killed, 124 survived, 4 not covered); pools, `pageLog.ts` and the control-file
+  stub 98/83; `logHistory.ts` 12/0; `remoteHostFs.ts`'s changed lines 75/23. The survivors left are
+  fixed config and page text, equivalent guards and one-second boundaries, two mutants the runner
+  misreports (each dies by hand), and 18 on unchanged lines (root history's `named.conf` and
+  `redis.conf` paths — a gap older than this PR).
+
+**Verified:** 5,925 unit tests; wire-checks `testSameLanConnect` 4/4, `testCrossPlayerRead` 7/7,
+`testDeepChainReach` 6/6, `testFtpRemoteRead` 7/7 and `testFtpTransferTrace` 13/13 on a reset local
+stack; the largest device file 2,167 characters of JSON against the 8,192 cap; bundle 208,763 B of
+284,975 B; build 1.177 ms per box of 2 ms.
+
+### PR 9c — every device says what it is
+
+A behaviour-preserving split first, then four RED-GREEN kinds, then the pages with the
+retirement, then a mutation gate that added ten tests and closed one hole.
+
+- **The split.** `generation/device.ts` keeps `buildDevice` and re-exports the public names; each
+  kind lives in `device/<kind>.ts` with its tests beside it, and `device/common.ts` holds the
+  kind table, `DeviceFiles`, the clock and `uiPage`. Shared test readers are in
+  `src/test/deviceBoxes.ts`; `device.test.ts` holds only what every kind shares.
+- **Where each kind keeps what.** Config world-readable under `/etc/<daemon>/`, data at the
+  account's tier under `/var/lib/<daemon>/`: `sensord` (`readings.csv`, a thermostat's
+  `schedule.conf`), `mediad` (`paired.conf`, `recent.log`, `apps.list`), `plugd`
+  (`schedule.conf`, `energy.csv`), `lockd` (`slots.conf`). The lock's log is root-only in
+  `/var/log/lockd/`, an empty `access.log` beside `access.log.1` — the fourth rotation that
+  spans more than a day. `DeviceFiles` gained a `log` field that merges into `/var/log`, so root's
+  history names it without a special case.
+- **Phones have owners already.** A phone's account is `npcUsername(essid, phone)`, the same
+  person `peopleOn` lists, so a pairing's name (`Duc's Pixel 6a`) and a lock's phone entry need no
+  new ownership stream; the model is `share.ts`'s `phoneModel`, now exported, so a TV and a
+  file server's photos agree.
+- **Values that behave.** A sensor's room follows the day; a thermostat's closes on the set point
+  in force (settling from a day before the first reading kept) and holds within a degree after
+  three hours; humidity falls as the air warms. Set points come in warm/cool pairs so a day ends
+  cool. A plug draws 30–100 % of its load only on days a rule ran. A play is cast only from a
+  phone paired before it.
+- **Pages.** 2–3 per kind, keyed by prefix in the shared test (a thermostat has the one page a
+  sensor lacks); every page links every other. The lock's pages show when it last opened and
+  how it is set, never who, which slot or which phone: those are its account's and root's.
+- **Version sweeps read measurements out.** A value with a unit (`21.4 °C`, `0.041 kWh`) is a
+  reading; `withoutMeasurements` strips it before the page sweeps in `device.test.ts` and
+  `webSite.test.ts`.
+- **Retired.** `CONFIG_BY_ROLE.iot` (`PooledConfigRole` now excludes `iot` at the type level),
+  `IOT_PAGES` and its row, `buildDevice`'s "kind keeps nothing yet" null; the config branch in
+  `remoteHostFs` reads `role === 'iot'`, and a device always publishes its own pages.
+- **Three things that differ from what the plan implied.** The "6–15 content files" clause is
+  not tested — every IoT box already holds 61–83 files, so a whole-box count cannot be 6–15. The
+  lock's UI is Status and Settings, not a slot list, since slot names are people and user-tier.
+  The media pairing test's floor is ten, not twenty: the world and 120 synthetic LANs hold only
+  ten media boxes beside a phone.
+- **Reachable in play, and not.** Played on v0.261.0: `thermostat-155` (STARK-WIFI) over curl,
+  readings following Saturday's set points; `plug-146` (PIED-PIPER, ftp on 2121 as `camadmin`),
+  energy only on its three scheduled days; `lock-200` (HOOLI-SEC, ftp as root), its log refused
+  to guest and 21 keypad unlocks matching `slots.conf`, its pages naming nobody. **No file that
+  names a phone is reachable on a catalog LAN:** the one lock whose log names a phone
+  (`lock-248`, GROUND-ZERO-COFFEE) runs http alone, and the two media boxes with pairings run no
+  service; the unit tests hold them.
+- **The byte-diff** (`main` against the branch, 36,980 files): 0 unexpected paths. Only the 55
+  climate, media, plug and lock boxes moved — `device.conf` removed, their files added, pages and
+  `access.log.1` rewritten where http runs, root's history where it names the new configs.
+- **Mutation**, three scoped runs: `climate.ts` 73.9 % → 79.4 %, `media.ts` 75.3 % → 82.4 %,
+  `plug.ts` 79.0 % → 80.5 %, `lock.ts` 77.1 % → 80.2 %; `device.ts` and `remoteHostFs.ts`'s
+  changed lines 58/3. The gate's hole: the lock test compared `undefined` with `undefined` for a
+  phone owner, so a lock letting everyone in by keypad passed. All 21 targeted mutants were
+  applied by hand and fail, three of them runner misreports. Left: fixed text, tuning values,
+  guards equivalent on a generated world, and mutants `device.test.ts` kills outside the runs.
+
+**Verified:** 5,990 unit tests; wire-checks `testSameLanConnect` 4/4, `testCrossPlayerRead` 7/7,
+`testDeepChainReach` 6/6, `testFtpRemoteRead` 7/7 and `testFtpTransferTrace` 13/13 on a reset local
+stack; the largest device file 5,603 characters of JSON (a thermostat's `readings.csv`) against
+the 8,192 cap; bundle 212,718 B of 284,975 B; build 0.689 ms per box of 2 ms.
+
+**Left open.** A lock's unlocks are drawn evenly over the day, so some fall at 3 a.m.; and the
+phone-naming files wait for a door (a service on a media box or lock beside a phone) or the CVE
+arc to be read in play.
 
 ## Open for planning (named, deliberately not decided)
 
