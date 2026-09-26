@@ -20,6 +20,8 @@
  * `{count}` a small number, `{note}` the name of a note this home actually has.
  */
 
+import type { NetworkCategory } from './essidCatalog';
+
 /** Lines any person types, whatever the network is. */
 export const PERSONAL_HISTORY: readonly string[] = [
   'ls -la',
@@ -77,7 +79,7 @@ export const PERSONAL_HISTORY: readonly string[] = [
 ];
 
 /** Lines flavoured by the kind of place the network is — still local, still safe. */
-export const WORK_HISTORY: Readonly<Record<string, readonly string[]>> = {
+export const WORK_HISTORY: Readonly<Record<NetworkCategory, readonly string[]>> = {
   corporate: [
     'vim ~/notes/{note}',
     'git checkout -b feature/reporting',
@@ -188,6 +190,23 @@ export const WORK_HISTORY: Readonly<Record<string, readonly string[]>> = {
     'tmux new -s ctf',
     'clear',
     'dmesg',
+    'exit',
+  ],
+  government: [
+    'cat ~/notes/{note}',
+    'vim ~/notes/{note}',
+    'lp letter.txt',
+    'lpstat',
+    'libreoffice --writer',
+    'll',
+    'nano ~/notes/{note}',
+    'sort register.csv',
+    'wc -l register.csv',
+    'cp register.csv register.csv.bak',
+    'date',
+    'cal',
+    'echo chased >> ~/notes/{note}',
+    'clear',
     'exit',
   ],
 };

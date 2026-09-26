@@ -704,6 +704,80 @@ export const MAIL_SPECS: Readonly<Record<NetworkArchetypeKey, readonly MailThrea
       ],
     },
   ],
+  cases: [
+    {
+      subject: 'Cases with nothing on them for a month',
+      opener: [
+        'There are files still open with no note against them since the spring.',
+        'Most are waiting on somebody outside, but nobody has written that down.',
+        'Could everybody add a line to theirs, even if the line is that we are waiting?',
+      ],
+      replies: [
+        ['Done mine. Two can be closed, the rest are with the applicant.'],
+        ['The list is down to a handful. Much easier to read now.'],
+      ],
+    },
+    {
+      subject: 'References jumping a number',
+      opener: [
+        'The reference numbers skip one now and then.',
+        'It happens when a file is started and abandoned at the counter.',
+        'It is not wrong, but somebody asked and I did not have an answer.',
+      ],
+      replies: [
+        ['That is what it is. An abandoned start keeps its number rather than handing it on.'],
+        ['I have written it on the crib sheet so the next person does not wonder.'],
+      ],
+    },
+    {
+      subject: 'Who is down as the officer',
+      opener: [
+        'Several files still have somebody who left as the officer.',
+        'The reminders go to an address nobody reads.',
+        'I can move them across if somebody tells me who takes what.',
+      ],
+      replies: [
+        ['Split them by kind rather than evenly. The licensing ones should come to me.'],
+        ['Moved. Everything now has somebody who is actually here.'],
+      ],
+    },
+    {
+      subject: 'Notes that say nothing',
+      opener: [
+        'A fair few notes say only that the file was looked at.',
+        'When somebody asks what happened, that tells them nothing.',
+        'A sentence about what was decided would save an hour later.',
+      ],
+      replies: [
+        ['Agreed. I have started writing what I did and what is next.'],
+        ['The last fortnight reads much better. Worth keeping up.'],
+      ],
+    },
+    {
+      subject: 'Papers for the committee',
+      opener: [
+        'The pack has to be with members a clear week before they sit.',
+        'That means anything going in needs to be finished the week before that.',
+        'Two reports came in the afternoon before last time.',
+      ],
+      replies: [
+        ['Put the deadline on the calendar and I will work back from it.'],
+        ['The pack went out on time. Nobody had to read anything on the night.'],
+      ],
+    },
+    {
+      subject: 'Closing a file properly',
+      opener: [
+        'Closing means the outcome is written down and the papers go to the shelf.',
+        'Half the closed files are still in the tray behind the counter.',
+        'They cannot be found there, which is the whole point of closing them.',
+      ],
+      replies: [
+        ['I will clear the tray this week and shelve them in reference order.'],
+        ['Tray is empty. Anything in it now really is still open.'],
+      ],
+    },
+  ],
   telemetry: [
     {
       subject: 'The hallway thermostat reads high',
@@ -1615,6 +1689,104 @@ export const PERSONAL_THREADS: Readonly<Record<NetworkCategory, readonly MailThr
       replies: [
         ['It needed a washer, which cost nothing and took five minutes.'],
         ['Five minutes, and a year of that noise gone.'],
+      ],
+    },
+  ],
+  government: [
+    {
+      subject: 'The barrier to the staff car park',
+      opener: [
+        'The barrier has stopped reading half the passes again.',
+        'Three of us had to reverse back out onto the road this morning.',
+        'Is it worth propping it while somebody looks at it?',
+      ],
+      replies: [
+        ['Propped, with a note on it so nobody thinks it is broken open.'],
+        ['Reader replaced. Try yours on the way out and say if it still sticks.'],
+      ],
+    },
+    {
+      subject: 'Kettle',
+      opener: [
+        'The kettle in the back office has given up.',
+        'It boils, then trips the socket, then sulks.',
+        'There is a whip-round going if anybody wants in.',
+      ],
+      replies: [
+        ['Count me in. Anything but the one that takes ten minutes.'],
+        ['New one is here and it is quiet, which nobody expected.'],
+      ],
+    },
+    {
+      subject: 'Fire drill on Wednesday',
+      opener: [
+        'There is a drill on Wednesday morning, around half past ten.',
+        'The building has to clear, and that includes anybody at the counter.',
+        'It usually takes a quarter of an hour from the alarm to being back at our desks.',
+      ],
+      replies: [
+        ['I will take the upstairs corridor and the store room.'],
+        ['Twelve minutes, which is the best we have done.'],
+      ],
+    },
+    {
+      subject: 'Leaving collection',
+      opener: [
+        'There is an envelope going round for somebody leaving at the end of the month.',
+        'It is with me today and the front office tomorrow.',
+        'A card is going round with it, so sign that even if you skip the envelope.',
+      ],
+      replies: [
+        ['Signed. Somebody should write down what the card said, it was good.'],
+        ['Both handed over. The card got a laugh, which was the idea.'],
+      ],
+    },
+    {
+      subject: 'Somebody has my mug',
+      opener: [
+        'The blue mug with the chip in the handle is mine.',
+        'It has been in the upstairs kitchen for a week.',
+        'I am not upset, I would just like it back.',
+      ],
+      replies: [
+        ['It was me. It was in the dishwasher and I assumed it was spare.'],
+        ['Returned, washed, and I have put a sticker on the bottom of mine.'],
+      ],
+    },
+    {
+      subject: 'Heating in the back office',
+      opener: [
+        'The back office is either freezing or tropical, never in between.',
+        'The radiator has one setting and it is whichever you do not want.',
+        'Two people are working in coats.',
+      ],
+      replies: [
+        ['Reported it. They want to know which hours it is worst, so keep a note.'],
+        ['Valve replaced. It has been steady all week, coats off.'],
+      ],
+    },
+    {
+      subject: 'Parcels at the front desk',
+      opener: [
+        'Personal parcels keep arriving at the counter.',
+        'They pile up behind the desk where the public can see them.',
+        'Could people collect the same day, or have them sent home?',
+      ],
+      replies: [
+        ['Mine is the big one. Sorry, I will take it at lunch.'],
+        ['Desk is clear. A shelf in the back has been found for anything that does arrive.'],
+      ],
+    },
+    {
+      subject: 'The shared calendar',
+      opener: [
+        'Half the office keeps leave in the calendar and half on paper.',
+        'That means the rota is wrong about once a fortnight.',
+        'Could we settle on the calendar, since that is the one people check?',
+      ],
+      replies: [
+        ['Fine by me, as long as somebody puts the old paper list in first.'],
+        ['All of it is in. The rota has matched for three weeks now.'],
       ],
     },
   ],

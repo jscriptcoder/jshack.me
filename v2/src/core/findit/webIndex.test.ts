@@ -11,6 +11,7 @@ import { siteServer } from '../generation/siteServer';
 import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
 import { publisherIp, publisherSite } from '../generation/publisher';
 import { FINDIT_NETWORK } from '../generation/findit';
+import { rankPages } from './search';
 
 /**
  * What findit holds when somebody searches: every homepage on the public web as it is
@@ -71,6 +72,12 @@ describe('the web findit searches', () => {
     expect(domains).toContain(CAMPUS_DOMAIN);
     expect(domains).toContain('acme.com');
     expect(new Set(domains).size).toBe(domains.length);
+  });
+
+  it('puts the institution a search names first: the police for police, the court for court', async () => {
+    const web = await indexWith();
+    expect(rankPages(web, 'police')[0]?.address).toBe('ridgemontpd.gov');
+    expect(rankPages(web, 'court')[0]?.address).toBe('ridgemontcourts.gov');
   });
 
   it('reads each homepage for what the site calls itself and says about itself', async () => {

@@ -21,6 +21,10 @@ describe('networkPersona', () => {
       place: 'the Night Owl',
     });
     expect(networkPersona('NULL-BYTE')).toMatchObject({ category: 'hacker' });
+    expect(networkPersona('RIDGEMONT-PD')).toMatchObject({
+      category: 'government',
+      place: 'the police station',
+    });
   });
 
   it('gives a network outside the catalog a place of its own, the same one every time', () => {
@@ -38,6 +42,18 @@ describe('networkPersona', () => {
     );
 
     expect(categories.size).toBeGreaterThan(3);
+  });
+
+  it('names a network outside the catalog whatever kind of place it turns out to be', () => {
+    const personas = Array.from({ length: 200 }, (_unused, index) =>
+      networkPersona(`Uncatalogued-${index}`),
+    );
+
+    for (const category of NETWORK_CATEGORIES) {
+      const places = personas.filter((persona) => persona.category === category).map((persona) => persona.place);
+      expect(places.length).toBeGreaterThan(0);
+      expect(places.every((place) => place !== '')).toBe(true);
+    }
   });
 });
 

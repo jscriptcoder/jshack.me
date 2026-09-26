@@ -283,6 +283,7 @@ const FOLDERS_BY_CATEGORY: Readonly<Record<NetworkCategory, readonly string[]>> 
   public: ['minutes', 'planning', 'notices', 'budgets', 'maintenance'],
   hacker: ['talks', 'zines', 'writeups', 'meetups', 'photos'],
   iot: ['datasheets', 'qa', 'certification', 'manuals'],
+  government: ['records', 'committees', 'licensing', 'budgets', 'correspondence'],
 };
 
 const WORKING_SHARE_PREFIXES: readonly string[] = ['share', 'files', 'nas'];

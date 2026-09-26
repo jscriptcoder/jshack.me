@@ -133,4 +133,18 @@ export const NOTE_TEMPLATES: Readonly<Record<NetworkCategory, readonly NoteTempl
     { file: 'log.md', body: '{place} log {date}\n{day}: someone left the soldering iron on\nno harm done, new sign up\n\n-- {first}\n' },
     { file: 'ideas.txt', body: 'random ideas at {time}\n- a plant watering rig for {place}\n- a doorbell that pages the channel\n- talk {colleague} out of the flamethrower one\n' },
   ],
+  government: [
+    { file: 'counter.txt', body: 'front counter at {place}, {day}\n- {count} people in before ten\n- we ran out of the change-of-address form again\n- {colleague} covers the lunch hour\n' },
+    { file: 'filing.md', body: 'filing backlog at {place}\nstarted {date}\n{count} boxes still to go\n{colleague} says the storeroom is full either way\n\n-- {first}\n' },
+    { file: 'overtime.txt', body: 'overtime at {place}\n{day}: stayed until {time}\n{count} hours so far this month\nget it on the sheet before {colleague} closes it\n' },
+    { file: 'training.md', body: 'retention training {date}, back room at {place}\n- the schedule changed again\n- redact before you send it, not after\n- {colleague} asked the only good question\n' },
+    { file: 'shift.txt', body: 'swapped my {day} with {colleague}\nstarting {time} instead\ntell the desk at {place} or nobody opens up\n' },
+    { file: 'letters.txt', body: 'letters to answer\n{count} this week, most about the car park at {place}\ndrafts by {day}\n{colleague} signs them\n' },
+    { file: 'handover.md', body: 'handover {date}, {place}\ntwo things waiting on a signature\none waiting on {colleague}\nthe rest keeps until {day}\n\n-- {first}\n' },
+    { file: 'reminders.txt', body: 'reminders\n- franking machine before {time}\n- chase {colleague} for the stationery order\n- {place} shuts early on {day}\n' },
+    { file: 'audit.md', body: 'audit prep at {place}\nsample of {count} folders pulled {date}\n{colleague} keeps the checklist\nall present so far\n' },
+    { file: 'budget.txt', body: 'the budget meeting ran to {time}\nno new posts until {date} at the earliest\n{colleague} wants it minuted word for word\n' },
+    { file: 'visitors.txt', body: 'visitors {day}\n{count} signed in, one signed out twice\n{colleague} walked the last one out of {place} at {time}\n' },
+    { file: 'leave.md', body: 'leave form\noff from {date}\n{colleague} takes the counter at {place}\nback on {day}\n\n-- {first}\n' },
+  ],
 };

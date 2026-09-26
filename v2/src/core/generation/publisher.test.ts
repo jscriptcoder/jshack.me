@@ -7,9 +7,9 @@ import { FINDIT_NETWORK } from './findit';
 import { resolveName } from '../network/resolveName';
 
 /**
- * The institutions of the world publish a website: every office, café, the university
- * and the city's public places. Homes, gadgets and hacker hangouts never do. Each site
- * has a domain of its own, so no two institutions answer to the same name.
+ * The institutions of the world publish a website: every office, café, the university,
+ * the city's public places and its government. Homes, gadgets and hacker hangouts never
+ * do. Each site has a domain of its own, so no two institutions answer to the same name.
  */
 
 const PUBLISHED_SITES: Readonly<Record<string, { domain: string; name: string }>> = {
@@ -45,6 +45,9 @@ const PUBLISHED_SITES: Readonly<Record<string, { domain: string; name: string }>
   'METRO-COMMUTER': { domain: 'ridgemontmetro.gov', name: 'Ridgemont Metro' },
   'AIRPORT-LOUNGE-VIP': { domain: 'flyridgemont.com', name: 'Ridgemont International Airport' },
   'TRAIN-STATION-FREE': { domain: 'ridgemontcentral.org', name: 'Ridgemont Central Station' },
+  'RIDGEMONT-PD': { domain: 'ridgemontpd.gov', name: 'Ridgemont Police Department' },
+  'CITY-HALL-WIFI': { domain: 'ridgemont.gov', name: 'City of Ridgemont' },
+  'COURTHOUSE-GUEST': { domain: 'ridgemontcourts.gov', name: 'Ridgemont County Court' },
 };
 
 describe('publisherSite', () => {

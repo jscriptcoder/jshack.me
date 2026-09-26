@@ -149,6 +149,18 @@ export const STORE_SPECS: Readonly<Record<ArchetypeKey, StoreSpec>> = {
     routes: ['login', 'book', 'calendar'],
     webhooks: ['stripe', 'slack'],
   },
+  cases: {
+    cached: ['cases', 'parties', 'notes', 'users'],
+    queues: [
+      { name: 'acknowledgements', kind: 'case.acknowledged', table: 'cases' },
+      { name: 'reminders', kind: 'case.reminder', table: 'cases' },
+    ],
+    locks: ['overdue_sweep', 'committee_pack'],
+    counters: ['cases_open', 'cases_closed_today', 'notes_today', 'hearings_listed'],
+    flags: ['online_forms', 'committee_papers', 'case_search'],
+    routes: ['login', 'cases', 'search'],
+    webhooks: ['slack', 'mailchimp'],
+  },
   telemetry: {
     cached: ['devices', 'alerts', 'automations', 'users'],
     queues: [

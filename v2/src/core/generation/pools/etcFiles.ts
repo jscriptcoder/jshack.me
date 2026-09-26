@@ -51,6 +51,12 @@ export const MOTD_TEMPLATES: Readonly<Record<NetworkCategory, readonly string[]>
     '*** {place} ***\n{hostname}\n\nFiles saved here are removed at closing time.\n',
     '{hostname} @ {place}\n\nNeed help? Ask at the front desk.\n',
   ],
+  government: [
+    '{hostname} — {place}\n\nThis is a government computer system, provided for authorised official use only.\nUse of this system constitutes consent to monitoring and recording.\n',
+    '*** {place} ***\n{hostname}\n\nOfficial records on this machine are subject to the retention schedule.\nDo not delete, copy or print a case file without the clerk\'s approval.\n',
+    'Welcome to {hostname}.\n\n{place} — records management reminds you:\n  * every access to a file is logged against your login\n  * lock your screen before you leave the counter\n  * requests from the public go through the front office\n',
+    '{place} | {hostname}\n\nThe records system is read-only overnight while the audit runs.\nSave your work before you sign off.\n',
+  ],
   iot: [
     '{hostname}\n{place}\n\nDevice management console. Changes here apply to every connected device.\n',
     'Welcome to {hostname}.\n\nThis controller belongs to {place}.\nDo not power it down during a firmware update.\n',
