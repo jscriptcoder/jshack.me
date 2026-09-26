@@ -40,15 +40,11 @@ import { KERN_LOG_PERMISSIONS } from '../logging/kernLog';
 import { FINDIT_FRONT_PAGE } from '../findit/page';
 import type { Directory, FileEntry } from '../filesystem/types';
 
-/** The key findit is known by wherever a network is — its log rows, its address
- *  lookups. Never a wifi ESSID: nothing broadcasts it and nobody joins it. */
-export const FINDIT_NETWORK = 'findit.io';
-
-/** The name findit answers to on the web. */
-export const FINDIT_DOMAIN = 'findit.io';
-
-/** What findit calls itself on its own disk. */
-export const FINDIT_HOSTNAME = 'findit';
+// findit's names live in a leaf module so `publisher` can place findit without importing
+// this generator, which would close an initialization cycle. Imported for use here and
+// re-exported so every importer that reaches for them through the generator keeps working.
+import { FINDIT_DOMAIN, FINDIT_HOSTNAME, FINDIT_NETWORK } from './finditNetwork';
+export { FINDIT_DOMAIN, FINDIT_HOSTNAME, FINDIT_NETWORK };
 
 /** The chance findit's root password is one a wordlist holds: none. It is a real host
  *  run by people who meant it to stay up, so the way in is the software it runs, when

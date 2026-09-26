@@ -556,3 +556,29 @@ site makes the link count meaningless.
   (`User-agent: *`, `Disallow: /`), so write it in `nano` (§7's save-and-exit loop).
 - **The crawl writes nothing on A's box.** Only real visits (B's `lynx` follow, a direct `curl`)
   land in A's `/var/log/access.log`; a search never does. Check the row, not the screen.
+
+**Rooting findit, reading the prize, and restoring it** (slice 4). findit's root does not crack
+(§6 won't help), so the only way in is a live CVE on its `:80` or `:22` — `nmap -sV findit.io`
+names it. **Rooting it to DEFACE the front page needs a ROOT-tier full-shell hole, and that window
+is on the world's clock** (nginx's is ~day 106); on an earlier day findit's live holes are user- or
+guest-tier, which is enough to READ but not to write its root-owned `/var/www/html/index.html`.
+- **Reading the prize needs any shell.** `msfconsole findit.io 80` (staging findit's manifest onto a
+  shell-granting nginx via psql, as §"a version is visible" stages one) stands you on findit as
+  root-the-account at the granted tier; `cat /var/log/access.log` then shows every searcher's
+  `GET /?q=<term>` under the address the server holds for them — intel on who is hunting what.
+- **Reading a rooted findit works because the exploit session records findit's OWN network**, not
+  the WiFi the attack came from — without that the box resolves to nothing and the shell reads an
+  empty tree. Fixed in this slice; the guard is `scripts/testRestoreFindit.ts`.
+- **`scripts/restoreFindit.ts` is the undo, and it is a reboot.** `npx dotenv -e
+  .env.development.local -- npx tsx scripts/restoreFindit.ts` closes every session on findit, empties
+  its journal (defacement, planted manifest, logs, all of it) and leaves a fresh boot marker. Run it
+  twice and nothing breaks; run it with no `SUPABASE_*` env and it exits 2 rather than touching
+  anything.
+- **After the restore the standing shell has LOST the box.** Its session is closed server-side, so a
+  write is refused (`no_session`) and the next `cat` reads nothing of findit — the box is
+  unresolvable to it, so the shell silently falls back to the attacker's OWN tree (`cat: command not
+  found`, since the fallback tree is not what the prompt claims). Whether they also get a clean
+  on-screen eviction is the pre-existing FIRST-REBOOT boot-id nuance (`core/boot/bootId.ts`): a shell
+  that hopped on while findit had NO marker captured no boot-id to compare, so the marker the restore
+  writes cannot notify it — findit's SECOND restore onward evicts cleanly. The enforcement (closed
+  session, refused write) does not depend on it.
