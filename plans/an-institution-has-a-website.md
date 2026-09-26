@@ -4,9 +4,9 @@
 (decisions 91–105, 2026-09-26), plus **seven decisions made at planning** (2026-09-26, owner-confirmed
 as a set) restated under "Decided at planning" below.
 
-**Status:** 1a merged (v0.265.0, PR #551); 1b merged (v0.266.0, PR #552); 1c built (v0.267.0, `feat/the-forward-is-a-way-in`, PR open).
+**Status:** 1a merged (v0.265.0, PR #551); 1b merged (v0.266.0, PR #552); 1c merged (v0.267.0, PR #553); 1d in progress (`feat/a-bare-address-is-a-url`).
 
-**Delivery:** three independent PRs against trunk, merged in order (each builds on the one before
+**Delivery:** four independent PRs against trunk, merged in order (each builds on the one before
 it through `main`, not through a stack).
 
 | PR | Branch | Version | Owns |
@@ -14,6 +14,7 @@ it through `main`, not through a stack).
 | 1a | `feat/a-publisher-answers-at-its-ip` | v0.265.0 | catalog `site`, derived `193.` addresses, the guaranteed webserver and its forward, forwards that reach a generated box (fetch + scan), the server-side derivation fallback |
 | 1b | `feat/a-domain-resolves` | v0.266.0 | the world-name step in `resolveName`; `nmap`/`ssh` resolving before the public check; `lynx` resolving at all |
 | 1c | `feat/the-forward-is-a-way-in` | v0.267.0 | the public-target resolver's generated-box fallback, so an exploit through the forwarded `:80` lands inside the LAN |
+| 1d | `feat/a-bare-address-is-a-url` | v0.268.0 | `curl`/`lynx` taking a scheme-less address as `http://`, as the real tools do (added after 1b, owner-agreed 2026-09-26) |
 
 Each PR bumps `v2/package.json` and `v2/package-lock.json` (`npm install --package-lock-only`).
 
@@ -294,6 +295,33 @@ reviewed.
   on 193.46.209.111 as user`. The script's `/tmp/through-the-forward.txt` landed on
   `www-59-650d566f`, and its `auth.log` line (under `ap:CAMPUS-GUEST-OPEN`) names the
   attacker's home address.
+
+### Slice 1d: A bare address is a URL
+
+**Value:** the player types what they would type into a real terminal — `lynx ridgemont.edu`,
+`curl ridgemont.edu/about.html` — and gets the page, where today both answer `(3) URL rejected`.
+Makes 1b's `lynx ridgemont.edu` criterion true as written.
+**Path:** `curl`/`lynx` argument → `parseHttpUrl` (scheme-less input read as `http://<input>`) →
+the existing resolve-and-fetch path.
+**Class:** behavior change. **Delivery:** independent PR against trunk, after 1c merges.
+**Decided (2026-09-26):** a missing scheme means `http://`, as both real tools default. Deliberately
+NOT copied: `curl`'s `ftp.`/`imap.`-prefix protocol guessing, `lynx`'s local-file-first check and
+its `www.`/`.com` expansion. An explicit `https://` behaves as it does today.
+
+**Acceptance criteria:**
+- [ ] `curl ridgemont.edu` and `curl ridgemont.edu/about.html` return the same page as the
+      `http://` forms.
+- [ ] `lynx ridgemont.edu` opens the homepage; its address bar shows the normalised
+      `http://ridgemont.edu/`.
+- [ ] A bare LAN name or address (`curl printer-111`, `curl 192.168.x.y:8080/`) works the same way.
+- [ ] An explicit scheme — `http://`, `https://`, or one the tools do not speak — behaves exactly as
+      before.
+
+**RED:** a `curl.test.ts` and a `lynx.test.ts` case on a bare domain, both failing with
+`URL rejected`. **GREEN:** the default in `parseHttpUrl`. **REFACTOR:** assess.
+**Wire-check:** `N/A` — client-only, no `api/` change. **Browser:** `v2-e2e` — `curl ridgemont.edu`,
+`lynx ridgemont.edu`. **PRE-PR MUTATION:** Stryker on the URL parser.
+**Done when:** criteria checked, gates green, browser run recorded, mutation reviewed.
 
 ## Pre-PR Quality Gate (each PR)
 

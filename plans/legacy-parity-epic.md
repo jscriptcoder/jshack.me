@@ -415,7 +415,7 @@ PHASE 2 — DISCOVERY
       X1 slice 3 the zone transfers                   ✅ SHIPPED v0.208.0 (#489)
       X1 slice 4 the transfer leaves a trace          ✅ SHIPPED v0.209.0 (#490)
   X2  findit.io + common website-bearing networks     GRILLED 09-26 (decisions 91-105, 6 slices)
-      X2 slice 1 an institution has a website     1a v0.265.0, 1b v0.266.0, 1c BUILT v0.267.0 (plans/an-institution-has-a-website.md)
+      X2 slice 1 an institution has a website     1a v0.265.0, 1b v0.266.0, 1c v0.267.0, 1d IN PROGRESS (plans/an-institution-has-a-website.md)
 PHASE 3 — VULNERABILITIES                             GRILLED 09-09/09-10 + PLANNED (35 decisions)
       V slice 1 a version is visible          ✔ SHIPPED v0.210.0-v0.211.0 (#491, #494)
         1a every box carries a manifest       ✅ SHIPPED v0.210.0 (#491)
