@@ -5,7 +5,7 @@
 at planning (2026-09-26) and the choices derived from existing conventions are listed under "Decided at
 planning" below.
 
-**Status:** 2a built (v0.269.0, `feat/findit-answers-a-search`, PR open); 2b not started.
+**Status:** 2a merged (v0.269.0, PR #555); 2b not started (`feat/lynx-submits-a-form`).
 
 **Delivery:** two independent PRs against trunk, merged in order (2b builds on 2a through `main`, not
 through a stack).
