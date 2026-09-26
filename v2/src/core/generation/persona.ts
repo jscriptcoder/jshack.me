@@ -35,6 +35,7 @@ const UNNAMED_PLACES: Readonly<Record<NetworkCategory, readonly string[]>> = {
   public: ['the library', 'the community centre', 'the station', 'the town hall', 'the park'],
   iot: ['the garage', 'the kitchen', 'the hallway', 'the utility room', 'the porch'],
   hacker: ['the hackerspace', 'the lab', 'the basement', 'the workshop', 'the bunker'],
+  government: ['the council offices', 'the precinct', 'the county court', 'the records office', 'the registry'],
 };
 
 const CATALOG_BY_ESSID = new Map(ESSID_CATALOG.map((entry) => [entry.essid, entry]));

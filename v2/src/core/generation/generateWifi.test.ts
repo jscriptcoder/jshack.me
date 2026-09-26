@@ -51,9 +51,9 @@ describe('generateWifi', () => {
     const offered = (seedPubkeyHex: string): readonly string[] =>
       generateWifi({ seedPubkeyHex }).filter(isCrackable).map((network) => network.essid);
 
-    expect(offered('id-0')).toEqual(['CASA-DE-RAMIREZ', 'BREW-AND-CODE', 'FAMILY-WIFI-2G']);
-    expect(offered('id-1')).toEqual(['GLOBEX-NET', 'BOFH-KEEPOUT']);
-    expect(offered('id-2')).toEqual(['AIRPORT-LOUNGE-VIP', 'WEYLAND-NET']);
+    expect(offered('id-0')).toEqual(['SUITE-401', 'BEAN-THERE-WIFI', 'INITECH-5G']);
+    expect(offered('id-1')).toEqual(['WAYSTAR-WIFI', 'CITY-HALL-WIFI']);
+    expect(offered('id-2')).toEqual(['SMART-FRIDGE-NET', 'TYRELL-CORP']);
   });
 
   it('yields 2-3 crackable and 3-5 noise networks', () => {
@@ -123,7 +123,7 @@ describe('generateWifi', () => {
 
   it('shuffles crackable and noise together into a stable seeded order', () => {
     // Golden snapshot for SEED_A's first scan: locks the seeded selection +
-    // interleave. The crackable APs (ACME-CORP / STARK-WIFI) sit at positions 3
+    // interleave. The crackable APs (STARK-WIFI / CYBERDYNE-5G) sit at positions 3
     // and 6, interleaved with noise rather than grouped — proof the final shuffle
     // actually mixes the two populations.
     const order = generateWifi({ seedPubkeyHex: SEED_A }).map((network) => ({
@@ -134,10 +134,10 @@ describe('generateWifi', () => {
     expect(order).toEqual([
       { essid: '<hidden>', encryption: 'WPA2', crackable: false },
       { essid: '<hidden>', encryption: 'WPA2', crackable: false },
-      { essid: 'ACME-CORP', encryption: 'WPA2', crackable: true },
+      { essid: 'STARK-WIFI', encryption: 'WPA2', crackable: true },
       { essid: 'SUBWAY_WIFI', encryption: 'WPA2', crackable: false },
       { essid: 'FREE_INTERNET', encryption: 'WPA3', crackable: false },
-      { essid: 'STARK-WIFI', encryption: 'WPA2', crackable: true },
+      { essid: 'CYBERDYNE-5G', encryption: 'WPA2', crackable: true },
       { essid: 'ASUS_RT_AC68U', encryption: 'WPA3', crackable: false },
     ]);
   });

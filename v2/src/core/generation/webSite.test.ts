@@ -334,13 +334,14 @@ describe('a site is written by the people who live on its network', () => {
   });
 
   it('names a neighbour where a place would list its people', () => {
-    // An office's team page, a department's people and an intranet's team all list
-    // the people on the network — by the names they go by, never their logins.
+    // An office's team page, a department's people, a council's staff directory and an
+    // intranet's team all list the people on the network — by the names they go by,
+    // never their logins.
     const listing = servingBoxes(isWebserver).filter(
       ({ box }) =>
         neighboursOf(box).length > 0 &&
         (hasPrefix('portal')(box.host) ||
-          (['corporate', 'university'].includes(networkPersona(box.essid).category) &&
+          (['corporate', 'university', 'government'].includes(networkPersona(box.essid).category) &&
             !hasPrefix('api')(box.host))),
     );
     expect(listing.length).toBeGreaterThan(10);
@@ -711,11 +712,26 @@ describe('how a site is written out', () => {
             ? ['team.html']
             : category === 'university'
               ? ['people.html']
-              : [];
-      const listed = files.filter((file) => ['team.html', 'people.html'].includes(file));
-      return JSON.stringify(listed) === JSON.stringify(expected)
-        ? []
-        : [`${box.host.hostname} (${category}) lists people in ${listed.join() || 'nothing'}`];
+              : category === 'government'
+                ? ['staff.html']
+                : [];
+      const listed = files.filter((file) => ['team.html', 'people.html', 'staff.html'].includes(file));
+      if (JSON.stringify(listed) !== JSON.stringify(expected)) {
+        return [`${box.host.hostname} (${category}) lists people in ${listed.join() || 'nothing'}`];
+      }
+      // The heading is what a reader sees, and each kind of place has its own word for
+      // it: an office keeps a Team, a department its People, a council its Staff
+      // directory.
+      const headings: Readonly<Record<string, string>> = {
+        'team.html': 'Team',
+        'people.html': 'People',
+        'staff.html': 'Staff directory',
+      };
+      return listed.flatMap((file) =>
+        (served(tree, `/${file}`) ?? '').includes(`<h1>${headings[file]}</h1>`)
+          ? []
+          : [`${box.host.hostname} (${category}) heads ${file} with the wrong words`],
+      );
     });
     expect(wrong).toEqual([]);
   });
@@ -876,6 +892,22 @@ describe("an institution's homepage names it to the world", () => {
     const campus = publishers.find(({ entry }) => entry.essid === 'CAMPUS-GUEST-OPEN')!;
     const homepage = served(buildRemoteHostFs('CAMPUS-GUEST-OPEN', campus.server), '/')!;
     expect(homepage).toMatch(/<meta name="description" content="[^"]*admissions[^"]*">/);
+  });
+
+  it('describes every publisher by more than its bare name', () => {
+    for (const { entry, site, server } of publishers) {
+      const homepage = served(buildRemoteHostFs(entry.essid, server), '/')!;
+      const description = /<meta name="description" content="([^"]+)">/.exec(homepage)?.[1] ?? '';
+      expect(description.replace(site.name.charAt(0).toUpperCase() + site.name.slice(1), '').trim(), entry.essid).not.toBe('');
+    }
+  });
+
+  it('lists who works at a government office on a staff directory its homepage links', () => {
+    const police = publishers.find(({ entry }) => entry.essid === 'RIDGEMONT-PD')!;
+    const tree = buildRemoteHostFs('RIDGEMONT-PD', police.server);
+    expect(served(tree, '/')).toContain('<title>Ridgemont Police Department</title>');
+    expect(served(tree, '/')).toContain('<a href="/staff.html">Staff directory</a>');
+    expect(served(tree, '/staff.html')).toContain('<h1>Staff directory</h1>');
   });
 
   it('never asks a crawler to stay off the whole site', () => {

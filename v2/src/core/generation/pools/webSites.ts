@@ -38,6 +38,7 @@ export const SITE_DESCRIPTIONS: Readonly<Partial<Record<NetworkCategory, string>
   cafe: '{site}: coffee, food, opening hours and free wifi for customers.',
   university: '{site}: admissions, courses, research and campus life.',
   public: '{site}: opening hours, services and visitor information for the people of Ridgemont.',
+  government: '{site}: public services, opening hours, forms to download and how to contact the office.',
 };
 
 /** What a site says on its front page, by kind of place. One is drawn per box. */
@@ -83,6 +84,12 @@ export const FRONT_PAGES: Readonly<Record<NetworkCategory, readonly string[]>> =
     '<p>Welcome to {site}. We build, break, solder and occasionally sleep.</p>',
     '<p>{site} runs on donations, spare parts and stubbornness.</p>',
     '<p>Projects, meetups and the wiki for {site}. Be excellent to each other.</p>',
+  ],
+  government: [
+    '<p>{site} serves the people of Ridgemont. Opening hours, forms and contact details are below.</p>\n<p>Most requests can be dealt with at the front counter without an appointment.</p>',
+    '<p>Welcome to {site}. Notices are published here first and posted at the entrance the same day.</p>',
+    '<p>{site} — public counter open on weekdays. Forms can be downloaded before you come in, which saves a wait.</p>',
+    '<p>This is the official site of {site}. Staff should use the internal address for anything not published here.</p>',
   ],
 };
 
@@ -446,6 +453,48 @@ export const SITE_PAGES: Readonly<Record<NetworkCategory, readonly SitePage[]>> 
       ],
     },
   ],
+  government: [
+    {
+      file: 'hours.html',
+      title: 'Opening hours',
+      bodies: [
+        '<table>\n<tr><td>Monday–Thursday</td><td>09:00–16:30</td></tr>\n<tr><td>Friday</td><td>09:00–16:00</td></tr>\n<tr><td>Saturday and Sunday</td><td>Closed</td></tr>\n</table>',
+        '<p>The public counter opens at nine and closes for lunch between one and two.</p>\n<p>The last appointment of the day is at four.</p>',
+      ],
+    },
+    {
+      file: 'forms.html',
+      title: 'Forms',
+      bodies: [
+        '<ul>\n<li>Change of address</li>\n<li>Request for a copy of a record</li>\n<li>Comment or complaint</li>\n</ul>\n<p>Completed forms can be handed in at the counter or posted.</p>',
+        '<p>Forms are available at the counter in print. Downloaded forms must still be signed by hand.</p>',
+      ],
+    },
+    {
+      file: 'notices.html',
+      title: 'Notices',
+      bodies: [
+        '<p>The lift to the upper floor is out of service until further notice.</p>\n<p>The counter closes early on the last working day of each month.</p>',
+        '<p>Works to the car park will reduce the number of spaces for several weeks.</p>',
+      ],
+    },
+    {
+      file: 'fees.html',
+      title: 'Fees and charges',
+      bodies: [
+        '<table>\n<tr><th>Service</th><th>Charge</th></tr>\n<tr><td>Copy of a record</td><td>Standard fee</td></tr>\n<tr><td>Certified copy</td><td>Higher fee</td></tr>\n<tr><td>Search of the index</td><td>No charge</td></tr>\n</table>',
+        '<p>Fees are reviewed once a year and published here when they change.</p>\n<p>Payment is taken at the counter.</p>',
+      ],
+    },
+    {
+      file: 'complaints.html',
+      title: 'Complaints',
+      bodies: [
+        '<p>Tell the front office first — most things are settled the same day.</p>\n<p>If that does not answer it, put it in writing and it goes to a manager who was not involved.</p>',
+        '<p>Every complaint is acknowledged in writing and answered within the published period.</p>',
+      ],
+    },
+  ],
 };
 
 /** What a place calls the people it lists, by kind of place — the roles a team page
@@ -458,6 +507,7 @@ export const PEOPLE_ROLES: Readonly<Record<NetworkCategory, readonly string[]>> 
   public: ['Duty manager', 'Librarian', 'Volunteer', 'Facilities'],
   iot: ['Resident', 'Owner', 'Guest room'],
   hacker: ['Keyholder', 'Treasurer', 'Member', 'Events'],
+  government: ['Front office', 'Records', 'Licensing', 'Committee clerk', 'Duty officer'],
 };
 
 /** What an intranet portal says on its front page. */
@@ -577,6 +627,11 @@ export const API_ENDPOINTS: Readonly<Record<NetworkCategory, readonly ApiEndpoin
     { file: 'api/v1/events', summary: 'meetups this month', body: '{"events":[{"night":"Thursday","what":"open night"}]}' },
     { file: 'api/v1/space', summary: 'is the space open', body: '{"open":true,"keyholders_present":2}' },
     { file: 'api/v1/projects', summary: 'current projects', body: '{"projects":["morse badge","toaster reflow oven"]}' },
+  ],
+  government: [
+    { file: 'api/v1/hours', summary: 'counter opening hours', body: '{"weekdays":"09:00-16:30","friday":"09:00-16:00","weekend":null}' },
+    { file: 'api/v1/forms', summary: 'forms published here', body: '{"forms":["change-of-address","record-copy","complaint"]}' },
+    { file: 'api/v1/notices', summary: 'current notices', body: '{"notices":["Lift out of service","Car park works"]}' },
   ],
 };
 

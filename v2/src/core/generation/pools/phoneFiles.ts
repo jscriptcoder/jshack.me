@@ -82,6 +82,10 @@ export const PLACE_DOWNLOADS: Readonly<Record<NetworkCategory, readonly Download
     { name: 'membership-rules.pdf', title: 'Membership rules' },
     { name: 'workshop-schedule.pdf', title: 'Workshop schedule' },
   ],
+  government: [
+    { name: 'duty-roster-{ref}.pdf', title: 'Duty roster' },
+    { name: 'records-policy.pdf', title: 'Records handling policy' },
+  ],
 };
 
 /** What a person types into their phone's notes and saves as text: `{place}` is what the

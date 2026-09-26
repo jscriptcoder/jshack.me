@@ -22,6 +22,7 @@ export const NETWORK_CATEGORIES = [
   'public',
   'iot',
   'hacker',
+  'government',
 ] as const;
 
 export type NetworkCategory = (typeof NETWORK_CATEGORIES)[number];
@@ -122,5 +123,11 @@ export const ESSID_CATALOG: readonly EssidCatalogEntry[] = [
     ['HACKERSPACE-2600', 'the hackerspace'],
     ['BOFH-KEEPOUT', 'the server room'],
     ['NULL-BYTE', 'Null Byte'],
+  ]),
+  // The city's police, its council and its courts.
+  ...entries('government', [
+    ['RIDGEMONT-PD', 'the police station', 'ridgemontpd.gov', 'Ridgemont Police Department'],
+    ['CITY-HALL-WIFI', 'city hall', 'ridgemont.gov', 'City of Ridgemont'],
+    ['COURTHOUSE-GUEST', 'the courthouse', 'ridgemontcourts.gov', 'Ridgemont County Court'],
   ]),
 ];

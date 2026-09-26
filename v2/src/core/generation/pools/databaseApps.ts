@@ -760,6 +760,63 @@ const wiki: Archetype = {
   ],
 };
 
+const cases: Archetype = {
+  names: ['cases', 'case_files', 'records'],
+  tables: [
+    {
+      name: 'cases',
+      required: true,
+      columns: [
+        id,
+        code('reference', 'CAS-', 2001),
+        pick('kind', [
+          'Licensing', 'Planning', 'Records request', 'Complaint', 'Enforcement', 'Appeal', 'Registration',
+        ]),
+        pick('status', ['open', 'with officer', 'awaiting information', 'referred', 'closed']),
+        ref('opened_by', 'users'),
+        stamp('opened_at'),
+      ],
+    },
+    {
+      name: 'parties',
+      required: true,
+      columns: [
+        id,
+        ref('case_id', 'cases'),
+        person('name'),
+        pick('role', ['applicant', 'representative', 'objector', 'witness', 'officer']),
+        stamp('added_at'),
+      ],
+    },
+    {
+      name: 'notes',
+      required: true,
+      columns: [
+        id,
+        ref('case_id', 'cases'),
+        text('body', [
+          'Acknowledged in writing.', 'Waiting on the applicant for the missing page.',
+          'Passed to the duty officer.', 'Site visit arranged.', 'Spoke to the representative by telephone.',
+          'Papers copied for the committee.', 'Closed, nothing further to do.', 'Chased for the second time.',
+        ]),
+        ref('written_by', 'users'),
+        stamp('written_at'),
+      ],
+    },
+    {
+      name: 'hearings',
+      required: false,
+      columns: [
+        id,
+        ref('case_id', 'cases'),
+        pick('room', ['Committee room', 'Hearing room', 'Room 1', 'Room 2', 'Main hall']),
+        pick('outcome', ['granted', 'refused', 'adjourned', 'withdrawn', 'reserved']),
+        stamp('held_at'),
+      ],
+    },
+  ],
+};
+
 const cms: Archetype = {
   names: ['cms', 'site_cms', 'intranet'],
   tables: [
@@ -947,6 +1004,7 @@ export const ARCHETYPE_DEFINITIONS = {
   enrolment,
   library,
   bookings,
+  cases,
   telemetry,
   scoreboard,
   wiki,

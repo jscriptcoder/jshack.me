@@ -203,7 +203,9 @@ const planFor = (options: {
       ? [team('team.html', 'Team')]
       : persona.category === 'university'
         ? [team('people.html', 'People')]
-        : [];
+        : persona.category === 'government'
+          ? [team('staff.html', 'Staff directory')]
+          : [];
   return {
     front: prng.pick(FRONT_PAGES[persona.category]),
     fixed,
