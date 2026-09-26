@@ -25,8 +25,9 @@ content is inside the ship gate). **That epic is DONE** (2026-09-25, v0.264.0, a
 twelve slices, #533–#550), so the ship gate is unblocked. **Update 2026-09-26: X2 (`findit.io`) was
 un-deferred and GRILLED ahead of the ship gate** — decisions 91–105 and a six-slice spine in
 ["X2 — resolved scope & decisions"](#x2--resolved-scope--decisions-grilling-2026-09-26); its slice 1
-SHIPPED v0.265.0–v0.268.0 (#551–#554) and its slice 2 SHIPPED v0.269.0–v0.270.0 (#555–#556),
-both as-built under that section; slice 3 (a player's page is found) is next to plan.
+SHIPPED v0.265.0–v0.268.0 (#551–#554), its slice 2 v0.269.0–v0.270.0 (#555–#556) and its slice 3
+v0.271.0 (#557), all as-built under that section; slice 4 (findit falls and comes back) is next to
+plan.
 The `Status` block below is an accumulating log, not the current state.
 
 **Status**: **D1 shipped** (v0.109.0), with its web follow-ups D1c (v0.123.0-v0.124.0), D1b
@@ -424,7 +425,7 @@ PHASE 2 — DISCOVERY
       X2 slice 2 findit.io answers a search     ✔ SHIPPED v0.269.0-v0.270.0 (#555-#556)
         2a findit.io answers a search         ✅ SHIPPED v0.269.0 (#555)
         2b lynx submits a form                ✅ SHIPPED v0.270.0 (#556)
-      X2 slice 3 a player's page is found      PLANNED 09-26 — one PR, v0.271.0 (plans/a-players-page-is-found.md)
+      X2 slice 3 a player's page is found      ✅ SHIPPED v0.271.0 (#557)
 PHASE 3 — VULNERABILITIES                             GRILLED 09-09/09-10 + PLANNED (35 decisions)
       V slice 1 a version is visible          ✔ SHIPPED v0.210.0-v0.211.0 (#491, #494)
         1a every box carries a manifest       ✅ SHIPPED v0.210.0 (#491)
@@ -4690,8 +4691,11 @@ world is attackable").
 ### Open for planning (named, deliberately not decided)
 
 - **The reserved first octet** (94) and each institution's **domain and TLD** (103).
-- **The cost of the query-time player listing** (97): it walks every player public IP's gateway forward
-  and occupant per search — fine at pre-launch scale, but planning sizes it.
+- ~~**The cost of the query-time player listing** (97): it walks every player public IP's gateway forward
+  and occupant per search — fine at pre-launch scale, but planning sizes it.~~ — **ANSWERED by slice
+  3 (108):** one read of the stored addresses, their gateways inside the one journal batch, and a full
+  resolution only for a gateway answering `:80`; measured at 1398 ms per search against 1339 ms per
+  single fetch.
 - ~~**Whether findit's `access.log` line already carries the query string** (102), or the log writer
   needs it added.~~ — **ANSWERED by slice 2a:** a search is a fetch, so the log already records the
   raw path, `/?q=<term>`, under the searcher's server-held address; slice 4 only proves it readable.
@@ -4957,6 +4961,118 @@ password does not crack.
   findit, or must answer sanely; the public-target, scan and fetch tests against findit are the guard.
 - **Stripping tags with a pattern, not a parser.** Player HTML arrives in slice 3; the reader must
   stay total on malformed markup and only ever feed text into escaped output.
+
+### As-built: X2 slice 3 — a player's page is found
+
+Shipped v0.271.0 as one PR against trunk (#557), 2026-09-26. When player A publishes nginx behind a
+public `:80` forward, player B's `curl "findit.io/?q=<a word on A's page>"` lists it by its title and
+A's bare public IP. Once A's `robots.txt` says `User-agent: *` / `Disallow: /`, the next search no
+longer does.
+
+#### Decided at planning (2026-09-26)
+
+**Owner decisions (refine 97):**
+
+106. **`robots.txt` is read the way a real crawler reads it.** `Disallow: /` opts out only inside a
+     group for `User-agent: *` or `User-agent: findit` (names in any case). A `findit` group, when
+     present, is the ONLY group findit obeys. `Disallow: /admin/`, an empty `Disallow:` and a
+     `Googlebot` group hide nothing. It applies to every page on a public `:80`, publishers included.
+     Rejected: any `Disallow: /` line anywhere, and "any robots.txt opts out" (would break 92).
+107. **The crawl leaves no trace.** Building the index writes nothing, so no `access.log` line lands on
+     a crawled box. Rejected: logging the crawl (writes per search, and it would leak findit's search
+     traffic to every listed player, undercutting 102).
+108. **The player walk is a batched pre-filter.**
+     - one read of every stored public address;
+     - their gateways inside ONE journal batch;
+     - a full `curl` resolution only for a gateway that answers `:80`.
+
+     Rejected: a plain `curl` per stored address, and a stored listing table (a second authority, 97).
+109. **One PR.** Automatic listing is fair only because the owner can refuse it, so the listing and
+     the opt-out ship together.
+
+**Derived from existing conventions (110–115):**
+- **Who counts as a player page:** a player page is any stored address whose network is neither a
+  publisher nor findit. A joined publisher is listed once, by its domain.
+- **One batch:** the stored gateways join the publishers' machines in the one batch.
+- **What "serving" means:** exactly what a `curl http://<ip>/` gets. A refusal, or no `/index.html`,
+  means no listing.
+- **Where `robots.txt` is read:** from the box that serves the homepage. A missing file allows.
+- **Failures:** a failed stored-address read yields NO index.
+- **A player's result:** an ordinary `IndexedPage` whose address is the IP.
+
+#### As built (v0.271.0, #557)
+
+- **`core/findit/robots.ts`: `robotsAllowFindit(robotsTxt | null)`, a pure reader of 106.**
+  - Consecutive `User-agent` lines share a group.
+  - The site is refused only by `Disallow: /` without an `Allow: /` of the same reach.
+  - Only `Allow`/`Disallow` count (`Noindex: /` does nothing).
+  - A line with no colon is ignored without ending its group (strict, as RFC 9309 reads it).
+- **`publisherIndex.ts` is now `webIndex.ts`** (`WebIndexDeps`), since it indexes every page on the
+  public web.
+  - **`siteAt`:** `resolveElsewhere` became `siteAt`, returning `ServedSite = { homepage, robotsTxt }`
+    from the same box through a shared `siteOn(fs)`. So a publisher's own site server and any fetched
+    address are read one way.
+  - **Shared gateway check:** `webBehind` is the gateway's `:80` gate, shared by both paths.
+- **`api/network.ts` gains `listPublicAddresses`**, which reads `network_public_ips` (`essid,
+  public_ip`) at module scope, with no new `api/` file.
+- **Gates:** 6345 unit tests green, typecheck and lint clean.
+- **Mutation, scoped:**
+
+  | Target | Killed | Survived |
+  |---|---|---|
+  | `robots.ts` | 103 | 2 |
+  | `webIndex.ts` | 99 | 12 |
+  | the handler's `answerSearch` | 4 | 0 |
+
+  The first run found seven gaps, all closed:
+  - a colonless line ending a group;
+  - an unknown directive read as a rule;
+  - agents named findit-first;
+  - a middle group dropped when a later group joins;
+  - a deleted front page;
+  - empty (`data: null`) reads of the stored addresses and of the journal batch.
+
+  The survivors:
+  - equivalent `slice` copies;
+  - unreachable guards;
+  - `'/'` vs `''`;
+  - the `?? []` defaults;
+  - module-load statics;
+  - one false survivor (the repointed-publisher branch), which fails three tests when applied by hand.
+- **Wire-check:** `scripts/testFindit.ts` 18/18 live (9 new).
+  - Covered:
+    - a staged player listed by IP;
+    - a rewrite found by its new word;
+    - `robots.txt` in and out;
+    - leaving and rejoining the wifi;
+    - the forward deleted;
+    - the campus obeying a rewritten `robots.txt`;
+    - zero crawl rows.
+  - **Cost:** 11 stored networks and 7 journal rows; 1398 ms per search against 1339 ms per single
+    fetch.
+- **Browser (v0.271.0):**
+  - **A publishes.** A, on `CASA-DE-RAMIREZ` (residential), published nginx and wrote
+    `forward 80 to 192.168.199.232:80` on the rooted gateway.
+  - **B finds it.** B, on `ESPRESSO-EXPRESS`, ran `curl "findit.io/?q=quokkagarden"` and got
+    `Ada Quokka Garden` at `198.97.57.103`; `lynx` followed `[1]` to A's page.
+  - **A opts out.** A's nano-written `Disallow: /` took the page out of findit, while a direct `curl`
+    still served it.
+  - **No trace.** A's `access.log` held only B's two real visits.
+- **Runbook:** the `v2-e2e` runbook gained "Putting a player's page on findit". A's public IP is shown
+  nowhere in-game; `echo >` writes one line, with no `>>` and no `-e`, so `robots.txt` needs nano.
+
+#### Risks carried forward
+
+- **The API caps a read at 1000 rows** (`max_rows` in `supabase/config.toml`). The stored-address read
+  is unfiltered, and the journal batch carries every row of up to 64 + N machines, logs included.
+  Past 1000 of either, the read is cut short with no error. A player page then goes unlisted, or a
+  journal replays incomplete. That is far off at pre-launch scale. The fix is to page the reads, or
+  to narrow the gateway rows to the paths the pre-filter needs (boot files, `rules.v4`).
+- **Search cost grows with the world.** It is flat against a fetch today; re-measure with
+  `testFindit.ts`'s COST line when the world grows.
+- **Player HTML reaches the pattern-based page reader.** It stays total and escaped, as slice 2
+  required.
+- **Players can outrank institutions** by stuffing titles. This is intended ("SEO as play", 96).
 
 ## Open branches (named, not yet decided)
 
