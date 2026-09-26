@@ -25,6 +25,7 @@ import type { Command, CommandResult } from './types';
 import { parseHttpUrl } from '../network/http';
 import { isPublicIp } from '../generation/ip';
 import { connectedWlan0 } from '../network/interfaces';
+import { addressForTarget } from '../network/resolveName';
 import { fetchPageAcrossNetwork, fetchWebPage } from './webPage';
 
 const error = (message: string): CommandResult => ({
@@ -47,8 +48,8 @@ const execute: Command['execute'] = async (env, args) => {
     return error(USAGE);
   }
 
-  const url = parseHttpUrl(raw);
-  if (url === null) {
+  const requested = parseHttpUrl(raw);
+  if (requested === null) {
     return error(`lynx: (3) URL rejected: ${raw}`);
   }
 
@@ -56,6 +57,18 @@ const execute: Command['execute'] = async (env, args) => {
   if (wlan0 === null) {
     return error(UNREACHABLE);
   }
+
+  // A name becomes the address before anything routes on it, exactly as for `curl`:
+  // a host on this network by its name, an institution by its domain. The address bar
+  // keeps what the player typed, because that is what a browser shows.
+  const url = {
+    ...requested,
+    host: await addressForTarget({
+      essid: wlan0.association.essid,
+      target: requested.host,
+      resolveOccupants: env.scan.resolveOccupants,
+    }),
+  };
 
   // A public address is another player's and is not on this LAN by construction, so
   // it is reached the way the internet is — through the server. Either way what comes
@@ -102,7 +115,8 @@ export const lynx: Command = {
       'and scripts are not shown. Links are numbered: use the arrow keys to select one and ' +
       'Enter to follow it, and Left Arrow or Backspace to go back. Press q or Escape to return ' +
       'to the terminal. Reaches hosts on your own network, including your own address once you ' +
-      'are running a web server, and any public IP that forwards its web port. No login is ' +
+      'are running a web server, and any public IP that forwards its web port — by its address or ' +
+      'by the domain an institution publishes it under, such as http://ridgemont.edu/. No login is ' +
       'needed: a web server publishes its document root to whoever asks.',
     arguments: [{ name: 'url', description: 'The page to read, e.g. http://192.168.1.5' }],
     examples: [

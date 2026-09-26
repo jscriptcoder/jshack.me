@@ -5,6 +5,7 @@ import { lanLeaseCacheIn } from '../core/network/lanLeaseCache';
 import { contentHash } from '../core/patches/contentHash';
 import { CONNECTED_ESSID_KEY } from './connectionPersistence';
 import { buildRemoteHostFs } from '../core/generation/remoteHostFs';
+import { publisherIp } from '../core/generation/publisher';
 import {
   PIDFILE_PERMISSIONS,
   daemonName,
@@ -2033,9 +2034,9 @@ describe('full-screen apps a command opens', () => {
    *  address that network leased. */
   const startBrowsingGame = async (options?: {
     readonly published?: readonly object[];
-    /** What another player's public IP answers when this one asks it for a page.
-     *  Absent means nothing out there answers at all. */
-    readonly across?: () => PublicFetchResult;
+    /** What another player's public IP answers when this one asks it for a page,
+     *  given the signed request as sent. Absent means nothing out there answers. */
+    readonly across?: (request: string) => PublicFetchResult;
   }) => {
     vi.resetModules();
     const store = new Map<string, string>([[CONNECTED_ESSID_KEY, ESSID]]);
@@ -2053,7 +2054,7 @@ describe('full-screen apps a command opens', () => {
         // JSON string — so its quotes are escaped and only the bare name survives a
         // substring match. No other action shares it.
         if ((init?.body ?? '').includes('resolveHttpFetch')) {
-          const answered = options?.across?.() ?? { ok: false as const, error: 'host_unreachable' as const };
+          const answered = options?.across?.(init?.body ?? '') ?? { ok: false as const, error: 'host_unreachable' as const };
           return answered.ok
             ? { ok: true, status: 200, json: async () => ({ ok: true, content: answered.content }) }
             : { ok: false, status: 502, json: async () => ({ error: answered.error }) };
@@ -2239,6 +2240,29 @@ describe('full-screen apps a command opens', () => {
     expect(across).toHaveBeenCalledTimes(2);
     expect(state.overlayMode()).toMatchObject({
       url: `http://${THEIR_PUBLIC_IP}/deeper.html`,
+      content: THEIR_PAGE,
+    });
+  });
+
+  it("follows a link on an institution's site by its domain, out to the address it names", async () => {
+    const asked: string[] = [];
+    const state = await startBrowsingGame({
+      published: OWN_SITE,
+      across: (request) => {
+        asked.push(request);
+        return { ok: true, content: THEIR_PAGE };
+      },
+    });
+    state.setInput('lynx http://ridgemont.edu/');
+    await state.runInput();
+
+    const outcome = await state.followLink('http://ridgemont.edu/deeper.html');
+
+    expect(outcome).toEqual({ ok: true });
+    expect(asked).toHaveLength(2);
+    expect(asked[1]).toContain(publisherIp('CAMPUS-GUEST-OPEN'));
+    expect(state.overlayMode()).toMatchObject({
+      url: 'http://ridgemont.edu/deeper.html',
       content: THEIR_PAGE,
     });
   });

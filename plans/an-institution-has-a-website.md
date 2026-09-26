@@ -4,7 +4,7 @@
 (decisions 91–105, 2026-09-26), plus **seven decisions made at planning** (2026-09-26, owner-confirmed
 as a set) restated under "Decided at planning" below.
 
-**Status:** 1a merged (v0.265.0, PR #551); 1b in progress on `feat/a-domain-resolves`; 1c not started.
+**Status:** 1a merged (v0.265.0, PR #551); 1b built (v0.266.0, `feat/a-domain-resolves`, PR open); 1c not started.
 
 **Delivery:** three independent PRs against trunk, merged in order (each builds on the one before
 it through `main`, not through a stack).
@@ -195,11 +195,12 @@ browser run is recorded, mutation reviewed.
 **Class:** behavior change. **Delivery:** independent PR against trunk, after 1a merges.
 
 **Acceptance criteria:**
-- [ ] `nslookup ridgemont.edu` answers the derived address from any network.
-- [ ] `curl http://ridgemont.edu/` and `lynx ridgemont.edu` return the homepage.
-- [ ] `nmap ridgemont.edu` shows `22` + `80` (it resolves before deciding the target is public).
-- [ ] `ssh <user>@ridgemont.edu` reaches the publisher's gateway, as `ssh` to its address does.
-- [ ] A LAN name still resolves on its own LAN; an unknown name still passes through unchanged.
+- [x] `nslookup ridgemont.edu` answers the derived address from any network.
+- [x] `curl http://ridgemont.edu/` and `lynx http://ridgemont.edu/` return the homepage (see as-built: the
+      bare `lynx ridgemont.edu` form is an open question).
+- [x] `nmap ridgemont.edu` shows `22` + `80` (it resolves before deciding the target is public).
+- [x] `ssh <user>@ridgemont.edu` reaches the publisher's gateway, as `ssh` to its address does.
+- [x] A LAN name still resolves on its own LAN; an unknown name still passes through unchanged.
 
 **RED:** `resolveName` for a world domain from any ESSID; a LAN name unchanged; then one command
 test each for `nslookup`, `curl`, `nmap`, `ssh`, `lynx` naming a domain.
@@ -212,6 +213,25 @@ Evidence: command tests + the browser run.
 **Browser:** `v2-e2e` — `nslookup`, `curl`, `nmap`, `lynx` on `ridgemont.edu`.
 **PRE-PR MUTATION:** Stryker on `resolveName.ts` and the changed command files.
 **Done when:** criteria checked, gates green, browser run recorded, mutation reviewed.
+
+**As built (2026-09-26):**
+- **World names first.** `siteAddress(domain)` in `generation/publisher.ts` (a catalog-derived
+  domain → `193.` table) is consulted first in `resolveName`, case-folded, with no occupant round
+  trip; a player who names their box `acme.com` cannot take Acme's traffic.
+- **`nmap` and `ssh` resolve before `isPublicIp`.** `ssh` keeps one occupant read via a lazily
+  cached promise (a test pins the single read); a domain or an address costs none.
+- **`lynx` resolves, and so does a followed link** (`followLink` in `ui/state.ts`) — not in the plan,
+  but a page opened by domain carries the domain in every relative link. The address bar keeps the
+  typed name.
+- **Open question for the owner:** `lynx`/`curl` still reject a scheme-less URL, so the AC's bare
+  `lynx ridgemont.edu` is built and tested as `lynx http://ridgemont.edu/`. Accepting bare hosts
+  (as real `lynx` and `curl` do) is a separate `parseHttpUrl` change.
+- **Gates:** 6134 unit tests green, typecheck and lint clean. Stryker (scoped, 95 mutants): 84
+  killed; survivors are `publisher.ts` module-load statics (hand-verified: the mutant throws at
+  import) and one pre-existing X1 regex; 3 NoCoverage on `followLink`'s pre-existing offline alert.
+- **Browser (v0.266.0, from `APT-3B-WIFI`):** `nslookup` → `193.46.209.111`; `nmap` → 22/161/80;
+  `curl` → the campus homepage; `lynx` → homepage, then About followed by link; `ssh
+  admin@ridgemont.edu` → password prompt, refused server-side.
 
 ### Slice 1c: The forward is a way in
 

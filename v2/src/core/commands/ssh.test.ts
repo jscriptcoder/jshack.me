@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { publisherIp } from '../generation/publisher';
 import { ssh } from './ssh';
 import {
   mockCommandEnv,
@@ -591,6 +592,29 @@ describe('ssh to a public IP (cross-player)', () => {
     expect(onCwd).toHaveBeenCalledWith('/home/guest');
   });
 
+  it("logs into an institution's gateway by its domain, as by its address", async () => {
+    const siteIp = publisherIp('CAMPUS-GUEST-OPEN');
+    const resolvePublic = vi.fn(async () => ({
+      found: true,
+      ports: [{ port: 22, service: 'ssh' }],
+    }));
+    const authenticatePublic = vi.fn<(params: PublicAuthParams) => Promise<PublicAuthResult>>(
+      async () => ({ ok: true, userType: 'guest', machineId: A_MACHINE_ID }),
+    );
+
+    const result = sync(
+      await ssh.execute(
+        sshPublicEnv({ resolvePublic, authenticatePublic }),
+        ['guest@ridgemont.edu'],
+        new Map(),
+      ),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(resolvePublic).toHaveBeenCalledWith(siteIp);
+    expect(authenticatePublic.mock.calls[0]![0]).toMatchObject({ target: siteIp, username: 'guest' });
+  });
+
   it('carries the destination port to cross-player auth so the server can route by port', async () => {
     // A forwarded port: the public scan shows :2222, so reachability passes and the
     // command must hand the SERVER port 2222 (not silently 22) — that's how the
@@ -898,6 +922,27 @@ describe('ssh to a fellow occupant on the same LAN', () => {
       createdAt: NOW,
     });
     expect(onCwd).toHaveBeenCalledWith('/home/guest');
+  });
+
+  it("reaches an occupant by their machine's name, asking the network who is here only once", async () => {
+    // The name resolves against the occupant list, and the resolved address is then
+    // checked against the same list — one read serves both.
+    const resolveOccupants = vi.fn(async () => [occupantAt(OCCUPANT_IP)]);
+    const authenticateSameLan = vi.fn<(params: SameLanAuthParams) => Promise<PublicAuthResult>>(
+      async () => ({ ok: true, userType: 'guest', machineId: A_SAMELAN_MACHINE_ID }),
+    );
+
+    const result = sync(
+      await ssh.execute(
+        sshSameLanEnv({ resolveOccupants, authenticateSameLan }),
+        ['guest@alice-rig'],
+        new Map(),
+      ),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(authenticateSameLan.mock.calls[0]![0]).toMatchObject({ targetIp: OCCUPANT_IP });
+    expect(resolveOccupants).toHaveBeenCalledTimes(1);
   });
 
   it('carries the destination port to same-LAN auth', async () => {

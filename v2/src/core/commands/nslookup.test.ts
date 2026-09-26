@@ -12,6 +12,7 @@ import type { OccupantProjection } from '../network/resolveOccupants';
 import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces';
 import { assignHomeNetwork } from '../network/homeNetwork';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
+import { publisherIp } from '../generation/publisher';
 import { asPlayerKeyHex } from '../types';
 
 /**
@@ -19,7 +20,8 @@ import { asPlayerKeyHex } from '../types';
  *
  * The access point's gateway is the resolver, so this works on the first network
  * a player cracks rather than on the rare one carrying a name server of its own.
- * It answers for THAT network only: there is no world DNS behind it.
+ * It answers that network's own names, and the domains the world's institutions
+ * publish — never another network's private ones.
  */
 
 const PUBKEY = 'a'.repeat(64);
@@ -105,13 +107,27 @@ describe('nslookup', () => {
 
   it('answers NXDOMAIN for a name belonging to a different network', async () => {
     // The host is real and the name is well formed — it is simply not this
-    // network's to answer, and there is no world DNS standing behind it.
+    // network's to answer, and a LAN's private names are never on the internet.
     const machine = hostOnLan();
 
     const { lines, exitCode } = await run(`${machine.hostname}.acme-corp.lan`);
 
     expect(lines).toContain(`** server can't find ${machine.hostname}.acme-corp.lan: NXDOMAIN`);
     expect(exitCode).toBe(1);
+  });
+
+  it("answers an institution's domain from any network, with the address its site answers at", async () => {
+    const { lines, exitCode } = await run('ridgemont.edu');
+
+    expect(lines).toEqual([
+      `Server:  ${gatewayIp()}`,
+      `Address: ${gatewayIp()}#53`,
+      '',
+      'Non-authoritative answer:',
+      'Name:    ridgemont.edu',
+      `Address: ${publisherIp('CAMPUS-GUEST-OPEN')}`,
+    ]);
+    expect(exitCode).toBe(0);
   });
 
   it('answers at once, with nothing to wait for or interrupt', async () => {

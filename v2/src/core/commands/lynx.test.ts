@@ -23,6 +23,7 @@ import { buildColdStartConnectivity, type ConnectivityState } from '../network/i
 import { assignHomeNetwork } from '../network/homeNetwork';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
 import { buildRemoteHostFs } from '../generation/remoteHostFs';
+import { publisherIp } from '../generation/publisher';
 import { readOpenPorts } from '../services/pidfile';
 import { createFsView } from '../filesystem/fsView';
 import { HTTP_DEFAULT_PORT } from '../network/http';
@@ -286,6 +287,17 @@ describe('lynx across the network, at another player public IP', () => {
 
     const { url, content } = opened(result);
     expect(url).toBe(`http://${THEIR_PUBLIC_IP}`);
+    expect(content).toContain('welcome to nebuchadnezzar');
+  });
+
+  it("opens an institution's homepage by its domain, keeping the name in the address bar", async () => {
+    const { result, asked } = await browseAcross(served(THEIR_PAGE), 'http://ridgemont.edu/');
+
+    expect(asked).toEqual([
+      { target: publisherIp('CAMPUS-GUEST-OPEN'), port: HTTP_DEFAULT_PORT, path: '/' },
+    ]);
+    const { url, content } = opened(result);
+    expect(url).toBe('http://ridgemont.edu/');
     expect(content).toContain('welcome to nebuchadnezzar');
   });
 

@@ -87,7 +87,7 @@ export const nslookup: Command = {
   manual: {
     synopsis: 'nslookup <name>',
     description:
-      "Ask the network's gateway what address a name points at. Answers for the network you are connected to only — names are `<host>.<network>.lan`, and the short form works because that network is your search domain. An unknown name answers NXDOMAIN.",
+      "Ask the network's gateway what address a name points at. Answers for the network you are connected to — names are `<host>.<network>.lan`, and the short form works because that network is your search domain — and for the websites institutions publish to the whole world, such as ridgemont.edu. An unknown name answers NXDOMAIN.",
     arguments: [
       { name: 'name', description: 'The host name to look up, e.g. web-04', required: true },
     ],

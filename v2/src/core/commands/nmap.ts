@@ -345,22 +345,11 @@ const execute: Command['execute'] = async (env, args, flags) => {
     return error(UNREACHABLE);
   }
 
-  // A public IP is another player's network — resolve it server-side against the
-  // public-IP lookup instead of scanning our own LAN. Only a single public IP
-  // routes here; a range or a private/own-subnet address falls through to the LAN
-  // path below (which scans it or reports it out of range).
-  if (isPublicIp(rawTarget)) {
-    return {
-      kind: 'async',
-      lines: scanPublic(env, rawTarget, withVersion),
-      exitCode: async () => 0,
-    };
-  }
-
   const essid = wlan0.association.essid;
 
   // A name becomes the address before anything routes on it, so every path below
-  // sees the target it already knows how to reach. A name nothing answers to is left
+  // sees the target it already knows how to reach — an institution's domain included,
+  // which is why this comes before the public check. A name nothing answers to is left
   // exactly as typed, and falls through to the same unknown-target path an unknown
   // address takes.
   const target = await addressForTarget({
@@ -368,6 +357,18 @@ const execute: Command['execute'] = async (env, args, flags) => {
     target: rawTarget,
     resolveOccupants: env.scan.resolveOccupants,
   });
+
+  // A public IP is another player's network — resolve it server-side against the
+  // public-IP lookup instead of scanning our own LAN. Only a single public IP
+  // routes here; a range or a private/own-subnet address falls through to the LAN
+  // path below (which scans it or reports it out of range).
+  if (isPublicIp(target)) {
+    return {
+      kind: 'async',
+      lines: scanPublic(env, target, withVersion),
+      exitCode: async () => 0,
+    };
+  }
 
   // Reachability pivot: when the active shell sits on a gateway that fronts a deep
   // layer — an inner gateway on the home LAN, or a deep child gateway one hop down —

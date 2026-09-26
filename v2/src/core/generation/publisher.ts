@@ -37,3 +37,12 @@ const PUBLISHER_BY_IP: ReadonlyMap<string, string> = new Map(
  *  server asks this when no joined network holds an address, so a site is on the
  *  internet before anybody has ever stood on its wifi. */
 export const publisherAt = (ip: string): string | undefined => PUBLISHER_BY_IP.get(ip);
+
+const IP_BY_DOMAIN: ReadonlyMap<string, string> = new Map(
+  [...SITE_BY_ESSID].map(([essid, site]) => [site.domain, derivedIp(essid)]),
+);
+
+/** The address the website called `domain` answers at, or `undefined` when no
+ *  institution holds that domain. This is the world's whole DNS: every published
+ *  name is catalog data, so every player's resolver gives the same answer. */
+export const siteAddress = (domain: string): string | undefined => IP_BY_DOMAIN.get(domain);

@@ -98,6 +98,7 @@ import {
 import { parseHttpUrl } from '../core/network/http';
 import { fetchPageAcrossNetwork, fetchWebPage } from '../core/commands/webPage';
 import { isPublicIp } from '../core/generation/ip';
+import { addressForTarget } from '../core/network/resolveName';
 import type { FollowOutcome } from './screens/Lynx';
 import { generateWifi } from '../core/generation/generateWifi';
 import type { WifiNetwork } from '../core/network/wifi';
@@ -1463,8 +1464,8 @@ export const followLink = async (url: string): Promise<FollowOutcome> => {
   if (mode === null || mode.kind !== 'lynx') {
     return { ok: false, alert: 'lynx: no page is open' };
   }
-  const target = parseHttpUrl(url);
-  if (target === null) {
+  const requested = parseHttpUrl(url);
+  if (requested === null) {
     return { ok: false, alert: `lynx: (3) URL rejected: ${url}` };
   }
   // The command builds its whole environment to run; a follow needs the three
@@ -1476,6 +1477,16 @@ export const followLink = async (url: string): Promise<FollowOutcome> => {
   if (wlan0 === null) {
     return { ok: false, alert: 'lynx: (7) Failed to connect — network is unreachable' };
   }
+  // Resolved exactly as the `lynx` command resolves what was typed, so a link on a
+  // page opened by its domain goes back to the address that domain names.
+  const target = {
+    ...requested,
+    host: await addressForTarget({
+      essid: wlan0.association.essid,
+      target: requested.host,
+      resolveOccupants: resolveOccupantsFn,
+    }),
+  };
 
   // A link off another player's page points at their public address, not into this
   // player's LAN — so it goes back out the way the page itself came in. Resolving it
