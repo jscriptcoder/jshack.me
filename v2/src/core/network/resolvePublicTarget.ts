@@ -11,7 +11,9 @@
  *     log accretes under the AP's stable log-writer key.
  *   - a NAT-forwarded port → the occupant who LEASES the address that forward
  *     names. Every occupant of a shared AP can publish a working forward, and two
- *     forwards on one gateway reach two different boxes.
+ *     forwards on one gateway reach two different boxes. With no occupant there, the
+ *     machine the ESSID generated at that address — an institution's webserver, which
+ *     the public web reaches before anybody has joined.
  *   - any other port → unreachable.
  *
  * One resolution, and it is meant to have several callers: whatever authenticates
@@ -33,6 +35,7 @@ import { portsOpenToNetwork } from './portsOpenToNetwork';
 import { canBoot } from '../boot/bootFiles';
 import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter';
 import { frontedSegment } from './frontedSegment';
+import { generatedLanBox } from './generatedLanBox';
 import type { Directory } from '../filesystem/types';
 
 /** One occupant a NAT forward can land on: its machine id (the journal scope AND
@@ -144,11 +147,16 @@ const gatewayTarget = (
   reachedPort: port,
 });
 
+/** Whether a box answers the network on `port` — started, and not behind its own filter. */
+const listensOn = (fs: Directory, port: number): boolean =>
+  portsOpenToNetwork(fs).some((openPort) => openPort.port === port);
+
 /**
  * Resolve a NAT-forwarded port to its target: the occupant leasing the address the
  * forward names. Both halves of that lookup matter — the lease says which address a box
- * answers to, occupancy says the box is still on the WiFi at all — so a forward to an
- * unleased address, or to a lease whose holder has disconnected, reaches nothing.
+ * answers to, occupancy says the box is still on the WiFi at all — so a lease whose
+ * holder has disconnected reaches no player, and the forward falls to whatever the
+ * network itself generated at that address.
  */
 const resolveForwardTarget = async (
   deps: ResolvePublicTargetDeps,
@@ -164,10 +172,8 @@ const resolveForwardTarget = async (
   const occupant = (occupants.data ?? []).find(
     (row) => addresses.get(row.owner_key) === forwarded.internalIp,
   );
-  // The forward points at no host: a stray internal IP, an address nobody leases, or
-  // one whose holder has taken their box off this WiFi.
   if (occupant === undefined) {
-    return { ok: false, status: 404, error: 'host_unreachable' };
+    return generatedForwardTarget(deps, network, forwarded);
   }
 
   const patches = await deps.findPatches({ machine_id: occupant.workstation_machine_id });
@@ -189,10 +195,7 @@ const resolveForwardTarget = async (
   // is an oracle — a stranger could tell a box that is defending a port from one that
   // never had it. This box TERMINATES the forwarded traffic, so its filter governs;
   // the gateway that merely passes the traffic through keeps its own filter out of it.
-  const listening = portsOpenToNetwork(occupantFs).some(
-    (openPort) => openPort.port === forwarded.internalPort,
-  );
-  if (!listening) {
+  if (!listensOn(occupantFs, forwarded.internalPort)) {
     return { ok: false, status: 404, error: 'host_unreachable' };
   }
   return {
@@ -206,6 +209,47 @@ const resolveForwardTarget = async (
       // A box behind the NAT stands on the LAN and has nothing behind IT, so a forward
       // written here could not route anywhere whatever address it named.
       frontedSegment: null,
+      reachedPort: forwarded.internalPort,
+    },
+  };
+};
+
+/**
+ * The machine the ESSID itself generated at the forwarded address, when no occupant
+ * leases it — an institution's webserver, which the gateway forwards the public web to
+ * before anybody has ever joined. The forward points at no host at all when nothing was
+ * generated there either: a stray internal IP, or one whose holder has left the WiFi.
+ */
+const generatedForwardTarget = async (
+  deps: ResolvePublicTargetDeps,
+  network: ApNetworkLookup,
+  forwarded: { readonly internalIp: string; readonly internalPort: number },
+): Promise<PublicTargetResult> => {
+  const box = await generatedLanBox(deps.findPatches, network.essid, forwarded.internalIp);
+  if (box.kind === 'error') {
+    return { ok: false, status: 500, error: 'patches_lookup_failed' };
+  }
+  // Filtered for the same reason an occupant's box is: the box terminates the forwarded
+  // traffic, so its own filter governs, and a silence it chose must answer as one it
+  // never had.
+  if (box.kind === 'absent' || !listensOn(box.fs, forwarded.internalPort)) {
+    return { ok: false, status: 404, error: 'host_unreachable' };
+  }
+  return {
+    ok: true,
+    target: {
+      fs: box.fs,
+      machineId: box.machineId,
+      hostname: box.host.hostname,
+      // Nobody owns it, so its log accretes under the network's own key — the same row
+      // an occupant standing on this LAN writes when they reach the same box from inside.
+      logWriterKey: apGatewayLogWriterKey(network.essid),
+      essid: network.essid,
+      frontedSegment: frontedSegment({
+        essid: network.essid,
+        machineId: box.machineId,
+        kind: box.host.kind,
+      }),
       reachedPort: forwarded.internalPort,
     },
   };

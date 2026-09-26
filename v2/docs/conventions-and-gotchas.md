@@ -314,7 +314,9 @@ before touching it:
     password at all — `md5(x)` is never the empty hash, so it is unreachable too.
   - **One resolver decides what a public IP and port reach** —
     `core/network/resolvePublicTarget.ts`, called by BOTH `authCreateSessionPublic` and
-    `hydraCrackPublic`. "hydra must never disagree with `ssh`" is now structural rather than a
+    `hydraCrackPublic` (and the exploit, data and snmp doors). A forward to an address no
+    occupant leases lands on the box the ESSID generated there (X2, v0.267.0), so an exploit
+    through an institution's public `:80` opens a session on its webserver. "hydra must never disagree with `ssh`" is now structural rather than a
     discipline; the wire-check proves it by posting hydra's cracked password straight to the ssh
     action and getting a root session back.
   - **Behind a public IP the PORT is the address, and two rules follow from it** (v0.120.0, #374).

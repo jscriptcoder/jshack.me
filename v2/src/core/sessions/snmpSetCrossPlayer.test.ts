@@ -4,9 +4,12 @@ import { handleSnmpSet, type SnmpSetDeps } from './snmpSet';
 import { signRequest } from '../signedRequest/sign';
 import { generateIdentity } from '../identity/identity';
 import { generateHomeLan } from '../generation/generateHomeLan';
-import { seedApGatewayCommunity } from '../generation/routerFs';
+import { seedApGatewayCommunity, seedSnmpCommunity } from '../generation/routerFs';
+import { generateDeepLayer } from '../generation/generateDeepLayer';
+import { crackableEssidPool } from '../generation/generateWifi';
+import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
 import { computeApGatewayId } from '../identity/router';
-import { pidfilePath, formatPidfileContent } from '../services/pidfile';
+import { pidfilePath, formatPidfileContent, readOpenPorts } from '../services/pidfile';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import { RULES_V4_PATH } from '../network/iptablesRules';
 import { formatSnmpdState } from '../snmp/rwCommunity';
@@ -489,5 +492,96 @@ describe('the forward a stranger opened, resolved by the world that has to honou
       ok: true,
       target: { machineId: DEFENDER_WS, reachedPort: SERVICE_CATALOG.snmp.defaultPort },
     });
+  });
+});
+
+/**
+ * A device the NETWORK generated, reached through a forward somebody opened on its access
+ * point. Nobody leases the address, so the forward lands on the machine the ESSID put
+ * there — and that box keeps the segment it has on its own LAN. An inner router fronts
+ * the hidden layer behind it from the internet exactly as it does from inside, so the
+ * same forward is legal or refused whichever side of the world it was written from.
+ */
+describe('rewriting a generated router behind a forward, from the other side of the world', () => {
+  const innerRouterWithAnAgent = () => {
+    for (const essid of crackableEssidPool) {
+      const gateway = generateHomeLan(essid).hosts.find(
+        (host) => host.kind === 'router' && host.ip.split('.')[3] !== '1',
+      );
+      if (gateway === undefined) continue;
+      const { machineId, baseFs } = resolveLanHostIdentity(gateway, essid);
+      const agent = readOpenPorts(baseFs).find(
+        (openPort) => openPort.service === SERVICE_CATALOG.snmp.service,
+      );
+      if (agent === undefined) continue;
+      return {
+        essid,
+        gateway,
+        machineId,
+        agentPort: agent.port,
+        community: seedSnmpCommunity(`inner-gw-community-${essid}:${gateway.ip.split('.')[3]}`),
+        deepSubnet: generateDeepLayer(essid, { machineId, kind: 'router' }).subnet,
+        lanSubnet: generateHomeLan(essid).subnet,
+      };
+    }
+    throw new Error('no seeded world puts an agent on an inner router');
+  };
+
+  const reachThroughTheForward = (assignment: string) => {
+    const inner = innerRouterWithAnAgent();
+    const apGatewayId = computeApGatewayId(inner.essid);
+    const { deps, upsertPatch } = makeDeps(
+      {
+        [apGatewayId]: [
+          patchRow(RULES_V4_PATH, `forward ${PUBLISHED_PORT} to ${inner.gateway.ip}:${inner.agentPort}`),
+        ],
+      },
+      {
+        findNetworkByPublicIp: async () => ({
+          data: { router_machine_id: apGatewayId, essid: inner.essid },
+          error: null,
+        }),
+        listOccupantsByEssid: async () => ({ data: [], error: null }),
+        listLeasesByEssid: async () => ({ data: [], error: null }),
+      },
+    );
+    return {
+      inner,
+      upsertPatch,
+      response: setAcrossTheWorld(deps, {
+        port: PUBLISHED_PORT,
+        community: inner.community,
+        assignment: assignment
+          .replace('<deep>', `${inner.deepSubnet}.20`)
+          .replace('<lan>', `${inner.lanSubnet}.84`),
+      }),
+    };
+  };
+
+  it('writes a forward into the hidden layer the router fronts', async () => {
+    const { inner, upsertPatch, response } = reachThroughTheForward('forward.9999=<deep>:22');
+
+    expect(await response).toMatchObject({ status: 200, body: { ok: true } });
+    expect(writtenTo(upsertPatch, RULES_V4_PATH)).toMatchObject({
+      machine_id: inner.machineId,
+      content: expect.stringContaining(`forward 9999 to ${inner.deepSubnet}.20:22`),
+    });
+  });
+
+  it('refuses a forward onto the LAN the router merely stands on', async () => {
+    const { inner, upsertPatch, response } = reachThroughTheForward('forward.9999=<lan>:22');
+
+    expect(await response).toEqual({
+      status: 200,
+      body: {
+        ok: false,
+        refusal: {
+          reason: 'wrongValue',
+          detail: `${inner.lanSubnet}.84 is not on this device's segment`,
+          failedObject: 'forward.9999',
+        },
+      },
+    });
+    expect(writtenTo(upsertPatch, RULES_V4_PATH)).toBeUndefined();
   });
 });

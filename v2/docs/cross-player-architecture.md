@@ -116,7 +116,14 @@ internalPort}`; else `none` (router-own wins a same-port tie). It shares `readRu
   `/var/run` → dark until its owner starts `sshd`), independently of every other occupant's.
   Both halves of the match are load-bearing: the LEASE says which address a box answers to,
   OCCUPANCY says the box is still on the WiFi — so a forward naming an unleased address, or one
-  whose holder has run `nmcli disconnect`, reaches nothing. `rules.v4` is parsed first purely to
+  whose holder has run `nmcli disconnect`, reaches no player. With no occupant at the address,
+  every forward resolver — this scan, the public fetch, and `resolvePublicTarget` behind login,
+  `hydra`, the data doors, `snmpset` and `msfconsole` — falls back to the machine the ESSID
+  itself generated there (`core/network/generatedLanBox.ts`, boot-gated and journal-replayed).
+  That is how an institution's webserver answers its public `:80` before anybody has joined, and
+  how a live CVE on it is a way into the LAN with no wifi cracked. It is ownerless, so its logs
+  file under `ap:<essid>`, and it keeps the segment it fronts from inside. Only an address with
+  neither an occupant nor a generated box reaches nothing. `rules.v4` is parsed first purely to
   shed work: an AP that forwards nothing skips the occupancy read and every journal fetch, and
   only the boxes a forward actually names are read.
 - **Login (routes by destination port):** `ssh [-p port] <user>@<public IP>` takes the

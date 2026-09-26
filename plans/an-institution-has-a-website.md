@@ -4,7 +4,7 @@
 (decisions 91–105, 2026-09-26), plus **seven decisions made at planning** (2026-09-26, owner-confirmed
 as a set) restated under "Decided at planning" below.
 
-**Status:** 1a merged (v0.265.0, PR #551); 1b merged (v0.266.0, PR #552); 1c in progress (`feat/the-forward-is-a-way-in`).
+**Status:** 1a merged (v0.265.0, PR #551); 1b merged (v0.266.0, PR #552); 1c built (v0.267.0, `feat/the-forward-is-a-way-in`, PR open).
 
 **Delivery:** three independent PRs against trunk, merged in order (each builds on the one before
 it through `main`, not through a stack).
@@ -242,12 +242,12 @@ the attacker inside that LAN without cracking its wifi.
 **Class:** behavior change. **Delivery:** independent PR against trunk, after 1b merges.
 
 **Acceptance criteria:**
-- [ ] With a live http CVE on a publisher's webserver, the exploit through its public `80` opens a
+- [x] With a live http CVE on a publisher's webserver, the exploit through its public `80` opens a
       session ON THE WEBSERVER (its hostname, its LAN address), not on the gateway.
-- [ ] The exploit's trace lands in the webserver's own log, under the network's `ap:<essid>` key,
+- [x] The exploit's trace lands in the webserver's own log, under the network's `ap:<essid>` key,
       naming the attacker's server-derived source IP.
-- [ ] With no live CVE, the exploit refuses as it does on any box.
-- [ ] Occupant forwards behave exactly as before.
+- [x] With no live CVE, the exploit refuses as it does on any box.
+- [x] Occupant forwards behave exactly as before.
 
 **RED:** `resolvePublicTarget` for a publisher's forwarded port with no occupant returns the
 generated webserver; then the exploit session test (`exploitCreateSession`) landing on it.
@@ -260,6 +260,40 @@ webserver with no occupant; session lands, trace written.
 **PRE-PR MUTATION:** Stryker on `resolvePublicTarget.ts` and any extracted helper.
 **Done when:** criteria checked, gates green, wire-check live, browser run recorded, mutation
 reviewed.
+
+**As built (2026-09-26):**
+- **The fallback lives in `resolvePublicTarget`'s forward resolver**, reusing 1a's
+  `generatedLanBox` (which now also hands back the host, for its hostname and kind). No occupant at
+  the forwarded address → the generated box, boot-gated, journal-replayed, logging under
+  `ap:<essid>`. So every door on that resolver gains it at once: login, `hydra`, the data doors,
+  `snmpset` and `msfconsole`. No consolidation with the fetch and scan resolvers: the three
+  target shapes differ, and the shared knowledge is already `generatedLanBox`.
+- **Filtered or stopped reads as dark**, like an occupant's box: the forward's internal port
+  must be open to the network on the generated box too (`listensOn`, now shared by both
+  branches), else `host_unreachable`.
+- **The generated box keeps the segment it fronts from inside** (`frontedSegment` with its own
+  kind), so an inner router reached through a player's forward takes `snmpset` NAT writes into its
+  hidden layer and refuses LAN ones. This was not in the plan; a mutation survivor showed it
+  untested, and two `snmpSetCrossPlayer` tests now pin it.
+- **Found in play:** on today's game day (76) every publisher's webserver ships `nginx 1.26.0`,
+  whose live hole is `script_exec` (high, user) and not a shell. So the shell criterion is proven
+  in unit tests and in the wire-check by walking the manifest onto `1.27.0` (`shell_full`, guest).
+  The browser proves the same path with the stock hole.
+- **Gates:** 6142 unit tests green, typecheck and lint clean. Stryker (scoped,
+  `resolvePublicTarget.ts` + `generatedLanBox.ts`): `generatedLanBox` 19/19; `resolvePublicTarget`
+  141 killed, 1 survived (pre-existing `kind: 'router'` on the AP gateway: equivalent, since
+  `frontedSegment` ignores kind for the AP), 2 NoCoverage (pre-existing `?? []`).
+- **Wire-check:** new `scripts/testExploitPublisherSite.ts`, 6/6. The session lands on `www-59`,
+  the trace is in its `auth.log` under `ap:CAMPUS-GUEST-OPEN` naming the server-held attacker
+  address, and a clean release refuses `not_vulnerable`. Re-run green:
+  `testExploitApGateway` 15/15, `testPublisherWeb` 6/6, `testExploitCrossPlayer` 14/14,
+  `testHydraCrossPlayer` 16/16, `testMysqlCrossPlayer` 8/8, `testRedisCrossPlayer` 13/13,
+  `testSnmpCrossPlayer` 15/15, `testCrossPlayerRouter` 8/8.
+- **Browser (v0.267.0, from `APT-3B-WIFI`):** `nmap -sV ridgemont.edu` → `80/tcp http
+  nginx/1.26.0 CVE-2026-0269486 high`; `msfconsole ridgemont.edu 80 pwn.js` → `Script injected
+  on 193.46.209.111 as user`. The script's `/tmp/through-the-forward.txt` landed on
+  `www-59-650d566f`, and its `auth.log` line (under `ap:CAMPUS-GUEST-OPEN`) names the
+  attacker's home address.
 
 ## Pre-PR Quality Gate (each PR)
 
