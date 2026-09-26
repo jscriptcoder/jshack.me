@@ -421,6 +421,7 @@ PHASE 2 — DISCOVERY
         1b a domain resolves                  ✅ SHIPPED v0.266.0 (#552)
         1c the forward is a way in            ✅ SHIPPED v0.267.0 (#553)
         1d a bare address is a URL            ✅ SHIPPED v0.268.0 (#554)
+      X2 slice 2 findit.io answers a search     PLANNED 09-26 — 2a v0.269.0, 2b v0.270.0 (plans/findit-answers-a-search.md)
 PHASE 3 — VULNERABILITIES                             GRILLED 09-09/09-10 + PLANNED (35 decisions)
       V slice 1 a version is visible          ✔ SHIPPED v0.210.0-v0.211.0 (#491, #494)
         1a every box carries a manifest       ✅ SHIPPED v0.210.0 (#491)
