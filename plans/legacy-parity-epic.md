@@ -27,8 +27,8 @@ un-deferred and GRILLED ahead of the ship gate** — decisions 91–105 and a si
 ["X2 — resolved scope & decisions"](#x2--resolved-scope--decisions-grilling-2026-09-26); its slice 1
 SHIPPED v0.265.0–v0.268.0 (#551–#554), its slice 2 v0.269.0–v0.270.0 (#555–#556), its slice 3
 v0.271.0 (#557), its slice 4 (findit falls and comes back) v0.272.0 (#558) and its slice 5 (the
-`government` category) v0.273.0 (#559), all as-built under that section; slice 6 (the `retail`
-category) is the last one, and is next to plan.
+`government` category) v0.273.0 (#559) and its slice 6 (the `retail` category) v0.276.0 (#562),
+all as-built under that section. **X2 is COMPLETE** (2026-09-26), so **next is the ship gate** again.
 The `Status` block below is an accumulating log, not the current state.
 
 **Status**: **D1 shipped** (v0.109.0), with its web follow-ups D1c (v0.123.0-v0.124.0), D1b
@@ -417,7 +417,7 @@ PHASE 2 — DISCOVERY
       X1 slice 2 a box answers as a name server       ✅ SHIPPED v0.207.0 (#488)
       X1 slice 3 the zone transfers                   ✅ SHIPPED v0.208.0 (#489)
       X1 slice 4 the transfer leaves a trace          ✅ SHIPPED v0.209.0 (#490)
-  X2  findit.io + common website-bearing networks     GRILLED 09-26 (decisions 91-105, 6 slices)
+  X2  findit.io + common website-bearing networks     ✔ COMPLETE v0.265.0-v0.276.0 (decisions 91-105, 6 slices)
       X2 slice 1 an institution has a website     ✔ SHIPPED v0.265.0-v0.268.0 (#551-#554)
         1a a publisher answers at its IP      ✅ SHIPPED v0.265.0 (#551)
         1b a domain resolves                  ✅ SHIPPED v0.266.0 (#552)
@@ -429,7 +429,7 @@ PHASE 2 — DISCOVERY
       X2 slice 3 a player's page is found      ✅ SHIPPED v0.271.0 (#557)
       X2 slice 4 findit falls and comes back   ✅ SHIPPED v0.272.0 (#558)
       X2 slice 5 the government category      ✅ SHIPPED v0.273.0 (#559)
-      X2 slice 6 the retail category          PLANNED 09-26 — one PR, v0.276.0 (plans/the-retail-category.md)
+      X2 slice 6 the retail category          ✅ SHIPPED v0.276.0 (#562)
 PHASE 3 — VULNERABILITIES                             GRILLED 09-09/09-10 + PLANNED (35 decisions)
       V slice 1 a version is visible          ✔ SHIPPED v0.210.0-v0.211.0 (#491, #494)
         1a every box carries a manifest       ✅ SHIPPED v0.210.0 (#491)
@@ -472,7 +472,7 @@ POST-SHIP — MISSIONS
 | # | Slice | Includes | Acceptance |
 |---|---|---|---|
 | **X1** ✅ | **A player resolves a name to an address** — **SHIPPED v0.206.0–v0.209.0 (#487–#490); all four slices closed.** Grilled 2026-09-04, fourteen locked decisions in ["X1 — resolved scope & decisions"](#x1--resolved-scope--decisions-grill-me-2026-09-04); four slices | `apt install dnsutils`; the AP gateway as every network's resolver (its own LAN) + an occupant fallback; a name accepted anywhere an address is, through ONE shared client-side resolve step; a `dns` catalog row at `53/tcp` with `named` on the rare (3%) dns-role box; generated `named.conf` (`allow-transfer` open ~3 in 4) and a zone file spanning the WHOLE network — Layer 1's servers and infrastructure plus every deep layer; `nslookup`; `dig` + `dig @<server> axfr` reading that file as the authority; `/var/log/named.log` on transfers | Public/world domains (→ X2, which inherits a per-network name to index); a zone authoritative for RESOLUTION (poisoning `ssh`) — refused, it needs a round-trip per lookup; occupants in the zone; MX/CNAME/TXT; `dig -x`; `host`; dual-protocol port rows | `nslookup web-04` → IP on any network, and `ssh root@web-04` lands without the player ever reading an address; `nmap` finds `53 open` on `ns-12`, `dig @192.168.4.12 axfr` returns the zone — including `10.x` hosts on layers behind gateways the player has never rooted — and the box's `named.log` names them for whoever roots it next |
-| **X2** | **A player finds a network they were never told about** — **GRILLED 2026-09-26, un-deferred ahead of the ship gate: fifteen locked decisions (91–105) and a six-slice spine in ["X2 — resolved scope & decisions"](#x2--resolved-scope--decisions-grilling-2026-09-26).** Supersedes the Includes cell (no `world_networks`; publishers are catalog networks) | `world_networks` + themed-network registry; **common networks that run websites** (the owner's shape — they are findable *because* they serve something); `findit.io` search handler over peer networks' metadata; registration/indexing | `curl "http://findit.io?q=<term>"` → ranked results → `nmap` that network → real ports. The player never learned the address out-of-band |
+| **X2** ✔ | **A player finds a network they were never told about** — **COMPLETE v0.265.0–v0.276.0 (#551–#562)**; **GRILLED 2026-09-26, un-deferred ahead of the ship gate: fifteen locked decisions (91–105) and a six-slice spine in ["X2 — resolved scope & decisions"](#x2--resolved-scope--decisions-grilling-2026-09-26).** Supersedes the Includes cell (no `world_networks`; publishers are catalog networks) | `world_networks` + themed-network registry; **common networks that run websites** (the owner's shape — they are findable *because* they serve something); `findit.io` search handler over peer networks' metadata; registration/indexing | `curl "http://findit.io?q=<term>"` → ranked results → `nmap` that network → real ports. The player never learned the address out-of-band |
 
 ## Phase 3 — vulnerabilities
 
@@ -5309,6 +5309,100 @@ government office keeping case files.
   on the CLIENT (94), so `resolveHttpFetch` takes an ADDRESS; the probe was passing a name. Reading
   `ridgemont.edu` fail too is what showed it was the probe, not the slice — always include a control
   that is known to work.
+
+### As-built: X2 slice 6 — the retail category
+
+Shipped v0.276.0 as one PR against trunk (#562), 2026-09-26. **This closes X2.** Ridgemont gained
+four shops: `kwikemart.com`, `monstromart.com`, `buynlarge.com` and `megalomart.com` answer from any
+network, findit ranks each for its name and all four for `groceries`, and behind the wifi every box
+reads as a shop's back office, with a till and a customer list in its database.
+
+#### Decided at planning (2026-09-26)
+
+**Owner decisions:**
+
+130. **Four general-goods shops, one per network, and every one publishes.** `KWIK-E-MART` (the
+     Kwik-E-Mart, `kwikemart.com`), `MONSTROMART` (`monstromart.com`), `BUY-N-LARGE`
+     (`buynlarge.com`) and `MEGA-LO-MART` (`megalomart.com`) — a convenience store, a supermarket, a
+     department store and a big-box store, whose goods overlap, so one pool reads true in each.
+     Rejected: specialist shops (a shared product pool would put a USB cable in a bookshop's till
+     unless pools were keyed per shop, which 126 rejected) and three shops to match government.
+131. **One new database application, `shop`**: `products` (SKU, name, aisle, whole-euro price),
+     `sales` (who rang it up, the till, the total, how it was paid), `sale_lines`,
+     `loyalty_members` and an optional `returns`, with its own `STORE_SPECS` entry and six
+     `MAIL_SPECS` threads. `ARCHETYPES_BY_CATEGORY.retail` is `['shop']`. The customer list is the
+     prize. Rejected: `['shop', 'stock']` (half the shops with no till) and reusing `stock` + `till`
+     (a supermarket reading as a café).
+132. **A retail site has no fixed page**, like the cafés and the public places. Its staff are still
+     listed with retail roles on the Team page of any intranet a `portal-` box keeps inside the
+     network. Rejected: an "Our team" page and an always-present "Offers" page.
+
+**Derived from existing conventions:**
+
+133. **The content is general retail, not per-shop** — 126's rule for shops: every template reads
+     true at a corner shop and a department store alike.
+134. **A loyalty member carries a card number (`LOY-40001`…), not an email** — no column kind stores
+     an email, and a new one would be generator logic for one column. Owner-confirmed.
+135. **Everything new is appended** — `'retail'` after `'government'`, the four networks at the end
+     of `ESSID_CATALOG`. Every scan draws from 57 crackable networks rather than 53, and an
+     uncatalogued network from nine kinds rather than eight.
+136. **Volume matches the peers, table by table** — the same thirteen tables as 128, with
+     `WORK_HISTORY` in the list from the start this time.
+137. **One PR, v0.276.0, with no `api/` change**, 129's reasoning unchanged.
+
+#### What shipped
+
+- **`pools/essidCatalog.ts`**: `'retail'` appended to `NETWORK_CATEGORIES`, the four entries appended
+  with their `site`.
+- **The thirteen category-keyed tables filled** across `persona.ts`, `pools/etcFiles.ts`,
+  `pools/homeHistory.ts`, `pools/homeNotes.ts`, `pools/mailThreads.ts`, `pools/phoneFiles.ts`,
+  `pools/shareFiles.ts`, `pools/webSites.ts` and `databaseApp.ts`.
+- **`shop`** in `pools/databaseApps.ts`, with its own everyday-goods pool (`GOODS`, 36 names — a
+  `unique` column caps a table's rows at its pool's size), registered in `ARCHETYPE_DEFINITIONS`; its
+  `STORE_SPECS` entry and six `MAIL_SPECS` threads.
+- **No logic line changed.** The fixed-page chain in `webSite.ts` stayed a chain: 132 added no fourth
+  case, which answers the question slice 5 left for this slice.
+- **Two golden scan snapshots moved** (135), as at 127. Their property held — the crackables still
+  sit at positions 3 and 6, mixed with noise.
+- **The compiler named exactly the thirteen tables 136 lists**, plus two per-category maps in the
+  tests. The planning-time grep for a category table under a looser `Record<string, …>` found none,
+  so slice 5's crash did not recur.
+
+#### Gates
+
+- 6356 unit tests green in 265 files; `npm run typecheck` and `npm run lint` clean.
+- **RED first:** the publisher and persona tests (no shops in the catalog); the shop database test
+  (every shop ran the café's `till`); and the existing "describes every publisher by more than its
+  bare name" (`KWIK-E-MART: expected '' not to be ''`). The findit ranking test was green on its first
+  run, since it could only be written once the shops existed, and is a guard. The store, mail and
+  people's-file pools are covered by suites that iterate every application and every network, which
+  crashed until those pools existed.
+- **Mutation `N/A`**: no logic line changed; the diff is catalog rows and literal pool data, whose
+  only mutants would prove a literal exists. Evidence is the world-content property suites.
+- **Wire-checks re-run live** (no `api/` change): `testFindit` 18/18, `testPublisherWeb` 6/6,
+  `testExploitPublisherSite` 6/6.
+- **Browser (v0.276.0):** `nmap monstromart.com` → `22`, `161`, `80`; `lynx monstromart.com` → the
+  homepage and its Weekly offers in whole euros; `lynx findit.io`, searched `monstromart`, followed
+  the result back; `curl findit.io/?q=groceries` → the four shops and nothing else. Cracked
+  `KWIK-E-MART` (`ginger2024`); `/etc/motd` on `web-17` is a retail template naming the Kwik-E-Mart;
+  `mysql` into `warehouse-123` (root `admin`) showed the `retail` database — 15 loyalty members with
+  card numbers, and sale 1's lines pointing at a real product (Cheddar, `SKU-5121`).
+
+#### Risks carried forward
+
+- **A home note was not read in play.** The only ssh boxes on `KWIK-E-MART` log in as service
+  accounts (`siteadm`, `replication`, `guest`) with empty homes. Retail notes are covered by the unit
+  suites; a browser run that needs one should pick a network with a person's workstation running
+  sshd offline first.
+- **Four networks is still a thin sample** for the variety suites. Nothing failed; if a check ever
+  fails for retail alone, widen that suite's synthetic networks, never lower a threshold.
+
+#### One false reading, recorded because it looked like the world
+
+- **Twelve scans "found no shop", and KWIK-E-MART had been in one of them.** The loop's filter was
+  `[^A-Z]*` between the BSSID and the ESSID, which cannot cross the `WPA2` in between, so it could
+  never match. Listing the last scans' ESSIDs showed the scans were fine and re-rolling. **Before
+  trusting a negative from a filter, run it once against a line known to match.**
 
 ## Open branches (named, not yet decided)
 

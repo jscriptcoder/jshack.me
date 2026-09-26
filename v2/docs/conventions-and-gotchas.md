@@ -177,8 +177,9 @@ SHIPPED v0.273.0 (#559). A fix it carried forward shipped v0.274.0 (#560): an in
 server serves its public site whatever the box is called, where 15 publishers had served an API
 reference or their intranet; and another shipped v0.275.0 (#561): `curl`/`lynx`/`gobuster` read a
 router or switch as its own firmware, as `nmap` does, where 66 of 171 had answered a web page on a
-port a scan showed closed. Slice 6 (the `retail` category) is next to plan. The epic's X2 section
-holds the decisions and every shipped slice's as-built.
+port a scan showed closed. Its slice 6 (the `retail` category — four shops publishing `.com`
+sites, each running the `shop` application) SHIPPED v0.276.0 (#562), and **X2 is COMPLETE**. The
+epic's X2 section holds the decisions and every shipped slice's as-built.
 
 **Phase 3 — vulnerabilities is GRILLED (2026-09-09) and ready for `planning`.** Twenty-three locked
 decisions and a nine-slice, loop-first spine live in the epic. Three things a v2 session should know
@@ -587,10 +588,10 @@ player workstation) holds believable, persona-coherent content — no loot, no n
 reference true within its network, history frozen at `WORLD_EPOCH` in rotated `.1` logs. As-built
 and its standing rules: [`world-content-architecture.md`](./world-content-architecture.md); the
 epic's plan file was retired on close-out and its open questions are in §9 under "World content
-deferred". Ship waited for it. **Next is X2 (`findit.io`), un-deferred and grilled 2026-09-26
-ahead of the ship gate**, then the ship gate (see the legacy-parity epic's "Where we are now").
+deferred". Ship waited for it. X2 (`findit.io`) was un-deferred ahead of it and is COMPLETE (v0.276.0,
+#562), so **next is the ship gate** (see the legacy-parity epic's "Where we are now").
 
-To pick up the next work: X2 is grilled but has no slice plan yet, so start from
+To pick up the next work: the ship gate has no slice plan yet, so start from
 [`plans/legacy-parity-epic.md`](../../plans/legacy-parity-epic.md) — its **"Where we are now"**
 line near the top, then the Phase 3 tree and the slice table for per-slice status. A slice gets
 its own `plans/*.md` only while it is IN FLIGHT, with a top block carrying live status + as-built; it is retired into the epic on close-out, so
