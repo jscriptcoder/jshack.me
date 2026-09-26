@@ -9,7 +9,7 @@
 import { PUBLISHER_FIRST_OCTET } from './ip';
 import { ESSID_CATALOG, type PublishedSite } from './pools/essidCatalog';
 import { createPrng } from './prng';
-import { FINDIT_DOMAIN, FINDIT_NETWORK } from './findit';
+import { FINDIT_DOMAIN, FINDIT_NETWORK } from './finditNetwork';
 
 const SITE_BY_ESSID: ReadonlyMap<string, PublishedSite> = new Map(
   ESSID_CATALOG.flatMap((entry) => (entry.site === undefined ? [] : [[entry.essid, entry.site]])),
