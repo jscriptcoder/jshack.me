@@ -149,6 +149,19 @@ describe('lynx opens a browser on a page that came back', () => {
     expect(page.url).toBe(`http://${host.ip}:${port}/index.html`);
   });
 
+  it('takes an address typed with no scheme as http, and shows the url it fetched', async () => {
+    const { host, port } = webHostOnLan();
+
+    const page = opened(await run(`${host.ip}:${port}/index.html`));
+
+    expect(page.content).toBe(servedPage(host));
+    // The address bar is also the base every relative link resolves against, so it holds
+    // the whole url rather than the shorthand that was typed — the web's own port left
+    // unwritten, as a browser writes it.
+    const shownPort = port === HTTP_DEFAULT_PORT ? '' : `:${port}`;
+    expect(page.url).toBe(`http://${host.ip}${shownPort}/index.html`);
+  });
+
   it('reads the page a directory stands for, as a browser asking for the root does', async () => {
     const { host, port } = webHostOnLan();
 
@@ -164,10 +177,10 @@ describe('lynx refuses in the terminal rather than opening on nothing', () => {
     expect(exitCode).toBe(1);
   });
 
-  it('rejects something that is not an http url', async () => {
-    const { text, exitCode } = reported(await run('192.168.1.5'));
+  it('rejects a scheme it does not speak', async () => {
+    const { text, exitCode } = reported(await run('ftp://192.168.1.5'));
 
-    expect(text).toBe('lynx: (3) URL rejected: 192.168.1.5');
+    expect(text).toBe('lynx: (3) URL rejected: ftp://192.168.1.5');
     expect(exitCode).toBe(1);
   });
 
@@ -299,6 +312,15 @@ describe('lynx across the network, at another player public IP', () => {
     const { url, content } = opened(result);
     expect(url).toBe('http://ridgemont.edu/');
     expect(content).toContain('welcome to nebuchadnezzar');
+  });
+
+  it("opens an institution's homepage from its bare domain, as a real browser does", async () => {
+    const { result, asked } = await browseAcross(served(THEIR_PAGE), 'ridgemont.edu');
+
+    expect(asked).toEqual([
+      { target: publisherIp('CAMPUS-GUEST-OPEN'), port: HTTP_DEFAULT_PORT, path: '/' },
+    ]);
+    expect(opened(result).url).toBe('http://ridgemont.edu/');
   });
 
   it('asks the server for the raw url path, never a resolved file path', async () => {
