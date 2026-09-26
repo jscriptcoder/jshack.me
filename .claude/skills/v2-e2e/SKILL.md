@@ -541,3 +541,18 @@ cross-player scenario. Still unwritten: a deep-chain pivot.
 neither is preinstalled — then `nginx` to listen, and **`rm /var/www/html/index.html` before
 writing your own**, because installing nginx leaves a default page there and a half-generated
 site makes the link count meaningless.
+
+**Putting a player's page on findit** (verified v0.271.0, A on `CASA-DE-RAMIREZ`, B on
+`ESPRESSO-EXPRESS`). A publishes as above, then `ssh root@<subnet>.1` (password per §4) and
+`echo "forward 80 to <A's LAN IP>:80" > /etc/iptables/rules.v4`. Nothing else: B's
+`curl "findit.io/?q=<a word on A's page>"` lists it at once, by title and A's bare public IP.
+- **A's public IP is shown nowhere in the game.** Read it off the database:
+  `docker exec supabase_db_jshack-me-v2 psql -U postgres -tAc "select public_ip from network_public_ips where essid='<ESSID>'"`.
+- **Pick a network with no site of its own.** On a publisher's network (every corporate, café
+  and institutional one) the page is listed under the institution's DOMAIN, not an IP. The
+  residential, iot and hacker entries are the ones that show a bare address.
+- **`echo … > file` writes ONE line** — the shell has `>` but no `>>`, and `echo` takes no `-e`.
+  That is fine for a one-line page or forward, but a `robots.txt` needs two lines
+  (`User-agent: *`, `Disallow: /`), so write it in `nano` (§7's save-and-exit loop).
+- **The crawl writes nothing on A's box.** Only real visits (B's `lynx` follow, a direct `curl`)
+  land in A's `/var/log/access.log`; a search never does. Check the row, not the screen.

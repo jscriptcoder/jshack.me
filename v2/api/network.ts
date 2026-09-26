@@ -55,7 +55,10 @@ import { generateHomeLan } from '../src/core/generation/generateHomeLan';
 import { generatePublicIp } from '../src/core/generation/ip';
 import { createPrng } from '../src/core/generation/prng';
 import { publisherAt } from '../src/core/generation/publisher';
-import type { MachinePatchRow as WebIndexPatchRow } from '../src/core/findit/publisherIndex';
+import type {
+  MachinePatchRow as WebIndexPatchRow,
+  StoredAddress,
+} from '../src/core/findit/webIndex';
 import { randomUUID } from 'node:crypto';
 
 // Vercel adapter for POST /api/network — joining an AP, and reaching what is on it.
@@ -434,6 +437,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           .order('writer_key', { ascending: true });
         logFailure('http-fetch web index lookup', error);
         return { data: data as readonly WebIndexPatchRow[] | null, error };
+      },
+      // Only findit's search reaches this too: every network anybody has joined, so a
+      // page served on any of their public addresses can be found.
+      listPublicAddresses: async () => {
+        const { data, error } = await supabase.from('network_public_ips').select('essid, public_ip');
+        logFailure('http-fetch web index addresses', error);
+        return { data: data as readonly StoredAddress[] | null, error };
       },
     });
     res.status(status).json(body);
