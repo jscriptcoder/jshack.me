@@ -5,7 +5,7 @@
 at planning (2026-09-26) and the choices derived from existing conventions are listed under "Decided at
 planning" below.
 
-**Status:** 2a merged (v0.269.0, PR #555); 2b not started (`feat/lynx-submits-a-form`).
+**Status:** 2a merged (v0.269.0, PR #555); 2b built (v0.270.0, `feat/lynx-submits-a-form`, PR open).
 
 **Delivery:** two independent PRs against trunk, merged in order (2b builds on 2a through `main`, not
 through a stack).
@@ -349,16 +349,16 @@ fetch → results page; Back returns to the form.
 **Class:** behavior change. **Delivery:** independent PR against trunk, after 2a merges.
 
 **Acceptance criteria:**
-- [ ] Arrow keys move between links AND text fields in document order. A selected text field shows it
+- [x] Arrow keys move between links AND text fields in document order. A selected text field shows it
       is being edited.
-- [ ] Typing while a field is selected edits its value; Backspace deletes. `q`/Escape do not quit while
+- [x] Typing while a field is selected edits its value; Backspace deletes. `q`/Escape do not quit while
       a field is being edited (Escape leaves the field instead).
-- [ ] Enter in the field, or on `[Search]`, submits a `GET` to the form's `action` (resolved against
+- [x] Enter in the field, or on `[Search]`, submits a `GET` to the form's `action` (resolved against
       the page URL) with the field's value URL-encoded. The results page opens, and Back returns to the
       form page.
-- [ ] A form with no `action` submits to the page's own path. Only `GET` forms submit; a `POST` form
+- [x] A form with no `action` submits to the page's own path. Only `GET` forms submit; a `POST` form
       renders but does not submit.
-- [ ] Search term text never becomes markup anywhere along the way (escaped on findit, encoded in the
+- [x] Search term text never becomes markup anywhere along the way (escaped on findit, encoded in the
       URL).
 
 **RED:** jsdom + `@solidjs/testing-library` tests on `Lynx.tsx` in the order above. `renderPage` segments
@@ -373,6 +373,49 @@ browser run.
 **PRE-PR MUTATION:** Stryker on `renderPage.ts` and the form-URL helper; `Lynx.tsx` keyboard handling
 is covered by the component tests.
 **Done when:** all criteria checked, gates green, the browser run recorded, mutation reviewed.
+
+**As built (2026-09-26):**
+
+- **`renderPage` segments gained `field` and `submit`.** Each carries its form as a
+  `FormTarget` (`id`, resolved `action`, `get`/`post`), or `null` when there is nowhere to send it:
+  no form around it, or an action `resolveHref` refuses (`mailto:`). An empty or whitespace-only
+  action is the page's own URL. A `<button>` with no type, and an `<input type="submit">`, are
+  submits; `type="button"`, password and hidden fields stay unselectable, drawn exactly as in 2a.
+- **Links keep their numbers; fields are not numbered.** A form above the results leaves the first
+  result `[1]`. The link segment's `index` field was dropped: selection is by position in one
+  list of selectable items (links, fields, buttons) in page order, compared by identity, so there
+  is no second numbering to keep in step — the plan's REFACTOR question, answered yes.
+- **Editing is "a field is selected and the reader has not pressed Escape".** Arriving on a field
+  by any route (page open, arrows, Back) puts the reader in it. Inside a field every character
+  types (`q` included, Ctrl/Cmd/Alt shortcuts excluded), Backspace deletes, Left/Right do nothing
+  (no cursor model — the cursor is always at the end), and only Up/Down, Enter and Escape pass
+  through. The field being typed into shows a trailing `_`; an idle field shows its value or
+  placeholder through the shared `fieldBox`. What was typed is kept per position and forgotten on
+  arrival anywhere, like the selection.
+- **Submitting is a follow.** `formSubmissionUrl` (in `core/network/http.ts`) replaces the action's
+  query with the form's named fields, form-encoded by `URLSearchParams` (the same codec findit's
+  `searchedFor` decodes with), and `Lynx` follows it through the one `go` path a link uses — the
+  same log line, the same Back. A field with no name is left out, as a browser does. The hint
+  offers `⏎ Submit` only for a form that will send, and `Esc Leave field` instead of `q Quit`/`←
+  Back` while typing.
+- **Gates:** 6297 unit tests green, typecheck and lint clean. Mutation, scoped to `renderPage.ts`,
+  `Lynx.tsx` and `formSubmissionUrl`: 10/10 on the helper; `Lynx.tsx` 281 killed, 3 runtime errors,
+  8 survived; `renderPage.ts` 503 killed, 7 survived. The first run surfaced eleven real gaps, all
+  closed: a whitespace-only action, an input button, the password box's exact drawing, a button
+  labelled across markup, an untyped button submitting, a stray formless field beside a form,
+  Backspace with history behind, ArrowRight while typing, the cursor in only one of two fields, a
+  button's label and styling — and a nameless field, which was a real defect (`?=unnamed&q=...`).
+  An unreachable guard in `edit` was removed by passing it the field being edited. The survivors
+  are equivalent (`'text'` vs `''` as the default type; `kind !== 'link'` in `sendingForm`, since a
+  link has no form) or sit on lines this slice did not touch.
+- **Wire-check:** `N/A`, no `api/` change.
+- **Browser (v0.270.0, from `ESPRESSO-EXPRESS`):** `lynx findit.io` opened on `[_] [ Search ]` with
+  `↑↓ Select  ⏎ Submit  Esc Leave field`; typing `university` and Enter opened
+  `http://findit.io/?q=university` with the field refilled and Ridgemont University as `[1]`;
+  two Downs and Enter opened `http://ridgemont.edu/`; Back returned to the results with `[1]`
+  selected. On the form, `q` typed `[q_]`; Escape switched the hint to `q Quit`, and `q` then quit.
+  agent-browser's `keyboard type` fires no `keydown` at all, so it cannot type into lynx (its
+  Enter sent an empty `?q=`); recorded in the `v2-e2e` runbook, and driven with `press` per key.
 
 ## Pre-PR Quality Gate (each PR)
 

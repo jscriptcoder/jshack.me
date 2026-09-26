@@ -164,7 +164,7 @@ describe('the links a page offers', () => {
 
   it('numbers a link and remembers where it goes', () => {
     expect(linksOn('<body><p><a href="/notes.html">the notes</a></p></body>')).toEqual([
-      { kind: 'link', text: '[1]the notes', url: 'http://192.168.1.5/notes.html', index: 1 },
+      { kind: 'link', text: '[1]the notes', url: 'http://192.168.1.5/notes.html' },
     ]);
   });
 
@@ -184,7 +184,7 @@ describe('the links a page offers', () => {
 
     expect(line).toEqual([
       { kind: 'text', text: 'See ' },
-      { kind: 'link', text: '[1]the notes', url: 'http://192.168.1.5/notes.html', index: 1 },
+      { kind: 'link', text: '[1]the notes', url: 'http://192.168.1.5/notes.html' },
       { kind: 'text', text: ' for more.' },
     ]);
   });
@@ -196,7 +196,7 @@ describe('the links a page offers', () => {
     );
 
     expect(links).toEqual([
-      { kind: 'link', text: '[1]onward', url: 'http://192.168.1.5/docs/next.html', index: 1 },
+      { kind: 'link', text: '[1]onward', url: 'http://192.168.1.5/docs/next.html' },
     ]);
   });
 
@@ -211,7 +211,7 @@ describe('the links a page offers', () => {
 
   it('still numbers a link whose text is empty, so a reader can reach it', () => {
     expect(linksOn('<body><p><a href="/hidden.html"></a></p></body>')).toEqual([
-      { kind: 'link', text: '[1]', url: 'http://192.168.1.5/hidden.html', index: 1 },
+      { kind: 'link', text: '[1]', url: 'http://192.168.1.5/hidden.html' },
     ]);
   });
 
@@ -225,7 +225,7 @@ describe('the links a page offers', () => {
     expect(
       linksOn('<body><p><a href="/notes.html">the <strong>important</strong> notes</a></p></body>'),
     ).toEqual([
-      { kind: 'link', text: '[1]the important notes', url: 'http://192.168.1.5/notes.html', index: 1 },
+      { kind: 'link', text: '[1]the important notes', url: 'http://192.168.1.5/notes.html' },
     ]);
   });
 
@@ -233,7 +233,7 @@ describe('the links a page offers', () => {
   // highlight should cover what the link SAYS, not the author's formatting.
   it('tightens a link text to what it says, ignoring the markup around it', () => {
     expect(linksOn('<body><p><a href="/notes.html">\n  the   notes\n  </a></p></body>')).toEqual([
-      { kind: 'link', text: '[1]the notes', url: 'http://192.168.1.5/notes.html', index: 1 },
+      { kind: 'link', text: '[1]the notes', url: 'http://192.168.1.5/notes.html' },
     ]);
   });
 
@@ -320,7 +320,7 @@ describe('a table on a page', () => {
       [
         { kind: 'text', text: 'Menu' },
         { kind: 'text', text: '     ' },
-        { kind: 'link', text: '[1]see', url: 'http://192.168.1.5/menu.html', index: 1 },
+        { kind: 'link', text: '[1]see', url: 'http://192.168.1.5/menu.html' },
       ],
       [
         { kind: 'text', text: 'Opening' },
@@ -361,8 +361,8 @@ describe('a table on a page', () => {
 
     expect(asLines(html)).toEqual(['[1]Menu  food', 'Hours    [2]when']);
     expect(lines.flat().filter((segment) => segment.kind === 'link')).toEqual([
-      { kind: 'link', text: '[1]Menu', url: 'http://192.168.1.5/menu.html', index: 1 },
-      { kind: 'link', text: '[2]when', url: 'http://192.168.1.5/hours.html', index: 2 },
+      { kind: 'link', text: '[1]Menu', url: 'http://192.168.1.5/menu.html' },
+      { kind: 'link', text: '[2]when', url: 'http://192.168.1.5/hours.html' },
     ]);
   });
 
@@ -414,7 +414,7 @@ describe('preformatted text on a page', () => {
 
     expect(asLines(html)).toEqual(['see  [1]old/   2026-07-01']);
     expect(lines.flat().filter((segment) => segment.kind === 'link')).toEqual([
-      { kind: 'link', text: '[1]old/', url: 'http://192.168.1.5/old/', index: 1 },
+      { kind: 'link', text: '[1]old/', url: 'http://192.168.1.5/old/' },
     ]);
   });
 
@@ -469,5 +469,159 @@ describe('a form on a page', () => {
     const lines = asLines('<body><form><input type="text" name="q"></form><p>results</p></body>');
 
     expect(lines[lines.length - 1]).toBe('results');
+  });
+});
+
+describe('a form a reader can fill in', () => {
+  /** What a reader can select on the page, in the order they meet it: links, fields
+   *  and the buttons that send a form. */
+  const selectablesOn = (html: string, url: string = PAGE_URL) =>
+    renderPage({ html, url }).flatMap((line) => line.filter((segment) => segment.kind !== 'text'));
+
+  const FINDIT_FORM =
+    '<body><form action="/" method="GET"><input type="text" name="q" value="coffee" placeholder="Search the public web"><button type="submit">Search</button></form></body>';
+
+  it('offers a field to type into, knowing its name, what it holds and where its form sends it', () => {
+    const form = { id: 0, action: 'http://findit.io/', method: 'get' };
+
+    expect(selectablesOn(FINDIT_FORM, 'http://findit.io/?q=coffee')).toEqual([
+      {
+        kind: 'field',
+        text: '[coffee]',
+        name: 'q',
+        value: 'coffee',
+        placeholder: 'Search the public web',
+        form,
+      },
+      { kind: 'submit', text: '[ Search ]', form },
+    ]);
+  });
+
+  it('sends a form with no action back to the page it sits on', () => {
+    const [field] = selectablesOn('<body><form><input name="q"></form></body>');
+
+    expect(field).toMatchObject({ kind: 'field', form: { action: PAGE_URL } });
+  });
+
+  it('resolves an action against the page, the way a link is resolved', () => {
+    const [field] = selectablesOn(
+      '<body><form action="search.html"><input name="q"></form></body>',
+      'http://192.168.1.5/docs/index.html',
+    );
+
+    expect(field).toMatchObject({ form: { action: 'http://192.168.1.5/docs/search.html' } });
+  });
+
+  // An action this browser cannot fetch is a form that sends nowhere — the same rule
+  // that makes a `mailto:` anchor writing rather than a link.
+  it('knows a form whose action goes nowhere it can fetch cannot be sent', () => {
+    const [field] = selectablesOn(
+      '<body><form action="mailto:root@db-01"><input name="q"></form></body>',
+    );
+
+    expect(field).toMatchObject({ kind: 'field', form: null });
+  });
+
+  it.each([
+    ['GET', 'get'],
+    ['get', 'get'],
+    ['POST', 'post'],
+    ['Post', 'post'],
+  ])('reads method="%s" as %s', (written, method) => {
+    const [field] = selectablesOn(
+      `<body><form action="/" method="${written}"><input name="q"></form></body>`,
+    );
+
+    expect(field).toMatchObject({ form: { method } });
+  });
+
+  it('takes a form that names no method as a GET, as a browser does', () => {
+    const [field] = selectablesOn('<body><form action="/"><input name="q"></form></body>');
+
+    expect(field).toMatchObject({ form: { method: 'get' } });
+  });
+
+  it('keeps two forms on one page apart', () => {
+    const [first, second] = selectablesOn(
+      '<body><form action="/a"><input name="q"></form><form action="/b"><input name="q"></form></body>',
+    );
+
+    expect(first).toMatchObject({ form: { id: 0, action: 'http://192.168.1.5/a' } });
+    expect(second).toMatchObject({ form: { id: 1, action: 'http://192.168.1.5/b' } });
+  });
+
+  it('knows a field outside any form has nowhere to be sent', () => {
+    expect(selectablesOn('<body><input name="q"></body>')).toEqual([
+      { kind: 'field', text: '[]', name: 'q', value: '', placeholder: '', form: null },
+    ]);
+  });
+
+  it('offers a submit written as an input exactly as one written as a button', () => {
+    expect(
+      selectablesOn('<body><form action="/"><input type="submit" value="Go"></form></body>'),
+    ).toEqual([
+      { kind: 'submit', text: '[ Go ]', form: { id: 0, action: 'http://192.168.1.5/', method: 'get' } },
+    ]);
+  });
+
+  // `type="button"` is the one button that sends nothing: it is drawn, and there is
+  // nothing to press.
+  it('draws a button that sends nothing, and offers nothing to press', () => {
+    const html = '<body><form action="/"><button type="button">Toggle</button></form></body>';
+
+    expect(selectablesOn(html)).toEqual([]);
+    expect(asText(html)).toBe('[ Toggle ]');
+  });
+
+  it.each(['password', 'hidden'])('offers no %s field to type into', (type) => {
+    expect(
+      selectablesOn(`<body><form action="/"><input type="${type}" name="pw" value="x"></form></body>`),
+    ).toEqual([]);
+  });
+
+  it('numbers the links after a form from one, since a field is not a link', () => {
+    const links = selectablesOn(
+      '<body><form action="/"><input name="q"><button>Search</button></form><p><a href="/a.html">first</a></p></body>',
+    ).filter((segment) => segment.kind === 'link');
+
+    expect(links.map((link) => link.text)).toEqual(['[1]first']);
+  });
+});
+
+describe('what a form offers, at its edges', () => {
+  const selectablesOn = (html: string) =>
+    renderPage({ html, url: PAGE_URL }).flatMap((line) =>
+      line.filter((segment) => segment.kind !== 'text'),
+    );
+
+  // An action of nothing but spaces names no address, so the form goes where one with
+  // no action at all goes: back to its own page.
+  it('sends a form whose action is only spaces back to the page it sits on', () => {
+    const [field] = selectablesOn('<body><form action="   "><input name="q"></form></body>');
+
+    expect(field).toMatchObject({ form: { action: PAGE_URL } });
+  });
+
+  it('draws an input button, and offers nothing to press', () => {
+    const html = '<body><form action="/"><input type="button" value="Toggle"></form></body>';
+
+    expect(selectablesOn(html)).toEqual([]);
+    expect(asText(html)).toBe('[ Toggle ]');
+  });
+
+  it('draws a password field as an empty box', () => {
+    expect(asText('<body><input type="password" name="pw" value="hunter2"></body>')).toBe('[]');
+  });
+
+  it('offers a button with no type as something that sends its form', () => {
+    expect(selectablesOn('<body><form action="/"><button>Go</button></form></body>')).toEqual([
+      { kind: 'submit', text: '[ Go ]', form: { id: 0, action: 'http://192.168.1.5/', method: 'get' } },
+    ]);
+  });
+
+  it('labels a button with all of its words, however they are marked up', () => {
+    expect(asText('<body><button type="button">Search <b>now</b></button></body>')).toBe(
+      '[ Search now ]',
+    );
   });
 });

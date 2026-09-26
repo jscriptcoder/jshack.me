@@ -118,6 +118,12 @@ agent-browser snapshot -i                              # interactive refs (@e1, 
   into `nmap... -> node... -> nmap... -> PROMPT`. Before chasing a transient with a faster loop, ask
   whether it has any duration at all — and note a script CAN reach `setTimeout`, because only
   `console` is shadowed in the sandbox.
+- **`keyboard type` fires NO `keydown` events, so it cannot type into `lynx`.** It works at the
+  terminal prompt, which is a real `<input>`, but `lynx` reads every key from `keydown` on its
+  screen — and a listener counted zero events across a `keyboard type "iv"`. The field stays `[_]`
+  and the Enter that follows sends an EMPTY search (`?q=`), which reads exactly like a broken form.
+  Type into a lynx field one `press` per character: `for c in u n i; do agent-browser press $c; done`.
+  A real keyboard fires `keydown` for every key, so this is the tool, never the game.
 - **There is no `agent-browser text` command.** Read the terminal with:
   ```bash
   agent-browser eval "document.body.innerText.slice(-800)"
@@ -237,7 +243,7 @@ is drawn from their own identity** (2–3 per scan), so choose the target AFTER 
 | Reading another box's mailbox | `ftp <host> <user>` as that box's own user, then `get /var/mail/<user> inbox` — a mailbox is user-tier, so `guest` is refused |
 | `cat <path>` at `ftp> ` → `?Invalid command: cat` | There is no remote `cat`: `get <remote> <local>`, `quit`, then `cat`/`strings` the local copy |
 | A door on a non-default port | `ftp -p 2121 <host> <user>` — the port is a flag BEFORE the host, as nmap reported it |
-| `lynx: command not found` | `apt install lynx` as root, like `nmap`. It takes a URL or a bare address — `lynx printer-111`, `lynx ridgemont.edu` (no scheme means `http://`, since v0.268.0; `ftp://`/`https://` are still rejected). It is interactive: `ArrowDown` moves between the numbered links, `Enter` follows, `q` quits |
+| `lynx: command not found` | `apt install lynx` as root, like `nmap`. It takes a URL or a bare address — `lynx printer-111`, `lynx ridgemont.edu` (no scheme means `http://`, since v0.268.0; `ftp://`/`https://` are still rejected). It is interactive: `ArrowDown` moves between the numbered links AND form fields and buttons, in page order, `Enter` follows a link or sends a GET form, `q` quits. **Inside a text field every key types, `q` and `Backspace` included** (`Escape` leaves the field; only then do `q` quit and `←` go back) — a page that opens on a field, like findit's, opens typing |
 
 **A device's own files** (every IoT box is one — see the tests under `generation/device/`): each
 keeps its daemon's config world-readable under `/etc/<daemon>/` and its data under
