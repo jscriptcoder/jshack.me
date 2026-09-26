@@ -25,8 +25,8 @@ content is inside the ship gate). **That epic is DONE** (2026-09-25, v0.264.0, a
 twelve slices, #533–#550), so the ship gate is unblocked. **Update 2026-09-26: X2 (`findit.io`) was
 un-deferred and GRILLED ahead of the ship gate** — decisions 91–105 and a six-slice spine in
 ["X2 — resolved scope & decisions"](#x2--resolved-scope--decisions-grilling-2026-09-26); its slice 1
-SHIPPED v0.265.0–v0.268.0 (#551–#554, as-built under that section); slice 2 (findit.io answers a
-search) is next to plan.
+SHIPPED v0.265.0–v0.268.0 (#551–#554) and its slice 2 SHIPPED v0.269.0–v0.270.0 (#555–#556),
+both as-built under that section; slice 3 (a player's page is found) is next to plan.
 The `Status` block below is an accumulating log, not the current state.
 
 **Status**: **D1 shipped** (v0.109.0), with its web follow-ups D1c (v0.123.0-v0.124.0), D1b
@@ -421,7 +421,9 @@ PHASE 2 — DISCOVERY
         1b a domain resolves                  ✅ SHIPPED v0.266.0 (#552)
         1c the forward is a way in            ✅ SHIPPED v0.267.0 (#553)
         1d a bare address is a URL            ✅ SHIPPED v0.268.0 (#554)
-      X2 slice 2 findit.io answers a search     PLANNED 09-26 — 2a v0.269.0, 2b v0.270.0 (plans/findit-answers-a-search.md)
+      X2 slice 2 findit.io answers a search     ✔ SHIPPED v0.269.0-v0.270.0 (#555-#556)
+        2a findit.io answers a search         ✅ SHIPPED v0.269.0 (#555)
+        2b lynx submits a form                ✅ SHIPPED v0.270.0 (#556)
 PHASE 3 — VULNERABILITIES                             GRILLED 09-09/09-10 + PLANNED (35 decisions)
       V slice 1 a version is visible          ✔ SHIPPED v0.210.0-v0.211.0 (#491, #494)
         1a every box carries a manifest       ✅ SHIPPED v0.210.0 (#491)
@@ -4689,9 +4691,12 @@ world is attackable").
 - **The reserved first octet** (94) and each institution's **domain and TLD** (103).
 - **The cost of the query-time player listing** (97): it walks every player public IP's gateway forward
   and occupant per search — fine at pre-launch scale, but planning sizes it.
-- **Whether findit's `access.log` line already carries the query string** (102), or the log writer
-  needs it added.
-- **How `lynx` follows a result link** to a world domain.
+- ~~**Whether findit's `access.log` line already carries the query string** (102), or the log writer
+  needs it added.~~ — **ANSWERED by slice 2a:** a search is a fetch, so the log already records the
+  raw path, `/?q=<term>`, under the searcher's server-held address; slice 4 only proves it readable.
+- ~~**How `lynx` follows a result link** to a world domain.~~ — **ANSWERED by slice 2:** results
+  link absolute `http://<domain>/`, which `lynx` resolves through the world names (1b) like any
+  typed address; 2b adds submitting the search form itself.
 
 ### As-built: X2 slice 1 — an institution has a website you reach by name
 
@@ -4837,6 +4842,120 @@ the game's tools do too.
   request; measure the fetch path against the existing same-LAN scan cost.
 - **A publisher whose rolled webserver port is `8080`/`8000`.** The forward maps public `80` to it;
   `nmap` of the gateway must still say `80`.
+
+### As-built: X2 slice 2 — findit.io answers a search
+
+Shipped v0.269.0–v0.270.0 as two independent PRs against trunk (#555–#556), 2026-09-26. From any
+network `curl "findit.io/?q=university"` ranks Ridgemont University first, linking
+`http://ridgemont.edu/`; in `lynx findit.io` a player selects the search field, types a term, presses
+Enter and follows a result. findit.io is a real box: `nmap` shows `22` and `80`, and its root
+password does not crack.
+
+#### Decided at planning (2026-09-26)
+
+**Owner decisions:**
+
+1. **The index is live, read in one batch.** Every search reads each publisher's homepage as served
+   now, patches included, so a rewritten `index.html` changes its own listing at the next search. The
+   ~64 machines (32 gateways, 32 site servers) are read in ONE batched patch query; a publisher whose
+   gateway no longer forwards `:80` to its generated site server falls back to full single-target
+   resolution. A dark publisher (bricked, nginx stopped, filtered) is absent.
+2. **The lynx form ships in two PRs** — 2a renders the field and searches by URL; 2b makes it
+   interactive.
+
+**Derived from existing conventions:**
+
+3. **findit is its own one-machine network** keyed `findit.io` (never broadcast). Its "AP gateway"
+   tree IS the findit box, so fetch, scan, login, exploit and logging (`ap:findit.io`) all reach it
+   through the gateway arm with no new resolver.
+4. **The box (102):** `sshd` + `nginx` only; root from the UNCRACKABLE pool; `dpkg/status` on the CVE
+   timeline; `/var/www/html/index.html` is the search form, so a rooted findit can be defaced.
+5. **Its address** is `193.x.y.z` derived from its key, in the world DNS beside the 32 publishers; a
+   catalog-wide test proves it distinct.
+6. **A URL may carry a query.** The host stops at `?`; every file read ignores the query; the access
+   log records the raw path, query included.
+7. **One dynamic handler** (95): findit's own box, path `/`, non-empty `q` → the pure search, run
+   only after `resolveWebTarget` succeeds, so a bricked or stopped findit takes search down (100).
+8. **Scoring** (96): decoded, split on whitespace, lower-cased, substring per term; title 3,
+   description 2, body 1, summed across terms; positive scores only, at most ten, ties by domain.
+9. **Reading a page without a DOM:** `<title>` (else the domain), `<meta name="description">` (else
+   the body's first non-empty line), body text with comments, scripts and tags stripped.
+10. **The results page** (99), all interpolations escaped: legacy's shape, the `GET` form re-filled,
+    an `<ol>` of linked titles, domain and description; `No matches for "<term>".` otherwise.
+11. **Publisher homepages name themselves** with the catalog `site.name` in `<title>`/`<h1>` and a
+    per-category `<meta name="description">`; they never emit `Disallow: /` (97, pinned by a test).
+
+#### 2a — findit.io answers a search (v0.269.0, #555)
+
+- **Decided mid-slice — a gateway that serves the web itself is listed.** Mutation testing asked what
+  happens when a rooted gateway stops forwarding and serves `:80` from its own disk; that IS what
+  answers, so it is fetched the ordinary way and listed. Only a network where NOTHING serves the web
+  is absent.
+- **findit is a network whose gateway is the box.** `buildApGatewayBaseFs` returns `buildFinditFs()`
+  for the findit key; `resolvePublicTarget`'s gateway arm names it `findit` with no fronted segment.
+- **A URL may carry a query.** `URL_PATTERN` ends the host at `?` and accepts a query with no path;
+  `resolveWebPath` cuts the query before resolving a file. The raw path is still what the access log
+  records — slice 4's prize, already in place.
+- **The index is a view, read in one batch.** `indexedWeb` reads the 32 publishers' gateways and web
+  servers through one new `findPatchesForMachines` dependency (`.in('machine_id', ...)`, module scope
+  inside `api/network.ts`; no new `api/` file). `servesWebOn` was extracted so the crawl and the fetch
+  share one definition of "serving the web".
+- New modules: `core/findit/{readPage,search,page,publisherIndex}.ts`, `core/generation/findit.ts`,
+  `core/network/webServing.ts`.
+- **Gates:** 6237 unit tests green, typecheck and lint clean. Mutation in two scoped batches
+  (`search.ts` 37/39, `page.ts` 43/44, `readPage.ts` 146/166, `http.ts` 114/115, `webServing.ts`
+  10/10, `publisherIndex.ts` 59/72): three real gaps closed (whole-document byte assertions for both
+  served pages; an unterminated comment a later `>` had been hiding; a journal whose EARLIER row
+  decides); six module-load statics hand-verified; the rest equivalent or defensive.
+- **Wire-check:** new `scripts/testFindit.ts`, 9/9 live — ten results for "services"; a rewritten
+  homepage listed by its new title; a bricked webserver drops out; a query on an ordinary site serves
+  its page; the search lands in findit's `access.log` as `/?q=services` under the searcher's address.
+- **Browser (v0.269.0, from `MIDNIGHT-DINER`):** `curl findit.io/?q=university` ranked Ridgemont
+  first; `lynx findit.io/?q=coffee` rendered `[coffee] [ Search ]` above six numbered cafés and
+  followed result 1 to `http://beanthere.com/`; `nmap -sV findit.io` showed `80 nginx/1.26.0` and
+  `22 OpenSSH 9.7.0`, each with a live CVE.
+- **Fixed in passing:** five source files carried a cp1252 `0x97` byte where an em-dash belonged.
+
+#### 2b — lynx submits a form (v0.270.0, #556)
+
+- **`renderPage` segments gained `field` and `submit`**, each carrying a `FormTarget` (`id`, resolved
+  `action`, `get`/`post`) or `null` when there is nowhere to send it (no form, or an action
+  `resolveHref` refuses such as `mailto:`). An empty or whitespace-only action is the page's own URL.
+  An untyped `<button>` and `<input type="submit">` are submits; `type="button"`, password and hidden
+  fields stay unselectable.
+- **Links keep their numbers; fields are not numbered**, so a form above the results leaves the first
+  result `[1]`. Selection is by position in ONE list of selectable items (links, fields, buttons) in
+  page order, compared by identity; the link segment's `index` field was dropped.
+- **Editing is "a field is selected and the reader has not pressed Escape".** Every character types
+  (`q` included; Ctrl/Cmd/Alt excluded), Backspace deletes, Left/Right do nothing (no cursor model),
+  Up/Down, Enter and Escape pass through. The field being typed into shows a trailing `_`; typed
+  values are kept per position and forgotten on arrival anywhere.
+- **Submitting is a follow.** `formSubmissionUrl` (`core/network/http.ts`) replaces the action's query
+  with the named fields, form-encoded by `URLSearchParams` (the codec findit decodes with), and `Lynx`
+  follows it through the same `go` path as a link — same log line, same Back. A nameless field is left
+  out (it was a real defect: `?=unnamed&q=...`). POST forms and formless fields render but never send;
+  the hint offers `⏎ Submit` only for a form that will send, and `Esc Leave field` while typing.
+- **Gates:** 6297 unit tests green, typecheck and lint clean. Mutation: `formSubmissionUrl` 10/10;
+  `Lynx.tsx` 281 killed, 3 runtime errors, 8 survived; `renderPage.ts` 503 killed, 7 survived. The
+  first run surfaced eleven real gaps, all closed; survivors are equivalent or on untouched lines.
+- **Wire-check:** `N/A`, no `api/` change.
+- **Browser (v0.270.0, from `ESPRESSO-EXPRESS`):** `lynx findit.io` opened on `[_] [ Search ]`;
+  typing `university` and Enter opened `http://findit.io/?q=university` with Ridgemont as `[1]`;
+  following it opened `http://ridgemont.edu/`; Back returned to the results. On the form `q` typed
+  `[q_]`; after Escape, `q` quit. agent-browser's `keyboard type` fires no `keydown`, so it cannot
+  type into lynx — recorded in the `v2-e2e` runbook (use `press` per key).
+
+#### Risks carried forward
+
+- **Search cost.** One batched read of ~64 journals plus 32 homepage materializations per search, not
+  yet measured against a single fetch. Fallback if slow: a pure index over generated homepages that
+  consults journals only for publishers with patches on their site server or gateway. Slice 3 adds
+  every player's public forward to the same query, so size both together.
+- **The findit key in ESSID-shaped code.** `networkPersona`, `generateHomeLan`, `frontedSegment`,
+  `seedApGatewayHostname` and anything else assuming a catalog ESSID must never be asked about
+  findit, or must answer sanely; the public-target, scan and fetch tests against findit are the guard.
+- **Stripping tags with a pattern, not a parser.** Player HTML arrives in slice 3; the reader must
+  stay total on malformed markup and only ever feed text into escaped output.
 
 ## Open branches (named, not yet decided)
 
