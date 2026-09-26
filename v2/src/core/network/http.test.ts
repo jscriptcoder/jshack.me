@@ -42,6 +42,20 @@ describe('parseHttpUrl', () => {
     expect(parseHttpUrl('http://192.168.1.5/index.html extra')).toBeNull();
   });
 
+  it('ends the host at a query, as the web does, so a query with no path asks the root', () => {
+    expect(parseHttpUrl('http://findit.io?q=university')).toEqual({
+      host: 'findit.io',
+      port: HTTP_DEFAULT_PORT,
+      path: '/?q=university',
+    });
+    expect(parseHttpUrl('http://findit.io:8080?q=university')).toEqual({
+      host: 'findit.io',
+      port: 8080,
+      path: '/?q=university',
+    });
+    expect(parseHttpUrl('http://findit.io/?q=university')?.path).toBe('/?q=university');
+  });
+
   it('rejects a port outside the addressable range, and accepts both ends of it', () => {
     expect(parseHttpUrl('http://192.168.1.5:0')).toBeNull();
     expect(parseHttpUrl('http://192.168.1.5:65536')).toBeNull();
@@ -69,6 +83,14 @@ describe('resolveWebPath', () => {
   it('names the file a request asks for', () => {
     expect(resolveWebPath('/status')).toBe(`${WEB_ROOT}/status`);
     expect(resolveWebPath('/assets/app.js')).toBe(`${WEB_ROOT}/assets/app.js`);
+  });
+
+  it('reads a file without its query, the way a server of static files does', () => {
+    expect(resolveWebPath('/?q=university')).toBe(`${WEB_ROOT}/index.html`);
+    expect(resolveWebPath('/about.html?ref=findit')).toBe(`${WEB_ROOT}/about.html`);
+    expect(resolveWebPath('/admin/?page=2')).toBe(`${WEB_ROOT}/admin/index.html`);
+    // A query is never part of the file name, so what it spells cannot climb out.
+    expect(resolveWebPath('/?q=/../../../etc/passwd')).toBe(`${WEB_ROOT}/index.html`);
   });
 
   it('rejects a request path that climbs out of the document root', () => {

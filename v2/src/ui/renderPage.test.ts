@@ -434,3 +434,40 @@ describe('preformatted text on a page', () => {
     ]);
   });
 });
+
+describe('a form on a page', () => {
+  it('shows a text field as a box a reader can see is there', () => {
+    const lines = asLines(
+      '<body><form action="/" method="GET"><input type="text" name="q" placeholder="Search the public web"><button type="submit">Search</button></form></body>',
+    );
+
+    expect(lines.join('\n')).toContain('[Search the public web]');
+    expect(lines.join('\n')).toContain('[ Search ]');
+  });
+
+  it('shows what a field already holds in place of what it suggests', () => {
+    expect(asText('<body><input type="text" name="q" value="coffee" placeholder="Search"></body>'))
+      .toContain('[coffee]');
+  });
+
+  it('shows an empty field with nothing in it rather than an empty line', () => {
+    expect(asText('<body><input type="text" name="q"></body>')).toContain('[');
+  });
+
+  it('never shows what a password field holds', () => {
+    const rendered = asText('<body><input type="password" name="pw" value="hunter2"></body>');
+
+    expect(rendered).not.toContain('hunter2');
+  });
+
+  it('shows a hidden field not at all, as a browser does', () => {
+    expect(asText('<body><input type="hidden" name="token" value="secret"><p>after</p></body>'))
+      .toBe('after');
+  });
+
+  it('keeps the form on the page it is written on, above what follows it', () => {
+    const lines = asLines('<body><form><input type="text" name="q"></form><p>results</p></body>');
+
+    expect(lines[lines.length - 1]).toBe('results');
+  });
+});

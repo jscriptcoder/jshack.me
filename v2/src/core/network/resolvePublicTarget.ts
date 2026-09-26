@@ -27,6 +27,7 @@
 
 import { seedApGatewayHostname } from '../generation/gatewayHostname';
 import { materializeApGatewayFs } from './materializeRouterFs';
+import { FINDIT_HOSTNAME, FINDIT_NETWORK } from '../generation/findit';
 import type { OwnerPatchRow } from './materializeWorkstationFs';
 import { machineServing, type ServedMachine } from './machineServing';
 import { bootableOccupantFs } from './natHosts';
@@ -133,17 +134,26 @@ const gatewayTarget = (
 ): PublicTarget => ({
   fs: gatewayFs,
   machineId: network.router_machine_id,
-  hostname: seedApGatewayHostname(network.essid),
+  // findit is not an access point: it OWNS its public address, with no wifi and no LAN
+  // behind it. So it answers as the server it is, and fronts nothing — a forward
+  // written on it would have nowhere to point.
+  hostname:
+    network.essid === FINDIT_NETWORK
+      ? FINDIT_HOSTNAME
+      : seedApGatewayHostname(network.essid),
   logWriterKey: apGatewayLogWriterKey(network.essid),
   essid: network.essid,
   // An access point's gateway IS a router — `generateHomeLan` builds the `.1` as one —
   // so this states the device rather than assuming one, and the LAN it fronts is the
   // network its own address sits on.
-  frontedSegment: frontedSegment({
-    essid: network.essid,
-    machineId: network.router_machine_id,
-    kind: 'router',
-  }),
+  frontedSegment:
+    network.essid === FINDIT_NETWORK
+      ? null
+      : frontedSegment({
+          essid: network.essid,
+          machineId: network.router_machine_id,
+          kind: 'router',
+        }),
   reachedPort: port,
 });
 

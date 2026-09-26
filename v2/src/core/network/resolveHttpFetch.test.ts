@@ -27,6 +27,10 @@ import type {
   MachineLogReadResult,
 } from '../patches/appendMachineLog';
 import type { PatchRow } from '../patches/upsertPatch';
+import { siteAddress } from '../generation/publisher';
+import { FINDIT_DOMAIN, FINDIT_NETWORK } from '../generation/findit';
+import { FINDIT_FRONT_PAGE } from '../findit/page';
+import type { MachinePatchRow } from '../findit/publisherIndex';
 
 /**
  * `handleResolveHttpFetch` is the credential-free cross-player door: a fetch carries no
@@ -156,6 +160,7 @@ const FETCH_TIME = Date.UTC(2026, 6, 30, 13, 55, 36);
 const BOB_PUBLIC_IP = '198.51.100.22';
 
 type HomeNetworkResult = { data: { readonly public_ip: string } | null; error: unknown };
+type WebPatchesResult = { data: readonly MachinePatchRow[] | null; error: unknown };
 
 type FetchOverrides = {
   lookup?: (publicIp: string) => Promise<LookupResult>;
@@ -165,6 +170,7 @@ type FetchOverrides = {
   readLog?: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
   upsertPatch?: (row: PatchRow) => Promise<{ error: unknown }>;
   findHomeNetworkByOwnerKey?: (ownerKey: string) => Promise<HomeNetworkResult>;
+  findPatchesForMachines?: (machineIds: readonly string[]) => Promise<WebPatchesResult>;
 };
 
 const makeDeps = (over: FetchOverrides = {}) => {
@@ -189,8 +195,12 @@ const makeDeps = (over: FetchOverrides = {}) => {
   const findHomeNetworkByOwnerKey = vi.fn<(ownerKey: string) => Promise<HomeNetworkResult>>(
     over.findHomeNetworkByOwnerKey ?? (async () => ({ data: { public_ip: BOB_PUBLIC_IP }, error: null })),
   );
+  const findPatchesForMachines = vi.fn<
+    (machineIds: readonly string[]) => Promise<WebPatchesResult>
+  >(over.findPatchesForMachines ?? (async () => ({ data: [], error: null })));
   const deps: ResolveHttpFetchDeps = {
     nonceStore: freshStore,
+    findPatchesForMachines,
     findNetworkByPublicIp,
     findPatches,
     listOccupantsByEssid,
@@ -209,6 +219,7 @@ const makeDeps = (over: FetchOverrides = {}) => {
     readLog,
     upsertPatch,
     findHomeNetworkByOwnerKey,
+    findPatchesForMachines,
   };
 };
 
@@ -304,7 +315,7 @@ describe('a stranger fetches a page behind a NAT forward', () => {
 /**
  * An institution publishes its website from a machine on its own LAN, and its gateway
  * forwards the public web port there. Nobody lives on that machine, so a stranger's
- * fetch reaches a generated box rather than a player's — before anybody has joined.
+ * fetch reaches a generated box rather than a player's â€” before anybody has joined.
  */
 describe("an institution's website, served from a machine nobody owns", () => {
   const PUBLISHER = 'CAMPUS-GUEST-OPEN';
@@ -929,5 +940,118 @@ describe('the fetched machine records the hit', () => {
       body: { ok: true, content: ALICE_PAGE },
     });
     expect(upsertPatch).not.toHaveBeenCalled();
+  });
+});
+
+describe('findit.io answers a search over the public web', () => {
+  const FINDIT_IP = siteAddress(FINDIT_DOMAIN) ?? '';
+  const onFindit = {
+    lookup: async () => ({
+      data: { router_machine_id: computeApGatewayId(FINDIT_NETWORK), essid: FINDIT_NETWORK },
+      error: null,
+    }),
+    listOccupantsByEssid: async () => ({ data: [], error: null }),
+    listLeasesByEssid: async () => ({ data: [], error: null }),
+  };
+  const search = (term: string) =>
+    signRequest(BOB, 'resolveHttpFetch', {
+      target: FINDIT_IP,
+      port: HTTP_DEFAULT_PORT,
+      path: `/?q=${encodeURIComponent(term)}`,
+    });
+  const contentOf = (response: { body: Record<string, unknown> }): string =>
+    typeof response.body.content === 'string' ? response.body.content : '';
+
+  it('ranks the institution a term names above the ones that merely mention it', async () => {
+    const { deps } = makeDeps(onFindit);
+
+    const response = await handleResolveHttpFetch(search('university'), deps);
+
+    expect(response.status).toBe(200);
+    const page = contentOf(response);
+    expect(page).toContain('<a href="http://ridgemont.edu/">Ridgemont University</a>');
+    const first = page.indexOf('ridgemont.edu');
+    const others = page.indexOf('acme.com');
+    expect(first).toBeGreaterThan(-1);
+    if (others > -1) expect(first).toBeLessThan(others);
+  });
+
+  it('says plainly when the web holds nothing that was asked for', async () => {
+    const { deps } = makeDeps(onFindit);
+
+    const response = await handleResolveHttpFetch(search('xyzzy-nothing-here'), deps);
+
+    expect(response.status).toBe(200);
+    expect(contentOf(response)).toContain('No matches for');
+  });
+
+  it('serves its own front page, from its own disk, when nothing was asked', async () => {
+    const { deps } = makeDeps(onFindit);
+
+    const front = await handleResolveHttpFetch(
+      signRequest(BOB, 'resolveHttpFetch', { target: FINDIT_IP, port: HTTP_DEFAULT_PORT, path: '/' }),
+      deps,
+    );
+
+    expect(front.status).toBe(200);
+    expect(contentOf(front)).toBe(FINDIT_FRONT_PAGE);
+  });
+
+  it('shows a page defaced on its own disk, because the front page is a file like any other', async () => {
+    const { deps } = makeDeps({
+      ...onFindit,
+      patches: patchesByMachine({
+        [computeApGatewayId(FINDIT_NETWORK)]: [publishedPage('<html>OWNED</html>')],
+      }),
+    });
+
+    const front = await handleResolveHttpFetch(
+      signRequest(BOB, 'resolveHttpFetch', { target: FINDIT_IP, port: HTTP_DEFAULT_PORT, path: '/' }),
+      deps,
+    );
+
+    expect(contentOf(front)).toBe('<html>OWNED</html>');
+  });
+
+  it('takes the search down with the box when the box will not come up', async () => {
+    const { deps } = makeDeps({
+      ...onFindit,
+      patches: patchesByMachine({
+        [computeApGatewayId(FINDIT_NETWORK)]: [
+          { ...publishedPage(''), path: '/boot/vmlinuz', content: null },
+        ],
+      }),
+    });
+
+    const response = await handleResolveHttpFetch(search('university'), deps);
+
+    expect(response).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+  });
+
+  it('records who searched for what, in its own log, as every fetch is recorded', async () => {
+    const { deps, upsertPatch } = makeDeps(onFindit);
+
+    await handleResolveHttpFetch(search('university'), deps);
+
+    const logged = upsertPatch.mock.calls
+      .map(([row]) => row)
+      .find((row) => row.path === ACCESS_LOG_PATH);
+    expect(logged?.machine_id).toBe(computeApGatewayId(FINDIT_NETWORK));
+    expect(logged?.content).toContain('/?q=university');
+  });
+
+  it('leaves an ordinary site to serve its own files, query and all', async () => {
+    const { deps } = makeDeps({ patches: aliceServing() });
+
+    const response = await handleResolveHttpFetch(
+      signRequest(BOB, 'resolveHttpFetch', {
+        target: TARGET,
+        port: HTTP_DEFAULT_PORT,
+        path: '/?q=university',
+      }),
+      deps,
+    );
+
+    expect(response).toEqual({ status: 200, body: { ok: true, content: ALICE_PAGE } });
   });
 });

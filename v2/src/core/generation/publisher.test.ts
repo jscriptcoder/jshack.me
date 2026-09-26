@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { ESSID_CATALOG } from './pools/essidCatalog';
 import { createPrng } from './prng';
-import { generatePublicIp, isPublicIp } from './ip';
-import { publisherAt, publisherIp, publisherSite } from './publisher';
+import { generatePublicIp, isPublicIp, PUBLISHER_FIRST_OCTET } from './ip';
+import { publisherAt, publisherIp, publisherSite, siteAddress } from './publisher';
+import { FINDIT_NETWORK } from './findit';
+import { resolveName } from '../network/resolveName';
 
 /**
  * The institutions of the world publish a website: every office, café, the university
@@ -108,5 +110,34 @@ describe('publisherAt', () => {
     expect(publisherAt('193.0.0.1')).toBeUndefined();
     expect(publisherAt('45.12.34.56')).toBeUndefined();
     expect(publisherAt('ridgemont.edu')).toBeUndefined();
+  });
+});
+
+describe('findit.io, the search engine the public web is found by', () => {
+  it('answers its domain from anywhere, at an address of the reserved kind', async () => {
+    const address = siteAddress('findit.io');
+    expect(address).toBeDefined();
+    expect(address!.startsWith(`${PUBLISHER_FIRST_OCTET}.`)).toBe(true);
+    expect(isPublicIp(address!)).toBe(true);
+    const resolved = await resolveName({
+      essid: 'APT-3B-WIFI',
+      name: 'findit.io',
+      resolveOccupants: async () => [],
+    });
+    expect(resolved).toEqual({ fqdn: 'findit.io', ip: address });
+  });
+
+  it('shares its address with no institution', () => {
+    const institutions = Object.keys(PUBLISHED_SITES).map((essid) => publisherIp(essid));
+    expect(institutions).not.toContain(siteAddress('findit.io'));
+  });
+
+  it('is found behind its own address, as its own network', () => {
+    expect(publisherAt(siteAddress('findit.io')!)).toBe(FINDIT_NETWORK);
+  });
+
+  it('is no wifi network anybody can join', () => {
+    expect(ESSID_CATALOG.some((entry) => entry.essid === FINDIT_NETWORK)).toBe(false);
+    expect(publisherIp(FINDIT_NETWORK)).toBeUndefined();
   });
 });

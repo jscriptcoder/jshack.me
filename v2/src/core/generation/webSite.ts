@@ -24,6 +24,8 @@ import { fillSlots } from './npcHome';
 import { hostServices, npcUsername } from './remoteHostFs';
 import { roleOfHostname } from './pools/hostnames';
 import { lanZoneName } from '../network/resolveName';
+import { isSiteServer } from './siteServer';
+import { publisherSite } from './publisher';
 import {
   API_COMMON_ENDPOINTS,
   API_STATUS_ENDPOINT,
@@ -46,6 +48,7 @@ import {
   PATH_COMMENTS,
   ROBOTS_ONLY_DIRECTORIES,
   ROBOTS_ONLY_PAGES,
+  SITE_DESCRIPTIONS,
   type ApiEndpoint,
   type SitePage,
 } from './pools/webSites';
@@ -224,11 +227,17 @@ const htmlDocument = (options: {
   readonly author: string;
   /** A note its author left in the source, which `curl` shows and a browser does not. */
   readonly comment: string | null;
+  /** What the page says about itself to a search engine, or null for a page that says
+   *  nothing. */
+  readonly description: string | null;
 }): string => {
-  const { site, nav, page, author, comment } = options;
+  const { site, nav, page, author, comment, description } = options;
+  const title = `<title>${page.title === site ? site : `${page.title} — ${site}`}</title>`;
   return [
     '<html>',
-    `<head><title>${page.title === site ? site : `${page.title} — ${site}`}</title></head>`,
+    description === null
+      ? `<head>${title}</head>`
+      : `<head>${title}<meta name="description" content="${description}"></head>`,
     '<body>',
     nav,
     `<h1>${page.title}</h1>`,
@@ -437,7 +446,12 @@ export const buildWebSite = ({
 }): WebSite => {
   const prng = createPrng(`web-site-${essid}-${host.ip}`);
   const persona = networkPersona(essid);
-  const site = headed(persona.place);
+  // The box an institution serves its public website from calls the place by the name
+  // it publishes under; every other site on the network is somebody's own corner of it.
+  const published = isSiteServer(essid, host) ? publisherSite(essid) : undefined;
+  const site = headed(published?.name ?? persona.place);
+  const description =
+    published === undefined ? null : (SITE_DESCRIPTIONS[persona.category] ?? '{site}');
   const slots = { site, place: persona.place, domain: persona.domain, hostname: host.hostname };
   const author = inhabitant({ essid, host, username: npcUsername(essid, host) }).fullName;
   const neighbours = isOnHomeLan(essid, host)
@@ -554,6 +568,7 @@ export const buildWebSite = ({
             page,
             author,
             comment: comment !== null && comment.file === page.file ? comment.text : null,
+            description: page.file === 'index.html' ? description : null,
           }),
           slots,
         ),

@@ -55,6 +55,7 @@ import { generateHomeLan } from '../src/core/generation/generateHomeLan';
 import { generatePublicIp } from '../src/core/generation/ip';
 import { createPrng } from '../src/core/generation/prng';
 import { publisherAt } from '../src/core/generation/publisher';
+import type { MachinePatchRow as WebIndexPatchRow } from '../src/core/findit/publisherIndex';
 import { randomUUID } from 'node:crypto';
 
 // Vercel adapter for POST /api/network — joining an AP, and reaching what is on it.
@@ -420,6 +421,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       now: () => Date.now(),
       ...accessLogWriterVia({ supabase, label: 'http-fetch' }),
       findHomeNetworkByOwnerKey: findHomeNetworkByOwnerKeyVia({ supabase, label: 'http-fetch' }),
+      // Only findit's search reaches this: every publisher's gateway and web server in
+      // ONE read, so building a live index costs a single round trip rather than one per
+      // site. Ordered exactly as the per-machine read orders a journal, because the two
+      // replay the same rows and must replay them the same way.
+      findPatchesForMachines: async (machineIds: readonly string[]) => {
+        const { data, error } = await supabase
+          .from('patches')
+          .select('machine_id, path, content, owner, permissions, node_type, updated_at, writer_key')
+          .in('machine_id', machineIds)
+          .order('updated_at', { ascending: true })
+          .order('writer_key', { ascending: true });
+        logFailure('http-fetch web index lookup', error);
+        return { data: data as readonly WebIndexPatchRow[] | null, error };
+      },
     });
     res.status(status).json(body);
     return;

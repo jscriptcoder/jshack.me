@@ -97,6 +97,30 @@ const text = (content: string): Piece => ({ kind: 'text', text: content });
 const inlinePieces = (node: Node, base: string): readonly Piece[] =>
   piecesOf(node, base, (data) => data.replace(/\n/g, ' '));
 
+/** The kinds of field a reader never sees — a token a page keeps for itself, invisible
+ *  here exactly as it is in a browser. */
+const INVISIBLE_FIELD_TYPES: ReadonlySet<string> = new Set(['hidden']);
+
+/**
+ * What a form field looks like to a reader: a box, holding what has been typed into it
+ * or the hint the page offers when nothing has.
+ *
+ * A password box shows NOTHING — not the value, not its length. A page must render the
+ * same over somebody's shoulder as it does alone, and a browser that drew a password
+ * because it could read one would be the single place in this world where reading a
+ * page gave away a credential.
+ */
+const fieldPieces = (field: Element): readonly Piece[] => {
+  const kind = (field.getAttribute('type') ?? 'text').toLowerCase();
+  if (INVISIBLE_FIELD_TYPES.has(kind)) return [];
+  const value = field.getAttribute('value') ?? '';
+  // Spaced inside its brackets, like a `<button>`: a thing you press has to look
+  // different from the box beside it that you type into.
+  if (kind === 'submit' || kind === 'button') return [text(`[ ${value} ]`)];
+  if (kind === 'password') return [text('[]')];
+  return [text(`[${value === '' ? (field.getAttribute('placeholder') ?? '') : value}]`)];
+};
+
 /** The pieces a preformatted block contributes, whitespace and newlines as written:
  *  in a `<pre>` a source newline IS a line break, since keeping the author's layout
  *  is the whole point of the element. */
@@ -114,7 +138,11 @@ const piecesOf = (
   const tag = tagOf(node);
   if (SILENT_TAGS.has(tag)) return [];
   if (tag === 'br') return [text('\n')];
+  if (tag === 'input') return fieldPieces(node);
   const inner = Array.from(node.childNodes).flatMap((child) => piecesOf(child, base, readText));
+  // A button is drawn as something to press, spaced inside its brackets so it cannot be
+  // mistaken for the box beside it that a reader types into.
+  if (tag === 'button') return [text(`[ ${inner.map((piece) => piece.text).join('')} ]`)];
   if (tag !== 'a') return inner;
   const url = resolveHref({ base, href: node.getAttribute('href') ?? '' });
   if (url === null) return inner;

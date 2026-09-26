@@ -5,7 +5,7 @@
 at planning (2026-09-26) and the choices derived from existing conventions are listed under "Decided at
 planning" below.
 
-**Status:** planned. Nothing built.
+**Status:** 2a built (v0.269.0, `feat/findit-answers-a-search`, PR open); 2b not started.
 
 **Delivery:** two independent PRs against trunk, merged in order (2b builds on 2a through `main`, not
 through a stack).
@@ -293,6 +293,49 @@ highest-value survivors to kill.
 
 **Done when:** all criteria checked; typecheck, lint and tests green; the wire-check passes live; the
 browser run is recorded; mutation reviewed.
+
+**As built (2026-09-26):**
+- **Decided mid-slice — a gateway that serves the web itself is listed.** Planning only named the
+  repointed-forward case. Mutation testing asked what happens when a rooted gateway stops forwarding
+  and serves `:80` from its own disk instead, and the honest answer is that it IS what answers, so it
+  is fetched the ordinary way and listed. Only a network where NOTHING serves the web is absent.
+- **findit is a network whose gateway is the box.** `buildApGatewayBaseFs` branches on the findit key
+  and returns `buildFinditFs()`, so fetch, scan, login and logging all reach it through code that
+  already existed — no new resolver. `resolvePublicTarget`'s gateway arm names it `findit` and gives
+  it no fronted segment, because it is not an access point and there is nothing behind it to forward
+  into.
+- **A URL may carry a query.** `URL_PATTERN` ends the host at `?` and accepts a query with no path,
+  so `findit.io?q=x` means `/?q=x`; `resolveWebPath` cuts the query off before resolving a file, so
+  every other site ignores it. The raw path, query and all, is still what the access log records —
+  which is slice 4's prize, already in place.
+- **The index is a view, read in one batch.** `indexedWeb` reads the 32 publishers' gateways and web
+  servers through one new `findPatchesForMachines` dependency (`.in('machine_id', ...)`, module scope
+  inside `api/network.ts`; no new `api/` file), then resolves every site in memory. `servesWebOn`
+  was extracted so the crawl and the fetch share one definition of "serving the web".
+- New modules: `core/findit/{readPage,search,page,publisherIndex}.ts`, `core/generation/findit.ts`,
+  `core/network/webServing.ts`.
+- **Publisher homepages name themselves**, titled with the catalog `site.name` and carrying a
+  `<meta name="description">` from a per-category phrase. Every other web server is unchanged, which
+  a snapshot over all of them pins.
+- **Gates:** 6237 unit tests green, typecheck and lint clean. Mutation, scoped, in two batches:
+  `search.ts` 37/39, `page.ts` 43/44, `readPage.ts` 146/166, `http.ts` 114/115, `webServing.ts`
+  10/10, `publisherIndex.ts` 59/72. Three real gaps were found and closed — the whole-document byte
+  assertions for both served pages, an unterminated comment that a later `>` had been hiding by
+  accident, and a journal whose EARLIER row decides. Six survivors were hand-verified as killed
+  (module-load statics: the `PUBLISHERS` list, `FINDIT_FRONT_PAGE`, and four module-level regexes).
+  The rest are equivalent or defensive: `resolveWebPath('/')` vs `''` (both name the root's index),
+  two unreachable null guards, the `'none'` guard that saves a fetch that would fail anyway, and
+  `split(/\s+/)` vs `/\s/`, which the empty-term filter makes identical.
+- **Wire-check:** new `scripts/testFindit.ts`, 9/9 live. A search for "services" returns ten sites; a
+  rewritten homepage is listed by its new title and no longer found by its old words; a bricked
+  webserver drops out; a query on an ordinary site still serves its page; and the search lands in
+  findit's own `access.log` with `/?q=services` under the searcher's server-held address.
+- **Browser (v0.269.0, from `MIDNIGHT-DINER`):** `curl findit.io/?q=university` ranked Ridgemont
+  first; `lynx findit.io/?q=coffee` rendered the form as `[coffee] [ Search ]` above six numbered
+  cafés, and following result 1 opened `http://beanthere.com/`; `nmap -sV findit.io` showed
+  `80 nginx/1.26.0` and `22 OpenSSH 9.7.0`, each with a live CVE on the world's own timeline.
+- **Fixed in passing:** five source files carried a cp1252 `0x97` byte where an em-dash belonged, from
+  slice-1c-era edits. Recorded as a gotcha.
 
 ### Slice 2b: lynx submits a form
 

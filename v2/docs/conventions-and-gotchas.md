@@ -166,8 +166,9 @@ is legacy parity **minus missions**; missions are a post-ship epic.
 web, hydra, ftp, scp, daemons, nc, machine kinds, mysql, redis, snmp, node, and the terminal
 itself. **Phase 2 — discovery** opened and closed its first door: X1 (DNS) SHIPPED COMPLETE
 (v0.206.0–v0.209.0, #487–#490). X2 (`findit.io`, a search engine over the public web) is grilled;
-its slice 1 (an institution has a website you reach by name) SHIPPED v0.265.0–v0.268.0 (#551–#554),
-and slice 2 (findit.io answers a search) is next — the epic's X2 section holds the live status.
+its slice 1 (an institution has a website you reach by name) SHIPPED v0.265.0–v0.268.0 (#551–#554)
+and slice 2a (findit.io answers a search) at v0.269.0. Next is slice 2b, an interactive `lynx` form
+— `plans/findit-answers-a-search.md` holds the live status, and the epic's X2 section the decisions.
 
 **Phase 3 — vulnerabilities is GRILLED (2026-09-09) and ready for `planning`.** Twenty-three locked
 decisions and a nine-slice, loop-first spine live in the epic. Three things a v2 session should know
@@ -794,6 +795,16 @@ Stryker's runner does not set mode `'test'`, so solid-refresh stays enabled and 
 is unresolvable under jsdom; every test file fails to transform and the runner reports zero tests
 rather than an import error. Start from `vite.config.ts` and narrow `include`, rather than writing
 a minimal config from scratch.
+
+**A hand-verification harness must restore the file in a `finally`, or it leaves a MUTANT in the
+tree.** Hand-checking a module-load survivor means patching the source, running the tests and
+putting the source back — and the putting-back is the step that gets skipped when the run itself
+throws. On 2026-09-26 a verification loop died decoding Stryker's own output
+(`subprocess` defaulting to cp1252 on Windows against ANSI colour bytes) *after* patching and
+*before* restoring, and left `readPage.ts` holding a broken regex. Everything still passed, because
+the mutant it left was the very one the loop was proving nothing covered — which is exactly the
+shape that gets committed. Wrap the restore in `try/finally`, decode subprocess output with
+`.decode('utf-8', 'replace')` rather than text mode, and re-grep the patched line afterwards.
 
 **Read the mutation report from `reports/mutation/mutation.json`, not from captured stdout.** The
 `clear-text` reporter prints its per-mutant list as it goes, and a captured run keeps only the tail
@@ -1577,6 +1588,22 @@ test's own bug. Applies to any module-level signal a test can leave set.
 
 ## 5. Operational gotchas
 
+- **A cp1252 em-dash byte gets committed and breaks every UTF-8 reader of the file.** An `—`
+  written through some tool paths lands as the single byte `0x97` instead of UTF-8's three, and
+  nothing in the normal loop notices: `tsc`, `eslint` and `vitest` all read the file happily, and
+  `git diff` shows a replacement character at worst. It surfaces as an unrelated-looking crash in
+  any tool that decodes strictly — `UnicodeDecodeError: 'utf-8' codec can't decode byte 0x97 in
+  position N` from a Python helper reading the source, which reads like a broken script. Five files
+  carried one before 2026-09-26 (`generateHomeLan.ts`, `resolveHttpFetch.ts` + its test,
+  `resolvePublicScan.ts` + its test), all from slice-1c-era edits. To find and fix them all:
+  ```python
+  for path in pathlib.Path('src').rglob('*.ts'):
+      data = path.read_bytes()
+      try: data.decode('utf-8')
+      except UnicodeDecodeError: path.write_bytes(data.replace(bytes([0x97]), '—'.encode('utf-8')))
+  ```
+  Related: *Edit tools unescape unicode* and *Python text mode writes CRLF* — the same class of
+  silent byte-level damage, which is why the check is a byte scan rather than a grep.
 - **3100 `vercel dev` squatter (recurs).** Killing the `npm run vercel:dev` background task
   does NOT kill its child vite/function process → it orphans on 3100 (502) → a fresh
   `vercel:dev` sees "port in use" and silently falls back to **vite-only on 3101** (no API →

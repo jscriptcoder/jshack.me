@@ -33,9 +33,10 @@ export type ParsedUrl = {
   readonly path: string;
 };
 
-// host, optional :port, optional /path. The host rejects whitespace, `/` and `:`
-// so a malformed URL fails to parse rather than resolving to a surprising target.
-const URL_PATTERN = /^http:\/\/([^\s/:]+)(?::(\d+))?(\/\S*)?$/;
+// host, optional :port, optional /path or ?query. The host rejects whitespace, `/`,
+// `:` and `?` so a malformed URL fails to parse rather than resolving to a surprising
+// target, and a query written straight after the host still ends it.
+const URL_PATTERN = /^http:\/\/([^\s/:?]+)(?::(\d+))?([/?]\S*)?$/;
 
 const PORT_MIN = 1;
 const PORT_MAX = 65535;
@@ -49,7 +50,9 @@ export const parseHttpUrl = (raw: string): ParsedUrl | null => {
   const rawPort = match[2];
   const port = rawPort === undefined ? HTTP_DEFAULT_PORT : Number(rawPort);
   if (!Number.isInteger(port) || port < PORT_MIN || port > PORT_MAX) return null;
-  return { host, port, path: match[3] ?? '/' };
+  const rest = match[3] ?? '';
+  // A query with no path asks the root, as `http://findit.io?q=x` does on the web.
+  return { host, port, path: rest.startsWith('/') ? rest : `/${rest}` };
 };
 
 /** A URL as a player TYPED it: parsed, and the spelling a browser shows for it.
@@ -134,7 +137,11 @@ export const resolveHref = ({
  * A path ending in `/` (the bare `/` included) serves the directory index, mirroring
  * a real server.
  */
-export const resolveWebPath = (requestPath: string): AbsPath | null => {
+export const resolveWebPath = (requestUrlPath: string): AbsPath | null => {
+  // A query parameterises a request; it never names a file. Cut it off first, so
+  // nothing it spells takes part in the confinement below.
+  const queryAt = requestUrlPath.indexOf('?');
+  const requestPath = queryAt === -1 ? requestUrlPath : requestUrlPath.slice(0, queryAt);
   const resolved = normalize(`${WEB_ROOT}${requestPath}`);
   // The trailing slash in the prefix check is load-bearing: a sibling directory whose
   // name merely BEGINS with the root's (`/var/www/htmlx`) is outside the root.
