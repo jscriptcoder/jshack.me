@@ -8,8 +8,8 @@ import { resolveName } from '../network/resolveName';
 
 /**
  * The institutions of the world publish a website: every office, café, the university,
- * the city's public places and its government. Homes, gadgets and hacker hangouts never
- * do. Each site has a domain of its own, so no two institutions answer to the same name.
+ * the city's public places, its government and its shops. Homes, gadgets and hacker
+ * hangouts never do. Each site has a domain of its own, so no two institutions answer to the same name.
  */
 
 const PUBLISHED_SITES: Readonly<Record<string, { domain: string; name: string }>> = {
@@ -48,6 +48,10 @@ const PUBLISHED_SITES: Readonly<Record<string, { domain: string; name: string }>
   'RIDGEMONT-PD': { domain: 'ridgemontpd.gov', name: 'Ridgemont Police Department' },
   'CITY-HALL-WIFI': { domain: 'ridgemont.gov', name: 'City of Ridgemont' },
   'COURTHOUSE-GUEST': { domain: 'ridgemontcourts.gov', name: 'Ridgemont County Court' },
+  'KWIK-E-MART': { domain: 'kwikemart.com', name: 'Kwik-E-Mart' },
+  MONSTROMART: { domain: 'monstromart.com', name: 'Monstromart' },
+  'BUY-N-LARGE': { domain: 'buynlarge.com', name: 'Buy n Large' },
+  'MEGA-LO-MART': { domain: 'megalomart.com', name: 'Mega Lo Mart' },
 };
 
 describe('publisherSite', () => {

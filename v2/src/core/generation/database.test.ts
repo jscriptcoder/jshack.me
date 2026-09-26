@@ -366,6 +366,26 @@ describe('the application a database holds', () => {
     expect(essids.length).toBe(3);
     expect(wrong).toEqual([]);
   });
+
+  it('keeps a till and its customers on a shop’s network: its products, sales, sale lines and loyalty members', () => {
+    const essids = crackableEssidPool.filter((essid) => networkPersona(essid).category === 'retail');
+    const wrong = essids.flatMap((essid) => {
+      const host = { ip: '10.40.0.9', hostname: 'db-9', kind: 'machine' as const };
+      const { name, tables } = buildApplication({
+        prng: createPrng(`retail-${essid}`),
+        essid,
+        host,
+        people: ['mrodriguez', 'jchen', 'agarcia'],
+      });
+      return ['products', 'sales', 'sale_lines', 'loyalty_members', 'users'].every((table) => table in tables) &&
+        ['shop', 'store', 'retail'].some((candidate) => name.startsWith(candidate))
+        ? []
+        : [`${essid}: ${name} holds ${Object.keys(tables).join(', ')}`];
+    });
+
+    expect(essids.length).toBe(4);
+    expect(wrong).toEqual([]);
+  });
 });
 
 /** One database of every application, on a real network whose people staff it. The

@@ -161,6 +161,18 @@ export const STORE_SPECS: Readonly<Record<ArchetypeKey, StoreSpec>> = {
     routes: ['login', 'cases', 'search'],
     webhooks: ['slack', 'mailchimp'],
   },
+  shop: {
+    cached: ['products', 'loyalty_members', 'users'],
+    queues: [
+      { name: 'receipts', kind: 'receipt.email', table: 'sales' },
+      { name: 'points', kind: 'points.award', table: 'sales' },
+    ],
+    locks: ['end_of_day', 'price_update'],
+    counters: ['sales_today', 'takings_today_eur', 'voids_today', 'members_joined_today'],
+    flags: ['self_checkout', 'loyalty_double_points', 'click_and_collect'],
+    routes: ['login', 'checkout', 'loyalty'],
+    webhooks: ['stripe', 'shipstation'],
+  },
   telemetry: {
     cached: ['devices', 'alerts', 'automations', 'users'],
     queues: [

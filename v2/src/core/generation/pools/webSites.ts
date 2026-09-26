@@ -39,6 +39,7 @@ export const SITE_DESCRIPTIONS: Readonly<Partial<Record<NetworkCategory, string>
   university: '{site}: admissions, courses, research and campus life.',
   public: '{site}: opening hours, services and visitor information for the people of Ridgemont.',
   government: '{site}: public services, opening hours, forms to download and how to contact the office.',
+  retail: '{site}: groceries and household essentials, weekly offers, opening hours, delivery and the loyalty card.',
 };
 
 /** What a site says on its front page, by kind of place. One is drawn per box. */
@@ -90,6 +91,12 @@ export const FRONT_PAGES: Readonly<Record<NetworkCategory, readonly string[]>> =
     '<p>Welcome to {site}. Notices are published here first and posted at the entrance the same day.</p>',
     '<p>{site} — public counter open on weekdays. Forms can be downloaded before you come in, which saves a wait.</p>',
     '<p>This is the official site of {site}. Staff should use the internal address for anything not published here.</p>',
+  ],
+  retail: [
+    '<p>Welcome to {site}. Everyday essentials, fresh bread every morning and this week’s offers below.</p>\n<p>Open late, seven days a week.</p>',
+    '<p>{site} — the week’s offers are in store and on this site from Monday.</p>\n<p>Collect points on every shop with a loyalty card.</p>',
+    '<p>Everything for the house in one trip: groceries, cleaning, stationery and a little of everything else.</p>\n<p>See opening hours and delivery below.</p>',
+    '<p>This is the public site of {site}. Staff rotas and stock queries go through the store office, not this page.</p>',
   ],
 };
 
@@ -495,6 +502,48 @@ export const SITE_PAGES: Readonly<Record<NetworkCategory, readonly SitePage[]>> 
       ],
     },
   ],
+  retail: [
+    {
+      file: 'hours.html',
+      title: 'Opening hours',
+      bodies: [
+        '<table>\n<tr><td>Monday–Saturday</td><td>07:00–22:00</td></tr>\n<tr><td>Sunday</td><td>10:00–16:00</td></tr>\n<tr><td>Bank holidays</td><td>10:00–16:00</td></tr>\n</table>',
+        '<p>The tills close fifteen minutes before the doors.</p>\n<p>The customer service desk closes half an hour before the tills.</p>',
+      ],
+    },
+    {
+      file: 'offers.html',
+      title: 'Weekly offers',
+      bodies: [
+        '<table>\n<tr><th>Offer</th><th>Price</th></tr>\n<tr><td>Washing-up liquid, two bottles</td><td>3 €</td></tr>\n<tr><td>Loaf of bread</td><td>1 €</td></tr>\n<tr><td>Coffee, large jar</td><td>6 €</td></tr>\n<tr><td>Printer paper, one ream</td><td>4 €</td></tr>\n</table>',
+        '<p>Offers run Monday to Sunday while stocks last.</p>\n<p>Loyalty members see next week’s offers a day early at the till.</p>',
+      ],
+    },
+    {
+      file: 'delivery.html',
+      title: 'Delivery and collection',
+      bodies: [
+        '<p>Order by phone before noon for delivery the same evening within Ridgemont.</p>\n<p>Collection is free from the customer service desk.</p>',
+        '<p>Deliveries go out twice a day. Bulky items are delivered on Thursdays only.</p>',
+      ],
+    },
+    {
+      file: 'returns.html',
+      title: 'Returns',
+      bodies: [
+        '<p>Bring the item and your receipt back within thirty days for a refund to the way you paid.</p>\n<p>Food and opened toiletries cannot be returned unless they are faulty.</p>',
+        '<p>No receipt? The customer service desk can find a loyalty card purchase for you.</p>',
+      ],
+    },
+    {
+      file: 'loyalty.html',
+      title: 'Loyalty card',
+      bodies: [
+        '<p>One point for every euro you spend. Every hundred points is a voucher at the till.</p>\n<p>Sign up at the customer service desk; the card works from your next shop.</p>',
+        '<p>Lost your card? Ask at the desk with your name and we will print a new one on the same account.</p>',
+      ],
+    },
+  ],
 };
 
 /** What a place calls the people it lists, by kind of place — the roles a team page
@@ -508,6 +557,7 @@ export const PEOPLE_ROLES: Readonly<Record<NetworkCategory, readonly string[]>> 
   iot: ['Resident', 'Owner', 'Guest room'],
   hacker: ['Keyholder', 'Treasurer', 'Member', 'Events'],
   government: ['Front office', 'Records', 'Licensing', 'Committee clerk', 'Duty officer'],
+  retail: ['Store manager', 'Cashier', 'Stock associate', 'Customer service', 'Deliveries'],
 };
 
 /** What an intranet portal says on its front page. */
@@ -632,6 +682,11 @@ export const API_ENDPOINTS: Readonly<Record<NetworkCategory, readonly ApiEndpoin
     { file: 'api/v1/hours', summary: 'counter opening hours', body: '{"weekdays":"09:00-16:30","friday":"09:00-16:00","weekend":null}' },
     { file: 'api/v1/forms', summary: 'forms published here', body: '{"forms":["change-of-address","record-copy","complaint"]}' },
     { file: 'api/v1/notices', summary: 'current notices', body: '{"notices":["Lift out of service","Car park works"]}' },
+  ],
+  retail: [
+    { file: 'api/v1/hours', summary: 'store opening hours', body: '{"monday_saturday":"07:00-22:00","sunday":"10:00-16:00"}' },
+    { file: 'api/v1/offers', summary: 'this week’s offers, prices in euros', body: '{"offers":[{"name":"Loaf of bread","price":1},{"name":"Coffee, large jar","price":6}]}' },
+    { file: 'api/v1/deliveries/slots', summary: 'delivery slots left today', body: '{"morning":0,"evening":4}' },
   ],
 };
 

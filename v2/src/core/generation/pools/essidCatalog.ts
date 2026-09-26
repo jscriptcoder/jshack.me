@@ -23,6 +23,7 @@ export const NETWORK_CATEGORIES = [
   'iot',
   'hacker',
   'government',
+  'retail',
 ] as const;
 
 export type NetworkCategory = (typeof NETWORK_CATEGORIES)[number];
@@ -129,5 +130,12 @@ export const ESSID_CATALOG: readonly EssidCatalogEntry[] = [
     ['RIDGEMONT-PD', 'the police station', 'ridgemontpd.gov', 'Ridgemont Police Department'],
     ['CITY-HALL-WIFI', 'city hall', 'ridgemont.gov', 'City of Ridgemont'],
     ['COURTHOUSE-GUEST', 'the courthouse', 'ridgemontcourts.gov', 'Ridgemont County Court'],
+  ]),
+  // Shops selling everyday goods, from the corner store to the out-of-town superstore.
+  ...entries('retail', [
+    ['KWIK-E-MART', 'the Kwik-E-Mart', 'kwikemart.com', 'Kwik-E-Mart'],
+    ['MONSTROMART', 'Monstromart', 'monstromart.com'],
+    ['BUY-N-LARGE', 'Buy n Large', 'buynlarge.com'],
+    ['MEGA-LO-MART', 'Mega Lo Mart', 'megalomart.com'],
   ]),
 ];

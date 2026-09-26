@@ -86,6 +86,10 @@ export const PLACE_DOWNLOADS: Readonly<Record<NetworkCategory, readonly Download
     { name: 'duty-roster-{ref}.pdf', title: 'Duty roster' },
     { name: 'records-policy.pdf', title: 'Records handling policy' },
   ],
+  retail: [
+    { name: 'rota-week-{ref}.pdf', title: 'Staff rota' },
+    { name: 'price-changes.pdf', title: 'Price changes this week' },
+  ],
 };
 
 /** What a person types into their phone's notes and saves as text: `{place}` is what the

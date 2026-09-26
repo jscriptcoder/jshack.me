@@ -778,6 +778,80 @@ export const MAIL_SPECS: Readonly<Record<NetworkArchetypeKey, readonly MailThrea
       ],
     },
   ],
+  shop: [
+    {
+      subject: 'Till two keeps freezing',
+      opener: [
+        'Till two froze three times on the Saturday rush.',
+        'Each time the sale in progress was lost and had to be rung through again.',
+        'Can somebody look at it before next weekend?',
+      ],
+      replies: [
+        ['It was the receipt printer holding it up. Swapped the cable, fingers crossed.'],
+        ['Not a single freeze since. Leaving it alone now.'],
+      ],
+    },
+    {
+      subject: 'Price changes for Monday',
+      opener: [
+        'The new prices load overnight on Sunday.',
+        'The shelf labels need to go up before we open, or the tills and the shelves disagree.',
+        'Whoever is on the late shift, please print them before you leave.',
+      ],
+      replies: [
+        ['Printed and in the tray in the office. Aisle three is done already.'],
+        ['All up. Only one customer asked why the coffee went up, which is a record.'],
+      ],
+    },
+    {
+      subject: 'Loyalty sign-ups at the desk',
+      opener: [
+        'The loyalty form at the customer service desk has run out again.',
+        'People are writing their details on the back of receipts instead.',
+        'Those receipts should not be sitting in the drawer overnight.',
+      ],
+      replies: [
+        ['I typed the ones from this week in and shredded the slips.'],
+        ['New pad of forms is out. The drawer is empty and staying that way.'],
+      ],
+    },
+    {
+      subject: 'Stock count on Sunday',
+      opener: [
+        'The count is on Sunday after close.',
+        'The system goes read-only while it runs, so no deliveries can be booked in.',
+        'Two scanners are charging in the office, please do not borrow them before then.',
+      ],
+      replies: [
+        ['I will take the chiller and aisle one. Pizza is on the manager, I am told.'],
+        ['Finished before midnight. Only the batteries were out by more than a handful.'],
+      ],
+    },
+    {
+      subject: 'Refunds without a receipt',
+      opener: [
+        'We refunded a few things without a receipt this week.',
+        'That needs a manager card at the till, every time, even if the customer is a regular.',
+        'The refund report shows who pressed the button.',
+      ],
+      replies: [
+        ['Understood. I was looking them up on the loyalty card first, is that still fine?'],
+        ['That is fine, and it is the better way. Card first, manager second.'],
+      ],
+    },
+    {
+      subject: 'Self-checkout keeps asking for help',
+      opener: [
+        'The self-checkout calls for help on every other bag.',
+        'Customers are giving up and joining the staffed queue.',
+        'Is the bagging scale set too tight?',
+      ],
+      replies: [
+        ['It was. I have loosened it a touch, keep an eye on it for a day.'],
+        ['Much quieter. It only calls now when somebody really does forget to scan.'],
+      ],
+    },
+  ],
   telemetry: [
     {
       subject: 'The hallway thermostat reads high',
@@ -1787,6 +1861,104 @@ export const PERSONAL_THREADS: Readonly<Record<NetworkCategory, readonly MailThr
       replies: [
         ['Fine by me, as long as somebody puts the old paper list in first.'],
         ['All of it is in. The rota has matched for three weeks now.'],
+      ],
+    },
+  ],
+  retail: [
+    {
+      subject: 'The staff room fridge',
+      opener: [
+        'The staff room fridge needs clearing out before Friday.',
+        'Anything without a name on it goes in the bin at close.',
+        'There is something at the back that has been there since the last stock count.',
+      ],
+      replies: [
+        ['The soup is mine. I will take it home tonight, promise.'],
+        ['Cleared, wiped, and there is a roll of labels on the top now.'],
+      ],
+    },
+    {
+      subject: 'Lockers',
+      opener: [
+        'Two of the staff lockers have lost their keys.',
+        'People are leaving bags under the desk in the office instead.',
+        'Can we get the locks changed, or at least a spare set cut?',
+      ],
+      replies: [
+        ['Mine is one of them. I have been using the top shelf in the cash office.'],
+        ['New locks fitted. Keys are on the hook, sign one out.'],
+      ],
+    },
+    {
+      subject: 'Christmas party',
+      opener: [
+        'We are pencilling in the staff party for the second week of January.',
+        'December is out, we are all working, so this is the next best thing.',
+        'Put your name on the sheet in the staff room if you are coming.',
+      ],
+      replies: [
+        ['Put me down. Somewhere with food this time, please.'],
+        ['Twenty names so far. The back room of the pub on the corner is booked.'],
+      ],
+    },
+    {
+      subject: 'Uniform order',
+      opener: [
+        'The uniform order goes in at the end of the week.',
+        'If your fleece has seen better days, now is the time to say.',
+        'Sizes to me, not on a scrap of paper at the till.',
+      ],
+      replies: [
+        ['One large fleece and two shirts, please. The zip on mine has gone.'],
+        ['Order is in. Boxes should arrive with the Tuesday delivery.'],
+      ],
+    },
+    {
+      subject: 'Car share',
+      opener: [
+        'Anybody on the early shift coming in from the north side?',
+        'The first bus gets in after we are meant to open.',
+        'Happy to chip in for petrol.',
+      ],
+      replies: [
+        ['I pass the end of your road. Be outside at twenty past.'],
+        ['Worked out for the whole month. Same again next rota?'],
+      ],
+    },
+    {
+      subject: 'Leaving card',
+      opener: [
+        'There is a card going round for somebody leaving at the end of the month.',
+        'It is in the cash office drawer, and there is an envelope with it.',
+        'Sign the card even if you skip the envelope.',
+      ],
+      replies: [
+        ['Signed. I wrote something about the time the shutter jammed.'],
+        ['Handed over at close. There were tears, the good kind.'],
+      ],
+    },
+    {
+      subject: 'The radio in the stockroom',
+      opener: [
+        'Could we agree on one station for the stockroom radio?',
+        'It changes every time somebody walks past it.',
+        'Half the morning shift is humming three different songs.',
+      ],
+      replies: [
+        ['Whoever does the delivery picks. Seems fair.'],
+        ['Rule is on the wall now. Peace has broken out.'],
+      ],
+    },
+    {
+      subject: 'Parking behind the store',
+      opener: [
+        'Staff cars are blocking the loading bay again.',
+        'The delivery lorry could not get in this morning and waited on the road.',
+        'Please use the far end of the car park before ten.',
+      ],
+      replies: [
+        ['That was me. Moved, and it will not happen again.'],
+        ['Bay was clear all week. The driver even said thank you.'],
       ],
     },
   ],

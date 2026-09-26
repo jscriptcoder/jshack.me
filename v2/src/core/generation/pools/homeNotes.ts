@@ -147,4 +147,18 @@ export const NOTE_TEMPLATES: Readonly<Record<NetworkCategory, readonly NoteTempl
     { file: 'visitors.txt', body: 'visitors {day}\n{count} signed in, one signed out twice\n{colleague} walked the last one out of {place} at {time}\n' },
     { file: 'leave.md', body: 'leave form\noff from {date}\n{colleague} takes the counter at {place}\nback on {day}\n\n-- {first}\n' },
   ],
+  retail: [
+    { file: 'cashup.txt', body: 'cash-up at {place}, {day}\n- till two was {count} out again\n- float counted twice\n- {colleague} signs the sheet\n' },
+    { file: 'rota.md', body: 'rota for the week from {date}\nme on lates until {day}\n{colleague} on the early shift at {place}\n\n-- {first}\n' },
+    { file: 'delivery.txt', body: 'delivery at {place} came at {time}\n{count} cages, one short\n{colleague} phoned the depot\n' },
+    { file: 'count.md', body: 'stock count {date}, {place}\n{count} lines still to scan\n{colleague} has the gun that works\n' },
+    { file: 'overtime.txt', body: 'overtime at {place}\n{day}: stayed until {time}\n{count} hours this month\nget it to {colleague} before the rota closes\n' },
+    { file: 'offers.txt', body: 'new offers go up {day}\n{count} shelf labels to change\nprint them before {time} or {colleague} does it by hand\n' },
+    { file: 'complaints.md', body: 'customer at the desk {day}\nreturned something with no receipt\n{colleague} found it on the loyalty card\nsorted by {time}\n\n-- {first}\n' },
+    { file: 'training.txt', body: 'till training {date} in the back at {place}\n- refunds need a manager card\n- {colleague} showed the new void button\n' },
+    { file: 'shift.txt', body: 'swapped my {day} with {colleague}\nstarting {time} instead\ntell the office at {place} or nobody opens the tills\n' },
+    { file: 'waste.md', body: 'reductions {date}\n{count} yellow stickers by {time}\nbread and milk first\n{colleague} does the chiller\n' },
+    { file: 'keys.txt', body: 'keys for {place}\nshutter key with {colleague} until {day}\nalarm code changes on {date}\n' },
+    { file: 'handover.md', body: 'handover {date}, {place}\ntwo deliveries due\none refund waiting on {colleague}\nthe rest keeps until {day}\n\n-- {first}\n' },
+  ],
 };
