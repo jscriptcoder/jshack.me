@@ -194,3 +194,41 @@ holds after the line, and the terminal lines.
   append sees the `\n` and adds no separator — so the blank line bash would keep is gone. It follows
   from 106 and costs nothing in play; recorded so nobody "fixes" it into a second rule.
 - **Write-without-read** — see "Measured at planning"; increment 6 closes or escalates it.
+
+## Progress (2026-09-27)
+
+Implementation complete on `feat/append-redirect`, awaiting commit approval and the PR.
+
+**What changed from the plan while building it:**
+- **The separator rule is tested through `runCommandLine`, not as its own export.** Every case in
+  increment 3 (no trailing newline, trailing newline, missing file, empty file, several lines,
+  no output) is a `>>` line the player could type, so the table lives in the `>>` describe and
+  `appendedContent` stays private.
+- **`>>` keeps an existing file's owner and permissions.** Not in the plan, found against
+  conventions §7's rule that any writer over an existing node must pass both: without them
+  `patches.write` stamps the session's name and tier defaults, so a user appending to a root-owned
+  shared file would take it. A test pins it, and the browser run confirmed the wordlist stays
+  `-rw-r--r-- root` after an append.
+- **A script's `fs.appendFile` has that same gap.** It is out of this slice, so it is recorded in
+  conventions §9 rather than fixed here.
+- **Increment 6 is a guard, as expected** (`boxSurface.test.ts`: no file on any generated box —
+  workstation, every LAN and deep NPC, every gateway — lets a tier write what it cannot read).
+  Inverting its filter fails it, so the empty result is not vacuous.
+
+**Evidence:**
+- RED → GREEN per increment: tokenizer (3 failing: `>>` emitted two redirects), parser (9 failing),
+  runner (8 failing: `>>` overwrote), owner/permissions (1 failing). Completion and the generator
+  guard green on first run, recorded as guards.
+- Full suite 265 files / 6386 tests; `npm run typecheck` and `npm run lint` clean.
+- Mutation (tokenize.ts, pipeline.ts, the changed runLine.ts lines): 290 killed / 4 survived,
+  98.6%. Two survivors kill-tested away (stderr kept under `>>`; the machine's target turning into
+  a directory after validation). The rest: two on unchanged loop lines, one `?.` on a token that
+  always exists when the previous character is `>`, and a `redirect: undefined` that every reader
+  treats as absent — equivalent.
+- `testModifiedSinceOpen` 7/7 live.
+- Browser (v0.277.0): `echo one > f; echo two >> f; cat f` → two lines; `echo x >> /etc` →
+  `Is a directory`; `echo a >>> f` → the syntax error; `grep nomatch f >> f` leaves `f` unchanged.
+  As root on WEYLAND-NET: `apt install hydra john`; the shipped list cracks `guest:letmein`;
+  `echo zzz >> passwords.txt` grows it 285 → 289 bytes and it stays `-rw-r--r-- root`;
+  `echo nothing > passwords.txt` → john 0/2; `echo letmein >> passwords.txt` → `cat` shows
+  `nothing`/`letmein` and john cracks `guest:letmein`.

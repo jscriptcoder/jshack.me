@@ -863,13 +863,14 @@ describe("a script's filesystem", () => {
   });
 
   it('adds to the end of a file, and creates one that was never there', async () => {
-    // The shell has no `>>` at all, so this is the first append in the game and
-    // the only way a sweep can survive its own second run.
+    // Without it a sweep could not survive its own second run.
     //
     // Nothing inserts a separator: the existing file's own trailing newline is
     // what puts the new line on its own row, exactly as real `appendFile`
     // behaves. A file with no trailing newline runs on, and that is the
     // script's business — the manual says so rather than the seam guessing.
+    // The shell's `>>` is the one that separates, because a command's output
+    // carries no trailing newline of its own.
     const { env, writeFn } = scriptEnv(
       [
         "await fs.appendFile('notes.txt', 'port 443 is open')",

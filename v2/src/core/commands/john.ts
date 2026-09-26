@@ -161,7 +161,8 @@ export const john: Command = {
       '(/usr/share/wordlists/passwords.txt) against each one. Unlike hydra it never contacts ' +
       'the machine the hashes came from, so the attempt leaves no trace in anyone’s logs. ' +
       'A password that is not in your wordlist will never be found, however weak it is — grow ' +
-      'the list by editing it with nano as you harvest passwords elsewhere. Named after John ' +
+      'the list as you harvest passwords elsewhere, one at a time with "echo <password> >> ' +
+      '/usr/share/wordlists/passwords.txt" or by editing it with nano. Named after John ' +
       'the Ripper, the classic password cracking tool.',
     arguments: [
       {

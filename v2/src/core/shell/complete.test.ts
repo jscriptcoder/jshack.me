@@ -96,6 +96,11 @@ describe('classifyCursor', () => {
       // redirect context wins over the leading-dash heuristic.
       expect(classifyCursor('cat /x > -o', 11)).toMatchObject({ kind: 'path', prefix: '-o' });
     });
+
+    it('classifies a token after >> as path, even one that looks like a flag', () => {
+      expect(classifyCursor('cat /x >> ou', 12)).toMatchObject({ kind: 'path', prefix: 'ou' });
+      expect(classifyCursor('cat /x >>-o', 11)).toMatchObject({ kind: 'path', prefix: '-o' });
+    });
   });
 
   describe('flag position', () => {
@@ -382,6 +387,13 @@ describe('complete', () => {
 
       expect(result.matches).toEqual(['out.txt']);
       expect(result.replacement).toBe('cat /x > /tmp/out.txt');
+    });
+
+    it('completes the path after >> operator', () => {
+      const result = complete('cat /x >> /tmp/o', 16, adapter);
+
+      expect(result.matches).toEqual(['out.txt']);
+      expect(result.replacement).toBe('cat /x >> /tmp/out.txt');
     });
   });
 

@@ -12,6 +12,8 @@
  *   - `|` outside quotes is a PIPE OPERATOR token, and `>` outside quotes is a
  *     REDIRECT OPERATOR token; both flush any pending word buffer first —
  *     `a|b` → word(a), pipe, word(b); `a>b` → word(a), redirect, word(b)
+ *   - two ADJACENT `>` are one APPEND OPERATOR token (`a>>b` → word(a), append,
+ *     word(b)); `> >` stays two redirects, and `>>>` is an append then a redirect
  *   - inside quotes `|` and `>` are literal characters (`echo "a|b"`,
  *     `echo "a>b"` → one word each)
  *   - an unterminated quote returns `{ ok: false, error: 'syntax error: …' }`
@@ -31,7 +33,8 @@
 export type Token =
   | { readonly kind: 'word'; readonly value: string }
   | { readonly kind: 'pipe' }
-  | { readonly kind: 'redirect' };
+  | { readonly kind: 'redirect' }
+  | { readonly kind: 'append' };
 
 export type TokenizeResult =
   | { readonly ok: true; readonly tokens: readonly Token[] }
@@ -48,9 +51,17 @@ type ScanState = {
   readonly hasBuffer: boolean;
   /** the quote char that opened the current quoted segment, or null when outside */
   readonly openQuote: string | null;
+  /** the character scanned just before this one, quoted or not */
+  readonly previous: string | null;
 };
 
-const INITIAL_STATE: ScanState = { tokens: [], buffer: '', hasBuffer: false, openQuote: null };
+const INITIAL_STATE: ScanState = {
+  tokens: [],
+  buffer: '',
+  hasBuffer: false,
+  openQuote: null,
+  previous: null,
+};
 
 /** Emit any pending word token and reset the buffer. A no-op when no word is
  *  in progress, so flushing on whitespace/pipe/EOF is always safe. */
@@ -77,6 +88,14 @@ const scanChar = (state: ScanState, ch: string): ScanState => {
     return { ...flushed, tokens: [...flushed.tokens, { kind: 'pipe' }] };
   }
   if (ch === '>') {
+    // Only a `>` IMMEDIATELY after the redirect it continues makes `>>`: whitespace or an
+    // empty `""` between them leaves two redirects, which the parser refuses as bash does.
+    // A quote can't sit between them unseen — it would be `previous` — so an unquoted
+    // `previous` of `>` is always the operator, never a literal.
+    const last = state.tokens.at(-1);
+    if (state.previous === '>' && last?.kind === 'redirect') {
+      return { ...state, tokens: [...state.tokens.slice(0, -1), { kind: 'append' }] };
+    }
     const flushed = flushWord(state);
     return { ...flushed, tokens: [...flushed.tokens, { kind: 'redirect' }] };
   }
@@ -93,7 +112,10 @@ const scanChar = (state: ScanState, ch: string): ScanState => {
 
 export const tokenize = (input: string): TokenizeResult => {
   // Spread to chars (not a raw index walk) so multi-unit code points stay whole.
-  const scanned = [...input].reduce(scanChar, INITIAL_STATE);
+  const scanned = [...input].reduce(
+    (state, ch) => ({ ...scanChar(state, ch), previous: ch }),
+    INITIAL_STATE,
+  );
 
   if (scanned.openQuote !== null) {
     return { ok: false, error: 'syntax error: unexpected end of file' };
