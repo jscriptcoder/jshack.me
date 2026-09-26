@@ -24,7 +24,7 @@ import type { Directory } from '../filesystem/types';
 import type { ParsedUrl } from '../network/http';
 import { errorLine } from './streaming';
 import { generateHomeLan } from '../generation/generateHomeLan';
-import { buildRemoteHostFs } from '../generation/remoteHostFs';
+import { baseFsForLanHost } from '../generation/lanHostIdentity';
 import { readOpenPorts } from '../services/pidfile';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import { resolveLanName } from '../network/resolveName';
@@ -84,6 +84,10 @@ export const connectError = ({
  * — `nano` on the page changes what a fetch returns, and a directory just made with
  * `mkdir` is sweepable immediately, because it is the same tree.
  *
+ * Any other address is read as the device it is — a gateway or a switch as its own
+ * firmware, a machine as its generated tree — the same tree `nmap` and every other
+ * door read, so a web tool never finds a server a scan showed closed.
+ *
  * Everything downstream is identical for both: a generated host's tree and the
  * player's own are both just trees, so the port check, the web-root confinement,
  * and the read all stay in one place.
@@ -101,7 +105,7 @@ const targetFs = ({
 }): Directory | null => {
   if (target === ownIp) return root;
   const host = generateHomeLan(essid).hosts.find((candidate) => candidate.ip === target);
-  return host === undefined ? null : buildRemoteHostFs(essid, host);
+  return host === undefined ? null : baseFsForLanHost(host, essid);
 };
 
 /**
