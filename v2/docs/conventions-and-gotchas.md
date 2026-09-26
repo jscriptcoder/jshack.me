@@ -173,7 +173,7 @@ v0.271.0 (#557), and its slice 4 (findit falls and comes back — a rooted findi
 intel, a defaced front page shows for everyone, and `scripts/restoreFindit.ts` reboots it back to its
 generated state) SHIPPED v0.272.0 (#558), and its slice 5 (the `government` category — the police,
 the council and the courts, each publishing a `.gov` site, each running the `cases` application)
-SHIPPED v0.273.0. Slice 6 (the `retail` category) is next to plan; the epic's X2 section holds the
+SHIPPED v0.273.0 (#559). Slice 6 (the `retail` category) is next to plan; the epic's X2 section holds the
 decisions and every shipped slice's as-built.
 
 **Phase 3 — vulnerabilities is GRILLED (2026-09-09) and ready for `planning`.** Twenty-three locked

@@ -26,8 +26,9 @@ twelve slices, #533–#550), so the ship gate is unblocked. **Update 2026-09-26:
 un-deferred and GRILLED ahead of the ship gate** — decisions 91–105 and a six-slice spine in
 ["X2 — resolved scope & decisions"](#x2--resolved-scope--decisions-grilling-2026-09-26); its slice 1
 SHIPPED v0.265.0–v0.268.0 (#551–#554), its slice 2 v0.269.0–v0.270.0 (#555–#556), its slice 3
-v0.271.0 (#557) and its slice 4 (findit falls and comes back) v0.272.0 (#558), all as-built under
-that section; slice 5 (the `government` category) is next to plan.
+v0.271.0 (#557), its slice 4 (findit falls and comes back) v0.272.0 (#558) and its slice 5 (the
+`government` category) v0.273.0 (#559), all as-built under that section; slice 6 (the `retail`
+category) is the last one, and is next to plan.
 The `Status` block below is an accumulating log, not the current state.
 
 **Status**: **D1 shipped** (v0.109.0), with its web follow-ups D1c (v0.123.0-v0.124.0), D1b
@@ -427,7 +428,7 @@ PHASE 2 — DISCOVERY
         2b lynx submits a form                ✅ SHIPPED v0.270.0 (#556)
       X2 slice 3 a player's page is found      ✅ SHIPPED v0.271.0 (#557)
       X2 slice 4 findit falls and comes back   ✅ SHIPPED v0.272.0 (#558)
-      X2 slice 5 the government category       PLANNED 09-26 — one PR, v0.273.0 (plans/the-government-category.md)
+      X2 slice 5 the government category      ✅ SHIPPED v0.273.0 (#559)
 PHASE 3 — VULNERABILITIES                             GRILLED 09-09/09-10 + PLANNED (35 decisions)
       V slice 1 a version is visible          ✔ SHIPPED v0.210.0-v0.211.0 (#491, #494)
         1a every box carries a manifest       ✅ SHIPPED v0.210.0 (#491)
@@ -5152,6 +5153,139 @@ operator's `scripts/restoreFindit.ts` is the undo, and it is a reboot.
 - **Defacing findit is gated on the world clock** (122). A root-tier hole on nginx/openssh opens
   ~day 106; before that a rooted findit can be read but not defaced. This is decision 102 working as
   designed, not a defect.
+
+### As-built: X2 slice 5 — the government category
+
+Shipped v0.273.0 as one PR against trunk (#559), 2026-09-26. Ridgemont gained a police department, a
+city hall and a court: `ridgemontpd.gov`, `ridgemont.gov` and `ridgemontcourts.gov` answer from any
+network, findit ranks each for the words that name it, and behind the wifi every box reads as a
+government office keeping case files.
+
+#### Decided at planning (owner-confirmed as a set, 2026-09-26)
+
+**Owner decisions:**
+
+123. **Three networks, one per institution, and every one publishes.** `RIDGEMONT-PD` (the police
+     station, `ridgemontpd.gov`), `CITY-HALL-WIFI` (city hall, `ridgemont.gov`) and
+     `COURTHOUSE-GUEST` (the courthouse, `ridgemontcourts.gov`). No wifi-only siblings, so every one
+     is findable and exposed through its forward (105). `CITY-PARK-WIFI` and `METRO-COMMUTER` stay
+     `public` — their content reads as a park and a train line, which is what a player standing on
+     them sees. Rejected: non-publishing siblings (more content, a dead end findit cannot reach) and
+     re-filing parks and metro into `government`.
+124. **One new database application, `cases`**, shared by all three: `cases` (reference, kind,
+     status, who opened it), `parties` (a case, a person, their role), `notes` (a case, a body, which
+     login wrote it) and an optional `hearings` (a room, an outcome). It brings its own redis
+     `STORE_SPECS` entry and six `MAIL_SPECS` threads, like every network archetype.
+     `ARCHETYPES_BY_CATEGORY.government` is `['cases']`. Rejected: reusing `helpdesk` + `bookings`
+     (a police database would read as an office helpdesk) and a second `permits` application (double
+     the content, and the police could still draw it).
+125. **A government site always carries a staff directory** — `staff.html`, "Staff directory", the
+     webmaster plus real people on the network with government roles, following the corporate "Team"
+     and university "People" pattern. A public `.gov` page is then reconnaissance. **Amended by what
+     play found: it holds only where the publisher box serves an ordinary site** (see the carried
+     risks). Rejected: no fixed page, as for public places and cafés.
+
+**Derived from existing conventions:**
+
+126. **The content is civic, not per-institution.** One category means one set of pools, and every
+     template reads as true at a police station, a city hall and a courthouse alike; the `{site}` and
+     `{place}` slots make a page one institution's rather than another's. Rejected: pools keyed by
+     institution under the category, a second key no other category has.
+127. **Everything new is appended** — `'government'` at the end of `NETWORK_CATEGORIES`, the three
+     networks at the end of `ESSID_CATALOG`, as the catalog's own comment requires. Two consequences
+     accepted before launch: every scan draws from 53 crackable networks rather than 50, and an
+     uncatalogued network draws from eight kinds rather than seven. No existing network's LAN or
+     content changes, because both are keyed by ESSID — the snapshot tests hold it.
+128. **Volume matches the peers, table by table.** The compiler refuses a partly written category, so
+     every `Record<NetworkCategory, …>` was filled in the same PR: 5 unnamed places, 4 MOTDs, 12 home
+     notes, 8 personal threads, 2 phone downloads, 5 share departments (ten files each), 4 front
+     pages, 5 site pages, 5 staff roles, 3 API endpoints, 1 site description, `['cases']`, and — found
+     at the last moment — 15 shell-history lines. Every page obeys `webSites.ts`'s standing rules: no
+     version, no decimal price, no login name, no date after the world began.
+129. **One PR, v0.273.0, with no `api/` change.** The category is atomic under the compiler and
+     `cases` is its database, so a split would ship a police network running somebody else's
+     application. The catalog `site` field alone gives a network its derived address, its guaranteed
+     webserver, its `:80` forward and its place in findit's index (slices 1–3), so no new wire-check
+     was owed; the three existing ones were re-run live instead.
+
+#### What shipped
+
+- **`pools/essidCatalog.ts`**: `'government'` appended to `NETWORK_CATEGORIES`, the three entries
+  appended with their `site`.
+- **Twelve category-keyed tables filled** across `persona.ts`, `pools/etcFiles.ts`,
+  `pools/homeNotes.ts`, `pools/mailThreads.ts`, `pools/phoneFiles.ts`, `pools/shareFiles.ts`,
+  `pools/webSites.ts` and `databaseApp.ts`.
+- **`cases`** in `pools/databaseApps.ts` (registered in `ARCHETYPE_DEFINITIONS`), its `STORE_SPECS`
+  entry and its six `MAIL_SPECS` threads.
+- **`webSite.ts`**: the `government` branch giving a site `staff.html`, "Staff directory".
+- **The one real fix (#559's own):** `WORK_HISTORY` was keyed `Record<string, …>`, so the compiler
+  could not see a missing kind of place and a government box CRASHED while its shell history was
+  built (`items is not iterable`, `prng.pickN`). It is keyed by `NetworkCategory` now, like every
+  other pool, so the next category cannot miss it. **This is the lesson of the slice**: decision 104
+  claimed "the compiler refuses a half-written category", and it was one `Record<string, …>` away
+  from being false.
+- **Two golden scan snapshots moved** (127): `generateWifi.test.ts`'s per-identity offers and its
+  interleave snapshot. The property they pin — crackables at positions 3 and 6, mixed with noise
+  rather than grouped — is unchanged.
+- **A strengthened test, from mutation:** "keeps a team page only where a place lists its people, as
+  its kind of place calls it" now checks the HEADING as well as the file name.
+
+#### Gates
+
+- 6351 unit tests green in 265 files; `npm run typecheck` and `npm run lint` clean.
+- **Mutation** (scoped, dev server down) on the changed site-builder lines: 22 mutants, 0 survivors.
+  The first run's two survivors were PRE-EXISTING — the `Team` and `People` headings were never
+  asserted, only their file names — and killing them closed a gap older than this slice. The pools
+  are `N/A`: string data whose Stryker mutants prove only that a literal exists; their evidence is
+  the world-content property suites.
+- **Wire-checks re-run live** (no `api/` change to prove): `testFindit` 18/18,
+  `testExploitPublisherSite` 6/6, `testPublisherWeb` 6/6.
+- **Browser (v0.273.0):** `nmap ridgemontpd.gov` → `22` + `80`; `lynx ridgemontpd.gov` → the police
+  homepage, its Staff directory naming a Webmaster, two Duty officers and a Committee clerk;
+  `lynx findit.io` searched `police`, then followed the result back to the site. Cracked
+  `CITY-HALL-WIFI` (`welcome1`) and read the government login message on a box inside it, then
+  cracked `RIDGEMONT-PD` (`summer2025`) and read real case records out of its store —
+  `CAS-2014`, an Appeal, referred, and a note pointing at case 3.
+
+#### Risks carried forward
+
+- **An institution whose publisher box is an `api-` box publishes an API reference, so it has no
+  staff directory** — which makes 125 hold for two of the three, not all three. City hall's rolled
+  site server is `api-17`, so `ridgemont.gov`'s homepage names the institution and carries the
+  government description but serves no `staff.html`: the site builder gives an API box no people page
+  at all, the same rule that already skips a corporate Team page there. **This predates the slice** —
+  7 of the 32 publishers shipped in slice 1 are served by an `api-` box (ACME, GLOBEX, SHINRA,
+  ABSTERGO and three more), so a corporate site has been an API reference since v0.265.0 and nobody
+  noticed. The fix, if wanted, belongs to slice 1's ground: have `siteServer` prefer a non-`api`
+  webserver where a network has one. That changes behaviour for 7 existing publishers and re-rolls
+  their site content, which is why it was not folded in.
+- **A `mysql` service drawn onto a router or switch is unreachable, so the `cases` TABLES cannot be
+  read in play today.** The only mysql placement across the three government LANs landed on
+  `vpn-gw`, a SWITCH, and an infrastructure box's in-play ports are `22` + `161` — `nmap` says so and
+  a `mysql` attempt answers `No route to host`. The application is still readable through its redis
+  store on a real machine (`web-157` on `RIDGEMONT-PD`), and the tables by the unit suites. Worth its
+  own look: a service drawn onto a box that can never answer it is a wasted placement everywhere in
+  the world, not only here.
+- **`links.html` is a SHARED page**, so a police station's site lists "the repair café, first Sunday
+  of the month" among places it likes. Every category draws the shared pages and they are written to
+  read as anywhere; odd rather than wrong.
+- **Three networks is a thin sample** for the world-content suites' reachability and distinct-body
+  rules (government has 3 where corporate has 20). Nothing failed, but if a variety check ever fails
+  for government alone, widen that suite's synthetic networks as it already does for rare roles —
+  never lower a threshold or trim a pool.
+
+#### Two false readings, recorded because both looked like defects
+
+- **A probe that never started the game reported "no government network found" four times.**
+  `agent-browser click "text=NEW GAME"` is not a supported selector, so every attempt sat on the
+  start screen and the check dutifully found no ESSID. The fix was a guard that distinguishes
+  "scanned and absent" from "never scanned" (`if (!t.includes('Scan complete')) return 'NO SCAN'`) —
+  after which the same loop found `CITY-HALL-WIFI` on its fifth try and `RIDGEMONT-PD` on its
+  seventh. **A negative result needs evidence that the question was asked.**
+- **Every `.gov` domain 404'd on the live server, and so did `ridgemont.edu`.** World domains resolve
+  on the CLIENT (94), so `resolveHttpFetch` takes an ADDRESS; the probe was passing a name. Reading
+  `ridgemont.edu` fail too is what showed it was the probe, not the slice — always include a control
+  that is known to work.
 
 ## Open branches (named, not yet decided)
 
