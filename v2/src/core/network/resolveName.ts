@@ -12,12 +12,16 @@
  * crack. `generateHomeLan` is the whole data source — deterministic from the ESSID,
  * so resolution is client-side with no round-trip.
  *
- * A network resolves ITS OWN names and nothing else. There is no world DNS here:
- * a name qualified with another network's domain is somebody else's business, and
- * the answer is the same `NXDOMAIN` an unknown name gets.
+ * A network resolves ITS OWN names, and the world's. Another network's private names
+ * are somebody else's business — a name qualified with its domain gets the same
+ * `NXDOMAIN` an unknown name gets — but the domains institutions publish (a
+ * company's, a café's, the university's) are the internet's, and answer the same
+ * public address from every network. They are catalog data too, so this stays
+ * client-side.
  */
 
 import { generateHomeLan } from '../generation/generateHomeLan';
+import { siteAddress } from '../generation/publisher';
 import type { Ipv4 } from './interfaces';
 import type { OccupantProjection } from './resolveOccupants';
 
@@ -73,8 +77,11 @@ export const resolveLanName = (essid: string, name: string): ResolvedName | null
 };
 
 /**
- * Resolve `name` against the whole network: its generated population first, then
- * the other PLAYERS standing on it.
+ * Resolve `name`: the world's published domains first, then the network's generated
+ * population, then the other PLAYERS standing on it.
+ *
+ * The world comes first so nobody can move it: a player who names their box
+ * `acme.com` does not take Acme's traffic. It also needs nothing from the server.
  *
  * Fellow occupants need the second step because their boxes are not in the seed —
  * their addresses are leases issued server-side — so the only way a real player's
@@ -95,6 +102,10 @@ export const resolveName = async ({
   readonly name: string;
   readonly resolveOccupants: (essid: string) => Promise<readonly OccupantProjection[]>;
 }): Promise<ResolvedName | null> => {
+  const domain = name.toLowerCase();
+  const published = siteAddress(domain);
+  if (published !== undefined) return { fqdn: domain, ip: published };
+
   const generated = resolveLanName(essid, name);
   if (generated !== null) return generated;
 
@@ -119,7 +130,8 @@ const couldBeName = (target: string): boolean => /[a-z]/i.test(target);
  * Unchanged rather than an error on a miss, deliberately: the command then reaches
  * its existing unknown-target path and answers in its own voice, so `ssh` still
  * says `No route to host` and `curl` still says what `curl` says. One resolution
- * step in front of six commands, and not one new error message among them.
+ * step in front of every command that takes an address, and not one new error
+ * message among them.
  */
 export const addressForTarget = async ({
   essid,

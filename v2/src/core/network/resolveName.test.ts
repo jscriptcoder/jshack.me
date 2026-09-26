@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { generateHomeLan } from '../generation/generateHomeLan';
-import { addressForTarget, resolveLanName } from './resolveName';
+import { publisherIp } from '../generation/publisher';
+import { addressForTarget, resolveLanName, resolveName } from './resolveName';
 
 /** A real ESSID from the crackable pool, so every name and address under test is
  *  one a player could actually be standing in front of. */
@@ -105,5 +106,82 @@ describe('turning what the player typed into an address', () => {
     });
 
     expect(resolved).toBe('nosuchbox');
+  });
+});
+
+describe('resolving an institution by its domain', () => {
+  /** A home network that publishes nothing, so a domain it answers is not its own. */
+  const HOME_ESSID = 'APT-3B-WIFI';
+
+  it("answers an institution's domain with its public address, from somebody else's network", async () => {
+    const resolved = await resolveName({
+      essid: HOME_ESSID,
+      name: 'ridgemont.edu',
+      resolveOccupants: async () => [],
+    });
+
+    expect(resolved).toEqual({ fqdn: 'ridgemont.edu', ip: publisherIp('CAMPUS-GUEST-OPEN') });
+  });
+
+  it("answers the same domain from the institution's own network too", async () => {
+    const resolved = await resolveName({
+      essid: 'CAMPUS-GUEST-OPEN',
+      name: 'ridgemont.edu',
+      resolveOccupants: async () => [],
+    });
+
+    expect(resolved).toEqual({ fqdn: 'ridgemont.edu', ip: publisherIp('CAMPUS-GUEST-OPEN') });
+  });
+
+  it('ignores the case a domain is typed in, as every resolver does', async () => {
+    const resolved = await resolveName({
+      essid: HOME_ESSID,
+      name: 'Ridgemont.EDU',
+      resolveOccupants: async () => [],
+    });
+
+    expect(resolved).toEqual({ fqdn: 'ridgemont.edu', ip: publisherIp('CAMPUS-GUEST-OPEN') });
+  });
+
+  it('answers a domain without asking the network who is here', async () => {
+    // The world's names are fixed by the catalog; nobody standing on this LAN can
+    // change where one points, so asking them costs a round trip for nothing.
+    const resolveOccupants = vi.fn(async () => []);
+
+    await resolveName({ essid: HOME_ESSID, name: 'acme.com', resolveOccupants });
+
+    expect(resolveOccupants).not.toHaveBeenCalled();
+  });
+
+  it('still answers a LAN name on its own LAN', async () => {
+    const machine = someMachine(ESSID);
+
+    const resolved = await resolveName({
+      essid: ESSID,
+      name: machine.hostname,
+      resolveOccupants: async () => [],
+    });
+
+    expect(resolved).toEqual({ fqdn: `${machine.hostname}.shinra-5g.lan`, ip: machine.ip });
+  });
+
+  it('turns a domain typed as a target into the address behind it', async () => {
+    const resolved = await addressForTarget({
+      essid: HOME_ESSID,
+      target: 'shinra.com',
+      resolveOccupants: async () => [],
+    });
+
+    expect(resolved).toBe(publisherIp('SHINRA-5G'));
+  });
+
+  it('hands back a domain no institution holds exactly as typed', async () => {
+    const resolved = await addressForTarget({
+      essid: HOME_ESSID,
+      target: 'nosuchplace.com',
+      resolveOccupants: async () => [],
+    });
+
+    expect(resolved).toBe('nosuchplace.com');
   });
 });

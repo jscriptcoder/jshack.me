@@ -165,8 +165,8 @@ is legacy parity **minus missions**; missions are a post-ship epic.
 **🏁 PHASE 1 (the doors) IS COMPLETE at v0.205.0.** Every door in the locked order has shipped —
 web, hydra, ftp, scp, daemons, nc, machine kinds, mysql, redis, snmp, node, and the terminal
 itself. **Phase 2 — discovery** opened and closed its first door: X1 (DNS) SHIPPED COMPLETE
-(v0.206.0–v0.209.0, #487–#490). X2 (`findit.io` and networks a player was never told about) is
-**deferred by decision** — Phase 3 (vulnerabilities) is the priority — and stays ungrilled.
+(v0.206.0–v0.209.0, #487–#490). X2 (`findit.io`, a search engine over the public web) is grilled
+and its slice 1 is in flight — `plans/an-institution-has-a-website.md` holds the live status.
 
 **Phase 3 — vulnerabilities is GRILLED (2026-09-09) and ready for `planning`.** Twenty-three locked
 decisions and a nine-slice, loop-first spine live in the epic. Three things a v2 session should know
@@ -190,12 +190,17 @@ before touching it:
   retired at close-out). The durable shape:
   - **A name is an address everywhere an address was.** `core/network/resolveName.ts` owns it:
     `resolveLanName` is pure over `generateHomeLan`, `resolveName` adds the fellow-occupant step,
-    and `addressForTarget` is the ONE call `ssh`, `curl`, `nmap`, `ftp`, `nc` and `scp` each make
-    before their existing address path. Not a seam on `env` — resolution is deterministic from the
-    ESSID, so it needs no round trip and no injection.
+    and `addressForTarget` is the ONE call `ssh`, `curl`, `nmap`, `ftp`, `nc`, `scp` and `lynx`
+    (and a followed `lynx` link) each make before their existing address path. Not a seam on
+    `env` — resolution is deterministic from the ESSID, so it needs no round trip and no injection.
   - **The AP gateway resolves, so no DNS box is required.** Names arrive on the first network a
     player cracks rather than the one in seven that draws a `dns` role. A network answers for its
-    own names only: `<host>.<essid-slug>.lan`, with a foreign slug answering NXDOMAIN.
+    own names: `<host>.<essid-slug>.lan`, with a foreign slug answering NXDOMAIN.
+  - **The world's names come first (X2, v0.266.0).** An institution's domain (`ridgemont.edu`,
+    `acme.com` — catalog `site.domain`, case-folded) resolves to its derived `193.` address from
+    ANY network, before the LAN and occupant steps and with no occupant round trip. This is why
+    `nmap` and `ssh` resolve BEFORE their `isPublicIp` check: a domain has no public shape until it
+    is resolved. `gobuster` and `hydra` still take addresses only.
   - **An unresolvable name passes through UNCHANGED**, so each command reaches its own existing
     unknown-target path. There is deliberately no seventh error message. Note `ssh` exits **255**
     there, not 1.

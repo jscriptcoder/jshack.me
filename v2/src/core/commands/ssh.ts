@@ -266,31 +266,37 @@ const execute: Command['execute'] = async (env, args, flags) => {
   const essid = wlan0.association.essid;
   const sourceIp = wlan0.ipv4;
 
-  // A public IP isn't on the player's own LAN — route it cross-player (server-side lookup
-  // resolution + cross-player auth) instead of the deterministic own-LAN path. Checked on
-  // what the player TYPED: a name only ever resolves to somewhere on this LAN.
-  if (isPublicIp(requested.host)) {
-    return executePublicLogin(env, requested, port, sourceIp);
-  }
-
-  // A private IP that belongs to a FELLOW OCCUPANT of this ESSID is reached directly
-  // over the shared LAN. Checked BEFORE the generated-LAN path so a real occupant wins
-  // an octet collision with a generated NPC — the same precedence the nmap merge uses.
-  const occupants = await env.scan.resolveOccupants(essid);
+  // Who else is on this LAN, read at most once and only when something needs it: a
+  // name on this network needs it to resolve, and a private address needs it to tell a
+  // real player's box from a generated one. One round trip answers both; an address or
+  // an institution's domain costs none.
+  let occupantsRead: ReturnType<typeof env.scan.resolveOccupants> | undefined;
+  const occupantsHere = () => (occupantsRead ??= env.scan.resolveOccupants(essid));
 
   // A name becomes an address before anything routes on it, so every path below sees
-  // the target it already knows how to reach. Resolved against the occupant list read
-  // just above: one round trip answers both what a box is called and whether it is a
-  // real player's. A name nothing answers to is left exactly as typed and falls
-  // through to `No route to host`, the same as an address nothing answers to.
+  // the target it already knows how to reach — an institution's domain included, which
+  // is why this comes before the public check. A name nothing answers to is left
+  // exactly as typed and falls through to `No route to host`, the same as an address
+  // nothing answers to.
   const target = {
     ...requested,
     host: await addressForTarget({
       essid,
       target: requested.host,
-      resolveOccupants: async () => occupants,
+      resolveOccupants: occupantsHere,
     }),
   };
+
+  // A public IP isn't on the player's own LAN — route it cross-player (server-side lookup
+  // resolution + cross-player auth) instead of the deterministic own-LAN path.
+  if (isPublicIp(target.host)) {
+    return executePublicLogin(env, target, port, sourceIp);
+  }
+
+  // A private IP that belongs to a FELLOW OCCUPANT of this ESSID is reached directly
+  // over the shared LAN. Checked BEFORE the generated-LAN path so a real occupant wins
+  // an octet collision with a generated NPC — the same precedence the nmap merge uses.
+  const occupants = await occupantsHere();
   if (occupants.some((occupant) => occupant.localIp === target.host)) {
     return executeSameLanLogin(env, target, port, sourceIp, essid);
   }

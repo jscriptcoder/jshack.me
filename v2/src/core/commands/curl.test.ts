@@ -25,6 +25,7 @@ import { buildColdStartConnectivity, type ConnectivityState } from '../network/i
 import { assignHomeNetwork } from '../network/homeNetwork';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
 import { buildRemoteHostFs } from '../generation/remoteHostFs';
+import { publisherIp } from '../generation/publisher';
 import { readOpenPorts } from '../services/pidfile';
 import { createFsView } from '../filesystem/fsView';
 import { HTTP_DEFAULT_PORT } from '../network/http';
@@ -816,6 +817,15 @@ describe('curl across the network, at another player public IP', () => {
     const { asked } = await fetchAcross(served(THEIR_PAGE), `http://${THEIR_PUBLIC_IP}`);
 
     expect(asked).toEqual([{ target: THEIR_PUBLIC_IP, port: HTTP_DEFAULT_PORT, path: '/' }]);
+  });
+
+  it("reaches an institution by its domain, asking the server for the address it names", async () => {
+    const { drained, asked } = await fetchAcross(served(THEIR_PAGE), 'http://ridgemont.edu/');
+
+    expect(asked).toEqual([
+      { target: publisherIp('CAMPUS-GUEST-OPEN'), port: HTTP_DEFAULT_PORT, path: '/' },
+    ]);
+    expect(drained.text).toContain('welcome to nebuchadnezzar');
   });
 
   it('reports a connection refusal for a target that is dark, bricked or unforwarded', async () => {

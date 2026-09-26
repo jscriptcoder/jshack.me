@@ -16,6 +16,7 @@ import { assignHomeNetwork } from '../network/homeNetwork';
 import { withSelfHost } from '../network/mergeLanOccupants';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
 import { buildRemoteHostFs } from '../generation/remoteHostFs';
+import { publisherIp } from '../generation/publisher';
 import { readOpenPorts } from '../services/pidfile';
 import { buildEntry, formatDpkgStatus } from '../packages/dpkgStatus';
 import { bindFlags } from '../shell/bindFlags';
@@ -777,6 +778,29 @@ describe('nmap — cross-player public-IP scan (slice 1a)', () => {
         'Nmap done — 1 host up',
       ].join('\n'),
     );
+  });
+
+  it("scans an institution by its domain, at the address the domain names", async () => {
+    // The name is resolved before the target is judged public: typed as a name it has
+    // no public shape at all, and would otherwise be scanned for on the player's LAN.
+    const siteIp = publisherIp('CAMPUS-GUEST-OPEN');
+    const resolvePublic = vi.fn(async () => ({
+      found: true,
+      ports: [
+        { port: 22, service: 'ssh' },
+        { port: 80, service: 'http' },
+      ],
+    }));
+
+    const { text, exitCode } = await drain(
+      await nmap.execute(envWithResolve(resolvePublic), ['ridgemont.edu'], new Map()),
+    );
+
+    expect(exitCode).toBe(0);
+    expect(resolvePublic).toHaveBeenCalledWith(siteIp);
+    expect(text).toContain(`Nmap scan report for ${siteIp}`);
+    expect(text).toContain('22/tcp   open  ssh');
+    expect(text).toContain('80/tcp   open  http');
   });
 
   it("renders the owner's resolved open ports as the PORT/STATE/SERVICE table", async () => {
