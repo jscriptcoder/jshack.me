@@ -5,7 +5,9 @@
  * Only a box whose name says it serves the web (`www-04`, `portal-12`) gets one; any
  * other box that happens to run a web server keeps the single page it always had. What
  * kind of site follows the name: a `portal-` is the network's intranet, an `api-`
- * documents the endpoints it answers, and the rest publish the place's public site.
+ * documents the endpoints it answers, and the rest publish the place's public site —
+ * except the box an institution publishes from, which serves its public site whatever
+ * it is called.
  *
  * Every link is written here, from the pages this box was drawn and the machines its
  * network really holds, so none can name a page nothing serves. An intranet links its
@@ -171,8 +173,10 @@ const planFor = (options: {
   readonly persona: NetworkPersona;
   readonly author: string;
   readonly neighbours: readonly LanHost[];
+  /** Whether this is the box its institution publishes its public website from. */
+  readonly publishing: boolean;
 }): Plan => {
-  const { prng, essid, host, persona, author, neighbours } = options;
+  const { prng, essid, host, persona, author, neighbours, publishing } = options;
   const people = neighbours.map(
     (neighbour) =>
       inhabitant({ essid, host: neighbour, username: npcUsername(essid, neighbour) }).fullName,
@@ -180,7 +184,10 @@ const planFor = (options: {
   const team = (file: string, title: string): Page =>
     teamPage({ prng, file, title, persona, author, people });
 
-  if (host.hostname.startsWith('portal-')) {
+  // The name picks the site a box keeps for its own network, but the box an institution
+  // publishes from is its face to the world, so it serves the public site whatever it
+  // is called: a café's homepage never maps its LAN, a council's never documents an API.
+  if (!publishing && host.hostname.startsWith('portal-')) {
     return {
       front: prng.pick(PORTAL_FRONT_PAGES),
       fixed: [servicesPage(essid, neighbours), team('team.html', 'Team')],
@@ -188,7 +195,7 @@ const planFor = (options: {
       documents: [],
     };
   }
-  if (host.hostname.startsWith('api-')) {
+  if (!publishing && host.hostname.startsWith('api-')) {
     const own = API_ENDPOINTS[persona.category];
     const documents = [...API_COMMON_ENDPOINTS, ...prng.pickN(own, prng.nextInt(1, own.length))];
     return {
@@ -462,7 +469,15 @@ export const buildWebSite = ({
       )
     : [];
 
-  const plan = planFor({ prng, essid, host, persona, author, neighbours });
+  const plan = planFor({
+    prng,
+    essid,
+    host,
+    persona,
+    author,
+    neighbours,
+    publishing: published !== undefined,
+  });
   const alongside = plan.fixed.length + plan.documents.length;
   const drawnCount = prng.nextInt(
     Math.max(0, MIN_PAGES - 1 - alongside),

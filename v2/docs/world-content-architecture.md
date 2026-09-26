@@ -141,7 +141,9 @@ lines because the live log does not log lookups.
 
 **Webservers** (`webSite.ts`, `pools/webSites.ts`) serve three layers under `/var/www/html`:
 4–12 linked public pages shaped by prefix and persona (`portal-` lists real neighbours by `.lan`
-name; `api-` serves JSON); breadcrumbs (`robots.txt`, `sitemap.xml`, one HTML comment) whose every
+name; `api-` serves JSON) — except on an institution's site server, which always serves the
+public site whatever its prefix, so a published homepage never maps a LAN or documents an API;
+breadcrumbs (`robots.txt`, `sitemap.xml`, one HTML comment) whose every
 path is served; and 1–4 unlinked paths drawn from the shipped dirlist so a default `gobuster`
 pays. `dump.sql` is schema-only and always present on a mysql webserver. The web tools resolve
 `.lan` names through `resolveLanName`. Other http hosts serve one version-free page.
