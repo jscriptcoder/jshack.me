@@ -429,6 +429,7 @@ PHASE 2 — DISCOVERY
       X2 slice 3 a player's page is found      ✅ SHIPPED v0.271.0 (#557)
       X2 slice 4 findit falls and comes back   ✅ SHIPPED v0.272.0 (#558)
       X2 slice 5 the government category      ✅ SHIPPED v0.273.0 (#559)
+      X2 slice 6 the retail category          PLANNED 09-26 — one PR, v0.276.0 (plans/the-retail-category.md)
 PHASE 3 — VULNERABILITIES                             GRILLED 09-09/09-10 + PLANNED (35 decisions)
       V slice 1 a version is visible          ✔ SHIPPED v0.210.0-v0.211.0 (#491, #494)
         1a every box carries a manifest       ✅ SHIPPED v0.210.0 (#491)
