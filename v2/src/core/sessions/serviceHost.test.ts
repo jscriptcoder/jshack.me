@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter';
 import { reachServiceHost, type ServiceHostLookup } from './serviceHost';
 import { generateIdentity } from '../identity/identity';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
@@ -113,7 +114,7 @@ const apGatewayOn = (
 const AP_GATEWAY = apGatewayOn(ESSID);
 
 describe('reaching a generated box on the caller own LAN', () => {
-  it('reaches the box without inventing a source address or a writer key', async () => {
+  it("reaches the box without inventing a source address, filed under the network's own key", async () => {
     const reach = await reachServiceHost(makeLookup(), {
       essid: ESSID,
       targetIp: OWN_LAN.host.ip,
@@ -132,7 +133,7 @@ describe('reaching a generated box on the caller own LAN', () => {
         hostFs: expect.anything(),
         localIp: OWN_LAN.host.ip,
         sourceIp: null,
-        writerKey: null,
+        writerKey: apGatewayLogWriterKey(ESSID),
         frontedSegment: frontedSegment({
           essid: ESSID,
           machineId: OWN_LAN_IDENTITY.machineId,
@@ -142,106 +143,31 @@ describe('reaching a generated box on the caller own LAN', () => {
     });
   });
 
-  it('writes a generated box on the WiFi under that same stable key', async () => {
-    const neighbour = generateIdentity();
-    const reach = await reachServiceHost(
-      makeLookup({
-        listLeasesByEssid: async () => ({
-          data: [
-            { owner_key: ATTACKER.publicKeyHex, octet: 77 },
-            { owner_key: neighbour.publicKeyHex, octet: 12 },
-          ],
-          error: null,
-        }),
-      }),
-      {
-        essid: ESSID,
-        targetIp: OWN_LAN.host.ip,
-        service: OWN_LAN.service,
-        port: OWN_LAN.port,
-        actorKey: ATTACKER.publicKeyHex,
-      },
-    );
-
-    // A generated sibling is as ESSID-shared as the gateway above it and the deep chain
-    // behind it: regenerated from the ESSID, with an id that does not depend on who is
-    // asking, so every occupant of this WiFi reaches the identical box. Filing each visit
-    // under the caller's own key gives one box a row per attacker — and a log patch
-    // carries the whole file, so replay keeps only whichever arrived last.
-    //
-    // The lowest lease is not a claim that its holder did anything; the visitor is named
-    // in the line itself. It is the one bucket every caller agrees on, and it is read
-    // back through the same resolver that chose it.
-    expect(reach.ok && reach.reached.writerKey).toBe(neighbour.publicKeyHex);
-  });
-
-  it('writes the access point gateway under the lowest lease on the WiFi', async () => {
-    const neighbour = generateIdentity();
-    const reach = await reachServiceHost(
-      makeLookup({
-        listLeasesByEssid: async () => ({
-          data: [
-            { owner_key: ATTACKER.publicKeyHex, octet: 77 },
-            { owner_key: neighbour.publicKeyHex, octet: 12 },
-          ],
-          error: null,
-        }),
-      }),
-      {
-        essid: ESSID,
-        targetIp: AP_GATEWAY.host.ip,
-        service: AP_GATEWAY.service,
-        port: AP_GATEWAY.port,
-        actorKey: ATTACKER.publicKeyHex,
-      },
-    );
-
+  it('writes the access point gateway under that same key, whatever the lease table says', async () => {
     // The gateway is reachable from inside the LAN as well as from the world, and one
     // box may not keep two logs: a row per writer means the newest wins outright on
     // replay, so an occupant walking their own gateway would erase the lines a
-    // stranger's visit left there. The lowest lease is stable because leases outlive
-    // occupancy and do not depend on the order the store returns rows.
-    expect(reach.ok && reach.reached.machineId).toBe(computeApGatewayId(ESSID));
-    expect(reach.ok && reach.reached.writerKey).toBe(neighbour.publicKeyHex);
-  });
-
-  it('leaves a gateway on a WiFi nobody has leased under the caller own key', async () => {
-    const reach = await reachServiceHost(makeLookup(), {
-      essid: ESSID,
-      targetIp: AP_GATEWAY.host.ip,
-      service: AP_GATEWAY.service,
-      port: AP_GATEWAY.port,
-      actorKey: ATTACKER.publicKeyHex,
-    });
-
-    expect(reach.ok && reach.reached.writerKey).toBe(null);
-  });
-
-  it('keeps the visit when the leases cannot be read, losing only the stable key', async () => {
+    // stranger's visit left there. The network's own key does not depend on who has
+    // joined, so neither an empty lease table nor an unreadable one can move it.
     const neighbour = generateIdentity();
-    const reach = await reachServiceHost(
-      makeLookup({
-        // Rows AND a failure, so the ERROR is what decides. A stub answering `null`
-        // would prove nothing: an empty lease list yields the same absent key by a
-        // different route, and the guard could be dropped unnoticed.
-        listLeasesByEssid: async () => ({
-          data: [{ owner_key: neighbour.publicKeyHex, octet: 12 }],
-          error: { message: 'down' },
-        }),
-      }),
-      {
+    const leaseAnswers = [
+      { data: [{ owner_key: neighbour.publicKeyHex, octet: 12 }], error: null },
+      { data: [], error: null },
+      { data: [{ owner_key: neighbour.publicKeyHex, octet: 12 }], error: { message: 'down' } },
+    ];
+
+    for (const leases of leaseAnswers) {
+      const reach = await reachServiceHost(makeLookup({ listLeasesByEssid: async () => leases }), {
         essid: ESSID,
         targetIp: AP_GATEWAY.host.ip,
         service: AP_GATEWAY.service,
         port: AP_GATEWAY.port,
         actorKey: ATTACKER.publicKeyHex,
-      },
-    );
+      });
 
-    // A log line is best-effort everywhere else too, and losing the stable key is
-    // milder than losing the visit.
-    expect(reach.ok).toBe(true);
-    expect(reach.ok && reach.reached.writerKey).toBe(null);
+      expect(reach.ok && reach.reached.machineId).toBe(computeApGatewayId(ESSID));
+      expect(reach.ok && reach.reached.writerKey).toBe(apGatewayLogWriterKey(ESSID));
+    }
   });
 
   it('refuses an address that names no host on this LAN', async () => {
@@ -577,27 +503,16 @@ describe('reaching a box on the layer behind an inner gateway', () => {
     expect(reach.ok && reach.reached.sourceIp).toBe(DEEP.natIp);
   });
 
-  it('writes a deep box under the lowest lease on the WiFi it is generated from', async () => {
-    const neighbour = generateIdentity();
-    const reach = await reachDeep(
-      deepLookup(undefined, {
-        listLeasesByEssid: async () => ({
-          data: [
-            { owner_key: ATTACKER.publicKeyHex, octet: 77 },
-            { owner_key: neighbour.publicKeyHex, octet: 12 },
-          ],
-          error: null,
-        }),
-      }),
-    );
+  it('writes a deep box under the own key of the network it is generated from', async () => {
+    const reach = await reachDeep(deepLookup());
 
     // Nobody OWNS a deep box, but it is ESSID-shared and its id does not depend on who
     // is asking, so two players reaching one box write two rows for one path — and a log
     // patch carries the whole file, so replay takes the newest outright and the earlier
     // attacker's lines vanish. The caller's own key is stable per player and unstable
-    // across them, which is precisely the bug; the lowest lease on the ESSID is stable
-    // for everyone, because leases outlive occupancy and do not depend on row order.
-    expect(reach.ok && reach.reached.writerKey).toBe(neighbour.publicKeyHex);
+    // across them, which is precisely the bug; the network's own key is stable for
+    // everyone, because it does not depend on who has joined.
+    expect(reach.ok && reach.reached.writerKey).toBe(apGatewayLogWriterKey(DEEP.essid));
   });
 
   it('refuses a port the gateway forwards nowhere', async () => {
@@ -672,7 +587,7 @@ describe('reaching a box by its public address', () => {
         hostFs: expect.anything(),
         localIp: TARGET_PUBLIC_IP,
         sourceIp: ATTACKER_PUBLIC_IP,
-        writerKey: DEFENDER.publicKeyHex,
+        writerKey: apGatewayLogWriterKey(TARGET_ESSID),
         frontedSegment: generateHomeLan(TARGET_ESSID).subnet,
       },
     });

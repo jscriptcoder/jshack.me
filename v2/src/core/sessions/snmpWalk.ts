@@ -173,7 +173,7 @@ export const handleSnmpWalk = async (
     // The TARGET's key once the box has an owner, so every visitor's lines accrete into
     // one row on the defender's box rather than a row each, where the newest would erase
     // the rest on replay.
-    { writerKey: writerKey ?? publicKey, machineId },
+    { writerKey, machineId },
     contactLines({
       accepted: tier !== null,
       // The ROUTE decides the address whenever it can; on the caller's own LAN it knows

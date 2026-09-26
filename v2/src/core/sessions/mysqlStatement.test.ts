@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter';
 import { handleMysqlStatement, type MysqlStatementDeps } from './mysqlStatement';
 import { signRequest } from '../signedRequest/sign';
 import { generateIdentity } from '../identity/identity';
@@ -1080,11 +1081,14 @@ describe('where a write lands', () => {
     });
   });
 
-  it('records the change under the key of the player who made it', async () => {
-    const { identity, upsertPatch } = await write(APP, "UPDATE users SET role = 'auditor'");
+  it("records the change in the box's own row, which every occupant's writes share", async () => {
+    // Nobody owns a generated box and every occupant of the WiFi reaches the identical
+    // one, so a row per writer would fold to whichever was written last and silently
+    // drop the others' changes. The author is not lost: they are named in the log line.
+    const { upsertPatch } = await write(APP, "UPDATE users SET role = 'auditor'");
     const [row] = upsertPatch.mock.calls[0] ?? [];
 
-    expect(row?.writer_key).toBe(identity.publicKeyHex);
+    expect(row?.writer_key).toBe(apGatewayLogWriterKey(ESSID));
   });
 
   it('is what the next occupant of the LAN reads, not just its author', async () => {

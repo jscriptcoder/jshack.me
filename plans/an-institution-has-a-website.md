@@ -4,7 +4,7 @@
 (decisions 91–105, 2026-09-26), plus **seven decisions made at planning** (2026-09-26, owner-confirmed
 as a set) restated under "Decided at planning" below.
 
-**Status:** Planned, not started.
+**Status:** 1a built (v0.265.0, `feat/a-publisher-answers-at-its-ip`, PR open); 1b and 1c not started.
 
 **Delivery:** three independent PRs against trunk, merged in order (each builds on the one before
 it through `main`, not through a stack).
@@ -124,19 +124,19 @@ resolver (generated-box fallback) → webserver FS → page / port table; `acces
 **Class:** behavior change. **Delivery:** independent PR against trunk.
 
 **Acceptance criteria:**
-- [ ] Every institutional-category catalog network that hosts a site has a distinct domain and a
+- [x] Every institutional-category catalog network that hosts a site has a distinct domain and a
       distinct `193.` address; no other network has either.
-- [ ] `isPublicIp` accepts a publisher address; `generatePublicIp` never produces one.
-- [ ] A publisher's LAN always has a webserver serving http, and a non-publisher's LAN is exactly as
+- [x] `isPublicIp` accepts a publisher address; `generatePublicIp` never produces one.
+- [x] A publisher's LAN always has a webserver serving http, and a non-publisher's LAN is exactly as
       it was (same hosts, same addresses).
-- [ ] A publisher's gateway `rules.v4` forwards public `80` to that webserver's http port; a
+- [x] A publisher's gateway `rules.v4` forwards public `80` to that webserver's http port; a
       non-publisher's forwards nothing.
-- [ ] `curl http://<publisher IP>/` from a player on an unrelated network returns the webserver's
+- [x] `curl http://<publisher IP>/` from a player on an unrelated network returns the webserver's
       homepage, with no player ever having joined the publisher, and the hit lands in that
       webserver's `access.log`.
-- [ ] `nmap <publisher IP>` shows `22/tcp open ssh` and `80/tcp open http`.
-- [ ] A player who joins a publisher is given its derived address.
-- [ ] A forward to a LAN address held by an occupant still reaches the occupant (no regression).
+- [x] `nmap <publisher IP>` shows `22/tcp open ssh` and `80/tcp open http`.
+- [x] A player who joins a publisher is given its derived address.
+- [x] A forward to a LAN address held by an occupant still reaches the occupant (no regression).
 
 **RED (in order, one increment each):**
 1. Catalog sweep: every `site` sits on an institutional category, domains are unique, publishers
@@ -170,6 +170,23 @@ copies match once green.
 concurrency); address valuable survivors in the same gate.
 **Done when:** all criteria checked, typecheck + lint + tests green, the wire-check passes live, the
 browser run is recorded, mutation reviewed.
+
+**As built (2026-09-26):**
+- **Decided mid-slice — the AP log key.** A fetch of a publisher nobody had joined had no writer key
+  to log under (shared logs keyed to the lowest lease holder). Owner chose a stable per-network key,
+  `ap:<essid>`, for EVERY AP's ownerless boxes; lease reads that only picked the key were removed,
+  and a player's write to a generated database now lands in the network's row too.
+  `docs/cross-player-architecture.md` updated.
+- New modules: `generation/publisher.ts` (`publisherSite`, `publisherIp`, `publisherAt`),
+  `generation/siteServer.ts`, `network/generatedLanBox.ts` (the shared fetch/scan fallback).
+- Gates: suite 6120 green; wire-checks `testPublisherWeb` 6/6 plus 37 others live; browser run from
+  `BOFH-KEEPOUT` — `curl http://193.46.209.111/` returned the campus homepage, `nmap` showed
+  22/161/80, no stored address, hit logged under `ap:CAMPUS-GUEST-OPEN`. Mutation in four scoped
+  batches: all own-line mutants killed or hand-verified (module-load statics the vitest runner
+  cannot reload), `isPublicIp` gained direct tests, two redundant conditions removed.
+- **Carried to slice 2:** the generated homepage is titled with the network's `place` ("The
+  campus"), not the site `name` ("Ridgemont University"); findit ranks titles, so slice 2's homepage
+  work should title a publisher's page with its site name.
 
 ### Slice 1b: A domain resolves, anywhere, for every command that takes an address
 
@@ -207,8 +224,8 @@ the attacker inside that LAN without cracking its wifi.
 **Acceptance criteria:**
 - [ ] With a live http CVE on a publisher's webserver, the exploit through its public `80` opens a
       session ON THE WEBSERVER (its hostname, its LAN address), not on the gateway.
-- [ ] The exploit's trace lands in the webserver's own log, under the attacker's server-derived
-      source IP.
+- [ ] The exploit's trace lands in the webserver's own log, under the network's `ap:<essid>` key,
+      naming the attacker's server-derived source IP.
 - [ ] With no live CVE, the exploit refuses as it does on any box.
 - [ ] Occupant forwards behave exactly as before.
 

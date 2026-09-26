@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter';
 import { handleNmapScanDeep, type NmapScanDeepDeps } from './nmapScanDeep';
 import { signRequest } from '../signedRequest/sign';
 import { generateIdentity } from '../identity/identity';
@@ -28,9 +29,8 @@ import type { NonceStore } from '../signedRequest/nonceStore';
  * machine_id, then appends ONE aggregate `/var/log/kern.log` line to EACH touched
  * deep host (the terminal NPC, plus the child gateway when the layer hangs one and
  * it is in range). The source is the fronting gateway's downstream `.1`
- * (`${subnet}.1`); the writer is the ESSID's own STABLE key — the lowest octet ever
- * leased there — precisely BECAUSE every occupant of the network shares these boxes.
- * A per-scanner key would give one path a row per attacker, and a log patch carries
+ * (`${subnet}.1`); the writer is the ESSID's own STABLE key, precisely BECAUSE every
+ * occupant of the network shares these boxes. A per-scanner key would give one path a row per attacker, and a log patch carries
  * the whole file, so replay would keep only whichever swept last. Who ran the scan is
  * recorded by the line's source address, not by the row it sits in. The claimed
  * vantage is server-validated: a machine_id that is not a real gateway in the
@@ -101,9 +101,6 @@ const makeDeps = (over: Partial<NmapScanDeepDeps> = {}) => {
     readLog,
     upsertPatch,
     findPatches,
-    // Nobody has leased an address on this WiFi by default, which is the one case with no
-    // stable key to offer — the tests that care supply leases of their own.
-    listLeasesByEssid: async () => ({ data: [], error: null }),
     ...over,
   };
   return { deps, upsertPatch, readLog, findPatches };
@@ -214,7 +211,7 @@ const tracedBoxes = async (
 };
 
 describe('whose row a deep scan trace accretes under', () => {
-  it('files every touched host under the lowest lease on the WiFi, not the scanner', async () => {
+  it("files every touched host under the network's own key, not the scanner", async () => {
     // Two occupants scanning one layer must land in ONE row per box. `patches` is keyed
     // `(machine_id, path, writer_key)` and a log patch carries the whole file, so a row
     // per scanner means replay keeps only whichever swept last — the earlier player's
@@ -223,26 +220,15 @@ describe('whose row a deep scan trace accretes under', () => {
     // The scanner is not lost by this: they are named in the line's source address, which
     // is the fronting gateway's `.1` and server-derived. The key is the bucket, not the
     // signature.
-    const neighbour = generateIdentity();
     const vantage = innerRouterVantage();
     const expected = expectedDeepLayer(ESSID, vantage);
-    const { deps, upsertPatch } = makeDeps({
-      // ALICE is deliberately not the lowest octet: where the caller holds it, the two
-      // keys coincide and the claim cannot be told apart from its own absence.
-      listLeasesByEssid: async () => ({
-        data: [
-          { owner_key: ALICE.publicKeyHex, octet: 77 },
-          { owner_key: neighbour.publicKeyHex, octet: 12 },
-        ],
-        error: null,
-      }),
-    });
+    const { deps, upsertPatch } = makeDeps();
 
     await handleNmapScanDeep(envelope(ALICE, vantage, `${expected.subnet}.1-254`), deps);
 
     expect(upsertPatch.mock.calls.length).toBeGreaterThan(0);
     for (const [row] of upsertPatch.mock.calls) {
-      expect(row.writer_key).toBe(neighbour.publicKeyHex);
+      expect(row.writer_key).toBe(apGatewayLogWriterKey(ESSID));
     }
   });
 });
@@ -279,7 +265,7 @@ describe('handleNmapScanDeep', () => {
     expect(upsertPatch).toHaveBeenCalledTimes(expected.hosts.length);
     for (const entry of expected.hosts) {
       expect(traceOn(upsertPatch, entry.machineId)).toEqual({
-        writer_key: ALICE.publicKeyHex,
+        writer_key: apGatewayLogWriterKey(ESSID),
         machine_id: entry.machineId,
         path: '/var/log/kern.log',
         content: `${expectedDeepLine(expected.sourceIp, entry)}\n`,

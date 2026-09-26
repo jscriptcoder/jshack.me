@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter';
 import {
   handleHydraCrackInnerGateway,
   type HydraCrackInnerGatewayDeps,
@@ -215,9 +216,6 @@ const depsWith = (over: DepOverrides = {}): HydraCrackInnerGatewayDeps => {
     }),
     readAuthLog: async (): Promise<MachineLogReadResult> => ({ data: null, error: null }),
     upsertPatch: vi.fn(async () => ({ error: null })),
-    // Nobody has leased an address on this WiFi by default, which is the one case with no
-    // stable key to offer — the tests that care supply leases of their own.
-    listLeasesByEssid: async () => ({ data: [], error: null }),
     ...rest,
   };
 };
@@ -233,7 +231,7 @@ const envelope = (over: Record<string, unknown> = {}) =>
   });
 
 describe('whose row a deep sweep trace accretes under', () => {
-  it('files the trace under the lowest lease on the WiFi, not the caller', async () => {
+  it("files the trace under the network's own key, not the caller", async () => {
     // The chain is regenerated from the ESSID and every occupant walks the identical one,
     // so a deep box is reached by several players under one machine id. `patches` is keyed
     // `(machine_id, path, writer_key)` and a log patch carries the whole file, so filing
@@ -244,25 +242,13 @@ describe('whose row a deep sweep trace accretes under', () => {
     // `spec.sweepLog.path`, which is the very file `ssh` writes for a deep reach and the
     // data doors write for a login. Three writers disagreeing about the key would split one
     // log three ways.
-    const neighbour = generateIdentity();
     const upsertPatch = vi.fn(async () => ({ error: null }));
-    const deps = depsWith({
-      upsertPatch,
-      // The caller is deliberately not the lowest octet: where they are, the two keys
-      // coincide and the claim cannot be told apart from its own absence.
-      listLeasesByEssid: async () => ({
-        data: [
-          { owner_key: ATTACKER.publicKeyHex, octet: 77 },
-          { owner_key: neighbour.publicKeyHex, octet: 12 },
-        ],
-        error: null,
-      }),
-    });
+    const deps = depsWith({ upsertPatch });
 
     await handleHydraCrackInnerGateway(envelope(), deps);
 
     expect(upsertPatch).toHaveBeenCalledWith(
-      expect.objectContaining({ writer_key: neighbour.publicKeyHex }),
+      expect.objectContaining({ writer_key: apGatewayLogWriterKey(ESSID) }),
     );
   });
 });

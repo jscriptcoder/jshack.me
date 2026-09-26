@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter';
 import { handleHydraCrackPublic, type HydraCrackPublicDeps } from './hydraCrackPublic';
 import { signRequest } from '../signedRequest/sign';
 import { generateIdentity } from '../identity/identity';
@@ -94,7 +95,7 @@ const ADMIN_PW = seedApGatewayAdminPw(TARGET_ESSID);
 const GATEWAY_HOSTNAME = seedApGatewayHostname(TARGET_ESSID);
 const REGISTERED: ApNetworkLookup = { router_machine_id: AP_GATEWAY_ID, essid: TARGET_ESSID };
 // Somebody who actually lives on the stranger's AP. The gateway is ownerless, so its
-// log accretes under the lowest-octet lease holder there — never the attacker's key.
+// log accretes under the network's own key — never the attacker's, nor the resident's.
 // They are also the box behind the NAT forward below: one resident, both roles.
 const RESIDENT = generateIdentity();
 const RESIDENT_OCTET = 84;
@@ -634,10 +635,10 @@ describe('handleHydraCrackPublic', () => {
     expect(upsertPatch).not.toHaveBeenCalled();
   });
 
-  it('keeps no log on an access point nobody has ever leased an address on', async () => {
+  it("keeps the log on an access point nobody has ever leased an address on, in the network's own row", async () => {
     // The gateway is ownerless, so its log has to accrete under a STABLE key or a
-    // later row silently erases an earlier one. With no lease there is no such key,
-    // and the AP keeps no log rather than inventing one.
+    // later row silently erases an earlier one. That key is the network's own, so it is
+    // there before anybody has ever joined.
     const upsertPatch = vi.fn(async () => ({ error: null }));
     const { status, body } = await handleHydraCrackPublic(
       envelope(),
@@ -653,7 +654,12 @@ describe('handleHydraCrackPublic', () => {
       cracked: [{ username: 'root', password: ADMIN_PW }],
       wordlistFound: true,
     });
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(upsertPatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        writer_key: apGatewayLogWriterKey(TARGET_ESSID),
+        machine_id: AP_GATEWAY_ID,
+      }),
+    );
   });
 
   it('rejects a tampered envelope without touching the target', async () => {
@@ -1139,7 +1145,7 @@ describe('sweeping the agent on a stranger access point gateway', () => {
     // exactly this. The row is the access point's, so the next stranger's sweep adds to
     // this one instead of replacing it.
     expect(upsertPatch).toHaveBeenCalledWith({
-      writer_key: RESIDENT.publicKeyHex,
+      writer_key: apGatewayLogWriterKey(TARGET_ESSID),
       machine_id: AP_GATEWAY_ID,
       path: SNMPD_LOG_PATH,
       content: `${snmpTraceLine('failure')}\n${snmpTraceLine('success')}\n`,

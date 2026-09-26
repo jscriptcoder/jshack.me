@@ -41,7 +41,8 @@ import { ACCESS_LOG_PERMISSIONS } from '../logging/accessLog';
 import { AUTH_LOG_PERMISSIONS } from '../logging/authLog';
 import { KERN_LOG_PERMISSIONS } from '../logging/kernLog';
 import { SNMPD_LOG_PERMISSIONS } from '../logging/snmpdLog';
-import { RULES_V4_PERMISSIONS } from '../network/iptablesRules';
+import { RULES_V4_PERMISSIONS, withForward } from '../network/iptablesRules';
+import { siteForward } from './remoteHostFs';
 import { ACL_CONF_PERMISSIONS, parseAclDenies } from '../network/switchAcl';
 import { gatewayBackups } from './gatewayBackups';
 import { gatewayAdminUi } from './gatewayAdminUi';
@@ -360,12 +361,13 @@ export const buildRouterBaseFsFromIdentity = (
   },
   site: { readonly essid: string; readonly machineId: string },
   network?: GatewayNetworkEntries,
+  rulesV4: string = RULES_V4_SEED,
 ): Directory =>
   buildGatewayBaseFs(
     identity,
     {
       iptables: dir(
-        { 'rules.v4': file(RULES_V4_SEED, RULES_V4_PERMISSIONS) },
+        { 'rules.v4': file(rulesV4, RULES_V4_PERMISSIONS) },
         TRAVERSABLE_DIR,
       ),
     },
@@ -399,7 +401,16 @@ export const buildApGatewayBaseFs = (essid: string): Directory =>
     },
     { essid, machineId: computeApGatewayId(essid) },
     apGatewayNetwork(essid),
+    apGatewayRules(essid),
   );
+
+/** The AP gateway's NAT table. An institution that publishes a website sends the
+ *  public web port to the box serving it, so the site answers at the network's public
+ *  address; every other network forwards nothing. */
+const apGatewayRules = (essid: string): string => {
+  const forward = siteForward(essid);
+  return forward === undefined ? RULES_V4_SEED : withForward(RULES_V4_SEED, 80, forward);
+};
 
 /** The inner gateway root ("admin") password, seeded from the ESSID AND the gateway's
  *  LAN octet (the `inner-gw-admin-` namespace — SEPARATE from the edge router's

@@ -42,6 +42,7 @@ import { canBoot } from '../boot/bootFiles';
 import { createFsView } from '../filesystem/fsView';
 import { HTTP_DEFAULT_PORT, resolveWebPath } from './http';
 import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter';
+import { generatedLanBox } from './generatedLanBox';
 import {
   ACCESS_LOG_OWNER,
   ACCESS_LOG_PATH,
@@ -141,14 +142,12 @@ const resolveHttpFetchSchema = z
 /** The box a destination port reaches, and the port that box must be serving the web on
  *  for the connection to succeed: a forward's INTERNAL port, or the destination port
  *  itself when the gateway serves it directly. Carries its own log identity so the arms
- *  differ in one place: which machine the hit lands on, and whose row it accretes under.
- *  A `null` writer key means there is nobody to key the log to, and the hit goes
- *  unrecorded — the AP's case, not the occupant's. */
+ *  differ in one place: which machine the hit lands on, and whose row it accretes under. */
 type FetchTarget = {
   readonly fs: Directory;
   readonly servicePort: number;
   readonly machineId: string;
-  readonly logWriterKey: string | null;
+  readonly logWriterKey: string;
 };
 
 /**
@@ -175,7 +174,7 @@ const resolveForwardTarget = async (
     (row) => addresses.get(row.owner_key) === forwarded.internalIp,
   );
   if (occupant === undefined) {
-    return UNREACHABLE;
+    return generatedForwardTarget(deps, network, forwarded);
   }
 
   const patches = await deps.findPatches({ machine_id: occupant.workstation_machine_id });
@@ -199,25 +198,44 @@ const resolveForwardTarget = async (
   };
 };
 
+/** The machine the ESSID itself generated at the forwarded address, when no occupant
+ *  holds it � the box an institution serves its website from, which nobody owns and
+ *  which exists whether or not anybody has joined. Nobody owns it, so its log accretes
+ *  under the network's own key. */
+const generatedForwardTarget = async (
+  deps: WebTargetDeps,
+  network: ApNetworkLookup,
+  forwarded: { readonly internalIp: string; readonly internalPort: number },
+): Promise<FetchTarget | HandlerResponse> => {
+  const box = await generatedLanBox(deps.findPatches, network.essid, forwarded.internalIp);
+  if (box.kind === 'error') {
+    return { status: 500, body: { error: 'patches_lookup_failed' } };
+  }
+  if (box.kind === 'absent') {
+    return UNREACHABLE;
+  }
+  return {
+    fs: box.fs,
+    servicePort: forwarded.internalPort,
+    machineId: box.machineId,
+    logWriterKey: apGatewayLogWriterKey(network.essid),
+  };
+};
+
 /** The AP gateway as a fetch target — the box the public IP itself belongs to, serving a
  *  page a root session published on it. It has no owner, so its log accretes under the
- *  AP's stable log-writer key, the same one the ssh gate uses so both logs land in one
- *  row. The lease read here is for the log ALONE: a failure costs the line, not the
- *  fetch, unlike the forward arm where leases decide reachability. */
-const gatewayTarget = async (
-  deps: WebTargetDeps,
+ *  network's own stable log-writer key, the same one the ssh gate uses so both logs land
+ *  in one row. */
+const gatewayTarget = (
   network: ApNetworkLookup,
   gatewayFs: Directory,
   port: number,
-): Promise<FetchTarget> => {
-  const leases = await deps.listLeasesByEssid(network.essid);
-  return {
-    fs: gatewayFs,
-    servicePort: port,
-    machineId: network.router_machine_id,
-    logWriterKey: leases.error ? null : apGatewayLogWriterKey(leases.data ?? []),
-  };
-};
+): FetchTarget => ({
+  fs: gatewayFs,
+  servicePort: port,
+  machineId: network.router_machine_id,
+  logWriterKey: apGatewayLogWriterKey(network.essid),
+});
 
 /**
  * Record the hit on the machine that served it — the defender's half of a door that
@@ -235,9 +253,6 @@ const logFetch = async (
   actorKey: string,
   hit: { readonly path: string; readonly status: number; readonly size: number },
 ): Promise<void> => {
-  if (target.logWriterKey === null) {
-    return;
-  }
   const line = formatAccessLogLine({
     time: asGameTime(deps.now()),
     sourceIp: await resolveCrossPlayerSourceIp(deps.findHomeNetworkByOwnerKey, actorKey),
@@ -302,7 +317,7 @@ export const resolveWebTarget = async (
   }
   const target =
     served.kind === 'router'
-      ? await gatewayTarget(deps, data, gatewayFs, request.port)
+      ? gatewayTarget(data, gatewayFs, request.port)
       : await resolveForwardTarget(deps, data, served);
   if ('status' in target) {
     return target;

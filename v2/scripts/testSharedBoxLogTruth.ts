@@ -10,14 +10,14 @@
 // Net-new under test (the locally-untypechecked api/ runtime):
 //   - TWO different players sweep the SAME generated box. Afterwards there is exactly ONE
 //     row at that `(machine_id, /var/log/auth.log)` — not one per attacker.
-//   - That row is keyed to the ESSID's LOWEST LEASE, which here belongs to a third player
-//     who never acts. Neither attacker's own key appears, so a caller-keyed write cannot
-//     satisfy this check.
+//   - That row is keyed to the ESSID's OWN key. Neither attacker's own key appears, so a
+//     caller-keyed write cannot satisfy this check — and nor does the key of the third
+//     player who holds the lowest lease and never acts.
 //   - BOTH attackers' lines are present in it, each naming its own source address. This is
 //     the accretion the rule exists for: under the old rule the second sweep's row would
 //     have hidden the first entirely.
-//   - The lowest lease is stable because leases OUTLIVE OCCUPANCY — carol holds octet 5
-//     and is not an occupant at all, which is exactly why her key does not move.
+//   - The key does not depend on who has joined — carol holds octet 5 and is not an
+//     occupant at all, and the row is still not hers.
 //
 // Usage (with v2 supabase + vercel dev running on 3100):
 //   npx dotenv -e .env.development.local -- npx tsx scripts/testSharedBoxLogTruth.ts
@@ -27,6 +27,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign';
 import { generateIdentity } from '../src/core/identity/identity';
+import { apGatewayLogWriterKey } from '../src/core/logging/apGatewayLogWriter';
 import { computeWorkstationId } from '../src/core/identity/workstation';
 import { generateHomeLan, type LanHost } from '../src/core/generation/generateHomeLan';
 import { hostServices } from '../src/core/generation/remoteHostFs';
@@ -185,7 +186,7 @@ const linesIn = (content: string): readonly string[] =>
 
 const main = async () => {
   console.log(`Target ${target.ip} (${target.hostname}) on ${ESSID} → ${targetMachine}`);
-  console.log(`Lowest lease: carol @ .${CAROL_OCTET} (never acts) — the expected writer.`);
+  console.log(`Lowest lease: carol @ .${CAROL_OCTET} (never acts) — NOT the expected writer.`);
 
   // Cleaned at SETUP, not only at teardown. This machine_id is ESSID-seeded and therefore
   // identical across runs, so a crashed or half-failing earlier run leaves rows this run
@@ -203,7 +204,8 @@ const main = async () => {
   mustNotFail('occupancy seed', occupants.error);
 
   // carol's lease with no occupancy row: she left, her address did not. The rule under test
-  // is that the log's key does not move when players join, leave or rejoin.
+  // is that the log's key does not move when players join, leave or rejoin — it belongs
+  // to the network, not to any of them.
   const leases = await sr.from('network_lan_leases').insert([
     { essid: ESSID, owner_key: carol.publicKeyHex, octet: CAROL_OCTET },
     { essid: ESSID, owner_key: alice.publicKeyHex, octet: ALICE_OCTET },
@@ -233,8 +235,8 @@ const main = async () => {
     `status=${first.status} rows=${afterAlice.length}`,
   );
   check(
-    'that row is keyed to the LOWEST LEASE, not to alice',
-    afterAlice[0]?.writer_key === carol.publicKeyHex,
+    'that row is keyed to the NETWORK, not to alice nor to the lowest lease',
+    afterAlice[0]?.writer_key === apGatewayLogWriterKey(ESSID),
     `writer=${(afterAlice[0]?.writer_key ?? '(none)').slice(0, 12)}… carol=${carol.publicKeyHex.slice(0, 12)}… alice=${alice.publicKeyHex.slice(0, 12)}…`,
   );
 

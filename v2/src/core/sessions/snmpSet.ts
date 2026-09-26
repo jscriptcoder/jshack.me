@@ -213,7 +213,7 @@ export const handleSnmpSet = async (
   const tier = communityTier(hostFs, payload.community);
   // The TARGET's key once the box has an owner, so a device keeps one file and one log
   // however many callers set on it.
-  const target = { writerKey: writerKey ?? publicKey, machineId };
+  const target = { writerKey, machineId };
   const contact = contactLines({
     accepted: tier !== null,
     // The ROUTE decides the address whenever it can; on the caller's own LAN it knows

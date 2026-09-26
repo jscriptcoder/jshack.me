@@ -29,6 +29,7 @@
 //
 // Exits 0 when all checks pass, 1 on failure, 2 on missing env / no usable host.
 
+import { apGatewayLogWriterKey } from '../src/core/logging/apGatewayLogWriter';
 import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign';
 import { generateIdentity } from '../src/core/identity/identity';
@@ -151,10 +152,12 @@ const clear = async () => {
   await sr.from('patches').delete().eq('machine_id', targetMachine);
 };
 
+/** Planted in the box's own row — the network's, since nobody owns a generated box —
+ *  so the change the door makes lands in the same row rather than beside it. */
 const plantDatadir = async () => {
   await sr.from('patches').upsert(
     {
-      writer_key: client.publicKeyHex,
+      writer_key: apGatewayLogWriterKey(ESSID),
       machine_id: targetMachine,
       path: String(DATADIR_PATH),
       content: JSON.stringify(planted),

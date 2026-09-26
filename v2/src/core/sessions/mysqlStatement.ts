@@ -121,7 +121,7 @@ export const handleMysqlStatement = async (
   // ordinary last-write-wins file, which is what a database being edited by several
   // people at once actually is. The owner's own edits land here too, so a defender's
   // changes and an intruder's meet in the same row rather than forking it.
-  const targetWriterKey = writerKey ?? publicKey;
+  const targetWriterKey = writerKey;
 
   const credential = credentialIn(hostFs, payload.username);
   if (credential === null || md5(payload.password) !== credential.passwordHash) return INVALID;

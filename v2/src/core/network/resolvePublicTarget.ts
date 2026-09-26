@@ -86,14 +86,14 @@ export type ResolvePublicTargetDeps = {
 
 /** The box behind the public IP: which tree to read, the machine id a session lands
  *  on and a log line is written to, the hostname that line carries, whose row it
- *  accretes under (the reached occupant's own key, or the AP's stable log-writer key
- *  when the target is the ownerless gateway — `null` on an AP nobody has ever leased
- *  an address on, which then keeps no log), and the ESSID the address belongs to. */
+ *  accretes under (the reached occupant's own key, or the network's own stable
+ *  log-writer key when the target is the ownerless gateway), and the ESSID the address
+ *  belongs to. */
 export type PublicTarget = {
   readonly fs: Directory;
   readonly machineId: string;
   readonly hostname: string;
-  readonly logWriterKey: string | null;
+  readonly logWriterKey: string;
   readonly essid: string;
   /** The `/24` this box's forwards may point INTO, or `null` for a box that fronts no
    *  network at all. Answered HERE because only this resolver knows which of the two it
@@ -122,17 +122,16 @@ const DEFAULT_SSH_PORT = 22;
 
 /** The gateway itself as a target — the box the public IP belongs to, root-only, its
  *  admin password seeded from the ESSID. Ownerless, so its log accretes under the
- *  AP's stable log-writer key. */
+ *  network's own stable log-writer key. */
 const gatewayTarget = (
   network: ApNetworkLookup,
   gatewayFs: Directory,
-  leases: readonly LanLeaseRow[],
   port: number,
 ): PublicTarget => ({
   fs: gatewayFs,
   machineId: network.router_machine_id,
   hostname: seedApGatewayHostname(network.essid),
-  logWriterKey: apGatewayLogWriterKey(leases),
+  logWriterKey: apGatewayLogWriterKey(network.essid),
   essid: network.essid,
   // An access point's gateway IS a router — `generateHomeLan` builds the `.1` as one —
   // so this states the device rather than assuming one, and the LAN it fronts is the
@@ -264,14 +263,14 @@ export const resolvePublicTarget = async (
     return { ok: false, status: 404, error: 'host_unreachable' };
   }
 
-  // One lease read serves both halves of what follows: which box a forward reaches, and
-  // whose row the gateway's own log accretes under. A failure is a clean 500 — an
+  if (served.kind === 'router') {
+    return { ok: true, target: gatewayTarget(data, gatewayFs, destinationPort) };
+  }
+  // The leases decide which box a forward reaches. A failure is a clean 500 — an
   // address that cannot be read is never derived as a fallback.
   const leases = await deps.listLeasesByEssid(data.essid);
   if (leases.error) {
     return { ok: false, status: 500, error: 'leases_lookup_failed' };
   }
-  return served.kind === 'router'
-    ? { ok: true, target: gatewayTarget(data, gatewayFs, leases.data ?? [], destinationPort) }
-    : resolveForwardTarget(deps, data, served, leases.data ?? []);
+  return resolveForwardTarget(deps, data, served, leases.data ?? []);
 };

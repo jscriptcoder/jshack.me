@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter';
 import {
   handleResolveHttpSweep,
   type ResolveHttpSweepDeps,
@@ -432,10 +433,10 @@ describe('a sweep with nothing to ask, and a box that will not answer', () => {
     });
   });
 
-  it('sweeps a box whose log has nobody to key it to, and simply leaves no record', async () => {
+  it("records a sweep of an access point nobody has ever joined, in the network's own row", async () => {
     const { deps, upsertPatch } = makeDeps({
-      // The AP's own gateway, on an ESSID nobody has ever leased an address on: it is
-      // reachable and serving, but there is nobody whose row the log accretes under.
+      // The AP's own gateway, on an ESSID nobody has ever leased an address on: the box
+      // belongs to the network, so the network's row is there to take the record.
       patches: patchesByMachine({
         [AP_GATEWAY_ID]: [webServerUp(), publishedPage('/index.html', 'ap portal')],
       }),
@@ -445,15 +446,19 @@ describe('a sweep with nothing to ask, and a box that will not answer', () => {
 
     const { status, body } = await handleResolveHttpSweep(envelope(), deps);
 
-    // The findings stand; the record is what is missing. Failing the sweep over a
-    // logging detail would tell the attacker something about the target's storage.
     expect(status).toBe(200);
     expect(body).toEqual({
       ok: true,
       dirlistFound: true,
       results: [{ path: '/index.html', status: 200, size: 'ap portal'.length }],
     });
-    expect(appendedLines(upsertPatch)).toEqual([]);
+    expect(upsertPatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        writer_key: apGatewayLogWriterKey(ESSID),
+        machine_id: AP_GATEWAY_ID,
+        path: ACCESS_LOG_PATH,
+      }),
+    );
   });
 
   it('refuses every unreachable target the same way, and writes nothing anywhere', async () => {
@@ -464,7 +469,7 @@ describe('a sweep with nothing to ask, and a box that will not answer', () => {
       // The gateway is bricked, so everything behind it is dark.
       makeDeps({ patches: patchesByMachine({ [AP_GATEWAY_ID]: [bootTombstone] }) }),
       // Nothing is forwarded on the port.
-      makeDeps({ patches: patchesByMachine({ [AP_GATEWAY_ID]: [] }) }),
+      makeDeps({ patches: patchesByMachine({ [AP_GATEWAY_ID]: [forwards()] }) }),
       // The forward lands on a box whose web server is not running.
       makeDeps({ patches: aliceServing() && patchesByMachine({
         [AP_GATEWAY_ID]: [forwards(forwardTo(HTTP_DEFAULT_PORT, ALICE_LAN_IP, HTTP_DEFAULT_PORT))],

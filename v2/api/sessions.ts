@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { handleCreateSession, type SessionRow } from '../src/core/sessions/createSession';
+import { publisherAt } from '../src/core/generation/publisher';
 import {
   handleAuthCreateSession,
   type AuthSessionRow,
@@ -192,7 +193,10 @@ const findNetworkByPublicIpVia =
       logFailure(label, network.error);
       return { data: null, error: network.error };
     }
-    const essid = (network.data as { essid: string } | null)?.essid ?? null;
+    // An institution's website answers at an address derived from its ESSID, so it
+    // is on the internet before anybody has joined its wifi and stored one.
+    const essid =
+      (network.data as { essid: string } | null)?.essid ?? publisherAt(publicIp) ?? null;
     if (essid === null) return { data: null, error: null };
     const resolved: ApNetworkLookup = {
       router_machine_id: computeApGatewayId(essid),
@@ -462,7 +466,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         occupancyLabel: 'reboot trace occupancy',
         lookupLabel: 'reboot trace source-ip',
       }),
-      listLeasesByEssid: listLeasesByEssidVia({ supabase, label: 'reboot lan-lease list' }),
       readLog: readAuthLogVia({ supabase, label: 'reboot kern-log read' }),
       upsertPatch: upsertPatchVia({ supabase, label: 'reboot kern-log upsert' }),
       // Unguessable on purpose: a caller able to predict the next id could keep a
@@ -640,10 +643,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }),
       readAuthLog: readAuthLogVia({ supabase, label: 'inner-gateway auth-log read' }),
       upsertPatch: upsertPatchVia({ supabase, label: 'inner-gateway auth-log upsert' }),
-      listLeasesByEssid: listLeasesByEssidVia({
-        supabase,
-        label: 'inner-gateway lan-lease list',
-      }),
     });
     res.status(status).json(body);
     return;
@@ -968,7 +967,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       listPathPatches: listPathPatchesVia({ supabase, label: 'hydra deep wordlist read' }),
       readAuthLog: readAuthLogVia({ supabase, label: 'hydra deep auth-log read' }),
       upsertPatch: upsertPatchVia({ supabase, label: 'hydra deep auth-log upsert' }),
-      listLeasesByEssid: listLeasesByEssidVia({ supabase, label: 'hydra deep lan-lease list' }),
     });
     res.status(status).json(body);
     return;

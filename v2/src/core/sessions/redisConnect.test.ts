@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter';
 import { handleRedisConnect, type RedisConnectDeps } from './redisConnect';
 import { signRequest } from '../signedRequest/sign';
 import { generateIdentity } from '../identity/identity';
@@ -228,7 +229,7 @@ describe('the line the daemon leaves behind', () => {
     await handleRedisConnect(await signedConnect(identity, { target_ip: host.ip }), deps);
 
     expect(upsertPatch).toHaveBeenCalledWith({
-      writer_key: identity.publicKeyHex,
+      writer_key: apGatewayLogWriterKey(ESSID),
       machine_id: machineId,
       path: REDIS_LOG_PATH,
       content: `${arrivalLine()}\n`,

@@ -118,9 +118,7 @@ type ScanContext = {
   readonly sourceIp: string;
   readonly time: number;
   /** Whose row every own-LAN trace in this sweep lands in: the ESSID's stable key, since
-   *  these boxes are the generator's and the access point's rather than any player's.
-   *  Resolved ONCE for the sweep — every host is on the same ESSID, so the answer cannot
-   *  differ between them, and a `/24` would otherwise re-read identical leases per box. */
+   *  these boxes are the generator's and the access point's rather than any player's. */
   readonly writerKey: string;
 };
 
@@ -263,17 +261,11 @@ export const handleNmapScan = async (
   const parsed = parseScanTarget(payload.target, lan.subnet);
   const hosts = parsed.ok ? hostsInScanTarget(lan, parsed.target) : [];
 
-  // One read for the whole sweep. Best-effort like the writes it feeds: a lease failure
-  // costs the stable key, never the traces — and an ESSID nobody has ever leased an
-  // address on has no stable key to offer, which is the one case left on the caller's.
-  const leases = await deps.listLeasesByEssid(payload.essid);
-  const sharedKey = leases.error ? null : apGatewayLogWriterKey(leases.data ?? []);
-
   const context: ScanContext = {
     essid: payload.essid,
     sourceIp: payload.source_ip ?? 'unknown',
     time: deps.now(),
-    writerKey: sharedKey ?? publicKey,
+    writerKey: apGatewayLogWriterKey(payload.essid),
   };
   for (const host of hosts) {
     await logHostScan(deps, context, host);

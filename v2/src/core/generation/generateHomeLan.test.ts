@@ -4,6 +4,8 @@ import { assignHomeNetwork } from '../network/homeNetwork';
 import { seedApGatewayHostname, seedInnerGatewayHostname } from './gatewayHostname';
 import { DRAWN_ROLES, machineRole } from './machineRole';
 import { HOSTNAME_PREFIXES, roleOfHostname } from './pools/hostnames';
+import { ESSID_CATALOG } from './pools/essidCatalog';
+import { publisherSite } from './publisher';
 
 /**
  * `generateHomeLan` is the pure topology generator behind `nmap <subnet>`. Given an
@@ -339,5 +341,58 @@ describe('generateHomeLan', () => {
     );
 
     expect(layout).toEqual(GOLDEN_OCTETS);
+  });
+});
+
+describe('generateHomeLan for an institution that publishes a website', () => {
+  const publishers = ESSID_CATALOG.filter((entry) => publisherSite(entry.essid) !== undefined).map(
+    (entry) => entry.essid,
+  );
+  const others = ESSID_CATALOG.filter((entry) => publisherSite(entry.essid) === undefined).map(
+    (entry) => entry.essid,
+  );
+
+  /** The machines whose name does not come from the role drawn for their address. */
+  const renamedOn = (essid: string): readonly LanHost[] =>
+    machinesOf(essid).filter(
+      (host) => !HOSTNAME_PREFIXES[machineRole(essid, host.ip)].includes(prefixOf(host.hostname)),
+    );
+
+  const drewAWebserver = (essid: string): boolean =>
+    machinesOf(essid).some((host) => machineRole(essid, host.ip) === 'webserver');
+
+  it('always has a webserver to serve the site from', () => {
+    const withoutOne = publishers.filter(
+      (essid) => !machinesOf(essid).some((host) => roleOfHostname(host.hostname) === 'webserver'),
+    );
+
+    expect(withoutOne).toEqual([]);
+  });
+
+  it('puts the site on the lowest-addressed machine when none of them drew the webserver role', () => {
+    const needingOne = publishers.filter((essid) => !drewAWebserver(essid));
+
+    // Without a publisher that drew no webserver of its own, nothing here would
+    // prove the one that is made.
+    expect(needingOne).not.toEqual([]);
+    for (const essid of needingOne) {
+      const [lowest] = machinesOf(essid);
+      expect(renamedOn(essid)).toEqual([lowest]);
+      expect(roleOfHostname(lowest?.hostname ?? '')).toBe('webserver');
+    }
+  });
+
+  it('leaves a publisher that drew its own webserver exactly as drawn', () => {
+    const alreadyServing = publishers.filter(drewAWebserver);
+
+    expect(alreadyServing).not.toEqual([]);
+    for (const essid of alreadyServing) expect(renamedOn(essid)).toEqual([]);
+  });
+
+  it('leaves every network that publishes nothing exactly as drawn', () => {
+    const withoutWebserver = others.filter((essid) => !drewAWebserver(essid));
+
+    expect(withoutWebserver).not.toEqual([]);
+    for (const essid of others) expect(renamedOn(essid)).toEqual([]);
   });
 });

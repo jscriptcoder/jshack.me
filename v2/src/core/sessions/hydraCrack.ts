@@ -254,22 +254,15 @@ const resolveSweepTarget = async (
   // Nobody OWNS a generated box, but every occupant of the ESSID reaches the identical
   // one, and the data doors file their lines into the very same service log on the very
   // same id — so a sweep and a login that disagreed about the key would write two rows
-  // for one path, and replay keeps only whichever arrived last. The ESSID's lowest lease
-  // is the one bucket every door and every caller agrees on.
-  //
-  // Read here rather than above the occupancy branch on purpose: a lease failure is a
-  // refusal THERE, because a neighbour resolved without their address would be swept as
-  // the wrong box. Here it costs only the stable key, so it stays best-effort and the
-  // sweep still happens — the same posture the reach keeps.
-  const leases = await deps.listLeasesByEssid(request.essid);
-  const sharedKey = leases.error ? null : apGatewayLogWriterKey(leases.data ?? []);
+  // for one path, and replay keeps only whichever arrived last. The ESSID's own key is
+  // the one bucket every door and every caller agrees on.
   return {
     ok: true,
     target: {
       machineId,
       hostname: host.hostname,
       rebuild: (patches) => materializeMachineFs(baseFs, patches),
-      writerKey: sharedKey ?? request.callerKey,
+      writerKey: apGatewayLogWriterKey(request.essid),
       fromIp: request.standingIp ?? request.claimedIp ?? 'unknown',
     },
   };

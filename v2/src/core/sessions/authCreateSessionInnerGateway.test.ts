@@ -1,4 +1,5 @@
 import { formatListenerContent } from '../services/pidfile';
+import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter';
 import { describe, expect, it, vi } from 'vitest';
 import {
   handleAuthCreateSessionInnerGateway,
@@ -212,9 +213,6 @@ const gatewayDeps = (
     now: log.now,
     readAuthLog: log.readAuthLog,
     upsertPatch: log.upsertPatch,
-    // Nobody has leased an address on this WiFi by default, which is the one case with no
-    // stable key to offer — the tests that care supply leases of their own.
-    listLeasesByEssid: async () => ({ data: [], error: null }),
   };
   return { deps, appended: log.appended };
 };
@@ -931,7 +929,7 @@ describe('handleAuthCreateSessionInnerGateway — deep-reach auth.log trace', ()
   const writtenLines = (appended: readonly PatchRow[]): string =>
     appended.map((row) => row.content ?? '').join('');
 
-  it('files the line under the lowest lease on the WiFi, not whoever reached the box', async () => {
+  it("files the line under the network's own key, not whoever reached the box", async () => {
     // The chain is regenerated from the ESSID and every occupant walks the identical one,
     // so this box is reached by several players under one machine id. `patches` is keyed
     // `(machine_id, path, writer_key)` and a log patch carries the whole file, so a line
@@ -941,25 +939,12 @@ describe('handleAuthCreateSessionInnerGateway — deep-reach auth.log trace', ()
     // It has to be the key the OTHER doors use on this box, not merely a stable one: this
     // auth.log is the same file hydra's sweep lands in, and a login and a sweep that
     // disagreed would split one log in two.
-    const neighbour = generateIdentity();
     const { deps, appended } = makeDeps();
-    const leasedDeps: AuthCreateSessionInnerGatewayDeps = {
-      ...deps,
-      // The caller is deliberately not the lowest octet: where they are, the two keys
-      // coincide and the claim cannot be told apart from its own absence.
-      listLeasesByEssid: async () => ({
-        data: [
-          { owner_key: PLAYER.publicKeyHex, octet: 77 },
-          { owner_key: neighbour.publicKeyHex, octet: 12 },
-        ],
-        error: null,
-      }),
-    };
 
-    await handleAuthCreateSessionInnerGateway(envelope({}), leasedDeps);
+    await handleAuthCreateSessionInnerGateway(envelope({}), deps);
 
     expect(appended).toHaveLength(1);
-    expect(appended[0]?.writer_key).toBe(neighbour.publicKeyHex);
+    expect(appended[0]?.writer_key).toBe(apGatewayLogWriterKey(ESSID));
   });
 
   it('appends an Accepted line on the landed deep host, sourced from the fronting gateway .1', async () => {
@@ -970,7 +955,7 @@ describe('handleAuthCreateSessionInnerGateway — deep-reach auth.log trace', ()
     expect(appended).toHaveLength(1);
     expect(appended).toContainEqual(
       expect.objectContaining({
-        writer_key: PLAYER.publicKeyHex,
+        writer_key: apGatewayLogWriterKey(ESSID),
         machine_id: DEEP_ID,
         path: AUTH_LOG_PATH,
       }),
@@ -987,7 +972,7 @@ describe('handleAuthCreateSessionInnerGateway — deep-reach auth.log trace', ()
       expect.objectContaining({
         machine_id: DEEP_ID,
         path: AUTH_LOG_PATH,
-        writer_key: PLAYER.publicKeyHex,
+        writer_key: apGatewayLogWriterKey(ESSID),
       }),
     );
     expect(writtenLines(appended)).toContain(`Failed password for guest from ${DEEP.subnet}.1`);

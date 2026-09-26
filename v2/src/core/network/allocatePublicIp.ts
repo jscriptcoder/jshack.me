@@ -9,7 +9,13 @@
  * The store effects are injected so this stays framework-agnostic core/ — the
  * Supabase wiring (an `INSERT … ON CONFLICT (essid) DO UPDATE … RETURNING`) lives
  * in the api/ adapter.
+ *
+ * An institution that publishes a website is the exception: its address is already
+ * derived from its ESSID, answering before anybody joins, so joining binds that one
+ * rather than drawing a second address for the same network.
  */
+
+import { publisherIp } from '../generation/publisher';
 
 export type AllocatePublicIpDeps = {
   /** The IP already allocated to this ESSID, or null if none yet. */
@@ -39,7 +45,7 @@ export const allocatePublicIp = async (
 
   const maxAttempts = deps.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    const bound = await deps.claim(essid, deps.drawIp());
+    const bound = await deps.claim(essid, publisherIp(essid) ?? deps.drawIp());
     if (bound !== null) return bound;
   }
   throw new Error(`public IP allocation exhausted after ${maxAttempts} attempts`);

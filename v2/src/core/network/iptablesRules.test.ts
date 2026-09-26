@@ -114,10 +114,11 @@ describe('where a rules.v4 lives', () => {
 
 describe('readRulesV4', () => {
   it('reads the seeded rules.v4 off a gateway filesystem', () => {
-    const content = readRulesV4(buildApGatewayBaseFs('BREW-AND-CODE'));
+    const content = readRulesV4(buildApGatewayBaseFs('APT-3B-WIFI'));
 
     expect(content.startsWith('#')).toBe(true);
     // Default-deny: the seed is a header and a commented example, and parses to nothing.
+    // (A flat's gateway; an institution's also forwards the website it publishes.)
     expect(parseForwardRules(content)).toEqual([]);
   });
 
@@ -161,7 +162,9 @@ describe('readRulesV4', () => {
  * every other byte is the one that was there.
  */
 describe('withForward', () => {
-  const ESSID = 'BREW-AND-CODE';
+  // A flat, whose gateway ships forwarding nothing; an institution's already forwards
+  // its website.
+  const ESSID = 'APT-3B-WIFI';
 
   /** The file a generated gateway actually ships with, rather than a header written
    *  next to the test: a writer proved only against its own fixture can drift from the

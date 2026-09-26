@@ -72,6 +72,8 @@ import { roleConfigFile } from './pools/configFiles';
 import { buildDevice } from './device';
 import { nameServerFilesFor } from './generateDnsZone';
 import { roleOfHostname } from './pools/hostnames';
+import { isSiteServer, siteServer } from './siteServer';
+import type { ForwardTarget } from '../network/iptablesRules';
 import { lanZoneName } from '../network/resolveName';
 import { buildNpcHome } from './npcHome';
 import { buildEtcContent } from './etcContent';
@@ -183,15 +185,29 @@ const hostBackdoor = (essid: string, host: LanHost, username: string): Listener 
  */
 export const hostServices = (essid: string, host: LanHost): readonly HostService[] => {
   const role = roleOfHostname(host.hostname);
+  // The box an institution's website lives on always serves it: its gateway sends
+  // the public web there, and a forward onto a closed port would be a site that is
+  // never up.
+  const servesSite = role === 'webserver' && isSiteServer(essid, host);
   return Object.values(SERVICE_CATALOG).flatMap((spec) => {
     const prng = createPrng(`svc-${spec.service}-${essid}-${host.ip}`);
-    if (prng.next() >= placementOf(role, spec)) return [];
+    const placement = servesSite && spec.service === 'http' ? 1 : placementOf(role, spec);
+    if (prng.next() >= placement) return [];
     const port =
       spec.altPorts.length > 0 && prng.next() < spec.altPortChance
         ? prng.pick(spec.altPorts)
         : spec.defaultPort;
     return [{ spec, port }];
   });
+};
+
+/** Where `essid`'s gateway sends the public web: its site server's http port, or
+ *  `undefined` for a network that publishes no website. */
+export const siteForward = (essid: string): ForwardTarget | undefined => {
+  const server = siteServer(essid);
+  if (server === undefined) return undefined;
+  const http = hostServices(essid, server).find(({ spec }) => spec.service === 'http');
+  return http === undefined ? undefined : { internalIp: server.ip, internalPort: http.port };
 };
 
 /** The uid-1000 account on `host`, without building the box. It is the FIRST draw of

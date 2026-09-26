@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter';
 import {
   handleAuthCreateSessionPublic,
   type AuthCreateSessionPublicDeps,
@@ -746,7 +747,7 @@ describe('handleAuthCreateSessionPublic', () => {
       expect(result.status).toBe(200);
       expect(upsertPatch).toHaveBeenCalledTimes(1);
       expect(upsertPatch.mock.calls[0]![0]).toEqual({
-        writer_key: ALICE.publicKeyHex,
+        writer_key: apGatewayLogWriterKey(ESSID),
         machine_id: AP_GATEWAY_ID,
         path: AUTH_LOG_PATH,
         content: `${expectedSshdLine(seedApGatewayHostname(ESSID), 'success', 'root')}\n`,
@@ -756,23 +757,6 @@ describe('handleAuthCreateSessionPublic', () => {
       });
       // The provenance is never the attacker — the keystone.
       expect(upsertPatch.mock.calls[0]![0].writer_key).not.toBe(attacker.publicKeyHex);
-    });
-
-    it("accretes the gateway's log under ONE row whatever order the leases come back in", async () => {
-      const attacker = generateIdentity();
-      const { deps, upsertPatch } = makeDeps({
-        listLeasesByEssid: async () => ({ data: [...BOTH_LEASES].reverse(), error: null }),
-      });
-
-      await handleAuthCreateSessionPublic(
-        envelope(attacker, { username: 'root', password: ADMIN_PW }),
-        deps,
-      );
-
-      // The gateway belongs to nobody, so its log has to accrete under SOME occupant's
-      // row — and it must be the same one every time. A writer_key that moves splits the
-      // log across rows, and the later row erases the earlier one on replay.
-      expect(upsertPatch.mock.calls[0]![0].writer_key).toBe(ALICE.publicKeyHex);
     });
 
     it("logs a forwarded login on the record of the box it REACHED, under that occupant's key", async () => {
@@ -845,7 +829,7 @@ describe('handleAuthCreateSessionPublic', () => {
       );
     });
 
-    it('authenticates but leaves no trace on an AP nobody has ever leased an address on', async () => {
+    it("keeps the trace on an AP nobody has ever leased an address on, in the network's own row", async () => {
       const attacker = generateIdentity();
       const { deps, upsertPatch } = makeDeps({
         listLeasesByEssid: async () => ({ data: [], error: null }),
@@ -857,7 +841,12 @@ describe('handleAuthCreateSessionPublic', () => {
       );
 
       expect(result.status).toBe(200);
-      expect(upsertPatch).not.toHaveBeenCalled();
+      expect(upsertPatch).toHaveBeenCalledTimes(1);
+      expect(upsertPatch.mock.calls[0]![0]).toMatchObject({
+        writer_key: apGatewayLogWriterKey(ESSID),
+        machine_id: AP_GATEWAY_ID,
+        path: AUTH_LOG_PATH,
+      });
     });
 
     it('writes no auth.log line for an unregistered public IP (404, nothing to log on)', async () => {

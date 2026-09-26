@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter';
 import {
   handleRebootMachine,
   type EndMachineSessionsParams,
@@ -119,7 +120,6 @@ const makeDeps = (over: Partial<RebootMachineDeps> = {}) => {
       over.findOccupantWorkstationByMachineId ?? ownedByNobody,
     findHomeNetworkByOwnerKey:
       over.findHomeNetworkByOwnerKey ?? (async () => ({ data: { public_ip: ACTOR_IP }, error: null })),
-    listLeasesByEssid: over.listLeasesByEssid ?? (async () => ({ data: [], error: null })),
     readLog,
     upsertPatch,
   };
@@ -533,22 +533,15 @@ describe('the line a reboot leaves behind', () => {
     const { deps, upsertPatch } = makeDeps({
       findActiveSession: holding('root'),
       findOccupantWorkstationByMachineId: ownedByNobody,
-      listLeasesByEssid: async () => ({
-        data: [
-          { owner_key: 'high-octet', octet: 9 },
-          { owner_key: 'low-octet', octet: 4 },
-        ],
-        error: null,
-      }),
     });
 
     await handleRebootMachine(envelope, deps);
 
     // Nobody owns an access point, so its log needs a key that does not move when
-    // players join and leave: the lowest address ever leased on the network. Under
-    // the rebooter's own key instead, two attackers would erase each other here.
+    // players join and leave: the network's own. Under the rebooter's own key instead,
+    // two attackers would erase each other here.
     expect(upsertPatch).toHaveBeenCalledWith(
-      expect.objectContaining({ writer_key: 'low-octet', machine_id: gateway }),
+      expect.objectContaining({ writer_key: apGatewayLogWriterKey('HOME-9F2A'), machine_id: gateway }),
     );
   });
 
@@ -584,42 +577,6 @@ describe('the line a reboot leaves behind', () => {
     // A false origin in a defender's log is worse than no origin.
     const written = upsertPatch.mock.calls.at(-1)?.[0];
     expect(written?.content).toContain('requested from unknown');
-  });
-
-  it("falls back to the rebooter's own key when the network's leases cannot be read", async () => {
-    const identity = generateIdentity();
-    const gateway = computeApGatewayId('HOME-9F2A');
-    const envelope = signRequest(identity, 'rebootMachine', { machine_id: gateway });
-    const { deps, upsertPatch } = makeDeps({
-      findActiveSession: holding('root'),
-      findOccupantWorkstationByMachineId: ownedByNobody,
-      listLeasesByEssid: async () => ({ data: null, error: 'down' }),
-    });
-
-    await handleRebootMachine(envelope, deps);
-
-    // A lease read that fails costs the stable key, never the line. One reboot
-    // recorded in a row of its own beats a reboot nobody can see was run.
-    expect(upsertPatch).toHaveBeenCalledWith(
-      expect.objectContaining({ writer_key: identity.publicKeyHex, machine_id: gateway }),
-    );
-  });
-
-  it('falls back the same way on a network nobody has ever leased an address on', async () => {
-    const identity = generateIdentity();
-    const gateway = computeApGatewayId('HOME-9F2A');
-    const envelope = signRequest(identity, 'rebootMachine', { machine_id: gateway });
-    const { deps, upsertPatch } = makeDeps({
-      findActiveSession: holding('root'),
-      findOccupantWorkstationByMachineId: ownedByNobody,
-      listLeasesByEssid: async () => ({ data: null, error: null }),
-    });
-
-    await handleRebootMachine(envelope, deps);
-
-    expect(upsertPatch).toHaveBeenCalledWith(
-      expect.objectContaining({ writer_key: identity.publicKeyHex }),
-    );
   });
 
   it('names a generated host by the only name anybody has for it', async () => {

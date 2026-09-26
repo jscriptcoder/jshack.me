@@ -26,6 +26,10 @@ import {
 import { md5 } from './md5';
 import { readOpenPorts, type OpenPort } from '../services/pidfile';
 import { parseForwardRules } from '../network/iptablesRules';
+import { ESSID_CATALOG } from './pools/essidCatalog';
+import { publisherSite } from './publisher';
+import { generateHomeLan } from './generateHomeLan';
+import { hostServices } from './remoteHostFs';
 import { parseAclDenies } from '../network/switchAcl';
 import { parseSnmpdConf, readSnmpdConf } from '../snmp/conf';
 import { DEFAULT_WORDLIST } from '../wordlist/defaultWordlist';
@@ -805,5 +809,40 @@ describe('buildRouterBaseFsFromIdentity', () => {
 
   it('is deterministic: same inputs yield a byte-identical tree', () => {
     expect(routerFs()).toEqual(routerFs());
+  });
+});
+
+/**
+ * An institution's website is reachable from the whole internet because its gateway
+ * sends the public web port to the box that serves the site. Nothing else is
+ * forwarded, and a network that publishes nothing forwards nothing.
+ */
+describe('the AP gateway of an institution that publishes a website', () => {
+  const forwardsOf = (essid: string) =>
+    parseForwardRules(fileAt(buildApGatewayBaseFs(essid), ['etc', 'iptables'], 'rules.v4'));
+
+  const publishers = ESSID_CATALOG.map((entry) => entry.essid).filter(
+    (essid) => publisherSite(essid) !== undefined,
+  );
+
+  it('forwards the public web port, and only that, to a box on its LAN serving http there', () => {
+    const misrouted = publishers.filter((essid) => {
+      const forwards = forwardsOf(essid);
+      const [forward] = forwards;
+      const target = generateHomeLan(essid).hosts.find((host) => host.ip === forward?.internalIp);
+      const servesHttpThere =
+        target !== undefined &&
+        hostServices(essid, target).some(
+          ({ spec, port }) => spec.service === 'http' && port === forward?.internalPort,
+        );
+      return forwards.length !== 1 || forward?.publicPort !== 80 || !servesHttpThere;
+    });
+
+    expect(misrouted).toEqual([]);
+  });
+
+  it('forwards nothing for a network that publishes nothing', () => {
+    expect(forwardsOf('APT-3B-WIFI')).toEqual([]);
+    expect(forwardsOf('DEFCON-VILLAGE')).toEqual([]);
   });
 });

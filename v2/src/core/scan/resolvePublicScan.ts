@@ -28,6 +28,7 @@ import { bootableOccupantFs, natPortResolver } from '../network/natHosts';
 import { lanAddressesByOwner, type LanLeaseRow } from '../network/lanAddress';
 import { seedApGatewayHostname } from '../generation/gatewayHostname';
 import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter';
+import { generatedLanBox } from '../network/generatedLanBox';
 import {
   formatNmapScanAggregate,
   KERN_LOG_OWNER,
@@ -174,12 +175,28 @@ const resolveForwardTargets = async (
     return { ok: false, response: { status: 500, body: { error: 'patches_lookup_failed' } } };
   }
 
-  const trees = new Map(
-    journals.flatMap(({ occupant, lanIp, patches }) => {
-      const occupantFs = bootableOccupantFs(occupant, patches.data);
-      return occupantFs === null ? [] : [[lanIp, occupantFs] as const];
-    }),
+  const occupantTrees = journals.flatMap(({ occupant, lanIp, patches }) => {
+    const occupantFs = bootableOccupantFs(occupant, patches.data);
+    return occupantFs === null ? [] : [[lanIp, occupantFs] as const];
+  });
+
+  // A forward may also name a box the network generated itself � the site server an
+  // institution publishes its website from, there whether or not anybody has joined.
+  // No occupant is ever leased a generated machine's address, so the two never overlap.
+  const generated = await Promise.all(
+    [...forwardedAddresses].map(async (address) => ({
+      address,
+      box: await generatedLanBox(deps.findPatches, network.essid, address),
+    })),
   );
+  if (generated.some(({ box }) => box.kind === 'error')) {
+    return { ok: false, response: { status: 500, body: { error: 'patches_lookup_failed' } } };
+  }
+  const generatedTrees = generated.flatMap(({ address, box }) =>
+    box.kind === 'up' ? [[address, box.fs] as const] : [],
+  );
+
+  const trees = new Map([...occupantTrees, ...generatedTrees]);
   return { ok: true, resolveTargetPorts: natPortResolver(trees, deps.gameDay) };
 };
 
@@ -273,18 +290,15 @@ export const handleResolvePublicScan = async (
     gameDay: deps.gameDay,
   });
 
-  // Host-up: leave a truthful kern.log trace on the gateway's shared record. The source
-  // IP is the scanner's own home public IP, server-derived from their verified key —
-  // never the payload's. An AP nobody has ever leased an address on has no row to write
-  // under, so it keeps no log; the scan still reports truthfully.
-  const writerKey = apGatewayLogWriterKey(leases.data ?? []);
-  if (writerKey !== null) {
-    const sourceIp = await resolveCrossPlayerSourceIp(
-      deps.findHomeNetworkByOwnerKey,
-      verified.publicKey,
-    );
-    await logCrossPlayerScan(deps, data, writerKey, ports, sourceIp);
-  }
+  // Host-up: leave a truthful kern.log trace on the gateway's shared record, in the
+  // network's own row — there even on an AP nobody has ever joined. The source IP is the
+  // scanner's own home public IP, server-derived from their verified key — never the
+  // payload's.
+  const sourceIp = await resolveCrossPlayerSourceIp(
+    deps.findHomeNetworkByOwnerKey,
+    verified.publicKey,
+  );
+  await logCrossPlayerScan(deps, data, apGatewayLogWriterKey(data.essid), ports, sourceIp);
 
   return { status: 200, body: { ok: true, found: true, ports } };
 };

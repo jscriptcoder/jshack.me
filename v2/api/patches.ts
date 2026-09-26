@@ -547,24 +547,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (error) console.error('[patches] deep-scan vantage journal lookup error:', error);
       return { data: data as readonly OwnerPatchRow[] | null, error };
     };
-    // Every lease on the ESSID in ONE read: a deep host is ownerless and shared by every
-    // occupant, so its kern.log accretes under the lowest octet leased there rather than
-    // under whoever ran the scan.
-    const listLeasesByEssid = async (essid: string) => {
-      const { data, error } = await supabase
-        .from('network_lan_leases')
-        .select('owner_key, octet')
-        .eq('essid', essid);
-      if (error) console.error('[patches] deep-scan lan-lease list error:', error);
-      return { data: data as readonly LanLeaseRow[] | null, error };
-    };
     const { status, body } = await handleNmapScanDeep(req.body, {
       nonceStore: noopNonceStore,
       now: () => Date.now(),
       readLog,
       upsertPatch,
       findPatches,
-      listLeasesByEssid,
     });
     res.status(status).json(body);
     return;
