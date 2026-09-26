@@ -173,8 +173,11 @@ v0.271.0 (#557), and its slice 4 (findit falls and comes back — a rooted findi
 intel, a defaced front page shows for everyone, and `scripts/restoreFindit.ts` reboots it back to its
 generated state) SHIPPED v0.272.0 (#558), and its slice 5 (the `government` category — the police,
 the council and the courts, each publishing a `.gov` site, each running the `cases` application)
-SHIPPED v0.273.0 (#559). Slice 6 (the `retail` category) is next to plan; the epic's X2 section holds the
-decisions and every shipped slice's as-built.
+SHIPPED v0.273.0 (#559). A fix it carried forward shipped v0.274.0 (#560): an institution's site
+server serves its public site whatever the box is called, where 15 publishers had served an API
+reference or their intranet. The unreachable-`mysql`-on-infrastructure finding is next, and needs
+its own decision before planning; slice 6 (the `retail` category) comes after it. The epic's X2
+section holds the decisions and every shipped slice's as-built.
 
 **Phase 3 — vulnerabilities is GRILLED (2026-09-09) and ready for `planning`.** Twenty-three locked
 decisions and a nine-slice, loop-first spine live in the epic. Three things a v2 session should know

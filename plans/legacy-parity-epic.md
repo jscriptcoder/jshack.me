@@ -5181,9 +5181,10 @@ government office keeping case files.
      the content, and the police could still draw it).
 125. **A government site always carries a staff directory** — `staff.html`, "Staff directory", the
      webmaster plus real people on the network with government roles, following the corporate "Team"
-     and university "People" pattern. A public `.gov` page is then reconnaissance. **Amended by what
-     play found: it holds only where the publisher box serves an ordinary site** (see the carried
-     risks). Rejected: no fixed page, as for public places and cafés.
+     and university "People" pattern. A public `.gov` page is then reconnaissance. Play found it held
+     for two of the three (city hall's site server is an `api-` box); **it holds for all three since
+     v0.274.0 (#560)** (see the carried risks). Rejected: no fixed page, as for public places and
+     cafés.
 
 **Derived from existing conventions:**
 
@@ -5259,6 +5260,17 @@ government office keeping case files.
   noticed. The fix, if wanted, belongs to slice 1's ground: have `siteServer` prefer a non-`api`
   webserver where a network has one. That changes behaviour for 7 existing publishers and re-rolls
   their site content, which is why it was not folded in.
+  **RESOLVED v0.274.0 (#560), and the proposed fix was wrong.** Measured before coding: none of the
+  7 `api-` publishers has any other webserver on its network, so preferring one would have changed
+  nothing. Measuring also turned up 8 more publishers on a `portal-` box, serving their INTRANET as
+  the public site and listing the LAN's machines on it (UMBRELLA, OSCORP, TYRELL, OMNI, VANDELAY,
+  NIGHT-OWL-CAFE, ESPRESSO-EXPRESS, CITY-PARK-WIFI) — 15 of 35 in all. The root cause was ordering
+  in the site builder: the hostname prefix picked the kind of site before anything asked whether the
+  box was the site server. The owner chose "public site, any name": the box an institution
+  publishes from always serves its public site, and every other `portal-`/`api-` box keeps its
+  intranet or API reference. The LAN, the addresses and the `:80` forward are untouched. **Measure a
+  proposed fix against the world before planning it** — a fix written from a single example had
+  already been recorded here as the answer.
 - **A `mysql` service drawn onto a router or switch is unreachable, so the `cases` TABLES cannot be
   read in play today.** The only mysql placement across the three government LANs landed on
   `vpn-gw`, a SWITCH, and an infrastructure box's in-play ports are `22` + `161` — `nmap` says so and
