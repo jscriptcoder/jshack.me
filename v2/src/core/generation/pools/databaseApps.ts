@@ -121,6 +121,13 @@ const PRODUCTS = [
   'Hand truck', 'Shelf bins', 'Barcode scanner', 'Hi-vis vest', 'Floor tape', 'Stretch film', 'Void fill',
   'Mailer bags', 'Corner guards', 'Strapping kit', 'Desk lamp', 'Toner cartridge', 'Printer paper',
 ];
+const GOODS = [
+  'Semi-skimmed milk', 'White loaf', 'Free-range eggs', 'Butter', 'Cheddar', 'Orange juice', 'Instant coffee',
+  'Tea bags', 'Breakfast cereal', 'Pasta', 'Tinned tomatoes', 'Rice', 'Bananas', 'Apples', 'Potatoes',
+  'Washing-up liquid', 'Laundry powder', 'Toilet roll', 'Kitchen roll', 'Bin bags', 'Toothpaste', 'Shampoo',
+  'Hand soap', 'Paracetamol', 'AA batteries', 'Light bulb', 'Printer paper', 'Ballpoint pens', 'Birthday card',
+  'Phone charger', 'Umbrella', 'Dog food', 'Crisps', 'Chocolate bar', 'Bottled water', 'Firelighters',
+];
 const MENU = [
   'Espresso', 'Double espresso', 'Americano', 'Flat white', 'Cappuccino', 'Latte', 'Mocha', 'Cortado',
   'Hot chocolate', 'Chai latte', 'English breakfast tea', 'Peppermint tea', 'Croissant', 'Pain au chocolat',
@@ -817,6 +824,57 @@ const cases: Archetype = {
   ],
 };
 
+const shop: Archetype = {
+  names: ['shop', 'store_pos', 'retail'],
+  tables: [
+    {
+      name: 'products',
+      required: true,
+      columns: [
+        id,
+        code('sku', 'SKU-', 5101),
+        unique('name', GOODS),
+        pick('aisle', ['Aisle 1', 'Aisle 2', 'Aisle 3', 'Aisle 4', 'Chiller', 'Checkout']),
+        whole('price_eur', 1, 25),
+        stamp('added_at'),
+      ],
+    },
+    {
+      name: 'sales',
+      required: true,
+      columns: [
+        id,
+        ref('served_by', 'users'),
+        whole('till_no', 1, 8),
+        whole('total_eur', 1, 180),
+        pick('paid_by', ['card', 'cash', 'contactless', 'voucher']),
+        stamp('sold_at'),
+      ],
+    },
+    {
+      name: 'sale_lines',
+      required: true,
+      columns: [id, ref('sale_id', 'sales'), ref('product_id', 'products'), whole('quantity', 1, 6)],
+    },
+    {
+      name: 'loyalty_members',
+      required: true,
+      columns: [id, code('card_no', 'LOY-', 40001), person('name'), whole('points', 0, 2400), stamp('joined_at')],
+    },
+    {
+      name: 'returns',
+      required: false,
+      columns: [
+        id,
+        ref('sale_id', 'sales'),
+        pick('reason', ['faulty', 'wrong size', 'changed mind', 'damaged in transit', 'past its date']),
+        whole('refund_eur', 1, 60),
+        stamp('returned_at'),
+      ],
+    },
+  ],
+};
+
 const cms: Archetype = {
   names: ['cms', 'site_cms', 'intranet'],
   tables: [
@@ -1005,6 +1063,7 @@ export const ARCHETYPE_DEFINITIONS = {
   library,
   bookings,
   cases,
+  shop,
   telemetry,
   scoreboard,
   wiki,

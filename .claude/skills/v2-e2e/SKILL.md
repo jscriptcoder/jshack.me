@@ -550,8 +550,9 @@ site makes the link count meaningless.
   `docker exec supabase_db_jshack-me-v2 psql -U postgres -tAc "select public_ip from network_public_ips where essid='<ESSID>'"`.
 - **Pick a network with no site of its own.** On a publisher's network (every corporate, café
   and institutional one — including the three government ones, `RIDGEMONT-PD` `ridgemontpd.gov`,
-  `CITY-HALL-WIFI` `ridgemont.gov` and `COURTHOUSE-GUEST` `ridgemontcourts.gov`, since v0.273.0)
-  the page is listed under the institution's DOMAIN, not an IP. The residential, iot and hacker
+  `CITY-HALL-WIFI` `ridgemont.gov` and `COURTHOUSE-GUEST` `ridgemontcourts.gov`, since v0.273.0, and
+  the four shops, `KWIK-E-MART` `kwikemart.com`, `MONSTROMART` `monstromart.com`, `BUY-N-LARGE`
+  `buynlarge.com` and `MEGA-LO-MART` `megalomart.com`, since v0.276.0) the page is listed under the institution's DOMAIN, not an IP. The residential, iot and hacker
   entries are the ones that show a bare address.
 - **`echo … > file` writes ONE line** — the shell has `>` but no `>>`, and `echo` takes no `-e`.
   That is fine for a one-line page or forward, but a `robots.txt` needs two lines

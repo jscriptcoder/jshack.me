@@ -80,6 +80,13 @@ describe('the web findit searches', () => {
     expect(rankPages(web, 'court')[0]?.address).toBe('ridgemontcourts.gov');
   });
 
+  it('puts a shop first for its own name, and for the groceries only a shop says it sells', async () => {
+    const web = await indexWith();
+    const shops = ['kwikemart.com', 'monstromart.com', 'buynlarge.com', 'megalomart.com'];
+    expect(rankPages(web, 'monstromart')[0]?.address).toBe('monstromart.com');
+    expect(shops).toContain(rankPages(web, 'groceries')[0]?.address);
+  });
+
   it('reads each homepage for what the site calls itself and says about itself', async () => {
     const campus = await found(CAMPUS_DOMAIN);
     expect(campus?.title).toBe(publisherSite(CAMPUS)?.name);

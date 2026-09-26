@@ -117,6 +117,7 @@ export const ARCHETYPES_BY_CATEGORY = {
   iot: ['telemetry'],
   hacker: ['scoreboard', 'wiki'],
   government: ['cases'],
+  retail: ['shop'],
 } as const satisfies Readonly<Record<NetworkCategory, readonly ArchetypeKey[]>>;
 
 /** The applications a network can run — every archetype some kind of place draws, which

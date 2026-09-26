@@ -25,6 +25,10 @@ describe('networkPersona', () => {
       category: 'government',
       place: 'the police station',
     });
+    expect(networkPersona('MONSTROMART')).toMatchObject({
+      category: 'retail',
+      place: 'Monstromart',
+    });
   });
 
   it('gives a network outside the catalog a place of its own, the same one every time', () => {

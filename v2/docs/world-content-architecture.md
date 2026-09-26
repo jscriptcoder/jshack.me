@@ -148,7 +148,7 @@ path is served; and 1–4 unlinked paths drawn from the shipped dirlist so a def
 pays. `dump.sql` is schema-only and always present on a mysql webserver. The web tools resolve
 `.lan` names through `resolveLanName`. Other http hosts serve one version-free page.
 
-**Databases** (`generateDatabase.ts`, `databaseApp.ts`, `pools/databaseApps.ts`): 16 application
+**Databases** (`generateDatabase.ts`, `databaseApp.ts`, `pools/databaseApps.ts`): 17 application
 archetypes as data, picked by prefix (`portal-` cms, `api-` api), role (mail) or the network's
 category. A LAN `users` table holds the box's account plus every neighbour's; other tables hold
 5–40 rows, referentially sound and dated inside the application's life. `generateApplication` is
