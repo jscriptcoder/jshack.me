@@ -165,8 +165,9 @@ is legacy parity **minus missions**; missions are a post-ship epic.
 **🏁 PHASE 1 (the doors) IS COMPLETE at v0.205.0.** Every door in the locked order has shipped —
 web, hydra, ftp, scp, daemons, nc, machine kinds, mysql, redis, snmp, node, and the terminal
 itself. **Phase 2 — discovery** opened and closed its first door: X1 (DNS) SHIPPED COMPLETE
-(v0.206.0–v0.209.0, #487–#490). X2 (`findit.io`, a search engine over the public web) is grilled
-and its slice 1 is in flight — `plans/an-institution-has-a-website.md` holds the live status.
+(v0.206.0–v0.209.0, #487–#490). X2 (`findit.io`, a search engine over the public web) is grilled;
+its slice 1 (an institution has a website you reach by name) SHIPPED v0.265.0–v0.268.0 (#551–#554),
+and slice 2 (findit.io answers a search) is next — the epic's X2 section holds the live status.
 
 **Phase 3 — vulnerabilities is GRILLED (2026-09-09) and ready for `planning`.** Twenty-three locked
 decisions and a nine-slice, loop-first spine live in the epic. Three things a v2 session should know

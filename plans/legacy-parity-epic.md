@@ -25,7 +25,8 @@ content is inside the ship gate). **That epic is DONE** (2026-09-25, v0.264.0, a
 twelve slices, #533–#550), so the ship gate is unblocked. **Update 2026-09-26: X2 (`findit.io`) was
 un-deferred and GRILLED ahead of the ship gate** — decisions 91–105 and a six-slice spine in
 ["X2 — resolved scope & decisions"](#x2--resolved-scope--decisions-grilling-2026-09-26); its slice 1
-plan is WRITTEN ([`an-institution-has-a-website.md`](./an-institution-has-a-website.md), three PRs), then the ship gate.
+SHIPPED v0.265.0–v0.268.0 (#551–#554, as-built under that section); slice 2 (findit.io answers a
+search) is next to plan.
 The `Status` block below is an accumulating log, not the current state.
 
 **Status**: **D1 shipped** (v0.109.0), with its web follow-ups D1c (v0.123.0-v0.124.0), D1b
@@ -415,7 +416,11 @@ PHASE 2 — DISCOVERY
       X1 slice 3 the zone transfers                   ✅ SHIPPED v0.208.0 (#489)
       X1 slice 4 the transfer leaves a trace          ✅ SHIPPED v0.209.0 (#490)
   X2  findit.io + common website-bearing networks     GRILLED 09-26 (decisions 91-105, 6 slices)
-      X2 slice 1 an institution has a website     1a v0.265.0, 1b v0.266.0, 1c v0.267.0, 1d BUILT v0.268.0 (plans/an-institution-has-a-website.md)
+      X2 slice 1 an institution has a website     ✔ SHIPPED v0.265.0-v0.268.0 (#551-#554)
+        1a a publisher answers at its IP      ✅ SHIPPED v0.265.0 (#551)
+        1b a domain resolves                  ✅ SHIPPED v0.266.0 (#552)
+        1c the forward is a way in            ✅ SHIPPED v0.267.0 (#553)
+        1d a bare address is a URL            ✅ SHIPPED v0.268.0 (#554)
 PHASE 3 — VULNERABILITIES                             GRILLED 09-09/09-10 + PLANNED (35 decisions)
       V slice 1 a version is visible          ✔ SHIPPED v0.210.0-v0.211.0 (#491, #494)
         1a every box carries a manifest       ✅ SHIPPED v0.210.0 (#491)
@@ -4666,6 +4671,9 @@ world is attackable").
    function behind the `resolveHttpFetch` handler (95), `<meta name="description">` on generated
    homepages (96), the escaped HTML response (99). *Acceptance:* `curl "http://findit.io/?q=university"`
    ranks the university first; `lynx findit.io` renders the form.
+   *Carried from slice 1:* generated homepages are titled with the network's `place` ("The campus"),
+   not the site `name` ("Ridgemont University"); findit ranks titles, so this slice titles a
+   publisher's homepage with its site name.
 3. **A player's page is found** — query-time listing of every player's public `:80` forward that is
    actually serving, `robots.txt` `Disallow: /` as the opt-out, IP-only results (97, 98).
    *Acceptance:* A publishes nginx and B finds A's title and public IP; A adds `Disallow: /` and drops out.
@@ -4683,6 +4691,151 @@ world is attackable").
 - **Whether findit's `access.log` line already carries the query string** (102), or the log writer
   needs it added.
 - **How `lynx` follows a result link** to a world domain.
+
+### As-built: X2 slice 1 — an institution has a website you reach by name
+
+Shipped v0.265.0–v0.268.0 as four independent PRs against trunk (#551–#554), 2026-09-26. From any
+network `curl ridgemont.edu` reads Ridgemont University's homepage, `nmap ridgemont.edu` shows the
+gateway's `22` and the forwarded `80`, and a live CVE on the webserver behind that forward opens a
+session inside the university's LAN — before anybody has joined its wifi.
+
+#### Decided at planning (owner-confirmed as a set, 2026-09-26)
+
+1. **Reserved octet `193`.** A publisher's IP is `193.x.y.z` from `createPrng('publisher-ip-<essid>')`;
+   `isPublicIp` accepts `193`, `generatePublicIp` never draws it. A catalog-wide test proves the 32
+   addresses distinct.
+2. **Joining stores the derived address**, and the server's IP → network lookup falls back to the
+   derivation on a miss — ONE pure `core/` function wrapped around each of the three `api/` lookups
+   (module scope inside each endpoint; no new `api/` file).
+3. **The webserver is guaranteed by override, never by a draw.** If no sibling is a webserver, the
+   lowest-addressed ordinary sibling becomes one; the publisher's webserver always runs http; the
+   gateway seeds `forward 80 to <ip>:<httpPort>` with the port it actually rolled.
+4. **All three forward resolvers fall back to the generated LAN box** at the forwarded address when no
+   occupant matches (fetch and scan in 1a, public target in 1c).
+5. **World names resolve inside `resolveName`**, so `nslookup` sees them; `nmap` and `ssh` resolve
+   before the public check; `lynx` goes through `addressForTarget`. `gobuster`/`hydra` stay out.
+6. **Names** — one fictional city, Ridgemont:
+
+   | ESSID | domain | name |
+   |---|---|---|
+   | 20 corporates | `acme.com`, `initech.com`, `globex.com`, `waystar.com`, `dundermifflin.com`, `hooli.com`, `umbrellacorp.com`, `starkindustries.com`, `cyberdyne.com`, `oscorp.com`, `weyland-yutani.com`, `tyrellcorp.com`, `aperturescience.com`, `shinra.com`, `abstergo.com`, `wonkalabs.com`, `ocp.com`, `piedpiper.com`, `vandelayindustries.com`, `nakatomi.com` (catalog order) | their `place` |
+   | 6 cafés | `brewandcode.com`, `beanthere.com`, `midnightdiner.com`, `nightowlcafe.com`, `groundzerocoffee.com`, `espressoexpress.com` | their `place` |
+   | `CAMPUS-GUEST-OPEN` | `ridgemont.edu` | Ridgemont University |
+   | `LIBRARY-PATRON` | `ridgemontlibrary.org` | Ridgemont Public Library |
+   | `CITY-PARK-WIFI` | `ridgemontparks.gov` | Ridgemont Parks Department |
+   | `METRO-COMMUTER` | `ridgemontmetro.gov` | Ridgemont Metro |
+   | `AIRPORT-LOUNGE-VIP` | `flyridgemont.com` | Ridgemont International Airport |
+   | `TRAIN-STATION-FREE` | `ridgemontcentral.org` | Ridgemont Central Station |
+
+7. **Independent PRs**, each closed by a `v2-e2e` browser run; 1a and 1c carry an `api/` change and
+   so a wire-check. Planned as three; a fourth (1d) was added after 1b with the owner's agreement.
+
+#### 1a — a publisher's website answers at its public IP (v0.265.0, #551)
+
+- **Decided mid-slice — the AP log key.** A fetch of a publisher nobody had joined had no writer key
+  to log under (shared logs keyed to the lowest lease holder). Owner chose a stable per-network key,
+  `ap:<essid>`, for EVERY AP's ownerless boxes; lease reads that only picked the key were removed,
+  and a player's write to a generated database now lands in the network's row too.
+  `docs/cross-player-architecture.md` updated.
+- New modules: `generation/publisher.ts` (`publisherSite`, `publisherIp`, `publisherAt`),
+  `generation/siteServer.ts`, `network/generatedLanBox.ts` (the shared fetch/scan fallback).
+- Gates: suite 6120 green; wire-checks `testPublisherWeb` 6/6 plus 37 others live; browser run from
+  `BOFH-KEEPOUT` — `curl http://193.46.209.111/` returned the campus homepage, `nmap` showed
+  22/161/80, no stored address, hit logged under `ap:CAMPUS-GUEST-OPEN`. Mutation in four scoped
+  batches: all own-line mutants killed or hand-verified (module-load statics the vitest runner
+  cannot reload), `isPublicIp` gained direct tests, two redundant conditions removed.
+- **Carried to slice 2:** the generated homepage is titled with the network's `place` ("The
+  campus"), not the site `name` ("Ridgemont University"); findit ranks titles, so slice 2's homepage
+  work should title a publisher's page with its site name.
+
+#### 1b — a domain resolves, anywhere, for every command that takes an address (v0.266.0, #552)
+
+- **World names first.** `siteAddress(domain)` in `generation/publisher.ts` (a catalog-derived
+  domain → `193.` table) is consulted first in `resolveName`, case-folded, with no occupant round
+  trip; a player who names their box `acme.com` cannot take Acme's traffic.
+- **`nmap` and `ssh` resolve before `isPublicIp`.** `ssh` keeps one occupant read via a lazily
+  cached promise (a test pins the single read); a domain or an address costs none.
+- **`lynx` resolves, and so does a followed link** (`followLink` in `ui/state.ts`) — not in the plan,
+  but a page opened by domain carries the domain in every relative link. The address bar keeps the
+  typed name.
+- **Resolved by 1d (v0.268.0):** `lynx`/`curl` rejected a scheme-less URL, so the AC's bare
+  `lynx ridgemont.edu` is built and tested as `lynx http://ridgemont.edu/`. Accepting bare hosts
+  (as real `lynx` and `curl` do) is a separate `parseHttpUrl` change.
+- **Gates:** 6134 unit tests green, typecheck and lint clean. Stryker (scoped, 95 mutants): 84
+  killed; survivors are `publisher.ts` module-load statics (hand-verified: the mutant throws at
+  import) and one pre-existing X1 regex; 3 NoCoverage on `followLink`'s pre-existing offline alert.
+- **Browser (v0.266.0, from `APT-3B-WIFI`):** `nslookup` → `193.46.209.111`; `nmap` → 22/161/80;
+  `curl` → the campus homepage; `lynx` → homepage, then About followed by link; `ssh
+  admin@ridgemont.edu` → password prompt, refused server-side.
+
+#### 1c — the forward is a way in (v0.267.0, #553)
+
+- **The fallback lives in `resolvePublicTarget`'s forward resolver**, reusing 1a's
+  `generatedLanBox` (which now also hands back the host, for its hostname and kind). No occupant at
+  the forwarded address → the generated box, boot-gated, journal-replayed, logging under
+  `ap:<essid>`. So every door on that resolver gains it at once: login, `hydra`, the data doors,
+  `snmpset` and `msfconsole`. No consolidation with the fetch and scan resolvers: the three
+  target shapes differ, and the shared knowledge is already `generatedLanBox`.
+- **Filtered or stopped reads as dark**, like an occupant's box: the forward's internal port
+  must be open to the network on the generated box too (`listensOn`, now shared by both
+  branches), else `host_unreachable`.
+- **The generated box keeps the segment it fronts from inside** (`frontedSegment` with its own
+  kind), so an inner router reached through a player's forward takes `snmpset` NAT writes into its
+  hidden layer and refuses LAN ones. This was not in the plan; a mutation survivor showed it
+  untested, and two `snmpSetCrossPlayer` tests now pin it.
+- **Found in play:** on today's game day (76) every publisher's webserver ships `nginx 1.26.0`,
+  whose live hole is `script_exec` (high, user) and not a shell. So the shell criterion is proven
+  in unit tests and in the wire-check by walking the manifest onto `1.27.0` (`shell_full`, guest).
+  The browser proves the same path with the stock hole.
+- **Gates:** 6142 unit tests green, typecheck and lint clean. Stryker (scoped,
+  `resolvePublicTarget.ts` + `generatedLanBox.ts`): `generatedLanBox` 19/19; `resolvePublicTarget`
+  141 killed, 1 survived (pre-existing `kind: 'router'` on the AP gateway: equivalent, since
+  `frontedSegment` ignores kind for the AP), 2 NoCoverage (pre-existing `?? []`).
+- **Wire-check:** new `scripts/testExploitPublisherSite.ts`, 6/6. The session lands on `www-59`,
+  the trace is in its `auth.log` under `ap:CAMPUS-GUEST-OPEN` naming the server-held attacker
+  address, and a clean release refuses `not_vulnerable`. Re-run green:
+  `testExploitApGateway` 15/15, `testPublisherWeb` 6/6, `testExploitCrossPlayer` 14/14,
+  `testHydraCrossPlayer` 16/16, `testMysqlCrossPlayer` 8/8, `testRedisCrossPlayer` 13/13,
+  `testSnmpCrossPlayer` 15/15, `testCrossPlayerRouter` 8/8.
+- **Browser (v0.267.0, from `APT-3B-WIFI`):** `nmap -sV ridgemont.edu` → `80/tcp http
+  nginx/1.26.0 CVE-2026-0269486 high`; `msfconsole ridgemont.edu 80 pwn.js` → `Script injected
+  on 193.46.209.111 as user`. The script's `/tmp/through-the-forward.txt` landed on
+  `www-59-650d566f`, and its `auth.log` line (under `ap:CAMPUS-GUEST-OPEN`) names the
+  attacker's home address.
+
+#### 1d — a bare address is a URL (v0.268.0, #554)
+
+Added after 1b: real `curl` defaults a scheme-less URL to HTTP and real `lynx` assumes `http://`, so
+the game's tools do too.
+
+- **A new entry point, not a change to `parseHttpUrl`.** `parseTypedUrl` in `network/http.ts` reads a
+  string with no `://` as `http://<input>` and hands back the parsed URL plus the spelling to show.
+  `parseHttpUrl` stays strict because `resolveHref` needs it that way: a href with no scheme is
+  RELATIVE, and `about.html` must never become a host. `gobuster` still takes only full URLs.
+- **`lynx`'s address bar spells shorthand out in full** (`http://ridgemont.edu/`, the web's own
+  port left unwritten). That is required, not cosmetic: the address bar is the base every link
+  resolves against, so a bare base would break following links. A URL typed with its scheme
+  keeps its typed spelling.
+- **Manuals** for both commands name the shorthand and carry a bare-domain example. The `v2-e2e`
+  runbook row that said "lynx wants a URL" is corrected.
+- **Gates:** 6146 unit tests green, typecheck and lint clean. Wire-check `N/A`: client-only, no
+  `api/` change. Stryker on `http.ts`: 111 killed, 1 survived — the pre-existing
+  `host === undefined` guard, equivalent since the pattern always captures a host. The two
+  pre-existing `^`/`$` anchor survivors were killed by new `parseHttpUrl` cases; they matter more
+  now that typed input reaches the parser.
+- **Browser (v0.268.0, from `UPSTAIRS-NEIGHBOR`):** `curl ridgemont.edu` → the campus homepage;
+  `lynx ridgemont.edu` → address bar `http://ridgemont.edu/`, then link 3 (About) followed to
+  `http://ridgemont.edu/about.html`.
+
+#### Risks carried forward
+
+- **Re-rolled content on publisher LANs.** The webserver override changes one sibling's role on
+  publishers that had none; that box's content changes. Allowed pre-launch; the non-publisher
+  snapshot test guards everyone else.
+- **Build budget.** A publisher's gateway now forwards to a box the server must materialize per
+  request; measure the fetch path against the existing same-LAN scan cost.
+- **A publisher whose rolled webserver port is `8080`/`8000`.** The forward maps public `80` to it;
+  `nmap` of the gateway must still say `80`.
 
 ## Open branches (named, not yet decided)
 
