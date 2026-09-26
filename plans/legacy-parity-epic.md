@@ -25,9 +25,9 @@ content is inside the ship gate). **That epic is DONE** (2026-09-25, v0.264.0, a
 twelve slices, #533–#550), so the ship gate is unblocked. **Update 2026-09-26: X2 (`findit.io`) was
 un-deferred and GRILLED ahead of the ship gate** — decisions 91–105 and a six-slice spine in
 ["X2 — resolved scope & decisions"](#x2--resolved-scope--decisions-grilling-2026-09-26); its slice 1
-SHIPPED v0.265.0–v0.268.0 (#551–#554), its slice 2 v0.269.0–v0.270.0 (#555–#556) and its slice 3
-v0.271.0 (#557), all as-built under that section; slice 4 (findit falls and comes back) is next to
-plan.
+SHIPPED v0.265.0–v0.268.0 (#551–#554), its slice 2 v0.269.0–v0.270.0 (#555–#556), its slice 3
+v0.271.0 (#557) and its slice 4 (findit falls and comes back) v0.272.0 (#558), all as-built under
+that section; slice 5 (the `government` category) is next to plan.
 The `Status` block below is an accumulating log, not the current state.
 
 **Status**: **D1 shipped** (v0.109.0), with its web follow-ups D1c (v0.123.0-v0.124.0), D1b
@@ -426,7 +426,7 @@ PHASE 2 — DISCOVERY
         2a findit.io answers a search         ✅ SHIPPED v0.269.0 (#555)
         2b lynx submits a form                ✅ SHIPPED v0.270.0 (#556)
       X2 slice 3 a player's page is found      ✅ SHIPPED v0.271.0 (#557)
-      X2 slice 4 findit falls and comes back   PLANNED 09-26 — one PR, v0.272.0 (plans/findit-falls-and-comes-back.md)
+      X2 slice 4 findit falls and comes back   ✅ SHIPPED v0.272.0 (#558)
 PHASE 3 — VULNERABILITIES                             GRILLED 09-09/09-10 + PLANNED (35 decisions)
       V slice 1 a version is visible          ✔ SHIPPED v0.210.0-v0.211.0 (#491, #494)
         1a every box carries a manifest       ✅ SHIPPED v0.210.0 (#491)
@@ -5074,6 +5074,83 @@ longer does.
 - **Player HTML reaches the pattern-based page reader.** It stays total and escaped, as slice 2
   required.
 - **Players can outrank institutions** by stuffing titles. This is intended ("SEO as play", 96).
+
+### As-built: X2 slice 4 — findit falls and comes back
+
+Shipped v0.272.0 as one PR against trunk (#558), 2026-09-26. A player who roots `findit.io` reads its
+`access.log` — every searcher's `/?q=<term>` under the address the server holds for them, intel on
+who is hunting what — and can deface its front page for everyone while search keeps answering. The
+operator's `scripts/restoreFindit.ts` is the undo, and it is a reboot.
+
+#### Decided at planning (2026-09-26)
+
+**Owner decision (refines 101):**
+
+116. **Restoring findit is a reboot.** The script ends every open session on findit (`rebooted`, as
+     `reboot` does) and leaves a fresh boot marker, besides deleting its `patches`. Wiping the journal
+     alone would leave a player standing on findit as root still root on the clean box, and the boot
+     marker that tells a standing shell the box went down lives in that same journal. Rejected: patches
+     only (101 as first written), under which "comes back" holds only against players already gone.
+
+**Derived from existing conventions:**
+
+117. **Order is the safety: close the sessions, then empty the journal, then write the marker.** Once
+     the rows are closed, findit's active-session gate refuses every write from a shell that stood on
+     the old box, so nothing written mid-restore survives onto the clean one.
+118. **The restored box carries exactly one row: the boot marker**, at `BOOT_ID_PATH` under findit's
+     stable network key (`apGatewayLogWriterKey(FINDIT_NETWORK)`). Closed rows reuse `rebooted` (a
+     restore IS a reboot); no `kern.log` line, since a reboot names the in-world address that ordered
+     it and the operator has none; the logs go with everything else, so the clean box starts empty.
+119. **The script is the whole mechanism** — no `core/` function, no flags, no dry run; one machine
+     id, `computeApGatewayId(FINDIT_NETWORK)`; exits 2 without its env; harmless to re-run.
+120. **The read prize and the served front page were already built; this slice proves them** — slice
+     2a's fetch log carries `/?q=`, decision 100 serves `/` from findit's own `index.html`, and the
+     search branch answers `?q=` from a function, so a defaced or deleted `index.html` changes the
+     front page for everyone and leaves search working.
+121. **One PR, v0.272.0.**
+122. **Deface is seeded, not written live.** Rooting findit to write its root-owned `index.html` needs
+     a ROOT-tier full-shell hole, whose window is on the world's clock (nginx's opens ~day 106) and is
+     not open at the current game day. Reading the prize needs only any shell (`access.log` is
+     world-readable). So the wire-check and browser prove the read live and seed the defaced state.
+
+#### As built
+
+- **The fix reading needed.** findit's root is uncrackable, so the only way in is the exploit — and
+  `handleExploitCreateSession` stored the ATTACKER's ESSID on the session where the TARGET's is needed
+  to regenerate the box (the `sessions.essid` column's documented purpose). A public gateway then
+  resolved to nothing in `resolveCrossPlayerFs` and a shell opened on it read an empty tree. The
+  session now records `reach.reached.essid` — the target's own network for a public target, the
+  request's ESSID on the caller's own LAN and the deep layer behind their own gateway. Driven by a
+  failing unit test first ("records the session under the TARGET network"); the client is unaffected
+  because `isCrossPlayerWorkstation` reads the CURRENT essid, not the stored one.
+- **A cycle broken.** findit's name constants moved to a leaf `generation/finditNetwork.ts` so
+  `generation/publisher` can place findit without importing the box generator — which closed an
+  initialization cycle (`findit → aptPackages → … → generateHomeLan → publisher → findit`) a
+  standalone leaf script tripped. The generator re-exports the names, so every importer is unchanged.
+- **`scripts/restoreFindit.ts`** (NEW): the operator restore, in 117's order.
+- **Gates:** 6346 unit tests green, typecheck and lint clean. Mutation on the changed `essid` lines of
+  `exploitCreateSession.ts` (scoped, dev server down): 82 mutants, 0 survivors. The script is `N/A`
+  (operational; no unit test imports it) — its evidence is the wire-check and the browser run.
+- **Wire-check:** new `scripts/testRestoreFindit.ts`, 13/13 live — the prize read under the searcher's
+  address, the defaced page served to everyone while search still answers, the restore closing the
+  session and emptying the journal to one marker, the front page restored, the next write refused
+  (`no_session`), twice harmless, no-env exits 2.
+- **Browser (v0.272.0, ada on `GLOBEX-NET`):** cracked in, `nmap -sV findit.io` → nginx 1.27.0 with a
+  live CVE (staged, per 122), `msfconsole findit.io 80` → root shell, `cat /var/log/access.log` showed
+  ada's own earlier `/?q=quokkahunt` under her public IP. After `restoreFindit.ts`, her next `cat`
+  failed — she had lost the box.
+
+#### Risks carried forward
+
+- **First-restore eviction is silent, not clean.** A shell that hopped onto findit while it had NO
+  boot marker captured no boot-id to compare, so the marker the first restore writes cannot notify it
+  (`core/boot/bootId.ts`'s documented first-reboot hole): the shell silently falls back to the
+  attacker's own tree rather than showing a clean eviction. The enforcement (closed session, refused
+  write) does not depend on it, and findit's second restore onward evicts cleanly. Left as-is — it is
+  the same hole every never-rebooted box already has.
+- **Defacing findit is gated on the world clock** (122). A root-tier hole on nginx/openssh opens
+  ~day 106; before that a rooted findit can be read but not defaced. This is decision 102 working as
+  designed, not a defect.
 
 ## Open branches (named, not yet decided)
 

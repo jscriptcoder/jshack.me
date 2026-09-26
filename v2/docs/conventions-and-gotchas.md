@@ -169,8 +169,10 @@ itself. **Phase 2 — discovery** opened and closed its first door: X1 (DNS) SHI
 its slice 1 (an institution has a website you reach by name) SHIPPED v0.265.0–v0.268.0 (#551–#554),
 and its slice 2 (findit.io answers a search, and `lynx` submits a form) SHIPPED v0.269.0–v0.270.0
 (#555–#556), and its slice 3 (a player's page is found, and can hide behind `robots.txt`) SHIPPED
-v0.271.0 (#557). Slice 4 (findit falls and comes back) is next to plan; the epic's X2 section holds
-the decisions and every shipped slice's as-built.
+v0.271.0 (#557), and its slice 4 (findit falls and comes back — a rooted findit's `access.log` is
+intel, a defaced front page shows for everyone, and `scripts/restoreFindit.ts` reboots it back to its
+generated state) SHIPPED v0.272.0 (#558). Slice 5 (the `government` category) is next to plan; the
+epic's X2 section holds the decisions and every shipped slice's as-built.
 
 **Phase 3 — vulnerabilities is GRILLED (2026-09-09) and ready for `planning`.** Twenty-three locked
 decisions and a nine-slice, loop-first spine live in the epic. Three things a v2 session should know
