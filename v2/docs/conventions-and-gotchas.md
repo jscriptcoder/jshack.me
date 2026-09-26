@@ -175,9 +175,10 @@ generated state) SHIPPED v0.272.0 (#558), and its slice 5 (the `government` cate
 the council and the courts, each publishing a `.gov` site, each running the `cases` application)
 SHIPPED v0.273.0 (#559). A fix it carried forward shipped v0.274.0 (#560): an institution's site
 server serves its public site whatever the box is called, where 15 publishers had served an API
-reference or their intranet. The unreachable-`mysql`-on-infrastructure finding is next, and needs
-its own decision before planning; slice 6 (the `retail` category) comes after it. The epic's X2
-section holds the decisions and every shipped slice's as-built.
+reference or their intranet; and another shipped v0.275.0 (#561): `curl`/`lynx`/`gobuster` read a
+router or switch as its own firmware, as `nmap` does, where 66 of 171 had answered a web page on a
+port a scan showed closed. Slice 6 (the `retail` category) is next to plan. The epic's X2 section
+holds the decisions and every shipped slice's as-built.
 
 **Phase 3 — vulnerabilities is GRILLED (2026-09-09) and ready for `planning`.** Twenty-three locked
 decisions and a nine-slice, loop-first spine live in the epic. Three things a v2 session should know

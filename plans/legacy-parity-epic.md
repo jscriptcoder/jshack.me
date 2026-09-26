@@ -5278,6 +5278,16 @@ government office keeping case files.
   store on a real machine (`web-157` on `RIDGEMONT-PD`), and the tables by the unit suites. Worth its
   own look: a service drawn onto a box that can never answer it is a wasted placement everywhere in
   the world, not only here.
+  **RESOLVED v0.275.0 (#561), and the real defect was elsewhere.** The data doors were consistent:
+  `mysql`, `redis`, `ftp` and `ssh` resolve a LAN address through `baseFsForLanHost`, which reads a
+  router or switch as its own firmware, so they refused exactly as `nmap` said. The web tools did
+  not: `reachWebHost` built ANY LAN address as an ordinary machine from `hostServices`, so 66 of the
+  world's 171 gateways and switches answered `curl`/`lynx`/`gobuster` on a port `nmap` showed closed
+  (GLOBEX-NET's gateway, `22` + `161` on a scan, served "switch-core App Server — Node.js | PM2").
+  Written content was already clean — every generator that reads services filters to machines. The
+  web tools now read the device's own tree, and `hostServices` rolls nothing onto infrastructure,
+  so no offline read can name a door play never opens (which is how this was first misread).
+  Bringing `cases` tables into play is still up to where the dice put a `mysql` on a real machine.
 - **`links.html` is a SHARED page**, so a police station's site lists "the repair café, first Sunday
   of the month" among places it likes. Every category draws the shared pages and they are written to
   read as anywhere; odd rather than wrong.
