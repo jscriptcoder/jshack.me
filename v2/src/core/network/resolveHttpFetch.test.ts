@@ -30,7 +30,7 @@ import type { PatchRow } from '../patches/upsertPatch';
 import { siteAddress } from '../generation/publisher';
 import { FINDIT_DOMAIN, FINDIT_NETWORK } from '../generation/findit';
 import { FINDIT_FRONT_PAGE } from '../findit/page';
-import type { MachinePatchRow } from '../findit/publisherIndex';
+import type { MachinePatchRow, StoredAddress } from '../findit/webIndex';
 
 /**
  * `handleResolveHttpFetch` is the credential-free cross-player door: a fetch carries no
@@ -161,6 +161,7 @@ const BOB_PUBLIC_IP = '198.51.100.22';
 
 type HomeNetworkResult = { data: { readonly public_ip: string } | null; error: unknown };
 type WebPatchesResult = { data: readonly MachinePatchRow[] | null; error: unknown };
+type StoredAddressesResult = { data: readonly StoredAddress[] | null; error: unknown };
 
 type FetchOverrides = {
   lookup?: (publicIp: string) => Promise<LookupResult>;
@@ -171,6 +172,7 @@ type FetchOverrides = {
   upsertPatch?: (row: PatchRow) => Promise<{ error: unknown }>;
   findHomeNetworkByOwnerKey?: (ownerKey: string) => Promise<HomeNetworkResult>;
   findPatchesForMachines?: (machineIds: readonly string[]) => Promise<WebPatchesResult>;
+  listPublicAddresses?: () => Promise<StoredAddressesResult>;
 };
 
 const makeDeps = (over: FetchOverrides = {}) => {
@@ -198,9 +200,13 @@ const makeDeps = (over: FetchOverrides = {}) => {
   const findPatchesForMachines = vi.fn<
     (machineIds: readonly string[]) => Promise<WebPatchesResult>
   >(over.findPatchesForMachines ?? (async () => ({ data: [], error: null })));
+  const listPublicAddresses = vi.fn<() => Promise<StoredAddressesResult>>(
+    over.listPublicAddresses ?? (async () => ({ data: [], error: null })),
+  );
   const deps: ResolveHttpFetchDeps = {
     nonceStore: freshStore,
     findPatchesForMachines,
+    listPublicAddresses,
     findNetworkByPublicIp,
     findPatches,
     listOccupantsByEssid,
@@ -1053,5 +1059,118 @@ describe('findit.io answers a search over the public web', () => {
     );
 
     expect(response).toEqual({ status: 200, body: { ok: true, content: ALICE_PAGE } });
+  });
+});
+
+describe("findit finds a player's page, and leaves no trace doing it", () => {
+  const FINDIT_IP = siteAddress(FINDIT_DOMAIN) ?? '';
+  const FINDIT_GATEWAY_ID = computeApGatewayId(FINDIT_NETWORK);
+  /** A home network nobody publishes a site for: the only way onto the web from it is
+   *  a forward its occupant writes. */
+  const HOME = 'APT-3B-WIFI';
+  const HOME_IP = '45.12.7.9';
+  const HOME_GATEWAY_ID = computeApGatewayId(HOME);
+  const ADA_WS = 'workstation-ada00001';
+  const ADA_OCTET = 250;
+  const ADA_LAN_IP = lanAddressFor(HOME, ADA_OCTET);
+  const ada: HttpFetchOccupant = {
+    owner_key: ALICE.publicKeyHex,
+    workstation_machine_id: ADA_WS,
+    workstation_username: 'ada',
+    workstation_root_hash: md5('toor'),
+  };
+  const ADA_PAGE =
+    '<html><head><title>Ada builds robots</title></head><body><p>Gears and gardening.</p></body></html>';
+
+  const HOME_FORWARD = forwards(forwardTo(HTTP_DEFAULT_PORT, ADA_LAN_IP, HTTP_DEFAULT_PORT));
+
+  /** Ada forwards her home network's public `:80` to her own box, which is serving the
+   *  given rows, and findit is being searched. */
+  const adaPublishing = (...adaRows: readonly OwnerPatchRow[]): FetchOverrides => ({
+    lookup: async (publicIp) => ({
+      data:
+        publicIp === HOME_IP
+          ? { router_machine_id: HOME_GATEWAY_ID, essid: HOME }
+          : { router_machine_id: FINDIT_GATEWAY_ID, essid: FINDIT_NETWORK },
+      error: null,
+    }),
+    patches: patchesByMachine({ [HOME_GATEWAY_ID]: [HOME_FORWARD], [ADA_WS]: adaRows }),
+    listOccupantsByEssid: async (essid) => ({ data: essid === HOME ? [ada] : [], error: null }),
+    listLeasesByEssid: async (essid) => ({
+      data: essid === HOME ? [{ owner_key: ALICE.publicKeyHex, octet: ADA_OCTET }] : [],
+      error: null,
+    }),
+    findPatchesForMachines: async (machineIds) => ({
+      data: machineIds.includes(HOME_GATEWAY_ID)
+        ? [{ ...HOME_FORWARD, machine_id: HOME_GATEWAY_ID }]
+        : [],
+      error: null,
+    }),
+    listPublicAddresses: async () => ({ data: [{ essid: HOME, public_ip: HOME_IP }], error: null }),
+  });
+
+  const search = (term: string) =>
+    signRequest(BOB, 'resolveHttpFetch', {
+      target: FINDIT_IP,
+      port: HTTP_DEFAULT_PORT,
+      path: `/?q=${encodeURIComponent(term)}`,
+    });
+  const contentOf = (response: { body: Record<string, unknown> }): string =>
+    typeof response.body.content === 'string' ? response.body.content : '';
+
+  it('lists the page by its title and the bare address it answers at', async () => {
+    const { deps } = makeDeps(adaPublishing(webServerUp(), publishedPage(ADA_PAGE)));
+
+    const page = contentOf(await handleResolveHttpFetch(search('gardening'), deps));
+
+    expect(page).toContain(`<a href="http://${HOME_IP}/">Ada builds robots</a>`);
+    expect(page).toContain(`<p>${HOME_IP}</p>`);
+    expect(page).toContain('<p>Gears and gardening.</p>');
+  });
+
+  it('lists nothing once the page stops being served', async () => {
+    const { deps } = makeDeps(adaPublishing(publishedPage(ADA_PAGE)));
+
+    const page = contentOf(await handleResolveHttpFetch(search('gardening'), deps));
+
+    expect(page).not.toContain(HOME_IP);
+    expect(page).toContain('No matches for');
+  });
+
+  it('lists nothing for a page whose robots.txt shuts crawlers out', async () => {
+    const { deps } = makeDeps(
+      adaPublishing(
+        webServerUp(),
+        publishedPage(ADA_PAGE),
+        publishedPage('User-agent: *\nDisallow: /\n', 'robots.txt'),
+      ),
+    );
+
+    const page = contentOf(await handleResolveHttpFetch(search('gardening'), deps));
+
+    expect(page).not.toContain(HOME_IP);
+  });
+
+  it('shows a title somebody wrote as markup as text', async () => {
+    const { deps } = makeDeps(
+      adaPublishing(
+        webServerUp(),
+        publishedPage('<html><head><title>&lt;script&gt;alert(1)&lt;/script&gt; gardening</title></head></html>'),
+      ),
+    );
+
+    const page = contentOf(await handleResolveHttpFetch(search('gardening'), deps));
+
+    expect(page).toContain('&lt;script&gt;alert(1)&lt;/script&gt; gardening');
+    expect(page).not.toContain('<script>');
+  });
+
+  it('writes nothing on the box it listed, and only the search on its own', async () => {
+    const { deps, upsertPatch } = makeDeps(adaPublishing(webServerUp(), publishedPage(ADA_PAGE)));
+
+    await handleResolveHttpFetch(search('gardening'), deps);
+
+    const written = upsertPatch.mock.calls.map(([row]) => row.machine_id);
+    expect(written).toEqual([FINDIT_GATEWAY_ID]);
   });
 });

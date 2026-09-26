@@ -5,7 +5,7 @@
 decisions made at planning (2026-09-26, 106–109, all refining 97) and the choices derived from
 existing conventions are listed under "Decided at planning" below.
 
-**Status:** planned; not started. Branch `feat/a-players-page-is-found`.
+**Status:** built (v0.271.0, `feat/a-players-page-is-found`, PR to open).
 
 **Delivery:** one independent PR against trunk (decision 109).
 
@@ -154,20 +154,20 @@ PR-readiness gate. **Reduction program:** `N/A`. **Transition/terminal evidence:
 
 **Acceptance criteria:**
 
-- [ ] **A player's page is listed by its IP.** When a stored network's gateway forwards public `:80`
+- [x] **A player's page is listed by its IP.** When a stored network's gateway forwards public `:80`
       to a box serving nginx with an `/index.html`, a search for a word on that page returns it with
       its `<title>`, its public IP on its own line, and a link to `http://<public IP>/`. An untitled
       page is titled by its IP.
-- [ ] **It follows the page as it is served now.** A rewritten homepage is found by its new words at
+- [x] **It follows the page as it is served now.** A rewritten homepage is found by its new words at
       the next search. The page is absent whenever a `curl` of it would fail:
       - nginx stopped;
       - the box bricked;
       - its occupant left the wifi (with nothing generated answering at that address);
       - the forward deleted;
       - the gateway bricked.
-- [ ] **Whatever answers the address is what is listed.** A gateway serving `:80` itself is listed
+- [x] **Whatever answers the address is what is listed.** A gateway serving `:80` itself is listed
       by its IP. So is a forward onto a generated LAN box that serves the web.
-- [ ] **`robots.txt` opts out as a real crawler reads it (106).**
+- [x] **`robots.txt` opts out as a real crawler reads it (106).**
       - `User-agent: *` + `Disallow: /` → absent; `User-agent: findit` + `Disallow: /` → absent,
         whatever the case of the name.
       - `User-agent: Googlebot` + `Disallow: /` → listed. `User-agent: *` + `Disallow: /admin/`
@@ -175,16 +175,16 @@ PR-readiness gate. **Reduction program:** `N/A`. **Transition/terminal evidence:
       - A `findit` group that allows, beside a `*` group that disallows → listed (the specific group
         wins). A `findit` group that disallows beside a `*` group that allows → absent.
       - Deleting the `Disallow: /` lists the page again at the next search.
-- [ ] **Publishers obey it too.** A publisher whose site server's `robots.txt` is rewritten to
+- [x] **Publishers obey it too.** A publisher whose site server's `robots.txt` is rewritten to
       `User-agent: *` / `Disallow: /` drops out. Every stock publisher is still listed (its generated
       `robots.txt` never disallows `/`).
-- [ ] **A network nobody publishes on is never listed**, and a publisher's joined network is listed
+- [x] **A network nobody publishes on is never listed**, and a publisher's joined network is listed
       once, by its domain, never a second time by its stored IP.
-- [ ] **Hostile titles stay text.** A player title of `<script>alert(1)</script>` appears escaped in
+- [x] **Hostile titles stay text.** A player title of `<script>alert(1)</script>` appears escaped in
       the results page.
-- [ ] **The crawl leaves no trace (107).** A search writes nothing to any crawled box's
+- [x] **The crawl leaves no trace (107).** A search writes nothing to any crawled box's
       `access.log`, and findit's own log still records the search.
-- [ ] **A failed stored-address read is an empty result set**, never a partial one (114).
+- [x] **A failed stored-address read is an empty result set**, never a partial one (114).
 
 **RED** (in this order; jsdom is not needed, everything is `core/`):
 1. `core/findit/robots.ts`: a pure `crawlerMayIndex(robotsTxt: string | null): boolean` (the name is
@@ -249,6 +249,86 @@ versus a path prefix, the case fold, the publisher/findit exclusion, and the `:8
 
 **Done when:** all criteria checked; typecheck, lint and tests green; the wire-check passes live with
 the cost numbers recorded; the browser run is recorded; mutation reviewed.
+
+**As built (2026-09-26):**
+
+- **`core/findit/robots.ts`** — `robotsAllowFindit(robotsTxt | null)`, a pure reader of 106.
+  - Lines are split into `User-agent` groups; consecutive agent lines share one group.
+  - Every group naming `findit` is merged, else every group naming `*`.
+  - The site is refused only by a `Disallow: /` with no `Allow: /` beside it.
+  - Only `Allow` and `Disallow` count (a `Noindex: /` does nothing).
+  - A line with no colon is ignored without ending its group (strict, as RFC 9309 reads it).
+- **The index module is renamed `publisherIndex.ts` → `webIndex.ts`** (and `PublisherIndexDeps` →
+  `WebIndexDeps`), since it now indexes every page on the public web. This settles the plan's
+  REFACTOR question. The repointed-publisher and player paths did NOT collapse further: both already
+  go through one `siteAt` dependency and share `webBehind`, the gateway's `:80` gate. Only what each
+  path knows about its address differs.
+- **`siteAt` replaced `resolveElsewhere`** and returns `ServedSite = { homepage, robotsTxt }`. Both
+  come from the same box through the shared `siteOn(fs)`, which the handler also uses on a resolved
+  target, so a publisher's own site server and any fetched address are read one way.
+- **The walk is as planned (108, 111):**
+  1. `listPublicAddresses` reads `network_public_ips` (`essid, public_ip`), with no filter.
+  2. `isPlayerNetwork` drops publishers and findit.
+  3. Their gateway ids join the publishers' machines in the ONE `findPatchesForMachines` batch.
+  4. Only a gateway that boots and answers `:80` is fetched through `resolveWebTarget`.
+- **Gates:** 6345 unit tests green, typecheck and lint clean.
+- **Mutation** (scoped: `robots.ts`, `webIndex.ts`, the handler's `answerSearch`):
+
+  | Target | Killed | Survived |
+  |---|---|---|
+  | `answerSearch` | 4 | 0 |
+  | `robots.ts` | 103 | 2 |
+  | `webIndex.ts` | 99 | 12 |
+
+  The first run surfaced seven gaps, all closed:
+  - a colonless line ending a group;
+  - an unknown directive read as a rule;
+  - agents named findit-first;
+  - a middle group dropped when a later group joins;
+  - a deleted front page;
+  - a stored-address read with no rows;
+  - a journal batch with no rows.
+
+  The survivors:
+  - **Equivalent `slice` mutants in `robots.ts` (2):** each keeps a stale copy of the current group,
+    which never holds a rule the live copy lacks.
+  - **Unreachable guards in `webIndex.ts`:** `resolveWebPath` is never null for `/`, and
+    `publisherIp` is always defined for a publisher.
+  - **`'/'` vs `''`:** both name the root's index.
+  - **The gateway materialized without its ESSID:** the forward comes from the journal either way.
+  - **The two `?? []` defaults:** a bogus row matches no machine.
+  - **Module-load catalog statics.**
+  - **One false survivor:** the repointed-publisher branch at `webIndex.ts:153`. Applied by hand, it
+    fails three tests, so it was a per-test coverage artifact.
+- **Wire-check:** `scripts/testFindit.ts` 18/18 live (9 new). Checked:
+  - A staged player on `FAMILY-WIFI-2G` is listed by title and bare IP.
+  - A rewrite is found by its new word.
+  - The page leaves and re-enters the index as expected:
+    - `User-agent: *` / `Disallow: /` → gone;
+    - the Googlebot form → back;
+    - leaving the wifi → gone;
+    - rejoining → back;
+    - the forward deleted → gone.
+  - The campus drops out under a rewritten `robots.txt`.
+  - The listed box's `access.log` has zero rows.
+  - **Cost:** 11 stored networks and 7 journal rows. A search ran 1398 ms against 1339 ms for a
+    single fetch (mean of 3, `vercel dev`), so a search costs about the same as a fetch at this
+    scale.
+  - `testPublisherWeb` 6/6, `testHttpFetch` 17/17 and `testSharedApForwards` 8/8 stay green.
+- **Browser (v0.271.0):**
+  1. **A** (`ada`, on `CASA-DE-RAMIREZ`, a residential network with no site) cracked the network
+     and joined at `192.168.199.232`. As root, A installed nginx, wrote a one-line `index.html`
+     ("Ada Quokka Garden") with `echo >`, started nginx, then `ssh root@192.168.199.1` and
+     `echo "forward 80 to 192.168.199.232:80" > /etc/iptables/rules.v4`.
+  2. **B** (`grace`, on `ESPRESSO-EXPRESS`) ran `curl "findit.io/?q=quokkagarden"` and got one
+     result: `<a href="http://198.97.57.103/">Ada Quokka Garden</a>`, with the IP on its own line.
+     In `lynx`, `[1]` followed to A's page.
+  3. A wrote `robots.txt` (`User-agent: *` / `Disallow: /`) in nano. B's next search said
+     `No matches for "quokkagarden"`, while `curl http://198.97.57.103/` still served the page.
+  4. A's `access.log` held exactly two lines, B's `lynx` follow and B's direct `curl`. The three
+     searches left none.
+  5. Recorded in the `v2-e2e` runbook: A's public IP is shown nowhere in-game (read it from
+     `network_public_ips`), `echo >` writes one line (no `>>`, no `-e`), so `robots.txt` needs nano.
 
 ## Pre-PR Quality Gate
 

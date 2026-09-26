@@ -43,7 +43,12 @@ import { HTTP_DEFAULT_PORT, resolveWebPath } from './http';
 import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter';
 import { generatedLanBox } from './generatedLanBox';
 import { FINDIT_NETWORK } from '../generation/findit';
-import { indexedWeb, type MachinePatchRow } from '../findit/publisherIndex';
+import {
+  indexedWeb,
+  siteOn,
+  type MachinePatchRow,
+  type WebIndexDeps,
+} from '../findit/webIndex';
 import { rankPages } from '../findit/search';
 import { searchResultsPage } from '../findit/page';
 import {
@@ -129,6 +134,9 @@ export type ResolveHttpFetchDeps = WebTargetDeps & {
   readonly findPatchesForMachines: (
     machineIds: readonly string[],
   ) => Promise<{ readonly data: readonly MachinePatchRow[] | null; readonly error: unknown }>;
+  /** Every network anybody has joined, for findit to look for the pages they serve.
+   *  Only a search reaches it. */
+  readonly listPublicAddresses: WebIndexDeps['listPublicAddresses'];
 };
 
 const UNREACHABLE: HandlerResponse = { status: 404, body: { error: 'host_unreachable' } };
@@ -373,15 +381,14 @@ const answerSearch = async (
 ): Promise<string> => {
   const web = await indexedWeb({
     findPatchesForMachines: deps.findPatchesForMachines,
-    // The one site this index cannot rebuild from the generated world: a gateway
-    // somebody repointed. It is fetched exactly as a reader would fetch it.
-    resolveElsewhere: async (publicIp: string) => {
+    listPublicAddresses: deps.listPublicAddresses,
+    // Every site this index cannot rebuild from the generated world — a player's page,
+    // or a gateway somebody repointed — is fetched exactly as a reader would fetch it,
+    // so what is listed is what a visitor would be served. Only READ: the crawl leaves
+    // no line in anybody's log, or every search would tell every listed site it ran.
+    siteAt: async (publicIp: string) => {
       const target = await resolveWebTarget(deps, { target: publicIp, port: HTTP_DEFAULT_PORT });
-      if ('status' in target) return null;
-      const filePath = resolveWebPath('/');
-      if (filePath === null) return null;
-      const page = createFsView(target.fs, { userType: 'root' }).read(filePath);
-      return page.ok ? page.content : null;
+      return 'status' in target ? null : siteOn(target.fs);
     },
   });
   return searchResultsPage(query, rankPages(web, query));
