@@ -181,9 +181,10 @@ export const hydra: Command = {
       'Attempt to recover account passwords on a host by trying every password in your ' +
       'wordlist (/usr/share/wordlists/passwords.txt) against the service. With no user ' +
       'named, every account on the target is attacked. A password that is not in your ' +
-      'wordlist will never be found, however weak it is — grow the list by editing it ' +
-      'with nano as you harvest passwords elsewhere. A public IP is the access point ' +
-      'that bears it, so attacking one attacks that network’s gateway — use "-p" to ' +
+      'wordlist will never be found, however weak it is — grow the list as you harvest ' +
+      'passwords elsewhere, one at a time with "echo <password> >> ' +
+      '/usr/share/wordlists/passwords.txt" or by editing it with nano. A public IP is the ' +
+      'access point that bears it, so attacking one attacks that network’s gateway — use "-p" to ' +
       'reach a machine somebody has published behind it instead. "-p" also opens the ' +
       'layer hidden behind one of your own gateways: a port it forwards reaches a ' +
       'machine that has no address on your network at all. Everywhere else the service ' +

@@ -2128,6 +2128,14 @@ state costs you more than one wrong attempt.
   `permissions` would reset the node while claiming to change one thing. Any new writer over an
   EXISTING node must pass `owner: node.owner` and explicit `permissions`, and name `baseContent` so a
   fellow occupant's edit is refused rather than reverted.
+- **The shell's `>>` is the model append (`runLine.ts` `applyAppend`).** It validates the target
+  against the held tree BEFORE the command runs (as `>` does), then composes on the MACHINE
+  (`fs.reload()`), keeps an existing node's owner and permissions, and names `baseContent`, so a
+  raced write is refused with `File changed on disk`. It separates with ONE `\n` unless the base is
+  empty or already ends in one — every file here, generated ones included, ends WITHOUT a newline,
+  so a raw append would weld the first new line onto the last old one — and a command that printed
+  nothing appends nothing. A file the session may write but not read refuses rather than composing
+  on an empty base; no generator makes one (`boxSurface.test.ts` holds that across the world).
 - **Adding a method to `PatchApi` is a dozen-file change, and one of them is production.** The type
   is implemented by ad-hoc object literals in ~11 test files (each a type error until it gains the
   method) plus `mockPatchApi` in the factory — but the one that matters is `ui/state.ts`, where every
@@ -2755,6 +2763,13 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   the transfer log) and letting the patch write carry larger payloads (an `api/` change with its
   own wire-check and a reason the guard can grow). `share.test.ts`'s transport tests are the
   pattern for holding any fix.
+
+- **A script's `fs.appendFile` takes the file it adds to.** It composes on the machine and names
+  `baseContent`, but passes neither `owner` nor `permissions`, so `patches.write` stamps the
+  script's session and tier defaults over an existing node: a user-tier sweep appending to a
+  root-owned file that grants user write walks away owning it (and can `chmod` it). The shell's `>>`
+  keeps both (§7). Found building `>>` (v0.277.0); one `stat` and two fields, with a test beside the
+  existing appendFile ones in `node.test.ts`.
 
 - **`tail` is a command the world talks about and nobody can run.** v2 has no `tail` (nor
   `head`), so `tail /var/log/syslog.1` answers `bash: tail: command not found`. It is the natural

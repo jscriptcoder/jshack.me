@@ -13,8 +13,9 @@
  *
  * No tokens → an empty pipeline (a blank input line is a no-op, exit 0).
  *
- * A trailing `> target` redirect is stripped FIRST (before pipe-splitting) and
- * surfaced as `pipeline.redirect`. It may only appear as the last two tokens:
+ * A trailing `> target` or `>> target` redirect is stripped FIRST (before
+ * pipe-splitting) and surfaced as `pipeline.redirect`, with `append` telling the
+ * two apart. It may only appear as the last two tokens:
  *   - a leading `>` (no command) → ``syntax error near unexpected token `>'``
  *   - no target after `>`        → ``syntax error near unexpected token `newline'``
  *   - target is an operator, or any extra token follows it (e.g. a redirect
@@ -27,8 +28,8 @@ import type { Token } from './tokenize';
 
 type WordToken = Extract<Token, { readonly kind: 'word' }>;
 /** A token that can appear in the pipe-split BODY — everything except the
- *  redirect operator, which `extractRedirect` strips off first. */
-type BodyToken = Exclude<Token, { readonly kind: 'redirect' }>;
+ *  two redirect operators, which `extractRedirect` strips off first. */
+type BodyToken = Exclude<Token, { readonly kind: 'redirect' | 'append' }>;
 
 export type Stage = {
   readonly name: string;
@@ -37,7 +38,7 @@ export type Stage = {
 
 export type Pipeline = {
   readonly stages: readonly Stage[];
-  readonly redirect?: { readonly path: string };
+  readonly redirect?: { readonly path: string; readonly append: boolean };
 };
 
 export type ParsePipelineResult =
@@ -49,23 +50,39 @@ const PIPE_SYNTAX_ERROR = "syntax error near unexpected token `|'";
 const syntaxErrorNear = (symbol: string): string =>
   `syntax error near unexpected token \`${symbol}'`;
 
+const OPERATOR_SYMBOL: Record<Exclude<Token['kind'], 'word'>, string> = {
+  pipe: '|',
+  redirect: '>',
+  append: '>>',
+};
+
 /** The bash symbol a non-word token presents in an error message. */
-const symbolOf = (token: Token): string => (token.kind === 'pipe' ? '|' : '>');
+const symbolOf = (token: Exclude<Token, WordToken>): string => OPERATOR_SYMBOL[token.kind];
+
+type RedirectToken = Extract<Token, { readonly kind: 'redirect' | 'append' }>;
+
+const isRedirectOperator = (token: Token): token is RedirectToken =>
+  token.kind === 'redirect' || token.kind === 'append';
 
 type ExtractRedirectResult =
-  | { readonly ok: true; readonly body: readonly BodyToken[]; readonly path?: string }
+  | {
+      readonly ok: true;
+      readonly body: readonly BodyToken[];
+      readonly redirect?: { readonly path: string; readonly append: boolean };
+    }
   | { readonly ok: false; readonly error: string };
 
-/** Strip a trailing `> target` from the token stream. The redirect may only
- *  appear as the last two tokens; anything else is a syntax error (mirrors
- *  bash's "unexpected token" reporting). */
+/** Strip a trailing `> target` or `>> target` from the token stream. The
+ *  redirect may only appear as the last two tokens; anything else is a syntax
+ *  error (mirrors bash's "unexpected token" reporting). */
 const extractRedirect = (tokens: readonly Token[]): ExtractRedirectResult => {
-  const redirectIndex = tokens.findIndex((token) => token.kind === 'redirect');
+  const operator = tokens.find(isRedirectOperator);
   // No redirect token at all ⇒ the whole stream is redirect-free body. The
-  // assertion narrows the element type on an invariant `findIndex` just proved.
-  if (redirectIndex === -1) return { ok: true, body: tokens as readonly BodyToken[] };
+  // assertion narrows the element type on an invariant `find` just proved.
+  if (operator === undefined) return { ok: true, body: tokens as readonly BodyToken[] };
 
-  if (redirectIndex === 0) return { ok: false, error: syntaxErrorNear('>') };
+  const redirectIndex = tokens.indexOf(operator);
+  if (redirectIndex === 0) return { ok: false, error: syntaxErrorNear(symbolOf(operator)) };
 
   const afterRedirect = tokens.slice(redirectIndex + 1);
   if (afterRedirect.length === 0) return { ok: false, error: syntaxErrorNear('newline') };
@@ -86,7 +103,7 @@ const extractRedirect = (tokens: readonly Token[]): ExtractRedirectResult => {
   return {
     ok: true,
     body: tokens.slice(0, redirectIndex) as readonly BodyToken[],
-    path: target.value,
+    redirect: { path: target.value, append: operator.kind === 'append' },
   };
 };
 
@@ -116,7 +133,7 @@ export const parsePipeline = (tokens: readonly Token[]): ParsePipelineResult => 
   if (!extracted.ok) return { ok: false, error: extracted.error };
 
   // An empty body means no command tokens (a blank line, possibly all consumed
-  // by an earlier error path). A leading `>` already errored in extractRedirect,
+  // by an earlier error path). A leading `>`/`>>` already errored in extractRedirect,
   // so an empty body never carries a redirect path.
   if (extracted.body.length === 0) {
     return { ok: true, pipeline: { stages: [] } };
@@ -131,6 +148,6 @@ export const parsePipeline = (tokens: readonly Token[]): ParsePipelineResult => 
   return {
     ok: true,
     pipeline:
-      extracted.path !== undefined ? { stages, redirect: { path: extracted.path } } : { stages },
+      extracted.redirect !== undefined ? { stages, redirect: extracted.redirect } : { stages },
   };
 };

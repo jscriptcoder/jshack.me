@@ -9,6 +9,7 @@ import { tokenize, type Token } from './tokenize';
 const word = (value: string): Token => ({ kind: 'word', value });
 const pipe: Token = { kind: 'pipe' };
 const redirect: Token = { kind: 'redirect' };
+const append: Token = { kind: 'append' };
 
 describe('tokenize', () => {
   it('returns no tokens for empty input', () => {
@@ -189,5 +190,45 @@ describe('tokenize', () => {
 
   it('emits a trailing redirect token verbatim (parse-time rejects, tokenizer does not)', () => {
     expect(tokenize('echo >')).toEqual({ ok: true, tokens: [word('echo'), redirect] });
+  });
+
+  it('emits one append token for `>>`', () => {
+    expect(tokenize('echo hi >> f')).toEqual({
+      ok: true,
+      tokens: [word('echo'), word('hi'), append, word('f')],
+    });
+  });
+
+  it('emits an append token for `>>` with no surrounding spaces', () => {
+    expect(tokenize('echo a>>b')).toEqual({
+      ok: true,
+      tokens: [word('echo'), word('a'), append, word('b')],
+    });
+  });
+
+  it('keeps `> >` as two redirects, because only adjacent `>`s make an append', () => {
+    expect(tokenize('echo a > > f')).toEqual({
+      ok: true,
+      tokens: [word('echo'), word('a'), redirect, redirect, word('f')],
+    });
+  });
+
+  it('reads `>>>` as an append followed by a redirect', () => {
+    expect(tokenize('echo a >>> f')).toEqual({
+      ok: true,
+      tokens: [word('echo'), word('a'), append, redirect, word('f')],
+    });
+  });
+
+  it('keeps `>>` literal inside quotes', () => {
+    expect(tokenize('echo "a>>b"')).toEqual({ ok: true, tokens: [word('echo'), word('a>>b')] });
+  });
+
+  it('does not join a `>` that closes a quote-adjacent word with the next `>`', () => {
+    // An empty quoted word sits between the two operators, so they are not adjacent.
+    expect(tokenize('echo a >"">f')).toEqual({
+      ok: true,
+      tokens: [word('echo'), word('a'), redirect, word(''), redirect, word('f')],
+    });
   });
 });

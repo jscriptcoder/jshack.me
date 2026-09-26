@@ -554,9 +554,10 @@ site makes the link count meaningless.
   the four shops, `KWIK-E-MART` `kwikemart.com`, `MONSTROMART` `monstromart.com`, `BUY-N-LARGE`
   `buynlarge.com` and `MEGA-LO-MART` `megalomart.com`, since v0.276.0) the page is listed under the institution's DOMAIN, not an IP. The residential, iot and hacker
   entries are the ones that show a bare address.
-- **`echo … > file` writes ONE line** — the shell has `>` but no `>>`, and `echo` takes no `-e`.
-  That is fine for a one-line page or forward, but a `robots.txt` needs two lines
-  (`User-agent: *`, `Disallow: /`), so write it in `nano` (§7's save-and-exit loop).
+- **`echo … > file` writes ONE line; `echo … >> file` adds one more** (since v0.277.0). `echo`
+  takes no `-e`, so a two-line `robots.txt` is `echo "User-agent: *" > robots.txt` then
+  `echo "Disallow: /" >> robots.txt` — no `nano` needed. `>>` puts its output on a new line
+  even though no file here ends in a newline.
 - **The crawl writes nothing on A's box.** Only real visits (B's `lynx` follow, a direct `curl`)
   land in A's `/var/log/access.log`; a search never does. Check the row, not the screen.
 

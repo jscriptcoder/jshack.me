@@ -45,6 +45,11 @@ export const echo: Command = {
       { command: 'echo hello world', description: 'Print two words separated by a space' },
       { command: 'echo "hello world"', description: 'Print a single double-quoted argument' },
       { command: "echo 'with spaces'", description: 'Print a single-quoted argument verbatim' },
+      { command: 'echo draft > notes.txt', description: 'Write a line to a file, replacing it' },
+      {
+        command: 'echo hunter2 >> /usr/share/wordlists/passwords.txt',
+        description: 'Add a line to the end of a file — here, a password to your wordlist',
+      },
     ],
   },
   execute,

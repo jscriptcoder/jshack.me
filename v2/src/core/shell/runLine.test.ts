@@ -25,6 +25,7 @@ import type {
   PatchResult,
   TerminalLine,
 } from '../commands/types';
+import type { Directory } from '../filesystem/types';
 import {
   mockCommandEnv,
   mockFsViewFromTree,
@@ -712,6 +713,257 @@ describe('runCommandLine', () => {
       expect(write).toHaveBeenCalledWith(asAbsPath('/home/alice/out.txt'), '', { isNew: true });
       expect(result.exitCode).toBe(1);
       expect(contentOf(result.lines)).toContain('missing.txt');
+    });
+  });
+
+  describe('append redirection (`>>`)', () => {
+    /** alice (user tier) in /home/alice. The tree the shell HOLDS is `held`; the
+     *  machine, as a reload finds it, is `onMachine` — absent, they are the same. A
+     *  string is a file of alice's holding it; a directory stands as given. */
+    type HomeEntries = Readonly<Record<string, string | Directory>>;
+    const aliceHome = (files: HomeEntries) =>
+      buildDirectory({
+        home: buildDirectory({
+          alice: buildDirectory(
+            {
+              ...Object.fromEntries(
+                Object.entries(files).map(([name, content]) => [
+                  name,
+                  typeof content === 'string' ? buildFile(content, { owner: 'alice' }) : content,
+                ]),
+              ),
+              'readonly.txt': buildFile('locked', { owner: 'root', perms: { write: ['root'] } }),
+              // alice may add to it but not read it, so there is no base to compose on
+              'dropbox.txt': buildFile('sealed', {
+                owner: 'root',
+                perms: { read: ['root'], write: ['root', 'user'] },
+              }),
+              // root's, and open to the user tier to add to — a shared list
+              'shared.txt': buildFile('root line', {
+                owner: 'root',
+                perms: { read: ['root', 'user', 'guest'], write: ['root', 'user'], execute: [] },
+              }),
+              docs: buildDirectory({}, { owner: 'alice' }),
+            },
+            { owner: 'alice' },
+          ),
+        }),
+        etc: buildDirectory({}, { owner: 'root' }),
+      });
+
+    const appendEnv = (
+      options: {
+        readonly held?: HomeEntries;
+        readonly onMachine?: HomeEntries;
+        readonly writeResult?: PatchResult;
+      } = {},
+    ): { readonly env: CommandEnv; readonly write: ReturnType<typeof vi.fn> } => {
+      const write = vi.fn<PatchApi['write']>(async () => options.writeResult ?? { ok: true });
+      const held = options.held ?? {};
+      const onMachine = options.onMachine;
+      const env = mockCommandEnv({
+        fs: mockFsViewFromTree(aliceHome(held), {
+          userType: 'user',
+          cwd: asAbsPath('/home/alice'),
+          ...(onMachine === undefined ? {} : { onReload: async () => aliceHome(onMachine) }),
+        }),
+        patches: {
+          write,
+          remove: async () => ({ ok: true }),
+          mkdir: async () => ({ ok: true }),
+          setDirectoryPermissions: async () => ({ ok: true }),
+        },
+      });
+      return { env, write };
+    };
+
+    it('puts the output on its own line under a file with no trailing newline', async () => {
+      // Every file this game writes or generates ends without a newline — the
+      // wordlist included — so a raw byte append would weld the new word onto
+      // the last one and neither would ever match.
+      const { env, write } = appendEnv({ held: { 'words.txt': 'admin\nletmein' } });
+
+      const result = expectSync(
+        await runCommandLine(env, 'echo hunter2 >> words.txt', pipeCommands),
+      );
+
+      expect(write).toHaveBeenCalledWith(
+        asAbsPath('/home/alice/words.txt'),
+        'admin\nletmein\nhunter2',
+        expect.objectContaining({ isNew: false, baseContent: 'admin\nletmein' }),
+      );
+      expect(result.lines).toEqual([]);
+      expect(result.exitCode).toBe(0);
+    });
+
+    it('adds no second newline to a file that already ends in one', async () => {
+      const { env, write } = appendEnv({ held: { 'notes.txt': 'a\n' } });
+
+      await runCommandLine(env, 'echo b >> notes.txt', pipeCommands);
+
+      expect(write).toHaveBeenCalledWith(asAbsPath('/home/alice/notes.txt'), 'a\nb', expect.objectContaining({
+        isNew: false,
+        baseContent: 'a\n',
+      }));
+    });
+
+    it('creates a missing file with no leading blank line', async () => {
+      const { env, write } = appendEnv();
+
+      await runCommandLine(env, 'echo first >> loot.txt', pipeCommands);
+
+      expect(write).toHaveBeenCalledWith(asAbsPath('/home/alice/loot.txt'), 'first', {
+        isNew: true,
+        baseContent: '',
+      });
+    });
+
+    it('adds no leading newline to an empty file', async () => {
+      const { env, write } = appendEnv({ held: { 'empty.txt': '' } });
+
+      await runCommandLine(env, 'echo first >> empty.txt', pipeCommands);
+
+      expect(write).toHaveBeenCalledWith(asAbsPath('/home/alice/empty.txt'), 'first', expect.objectContaining({
+        isNew: false,
+        baseContent: '',
+      }));
+    });
+
+    it("appends every line of a pipeline's last stage", async () => {
+      const { env, write } = appendEnv({ held: { 'log.txt': 'x', 'src.txt': 'one\ntwo\nthree' } });
+
+      await runCommandLine(env, 'cat src.txt | grep o >> log.txt', pipeCommands);
+
+      expect(write).toHaveBeenCalledWith(asAbsPath('/home/alice/log.txt'), 'x\none\ntwo', expect.objectContaining({
+        isNew: false,
+        baseContent: 'x',
+      }));
+    });
+
+    it('leaves the file as it was when the command printed nothing', async () => {
+      // A command with no output appends nothing, as in bash. Joining no lines
+      // and then separating would instead leave a stray newline behind.
+      const { env, write } = appendEnv({ held: { 'log.txt': 'x', 'src.txt': 'one' } });
+
+      await runCommandLine(env, 'grep nomatch src.txt >> log.txt', pipeCommands);
+
+      expect(write).toHaveBeenCalledWith(asAbsPath('/home/alice/log.txt'), 'x', expect.objectContaining({
+        isNew: false,
+        baseContent: 'x',
+      }));
+    });
+
+    it('composes against the machine as it stands, not the copy this shell holds', async () => {
+      // A whole-file write composed from the cached tree does not merely miss a
+      // line another occupant added after this client pulled — it erases it.
+      const { env, write } = appendEnv({
+        held: { 'notes.txt': 'mine' },
+        onMachine: { 'notes.txt': 'mine\ntheirs' },
+      });
+
+      await runCommandLine(env, 'echo more >> notes.txt', pipeCommands);
+
+      expect(write).toHaveBeenCalledWith(asAbsPath('/home/alice/notes.txt'), 'mine\ntheirs\nmore', expect.objectContaining({
+        isNew: false,
+        baseContent: 'mine\ntheirs',
+      }));
+    });
+
+    it('refuses, and says so, when the file changed underneath the append', async () => {
+      const { env } = appendEnv({
+        held: { 'notes.txt': 'a' },
+        writeResult: { ok: false, error: 'modified_since_open' },
+      });
+
+      const result = expectSync(await runCommandLine(env, 'echo b >> notes.txt', pipeCommands));
+
+      expect(result.lines).toEqual([errorLine('bash: notes.txt: File changed on disk')]);
+      expect(result.exitCode).toBe(1);
+    });
+
+    it('refuses an unwritable target before the command runs, as `>` does', async () => {
+      const { env, write } = appendEnv();
+
+      const intoDirectory = expectSync(
+        await runCommandLine(env, 'cat missing.txt >> docs', pipeCommands),
+      );
+      const locked = expectSync(await runCommandLine(env, 'echo x >> readonly.txt', pipeCommands));
+      const noParent = expectSync(await runCommandLine(env, 'echo x >> nope/f', pipeCommands));
+
+      // `cat missing.txt` would have printed its own error had it run.
+      expect(intoDirectory.lines).toEqual([errorLine('bash: docs: Is a directory')]);
+      expect(locked.lines).toEqual([errorLine('bash: readonly.txt: Permission denied')]);
+      expect(noParent.lines).toEqual([errorLine('bash: nope/f: No such file or directory')]);
+      expect(write).not.toHaveBeenCalled();
+    });
+
+    it('refuses a file it may write but not read, rather than composing on nothing', async () => {
+      const { env, write } = appendEnv();
+
+      const result = expectSync(await runCommandLine(env, 'echo x >> dropbox.txt', pipeCommands));
+
+      expect(result.lines).toEqual([errorLine('bash: dropbox.txt: Permission denied')]);
+      expect(result.exitCode).toBe(1);
+      expect(write).not.toHaveBeenCalled();
+    });
+
+    it('refuses when the machine no longer has a file where the shell saw one', async () => {
+      // The target is checked twice: against the tree the shell holds before the
+      // command runs, and against the machine when the append composes. Somebody
+      // may have made a directory of it in between.
+      const { env, write } = appendEnv({
+        held: { report: 'x' },
+        onMachine: { report: buildDirectory({}, { owner: 'alice' }) },
+      });
+
+      const result = expectSync(await runCommandLine(env, 'echo y >> report', pipeCommands));
+
+      expect(result.lines).toEqual([errorLine('bash: report: Is a directory')]);
+      expect(result.exitCode).toBe(1);
+      expect(write).not.toHaveBeenCalled();
+    });
+
+    it("keeps the command's own errors and exit code while it appends", async () => {
+      const { env, write } = appendEnv({ held: { 'log.txt': 'x' } });
+
+      const result = expectSync(
+        await runCommandLine(env, 'cat missing.txt >> log.txt', pipeCommands),
+      );
+
+      expect(write).toHaveBeenCalledWith(
+        asAbsPath('/home/alice/log.txt'),
+        'x',
+        expect.objectContaining({ baseContent: 'x' }),
+      );
+      expect(contentOf(result.lines)).toContain('missing.txt');
+      expect(result.exitCode).toBe(1);
+    });
+
+    it('leaves the file its owner and its permissions', async () => {
+      // Adding a line is not taking the file. A write that let the session's own
+      // name and tier defaults stand would hand a root-owned file to whoever
+      // appended to it — and with it the right to chmod it.
+      const { env, write } = appendEnv();
+
+      await runCommandLine(env, 'echo mine >> shared.txt', pipeCommands);
+
+      expect(write).toHaveBeenCalledWith(asAbsPath('/home/alice/shared.txt'), 'root line\nmine', {
+        isNew: false,
+        baseContent: 'root line',
+        owner: 'root',
+        permissions: { read: ['root', 'user', 'guest'], write: ['root', 'user'], execute: [] },
+      });
+    });
+
+    it('keeps an overwrite an overwrite', async () => {
+      // `>` still truncates and names no base: only `>>` composes on the file.
+      const { env, write } = appendEnv({ held: { 'notes.txt': 'a' } });
+
+      await runCommandLine(env, 'echo b > notes.txt', pipeCommands);
+
+      expect(write).toHaveBeenCalledWith(asAbsPath('/home/alice/notes.txt'), 'b', {
+        isNew: false,
+      });
     });
   });
 });

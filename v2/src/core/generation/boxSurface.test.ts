@@ -15,7 +15,8 @@ import { DEBIAN_BASHRC, DEBIAN_BASH_LOGOUT, DEBIAN_PROFILE } from './pools/homeS
 import { createFsView } from '../filesystem/fsView';
 import { lanZoneName, resolveLanName } from '../network/resolveName';
 import { asAbsPath } from '../types';
-import type { Directory } from '../filesystem/types';
+import type { Directory, FilePermissions } from '../filesystem/types';
+import { buildWorkstationBaseFs } from './workstationFs';
 import { WORLD_EPOCH } from '../cve/worldClock';
 import { listenerPidfileName } from '../services/pidfile';
 import {
@@ -23,6 +24,7 @@ import {
   deepBoxes,
   falsehoodIn,
   filesUnder,
+  gatewaysOn,
   lanBoxes,
   serialise,
   softwareVersionsIn,
@@ -1114,5 +1116,61 @@ describe('what every scheduled job prints', () => {
       'systemctl is-active sshd',
       'systemctl is-active vsftpd',
     ]);
+  });
+});
+
+describe('what a tier may add to on a generated box', () => {
+  /** Every file under a tree, with the permissions it was generated with. */
+  const permissionsUnder = (
+    directory: Directory,
+    prefix = '/',
+  ): readonly (readonly [string, FilePermissions])[] =>
+    [...directory.entries].flatMap(([name, node]): (readonly [string, FilePermissions])[] =>
+      node.kind === 'file'
+        ? [[`${prefix}${name}`, node.perms]]
+        : [...permissionsUnder(node, `${prefix}${name}/`)],
+    );
+
+  it('never lets a tier write a file it cannot read', () => {
+    // `>>` adds to a file by reading it first. A file a tier could write but not
+    // read would look absent to that tier, and an append composed on nothing would
+    // replace what the world generated there — so no generator may make one.
+    const trees: readonly (readonly [string, Directory])[] = [
+      [
+        'a workstation',
+        buildWorkstationBaseFs('1'.repeat(64), {
+          machineName: 'workstation',
+          username: 'alice',
+          rootPassword: 'hunter2',
+        }),
+      ],
+      ...lanBoxes(ALL_ESSIDS).map(
+        (box): readonly [string, Directory] => [
+          `${box.essid} ${box.host.ip}`,
+          buildRemoteHostFs(box.essid, box.host),
+        ],
+      ),
+      ...deepBoxes(crackableEssidPool).map(
+        ({ essid, host }): readonly [string, Directory] => [
+          `${essid} ${host.ip}`,
+          buildDeepHostFs(essid, host),
+        ],
+      ),
+      ...gatewaysOn(ALL_ESSIDS).map((gateway): readonly [string, Directory] => [
+        gateway.name,
+        gateway.tree,
+      ]),
+    ];
+
+    const writableUnread = trees.flatMap(([boxName, tree]) =>
+      permissionsUnder(tree).flatMap(([path, perms]) =>
+        perms.write
+          .filter((tier) => !perms.read.includes(tier))
+          .map((tier) => `${boxName} ${path}: ${tier}`),
+      ),
+    );
+
+    expect(trees.length).toBeGreaterThan(500);
+    expect(writableUnread).toEqual([]);
   });
 });

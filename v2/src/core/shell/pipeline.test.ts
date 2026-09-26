@@ -5,6 +5,7 @@ import type { Token } from './tokenize';
 const word = (value: string): Token => ({ kind: 'word', value });
 const pipe: Token = { kind: 'pipe' };
 const redirect: Token = { kind: 'redirect' };
+const append: Token = { kind: 'append' };
 
 describe('parsePipeline', () => {
   it('returns an empty pipeline for no tokens', () => {
@@ -85,7 +86,7 @@ describe('parsePipeline', () => {
   it('strips a trailing redirect and reports its target path', () => {
     expect(parsePipeline([word('echo'), word('hi'), redirect, word('f')])).toEqual({
       ok: true,
-      pipeline: { stages: [{ name: 'echo', args: ['hi'] }], redirect: { path: 'f' } },
+      pipeline: { stages: [{ name: 'echo', args: ['hi'] }], redirect: { path: 'f', append: false } },
     });
   });
 
@@ -98,7 +99,7 @@ describe('parsePipeline', () => {
           { name: 'cat', args: ['x'] },
           { name: 'grep', args: ['y'] },
         ],
-        redirect: { path: 'out' },
+        redirect: { path: 'out', append: false },
       },
     });
   });
@@ -144,6 +145,62 @@ describe('parsePipeline', () => {
     expect(parsePipeline([word('echo'), redirect, word('f'), pipe, word('cat')])).toEqual({
       ok: false,
       error: "syntax error near unexpected token `|'",
+    });
+  });
+
+  it('strips a trailing append and marks the redirect as appending', () => {
+    expect(parsePipeline([word('echo'), word('hi'), append, word('f')])).toEqual({
+      ok: true,
+      pipeline: { stages: [{ name: 'echo', args: ['hi'] }], redirect: { path: 'f', append: true } },
+    });
+  });
+
+  it('applies the append to the last stage of a pipeline', () => {
+    const tokens = [word('cat'), word('x'), pipe, word('grep'), word('y'), append, word('out')];
+    expect(parsePipeline(tokens)).toEqual({
+      ok: true,
+      pipeline: {
+        stages: [
+          { name: 'cat', args: ['x'] },
+          { name: 'grep', args: ['y'] },
+        ],
+        redirect: { path: 'out', append: true },
+      },
+    });
+  });
+
+  it('rejects a leading append, naming `>>`', () => {
+    expect(parsePipeline([append, word('f')])).toEqual({
+      ok: false,
+      error: "syntax error near unexpected token `>>'",
+    });
+  });
+
+  it('rejects an append with no target', () => {
+    expect(parsePipeline([word('echo'), append])).toEqual({
+      ok: false,
+      error: "syntax error near unexpected token `newline'",
+    });
+  });
+
+  it('rejects extra tokens after the append target', () => {
+    expect(parsePipeline([word('echo'), append, word('f'), word('g')])).toEqual({
+      ok: false,
+      error: "syntax error near unexpected token `g'",
+    });
+  });
+
+  it('reports `>` for `>>>`, whose append target is a redirect', () => {
+    expect(parsePipeline([word('echo'), append, redirect, word('f')])).toEqual({
+      ok: false,
+      error: "syntax error near unexpected token `>'",
+    });
+  });
+
+  it('reports `>>` when an append follows a redirect', () => {
+    expect(parsePipeline([word('echo'), redirect, append, word('f')])).toEqual({
+      ok: false,
+      error: "syntax error near unexpected token `>>'",
     });
   });
 });

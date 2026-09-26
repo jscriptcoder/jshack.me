@@ -316,6 +316,62 @@ const applyRedirect = async (
   return { kind: 'sync', lines, exitCode };
 };
 
+/** The file after `>>` adds `stdout` to `base`. Files in this game end without a
+ *  newline, the generated ones included, so a bytes-only append would weld the first
+ *  new line onto the last old one; one `\n` goes between them unless the base is
+ *  empty or already ends in one. No output adds nothing, as in bash. */
+const appendedContent = (base: string, stdout: readonly string[]): string => {
+  if (stdout.length === 0) return base;
+  const separator = base === '' || base.endsWith('\n') ? '' : '\n';
+  return `${base}${separator}${stdout.join('\n')}`;
+};
+
+/** Add the final stage's stdout to the end of the redirect target. An append is a
+ *  read-modify-write, so it is composed on the MACHINE (`reload`), never on the tree
+ *  this shell holds: composed from a stale copy, the whole-file write would revert a
+ *  line a fellow occupant added since. Naming the base it composed on lets the
+ *  server refuse a write that landed in between, rather than flatten it — the same
+ *  posture a script's `fs.appendFile` takes. */
+const applyAppend = async (
+  env: CommandEnv,
+  rawTarget: string,
+  carried: readonly TerminalLine[],
+  finalResult: CommandResult,
+): Promise<CommandResult> => {
+  const { stdout, passthrough, exitCode } = await collectStageOutput(finalResult);
+  const lines = [...carried, ...passthrough];
+  const refuse = (reason: string): CommandResult => ({
+    kind: 'sync',
+    lines: [...lines, { kind: 'error', content: `bash: ${rawTarget}: ${reason}` }],
+    exitCode: 1,
+  });
+
+  const machine = await env.fs.reload();
+  const resolved = resolveWriteTarget(machine, rawTarget);
+  if (!resolved.ok) return refuse(REDIRECT_REFUSAL[resolved.error]);
+
+  // A file the session may write but not read has no base to compose on, and
+  // composing on nothing would replace it — so it refuses instead.
+  const existing = machine.read(resolved.target);
+  if (!existing.ok && existing.error !== 'not_found') {
+    return refuse(REDIRECT_REFUSAL[existing.error]);
+  }
+  const base = existing.ok ? existing.content : '';
+
+  // Adding a line is not taking the file: an existing node keeps its owner and
+  // permissions, where the write's defaults would stamp the session's own name and
+  // tier on it. A new file is the session's, exactly as `>` makes it.
+  const node = machine.stat(resolved.target);
+  const keep = node === null ? {} : { owner: node.owner, permissions: node.perms };
+  const written = await env.patches.write(resolved.target, appendedContent(base, stdout), {
+    isNew: resolved.isNew,
+    baseContent: base,
+    ...keep,
+  });
+  if (!written.ok) return refuse(PATCH_ERROR_REASON[written.error]);
+  return { kind: 'sync', lines, exitCode };
+};
+
 /** Prepend terminal-bound passthrough lines (intermediate stderr) to the final
  *  stage's result so they aren't swallowed. */
 const withCarried = (carried: readonly TerminalLine[], result: CommandResult): CommandResult => {
@@ -387,12 +443,22 @@ export const runCommandLine = async (
   // before exec) — an invalid target must not run a side-effecting command.
   const redirect = parsed.pipeline.redirect;
   let redirectTarget:
-    | { readonly path: string; readonly resolved: AbsPath; readonly isNew: boolean }
+    | {
+        readonly path: string;
+        readonly resolved: AbsPath;
+        readonly isNew: boolean;
+        readonly append: boolean;
+      }
     | undefined;
   if (redirect !== undefined) {
     const validated = validateRedirectTarget(env, redirect.path);
     if (!validated.ok) return syncError(validated.message, 1);
-    redirectTarget = { path: redirect.path, resolved: validated.target, isNew: validated.isNew };
+    redirectTarget = {
+      path: redirect.path,
+      resolved: validated.target,
+      isNew: validated.isNew,
+      append: redirect.append,
+    };
   }
 
   // The loop also handles the single-stage case (one iteration, empty carry),
@@ -413,6 +479,9 @@ export const runCommandLine = async (
       // A mode_change (nano/lynx/…) produces no stdout to redirect — pass it
       // through untouched even if a redirect was parsed.
       if (redirectTarget !== undefined && result.kind !== 'mode_change') {
+        if (redirectTarget.append) {
+          return applyAppend(env, redirectTarget.path, carried, result);
+        }
         return applyRedirect(
           env,
           redirectTarget.path,
