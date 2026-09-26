@@ -424,6 +424,7 @@ PHASE 2 — DISCOVERY
       X2 slice 2 findit.io answers a search     ✔ SHIPPED v0.269.0-v0.270.0 (#555-#556)
         2a findit.io answers a search         ✅ SHIPPED v0.269.0 (#555)
         2b lynx submits a form                ✅ SHIPPED v0.270.0 (#556)
+      X2 slice 3 a player's page is found      PLANNED 09-26 — one PR, v0.271.0 (plans/a-players-page-is-found.md)
 PHASE 3 — VULNERABILITIES                             GRILLED 09-09/09-10 + PLANNED (35 decisions)
       V slice 1 a version is visible          ✔ SHIPPED v0.210.0-v0.211.0 (#491, #494)
         1a every box carries a manifest       ✅ SHIPPED v0.210.0 (#491)
