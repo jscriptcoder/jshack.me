@@ -281,3 +281,33 @@ advance:
 - **`findit.io/?q=police` may tie or lose to a page that happens to say "police".** Scoring is title
   3, description 2, body 1, so the site named "Police" in its title should lead. If a body elsewhere
   outscores it, the fix is the government description's wording, not the scorer.
+
+## Found in play, deliberately left alone (2026-09-26)
+
+Both came out of the browser run. Neither is caused by this slice, and both are recorded to
+come back to rather than fixed here.
+
+- **An institution whose publisher box is an `api-` box publishes an API reference, so it has no
+  staff directory.** City hall's rolled site server is `api-17`, so `ridgemont.gov` serves the API
+  reference page: its homepage still names the institution and carries the government description,
+  but there is no `staff.html`, because the site builder gives an API box no people page at all —
+  the same rule that already skips a corporate Team page there. This predates the slice: 7 of the
+  32 publishers shipped in slice 1 are served by an `api-` box (ACME, GLOBEX, SHINRA, ABSTERGO and
+  three more), so a corporate site has been an API reference since v0.265.0 and nobody noticed. It
+  makes this slice's acceptance criterion half true — two of the three government sites link a
+  staff directory, and the third cannot. **The fix, if wanted, belongs to slice 1's ground**: have
+  `siteServer` prefer a non-`api` webserver where a network has one. That is a behaviour change for
+  7 existing publishers and re-rolls their site content, which is why it is not folded in here.
+- **No government LAN has a reachable `mysql` door, so the `cases` tables cannot be read in play
+  today.** The only mysql placement across the three landed on `vpn-gw`, a SWITCH, and an
+  infrastructure box's in-play ports are `22` + `161` — `nmap 192.168.126.100` says so, and a
+  `mysql` attempt answers `No route to host`. So the drawn mysql service on a router or switch is
+  unreachable by construction, wherever it lands. The `cases` application is still readable in play
+  through its redis store on a real machine (`web-157` on `RIDGEMONT-PD`: `cache:cases:*`,
+  `cache:notes:*`, `stats:cases_open`), and the tables themselves are proven by the unit suites.
+  **Worth a look on its own**: a service drawn onto a box that can never answer it is a wasted
+  placement everywhere in the world, not only here.
+
+A third, smaller thing: `links.html` is a SHARED page, so a police station's site lists "the
+repair café, first Sunday of the month" among places it likes. Every category draws the shared
+pages, and they are written to read as anywhere; it is odd rather than wrong.
