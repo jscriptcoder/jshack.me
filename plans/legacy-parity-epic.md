@@ -25,7 +25,7 @@ content is inside the ship gate). **That epic is DONE** (2026-09-25, v0.264.0, a
 twelve slices, #533–#550), so the ship gate is unblocked. **Update 2026-09-26: X2 (`findit.io`) was
 un-deferred and GRILLED ahead of the ship gate** — decisions 91–105 and a six-slice spine in
 ["X2 — resolved scope & decisions"](#x2--resolved-scope--decisions-grilling-2026-09-26); its slice 1
-plan is next, then the ship gate.
+plan is WRITTEN ([`an-institution-has-a-website.md`](./an-institution-has-a-website.md), three PRs), then the ship gate.
 The `Status` block below is an accumulating log, not the current state.
 
 **Status**: **D1 shipped** (v0.109.0), with its web follow-ups D1c (v0.123.0-v0.124.0), D1b
@@ -415,6 +415,7 @@ PHASE 2 — DISCOVERY
       X1 slice 3 the zone transfers                   ✅ SHIPPED v0.208.0 (#489)
       X1 slice 4 the transfer leaves a trace          ✅ SHIPPED v0.209.0 (#490)
   X2  findit.io + common website-bearing networks     GRILLED 09-26 (decisions 91-105, 6 slices)
+      X2 slice 1 an institution has a website     PLANNED (plans/an-institution-has-a-website.md)
 PHASE 3 — VULNERABILITIES                             GRILLED 09-09/09-10 + PLANNED (35 decisions)
       V slice 1 a version is visible          ✔ SHIPPED v0.210.0-v0.211.0 (#491, #494)
         1a every box carries a manifest       ✅ SHIPPED v0.210.0 (#491)
