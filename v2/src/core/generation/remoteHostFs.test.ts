@@ -20,7 +20,7 @@ import { parseMysqlDatabase, type MysqlDatabase } from '../mysql/types';
 import { parseRedisStore, type RedisStore } from '../redis/types';
 import { filterTreeToAllowlist } from '../patches/readFilter';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import type { LanHost } from './generateHomeLan';
+import { generateHomeLan, type LanHost } from './generateHomeLan';
 import type { Directory, FileEntry, FileNode } from '../filesystem/types';
 
 /**
@@ -1925,6 +1925,21 @@ describe('buildRemoteHostFs', () => {
           ).length,
         0,
       );
+
+    it('rolls no service onto a router or a switch, whose firmware decides what it runs', () => {
+      // A gateway or switch answers only what its own firmware runs, so a service
+      // rolled onto one would name a door no scan finds and no client can open.
+      const rolled = POPULATION_ESSIDS.flatMap((essid) =>
+        generateHomeLan(essid)
+          .hosts.filter((candidate) => candidate.kind !== 'machine')
+          .flatMap((candidate) =>
+            hostServices(essid, candidate).map(
+              ({ spec }) => `${essid} ${candidate.hostname}: ${spec.service}`,
+            ),
+          ),
+      );
+      expect(rolled).toEqual([]);
+    });
 
     it('publishes from nearly every webserver, and from few of the phones', () => {
       // 1916 of the 2024 wear :80 as a webserver against 629 as a phone. The band

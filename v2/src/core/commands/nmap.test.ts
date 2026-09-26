@@ -584,7 +584,9 @@ describe('nmap — self-host open ports (slice 1)', () => {
   });
 
   it('shows no ports for a remote host the generator gives no service', async () => {
-    const bareHost = remoteHosts().find((host) => generatedPortCount(host) === 0);
+    const bareHost = remoteHosts().find(
+      (host) => host.kind === 'machine' && generatedPortCount(host) === 0,
+    );
     if (bareHost === undefined) throw new Error('expected a generated serviceless host on the LAN');
 
     // The workstation itself IS running sshd — proving its services are not

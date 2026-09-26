@@ -25,6 +25,7 @@ import { buildColdStartConnectivity, type ConnectivityState } from '../network/i
 import { assignHomeNetwork } from '../network/homeNetwork';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
 import { buildRemoteHostFs } from '../generation/remoteHostFs';
+import { baseFsForLanHost } from '../generation/lanHostIdentity';
 import { publisherIp } from '../generation/publisher';
 import { readOpenPorts } from '../services/pidfile';
 import { createFsView } from '../filesystem/fsView';
@@ -277,6 +278,24 @@ describe('curl', () => {
     expect(exitCode).toBe(0);
     expect(text).toContain('<html>');
     expect(text).toContain(host.hostname); // the page names the host serving it
+  });
+
+  it('is refused by a router or switch on every web port nmap shows closed', async () => {
+    // Every door reads a gateway as the device it is, and nmap reports only what
+    // that device runs; a web request must agree rather than find a server nmap never saw.
+    const webPorts = [SERVICE_CATALOG.http.defaultPort, ...SERVICE_CATALOG.http.altPorts];
+    const infrastructure = generateHomeLan(ESSID).hosts.filter((host) => host.kind !== 'machine');
+    expect(infrastructure.length).toBeGreaterThan(0);
+
+    const answered = [];
+    for (const host of infrastructure) {
+      const open = readOpenPorts(baseFsForLanHost(host, ESSID)).map((entry) => entry.port);
+      for (const port of webPorts.filter((candidate) => !open.includes(candidate))) {
+        const { text } = await run(`http://${host.ip}:${port}/`);
+        if (!text.includes('Connection refused')) answered.push(`${host.hostname}:${port}`);
+      }
+    }
+    expect(answered).toEqual([]);
   });
 
   it('takes an address typed with no scheme as http, as real curl does', async () => {

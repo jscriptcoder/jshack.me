@@ -184,6 +184,9 @@ const hostBackdoor = (essid: string, host: LanHost, username: string): Listener 
  * lands on exactly the port it always would have.
  */
 export const hostServices = (essid: string, host: LanHost): readonly HostService[] => {
+  // A router or switch runs what its own firmware runs, built elsewhere; a service
+  // rolled here would be a door no scan finds and no client can open.
+  if (host.kind !== 'machine') return [];
   const role = roleOfHostname(host.hostname);
   // The box an institution's website lives on always serves it: its gateway sends
   // the public web there, and a forward onto a closed port would be a site that is
