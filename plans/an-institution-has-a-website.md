@@ -4,7 +4,7 @@
 (decisions 91–105, 2026-09-26), plus **seven decisions made at planning** (2026-09-26, owner-confirmed
 as a set) restated under "Decided at planning" below.
 
-**Status:** 1a merged (v0.265.0, PR #551); 1b merged (v0.266.0, PR #552); 1c merged (v0.267.0, PR #553); 1d in progress (`feat/a-bare-address-is-a-url`).
+**Status:** 1a merged (v0.265.0, PR #551); 1b merged (v0.266.0, PR #552); 1c merged (v0.267.0, PR #553); 1d built (v0.268.0, `feat/a-bare-address-is-a-url`, PR open).
 
 **Delivery:** four independent PRs against trunk, merged in order (each builds on the one before
 it through `main`, not through a stack).
@@ -224,7 +224,7 @@ Evidence: command tests + the browser run.
 - **`lynx` resolves, and so does a followed link** (`followLink` in `ui/state.ts`) — not in the plan,
   but a page opened by domain carries the domain in every relative link. The address bar keeps the
   typed name.
-- **Open question for the owner:** `lynx`/`curl` still reject a scheme-less URL, so the AC's bare
+- **Resolved by 1d (v0.268.0):** `lynx`/`curl` rejected a scheme-less URL, so the AC's bare
   `lynx ridgemont.edu` is built and tested as `lynx http://ridgemont.edu/`. Accepting bare hosts
   (as real `lynx` and `curl` do) is a separate `parseHttpUrl` change.
 - **Gates:** 6134 unit tests green, typecheck and lint clean. Stryker (scoped, 95 mutants): 84
@@ -301,7 +301,7 @@ reviewed.
 **Value:** the player types what they would type into a real terminal — `lynx ridgemont.edu`,
 `curl ridgemont.edu/about.html` — and gets the page, where today both answer `(3) URL rejected`.
 Makes 1b's `lynx ridgemont.edu` criterion true as written.
-**Path:** `curl`/`lynx` argument → `parseHttpUrl` (scheme-less input read as `http://<input>`) →
+**Path:** `curl`/`lynx` argument → `parseTypedUrl` (scheme-less input read as `http://<input>`) →
 the existing resolve-and-fetch path.
 **Class:** behavior change. **Delivery:** independent PR against trunk, after 1c merges.
 **Decided (2026-09-26):** a missing scheme means `http://`, as both real tools default. Deliberately
@@ -309,12 +309,12 @@ NOT copied: `curl`'s `ftp.`/`imap.`-prefix protocol guessing, `lynx`'s local-fil
 its `www.`/`.com` expansion. An explicit `https://` behaves as it does today.
 
 **Acceptance criteria:**
-- [ ] `curl ridgemont.edu` and `curl ridgemont.edu/about.html` return the same page as the
+- [x] `curl ridgemont.edu` and `curl ridgemont.edu/about.html` return the same page as the
       `http://` forms.
-- [ ] `lynx ridgemont.edu` opens the homepage; its address bar shows the normalised
+- [x] `lynx ridgemont.edu` opens the homepage; its address bar shows the normalised
       `http://ridgemont.edu/`.
-- [ ] A bare LAN name or address (`curl printer-111`, `curl 192.168.x.y:8080/`) works the same way.
-- [ ] An explicit scheme — `http://`, `https://`, or one the tools do not speak — behaves exactly as
+- [x] A bare LAN name or address (`curl printer-111`, `curl 192.168.x.y:8080/`) works the same way.
+- [x] An explicit scheme — `http://`, `https://`, or one the tools do not speak — behaves exactly as
       before.
 
 **RED:** a `curl.test.ts` and a `lynx.test.ts` case on a bare domain, both failing with
@@ -322,6 +322,26 @@ its `www.`/`.com` expansion. An explicit `https://` behaves as it does today.
 **Wire-check:** `N/A` — client-only, no `api/` change. **Browser:** `v2-e2e` — `curl ridgemont.edu`,
 `lynx ridgemont.edu`. **PRE-PR MUTATION:** Stryker on the URL parser.
 **Done when:** criteria checked, gates green, browser run recorded, mutation reviewed.
+
+**As built (2026-09-26):**
+- **A new entry point, not a change to `parseHttpUrl`.** `parseTypedUrl` in `network/http.ts` reads a
+  string with no `://` as `http://<input>` and hands back the parsed URL plus the spelling to show.
+  `parseHttpUrl` stays strict because `resolveHref` needs it that way: a href with no scheme is
+  RELATIVE, and `about.html` must never become a host. `gobuster` still takes only full URLs.
+- **`lynx`'s address bar spells shorthand out in full** (`http://ridgemont.edu/`, the web's own
+  port left unwritten). That is required, not cosmetic: the address bar is the base every link
+  resolves against, so a bare base would break following links. A URL typed with its scheme
+  keeps its typed spelling.
+- **Manuals** for both commands name the shorthand and carry a bare-domain example. The `v2-e2e`
+  runbook row that said "lynx wants a URL" is corrected.
+- **Gates:** 6146 unit tests green, typecheck and lint clean. Wire-check `N/A`: client-only, no
+  `api/` change. Stryker on `http.ts`: 111 killed, 1 survived — the pre-existing
+  `host === undefined` guard, equivalent since the pattern always captures a host. The two
+  pre-existing `^`/`$` anchor survivors were killed by new `parseHttpUrl` cases; they matter more
+  now that typed input reaches the parser.
+- **Browser (v0.268.0, from `UPSTAIRS-NEIGHBOR`):** `curl ridgemont.edu` → the campus homepage;
+  `lynx ridgemont.edu` → address bar `http://ridgemont.edu/`, then link 3 (About) followed to
+  `http://ridgemont.edu/about.html`.
 
 ## Pre-PR Quality Gate (each PR)
 

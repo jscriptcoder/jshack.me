@@ -279,6 +279,15 @@ describe('curl', () => {
     expect(text).toContain(host.hostname); // the page names the host serving it
   });
 
+  it('takes an address typed with no scheme as http, as real curl does', async () => {
+    const { host, port } = webHostOnLan();
+
+    const { text, exitCode } = await run(`${host.ip}:${port}`);
+
+    expect(exitCode).toBe(0);
+    expect(text).toContain(host.hostname);
+  });
+
   describe('nothing outside the document root is reachable', () => {
     it('refuses to climb out of the web root, however the path is written', async () => {
       const { host, port } = webHostOnLan();
@@ -433,7 +442,7 @@ describe('curl', () => {
     });
 
     it('rejects a URL it cannot parse, naming what it refused', async () => {
-      for (const bad of ['not-a-url', 'http://', 'ftp://192.168.1.5', 'http://host:0']) {
+      for (const bad of ['http://', 'ftp://192.168.1.5', 'https://192.168.1.5', 'http://host:0', 'host:0']) {
         const { text, exitCode, kinds } = await run(bad);
 
         expect(exitCode).toBe(1);
@@ -824,6 +833,15 @@ describe('curl across the network, at another player public IP', () => {
 
     expect(asked).toEqual([
       { target: publisherIp('CAMPUS-GUEST-OPEN'), port: HTTP_DEFAULT_PORT, path: '/' },
+    ]);
+    expect(drained.text).toContain('welcome to nebuchadnezzar');
+  });
+
+  it('reaches an institution by its bare domain and path, with no scheme typed', async () => {
+    const { drained, asked } = await fetchAcross(served(THEIR_PAGE), 'ridgemont.edu/about.html');
+
+    expect(asked).toEqual([
+      { target: publisherIp('CAMPUS-GUEST-OPEN'), port: HTTP_DEFAULT_PORT, path: '/about.html' },
     ]);
     expect(drained.text).toContain('welcome to nebuchadnezzar');
   });

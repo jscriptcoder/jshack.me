@@ -52,6 +52,25 @@ export const parseHttpUrl = (raw: string): ParsedUrl | null => {
   return { host, port, path: match[3] ?? '/' };
 };
 
+/** A URL as a player TYPED it: parsed, and the spelling a browser shows for it.
+ *
+ *  An address with no scheme at all is taken as `http://`, the default real `curl` and
+ *  `lynx` both fall back to — `curl ridgemont.edu` fetches the homepage. Kept apart from
+ *  `parseHttpUrl` on purpose: a page's own links need the strict reading, where a href
+ *  with no scheme is RELATIVE, and `about.html` must never become a host.
+ *
+ *  A URL that carried its own scheme keeps the spelling it was typed in; shorthand is
+ *  spelled out in full, because what a browser shows is also the base its relative links
+ *  resolve against. */
+export const parseTypedUrl = (
+  raw: string,
+): { readonly url: ParsedUrl; readonly href: string } | null => {
+  const hasScheme = raw.includes('://');
+  const url = parseHttpUrl(hasScheme ? raw : `http://${raw}`);
+  if (url === null) return null;
+  return { url, href: hasScheme ? raw : formatUrl(url) };
+};
+
 /** A URL as written, with the default port left unwritten — so an address a reader
  *  sees, or one compared against another, has exactly one spelling. */
 const formatUrl = ({ host, port, path }: ParsedUrl): string =>

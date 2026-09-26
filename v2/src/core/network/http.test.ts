@@ -36,6 +36,10 @@ describe('parseHttpUrl', () => {
     expect(parseHttpUrl('192.168.1.5')).toBeNull();
     expect(parseHttpUrl('ftp://192.168.1.5')).toBeNull();
     expect(parseHttpUrl('https://192.168.1.5')).toBeNull(); // no TLS story yet
+    // The WHOLE string must be the URL. A scheme merely ending in `http` is another
+    // scheme, and trailing text after the path is not part of a URL a shell would pass.
+    expect(parseHttpUrl('xhttp://192.168.1.5')).toBeNull();
+    expect(parseHttpUrl('http://192.168.1.5/index.html extra')).toBeNull();
   });
 
   it('rejects a port outside the addressable range, and accepts both ends of it', () => {

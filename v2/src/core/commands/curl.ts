@@ -25,7 +25,7 @@
 import type { Command, CommandResult, TerminalLine } from './types';
 import { createFsView } from '../filesystem/fsView';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import { parseHttpUrl, resolveWebPath } from '../network/http';
+import { parseTypedUrl, resolveWebPath } from '../network/http';
 import { isPublicIp } from '../generation/ip';
 import { addressForTarget } from '../network/resolveName';
 import { connectedWlan0 } from '../network/interfaces';
@@ -82,10 +82,11 @@ const execute: Command['execute'] = async (env, args, flags) => {
     return error(USAGE);
   }
 
-  const requested = parseHttpUrl(raw);
-  if (requested === null) {
+  const typed = parseTypedUrl(raw);
+  if (typed === null) {
     return error(`curl: (3) URL rejected: ${raw}`);
   }
+  const requested = typed.url;
 
   const wlan0 = connectedWlan0(env.network);
   if (wlan0 === null) {
@@ -184,7 +185,7 @@ export const curl: Command = {
   manual: {
     synopsis: 'curl [-i] <url>',
     description:
-      'Fetch a URL over HTTP and print what the server returns. Reaches hosts on your own network, e.g. "curl http://192.168.1.5", including your own address once you are running a web server, and any public IP that forwards its web port, by its address or by the domain an institution publishes it under, e.g. "curl http://ridgemont.edu/". No login is needed: a web server publishes its document root to whoever asks, and nothing else on the target is readable this way. Requires a network connection.',
+      'Fetch a URL over HTTP and print what the server returns. Reaches hosts on your own network, e.g. "curl http://192.168.1.5", including your own address once you are running a web server, and any public IP that forwards its web port, by its address or by the domain an institution publishes it under, e.g. "curl http://ridgemont.edu/". The "http://" may be left off, as with real curl: "curl ridgemont.edu" fetches the same page. No login is needed: a web server publishes its document root to whoever asks, and nothing else on the target is readable this way. Requires a network connection.',
     arguments: [
       {
         name: 'url',
@@ -198,6 +199,10 @@ export const curl: Command = {
       {
         command: 'curl http://192.168.1.5:8080/status',
         description: 'Fetch a path from a server on a non-standard port',
+      },
+      {
+        command: 'curl ridgemont.edu/about.html',
+        description: "Fetch a page from an institution's site by its domain, no scheme needed",
       },
       {
         command: 'curl http://203.0.113.7',

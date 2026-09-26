@@ -22,7 +22,7 @@
  */
 
 import type { Command, CommandResult } from './types';
-import { parseHttpUrl } from '../network/http';
+import { parseTypedUrl } from '../network/http';
 import { isPublicIp } from '../generation/ip';
 import { connectedWlan0 } from '../network/interfaces';
 import { addressForTarget } from '../network/resolveName';
@@ -48,10 +48,11 @@ const execute: Command['execute'] = async (env, args) => {
     return error(USAGE);
   }
 
-  const requested = parseHttpUrl(raw);
-  if (requested === null) {
+  const typed = parseTypedUrl(raw);
+  if (typed === null) {
     return error(`lynx: (3) URL rejected: ${raw}`);
   }
+  const requested = typed.url;
 
   const wlan0 = connectedWlan0(env.network);
   if (wlan0 === null) {
@@ -93,7 +94,7 @@ const execute: Command['execute'] = async (env, args) => {
     return error(NOT_FOUND);
   }
 
-  return { kind: 'mode_change', mode: { kind: 'lynx', url: raw, content: page.content } };
+  return { kind: 'mode_change', mode: { kind: 'lynx', url: typed.href, content: page.content } };
 };
 
 export const lynx: Command = {
@@ -116,7 +117,8 @@ export const lynx: Command = {
       'Enter to follow it, and Left Arrow or Backspace to go back. Press q or Escape to return ' +
       'to the terminal. Reaches hosts on your own network, including your own address once you ' +
       'are running a web server, and any public IP that forwards its web port — by its address or ' +
-      'by the domain an institution publishes it under, such as http://ridgemont.edu/. No login is ' +
+      'by the domain an institution publishes it under, such as http://ridgemont.edu/. The ' +
+      'http:// may be left off: lynx ridgemont.edu opens the same page. No login is ' +
       'needed: a web server publishes its document root to whoever asks.',
     arguments: [{ name: 'url', description: 'The page to read, e.g. http://192.168.1.5' }],
     examples: [
@@ -124,6 +126,10 @@ export const lynx: Command = {
       {
         command: 'lynx http://localhost',
         description: 'Read the page your own web server is publishing',
+      },
+      {
+        command: 'lynx ridgemont.edu',
+        description: "Read an institution's homepage by its domain, no scheme needed",
       },
       {
         command: 'lynx http://203.0.113.7',
