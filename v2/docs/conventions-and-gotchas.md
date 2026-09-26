@@ -568,10 +568,10 @@ player workstation) holds believable, persona-coherent content — no loot, no n
 reference true within its network, history frozen at `WORLD_EPOCH` in rotated `.1` logs. As-built
 and its standing rules: [`world-content-architecture.md`](./world-content-architecture.md); the
 epic's plan file was retired on close-out and its open questions are in §9 under "World content
-deferred". Ship waited for it; **the ship gate is next** (see the legacy-parity epic's "Where we
-are now").
+deferred". Ship waited for it. **Next is X2 (`findit.io`), un-deferred and grilled 2026-09-26
+ahead of the ship gate**, then the ship gate (see the legacy-parity epic's "Where we are now").
 
-To pick up the next work: the ship gate has no plan yet, so start from
+To pick up the next work: X2 is grilled but has no slice plan yet, so start from
 [`plans/legacy-parity-epic.md`](../../plans/legacy-parity-epic.md) — its **"Where we are now"**
 line near the top, then the Phase 3 tree and the slice table for per-slice status. A slice gets
 its own `plans/*.md` only while it is IN FLIGHT, with a top block carrying live status + as-built; it is retired into the epic on close-out, so

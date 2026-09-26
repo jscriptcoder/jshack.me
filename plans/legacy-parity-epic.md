@@ -22,7 +22,10 @@ eviction, and both halves of local escalation (libraries and firmware). **Next i
 which waited for the generated world content epic (as-built:
 [`world-content-architecture.md`](../v2/docs/world-content-architecture.md); owner decision:
 content is inside the ship gate). **That epic is DONE** (2026-09-25, v0.264.0, all
-twelve slices, #533–#550), so the ship gate is unblocked.
+twelve slices, #533–#550), so the ship gate is unblocked. **Update 2026-09-26: X2 (`findit.io`) was
+un-deferred and GRILLED ahead of the ship gate** — decisions 91–105 and a six-slice spine in
+["X2 — resolved scope & decisions"](#x2--resolved-scope--decisions-grilling-2026-09-26); its slice 1
+plan is next, then the ship gate.
 The `Status` block below is an accumulating log, not the current state.
 
 **Status**: **D1 shipped** (v0.109.0), with its web follow-ups D1c (v0.123.0-v0.124.0), D1b
@@ -411,7 +414,7 @@ PHASE 2 — DISCOVERY
       X1 slice 2 a box answers as a name server       ✅ SHIPPED v0.207.0 (#488)
       X1 slice 3 the zone transfers                   ✅ SHIPPED v0.208.0 (#489)
       X1 slice 4 the transfer leaves a trace          ✅ SHIPPED v0.209.0 (#490)
-  X2  findit.io + common website-bearing networks     ⏸ DEFERRED — Phase 3 prioritized
+  X2  findit.io + common website-bearing networks     GRILLED 09-26 (decisions 91-105, 6 slices)
 PHASE 3 — VULNERABILITIES                             GRILLED 09-09/09-10 + PLANNED (35 decisions)
       V slice 1 a version is visible          ✔ SHIPPED v0.210.0-v0.211.0 (#491, #494)
         1a every box carries a manifest       ✅ SHIPPED v0.210.0 (#491)
@@ -454,7 +457,7 @@ POST-SHIP — MISSIONS
 | # | Slice | Includes | Acceptance |
 |---|---|---|---|
 | **X1** ✅ | **A player resolves a name to an address** — **SHIPPED v0.206.0–v0.209.0 (#487–#490); all four slices closed.** Grilled 2026-09-04, fourteen locked decisions in ["X1 — resolved scope & decisions"](#x1--resolved-scope--decisions-grill-me-2026-09-04); four slices | `apt install dnsutils`; the AP gateway as every network's resolver (its own LAN) + an occupant fallback; a name accepted anywhere an address is, through ONE shared client-side resolve step; a `dns` catalog row at `53/tcp` with `named` on the rare (3%) dns-role box; generated `named.conf` (`allow-transfer` open ~3 in 4) and a zone file spanning the WHOLE network — Layer 1's servers and infrastructure plus every deep layer; `nslookup`; `dig` + `dig @<server> axfr` reading that file as the authority; `/var/log/named.log` on transfers | Public/world domains (→ X2, which inherits a per-network name to index); a zone authoritative for RESOLUTION (poisoning `ssh`) — refused, it needs a round-trip per lookup; occupants in the zone; MX/CNAME/TXT; `dig -x`; `host`; dual-protocol port rows | `nslookup web-04` → IP on any network, and `ssh root@web-04` lands without the player ever reading an address; `nmap` finds `53 open` on `ns-12`, `dig @192.168.4.12 axfr` returns the zone — including `10.x` hosts on layers behind gateways the player has never rooted — and the box's `named.log` names them for whoever roots it next |
-| **X2** ⏸ | **A player finds a network they were never told about** — **DEFERRED: Phase 3 (vulnerabilities) is prioritized over Phase 2's second door; X2 stays ungrilled.** | `world_networks` + themed-network registry; **common networks that run websites** (the owner's shape — they are findable *because* they serve something); `findit.io` search handler over peer networks' metadata; registration/indexing | `curl "http://findit.io?q=<term>"` → ranked results → `nmap` that network → real ports. The player never learned the address out-of-band |
+| **X2** | **A player finds a network they were never told about** — **GRILLED 2026-09-26, un-deferred ahead of the ship gate: fifteen locked decisions (91–105) and a six-slice spine in ["X2 — resolved scope & decisions"](#x2--resolved-scope--decisions-grilling-2026-09-26).** Supersedes the Includes cell (no `world_networks`; publishers are catalog networks) | `world_networks` + themed-network registry; **common networks that run websites** (the owner's shape — they are findable *because* they serve something); `findit.io` search handler over peer networks' metadata; registration/indexing | `curl "http://findit.io?q=<term>"` → ranked results → `nmap` that network → real ports. The player never learned the address out-of-band |
 
 ## Phase 3 — vulnerabilities
 
@@ -4457,6 +4460,228 @@ libc window?*.
   row's trace lands in `auth.log` rather than decision 15's example `access.log`, because that is
   where its credential sweeps already land — moving the web door's evidence is a correction of its
   own and stays open.
+
+## X2 — resolved scope & decisions (grilling, 2026-09-26)
+
+Grilled 2026-09-26, un-deferred ahead of the ship gate at the owner's request: `findit.io`, a
+search engine over the public web, so a player finds a network they were never told about.
+
+### Grounding that reshaped the scope before any decision
+
+- **The public web is EMPTY today.** Every seeded gateway runs only `sshd` and its `rules.v4`
+  forwards nothing (`routerFs.ts`), so no network publishes a website. Generated webservers — the
+  16% `webserver` role plus the 0.3 incidental `http` placement — are reachable on their own LAN
+  only. The one public page that can exist is a player's own nginx behind a forward they wrote on
+  their own gateway, and only while they stay on that wifi (`resolveForwardTarget`).
+- **There is no world DNS.** `resolveName.ts` says so in its module doc; `findit.io` passes through
+  unchanged and fails as an unknown target.
+- **There are no dynamic HTTP handlers.** Every response is a static file read; `?q=x` becomes part
+  of the path and 404s. Legacy's `searchEngine.ts` has no v2 counterpart.
+- **A public IP exists only once somebody has joined the ESSID** (`registerNetwork` →
+  `network_public_ips`), so an un-joined network has no address to index.
+- **Generated sites carry a `<title>` and 80% carry a `robots.txt`**; none carries a
+  `<meta name="description">`.
+- **No themed / internet-only network kind exists in v2**; every public IP is bound to an ESSID.
+
+### Locked decisions
+
+#### 91. The public web is the existing ESSID networks publishing their own sites
+
+No second network kind. A subset of the 50 catalog networks gets a seeded gateway forward (public
+`:80` → its own webserver), so "the university's website" is the university network's own
+webserver, now reachable from the internet. Airports, police, libraries and shops arrive as new
+`ESSID_CATALOG` entries, whose `category`/`place` already say what a network is. Rejected: legacy's
+internet-only `world_networks` kind — a second generator, storage and address allocator for what
+the catalog already expresses — which stays open for later if this proves thin. It follows that a
+publishing network needs its public IP at world creation rather than first join.
+
+#### 92. The category decides who publishes — no dice
+
+Institutional categories — university, corporate, cafe, public, and the airport/police/library/shop
+entries still to come — ALWAYS publish; residential, iot and hacker NEVER do. A publishing network is
+GUARANTEED a `webserver` box, and its gateway forwards public `:80` to it. "The police have a
+website" is true every time, and every publishing network is in the index, so the index is
+predictable to build and to test. Residential and iot stay dark because nobody's home router serves a
+site; hacker stays dark because a den listing itself on a search engine is out of character, and
+what it offers is better found by other means. Rejected: a seeded per-category chance, and "whoever
+happened to roll a webserver" (both let the dice decide what an institution is).
+
+#### 93. A small world DNS: every publishing network has a domain that resolves anywhere
+
+Each publishing network gets a domain derived from its catalog entry (`ridgemont.edu`,
+`harbor-cafe.com`, `metro-police.gov`) that resolves, from any network, to that network's public IP;
+`findit.io` is one more entry. Results show the domain, and every command accepts it through X1's one
+`addressForTarget` step, with a world-name step ahead of the LAN step. This is the "public/world
+domains" X1 explicitly handed to X2. Rejected: a lone special-cased `findit.io` with results as bare
+IPs (a search engine of addresses is not the web), and domains that must be `dig`ged by hand first (a
+chore with no play in it). How a world name reaches its address — a server round trip, or an address
+the client can derive — is decided separately (decision 94).
+
+#### 94. A publisher's address is DERIVED from its ESSID, never allocated
+
+A publishing network's public IP is computed from its ESSID under a first octet RESERVED for
+publishers and absent from `publicFirstOctets` (e.g. `193`), so the random allocator can never draw
+it; a test over the fixed catalog proves publishers never collide with one another. The world DNS is
+then a pure client-side table (domain → derived IP), the same no-round-trip shape as X1's LAN names,
+and the server's public-IP lookup falls back to the same derivation, so a publisher is reachable
+before anybody has joined it — which is how decision 91's "IP at world creation" lands with no
+seeding step. Rejected: server-side name resolution (a round trip per lookup, the design X1 already
+refused) and seeding `network_public_ips` at deploy time (stored state for what is derivable).
+
+#### 95. `findit.io` is a server-side handler on the existing public-fetch path
+
+`findit.io` resolves through the world DNS to a reserved derived address, and `resolveHttpFetch`
+answers that address from a pure `core/` search function (query + index → ranked results) instead of
+a file read. The index is computed from the publishers' own generated site files — their `<title>`,
+their `robots.txt` — so it is a VIEW over what they serve, not a second authority; player pages join
+the same index because the server already holds their files. This is v2's FIRST dynamic HTTP handler,
+and the rule it sets is: an address with a registered handler answers from a pure function, and
+everything else reads a file. Rejected: answering on the client (NPC sites are derivable but player
+pages live in the server's `patches` journal, so it would need a second index later) and a static
+directory page with no query (a directory, not a search engine).
+
+#### 96. findit reads the homepage's title, meta description and body — nothing else
+
+Generated homepages gain a `<meta name="description">` derived from the catalog place and category.
+The search reads ONLY `/index.html` — no crawl of the rest of the site — and scores title >
+description > visible body text; a result shows title, domain and description, falling back to the
+body's first line when a page has none. Body text is what lets "admissions" find the university and
+"parking" find the airport. Everything read is on the page, so a player shapes their own listing by
+editing their own `index.html` — SEO as play. Rejected: legacy's authored `keywords` (its only honest
+source would be `<meta name="keywords">`, dead on the real web for decades) and title-only matching.
+
+#### 97. Player pages are crawled, not submitted — opt out with `robots.txt`
+
+Every page served on a public `:80` is listed automatically, player or NPC, unless its `robots.txt`
+says `Disallow: /`. Listing is decided AT QUERY TIME through the same resolution a `curl` makes, so a
+player who leaves the wifi or stops nginx simply drops out, and no index is stored to go stale. Being
+public is already deliberate — a fresh gateway forwards nothing, so a page reaches `:80` only after
+its owner writes a forward — which is what makes automatic listing fair rather than an ambush. A
+generated publisher never emits `Disallow: /` (decision 92's every-publisher-is-listed would
+otherwise break at random). Rejected: opt-in by submission (the owner preferred the realistic
+crawler; it also needs a submissions table) and no player listing in X2.
+
+#### 98. A player's result shows its bare public IP
+
+A player's network has a random public IP and no catalog entry, so its result reads `<title> —
+<public IP> — <description>`. The tell is deliberate play: an IP-only result is a person's box (or a
+gateway somebody has repointed), and learning to read for it makes hunting on findit a skill.
+Rejected: player domains (a server-only name needs a round trip or a synced table, against decision
+94, plus claiming rules) and title-only results (`curl` cannot click through).
+
+#### 99. The response is legacy's HTML: a form that documents itself, ten results, everything escaped
+
+`/` serves a page whose search form (`action="/" method="GET"`, `name="q"`) IS the documentation —
+no tutorial copy; a player reading the markup infers `?q=`. `/?q=<term>` re-renders the form above an
+`<ol>` of at most ten ranked results (title linked to `http://<domain or IP>/`, the domain on its own
+line, the description); none gives `No matches for "<term>"`. Every interpolated string is
+HTML-escaped, which decision 97 makes load-bearing: other players now author the titles. It serves
+`curl` raw and `lynx` rendered through the one fetch path. No pagination while the index is ~30
+publishers. Rejected: plain-text lines (not the web, nothing for `lynx`) and content negotiation to
+JSON (no consumer).
+
+#### 100. `findit.io` is a real, attackable box — refines 95
+
+The whole world is attackable, findit included. It is a machine with a filesystem at its derived
+address, not an untouchable service. `/` serves its own `/var/www/html/index.html`, so a rooted findit
+can be defaced; `?q=` is still answered by decision 95's handler, but ONLY while the box is serving
+`http` — a bricked findit, or one whose nginx was stopped, takes search down with it, exactly as it
+would a file. What stays true from 95: the index is a view over the publishers' pages and never a file
+on findit, so rooting it defaces the front door without poisoning anybody's results. Rejected:
+findit as infrastructure with no box behind it (the owner: everything in this world can be hacked).
+
+#### 101. An operator script restores it — nothing in the world heals it
+
+`scripts/restoreFindit.ts` deletes findit's `patches` rows, returning the box to its generated state —
+brick included, because a brick IS the `/boot/vmlinuz` tombstone in that journal and has no separate
+flag. The operator runs it when they choose to. Rejected: a nightly in-world restore (rows older than
+the last restore time ignored on read) and the pair — the owner judged the script alone enough.
+
+#### 102. findit is an ordinary hardened box; a live CVE is the way in, and its log is the prize
+
+A one-machine network whose box OWNS its public address (no NAT behind it), running `sshd` + `nginx`
+with a root password from the UNCRACKABLE pool, and a `dpkg/status` whose versions ride the existing
+CVE timeline — so it falls when a window opens, on the world's schedule, with no bespoke weakness:
+hydra fails, `nmap -sV` + `apt list -u` find the door. The prize needs no design: every public hit
+already lands in the target's `/var/log/access.log` under a server-derived source IP, so a rooted
+findit reads WHO searched for WHAT from WHERE — intel on other players. (Planning confirms the logged
+line carries the query string.) Decision 101's script wipes that log with everything else. Rejected:
+a deliberately soft findit (a crackable password or planted hole) and versions pinned so a window
+opens on a known day.
+
+#### 103. One website per INSTITUTION: a catalog entry may carry the `site` it hosts — refines 92
+
+The institutional categories hold 36 networks, several of them PARTS of one institution (the
+university's five — Dorm 7, the CS lab, the grad office, the campus, the library's second floor —
+none of whose `place` names the school). An `ESSID_CATALOG` entry gains an optional
+`site: { domain, name }` naming the institution whose website THAT network hosts: the university's
+sits on `CAMPUS-GUEST-OPEN` alone, and its other four are ordinary networks of the same school.
+Decision 92 is refined, not reversed: the category still decides which KINDS publish, a test holds
+that only institutional-category entries carry a `site`, and each institution is hosted exactly once
+— which keeps 93/94's one-domain-one-public-IP exact. Corporates and cafés are one network per
+institution, so each of theirs carries one. The same move as `place`: the catalog states what a
+network is rather than having it guessed. Rejected: a site per network (five university websites) and
+one institution's site spread across several networks' webservers as sub-pages.
+
+#### 104. New institutions are X2's LAST slices — one new category per slice: `government`, then `retail`
+
+A category is not a label: ten content pools are typed `Record<NetworkCategory, …>` (MOTDs, home
+notes, mail threads, phone downloads, share folders, front pages, site pages, people roles, database
+archetypes, persona places), so a new category must fill all ten and the compiler refuses a
+half-written one. findit is complete without new categories — the existing catalog already hosts ~32
+institutional sites (20 corporate, 6 cafés, 1 university, 5 public places) — so X2's first slices ship
+on it, and its closing slices add `government` (police, city hall, courts) and then `retail` (shops),
+each a whole, playable category. The airport stays a `public` entry whose lounge network hosts the
+airport's site (103). Rejected: police and shops squeezed into `public`/`corporate` (their content
+would read as a park's or an office's) and new categories gating findit's first slice.
+
+#### 105. Publishing IS exposure — wifi and the internet become two routes into one network
+
+Decision 92's forward makes every publisher's webserver reachable from anywhere: `nmap <domain>`
+shows the gateway's `22` plus the forwarded `80`, `-sV` shows the webserver's version, a live CVE on it
+is exploitable across networks through slice 6's existing routing, and a shell there lands INSIDE the
+LAN without the wifi ever being cracked. This is the point, and it is X2's acceptance line as the epic
+first wrote it — find it, scan it, real ports, a way in. No new mechanism. Rejected: a forwarded
+webserver that serves but cannot be exploited from outside (a special case, and against "the whole
+world is attackable").
+
+### Deliberately NOT built (recorded so nobody re-opens them)
+
+- **Any in-world pointer to findit.io.** How a player learns it exists is the job of the tutorial the
+  owner is introducing later, which will name it; X2 plants no hint in notes, mail or MOTDs.
+- **Missions and products** (legacy's `techparts.io`). Both stay post-ship; under this design a
+  mission board or a shop is simply one more publisher findit indexes, so nothing is reserved for them.
+- **Internet-only `world_networks`** (91), **player domains** (98), **pagination** (99), **an in-world
+  restore** (101) and **a crawl beyond `/index.html`** (96).
+
+### Slice spine (each vertical + observable; independent PRs to trunk, no stack)
+
+1. **An institution has a website you reach by name** — catalog `site` (103), derived publisher
+   addresses under the reserved octet (94), a guaranteed webserver behind a gateway `:80` forward (92),
+   the world-name step in `addressForTarget` (93). *Acceptance:* from any network,
+   `curl http://<university domain>/` returns its homepage and `nmap <domain>` shows `22` + `80` —
+   before anybody has ever joined that wifi.
+2. **findit.io answers a search** — the findit box at its derived address (100, 102), the pure search
+   function behind the `resolveHttpFetch` handler (95), `<meta name="description">` on generated
+   homepages (96), the escaped HTML response (99). *Acceptance:* `curl "http://findit.io/?q=university"`
+   ranks the university first; `lynx findit.io` renders the form.
+3. **A player's page is found** — query-time listing of every player's public `:80` forward that is
+   actually serving, `robots.txt` `Disallow: /` as the opt-out, IP-only results (97, 98).
+   *Acceptance:* A publishes nginx and B finds A's title and public IP; A adds `Disallow: /` and drops out.
+4. **findit falls and comes back** — the query string in findit's `access.log` (102) and
+   `scripts/restoreFindit.ts` (101). *Acceptance:* a rooted findit reads who searched what, a defaced
+   `/` shows for everyone, and the script restores it.
+5. **The `government` category** — police, city hall, courts; all ten per-category pools (104).
+6. **The `retail` category** — shops (104).
+
+### Open for planning (named, deliberately not decided)
+
+- **The reserved first octet** (94) and each institution's **domain and TLD** (103).
+- **The cost of the query-time player listing** (97): it walks every player public IP's gateway forward
+  and occupant per search — fine at pre-launch scale, but planning sizes it.
+- **Whether findit's `access.log` line already carries the query string** (102), or the log writer
+  needs it added.
+- **How `lynx` follows a result link** to a world domain.
 
 ## Open branches (named, not yet decided)
 
