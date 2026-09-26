@@ -29,6 +29,17 @@ export type SitePage = {
   readonly bodies: readonly string[];
 };
 
+/** How an institution that publishes to the world describes itself in its homepage's
+ *  `<meta name="description">` — the line a search engine shows under its title, and
+ *  the words beyond its name that a search can find it by. Only the kinds of place that
+ *  publish a site have one. */
+export const SITE_DESCRIPTIONS: Readonly<Partial<Record<NetworkCategory, string>>> = {
+  corporate: '{site}: products, services, careers and news from the company.',
+  cafe: '{site}: coffee, food, opening hours and free wifi for customers.',
+  university: '{site}: admissions, courses, research and campus life.',
+  public: '{site}: opening hours, services and visitor information for the people of Ridgemont.',
+};
+
 /** What a site says on its front page, by kind of place. One is drawn per box. */
 export const FRONT_PAGES: Readonly<Record<NetworkCategory, readonly string[]>> = {
   corporate: [

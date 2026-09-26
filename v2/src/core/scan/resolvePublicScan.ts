@@ -180,7 +180,7 @@ const resolveForwardTargets = async (
     return occupantFs === null ? [] : [[lanIp, occupantFs] as const];
   });
 
-  // A forward may also name a box the network generated itself — the site server an
+  // A forward may also name a box the network generated itself â€” the site server an
   // institution publishes its website from, there whether or not anybody has joined.
   // No occupant is ever leased a generated machine's address, so the two never overlap.
   const generated = await Promise.all(

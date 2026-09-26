@@ -793,7 +793,7 @@ describe('handleResolvePublicScan', () => {
       const result = await handleResolvePublicScan(envelope(scanner, TARGET), deps);
 
       // The gateway belongs to the network, not to whoever has joined it, so its log
-      // lands in the network's own row from the very first scan — and stays there as
+      // lands in the network's own row from the very first scan â€” and stays there as
       // players come and go, rather than splitting across rows that erase each other.
       expect(result.body).toMatchObject({ found: true, ports: OWN_DOORS });
       expect(upsertPatch).toHaveBeenCalledTimes(1);

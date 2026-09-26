@@ -23,6 +23,9 @@ import { DEFAULT_DIRLIST } from '../network/defaultDirlist';
 import { API_PAGES, PORTAL_PAGES, ROBOTS_ONLY_DIRECTORIES } from './pools/webSites';
 import { sweepWord } from '../network/webSweep';
 import { parseMysqlDatabase } from '../mysql/types';
+import { ESSID_CATALOG } from './pools/essidCatalog';
+import { siteServer } from './siteServer';
+import { publisherSite } from './publisher';
 
 /**
  * A web server that serves a site: pages that link each other, read the way a player
@@ -654,7 +657,9 @@ describe('no two web servers read alike', () => {
 describe('how a site is written out', () => {
   it('heads its pages with the place, titles each page after it, and signs every page', () => {
     const wrong = servingBoxes(isWebserver).flatMap(({ box, tree }) => {
-      const { place } = networkPersona(box.essid);
+      // An institution's public site goes by the name it publishes under.
+      const published = siteServer(box.essid)?.ip === box.host.ip ? publisherSite(box.essid) : undefined;
+      const place = published?.name ?? networkPersona(box.essid).place;
       const site = place.charAt(0).toUpperCase() + place.slice(1);
       const { fullName } = inhabitant({ ...box, username: npcUsername(box.essid, box.host) });
       return htmlPagesOf(tree).flatMap(([file, page]) => {
@@ -834,5 +839,62 @@ describe('what an unlinked path holds', () => {
       ({ tree }) => htmlPagesOf(tree).filter(([, page]) => page.includes('<!--')).length > 1,
     );
     expect(crowded.map(({ box }) => box.host.hostname)).toEqual([]);
+  });
+});
+
+describe("an institution's homepage names it to the world", () => {
+  const publishers = ESSID_CATALOG.flatMap((entry) => {
+    const server = siteServer(entry.essid);
+    return entry.site === undefined || server === undefined ? [] : [{ entry, site: entry.site, server }];
+  });
+
+  it('titles the site with the name the institution publishes under', () => {
+    const campus = publishers.find(({ entry }) => entry.essid === 'CAMPUS-GUEST-OPEN')!;
+    const homepage = served(buildRemoteHostFs('CAMPUS-GUEST-OPEN', campus.server), '/')!;
+    expect(homepage).toContain('<title>Ridgemont University</title>');
+    expect(homepage).toContain('<h1>Ridgemont University</h1>');
+  });
+
+  it('opens every name with a capital, as a heading does', () => {
+    // The Midnight Diner's catalog name is the place as a sentence says it.
+    const diner = publishers.find(({ entry }) => entry.essid === 'MIDNIGHT-DINER')!;
+    const homepage = served(buildRemoteHostFs('MIDNIGHT-DINER', diner.server), '/')!;
+    expect(homepage).toContain('<title>The Midnight Diner</title>');
+  });
+
+  it('describes every publisher homepage by its name, for a search engine to read', () => {
+    for (const { entry, site, server } of publishers) {
+      const homepage = served(buildRemoteHostFs(entry.essid, server), '/')!;
+      const description = /<meta name="description" content="([^"]+)">/.exec(homepage)?.[1];
+      expect(description, entry.essid).toContain(
+        site.name.charAt(0).toUpperCase() + site.name.slice(1),
+      );
+    }
+  });
+
+  it('says what an institution of its kind offers, so a search for it finds the place', () => {
+    const campus = publishers.find(({ entry }) => entry.essid === 'CAMPUS-GUEST-OPEN')!;
+    const homepage = served(buildRemoteHostFs('CAMPUS-GUEST-OPEN', campus.server), '/')!;
+    expect(homepage).toMatch(/<meta name="description" content="[^"]*admissions[^"]*">/);
+  });
+
+  it('never asks a crawler to stay off the whole site', () => {
+    for (const { entry, server } of publishers) {
+      const robots = served(buildRemoteHostFs(entry.essid, server), '/robots.txt');
+      expect(robots ?? '', entry.essid).not.toMatch(/^Disallow: \/$/m);
+    }
+  });
+
+  it('leaves every other web server titled by its place, with no description', () => {
+    const others = servingBoxes(isWebserver).filter(
+      ({ box }) => siteServer(box.essid)?.ip !== box.host.ip,
+    );
+    expect(others.length).toBeGreaterThan(0);
+    for (const { box, tree } of others) {
+      const homepage = served(tree, '/') ?? '';
+      expect(homepage, `${box.essid} ${box.host.hostname}`).not.toContain('<meta name="description"');
+      const place = networkPersona(box.essid).place;
+      expect(homepage).toContain(`<title>${place.charAt(0).toUpperCase() + place.slice(1)}</title>`);
+    }
   });
 });

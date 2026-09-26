@@ -36,13 +36,16 @@ import type { OwnerPatchRow } from './materializeWorkstationFs';
 import { machineServing, type ServedMachine } from './machineServing';
 import { bootableOccupantFs } from './natHosts';
 import { lanAddressesByOwner, type LanLeaseRow } from './lanAddress';
-import { readOpenPorts } from '../services/pidfile';
-import { SERVICE_CATALOG } from '../services/serviceCatalog';
+import { servesWebOn } from './webServing';
 import { canBoot } from '../boot/bootFiles';
 import { createFsView } from '../filesystem/fsView';
 import { HTTP_DEFAULT_PORT, resolveWebPath } from './http';
 import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter';
 import { generatedLanBox } from './generatedLanBox';
+import { FINDIT_NETWORK } from '../generation/findit';
+import { indexedWeb, type MachinePatchRow } from '../findit/publisherIndex';
+import { rankPages } from '../findit/search';
+import { searchResultsPage } from '../findit/page';
 import {
   ACCESS_LOG_OWNER,
   ACCESS_LOG_PATH,
@@ -121,6 +124,11 @@ export type ResolveHttpFetchDeps = WebTargetDeps & {
   /** The requester's own home network — the source IP the line records, derived from
    *  their VERIFIED key rather than anything they sent. */
   readonly findHomeNetworkByOwnerKey: FindHomeNetworkByOwnerKey;
+  /** Every publisher's journal in ONE read, for findit's index. Only a search reaches
+   *  it, so an ordinary fetch pays nothing for it. */
+  readonly findPatchesForMachines: (
+    machineIds: readonly string[],
+  ) => Promise<{ readonly data: readonly MachinePatchRow[] | null; readonly error: unknown }>;
 };
 
 const UNREACHABLE: HandlerResponse = { status: 404, body: { error: 'host_unreachable' } };
@@ -148,6 +156,10 @@ type FetchTarget = {
   readonly servicePort: number;
   readonly machineId: string;
   readonly logWriterKey: string;
+  /** The network the reached box belongs to. A box that answers for a SERVICE rather
+   *  than from a disk — findit — is known by this, so nothing has to guess from an
+   *  address the client supplied. */
+  readonly essid: string;
 };
 
 /**
@@ -191,6 +203,7 @@ const resolveForwardTarget = async (
     fs: occupantFs,
     servicePort: forwarded.internalPort,
     machineId: occupant.workstation_machine_id,
+    essid: network.essid,
     // The keystone: the log is the OWNER's, never the requester's. A stranger who could
     // write their own row would fork the file per visitor — and could then rewrite the
     // record of their own visit, since a journal row belongs to whoever wrote it.
@@ -199,7 +212,7 @@ const resolveForwardTarget = async (
 };
 
 /** The machine the ESSID itself generated at the forwarded address, when no occupant
- *  holds it � the box an institution serves its website from, which nobody owns and
+ *  holds it — the box an institution serves its website from, which nobody owns and
  *  which exists whether or not anybody has joined. Nobody owns it, so its log accretes
  *  under the network's own key. */
 const generatedForwardTarget = async (
@@ -218,6 +231,7 @@ const generatedForwardTarget = async (
     fs: box.fs,
     servicePort: forwarded.internalPort,
     machineId: box.machineId,
+    essid: network.essid,
     logWriterKey: apGatewayLogWriterKey(network.essid),
   };
 };
@@ -234,6 +248,7 @@ const gatewayTarget = (
   fs: gatewayFs,
   servicePort: port,
   machineId: network.router_machine_id,
+  essid: network.essid,
   logWriterKey: apGatewayLogWriterKey(network.essid),
 });
 
@@ -326,11 +341,50 @@ export const resolveWebTarget = async (
   // ONE liveness check for both arms, and it is service-specific: reaching a listening
   // daemon is not reaching a web server. A forward onto `sshd`, or the gateway's own
   // `:22`, refuses exactly like a closed port.
-  const serving = readOpenPorts(target.fs).some(
-    (openPort) =>
-      openPort.port === target.servicePort && openPort.service === SERVICE_CATALOG.http.service,
-  );
-  return serving ? target : UNREACHABLE;
+  return servesWebOn(target.fs, target.servicePort) ? target : UNREACHABLE;
+};
+
+/**
+ * What a request ASKED for, when it is a search: the `q` a reader typed, or null when
+ * the request is for a file like any other.
+ *
+ * Only the root answers a search. Every other path on findit is a file on findit's own
+ * disk, so a rooted findit can be given pages of its own without any of them being
+ * swallowed by the handler.
+ */
+const searchedFor = (requestPath: string): string | null => {
+  const queryAt = requestPath.indexOf('?');
+  if (queryAt === -1 || requestPath.slice(0, queryAt) !== '/') return null;
+  const asked = new URLSearchParams(requestPath.slice(queryAt + 1)).get('q')?.trim() ?? '';
+  return asked === '' ? null : asked;
+};
+
+/**
+ * findit's answer to a search — the one address in this world that replies from a
+ * FUNCTION rather than from a file.
+ *
+ * The index is built here, at the moment of the search, out of what every publisher is
+ * serving right now; see `indexedWeb`. It is never a file on findit, which is why
+ * rooting findit defaces its front door without poisoning anybody's results.
+ */
+const answerSearch = async (
+  deps: ResolveHttpFetchDeps,
+  query: string,
+): Promise<string> => {
+  const web = await indexedWeb({
+    findPatchesForMachines: deps.findPatchesForMachines,
+    // The one site this index cannot rebuild from the generated world: a gateway
+    // somebody repointed. It is fetched exactly as a reader would fetch it.
+    resolveElsewhere: async (publicIp: string) => {
+      const target = await resolveWebTarget(deps, { target: publicIp, port: HTTP_DEFAULT_PORT });
+      if ('status' in target) return null;
+      const filePath = resolveWebPath('/');
+      if (filePath === null) return null;
+      const page = createFsView(target.fs, { userType: 'root' }).read(filePath);
+      return page.ok ? page.content : null;
+    },
+  });
+  return searchResultsPage(query, rankPages(web, query));
 };
 
 export const handleResolveHttpFetch = async (
@@ -351,6 +405,21 @@ export const handleResolveHttpFetch = async (
   });
   if ('status' in target) {
     return target;
+  }
+
+  // findit answers a search from a function; every other address, and every other path
+  // on findit itself, answers from a file. Reached only AFTER the target resolved, so a
+  // findit that is bricked or whose web server was stopped takes search down with it —
+  // exactly as it would take its front page down.
+  const query = target.essid === FINDIT_NETWORK ? searchedFor(payload.path) : null;
+  if (query !== null) {
+    const results = await answerSearch(deps, query);
+    await logFetch(deps, target, publicKey, {
+      path: payload.path,
+      status: 200,
+      size: results.length,
+    });
+    return { status: 200, body: { ok: true, content: results } };
   }
 
   // The document-root confinement, applied to the RAW client path. A path that climbs out

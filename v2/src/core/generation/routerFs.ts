@@ -64,6 +64,7 @@ import {
 } from '../identity/router';
 import { gatewayLogRotations, gatewayRootHistory, gatewaySite } from './gatewayHistory';
 import { SYSLOG_PERMISSIONS } from '../logging/syslog';
+import { buildFinditFs, FINDIT_NETWORK } from './findit';
 
 /** The AP gateway's root account plaintext password, seeded from the ESSID alone
  *  (the `ap-gw-admin-` namespace) so every occupant of the access point faces the
@@ -385,24 +386,28 @@ export const buildRouterBaseFsFromIdentity = (
  * gateway's journal over this base separately.
  */
 export const buildApGatewayBaseFs = (essid: string): Directory =>
-  buildRouterBaseFsFromIdentity(
-    {
-      adminPwHash: md5(seedApGatewayAdminPw(essid)),
-      snmpCommunityHash: md5(seedApGatewayCommunity(essid)),
-      firmwareSeed: `ap-gw-${essid}`,
-      hasSsh: seedApGatewayHasSsh(essid),
-      // PINNED, and deliberately not read from the placement table. `ssh` can be pinned
-      // there because `router: { ssh: 1 }` makes every gateway's roll succeed; the agent
-      // cannot, because generated routers must roll at the router rate WHILE this one is
-      // always on, and a single cell cannot say both. Routed through `placementOf` it
-      // would go missing from 40% of players' own networks — the box this whole door aims
-      // them at, absent for two players in five, decided by their ESSID.
-      hasSnmp: true,
-    },
-    { essid, machineId: computeApGatewayId(essid) },
-    apGatewayNetwork(essid),
-    apGatewayRules(essid),
-  );
+  // findit owns its public address with nothing behind it, so the box a request to that
+  // address reaches, its "gateway", is findit itself.
+  essid === FINDIT_NETWORK
+    ? buildFinditFs()
+    : buildRouterBaseFsFromIdentity(
+      {
+        adminPwHash: md5(seedApGatewayAdminPw(essid)),
+        snmpCommunityHash: md5(seedApGatewayCommunity(essid)),
+        firmwareSeed: `ap-gw-${essid}`,
+        hasSsh: seedApGatewayHasSsh(essid),
+        // PINNED, and deliberately not read from the placement table. `ssh` can be pinned
+        // there because `router: { ssh: 1 }` makes every gateway's roll succeed; the agent
+        // cannot, because generated routers must roll at the router rate WHILE this one is
+        // always on, and a single cell cannot say both. Routed through `placementOf` it
+        // would go missing from 40% of players' own networks — the box this whole door aims
+        // them at, absent for two players in five, decided by their ESSID.
+        hasSnmp: true,
+      },
+      { essid, machineId: computeApGatewayId(essid) },
+      apGatewayNetwork(essid),
+      apGatewayRules(essid),
+    );
 
 /** The AP gateway's NAT table. An institution that publishes a website sends the
  *  public web port to the box serving it, so the site answers at the network's public

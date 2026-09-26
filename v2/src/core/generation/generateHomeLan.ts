@@ -87,7 +87,7 @@ export const generateHomeLan = (essid: string): HomeLan => {
   // sibling, whatever the chosen pool's size, so the addresses do not move.
   //
   // An institution that publishes a website needs a box to serve it from. When none
-  // of its machines drew that role, the lowest-addressed one takes it instead — an
+  // of its machines drew that role, the lowest-addressed one takes it instead â€” an
   // override rather than a draw, for the same reason.
   const drawn = siblingOctets.map((octet) => ({
     octet,
