@@ -41,10 +41,13 @@ const httpPort = (box: Box): number | null =>
 /** Every NPC box on every network, LAN and deep, that serves the web — built inside
  *  each test that asks, never once for the file, so every test that reads a site also
  *  exercises the builder that made it. `isWanted` narrows to one kind of box. */
-const servingBoxes = (isWanted: (host: LanHost) => boolean): readonly Built[] =>
+const servingBoxes = (
+  isWanted: (host: LanHost) => boolean,
+  essids: readonly string[] = ALL_ESSIDS,
+): readonly Built[] =>
   [
-    ...lanBoxes(ALL_ESSIDS).map((box) => ({ box, build: () => buildRemoteHostFs(box.essid, box.host) })),
-    ...deepBoxes(ALL_ESSIDS).map(({ essid, host }) => ({
+    ...lanBoxes(essids).map((box) => ({ box, build: () => buildRemoteHostFs(box.essid, box.host) })),
+    ...deepBoxes(essids).map(({ essid, host }) => ({
       box: { essid, host },
       build: () => buildDeepHostFs(essid, host),
     })),
@@ -61,6 +64,20 @@ const hasPrefix =
   (prefix: string) =>
   (host: LanHost): boolean =>
     host.hostname.startsWith(`${prefix}-`);
+
+/** Whether `box` is the one its institution publishes its public website from. */
+const servesPublicSite = (box: Box): boolean => siteServer(box.essid)?.ip === box.host.ip;
+
+/** A `portal-` box keeps its network's intranet, and an `api-` box its API reference —
+ *  unless it is the box its institution publishes from. */
+const isIntranet = (box: Box): boolean => hasPrefix('portal')(box.host) && !servesPublicSite(box);
+const isApi = (box: Box): boolean => hasPrefix('api')(box.host) && !servesPublicSite(box);
+
+/** Every box serving its network's intranet, and every box serving an API reference. */
+const intranets = (essids?: readonly string[]): readonly Built[] =>
+  servingBoxes(hasPrefix('portal'), essids).filter(({ box }) => isIntranet(box));
+const apiReferences = (): readonly Built[] =>
+  servingBoxes(hasPrefix('api')).filter(({ box }) => isApi(box));
 
 const isOnLan = ({ essid, host }: Box): boolean =>
   generateHomeLan(essid).hosts.some(
@@ -236,7 +253,7 @@ describe('a web server serves a site', () => {
 
 describe('a site belongs to its kind of server', () => {
   it('links the other web hosts on its LAN from an intranet portal, by the name the LAN gives them', () => {
-    const portals = servingBoxes(hasPrefix('portal')).filter(({ box }) => isOnLan(box));
+    const portals = intranets().filter(({ box }) => isOnLan(box));
     const withNeighbours = portals.filter(({ box }) =>
       neighboursOf(box).some((neighbour) => portOf({ essid: box.essid, host: neighbour }, 'http') !== null),
     );
@@ -254,8 +271,9 @@ describe('a site belongs to its kind of server', () => {
   it('says what each host on its services page is, truly', () => {
     // A portal's services table names the LAN's machines by what they do: a file
     // server a player can open with ftp, a mail host that really is one, a web site
-    // that really answers.
-    const portals = servingBoxes(hasPrefix('portal')).filter(({ box }) => isOnLan(box));
+    // that really answers. Every catalog intranet beside a mail host is its
+    // institution's public site instead, so a router's factory name brings one in.
+    const portals = intranets([...ALL_ESSIDS, 'SKY3F2A1']).filter(({ box }) => isOnLan(box));
     const rows = portals.flatMap(({ box, tree }) => {
       const page = webRootOf(tree).get('services.html') ?? '';
       return [...page.matchAll(/<tr><td>([^<]+)<\/td><td>(.*?)<\/td><\/tr>/g)].map(
@@ -303,7 +321,7 @@ describe('a site belongs to its kind of server', () => {
   });
 
   it('documents an API whose documents a client can parse', () => {
-    const apis = servingBoxes(hasPrefix('api'));
+    const apis = apiReferences();
     expect(apis.length).toBeGreaterThan(5);
 
     const unparsed = apis.flatMap((built) => {
@@ -340,9 +358,9 @@ describe('a site is written by the people who live on its network', () => {
     const listing = servingBoxes(isWebserver).filter(
       ({ box }) =>
         neighboursOf(box).length > 0 &&
-        (hasPrefix('portal')(box.host) ||
+        (isIntranet(box) ||
           (['corporate', 'university', 'government'].includes(networkPersona(box.essid).category) &&
-            !hasPrefix('api')(box.host))),
+            !isApi(box))),
     );
     expect(listing.length).toBeGreaterThan(10);
 
@@ -704,9 +722,9 @@ describe('how a site is written out', () => {
     const wrong = servingBoxes(isWebserver).flatMap(({ box, tree }) => {
       const files = [...webRootOf(tree).keys()];
       const category = networkPersona(box.essid).category;
-      const expected = hasPrefix('portal')(box.host)
+      const expected = isIntranet(box)
         ? ['team.html']
-        : hasPrefix('api')(box.host)
+        : isApi(box)
           ? []
           : category === 'corporate'
             ? ['team.html']
@@ -737,32 +755,32 @@ describe('how a site is written out', () => {
   });
 
   it('draws an intranet and an API only from the pages their kind of site keeps', () => {
-    const allowed = (host: LanHost): ReadonlySet<string> =>
+    const allowed = (box: Box): ReadonlySet<string> =>
       new Set(
-        hasPrefix('portal')(host)
+        isIntranet(box)
           ? ['index.html', 'services.html', 'team.html', 'news.html', 'faq.html', 'contact.html', ...PORTAL_PAGES.map(({ file }) => file)]
           : ['index.html', 'about.html', 'contact.html', ...API_PAGES.map(({ file }) => file)],
       );
-    const strays = servingBoxes((host) => hasPrefix('portal')(host) || hasPrefix('api')(host)).flatMap(
+    const strays = [...intranets(), ...apiReferences()].flatMap(
       (built) =>
         [...crawl(built).keys()]
           .filter((path) => path === '/' || path.endsWith('.html'))
           .map((path) => (path === '/' ? 'index.html' : path.slice(1)))
-          .filter((file) => !allowed(built.box.host).has(file))
+          .filter((file) => !allowed(built.box).has(file))
           .map((file) => `${built.box.host.hostname} ${file}`),
     );
     expect(strays).toEqual([]);
   });
 
   it('writes a service port into the services table only where it is not the standard one', () => {
-    const portals = servingBoxes(hasPrefix('portal'));
+    const portals = intranets();
     const pages = portals.map(({ tree }) => webRootOf(tree).get('services.html') ?? '');
     expect(pages.filter((page) => /\.lan:80\/|\.lan:21\//.test(page))).toEqual([]);
     expect(pages.some((page) => /\.lan:\d+\//.test(page))).toBe(true);
   });
 
   it('lists every machine that does something on the network, and says so when none does', () => {
-    const wrong = servingBoxes(hasPrefix('portal')).flatMap(({ box, tree }) => {
+    const wrong = intranets().flatMap(({ box, tree }) => {
       const page = webRootOf(tree).get('services.html') ?? '';
       const rows = [...page.matchAll(/<tr><td>/g)].length;
       const expected = neighboursOf(box).reduce(
@@ -782,11 +800,11 @@ describe('how a site is written out', () => {
       ].map((fault) => `${box.host.hostname}: ${fault}`);
     });
     expect(wrong).toEqual([]);
-    expect(servingBoxes(hasPrefix('portal')).some(({ box }) => neighboursOf(box).length === 0)).toBe(true);
+    expect(intranets().some(({ box }) => neighboursOf(box).length === 0)).toBe(true);
   });
 
   it('shows the status endpoint as its worked example, exactly as it answers', () => {
-    const wrong = servingBoxes(hasPrefix('api')).flatMap(({ box, tree }) => {
+    const wrong = apiReferences().flatMap(({ box, tree }) => {
       const front = webRootOf(tree).get('index.html') ?? '';
       const status = webRootOf(tree).get('api/v1/status');
       return front.includes(`<h2>Example</h2>\n<pre>\nGET /api/v1/status\n${status}\n</pre>`)
@@ -900,6 +918,25 @@ describe("an institution's homepage names it to the world", () => {
       const description = /<meta name="description" content="([^"]+)">/.exec(homepage)?.[1] ?? '';
       expect(description.replace(site.name.charAt(0).toUpperCase() + site.name.slice(1), '').trim(), entry.essid).not.toBe('');
     }
+  });
+
+  it('serves its public site from whatever box it publishes from, never an intranet or an API reference', () => {
+    // A box's name decides the site it keeps for its own network; the box an
+    // institution publishes from is the institution's face to the world instead.
+    const wrong = publishers.flatMap(({ entry, server }) => {
+      const pages = webRootOf(buildRemoteHostFs(entry.essid, server));
+      // An intranet's services page maps the network; a public site's describes the
+      // business, so the page's name alone cannot tell them apart.
+      const services = pages.get('services.html') ?? '';
+      const mapsTheNetwork =
+        services.includes('<tr><th>Service</th><th>Host</th></tr>') ||
+        services.includes('Nothing else on the network is listed yet.');
+      return [
+        ...(mapsTheNetwork ? ['serves an intranet'] : []),
+        ...([...pages.keys()].some((file) => file.startsWith('api/')) ? ['serves an API reference'] : []),
+      ].map((fault) => `${entry.essid} (${server.hostname}) ${fault}`);
+    });
+    expect(wrong).toEqual([]);
   });
 
   it('lists who works at a government office on a staff directory its homepage links', () => {
