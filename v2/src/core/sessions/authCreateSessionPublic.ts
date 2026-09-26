@@ -238,18 +238,16 @@ export const handleAuthCreateSessionPublic = async (
   // there is no reachable machine to log on.) The line lands on the resolved machine
   // under the key that owns its logs; the source IP is the attacker's own home public
   // IP, server-derived from their verified key — never the payload's.
-  if (target.logWriterKey !== null) {
-    const sourceIp = await resolveVantageSourceIp(deps, {
-      actorKey: publicKey,
-      standingEssid: vantage.standingEssid,
-    });
-    await logCrossPlayerAuth(deps, target.logWriterKey, target, {
-      outcome: passwordOk ? 'success' : 'failure',
-      user: payload.username,
-      fromIp: sourceIp,
-      sweepLog: spec.sweepLog,
-    });
-  }
+  const sourceIp = await resolveVantageSourceIp(deps, {
+    actorKey: publicKey,
+    standingEssid: vantage.standingEssid,
+  });
+  await logCrossPlayerAuth(deps, target.logWriterKey, target, {
+    outcome: passwordOk ? 'success' : 'failure',
+    user: payload.username,
+    fromIp: sourceIp,
+    sweepLog: spec.sweepLog,
+  });
 
   if (account === null || !passwordOk) {
     return { status: 401, body: { error: 'invalid_credentials' } };

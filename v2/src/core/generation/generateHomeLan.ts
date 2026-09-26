@@ -23,7 +23,8 @@
  */
 
 import { createPrng } from './prng';
-import { machineRole } from './machineRole';
+import { machineRole, type DrawnRole } from './machineRole';
+import { publisherSite } from './publisher';
 import { HOSTNAME_PREFIXES } from './pools/hostnames';
 import { lanSubnetPrefix } from '../network/lanAddress';
 import { seedApGatewayHostname, seedInnerGatewayHostname } from './gatewayHostname';
@@ -84,11 +85,22 @@ export const generateHomeLan = (essid: string): HomeLan => {
   // including the switch's octet below, and the lease allocator excludes these octets
   // when it issues an occupant an address. Naming is still exactly ONE `pick` per
   // sibling, whatever the chosen pool's size, so the addresses do not move.
-  const siblings: readonly LanHost[] = siblingOctets.map((octet): LanHost => {
-    const ip = `${subnet}.${octet}`;
+  //
+  // An institution that publishes a website needs a box to serve it from. When none
+  // of its machines drew that role, the lowest-addressed one takes it instead — an
+  // override rather than a draw, for the same reason.
+  const drawn = siblingOctets.map((octet) => ({
+    octet,
+    role: machineRole(essid, `${subnet}.${octet}`),
+  }));
+  const needsWebserver =
+    publisherSite(essid) !== undefined && !drawn.some(({ role }) => role === 'webserver');
+  const lowestSibling = Math.min(...siblingOctets);
+  const siblings: readonly LanHost[] = drawn.map(({ octet, role }): LanHost => {
+    const servedRole: DrawnRole = needsWebserver && octet === lowestSibling ? 'webserver' : role;
     return {
-      ip,
-      hostname: `${prng.pick(HOSTNAME_PREFIXES[machineRole(essid, ip)])}-${octet}`,
+      ip: `${subnet}.${octet}`,
+      hostname: `${prng.pick(HOSTNAME_PREFIXES[servedRole])}-${octet}`,
       kind: 'machine',
     };
   });

@@ -195,9 +195,8 @@ export const handleHydraCrackPublic = async (
     formatAttempt: spec.sweepLog.formatAttempt,
   });
 
-  // Nothing tried, nothing recorded. Nobody to record it under is the same silence:
-  // an AP nobody has ever leased an address on keeps no log at all.
-  if (trace.length > 0 && target.logWriterKey !== null) {
+  // Nothing tried, nothing recorded.
+  if (trace.length > 0) {
     try {
       await appendMachineLog(
         { readLog: deps.readAuthLog, upsertPatch: deps.upsertPatch },

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter';
 import { handleSnmpWalk, type SnmpWalkDeps } from './snmpWalk';
 import { signRequest } from '../signedRequest/sign';
 import { generateIdentity } from '../identity/identity';
@@ -311,9 +312,10 @@ describe('walking a device with its read-write community', () => {
 
   it('names the tier even when the device forwards nothing at all', async () => {
     // Default-deny makes this the ORDINARY answer for a fresh router, so it must read as
-    // a device with an empty table rather than as a community that was refused.
+    // a device with an empty table rather than as a community that was refused. A flat,
+    // because an institution's gateway forwards its website.
     const identity = generateIdentity();
-    const essid = CANDIDATE_ESSIDS[0]!;
+    const essid = 'APT-3B-WIFI';
     const gateway = apGatewayOn(essid);
     const { deps } = makeDeps(answering('corpnet'));
 
@@ -674,8 +676,8 @@ describe('a device that filters the port its agent answers on', () => {
  * keeping whichever visit happened last.
  *
  * The access point's gateway is the box where that bites. It has no owner of its own, so
- * a walk from across the world accretes under the AP's stable key — the lowest octet ever
- * leased on the ESSID, which does not move when players join or leave. An occupant
+ * a walk from across the world accretes under the AP's stable key — the network's own,
+ * which does not move when players join or leave. An occupant
  * walking the same gateway from inside stands on a different vantage and must still land
  * in that same row: otherwise a defender reading their own gateway's log would erase the
  * attacker's lines by looking at them.
@@ -694,25 +696,13 @@ describe("whose row a gateway's own log accretes under", () => {
     const identity = generateIdentity();
     const essid = CANDIDATE_ESSIDS[0]!;
     const gateway = apGatewayOn(essid);
-    // A shared access point where the caller is NOT the lowest octet. On a network they
-    // hold alone the two keys coincide and the claim cannot be told apart from its own
-    // absence.
-    const neighbour = generateIdentity();
-    const { deps, upsertPatch } = makeDeps({
-      listLeasesByEssid: async () => ({
-        data: [
-          { owner_key: identity.publicKeyHex, octet: 77 },
-          { owner_key: neighbour.publicKeyHex, octet: 12 },
-        ],
-        error: null,
-      }),
-    });
+    const { deps, upsertPatch } = makeDeps();
 
     await handleSnmpWalk(await signedWalk(identity, { essid, target_ip: gateway.ip }), deps);
 
     expect(upsertPatch.mock.calls[0]![0]).toMatchObject({
       path: SNMPD_LOG_PATH,
-      writer_key: neighbour.publicKeyHex,
+      writer_key: apGatewayLogWriterKey(essid),
     });
   });
 
@@ -725,25 +715,14 @@ describe("whose row a gateway's own log accretes under", () => {
     // before is simply gone.
     const identity = generateIdentity();
     const { essid, host } = deviceOfKind('switch');
-    const neighbour = generateIdentity();
-    const { deps, upsertPatch } = makeDeps({
-      listLeasesByEssid: async () => ({
-        data: [
-          { owner_key: identity.publicKeyHex, octet: 77 },
-          { owner_key: neighbour.publicKeyHex, octet: 12 },
-        ],
-        error: null,
-      }),
-    });
+    const { deps, upsertPatch } = makeDeps();
 
     await handleSnmpWalk(await signedWalk(identity, { essid, target_ip: host.ip }), deps);
 
-    // The lowest lease rather than the caller. The two leases above are arranged so those
-    // differ, because on a WiFi the caller holds alone they coincide and the claim could
-    // not be told apart from its own absence.
+    // The network's own key rather than the caller's.
     expect(upsertPatch.mock.calls[0]![0]).toMatchObject({
       path: SNMPD_LOG_PATH,
-      writer_key: neighbour.publicKeyHex,
+      writer_key: apGatewayLogWriterKey(essid),
     });
   });
 });

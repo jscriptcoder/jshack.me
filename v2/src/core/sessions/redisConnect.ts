@@ -141,7 +141,7 @@ export const handleRedisConnect = async (
     // The TARGET's key once the box has an owner: the system owns its logs, so every
     // visitor's lines accrete into one row on the defender's box rather than a row
     // each, where the newest would erase the rest on replay.
-    writerKey: writerKey ?? publicKey,
+    writerKey,
     machineId,
     fromIp: sourceIp ?? payload.source_ip ?? 'unknown',
   });

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter';
 import { handleSnmpWalk, type SnmpWalkDeps } from './snmpWalk';
 import { signRequest } from '../signedRequest/sign';
 import { generateIdentity } from '../identity/identity';
@@ -255,7 +256,7 @@ describe('every way of not answering a stranger, which has to be one way', () =>
 
     const logged = loggedRow(upsertPatch);
     expect(logged?.machine_id).toBe(AP_GATEWAY_ID);
-    expect(logged?.writer_key).toBe(DEFENDER.publicKeyHex);
+    expect(logged?.writer_key).toBe(apGatewayLogWriterKey(TARGET_ESSID));
     expect(logged?.writer_key).not.toBe(attacker.publicKeyHex);
   });
 

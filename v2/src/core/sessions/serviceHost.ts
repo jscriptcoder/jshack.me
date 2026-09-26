@@ -117,14 +117,11 @@ export type ReachedServiceHost = {
    *  the box has an owner, so a defender's box keeps ONE datadir and ONE log however
    *  many attackers touch it, rather than a row each where the newest erases the rest.
    *
-   *  A box nobody owns takes the ESSID's own stable key — the lowest octet ever leased
-   *  there — for the same reason: it is regenerated from the ESSID and shared by every
-   *  occupant, so the caller's key would be stable for one player and different for the
-   *  next, and a row per caller means the newest wins outright on replay.
-   *
-   *  `null` only where that ESSID has never had an address leased on it at all, which is
-   *  the one case with no stable key to offer. */
-  readonly writerKey: string | null;
+   *  A box nobody owns takes the ESSID's own stable key for the same reason: it is
+   *  regenerated from the ESSID and shared by every occupant, so the caller's key would
+   *  be stable for one player and different for the next, and a row per caller means the
+   *  newest wins outright on replay. */
+  readonly writerKey: string;
   /** The `/24` this box's forwards may point INTO, or `null` for a box that fronts no
    *  network at all — which is a REASON to refuse a NAT rule, never missing information.
    *
@@ -178,7 +175,7 @@ const openJournaledBox = async (
     readonly localIp: string;
     readonly reachedPort: number;
     readonly sourceIp: string | null;
-    readonly writerKey: string | null;
+    readonly writerKey: string;
     readonly frontedSegment: string | null;
   },
 ): Promise<BoxReach> => {
@@ -264,31 +261,6 @@ const openBox = (box: ReachedBox): BoxReach => {
   if (!canBoot(box.hostFs).ok) return { ok: false, refusal: UNREACHABLE };
 
   return { ok: true, reached: box };
-};
-
-/** The stable key an OWNERLESS box on an ESSID keeps its logs under: the lowest octet
- *  ever leased there.
- *
- *  These boxes are regenerated from the ESSID and their ids do not depend on who is
- *  asking, so several players reach the very same machine. `patches` rows are keyed
- *  `(machine_id, path, writer_key)` and a log patch carries the WHOLE file, so a row per
- *  caller means the newest wins outright on replay and the earlier visitor's lines are
- *  simply gone. The caller's own key is stable per player and unstable across them —
- *  exactly the wrong way round for a box they share.
- *
- *  It is not a claim about who acted: the attacker's identity lives in the line itself.
- *  It is the BUCKET the lines accrete in, and it is read back through the same resolver
- *  that chose it, so a read and a write cannot come to disagree about where the log is.
- *
- *  A read that fails leaves the caller's key rather than turning a reach into a 500: a
- *  log line is best-effort everywhere else too, and losing the stable key is milder than
- *  losing the visit. */
-const sharedBoxWriterKey = async (
-  deps: ServiceHostLookup,
-  essid: string,
-): Promise<string | null> => {
-  const leases = await deps.listLeasesByEssid(essid);
-  return leases.error ? null : apGatewayLogWriterKey(leases.data ?? []);
 };
 
 /**
@@ -396,7 +368,7 @@ export const reachBox = async (
       // every occupant walks the same one, so the caller's own key would give each
       // attacker a row of their own for one path — and the newest wins outright on
       // replay, erasing whoever came before.
-      writerKey: await sharedBoxWriterKey(deps, target.essid),
+      writerKey: apGatewayLogWriterKey(target.essid),
       // The layer behind the box the chain walk stopped on, which only the walk knows.
       frontedSegment: resolved.target.frontedSegment,
     });
@@ -427,7 +399,7 @@ export const reachBox = async (
     // so an occupant walking their own gateway would erase the lines a stranger's visit
     // left there — but a generated sibling shares its id across the ESSID the same way,
     // and so takes the same key.
-    writerKey: await sharedBoxWriterKey(deps, target.essid),
+    writerKey: apGatewayLogWriterKey(target.essid),
     // The caller's own ESSID genuinely IS this box's network here, so the derivation the
     // set door used to make is correct at this vantage — and only at this one.
     frontedSegment: frontedSegment({ essid: target.essid, machineId, kind: host.kind }),

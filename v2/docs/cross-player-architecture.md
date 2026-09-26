@@ -34,7 +34,9 @@ identity) plus a **journal** of patch rows replayed over it.
   writers' edits to the same path **coexist**.
 - **`writer_key`** = the player who wrote that row (provenance). **Always server-stamped**
   from the verified pubkey; the payload schema rejects a client-supplied
-  `player_key`/`writer_key` outright (`core/patches/upsertPatch.ts`).
+  `player_key`/`writer_key` outright (`core/patches/upsertPatch.ts`). The one exception is a
+  system log on an ownerless box, which the server files under the network's own `ap:<essid>`
+  key (see "Whose row the gateway's own logs land in").
 - **`content: null`** is a deletion marker (tombstone). The in-game file `owner` column
   (for `ls -l`) is separate from `writer_key`.
 - **Chronological replay:** reads sort rows by **server `updated_at` asc, tiebreak
@@ -141,11 +143,14 @@ internalPort}`; else `none` (router-own wins a same-port tie). It shares `readRu
 - **Whose row the gateway's own logs land in:** the gateway belongs to the access point, not to a
   player, so it has no owner key — but `patches` rows are keyed `(machine_id, path, writer_key)`
   and a log patch carries the whole file, so a writer key that moves splits the log across rows
-  and the newer row erases the older one on replay. `core/logging/apGatewayLogWriter.ts` picks the
-  **lowest octet leased on the ESSID**: leases are permanent and outlive occupancy, so the row
-  never moves, and it does not depend on the order the store returns rows in. An ESSID nobody has
-  ever leased an address on keeps no log at all. A forwarded-port login logs on the box it
-  reached, under that occupant's own key.
+  and the newer row erases the older one on replay. `core/logging/apGatewayLogWriter.ts` keys it to
+  the **network itself**: `ap:<essid>`, derived from the ESSID alone. It never moves as players
+  join, leave or rejoin, and it exists before anybody has ever joined, so an AP nobody has leased
+  on (an institution's website, say) still logs its first visitor. The same key buckets every
+  OWNERLESS box on the ESSID — the inner gateways, the generated LAN siblings, the deep layers —
+  so every door that reaches one of them writes one log. It is a system key, not a player's: the
+  `ap:` prefix can never read as a 64-hex pubkey, and who acted lives in the line. A
+  forwarded-port login logs on the box it reached, under that occupant's own key.
 - **Own-LAN router login (Story 5.1.3a):** A's own `ssh root@<subnet>.1` (the `.1` gateway,
   `kind:'router'`) takes the own-LAN branch of `ssh.ts`, but reachability and the hop's machine id
   come from the router (`buildRouterBaseFs` / `computeRouterId`), not a regenerated sibling.
@@ -345,7 +350,8 @@ shipped attack loop into an attacker/defender loop.
 
 ## Invariants (the load-bearing rules)
 
-- `writer_key` / identity is **always** the server-verified pubkey, never a client claim.
+- `writer_key` / identity is **always** server-stamped — the verified pubkey, or the network's own
+  `ap:<essid>` key for a system log on an ownerless box — never a client claim.
 - Replay ordering is the **server** `updated_at` (trigger-stamped), never client-supplied.
 - The **wire is the threat surface** — prune/authorize server-side before the response leaves.
 - `machine_id` MUST go through `computeWorkstationId` (the `ed25519:` prefix is load-bearing).
@@ -438,7 +444,7 @@ mitigation is a server-side game-logic re-run.
 | Registry write         | `core/network/registerNetwork.ts`                                                  |
 | Public scan resolve    | `core/scan/resolvePublicScan.ts`                                                   |
 | Forward→occupant resolve | `core/network/natHosts.ts` (`bootableOccupantFs` + `natPortResolver`)            |
-| AP log writer key      | `core/logging/apGatewayLogWriter.ts` (`apGatewayLogWriterKey`)                      |
+| Ownerless-box log key  | `core/logging/apGatewayLogWriter.ts` (`apGatewayLogWriterKey(essid)`)               |
 | su elevation (server)  | `core/sessions/authElevateSession.ts`                                              |
 | Public ssh gate        | `core/sessions/authCreateSessionPublic.ts`                                         |
 | Trace append primitive | `core/patches/appendMachineLog.ts`                                                 |

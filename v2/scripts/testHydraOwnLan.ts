@@ -40,6 +40,7 @@
 //
 // Exits 0 when all checks pass, 1 on failure, 2 on missing env.
 
+import { apGatewayLogWriterKey } from '../src/core/logging/apGatewayLogWriter';
 import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign';
 import { generateIdentity } from '../src/core/identity/identity';
@@ -172,7 +173,8 @@ const readTrace = async (): Promise<{
     .select('content, owner, permissions, node_type')
     .eq('machine_id', targetMachine)
     .eq('path', AUTH_LOG_PATH)
-    .eq('writer_key', attacker.publicKeyHex)
+    // Nobody owns a generated box, so the trace lands in the network's own row.
+    .eq('writer_key', apGatewayLogWriterKey(ESSID))
     .maybeSingle();
   if (error) throw new Error(`auth.log read failed: ${error.message}`);
   if (data === null) return null;
@@ -190,7 +192,7 @@ const clearTrace = async () => {
     .delete()
     .eq('machine_id', targetMachine)
     .eq('path', AUTH_LOG_PATH)
-    .eq('writer_key', attacker.publicKeyHex);
+    .eq('writer_key', apGatewayLogWriterKey(ESSID));
 };
 
 const traceLines = (content: string): readonly string[] =>

@@ -93,14 +93,14 @@ const resolveHttpSweepSchema = z
 /** Tell the box what it was just asked for — every probe, in the order tried, as ONE
  *  append. Best-effort: the sweep has already happened, and a logging failure must
  *  never surface to the requester, which would leak the defender's storage state to a
- *  stranger. Nothing asked, nothing said; nobody to key the log to, likewise. */
+ *  stranger. Nothing asked, nothing said. */
 const recordSweep = async (
   deps: ResolveHttpSweepDeps,
-  target: { readonly machineId: string; readonly logWriterKey: string | null },
+  target: { readonly machineId: string; readonly logWriterKey: string },
   sourceIp: string,
   asked: readonly ProbedPath[],
 ): Promise<void> => {
-  if (asked.length === 0 || target.logWriterKey === null) {
+  if (asked.length === 0) {
     return;
   }
   const time = asGameTime(deps.now());

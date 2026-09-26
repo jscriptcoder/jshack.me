@@ -13,6 +13,9 @@ import { md5 } from '../generation/md5';
 import { seedApGatewayHostname } from '../generation/gatewayHostname';
 import { formatNmapScanAggregate, KERN_LOG_OWNER, KERN_LOG_PERMISSIONS } from '../logging/kernLog';
 import { asGameTime } from '../types';
+import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter';
+import { siteServer } from '../generation/siteServer';
+import { machineIdForLanHost } from '../generation/lanHostIdentity';
 import {
   formatListenerContent,
   listenerPidfilePath,
@@ -230,6 +233,72 @@ const SNMP_161 = { port: 161, service: 'snmp', version: 'net-snmp 5.9.4' };
 const OWN_DOORS = [SSH_22, SNMP_161];
 
 describe('handleResolvePublicScan', () => {
+  describe("an institution's public address", () => {
+    const PUBLISHER = 'CAMPUS-GUEST-OPEN';
+    const server = siteServer(PUBLISHER);
+    if (server === undefined) throw new Error(`${PUBLISHER} publishes no website`);
+    const unjoined: ScanOverrides = {
+      lookup: async () => ({
+        data: { router_machine_id: computeApGatewayId(PUBLISHER), essid: PUBLISHER },
+        error: null,
+      }),
+      listOccupantsByEssid: async () => ({ data: [], error: null }),
+      listLeasesByEssid: async () => ({ data: [], error: null }),
+    };
+    const portsOf = (body: Record<string, unknown>): readonly string[] =>
+      ((body.ports ?? []) as readonly { port: number; service: string }[]).map(
+        (openPort) => `${openPort.port}/${openPort.service}`,
+      );
+
+    it('shows the web port its gateway forwards to the site, with nobody ever joined', async () => {
+      const { deps } = makeDeps(unjoined);
+
+      const result = await handleResolvePublicScan(envelope(generateIdentity(), TARGET), deps);
+
+      expect(result.status).toBe(200);
+      expect(portsOf(result.body)).toEqual(expect.arrayContaining(['22/ssh', '80/http']));
+    });
+
+    it("reports a failed read of the site server's journal as a server error", async () => {
+      const serverId = machineIdForLanHost(server, PUBLISHER);
+      const { deps } = makeDeps({
+        ...unjoined,
+        patches: async ({ machine_id }) =>
+          machine_id === serverId
+            ? { data: null, error: new Error('db down') }
+            : { data: [], error: null },
+      });
+
+      const result = await handleResolvePublicScan(envelope(generateIdentity(), TARGET), deps);
+
+      expect(result).toEqual({ status: 500, body: { error: 'patches_lookup_failed' } });
+    });
+
+    it('hides the web port while the site server is bricked', async () => {
+      const { deps } = makeDeps({
+        ...unjoined,
+        patches: patchesByMachine({
+          [machineIdForLanHost(server, PUBLISHER)]: [
+            {
+              path: '/boot/vmlinuz',
+              content: null,
+              owner: 'root',
+              permissions: null,
+              node_type: null,
+              updated_at: '2026-07-30T00:00:00.000Z',
+              writer_key: ALICE.publicKeyHex,
+            },
+          ],
+        }),
+      });
+
+      const result = await handleResolvePublicScan(envelope(generateIdentity(), TARGET), deps);
+
+      expect(portsOf(result.body)).toContain('22/ssh');
+      expect(portsOf(result.body)).not.toContain('80/http');
+    });
+  });
+
   it("resolves a registered public IP to the AP gateway's own sshd:22 (every occupant dark behind NAT)", async () => {
     const scanner = generateIdentity();
     const { deps, findNetworkByPublicIp, findPatches } = makeDeps();
@@ -661,7 +730,7 @@ describe('handleResolvePublicScan', () => {
       });
       expect(upsertPatch).toHaveBeenCalledTimes(1);
       expect(upsertPatch.mock.calls[0]![0]).toEqual({
-        writer_key: ALICE.publicKeyHex,
+        writer_key: apGatewayLogWriterKey(ESSID),
         machine_id: AP_GATEWAY_ID,
         path: '/var/log/kern.log',
         content: `${expectedKernLine(SCANNER_PUBLIC_IP, [22, 161])}\n`,
@@ -671,20 +740,6 @@ describe('handleResolvePublicScan', () => {
       });
       // The provenance is never the scanner — the keystone.
       expect(upsertPatch.mock.calls[0]![0].writer_key).not.toBe(scanner.publicKeyHex);
-    });
-
-    it("accretes the AP's log under ONE row whatever order the leases come back in", async () => {
-      const scanner = generateIdentity();
-      const reversed = makeDeps({
-        listLeasesByEssid: async () => ({ data: [...BOTH_LEASES].reverse(), error: null }),
-      });
-
-      await handleResolvePublicScan(envelope(scanner, TARGET), reversed.deps);
-
-      // The gateway belongs to nobody, so its log has to accrete under SOME occupant's
-      // row — and it must be the same one every time. A writer_key that moves splits the
-      // log across rows, and the later row erases the earlier one on replay.
-      expect(reversed.upsertPatch.mock.calls[0]![0].writer_key).toBe(ALICE.publicKeyHex);
     });
 
     it('lists every port the scanner actually saw, including live NAT forwards', async () => {
@@ -729,7 +784,7 @@ describe('handleResolvePublicScan', () => {
       expect(upsertPatch.mock.calls[0]![0].content).toBe(`${expectedKernLine('unknown', [22, 161])}\n`);
     });
 
-    it('reports the scan truthfully but leaves no trace on an AP nobody has ever leased an address on', async () => {
+    it("keeps the trace on an AP nobody has ever leased an address on, in the network's own row", async () => {
       const scanner = generateIdentity();
       const { deps, upsertPatch } = makeDeps({
         listLeasesByEssid: async () => ({ data: [], error: null }),
@@ -737,8 +792,16 @@ describe('handleResolvePublicScan', () => {
 
       const result = await handleResolvePublicScan(envelope(scanner, TARGET), deps);
 
+      // The gateway belongs to the network, not to whoever has joined it, so its log
+      // lands in the network's own row from the very first scan � and stays there as
+      // players come and go, rather than splitting across rows that erase each other.
       expect(result.body).toMatchObject({ found: true, ports: OWN_DOORS });
-      expect(upsertPatch).not.toHaveBeenCalled();
+      expect(upsertPatch).toHaveBeenCalledTimes(1);
+      expect(upsertPatch.mock.calls[0]![0]).toMatchObject({
+        writer_key: apGatewayLogWriterKey(ESSID),
+        machine_id: AP_GATEWAY_ID,
+        path: '/var/log/kern.log',
+      });
     });
 
     it('writes nothing for an unregistered public IP (found:false)', async () => {

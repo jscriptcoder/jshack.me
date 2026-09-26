@@ -5,8 +5,8 @@
 //
 // Net-new under test (the locally-untypechecked api/ runtime):
 //   - B `nmap <A.publicIp>` (host up) → ONE `[iptables] Port scan from <B's home
-//     public IP>` line lands on A's ROUTER kern.log, keyed by A's OWNER writer_key
-//     (decision 1), naming A's seeded router hostname, with the ports B saw.
+//     public IP>` line lands on A's ROUTER kern.log, keyed by the network's own
+//     writer_key, naming A's seeded router hostname, with the ports B saw.
 //   - The source IP is SERVER-DERIVED from B's verified key (B's home network's public IP),
 //     NOT the client `source_ip` — a forged `source_ip` in the payload is ignored.
 //   - Keystone: a SECOND scanner (C) accretes its own line into the SAME row instead
@@ -23,6 +23,7 @@
 //
 // Exits 0 when all checks pass, 1 on failure, 2 on missing env.
 
+import { apGatewayLogWriterKey } from '../src/core/logging/apGatewayLogWriter';
 import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign';
 import { generateIdentity } from '../src/core/identity/identity';
@@ -80,15 +81,15 @@ const portsOf = (body: unknown): readonly WirePort[] =>
 
 const KERN_LOG = '/var/log/kern.log';
 
-/** Read the ROUTER's kern.log row keyed by the OWNER's writer_key — the single
- *  canonical row the system writes its scan lines to (decision 1). */
-const readRouterKernLog = async (routerId: string, ownerKey: string): Promise<string> => {
+/** Read the ROUTER's kern.log row keyed by the network's own writer_key — the single
+ *  canonical row the system writes its scan lines to. */
+const readRouterKernLog = async (routerId: string, writerKey: string): Promise<string> => {
   const { data } = await sr
     .from('patches')
     .select('content')
     .eq('machine_id', routerId)
     .eq('path', KERN_LOG)
-    .eq('writer_key', ownerKey)
+    .eq('writer_key', writerKey)
     .maybeSingle();
   return (data as { content?: string } | null)?.content ?? '';
 };
@@ -143,15 +144,14 @@ await sr
     occupantRow(carol, C_ESSID, 'serenity'),
   ]);
 // The lease the join allocates BEFORE it writes the occupancy row. It is what fixes each
-// occupant's LAN address — and on the AP itself, which occupant's row its ownerless
-// system logs accrete under (the lowest octet leased, so the row never moves).
+// occupant's LAN address.
 await sr.from('network_lan_leases').insert([
   { essid: A_ESSID, owner_key: alice.publicKeyHex, octet: 21 },
   { essid: B_ESSID, owner_key: bob.publicKeyHex, octet: 22 },
   { essid: C_ESSID, owner_key: carol.publicKeyHex, octet: 23 },
 ]);
 
-// === 1. B scans A (host up) → one kern.log line on A's ROUTER under A's writer_key. ===
+// === 1. B scans A (host up) → one kern.log line on A's ROUTER under the network's key. ===
 const s1 = await post(NETWORK, signRequest(bob, 'resolvePublicScan', { target: A_PUBLIC_IP }));
 check(
   'B nmap <A.publicIp> resolves host-up with the router’s :22',
@@ -198,7 +198,7 @@ check(
     .join(' '),
 );
 
-const log1 = await readRouterKernLog(A_ROUTER, alice.publicKeyHex);
+const log1 = await readRouterKernLog(A_ROUTER, apGatewayLogWriterKey(A_ESSID));
 check(
   'A’s router kern.log records the scan from B’s home public IP, naming the seeded router',
   log1.includes(`Port scan from ${B_PUBLIC_IP}`) && log1.includes(`${A_ROUTER_HOST} kernel:`),
@@ -216,7 +216,7 @@ await post(
   NETWORK,
   signRequest(bob, 'resolvePublicScan', { target: A_PUBLIC_IP, source_ip: '10.6.6.6' }),
 );
-const log2 = await readRouterKernLog(A_ROUTER, alice.publicKeyHex);
+const log2 = await readRouterKernLog(A_ROUTER, apGatewayLogWriterKey(A_ESSID));
 check(
   'a client-supplied source_ip is ignored — the line carries B’s home public IP, not the forged one',
   log2.includes(`Port scan from ${B_PUBLIC_IP}`) && !log2.includes('10.6.6.6'),
@@ -225,17 +225,17 @@ check(
 
 // === 3. Keystone: a SECOND scanner (C) accretes into the SAME row, not collapsing it. ===
 await post(NETWORK, signRequest(carol, 'resolvePublicScan', { target: A_PUBLIC_IP }));
-const log3 = await readRouterKernLog(A_ROUTER, alice.publicKeyHex);
+const log3 = await readRouterKernLog(A_ROUTER, apGatewayLogWriterKey(A_ESSID));
 check(
-  'both B’s and C’s scans coexist in the one owner-keyed row (no last-write-wins collapse)',
+  'both B’s and C’s scans coexist in the one network-keyed row (no last-write-wins collapse)',
   log3.includes(`Port scan from ${B_PUBLIC_IP}`) && log3.includes(`Port scan from ${C_PUBLIC_IP}`),
   `lines=${log3.trim().split('\n').length}`,
 );
 
 // === 4. found:false (unknown public IP) writes nothing. ===
-const before = await readRouterKernLog(A_ROUTER, alice.publicKeyHex);
+const before = await readRouterKernLog(A_ROUTER, apGatewayLogWriterKey(A_ESSID));
 const s4 = await post(NETWORK, signRequest(bob, 'resolvePublicScan', { target: '203.0.113.250' }));
-const after = await readRouterKernLog(A_ROUTER, alice.publicKeyHex);
+const after = await readRouterKernLog(A_ROUTER, apGatewayLogWriterKey(A_ESSID));
 check(
   'scanning an unregistered IP is host-down and writes no trace',
   s4.status === 200 && !foundOf(s4.body) && before === after,

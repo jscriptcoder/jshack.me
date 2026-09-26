@@ -33,6 +33,7 @@
 //
 // Exits 0 when all checks pass, 1 on failure, 2 on missing env / no usable device.
 
+import { apGatewayLogWriterKey } from '../src/core/logging/apGatewayLogWriter';
 import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign';
 import { generateIdentity } from '../src/core/identity/identity';
@@ -297,8 +298,8 @@ const main = async (): Promise<void> => {
     JSON.stringify(accepted),
   );
   check(
-    'root-owned, and filed under the caller key an unowned box leaves it under',
-    trace?.owner === SNMPD_LOG_OWNER && trace?.writerKey === attacker.publicKeyHex,
+    'root-owned, and filed under the network key an unowned box leaves it under',
+    trace?.owner === SNMPD_LOG_OWNER && trace?.writerKey === apGatewayLogWriterKey(ESSID),
     `owner ${trace?.owner ?? 'none'}, writer ${(trace?.writerKey ?? 'none').slice(0, 8)}...`,
   );
   check(

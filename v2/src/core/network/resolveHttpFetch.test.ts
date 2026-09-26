@@ -17,6 +17,9 @@ import { formatPidfileContent } from '../services/pidfile';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import { HTTP_DEFAULT_PORT } from './http';
 import { ACCESS_LOG_PATH } from '../logging/accessLog';
+import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter';
+import { siteServer } from '../generation/siteServer';
+import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
 import { asAbsPath } from '../types';
 import type { NonceStore } from '../signedRequest/nonceStore';
 import type {
@@ -295,6 +298,90 @@ describe('a stranger fetches a page behind a NAT forward', () => {
       status: 200,
       body: { ok: true, content: ALICE_PAGE },
     });
+  });
+});
+
+/**
+ * An institution publishes its website from a machine on its own LAN, and its gateway
+ * forwards the public web port there. Nobody lives on that machine, so a stranger's
+ * fetch reaches a generated box rather than a player's � before anybody has joined.
+ */
+describe("an institution's website, served from a machine nobody owns", () => {
+  const PUBLISHER = 'CAMPUS-GUEST-OPEN';
+  const server = siteServer(PUBLISHER);
+  if (server === undefined) throw new Error(`${PUBLISHER} publishes no website`);
+  const serverIdentity = resolveLanHostIdentity(server, PUBLISHER);
+  const homepage = createFsView(serverIdentity.baseFs, { userType: 'root' }).read(
+    asAbsPath('/var/www/html/index.html'),
+  );
+  const unjoined = {
+    lookup: async () => ({
+      data: { router_machine_id: computeApGatewayId(PUBLISHER), essid: PUBLISHER },
+      error: null,
+    }),
+    listOccupantsByEssid: async () => ({ data: [], error: null }),
+    listLeasesByEssid: async () => ({ data: [], error: null }),
+  };
+
+  it('returns the homepage with nobody ever having joined the network', async () => {
+    const { deps } = makeDeps(unjoined);
+
+    const response = await handleResolveHttpFetch(envelope(), deps);
+
+    expect(homepage.ok).toBe(true);
+    expect(response).toEqual({
+      status: 200,
+      body: { ok: true, content: homepage.ok ? homepage.content : '' },
+    });
+  });
+
+  it("records the hit in that machine's access log, under the network's own key", async () => {
+    const { deps, upsertPatch } = makeDeps(unjoined);
+
+    await handleResolveHttpFetch(envelope(), deps);
+
+    expect(upsertPatch).toHaveBeenCalledTimes(1);
+    expect(upsertPatch.mock.calls[0]?.[0]).toMatchObject({
+      machine_id: serverIdentity.machineId,
+      path: ACCESS_LOG_PATH,
+      writer_key: apGatewayLogWriterKey(PUBLISHER),
+    });
+  });
+
+  it('refuses when that machine has been bricked', async () => {
+    const { deps } = makeDeps({
+      ...unjoined,
+      patches: patchesByMachine({ [serverIdentity.machineId]: [bootTombstone] }),
+    });
+
+    const response = await handleResolveHttpFetch(envelope(), deps);
+
+    expect(response).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+  });
+
+  it("reports a failed read of that machine's journal as a server error", async () => {
+    const { deps } = makeDeps({
+      ...unjoined,
+      patches: async ({ machine_id }) =>
+        machine_id === serverIdentity.machineId
+          ? { data: null, error: new Error('db down') }
+          : { data: [], error: null },
+    });
+
+    const response = await handleResolveHttpFetch(envelope(), deps);
+
+    expect(response).toEqual({ status: 500, body: { error: 'patches_lookup_failed' } });
+  });
+
+  it('serves what a player has since written to its homepage', async () => {
+    const { deps } = makeDeps({
+      ...unjoined,
+      patches: patchesByMachine({ [serverIdentity.machineId]: [publishedPage('<h1>defaced</h1>')] }),
+    });
+
+    const response = await handleResolveHttpFetch(envelope(), deps);
+
+    expect(response).toEqual({ status: 200, body: { ok: true, content: '<h1>defaced</h1>' } });
   });
 });
 
@@ -719,9 +806,9 @@ describe('the fetched machine records the hit', () => {
     );
   });
 
-  it('logs the GATEWAY arm under the AP log-writer key when the gateway serves its own page', async () => {
-    // The AP has no owner, so its log accretes under the lowest-octet lease holder —
-    // the same stable key the ssh gate uses, so both logs land in one row.
+  it("logs the GATEWAY arm under the network's own key when the gateway serves its own page", async () => {
+    // The AP has no owner, so its log accretes under the network's own stable key — the
+    // same one the ssh gate uses, so both logs land in one row.
     const { deps, upsertPatch } = makeDeps({
       patches: patchesByMachine({
         [AP_GATEWAY_ID]: [webServerUp(), publishedPage('<h1>router</h1>')],
@@ -735,50 +822,41 @@ describe('the fetched machine records the hit', () => {
 
     expect(upsertPatch).toHaveBeenCalledWith(
       expect.objectContaining({
-        writer_key: ALICE.publicKeyHex,
+        writer_key: apGatewayLogWriterKey(ESSID),
         machine_id: AP_GATEWAY_ID,
         path: ACCESS_LOG_PATH,
-        content: `${accessLine({ size: '<h1>router</h1>'.length })}\n`,
+        content: `${accessLine({ size: '<h1>router</h1>'.length })}
+`,
       }),
     );
   });
 
-  it('keeps no gateway log on an ESSID nobody has ever leased', async () => {
+  it('logs the gateway hit whatever the lease table says, even on an ESSID nobody has joined', async () => {
     const gatewayOnly = patchesByMachine({
       [AP_GATEWAY_ID]: [webServerUp(), publishedPage('<h1>router</h1>')],
     });
-    // Both shapes an empty lease table arrives in — no rows, and no result at all.
-    const emptyLeases: readonly LeasesResult[] = [
+    // The row belongs to the network, so neither an empty lease table nor an unreadable
+    // one stands between the hit and its record.
+    const leaseAnswers: readonly LeasesResult[] = [
       { data: [], error: null },
       { data: null, error: null },
+      { data: null, error: new Error('leases unavailable') },
     ];
 
-    for (const leases of emptyLeases) {
+    for (const leases of leaseAnswers) {
       const { deps, upsertPatch } = makeDeps({
         patches: gatewayOnly,
         listLeasesByEssid: async () => leases,
       });
 
-      expect((await handleResolveHttpFetch(envelope(), deps)).status).toBe(200);
-      expect(upsertPatch).not.toHaveBeenCalled();
+      expect(await handleResolveHttpFetch(envelope(), deps)).toEqual({
+        status: 200,
+        body: { ok: true, content: '<h1>router</h1>' },
+      });
+      expect(upsertPatch).toHaveBeenCalledWith(
+        expect.objectContaining({ writer_key: apGatewayLogWriterKey(ESSID), machine_id: AP_GATEWAY_ID }),
+      );
     }
-  });
-
-  it('serves the gateway page even when the lease read fails — the log is not the product', async () => {
-    // Leases decide reachability on the FORWARD arm, where a failed read is a 500. Here
-    // they only key the log, so the same failure costs the line and nothing else.
-    const { deps, upsertPatch } = makeDeps({
-      patches: patchesByMachine({
-        [AP_GATEWAY_ID]: [webServerUp(), publishedPage('<h1>router</h1>')],
-      }),
-      listLeasesByEssid: async () => ({ data: null, error: new Error('leases unavailable') }),
-    });
-
-    expect(await handleResolveHttpFetch(envelope(), deps)).toEqual({
-      status: 200,
-      body: { ok: true, content: '<h1>router</h1>' },
-    });
-    expect(upsertPatch).not.toHaveBeenCalled();
   });
 
   it('leaves no trace on a target that was never reached', async () => {
@@ -789,7 +867,7 @@ describe('the fetched machine records the hit', () => {
       ['no such public IP', { lookup: async () => ({ data: null, error: null }) }],
       [
         'no forward and no gateway service',
-        { patches: patchesByMachine({ [AP_GATEWAY_ID]: [] }) },
+        { patches: patchesByMachine({ [AP_GATEWAY_ID]: [forwards()] }) },
       ],
       [
         'forwarded to a box that is not serving the web',

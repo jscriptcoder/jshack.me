@@ -18,6 +18,7 @@
 //
 // Exits 0 when all checks pass, 1 on failure, 2 on missing env / no suitable home.
 
+import { apGatewayLogWriterKey } from '../src/core/logging/apGatewayLogWriter';
 import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign';
 import { generateIdentity } from '../src/core/identity/identity';
@@ -119,7 +120,7 @@ const readKernLog = async (machineId: string): Promise<string> => {
   const { data } = await sr
     .from('patches')
     .select('content')
-    .eq('writer_key', alice.publicKeyHex)
+    .eq('writer_key', apGatewayLogWriterKey(ESSID))
     .eq('machine_id', machineId)
     .eq('path', '/var/log/kern.log')
     .maybeSingle();
@@ -130,7 +131,7 @@ const clearKernLog = (machineId: string) =>
   sr
     .from('patches')
     .delete()
-    .eq('writer_key', alice.publicKeyHex)
+    .eq('writer_key', apGatewayLogWriterKey(ESSID))
     .eq('machine_id', machineId)
     .eq('path', '/var/log/kern.log');
 

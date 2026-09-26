@@ -12,8 +12,8 @@
 //     same box from the same address.
 //   - the source IP the trace records, which is derived SERVER-side by walking
 //     home_network_occupants -> network_public_ips for the attacker's own key.
-//   - the writer key the trace accretes under: the AP's stable lowest-octet lease
-//     holder, never the attacker, so two attackers cannot erase each other's lines.
+//   - the writer key the trace accretes under: the AP's own stable key, never the
+//     attacker's, so two attackers cannot erase each other's lines.
 //
 // Usage (with v2 supabase + vercel dev running):
 //   npx dotenv -e .env.development.local -- npx tsx scripts/testHydraCrossPlayer.ts
@@ -23,6 +23,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign';
 import { generateIdentity } from '../src/core/identity/identity';
+import { apGatewayLogWriterKey } from '../src/core/logging/apGatewayLogWriter';
 import { computeWorkstationId } from '../src/core/identity/workstation';
 import { computeApGatewayId } from '../src/core/identity/router';
 import { seedApGatewayAdminPw } from '../src/core/generation/routerFs';
@@ -242,8 +243,10 @@ check(
   log === null ? 'no auth.log row' : `${(log.content.match(/Failed password/g) ?? []).length} failed`,
 );
 check(
-  "6. the gateway's log accretes under the AP's lease holder, never the attacker",
-  log !== null && log.writerKey === resident.publicKeyHex && log.writerKey !== attacker.publicKeyHex,
+  "6. the gateway's log accretes under the AP's own key, never the attacker",
+  log !== null &&
+    log.writerKey === apGatewayLogWriterKey(TARGET_ESSID) &&
+    log.writerKey !== attacker.publicKeyHex,
   log === null ? 'no auth.log row' : `writer ${log.writerKey.slice(0, 12)}...`,
 );
 

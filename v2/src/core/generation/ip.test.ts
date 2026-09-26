@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createPrng } from './prng';
-import { generatePublicIp, publicFirstOctets } from './ip';
+import { generatePublicIp, isPublicIp, PUBLISHER_FIRST_OCTET, publicFirstOctets } from './ip';
 
 /**
  * `generatePublicIp` is the seeded WAN/public-IP generator (ported from legacy
@@ -48,5 +48,24 @@ describe('generatePublicIp', () => {
   it('derives the exact address for a fixed seed (golden lock)', () => {
     // Pins the draw order (first octet, then octets 2/3/4) and every range.
     expect(generatePublicIp(createPrng('GOLDEN-SEED'))).toBe('203.104.5.165');
+  });
+});
+
+describe('isPublicIp', () => {
+  it('accepts every address a joining network can draw', () => {
+    for (let seed = 0; seed < 50; seed++) {
+      expect(isPublicIp(generatePublicIp(createPrng(`join-${seed}`)))).toBe(true);
+    }
+  });
+
+  it("accepts an address an institution's website answers at", () => {
+    expect(isPublicIp(`${PUBLISHER_FIRST_OCTET}.44.12.9`)).toBe(true);
+  });
+
+  it('refuses a private address, a range, a name and a longer run of digits', () => {
+    expect(isPublicIp('192.168.1.5')).toBe(false);
+    expect(isPublicIp('45.12.34.56-60')).toBe(false);
+    expect(isPublicIp('1045.12.34.56')).toBe(false);
+    expect(isPublicIp('ridgemont.edu')).toBe(false);
   });
 });

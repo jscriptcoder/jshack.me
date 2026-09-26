@@ -29,6 +29,7 @@
 //
 // Exits 0 when all checks pass, 1 on failure, 2 on missing env.
 
+import { apGatewayLogWriterKey } from '../src/core/logging/apGatewayLogWriter';
 import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign';
 import { generateIdentity } from '../src/core/identity/identity';
@@ -261,7 +262,9 @@ const rowAt = async (
     .from('patches')
     .select('content, writer_key')
     .eq('machine_id', machineId)
-    .eq('path', path);
+    .eq('path', path)
+    // Newest first: replay folds to the latest row, so that is the file a reader sees.
+    .order('updated_at', { ascending: false });
   if (!Array.isArray(data) || data.length === 0) return null;
   const first = data[0] as { content: string | null; writer_key: string };
   return { content: first.content ?? '', writerKey: first.writer_key, rows: data.length };
@@ -384,12 +387,14 @@ check(
   `${opened.status} ${textOf(opened.body)}`,
 );
 
-// === 5. One table, two authors. ===
+// === 5. One table, two authors. A's nano edit sits in A's row; the set lands in the
+//     access point's own row, written over the file as replayed — A's rule included —
+//     so the newest row, the one every reader folds to, carries both. ===
 const rules = await rowAt(TARGET_GATEWAY, RULES_V4_PATH);
 check(
   "5. the rule lands in the gateway's OWN file, beside the one its owner wrote",
   rules !== null &&
-    rules.rows === 1 &&
+    rules.writerKey === apGatewayLogWriterKey(TARGET_ESSID) &&
     rules.content.includes(`forward ${PUBLISHED_PORT} to ${DEFENDER_LAN_IP}:22`) &&
     rules.content.includes(`forward ${OWNER_PORT} to ${DEFENDER_LAN_IP}:161`),
   rules === null ? 'no rules.v4 row' : `${rules.rows} row(s) | ${JSON.stringify(rules.content)}`,
@@ -423,12 +428,12 @@ check(
 // === 8. A's only evidence, and it names B by an address B never sent. ===
 const log = await rowAt(TARGET_GATEWAY, SNMPD_LOG_PATH);
 check(
-  "8. the gateway's log carries B's own public address, in A's row and never B's",
+  "8. the gateway's log carries B's own public address, in the AP's row and never B's",
   log !== null &&
     log.rows === 1 &&
     log.content.includes(ATTACKER_PUBLIC_IP) &&
     log.content.includes(`SET forward.${PUBLISHED_PORT}`) &&
-    log.writerKey === defender.publicKeyHex &&
+    log.writerKey === apGatewayLogWriterKey(TARGET_ESSID) &&
     log.writerKey !== attacker.publicKeyHex,
   log === null
     ? 'no snmpd.log row'

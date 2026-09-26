@@ -67,7 +67,6 @@ import {
   type FindHomeNetworkByOwnerKey,
 } from '../logging/crossPlayerSourceIp';
 import { parseWorkstationId } from '../identity/workstation';
-import type { LanLeaseRow } from '../network/lanAddress';
 import { asGameTime } from '../types';
 import type { NonceStore } from '../signedRequest/nonceStore';
 import type { EndReason } from './endSession';
@@ -108,11 +107,6 @@ export type RebootMachineDeps = {
   /** The address the actor OWNS, from their verified key — never a value they
    *  send. */
   readonly findHomeNetworkByOwnerKey: FindHomeNetworkByOwnerKey;
-  /** Every address ever leased on a network, for the stable key an ownerless box
-   *  logs under. */
-  readonly listLeasesByEssid: (
-    essid: string,
-  ) => Promise<{ readonly data: readonly LanLeaseRow[] | null; readonly error: unknown }>;
   readonly readLog: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
   readonly upsertPatch: (row: PatchRow) => Promise<{ readonly error: unknown }>;
   /** A fresh, unguessable id for this boot. Injected so tests can name it — and
@@ -138,9 +132,9 @@ export type HandlerResponse = {
  * file, so two writers on one path means the newer row wins outright.
  *
  * Nobody owns an access point or a generated host, so those fall back to the
- * network's own stable key — the lowest address ever leased on it, which does not
- * move as players join and leave. The caller's key is the last resort, and it is the
- * right answer in the one case that reaches it honestly: your own box, rebooted
+ * network's own stable key, which does not move as players join and leave. The
+ * caller's key is the last resort, and it is the right answer in the one case that
+ * reaches it honestly: your own box, rebooted
  * after `nmcli disconnect` took your occupancy row away with it. There your key IS
  * the owner's.
  */
@@ -156,12 +150,7 @@ const resolveLogWriterKey = async (
   if (owner.error) return null;
   if (owner.data !== null) return owner.data.owner_key;
   if (target.standing === null) return target.actorKey;
-  // A read that failed and a network nobody has ever leased an address on answer
-  // the same way, and so they are not told apart: no stable key means the line is
-  // filed under the rebooter instead. One reboot in a row of its own costs a later
-  // reader a line they have to correlate; no line at all costs them the event.
-  const leases = await deps.listLeasesByEssid(target.standing.essid);
-  return apGatewayLogWriterKey(leases.data ?? []) ?? target.actorKey;
+  return apGatewayLogWriterKey(target.standing.essid);
 };
 
 const rebootMachineSchema = z

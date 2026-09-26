@@ -45,6 +45,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign';
 import { generateIdentity } from '../src/core/identity/identity';
+import { apGatewayLogWriterKey } from '../src/core/logging/apGatewayLogWriter';
 import { computeWorkstationId } from '../src/core/identity/workstation';
 import { computeApGatewayId } from '../src/core/identity/router';
 import { BOOT_ID_PATH } from '../src/core/boot/bootId';
@@ -226,9 +227,9 @@ const occupancy = await sr.from('home_network_occupants').insert([
 ]);
 if (occupancy.error) throw new Error(`occupancy seed failed: ${occupancy.error.message}`);
 
-// The lowest address ever leased on the home network is the key its access point logs
-// under, and here it belongs to the lurker — who reboots nothing. A gateway's log has to
-// be stable against whoever happens to be standing on it.
+// Both players hold an address on the home network. Neither lease decides where the
+// access point logs: a gateway's log has to be stable against whoever happens to be
+// standing on it, so it files under the network's own key.
 const leases = await sr.from('network_lan_leases').insert([
   { essid: HOME_ESSID, owner_key: defender.publicKeyHex, octet: 20 },
   { essid: HOME_ESSID, owner_key: lurker.publicKeyHex, octet: 7 },
@@ -477,13 +478,13 @@ check(
 );
 
 // The access point, rebooted back in section 9 by a player who does not own it —
-// because nobody does. Its line is filed under the lowest address ever leased on the
-// network, which belongs to neither the rebooter nor the box owner.
+// because nobody does. Its line is filed under the network's own key, which belongs to
+// neither the rebooter nor the box owner.
 const gatewayTrace = await kernRows(GATEWAY);
 check(
   "the access point's line is filed under the network's stable key, not the rebooter's",
   gatewayTrace.length === 1 &&
-    gatewayTrace[0]?.writer_key === lurker.publicKeyHex &&
+    gatewayTrace[0]?.writer_key === apGatewayLogWriterKey(HOME_ESSID) &&
     kernLines(gatewayTrace).length === 1,
   `${gatewayTrace.length} row(s) under ${gatewayTrace[0]?.writer_key?.slice(0, 12) ?? '-'}…`,
 );

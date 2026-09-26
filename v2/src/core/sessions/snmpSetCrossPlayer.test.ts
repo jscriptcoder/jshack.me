@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter';
 import { handleSnmpSet, type SnmpSetDeps } from './snmpSet';
 import { signRequest } from '../signedRequest/sign';
 import { generateIdentity } from '../identity/identity';
@@ -306,9 +307,9 @@ describe("the record a stranger's visit leaves on the gateway they rewrote", () 
 
     const log = writtenTo(upsertPatch, SNMPD_LOG_PATH);
     expect(log?.machine_id).toBe(AP_GATEWAY_ID);
-    // The lowest lease on the ESSID: stable, because leases outlive occupancy and do not
-    // move when players join or leave. The visitor's own key would be neither.
-    expect(log?.writer_key).toBe(DEFENDER.publicKeyHex);
+    // The network's own key: stable, because it does not move when players join or
+    // leave. The visitor's own key would not be.
+    expect(log?.writer_key).toBe(apGatewayLogWriterKey(TARGET_ESSID));
     expect(log?.writer_key).not.toBe(attacker.publicKeyHex);
 
     // One append, three lines: somebody arrived, the community they named worked, and
@@ -370,7 +371,7 @@ describe("the record a stranger's visit leaves on the gateway they rewrote", () 
       .filter((row) => row.path === SNMPD_LOG_PATH);
     // ONE row. Two would each hold half the story, and only one of them would survive.
     expect(new Set(logRows.map((row) => row.writer_key))).toEqual(
-      new Set([DEFENDER.publicKeyHex]),
+      new Set([apGatewayLogWriterKey(TARGET_ESSID)]),
     );
 
     const final = logRows.at(-1)?.content ?? '';

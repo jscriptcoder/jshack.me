@@ -25,6 +25,7 @@
 //
 // Exits 0 when all checks pass, 1 on failure, 2 on missing env / no usable device.
 
+import { apGatewayLogWriterKey } from '../src/core/logging/apGatewayLogWriter';
 import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign';
 import { generateIdentity } from '../src/core/identity/identity';
@@ -262,7 +263,8 @@ const main = async (): Promise<void> => {
     stored !== null &&
       stored.rows === 1 &&
       stored.owner === 'root' &&
-      stored.writerKey === attacker.publicKeyHex,
+      // Nobody owns a generated router, so the file is the network's own row.
+      stored.writerKey === apGatewayLogWriterKey(ESSID),
     `${RULES_V4_PATH}: ${stored === null ? 'no row' : `${stored.rows} row(s), owner ${stored.owner}`}`,
   );
   check(

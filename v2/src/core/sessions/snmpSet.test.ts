@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter';
 import { handleSnmpSet, type SnmpSetDeps } from './snmpSet';
 import { signRequest } from '../signedRequest/sign';
 import { generateIdentity } from '../identity/identity';
@@ -205,11 +206,11 @@ describe('opening a port on a router', () => {
       owner: RULES_V4_OWNER,
       permissions: RULES_V4_PERMISSIONS,
       node_type: 'file',
-      // A GENERATED device belongs to nobody, so the caller's own key is the only
-      // stable thing there is to file under. Once a box has an owner the reach hands
-      // back theirs instead, which is what keeps a defender's device on one rules.v4
-      // however many strangers set on it — the cross-player half proves that.
-      writer_key: identity.publicKeyHex,
+      // A GENERATED device belongs to nobody, so it files under its network's own key,
+      // the one row every occupant's set lands in. Once a box has an owner the reach
+      // hands back theirs instead, which is what keeps a defender's device on one
+      // rules.v4 however many strangers set on it — the cross-player half proves that.
+      writer_key: apGatewayLogWriterKey(essid),
     });
   });
 

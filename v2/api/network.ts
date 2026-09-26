@@ -54,6 +54,7 @@ import { assignHomeNetwork } from '../src/core/network/homeNetwork';
 import { generateHomeLan } from '../src/core/generation/generateHomeLan';
 import { generatePublicIp } from '../src/core/generation/ip';
 import { createPrng } from '../src/core/generation/prng';
+import { publisherAt } from '../src/core/generation/publisher';
 import { randomUUID } from 'node:crypto';
 
 // Vercel adapter for POST /api/network — joining an AP, and reaching what is on it.
@@ -103,7 +104,10 @@ const webTargetDepsVia = ({ supabase, label }: QuerySpec): WebTargetDeps => ({
       logFailure(`${label} public-ip lookup`, network.error);
       return { data: null, error: network.error };
     }
-    const essid = (network.data as { essid: string } | null)?.essid ?? null;
+    // An institution's website answers at an address derived from its ESSID, so it
+    // is on the internet before anybody has joined its wifi and stored one.
+    const essid =
+      (network.data as { essid: string } | null)?.essid ?? publisherAt(publicIp) ?? null;
     if (essid === null) return { data: null, error: null };
     const resolved: HttpApNetworkLookup = { router_machine_id: computeApGatewayId(essid), essid };
     return { data: resolved, error: null };
@@ -288,7 +292,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         console.error('[network] public-ip lookup error:', network.error);
         return { data: null, error: network.error };
       }
-      const essid = (network.data as { essid: string } | null)?.essid ?? null;
+      // An institution's website answers at an address derived from its ESSID, so it
+      // is on the internet before anybody has joined its wifi and stored one.
+      const essid =
+        (network.data as { essid: string } | null)?.essid ?? publisherAt(publicIp) ?? null;
       if (essid === null) return { data: null, error: null };
       // The AP itself always answers: a gateway is the access point's own infrastructure,
       // not a machine that joins the network, so it exists whether or not anyone is on it.

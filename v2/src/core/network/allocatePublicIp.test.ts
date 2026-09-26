@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { allocatePublicIp } from './allocatePublicIp';
+import { publisherIp } from '../generation/publisher';
 
 /**
  * `allocatePublicIp` is the pure orchestration of server-side public-IP
@@ -14,7 +15,8 @@ import { allocatePublicIp } from './allocatePublicIp';
  * already belongs to ANOTHER ESSID (redraw).
  */
 
-const ESSID = 'ACME-CORP';
+// A flat: a network that publishes no website draws its address like any other.
+const ESSID = 'APT-3B-WIFI';
 
 // Yields the queued candidates in order, repeating the last once exhausted so an
 // accidental over-draw surfaces a real address rather than undefined.
@@ -148,5 +150,18 @@ describe('allocatePublicIp', () => {
     // The bound is exactly maxAttempts: the 3rd attempt must still run (this fails
     // if the loop stops one short) yet a 4th must not be needed.
     expect(result).toBe('45.3.3.3');
+  });
+
+  it('binds an institution to the address its website already answers at', async () => {
+    const { claim, calls } = claimSequence([publisherIp('CAMPUS-GUEST-OPEN') ?? null]);
+
+    const result = await allocatePublicIp('CAMPUS-GUEST-OPEN', {
+      readByEssid: storedIp(null),
+      drawIp: failDraw,
+      claim,
+    });
+
+    expect(result).toBe(publisherIp('CAMPUS-GUEST-OPEN'));
+    expect(calls).toEqual([{ essid: 'CAMPUS-GUEST-OPEN', ip: publisherIp('CAMPUS-GUEST-OPEN') }]);
   });
 });

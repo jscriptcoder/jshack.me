@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter';
 import { handleMysqlConnect, type MysqlConnectDeps } from './mysqlConnect';
 import { signRequest } from '../signedRequest/sign';
 import { generateIdentity } from '../identity/identity';
@@ -488,7 +489,7 @@ describe('handleMysqlConnect', () => {
     );
 
     expect(upsertPatch).toHaveBeenCalledWith({
-      writer_key: identity.publicKeyHex,
+      writer_key: apGatewayLogWriterKey(ESSID),
       machine_id: machineId,
       path: MYSQL_LOG_PATH,
       content: `${logLine('success', username, host, databaseOn(host).name)}\n`,
@@ -498,31 +499,22 @@ describe('handleMysqlConnect', () => {
     });
   });
 
-  it('records it under the lowest lease on the WiFi, not the caller', async () => {
-    // The access point's own gateway keeps its log under the lowest lease on the ESSID,
-    // because it belongs to nobody and needs a key that does not move between visitors.
+  it("records it under the network's own key, not the caller", async () => {
+    // The access point's own gateway keeps its log under the network's own key, because
+    // it belongs to nobody and needs a key that does not move between visitors.
     // A generated box beside it is the same case, not its opposite: no lease names it
     // either, but every occupant of this WiFi connects to the identical box, so filing
     // each attempt under the caller's own key gives one box a row per visitor — and a log
     // patch carries the whole file, so replay keeps only whichever arrived last.
     //
-    // Filing it under the lowest lease claims nothing about its holder; the connecting
-    // account and address are named in the line. It is the one bucket every caller
-    // agrees on, and the same resolver chooses it for the read and for the write.
+    // The connecting account and address are named in the line. The row is the one
+    // bucket every caller agrees on, and the same resolver chooses it for the read and
+    // for the write.
     const identity = generateIdentity();
-    const neighbour = generateIdentity();
     const host = mysqlHostOn(ESSID);
     const { machineId } = resolveLanHostIdentity(host, ESSID);
     const { username, password } = knownDatabaseCredential(host);
-    const { deps, upsertPatch } = makeDeps({
-      listLeasesByEssid: async () => ({
-        data: [
-          { owner_key: identity.publicKeyHex, octet: 77 },
-          { owner_key: neighbour.publicKeyHex, octet: 12 },
-        ],
-        error: null,
-      }),
-    });
+    const { deps, upsertPatch } = makeDeps();
 
     await handleMysqlConnect(
       await signedConnect(identity, { target_ip: host.ip, username, password }),
@@ -533,7 +525,7 @@ describe('handleMysqlConnect', () => {
       expect.objectContaining({
         machine_id: machineId,
         path: MYSQL_LOG_PATH,
-        writer_key: neighbour.publicKeyHex,
+        writer_key: apGatewayLogWriterKey(ESSID),
       }),
     );
   });

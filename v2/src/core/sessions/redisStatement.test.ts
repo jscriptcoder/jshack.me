@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter';
 import { handleRedisStatement, type RedisStatementDeps } from './redisStatement';
 import { signRequest } from '../signedRequest/sign';
 import { generateIdentity } from '../identity/identity';
@@ -486,7 +487,7 @@ describe('producing a locked store secret', () => {
     expect(response.body).toEqual({ output: ['OK'], failed: false });
     expect(upsertPatch).toHaveBeenCalledTimes(1);
     expect(upsertPatch).toHaveBeenCalledWith({
-      writer_key: identity.publicKeyHex,
+      writer_key: apGatewayLogWriterKey(ESSID),
       machine_id: machineId,
       path: REDIS_LOG_PATH,
       content: `${attemptLine('success', host.hostname)}\n`,

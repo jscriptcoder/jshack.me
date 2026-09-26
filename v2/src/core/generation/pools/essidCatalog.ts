@@ -26,49 +26,63 @@ export const NETWORK_CATEGORIES = [
 
 export type NetworkCategory = (typeof NETWORK_CATEGORIES)[number];
 
+/** The website an institution publishes to the whole world, under a domain of its own. */
+export type PublishedSite = {
+  readonly domain: string;
+  /** What the site calls the institution, which is its own place name unless it says otherwise. */
+  readonly name: string;
+};
+
 export type EssidCatalogEntry = {
   readonly essid: string;
   readonly category: NetworkCategory;
   readonly place: string;
+  /** Only institutions publish; a home, a gadget or a hacker hangout never has one. */
+  readonly site?: PublishedSite;
 };
 
 const entries = (
   category: NetworkCategory,
-  rows: readonly (readonly [essid: string, place: string])[],
-): readonly EssidCatalogEntry[] => rows.map(([essid, place]) => ({ essid, category, place }));
+  rows: readonly (readonly [essid: string, place: string, domain?: string, siteName?: string])[],
+): readonly EssidCatalogEntry[] =>
+  rows.map(([essid, place, domain, siteName]) =>
+    domain === undefined
+      ? { essid, category, place }
+      : { essid, category, place, site: { domain, name: siteName ?? place } },
+  );
 
 export const ESSID_CATALOG: readonly EssidCatalogEntry[] = [
   // Pop-culture and sci-fi mega-corps, and small offices.
   ...entries('corporate', [
-    ['ACME-CORP', 'Acme Corporation'],
-    ['INITECH-5G', 'Initech'],
-    ['GLOBEX-NET', 'Globex Corporation'],
-    ['WAYSTAR-WIFI', 'Waystar Royco'],
-    ['DUNDER-LAN', 'Dunder Mifflin'],
-    ['HOOLI-SEC', 'Hooli'],
-    ['UMBRELLA-NET', 'Umbrella Corporation'],
-    ['STARK-WIFI', 'Stark Industries'],
-    ['CYBERDYNE-5G', 'Cyberdyne Systems'],
-    ['OSCORP-GUEST', 'Oscorp'],
-    ['WEYLAND-NET', 'Weyland-Yutani'],
-    ['TYRELL-CORP', 'Tyrell Corporation'],
-    ['APERTURE-WIFI', 'Aperture Science'],
-    ['SHINRA-5G', 'Shinra Electric'],
-    ['ABSTERGO-NET', 'Abstergo Industries'],
-    ['WONKA-LABS', 'Wonka Labs'],
-    ['OMNI-CORP', 'Omni Consumer Products'],
-    ['PIED-PIPER', 'Pied Piper'],
-    ['VANDELAY-INDUSTRIES', 'Vandelay Industries'],
-    ['NAKATOMI-PLAZA', 'Nakatomi Trading'],
+    ['ACME-CORP', 'Acme Corporation', 'acme.com'],
+    ['INITECH-5G', 'Initech', 'initech.com'],
+    ['GLOBEX-NET', 'Globex Corporation', 'globex.com'],
+    ['WAYSTAR-WIFI', 'Waystar Royco', 'waystar.com'],
+    ['DUNDER-LAN', 'Dunder Mifflin', 'dundermifflin.com'],
+    ['HOOLI-SEC', 'Hooli', 'hooli.com'],
+    ['UMBRELLA-NET', 'Umbrella Corporation', 'umbrellacorp.com'],
+    ['STARK-WIFI', 'Stark Industries', 'starkindustries.com'],
+    ['CYBERDYNE-5G', 'Cyberdyne Systems', 'cyberdyne.com'],
+    ['OSCORP-GUEST', 'Oscorp', 'oscorp.com'],
+    ['WEYLAND-NET', 'Weyland-Yutani', 'weyland-yutani.com'],
+    ['TYRELL-CORP', 'Tyrell Corporation', 'tyrellcorp.com'],
+    ['APERTURE-WIFI', 'Aperture Science', 'aperturescience.com'],
+    ['SHINRA-5G', 'Shinra Electric', 'shinra.com'],
+    ['ABSTERGO-NET', 'Abstergo Industries', 'abstergo.com'],
+    ['WONKA-LABS', 'Wonka Labs', 'wonkalabs.com'],
+    ['OMNI-CORP', 'Omni Consumer Products', 'ocp.com'],
+    ['PIED-PIPER', 'Pied Piper', 'piedpiper.com'],
+    ['VANDELAY-INDUSTRIES', 'Vandelay Industries', 'vandelayindustries.com'],
+    ['NAKATOMI-PLAZA', 'Nakatomi Trading', 'nakatomi.com'],
   ]),
   // Public seating, high foot traffic.
   ...entries('cafe', [
-    ['BREW-AND-CODE', 'Brew & Code'],
-    ['BEAN-THERE-WIFI', 'Bean There'],
-    ['MIDNIGHT-DINER', 'the Midnight Diner'],
-    ['NIGHT-OWL-CAFE', 'the Night Owl'],
-    ['GROUND-ZERO-COFFEE', 'Ground Zero Coffee'],
-    ['ESPRESSO-EXPRESS', 'Espresso Express'],
+    ['BREW-AND-CODE', 'Brew & Code', 'brewandcode.com'],
+    ['BEAN-THERE-WIFI', 'Bean There', 'beanthere.com'],
+    ['MIDNIGHT-DINER', 'the Midnight Diner', 'midnightdiner.com'],
+    ['NIGHT-OWL-CAFE', 'the Night Owl', 'nightowlcafe.com'],
+    ['GROUND-ZERO-COFFEE', 'Ground Zero Coffee', 'groundzerocoffee.com'],
+    ['ESPRESSO-EXPRESS', 'Espresso Express', 'espressoexpress.com'],
   ]),
   // Apartments and family homes.
   ...entries('residential', [
@@ -84,16 +98,16 @@ export const ESSID_CATALOG: readonly EssidCatalogEntry[] = [
     ['UNIV-DORM-7', 'Dorm 7'],
     ['CS-DEPT-LAB', 'the CS department lab'],
     ['GRAD-STUDENT-WIFI', 'the grad office'],
-    ['CAMPUS-GUEST-OPEN', 'the campus'],
+    ['CAMPUS-GUEST-OPEN', 'the campus', 'ridgemont.edu', 'Ridgemont University'],
     ['LIB-2ND-FLOOR', 'the library second floor'],
   ]),
   // Libraries, parks, transit.
   ...entries('public', [
-    ['LIBRARY-PATRON', 'the public library'],
-    ['CITY-PARK-WIFI', 'City Park'],
-    ['METRO-COMMUTER', 'the metro'],
-    ['AIRPORT-LOUNGE-VIP', 'the airport lounge'],
-    ['TRAIN-STATION-FREE', 'the train station'],
+    ['LIBRARY-PATRON', 'the public library', 'ridgemontlibrary.org', 'Ridgemont Public Library'],
+    ['CITY-PARK-WIFI', 'City Park', 'ridgemontparks.gov', 'Ridgemont Parks Department'],
+    ['METRO-COMMUTER', 'the metro', 'ridgemontmetro.gov', 'Ridgemont Metro'],
+    ['AIRPORT-LOUNGE-VIP', 'the airport lounge', 'flyridgemont.com', 'Ridgemont International Airport'],
+    ['TRAIN-STATION-FREE', 'the train station', 'ridgemontcentral.org', 'Ridgemont Central Station'],
   ]),
   // Single-device access points left in their factory configuration.
   ...entries('iot', [

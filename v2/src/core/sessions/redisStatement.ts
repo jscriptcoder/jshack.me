@@ -151,7 +151,7 @@ export const handleRedisStatement = async (
   // visitor's changes and lines accrete into one row rather than a row each. The owner's
   // own edits land there too, which is what puts a defender's changes and an intruder's
   // in the same file rather than in two that disagree.
-  const targetWriterKey = writerKey ?? publicKey;
+  const targetWriterKey = writerKey;
   // The ROUTE decides the address every line is written up as: through a forward the box
   // has only ever seen the fronting gateway, so what the player is told and what the
   // defender finds are one string.
