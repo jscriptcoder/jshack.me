@@ -4,7 +4,7 @@
 (decisions 91–105, 2026-09-26), plus **seven decisions made at planning** (2026-09-26, owner-confirmed
 as a set) restated under "Decided at planning" below.
 
-**Status:** 1a merged (v0.265.0, PR #551); 1b built (v0.266.0, `feat/a-domain-resolves`, PR open); 1c not started.
+**Status:** 1a merged (v0.265.0, PR #551); 1b merged (v0.266.0, PR #552); 1c in progress (`feat/the-forward-is-a-way-in`).
 
 **Delivery:** three independent PRs against trunk, merged in order (each builds on the one before
 it through `main`, not through a stack).
