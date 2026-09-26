@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { parseHttpUrl, resolveHref, resolveWebPath, HTTP_DEFAULT_PORT, WEB_ROOT } from './http';
+import {
+  formSubmissionUrl,
+  parseHttpUrl,
+  resolveHref,
+  resolveWebPath,
+  HTTP_DEFAULT_PORT,
+  WEB_ROOT,
+} from './http';
 import { normalize } from '../filesystem/path';
 
 /**
@@ -188,5 +195,51 @@ describe('resolveHref', () => {
     expect(resolveHref({ base: 'http://192.168.1.5/index.html', href: 'logs/aug:13.html' })).toBe(
       'http://192.168.1.5/logs/aug:13.html',
     );
+  });
+});
+
+describe('formSubmissionUrl', () => {
+  it("asks the form's action for what was typed, as a query", () => {
+    expect(
+      formSubmissionUrl({ action: 'http://findit.io/', fields: [{ name: 'q', value: 'coffee' }] }),
+    ).toBe('http://findit.io/?q=coffee');
+  });
+
+  it('sends every field of the form, in the order the page wrote them', () => {
+    expect(
+      formSubmissionUrl({
+        action: 'http://192.168.1.5/search',
+        fields: [
+          { name: 'q', value: 'printer' },
+          { name: 'floor', value: '2' },
+        ],
+      }),
+    ).toBe('http://192.168.1.5/search?q=printer&floor=2');
+  });
+
+  // A GET form states its whole question in the query it sends: what the page it sits
+  // on was asked last time is not part of the next search.
+  it('replaces the query the action already carried rather than adding to it', () => {
+    expect(
+      formSubmissionUrl({ action: 'http://findit.io/?q=coffee', fields: [{ name: 'q', value: 'tea' }] }),
+    ).toBe('http://findit.io/?q=tea');
+  });
+
+  // What a searcher types is theirs, and the address is not the place for it to turn
+  // into anything else: markup stays characters, and a space cannot end the URL early.
+  it('encodes what was typed so that none of it becomes part of the address', () => {
+    const typed = '<b>"cafe" & bar</b> #1?';
+    const url = formSubmissionUrl({ action: 'http://findit.io/', fields: [{ name: 'q', value: typed }] });
+
+    expect(url).toBe('http://findit.io/?q=%3Cb%3E%22cafe%22+%26+bar%3C%2Fb%3E+%231%3F');
+    const parsed = parseHttpUrl(url);
+    expect(parsed?.host).toBe('findit.io');
+    expect(new URLSearchParams(parsed?.path.slice('/?'.length)).get('q')).toBe(typed);
+  });
+
+  it('sends an empty field as an empty value rather than leaving it out', () => {
+    expect(
+      formSubmissionUrl({ action: 'http://findit.io/', fields: [{ name: 'q', value: '' }] }),
+    ).toBe('http://findit.io/?q=');
   });
 });

@@ -460,3 +460,380 @@ describe('going back', () => {
     expect(onFollow).not.toHaveBeenCalled();
   });
 });
+
+describe('filling in a form', () => {
+  const FINDIT = 'http://findit.io/';
+
+  /** findit's page, with the form refilled by `query` and `results` linked below it. */
+  const finditPage = (query: string, results: readonly string[] = []) =>
+    '<body><h1>findit.io</h1><form action="/" method="GET">' +
+    `<input type="text" name="q" value="${query}" placeholder="Search the public web">` +
+    '<button type="submit">Search</button></form>' +
+    `<ol>${results.map((domain) => `<li><a href="http://${domain}/">${domain}</a></li>`).join('')}</ol></body>`;
+
+  const FINDIT_SITE: Readonly<Record<string, string>> = {
+    [FINDIT]: finditPage(''),
+    [`${FINDIT}?q=university`]: finditPage('university', ['ridgemont.edu']),
+    [`${FINDIT}?q=coffee`]: finditPage('coffee', ['beanthere.com', 'grounds.cafe']),
+    'http://ridgemont.edu/': '<body><h1>Ridgemont University</h1></body>',
+  };
+
+  const renderFindit = (start: string = FINDIT) => renderSite({ start, pages: FINDIT_SITE });
+
+  const field = () => screen.getByRole('textbox');
+  const button = () => screen.getByRole('button');
+
+  /** Keys as a reader types them, one keystroke per character. */
+  const type = (text: string) => {
+    for (const key of text) fireEvent.keyDown(browser(), { key });
+  };
+
+  it('opens on the search field, ready to be typed into', () => {
+    renderFindit();
+
+    expect(field()).toHaveAttribute('aria-current', 'true');
+    // The cursor is what says typing will land here; the hint it replaces is only
+    // what an idle field suggests.
+    expect(field().textContent).toBe('[_]');
+  });
+
+  it('moves between the field, its button and the links in the order the page shows them', () => {
+    renderFindit(`${FINDIT}?q=coffee`);
+
+    fireEvent.keyDown(browser(), { key: 'ArrowDown' });
+    expect(button()).toHaveAttribute('aria-current', 'true');
+    expect(field()).not.toHaveAttribute('aria-current');
+
+    fireEvent.keyDown(browser(), { key: 'ArrowDown' });
+    expect(selectedLink()?.textContent).toBe('[1]beanthere.com');
+
+    fireEvent.keyDown(browser(), { key: 'ArrowUp' });
+    fireEvent.keyDown(browser(), { key: 'ArrowUp' });
+    expect(field()).toHaveAttribute('aria-current', 'true');
+  });
+
+  it('shows a field it is not in as what it holds, or what it suggests when empty', () => {
+    renderFindit();
+    fireEvent.keyDown(browser(), { key: 'ArrowDown' });
+
+    expect(field().textContent).toBe('[Search the public web]');
+  });
+
+  it('types into the field it is in', () => {
+    renderFindit();
+
+    type('uni');
+
+    expect(field().textContent).toBe('[uni_]');
+  });
+
+  it('types after what the page already filled in', () => {
+    renderFindit(`${FINDIT}?q=coffee`);
+
+    type(' shop');
+
+    expect(field().textContent).toBe('[coffee shop_]');
+  });
+
+  it('deletes the last character on Backspace, rather than going back', async () => {
+    const { onFollow } = renderFindit();
+
+    type('unix');
+    await press('Backspace');
+
+    expect(field().textContent).toBe('[uni_]');
+    expect(onFollow).not.toHaveBeenCalled();
+  });
+
+  it.each(['q', 'Q'])('types %s into a field rather than quitting', (key) => {
+    const { onExit } = renderFindit();
+
+    type(key);
+
+    expect(onExit).not.toHaveBeenCalled();
+    expect(field().textContent).toBe(`[${key}_]`);
+  });
+
+  // A held modifier is a shortcut the reader meant for something else — the browser
+  // around the game, most likely — not a letter for the box.
+  it.each(['ctrlKey', 'metaKey', 'altKey'])('does not type a key held with %s', (modifier) => {
+    renderFindit();
+
+    fireEvent.keyDown(browser(), { key: 'r', [modifier]: true });
+
+    expect(field().textContent).toBe('[_]');
+  });
+
+  it('leaves the field on Escape, and stays open', () => {
+    const { onExit } = renderFindit();
+
+    type('uni');
+    fireEvent.keyDown(browser(), { key: 'Escape' });
+
+    expect(onExit).not.toHaveBeenCalled();
+    expect(field()).toHaveAttribute('aria-current', 'true');
+    expect(field().textContent).toBe('[uni]');
+  });
+
+  it('takes keys as a browser again once the reader has left the field', () => {
+    const { onExit } = renderFindit();
+
+    type('uni');
+    fireEvent.keyDown(browser(), { key: 'Escape' });
+    type('x');
+    fireEvent.keyDown(browser(), { key: 'q' });
+
+    expect(field().textContent).toBe('[uni]');
+    expect(onExit).toHaveBeenCalled();
+  });
+
+  it('goes back into a field the reader moves onto again', () => {
+    renderFindit();
+
+    fireEvent.keyDown(browser(), { key: 'Escape' });
+    fireEvent.keyDown(browser(), { key: 'ArrowDown' });
+    fireEvent.keyDown(browser(), { key: 'ArrowUp' });
+    type('x');
+
+    expect(field().textContent).toBe('[x_]');
+  });
+
+  it('sends what was typed on Enter, and opens the answer', async () => {
+    const { onFollow } = renderFindit();
+
+    type('university');
+    await press('Enter');
+
+    expect(onFollow).toHaveBeenCalledWith(`${FINDIT}?q=university`);
+    expect(screen.getByText('[1]ridgemont.edu')).toBeInTheDocument();
+  });
+
+  it('sends the form from its button just the same', async () => {
+    const { onFollow } = renderFindit();
+
+    type('university');
+    fireEvent.keyDown(browser(), { key: 'ArrowDown' });
+    await press('Enter');
+
+    expect(onFollow).toHaveBeenCalledWith(`${FINDIT}?q=university`);
+  });
+
+  it('sends a field the reader has left on ArrowRight, as a link is followed', async () => {
+    const { onFollow } = renderFindit();
+
+    type('university');
+    fireEvent.keyDown(browser(), { key: 'Escape' });
+    await press('ArrowRight');
+
+    expect(onFollow).toHaveBeenCalledWith(`${FINDIT}?q=university`);
+  });
+
+  it('sends what the page filled in when the reader typed nothing', async () => {
+    const { onFollow } = renderFindit(`${FINDIT}?q=coffee`);
+
+    await press('Enter');
+
+    expect(onFollow).toHaveBeenCalledWith(`${FINDIT}?q=coffee`);
+  });
+
+  // Whatever a reader types is words in a query, never markup and never part of the
+  // address: it is escaped by the time findit writes it back, and encoded on the way.
+  it('sends a term as characters, whatever characters it is made of', async () => {
+    const { onFollow } = renderFindit();
+
+    type('<b>&');
+
+    expect(field().textContent).toBe('[<b>&_]');
+    expect(browser().querySelector('b')).toBeNull();
+
+    await press('Enter');
+
+    expect(onFollow).toHaveBeenCalledWith(`${FINDIT}?q=%3Cb%3E%26`);
+  });
+
+  it('comes back to the form the search was sent from', async () => {
+    const { onFollow } = renderFindit();
+
+    type('university');
+    await press('Enter');
+    // The answer opens in its own search field, so the reader leaves it first.
+    fireEvent.keyDown(browser(), { key: 'Escape' });
+    await press('ArrowLeft');
+
+    expect(onFollow).toHaveBeenLastCalledWith(FINDIT);
+    expect(screen.queryByText('[1]ridgemont.edu')).not.toBeInTheDocument();
+    expect(field()).toHaveAttribute('aria-current', 'true');
+  });
+
+  it('does not go back while the reader is in a field', async () => {
+    const { onFollow } = renderFindit();
+
+    type('university');
+    await press('Enter');
+    await press('ArrowLeft');
+
+    expect(onFollow).toHaveBeenCalledTimes(1);
+  });
+
+  it('forgets what was typed once the reader has gone somewhere else', async () => {
+    const pages = {
+      [HOME]: '<body><form action="/find"><input name="q"></form><p><a href="/next.html">next</a></p></body>',
+      'http://192.168.1.5/next.html': '<body><form action="/find"><input name="q"></form></body>',
+    };
+    renderSite({ pages });
+
+    type('draft');
+    fireEvent.keyDown(browser(), { key: 'ArrowDown' });
+    await press('Enter');
+
+    expect(field().textContent).toBe('[_]');
+  });
+
+  it('sends a form its own fields and no others', async () => {
+    const pages = {
+      [HOME]:
+        '<body><form action="/people"><input name="name"><input name="floor"></form>' +
+        '<form action="/rooms"><input name="room"></form></body>',
+    };
+    const { onFollow } = renderSite({ pages });
+
+    type('ada');
+    fireEvent.keyDown(browser(), { key: 'ArrowDown' });
+    type('2');
+    fireEvent.keyDown(browser(), { key: 'ArrowDown' });
+    type('b12');
+    fireEvent.keyDown(browser(), { key: 'ArrowUp' });
+    await press('Enter');
+
+    expect(onFollow).toHaveBeenCalledWith('http://192.168.1.5/people?name=ada&floor=2');
+  });
+
+  // Nothing in this world answers a POST, so pressing Enter on one must not pretend
+  // to have sent anything anywhere.
+  it('does not send a form that posts', async () => {
+    const pages = { [HOME]: '<body><form action="/login" method="POST"><input name="user"></form></body>' };
+    const { onFollow } = renderSite({ pages });
+
+    type('root');
+    await press('Enter');
+
+    expect(onFollow).not.toHaveBeenCalled();
+  });
+
+  it('does not send a field that belongs to no form', async () => {
+    const pages = { [HOME]: '<body><input name="q"></body>' };
+    const { onFollow } = renderSite({ pages });
+
+    type('root');
+    await press('Enter');
+
+    expect(onFollow).not.toHaveBeenCalled();
+  });
+
+  it('says what the keys do while the reader is in a field', () => {
+    renderFindit();
+
+    expect(screen.getByText('↑↓ Select ⏎ Submit Esc Leave field')).toBeInTheDocument();
+  });
+
+  it('says Enter submits once the reader is on the button', () => {
+    renderFindit();
+    fireEvent.keyDown(browser(), { key: 'ArrowDown' });
+
+    expect(screen.getByText('↑↓ Select ⏎ Submit q Quit')).toBeInTheDocument();
+  });
+
+  it('promises no submit for a form that nothing will answer', () => {
+    renderSite({ pages: { [HOME]: '<body><form method="post"><input name="q"></form></body>' } });
+
+    expect(screen.getByText('↑↓ Select Esc Leave field')).toBeInTheDocument();
+  });
+});
+
+describe('a form, at its edges', () => {
+  const type = (text: string) => {
+    for (const key of text) fireEvent.keyDown(browser(), { key });
+  };
+
+  it('sends a form without the stray field beside it that belongs to no form', async () => {
+    const pages = {
+      [HOME]: '<body><input name="stray"><form action="/find"><input name="q"></form></body>',
+    };
+    const { onFollow } = renderSite({ pages });
+
+    type('lost');
+    fireEvent.keyDown(browser(), { key: 'ArrowDown' });
+    type('found');
+    await press('Enter');
+
+    expect(onFollow).toHaveBeenCalledWith('http://192.168.1.5/find?q=found');
+  });
+
+  // A browser sends a field under its name, and a field with none has nothing to be
+  // sent as.
+  it('does not send a field that has no name', async () => {
+    const pages = {
+      [HOME]: '<body><form action="/find"><input><input name="q"></form></body>',
+    };
+    const { onFollow } = renderSite({ pages });
+
+    type('unnamed');
+    fireEvent.keyDown(browser(), { key: 'ArrowDown' });
+    type('named');
+    await press('Enter');
+
+    expect(onFollow).toHaveBeenCalledWith('http://192.168.1.5/find?q=named');
+  });
+
+  it('deletes on Backspace in a field even with a page behind to go back to', async () => {
+    const pages = {
+      [HOME]: '<body><p><a href="/find.html">find</a></p></body>',
+      'http://192.168.1.5/find.html': '<body><form action="/find"><input name="q" value="abc"></form></body>',
+    };
+    const { onFollow } = renderSite({ pages });
+
+    await press('Enter');
+    await press('Backspace');
+
+    expect(screen.getByRole('textbox').textContent).toBe('[ab_]');
+    expect(onFollow).toHaveBeenCalledTimes(1);
+  });
+
+  // There is no cursor to move, so the arrow does nothing rather than sending the
+  // form half-typed.
+  it('does not send the form on ArrowRight while the reader is typing', async () => {
+    const pages = { [HOME]: '<body><form action="/find"><input name="q"></form></body>' };
+    const { onFollow } = renderSite({ pages });
+
+    type('uni');
+    await press('ArrowRight');
+
+    expect(onFollow).not.toHaveBeenCalled();
+  });
+
+  it('shows the cursor only in the field being typed into', () => {
+    const pages = {
+      [HOME]: '<body><form action="/find"><input name="name" value="ada"><input name="floor" value="2"></form></body>',
+    };
+    renderSite({ pages });
+
+    expect(screen.getAllByRole('textbox').map((field) => field.textContent)).toEqual([
+      '[ada_]',
+      '[2]',
+    ]);
+  });
+
+  it('labels the button as the page does, and marks it when it is selected', () => {
+    const pages = {
+      [HOME]: '<body><form action="/find"><input name="q"><button>Search</button></form></body>',
+    };
+    renderSite({ pages });
+    const unselected = screen.getByRole('button').className;
+
+    fireEvent.keyDown(browser(), { key: 'ArrowDown' });
+
+    expect(screen.getByRole('button').textContent).toBe('[ Search ]');
+    expect(unselected).not.toBe('');
+    expect(screen.getByRole('button').className).not.toBe(unselected);
+  });
+});

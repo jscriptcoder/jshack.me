@@ -33,24 +33,43 @@
 
 import { resolveHref } from '../core/network/http';
 
-/** A run of rendered characters. A link carries where it goes and the number the
- *  reader types past — everything else is text a page merely said. */
+/** Where a form sends what was typed into it. `id` tells the forms on one page
+ *  apart, so a submit sends its own form's fields and nobody else's. Only a GET form
+ *  is ever sent; a POST one is drawn, and nothing here can answer it. */
+export type FormTarget = {
+  readonly id: number;
+  readonly action: string;
+  readonly method: 'get' | 'post';
+};
+
+/** Something on a form a reader can select: a field to type into, or the button that
+ *  sends it. `form` is null when there is nowhere to send it — no form around it, or
+ *  an action this browser cannot fetch. */
+type Control =
+  | {
+      readonly kind: 'field';
+      readonly text: string;
+      readonly name: string;
+      /** What the page filled it with, before the reader typed anything. */
+      readonly value: string;
+      readonly placeholder: string;
+      readonly form: FormTarget | null;
+    }
+  | { readonly kind: 'submit'; readonly text: string; readonly form: FormTarget | null };
+
+/** A run of rendered characters. A link carries where it goes, a form control what it
+ *  sends and where — everything else is text a page merely said. */
 export type Segment =
   | { readonly kind: 'text'; readonly text: string }
-  | {
-      readonly kind: 'link';
-      readonly text: string;
-      readonly url: string;
-      readonly index: number;
-    };
+  | { readonly kind: 'link'; readonly text: string; readonly url: string }
+  | Control;
 
 /** One rendered line, as the runs of text it is made of. */
 export type RenderedLine = readonly Segment[];
 
-/** A segment before the page has been walked far enough to know its number. */
-type Piece =
-  | { readonly kind: 'text'; readonly text: string }
-  | { readonly kind: 'link'; readonly text: string; readonly url: string };
+/** A segment before the page has been walked far enough to number its links: the
+ *  same shape, with a link's `[n]` not yet written in front of it. */
+type Piece = Segment;
 
 /** Where a table cell starts. How far apart cells sit cannot be known while the page
  *  is walked: a link's number widens its cell, and links are numbered only once the
@@ -101,6 +120,35 @@ const inlinePieces = (node: Node, base: string): readonly Piece[] =>
  *  here exactly as it is in a browser. */
 const INVISIBLE_FIELD_TYPES: ReadonlySet<string> = new Set(['hidden']);
 
+/** A text field as a reader sees it when they are not typing into it: what it holds,
+ *  or, while it holds nothing, the hint the page offers. */
+export const fieldBox = ({
+  value,
+  placeholder,
+}: {
+  readonly value: string;
+  readonly placeholder: string;
+}): string => `[${value === '' ? placeholder : value}]`;
+
+/**
+ * Where the form around `control` sends it, or null when nowhere will answer.
+ *
+ * An action is resolved exactly as a link's href is, and a form that names none is sent
+ * back to the page it sits on, as a browser sends it.
+ */
+const formTargetOf = (control: Element, base: string): FormTarget | null => {
+  const form = control.closest('form');
+  if (form === null) return null;
+  const written = form.getAttribute('action')?.trim() ?? '';
+  const action = written === '' ? base : resolveHref({ base, href: written });
+  if (action === null) return null;
+  return {
+    id: Array.from(form.ownerDocument.forms).indexOf(form),
+    action,
+    method: form.getAttribute('method')?.toLowerCase() === 'post' ? 'post' : 'get',
+  };
+};
+
 /**
  * What a form field looks like to a reader: a box, holding what has been typed into it
  * or the hint the page offers when nothing has.
@@ -110,15 +158,28 @@ const INVISIBLE_FIELD_TYPES: ReadonlySet<string> = new Set(['hidden']);
  * because it could read one would be the single place in this world where reading a
  * page gave away a credential.
  */
-const fieldPieces = (field: Element): readonly Piece[] => {
+const fieldPieces = (field: Element, base: string): readonly Piece[] => {
   const kind = (field.getAttribute('type') ?? 'text').toLowerCase();
   if (INVISIBLE_FIELD_TYPES.has(kind)) return [];
   const value = field.getAttribute('value') ?? '';
   // Spaced inside its brackets, like a `<button>`: a thing you press has to look
   // different from the box beside it that you type into.
-  if (kind === 'submit' || kind === 'button') return [text(`[ ${value} ]`)];
+  if (kind === 'submit') {
+    return [{ kind: 'submit', text: `[ ${value} ]`, form: formTargetOf(field, base) }];
+  }
+  if (kind === 'button') return [text(`[ ${value} ]`)];
   if (kind === 'password') return [text('[]')];
-  return [text(`[${value === '' ? (field.getAttribute('placeholder') ?? '') : value}]`)];
+  const placeholder = field.getAttribute('placeholder') ?? '';
+  return [
+    {
+      kind: 'field',
+      text: fieldBox({ value, placeholder }),
+      name: field.getAttribute('name') ?? '',
+      value,
+      placeholder,
+      form: formTargetOf(field, base),
+    },
+  ];
 };
 
 /** The pieces a preformatted block contributes, whitespace and newlines as written:
@@ -138,11 +199,16 @@ const piecesOf = (
   const tag = tagOf(node);
   if (SILENT_TAGS.has(tag)) return [];
   if (tag === 'br') return [text('\n')];
-  if (tag === 'input') return fieldPieces(node);
+  if (tag === 'input') return fieldPieces(node, base);
   const inner = Array.from(node.childNodes).flatMap((child) => piecesOf(child, base, readText));
   // A button is drawn as something to press, spaced inside its brackets so it cannot be
-  // mistaken for the box beside it that a reader types into.
-  if (tag === 'button') return [text(`[ ${inner.map((piece) => piece.text).join('')} ]`)];
+  // mistaken for the box beside it that a reader types into. Only one that submits is
+  // something to press here — and a button that names no type submits, as in a browser.
+  if (tag === 'button') {
+    const label = `[ ${inner.map((piece) => piece.text).join('')} ]`;
+    const submits = (node.getAttribute('type') ?? 'submit').toLowerCase() === 'submit';
+    return [submits ? { kind: 'submit', text: label, form: formTargetOf(node, base) } : text(label)];
+  }
   if (tag !== 'a') return inner;
   const url = resolveHref({ base, href: node.getAttribute('href') ?? '' });
   if (url === null) return inner;
@@ -152,7 +218,8 @@ const piecesOf = (
 };
 
 /** Adjacent text merged into single runs, so that whitespace spanning a boundary
- *  collapses the way it would have inside one text node. Only a link breaks a run. */
+ *  collapses the way it would have inside one text node. Only something a reader can
+ *  select breaks a run. */
 const merged = (pieces: readonly Piece[]): readonly Piece[] =>
   pieces.reduce<readonly Piece[]>((joined, piece) => {
     const last = joined[joined.length - 1];
@@ -180,7 +247,7 @@ const finish = (pieces: readonly Piece[]): readonly Piece[] => {
     const start = index === 0 ? piece.text.trimStart() : piece.text;
     return text(index === squeezedPieces.length - 1 ? start.trimEnd() : start);
   });
-  return trimmed.filter((piece) => piece.kind === 'link' || piece.text !== '');
+  return trimmed.filter((piece) => piece.kind !== 'text' || piece.text !== '');
 };
 
 /** A run of pieces cut into lines wherever a newline sits, and nowhere else. */
@@ -189,7 +256,7 @@ const splitAtBreaks = (pieces: readonly Piece[]): readonly (readonly Piece[])[] 
     (lines, piece) => {
       const openLine = lines[lines.length - 1] ?? [];
       const closed = lines.slice(0, -1);
-      if (piece.kind === 'link') return [...closed, [...openLine, piece]];
+      if (piece.kind !== 'text') return [...closed, [...openLine, piece]];
       const [head, ...rest] = piece.text.split('\n');
       return [...closed, [...openLine, text(head ?? '')], ...rest.map((part) => [text(part)])];
     },
@@ -367,8 +434,9 @@ const normalize = (lines: readonly Line[]): readonly Line[] => {
 /**
  * The links numbered in the order a reader meets them, top to bottom.
  *
- * Numbering last means nothing that walks the tree has to carry a counter, and the
- * number a reader sees is the number the selection uses — there is only one.
+ * Numbering last means nothing that walks the tree has to carry a counter. Only links
+ * are numbered: a field or a button is something to select, not somewhere to go, so a
+ * form above the results leaves the first result `[1]`.
  */
 const numbered = (lines: readonly Line[]): readonly (readonly (Segment | CellStart)[])[] => {
   let count = 0;
@@ -376,7 +444,7 @@ const numbered = (lines: readonly Line[]): readonly (readonly (Segment | CellSta
     line.map((piece) => {
       if (piece.kind !== 'link') return piece;
       count += 1;
-      return { kind: 'link', text: `[${count}]${piece.text}`, url: piece.url, index: count };
+      return { kind: 'link', text: `[${count}]${piece.text}`, url: piece.url };
     }),
   );
 };
