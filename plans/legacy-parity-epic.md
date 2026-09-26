@@ -29,6 +29,10 @@ SHIPPED v0.265.0–v0.268.0 (#551–#554), its slice 2 v0.269.0–v0.270.0 (#555
 v0.271.0 (#557), its slice 4 (findit falls and comes back) v0.272.0 (#558) and its slice 5 (the
 `government` category) v0.273.0 (#559) and its slice 6 (the `retail` category) v0.276.0 (#562),
 all as-built under that section. **X2 is COMPLETE** (2026-09-26), so **next is the ship gate** again.
+**Update 2026-09-27: T1 (text tools — `>>`, `head`, `tail`, `wc`) was GRILLED ahead of the ship
+gate** — decisions 106–113 and a two-slice spine in
+["T1 — text tools — resolved scope & decisions"](#t1--text-tools--resolved-scope--decisions-grilling-2026-09-27);
+slice 1 (`>>`) is planned in [`append-redirect.md`](append-redirect.md). Ship follows T1.
 The `Status` block below is an accumulating log, not the current state.
 
 **Status**: **D1 shipped** (v0.109.0), with its web follow-ups D1c (v0.123.0-v0.124.0), D1b
@@ -443,6 +447,10 @@ PHASE 3 — VULNERABILITIES                             GRILLED 09-09/09-10 + PL
       V slice 8 libraries fall                ✔ SHIPPED v0.235.0-v0.243.0 (#519-#527)
       V slice 9 firmware falls                ✔ SHIPPED v0.244.0-v0.247.0 (#528,#529,#531,#532) <- CLOSED V4 and the V-SERIES
 WORLD CONTENT — its own epic (plan retired; as-built doc) ✔ DONE v0.248.0-v0.264.0 (#533-#550) <- SHIP UNBLOCKED
+PRE-SHIP — TEXT TOOLS (beyond parity)
+  T1  >> append + head / tail / wc                    GRILLED 09-27 (decisions 106-113, 2 slices)
+      T1 slice 1 an append adds a line                PLANNED — plans/append-redirect.md
+      T1 slice 2 a defender reads the end of a log    not yet planned
 ────────────────────────── SHIP ──────────────────────────
 POST-SHIP — MISSIONS
 ```
@@ -5403,6 +5411,114 @@ reads as a shop's back office, with a till and a customer list in its database.
   `[^A-Z]*` between the BSSID and the ESSID, which cannot cross the `WPA2` in between, so it could
   never match. Listing the last scans' ESSIDs showed the scans were fine and re-rolling. **Before
   trusting a negative from a filter, run it once against a line known to match.**
+
+## T1 — text tools — resolved scope & decisions (grilling, 2026-09-27)
+
+Grilled 2026-09-27, the last story before the ship gate, at the owner's request: the text tools a
+player reaches for first and legacy never had — `>>`, `head`, `tail`, `wc`. Beyond parity, not part
+of it. `who` was raised and **deferred**: it needs a cross-player session read the server does not
+have (`listSessions` is scoped to the caller's own sessions), and it leads straight to eviction.
+`sort`/`uniq`, `cp`/`mv`, `&&`/`;` and `history` were weighed and left out (see the end of this
+section).
+
+### Grounding
+
+- **Pipes and one trailing `>` already exist** (`core/shell/pipeline.ts`, `runLine.ts`), but only
+  `cat` and `grep` read stdin, so a pipe has almost nowhere to go.
+- **`>` writes stdout joined with `\n` and NO trailing newline**, and generated files follow the same
+  convention — the wordlist is `words.join('\n')` (`wordlist/defaultWordlist.ts`). A bash-faithful
+  raw append would weld `echo hunter2 >> /usr/share/wordlists/passwords.txt` onto the last word.
+- **`>>` today is a syntax error** (two redirect tokens), so nothing depends on its current shape.
+- **The safe append already exists** as a script's `fs.appendFile` (`scripting/fsApi.ts`): reload
+  the machine, read the base, compose, write naming `baseContent`, so a raced write is refused
+  rather than reverted.
+- **Upstream pipe stages are drained to completion** before the next runs (`collectStageOutput`),
+  so `head` stopping early needs no cancellation.
+- **NPC `.bash_history` already carries `tail /var/log/auth.log`** (`generation/pools/homeHistory.ts`);
+  it starts working the moment `tail` exists.
+
+### Locked decisions
+
+#### 106. `>>` adds its output on a new line
+
+If the file is non-empty and does not already end in `\n`, one `\n` is inserted before the new
+output; the new output is joined exactly as `>` joins it, with no trailing newline. A missing file is
+created and an empty file gains no leading newline. So `echo a > f; echo b >> f` is `a\nb`, and every
+file keeps the game's no-trailing-newline convention with no generator touched. Rejected: bash's raw
+byte append with `>` and every generator gaining a trailing `\n` — a far wider change bought for no
+gameplay.
+
+#### 107. `>>` is the same safe append a script's `appendFile` is
+
+Reload from the machine, read the target (not found ⇒ create), compose under 106, write naming
+`baseContent`. A write that landed in between is refused: `bash: <path>: File changed on disk`,
+exit 1, nothing written, and the other occupant's edit stands. The target is validated BEFORE the
+command runs, exactly as `>` is (directory / missing parent / permission). `> >` stays a syntax
+error, as in bash. Rejected: a base-less append like the daemons' log appender — never refused, but
+a race silently reverts somebody else's edit. Script `appendFile` keeps its raw Node semantics; only
+the shell operator separates.
+
+#### 108. `head`, `tail`, `wc` are system utilities, like `cat` and `grep`
+
+They join `SYSTEM_UTILITY_NAMES`, so every machine carries them in `/bin` and `rm` takes them away;
+guest tier, any machine, `filesystem` category, a man page and a `help` entry each. No `apt`.
+
+#### 109. `head` and `tail` take `-n N` only, default 10
+
+N is a whole number ≥ 0; anything else is `<cmd>: invalid number of lines: '<value>'`, exit 1, and
+`-n 0` prints nothing. The binder stays strict, so `tail -5` is `unrecognized option '-5'`; the man
+page teaches `-n`. Rejected: a numeric-shorthand opt-in in `bindFlags` for two commands. Not built:
+`tail -f` (needs server push), `tail -n +N`, `-c`.
+
+#### 110. One file, or stdin when there is no file
+
+A second file is `<cmd>: extra operand '<name>'`, exit 1. No file and no stdin is a usage hint,
+exit 1, as `cat` does. File errors read in `cat`'s words — `No such file or directory`,
+`Is a directory`, `Permission denied` — exit 1. Rejected: GNU's `==> name <==` headers and `wc`'s
+`total` row, which nothing in play needs.
+
+#### 111. `wc` counts real lines and words: `-l` and `-w`
+
+A line is what `cat` shows — `splitContentLines`' count, not GNU's newline count — so `a\nb\nc` is 3,
+an empty file 0, and `grep … | wc -l` always equals the lines grep printed. Words are runs of
+non-whitespace. `-l`/`-w` stack (`-lw`); with neither, both print, lines then words. Output is the
+counts single-space-separated, then ` <file>` when a file was named: `wc -l f` → `3 f`, `wc f` →
+`3 5 f`, `… | wc -l` → `3`. No `-c`: nothing in the game reads a byte count and `ls -l` already
+shows a size; it is a boolean flag away if missions ever want it.
+
+#### 112. Two slices, `>>` first
+
+Each its own PR and minor version bump:
+
+1. **An append adds a line** — the `append` token, the trailing `>> target` in the pipeline parser,
+   and 106/107 in `runLine`. Proof: `echo <word> >> /usr/share/wordlists/passwords.txt` and a
+   `hydra`/`john` run opens what the shipped list could not.
+2. **A defender reads the end of a log** — `head`, `tail`, `wc` under 108–111. Proof:
+   `grep Failed /var/log/auth.log | tail -n 5` and `… | wc -l` on the player's own box.
+
+`>>` first because it feeds a mechanic that already exists (growing the wordlist).
+
+#### 113. The record lives here as T1
+
+This section is the grill record; each slice gets its own `plans/<slice>.md`, written when the one
+before it closes and deleted at close-out, as X2's were.
+
+### Checked at planning, not decided
+
+- **A file a tier may write but not read.** The server prunes what the caller cannot read, so `>>`
+  onto such a file sees "not found", composes from empty, and the server's base check refuses it with
+  a misleading `File changed on disk`. No generator grants write without read, but a player's
+  `chmod` can. Script `appendFile` already carries the same exposure; slice 1's plan measures it.
+
+### Weighed and left out
+
+- **`sort` / `uniq -c`** — earn their place only with a field extractor (`cut`/`awk`); arrive with
+  missions if at all.
+- **`cp` / `mv`** — each needs its own grill: copying a carried binary, ownership, and whether
+  `mv /bin/nmap` is a new sabotage verb. `scp` already moves files between machines.
+- **`&&` / `;`** — a parser change everywhere for a convenience.
+- **`history`, `hostname`, `id`, `uname`** — flavour; not worth holding the ship for.
+- **`who`** — see the opening paragraph.
 
 ## Open branches (named, not yet decided)
 
