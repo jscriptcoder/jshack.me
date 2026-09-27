@@ -32,8 +32,8 @@ all as-built under that section. **X2 is COMPLETE** (2026-09-26), so **next is t
 **Update 2026-09-27: T1 (text tools — `>>`, `head`, `tail`, `wc`) was GRILLED ahead of the ship
 gate** — decisions 106–113 and a two-slice spine in
 ["T1 — text tools — resolved scope & decisions"](#t1--text-tools--resolved-scope--decisions-grilling-2026-09-27);
-slice 1 (`>>`) SHIPPED v0.277.0 (#563), as-built under that section; slice 2 (`head`/`tail`/`wc`) is planned in
-[`text-readers.md`](text-readers.md). Ship follows T1.
+slice 1 (`>>`) SHIPPED v0.277.0 (#563) and slice 2 (`head`/`tail`/`wc`) SHIPPED v0.278.0 (#564),
+both as-built under that section. **T1 is COMPLETE** (2026-09-27), so **next is the ship gate**.
 The `Status` block below is an accumulating log, not the current state.
 
 **Status**: **D1 shipped** (v0.109.0), with its web follow-ups D1c (v0.123.0-v0.124.0), D1b
@@ -449,9 +449,9 @@ PHASE 3 — VULNERABILITIES                             GRILLED 09-09/09-10 + PL
       V slice 9 firmware falls                ✔ SHIPPED v0.244.0-v0.247.0 (#528,#529,#531,#532) <- CLOSED V4 and the V-SERIES
 WORLD CONTENT — its own epic (plan retired; as-built doc) ✔ DONE v0.248.0-v0.264.0 (#533-#550) <- SHIP UNBLOCKED
 PRE-SHIP — TEXT TOOLS (beyond parity)
-  T1  >> append + head / tail / wc                    GRILLED 09-27 (decisions 106-113, 2 slices)
+  T1  >> append + head / tail / wc                    ✅ DONE v0.277.0-v0.278.0 (#563-#564)
       T1 slice 1 an append adds a line                ✅ SHIPPED v0.277.0 (#563)
-      T1 slice 2 a defender reads the end of a log    PLANNED — plans/text-readers.md
+      T1 slice 2 a defender reads the end of a log    ✅ SHIPPED v0.278.0 (#564) <- T1 CLOSED
 ────────────────────────── SHIP ──────────────────────────
 POST-SHIP — MISSIONS
 ```
@@ -5559,9 +5559,38 @@ and deleting `/lib/libpcre.so` disables `cat` but not `tail`. Rejected: linking 
 
 #### 115. Generated histories keep their `tail -f` lines
 
-Replaying one prints `tail: unrecognized option '-f'`, as `less`, `vim` and `htop` lines already
+Replaying one prints `tail: unrecognized option: -f` (the binder's wording), as `less`, `vim` and `htop` lines already
 fail: a history is what a person typed, not a script the game promises will run. Rejected: dropping
 `-f` from the pools, and accepting `-f` as print-once.
+
+### As-built: T1 slice 2 — a defender reads the end of a log ✅ SHIPPED v0.278.0 (#564)
+
+`grep Failed /var/log/auth.log | tail -n 5` and `grep Accepted /var/log/auth.log | wc -l` work on
+every machine. The shape, in `core/commands/`:
+
+- **`head.ts` / `tail.ts`** print the first / last 10 lines, or `-n N` (a `'string'` flag checked
+  against `^\d+$`, so `-1`, `1e3` and `0x10` are `invalid number of lines`). `tail -n 0` needs its
+  own answer, because `slice(-0)` is the whole array.
+- **`wc.ts`** prints lines then words (`-l`, `-w`, `stacking: true`), the file's name after a named
+  file's counts and bare numbers for a pipe; a word is a run of non-whitespace.
+- **`readFileOrStdin`** in `contentHelpers.ts` is the one input rule all three share (110): one
+  file, else the pipe; `extra operand`, `missing file operand` and the three read failures in
+  `cat`'s words under the command's own name. Extracted at the second copy (`head`), not the third.
+- **`/bin`**: the three names joined `SYSTEM_UTILITY_NAMES`; `libraryDeps.ts` untouched (114).
+
+**Found while building it:**
+- **The binder's refusal reads `tail: unrecognized option: -f`**, with a colon — 115 as written
+  quoted it GNU-style; corrected above.
+- **`node`'s manual still said "the shell has no >>"**, a slice 1 leftover; it now says `>>` at the
+  prompt starts a new line where `fs.appendFile` inserts nothing.
+- **Conventions §9's "`tail` is a command nobody can run" is closed**; its `grep -c` finding stays
+  as its own line, answered in play by `| wc -l`.
+
+**Evidence:** 268 files / 6464 tests; the library-gate guard shown able to fail by linking `tail`
+to libpcre for one run; mutation 190 killed / 70 survived, 0 timeouts — every executable mutant
+killed but one equivalent (`/\s+/` → `/\s/`, empty words are filtered), the rest `manual`
+text; browser on v0.278.0 — `head -n 2 /etc/passwd`, `wc /etc/passwd` → `3 3 /etc/passwd`, `su`
+then `tail -n 3 /var/log/auth.log` and `grep su … | wc -l` → `1`, the refusals, `man tail`, `help`.
 
 ## Open branches (named, not yet decided)
 
