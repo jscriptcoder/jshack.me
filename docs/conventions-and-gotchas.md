@@ -686,8 +686,11 @@ architecture doc if the work touches cross-player paths.
   into the typechecked `src/core/`.
 - **Format/lint gate = `npm run lint`** (ESLint).
 - **World budget gate = `npm run build`'s `postbuild` (`scripts/checkBudgets.ts`).** Vercel runs
-  `npm run build`, so a deploy or preview fails when a budget is blown; still run it locally
-  before opening any PR that grows content, rather than finding out from the preview. It fails the build when either cost of the generated world outgrows its ceiling:
+  `npm run build`, so a deploy or preview fails on a **bundle** breach. The **per-box timing** is
+  skipped there (`VERCEL=1`): Vercel's build machine ran it at 3.1 ms/box against 0.85 ms locally,
+  so it only means something on a developer machine. Run `npm run build` locally before opening
+  any PR that grows content. It fails the build when either cost of the generated world outgrows
+  its ceiling:
   - **the gzipped main chunk exceeds 284,975 B**. That is the 134,975 B it weighed before world
     content, plus the 150 KB that content may add. The remedy is to trim pools; the allowance is
     fixed, not a number to raise.
