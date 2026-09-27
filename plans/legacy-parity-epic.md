@@ -32,7 +32,8 @@ all as-built under that section. **X2 is COMPLETE** (2026-09-26), so **next is t
 **Update 2026-09-27: T1 (text tools — `>>`, `head`, `tail`, `wc`) was GRILLED ahead of the ship
 gate** — decisions 106–113 and a two-slice spine in
 ["T1 — text tools — resolved scope & decisions"](#t1--text-tools--resolved-scope--decisions-grilling-2026-09-27);
-slice 1 (`>>`) is planned in [`append-redirect.md`](append-redirect.md). Ship follows T1.
+slice 1 (`>>`) SHIPPED v0.277.0 (#563), as-built under that section; slice 2 (`head`/`tail`/`wc`) is planned in
+[`text-readers.md`](text-readers.md). Ship follows T1.
 The `Status` block below is an accumulating log, not the current state.
 
 **Status**: **D1 shipped** (v0.109.0), with its web follow-ups D1c (v0.123.0-v0.124.0), D1b
@@ -449,8 +450,8 @@ PHASE 3 — VULNERABILITIES                             GRILLED 09-09/09-10 + PL
 WORLD CONTENT — its own epic (plan retired; as-built doc) ✔ DONE v0.248.0-v0.264.0 (#533-#550) <- SHIP UNBLOCKED
 PRE-SHIP — TEXT TOOLS (beyond parity)
   T1  >> append + head / tail / wc                    GRILLED 09-27 (decisions 106-113, 2 slices)
-      T1 slice 1 an append adds a line                PLANNED — plans/append-redirect.md
-      T1 slice 2 a defender reads the end of a log    not yet planned
+      T1 slice 1 an append adds a line                ✅ SHIPPED v0.277.0 (#563)
+      T1 slice 2 a defender reads the end of a log    PLANNED — plans/text-readers.md
 ────────────────────────── SHIP ──────────────────────────
 POST-SHIP — MISSIONS
 ```
@@ -5519,6 +5520,48 @@ before it closes and deleted at close-out, as X2's were.
 - **`&&` / `;`** — a parser change everywhere for a convenience.
 - **`history`, `hostname`, `id`, `uname`** — flavour; not worth holding the ship for.
 - **`who`** — see the opening paragraph.
+
+### As-built: T1 slice 1 — an append adds a line ✅ SHIPPED v0.277.0 (#563)
+
+`>>` adds the final stage's stdout to a file, and `echo <password> >> /usr/share/wordlists/passwords.txt`
+grows the wordlist from the prompt. The shape, in `core/shell/`:
+
+- **`tokenize`** emits one `append` token for two ADJACENT `>`s, tracking the previous character, so
+  `> >` stays two redirects and `>>>` is an append then a redirect — both refused by the parser.
+- **`parsePipeline`** carries the mode on the one redirect it already had:
+  `redirect: { path, append }`; the error symbol for an append is `>>`.
+- **`runCommandLine`** validates the target against the held tree before any stage runs (shared
+  with `>`), then `applyAppend` reloads the machine, re-resolves, reads the base (not found ⇒
+  empty; unreadable ⇒ refused), composes under 106, and writes with `baseContent` AND the existing
+  node's `owner` and `permissions`. A command that printed nothing appends nothing.
+
+**Found while building it:**
+- **Keeping owner and permissions was not in the plan.** Conventions §7 already required it of any
+  writer over an existing node; without it a user appending to a root-owned shared file would have
+  taken it. The browser run confirmed the wordlist stays `-rw-r--r-- root`.
+- **A script's `fs.appendFile` has that same gap** — recorded in conventions §9, not fixed here.
+- **The write-without-read case the grill parked is closed.** `boxSurface.test.ts` holds, across
+  every generated box, that no tier may write a file it cannot read; a player-made one (via
+  `chmod`) refuses with `Permission denied` rather than composing on nothing.
+
+**Evidence:** 265 files / 6386 tests; mutation 290 killed / 4 survived (98.6%, the four on
+unchanged loop lines or equivalent); `testModifiedSinceOpen` 7/7 live; browser on v0.277.0 — the
+shipped list cracks `guest:letmein`, the list cut to one wrong word cracks 0/2, and after
+`echo letmein >> …` john cracks it again.
+
+### Decided at T1 slice 2 planning (2026-09-27)
+
+#### 114. `head`, `tail` and `wc` link no library
+
+They join the group-less utilities in `libraryDeps.ts` (`mkdir`, `touch`, `whoami`, …), not the
+`libpcre` file readers, since none matches a pattern. Every box's local-exploit surface is unchanged,
+and deleting `/lib/libpcre.so` disables `cat` but not `tail`. Rejected: linking `libpcre` like `cat`.
+
+#### 115. Generated histories keep their `tail -f` lines
+
+Replaying one prints `tail: unrecognized option '-f'`, as `less`, `vim` and `htop` lines already
+fail: a history is what a person typed, not a script the game promises will run. Rejected: dropping
+`-f` from the pools, and accepting `-f` as print-once.
 
 ## Open branches (named, not yet decided)
 
