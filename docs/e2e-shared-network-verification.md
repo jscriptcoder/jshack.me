@@ -97,7 +97,7 @@ actually gone before trusting anything else:
 # expect: relation "network_registry" does not exist
 # `supabase db psql -c` does NOT exist (CLI 2.95: "unknown shorthand flag: 'c'").
 # Go through the container instead — this is the reliable way to query local supabase.
-docker exec supabase_db_jshack-me-v2 psql -U postgres -c 'select 1 from network_registry limit 1' 2>&1 | head -2
+docker exec supabase_db_jshack-me psql -U postgres -c 'select 1 from network_registry limit 1' 2>&1 | head -2
 ```
 
 ---
@@ -688,7 +688,7 @@ and nothing else. The approved fix, if it is ever taken, is a **pull** — refet
 those three paths — not a push. Read the row from the DB when a log looks empty:
 
 ```bash
-docker exec supabase_db_jshack-me-v2 psql -U postgres -tAc \
+docker exec supabase_db_jshack-me psql -U postgres -tAc \
   "select content from patches where path='/var/log/access.log' and machine_id='<box>'"
 ```
 
@@ -1321,7 +1321,7 @@ For a plain read, skip the temp file entirely and query the container directly �
 quicker, and it needs no env:
 
 ```bash
-docker exec supabase_db_jshack-me-v2 psql -U postgres -tAc \
+docker exec supabase_db_jshack-me psql -U postgres -tAc \
   "select essid, octet, left(owner_key,12) from network_lan_leases order by octet"
 ```
 

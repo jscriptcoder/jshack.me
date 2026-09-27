@@ -1803,7 +1803,7 @@ having. `net stop winnat` answers **"Access is denied"** in a normal shell — t
 elevation, not a broken service, and it is the cue to take the remap path rather than hunt for a
 service problem. Neither CLI is installed here, so drive both through npx (`npx -y supabase start`,
 and `npm run vercel:dev`, which resolves `vercel` from `@vercel/node`). `supabase stop
---project-id jshack-me-v2` before remapping, or the old containers linger on the old ports.
+--project-id jshack-me` before remapping, or the old containers linger on the old ports.
 Restore by copying the backups back and confirm with `git status` — `config.toml` is TRACKED, so a
 forgotten temp port is a committed one.
 
@@ -1813,7 +1813,7 @@ remap was unnecessary. Two minutes of `netsh interface ipv4 show excludedportran
 beats editing two tracked-adjacent files on faith. The reverse also bites: containers left running
 from a remapped session **auto-restart on the old ports** while `config.toml` says otherwise, and
 the mismatch reads as a dead stack. `docker ps --format '{{.Names}}\t{{.Ports}}'` shows it at once;
-`supabase stop --project-id jshack-me-v2` then `start` rebinds them to whatever the file now says.
+`supabase stop --project-id jshack-me` then `start` rebinds them to whatever the file now says.
 - Run: `npx dotenv -e .env.development.local -- npx tsx scripts/<name>.ts`.
   Exits 0 on all-pass.
 - The script seeds the DB via the service-role client, drives the endpoints, asserts, and
@@ -3444,7 +3444,7 @@ blocks the live PvP loop; each was a scoped owner decision, not a gap.
   a `curl` through the same forward was equally invisible, so this is the shipped shape of every
   cross-player writer and NOT a property of the sweep. It is the single most repeated
   false-alarm in this project's E2E runs: **when a log reads empty, check the row before believing
-  it**, `docker exec supabase_db_jshack-me-v2 psql -U postgres -tAc "select content from patches
+  it**, `docker exec supabase_db_jshack-me psql -U postgres -tAc "select content from patches
   where path='/var/log/access.log' and machine_id='<box>'"`, and resolve `<box>` from
   `home_network_occupants` rather than by hostname — a previous session's `skylab-…` answers with
   months-old lines and no error. Journey detail: `e2e-shared-network-verification.md` Act 10.

@@ -406,7 +406,7 @@ For a plain table read, skip the temp file — query the container directly. **`
 -c` does not exist** (CLI 2.95: `unknown shorthand flag: 'c'`); go through docker:
 
 ```bash
-docker exec supabase_db_jshack-me-v2 psql -U postgres -tAc "select * from home_network_occupants"
+docker exec supabase_db_jshack-me psql -U postgres -tAc "select * from home_network_occupants"
 ```
 
 Useful lookups: `workstationGuestPassword(ownerKey)`, `assignHomeNetwork(ownerKey, essid)` →
@@ -445,7 +445,7 @@ against the live `ifconfig`. Delete the temp file when done.
   ```
   `^O` writes **without** exiting (correct nano behaviour), and its "wrote N lines" status is
   transient — so absence of a status line is not evidence the save failed. Confirm against the
-  journal instead: `docker exec supabase_db_jshack-me-v2 psql -U postgres -tAc "select content from patches where path = '…'"`.
+  journal instead: `docker exec supabase_db_jshack-me psql -U postgres -tAc "select content from patches where path = '…'"`.
 - **A real `click` beats the native-dispatch workaround, and beats `eval`-based focus.** Once any
   `agent-browser eval` has touched focus, `press Control+o` / `Control+x` stop reaching the editor
   even though `document.activeElement` still reports the textarea — and a synthetic
@@ -544,7 +544,7 @@ site makes the link count meaningless.
 `echo "forward 80 to <A's LAN IP>:80" > /etc/iptables/rules.v4`. Nothing else: B's
 `curl "findit.io/?q=<a word on A's page>"` lists it at once, by title and A's bare public IP.
 - **A's public IP is shown nowhere in the game.** Read it off the database:
-  `docker exec supabase_db_jshack-me-v2 psql -U postgres -tAc "select public_ip from network_public_ips where essid='<ESSID>'"`.
+  `docker exec supabase_db_jshack-me psql -U postgres -tAc "select public_ip from network_public_ips where essid='<ESSID>'"`.
 - **Pick a network with no site of its own.** On a publisher's network (every corporate, café
   and institutional one — including the three government ones, `RIDGEMONT-PD` `ridgemontpd.gov`,
   `CITY-HALL-WIFI` `ridgemont.gov` and `COURTHOUSE-GUEST` `ridgemontcourts.gov`, since v0.273.0, and
