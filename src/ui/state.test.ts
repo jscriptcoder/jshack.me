@@ -13,11 +13,7 @@ import {
   formatPidfileContent,
   readOpenPorts,
 } from '../core/services/pidfile.js';
-import {
-  BOOT_ID_OWNER,
-  BOOT_ID_PATH,
-  BOOT_ID_PERMISSIONS,
-} from '../core/boot/bootId.js';
+import { BOOT_ID_OWNER, BOOT_ID_PATH, BOOT_ID_PERMISSIONS } from '../core/boot/bootId.js';
 import { applyPatches, type Patch } from '../core/filesystem/applyPatches.js';
 import { defaultFilePermissions } from '../core/filesystem/defaultPermissions.js';
 import { SERVICE_CATALOG } from '../core/services/serviceCatalog.js';
@@ -109,14 +105,14 @@ describe('adopting the stored theme at boot', () => {
 
     state.adoptStoredTheme();
 
-    expect(document.documentElement.style.getPropertyValue('--theme-text')).toBe('#f59e0b');
-    expect(state.currentTheme()).toBe('amber');
+    expect(document.documentElement.style.getPropertyValue('--theme-text')).toBe('#4ee6ee');
+    expect(state.currentTheme()).toBe('neon');
   });
 
   it('comes back in the default palette once the origin has been wiped', async () => {
     // `new-game` clears the WHOLE origin rather than picking out game keys, so
     // the remembered theme goes with everything else and the fresh game boots
-    // amber. Nothing here special-cases the theme — that is exactly the point,
+    // neon. Nothing here special-cases the theme — that is exactly the point,
     // and it is why a selective reset would silently strand a player in the
     // colour of a game they no longer have.
     const store = new Map<string, string>([['jshack:theme', 'cyan']]);
@@ -134,8 +130,8 @@ describe('adopting the stored theme at boot', () => {
     localStorage.clear();
     state.adoptStoredTheme();
 
-    expect(state.currentTheme()).toBe('amber');
-    expect(document.documentElement.style.getPropertyValue('--theme-text')).toBe('#f59e0b');
+    expect(state.currentTheme()).toBe('neon');
+    expect(document.documentElement.style.getPropertyValue('--theme-text')).toBe('#4ee6ee');
   });
 
   it('writes nothing back, because reading a choice is not making one', async () => {
@@ -219,7 +215,10 @@ describe('booting a terminal fresh', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (_url: string, init?: { body?: string }) => {
-        const fields = JSON.parse(JSON.parse(init?.body ?? '{}').payload) as Record<string, unknown>;
+        const fields = JSON.parse(JSON.parse(init?.body ?? '{}').payload) as Record<
+          string,
+          unknown
+        >;
         if (fields.action === 'listSessions') {
           askedForSessions();
           return json({ sessions: [hopSessionRow] });
@@ -461,7 +460,10 @@ describe('patch journal across a machine change', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (_url: string, init?: { body?: string }) => {
-        const fields = JSON.parse(JSON.parse(init?.body ?? '{}').payload) as Record<string, unknown>;
+        const fields = JSON.parse(JSON.parse(init?.body ?? '{}').payload) as Record<
+          string,
+          unknown
+        >;
         if (fields.action === 'listSessions') return json({ sessions: [hopSessionRow] });
         if (fields.action !== 'listPatches') return json({});
         if (fields.machine_id === REMOTE_MACHINE_ID) {
@@ -560,9 +562,13 @@ describe('an ftp session abandoned by a refresh', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (_url: string, init?: { body?: string }) => {
-        const fields = JSON.parse(JSON.parse(init?.body ?? '{}').payload) as Record<string, unknown>;
+        const fields = JSON.parse(JSON.parse(init?.body ?? '{}').payload) as Record<
+          string,
+          unknown
+        >;
         sent.push(fields);
-        if (fields.action === 'listSessions') return { ok: true, status: 200, json: async () => ({ sessions: rows }) };
+        if (fields.action === 'listSessions')
+          return { ok: true, status: 200, json: async () => ({ sessions: rows }) };
         return { ok: true, status: 200, json: async () => ({ patches: [] }) };
       }),
     );
@@ -619,7 +625,8 @@ describe('a transfer across the network', () => {
   const FORWARDED_PORT = 2222;
   /** A word that appears nowhere on the player's own generated box, so reading it
    *  back proves the bytes crossed the network. */
-  const THEIR_PASSWD = 'root:x:0:0::/root:/bin/bash\nnebuchadnezzar:x:1000:1000::/home/neb:/bin/sh\n';
+  const THEIR_PASSWD =
+    'root:x:0:0::/root:/bin/bash\nnebuchadnezzar:x:1000:1000::/home/neb:/bin/sh\n';
 
   const theirTree = () =>
     buildDirectory({
@@ -643,7 +650,10 @@ describe('a transfer across the network', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (_url: string, init?: { body?: string }) => {
-        const fields = JSON.parse(JSON.parse(init?.body ?? '{}').payload) as Record<string, unknown>;
+        const fields = JSON.parse(JSON.parse(init?.body ?? '{}').payload) as Record<
+          string,
+          unknown
+        >;
         sent.push(fields);
         if (fields.action === 'listSessions') {
           return { ok: true, status: 200, json: async () => ({ sessions: [] }) };
@@ -684,10 +694,7 @@ describe('a transfer across the network', () => {
   };
 
   /** Type the transfer and answer the one prompt it asks, the way the player does. */
-  const typeTransfer = async (
-    state: typeof import('./state.js'),
-    line: string,
-  ): Promise<void> => {
+  const typeTransfer = async (state: typeof import('./state.js'), line: string): Promise<void> => {
     state.setInput(line);
     const run = state.runInput();
     await vi.waitFor(() => expect(state.pendingPrompt()).toBeDefined());
@@ -702,10 +709,7 @@ describe('a transfer across the network', () => {
   it('takes the file off the box behind the forward, not the player own copy of it', async () => {
     const { state, sent } = await bootOnline();
 
-    await typeTransfer(
-      state,
-      `scp -p ${FORWARDED_PORT} root@${THEIR_PUBLIC_IP}:/etc/passwd ./`,
-    );
+    await typeTransfer(state, `scp -p ${FORWARDED_PORT} root@${THEIR_PUBLIC_IP}:/etc/passwd ./`);
 
     const own = sent.find((payload) => payload.action === 'authCreateSessionPublic')?.[
       'caller_machine_id'
@@ -812,7 +816,10 @@ describe('the ftp sub-shell', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (_url: string, init?: { body?: string }) => {
-        const fields = JSON.parse(JSON.parse(init?.body ?? '{}').payload) as Record<string, unknown>;
+        const fields = JSON.parse(JSON.parse(init?.body ?? '{}').payload) as Record<
+          string,
+          unknown
+        >;
         sent.push(fields);
         if (fields.action === 'listSessions') {
           return { ok: true, status: 200, json: async () => ({ sessions: [] }) };
@@ -896,10 +903,7 @@ describe('the ftp sub-shell', () => {
 
   /** Log into a host by actually typing the command and answering both prompts —
    *  the shipped path, not a poked signal. */
-  const typeFtpLogin = async (
-    state: typeof import('./state.js'),
-    ip: string,
-  ): Promise<void> => {
+  const typeFtpLogin = async (state: typeof import('./state.js'), ip: string): Promise<void> => {
     state.setInput(`ftp ${ip}`);
     const run = state.runInput();
     // Name, then password — answered the way the player answers them.
@@ -990,7 +994,10 @@ describe('the ftp sub-shell', () => {
     const remoteEtc = state.scrollback().map((line) => line.content);
     state.setInput('lls /etc');
     await state.runInput();
-    const originEtc = state.scrollback().map((line) => line.content).slice(remoteEtc.length);
+    const originEtc = state
+      .scrollback()
+      .map((line) => line.content)
+      .slice(remoteEtc.length);
 
     // The drop file lives ONLY in the target's journal, so a listing holding it
     // was fetched from the target — not computed from the box the player is on.
@@ -1330,7 +1337,10 @@ describe('an ftp session on a box across the network', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (_url: string, init?: { body?: string }) => {
-        const fields = JSON.parse(JSON.parse(init?.body ?? '{}').payload) as Record<string, unknown>;
+        const fields = JSON.parse(JSON.parse(init?.body ?? '{}').payload) as Record<
+          string,
+          unknown
+        >;
         sent.push(fields);
         if (fields.action === 'listSessions') return json({ sessions: [] });
         // A stranger's forward table lives on THEIR gateway: nothing about it is
@@ -1557,7 +1567,6 @@ describe('an ftp session on a box across the network', () => {
   });
 });
 
-
 /**
  * The `mysql>` prompt is the same shape as `ftp>` and arrives for a different
  * reason. An ftp session holds a server row; this holds only the credential,
@@ -1603,7 +1612,10 @@ describe('the mysql sub-shell', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (_url: string, init?: { body?: string }) => {
-        const fields = JSON.parse(JSON.parse(init?.body ?? '{}').payload) as Record<string, unknown>;
+        const fields = JSON.parse(JSON.parse(init?.body ?? '{}').payload) as Record<
+          string,
+          unknown
+        >;
         sent.push(fields);
         if (fields.action === 'listSessions') {
           return { ok: true, status: 200, json: async () => ({ sessions: [] }) };
@@ -1612,7 +1624,11 @@ describe('the mysql sub-shell', () => {
           // A 200 names the box the client greets with; a 401 names the address the
           // daemon saw, which is what the client renders the refusal from.
           return opened
-            ? { ok: true, status: 200, json: async () => ({ ok: true, hostname: DATABASE_HOST.hostname }) }
+            ? {
+                ok: true,
+                status: 200,
+                json: async () => ({ ok: true, hostname: DATABASE_HOST.hostname }),
+              }
             : {
                 ok: false,
                 status: 401,
@@ -1628,7 +1644,10 @@ describe('the mysql sub-shell', () => {
           if (statementsFail) return { ok: false, status: 404, json: async () => ({}) };
           const sql = String(fields['statement']);
           const answer = /^\s*SHOW\s+TABLES/i.test(sql)
-            ? { output: ['+--------------+', '| Tables_in_db |', '+--------------+'], failed: false }
+            ? {
+                output: ['+--------------+', '| Tables_in_db |', '+--------------+'],
+                failed: false,
+              }
             : {
                 output: [
                   'ERROR: Unsupported SQL syntax. This MySQL instance supports basic queries only.',
@@ -1814,7 +1833,6 @@ describe('the mysql sub-shell', () => {
     expect(await typeLine(state, 'pwd')).toContain(before.cwd);
   });
 });
-
 
 /**
  * `nano <file>` returns a `mode_change`, which the terminal must turn into an
@@ -2054,7 +2072,10 @@ describe('full-screen apps a command opens', () => {
         // JSON string — so its quotes are escaped and only the bare name survives a
         // substring match. No other action shares it.
         if ((init?.body ?? '').includes('resolveHttpFetch')) {
-          const answered = options?.across?.(init?.body ?? '') ?? { ok: false as const, error: 'host_unreachable' as const };
+          const answered = options?.across?.(init?.body ?? '') ?? {
+            ok: false as const,
+            error: 'host_unreachable' as const,
+          };
           return answered.ok
             ? { ok: true, status: 200, json: async () => ({ ok: true, content: answered.content }) }
             : { ok: false, status: 502, json: async () => ({ error: answered.error }) };
@@ -2207,8 +2228,7 @@ describe('full-screen apps a command opens', () => {
   const THEIR_PUBLIC_IP = '203.0.113.7';
   /** Another player's page — and nothing on this player's own box is named like it,
    *  so reading these words proves the request left the LAN. */
-  const THEIR_PAGE =
-    '<h1>nebuchadnezzar</h1><p>Also <a href="/deeper.html">deeper in</a>.</p>';
+  const THEIR_PAGE = '<h1>nebuchadnezzar</h1><p>Also <a href="/deeper.html">deeper in</a>.</p>';
 
   it('opens the browser on a page from behind another player public IP', async () => {
     const state = await startBrowsingGame({
@@ -2350,7 +2370,10 @@ describe('a listener killed while an intruder is standing inside it', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (_url: string, init?: { body?: string }) => {
-        const fields = JSON.parse(JSON.parse(init?.body ?? '{}').payload) as Record<string, unknown>;
+        const fields = JSON.parse(JSON.parse(init?.body ?? '{}').payload) as Record<
+          string,
+          unknown
+        >;
         if (fields.action === 'listSessions') return json({ sessions: [] });
         // The box answers for itself: the pidfile names who it admits, so the gate
         // needs no credential to have been sent.
@@ -2500,7 +2523,10 @@ describe('a backdoor on a box across the network', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (_url: string, init?: { body?: string }) => {
-        const fields = JSON.parse(JSON.parse(init?.body ?? '{}').payload) as Record<string, unknown>;
+        const fields = JSON.parse(JSON.parse(init?.body ?? '{}').payload) as Record<
+          string,
+          unknown
+        >;
         actions.push(String(fields.action));
         if (fields.action === 'listSessions') return json({ sessions: [] });
         // The address answers, but nothing the catalog can name is on that port — so
@@ -2706,7 +2732,10 @@ describe('the login shell a reboot must not close', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (_url: string, init?: { body?: string }) => {
-        const fields = JSON.parse(JSON.parse(init?.body ?? '{}').payload) as Record<string, unknown>;
+        const fields = JSON.parse(JSON.parse(init?.body ?? '{}').payload) as Record<
+          string,
+          unknown
+        >;
         actions.push(String(fields.action));
         if (fields.action === 'listSessions') return json({ sessions: [] });
         if (fields.action === 'rebootMachine') {
@@ -2798,14 +2827,20 @@ describe('the login shell a reboot must not close', () => {
     // writes an auth.log line and reconciles the journal after it, and a refetch still
     // in flight would carry the new marker in on its own — passing this test without
     // the reboot having re-read anything.
-    await vi.waitFor(() => expect(actions.filter((action) => action === 'listPatches').length).toBeGreaterThan(1));
+    await vi.waitFor(() =>
+      expect(actions.filter((action) => action === 'listPatches').length).toBeGreaterThan(1),
+    );
     await settle();
 
     // Ctrl-C once the box has already dropped its sessions — past the point the
     // animation can un-ring: an eviction, once committed server-side, cannot be taken back.
     state.setInput('reboot');
     const rebooting = state.runInput();
-    await vi.waitFor(() => expect(state.scrollback().some((line) => line.content.includes('Stopping system logging'))).toBe(true));
+    await vi.waitFor(() =>
+      expect(
+        state.scrollback().some((line) => line.content.includes('Stopping system logging')),
+      ).toBe(true),
+    );
     await vi.waitFor(() => expect(state.promptTier()).toBe('root'));
     state.abortRunning();
     await rebooting;
@@ -2861,7 +2896,10 @@ describe('the redis sub-shell', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (_url: string, init?: { body?: string }) => {
-        const fields = JSON.parse(JSON.parse(init?.body ?? '{}').payload) as Record<string, unknown>;
+        const fields = JSON.parse(JSON.parse(init?.body ?? '{}').payload) as Record<
+          string,
+          unknown
+        >;
         sent.push(fields);
         if (fields.action === 'listSessions') {
           return { ok: true, status: 200, json: async () => ({ sessions: [] }) };

@@ -45,7 +45,7 @@ const asAuthor = (mode: ModeChange) => (mode.kind === 'author' ? mode : null);
 /** Every full-screen app leaves the same way: hand the screen back. */
 const closeOverlay = () => setOverlayMode(null);
 
-/** Per-kind colour — normal text inherits the amber body colour. */
+/** Per-kind colour — normal text inherits the theme's body colour. */
 const LINE_COLOR: Record<TerminalLine['kind'], string> = {
   text: '',
   error: 'text-[var(--theme-error)]',

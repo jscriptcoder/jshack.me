@@ -28,7 +28,8 @@ export default tseslint.config(
   // its exact file name — `./x` is ERR_MODULE_NOT_FOUND at runtime, `./x.js` finds
   // x.ts. vite, vitest, tsx and `vercel dev` all forgive the missing extension, so
   // nothing but a deploy would notice. One rule for every file keeps the question
-  // of which modules api/ happens to load from ever arising.
+  // of which modules api/ happens to load from ever arising. A stylesheet may
+  // carry Vite's `?raw` query: that import only exists under Vite, never in api/.
   {
     files: ['**/*.{ts,tsx}'],
     rules: {
@@ -40,7 +41,7 @@ export default tseslint.config(
           'ExportAllDeclaration',
           'ImportExpression',
         ].map((node) => ({
-          selector: `${node}[source.value=/^\\.{1,2}\\W(?!.*\\.(?:js|css)$)/]`,
+          selector: `${node}[source.value=/^\\.{1,2}\\W(?!.*\\.(?:js|css(?:\\?raw)?)$)/]`,
           message:
             "Relative imports end in '.js' (it resolves to the .ts file): Vercel runs api/ as plain Node ESM, which does not guess extensions.",
         })),

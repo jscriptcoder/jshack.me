@@ -5,7 +5,7 @@
  * `:root` — `core/theme/themes.ts` holds the values and has no idea they are
  * ever painted, which is what keeps that module framework-agnostic.
  *
- * `index.css` declares the same eight properties in its `:root` block. That is
+ * `index.css` declares the same ten properties in its `:root` block. That is
  * the PRE-JS fallback and nothing else: it paints the frame before any script
  * runs, and this function takes over from the first render onward. Change a
  * colour in `themes.ts`, not there.

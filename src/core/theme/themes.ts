@@ -1,5 +1,6 @@
 /**
- * Theme palettes — the four looks the terminal can wear.
+ * Theme palettes — the seven looks the terminal can wear: three neon ones in
+ * the spirit of Cyberpunk 2077, and the four plain ones the game started with.
  *
  * Pure data, no DOM: `core/` stays framework-agnostic, so the `theme` command
  * can list what exists while the UI alone knows how to paint it.
@@ -14,7 +15,7 @@
  * be a slightly different shade of one we have.
  */
 
-export type ThemeId = 'amber' | 'green' | 'cyan' | 'light';
+export type ThemeId = 'neon' | 'redline' | 'synth' | 'amber' | 'green' | 'cyan' | 'light';
 
 export type ThemeColors = {
   readonly bg: string;
@@ -38,11 +39,57 @@ export type ThemeDefinition = {
 };
 
 /** What a player who has never chosen sees, and the fallback for a stored value
- *  that no longer names a theme. Amber is what `index.css` paints before any
- *  script runs, so the two agree at first paint. */
-export const DEFAULT_THEME_ID: ThemeId = 'amber';
+ *  that no longer names a theme. `index.css` paints the same palette before any
+ *  script runs, so the two agree at first paint — a test holds them together. */
+export const DEFAULT_THEME_ID: ThemeId = 'neon';
 
 export const THEMES: Readonly<Record<ThemeId, ThemeDefinition>> = {
+  neon: {
+    name: 'Neon',
+    colors: {
+      bg: '#06070c',
+      text: '#4ee6ee',
+      textBright: '#fcee0a',
+      textDim: '#33909a',
+      error: '#ff1f4b',
+      caret: '#fcee0a',
+      scrollThumb: 'rgba(252, 238, 10, 0.3)',
+      scrollThumbHover: 'rgba(252, 238, 10, 0.6)',
+      link: '#fcee0a',
+      avatarBorder: '#4ee6ee',
+    },
+  },
+  redline: {
+    name: 'Redline',
+    colors: {
+      bg: '#0c0305',
+      text: '#ff5e57',
+      textBright: '#5ef6ff',
+      textDim: '#c4524b',
+      // Red is the body text here, so an error needs a colour that is not red.
+      error: '#fcee0a',
+      caret: '#5ef6ff',
+      scrollThumb: 'rgba(255, 94, 87, 0.3)',
+      scrollThumbHover: 'rgba(255, 94, 87, 0.6)',
+      link: '#5ef6ff',
+      avatarBorder: '#ff5e57',
+    },
+  },
+  synth: {
+    name: 'Synth',
+    colors: {
+      bg: '#090320',
+      text: '#b9f3ff',
+      textBright: '#ff2a6d',
+      textDim: '#7b6cb3',
+      error: '#fdf500',
+      caret: '#ff2a6d',
+      scrollThumb: 'rgba(255, 42, 109, 0.3)',
+      scrollThumbHover: 'rgba(255, 42, 109, 0.6)',
+      link: '#05d9e8',
+      avatarBorder: '#b9f3ff',
+    },
+  },
   amber: {
     name: 'Amber',
     colors: {
@@ -108,7 +155,15 @@ export const THEMES: Readonly<Record<ThemeId, ThemeDefinition>> = {
 /** Listing order for `theme` and for the "Available:" line of its refusal —
  *  declared rather than derived from `Object.keys`, so the order a player reads
  *  is a decision rather than a property of how the record happens to be typed. */
-export const THEME_IDS: readonly ThemeId[] = ['amber', 'green', 'cyan', 'light'];
+export const THEME_IDS: readonly ThemeId[] = [
+  'neon',
+  'redline',
+  'synth',
+  'amber',
+  'green',
+  'cyan',
+  'light',
+];
 
 /** Widened to `string` so the lookup needs no assertion to narrow `unknown`. */
 const THEME_ID_SET: ReadonlySet<string> = new Set(THEME_IDS);

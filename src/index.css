@@ -2,20 +2,21 @@
 
 /* The PRE-JS fallback palette, and nothing else: it paints the frame before any
    script runs, and `adoptStoredTheme()` takes over from the first render onward.
-   Amber deliberately, so it matches the default and a player who has chosen
-   nothing sees no change. This is NOT where the palette lives — change a colour
-   in `core/theme/themes.ts`, which is what every theme is painted from. */
+   It is the default theme (Neon), so a player who has chosen nothing sees no
+   change, and `applyTheme.test.ts` fails if the two drift apart. This is NOT
+   where the palette lives — change a colour in `core/theme/themes.ts`, which is
+   what every theme is painted from. */
 :root {
-  --theme-bg: #000000;
-  --theme-text: #f59e0b;
-  --theme-text-bright: #fcd34d;
-  --theme-text-dim: #d97706;
-  --theme-error: #ef4444;
-  --theme-caret: #fbbf24;
-  --theme-scroll-thumb: rgba(120, 53, 15, 0.5);
-  --theme-scroll-thumb-hover: rgba(146, 64, 14, 0.7);
-  --theme-link: #fbbf24;
-  --theme-avatar-border: #f59e0b;
+  --theme-bg: #06070c;
+  --theme-text: #4ee6ee;
+  --theme-text-bright: #fcee0a;
+  --theme-text-dim: #33909a;
+  --theme-error: #ff1f4b;
+  --theme-caret: #fcee0a;
+  --theme-scroll-thumb: rgba(252, 238, 10, 0.3);
+  --theme-scroll-thumb-hover: rgba(252, 238, 10, 0.6);
+  --theme-link: #fcee0a;
+  --theme-avatar-border: #4ee6ee;
 }
 
 * {

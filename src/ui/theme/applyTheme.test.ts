@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { applyTheme } from './applyTheme.js';
-import { THEME_IDS } from '../../core/theme/themes.js';
+import { DEFAULT_THEME_ID, THEME_IDS } from '../../core/theme/themes.js';
+// The stylesheet as text: tests run without Tailwind, so there is no cascade to
+// read the pre-script palette from, only the source that declares it.
+import stylesheet from '../../index.css?raw';
 
 /**
  * Every custom property the app actually reads. Written out rather than derived
@@ -43,4 +46,33 @@ describe('applyTheme', () => {
       }
     },
   );
+
+  it('paints the default theme exactly as the stylesheet does before any script runs', () => {
+    // `index.css` has to hold its own copy of the default palette, because it
+    // paints the first frame before this module has loaded. A copy nothing
+    // checks is one a change of default forgets, and then a first-time player
+    // boots in one colour and flips to another as the script arrives.
+    document.documentElement.removeAttribute('style');
+
+    applyTheme(DEFAULT_THEME_ID);
+
+    const painted = Object.fromEntries(
+      PAINTED_TOKENS.map((token) => [
+        token,
+        document.documentElement.style.getPropertyValue(token),
+      ]),
+    );
+    expect(preScriptPalette()).toEqual(painted);
+  });
 });
+
+/** The `--theme-*` properties declared in the stylesheet's first `:root` block. */
+const preScriptPalette = (): Readonly<Record<string, string>> => {
+  const rootBlock = /:root\s*\{([^}]*)\}/.exec(stylesheet)?.[1] ?? '';
+  return Object.fromEntries(
+    [...rootBlock.matchAll(/(--theme-[\w-]+)\s*:\s*([^;]+);/g)].map(([, token, value]) => [
+      token,
+      value?.trim(),
+    ]),
+  );
+};
