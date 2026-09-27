@@ -33,20 +33,20 @@
 //
 // Exits 0 when all checks pass, 1 on failure, 2 on missing env / no usable device.
 
-import { apGatewayLogWriterKey } from '../src/core/logging/apGatewayLogWriter';
+import { apGatewayLogWriterKey } from '../src/core/logging/apGatewayLogWriter.js';
 import { createClient } from '@supabase/supabase-js';
-import { signRequest } from '../src/core/signedRequest/sign';
-import { generateIdentity } from '../src/core/identity/identity';
-import { md5 } from '../src/core/generation/md5';
-import { generateHomeLan } from '../src/core/generation/generateHomeLan';
-import { resolveLanHostIdentity } from '../src/core/generation/lanHostIdentity';
-import { parseDpkgVersions, readDpkgStatus } from '../src/core/packages/dpkgStatus';
-import { displayVersion, isFirmwarePackage } from '../src/core/packages/packageVersions';
-import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog';
-import { readOpenPorts } from '../src/core/services/pidfile';
-import { AUTH_LOG_PATH } from '../src/core/logging/authLog';
-import { SNMPD_LOG_OWNER, SNMPD_LOG_PATH } from '../src/core/logging/snmpdLog';
-import { clearPublicIps, seedPublicIps } from './networkFixture';
+import { signRequest } from '../src/core/signedRequest/sign.js';
+import { generateIdentity } from '../src/core/identity/identity.js';
+import { md5 } from '../src/core/generation/md5.js';
+import { generateHomeLan } from '../src/core/generation/generateHomeLan.js';
+import { resolveLanHostIdentity } from '../src/core/generation/lanHostIdentity.js';
+import { parseDpkgVersions, readDpkgStatus } from '../src/core/packages/dpkgStatus.js';
+import { displayVersion, isFirmwarePackage } from '../src/core/packages/packageVersions.js';
+import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
+import { readOpenPorts } from '../src/core/services/pidfile.js';
+import { AUTH_LOG_PATH } from '../src/core/logging/authLog.js';
+import { SNMPD_LOG_OWNER, SNMPD_LOG_PATH } from '../src/core/logging/snmpdLog.js';
+import { clearPublicIps, seedPublicIps } from './networkFixture.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const url = process.env.SUPABASE_URL;

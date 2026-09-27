@@ -30,7 +30,7 @@
  * the one moment the owner is told their own community impossible to write.
  */
 
-import { seedSnmpCommunity } from '../generation/routerFs';
+import { seedSnmpCommunity } from '../generation/routerFs.js';
 
 export const ownAgentCommunity = (ownerKeyHex: string): string =>
   seedSnmpCommunity(`own-agent-community-${ownerKeyHex}`);

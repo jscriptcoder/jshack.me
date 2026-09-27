@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { asGameTime } from '../types';
-import { formatAccessLogLine } from './accessLog';
+import { asGameTime } from '../types.js';
+import { formatAccessLogLine } from './accessLog.js';
 
 /**
  * Access-log (`/var/log/access.log`) line formatting — Apache Combined Log Format, the

@@ -1,29 +1,29 @@
 import { describe, expect, it, vi } from 'vitest';
-import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter';
+import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
 import {
   handleResolveHttpSweep,
   type ResolveHttpSweepDeps,
-} from './resolveHttpSweep';
-import type { ApNetworkLookup, HttpFetchOccupant } from './resolveHttpFetch';
-import { md5 } from '../generation/md5';
-import { signRequest } from '../signedRequest/sign';
-import { generateIdentity } from '../identity/identity';
-import { computeApGatewayId } from '../identity/router';
-import { computeWorkstationId } from '../identity/workstation';
-import { lanAddressFor, type LanLeaseRow } from './lanAddress';
-import type { OwnerPatchRow } from './materializeWorkstationFs';
-import { defaultFilePermissions } from '../filesystem/defaultPermissions';
-import { formatPidfileContent } from '../services/pidfile';
-import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import { HTTP_DEFAULT_PORT } from './http';
-import { DIRLIST_PATH } from './defaultDirlist';
-import { ACCESS_LOG_PATH, formatAccessLogLine } from '../logging/accessLog';
-import { asGameTime } from '../types';
-import type { ActiveSession } from '../patches/authorizeMachineAccess';
-import type { ListPathPatchesResult } from '../patches/upsertPatch';
-import type { NonceStore } from '../signedRequest/nonceStore';
-import type { MachineLogReadResult } from '../patches/appendMachineLog';
-import type { PatchRow } from '../patches/upsertPatch';
+} from './resolveHttpSweep.js';
+import type { ApNetworkLookup, HttpFetchOccupant } from './resolveHttpFetch.js';
+import { md5 } from '../generation/md5.js';
+import { signRequest } from '../signedRequest/sign.js';
+import { generateIdentity } from '../identity/identity.js';
+import { computeApGatewayId } from '../identity/router.js';
+import { computeWorkstationId } from '../identity/workstation.js';
+import { lanAddressFor, type LanLeaseRow } from './lanAddress.js';
+import type { OwnerPatchRow } from './materializeWorkstationFs.js';
+import { defaultFilePermissions } from '../filesystem/defaultPermissions.js';
+import { formatPidfileContent } from '../services/pidfile.js';
+import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
+import { HTTP_DEFAULT_PORT } from './http.js';
+import { DIRLIST_PATH } from './defaultDirlist.js';
+import { ACCESS_LOG_PATH, formatAccessLogLine } from '../logging/accessLog.js';
+import { asGameTime } from '../types.js';
+import type { ActiveSession } from '../patches/authorizeMachineAccess.js';
+import type { ListPathPatchesResult } from '../patches/upsertPatch.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
+import type { MachineLogReadResult } from '../patches/appendMachineLog.js';
+import type { PatchRow } from '../patches/upsertPatch.js';
 
 /**
  * `handleResolveHttpSweep` is the path sweep pointed at another player. It answers the

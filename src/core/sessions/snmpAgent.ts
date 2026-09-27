@@ -12,18 +12,18 @@
  * of what "talking to an agent" means once the box has been found.
  */
 
-import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import { appendMachineLog } from '../patches/appendMachineLog';
-import { derivePid } from '../logging/syslog';
-import { readAclConf } from '../network/switchAcl';
-import { readRwCommunityHash } from '../snmp/rwCommunity';
-import { parseSnmpdConf, readSnmpdConf } from '../snmp/conf';
-import { md5 } from '../generation/md5';
-import { asGameTime } from '../types';
-import type { SnmpDeviceKind } from '../snmp/walk';
-import type { Directory } from '../filesystem/types';
-import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog';
-import type { PatchRow } from '../patches/upsertPatch';
+import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
+import { appendMachineLog } from '../patches/appendMachineLog.js';
+import { derivePid } from '../logging/syslog.js';
+import { readAclConf } from '../network/switchAcl.js';
+import { readRwCommunityHash } from '../snmp/rwCommunity.js';
+import { parseSnmpdConf, readSnmpdConf } from '../snmp/conf.js';
+import { md5 } from '../generation/md5.js';
+import { asGameTime } from '../types.js';
+import type { SnmpDeviceKind } from '../snmp/walk.js';
+import type { Directory } from '../filesystem/types.js';
+import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog.js';
+import type { PatchRow } from '../patches/upsertPatch.js';
 
 /** What a community buys. The read-only one is public knowledge and names the device;
  *  the read-write one had to be cracked and controls what the device DOES. */

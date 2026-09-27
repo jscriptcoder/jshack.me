@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { asGameTime } from '../types';
+import { asGameTime } from '../types.js';
 import {
   NAMED_LOG_OWNER,
   NAMED_LOG_PATH,
   NAMED_LOG_PERMISSIONS,
   formatNamedXfrLine,
-} from './namedLog';
+} from './namedLog.js';
 
 /**
  * named-log (`/var/log/named.log`) line formatting — BIND's own channel file, in

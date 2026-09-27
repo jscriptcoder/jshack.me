@@ -10,14 +10,14 @@
  * with fixtures. `man`'s `execute` parses the argument, looks the command up in
  * the live registry, and surfaces the no-arg / unknown-command errors.
  *
- * Like `help`, the registry is pulled in via a runtime `import('./registry')`
+ * Like `help`, the registry is pulled in via a runtime `import('./registry.js')`
  * inside `execute`, NOT a static top-level import: `registry.ts` statically
  * imports `man` to list it among the builtins, so a static back-edge here would
  * form a load-order cycle that crashes when `man` is imported before the
  * registry (e.g. its own test).
  */
 
-import type { Command, CommandArgument, CommandExample, ManualPage, TerminalLine } from './types';
+import type { Command, CommandArgument, CommandExample, ManualPage, TerminalLine } from './types.js';
 
 const text = (content: string): TerminalLine => ({ kind: 'text', content });
 const error = (content: string): TerminalLine => ({ kind: 'error', content });
@@ -90,7 +90,7 @@ const execute: Command['execute'] = async (_env, args) => {
     };
   }
 
-  const { commandRegistry } = await import('./registry');
+  const { commandRegistry } = await import('./registry.js');
   const command = commandRegistry.get(name);
   if (command === undefined) {
     return {

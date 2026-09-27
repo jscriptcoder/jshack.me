@@ -20,27 +20,27 @@
  */
 
 import { z } from 'zod';
-import { verifySignedRequest } from '../signedRequest/verify';
-import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
-import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
-import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
-import { materializeMachineFs, type OwnerPatchRow } from '../network/materializeMachineFs';
-import { canBoot } from '../boot/bootFiles';
-import { md5 } from '../generation/md5';
-import { SERVICE_CATALOG, type ServiceSpec, type SweepLog } from '../services/serviceCatalog';
-import { listenerOn, type Listener } from '../services/pidfile';
-import { portsOpenToNetwork } from '../network/portsOpenToNetwork';
-import type { Directory } from '../filesystem/types';
-import { derivePid } from '../logging/syslog';
+import { verifySignedRequest } from '../signedRequest/verify.js';
+import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
+import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
+import { resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
+import { materializeMachineFs, type OwnerPatchRow } from '../network/materializeMachineFs.js';
+import { canBoot } from '../boot/bootFiles.js';
+import { md5 } from '../generation/md5.js';
+import { SERVICE_CATALOG, type ServiceSpec, type SweepLog } from '../services/serviceCatalog.js';
+import { listenerOn, type Listener } from '../services/pidfile.js';
+import { portsOpenToNetwork } from '../network/portsOpenToNetwork.js';
+import type { Directory } from '../filesystem/types.js';
+import { derivePid } from '../logging/syslog.js';
 import {
   appendMachineLog,
   type MachineLogReadQuery,
   type MachineLogReadResult,
-} from '../patches/appendMachineLog';
-import { accountIn } from './passwdAccount';
-import { asGameTime, type UserType } from '../types';
-import type { PatchRow } from '../patches/upsertPatch';
-import type { NonceStore } from '../signedRequest/nonceStore';
+} from '../patches/appendMachineLog.js';
+import { accountIn } from './passwdAccount.js';
+import { asGameTime, type UserType } from '../types.js';
+import type { PatchRow } from '../patches/upsertPatch.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 /** The doors this endpoint opens. Three of them authenticate the same way —
  *  against the box's real `/etc/passwd` — and differ only in which log records the

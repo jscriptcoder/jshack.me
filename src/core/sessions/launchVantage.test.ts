@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { launchVantage } from './launchVantage';
-import { mockSession } from '../../test/factories/commandEnv';
-import { asMachineId } from '../types';
+import { launchVantage } from './launchVantage.js';
+import { mockSession } from '../../test/factories/commandEnv.js';
+import { asMachineId } from '../types.js';
 
 /**
  * Which box an action was launched FROM — the field a defender's log is addressed by.

@@ -1,15 +1,15 @@
 import { describe, expect, it, vi } from 'vitest';
-import { handleResolveOccupantScan, type ResolveOccupantScanDeps } from './resolveOccupantScan';
-import { signRequest } from '../signedRequest/sign';
-import { generateIdentity } from '../identity/identity';
-import { lanAddressFor, type LanLeaseRow } from '../network/lanAddress';
-import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import { formatPidfileContent, pidfilePath } from '../services/pidfile';
-import { md5 } from '../generation/md5';
-import { asAbsPath } from '../types';
-import type { NatOccupantRow } from './resolvePublicScan';
-import type { OwnerPatchRow } from '../network/materializeWorkstationFs';
-import type { NonceStore } from '../signedRequest/nonceStore';
+import { handleResolveOccupantScan, type ResolveOccupantScanDeps } from './resolveOccupantScan.js';
+import { signRequest } from '../signedRequest/sign.js';
+import { generateIdentity } from '../identity/identity.js';
+import { lanAddressFor, type LanLeaseRow } from '../network/lanAddress.js';
+import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
+import { formatPidfileContent, pidfilePath } from '../services/pidfile.js';
+import { md5 } from '../generation/md5.js';
+import { asAbsPath } from '../types.js';
+import type { NatOccupantRow } from './resolvePublicScan.js';
+import type { OwnerPatchRow } from '../network/materializeWorkstationFs.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 /**
  * `handleResolveOccupantScan` answers "what is the neighbour at this address actually

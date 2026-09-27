@@ -11,7 +11,7 @@
  * restored prompt is the only feedback.
  */
 
-import type { Command, CommandResult } from './types';
+import type { Command, CommandResult } from './types.js';
 
 const silent = (): CommandResult => ({ kind: 'sync', lines: [], exitCode: 0 });
 

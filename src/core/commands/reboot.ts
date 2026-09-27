@@ -33,9 +33,9 @@
  * refuses, because the player walks away believing the box came up empty.
  */
 
-import { canBoot, type BootCheck, type BootFile } from '../boot/bootFiles';
-import { BOOT_FAILURE } from '../boot/bootMessages';
-import type { Command, CommandEnv, TerminalLine } from './types';
+import { canBoot, type BootCheck, type BootFile } from '../boot/bootFiles.js';
+import { BOOT_FAILURE } from '../boot/bootMessages.js';
+import type { Command, CommandEnv, TerminalLine } from './types.js';
 
 const text = (content: string): TerminalLine => ({ kind: 'text', content });
 

@@ -25,15 +25,15 @@
  * asymmetry is the point of the tool and the whole cost of using it.
  */
 
-import type { Command, CommandEnv, CommandResult, TerminalLine } from './types';
-import type { Directory } from '../filesystem/types';
-import { streamedResult, text } from './streaming';
-import { parseHttpUrl } from '../network/http';
-import { sweepWord, type ProbedPath } from '../network/webSweep';
-import { DIRLIST_PATH, parseDirlist } from '../network/defaultDirlist';
-import { isPublicIp } from '../generation/ip';
-import { connectedWlan0 } from '../network/interfaces';
-import { connectError, reachWebHost } from './webHost';
+import type { Command, CommandEnv, CommandResult, TerminalLine } from './types.js';
+import type { Directory } from '../filesystem/types.js';
+import { streamedResult, text } from './streaming.js';
+import { parseHttpUrl } from '../network/http.js';
+import { sweepWord, type ProbedPath } from '../network/webSweep.js';
+import { DIRLIST_PATH, parseDirlist } from '../network/defaultDirlist.js';
+import { isPublicIp } from '../generation/ip.js';
+import { connectedWlan0 } from '../network/interfaces.js';
+import { connectError, reachWebHost } from './webHost.js';
 
 const error = (message: string): CommandResult => ({
   kind: 'sync',

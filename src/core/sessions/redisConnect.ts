@@ -28,16 +28,16 @@
  */
 
 import { z } from 'zod';
-import { verifySignedRequest } from '../signedRequest/verify';
-import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
-import { reachServiceHost, type HandlerResponse, type ServiceHostLookup } from './serviceHost';
-import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import { derivePid } from '../logging/syslog';
-import { appendMachineLog } from '../patches/appendMachineLog';
-import { asGameTime } from '../types';
-import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog';
-import type { PatchRow } from '../patches/upsertPatch';
-import type { NonceStore } from '../signedRequest/nonceStore';
+import { verifySignedRequest } from '../signedRequest/verify.js';
+import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
+import { reachServiceHost, type HandlerResponse, type ServiceHostLookup } from './serviceHost.js';
+import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
+import { derivePid } from '../logging/syslog.js';
+import { appendMachineLog } from '../patches/appendMachineLog.js';
+import { asGameTime } from '../types.js';
+import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog.js';
+import type { PatchRow } from '../patches/upsertPatch.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 export type RedisConnectDeps = ServiceHostLookup & {
   readonly nonceStore: NonceStore;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { derivePid } from './syslog';
+import { derivePid } from './syslog.js';
 
 /**
  * Shared syslog primitives. The line shape (`formatSyslogTimestamp` /

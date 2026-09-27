@@ -23,9 +23,9 @@
  */
 
 import { z } from 'zod';
-import { verifySignedRequest } from '../signedRequest/verify';
-import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
-import { reachServiceHost, type HandlerResponse, type ServiceHostLookup } from './serviceHost';
+import { verifySignedRequest } from '../signedRequest/verify.js';
+import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
+import { reachServiceHost, type HandlerResponse, type ServiceHostLookup } from './serviceHost.js';
 import {
   agentStamp,
   appendSnmpdLog,
@@ -33,18 +33,18 @@ import {
   contactLines,
   deviceKind,
   type SnmpTraceDeps,
-} from './snmpAgent';
-import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import { computeApGatewayId } from '../identity/router';
-import { parseAclDenies, readAclConf } from '../network/switchAcl';
-import { parseForwardRules, parseInputDenies, readRulesV4 } from '../network/iptablesRules';
-import { parseDpkgVersions, readDpkgStatus } from '../packages/dpkgStatus';
-import { displayVersion, isFirmwarePackage } from '../packages/packageVersions';
-import { parseSnmpdConf, readSnmpdConf } from '../snmp/conf';
-import type { SnmpDeviceKind, SnmpIdentity, SnmpPortTable } from '../snmp/walk';
-import type { Directory } from '../filesystem/types';
-import type { FindPublicIpByEssid } from '../logging/crossPlayerSourceIp';
-import type { NonceStore } from '../signedRequest/nonceStore';
+} from './snmpAgent.js';
+import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
+import { computeApGatewayId } from '../identity/router.js';
+import { parseAclDenies, readAclConf } from '../network/switchAcl.js';
+import { parseForwardRules, parseInputDenies, readRulesV4 } from '../network/iptablesRules.js';
+import { parseDpkgVersions, readDpkgStatus } from '../packages/dpkgStatus.js';
+import { displayVersion, isFirmwarePackage } from '../packages/packageVersions.js';
+import { parseSnmpdConf, readSnmpdConf } from '../snmp/conf.js';
+import type { SnmpDeviceKind, SnmpIdentity, SnmpPortTable } from '../snmp/walk.js';
+import type { Directory } from '../filesystem/types.js';
+import type { FindPublicIpByEssid } from '../logging/crossPlayerSourceIp.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 export type SnmpWalkDeps = ServiceHostLookup &
   SnmpTraceDeps & {

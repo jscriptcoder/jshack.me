@@ -7,7 +7,7 @@
  * somewhere their own box says they do not live.
  */
 
-import { asAbsPath, type AbsPath, type UserType } from '../types';
+import { asAbsPath, type AbsPath, type UserType } from '../types.js';
 
 /** Structural on purpose: a `Session` satisfies it, and so does a freshly
  *  authenticated account that has no session row yet. */

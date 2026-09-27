@@ -31,19 +31,19 @@
  */
 
 import { z } from 'zod';
-import { verifySignedRequest } from '../signedRequest/verify';
-import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
-import { md5 } from '../generation/md5';
-import { reachServiceHost, type HandlerResponse, type ServiceHostLookup } from './serviceHost';
-import { credentialIn, databaseNameIn } from '../mysql/datadir';
-import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import { derivePid } from '../logging/syslog';
-import { appendMachineLog } from '../patches/appendMachineLog';
-import { asGameTime } from '../types';
-import type { Directory } from '../filesystem/types';
-import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog';
-import type { PatchRow } from '../patches/upsertPatch';
-import type { NonceStore } from '../signedRequest/nonceStore';
+import { verifySignedRequest } from '../signedRequest/verify.js';
+import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
+import { md5 } from '../generation/md5.js';
+import { reachServiceHost, type HandlerResponse, type ServiceHostLookup } from './serviceHost.js';
+import { credentialIn, databaseNameIn } from '../mysql/datadir.js';
+import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
+import { derivePid } from '../logging/syslog.js';
+import { appendMachineLog } from '../patches/appendMachineLog.js';
+import { asGameTime } from '../types.js';
+import type { Directory } from '../filesystem/types.js';
+import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog.js';
+import type { PatchRow } from '../patches/upsertPatch.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 export type MysqlConnectDeps = ServiceHostLookup & {
   readonly nonceStore: NonceStore;

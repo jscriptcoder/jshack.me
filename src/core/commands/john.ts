@@ -26,11 +26,11 @@
  * cause — "nothing found" and "nothing tried" must not look alike.
  */
 
-import { resolveAbsPath } from '../filesystem/path';
-import { md5 } from '../generation/md5';
-import { WORDLIST_PATH, parseWordlist } from '../wordlist/defaultWordlist';
-import { streamedResult, text } from './streaming';
-import type { Command, CommandEnv, CommandResult, FsReadResult, TerminalLine } from './types';
+import { resolveAbsPath } from '../filesystem/path.js';
+import { md5 } from '../generation/md5.js';
+import { WORDLIST_PATH, parseWordlist } from '../wordlist/defaultWordlist.js';
+import { streamedResult, text } from './streaming.js';
+import type { Command, CommandEnv, CommandResult, FsReadResult, TerminalLine } from './types.js';
 
 type FsReadError = Extract<FsReadResult, { readonly ok: false }>['error'];
 

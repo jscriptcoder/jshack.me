@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import type { Directory } from './types';
-import { dir, file, HOME_DIR, TRAVERSABLE_DIR } from '../generation/baseFs';
-import { deserializeTree, serializeTree } from './treeCodec';
+import type { Directory } from './types.js';
+import { dir, file, HOME_DIR, TRAVERSABLE_DIR } from '../generation/baseFs.js';
+import { deserializeTree, serializeTree } from './treeCodec.js';
 
 /**
  * The FS tree wire codec (Story 2, slice 2c). A cross-player read is SERVER-served

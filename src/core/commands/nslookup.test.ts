@@ -1,19 +1,19 @@
 import { describe, expect, it } from 'vitest';
-import { nslookup } from './nslookup';
-import type { CommandResult } from './types';
+import { nslookup } from './nslookup.js';
+import type { CommandResult } from './types.js';
 import {
   mockCommandEnv,
   mockIdentity,
   mockNetworkView,
   mockNetworkViewFromConnectivity,
   mockScanApi,
-} from '../../test/factories/commandEnv';
-import type { OccupantProjection } from '../network/resolveOccupants';
-import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces';
-import { assignHomeNetwork } from '../network/homeNetwork';
-import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
-import { publisherIp } from '../generation/publisher';
-import { asPlayerKeyHex } from '../types';
+} from '../../test/factories/commandEnv.js';
+import type { OccupantProjection } from '../network/resolveOccupants.js';
+import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces.js';
+import { assignHomeNetwork } from '../network/homeNetwork.js';
+import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
+import { publisherIp } from '../generation/publisher.js';
+import { asPlayerKeyHex } from '../types.js';
 
 /**
  * `nslookup <name>` — what is this thing called, and where is it?

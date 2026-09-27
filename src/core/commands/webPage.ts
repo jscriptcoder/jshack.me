@@ -24,13 +24,13 @@
  * browser has both to hand and no environment to build.
  */
 
-import type { AccessLogFetch, RemoteApi } from './types';
-import type { Directory } from '../filesystem/types';
-import type { ConnectedWlan0 } from '../network/interfaces';
-import type { ParsedUrl } from '../network/http';
-import { createFsView } from '../filesystem/fsView';
-import { resolveWebPath } from '../network/http';
-import { connectError, reachWebHost, type ErrorResult } from './webHost';
+import type { AccessLogFetch, RemoteApi } from './types.js';
+import type { Directory } from '../filesystem/types.js';
+import type { ConnectedWlan0 } from '../network/interfaces.js';
+import type { ParsedUrl } from '../network/http.js';
+import { createFsView } from '../filesystem/fsView.js';
+import { resolveWebPath } from '../network/http.js';
+import { connectError, reachWebHost, type ErrorResult } from './webHost.js';
 
 export type PageResult =
   /** The box answered with a page — logged. */

@@ -22,7 +22,7 @@
  * file's length, so a character above 0x7F counting once is consistent.
  */
 
-import { createPrng, type Prng } from './prng';
+import { createPrng, type Prng } from './prng.js';
 
 export type DocumentMetadata =
   | {

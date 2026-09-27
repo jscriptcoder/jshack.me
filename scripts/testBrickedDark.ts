@@ -21,13 +21,13 @@
 // Exits 0 when all checks pass, 1 on failure, 2 on missing env.
 
 import { createClient } from '@supabase/supabase-js';
-import { signRequest } from '../src/core/signedRequest/sign';
-import { generateIdentity } from '../src/core/identity/identity';
-import { computeWorkstationId } from '../src/core/identity/workstation';
-import { computeApGatewayId } from '../src/core/identity/router';
-import { md5 } from '../src/core/generation/md5';
-import { seedApGatewayAdminPw } from '../src/core/generation/routerFs';
-import { clearPublicIps, seedPublicIps } from './networkFixture';
+import { signRequest } from '../src/core/signedRequest/sign.js';
+import { generateIdentity } from '../src/core/identity/identity.js';
+import { computeWorkstationId } from '../src/core/identity/workstation.js';
+import { computeApGatewayId } from '../src/core/identity/router.js';
+import { md5 } from '../src/core/generation/md5.js';
+import { seedApGatewayAdminPw } from '../src/core/generation/routerFs.js';
+import { clearPublicIps, seedPublicIps } from './networkFixture.js';
 
 const NETWORK = process.env.ENDPOINT ?? 'http://localhost:3100/api/network';
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';

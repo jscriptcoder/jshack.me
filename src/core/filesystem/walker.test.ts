@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { canRead, canWrite } from './walker';
-import type { FilePermissions } from './types';
-import type { UserType } from '../types';
+import { canRead, canWrite } from './walker.js';
+import type { FilePermissions } from './types.js';
+import type { UserType } from '../types.js';
 
 const perms = (
   read: readonly UserType[],

@@ -18,12 +18,12 @@
  * question. The rest are commands the script can already call.
  */
 
-import type { CommandEnv, FsReadResult, PatchResult } from '../commands/types';
-import { PATCH_ERROR_REASON } from '../commands/types';
-import { resolveAbsPath } from '../filesystem/path';
-import { resolveWriteTarget } from '../filesystem/writeTarget';
-import { formatScriptValue } from './format';
-import { shellError } from './commandContext';
+import type { CommandEnv, FsReadResult, PatchResult } from '../commands/types.js';
+import { PATCH_ERROR_REASON } from '../commands/types.js';
+import { resolveAbsPath } from '../filesystem/path.js';
+import { resolveWriteTarget } from '../filesystem/writeTarget.js';
+import { formatScriptValue } from './format.js';
+import { shellError } from './commandContext.js';
 
 type FsReadError = Extract<FsReadResult, { readonly ok: false }>['error'];
 

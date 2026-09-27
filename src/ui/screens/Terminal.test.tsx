@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { fireEvent, render, screen } from '@solidjs/testing-library';
-import { Terminal } from './Terminal';
+import { Terminal } from './Terminal.js';
 import {
   pendingPrompt,
   runInput,
@@ -8,15 +8,15 @@ import {
   setInput,
   setOverlayMode,
   startGame,
-} from '../state';
-import { SEED_CONFIG } from '../seed';
-import { CONNECTED_ESSID_KEY } from '../connectionPersistence';
-import { generateHomeLan } from '../../core/generation/generateHomeLan';
-import { buildRemoteHostFs } from '../../core/generation/remoteHostFs';
-import { readOpenPorts } from '../../core/services/pidfile';
-import { SERVICE_CATALOG } from '../../core/services/serviceCatalog';
-import { lanLeaseCacheIn } from '../../core/network/lanLeaseCache';
-import { binaryStub } from '../../core/generation/binaries';
+} from '../state.js';
+import { SEED_CONFIG } from '../seed.js';
+import { CONNECTED_ESSID_KEY } from '../connectionPersistence.js';
+import { generateHomeLan } from '../../core/generation/generateHomeLan.js';
+import { buildRemoteHostFs } from '../../core/generation/remoteHostFs.js';
+import { readOpenPorts } from '../../core/services/pidfile.js';
+import { SERVICE_CATALOG } from '../../core/services/serviceCatalog.js';
+import { lanLeaseCacheIn } from '../../core/network/lanLeaseCache.js';
+import { binaryStub } from '../../core/generation/binaries.js';
 
 /** Fresh terminal state per test — the module-singleton session + signals are
  *  rebuilt by `startGame`, which also clears the scrollback, so this both

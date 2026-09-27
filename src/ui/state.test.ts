@@ -1,31 +1,31 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { generateHomeLan } from '../core/generation/generateHomeLan';
-import { machineIdForLanHost } from '../core/generation/lanHostIdentity';
-import { lanLeaseCacheIn } from '../core/network/lanLeaseCache';
-import { contentHash } from '../core/patches/contentHash';
-import { CONNECTED_ESSID_KEY } from './connectionPersistence';
-import { buildRemoteHostFs } from '../core/generation/remoteHostFs';
-import { publisherIp } from '../core/generation/publisher';
+import { generateHomeLan } from '../core/generation/generateHomeLan.js';
+import { machineIdForLanHost } from '../core/generation/lanHostIdentity.js';
+import { lanLeaseCacheIn } from '../core/network/lanLeaseCache.js';
+import { contentHash } from '../core/patches/contentHash.js';
+import { CONNECTED_ESSID_KEY } from './connectionPersistence.js';
+import { buildRemoteHostFs } from '../core/generation/remoteHostFs.js';
+import { publisherIp } from '../core/generation/publisher.js';
 import {
   PIDFILE_PERMISSIONS,
   daemonName,
   formatListenerContent,
   formatPidfileContent,
   readOpenPorts,
-} from '../core/services/pidfile';
+} from '../core/services/pidfile.js';
 import {
   BOOT_ID_OWNER,
   BOOT_ID_PATH,
   BOOT_ID_PERMISSIONS,
-} from '../core/boot/bootId';
-import { applyPatches, type Patch } from '../core/filesystem/applyPatches';
-import { defaultFilePermissions } from '../core/filesystem/defaultPermissions';
-import { SERVICE_CATALOG } from '../core/services/serviceCatalog';
-import { HTTP_DEFAULT_PORT } from '../core/network/http';
-import { binaryStub } from '../core/generation/binaries';
-import { serializeTree } from '../core/filesystem/treeCodec';
-import { buildDirectory, buildFile } from '../test/factories/filesystem';
-import type { ModeChange, PublicFetchResult } from '../core/commands/types';
+} from '../core/boot/bootId.js';
+import { applyPatches, type Patch } from '../core/filesystem/applyPatches.js';
+import { defaultFilePermissions } from '../core/filesystem/defaultPermissions.js';
+import { SERVICE_CATALOG } from '../core/services/serviceCatalog.js';
+import { HTTP_DEFAULT_PORT } from '../core/network/http.js';
+import { binaryStub } from '../core/generation/binaries.js';
+import { serializeTree } from '../core/filesystem/treeCodec.js';
+import { buildDirectory, buildFile } from '../test/factories/filesystem.js';
+import type { ModeChange, PublicFetchResult } from '../core/commands/types.js';
 
 /** The buffer of whichever full-screen app is open. `author` is a screen with no
  *  content of its own, so reading `.content` straight off the open overlay stopped
@@ -48,7 +48,7 @@ const overlayContent = (mode: ModeChange | null): string | undefined =>
 describe('state.ts module import', () => {
   it('does not throw when imported with no game started', async () => {
     // A fresh import of the module must not eagerly build a session/cwd.
-    await expect(import('./state')).resolves.toBeDefined();
+    await expect(import('./state.js')).resolves.toBeDefined();
   });
 
   it('does not read game config from storage at import time', async () => {
@@ -56,7 +56,7 @@ describe('state.ts module import', () => {
     const getItem = vi.fn(() => null);
     vi.stubGlobal('localStorage', { getItem, setItem: vi.fn() });
 
-    await import('./state');
+    await import('./state.js');
 
     // Importing must not touch storage for game config — that happens in the
     // boot gate / startGame, not as an import side effect.
@@ -90,7 +90,7 @@ describe('adopting the stored theme at boot', () => {
   it('paints the stored palette, synchronously, with nothing awaited', async () => {
     stubStorageHolding('green');
     vi.resetModules();
-    const state = await import('./state');
+    const state = await import('./state.js');
 
     state.adoptStoredTheme();
 
@@ -105,7 +105,7 @@ describe('adopting the stored theme at boot', () => {
     // painted palette rather than an unstyled page.
     stubStorageHolding('chartreuse');
     vi.resetModules();
-    const state = await import('./state');
+    const state = await import('./state.js');
 
     state.adoptStoredTheme();
 
@@ -127,7 +127,7 @@ describe('adopting the stored theme at boot', () => {
       clear: () => store.clear(),
     });
     vi.resetModules();
-    const state = await import('./state');
+    const state = await import('./state.js');
     state.adoptStoredTheme();
     expect(state.currentTheme()).toBe('cyan');
 
@@ -141,7 +141,7 @@ describe('adopting the stored theme at boot', () => {
   it('writes nothing back, because reading a choice is not making one', async () => {
     const { setItem } = stubStorageHolding('cyan');
     vi.resetModules();
-    const state = await import('./state');
+    const state = await import('./state.js');
 
     state.adoptStoredTheme();
 
@@ -162,7 +162,7 @@ describe('opening another terminal', () => {
     const openTab = vi.fn();
     vi.stubGlobal('open', openTab);
     vi.resetModules();
-    const state = await import('./state');
+    const state = await import('./state.js');
 
     state.openTerminal();
 
@@ -228,7 +228,7 @@ describe('booting a terminal fresh', () => {
       }),
     );
 
-    const state = await import('./state');
+    const state = await import('./state.js');
     state.startGame({ machineName: 'box', username: 'tester', rootPassword: 'pw' }, options);
     return { state, askedForSessions };
   };
@@ -283,7 +283,7 @@ describe('runInput command serialization', () => {
         json: async () => ({ patches: [], sessions: [] }),
       })),
     );
-    const state = await import('./state');
+    const state = await import('./state.js');
     state.startGame({ machineName: 'box', username: 'tester', rootPassword: 'pw' });
     return state;
   };
@@ -356,7 +356,7 @@ describe('resolveBootCheck', () => {
       'fetch',
       vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ patches, sessions: [] }) })),
     );
-    const state = await import('./state');
+    const state = await import('./state.js');
     state.startGame({ machineName: 'box', username: 'tester', rootPassword: 'pw' });
     return state;
   };
@@ -377,7 +377,7 @@ describe('resolveBootCheck', () => {
     // Defensive: the boot gate always calls startGame first, but if the check
     // ever runs cold it must not crash (no own box to fetch) — it boots.
     vi.resetModules();
-    const state = await import('./state');
+    const state = await import('./state.js');
 
     await expect(state.resolveBootCheck()).resolves.toEqual({ ok: true });
   });
@@ -473,7 +473,7 @@ describe('patch journal across a machine change', () => {
       }),
     );
 
-    const state = await import('./state');
+    const state = await import('./state.js');
     state.startGame({ machineName: 'box', username: 'tester', rootPassword: 'pw' });
     // Let the own box answer, then wait until it actually HAS — an absence
     // assertion made before the stale answer arrives would pass for free.
@@ -486,7 +486,7 @@ describe('patch journal across a machine change', () => {
   };
 
   /** What `ls /tmp` shows the player right now, on whichever box they stand. */
-  const listTmp = async (state: typeof import('./state')) => {
+  const listTmp = async (state: typeof import('./state.js')) => {
     state.setInput('ls /tmp');
     await state.runInput();
     return state
@@ -567,7 +567,7 @@ describe('an ftp session abandoned by a refresh', () => {
       }),
     );
 
-    const state = await import('./state');
+    const state = await import('./state.js');
     state.startGame({ machineName: 'box', username: 'tester', rootPassword: 'pw' });
     return { state, sent };
   };
@@ -677,7 +677,7 @@ describe('a transfer across the network', () => {
       }),
     );
 
-    const state = await import('./state');
+    const state = await import('./state.js');
     state.startGame({ machineName: 'box', username: 'tester', rootPassword: 'pw' });
     await vi.waitFor(() => expect(state.promptHost()).toBe('box'));
     return { state, sent };
@@ -685,7 +685,7 @@ describe('a transfer across the network', () => {
 
   /** Type the transfer and answer the one prompt it asks, the way the player does. */
   const typeTransfer = async (
-    state: typeof import('./state'),
+    state: typeof import('./state.js'),
     line: string,
   ): Promise<void> => {
     state.setInput(line);
@@ -879,7 +879,7 @@ describe('the ftp sub-shell', () => {
       }),
     );
 
-    const state = await import('./state');
+    const state = await import('./state.js');
     state.startGame({ machineName: 'box', username: 'tester', rootPassword: 'pw' });
     await vi.waitFor(() => expect(state.promptHost()).toBe('box'));
     // The boot journal fetch is in flight; the ftp client only exists once it lands.
@@ -897,7 +897,7 @@ describe('the ftp sub-shell', () => {
   /** Log into a host by actually typing the command and answering both prompts —
    *  the shipped path, not a poked signal. */
   const typeFtpLogin = async (
-    state: typeof import('./state'),
+    state: typeof import('./state.js'),
     ip: string,
   ): Promise<void> => {
     state.setInput(`ftp ${ip}`);
@@ -919,7 +919,7 @@ describe('the ftp sub-shell', () => {
     return booted;
   };
 
-  const lastLine = (state: typeof import('./state')): string =>
+  const lastLine = (state: typeof import('./state.js')): string =>
     state.scrollback().at(-1)?.content ?? '';
 
   it('lands at ftp> on a good credential, refuses shell commands there, and quits back', async () => {
@@ -1093,7 +1093,7 @@ describe('the ftp sub-shell', () => {
 
   /** The same door on somebody else's address: the player names the forwarded port and
    *  the account, so only the password is asked for. */
-  const typeCrossNetworkLogin = async (state: typeof import('./state')): Promise<void> => {
+  const typeCrossNetworkLogin = async (state: typeof import('./state.js')): Promise<void> => {
     state.setInput(`ftp -p ${FORWARDED_PORT} ${THEIR_PUBLIC_IP} guest`);
     const run = state.runInput();
     await vi.waitFor(() => expect(state.pendingPrompt()).toBeDefined());
@@ -1386,7 +1386,7 @@ describe('an ftp session on a box across the network', () => {
       }),
     );
 
-    const state = await import('./state');
+    const state = await import('./state.js');
     state.startGame({ machineName: 'box', username: 'tester', rootPassword: 'pw' });
     await vi.waitFor(() => expect(state.promptHost()).toBe('box'));
     // The boot journal fetch is in flight; the ftp client only exists once it lands.
@@ -1436,7 +1436,7 @@ describe('an ftp session on a box across the network', () => {
   };
 
   /** Type one line and hand back only what it printed. */
-  const typeLine = async (state: typeof import('./state'), line: string): Promise<string> => {
+  const typeLine = async (state: typeof import('./state.js'), line: string): Promise<string> => {
     const before = state.scrollback().length;
     state.setInput(line);
     await state.runInput();
@@ -1658,7 +1658,7 @@ describe('the mysql sub-shell', () => {
       }),
     );
 
-    const state = await import('./state');
+    const state = await import('./state.js');
     state.startGame({ machineName: 'box', username: 'tester', rootPassword: 'pw' });
     await vi.waitFor(() => expect(state.promptHost()).toBe('box'));
     // The boot journal fetch is in flight; the client only exists once it lands.
@@ -1677,7 +1677,7 @@ describe('the mysql sub-shell', () => {
   const MYSQL_USER = 'readonly';
   const MYSQL_PASSWORD = 'hunter2';
 
-  const typeMysqlLogin = async (state: typeof import('./state')): Promise<void> => {
+  const typeMysqlLogin = async (state: typeof import('./state.js')): Promise<void> => {
     state.setInput(`mysql ${DATABASE_HOST.ip}`);
     const run = state.runInput();
     await vi.waitFor(() => expect(state.pendingPrompt()).toBeDefined());
@@ -1690,7 +1690,7 @@ describe('the mysql sub-shell', () => {
     await settle();
   };
 
-  const typeLine = async (state: typeof import('./state'), line: string): Promise<string> => {
+  const typeLine = async (state: typeof import('./state.js'), line: string): Promise<string> => {
     const before = state.scrollback().length;
     state.setInput(line);
     await state.runInput();
@@ -1853,7 +1853,7 @@ describe('nano editor mode', () => {
         return { ok: true, status: 200, json: async () => ({ patches: [], sessions: [] }) };
       }),
     );
-    const state = await import('./state');
+    const state = await import('./state.js');
     state.startGame({ machineName: 'box', username: 'tester', rootPassword: 'pw' });
     // The last `upsertPatch` write the save issued, decoded from the signed
     // envelope (`{ payload: JSON.stringify({...fields, action, ...}) }`).
@@ -2069,7 +2069,7 @@ describe('full-screen apps a command opens', () => {
         };
       }),
     );
-    const state = await import('./state');
+    const state = await import('./state.js');
     state.startGame({ machineName: 'box', username: 'tester', rootPassword: 'pw' });
     // The installed binary arrives with the journal, which `startGame` fetches in
     // the background — so the tool is genuinely absent for the first few ticks.
@@ -2365,7 +2365,7 @@ describe('a listener killed while an intruder is standing inside it', () => {
       }),
     );
 
-    const state = await import('./state');
+    const state = await import('./state.js');
     state.startGame({ machineName: 'box', username: 'tester', rootPassword: 'pw' });
     await vi.waitFor(() => expect(state.promptHost()).toBe('box'));
     // The boot journal fetch is in flight; netcat only exists once it lands.
@@ -2384,7 +2384,7 @@ describe('a listener killed while an intruder is standing inside it', () => {
     };
   };
 
-  const scrollbackOf = (state: typeof import('./state')): string =>
+  const scrollbackOf = (state: typeof import('./state.js')): string =>
     state
       .scrollback()
       .map((line) => line.content)
@@ -2521,7 +2521,7 @@ describe('a backdoor on a box across the network', () => {
       }),
     );
 
-    const state = await import('./state');
+    const state = await import('./state.js');
     state.startGame({ machineName: 'box', username: 'tester', rootPassword: 'pw' });
     await vi.waitFor(() => expect(state.promptHost()).toBe('box'));
     // The boot journal fetch is in flight; netcat only exists once it lands.
@@ -2548,7 +2548,7 @@ describe('a backdoor on a box across the network', () => {
   };
 
   /** Type one line and hand back only what it printed. */
-  const typeLine = async (state: typeof import('./state'), line: string): Promise<string> => {
+  const typeLine = async (state: typeof import('./state.js'), line: string): Promise<string> => {
     const before = state.scrollback().length;
     state.setInput(line);
     await state.runInput();
@@ -2730,7 +2730,7 @@ describe('the login shell a reboot must not close', () => {
       }),
     );
 
-    const state = await import('./state');
+    const state = await import('./state.js');
     state.startGame({ machineName: 'box', username: 'tester', rootPassword: 'pw' });
     await vi.waitFor(() => expect(state.promptHost()).toBe('box'));
     await settle();
@@ -2744,7 +2744,7 @@ describe('the login shell a reboot must not close', () => {
     };
   };
 
-  const typeLine = async (state: typeof import('./state'), line: string): Promise<string> => {
+  const typeLine = async (state: typeof import('./state.js'), line: string): Promise<string> => {
     const before = state.scrollback().length;
     state.setInput(line);
     await state.runInput();
@@ -2909,7 +2909,7 @@ describe('the redis sub-shell', () => {
       }),
     );
 
-    const state = await import('./state');
+    const state = await import('./state.js');
     state.startGame({ machineName: 'box', username: 'tester', rootPassword: 'pw' });
     await vi.waitFor(() => expect(state.promptHost()).toBe('box'));
     await vi.waitFor(async () => {
@@ -2922,13 +2922,13 @@ describe('the redis sub-shell', () => {
 
   /** Open the store by actually typing the command — the shipped path, not a poked
    *  signal. There is nothing to answer along the way, which is the door. */
-  const typeConnect = async (state: typeof import('./state')): Promise<void> => {
+  const typeConnect = async (state: typeof import('./state.js')): Promise<void> => {
     state.setInput(`redis-cli ${STORE_HOST.ip}`);
     await state.runInput();
     await settle();
   };
 
-  const typeLine = async (state: typeof import('./state'), line: string): Promise<string> => {
+  const typeLine = async (state: typeof import('./state.js'), line: string): Promise<string> => {
     const before = state.scrollback().length;
     state.setInput(line);
     await state.runInput();

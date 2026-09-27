@@ -3,14 +3,14 @@ import {
   handleAppendAuthLog,
   type AppendAuthLogDeps,
   type AuthLogContentQuery,
-} from './appendAuthLog';
-import type { PatchRow } from './upsertPatch';
-import { signRequest } from '../signedRequest/sign';
-import { generateIdentity } from '../identity/identity';
-import { computeWorkstationId } from '../identity/workstation';
-import { AUTH_LOG_OWNER, AUTH_LOG_PATH, AUTH_LOG_PERMISSIONS } from '../logging/authLog';
-import { derivePid } from '../logging/syslog';
-import type { NonceStore } from '../signedRequest/nonceStore';
+} from './appendAuthLog.js';
+import type { PatchRow } from './upsertPatch.js';
+import { signRequest } from '../signedRequest/sign.js';
+import { generateIdentity } from '../identity/identity.js';
+import { computeWorkstationId } from '../identity/workstation.js';
+import { AUTH_LOG_OWNER, AUTH_LOG_PATH, AUTH_LOG_PERMISSIONS } from '../logging/authLog.js';
+import { derivePid } from '../logging/syslog.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 const freshStore: NonceStore = async () => ({ fresh: true });
 

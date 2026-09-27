@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { consumeFreshTabFlag, FRESH_TAB_FLAG } from './freshTab';
+import { consumeFreshTabFlag, FRESH_TAB_FLAG } from './freshTab.js';
 
 /**
  * `xterm` opens a tab carrying a flag that says "come up at home, do not rebuild

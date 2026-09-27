@@ -30,10 +30,10 @@ import {
   type Command,
   type CommandEnv,
   type CommandResult,
-} from './types';
-import { listenerPid, listenerPidfilePath, readRunningProcesses } from '../services/pidfile';
-import { isUnitName } from './systemctl';
-import { errorLine } from './streaming';
+} from './types.js';
+import { listenerPid, listenerPidfilePath, readRunningProcesses } from '../services/pidfile.js';
+import { isUnitName } from './systemctl.js';
+import { errorLine } from './streaming.js';
 
 const USAGE = 'kill: usage: kill <pid>';
 

@@ -15,15 +15,15 @@
  * leaving is dropping local state and nothing more.
  */
 
-import { normalizeStatement } from '../mysql/statements';
-import { runOwnStatement } from './mysqlOwnBox';
-import { isOwnBoxTarget } from '../network/interfaces';
+import { normalizeStatement } from '../mysql/statements.js';
+import { runOwnStatement } from './mysqlOwnBox.js';
+import { isOwnBoxTarget } from '../network/interfaces.js';
 import type {
   CommandEnv,
   CommandResult,
   MysqlConnectParams,
   TerminalLine,
-} from './types';
+} from './types.js';
 
 const text = (content: string): TerminalLine => ({ kind: 'text', content });
 

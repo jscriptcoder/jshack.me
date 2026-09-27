@@ -11,7 +11,7 @@
  * to a vendor outside it, whose URL no tool in the game can reach.
  */
 
-import type { ArchetypeKey } from '../databaseApp';
+import type { ArchetypeKey } from '../databaseApp.js';
 
 /** A queue of jobs, each about one row of `table`. */
 export type QueueSpec = {

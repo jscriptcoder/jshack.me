@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { lynx } from './lynx';
+import { lynx } from './lynx.js';
 import type {
   AccessLogFetch,
   CommandResult,
   PublicFetchParams,
   PublicFetchResult,
-} from './types';
+} from './types.js';
 import {
   mockCommandEnv,
   mockFsViewFromTree,
@@ -13,21 +13,21 @@ import {
   mockNetworkView,
   mockNetworkViewFromConnectivity,
   mockRemoteApi,
-} from '../../test/factories/commandEnv';
-import { applyPatches, type Patch } from '../filesystem/applyPatches';
-import type { Directory } from '../filesystem/types';
-import { buildWorkstationBaseFs } from '../generation/workstationFs';
-import { formatPidfileContent } from '../services/pidfile';
-import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces';
-import { assignHomeNetwork } from '../network/homeNetwork';
-import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
-import { buildRemoteHostFs } from '../generation/remoteHostFs';
-import { publisherIp } from '../generation/publisher';
-import { readOpenPorts } from '../services/pidfile';
-import { createFsView } from '../filesystem/fsView';
-import { HTTP_DEFAULT_PORT } from '../network/http';
-import { asAbsPath, asPlayerKeyHex } from '../types';
+} from '../../test/factories/commandEnv.js';
+import { applyPatches, type Patch } from '../filesystem/applyPatches.js';
+import type { Directory } from '../filesystem/types.js';
+import { buildWorkstationBaseFs } from '../generation/workstationFs.js';
+import { formatPidfileContent } from '../services/pidfile.js';
+import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
+import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces.js';
+import { assignHomeNetwork } from '../network/homeNetwork.js';
+import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
+import { buildRemoteHostFs } from '../generation/remoteHostFs.js';
+import { publisherIp } from '../generation/publisher.js';
+import { readOpenPorts } from '../services/pidfile.js';
+import { createFsView } from '../filesystem/fsView.js';
+import { HTTP_DEFAULT_PORT } from '../network/http.js';
+import { asAbsPath, asPlayerKeyHex } from '../types.js';
 
 /**
  * `lynx <url>` reads a page instead of its source. The fetch is `curl`'s — same

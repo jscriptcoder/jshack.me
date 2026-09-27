@@ -31,32 +31,32 @@
  */
 
 import { z } from 'zod';
-import { verifySignedRequest } from '../signedRequest/verify';
-import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
-import { asGameTime } from '../types';
+import { verifySignedRequest } from '../signedRequest/verify.js';
+import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
+import { asGameTime } from '../types.js';
 import {
   NAMED_LOG_OWNER,
   NAMED_LOG_PATH,
   NAMED_LOG_PERMISSIONS,
   formatNamedXfrLine,
-} from '../logging/namedLog';
+} from '../logging/namedLog.js';
 import {
   resolveCrossPlayerSourceIp,
   type FindHomeNetworkByOwnerKey,
-} from '../logging/crossPlayerSourceIp';
+} from '../logging/crossPlayerSourceIp.js';
 import {
   allowsZoneTransfer,
   nameServerMachineIdAt,
   zoneRecordsFor,
-} from '../generation/generateDnsZone';
-import { lanZoneName } from '../network/resolveName';
+} from '../generation/generateDnsZone.js';
+import { lanZoneName } from '../network/resolveName.js';
 import {
   appendMachineLog,
   type MachineLogReadQuery,
   type MachineLogReadResult,
-} from './appendMachineLog';
-import type { NonceStore } from '../signedRequest/nonceStore';
-import type { PatchRow } from './upsertPatch';
+} from './appendMachineLog.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
+import type { PatchRow } from './upsertPatch.js';
 
 export type RecordZoneTransferDeps = {
   readonly nonceStore: NonceStore;

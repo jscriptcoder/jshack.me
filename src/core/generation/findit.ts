@@ -7,19 +7,19 @@
  * gateway IS the box.
  */
 
-import { createPrng } from './prng';
-import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import { daemonName, formatPidfileContent, PIDFILE_PERMISSIONS } from '../services/pidfile';
-import { binariesForService } from '../packages/aptPackages';
+import { createPrng } from './prng.js';
+import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
+import { daemonName, formatPidfileContent, PIDFILE_PERMISSIONS } from '../services/pidfile.js';
+import { binariesForService } from '../packages/aptPackages.js';
 import {
   createBinaryEntries,
   LOCALHOST_PREINSTALLED_TOOLS,
   SERVICE_CONTROL_TOOLS,
   SYSTEM_DAEMON_NAMES,
   SYSTEM_UTILITY_NAMES,
-} from './binaries';
-import { createLibraryEntries, SYSTEM_LIBRARIES } from './libraries';
-import { withPackageManifest } from '../packages/packageManifest';
+} from './binaries.js';
+import { createLibraryEntries, SYSTEM_LIBRARIES } from './libraries.js';
+import { withPackageManifest } from '../packages/packageManifest.js';
 import {
   bootDir,
   dir,
@@ -31,19 +31,19 @@ import {
   TMP_DIR,
   TRAVERSABLE_DIR,
   WEB_PAGE_FILE,
-} from './baseFs';
-import { md5 } from './md5';
-import { drawPassword } from './passwordPools';
-import { ACCESS_LOG_PERMISSIONS } from '../logging/accessLog';
-import { AUTH_LOG_PERMISSIONS } from '../logging/authLog';
-import { KERN_LOG_PERMISSIONS } from '../logging/kernLog';
-import { FINDIT_FRONT_PAGE } from '../findit/page';
-import type { Directory, FileEntry } from '../filesystem/types';
+} from './baseFs.js';
+import { md5 } from './md5.js';
+import { drawPassword } from './passwordPools.js';
+import { ACCESS_LOG_PERMISSIONS } from '../logging/accessLog.js';
+import { AUTH_LOG_PERMISSIONS } from '../logging/authLog.js';
+import { KERN_LOG_PERMISSIONS } from '../logging/kernLog.js';
+import { FINDIT_FRONT_PAGE } from '../findit/page.js';
+import type { Directory, FileEntry } from '../filesystem/types.js';
 
 // findit's names live in a leaf module so `publisher` can place findit without importing
 // this generator, which would close an initialization cycle. Imported for use here and
 // re-exported so every importer that reaches for them through the generator keeps working.
-import { FINDIT_DOMAIN, FINDIT_HOSTNAME, FINDIT_NETWORK } from './finditNetwork';
+import { FINDIT_DOMAIN, FINDIT_HOSTNAME, FINDIT_NETWORK } from './finditNetwork.js';
 export { FINDIT_DOMAIN, FINDIT_HOSTNAME, FINDIT_NETWORK };
 
 /** The chance findit's root password is one a wordlist holds: none. It is a real host

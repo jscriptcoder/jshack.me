@@ -1,20 +1,20 @@
 import { describe, expect, it } from 'vitest';
-import { kill } from './kill';
-import { commandRegistry } from './registry';
-import { ps } from './ps';
+import { kill } from './kill.js';
+import { commandRegistry } from './registry.js';
+import { ps } from './ps.js';
 import {
   mockCommandEnv,
   mockFsViewFromTree,
   mockPatchApi,
   mockSession,
-} from '../../test/factories/commandEnv';
-import { buildDirectory, buildFile } from '../../test/factories/filesystem';
-import { createBinaryEntries } from '../generation/binaries';
-import { createLibraryEntries, SYSTEM_LIBRARIES } from '../generation/libraries';
-import { basename } from '../filesystem/path';
-import { listenerPid, readOpenPorts } from '../services/pidfile';
-import { asAbsPath, asMachineId, type UserType } from '../types';
-import type { CommandResult, PatchResult } from './types';
+} from '../../test/factories/commandEnv.js';
+import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
+import { createBinaryEntries } from '../generation/binaries.js';
+import { createLibraryEntries, SYSTEM_LIBRARIES } from '../generation/libraries.js';
+import { basename } from '../filesystem/path.js';
+import { listenerPid, readOpenPorts } from '../services/pidfile.js';
+import { asAbsPath, asMachineId, type UserType } from '../types.js';
+import type { CommandResult, PatchResult } from './types.js';
 
 /**
  * `kill <pid>` — the defender's answer to a backdoor.

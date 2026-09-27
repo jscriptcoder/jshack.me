@@ -12,9 +12,9 @@
  * newlines would hand `grep` the whole file as one string.
  */
 
-import type { Command, CommandEnv, CommandResult, FsReadResult } from './types';
-import { resolveAbsPath } from '../filesystem/path';
-import { splitContentLines } from './contentHelpers';
+import type { Command, CommandEnv, CommandResult, FsReadResult } from './types.js';
+import { resolveAbsPath } from '../filesystem/path.js';
+import { splitContentLines } from './contentHelpers.js';
 
 /** The real tool's default. Fixed, not configurable — a shorter minimum buries
  *  anything worth reading under two-byte coincidences. */

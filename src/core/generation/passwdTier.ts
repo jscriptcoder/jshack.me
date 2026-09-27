@@ -8,7 +8,7 @@
  * literal `guest` account → guest, everyone else → user.
  */
 
-import type { UserType } from '../types';
+import type { UserType } from '../types.js';
 
 export const userTypeFromPasswdFields = (fields: readonly string[]): UserType =>
   Number(fields[2]) === 0 ? 'root' : fields[0] === 'guest' ? 'guest' : 'user';

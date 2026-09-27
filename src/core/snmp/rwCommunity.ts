@@ -23,10 +23,10 @@
  * tool's own rather than one invented here.
  */
 
-import type { Directory, FilePermissions } from '../filesystem/types';
-import { asAbsPath, type AbsPath } from '../types';
-import { md5 } from '../generation/md5';
-import { readSnmpdConf, SNMPD_CONF_PATH, SNMPD_CONF_PERMISSIONS } from './conf';
+import type { Directory, FilePermissions } from '../filesystem/types.js';
+import { asAbsPath, type AbsPath } from '../types.js';
+import { md5 } from '../generation/md5.js';
+import { readSnmpdConf, SNMPD_CONF_PATH, SNMPD_CONF_PERMISSIONS } from './conf.js';
 
 /** One name for the path, so the reader below and every writer of this file agree on
  *  where it is. Shares a FILENAME with the world-readable config and nothing else —

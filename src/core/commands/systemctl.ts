@@ -37,11 +37,11 @@ import {
   type CommandEnv,
   type CommandResult,
   type TerminalLine,
-} from './types';
-import { SERVICE_CATALOG, type ServiceSpec } from '../services/serviceCatalog';
-import { pidfilePath } from '../services/pidfile';
-import { errorLine, streamedResult, text } from './streaming';
-import { binaryExists } from './availability';
+} from './types.js';
+import { SERVICE_CATALOG, type ServiceSpec } from '../services/serviceCatalog.js';
+import { pidfilePath } from '../services/pidfile.js';
+import { errorLine, streamedResult, text } from './streaming.js';
+import { binaryExists } from './availability.js';
 import {
   apache2,
   bringUp,
@@ -55,7 +55,7 @@ import {
   sshd,
   vsftpd,
   type Daemon,
-} from './daemon';
+} from './daemon.js';
 
 /** Beat between the stop announcement and the port closing, mirroring the start
  *  side so a door visibly takes as long to shut as it does to open. */

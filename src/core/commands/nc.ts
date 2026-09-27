@@ -21,29 +21,29 @@
  * connecting to one is not.
  */
 
-import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
-import { isInnerGateway, resolveLanHostIdentity } from '../generation/lanHostIdentity';
-import { isPublicIp } from '../generation/ip';
-import { homeDirectory } from '../sessions/homeDirectory';
-import { asMachineId, type UserType } from '../types';
+import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
+import { isInnerGateway, resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
+import { isPublicIp } from '../generation/ip.js';
+import { homeDirectory } from '../sessions/homeDirectory.js';
+import { asMachineId, type UserType } from '../types.js';
 import {
   formatListenerContent,
   listenerPidfilePath,
   PIDFILE_PERMISSIONS,
   readOpenPorts,
   type OpenPort,
-} from '../services/pidfile';
-import { serviceByName, type ServiceSpec } from '../services/serviceCatalog';
-import { connectedWlan0, LOOPBACK_IPV4 } from '../network/interfaces';
-import { addressForTarget } from '../network/resolveName';
-import { errorLine, streamedResult, text } from './streaming';
+} from '../services/pidfile.js';
+import { serviceByName, type ServiceSpec } from '../services/serviceCatalog.js';
+import { connectedWlan0, LOOPBACK_IPV4 } from '../network/interfaces.js';
+import { addressForTarget } from '../network/resolveName.js';
+import { errorLine, streamedResult, text } from './streaming.js';
 import {
   PATCH_ERROR_REASON,
   type Command,
   type CommandEnv,
   type CommandResult,
   type TerminalLine,
-} from './types';
+} from './types.js';
 
 const USAGE = 'nc: usage: nc <host> <port> | nc -l <port>';
 

@@ -26,24 +26,24 @@
 // Exits 0 when all checks pass, 1 on failure, 2 on missing env / no usable host.
 
 import { createClient } from '@supabase/supabase-js';
-import { signRequest } from '../src/core/signedRequest/sign';
-import { generateIdentity } from '../src/core/identity/identity';
-import { generateHomeLan, type LanHost } from '../src/core/generation/generateHomeLan';
-import { hostServices } from '../src/core/generation/remoteHostFs';
-import { resolveLanHostIdentity } from '../src/core/generation/lanHostIdentity';
-import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog';
+import { signRequest } from '../src/core/signedRequest/sign.js';
+import { generateIdentity } from '../src/core/identity/identity.js';
+import { generateHomeLan, type LanHost } from '../src/core/generation/generateHomeLan.js';
+import { hostServices } from '../src/core/generation/remoteHostFs.js';
+import { resolveLanHostIdentity } from '../src/core/generation/lanHostIdentity.js';
+import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
 
 /** The port these checks address the daemon on. Own-LAN, so it is the daemon's own:
  *  a forwarded port is what reaches a box on a deeper layer instead. */
 const MYSQL_PORT = SERVICE_CATALOG.mysql.defaultPort;
-import { accountsIn } from '../src/core/sessions/passwdAccount';
-import { parseMysqlDatabase } from '../src/core/mysql/types';
-import { ALL_GENERATED_PASSWORDS } from '../src/core/generation/passwordPools';
-import { md5 } from '../src/core/generation/md5';
-import { DATADIR_FILE } from '../src/core/generation/baseFs';
-import { MYSQL_LOG_OWNER, MYSQL_LOG_PATH } from '../src/core/logging/mysqlLog';
-import { AUTH_LOG_PATH } from '../src/core/logging/authLog';
-import type { Directory } from '../src/core/filesystem/types';
+import { accountsIn } from '../src/core/sessions/passwdAccount.js';
+import { parseMysqlDatabase } from '../src/core/mysql/types.js';
+import { ALL_GENERATED_PASSWORDS } from '../src/core/generation/passwordPools.js';
+import { md5 } from '../src/core/generation/md5.js';
+import { DATADIR_FILE } from '../src/core/generation/baseFs.js';
+import { MYSQL_LOG_OWNER, MYSQL_LOG_PATH } from '../src/core/logging/mysqlLog.js';
+import { AUTH_LOG_PATH } from '../src/core/logging/authLog.js';
+import type { Directory } from '../src/core/filesystem/types.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const url = process.env.SUPABASE_URL;

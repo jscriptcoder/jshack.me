@@ -8,7 +8,7 @@
  */
 
 import { sha256 } from '@noble/hashes/sha2.js';
-import { bytesToHex } from '../identity/hex';
+import { bytesToHex } from '../identity/hex.js';
 
 export const contentHash = (content: string): string =>
   bytesToHex(sha256(new TextEncoder().encode(content)));

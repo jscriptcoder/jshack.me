@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { FINDIT_FRONT_PAGE, searchResultsPage } from './page';
-import type { IndexedPage } from './search';
+import { FINDIT_FRONT_PAGE, searchResultsPage } from './page.js';
+import type { IndexedPage } from './search.js';
 
 /**
  * What findit answers with. The form is the whole of its documentation: a player who

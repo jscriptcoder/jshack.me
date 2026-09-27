@@ -32,18 +32,18 @@
 // Exits 0 when all checks pass, 1 on failure, 2 on missing env.
 
 import { createClient } from '@supabase/supabase-js';
-import { signRequest } from '../src/core/signedRequest/sign';
-import { generateIdentity } from '../src/core/identity/identity';
-import { computeWorkstationId } from '../src/core/identity/workstation';
-import { generateHomeLan } from '../src/core/generation/generateHomeLan';
+import { signRequest } from '../src/core/signedRequest/sign.js';
+import { generateIdentity } from '../src/core/identity/identity.js';
+import { computeWorkstationId } from '../src/core/identity/workstation.js';
+import { generateHomeLan } from '../src/core/generation/generateHomeLan.js';
 import {
   isInnerGateway,
   lanBaseFsForMachineId,
   machineIdForLanHost,
-} from '../src/core/generation/lanHostIdentity';
-import { md5 } from '../src/core/generation/md5';
-import { binaryStub } from '../src/core/generation/binaries';
-import { clearPublicIps, seedPublicIps } from './networkFixture';
+} from '../src/core/generation/lanHostIdentity.js';
+import { md5 } from '../src/core/generation/md5.js';
+import { binaryStub } from '../src/core/generation/binaries.js';
+import { clearPublicIps, seedPublicIps } from './networkFixture.js';
 
 const PATCHES = process.env.PATCHES_ENDPOINT ?? 'http://localhost:3100/api/patches';
 const url = process.env.SUPABASE_URL;

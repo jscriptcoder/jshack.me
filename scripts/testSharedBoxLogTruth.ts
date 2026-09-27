@@ -25,22 +25,22 @@
 // Exits 0 when all checks pass, 1 on failure, 2 on missing env/fixture.
 
 import { createClient } from '@supabase/supabase-js';
-import { signRequest } from '../src/core/signedRequest/sign';
-import { generateIdentity } from '../src/core/identity/identity';
-import { apGatewayLogWriterKey } from '../src/core/logging/apGatewayLogWriter';
-import { computeWorkstationId } from '../src/core/identity/workstation';
-import { generateHomeLan, type LanHost } from '../src/core/generation/generateHomeLan';
-import { hostServices } from '../src/core/generation/remoteHostFs';
-import { resolveLanHostIdentity } from '../src/core/generation/lanHostIdentity';
-import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog';
-import { md5 } from '../src/core/generation/md5';
+import { signRequest } from '../src/core/signedRequest/sign.js';
+import { generateIdentity } from '../src/core/identity/identity.js';
+import { apGatewayLogWriterKey } from '../src/core/logging/apGatewayLogWriter.js';
+import { computeWorkstationId } from '../src/core/identity/workstation.js';
+import { generateHomeLan, type LanHost } from '../src/core/generation/generateHomeLan.js';
+import { hostServices } from '../src/core/generation/remoteHostFs.js';
+import { resolveLanHostIdentity } from '../src/core/generation/lanHostIdentity.js';
+import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
+import { md5 } from '../src/core/generation/md5.js';
 import {
   DEFAULT_WORDLIST,
   WORDLIST_PATH,
   WORDLIST_PERMISSIONS,
   formatWordlist,
-} from '../src/core/wordlist/defaultWordlist';
-import { AUTH_LOG_PATH } from '../src/core/logging/authLog';
+} from '../src/core/wordlist/defaultWordlist.js';
+import { AUTH_LOG_PATH } from '../src/core/logging/authLog.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const url = process.env.SUPABASE_URL;

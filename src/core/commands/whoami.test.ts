@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { whoami } from './whoami';
-import { mockCommandEnv, mockSession } from '../../test/factories/commandEnv';
-import { asMachineId } from '../types';
-import type { Session } from './types';
+import { whoami } from './whoami.js';
+import { mockCommandEnv, mockSession } from '../../test/factories/commandEnv.js';
+import { asMachineId } from '../types.js';
+import type { Session } from './types.js';
 
 const NO_FLAGS = new Map<string, string | true>();
 

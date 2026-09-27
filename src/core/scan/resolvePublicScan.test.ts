@@ -4,27 +4,27 @@ import {
   type ApNetworkLookup,
   type NatOccupantRow,
   type ResolvePublicScanDeps,
-} from './resolvePublicScan';
-import { signRequest } from '../signedRequest/sign';
-import { generateIdentity } from '../identity/identity';
-import { computeApGatewayId } from '../identity/router';
-import { lanAddressFor, type LanLeaseRow } from '../network/lanAddress';
-import { md5 } from '../generation/md5';
-import { seedApGatewayHostname } from '../generation/gatewayHostname';
-import { formatNmapScanAggregate, KERN_LOG_OWNER, KERN_LOG_PERMISSIONS } from '../logging/kernLog';
-import { asGameTime } from '../types';
-import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter';
-import { siteServer } from '../generation/siteServer';
-import { machineIdForLanHost } from '../generation/lanHostIdentity';
+} from './resolvePublicScan.js';
+import { signRequest } from '../signedRequest/sign.js';
+import { generateIdentity } from '../identity/identity.js';
+import { computeApGatewayId } from '../identity/router.js';
+import { lanAddressFor, type LanLeaseRow } from '../network/lanAddress.js';
+import { md5 } from '../generation/md5.js';
+import { seedApGatewayHostname } from '../generation/gatewayHostname.js';
+import { formatNmapScanAggregate, KERN_LOG_OWNER, KERN_LOG_PERMISSIONS } from '../logging/kernLog.js';
+import { asGameTime } from '../types.js';
+import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
+import { siteServer } from '../generation/siteServer.js';
+import { machineIdForLanHost } from '../generation/lanHostIdentity.js';
 import {
   formatListenerContent,
   listenerPidfilePath,
   PIDFILE_PERMISSIONS,
-} from '../services/pidfile';
-import type { OwnerPatchRow } from '../network/materializeWorkstationFs';
-import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog';
-import type { PatchRow } from '../patches/upsertPatch';
-import type { NonceStore } from '../signedRequest/nonceStore';
+} from '../services/pidfile.js';
+import type { OwnerPatchRow } from '../network/materializeWorkstationFs.js';
+import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog.js';
+import type { PatchRow } from '../patches/upsertPatch.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 /**
  * `handleResolvePublicScan` is the server-side resolution of one identity's

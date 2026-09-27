@@ -21,21 +21,21 @@
  * conf a box publishes is readable by a guest.
  */
 
-import { asAbsPath } from '../types';
-import { createPrng, type Prng } from './prng';
-import { md5 } from './md5';
-import { CRACK_CHANCE, drawPassword } from './passwordPools';
-import { STORE_SPECS, type StoreSpec } from './pools/storeApps';
-import { roleOfHostname } from './pools/hostnames';
-import { generateHomeLan, isOnHomeLan, type LanHost } from './generateHomeLan';
-import { npcUsername } from './remoteHostFs';
-import { databaseArchetype, datetimeAt } from './databaseApp';
-import { WORLD_EPOCH } from '../cve/worldClock';
-import type { Application } from './generateDatabase';
-import type { MysqlRow } from '../mysql/types';
-import { DATADIR_DIR } from '../redis/datadir';
-import { REDIS_LOG_PATH } from '../logging/redisLog';
-import type { RedisStore } from '../redis/types';
+import { asAbsPath } from '../types.js';
+import { createPrng, type Prng } from './prng.js';
+import { md5 } from './md5.js';
+import { CRACK_CHANCE, drawPassword } from './passwordPools.js';
+import { STORE_SPECS, type StoreSpec } from './pools/storeApps.js';
+import { roleOfHostname } from './pools/hostnames.js';
+import { generateHomeLan, isOnHomeLan, type LanHost } from './generateHomeLan.js';
+import { npcUsername } from './remoteHostFs.js';
+import { databaseArchetype, datetimeAt } from './databaseApp.js';
+import { WORLD_EPOCH } from '../cve/worldClock.js';
+import type { Application } from './generateDatabase.js';
+import type { MysqlRow } from '../mysql/types.js';
+import { DATADIR_DIR } from '../redis/datadir.js';
+import { REDIS_LOG_PATH } from '../logging/redisLog.js';
+import type { RedisStore } from '../redis/types.js';
 
 /** How much a store holds. A working application keeps dozens of keys; past eighty,
  *  `KEYS *` is a wall a player scrolls past rather than reads. */

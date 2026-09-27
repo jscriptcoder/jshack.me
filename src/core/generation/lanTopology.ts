@@ -18,10 +18,10 @@ import {
   computeApGatewayId,
   computeDeepGatewayId,
   computeInnerGatewayId,
-} from '../identity/router';
-import { hostMachineId } from './remoteHostId';
-import { generateHomeLan, type LanHost } from './generateHomeLan';
-import { generateDeepLayer, seedNetworkDepth } from './generateDeepLayer';
+} from '../identity/router.js';
+import { hostMachineId } from './remoteHostId.js';
+import { generateHomeLan, type LanHost } from './generateHomeLan.js';
+import { generateDeepLayer, seedNetworkDepth } from './generateDeepLayer.js';
 
 /** A LAN or deep host's final octet — the discriminator every identity below is
  *  keyed on, and the one thing an address is read for here. */

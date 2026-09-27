@@ -45,34 +45,34 @@
  */
 
 import { z } from 'zod';
-import { verifySignedRequest } from '../signedRequest/verify';
-import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
-import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
-import { machineIdForLanHost, resolveLanHostIdentity } from '../generation/lanHostIdentity';
-import { materializeMachineFs, type OwnerPatchRow } from '../network/materializeMachineFs';
-import { materializeWorkstationFs } from '../network/materializeWorkstationFs';
-import { lanAddressesByOwner, type LanLeaseRow } from '../network/lanAddress';
-import type { NatOccupantRow } from '../network/resolvePublicTarget';
-import type { Directory } from '../filesystem/types';
-import { canBoot } from '../boot/bootFiles';
-import { isOwnWorkstation } from '../identity/workstation';
+import { verifySignedRequest } from '../signedRequest/verify.js';
+import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
+import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
+import { machineIdForLanHost, resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
+import { materializeMachineFs, type OwnerPatchRow } from '../network/materializeMachineFs.js';
+import { materializeWorkstationFs } from '../network/materializeWorkstationFs.js';
+import { lanAddressesByOwner, type LanLeaseRow } from '../network/lanAddress.js';
+import type { NatOccupantRow } from '../network/resolvePublicTarget.js';
+import type { Directory } from '../filesystem/types.js';
+import { canBoot } from '../boot/bootFiles.js';
+import { isOwnWorkstation } from '../identity/workstation.js';
 import {
   authorizeMachineAccess,
   type FindActiveSession,
-} from '../patches/authorizeMachineAccess';
-import { portsOpenToNetwork } from '../network/portsOpenToNetwork';
-import { WORDLIST_PATH } from '../wordlist/defaultWordlist';
-import { serviceByName, type SweepLog } from '../services/serviceCatalog';
-import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter';
-import { sweepAccounts, wordlistOn } from '../wordlist/passwordSweep';
+} from '../patches/authorizeMachineAccess.js';
+import { portsOpenToNetwork } from '../network/portsOpenToNetwork.js';
+import { WORDLIST_PATH } from '../wordlist/defaultWordlist.js';
+import { serviceByName, type SweepLog } from '../services/serviceCatalog.js';
+import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
+import { sweepAccounts, wordlistOn } from '../wordlist/passwordSweep.js';
 import {
   appendMachineLog,
   type MachineLogReadQuery,
   type MachineLogReadResult,
-} from '../patches/appendMachineLog';
-import type { ListPathPatchesResult } from '../patches/upsertPatch';
-import type { PatchRow } from '../patches/upsertPatch';
-import type { NonceStore } from '../signedRequest/nonceStore';
+} from '../patches/appendMachineLog.js';
+import type { ListPathPatchesResult } from '../patches/upsertPatch.js';
+import type { PatchRow } from '../patches/upsertPatch.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 export type HydraCrackDeps = {
   readonly nonceStore: NonceStore;

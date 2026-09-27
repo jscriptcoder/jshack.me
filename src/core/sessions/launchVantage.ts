@@ -21,8 +21,8 @@
  * Pure: the stack is passed in, so the rule is readable without a running shell.
  */
 
-import type { Session } from '../commands/types';
-import type { MachineId } from '../types';
+import type { Session } from '../commands/types.js';
+import type { MachineId } from '../types.js';
 
 export const launchVantage = (stack: readonly Session[]): MachineId | undefined =>
   stack.at(-2)?.machineId;

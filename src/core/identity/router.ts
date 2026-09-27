@@ -21,7 +21,7 @@
  * detail; only determinism + distinctness across kinds are the contract.
  */
 
-import { deriveHostnameSuffix } from './workstation';
+import { deriveHostnameSuffix } from './workstation.js';
 
 /** The machine_id for an access point's gateway, keyed by the ESSID ALONE so every
  *  occupant of that AP resolves the same box. The `ap-gw:` namespace is not an

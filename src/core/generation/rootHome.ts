@@ -14,23 +14,23 @@
  * stream, so no other concern's draws move.
  */
 
-import type { Directory, FileNode } from '../filesystem/types';
-import { dir, file, ROOT_DIR, ROOT_FILE } from './baseFs';
-import { isOnHomeLan, type LanHost } from './generateHomeLan';
-import { daemonName } from '../services/pidfile';
-import type { HostService } from './remoteHostFs';
-import type { DrawnRole } from './machineRole';
-import { networkPersona } from './persona';
-import { fillSlots, networkLines, pastDate } from './npcHome';
-import { createPrng, type Prng } from './prng';
-import { WEEKDAYS } from './pools/homeNotes';
+import type { Directory, FileNode } from '../filesystem/types.js';
+import { dir, file, ROOT_DIR, ROOT_FILE } from './baseFs.js';
+import { isOnHomeLan, type LanHost } from './generateHomeLan.js';
+import { daemonName } from '../services/pidfile.js';
+import type { HostService } from './remoteHostFs.js';
+import type { DrawnRole } from './machineRole.js';
+import { networkPersona } from './persona.js';
+import { fillSlots, networkLines, pastDate } from './npcHome.js';
+import { createPrng, type Prng } from './prng.js';
+import { WEEKDAYS } from './pools/homeNotes.js';
 import {
   DEBIAN_ROOT_BASHRC,
   DEBIAN_ROOT_PROFILE,
   ROLE_ROOT_HISTORY,
   ROOT_HISTORY,
   ROOT_NOTE_TEMPLATES,
-} from './pools/rootContent';
+} from './pools/rootContent.js';
 
 const buildNotes = (options: {
   readonly prng: Prng;

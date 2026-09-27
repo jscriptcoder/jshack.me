@@ -18,7 +18,7 @@
  * names the box it is on, the way an admin's notes do when they look after several.
  */
 
-import type { DrawnRole } from '../machineRole';
+import type { DrawnRole } from '../machineRole.js';
 
 /** `/root/.bashrc`, as Debian ships it for root. */
 export const DEBIAN_ROOT_BASHRC = `# ~/.bashrc: executed by bash(1) for non-login shells.

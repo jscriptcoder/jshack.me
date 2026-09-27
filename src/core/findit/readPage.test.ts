@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readPage } from './readPage';
+import { readPage } from './readPage.js';
 
 /**
  * What a search engine takes from a homepage: what it is called, what it says about

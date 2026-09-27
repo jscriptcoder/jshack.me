@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bytesToHex, hexToBytes } from './hex';
+import { bytesToHex, hexToBytes } from './hex.js';
 
 describe('bytesToHex', () => {
   it('encodes bytes as lowercase hex, two chars per byte', () => {

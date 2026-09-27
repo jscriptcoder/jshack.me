@@ -20,10 +20,10 @@
  * easier one cannot is the reward for taking it.
  */
 
-import { drawStoreLock } from '../generation/generateRedisStore';
-import { accountIn } from '../sessions/passwdAccount';
-import type { Directory } from '../filesystem/types';
-import type { RedisStore } from './types';
+import { drawStoreLock } from '../generation/generateRedisStore.js';
+import { accountIn } from '../sessions/passwdAccount.js';
+import type { Directory } from '../filesystem/types.js';
+import type { RedisStore } from './types.js';
 
 /** The account whose password the store's lock becomes. */
 const ROOT_ACCOUNT = 'root';

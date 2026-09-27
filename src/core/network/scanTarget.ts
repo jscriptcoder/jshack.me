@@ -8,7 +8,7 @@
  * (`x.y.z.A-B`). Pure, framework-agnostic (core/).
  */
 
-import type { HomeLan, LanHost } from '../generation/generateHomeLan';
+import type { HomeLan, LanHost } from '../generation/generateHomeLan.js';
 
 /** Highest scannable host octet (.255 is the broadcast address). */
 const MAX_OCTET = 254;

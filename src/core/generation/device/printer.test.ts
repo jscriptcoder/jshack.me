@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { CUPSD_CONFS, PRINTER_MODELS } from '../pools/devices';
-import { buildRemoteHostFs, npcUsername } from '../remoteHostFs';
-import { peopleKnownOn } from '../mailbox';
-import { roleOfHostname } from '../pools/hostnames';
-import { WORLD_EPOCH } from '../../cve/worldClock';
-import { createFsView } from '../../filesystem/fsView';
-import { asAbsPath } from '../../types';
-import type { Directory } from '../../filesystem/types';
-import { filesUnder, lanBoxes, softwareVersionsIn } from '../../../test/worldContent';
+import { CUPSD_CONFS, PRINTER_MODELS } from '../pools/devices.js';
+import { buildRemoteHostFs, npcUsername } from '../remoteHostFs.js';
+import { peopleKnownOn } from '../mailbox.js';
+import { roleOfHostname } from '../pools/hostnames.js';
+import { WORLD_EPOCH } from '../../cve/worldClock.js';
+import { createFsView } from '../../filesystem/fsView.js';
+import { asAbsPath } from '../../types.js';
+import type { Directory } from '../../filesystem/types.js';
+import { filesUnder, lanBoxes, softwareVersionsIn } from '../../../test/worldContent.js';
 import {
   contentOf,
   pagesOf,
@@ -18,7 +18,7 @@ import {
   syntheticLanBoxes,
   worldBoxesNamed,
   type BuiltBox,
-} from '../../../test/deviceBoxes';
+} from '../../../test/deviceBoxes.js';
 
 /** The model a printer's one queue says it is. */
 const modelOf = (tree: Directory): string | undefined =>

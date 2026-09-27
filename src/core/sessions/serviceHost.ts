@@ -54,27 +54,27 @@
  * whose owner opened no forward has no name an outsider can say.
  */
 
-import { generateHomeLan } from '../generation/generateHomeLan';
-import { isPublicIp } from '../generation/ip';
+import { generateHomeLan } from '../generation/generateHomeLan.js';
+import { isPublicIp } from '../generation/ip.js';
 import {
   resolvePublicTarget,
   type NatOccupantRow,
   type ResolvePublicTargetDeps,
-} from '../network/resolvePublicTarget';
-import { lanAddressesByOwner } from '../network/lanAddress';
-import { materializeWorkstationFs } from '../network/materializeWorkstationFs';
+} from '../network/resolvePublicTarget.js';
+import { lanAddressesByOwner } from '../network/lanAddress.js';
+import { materializeWorkstationFs } from '../network/materializeWorkstationFs.js';
 import {
   resolveCrossPlayerSourceIp,
   type FindHomeNetworkByOwnerKey,
-} from '../logging/crossPlayerSourceIp';
-import { forwardsIntoDeepLayer, resolveLanHostIdentity } from '../generation/lanHostIdentity';
-import { resolveInnerGatewayTarget } from '../network/resolveInnerGatewayTarget';
-import { materializeMachineFs, type OwnerPatchRow } from '../network/materializeMachineFs';
-import { canBoot } from '../boot/bootFiles';
-import { portsOpenToNetwork } from '../network/portsOpenToNetwork';
-import { frontedSegment } from '../network/frontedSegment';
-import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter';
-import type { Directory } from '../filesystem/types';
+} from '../logging/crossPlayerSourceIp.js';
+import { forwardsIntoDeepLayer, resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
+import { resolveInnerGatewayTarget } from '../network/resolveInnerGatewayTarget.js';
+import { materializeMachineFs, type OwnerPatchRow } from '../network/materializeMachineFs.js';
+import { canBoot } from '../boot/bootFiles.js';
+import { portsOpenToNetwork } from '../network/portsOpenToNetwork.js';
+import { frontedSegment } from '../network/frontedSegment.js';
+import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
+import type { Directory } from '../filesystem/types.js';
 
 export type HandlerResponse = {
   readonly status: number;

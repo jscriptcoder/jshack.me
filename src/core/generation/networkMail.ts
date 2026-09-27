@@ -18,20 +18,20 @@
  * deliveries, and a log line cannot predate the database that holds it.
  */
 
-import { WORLD_EPOCH } from '../cve/worldClock';
-import { lanZoneName } from '../network/resolveName';
-import { createPrng, type Prng } from './prng';
-import { inhabitant, networkPersona, personBehind } from './persona';
-import { networkArchetype } from './databaseApp';
+import { WORLD_EPOCH } from '../cve/worldClock.js';
+import { lanZoneName } from '../network/resolveName.js';
+import { createPrng, type Prng } from './prng.js';
+import { inhabitant, networkPersona, personBehind } from './persona.js';
+import { networkArchetype } from './databaseApp.js';
 import {
   GENERIC_ROLE_MAIL,
   MAIL_SPECS,
   PERSONAL_THREADS,
   ROLE_MAILBOX_MAIL,
   type MailThreadSpec,
-} from './pools/mailThreads';
-import { generateHomeLan, type LanHost } from './generateHomeLan';
-import { npcUsername } from './remoteHostFs';
+} from './pools/mailThreads.js';
+import { generateHomeLan, type LanHost } from './generateHomeLan.js';
+import { npcUsername } from './remoteHostFs.js';
 
 const LAST_SECOND = WORLD_EPOCH / 1000 - 1;
 

@@ -19,11 +19,11 @@
  * Pure, framework-agnostic (core/): the timestamp and pid are supplied by the caller.
  */
 
-import { asAbsPath, type AbsPath, type GameTime } from '../types';
-import type { FilePermissions } from '../filesystem/types';
-import type { CredentialAttempt } from './authLog';
-import type { ExploitEvent } from './exploitLog';
-import { MONTHS } from './syslog';
+import { asAbsPath, type AbsPath, type GameTime } from '../types.js';
+import type { FilePermissions } from '../filesystem/types.js';
+import type { CredentialAttempt } from './authLog.js';
+import type { ExploitEvent } from './exploitLog.js';
+import { MONTHS } from './syslog.js';
 
 /** The canonical `/var/log/vsftpd.log` storage identity — single source of truth shared
  *  by the boot seed (`generation/remoteHostFs`) and every server-side appender, so the

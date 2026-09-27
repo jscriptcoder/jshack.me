@@ -13,8 +13,8 @@
  * nano is preinstalled on every machine (no `apt install`), like `cat`/`ls`.
  */
 
-import type { Command, CommandEnv, CommandResult } from './types';
-import { resolveAbsPath } from '../filesystem/path';
+import type { Command, CommandEnv, CommandResult } from './types.js';
+import { resolveAbsPath } from '../filesystem/path.js';
 
 /** Format the `nano: <target>: <reason>` line for a target that can't be opened.
  *  `not_found` is handled by the caller (it opens an empty buffer), so only the

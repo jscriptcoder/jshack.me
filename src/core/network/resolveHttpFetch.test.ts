@@ -4,33 +4,33 @@ import {
   type ApNetworkLookup,
   type HttpFetchOccupant,
   type ResolveHttpFetchDeps,
-} from './resolveHttpFetch';
-import { md5 } from '../generation/md5';
-import { signRequest } from '../signedRequest/sign';
-import { generateIdentity } from '../identity/identity';
-import { computeApGatewayId } from '../identity/router';
-import { lanAddressFor, type LanLeaseRow } from './lanAddress';
-import { materializeWorkstationFs, type OwnerPatchRow } from './materializeWorkstationFs';
-import { createFsView } from '../filesystem/fsView';
-import { defaultFilePermissions } from '../filesystem/defaultPermissions';
-import { formatPidfileContent } from '../services/pidfile';
-import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import { HTTP_DEFAULT_PORT } from './http';
-import { ACCESS_LOG_PATH } from '../logging/accessLog';
-import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter';
-import { siteServer } from '../generation/siteServer';
-import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
-import { asAbsPath } from '../types';
-import type { NonceStore } from '../signedRequest/nonceStore';
+} from './resolveHttpFetch.js';
+import { md5 } from '../generation/md5.js';
+import { signRequest } from '../signedRequest/sign.js';
+import { generateIdentity } from '../identity/identity.js';
+import { computeApGatewayId } from '../identity/router.js';
+import { lanAddressFor, type LanLeaseRow } from './lanAddress.js';
+import { materializeWorkstationFs, type OwnerPatchRow } from './materializeWorkstationFs.js';
+import { createFsView } from '../filesystem/fsView.js';
+import { defaultFilePermissions } from '../filesystem/defaultPermissions.js';
+import { formatPidfileContent } from '../services/pidfile.js';
+import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
+import { HTTP_DEFAULT_PORT } from './http.js';
+import { ACCESS_LOG_PATH } from '../logging/accessLog.js';
+import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
+import { siteServer } from '../generation/siteServer.js';
+import { resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
+import { asAbsPath } from '../types.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
 import type {
   MachineLogReadQuery,
   MachineLogReadResult,
-} from '../patches/appendMachineLog';
-import type { PatchRow } from '../patches/upsertPatch';
-import { siteAddress } from '../generation/publisher';
-import { FINDIT_DOMAIN, FINDIT_NETWORK } from '../generation/findit';
-import { FINDIT_FRONT_PAGE } from '../findit/page';
-import type { MachinePatchRow, StoredAddress } from '../findit/webIndex';
+} from '../patches/appendMachineLog.js';
+import type { PatchRow } from '../patches/upsertPatch.js';
+import { siteAddress } from '../generation/publisher.js';
+import { FINDIT_DOMAIN, FINDIT_NETWORK } from '../generation/findit.js';
+import { FINDIT_FRONT_PAGE } from '../findit/page.js';
+import type { MachinePatchRow, StoredAddress } from '../findit/webIndex.js';
 
 /**
  * `handleResolveHttpFetch` is the credential-free cross-player door: a fetch carries no

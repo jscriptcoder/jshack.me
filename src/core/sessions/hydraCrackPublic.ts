@@ -28,30 +28,30 @@
  */
 
 import { z } from 'zod';
-import { verifySignedRequest } from '../signedRequest/verify';
-import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
-import { authorizeMachineAccess, type FindActiveSession } from '../patches/authorizeMachineAccess';
+import { verifySignedRequest } from '../signedRequest/verify.js';
+import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
+import { authorizeMachineAccess, type FindActiveSession } from '../patches/authorizeMachineAccess.js';
 import {
   resolvePublicTarget,
   type ResolvePublicTargetDeps,
-} from '../network/resolvePublicTarget';
+} from '../network/resolvePublicTarget.js';
 import {
   resolveVantageSourceIp,
   type FindHomeNetworkByOwnerKey,
   type FindPublicIpByEssid,
-} from '../logging/crossPlayerSourceIp';
-import { portsOpenToNetwork } from '../network/portsOpenToNetwork';
-import { serviceByName } from '../services/serviceCatalog';
-import { sweepAccounts, wordlistOn } from '../wordlist/passwordSweep';
-import { WORDLIST_PATH } from '../wordlist/defaultWordlist';
+} from '../logging/crossPlayerSourceIp.js';
+import { portsOpenToNetwork } from '../network/portsOpenToNetwork.js';
+import { serviceByName } from '../services/serviceCatalog.js';
+import { sweepAccounts, wordlistOn } from '../wordlist/passwordSweep.js';
+import { WORDLIST_PATH } from '../wordlist/defaultWordlist.js';
 import {
   appendMachineLog,
   type MachineLogReadQuery,
   type MachineLogReadResult,
-} from '../patches/appendMachineLog';
-import type { ListPathPatchesResult, PatchRow } from '../patches/upsertPatch';
-import type { HandlerResponse } from './hydraCrack';
-import type { NonceStore } from '../signedRequest/nonceStore';
+} from '../patches/appendMachineLog.js';
+import type { ListPathPatchesResult, PatchRow } from '../patches/upsertPatch.js';
+import type { HandlerResponse } from './hydraCrack.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 export type HydraCrackPublicDeps = ResolvePublicTargetDeps & {
   readonly nonceStore: NonceStore;

@@ -23,27 +23,27 @@
  */
 
 import { z } from 'zod';
-import { verifySignedRequest } from '../signedRequest/verify';
-import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
-import { buildWorkstationBaseFsFromIdentity } from '../generation/workstationFs';
-import { md5 } from '../generation/md5';
-import { accountIn } from './passwdAccount';
+import { verifySignedRequest } from '../signedRequest/verify.js';
+import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
+import { buildWorkstationBaseFsFromIdentity } from '../generation/workstationFs.js';
+import { md5 } from '../generation/md5.js';
+import { accountIn } from './passwdAccount.js';
 import {
   AUTH_LOG_OWNER,
   AUTH_LOG_PATH,
   AUTH_LOG_PERMISSIONS,
   formatSuAuthLine,
-} from '../logging/authLog';
-import { derivePid } from '../logging/syslog';
+} from '../logging/authLog.js';
+import { derivePid } from '../logging/syslog.js';
 import {
   appendMachineLog,
   type MachineLogReadQuery,
   type MachineLogReadResult,
-} from '../patches/appendMachineLog';
-import { asGameTime, type UserType } from '../types';
-import type { PatchRow } from '../patches/upsertPatch';
-import type { HandlerResponse } from './authCreateSession';
-import type { NonceStore } from '../signedRequest/nonceStore';
+} from '../patches/appendMachineLog.js';
+import { asGameTime, type UserType } from '../types.js';
+import type { PatchRow } from '../patches/upsertPatch.js';
+import type { HandlerResponse } from './authCreateSession.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 /** The occupancy fields a cross-player `su` elevation needs: who owns the box (to
  *  reconstruct its FS), the workstation's real machine id (the session target +

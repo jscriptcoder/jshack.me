@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { redisStoreSchema, type RedisStore } from './types';
-import { runStatement, type StoreStatementResult } from './statements';
-import { md5 } from '../generation/md5';
+import { redisStoreSchema, type RedisStore } from './types.js';
+import { runStatement, type StoreStatementResult } from './statements.js';
+import { md5 } from '../generation/md5.js';
 
 /**
  * What a store answers, and what it refuses.

@@ -27,17 +27,17 @@
 // Exits 0 when all checks pass, 1 on failure, 2 on missing env.
 
 import { createClient } from '@supabase/supabase-js';
-import { signRequest } from '../src/core/signedRequest/sign';
-import { generateIdentity } from '../src/core/identity/identity';
-import { computeWorkstationId } from '../src/core/identity/workstation';
-import { computeApGatewayId } from '../src/core/identity/router';
-import { lanAddressFor } from '../src/core/network/lanAddress';
-import { formatPidfileContent } from '../src/core/services/pidfile';
-import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog';
-import { HTTP_DEFAULT_PORT } from '../src/core/network/http';
-import { ACCESS_LOG_PATH } from '../src/core/logging/accessLog';
-import { md5 } from '../src/core/generation/md5';
-import { clearPublicIps } from './networkFixture';
+import { signRequest } from '../src/core/signedRequest/sign.js';
+import { generateIdentity } from '../src/core/identity/identity.js';
+import { computeWorkstationId } from '../src/core/identity/workstation.js';
+import { computeApGatewayId } from '../src/core/identity/router.js';
+import { lanAddressFor } from '../src/core/network/lanAddress.js';
+import { formatPidfileContent } from '../src/core/services/pidfile.js';
+import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
+import { HTTP_DEFAULT_PORT } from '../src/core/network/http.js';
+import { ACCESS_LOG_PATH } from '../src/core/logging/accessLog.js';
+import { md5 } from '../src/core/generation/md5.js';
+import { clearPublicIps } from './networkFixture.js';
 
 const NETWORK = process.env.NETWORK_ENDPOINT ?? 'http://localhost:3100/api/network';
 const url = process.env.SUPABASE_URL;

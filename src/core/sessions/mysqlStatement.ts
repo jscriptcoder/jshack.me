@@ -34,25 +34,25 @@
  */
 
 import { z } from 'zod';
-import { verifySignedRequest } from '../signedRequest/verify';
-import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
-import { md5 } from '../generation/md5';
-import { reachServiceHost, type HandlerResponse, type ServiceHostLookup } from './serviceHost';
-import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import { credentialIn, databaseIn, DATADIR_OWNER, DATADIR_PATH } from '../mysql/datadir';
-import { runStatement } from '../mysql/statements';
-import { DATADIR_FILE } from '../generation/baseFs';
-import { appendMachineLog, type MachineLogReadQuery, type MachineLogReadResult } from '../patches/appendMachineLog';
+import { verifySignedRequest } from '../signedRequest/verify.js';
+import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
+import { md5 } from '../generation/md5.js';
+import { reachServiceHost, type HandlerResponse, type ServiceHostLookup } from './serviceHost.js';
+import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
+import { credentialIn, databaseIn, DATADIR_OWNER, DATADIR_PATH } from '../mysql/datadir.js';
+import { runStatement } from '../mysql/statements.js';
+import { DATADIR_FILE } from '../generation/baseFs.js';
+import { appendMachineLog, type MachineLogReadQuery, type MachineLogReadResult } from '../patches/appendMachineLog.js';
 import {
   formatMysqlStatementLine,
   MYSQL_LOG_OWNER,
   MYSQL_LOG_PATH,
   MYSQL_LOG_PERMISSIONS,
-} from '../logging/mysqlLog';
-import { derivePid } from '../logging/syslog';
-import { asGameTime } from '../types';
-import type { NonceStore } from '../signedRequest/nonceStore';
-import type { PatchRow } from '../patches/upsertPatch';
+} from '../logging/mysqlLog.js';
+import { derivePid } from '../logging/syslog.js';
+import { asGameTime } from '../types.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
+import type { PatchRow } from '../patches/upsertPatch.js';
 
 export type MysqlStatementDeps = ServiceHostLookup & {
   readonly nonceStore: NonceStore;

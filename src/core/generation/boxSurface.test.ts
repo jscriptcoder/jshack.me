@@ -1,24 +1,24 @@
 import { describe, expect, it } from 'vitest';
-import { buildRemoteHostFs, hostServices, npcUsername } from './remoteHostFs';
-import { buildDeepHostFs } from './deepHostFs';
-import { crackableEssidPool } from './generateWifi';
-import { generateHomeLan, type LanHost } from './generateHomeLan';
-import { generateDeepLayer } from './generateDeepLayer';
-import { generateApplication } from './generateDatabase';
-import { networkPersona } from './persona';
-import { roleOfHostname } from './pools/hostnames';
-import { GENERIC_CRON_JOBS, NAME_SERVER_CRON_JOBS, SERVICE_CRON_JOBS } from './pools/etcFiles';
-import { CRON_OUTPUT } from './pools/cronMail';
-import { roleConfigFile } from './pools/configFiles';
-import { ROLE_ROOT_HISTORY, ROOT_HISTORY } from './pools/rootContent';
-import { DEBIAN_BASHRC, DEBIAN_BASH_LOGOUT, DEBIAN_PROFILE } from './pools/homeSkeleton';
-import { createFsView } from '../filesystem/fsView';
-import { lanZoneName, resolveLanName } from '../network/resolveName';
-import { asAbsPath } from '../types';
-import type { Directory, FilePermissions } from '../filesystem/types';
-import { buildWorkstationBaseFs } from './workstationFs';
-import { WORLD_EPOCH } from '../cve/worldClock';
-import { listenerPidfileName } from '../services/pidfile';
+import { buildRemoteHostFs, hostServices, npcUsername } from './remoteHostFs.js';
+import { buildDeepHostFs } from './deepHostFs.js';
+import { crackableEssidPool } from './generateWifi.js';
+import { generateHomeLan, type LanHost } from './generateHomeLan.js';
+import { generateDeepLayer } from './generateDeepLayer.js';
+import { generateApplication } from './generateDatabase.js';
+import { networkPersona } from './persona.js';
+import { roleOfHostname } from './pools/hostnames.js';
+import { GENERIC_CRON_JOBS, NAME_SERVER_CRON_JOBS, SERVICE_CRON_JOBS } from './pools/etcFiles.js';
+import { CRON_OUTPUT } from './pools/cronMail.js';
+import { roleConfigFile } from './pools/configFiles.js';
+import { ROLE_ROOT_HISTORY, ROOT_HISTORY } from './pools/rootContent.js';
+import { DEBIAN_BASHRC, DEBIAN_BASH_LOGOUT, DEBIAN_PROFILE } from './pools/homeSkeleton.js';
+import { createFsView } from '../filesystem/fsView.js';
+import { lanZoneName, resolveLanName } from '../network/resolveName.js';
+import { asAbsPath } from '../types.js';
+import type { Directory, FilePermissions } from '../filesystem/types.js';
+import { buildWorkstationBaseFs } from './workstationFs.js';
+import { WORLD_EPOCH } from '../cve/worldClock.js';
+import { listenerPidfileName } from '../services/pidfile.js';
 import {
   ALL_ESSIDS,
   deepBoxes,
@@ -29,7 +29,7 @@ import {
   serialise,
   softwareVersionsIn,
   type Box,
-} from '../../test/worldContent';
+} from '../../test/worldContent.js';
 
 /**
  * What any generated box admits to whoever lands on it: a guest gets a real home, anyone

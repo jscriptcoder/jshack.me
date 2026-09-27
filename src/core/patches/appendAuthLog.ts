@@ -19,20 +19,20 @@
  */
 
 import { z } from 'zod';
-import { verifySignedRequest } from '../signedRequest/verify';
-import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
-import { isOwnWorkstation } from '../identity/workstation';
-import { asGameTime } from '../types';
+import { verifySignedRequest } from '../signedRequest/verify.js';
+import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
+import { isOwnWorkstation } from '../identity/workstation.js';
+import { asGameTime } from '../types.js';
 import {
   AUTH_LOG_OWNER,
   AUTH_LOG_PATH,
   AUTH_LOG_PERMISSIONS,
   formatSessionOpenedLine,
   formatSuAuthLine,
-} from '../logging/authLog';
-import { derivePid } from '../logging/syslog';
-import type { NonceStore } from '../signedRequest/nonceStore';
-import type { PatchRow } from './upsertPatch';
+} from '../logging/authLog.js';
+import { derivePid } from '../logging/syslog.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
+import type { PatchRow } from './upsertPatch.js';
 
 export type AuthLogContentQuery = {
   readonly writer_key: string;

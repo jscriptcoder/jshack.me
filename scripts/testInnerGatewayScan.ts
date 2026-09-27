@@ -16,11 +16,11 @@
 // Exits 0 when all checks pass, 1 on failure, 2 on missing env / no inner gateway.
 
 import { createClient } from '@supabase/supabase-js';
-import { signRequest } from '../src/core/signedRequest/sign';
-import { generateIdentity } from '../src/core/identity/identity';
-import { computeInnerGatewayId } from '../src/core/identity/router';
-import { generateHomeLan } from '../src/core/generation/generateHomeLan';
-import { generateDeepLayer } from '../src/core/generation/generateDeepLayer';
+import { signRequest } from '../src/core/signedRequest/sign.js';
+import { generateIdentity } from '../src/core/identity/identity.js';
+import { computeInnerGatewayId } from '../src/core/identity/router.js';
+import { generateHomeLan } from '../src/core/generation/generateHomeLan.js';
+import { generateDeepLayer } from '../src/core/generation/generateDeepLayer.js';
 
 const PATCHES = process.env.PATCHES_ENDPOINT ?? 'http://localhost:3100/api/patches';
 const NETWORK = process.env.NETWORK_ENDPOINT ?? 'http://localhost:3100/api/network';

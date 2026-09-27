@@ -8,9 +8,9 @@
  * how legacy read and what players of it will expect.
  */
 
-import { isValidThemeId, THEME_IDS, THEMES } from '../theme/themes';
-import type { ThemeId } from '../theme/themes';
-import type { Command, TerminalLine } from './types';
+import { isValidThemeId, THEME_IDS, THEMES } from '../theme/themes.js';
+import type { ThemeId } from '../theme/themes.js';
+import type { Command, TerminalLine } from './types.js';
 
 /** `  * amber    Amber` — marker column, padded id, display name. */
 const listingLine = (id: ThemeId, active: ThemeId): TerminalLine => ({

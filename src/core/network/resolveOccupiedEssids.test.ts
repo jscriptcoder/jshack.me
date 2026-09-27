@@ -3,10 +3,10 @@ import {
   handleResolveOccupiedEssids,
   type OccupiedEssidRow,
   type ResolveOccupiedEssidsDeps,
-} from './resolveOccupiedEssids';
-import { signRequest } from '../signedRequest/sign';
-import { generateIdentity } from '../identity/identity';
-import type { NonceStore } from '../signedRequest/nonceStore';
+} from './resolveOccupiedEssids.js';
+import { signRequest } from '../signedRequest/sign.js';
+import { generateIdentity } from '../identity/identity.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 /**
  * `handleResolveOccupiedEssids` is the organic-discovery read: it answers "which

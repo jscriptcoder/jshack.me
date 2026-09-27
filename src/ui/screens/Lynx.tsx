@@ -40,8 +40,8 @@
  */
 
 import { For, Show, createEffect, createMemo, createSignal, on, onMount } from 'solid-js';
-import { fieldBox, renderPage, type FormTarget, type Segment } from '../renderPage';
-import { formSubmissionUrl } from '../../core/network/http';
+import { fieldBox, renderPage, type FormTarget, type Segment } from '../renderPage.js';
+import { formSubmissionUrl } from '../../core/network/http.js';
 
 /** What became of a follow: the reader moved (and new props are on their way), or
  *  they did not, and this is what to tell them. */

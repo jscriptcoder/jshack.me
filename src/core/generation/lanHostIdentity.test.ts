@@ -5,12 +5,12 @@ import {
   machineIdForLanHost,
   generatedBaseFsForMachineId,
   resolveDeepGatewayIdentity,
-} from './lanHostIdentity';
-import { generateDeepLayer } from './generateDeepLayer';
-import { computeDeepGatewayId } from '../identity/router';
-import { generateHomeLan, type LanHost } from './generateHomeLan';
-import type { Directory } from '../filesystem/types';
-import { readRunningProcesses } from '../services/pidfile';
+} from './lanHostIdentity.js';
+import { generateDeepLayer } from './generateDeepLayer.js';
+import { computeDeepGatewayId } from '../identity/router.js';
+import { generateHomeLan, type LanHost } from './generateHomeLan.js';
+import type { Directory } from '../filesystem/types.js';
+import { readRunningProcesses } from '../services/pidfile.js';
 
 // A representative Ed25519 pubkey (64 hex chars) — used only to spell an id this network
 // does NOT generate. Nothing on the LAN or in the chain below it varies with an identity.

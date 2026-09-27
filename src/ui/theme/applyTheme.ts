@@ -11,8 +11,8 @@
  * colour in `themes.ts`, not there.
  */
 
-import { THEMES } from '../../core/theme/themes';
-import type { ThemeId } from '../../core/theme/themes';
+import { THEMES } from '../../core/theme/themes.js';
+import type { ThemeId } from '../../core/theme/themes.js';
 
 /** `scrollThumbHover` → `scroll-thumb-hover`, so the token names in `index.css`
  *  and the field names in `ThemeColors` stay one edit apart. */

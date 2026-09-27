@@ -12,12 +12,12 @@
  * the leases and each box's journal) stays in the handlers: `core/` holds no IO wiring.
  */
 
-import { canBoot } from '../boot/bootFiles';
-import { materializeWorkstationFs, type OwnerPatchRow } from './materializeWorkstationFs';
-import { portsOpenToNetwork } from './portsOpenToNetwork';
-import type { OpenPort } from '../services/pidfile';
-import type { OccupantWorkstation } from '../patches/remoteWritePermission';
-import type { Directory } from '../filesystem/types';
+import { canBoot } from '../boot/bootFiles.js';
+import { materializeWorkstationFs, type OwnerPatchRow } from './materializeWorkstationFs.js';
+import { portsOpenToNetwork } from './portsOpenToNetwork.js';
+import type { OpenPort } from '../services/pidfile.js';
+import type { OccupantWorkstation } from '../patches/remoteWritePermission.js';
+import type { Directory } from '../filesystem/types.js';
 
 /** Rebuild the REAL box behind a forward — the shared generator's baseline for that
  *  occupant's identity with its persisted journal replayed over it — or `null` when it

@@ -5,13 +5,13 @@
  * These helpers let tests describe a tree with plain object literals.
  */
 
-import type { UserType } from '../../core/types';
+import type { UserType } from '../../core/types.js';
 import {
   type Directory,
   type FileEntry,
   type FileNode,
   type FilePermissions,
-} from '../../core/filesystem/types';
+} from '../../core/filesystem/types.js';
 
 const ALL_TIERS: readonly UserType[] = ['root', 'user', 'guest'];
 

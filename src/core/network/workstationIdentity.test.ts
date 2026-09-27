@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { workstationIdentityFields } from './workstationIdentity';
-import { md5 } from '../generation/md5';
-import type { GameConfig } from '../gameConfig/gameConfig';
+import { workstationIdentityFields } from './workstationIdentity.js';
+import { md5 } from '../generation/md5.js';
+import type { GameConfig } from '../gameConfig/gameConfig.js';
 
 /**
  * `workstationIdentityFields` derives the occupancy fields the server needs to

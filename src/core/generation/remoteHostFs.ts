@@ -28,8 +28,8 @@
  * only difference is who the accounts are.
  */
 
-import { createPrng } from './prng';
-import { SERVICE_CATALOG, type ServiceSpec } from '../services/serviceCatalog';
+import { createPrng } from './prng.js';
+import { SERVICE_CATALOG, type ServiceSpec } from '../services/serviceCatalog.js';
 import {
   daemonName,
   formatListenerContent,
@@ -37,17 +37,17 @@ import {
   listenerPidfileName,
   PIDFILE_PERMISSIONS,
   type Listener,
-} from '../services/pidfile';
-import { binariesForService } from '../packages/aptPackages';
+} from '../services/pidfile.js';
+import { binariesForService } from '../packages/aptPackages.js';
 import {
   createBinaryEntries,
   LOCALHOST_PREINSTALLED_TOOLS,
   SERVICE_CONTROL_TOOLS,
   SYSTEM_DAEMON_NAMES,
   SYSTEM_UTILITY_NAMES,
-} from './binaries';
-import { createLibraryEntries, SYSTEM_LIBRARIES } from './libraries';
-import { withPackageManifest } from '../packages/packageManifest';
+} from './binaries.js';
+import { createLibraryEntries, SYSTEM_LIBRARIES } from './libraries.js';
+import { withPackageManifest } from '../packages/packageManifest.js';
 import {
   bootDir,
   dir,
@@ -63,40 +63,40 @@ import {
   TRAVERSABLE_DIR,
   WEB_PAGE_FILE,
   DATADIR_FILE,
-} from './baseFs';
-import { md5 } from './md5';
-import { CRACK_CHANCE, drawPassword } from './passwordPools';
-import { pickWebPage } from './pools/webPages';
-import { buildWebSite } from './webSite';
-import { roleConfigFile } from './pools/configFiles';
-import { buildDevice } from './device';
-import { nameServerFilesFor } from './generateDnsZone';
-import { roleOfHostname } from './pools/hostnames';
-import { isSiteServer, siteServer } from './siteServer';
-import type { ForwardTarget } from '../network/iptablesRules';
-import { lanZoneName } from '../network/resolveName';
-import { buildNpcHome } from './npcHome';
-import { buildEtcContent } from './etcContent';
-import { buildLogHistory } from './logHistory';
-import { buildRootHome } from './rootHome';
-import { buildSshDirectories } from './sshContent';
-import { mailEntries, peopleKnownOn } from './mailbox';
-import { MAIL_LOG_PERMISSIONS } from '../logging/mailLog';
-import { buildShare } from './share';
-import { DEBIAN_BASH_LOGOUT, DEBIAN_BASHRC, DEBIAN_PROFILE } from './pools/homeSkeleton';
-import { pickUsername } from './pools/usernames';
-import { placementOf } from './rolePlacement';
-import { generateApplication, generateDatabase } from './generateDatabase';
-import { formatRedisConf, generateRedisStore } from './generateRedisStore';
-import { ACCESS_LOG_PERMISSIONS } from '../logging/accessLog';
-import { VSFTPD_LOG_PERMISSIONS } from '../logging/vsftpdLog';
-import { AUTH_LOG_PERMISSIONS } from '../logging/authLog';
-import { KERN_LOG_PERMISSIONS } from '../logging/kernLog';
-import { MYSQL_LOG_PERMISSIONS } from '../logging/mysqlLog';
-import { REDIS_LOG_PERMISSIONS } from '../logging/redisLog';
-import { NAMED_LOG_PERMISSIONS } from '../logging/namedLog';
-import type { Directory, FileEntry, FileNode } from '../filesystem/types';
-import type { LanHost } from './generateHomeLan';
+} from './baseFs.js';
+import { md5 } from './md5.js';
+import { CRACK_CHANCE, drawPassword } from './passwordPools.js';
+import { pickWebPage } from './pools/webPages.js';
+import { buildWebSite } from './webSite.js';
+import { roleConfigFile } from './pools/configFiles.js';
+import { buildDevice } from './device.js';
+import { nameServerFilesFor } from './generateDnsZone.js';
+import { roleOfHostname } from './pools/hostnames.js';
+import { isSiteServer, siteServer } from './siteServer.js';
+import type { ForwardTarget } from '../network/iptablesRules.js';
+import { lanZoneName } from '../network/resolveName.js';
+import { buildNpcHome } from './npcHome.js';
+import { buildEtcContent } from './etcContent.js';
+import { buildLogHistory } from './logHistory.js';
+import { buildRootHome } from './rootHome.js';
+import { buildSshDirectories } from './sshContent.js';
+import { mailEntries, peopleKnownOn } from './mailbox.js';
+import { MAIL_LOG_PERMISSIONS } from '../logging/mailLog.js';
+import { buildShare } from './share.js';
+import { DEBIAN_BASH_LOGOUT, DEBIAN_BASHRC, DEBIAN_PROFILE } from './pools/homeSkeleton.js';
+import { pickUsername } from './pools/usernames.js';
+import { placementOf } from './rolePlacement.js';
+import { generateApplication, generateDatabase } from './generateDatabase.js';
+import { formatRedisConf, generateRedisStore } from './generateRedisStore.js';
+import { ACCESS_LOG_PERMISSIONS } from '../logging/accessLog.js';
+import { VSFTPD_LOG_PERMISSIONS } from '../logging/vsftpdLog.js';
+import { AUTH_LOG_PERMISSIONS } from '../logging/authLog.js';
+import { KERN_LOG_PERMISSIONS } from '../logging/kernLog.js';
+import { MYSQL_LOG_PERMISSIONS } from '../logging/mysqlLog.js';
+import { REDIS_LOG_PERMISSIONS } from '../logging/redisLog.js';
+import { NAMED_LOG_PERMISSIONS } from '../logging/namedLog.js';
+import type { Directory, FileEntry, FileNode } from '../filesystem/types.js';
+import type { LanHost } from './generateHomeLan.js';
 
 const pidfile = (content: string, owner: string): FileEntry =>
   file(content, PIDFILE_PERMISSIONS, owner);

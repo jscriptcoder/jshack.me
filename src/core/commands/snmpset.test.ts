@@ -1,14 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
-import { snmpset } from './snmpset';
+import { snmpset } from './snmpset.js';
 import {
   mockCommandEnv,
   mockNetworkViewFromConnectivity,
   mockSnmpApi,
-} from '../../test/factories/commandEnv';
-import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces';
-import { assignHomeNetwork } from '../network/homeNetwork';
-import { asPlayerKeyHex } from '../types';
-import type { CommandEnv, CommandResult, SnmpApi, SnmpSetResult } from './types';
+} from '../../test/factories/commandEnv.js';
+import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces.js';
+import { assignHomeNetwork } from '../network/homeNetwork.js';
+import { asPlayerKeyHex } from '../types.js';
+import type { CommandEnv, CommandResult, SnmpApi, SnmpSetResult } from './types.js';
 
 /**
  * `snmpset <host> <community> <oid>=<value>` — the payoff of the whole door, and the

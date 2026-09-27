@@ -13,9 +13,9 @@
  * `buildRouterBaseFsFromIdentity` a pure function of (root hash, sshd-on?).
  */
 
-import { materializeMachineFs, type OwnerPatchRow } from './materializeMachineFs';
-import { buildApGatewayBaseFs } from '../generation/routerFs';
-import type { Directory } from '../filesystem/types';
+import { materializeMachineFs, type OwnerPatchRow } from './materializeMachineFs.js';
+import { buildApGatewayBaseFs } from '../generation/routerFs.js';
+import type { Directory } from '../filesystem/types.js';
 
 /** The network identity the gateway base is reconstructed from — the ESSID alone
  *  seeds the admin password and sshd presence, because the gateway belongs to the

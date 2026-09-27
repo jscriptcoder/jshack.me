@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { createPrng } from './prng';
-import { generatePublicIp, isPublicIp, PUBLISHER_FIRST_OCTET, publicFirstOctets } from './ip';
+import { createPrng } from './prng.js';
+import { generatePublicIp, isPublicIp, PUBLISHER_FIRST_OCTET, publicFirstOctets } from './ip.js';
 
 /**
  * `generatePublicIp` is the seeded WAN/public-IP generator (ported from legacy

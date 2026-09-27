@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { bootableOccupantFs, natPortResolver } from './natHosts';
-import { generateIdentity } from '../identity/identity';
-import { md5 } from '../generation/md5';
-import { readOpenPorts } from '../services/pidfile';
-import type { Directory } from '../filesystem/types';
-import type { OwnerPatchRow } from './materializeWorkstationFs';
+import { bootableOccupantFs, natPortResolver } from './natHosts.js';
+import { generateIdentity } from '../identity/identity.js';
+import { md5 } from '../generation/md5.js';
+import { readOpenPorts } from '../services/pidfile.js';
+import type { Directory } from '../filesystem/types.js';
+import type { OwnerPatchRow } from './materializeWorkstationFs.js';
 
 /**
  * The two pure pieces every NAT forward on a shared AP is resolved through: rebuilding

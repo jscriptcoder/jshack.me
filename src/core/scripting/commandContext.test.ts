@@ -1,30 +1,30 @@
 import { describe, expect, it, vi } from 'vitest';
-import { buildCommandContext, scriptIdentifier } from './commandContext';
-import { cat } from '../commands/cat';
-import { author } from '../commands/author';
-import { clear } from '../commands/clear';
-import { theme } from '../commands/theme';
-import { xterm } from '../commands/xterm';
-import { find } from '../commands/find';
-import { strings } from '../commands/strings';
-import { chmod } from '../commands/chmod';
-import { gpg } from '../commands/gpg';
-import type { PatchApi } from '../commands/types';
-import { echo } from '../commands/echo';
-import { ls } from '../commands/ls';
-import { nc } from '../commands/nc';
-import { scp } from '../commands/scp';
-import { msfconsole } from '../commands/msfconsole';
-import { commandRegistry } from '../commands/registry';
-import { buildDirectory, buildFile } from '../../test/factories/filesystem';
+import { buildCommandContext, scriptIdentifier } from './commandContext.js';
+import { cat } from '../commands/cat.js';
+import { author } from '../commands/author.js';
+import { clear } from '../commands/clear.js';
+import { theme } from '../commands/theme.js';
+import { xterm } from '../commands/xterm.js';
+import { find } from '../commands/find.js';
+import { strings } from '../commands/strings.js';
+import { chmod } from '../commands/chmod.js';
+import { gpg } from '../commands/gpg.js';
+import type { PatchApi } from '../commands/types.js';
+import { echo } from '../commands/echo.js';
+import { ls } from '../commands/ls.js';
+import { nc } from '../commands/nc.js';
+import { scp } from '../commands/scp.js';
+import { msfconsole } from '../commands/msfconsole.js';
+import { commandRegistry } from '../commands/registry.js';
+import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
 import {
   mockCommandEnv,
   mockFsViewFromTree,
   mockPatchApi,
   mockSession,
-} from '../../test/factories/commandEnv';
-import { asAbsPath } from '../types';
-import type { Command, CommandEnv, TerminalLine } from '../commands/types';
+} from '../../test/factories/commandEnv.js';
+import { asAbsPath } from '../types.js';
+import type { Command, CommandEnv, TerminalLine } from '../commands/types.js';
 
 /** The commands under test, wired the way `node` wires the registry. Passing
  *  the ungated command keeps these tests about the ADAPTER; the binary gate has

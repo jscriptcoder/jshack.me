@@ -13,9 +13,9 @@
  * names, so one formatter can word a failed read and a failed write alike.
  */
 
-import type { AbsPath } from '../types';
-import type { FsView } from '../commands/types';
-import { dirname, resolveAbsPath } from './path';
+import type { AbsPath } from '../types.js';
+import type { FsView } from '../commands/types.js';
+import { dirname, resolveAbsPath } from './path.js';
 
 export type WriteTarget =
   | { readonly ok: true; readonly target: AbsPath; readonly isNew: boolean }

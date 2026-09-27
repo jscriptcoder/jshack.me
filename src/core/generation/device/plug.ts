@@ -3,10 +3,10 @@
  * energy the appliance drew each day, which is nothing on a day no rule turned it on.
  */
 
-import type { Prng } from '../prng';
-import { dir, file, SERVICE_CONFIG_FILE, TRAVERSABLE_DIR } from '../baseFs';
-import type { LanHost } from '../generateHomeLan';
-import { PLUG_APPLIANCES, PLUG_DAYS } from '../pools/devices';
+import type { Prng } from '../prng.js';
+import { dir, file, SERVICE_CONFIG_FILE, TRAVERSABLE_DIR } from '../baseFs.js';
+import type { LanHost } from '../generateHomeLan.js';
+import { PLUG_APPLIANCES, PLUG_DAYS } from '../pools/devices.js';
 import {
   DAY_SECONDS,
   LAST_SECOND,
@@ -15,7 +15,7 @@ import {
   uiPage,
   userTree,
   type DeviceFiles,
-} from './common';
+} from './common.js';
 
 const SCHEDULE_PATH = '/var/lib/plugd/schedule.conf';
 const ENERGY_PATH = '/var/lib/plugd/energy.csv';

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { describeSet, parseSnmpSet } from './set';
-import { forwardOid } from './walk';
+import { describeSet, parseSnmpSet } from './set.js';
+import { forwardOid } from './walk.js';
 
 /**
  * `forward.<port>=<ip>:<port>` and `aclPort.<port>=deny` — the whole of what a

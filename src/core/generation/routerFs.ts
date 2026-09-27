@@ -10,20 +10,20 @@
  * workstation's `workstation-` stream so the two boxes' secrets never correlate.
  */
 
-import type { Directory, FileNode } from '../filesystem/types';
-import { createPrng } from './prng';
-import { md5 } from './md5';
-import { CRACK_CHANCE, drawPassword } from './passwordPools';
+import type { Directory, FileNode } from '../filesystem/types.js';
+import { createPrng } from './prng.js';
+import { md5 } from './md5.js';
+import { CRACK_CHANCE, drawPassword } from './passwordPools.js';
 import {
   createBinaryEntries,
   LOCALHOST_PREINSTALLED_TOOLS,
   SERVICE_CONTROL_TOOLS,
   SYSTEM_DAEMON_NAMES,
   SYSTEM_UTILITY_NAMES,
-} from './binaries';
-import { createLibraryEntries, SYSTEM_LIBRARIES } from './libraries';
-import { withPackageManifest } from '../packages/packageManifest';
-import { FIRMWARE_VENDORS, type FirmwareVendor } from '../packages/packageVersions';
+} from './binaries.js';
+import { createLibraryEntries, SYSTEM_LIBRARIES } from './libraries.js';
+import { withPackageManifest } from '../packages/packageManifest.js';
+import { FIRMWARE_VENDORS, type FirmwareVendor } from '../packages/packageVersions.js';
 import {
   bootDir,
   dir,
@@ -36,35 +36,35 @@ import {
   TMP_DIR,
   TRAVERSABLE_DIR,
   withFiles,
-} from './baseFs';
-import { ACCESS_LOG_PERMISSIONS } from '../logging/accessLog';
-import { AUTH_LOG_PERMISSIONS } from '../logging/authLog';
-import { KERN_LOG_PERMISSIONS } from '../logging/kernLog';
-import { SNMPD_LOG_PERMISSIONS } from '../logging/snmpdLog';
-import { RULES_V4_PERMISSIONS, withForward } from '../network/iptablesRules';
-import { siteForward } from './remoteHostFs';
-import { ACL_CONF_PERMISSIONS, parseAclDenies } from '../network/switchAcl';
-import { gatewayBackups } from './gatewayBackups';
-import { gatewayAdminUi } from './gatewayAdminUi';
-import { SNMPD_CONF_PERMISSIONS, SNMPD_CONF_SEED } from '../snmp/conf';
-import { formatSnmpdState, SNMPD_STATE_PERMISSIONS } from '../snmp/rwCommunity';
-import { placementOf } from './rolePlacement';
-import { daemonName, formatPidfileContent, PIDFILE_PERMISSIONS } from '../services/pidfile';
-import { SERVICE_CATALOG } from '../services/serviceCatalog';
+} from './baseFs.js';
+import { ACCESS_LOG_PERMISSIONS } from '../logging/accessLog.js';
+import { AUTH_LOG_PERMISSIONS } from '../logging/authLog.js';
+import { KERN_LOG_PERMISSIONS } from '../logging/kernLog.js';
+import { SNMPD_LOG_PERMISSIONS } from '../logging/snmpdLog.js';
+import { RULES_V4_PERMISSIONS, withForward } from '../network/iptablesRules.js';
+import { siteForward } from './remoteHostFs.js';
+import { ACL_CONF_PERMISSIONS, parseAclDenies } from '../network/switchAcl.js';
+import { gatewayBackups } from './gatewayBackups.js';
+import { gatewayAdminUi } from './gatewayAdminUi.js';
+import { SNMPD_CONF_PERMISSIONS, SNMPD_CONF_SEED } from '../snmp/conf.js';
+import { formatSnmpdState, SNMPD_STATE_PERMISSIONS } from '../snmp/rwCommunity.js';
+import { placementOf } from './rolePlacement.js';
+import { daemonName, formatPidfileContent, PIDFILE_PERMISSIONS } from '../services/pidfile.js';
+import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
 import {
   apGatewayNetwork,
   chainRouterNetwork,
   chainSwitchNetwork,
   type GatewayNetworkEntries,
-} from './gatewayNetwork';
+} from './gatewayNetwork.js';
 import {
   computeApGatewayId,
   computeDeepGatewayId,
   computeInnerGatewayId,
-} from '../identity/router';
-import { gatewayLogRotations, gatewayRootHistory, gatewaySite } from './gatewayHistory';
-import { SYSLOG_PERMISSIONS } from '../logging/syslog';
-import { buildFinditFs, FINDIT_NETWORK } from './findit';
+} from '../identity/router.js';
+import { gatewayLogRotations, gatewayRootHistory, gatewaySite } from './gatewayHistory.js';
+import { SYSLOG_PERMISSIONS } from '../logging/syslog.js';
+import { buildFinditFs, FINDIT_NETWORK } from './findit.js';
 
 /** The AP gateway's root account plaintext password, seeded from the ESSID alone
  *  (the `ap-gw-admin-` namespace) so every occupant of the access point faces the

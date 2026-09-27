@@ -22,15 +22,15 @@
  * same string, so a page looks the same however far away it was.
  */
 
-import type { Command, CommandResult, TerminalLine } from './types';
-import { createFsView } from '../filesystem/fsView';
-import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import { parseTypedUrl, resolveWebPath } from '../network/http';
-import { isPublicIp } from '../generation/ip';
-import { addressForTarget } from '../network/resolveName';
-import { connectedWlan0 } from '../network/interfaces';
-import { reachWebHost } from './webHost';
-import { fetchPageAcrossNetwork } from './webPage';
+import type { Command, CommandResult, TerminalLine } from './types.js';
+import { createFsView } from '../filesystem/fsView.js';
+import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
+import { parseTypedUrl, resolveWebPath } from '../network/http.js';
+import { isPublicIp } from '../generation/ip.js';
+import { addressForTarget } from '../network/resolveName.js';
+import { connectedWlan0 } from '../network/interfaces.js';
+import { reachWebHost } from './webHost.js';
+import { fetchPageAcrossNetwork } from './webPage.js';
 
 const error = (message: string): CommandResult => ({
   kind: 'sync',

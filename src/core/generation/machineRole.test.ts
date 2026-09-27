@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DRAWN_ROLES, machineRole, type MachineRole } from './machineRole';
+import { DRAWN_ROLES, machineRole, type MachineRole } from './machineRole.js';
 
 /**
  * `machineRole` decides what a generated NPC box is FOR. It is derived rather than

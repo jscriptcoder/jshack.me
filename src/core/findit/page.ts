@@ -6,7 +6,7 @@
  * `name="q"` exactly what to type into an address bar.
  */
 
-import type { IndexedPage } from './search';
+import type { IndexedPage } from './search.js';
 
 /** Everything interpolated into a page is escaped, because other people write what is
  *  interpolated: the query is a searcher's, and the titles are the sites'. */

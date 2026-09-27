@@ -28,7 +28,7 @@
  * test that asserts on a command's side effects has to drain it too.
  */
 
-import type { CommandResult, TerminalLine } from './types';
+import type { CommandResult, TerminalLine } from './types.js';
 
 export const text = (content: string): TerminalLine => ({ kind: 'text', content });
 

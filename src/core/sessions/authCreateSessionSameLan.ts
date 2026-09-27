@@ -21,29 +21,29 @@
  */
 
 import { z } from 'zod';
-import { verifySignedRequest } from '../signedRequest/verify';
-import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
-import { lanAddressesByOwner, type LanLeaseRow } from '../network/lanAddress';
-import { materializeWorkstationFs, type OwnerPatchRow } from '../network/materializeWorkstationFs';
-import { canBoot } from '../boot/bootFiles';
-import { md5 } from '../generation/md5';
-import { accountIn } from './passwdAccount';
+import { verifySignedRequest } from '../signedRequest/verify.js';
+import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
+import { lanAddressesByOwner, type LanLeaseRow } from '../network/lanAddress.js';
+import { materializeWorkstationFs, type OwnerPatchRow } from '../network/materializeWorkstationFs.js';
+import { canBoot } from '../boot/bootFiles.js';
+import { md5 } from '../generation/md5.js';
+import { accountIn } from './passwdAccount.js';
 import {
   AUTH_LOG_OWNER,
   AUTH_LOG_PATH,
   AUTH_LOG_PERMISSIONS,
   formatSshdAuthLine,
-} from '../logging/authLog';
-import { derivePid } from '../logging/syslog';
+} from '../logging/authLog.js';
+import { derivePid } from '../logging/syslog.js';
 import {
   appendMachineLog,
   type MachineLogReadQuery,
   type MachineLogReadResult,
-} from '../patches/appendMachineLog';
-import { asGameTime } from '../types';
-import type { PatchRow } from '../patches/upsertPatch';
-import { DOOR_KINDS, reachDoor, type AuthSessionRow, type HandlerResponse } from './authCreateSession';
-import type { NonceStore } from '../signedRequest/nonceStore';
+} from '../patches/appendMachineLog.js';
+import { asGameTime } from '../types.js';
+import type { PatchRow } from '../patches/upsertPatch.js';
+import { DOOR_KINDS, reachDoor, type AuthSessionRow, type HandlerResponse } from './authCreateSession.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 /** The occupancy fields a same-LAN connect needs: whose row it is (the LAN-boundary
  *  gate + self-exclusion + LAN-IP match), the workstation the session lands on, and the

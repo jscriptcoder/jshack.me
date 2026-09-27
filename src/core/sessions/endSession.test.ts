@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import { handleEndSession, type EndSessionDeps, type EndSessionParams } from './endSession';
-import { signRequest } from '../signedRequest/sign';
-import { generateIdentity } from '../identity/identity';
-import type { NonceStore } from '../signedRequest/nonceStore';
+import { handleEndSession, type EndSessionDeps, type EndSessionParams } from './endSession.js';
+import { signRequest } from '../signedRequest/sign.js';
+import { generateIdentity } from '../identity/identity.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 const freshStore: NonceStore = async () => ({ fresh: true });
 

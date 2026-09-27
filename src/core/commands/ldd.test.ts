@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { commandRegistry } from './registry';
-import { buildDirectory, buildFile } from '../../test/factories/filesystem';
-import { mockCommandEnv, mockFsViewFromTree, mockSession } from '../../test/factories/commandEnv';
-import { binaryStub } from '../generation/binaries';
-import { SYSTEM_LIBRARIES, type SystemLibrary } from '../generation/libraries';
-import { asAbsPath } from '../types';
-import type { FileNode } from '../filesystem/types';
-import type { CommandResult, TerminalLine } from './types';
+import { commandRegistry } from './registry.js';
+import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
+import { mockCommandEnv, mockFsViewFromTree, mockSession } from '../../test/factories/commandEnv.js';
+import { binaryStub } from '../generation/binaries.js';
+import { SYSTEM_LIBRARIES, type SystemLibrary } from '../generation/libraries.js';
+import { asAbsPath } from '../types.js';
+import type { FileNode } from '../filesystem/types.js';
+import type { CommandResult, TerminalLine } from './types.js';
 
 const NO_FLAGS = new Map<string, string | true>();
 

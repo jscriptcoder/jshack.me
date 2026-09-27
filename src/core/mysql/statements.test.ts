@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { mysqlDatabaseSchema } from './types';
-import { runStatement, type StatementResult } from './statements';
-import type { MysqlDatabase } from './types';
-import type { UserType } from '../types';
+import { mysqlDatabaseSchema } from './types.js';
+import { runStatement, type StatementResult } from './statements.js';
+import type { MysqlDatabase } from './types.js';
+import type { UserType } from '../types.js';
 
 /**
  * What a database says back to a statement typed at `mysql>`.

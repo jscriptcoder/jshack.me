@@ -1,16 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { buildRemoteHostFs, hostServices, npcUsername } from './remoteHostFs';
-import { machineCommandOptions } from './npcHome';
-import { buildDeepHostFs } from './deepHostFs';
-import { crackableEssidPool } from './generateWifi';
-import { generateHomeLan, type LanHost } from './generateHomeLan';
-import { generateDeepLayer } from './generateDeepLayer';
-import { chainLinks } from './lanTopology';
-import { inhabitant, networkPersona } from './persona';
-import { createFsView } from '../filesystem/fsView';
-import { WORLD_EPOCH } from '../cve/worldClock';
-import { asAbsPath } from '../types';
-import type { Directory } from '../filesystem/types';
+import { buildRemoteHostFs, hostServices, npcUsername } from './remoteHostFs.js';
+import { machineCommandOptions } from './npcHome.js';
+import { buildDeepHostFs } from './deepHostFs.js';
+import { crackableEssidPool } from './generateWifi.js';
+import { generateHomeLan, type LanHost } from './generateHomeLan.js';
+import { generateDeepLayer } from './generateDeepLayer.js';
+import { chainLinks } from './lanTopology.js';
+import { inhabitant, networkPersona } from './persona.js';
+import { createFsView } from '../filesystem/fsView.js';
+import { WORLD_EPOCH } from '../cve/worldClock.js';
+import { asAbsPath } from '../types.js';
+import type { Directory } from '../filesystem/types.js';
 import {
   ALL_ESSIDS,
   falsehoodIn,
@@ -18,7 +18,7 @@ import {
   lanBoxes,
   serialise,
   type Box,
-} from '../../test/worldContent';
+} from '../../test/worldContent.js';
 
 /**
  * An NPC's personal computer is somebody's: its home holds what that person left

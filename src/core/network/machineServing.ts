@@ -12,9 +12,9 @@
  * (`readOpenPorts` + the shared `readRulesV4`/`parseForwardRules`), no wiring.
  */
 
-import type { Directory } from '../filesystem/types';
-import { readOpenPorts } from '../services/pidfile';
-import { parseForwardRules, readRulesV4 } from './iptablesRules';
+import type { Directory } from '../filesystem/types.js';
+import { readOpenPorts } from '../services/pidfile.js';
+import { parseForwardRules, readRulesV4 } from './iptablesRules.js';
 
 /** Which machine serves a destination port behind the public IP: the router
  *  itself, an internal host reached through a NAT forward, or none. */

@@ -31,10 +31,10 @@
  * an occupied ESSID the base draw already produced is never doubled.
  */
 
-import { bssidFromEssid, type WifiNetwork } from '../network/wifi';
-import { createPrng } from './prng';
-import { secrets } from '../secrets/__encoded';
-import { ESSID_CATALOG } from './pools/essidCatalog';
+import { bssidFromEssid, type WifiNetwork } from '../network/wifi.js';
+import { createPrng } from './prng.js';
+import { secrets } from '../secrets/__encoded.js';
+import { ESSID_CATALOG } from './pools/essidCatalog.js';
 
 const wifiPasswords: readonly string[] = JSON.parse(secrets.WIFI_PASSWORDS) as readonly string[];
 

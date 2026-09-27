@@ -1,41 +1,41 @@
 import { describe, expect, it, vi } from 'vitest';
-import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter';
+import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
 import {
   handleAuthCreateSessionPublic,
   type AuthCreateSessionPublicDeps,
-} from './authCreateSessionPublic';
-import type { ApNetworkLookup, NatOccupantRow } from '../network/resolvePublicTarget';
-import type { AuthSessionRow } from './authCreateSession';
-import { md5 } from '../generation/md5';
-import { seedApGatewayAdminPw } from '../generation/routerFs';
-import { seedApGatewayHostname } from '../generation/gatewayHostname';
-import { workstationGuestPassword } from '../generation/workstationFs';
-import { signRequest } from '../signedRequest/sign';
-import { generateIdentity } from '../identity/identity';
-import { computeApGatewayId } from '../identity/router';
-import { computeWorkstationId } from '../identity/workstation';
-import { lanAddressFor, type LanLeaseRow } from '../network/lanAddress';
-import type { OwnerPatchRow } from '../network/materializeWorkstationFs';
-import { formatListenerContent } from '../services/pidfile';
-import { asGameTime } from '../types';
+} from './authCreateSessionPublic.js';
+import type { ApNetworkLookup, NatOccupantRow } from '../network/resolvePublicTarget.js';
+import type { AuthSessionRow } from './authCreateSession.js';
+import { md5 } from '../generation/md5.js';
+import { seedApGatewayAdminPw } from '../generation/routerFs.js';
+import { seedApGatewayHostname } from '../generation/gatewayHostname.js';
+import { workstationGuestPassword } from '../generation/workstationFs.js';
+import { signRequest } from '../signedRequest/sign.js';
+import { generateIdentity } from '../identity/identity.js';
+import { computeApGatewayId } from '../identity/router.js';
+import { computeWorkstationId } from '../identity/workstation.js';
+import { lanAddressFor, type LanLeaseRow } from '../network/lanAddress.js';
+import type { OwnerPatchRow } from '../network/materializeWorkstationFs.js';
+import { formatListenerContent } from '../services/pidfile.js';
+import { asGameTime } from '../types.js';
 import {
   AUTH_LOG_OWNER,
   AUTH_LOG_PATH,
   AUTH_LOG_PERMISSIONS,
   formatSshdAuthLine,
-} from '../logging/authLog';
+} from '../logging/authLog.js';
 import {
   VSFTPD_LOG_OWNER,
   VSFTPD_LOG_PATH,
   VSFTPD_LOG_PERMISSIONS,
   formatVsftpdConnectLine,
   formatVsftpdLoginLine,
-} from '../logging/vsftpdLog';
-import { derivePid } from '../logging/syslog';
-import type { FindActiveSession } from '../patches/authorizeMachineAccess';
-import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog';
-import type { PatchRow } from '../patches/upsertPatch';
-import type { NonceStore } from '../signedRequest/nonceStore';
+} from '../logging/vsftpdLog.js';
+import { derivePid } from '../logging/syslog.js';
+import type { FindActiveSession } from '../patches/authorizeMachineAccess.js';
+import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog.js';
+import type { PatchRow } from '../patches/upsertPatch.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 /**
  * `handleAuthCreateSessionPublic` is the cross-player ssh-login gate: it routes by

@@ -19,7 +19,7 @@
  * override existing anywhere that could be left switched on in production.
  */
 
-import { asEpochMs, type EpochMs } from '../types';
+import { asEpochMs, type EpochMs } from '../types.js';
 
 const DAY_MS = 86_400_000;
 

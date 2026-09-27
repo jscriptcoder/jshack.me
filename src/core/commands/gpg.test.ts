@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
-import { gpg } from './gpg';
-import { buildDirectory, buildFile } from '../../test/factories/filesystem';
-import { mockCommandEnv, mockFsViewFromTree, mockSession } from '../../test/factories/commandEnv';
-import { applyPatches, type Patch } from '../filesystem/applyPatches';
-import { createFsView } from '../filesystem/fsView';
-import { asAbsPath, type UserType } from '../types';
-import type { CommandEnv, CommandResult, PatchApi, PatchResult } from './types';
-import type { Directory } from '../filesystem/types';
+import { gpg } from './gpg.js';
+import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
+import { mockCommandEnv, mockFsViewFromTree, mockSession } from '../../test/factories/commandEnv.js';
+import { applyPatches, type Patch } from '../filesystem/applyPatches.js';
+import { createFsView } from '../filesystem/fsView.js';
+import { asAbsPath, type UserType } from '../types.js';
+import type { CommandEnv, CommandResult, PatchApi, PatchResult } from './types.js';
+import type { Directory } from '../filesystem/types.js';
 
 const ENCRYPT = new Map<string, string | true>([['-c', true]]);
 const DECRYPT = new Map<string, string | true>([['-d', true]]);

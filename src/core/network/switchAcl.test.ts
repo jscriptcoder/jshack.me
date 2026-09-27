@@ -6,9 +6,9 @@ import {
   ACL_CONF_OWNER,
   ACL_CONF_PATH,
   ACL_CONF_PERMISSIONS,
-} from './switchAcl';
-import { buildApGatewayBaseFs, buildSwitchBaseFs } from '../generation/routerFs';
-import { buildDirectory } from '../../test/factories/filesystem';
+} from './switchAcl.js';
+import { buildApGatewayBaseFs, buildSwitchBaseFs } from '../generation/routerFs.js';
+import { buildDirectory } from '../../test/factories/filesystem.js';
 
 /**
  * `/etc/switch/acl.conf` is a switch's port access-control list — the switch's

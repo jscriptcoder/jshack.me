@@ -1,20 +1,20 @@
 import { describe, expect, it, vi } from 'vitest';
-import { dig } from './dig';
-import { nslookup } from './nslookup';
-import type { CommandResult } from './types';
+import { dig } from './dig.js';
+import { nslookup } from './nslookup.js';
+import type { CommandResult } from './types.js';
 import {
   mockCommandEnv,
   mockIdentity,
   mockNetworkView,
   mockNetworkViewFromConnectivity,
   mockScanApi,
-} from '../../test/factories/commandEnv';
-import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces';
-import { assignHomeNetwork } from '../network/homeNetwork';
-import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
-import { zoneRecordsFor } from '../generation/generateDnsZone';
-import type { OccupantProjection } from '../network/resolveOccupants';
-import { asEpochMs, asPlayerKeyHex } from '../types';
+} from '../../test/factories/commandEnv.js';
+import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces.js';
+import { assignHomeNetwork } from '../network/homeNetwork.js';
+import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
+import { zoneRecordsFor } from '../generation/generateDnsZone.js';
+import type { OccupantProjection } from '../network/resolveOccupants.js';
+import { asEpochMs, asPlayerKeyHex } from '../types.js';
 
 /**
  * `dig <name>` — the same question `nslookup` asks, in the form the tool most

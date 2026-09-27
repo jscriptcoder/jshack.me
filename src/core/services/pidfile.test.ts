@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SERVICE_CATALOG } from './serviceCatalog';
+import { SERVICE_CATALOG } from './serviceCatalog.js';
 import {
   formatListenerContent,
   formatPidfileContent,
@@ -10,13 +10,13 @@ import {
   readOpenPorts,
   readRunningProcesses,
   serviceByPidfileName,
-} from './pidfile';
-import { buildDirectory, buildFile } from '../../test/factories/filesystem';
-import type { Directory } from '../filesystem/types';
-import { buildEntry, formatDpkgStatus } from '../packages/dpkgStatus';
-import { exploitOutcome } from '../cve/exploitEffect';
-import { installedRelease } from '../cve/packageTimeline';
-import { asMachineId } from '../types';
+} from './pidfile.js';
+import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
+import type { Directory } from '../filesystem/types.js';
+import { buildEntry, formatDpkgStatus } from '../packages/dpkgStatus.js';
+import { exploitOutcome } from '../cve/exploitEffect.js';
+import { installedRelease } from '../cve/packageTimeline.js';
+import { asMachineId } from '../types.js';
 
 const ssh = SERVICE_CATALOG.ssh;
 

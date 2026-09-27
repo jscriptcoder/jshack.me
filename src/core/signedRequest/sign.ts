@@ -8,10 +8,10 @@
  * those exact bytes and parses afterward.
  */
 
-import { sign as edSign } from '../identity/identity';
-import { bytesToHex, hexToBytes } from '../identity/hex';
-import { NONCE_HEX_LENGTH, type SignedEnvelope } from './types';
-import type { Identity } from '../commands/types';
+import { sign as edSign } from '../identity/identity.js';
+import { bytesToHex, hexToBytes } from '../identity/hex.js';
+import { NONCE_HEX_LENGTH, type SignedEnvelope } from './types.js';
+import type { Identity } from '../commands/types.js';
 
 const NONCE_BYTES = NONCE_HEX_LENGTH / 2;
 

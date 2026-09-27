@@ -24,10 +24,10 @@
  * caller.
  */
 
-import { asAbsPath, type AbsPath } from '../types';
-import type { FilePermissions } from '../filesystem/types';
-import type { CredentialAttempt } from './authLog';
-import { formatSyslogLine } from './syslog';
+import { asAbsPath, type AbsPath } from '../types.js';
+import type { FilePermissions } from '../filesystem/types.js';
+import type { CredentialAttempt } from './authLog.js';
+import { formatSyslogLine } from './syslog.js';
 
 /** The canonical `/var/log/snmpd.log` storage identity — single source of truth shared
  *  by the boot seed (`generation/routerFs`) and every server-side appender, so the

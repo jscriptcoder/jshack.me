@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { abortableSleep } from './sleep';
+import { abortableSleep } from './sleep.js';
 
 /**
  * `abortableSleep` is the real (UI-side) implementation behind `env.sleep` — the

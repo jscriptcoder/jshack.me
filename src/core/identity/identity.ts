@@ -15,9 +15,9 @@
 
 import * as ed from '@noble/ed25519';
 import { sha512 } from '@noble/hashes/sha2.js';
-import { asPlayerKeyHex } from '../types';
-import type { Identity } from '../commands/types';
-import { bytesToHex } from './hex';
+import { asPlayerKeyHex } from '../types.js';
+import type { Identity } from '../commands/types.js';
+import { bytesToHex } from './hex.js';
 
 // @noble/ed25519 v3 ships sync sign/verify but requires the caller to provide
 // a SHA-512 implementation (kept out of the core package to minimize bundle

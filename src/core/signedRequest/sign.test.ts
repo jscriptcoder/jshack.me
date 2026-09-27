@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { signRequest } from './sign';
-import { generateIdentity } from '../identity/identity';
+import { signRequest } from './sign.js';
+import { generateIdentity } from '../identity/identity.js';
 
 const parse = (payload: string): Record<string, unknown> =>
   JSON.parse(payload) as Record<string, unknown>;

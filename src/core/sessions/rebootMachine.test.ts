@@ -1,26 +1,26 @@
 import { describe, expect, it, vi } from 'vitest';
-import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter';
+import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
 import {
   handleRebootMachine,
   type EndMachineSessionsParams,
   type RebootMachineDeps,
   type WriteBootIdParams,
-} from './rebootMachine';
-import { signRequest } from '../signedRequest/sign';
-import { generateIdentity } from '../identity/identity';
-import { computeWorkstationId } from '../identity/workstation';
-import { computeApGatewayId } from '../identity/router';
-import type { ActiveSession, FindActiveSession } from '../patches/authorizeMachineAccess';
-import type { FindOccupantWorkstationByMachineId } from '../patches/remoteWritePermission';
+} from './rebootMachine.js';
+import { signRequest } from '../signedRequest/sign.js';
+import { generateIdentity } from '../identity/identity.js';
+import { computeWorkstationId } from '../identity/workstation.js';
+import { computeApGatewayId } from '../identity/router.js';
+import type { ActiveSession, FindActiveSession } from '../patches/authorizeMachineAccess.js';
+import type { FindOccupantWorkstationByMachineId } from '../patches/remoteWritePermission.js';
 import type {
   MachineLogReadQuery,
   MachineLogReadResult,
-} from '../patches/appendMachineLog';
-import type { PatchRow } from '../patches/upsertPatch';
-import { KERN_LOG_PATH, KERN_LOG_PERMISSIONS } from '../logging/kernLog';
-import type { Identity } from '../commands/types';
-import type { NonceStore } from '../signedRequest/nonceStore';
-import type { UserType } from '../types';
+} from '../patches/appendMachineLog.js';
+import type { PatchRow } from '../patches/upsertPatch.js';
+import { KERN_LOG_PATH, KERN_LOG_PERMISSIONS } from '../logging/kernLog.js';
+import type { Identity } from '../commands/types.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
+import type { UserType } from '../types.js';
 
 /**
  * `rebootMachine` is the eviction action: a reboot ends the sessions on the box

@@ -16,8 +16,8 @@
  * inherit somebody else's placement — and so the lookup has no missing-row branch.
  */
 
-import type { SERVICE_CATALOG } from '../services/serviceCatalog';
-import type { MachineRole } from './machineRole';
+import type { SERVICE_CATALOG } from '../services/serviceCatalog.js';
+import type { MachineRole } from './machineRole.js';
 
 /** One row of the catalog — the literal spec of a service the world ships, as
  *  against `ServiceSpec`, which is the shape any row must have. */

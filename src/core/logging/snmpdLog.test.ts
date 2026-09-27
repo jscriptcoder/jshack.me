@@ -6,8 +6,8 @@ import {
   formatSnmpdArrivalLine,
   formatSnmpdAttemptLine,
   formatSnmpdSetLine,
-} from './snmpdLog';
-import { asGameTime } from '../types';
+} from './snmpdLog.js';
+import { asGameTime } from '../types.js';
 
 /**
  * `/var/log/snmpd.log` is the ONLY tell a device's owner ever gets.

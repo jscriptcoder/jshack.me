@@ -3,17 +3,17 @@
  * PoE channels below the LAN, with its config and its own pages.
  */
 
-import type { Prng } from '../prng';
-import { dir, file, SERVICE_CONFIG_FILE, TRAVERSABLE_DIR } from '../baseFs';
-import { generateHomeLan, isOnHomeLan, type LanHost } from '../generateHomeLan';
-import { lanZoneName } from '../../network/resolveName';
+import type { Prng } from '../prng.js';
+import { dir, file, SERVICE_CONFIG_FILE, TRAVERSABLE_DIR } from '../baseFs.js';
+import { generateHomeLan, isOnHomeLan, type LanHost } from '../generateHomeLan.js';
+import { lanZoneName } from '../../network/resolveName.js';
 import {
   cameraRecordings,
   EVENT_WINDOW_SECONDS,
   recordingsOf,
   type CameraEvent,
   type CameraRecordings,
-} from './camera';
+} from './camera.js';
 import {
   DAY_SECONDS,
   deviceKindOf,
@@ -22,7 +22,7 @@ import {
   uiPage,
   userTree,
   type DeviceFiles,
-} from './common';
+} from './common.js';
 
 /** How many PoE channels a recorder below the LAN has cameras on. */
 const CHANNEL_COUNT = { min: 2, max: 4 } as const;

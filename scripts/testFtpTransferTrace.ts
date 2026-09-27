@@ -26,16 +26,16 @@
 // Exits 0 when all checks pass, 1 on failure, 2 on missing env / no usable host.
 
 import { createClient } from '@supabase/supabase-js';
-import { signRequest } from '../src/core/signedRequest/sign';
-import { generateIdentity } from '../src/core/identity/identity';
-import { generateHomeLan, type LanHost } from '../src/core/generation/generateHomeLan';
-import { hostServices } from '../src/core/generation/remoteHostFs';
-import { machineIdForLanHost, resolveLanHostIdentity } from '../src/core/generation/lanHostIdentity';
-import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog';
-import { ALL_GENERATED_PASSWORDS } from '../src/core/generation/passwordPools';
-import { accountsIn } from '../src/core/sessions/passwdAccount';
-import { md5 } from '../src/core/generation/md5';
-import { VSFTPD_LOG_PATH } from '../src/core/logging/vsftpdLog';
+import { signRequest } from '../src/core/signedRequest/sign.js';
+import { generateIdentity } from '../src/core/identity/identity.js';
+import { generateHomeLan, type LanHost } from '../src/core/generation/generateHomeLan.js';
+import { hostServices } from '../src/core/generation/remoteHostFs.js';
+import { machineIdForLanHost, resolveLanHostIdentity } from '../src/core/generation/lanHostIdentity.js';
+import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
+import { ALL_GENERATED_PASSWORDS } from '../src/core/generation/passwordPools.js';
+import { accountsIn } from '../src/core/sessions/passwdAccount.js';
+import { md5 } from '../src/core/generation/md5.js';
+import { VSFTPD_LOG_PATH } from '../src/core/logging/vsftpdLog.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const PATCHES = process.env.PATCHES_ENDPOINT ?? 'http://localhost:3100/api/patches';

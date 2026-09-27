@@ -19,16 +19,16 @@
  * tool, because none of it is about reaching the host.
  */
 
-import type { CommandResult } from './types';
-import type { Directory } from '../filesystem/types';
-import type { ParsedUrl } from '../network/http';
-import { errorLine } from './streaming';
-import { generateHomeLan } from '../generation/generateHomeLan';
-import { baseFsForLanHost } from '../generation/lanHostIdentity';
-import { readOpenPorts } from '../services/pidfile';
-import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import { resolveLanName } from '../network/resolveName';
-import { LOOPBACK_IPV4, LOOPBACK_NAMES, type ConnectedWlan0 } from '../network/interfaces';
+import type { CommandResult } from './types.js';
+import type { Directory } from '../filesystem/types.js';
+import type { ParsedUrl } from '../network/http.js';
+import { errorLine } from './streaming.js';
+import { generateHomeLan } from '../generation/generateHomeLan.js';
+import { baseFsForLanHost } from '../generation/lanHostIdentity.js';
+import { readOpenPorts } from '../services/pidfile.js';
+import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
+import { resolveLanName } from '../network/resolveName.js';
+import { LOOPBACK_IPV4, LOOPBACK_NAMES, type ConnectedWlan0 } from '../network/interfaces.js';
 
 /** A server that was reached, in the terms every caller needs. */
 export type ReachedHost = {

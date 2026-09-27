@@ -6,7 +6,7 @@
  * rather than trusting a prompt they could be misreading.
  */
 
-import type { Command } from './types';
+import type { Command } from './types.js';
 
 const execute: Command['execute'] = async (env) => ({
   kind: 'sync',

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { strings } from '../commands/strings';
-import type { TerminalLine } from '../commands/types';
-import { buildDirectory, buildFile } from '../../test/factories/filesystem';
-import { mockCommandEnv, mockFsViewFromTree } from '../../test/factories/commandEnv';
+import { strings } from '../commands/strings.js';
+import type { TerminalLine } from '../commands/types.js';
+import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
+import { mockCommandEnv, mockFsViewFromTree } from '../../test/factories/commandEnv.js';
 import {
   ALL_ESSIDS,
   deepBoxes,
@@ -10,27 +10,27 @@ import {
   lanBoxes,
   softwareVersionsIn,
   type Box,
-} from '../../test/worldContent';
-import { buildDeepHostFs } from './deepHostFs';
-import { generateApplication } from './generateDatabase';
-import { generateHomeLan } from './generateHomeLan';
-import { roleOfHostname } from './pools/hostnames';
-import { asAbsPath, asMachineId } from '../types';
-import { createPatchApi } from '../../adapters/patchApi';
-import { generateIdentity } from '../identity/identity';
-import { computeWorkstationId } from '../identity/workstation';
-import { signedEnvelopeSchema } from '../signedRequest/types';
-import { WORLD_EPOCH } from '../cve/worldClock';
-import { createFsView } from '../filesystem/fsView';
-import type { Directory } from '../filesystem/types';
-import { createPrng } from './prng';
-import { renderDocument, type DocumentMetadata } from './documentFormats';
-import { buildRemoteHostFs, hostServices, npcUsername } from './remoteHostFs';
-import { networkPersona } from './persona';
-import { boxMail, networkMail } from './networkMail';
-import { ALL_GENERATED_PASSWORDS } from './passwordPools';
-import { PHONE_MODELS, SHARE_FOLDERS } from './pools/shareFiles';
-import type { NetworkCategory } from './pools/essidCatalog';
+} from '../../test/worldContent.js';
+import { buildDeepHostFs } from './deepHostFs.js';
+import { generateApplication } from './generateDatabase.js';
+import { generateHomeLan } from './generateHomeLan.js';
+import { roleOfHostname } from './pools/hostnames.js';
+import { asAbsPath, asMachineId } from '../types.js';
+import { createPatchApi } from '../../adapters/patchApi.js';
+import { generateIdentity } from '../identity/identity.js';
+import { computeWorkstationId } from '../identity/workstation.js';
+import { signedEnvelopeSchema } from '../signedRequest/types.js';
+import { WORLD_EPOCH } from '../cve/worldClock.js';
+import { createFsView } from '../filesystem/fsView.js';
+import type { Directory } from '../filesystem/types.js';
+import { createPrng } from './prng.js';
+import { renderDocument, type DocumentMetadata } from './documentFormats.js';
+import { buildRemoteHostFs, hostServices, npcUsername } from './remoteHostFs.js';
+import { networkPersona } from './persona.js';
+import { boxMail, networkMail } from './networkMail.js';
+import { ALL_GENERATED_PASSWORDS } from './passwordPools.js';
+import { PHONE_MODELS, SHARE_FOLDERS } from './pools/shareFiles.js';
+import type { NetworkCategory } from './pools/essidCatalog.js';
 
 const NO_FLAGS = new Map<string, string | true>();
 

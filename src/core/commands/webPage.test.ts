@@ -1,22 +1,22 @@
 import { describe, expect, it } from 'vitest';
-import { fetchWebPage } from './webPage';
-import type { AccessLogFetch } from './types';
-import { applyPatches, type Patch } from '../filesystem/applyPatches';
-import type { Directory } from '../filesystem/types';
-import { buildWorkstationBaseFs } from '../generation/workstationFs';
-import { formatPidfileContent, readOpenPorts } from '../services/pidfile';
-import { SERVICE_CATALOG } from '../services/serviceCatalog';
+import { fetchWebPage } from './webPage.js';
+import type { AccessLogFetch } from './types.js';
+import { applyPatches, type Patch } from '../filesystem/applyPatches.js';
+import type { Directory } from '../filesystem/types.js';
+import { buildWorkstationBaseFs } from '../generation/workstationFs.js';
+import { formatPidfileContent, readOpenPorts } from '../services/pidfile.js';
+import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
 import {
   buildColdStartConnectivity,
   connectedWlan0,
   type ConnectedWlan0,
-} from '../network/interfaces';
-import { assignHomeNetwork } from '../network/homeNetwork';
-import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
-import { buildRemoteHostFs } from '../generation/remoteHostFs';
-import { HTTP_DEFAULT_PORT, parseHttpUrl } from '../network/http';
-import { lanZoneName } from '../network/resolveName';
-import { mockNetworkViewFromConnectivity } from '../../test/factories/commandEnv';
+} from '../network/interfaces.js';
+import { assignHomeNetwork } from '../network/homeNetwork.js';
+import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
+import { buildRemoteHostFs } from '../generation/remoteHostFs.js';
+import { HTTP_DEFAULT_PORT, parseHttpUrl } from '../network/http.js';
+import { lanZoneName } from '../network/resolveName.js';
+import { mockNetworkViewFromConnectivity } from '../../test/factories/commandEnv.js';
 
 /**
  * One page, fetched — the request behind `lynx <url>` and behind every link

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
-import { runMysqlLine } from './mysqlShell';
-import { mockCommandEnv, mockMysqlApi } from '../../test/factories/commandEnv';
-import type { CommandResult, MysqlApi, MysqlStatementResult } from './types';
+import { runMysqlLine } from './mysqlShell.js';
+import { mockCommandEnv, mockMysqlApi } from '../../test/factories/commandEnv.js';
+import type { CommandResult, MysqlApi, MysqlStatementResult } from './types.js';
 
 /**
  * The `mysql>` prompt. Three claims live here and they pull against each other:

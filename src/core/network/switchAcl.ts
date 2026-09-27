@@ -11,8 +11,8 @@
  * rather than failing the whole file — and rejects out-of-range ports.
  */
 
-import { asAbsPath, type AbsPath } from '../types';
-import type { Directory, FilePermissions } from '../filesystem/types';
+import { asAbsPath, type AbsPath } from '../types.js';
+import type { Directory, FilePermissions } from '../filesystem/types.js';
 
 /** The canonical `/etc/switch/acl.conf` storage identity, at the same root-only
  *  boundary its router counterpart keeps and for the same reason: a gateway device has

@@ -5,7 +5,7 @@
  * it as a single text line. Positional args are ignored to match real bash.
  */
 
-import type { Command } from './types';
+import type { Command } from './types.js';
 
 const execute: Command['execute'] = async (env) => ({
   kind: 'sync',

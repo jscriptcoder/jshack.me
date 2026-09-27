@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { assignHomeNetwork } from './homeNetwork';
+import { assignHomeNetwork } from './homeNetwork.js';
 
 /**
  * `assignHomeNetwork` is the local-deterministic stand-in for the future

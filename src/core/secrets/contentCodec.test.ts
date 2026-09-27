@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { decodeContent, encodeContent } from './contentCodec';
+import { decodeContent, encodeContent } from './contentCodec.js';
 
 /**
  * The codec is obfuscation, not secrecy: it keeps spoiler strings (WiFi

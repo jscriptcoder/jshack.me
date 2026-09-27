@@ -4,17 +4,17 @@
  * whether a shell-history line would really work if a player typed it on the box.
  */
 
-import { hostServices, npcUsername } from '../core/generation/remoteHostFs';
-import { crackableEssidPool } from '../core/generation/generateWifi';
-import { generateHomeLan, type LanHost } from '../core/generation/generateHomeLan';
-import { generateDeepLayer } from '../core/generation/generateDeepLayer';
-import { chainLinks, machineIdForLanHost } from '../core/generation/lanTopology';
-import { buildApGatewayBaseFs } from '../core/generation/routerFs';
-import { chainGatewayBaseFsForMachineId } from '../core/generation/lanHostIdentity';
-import { createFsView } from '../core/filesystem/fsView';
-import { resolveLanName } from '../core/network/resolveName';
-import { asAbsPath } from '../core/types';
-import type { Directory, FileNode } from '../core/filesystem/types';
+import { hostServices, npcUsername } from '../core/generation/remoteHostFs.js';
+import { crackableEssidPool } from '../core/generation/generateWifi.js';
+import { generateHomeLan, type LanHost } from '../core/generation/generateHomeLan.js';
+import { generateDeepLayer } from '../core/generation/generateDeepLayer.js';
+import { chainLinks, machineIdForLanHost } from '../core/generation/lanTopology.js';
+import { buildApGatewayBaseFs } from '../core/generation/routerFs.js';
+import { chainGatewayBaseFsForMachineId } from '../core/generation/lanHostIdentity.js';
+import { createFsView } from '../core/filesystem/fsView.js';
+import { resolveLanName } from '../core/network/resolveName.js';
+import { asAbsPath } from '../core/types.js';
+import type { Directory, FileNode } from '../core/filesystem/types.js';
 
 export type Box = { readonly essid: string; readonly host: LanHost };
 

@@ -43,15 +43,15 @@
 // Exits 0 when all checks pass, 1 on failure, 2 on missing env.
 
 import { createClient } from '@supabase/supabase-js';
-import { signRequest } from '../src/core/signedRequest/sign';
-import { generateIdentity } from '../src/core/identity/identity';
-import { apGatewayLogWriterKey } from '../src/core/logging/apGatewayLogWriter';
-import { computeWorkstationId } from '../src/core/identity/workstation';
-import { computeApGatewayId } from '../src/core/identity/router';
-import { BOOT_ID_PATH } from '../src/core/boot/bootId';
-import { KERN_LOG_PATH } from '../src/core/logging/kernLog';
-import { clearPublicIps, seedPublicIps } from './networkFixture';
-import type { UserType } from '../src/core/types';
+import { signRequest } from '../src/core/signedRequest/sign.js';
+import { generateIdentity } from '../src/core/identity/identity.js';
+import { apGatewayLogWriterKey } from '../src/core/logging/apGatewayLogWriter.js';
+import { computeWorkstationId } from '../src/core/identity/workstation.js';
+import { computeApGatewayId } from '../src/core/identity/router.js';
+import { BOOT_ID_PATH } from '../src/core/boot/bootId.js';
+import { KERN_LOG_PATH } from '../src/core/logging/kernLog.js';
+import { clearPublicIps, seedPublicIps } from './networkFixture.js';
+import type { UserType } from '../src/core/types.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const url = process.env.SUPABASE_URL;

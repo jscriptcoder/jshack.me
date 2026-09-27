@@ -16,7 +16,7 @@
  */
 
 import { sha256 } from '@noble/hashes/sha2.js';
-import { bytesToHex } from './hex';
+import { bytesToHex } from './hex.js';
 
 /** sha256 of the given (already-prefixed) string, first 8 hex chars. */
 export const deriveHostnameSuffix = (playerKey: string): string =>

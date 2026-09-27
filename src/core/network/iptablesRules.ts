@@ -19,8 +19,8 @@
  * file — and rejects out-of-range ports.
  */
 
-import { asAbsPath, type AbsPath } from '../types';
-import type { Directory, FilePermissions } from '../filesystem/types';
+import { asAbsPath, type AbsPath } from '../types.js';
+import type { Directory, FilePermissions } from '../filesystem/types.js';
 
 /** The canonical `/etc/iptables/rules.v4` storage identity — one source of truth shared
  *  by the boot seed and by every server-side write, so the seeded file and each patch

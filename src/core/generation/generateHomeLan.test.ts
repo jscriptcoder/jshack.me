@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { generateHomeLan, type LanHost } from './generateHomeLan';
-import { assignHomeNetwork } from '../network/homeNetwork';
-import { seedApGatewayHostname, seedInnerGatewayHostname } from './gatewayHostname';
-import { DRAWN_ROLES, machineRole } from './machineRole';
-import { HOSTNAME_PREFIXES, roleOfHostname } from './pools/hostnames';
-import { ESSID_CATALOG } from './pools/essidCatalog';
-import { publisherSite } from './publisher';
+import { generateHomeLan, type LanHost } from './generateHomeLan.js';
+import { assignHomeNetwork } from '../network/homeNetwork.js';
+import { seedApGatewayHostname, seedInnerGatewayHostname } from './gatewayHostname.js';
+import { DRAWN_ROLES, machineRole } from './machineRole.js';
+import { HOSTNAME_PREFIXES, roleOfHostname } from './pools/hostnames.js';
+import { ESSID_CATALOG } from './pools/essidCatalog.js';
+import { publisherSite } from './publisher.js';
 
 /**
  * `generateHomeLan` is the pure topology generator behind `nmap <subnet>`. Given an

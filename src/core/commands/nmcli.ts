@@ -19,10 +19,10 @@
  * round-trip, the latency surfaces without a UI change.
  */
 
-import type { Command, CommandEnv, CommandResult, TerminalLine } from './types';
-import type { WirelessInterface } from '../network/interfaces';
-import type { HomeNetworkAssignment } from '../network/homeNetwork';
-import { isOwnWorkstation } from '../identity/workstation';
+import type { Command, CommandEnv, CommandResult, TerminalLine } from './types.js';
+import type { WirelessInterface } from '../network/interfaces.js';
+import type { HomeNetworkAssignment } from '../network/homeNetwork.js';
+import { isOwnWorkstation } from '../identity/workstation.js';
 
 const USAGE = [
   'nmcli: usage:',

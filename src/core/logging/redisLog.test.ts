@@ -6,8 +6,8 @@ import {
   formatRedisAttemptLine,
   formatRedisConnectLine,
   formatRedisMutationLine,
-} from './redisLog';
-import { asGameTime } from '../types';
+} from './redisLog.js';
+import { asGameTime } from '../types.js';
 
 /**
  * `/var/log/redis.log` is the defender's whole view of who has reached their store.

@@ -28,16 +28,16 @@
  * the target would put a line in somebody's log for a transfer never possible.
  */
 
-import { asAbsPath, asMachineId } from '../types';
-import { generateHomeLan } from '../generation/generateHomeLan';
-import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
-import { isPublicIp } from '../generation/ip';
-import { addressForTarget } from '../network/resolveName';
-import { basename, dirname, resolveAbsPath } from '../filesystem/path';
-import { homeDirectory } from '../sessions/homeDirectory';
-import { readOpenPorts } from '../services/pidfile';
-import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import { errorLine, streamedResult, text } from './streaming';
+import { asAbsPath, asMachineId } from '../types.js';
+import { generateHomeLan } from '../generation/generateHomeLan.js';
+import { resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
+import { isPublicIp } from '../generation/ip.js';
+import { addressForTarget } from '../network/resolveName.js';
+import { basename, dirname, resolveAbsPath } from '../filesystem/path.js';
+import { homeDirectory } from '../sessions/homeDirectory.js';
+import { readOpenPorts } from '../services/pidfile.js';
+import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
+import { errorLine, streamedResult, text } from './streaming.js';
 import type {
   Command,
   CommandEnv,
@@ -46,9 +46,9 @@ import type {
   PublicAuthResult,
   Session,
   TerminalLine,
-} from './types';
-import type { AbsPath } from '../types';
-import type { Directory } from '../filesystem/types';
+} from './types.js';
+import type { AbsPath } from '../types.js';
+import type { Directory } from '../filesystem/types.js';
 
 const USAGE = 'usage: scp [-p port] <local-file> <user>@<host>:<path>';
 

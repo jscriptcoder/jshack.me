@@ -27,30 +27,30 @@
  * one, so the split costs nothing at the call sites.
  */
 
-import type { Directory } from '../filesystem/types';
-import { computeDeepGatewayId } from '../identity/router';
+import type { Directory } from '../filesystem/types.js';
+import { computeDeepGatewayId } from '../identity/router.js';
 import {
   buildApGatewayBaseFs,
   buildDeepGatewayBaseFs,
   buildDeepSwitchBaseFs,
   buildInnerGatewayBaseFs,
   buildSwitchBaseFs,
-} from './routerFs';
-import { readOpenPorts } from '../services/pidfile';
-import { buildRemoteHostFs } from './remoteHostFs';
-import { hostMachineId } from './remoteHostId';
-import { generateHomeLan, type LanHost, type LanHostKind } from './generateHomeLan';
-import { generateDeepLayer } from './generateDeepLayer';
-import { buildDeepHostFs } from './deepHostFs';
+} from './routerFs.js';
+import { readOpenPorts } from '../services/pidfile.js';
+import { buildRemoteHostFs } from './remoteHostFs.js';
+import { hostMachineId } from './remoteHostId.js';
+import { generateHomeLan, type LanHost, type LanHostKind } from './generateHomeLan.js';
+import { generateDeepLayer } from './generateDeepLayer.js';
+import { buildDeepHostFs } from './deepHostFs.js';
 import {
   chainLinks,
   isInnerGateway,
   lanHostOctet,
   machineIdForLanHost,
   type ChainLink,
-} from './lanTopology';
+} from './lanTopology.js';
 
-export { isInnerGateway, machineIdForLanHost } from './lanTopology';
+export { isInnerGateway, machineIdForLanHost } from './lanTopology.js';
 
 export type LanHostIdentity = {
   readonly machineId: string;

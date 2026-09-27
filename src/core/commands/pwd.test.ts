@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { pwd } from './pwd';
-import { buildDirectory } from '../../test/factories/filesystem';
-import { mockCommandEnv, mockFsViewFromTree } from '../../test/factories/commandEnv';
-import { asAbsPath } from '../types';
+import { pwd } from './pwd.js';
+import { buildDirectory } from '../../test/factories/filesystem.js';
+import { mockCommandEnv, mockFsViewFromTree } from '../../test/factories/commandEnv.js';
+import { asAbsPath } from '../types.js';
 
 const NO_FLAGS = new Map<string, string | true>();
 

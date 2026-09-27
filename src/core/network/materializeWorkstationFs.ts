@@ -15,9 +15,9 @@
 import {
   buildOccupantWorkstationFs,
   type OccupantWorkstation,
-} from '../patches/remoteWritePermission';
-import { materializeMachineFs, type OwnerPatchRow } from './materializeMachineFs';
-import type { Directory } from '../filesystem/types';
+} from '../patches/remoteWritePermission.js';
+import { materializeMachineFs, type OwnerPatchRow } from './materializeMachineFs.js';
+import type { Directory } from '../filesystem/types.js';
 
 // Re-exported so the many call sites that read the journal-row shape keep importing
 // it from here (its historical home); the canonical definition now lives with the

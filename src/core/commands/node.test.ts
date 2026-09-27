@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
-import { node } from './node';
-import { man } from './man';
-import { commandRegistry } from './registry';
-import { buildDirectory, buildFile } from '../../test/factories/filesystem';
-import { mockCommandEnv, mockFsViewFromTree, mockSession } from '../../test/factories/commandEnv';
-import { collectStageOutput, runCommandLine } from '../shell/runLine';
-import { asAbsPath } from '../types';
-import type { UserType } from '../types';
+import { node } from './node.js';
+import { man } from './man.js';
+import { commandRegistry } from './registry.js';
+import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
+import { mockCommandEnv, mockFsViewFromTree, mockSession } from '../../test/factories/commandEnv.js';
+import { collectStageOutput, runCommandLine } from '../shell/runLine.js';
+import { asAbsPath } from '../types.js';
+import type { UserType } from '../types.js';
 import type {
   Command,
   CommandEnv,
@@ -14,7 +14,7 @@ import type {
   PatchApi,
   PatchResult,
   TerminalLine,
-} from './types';
+} from './types.js';
 
 const NO_FLAGS = new Map<string, string | true>();
 

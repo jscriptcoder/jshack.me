@@ -12,7 +12,7 @@
  *   carries, and no device node.
  */
 
-import type { ServiceSpec } from '../../services/serviceCatalog';
+import type { ServiceSpec } from '../../services/serviceCatalog.js';
 
 /** A timer systemd fires once a day: what it says starting, and the unit it runs. */
 export type DailyTimer = { readonly description: string; readonly unit: string };

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { md5 } from './md5';
+import { md5 } from './md5.js';
 
 /**
  * md5 is a verbatim port of the legacy RFC 1321 implementation. Its public

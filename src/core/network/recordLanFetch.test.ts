@@ -1,26 +1,26 @@
 import { describe, expect, it, vi } from 'vitest';
-import { handleRecordLanFetch, type FetchOccupant, type RecordLanFetchDeps } from './recordLanFetch';
-import { signRequest } from '../signedRequest/sign';
-import { generateIdentity } from '../identity/identity';
-import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
-import { buildRemoteHostFs } from '../generation/remoteHostFs';
-import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
-import { materializeWorkstationFs, type OwnerPatchRow } from './materializeWorkstationFs';
-import { lanAddressFor, type LanLeaseRow } from './lanAddress';
-import { readOpenPorts } from '../services/pidfile';
-import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import { createFsView } from '../filesystem/fsView';
-import { resolveWebPath } from './http';
+import { handleRecordLanFetch, type FetchOccupant, type RecordLanFetchDeps } from './recordLanFetch.js';
+import { signRequest } from '../signedRequest/sign.js';
+import { generateIdentity } from '../identity/identity.js';
+import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
+import { buildRemoteHostFs } from '../generation/remoteHostFs.js';
+import { resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
+import { materializeWorkstationFs, type OwnerPatchRow } from './materializeWorkstationFs.js';
+import { lanAddressFor, type LanLeaseRow } from './lanAddress.js';
+import { readOpenPorts } from '../services/pidfile.js';
+import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
+import { createFsView } from '../filesystem/fsView.js';
+import { resolveWebPath } from './http.js';
 import {
   ACCESS_LOG_OWNER,
   ACCESS_LOG_PATH,
   ACCESS_LOG_PERMISSIONS,
   formatAccessLogLine,
-} from '../logging/accessLog';
-import { asGameTime } from '../types';
-import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog';
-import type { PatchRow } from '../patches/upsertPatch';
-import type { NonceStore } from '../signedRequest/nonceStore';
+} from '../logging/accessLog.js';
+import { asGameTime } from '../types.js';
+import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog.js';
+import type { PatchRow } from '../patches/upsertPatch.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 /**
  * `handleRecordLanFetch` is the server-side action behind an own-LAN `curl`: it

@@ -1,23 +1,23 @@
 import { describe, expect, it } from 'vitest';
-import { isCrossPlayerHop, needsFreshTree, resolveActiveRoot } from './activeRoot';
-import { generateHomeLan } from '../core/generation/generateHomeLan';
-import { generateDeepLayer } from '../core/generation/generateDeepLayer';
-import { buildDeepHostFs } from '../core/generation/deepHostFs';
-import { resolveDeepGatewayIdentity } from '../core/generation/lanHostIdentity';
-import { buildRemoteHostFs } from '../core/generation/remoteHostFs';
-import { hostMachineId } from '../core/generation/remoteHostId';
+import { isCrossPlayerHop, needsFreshTree, resolveActiveRoot } from './activeRoot.js';
+import { generateHomeLan } from '../core/generation/generateHomeLan.js';
+import { generateDeepLayer } from '../core/generation/generateDeepLayer.js';
+import { buildDeepHostFs } from '../core/generation/deepHostFs.js';
+import { resolveDeepGatewayIdentity } from '../core/generation/lanHostIdentity.js';
+import { buildRemoteHostFs } from '../core/generation/remoteHostFs.js';
+import { hostMachineId } from '../core/generation/remoteHostId.js';
 import {
   buildApGatewayBaseFs,
   buildInnerGatewayBaseFs,
   buildSwitchBaseFs,
-} from '../core/generation/routerFs';
-import { computeWorkstationId } from '../core/identity/workstation';
-import { computeInnerGatewayId, computeApGatewayId } from '../core/identity/router';
-import { asEpochMs, asMachineId, asPlayerKeyHex } from '../core/types';
-import { buildDirectory } from '../test/factories/filesystem';
-import type { Patch } from '../core/filesystem/applyPatches';
-import type { Directory, FileEntry, FileNode } from '../core/filesystem/types';
-import type { Session } from '../core/commands/types';
+} from '../core/generation/routerFs.js';
+import { computeWorkstationId } from '../core/identity/workstation.js';
+import { computeInnerGatewayId, computeApGatewayId } from '../core/identity/router.js';
+import { asEpochMs, asMachineId, asPlayerKeyHex } from '../core/types.js';
+import { buildDirectory } from '../test/factories/filesystem.js';
+import type { Patch } from '../core/filesystem/applyPatches.js';
+import type { Directory, FileEntry, FileNode } from '../core/filesystem/types.js';
+import type { Session } from '../core/commands/types.js';
 
 /**
  * `resolveActiveRoot` picks the filesystem the active session operates on — your

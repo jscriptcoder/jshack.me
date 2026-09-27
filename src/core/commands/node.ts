@@ -7,14 +7,14 @@
  * stdout.
  */
 
-import type { Command, CommandEnv, CommandResult, TerminalLine } from './types';
-import { resolveAbsPath } from '../filesystem/path';
-import { createScriptConsole } from '../scripting/console';
-import { buildCommandContext, isShellError } from '../scripting/commandContext';
-import { describeScriptError, runScript } from '../scripting/runScript';
-import { buildFsApi, formatNodeFsError } from '../scripting/fsApi';
-import { createLineStream } from '../scripting/lineStream';
-import { streamedResult } from './streaming';
+import type { Command, CommandEnv, CommandResult, TerminalLine } from './types.js';
+import { resolveAbsPath } from '../filesystem/path.js';
+import { createScriptConsole } from '../scripting/console.js';
+import { buildCommandContext, isShellError } from '../scripting/commandContext.js';
+import { describeScriptError, runScript } from '../scripting/runScript.js';
+import { buildFsApi, formatNodeFsError } from '../scripting/fsApi.js';
+import { createLineStream } from '../scripting/lineStream.js';
+import { streamedResult } from './streaming.js';
 
 const refusal = (content: string): CommandResult => ({
   kind: 'sync',
@@ -44,7 +44,7 @@ const execute = async (env: CommandEnv, args: readonly string[]): Promise<Comman
   // The registry arrives at RUN time, not through a static import: `registry.ts`
   // imports this module to list it among the builtins, so a static back-edge
   // would be a load-order cycle. `help` and `man` reach it the same way.
-  const { commandRegistry } = await import('./registry');
+  const { commandRegistry } = await import('./registry.js');
 
   // Output leaves as it is produced rather than being reported at the end. A
   // script is the one command whose run has no fixed length — a sweep can take a

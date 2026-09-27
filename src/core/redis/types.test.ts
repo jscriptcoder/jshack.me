@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseRedisStore } from './types';
+import { parseRedisStore } from './types.js';
 
 /**
  * Reading a store back is a TRUST BOUNDARY, not an internal hand-off. The file lives at

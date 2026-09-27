@@ -3,14 +3,14 @@ import {
   handleAppendKernLog,
   type AppendKernLogDeps,
   type KernLogContentQuery,
-} from './appendKernLog';
-import type { PatchRow } from './upsertPatch';
-import { signRequest } from '../signedRequest/sign';
-import { generateIdentity } from '../identity/identity';
-import { computeWorkstationId } from '../identity/workstation';
-import { KERN_LOG_OWNER, KERN_LOG_PATH, KERN_LOG_PERMISSIONS } from '../logging/kernLog';
-import { derivePid } from '../logging/syslog';
-import type { NonceStore } from '../signedRequest/nonceStore';
+} from './appendKernLog.js';
+import type { PatchRow } from './upsertPatch.js';
+import { signRequest } from '../signedRequest/sign.js';
+import { generateIdentity } from '../identity/identity.js';
+import { computeWorkstationId } from '../identity/workstation.js';
+import { KERN_LOG_OWNER, KERN_LOG_PATH, KERN_LOG_PERMISSIONS } from '../logging/kernLog.js';
+import { derivePid } from '../logging/syslog.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 const freshStore: NonceStore = async () => ({ fresh: true });
 

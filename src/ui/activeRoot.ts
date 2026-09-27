@@ -20,11 +20,11 @@
  * unchanged (by reference).
  */
 
-import { generatedBaseFsForMachineId } from '../core/generation/lanHostIdentity';
-import { isCrossPlayerWorkstation } from '../core/network/crossPlayerHop';
-import { applyPatches, type Patch } from '../core/filesystem/applyPatches';
-import type { Directory } from '../core/filesystem/types';
-import type { Session, SessionKind } from '../core/commands/types';
+import { generatedBaseFsForMachineId } from '../core/generation/lanHostIdentity.js';
+import { isCrossPlayerWorkstation } from '../core/network/crossPlayerHop.js';
+import { applyPatches, type Patch } from '../core/filesystem/applyPatches.js';
+import type { Directory } from '../core/filesystem/types.js';
+import type { Session, SessionKind } from '../core/commands/types.js';
 
 const baseFsFor = (args: {
   readonly session: Session;

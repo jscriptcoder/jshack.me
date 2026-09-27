@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { CRACKABLE_PASSWORDS, UNCRACKABLE_PASSWORDS } from '../generation/passwordPools';
-import { seedApGatewayAdminPw } from '../generation/routerFs';
+import { CRACKABLE_PASSWORDS, UNCRACKABLE_PASSWORDS } from '../generation/passwordPools.js';
+import { seedApGatewayAdminPw } from '../generation/routerFs.js';
 import {
   DEFAULT_WORDLIST,
   formatWordlist,
   WORDLIST_PATH,
   WORDLIST_PERMISSIONS,
-} from './defaultWordlist';
+} from './defaultWordlist.js';
 
 /**
  * The wordlist a player gets with `apt install hydra` — the file that decides

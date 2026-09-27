@@ -16,8 +16,8 @@
  * only the owner tier (or root) can create/delete entries.
  */
 
-import type { UserType } from '../types';
-import type { FilePermissions } from './types';
+import type { UserType } from '../types.js';
+import type { FilePermissions } from './types.js';
 
 const dedupeTiers = (tiers: readonly UserType[]): readonly UserType[] => [...new Set(tiers)];
 

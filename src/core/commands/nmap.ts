@@ -22,22 +22,22 @@ import type {
   CommandResult,
   PublicScanResolution,
   TerminalLine,
-} from './types';
-import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
-import { isPublicIp } from '../generation/ip';
-import { parseScanTarget, hostsInScanTarget } from '../network/scanTarget';
-import { mergeLanOccupants, withSelfHost } from '../network/mergeLanOccupants';
-import { readOpenPorts, type OpenPort } from '../services/pidfile';
-import { gameDayAt } from '../cve/worldClock';
-import { serviceByName } from '../services/serviceCatalog';
-import { resolveDeepScanHosts } from '../scan/deepScanHosts';
+} from './types.js';
+import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
+import { isPublicIp } from '../generation/ip.js';
+import { parseScanTarget, hostsInScanTarget } from '../network/scanTarget.js';
+import { mergeLanOccupants, withSelfHost } from '../network/mergeLanOccupants.js';
+import { readOpenPorts, type OpenPort } from '../services/pidfile.js';
+import { gameDayAt } from '../cve/worldClock.js';
+import { serviceByName } from '../services/serviceCatalog.js';
+import { resolveDeepScanHosts } from '../scan/deepScanHosts.js';
 import {
   isInnerGateway,
   pivotVantageForMachineId,
   type PivotVantage,
-} from '../generation/lanHostIdentity';
-import { connectedWlan0 } from '../network/interfaces';
-import { addressForTarget } from '../network/resolveName';
+} from '../generation/lanHostIdentity.js';
+import { connectedWlan0 } from '../network/interfaces.js';
+import { addressForTarget } from '../network/resolveName.js';
 
 const error = (message: string): CommandResult => ({
   kind: 'sync',

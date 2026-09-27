@@ -20,7 +20,7 @@
  * counterpart — legacy had no SNMP door.
  */
 
-import type { SystemLibrary } from '../generation/libraries';
+import type { SystemLibrary } from '../generation/libraries.js';
 
 export type VersionTemplate = {
   /** This package's permanent number in the CVE serial, hand-assigned and never

@@ -23,7 +23,7 @@
  * the `api/` adapter.
  */
 
-import type { Prng } from '../generation/prng';
+import type { Prng } from '../generation/prng.js';
 
 /** Usable host octets on a `/24`: `.0` is the network address, `.1` is the AP
  *  gateway (a real machine an occupant would otherwise be impersonating), and

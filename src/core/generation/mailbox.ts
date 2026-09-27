@@ -16,10 +16,10 @@
  * a box can be given a mailbox without moving any value drawn for any other part of it.
  */
 
-import { createPrng, type Prng } from './prng';
-import { lanZoneName } from '../network/resolveName';
-import { generateHomeLan, isOnHomeLan, type LanHost } from './generateHomeLan';
-import { roleOfHostname } from './pools/hostnames';
+import { createPrng, type Prng } from './prng.js';
+import { lanZoneName } from '../network/resolveName.js';
+import { generateHomeLan, isOnHomeLan, type LanHost } from './generateHomeLan.js';
+import { roleOfHostname } from './pools/hostnames.js';
 import {
   arrivedIn,
   boxMail,
@@ -32,10 +32,10 @@ import {
   type MailMessage,
   type MailPerson,
   type NetworkMail,
-} from './networkMail';
-import { CRON_OUTPUT } from './pools/cronMail';
-import { WORLD_EPOCH } from '../cve/worldClock';
-import { generateApplication, type Application } from './generateDatabase';
+} from './networkMail.js';
+import { CRON_OUTPUT } from './pools/cronMail.js';
+import { WORLD_EPOCH } from '../cve/worldClock.js';
+import { generateApplication, type Application } from './generateDatabase.js';
 import {
   ALIASES_FILE,
   dir,
@@ -44,8 +44,8 @@ import {
   MAIL_SPOOL_DIR,
   MAIL_SPOOL_FILE,
   TRAVERSABLE_DIR,
-} from './baseFs';
-import type { Directory } from '../filesystem/types';
+} from './baseFs.js';
+import type { Directory } from '../filesystem/types.js';
 
 /** The machines somebody sits at. A phone and a tablet on the same LAN belong to somebody
  *  too, but nobody reads their mail over a terminal, so they keep none. */

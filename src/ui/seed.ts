@@ -12,12 +12,12 @@
  * passwd is a real privilege boundary.
  */
 
-import { asAbsPath, asEpochMs, asMachineId, asPlayerKeyHex, type AbsPath } from '../core/types';
-import type { Directory } from '../core/filesystem/types';
-import type { Identity, Session } from '../core/commands/types';
-import type { GameConfig } from '../core/gameConfig/gameConfig';
-import { computeWorkstationId } from '../core/identity/workstation';
-import { buildWorkstationBaseFs } from '../core/generation/workstationFs';
+import { asAbsPath, asEpochMs, asMachineId, asPlayerKeyHex, type AbsPath } from '../core/types.js';
+import type { Directory } from '../core/filesystem/types.js';
+import type { Identity, Session } from '../core/commands/types.js';
+import type { GameConfig } from '../core/gameConfig/gameConfig.js';
+import { computeWorkstationId } from '../core/identity/workstation.js';
+import { buildWorkstationBaseFs } from '../core/generation/workstationFs.js';
 
 /** Default config used by tests + as the development fallback — reproduces the
  *  pre-intro `alice@workstation` workstation so existing behaviour is stable. */

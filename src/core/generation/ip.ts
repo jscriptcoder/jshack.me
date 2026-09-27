@@ -10,7 +10,7 @@
  * is dropped here until an IP allocator needs it (single allocation today).
  */
 
-import type { Prng } from './prng';
+import type { Prng } from './prng.js';
 
 /** Realistic public IP first-octet pool (routable hosting/cloud prefixes). */
 export const publicFirstOctets: readonly number[] = [

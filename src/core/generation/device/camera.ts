@@ -4,12 +4,12 @@
  * monitor's the sounds it heard.
  */
 
-import { createPrng, type Prng } from '../prng';
-import { dir, file, HOME_DIR, HOME_FILE, SERVICE_CONFIG_FILE, TRAVERSABLE_DIR } from '../baseFs';
-import { renderDocument } from '../documentFormats';
-import type { LanHost } from '../generateHomeLan';
-import { CAMERA_MODELS, CAMERA_RESOLUTIONS, FLAVOUR_EVENTS } from '../pools/devices';
-import type { Directory } from '../../filesystem/types';
+import { createPrng, type Prng } from '../prng.js';
+import { dir, file, HOME_DIR, HOME_FILE, SERVICE_CONFIG_FILE, TRAVERSABLE_DIR } from '../baseFs.js';
+import { renderDocument } from '../documentFormats.js';
+import type { LanHost } from '../generateHomeLan.js';
+import { CAMERA_MODELS, CAMERA_RESOLUTIONS, FLAVOUR_EVENTS } from '../pools/devices.js';
+import type { Directory } from '../../filesystem/types.js';
 import {
   DAY_SECONDS,
   LAST_SECOND,
@@ -18,7 +18,7 @@ import {
   stamp,
   uiPage,
   type DeviceFiles,
-} from './common';
+} from './common.js';
 
 /** How many events a camera still holds, and how far back its storage reaches. */
 const EVENT_COUNT = { min: 4, max: 12 } as const;

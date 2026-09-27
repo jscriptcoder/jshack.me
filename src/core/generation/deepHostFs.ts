@@ -9,12 +9,12 @@
  * closing an import cycle back onto `buildRemoteHostFs`.
  */
 
-import { applyPatches, type Patch } from '../filesystem/applyPatches';
-import { formatPidfileContent, PIDFILE_PERMISSIONS } from '../services/pidfile';
-import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import { buildRemoteHostFs } from './remoteHostFs';
-import type { Directory } from '../filesystem/types';
-import type { LanHost } from './generateHomeLan';
+import { applyPatches, type Patch } from '../filesystem/applyPatches.js';
+import { formatPidfileContent, PIDFILE_PERMISSIONS } from '../services/pidfile.js';
+import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
+import { buildRemoteHostFs } from './remoteHostFs.js';
+import type { Directory } from '../filesystem/types.js';
+import type { LanHost } from './generateHomeLan.js';
 
 /** Force `sshd:22` onto the generated NPC tree: a deep host is a reachable target
  *  by design, not by the catalog's probabilistic placement roll. */

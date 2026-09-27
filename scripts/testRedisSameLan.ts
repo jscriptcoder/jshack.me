@@ -30,26 +30,26 @@
 // Exits 0 when all checks pass, 1 on failure, 2 on missing env.
 
 import { createClient } from '@supabase/supabase-js';
-import { signRequest } from '../src/core/signedRequest/sign';
-import { generateIdentity } from '../src/core/identity/identity';
-import { computeWorkstationId } from '../src/core/identity/workstation';
-import { generateHomeLan } from '../src/core/generation/generateHomeLan';
-import { resolveLanHostIdentity } from '../src/core/generation/lanHostIdentity';
-import { lanAddressFor } from '../src/core/network/lanAddress';
-import { materializeWorkstationFs } from '../src/core/network/materializeWorkstationFs';
-import { workstationGuestPassword } from '../src/core/generation/workstationFs';
-import { ownStore } from '../src/core/redis/ownStore';
-import { DATADIR_PATH } from '../src/core/redis/datadir';
-import { REDIS_LOG_PATH } from '../src/core/logging/redisLog';
-import { readOpenPorts, type OpenPort } from '../src/core/services/pidfile';
+import { signRequest } from '../src/core/signedRequest/sign.js';
+import { generateIdentity } from '../src/core/identity/identity.js';
+import { computeWorkstationId } from '../src/core/identity/workstation.js';
+import { generateHomeLan } from '../src/core/generation/generateHomeLan.js';
+import { resolveLanHostIdentity } from '../src/core/generation/lanHostIdentity.js';
+import { lanAddressFor } from '../src/core/network/lanAddress.js';
+import { materializeWorkstationFs } from '../src/core/network/materializeWorkstationFs.js';
+import { workstationGuestPassword } from '../src/core/generation/workstationFs.js';
+import { ownStore } from '../src/core/redis/ownStore.js';
+import { DATADIR_PATH } from '../src/core/redis/datadir.js';
+import { REDIS_LOG_PATH } from '../src/core/logging/redisLog.js';
+import { readOpenPorts, type OpenPort } from '../src/core/services/pidfile.js';
 import {
   formatPidfileContent,
   pidfilePath,
   PIDFILE_PERMISSIONS,
-} from '../src/core/services/pidfile';
-import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog';
-import { WORDLIST_PATH, formatWordlist } from '../src/core/wordlist/defaultWordlist';
-import { md5 } from '../src/core/generation/md5';
+} from '../src/core/services/pidfile.js';
+import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
+import { WORDLIST_PATH, formatWordlist } from '../src/core/wordlist/defaultWordlist.js';
+import { md5 } from '../src/core/generation/md5.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const NETWORK = process.env.NETWORK_ENDPOINT ?? 'http://localhost:3100/api/network';

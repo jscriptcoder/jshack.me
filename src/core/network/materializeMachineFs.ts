@@ -9,9 +9,9 @@
  * base builder — one replay path, no drift in how a journal becomes a tree.
  */
 
-import { applyPatches, type Patch } from '../filesystem/applyPatches';
-import { orderPatchesForReplay } from '../patches/orderPatchesForReplay';
-import type { Directory, FilePermissions } from '../filesystem/types';
+import { applyPatches, type Patch } from '../filesystem/applyPatches.js';
+import { orderPatchesForReplay } from '../patches/orderPatchesForReplay.js';
+import type { Directory, FilePermissions } from '../filesystem/types.js';
 
 /** One of a machine's persisted patch rows — the same shape `/api/patches` reads,
  *  mapped into a client `Patch` for replay. After the shared-journal flip these are

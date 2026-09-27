@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { allocatePublicIp } from './allocatePublicIp';
-import { publisherIp } from '../generation/publisher';
+import { allocatePublicIp } from './allocatePublicIp.js';
+import { publisherIp } from '../generation/publisher.js';
 
 /**
  * `allocatePublicIp` is the pure orchestration of server-side public-IP

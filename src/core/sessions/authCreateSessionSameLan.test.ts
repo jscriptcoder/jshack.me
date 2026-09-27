@@ -3,22 +3,22 @@ import {
   handleAuthCreateSessionSameLan,
   type AuthCreateSessionSameLanDeps,
   type OccupantConnectRow,
-} from './authCreateSessionSameLan';
-import type { AuthSessionRow } from './authCreateSession';
-import { md5 } from '../generation/md5';
-import { workstationGuestPassword } from '../generation/workstationFs';
-import { signRequest } from '../signedRequest/sign';
-import { generateIdentity } from '../identity/identity';
-import { assignHomeNetwork } from '../network/homeNetwork';
-import type { LanLeaseRow } from '../network/lanAddress';
-import type { OwnerPatchRow } from '../network/materializeWorkstationFs';
-import { formatSshdAuthLine, AUTH_LOG_PERMISSIONS } from '../logging/authLog';
-import { derivePid } from '../logging/syslog';
-import { formatListenerContent } from '../services/pidfile';
-import { asGameTime } from '../types';
-import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog';
-import type { PatchRow } from '../patches/upsertPatch';
-import type { NonceStore } from '../signedRequest/nonceStore';
+} from './authCreateSessionSameLan.js';
+import type { AuthSessionRow } from './authCreateSession.js';
+import { md5 } from '../generation/md5.js';
+import { workstationGuestPassword } from '../generation/workstationFs.js';
+import { signRequest } from '../signedRequest/sign.js';
+import { generateIdentity } from '../identity/identity.js';
+import { assignHomeNetwork } from '../network/homeNetwork.js';
+import type { LanLeaseRow } from '../network/lanAddress.js';
+import type { OwnerPatchRow } from '../network/materializeWorkstationFs.js';
+import { formatSshdAuthLine, AUTH_LOG_PERMISSIONS } from '../logging/authLog.js';
+import { derivePid } from '../logging/syslog.js';
+import { formatListenerContent } from '../services/pidfile.js';
+import { asGameTime } from '../types.js';
+import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog.js';
+import type { PatchRow } from '../patches/upsertPatch.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 /**
  * `handleAuthCreateSessionSameLan` is the same-WiFi LAN connect front door. A fellow

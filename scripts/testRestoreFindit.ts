@@ -20,31 +20,31 @@
 
 import { spawnSync } from 'node:child_process';
 import { createClient } from '@supabase/supabase-js';
-import { signRequest } from '../src/core/signedRequest/sign';
-import { generateIdentity } from '../src/core/identity/identity';
-import { computeWorkstationId } from '../src/core/identity/workstation';
-import { computeApGatewayId } from '../src/core/identity/router';
-import { crackableEssidPool } from '../src/core/generation/generateWifi';
-import { siteAddress } from '../src/core/generation/publisher';
-import { buildFinditFs, FINDIT_DOMAIN, FINDIT_NETWORK } from '../src/core/generation/findit';
-import { FINDIT_FRONT_PAGE } from '../src/core/findit/page';
-import { WEB_PAGE_FILE } from '../src/core/generation/baseFs';
-import { apGatewayLogWriterKey } from '../src/core/logging/apGatewayLogWriter';
-import { BOOT_ID_PATH } from '../src/core/boot/bootId';
-import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog';
+import { signRequest } from '../src/core/signedRequest/sign.js';
+import { generateIdentity } from '../src/core/identity/identity.js';
+import { computeWorkstationId } from '../src/core/identity/workstation.js';
+import { computeApGatewayId } from '../src/core/identity/router.js';
+import { crackableEssidPool } from '../src/core/generation/generateWifi.js';
+import { siteAddress } from '../src/core/generation/publisher.js';
+import { buildFinditFs, FINDIT_DOMAIN, FINDIT_NETWORK } from '../src/core/generation/findit.js';
+import { FINDIT_FRONT_PAGE } from '../src/core/findit/page.js';
+import { WEB_PAGE_FILE } from '../src/core/generation/baseFs.js';
+import { apGatewayLogWriterKey } from '../src/core/logging/apGatewayLogWriter.js';
+import { BOOT_ID_PATH } from '../src/core/boot/bootId.js';
+import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
 import {
   DPKG_STATUS_PATH,
   DPKG_STATUS_PERMISSIONS,
   readDpkgStatus,
   withPackageVersion,
-} from '../src/core/packages/dpkgStatus';
-import { exploitOutcome } from '../src/core/cve/exploitEffect';
-import { packageTimeline } from '../src/core/cve/packageTimeline';
-import { gameDayAt } from '../src/core/cve/worldClock';
-import { md5 } from '../src/core/generation/md5';
-import { deserializeTree, type SerializedDirectory } from '../src/core/filesystem/treeCodec';
-import type { Directory, FileNode } from '../src/core/filesystem/types';
-import { asEpochMs } from '../src/core/types';
+} from '../src/core/packages/dpkgStatus.js';
+import { exploitOutcome } from '../src/core/cve/exploitEffect.js';
+import { packageTimeline } from '../src/core/cve/packageTimeline.js';
+import { gameDayAt } from '../src/core/cve/worldClock.js';
+import { md5 } from '../src/core/generation/md5.js';
+import { deserializeTree, type SerializedDirectory } from '../src/core/filesystem/treeCodec.js';
+import type { Directory, FileNode } from '../src/core/filesystem/types.js';
+import { asEpochMs } from '../src/core/types.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const NETWORK = process.env.NETWORK_ENDPOINT ?? 'http://localhost:3100/api/network';

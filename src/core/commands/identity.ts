@@ -8,7 +8,7 @@
  * builtins.
  */
 
-import type { Command } from './types';
+import type { Command } from './types.js';
 
 /** First N hex chars — a glanceable handle for cross-player recognition. */
 const FINGERPRINT_LENGTH = 16;

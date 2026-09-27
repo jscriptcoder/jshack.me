@@ -19,9 +19,9 @@
  */
 
 import { z } from 'zod';
-import { verifySignedRequest } from '../signedRequest/verify';
-import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
-import type { NonceStore } from '../signedRequest/nonceStore';
+import { verifySignedRequest } from '../signedRequest/verify.js';
+import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 /** One occupied-ESSID row — name-only by construction (no occupant identity). */
 export type OccupiedEssidRow = {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { rankPages, MAX_RESULTS, type IndexedPage } from './search';
+import { rankPages, MAX_RESULTS, type IndexedPage } from './search.js';
 
 /**
  * What findit does with a query: it reads the pages it holds and decides which of them

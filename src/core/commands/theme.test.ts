@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { theme } from './theme';
-import { mockCommandEnv } from '../../test/factories/commandEnv';
+import { theme } from './theme.js';
+import { mockCommandEnv } from '../../test/factories/commandEnv.js';
 
 const NO_FLAGS = new Map<string, string | true>();
 

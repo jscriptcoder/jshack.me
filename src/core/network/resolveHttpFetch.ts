@@ -29,48 +29,48 @@
  */
 
 import { z } from 'zod';
-import { verifySignedRequest } from '../signedRequest/verify';
-import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
-import { materializeApGatewayFs } from './materializeRouterFs';
-import type { OwnerPatchRow } from './materializeWorkstationFs';
-import { machineServing, type ServedMachine } from './machineServing';
-import { bootableOccupantFs } from './natHosts';
-import { lanAddressesByOwner, type LanLeaseRow } from './lanAddress';
-import { servesWebOn } from './webServing';
-import { canBoot } from '../boot/bootFiles';
-import { createFsView } from '../filesystem/fsView';
-import { HTTP_DEFAULT_PORT, resolveWebPath } from './http';
-import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter';
-import { generatedLanBox } from './generatedLanBox';
-import { FINDIT_NETWORK } from '../generation/findit';
+import { verifySignedRequest } from '../signedRequest/verify.js';
+import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
+import { materializeApGatewayFs } from './materializeRouterFs.js';
+import type { OwnerPatchRow } from './materializeWorkstationFs.js';
+import { machineServing, type ServedMachine } from './machineServing.js';
+import { bootableOccupantFs } from './natHosts.js';
+import { lanAddressesByOwner, type LanLeaseRow } from './lanAddress.js';
+import { servesWebOn } from './webServing.js';
+import { canBoot } from '../boot/bootFiles.js';
+import { createFsView } from '../filesystem/fsView.js';
+import { HTTP_DEFAULT_PORT, resolveWebPath } from './http.js';
+import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
+import { generatedLanBox } from './generatedLanBox.js';
+import { FINDIT_NETWORK } from '../generation/findit.js';
 import {
   indexedWeb,
   siteOn,
   type MachinePatchRow,
   type WebIndexDeps,
-} from '../findit/webIndex';
-import { rankPages } from '../findit/search';
-import { searchResultsPage } from '../findit/page';
+} from '../findit/webIndex.js';
+import { rankPages } from '../findit/search.js';
+import { searchResultsPage } from '../findit/page.js';
 import {
   ACCESS_LOG_OWNER,
   ACCESS_LOG_PATH,
   ACCESS_LOG_PERMISSIONS,
   formatAccessLogLine,
-} from '../logging/accessLog';
+} from '../logging/accessLog.js';
 import {
   resolveCrossPlayerSourceIp,
   type FindHomeNetworkByOwnerKey,
-} from '../logging/crossPlayerSourceIp';
+} from '../logging/crossPlayerSourceIp.js';
 import {
   appendMachineLog,
   type MachineLogReadQuery,
   type MachineLogReadResult,
-} from '../patches/appendMachineLog';
-import { asGameTime } from '../types';
-import type { PatchRow } from '../patches/upsertPatch';
-import type { OccupantWorkstation } from '../patches/remoteWritePermission';
-import type { Directory } from '../filesystem/types';
-import type { NonceStore } from '../signedRequest/nonceStore';
+} from '../patches/appendMachineLog.js';
+import { asGameTime } from '../types.js';
+import type { PatchRow } from '../patches/upsertPatch.js';
+import type { OccupantWorkstation } from '../patches/remoteWritePermission.js';
+import type { Directory } from '../filesystem/types.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 /** One occupant a NAT forward can land a fetch on: the identity fields that rebuild its
  *  tree, plus the machine id its journal is scoped to. Composed from the shared

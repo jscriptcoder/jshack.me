@@ -26,15 +26,15 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { gzipSync } from 'node:zlib';
-import { crackableEssidPool } from '../src/core/generation/generateWifi';
-import { generateHomeLan } from '../src/core/generation/generateHomeLan';
-import { generateDeepLayer } from '../src/core/generation/generateDeepLayer';
-import { chainLinks, lanHostOctet, machineIdForLanHost } from '../src/core/generation/lanTopology';
-import { hostMachineId } from '../src/core/generation/remoteHostId';
+import { crackableEssidPool } from '../src/core/generation/generateWifi.js';
+import { generateHomeLan } from '../src/core/generation/generateHomeLan.js';
+import { generateDeepLayer } from '../src/core/generation/generateDeepLayer.js';
+import { chainLinks, lanHostOctet, machineIdForLanHost } from '../src/core/generation/lanTopology.js';
+import { hostMachineId } from '../src/core/generation/remoteHostId.js';
 import {
   baseFsForLanHost,
   generatedBaseFsForMachineId,
-} from '../src/core/generation/lanHostIdentity';
+} from '../src/core/generation/lanHostIdentity.js';
 
 /** 134,975 bytes gzipped before any world content, plus the 150 KB the content may add. */
 const BUNDLE_CEILING_BYTES = 284_975;

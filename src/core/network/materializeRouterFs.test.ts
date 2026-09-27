@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { materializeApGatewayFs } from './materializeRouterFs';
-import type { OwnerPatchRow } from './materializeWorkstationFs';
-import { generateIdentity } from '../identity/identity';
-import { md5 } from '../generation/md5';
-import { seedApGatewayAdminPw } from '../generation/routerFs';
-import { readOpenPorts } from '../services/pidfile';
-import { canBoot } from '../boot/bootFiles';
-import type { Directory, FileNode, FilePermissions } from '../filesystem/types';
+import { materializeApGatewayFs } from './materializeRouterFs.js';
+import type { OwnerPatchRow } from './materializeWorkstationFs.js';
+import { generateIdentity } from '../identity/identity.js';
+import { md5 } from '../generation/md5.js';
+import { seedApGatewayAdminPw } from '../generation/routerFs.js';
+import { readOpenPorts } from '../services/pidfile.js';
+import { canBoot } from '../boot/bootFiles.js';
+import type { Directory, FileNode, FilePermissions } from '../filesystem/types.js';
 
 /**
  * `materializeApGatewayFs` rebuilds an access point's GATEWAY the way the

@@ -18,8 +18,8 @@
  * cannot lose data it does not understand.
  */
 
-import type { Directory, FilePermissions } from '../filesystem/types';
-import { SERVICE_CONFIG_FILE } from '../generation/baseFs';
+import type { Directory, FilePermissions } from '../filesystem/types.js';
+import { SERVICE_CONFIG_FILE } from '../generation/baseFs.js';
 
 /** Where the manifest lives, who owns it and what it permits — shared by the generator
  *  that stamps it and every command that rewrites it, so a patched manifest and a

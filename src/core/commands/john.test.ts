@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { john } from './john';
-import { mockCommandEnv, mockFsViewFromTree, mockSession } from '../../test/factories/commandEnv';
-import { buildDirectory, buildFile } from '../../test/factories/filesystem';
-import { md5 } from '../generation/md5';
-import { asAbsPath, asMachineId, type UserType } from '../types';
-import type { CommandResult, TerminalLine } from './types';
-import type { Directory } from '../filesystem/types';
+import { john } from './john.js';
+import { mockCommandEnv, mockFsViewFromTree, mockSession } from '../../test/factories/commandEnv.js';
+import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
+import { md5 } from '../generation/md5.js';
+import { asAbsPath, asMachineId, type UserType } from '../types.js';
+import type { CommandResult, TerminalLine } from './types.js';
+import type { Directory } from '../filesystem/types.js';
 
 /**
  * `john` recovers passwords from hashes the player already holds, and the whole

@@ -14,9 +14,9 @@
  * box has no store — because from a reader's side they are one condition.
  */
 
-import { parseRedisStore, type RedisStore } from './types';
-import { asAbsPath } from '../types';
-import type { Directory, FileNode } from '../filesystem/types';
+import { parseRedisStore, type RedisStore } from './types.js';
+import { asAbsPath } from '../types.js';
+import type { Directory, FileNode } from '../filesystem/types.js';
 
 const DATADIR_SEGMENTS = ['var', 'lib', 'redis'] as const;
 

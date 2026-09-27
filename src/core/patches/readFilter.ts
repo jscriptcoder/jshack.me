@@ -18,10 +18,10 @@
  * Tier 3 (no session → externally-observable allowlist) is `filterTreeToAllowlist`.
  */
 
-import { BOOT_ID_PATH } from '../boot/bootId';
-import { canRead } from '../filesystem/walker';
-import type { Directory, FileNode, FilePermissions } from '../filesystem/types';
-import type { UserType } from '../types';
+import { BOOT_ID_PATH } from '../boot/bootId.js';
+import { canRead } from '../filesystem/walker.js';
+import type { Directory, FileNode, FilePermissions } from '../filesystem/types.js';
+import type { UserType } from '../types.js';
 
 /** Filter one directory's entries for `userType`, recursing into surviving
  *  subdirectories. `parentChain` is every ancestor's perms from root down to this

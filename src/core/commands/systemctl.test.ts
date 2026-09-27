@@ -1,29 +1,29 @@
 import { describe, expect, it } from 'vitest';
-import { asAbsPath, type UserType } from '../types';
-import type { PatchApi } from './types';
-import type { CommandResult, PatchResult, TerminalLine } from './types';
+import { asAbsPath, type UserType } from '../types.js';
+import type { PatchApi } from './types.js';
+import type { CommandResult, PatchResult, TerminalLine } from './types.js';
 import {
   mockCommandEnv,
   mockFsViewFromTree,
   mockPatchApi,
   mockSession,
-} from '../../test/factories/commandEnv';
-import { buildDirectory, buildFile } from '../../test/factories/filesystem';
-import { binaryStub } from '../generation/binaries';
-import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import { SYSTEM_DAEMON_NAMES } from '../generation/binaries';
-import { packageForBinary } from '../packages/aptPackages';
+} from '../../test/factories/commandEnv.js';
+import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
+import { binaryStub } from '../generation/binaries.js';
+import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
+import { SYSTEM_DAEMON_NAMES } from '../generation/binaries.js';
+import { packageForBinary } from '../packages/aptPackages.js';
 import {
   formatSnmpdState,
   SNMPD_STATE_PATH,
   SNMPD_STATE_PERMISSIONS,
-} from '../snmp/rwCommunity';
-import { SNMPD_CONF_PATH, SNMPD_CONF_PERMISSIONS, SNMPD_CONF_SEED } from '../snmp/conf';
-import { md5 } from '../generation/md5';
-import { daemonName, pidfilePath, readOpenPorts } from '../services/pidfile';
-import { APT_PACKAGES } from '../packages/aptPackages';
-import { DAEMONS } from './daemon';
-import { isUnitName, systemctl } from './systemctl';
+} from '../snmp/rwCommunity.js';
+import { SNMPD_CONF_PATH, SNMPD_CONF_PERMISSIONS, SNMPD_CONF_SEED } from '../snmp/conf.js';
+import { md5 } from '../generation/md5.js';
+import { daemonName, pidfilePath, readOpenPorts } from '../services/pidfile.js';
+import { APT_PACKAGES } from '../packages/aptPackages.js';
+import { DAEMONS } from './daemon.js';
+import { isUnitName, systemctl } from './systemctl.js';
 
 /**
  * `systemctl` is the defender's half of every door: it closes a port that is

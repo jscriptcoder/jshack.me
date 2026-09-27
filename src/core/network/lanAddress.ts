@@ -11,8 +11,8 @@
  * answer for an identity that held nothing.
  */
 
-import { createPrng } from '../generation/prng';
-import type { Ipv4 } from './interfaces';
+import { createPrng } from '../generation/prng.js';
+import type { Ipv4 } from './interfaces.js';
 
 /** An occupant's lease as the store holds it: which identity, which host octet. */
 export type LanLeaseRow = {

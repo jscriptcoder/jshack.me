@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { idleNav, navigateDown, navigateUp } from './commandHistory';
+import { idleNav, navigateDown, navigateUp } from './commandHistory.js';
 
 /** A populated, multi-entry history shared by the navigation specs. Oldest
  *  first — index 0 is the earliest command, the last index the newest. */

@@ -1,69 +1,69 @@
 import { randomUUID } from 'node:crypto';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { handleCreateSession, type SessionRow } from '../src/core/sessions/createSession';
-import { publisherAt } from '../src/core/generation/publisher';
+import { handleCreateSession, type SessionRow } from '../src/core/sessions/createSession.js';
+import { publisherAt } from '../src/core/generation/publisher.js';
 import {
   handleAuthCreateSession,
   type AuthSessionRow,
-} from '../src/core/sessions/authCreateSession';
-import { handleAuthCreateSessionPublic } from '../src/core/sessions/authCreateSessionPublic';
+} from '../src/core/sessions/authCreateSession.js';
+import { handleAuthCreateSessionPublic } from '../src/core/sessions/authCreateSessionPublic.js';
 import {
   handleExploitCreateSession,
   type ExploitSessionRow,
-} from '../src/core/sessions/exploitCreateSession';
-import { handleExploitLocalElevate } from '../src/core/sessions/exploitLocalElevate';
-import type { NatOccupantRow, ApNetworkLookup } from '../src/core/network/resolvePublicTarget';
-import { computeApGatewayId } from '../src/core/identity/router';
+} from '../src/core/sessions/exploitCreateSession.js';
+import { handleExploitLocalElevate } from '../src/core/sessions/exploitLocalElevate.js';
+import type { NatOccupantRow, ApNetworkLookup } from '../src/core/network/resolvePublicTarget.js';
+import { computeApGatewayId } from '../src/core/identity/router.js';
 import {
   handleAuthCreateSessionSameLan,
   type OccupantConnectRow,
-} from '../src/core/sessions/authCreateSessionSameLan';
-import type { LanLeaseRow } from '../src/core/network/lanAddress';
-import { handleAuthCreateSessionInnerGateway } from '../src/core/sessions/authCreateSessionInnerGateway';
-import { handleHydraCrack } from '../src/core/sessions/hydraCrack';
-import { handleMysqlConnect } from '../src/core/sessions/mysqlConnect';
-import { handleMysqlStatement } from '../src/core/sessions/mysqlStatement';
-import { handleRedisConnect } from '../src/core/sessions/redisConnect';
-import { handleRedisStatement } from '../src/core/sessions/redisStatement';
-import { handleSnmpSet } from '../src/core/sessions/snmpSet';
-import { handleSnmpWalk } from '../src/core/sessions/snmpWalk';
-import { handleHydraCrackPublic } from '../src/core/sessions/hydraCrackPublic';
-import { handleHydraCrackInnerGateway } from '../src/core/sessions/hydraCrackInnerGateway';
-import type { OwnerPatchRow } from '../src/core/network/materializeWorkstationFs';
+} from '../src/core/sessions/authCreateSessionSameLan.js';
+import type { LanLeaseRow } from '../src/core/network/lanAddress.js';
+import { handleAuthCreateSessionInnerGateway } from '../src/core/sessions/authCreateSessionInnerGateway.js';
+import { handleHydraCrack } from '../src/core/sessions/hydraCrack.js';
+import { handleMysqlConnect } from '../src/core/sessions/mysqlConnect.js';
+import { handleMysqlStatement } from '../src/core/sessions/mysqlStatement.js';
+import { handleRedisConnect } from '../src/core/sessions/redisConnect.js';
+import { handleRedisStatement } from '../src/core/sessions/redisStatement.js';
+import { handleSnmpSet } from '../src/core/sessions/snmpSet.js';
+import { handleSnmpWalk } from '../src/core/sessions/snmpWalk.js';
+import { handleHydraCrackPublic } from '../src/core/sessions/hydraCrackPublic.js';
+import { handleHydraCrackInnerGateway } from '../src/core/sessions/hydraCrackInnerGateway.js';
+import type { OwnerPatchRow } from '../src/core/network/materializeWorkstationFs.js';
 import {
   handleAuthElevateSession,
   type OccupantWorkstation,
   type SuSessionRow,
-} from '../src/core/sessions/authElevateSession';
+} from '../src/core/sessions/authElevateSession.js';
 import {
   handleListSessions,
   type ListSessionsQuery,
   type SessionSummary,
-} from '../src/core/sessions/listSessions';
-import { handleEndSession, type EndSessionParams } from '../src/core/sessions/endSession';
+} from '../src/core/sessions/listSessions.js';
+import { handleEndSession, type EndSessionParams } from '../src/core/sessions/endSession.js';
 import {
   handleRebootMachine,
   type EndMachineSessionsParams,
   type WriteBootIdParams,
-} from '../src/core/sessions/rebootMachine';
+} from '../src/core/sessions/rebootMachine.js';
 import {
   BOOT_ID_OWNER,
   BOOT_ID_PATH,
   BOOT_ID_PERMISSIONS,
-} from '../src/core/boot/bootId';
-import type { MachineLogReadQuery } from '../src/core/patches/appendMachineLog';
+} from '../src/core/boot/bootId.js';
+import type { MachineLogReadQuery } from '../src/core/patches/appendMachineLog.js';
 import type {
   ActiveSessionQuery,
   FindActiveSessionResult,
-} from '../src/core/patches/authorizeMachineAccess';
-import type { UserType } from '../src/core/types';
+} from '../src/core/patches/authorizeMachineAccess.js';
+import type { UserType } from '../src/core/types.js';
 import type {
   ListPathPatchesResult,
   PathPatchRow,
   PatchRow,
-} from '../src/core/patches/upsertPatch';
-import type { NonceStore } from '../src/core/signedRequest/nonceStore';
+} from '../src/core/patches/upsertPatch.js';
+import type { NonceStore } from '../src/core/signedRequest/nonceStore.js';
 
 // Vercel adapter for POST /api/sessions.
 //

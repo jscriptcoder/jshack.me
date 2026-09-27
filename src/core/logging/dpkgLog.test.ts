@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { asGameTime } from '../types';
+import { asGameTime } from '../types.js';
 import {
   DPKG_LOG_OWNER,
   DPKG_LOG_PATH,
   DPKG_LOG_PERMISSIONS,
   formatPackageDowngradeLine,
-} from './dpkgLog';
+} from './dpkgLog.js';
 
 /**
  * dpkg-log (`/var/log/dpkg.log`) line formatting — the record a box keeps of a package

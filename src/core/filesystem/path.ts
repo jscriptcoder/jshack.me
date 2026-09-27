@@ -3,7 +3,7 @@
  * operations against the `AbsPath` brand.
  */
 
-import { asAbsPath, type AbsPath } from '../types';
+import { asAbsPath, type AbsPath } from '../types.js';
 
 const ROOT = asAbsPath('/');
 

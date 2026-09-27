@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { xterm } from './xterm';
-import { mockCommandEnv } from '../../test/factories/commandEnv';
+import { xterm } from './xterm.js';
+import { mockCommandEnv } from '../../test/factories/commandEnv.js';
 
 const NO_FLAGS = new Map<string, string | true>();
 

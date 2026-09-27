@@ -7,8 +7,8 @@
  * `core/identity` — this file is thin localStorage glue.
  */
 
-import { getOrCreateIdentity } from '../core/identity/identity';
-import type { Identity } from '../core/commands/types';
+import { getOrCreateIdentity } from '../core/identity/identity.js';
+import type { Identity } from '../core/commands/types.js';
 
 let cached: Identity | null = null;
 

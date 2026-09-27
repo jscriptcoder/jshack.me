@@ -1,21 +1,21 @@
 import { describe, expect, it } from 'vitest';
-import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter';
-import { reachServiceHost, type ServiceHostLookup } from './serviceHost';
-import { generateIdentity } from '../identity/identity';
-import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
-import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
-import { computeApGatewayId } from '../identity/router';
-import { seedApGatewayHostname } from '../generation/gatewayHostname';
-import { frontedSegment } from '../network/frontedSegment';
-import { lanAddressFor, type LanLeaseRow } from '../network/lanAddress';
-import { materializeWorkstationFs } from '../network/materializeWorkstationFs';
-import { readOpenPorts, formatPidfileContent, pidfilePath } from '../services/pidfile';
-import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import { deepDatabaseFixture } from '../../test/factories/lanDatabase';
-import { md5 } from '../generation/md5';
-import { asAbsPath } from '../types';
-import type { ApNetworkLookup, NatOccupantRow } from '../network/resolvePublicTarget';
-import type { OwnerPatchRow } from '../network/materializeMachineFs';
+import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
+import { reachServiceHost, type ServiceHostLookup } from './serviceHost.js';
+import { generateIdentity } from '../identity/identity.js';
+import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
+import { resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
+import { computeApGatewayId } from '../identity/router.js';
+import { seedApGatewayHostname } from '../generation/gatewayHostname.js';
+import { frontedSegment } from '../network/frontedSegment.js';
+import { lanAddressFor, type LanLeaseRow } from '../network/lanAddress.js';
+import { materializeWorkstationFs } from '../network/materializeWorkstationFs.js';
+import { readOpenPorts, formatPidfileContent, pidfilePath } from '../services/pidfile.js';
+import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
+import { deepDatabaseFixture } from '../../test/factories/lanDatabase.js';
+import { md5 } from '../generation/md5.js';
+import { asAbsPath } from '../types.js';
+import type { ApNetworkLookup, NatOccupantRow } from '../network/resolvePublicTarget.js';
+import type { OwnerPatchRow } from '../network/materializeMachineFs.js';
 
 /**
  * Reaching a box that serves a named daemon — the step every data door takes before

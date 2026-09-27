@@ -20,18 +20,18 @@
 // Exits 0 when all checks pass, 1 on failure, 2 on missing env.
 
 import { createClient } from '@supabase/supabase-js';
-import { signRequest } from '../src/core/signedRequest/sign';
-import { generateIdentity } from '../src/core/identity/identity';
-import { computeWorkstationId } from '../src/core/identity/workstation';
-import { computeApGatewayId } from '../src/core/identity/router';
-import { workstationGuestPassword } from '../src/core/generation/workstationFs';
-import { lanAddressFor } from '../src/core/network/lanAddress';
-import { VSFTPD_LOG_PATH } from '../src/core/logging/vsftpdLog';
-import { AUTH_LOG_PATH } from '../src/core/logging/authLog';
-import { md5 } from '../src/core/generation/md5';
-import { deserializeTree, type SerializedDirectory } from '../src/core/filesystem/treeCodec';
-import type { Directory, FileNode } from '../src/core/filesystem/types';
-import { clearPublicIps, seedPublicIps } from './networkFixture';
+import { signRequest } from '../src/core/signedRequest/sign.js';
+import { generateIdentity } from '../src/core/identity/identity.js';
+import { computeWorkstationId } from '../src/core/identity/workstation.js';
+import { computeApGatewayId } from '../src/core/identity/router.js';
+import { workstationGuestPassword } from '../src/core/generation/workstationFs.js';
+import { lanAddressFor } from '../src/core/network/lanAddress.js';
+import { VSFTPD_LOG_PATH } from '../src/core/logging/vsftpdLog.js';
+import { AUTH_LOG_PATH } from '../src/core/logging/authLog.js';
+import { md5 } from '../src/core/generation/md5.js';
+import { deserializeTree, type SerializedDirectory } from '../src/core/filesystem/treeCodec.js';
+import type { Directory, FileNode } from '../src/core/filesystem/types.js';
+import { clearPublicIps, seedPublicIps } from './networkFixture.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const PATCHES = process.env.PATCHES_ENDPOINT ?? 'http://localhost:3100/api/patches';

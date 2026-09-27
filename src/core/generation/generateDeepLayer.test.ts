@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { generateDeepLayer, seedNetworkDepth, type FrontingGateway } from './generateDeepLayer';
-import { buildDeepHostFs } from './deepHostFs';
-import { generateHomeLan, type LanHost } from './generateHomeLan';
-import { buildRemoteHostFs } from './remoteHostFs';
-import type { DrawnRole } from './machineRole';
-import { roleOfHostname } from './pools/hostnames';
-import { computeDeepGatewayId } from '../identity/router';
-import { readOpenPorts } from '../services/pidfile';
+import { generateDeepLayer, seedNetworkDepth, type FrontingGateway } from './generateDeepLayer.js';
+import { buildDeepHostFs } from './deepHostFs.js';
+import { generateHomeLan, type LanHost } from './generateHomeLan.js';
+import { buildRemoteHostFs } from './remoteHostFs.js';
+import type { DrawnRole } from './machineRole.js';
+import { roleOfHostname } from './pools/hostnames.js';
+import { computeDeepGatewayId } from '../identity/router.js';
+import { readOpenPorts } from '../services/pidfile.js';
 
 /**
  * `generateDeepLayer` is the deeper-layer counterpart of `generateHomeLan`: behind

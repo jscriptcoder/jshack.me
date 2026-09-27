@@ -26,24 +26,24 @@
 // Exits 0 when all checks pass, 1 on failure, 2 on missing env / no usable topology.
 
 import { createClient } from '@supabase/supabase-js';
-import { signRequest } from '../src/core/signedRequest/sign';
-import { generateIdentity } from '../src/core/identity/identity';
-import { md5 } from '../src/core/generation/md5';
-import { generateHomeLan, type LanHost } from '../src/core/generation/generateHomeLan';
+import { signRequest } from '../src/core/signedRequest/sign.js';
+import { generateIdentity } from '../src/core/identity/identity.js';
+import { md5 } from '../src/core/generation/md5.js';
+import { generateHomeLan, type LanHost } from '../src/core/generation/generateHomeLan.js';
 import {
   generateDeepLayer,
   seedNetworkDepth,
-} from '../src/core/generation/generateDeepLayer';
+} from '../src/core/generation/generateDeepLayer.js';
 import {
   buildDeepGatewayBaseFs,
   buildDeepSwitchBaseFs,
-} from '../src/core/generation/routerFs';
-import { resolveLanHostIdentity } from '../src/core/generation/lanHostIdentity';
-import { computeDeepGatewayId, computeInnerGatewayId } from '../src/core/identity/router';
-import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog';
-import { readOpenPorts } from '../src/core/services/pidfile';
-import { SNMPD_LOG_PATH } from '../src/core/logging/snmpdLog';
-import { RULES_V4_PATH } from '../src/core/network/iptablesRules';
+} from '../src/core/generation/routerFs.js';
+import { resolveLanHostIdentity } from '../src/core/generation/lanHostIdentity.js';
+import { computeDeepGatewayId, computeInnerGatewayId } from '../src/core/identity/router.js';
+import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
+import { readOpenPorts } from '../src/core/services/pidfile.js';
+import { SNMPD_LOG_PATH } from '../src/core/logging/snmpdLog.js';
+import { RULES_V4_PATH } from '../src/core/network/iptablesRules.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const url = process.env.SUPABASE_URL;

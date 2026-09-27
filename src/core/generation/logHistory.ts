@@ -19,40 +19,40 @@
  * layer hangs a child. Everything here draws from the box's own `log-history` stream.
  */
 
-import type { FileEntry, FileNode } from '../filesystem/types';
-import type { MysqlDatabase } from '../mysql/types';
-import { WORLD_EPOCH } from '../cve/worldClock';
-import { asAbsPath, asGameTime, type GameTime } from '../types';
-import { dir, file, TRAVERSABLE_DIR } from './baseFs';
-import { generateHomeLan, isOnHomeLan, type LanHost } from './generateHomeLan';
-import { createPrng, type Prng } from './prng';
-import { fillSlots } from './npcHome';
-import type { HostService } from './remoteHostFs';
-import { lanZoneName } from '../network/resolveName';
-import { ZONE_SERIAL } from './generateDnsZone';
-import { formatSyslogLine, SYSLOG_PERMISSIONS } from '../logging/syslog';
+import type { FileEntry, FileNode } from '../filesystem/types.js';
+import type { MysqlDatabase } from '../mysql/types.js';
+import { WORLD_EPOCH } from '../cve/worldClock.js';
+import { asAbsPath, asGameTime, type GameTime } from '../types.js';
+import { dir, file, TRAVERSABLE_DIR } from './baseFs.js';
+import { generateHomeLan, isOnHomeLan, type LanHost } from './generateHomeLan.js';
+import { createPrng, type Prng } from './prng.js';
+import { fillSlots } from './npcHome.js';
+import type { HostService } from './remoteHostFs.js';
+import { lanZoneName } from '../network/resolveName.js';
+import { ZONE_SERIAL } from './generateDnsZone.js';
+import { formatSyslogLine, SYSLOG_PERMISSIONS } from '../logging/syslog.js';
 import {
   AUTH_LOG_PERMISSIONS,
   formatRootSessionLine,
   formatSshdAuthLine,
-} from '../logging/authLog';
-import { formatKernelLine, KERN_LOG_PERMISSIONS } from '../logging/kernLog';
-import { ACCESS_LOG_PERMISSIONS, formatAccessLogLine } from '../logging/accessLog';
+} from '../logging/authLog.js';
+import { formatKernelLine, KERN_LOG_PERMISSIONS } from '../logging/kernLog.js';
+import { ACCESS_LOG_PERMISSIONS, formatAccessLogLine } from '../logging/accessLog.js';
 import {
   formatMysqlConnectLine,
   formatMysqlStatementLine,
   MYSQL_LOG_PERMISSIONS,
-} from '../logging/mysqlLog';
+} from '../logging/mysqlLog.js';
 import {
   formatRedisConnectLine,
   formatRedisNoticeLine,
   REDIS_LOG_PERMISSIONS,
-} from '../logging/redisLog';
+} from '../logging/redisLog.js';
 import {
   formatNamedControlLine,
   formatNamedZoneLoadedLine,
   NAMED_LOG_PERMISSIONS,
-} from '../logging/namedLog';
+} from '../logging/namedLog.js';
 import {
   formatPostfixClientLine,
   formatPostfixDeliveredLine,
@@ -60,13 +60,13 @@ import {
   formatPostfixQueuedLine,
   formatPostfixRemovedLine,
   MAIL_LOG_PERMISSIONS,
-} from '../logging/mailLog';
-import type { MailDelivery } from './mailbox';
-import type { ShareUpload } from './share';
-import { formatVsftpdTransferLine, VSFTPD_LOG_PERMISSIONS } from '../logging/vsftpdLog';
-import { formatPageLogLine, PAGE_LOG_PERMISSIONS } from '../logging/pageLog';
-import type { PrintedJob } from './device';
-import { daemonName } from '../services/pidfile';
+} from '../logging/mailLog.js';
+import type { MailDelivery } from './mailbox.js';
+import type { ShareUpload } from './share.js';
+import { formatVsftpdTransferLine, VSFTPD_LOG_PERMISSIONS } from '../logging/vsftpdLog.js';
+import { formatPageLogLine, PAGE_LOG_PERMISSIONS } from '../logging/pageLog.js';
+import type { PrintedJob } from './device.js';
+import { daemonName } from '../services/pidfile.js';
 import {
   DAILY_TIMERS,
   KERNEL_BOOT_LINES,
@@ -74,7 +74,7 @@ import {
   REDIS_SAVE_RULES,
   SERVICE_UNIT_DESCRIPTIONS,
   type DailyTimer,
-} from './pools/logLines';
+} from './pools/logLines.js';
 
 const DAY_SECONDS = 86_400;
 const LAST_SECOND = DAY_SECONDS - 1;

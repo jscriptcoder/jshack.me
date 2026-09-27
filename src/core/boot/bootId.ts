@@ -26,8 +26,8 @@
  * reads afterwards as an unreproducible bug.
  */
 
-import type { Directory, FilePermissions } from '../filesystem/types';
-import { asAbsPath, type AbsPath } from '../types';
+import type { Directory, FilePermissions } from '../filesystem/types.js';
+import { asAbsPath, type AbsPath } from '../types.js';
 
 /** `/var/run` is where this box keeps what is true only while it is up, and the
  *  real-world analogue of this file (`/proc/sys/kernel/random/boot_id`) says the

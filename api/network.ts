@@ -3,62 +3,62 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import {
   handleRegisterNetwork,
   type HomeNetworkOccupantRow,
-} from '../src/core/network/registerNetwork';
-import { handleResolveOccupants, type OccupantListRow } from '../src/core/network/resolveOccupants';
-import type { LanLeaseRow } from '../src/core/network/lanAddress';
+} from '../src/core/network/registerNetwork.js';
+import { handleResolveOccupants, type OccupantListRow } from '../src/core/network/resolveOccupants.js';
+import type { LanLeaseRow } from '../src/core/network/lanAddress.js';
 import {
   handleResolveOccupiedEssids,
   type OccupiedEssidRow,
-} from '../src/core/network/resolveOccupiedEssids';
-import { handleUnregisterOccupant } from '../src/core/network/unregisterOccupant';
+} from '../src/core/network/resolveOccupiedEssids.js';
+import { handleUnregisterOccupant } from '../src/core/network/unregisterOccupant.js';
 import {
   handleResolvePublicScan,
   type NatOccupantRow,
   type ApNetworkLookup,
-} from '../src/core/scan/resolvePublicScan';
-import { gameDayAt } from '../src/core/cve/worldClock';
-import { asEpochMs } from '../src/core/types';
+} from '../src/core/scan/resolvePublicScan.js';
+import { gameDayAt } from '../src/core/cve/worldClock.js';
+import { asEpochMs } from '../src/core/types.js';
 import {
   handleResolveHttpFetch,
   type ApNetworkLookup as HttpApNetworkLookup,
   type HttpFetchOccupant,
   type WebTargetDeps,
-} from '../src/core/network/resolveHttpFetch';
-import { handleResolveHttpSweep } from '../src/core/network/resolveHttpSweep';
+} from '../src/core/network/resolveHttpFetch.js';
+import { handleResolveHttpSweep } from '../src/core/network/resolveHttpSweep.js';
 import type {
   ActiveSessionQuery,
   FindActiveSessionResult,
-} from '../src/core/patches/authorizeMachineAccess';
-import { computeApGatewayId } from '../src/core/identity/router';
-import { handleResolveInnerGatewayScan } from '../src/core/scan/resolveInnerGatewayScan';
-import { handleResolveOccupantScan } from '../src/core/scan/resolveOccupantScan';
-import { handleResolveSameLanScan } from '../src/core/scan/resolveSameLanScan';
-import type { OwnerPatchRow as MachinePatchRow } from '../src/core/network/materializeMachineFs';
+} from '../src/core/patches/authorizeMachineAccess.js';
+import { computeApGatewayId } from '../src/core/identity/router.js';
+import { handleResolveInnerGatewayScan } from '../src/core/scan/resolveInnerGatewayScan.js';
+import { handleResolveOccupantScan } from '../src/core/scan/resolveOccupantScan.js';
+import { handleResolveSameLanScan } from '../src/core/scan/resolveSameLanScan.js';
+import type { OwnerPatchRow as MachinePatchRow } from '../src/core/network/materializeMachineFs.js';
 import {
   handleResolveCrossPlayerFs,
   type ActiveSession,
   type OwnerPatchRow,
   type OccupantWorkstation,
-} from '../src/core/network/resolveCrossPlayerFs';
-import type { UserType } from '../src/core/types';
-import type { MachineLogReadQuery } from '../src/core/patches/appendMachineLog';
+} from '../src/core/network/resolveCrossPlayerFs.js';
+import type { UserType } from '../src/core/types.js';
+import type { MachineLogReadQuery } from '../src/core/patches/appendMachineLog.js';
 import type {
   ListPathPatchesResult,
   PatchRow,
   PathPatchRow,
-} from '../src/core/patches/upsertPatch';
-import type { NonceStore } from '../src/core/signedRequest/nonceStore';
-import { allocatePublicIp } from '../src/core/network/allocatePublicIp';
-import { allocateLanLease, drawLanOctet } from '../src/core/network/allocateLanLease';
-import { assignHomeNetwork } from '../src/core/network/homeNetwork';
-import { generateHomeLan } from '../src/core/generation/generateHomeLan';
-import { generatePublicIp } from '../src/core/generation/ip';
-import { createPrng } from '../src/core/generation/prng';
-import { publisherAt } from '../src/core/generation/publisher';
+} from '../src/core/patches/upsertPatch.js';
+import type { NonceStore } from '../src/core/signedRequest/nonceStore.js';
+import { allocatePublicIp } from '../src/core/network/allocatePublicIp.js';
+import { allocateLanLease, drawLanOctet } from '../src/core/network/allocateLanLease.js';
+import { assignHomeNetwork } from '../src/core/network/homeNetwork.js';
+import { generateHomeLan } from '../src/core/generation/generateHomeLan.js';
+import { generatePublicIp } from '../src/core/generation/ip.js';
+import { createPrng } from '../src/core/generation/prng.js';
+import { publisherAt } from '../src/core/generation/publisher.js';
 import type {
   MachinePatchRow as WebIndexPatchRow,
   StoredAddress,
-} from '../src/core/findit/webIndex';
+} from '../src/core/findit/webIndex.js';
 import { randomUUID } from 'node:crypto';
 
 // Vercel adapter for POST /api/network — joining an AP, and reaching what is on it.

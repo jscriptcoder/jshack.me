@@ -4,27 +4,27 @@ import {
   type ListPathPatchesResult,
   type PatchRow,
   type UpsertPatchDeps,
-} from './upsertPatch';
-import { contentHash } from './contentHash';
-import type { ActiveSessionQuery, FindActiveSessionResult } from './authorizeMachineAccess';
+} from './upsertPatch.js';
+import { contentHash } from './contentHash.js';
+import type { ActiveSessionQuery, FindActiveSessionResult } from './authorizeMachineAccess.js';
 import type {
   FindOccupantWorkstationByMachineId,
   ListMachinePatchesResult,
   OccupantWorkstation,
-} from './remoteWritePermission';
-import { signRequest } from '../signedRequest/sign';
-import { generateIdentity } from '../identity/identity';
-import { computeWorkstationId } from '../identity/workstation';
-import { generateHomeLan } from '../generation/generateHomeLan';
-import { crackableEssidPool } from '../generation/generateWifi';
-import { generateDeepLayer, seedNetworkDepth } from '../generation/generateDeepLayer';
-import { computeDeepGatewayId, computeInnerGatewayId } from '../identity/router';
-import { hostMachineId } from '../generation/remoteHostId';
-import { md5 } from '../generation/md5';
-import { buildEntry, DPKG_STATUS_PATH, formatDpkgStatus } from '../packages/dpkgStatus';
-import { packageTimeline } from '../cve/packageTimeline';
-import type { UserType } from '../types';
-import type { NonceStore } from '../signedRequest/nonceStore';
+} from './remoteWritePermission.js';
+import { signRequest } from '../signedRequest/sign.js';
+import { generateIdentity } from '../identity/identity.js';
+import { computeWorkstationId } from '../identity/workstation.js';
+import { generateHomeLan } from '../generation/generateHomeLan.js';
+import { crackableEssidPool } from '../generation/generateWifi.js';
+import { generateDeepLayer, seedNetworkDepth } from '../generation/generateDeepLayer.js';
+import { computeDeepGatewayId, computeInnerGatewayId } from '../identity/router.js';
+import { hostMachineId } from '../generation/remoteHostId.js';
+import { md5 } from '../generation/md5.js';
+import { buildEntry, DPKG_STATUS_PATH, formatDpkgStatus } from '../packages/dpkgStatus.js';
+import { packageTimeline } from '../cve/packageTimeline.js';
+import type { UserType } from '../types.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 const freshStore: NonceStore = async () => ({ fresh: true });
 const ESSID = 'BEAN-THERE-WIFI';

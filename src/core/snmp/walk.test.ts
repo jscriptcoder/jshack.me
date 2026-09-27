@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { renderIdentityWalk, renderReadWriteWalk } from './walk';
+import { renderIdentityWalk, renderReadWriteWalk } from './walk.js';
 
 /**
  * What a device says about ITSELF when asked with the read-only community.

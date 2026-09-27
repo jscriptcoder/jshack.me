@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { commandRegistry } from './registry';
-import { COMMAND_CATEGORIES } from './types';
-import { scriptIdentifier } from '../scripting/commandContext';
+import { commandRegistry } from './registry.js';
+import { COMMAND_CATEGORIES } from './types.js';
+import { scriptIdentifier } from '../scripting/commandContext.js';
 
 describe('commandRegistry', () => {
   it('keys each registered command by its own `name`', () => {

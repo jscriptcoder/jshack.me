@@ -22,7 +22,7 @@
  * from the table would keep pointing at a hole its owner had already closed.
  */
 
-import { liveRelease, type CveSeverity } from './packageTimeline';
+import { liveRelease, type CveSeverity } from './packageTimeline.js';
 
 export type LiveCve = {
   /** `CVE-YYYY-NNNNNNN`, where the year is the calendar year it published in. */

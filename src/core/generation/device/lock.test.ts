@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { LOCK_MODELS, LOCK_ROLE_SLOTS } from '../pools/devices';
-import { generateHomeLan } from '../generateHomeLan';
-import { peopleKnownOn } from '../mailbox';
-import { npcUsername } from '../remoteHostFs';
-import { phoneModel } from '../share';
-import { WORLD_EPOCH } from '../../cve/worldClock';
-import { softwareVersionsIn } from '../../../test/worldContent';
+import { LOCK_MODELS, LOCK_ROLE_SLOTS } from '../pools/devices.js';
+import { generateHomeLan } from '../generateHomeLan.js';
+import { peopleKnownOn } from '../mailbox.js';
+import { npcUsername } from '../remoteHostFs.js';
+import { phoneModel } from '../share.js';
+import { WORLD_EPOCH } from '../../cve/worldClock.js';
+import { softwareVersionsIn } from '../../../test/worldContent.js';
 import {
   contentOf,
   pagesOf,
@@ -15,7 +15,7 @@ import {
   syntheticLanBoxes,
   worldBoxesNamed,
   type BuiltBox,
-} from '../../../test/deviceBoxes';
+} from '../../../test/deviceBoxes.js';
 
 const CONF = '/etc/lockd/lockd.conf';
 const SLOTS = '/var/lib/lockd/slots.conf';

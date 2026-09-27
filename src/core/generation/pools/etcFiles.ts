@@ -16,8 +16,8 @@
  * Slots: `{place}` the network's organisation or place, `{hostname}` the box's own name.
  */
 
-import type { NetworkCategory } from './essidCatalog';
-import type { ServiceSpec } from '../../services/serviceCatalog';
+import type { NetworkCategory } from './essidCatalog.js';
+import type { ServiceSpec } from '../../services/serviceCatalog.js';
 
 /** Login banners, by the kind of place the network is. Each names the place and the box. */
 export const MOTD_TEMPLATES: Readonly<Record<NetworkCategory, readonly string[]>> = {

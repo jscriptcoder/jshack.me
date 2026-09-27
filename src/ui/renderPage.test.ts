@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { renderPage } from './renderPage';
-import { pickWebPage } from '../core/generation/pools/webPages';
+import { renderPage } from './renderPage.js';
+import { pickWebPage } from '../core/generation/pools/webPages.js';
 
 /** The page a test renders from, when where it came from does not matter. Links
  *  resolve against it, so it has to be a real address. */

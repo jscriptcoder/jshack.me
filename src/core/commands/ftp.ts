@@ -17,14 +17,14 @@
  * credential and hand it to a service that isn't there.
  */
 
-import { asMachineId } from '../types';
-import { generateHomeLan } from '../generation/generateHomeLan';
-import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
-import { isPublicIp } from '../generation/ip';
-import { addressForTarget } from '../network/resolveName';
-import { readOpenPorts } from '../services/pidfile';
-import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import type { Command, CommandEnv, CommandResult, PublicAuthResult, Session } from './types';
+import { asMachineId } from '../types.js';
+import { generateHomeLan } from '../generation/generateHomeLan.js';
+import { resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
+import { isPublicIp } from '../generation/ip.js';
+import { addressForTarget } from '../network/resolveName.js';
+import { readOpenPorts } from '../services/pidfile.js';
+import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
+import type { Command, CommandEnv, CommandResult, PublicAuthResult, Session } from './types.js';
 
 const USAGE = 'usage: ftp [-p port] <host> [user]';
 

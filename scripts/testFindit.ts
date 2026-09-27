@@ -24,25 +24,25 @@
 // Exits 0 when all checks pass, 1 on failure, 2 on missing env or an unusable world.
 
 import { createClient } from '@supabase/supabase-js';
-import { signRequest } from '../src/core/signedRequest/sign';
-import { generateIdentity } from '../src/core/identity/identity';
-import { computeWorkstationId } from '../src/core/identity/workstation';
-import { crackableEssidPool } from '../src/core/generation/generateWifi';
-import { siteAddress } from '../src/core/generation/publisher';
-import { FINDIT_DOMAIN, FINDIT_NETWORK } from '../src/core/generation/findit';
-import { siteServer } from '../src/core/generation/siteServer';
-import { resolveLanHostIdentity } from '../src/core/generation/lanHostIdentity';
-import { computeApGatewayId } from '../src/core/identity/router';
-import { apGatewayLogWriterKey } from '../src/core/logging/apGatewayLogWriter';
-import { ACCESS_LOG_PATH } from '../src/core/logging/accessLog';
-import { WEB_PAGE_FILE } from '../src/core/generation/baseFs';
-import { md5 } from '../src/core/generation/md5';
-import { generateHomeLan } from '../src/core/generation/generateHomeLan';
-import { lanAddressFor } from '../src/core/network/lanAddress';
-import { formatPidfileContent } from '../src/core/services/pidfile';
-import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog';
-import { publisherMachineIds } from '../src/core/findit/webIndex';
-import { clearPublicIps, seedPublicIps } from './networkFixture';
+import { signRequest } from '../src/core/signedRequest/sign.js';
+import { generateIdentity } from '../src/core/identity/identity.js';
+import { computeWorkstationId } from '../src/core/identity/workstation.js';
+import { crackableEssidPool } from '../src/core/generation/generateWifi.js';
+import { siteAddress } from '../src/core/generation/publisher.js';
+import { FINDIT_DOMAIN, FINDIT_NETWORK } from '../src/core/generation/findit.js';
+import { siteServer } from '../src/core/generation/siteServer.js';
+import { resolveLanHostIdentity } from '../src/core/generation/lanHostIdentity.js';
+import { computeApGatewayId } from '../src/core/identity/router.js';
+import { apGatewayLogWriterKey } from '../src/core/logging/apGatewayLogWriter.js';
+import { ACCESS_LOG_PATH } from '../src/core/logging/accessLog.js';
+import { WEB_PAGE_FILE } from '../src/core/generation/baseFs.js';
+import { md5 } from '../src/core/generation/md5.js';
+import { generateHomeLan } from '../src/core/generation/generateHomeLan.js';
+import { lanAddressFor } from '../src/core/network/lanAddress.js';
+import { formatPidfileContent } from '../src/core/services/pidfile.js';
+import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
+import { publisherMachineIds } from '../src/core/findit/webIndex.js';
+import { clearPublicIps, seedPublicIps } from './networkFixture.js';
 
 const NETWORK = process.env.NETWORK_ENDPOINT ?? 'http://localhost:3100/api/network';
 const url = process.env.SUPABASE_URL;

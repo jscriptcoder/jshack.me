@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { SNMPD_CONF_SEED, parseSnmpdConf, readSnmpdConf } from './conf';
-import { buildDirectory, buildFile } from '../../test/factories/filesystem';
+import { SNMPD_CONF_SEED, parseSnmpdConf, readSnmpdConf } from './conf.js';
+import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
 
 /**
  * `/etc/snmp/snmpd.conf` carries the two identity facts nothing else in the world

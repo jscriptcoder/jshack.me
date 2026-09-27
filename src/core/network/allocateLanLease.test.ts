@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { allocateLanLease, drawLanOctet } from './allocateLanLease';
-import { createPrng } from '../generation/prng';
+import { allocateLanLease, drawLanOctet } from './allocateLanLease.js';
+import { createPrng } from '../generation/prng.js';
 
 /**
  * `allocateLanLease` is the pure orchestration of an occupant's DHCP-style address

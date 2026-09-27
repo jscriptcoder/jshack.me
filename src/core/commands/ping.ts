@@ -15,13 +15,13 @@
  * public IP is a server round-trip and belongs with the cross-player slice.
  */
 
-import type { Command, CommandEnv, CommandResult, TerminalLine } from './types';
-import { generateHomeLan } from '../generation/generateHomeLan';
-import { withSelfHost } from '../network/mergeLanOccupants';
-import { assignHomeNetwork } from '../network/homeNetwork';
-import { createPrng } from '../generation/prng';
-import { errorLine, streamedResult, text } from './streaming';
-import { connectedWlan0 } from '../network/interfaces';
+import type { Command, CommandEnv, CommandResult, TerminalLine } from './types.js';
+import { generateHomeLan } from '../generation/generateHomeLan.js';
+import { withSelfHost } from '../network/mergeLanOccupants.js';
+import { assignHomeNetwork } from '../network/homeNetwork.js';
+import { createPrng } from '../generation/prng.js';
+import { errorLine, streamedResult, text } from './streaming.js';
+import { connectedWlan0 } from '../network/interfaces.js';
 
 const error = (message: string): CommandResult => ({
   kind: 'sync',

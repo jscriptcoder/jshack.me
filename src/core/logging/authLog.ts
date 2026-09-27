@@ -12,10 +12,10 @@
  * future service logs); this module owns only the auth.log identity + messages.
  */
 
-import { asAbsPath, type AbsPath } from '../types';
-import type { FilePermissions } from '../filesystem/types';
-import { formatSyslogLine } from './syslog';
-import type { GameTime } from '../types';
+import { asAbsPath, type AbsPath } from '../types.js';
+import type { FilePermissions } from '../filesystem/types.js';
+import { formatSyslogLine } from './syslog.js';
+import type { GameTime } from '../types.js';
 
 /** The canonical `/var/log/auth.log` storage identity — single source of truth
  *  shared by the boot seed (`generation/workstationFs`) and the server-side

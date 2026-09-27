@@ -15,9 +15,9 @@
  * Its derivation is golden-locked in the test.
  */
 
-import { createPrng } from '../generation/prng';
-import { lanSubnetFor } from './lanAddress';
-import type { Ipv4 } from './interfaces';
+import { createPrng } from '../generation/prng.js';
+import { lanSubnetFor } from './lanAddress.js';
+import type { Ipv4 } from './interfaces.js';
 
 export type HomeNetworkAssignment = {
   readonly localIp: Ipv4;

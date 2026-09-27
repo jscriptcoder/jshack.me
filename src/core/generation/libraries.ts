@@ -16,8 +16,8 @@
  * radius (every command) would collapse gameplay. See the library-CVE design.
  */
 
-import { binaryStub } from './binaries';
-import type { FileNode, FilePermissions } from '../filesystem/types';
+import { binaryStub } from './binaries.js';
+import type { FileNode, FilePermissions } from '../filesystem/types.js';
 
 /** The shared libraries modelled by the game. Ported verbatim from legacy
  *  `SystemLibrary` (`src/generation/pools/systemLibraryTemplates.ts`). */

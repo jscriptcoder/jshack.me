@@ -17,8 +17,8 @@
  * `FileNode` shape and to `/bin` only (`/usr/bin` + `/lib` land in slices 2-3).
  */
 
-import type { UserType } from '../types';
-import type { FileNode, FilePermissions } from '../filesystem/types';
+import type { UserType } from '../types.js';
+import type { FileNode, FilePermissions } from '../filesystem/types.js';
 
 /** Looks like an ELF header (magic `ELF`) followed by the readable tail a
  *  dynamically linked binary carries — what `cat`/`strings` show.

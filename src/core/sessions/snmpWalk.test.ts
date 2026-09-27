@@ -1,26 +1,26 @@
 import { describe, expect, it, vi } from 'vitest';
-import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter';
-import { handleSnmpWalk, type SnmpWalkDeps } from './snmpWalk';
-import { signRequest } from '../signedRequest/sign';
-import { generateIdentity } from '../identity/identity';
-import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
-import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
-import { parseDpkgVersions, readDpkgStatus } from '../packages/dpkgStatus';
-import { displayVersion, isFirmwarePackage } from '../packages/packageVersions';
-import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import { formatPidfileContent, pidfilePath, readOpenPorts } from '../services/pidfile';
-import { formatSnmpdArrivalLine, formatSnmpdAttemptLine, SNMPD_LOG_PATH } from '../logging/snmpdLog';
-import { derivePid } from '../logging/syslog';
-import { formatSnmpdState, SNMPD_STATE_PATH } from '../snmp/rwCommunity';
-import { SNMPD_CONF_PATH, SNMPD_CONF_SEED } from '../snmp/conf';
-import { ownAgentCommunity } from '../snmp/ownAgent';
-import { lanAddressFor } from '../network/lanAddress';
-import { md5 } from '../generation/md5';
-import { asAbsPath, asGameTime } from '../types';
-import type { OwnerPatchRow } from '../network/materializeMachineFs';
-import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog';
-import type { PatchRow } from '../patches/upsertPatch';
-import type { NonceStore } from '../signedRequest/nonceStore';
+import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
+import { handleSnmpWalk, type SnmpWalkDeps } from './snmpWalk.js';
+import { signRequest } from '../signedRequest/sign.js';
+import { generateIdentity } from '../identity/identity.js';
+import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
+import { resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
+import { parseDpkgVersions, readDpkgStatus } from '../packages/dpkgStatus.js';
+import { displayVersion, isFirmwarePackage } from '../packages/packageVersions.js';
+import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
+import { formatPidfileContent, pidfilePath, readOpenPorts } from '../services/pidfile.js';
+import { formatSnmpdArrivalLine, formatSnmpdAttemptLine, SNMPD_LOG_PATH } from '../logging/snmpdLog.js';
+import { derivePid } from '../logging/syslog.js';
+import { formatSnmpdState, SNMPD_STATE_PATH } from '../snmp/rwCommunity.js';
+import { SNMPD_CONF_PATH, SNMPD_CONF_SEED } from '../snmp/conf.js';
+import { ownAgentCommunity } from '../snmp/ownAgent.js';
+import { lanAddressFor } from '../network/lanAddress.js';
+import { md5 } from '../generation/md5.js';
+import { asAbsPath, asGameTime } from '../types.js';
+import type { OwnerPatchRow } from '../network/materializeMachineFs.js';
+import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog.js';
+import type { PatchRow } from '../patches/upsertPatch.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 /**
  * `handleSnmpWalk` answers what a device IS, and never what it does.

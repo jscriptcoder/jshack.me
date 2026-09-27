@@ -26,33 +26,33 @@
  */
 
 import { z } from 'zod';
-import { verifySignedRequest } from '../signedRequest/verify';
-import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
-import { authorizeMachineAccess, type FindActiveSession } from '../patches/authorizeMachineAccess';
-import { resolveWebTarget, type HandlerResponse, type WebTargetDeps } from './resolveHttpFetch';
-import { sweepWord, type ProbedPath } from './webSweep';
-import { DIRLIST_PATH, parseDirlist } from './defaultDirlist';
-import { wordlistOn } from '../wordlist/passwordSweep';
-import { HTTP_DEFAULT_PORT } from './http';
+import { verifySignedRequest } from '../signedRequest/verify.js';
+import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
+import { authorizeMachineAccess, type FindActiveSession } from '../patches/authorizeMachineAccess.js';
+import { resolveWebTarget, type HandlerResponse, type WebTargetDeps } from './resolveHttpFetch.js';
+import { sweepWord, type ProbedPath } from './webSweep.js';
+import { DIRLIST_PATH, parseDirlist } from './defaultDirlist.js';
+import { wordlistOn } from '../wordlist/passwordSweep.js';
+import { HTTP_DEFAULT_PORT } from './http.js';
 import {
   ACCESS_LOG_OWNER,
   ACCESS_LOG_PATH,
   ACCESS_LOG_PERMISSIONS,
   formatAccessLogLine,
-} from '../logging/accessLog';
+} from '../logging/accessLog.js';
 import {
   resolveVantageSourceIp,
   type FindHomeNetworkByOwnerKey,
   type FindPublicIpByEssid,
-} from '../logging/crossPlayerSourceIp';
+} from '../logging/crossPlayerSourceIp.js';
 import {
   appendMachineLog,
   type MachineLogReadQuery,
   type MachineLogReadResult,
-} from '../patches/appendMachineLog';
-import { asGameTime } from '../types';
-import type { ListPathPatchesResult, PatchRow } from '../patches/upsertPatch';
-import type { NonceStore } from '../signedRequest/nonceStore';
+} from '../patches/appendMachineLog.js';
+import { asGameTime } from '../types.js';
+import type { ListPathPatchesResult, PatchRow } from '../patches/upsertPatch.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 export type ResolveHttpSweepDeps = WebTargetDeps & {
   readonly nonceStore: NonceStore;

@@ -13,7 +13,7 @@
  * identity so a player's NICs are stable across reloads, like the workstation FS.
  */
 
-import { createPrng, type Prng } from '../generation/prng';
+import { createPrng, type Prng } from '../generation/prng.js';
 
 export type Ipv4 = string;
 export type MacAddress = string;

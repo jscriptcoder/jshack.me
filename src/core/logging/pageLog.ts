@@ -10,9 +10,9 @@
  * Pure, framework-agnostic (core/): every value is supplied by the caller.
  */
 
-import type { GameTime } from '../types';
-import type { FilePermissions } from '../filesystem/types';
-import { formatAccessTimestamp } from './accessLog';
+import type { GameTime } from '../types.js';
+import type { FilePermissions } from '../filesystem/types.js';
+import { formatAccessTimestamp } from './accessLog.js';
 
 /** `/var/log/cups/page_log`'s tier. **Root's alone**: every line names who printed what
  *  from where, which is the spool beside it said again, and the spool is root's. */

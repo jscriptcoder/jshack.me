@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { mysql } from './mysql';
+import { mysql } from './mysql.js';
 import {
   mockCommandEnv,
   mockFsViewFromTree,
@@ -9,19 +9,19 @@ import {
   mockPatchApi,
   mockScanApi,
   mockSession,
-} from '../../test/factories/commandEnv';
-import type { OccupantProjection } from '../network/resolveOccupants';
-import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
-import { isInnerGateway } from '../generation/lanHostIdentity';
-import { buildRemoteHostFs } from '../generation/remoteHostFs';
-import { readOpenPorts } from '../services/pidfile';
-import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import { assignHomeNetwork } from '../network/homeNetwork';
-import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces';
-import { runMysqlLine } from './mysqlShell';
-import { applyPatches } from '../filesystem/applyPatches';
-import { md5 } from '../generation/md5';
-import { parseMysqlDatabase, type MysqlDatabase } from '../mysql/types';
+} from '../../test/factories/commandEnv.js';
+import type { OccupantProjection } from '../network/resolveOccupants.js';
+import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
+import { isInnerGateway } from '../generation/lanHostIdentity.js';
+import { buildRemoteHostFs } from '../generation/remoteHostFs.js';
+import { readOpenPorts } from '../services/pidfile.js';
+import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
+import { assignHomeNetwork } from '../network/homeNetwork.js';
+import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces.js';
+import { runMysqlLine } from './mysqlShell.js';
+import { applyPatches } from '../filesystem/applyPatches.js';
+import { md5 } from '../generation/md5.js';
+import { parseMysqlDatabase, type MysqlDatabase } from '../mysql/types.js';
 import {
   formatMysqlAttemptLine,
   formatMysqlConnectLine,
@@ -29,13 +29,13 @@ import {
   MYSQL_LOG_OWNER,
   MYSQL_LOG_PATH,
   MYSQL_LOG_PERMISSIONS,
-} from '../logging/mysqlLog';
-import { derivePid } from '../logging/syslog';
-import { buildWorkstationBaseFs } from '../generation/workstationFs';
-import { DATADIR_FILE } from '../generation/baseFs';
-import { DATADIR_OWNER, DATADIR_PATH } from '../mysql/datadir';
-import { ownDatabase } from '../mysql/ownDatabase';
-import { formatPidfileContent, PIDFILE_PERMISSIONS, pidfilePath } from '../services/pidfile';
+} from '../logging/mysqlLog.js';
+import { derivePid } from '../logging/syslog.js';
+import { buildWorkstationBaseFs } from '../generation/workstationFs.js';
+import { DATADIR_FILE } from '../generation/baseFs.js';
+import { DATADIR_OWNER, DATADIR_PATH } from '../mysql/datadir.js';
+import { ownDatabase } from '../mysql/ownDatabase.js';
+import { formatPidfileContent, PIDFILE_PERMISSIONS, pidfilePath } from '../services/pidfile.js';
 import {
   asAbsPath,
   asEpochMs,
@@ -45,9 +45,9 @@ import {
   asPlayerKeyHex,
   type AbsPath,
   type UserType,
-} from '../types';
-import type { Directory, FilePermissions } from '../filesystem/types';
-import type { CommandResult, FsView, MysqlApi, MysqlConnectParams, PatchApi } from './types';
+} from '../types.js';
+import type { Directory, FilePermissions } from '../filesystem/types.js';
+import type { CommandResult, FsView, MysqlApi, MysqlConnectParams, PatchApi } from './types.js';
 
 /**
  * `mysql <host>` — the fourth door, and the first whose credential is not the box's

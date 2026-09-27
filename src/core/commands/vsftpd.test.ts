@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { asAbsPath, type UserType } from '../types';
-import type { CommandResult, PatchResult, TerminalLine } from './types';
+import { asAbsPath, type UserType } from '../types.js';
+import type { CommandResult, PatchResult, TerminalLine } from './types.js';
 import {
   mockCommandEnv,
   mockFsViewFromTree,
   mockPatchApi,
   mockSession,
-} from '../../test/factories/commandEnv';
-import { buildDirectory, buildFile } from '../../test/factories/filesystem';
-import { PIDFILE_PERMISSIONS } from '../services/pidfile';
-import { vsftpd } from './daemon';
+} from '../../test/factories/commandEnv.js';
+import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
+import { PIDFILE_PERMISSIONS } from '../services/pidfile.js';
+import { vsftpd } from './daemon.js';
 
 /**
  * `vsftpd` brings up the FTP daemon on the current machine by writing

@@ -18,8 +18,8 @@
  * `MachineRole` named in the app this one replaces.
  */
 
-import { createPrng } from './prng';
-import type { Ipv4 } from '../network/interfaces';
+import { createPrng } from './prng.js';
+import type { Ipv4 } from '../network/interfaces.js';
 
 /** The roles a generated MACHINE is drawn from. `router` and `switch` are roles too,
  *  but a host's `kind` already knows which hosts hold them, so they are never

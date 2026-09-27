@@ -23,12 +23,12 @@
  * else ⇒ user) mirrors how the workstation generator assigns tiers.
  */
 
-import { asAbsPath, type AbsPath, type UserType } from '../types';
-import { md5 } from '../generation/md5';
-import { userTypeFromPasswdFields } from '../generation/passwdTier';
-import { isCrossPlayerWorkstation } from '../network/crossPlayerHop';
-import type { Command, CommandEnv, CommandResult, Session } from './types';
-import { homeDirectory } from '../sessions/homeDirectory';
+import { asAbsPath, type AbsPath, type UserType } from '../types.js';
+import { md5 } from '../generation/md5.js';
+import { userTypeFromPasswdFields } from '../generation/passwdTier.js';
+import { isCrossPlayerWorkstation } from '../network/crossPlayerHop.js';
+import type { Command, CommandEnv, CommandResult, Session } from './types.js';
+import { homeDirectory } from '../sessions/homeDirectory.js';
 
 const PASSWD_PATH = asAbsPath('/etc/passwd');
 const DEFAULT_TARGET = 'root';

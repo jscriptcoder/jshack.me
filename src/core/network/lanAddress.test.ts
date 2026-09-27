@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { lanAddressesByOwner, lanSubnetPrefix, leasedAddress } from './lanAddress';
+import { lanAddressesByOwner, lanSubnetPrefix, leasedAddress } from './lanAddress.js';
 
 /**
  * Turning a DHCP lease into the address an occupant is reachable at. The `/24`

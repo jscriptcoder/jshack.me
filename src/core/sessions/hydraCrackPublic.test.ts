@@ -1,45 +1,45 @@
 import { describe, expect, it, vi } from 'vitest';
-import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter';
-import { handleHydraCrackPublic, type HydraCrackPublicDeps } from './hydraCrackPublic';
-import { signRequest } from '../signedRequest/sign';
-import { generateIdentity } from '../identity/identity';
-import { computeWorkstationId } from '../identity/workstation';
-import { computeApGatewayId } from '../identity/router';
-import { generateHomeLan } from '../generation/generateHomeLan';
-import { machineIdForLanHost } from '../generation/lanHostIdentity';
-import { seedApGatewayAdminPw, seedApGatewayCommunity } from '../generation/routerFs';
-import { seedApGatewayHostname } from '../generation/gatewayHostname';
-import { workstationGuestPassword } from '../generation/workstationFs';
-import { md5 } from '../generation/md5';
-import { DATADIR_PATH } from '../mysql/datadir';
-import { DATADIR_PATH as REDIS_DATADIR_PATH } from '../redis/datadir';
-import { redisStoreSchema } from '../redis/types';
-import { formatPidfileContent, pidfilePath } from '../services/pidfile';
-import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import { MYSQL_LOG_OWNER, MYSQL_LOG_PATH, MYSQL_LOG_PERMISSIONS } from '../logging/mysqlLog';
-import { playerDatabaseOn } from '../../test/factories/lanDatabase';
-import { lanAddressFor } from '../network/lanAddress';
-import { DEFAULT_WORDLIST, WORDLIST_PATH, formatWordlist } from '../wordlist/defaultWordlist';
+import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
+import { handleHydraCrackPublic, type HydraCrackPublicDeps } from './hydraCrackPublic.js';
+import { signRequest } from '../signedRequest/sign.js';
+import { generateIdentity } from '../identity/identity.js';
+import { computeWorkstationId } from '../identity/workstation.js';
+import { computeApGatewayId } from '../identity/router.js';
+import { generateHomeLan } from '../generation/generateHomeLan.js';
+import { machineIdForLanHost } from '../generation/lanHostIdentity.js';
+import { seedApGatewayAdminPw, seedApGatewayCommunity } from '../generation/routerFs.js';
+import { seedApGatewayHostname } from '../generation/gatewayHostname.js';
+import { workstationGuestPassword } from '../generation/workstationFs.js';
+import { md5 } from '../generation/md5.js';
+import { DATADIR_PATH } from '../mysql/datadir.js';
+import { DATADIR_PATH as REDIS_DATADIR_PATH } from '../redis/datadir.js';
+import { redisStoreSchema } from '../redis/types.js';
+import { formatPidfileContent, pidfilePath } from '../services/pidfile.js';
+import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
+import { MYSQL_LOG_OWNER, MYSQL_LOG_PATH, MYSQL_LOG_PERMISSIONS } from '../logging/mysqlLog.js';
+import { playerDatabaseOn } from '../../test/factories/lanDatabase.js';
+import { lanAddressFor } from '../network/lanAddress.js';
+import { DEFAULT_WORDLIST, WORDLIST_PATH, formatWordlist } from '../wordlist/defaultWordlist.js';
 import {
   AUTH_LOG_OWNER,
   AUTH_LOG_PATH,
   AUTH_LOG_PERMISSIONS,
   formatSshdAuthLine,
-} from '../logging/authLog';
+} from '../logging/authLog.js';
 import {
   formatSnmpdAttemptLine,
   SNMPD_LOG_OWNER,
   SNMPD_LOG_PATH,
   SNMPD_LOG_PERMISSIONS,
-} from '../logging/snmpdLog';
-import { derivePid } from '../logging/syslog';
-import { asAbsPath, asGameTime } from '../types';
-import type { ApNetworkLookup, NatOccupantRow } from '../network/resolvePublicTarget';
-import type { LanLeaseRow } from '../network/lanAddress';
-import type { OwnerPatchRow } from '../network/materializeMachineFs';
-import type { MachineLogReadResult } from '../patches/appendMachineLog';
-import type { ListPathPatchesResult, PathPatchRow, PatchRow } from '../patches/upsertPatch';
-import type { NonceStore } from '../signedRequest/nonceStore';
+} from '../logging/snmpdLog.js';
+import { derivePid } from '../logging/syslog.js';
+import { asAbsPath, asGameTime } from '../types.js';
+import type { ApNetworkLookup, NatOccupantRow } from '../network/resolvePublicTarget.js';
+import type { LanLeaseRow } from '../network/lanAddress.js';
+import type { OwnerPatchRow } from '../network/materializeMachineFs.js';
+import type { MachineLogReadResult } from '../patches/appendMachineLog.js';
+import type { ListPathPatchesResult, PathPatchRow, PatchRow } from '../patches/upsertPatch.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 /**
  * `handleHydraCrackPublic` is hydra pointed at an address outside the player's own

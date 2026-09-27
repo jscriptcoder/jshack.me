@@ -15,7 +15,7 @@
  * with exit 130 and no reset, mirroring `su`.
  */
 
-import type { Command, CommandResult, TerminalLine } from './types';
+import type { Command, CommandResult, TerminalLine } from './types.js';
 
 const WARNING = '⚠ This wipes ALL progress and starts a new game. This cannot be undone.';
 const CONFIRM_MESSAGE = 'confirm (y/N): ';

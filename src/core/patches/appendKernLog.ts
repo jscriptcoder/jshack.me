@@ -18,19 +18,19 @@
  */
 
 import { z } from 'zod';
-import { verifySignedRequest } from '../signedRequest/verify';
-import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
-import { isOwnWorkstation } from '../identity/workstation';
-import { asGameTime } from '../types';
+import { verifySignedRequest } from '../signedRequest/verify.js';
+import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
+import { isOwnWorkstation } from '../identity/workstation.js';
+import { asGameTime } from '../types.js';
 import {
   KERN_LOG_OWNER,
   KERN_LOG_PATH,
   KERN_LOG_PERMISSIONS,
   formatSegfaultLine,
-} from '../logging/kernLog';
-import { derivePid } from '../logging/syslog';
-import type { NonceStore } from '../signedRequest/nonceStore';
-import type { PatchRow } from './upsertPatch';
+} from '../logging/kernLog.js';
+import { derivePid } from '../logging/syslog.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
+import type { PatchRow } from './upsertPatch.js';
 
 export type KernLogContentQuery = {
   readonly writer_key: string;

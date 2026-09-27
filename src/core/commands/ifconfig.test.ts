@@ -1,18 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { asPlayerKeyHex } from '../types';
+import { asPlayerKeyHex } from '../types.js';
 import {
   buildColdStartConnectivity,
   type ConnectivityState,
   type WirelessInterface,
-} from '../network/interfaces';
-import { buildDirectory, buildFile } from '../../test/factories/filesystem';
+} from '../network/interfaces.js';
+import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
 import {
   mockCommandEnv,
   mockFsViewFromTree,
   mockNetworkViewFromConnectivity,
-} from '../../test/factories/commandEnv';
-import { commandRegistry } from './registry';
-import { ifconfig } from './ifconfig';
+} from '../../test/factories/commandEnv.js';
+import { commandRegistry } from './registry.js';
+import { ifconfig } from './ifconfig.js';
 
 /**
  * `ifconfig` is the player's window onto their connectivity. Cold start: they
@@ -136,7 +136,7 @@ describe('ifconfig', () => {
       fs: mockFsViewFromTree(tree, { userType: 'user' }),
       network: mockNetworkViewFromConnectivity(buildColdStartConnectivity(PUBKEY)),
     });
-    const { runCommandLine } = await import('../shell/runLine');
+    const { runCommandLine } = await import('../shell/runLine.js');
 
     const result = await runCommandLine(env, 'ifconfig -a', commandRegistry);
 

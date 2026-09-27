@@ -2,18 +2,18 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   handleResolveInnerGatewayScan,
   type ResolveInnerGatewayScanDeps,
-} from './resolveInnerGatewayScan';
-import { signRequest } from '../signedRequest/sign';
-import { generateIdentity } from '../identity/identity';
-import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
-import { crackableEssidPool } from '../generation/generateWifi';
-import { generateDeepLayer, seedNetworkDepth } from '../generation/generateDeepLayer';
-import { computeDeepGatewayId, computeInnerGatewayId } from '../identity/router';
-import { hostMachineId } from '../generation/remoteHostId';
-import { formatPidfileContent, pidfilePath } from '../services/pidfile';
-import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import type { OwnerPatchRow } from '../network/materializeWorkstationFs';
-import type { NonceStore } from '../signedRequest/nonceStore';
+} from './resolveInnerGatewayScan.js';
+import { signRequest } from '../signedRequest/sign.js';
+import { generateIdentity } from '../identity/identity.js';
+import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
+import { crackableEssidPool } from '../generation/generateWifi.js';
+import { generateDeepLayer, seedNetworkDepth } from '../generation/generateDeepLayer.js';
+import { computeDeepGatewayId, computeInnerGatewayId } from '../identity/router.js';
+import { hostMachineId } from '../generation/remoteHostId.js';
+import { formatPidfileContent, pidfilePath } from '../services/pidfile.js';
+import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
+import type { OwnerPatchRow } from '../network/materializeWorkstationFs.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 /**
  * `handleResolveInnerGatewayScan` resolves the player's OWN-LAN `nmap` of an inner

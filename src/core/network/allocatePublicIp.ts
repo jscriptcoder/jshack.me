@@ -15,7 +15,7 @@
  * rather than drawing a second address for the same network.
  */
 
-import { publisherIp } from '../generation/publisher';
+import { publisherIp } from '../generation/publisher.js';
 
 export type AllocatePublicIpDeps = {
   /** The IP already allocated to this ESSID, or null if none yet. */

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { generateWifi } from './generateWifi';
-import { bssidFromEssid, type WifiNetwork } from '../network/wifi';
-import { secrets } from '../secrets/__encoded';
+import { generateWifi } from './generateWifi.js';
+import { bssidFromEssid, type WifiNetwork } from '../network/wifi.js';
+import { secrets } from '../secrets/__encoded.js';
 
 /**
  * `generateWifi` is the seeded WiFi-scan generator: deterministic from the

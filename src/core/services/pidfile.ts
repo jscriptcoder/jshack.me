@@ -20,14 +20,14 @@
  * depending on which tool asked.
  */
 
-import { createPrng } from '../generation/prng';
-import { asAbsPath, type AbsPath, type MachineId, type UserType } from '../types';
-import type { Directory, FilePermissions } from '../filesystem/types';
-import { SERVICE_CATALOG, type ServiceSpec } from './serviceCatalog';
-import { parseDpkgVersions, readDpkgStatus } from '../packages/dpkgStatus';
-import { liveCve } from '../cve/liveCve';
-import type { CveSeverity } from '../cve/packageTimeline';
-import { displayVersion } from '../packages/packageVersions';
+import { createPrng } from '../generation/prng.js';
+import { asAbsPath, type AbsPath, type MachineId, type UserType } from '../types.js';
+import type { Directory, FilePermissions } from '../filesystem/types.js';
+import { SERVICE_CATALOG, type ServiceSpec } from './serviceCatalog.js';
+import { parseDpkgVersions, readDpkgStatus } from '../packages/dpkgStatus.js';
+import { liveCve } from '../cve/liveCve.js';
+import type { CveSeverity } from '../cve/packageTimeline.js';
+import { displayVersion } from '../packages/packageVersions.js';
 
 /** The directory holding every running service's pidfile. */
 export const VAR_RUN = '/var/run';

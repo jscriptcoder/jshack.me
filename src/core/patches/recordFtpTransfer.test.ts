@@ -1,24 +1,24 @@
 import { describe, expect, it, vi } from 'vitest';
-import { handleRecordFtpTransfer, type RecordFtpTransferDeps } from './recordFtpTransfer';
-import type { PatchRow } from './upsertPatch';
-import type { ActiveSession, FindActiveSessionResult } from './authorizeMachineAccess';
-import type { MachineLogReadQuery, MachineLogReadResult } from './appendMachineLog';
-import type { FindOccupantWorkstationByMachineId } from './remoteWritePermission';
+import { handleRecordFtpTransfer, type RecordFtpTransferDeps } from './recordFtpTransfer.js';
+import type { PatchRow } from './upsertPatch.js';
+import type { ActiveSession, FindActiveSessionResult } from './authorizeMachineAccess.js';
+import type { MachineLogReadQuery, MachineLogReadResult } from './appendMachineLog.js';
+import type { FindOccupantWorkstationByMachineId } from './remoteWritePermission.js';
 import type {
   FindHomeNetworkByOwnerKey,
   FindPublicIpByEssid,
-} from '../logging/crossPlayerSourceIp';
-import { md5 } from '../generation/md5';
-import { signRequest } from '../signedRequest/sign';
-import { generateIdentity } from '../identity/identity';
-import { computeWorkstationId } from '../identity/workstation';
+} from '../logging/crossPlayerSourceIp.js';
+import { md5 } from '../generation/md5.js';
+import { signRequest } from '../signedRequest/sign.js';
+import { generateIdentity } from '../identity/identity.js';
+import { computeWorkstationId } from '../identity/workstation.js';
 import {
   VSFTPD_LOG_OWNER,
   VSFTPD_LOG_PATH,
   VSFTPD_LOG_PERMISSIONS,
-} from '../logging/vsftpdLog';
-import { derivePid } from '../logging/syslog';
-import type { NonceStore } from '../signedRequest/nonceStore';
+} from '../logging/vsftpdLog.js';
+import { derivePid } from '../logging/syslog.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 /**
  * The download half of what makes ftp the LOUD door: a file that leaves a box is

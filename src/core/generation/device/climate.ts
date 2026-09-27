@@ -4,10 +4,10 @@
  * the readings it took and publishes each to a broker on the board itself.
  */
 
-import type { Prng } from '../prng';
-import { dir, file, SERVICE_CONFIG_FILE, TRAVERSABLE_DIR } from '../baseFs';
-import type { LanHost } from '../generateHomeLan';
-import { CLIMATE_CHIPS, CLIMATE_ROOMS } from '../pools/devices';
+import type { Prng } from '../prng.js';
+import { dir, file, SERVICE_CONFIG_FILE, TRAVERSABLE_DIR } from '../baseFs.js';
+import type { LanHost } from '../generateHomeLan.js';
+import { CLIMATE_CHIPS, CLIMATE_ROOMS } from '../pools/devices.js';
 import {
   DAY_SECONDS,
   LAST_SECOND,
@@ -17,7 +17,7 @@ import {
   uiPage,
   userTree,
   type DeviceFiles,
-} from './common';
+} from './common.js';
 
 const CONF_PATH = '/etc/sensord/sensord.conf';
 const READINGS_PATH = '/var/lib/sensord/readings.csv';

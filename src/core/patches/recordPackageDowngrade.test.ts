@@ -2,21 +2,21 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   handleRecordPackageDowngrade,
   type RecordPackageDowngradeDeps,
-} from './recordPackageDowngrade';
-import type { PatchRow } from './upsertPatch';
-import type { ActiveSession, FindActiveSessionResult } from './authorizeMachineAccess';
-import type { MachineLogReadQuery, MachineLogReadResult } from './appendMachineLog';
-import type { FindOccupantWorkstationByMachineId } from './remoteWritePermission';
+} from './recordPackageDowngrade.js';
+import type { PatchRow } from './upsertPatch.js';
+import type { ActiveSession, FindActiveSessionResult } from './authorizeMachineAccess.js';
+import type { MachineLogReadQuery, MachineLogReadResult } from './appendMachineLog.js';
+import type { FindOccupantWorkstationByMachineId } from './remoteWritePermission.js';
 import type {
   FindHomeNetworkByOwnerKey,
   FindPublicIpByEssid,
-} from '../logging/crossPlayerSourceIp';
-import { md5 } from '../generation/md5';
-import { signRequest } from '../signedRequest/sign';
-import { generateIdentity } from '../identity/identity';
-import { computeWorkstationId } from '../identity/workstation';
-import { DPKG_LOG_OWNER, DPKG_LOG_PATH, DPKG_LOG_PERMISSIONS } from '../logging/dpkgLog';
-import type { NonceStore } from '../signedRequest/nonceStore';
+} from '../logging/crossPlayerSourceIp.js';
+import { md5 } from '../generation/md5.js';
+import { signRequest } from '../signedRequest/sign.js';
+import { generateIdentity } from '../identity/identity.js';
+import { computeWorkstationId } from '../identity/workstation.js';
+import { DPKG_LOG_OWNER, DPKG_LOG_PATH, DPKG_LOG_PERMISSIONS } from '../logging/dpkgLog.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 /**
  * The record a box keeps of being rolled BACKWARDS. Pinning a package to an older

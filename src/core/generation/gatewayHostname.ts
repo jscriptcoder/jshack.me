@@ -4,7 +4,7 @@
  * living in one module, each would have to import the other.
  */
 
-import { createPrng } from './prng';
+import { createPrng } from './prng.js';
 
 /** Router display names, ported verbatim from the legacy generator
  *  (`hostnamesByRole.router`). A router is just another machine with NAT config,

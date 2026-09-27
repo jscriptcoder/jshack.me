@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
-import { rm } from './rm';
-import { buildDirectory, buildFile } from '../../test/factories/filesystem';
-import { mockCommandEnv, mockFsViewFromTree, mockSession } from '../../test/factories/commandEnv';
-import { asAbsPath } from '../types';
-import type { CommandEnv, PatchApi, PatchResult, TerminalLine } from './types';
+import { rm } from './rm.js';
+import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
+import { mockCommandEnv, mockFsViewFromTree, mockSession } from '../../test/factories/commandEnv.js';
+import { asAbsPath } from '../types.js';
+import type { CommandEnv, PatchApi, PatchResult, TerminalLine } from './types.js';
 
 const NO_FLAGS = new Map<string, string | true>();
 const RECURSIVE = new Map<string, string | true>([['-r', true]]);

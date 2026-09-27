@@ -29,11 +29,11 @@
  * `feedback-v2-match-legacy-command-interface`.
  */
 
-import type { AbsPath } from '../types';
-import type { Command, CommandEnv, CommandResult, FsReadResult } from './types';
-import { resolveAbsPath } from '../filesystem/path';
-import { walkTree } from '../filesystem/walkTree';
-import { splitContentLines } from './contentHelpers';
+import type { AbsPath } from '../types.js';
+import type { Command, CommandEnv, CommandResult, FsReadResult } from './types.js';
+import { resolveAbsPath } from '../filesystem/path.js';
+import { walkTree } from '../filesystem/walkTree.js';
+import { splitContentLines } from './contentHelpers.js';
 
 const USAGE = 'grep: usage: grep <pattern> <path> [-l]';
 

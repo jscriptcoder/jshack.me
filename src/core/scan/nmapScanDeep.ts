@@ -20,28 +20,28 @@
  */
 
 import { z } from 'zod';
-import { verifySignedRequest } from '../signedRequest/verify';
-import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
-import { chainGatewayVantageForMachineId } from '../generation/lanHostIdentity';
-import { materializeMachineFs, type OwnerPatchRow } from '../network/materializeMachineFs';
-import { parseScanTarget, octetInScanTarget } from '../network/scanTarget';
-import { resolveDeepScanHosts, type DeepScanHost } from './deepScanHosts';
+import { verifySignedRequest } from '../signedRequest/verify.js';
+import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
+import { chainGatewayVantageForMachineId } from '../generation/lanHostIdentity.js';
+import { materializeMachineFs, type OwnerPatchRow } from '../network/materializeMachineFs.js';
+import { parseScanTarget, octetInScanTarget } from '../network/scanTarget.js';
+import { resolveDeepScanHosts, type DeepScanHost } from './deepScanHosts.js';
 import {
   formatNmapScanAggregate,
   KERN_LOG_OWNER,
   KERN_LOG_PATH,
   KERN_LOG_PERMISSIONS,
-} from '../logging/kernLog';
+} from '../logging/kernLog.js';
 import {
   appendMachineLog,
   type MachineLogReadQuery,
   type MachineLogReadResult,
-} from '../patches/appendMachineLog';
-import { asGameTime } from '../types';
-import type { PatchRow } from '../patches/upsertPatch';
-import type { NonceStore } from '../signedRequest/nonceStore';
-import type { HandlerResponse } from './nmapScan';
-import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter';
+} from '../patches/appendMachineLog.js';
+import { asGameTime } from '../types.js';
+import type { PatchRow } from '../patches/upsertPatch.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
+import type { HandlerResponse } from './nmapScan.js';
+import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
 
 export type NmapScanDeepDeps = {
   readonly nonceStore: NonceStore;

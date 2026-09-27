@@ -27,8 +27,8 @@
  * player's own text when there is no canonical form to give back.
  */
 
-import { parseForwardRules, type ForwardTarget } from '../network/iptablesRules';
-import { aclPortOid, forwardOid, inputPortOid } from './walk';
+import { parseForwardRules, type ForwardTarget } from '../network/iptablesRules.js';
+import { aclPortOid, forwardOid, inputPortOid } from './walk.js';
 
 /** The state one port should be left in — a gateway's destination (or none), a switch's
  *  shut/open, or the box's own. Tagged by the TABLE that holds it, matching

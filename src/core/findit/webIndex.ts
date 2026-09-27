@@ -21,24 +21,24 @@
  * index cannot rebuild, is fetched the ordinary way, alone.
  */
 
-import { ESSID_CATALOG } from '../generation/pools/essidCatalog';
-import { publisherIp, publisherSite } from '../generation/publisher';
-import { FINDIT_NETWORK } from '../generation/findit';
-import { siteServer } from '../generation/siteServer';
-import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
-import { computeApGatewayId } from '../identity/router';
-import { materializeApGatewayFs } from '../network/materializeRouterFs';
-import { materializeMachineFs, type OwnerPatchRow } from '../network/materializeMachineFs';
-import { machineServing, type ServedMachine } from '../network/machineServing';
-import { servesWebOn } from '../network/webServing';
-import { canBoot } from '../boot/bootFiles';
-import { createFsView } from '../filesystem/fsView';
-import { HTTP_DEFAULT_PORT, resolveWebPath } from '../network/http';
-import { readPage } from './readPage';
-import { robotsAllowFindit } from './robots';
-import type { IndexedPage } from './search';
-import type { Directory } from '../filesystem/types';
-import type { LanHost } from '../generation/generateHomeLan';
+import { ESSID_CATALOG } from '../generation/pools/essidCatalog.js';
+import { publisherIp, publisherSite } from '../generation/publisher.js';
+import { FINDIT_NETWORK } from '../generation/findit.js';
+import { siteServer } from '../generation/siteServer.js';
+import { resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
+import { computeApGatewayId } from '../identity/router.js';
+import { materializeApGatewayFs } from '../network/materializeRouterFs.js';
+import { materializeMachineFs, type OwnerPatchRow } from '../network/materializeMachineFs.js';
+import { machineServing, type ServedMachine } from '../network/machineServing.js';
+import { servesWebOn } from '../network/webServing.js';
+import { canBoot } from '../boot/bootFiles.js';
+import { createFsView } from '../filesystem/fsView.js';
+import { HTTP_DEFAULT_PORT, resolveWebPath } from '../network/http.js';
+import { readPage } from './readPage.js';
+import { robotsAllowFindit } from './robots.js';
+import type { IndexedPage } from './search.js';
+import type { Directory } from '../filesystem/types.js';
+import type { LanHost } from '../generation/generateHomeLan.js';
 
 /** A journal row as the batched read returns it: which machine it belongs to, beside
  *  everything a single-machine read already gives. */

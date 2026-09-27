@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { asAbsPath, asMachineId, asPlayerKeyHex, type UserType } from '../types';
-import type { CommandResult, TerminalLine } from './types';
+import { asAbsPath, asMachineId, asPlayerKeyHex, type UserType } from '../types.js';
+import type { CommandResult, TerminalLine } from './types.js';
 import {
   mockCommandEnv,
   mockFsViewFromTree,
@@ -8,15 +8,15 @@ import {
   mockNetworkViewFromConnectivity,
   mockPatchApi,
   mockSession,
-} from '../../test/factories/commandEnv';
-import { buildDirectory, buildFile } from '../../test/factories/filesystem';
-import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces';
-import { assignHomeNetwork } from '../network/homeNetwork';
-import { PIDFILE_PERMISSIONS } from '../services/pidfile';
-import { commandRegistry } from './registry';
-import { mysqld } from './daemon';
-import { nmap } from './nmap';
-import { ps } from './ps';
+} from '../../test/factories/commandEnv.js';
+import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
+import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces.js';
+import { assignHomeNetwork } from '../network/homeNetwork.js';
+import { PIDFILE_PERMISSIONS } from '../services/pidfile.js';
+import { commandRegistry } from './registry.js';
+import { mysqld } from './daemon.js';
+import { nmap } from './nmap.js';
+import { ps } from './ps.js';
 
 /**
  * `mysqld` is the fifth front door and the first a player has to BUY. `sshd` and

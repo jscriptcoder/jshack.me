@@ -5,35 +5,35 @@ import {
   type ListPathPatchesResult,
   type PatchRow,
   type PathPatchRow,
-} from '../src/core/patches/upsertPatch';
-import { handleListPatches, type ListPatchesQuery } from '../src/core/patches/listPatches';
-import { handleRemovePatch, type PatchTreeQuery } from '../src/core/patches/removePatch';
-import { handleAppendAuthLog, type AuthLogContentQuery } from '../src/core/patches/appendAuthLog';
-import { handleAppendKernLog, type KernLogContentQuery } from '../src/core/patches/appendKernLog';
-import { handleRecordFtpTransfer } from '../src/core/patches/recordFtpTransfer';
-import { handleRecordPackageDowngrade } from '../src/core/patches/recordPackageDowngrade';
-import { handleRecordZoneTransfer } from '../src/core/patches/recordZoneTransfer';
-import { handleNmapScan, type ScanOccupant } from '../src/core/scan/nmapScan';
+} from '../src/core/patches/upsertPatch.js';
+import { handleListPatches, type ListPatchesQuery } from '../src/core/patches/listPatches.js';
+import { handleRemovePatch, type PatchTreeQuery } from '../src/core/patches/removePatch.js';
+import { handleAppendAuthLog, type AuthLogContentQuery } from '../src/core/patches/appendAuthLog.js';
+import { handleAppendKernLog, type KernLogContentQuery } from '../src/core/patches/appendKernLog.js';
+import { handleRecordFtpTransfer } from '../src/core/patches/recordFtpTransfer.js';
+import { handleRecordPackageDowngrade } from '../src/core/patches/recordPackageDowngrade.js';
+import { handleRecordZoneTransfer } from '../src/core/patches/recordZoneTransfer.js';
+import { handleNmapScan, type ScanOccupant } from '../src/core/scan/nmapScan.js';
 import {
   handleRecordLanFetch,
   type FetchOccupant,
-} from '../src/core/network/recordLanFetch';
-import type { LanLeaseRow } from '../src/core/network/lanAddress';
-import { handleNmapScanDeep } from '../src/core/scan/nmapScanDeep';
-import type { OwnerPatchRow } from '../src/core/network/materializeWorkstationFs';
-import type { MachineLogReadQuery } from '../src/core/patches/appendMachineLog';
+} from '../src/core/network/recordLanFetch.js';
+import type { LanLeaseRow } from '../src/core/network/lanAddress.js';
+import { handleNmapScanDeep } from '../src/core/scan/nmapScanDeep.js';
+import type { OwnerPatchRow } from '../src/core/network/materializeWorkstationFs.js';
+import type { MachineLogReadQuery } from '../src/core/patches/appendMachineLog.js';
 import type {
   ActiveSessionQuery,
   FindActiveSessionResult,
-} from '../src/core/patches/authorizeMachineAccess';
+} from '../src/core/patches/authorizeMachineAccess.js';
 import type {
   ListMachinePatchesResult,
   OccupantWorkstation,
-} from '../src/core/patches/remoteWritePermission';
-import type { Patch } from '../src/core/filesystem/applyPatches';
-import type { FilePermissions } from '../src/core/filesystem/types';
-import type { NonceStore } from '../src/core/signedRequest/nonceStore';
-import type { UserType } from '../src/core/types';
+} from '../src/core/patches/remoteWritePermission.js';
+import type { Patch } from '../src/core/filesystem/applyPatches.js';
+import type { FilePermissions } from '../src/core/filesystem/types.js';
+import type { NonceStore } from '../src/core/signedRequest/nonceStore.js';
+import type { UserType } from '../src/core/types.js';
 
 // Vercel adapter for POST /api/patches.
 //

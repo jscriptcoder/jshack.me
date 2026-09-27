@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { formatManPage, man } from './man';
-import type { Command, TerminalLine } from './types';
-import { mockCommandEnv } from '../../test/factories/commandEnv';
+import { formatManPage, man } from './man.js';
+import type { Command, TerminalLine } from './types.js';
+import { mockCommandEnv } from '../../test/factories/commandEnv.js';
 
 const NO_FLAGS = new Map<string, string | true>();
 

@@ -6,7 +6,7 @@ import {
   asNetworkAddress,
   asPlayerKeyHex,
   asSha256Hex,
-} from './types';
+} from './types.js';
 
 // The brand is a compile-time fiction; at runtime each constructor must be a
 // zero-cost identity. Pin that contract so a constructor can't silently start

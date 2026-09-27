@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { isCrossPlayerWorkstation } from './crossPlayerHop';
-import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
-import { generateDeepLayer } from '../generation/generateDeepLayer';
-import { hostMachineId } from '../generation/remoteHostId';
-import { machineIdForLanHost, resolveDeepGatewayIdentity } from '../generation/lanHostIdentity';
-import { computeWorkstationId } from '../identity/workstation';
-import { computeApGatewayId } from '../identity/router';
+import { isCrossPlayerWorkstation } from './crossPlayerHop.js';
+import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
+import { generateDeepLayer } from '../generation/generateDeepLayer.js';
+import { hostMachineId } from '../generation/remoteHostId.js';
+import { machineIdForLanHost, resolveDeepGatewayIdentity } from '../generation/lanHostIdentity.js';
+import { computeWorkstationId } from '../identity/workstation.js';
+import { computeApGatewayId } from '../identity/router.js';
 
 /**
  * `isCrossPlayerWorkstation` is the machine-level "am I standing on ANOTHER

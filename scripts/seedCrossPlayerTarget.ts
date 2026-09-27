@@ -12,15 +12,15 @@
 import { createClient } from '@supabase/supabase-js';
 import * as ed from '@noble/ed25519';
 import { sha512 } from '@noble/hashes/sha2.js';
-import { signRequest } from '../src/core/signedRequest/sign';
-import { computeWorkstationId } from '../src/core/identity/workstation';
-import { computeApGatewayId } from '../src/core/identity/router';
-import { bytesToHex, hexToBytes } from '../src/core/identity/hex';
-import { workstationGuestPassword } from '../src/core/generation/workstationFs';
-import { assignHomeNetwork } from '../src/core/network/homeNetwork';
-import { md5 } from '../src/core/generation/md5';
-import { asPlayerKeyHex } from '../src/core/types';
-import type { Identity } from '../src/core/commands/types';
+import { signRequest } from '../src/core/signedRequest/sign.js';
+import { computeWorkstationId } from '../src/core/identity/workstation.js';
+import { computeApGatewayId } from '../src/core/identity/router.js';
+import { bytesToHex, hexToBytes } from '../src/core/identity/hex.js';
+import { workstationGuestPassword } from '../src/core/generation/workstationFs.js';
+import { assignHomeNetwork } from '../src/core/network/homeNetwork.js';
+import { md5 } from '../src/core/generation/md5.js';
+import { asPlayerKeyHex } from '../src/core/types.js';
+import type { Identity } from '../src/core/commands/types.js';
 
 ed.hashes.sha512 = sha512;
 

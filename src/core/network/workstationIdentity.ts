@@ -14,8 +14,8 @@
  * never leaves the browser" a unit-testable property of a pure function.
  */
 
-import { md5 } from '../generation/md5';
-import type { GameConfig } from '../gameConfig/gameConfig';
+import { md5 } from '../generation/md5.js';
+import type { GameConfig } from '../gameConfig/gameConfig.js';
 
 export type WorkstationIdentityFields = {
   readonly workstation_username: string;

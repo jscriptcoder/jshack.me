@@ -15,8 +15,8 @@
  *   1 — a missing or extra operand, or a file that cannot be read
  */
 
-import type { Command, CommandEnv, CommandResult } from './types';
-import { readFileOrStdin } from './contentHelpers';
+import type { Command, CommandEnv, CommandResult } from './types.js';
+import { readFileOrStdin } from './contentHelpers.js';
 
 const countWords = (lines: readonly string[]): number =>
   lines.reduce(

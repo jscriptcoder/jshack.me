@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { frontedSegment } from './frontedSegment';
-import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
-import { generateDeepLayer, seedNetworkDepth } from '../generation/generateDeepLayer';
-import { computeApGatewayId, computeDeepGatewayId } from '../identity/router';
-import { machineIdForLanHost } from '../generation/lanHostIdentity';
-import { crackableEssidPool } from '../generation/generateWifi';
+import { frontedSegment } from './frontedSegment.js';
+import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
+import { generateDeepLayer, seedNetworkDepth } from '../generation/generateDeepLayer.js';
+import { computeApGatewayId, computeDeepGatewayId } from '../identity/router.js';
+import { machineIdForLanHost } from '../generation/lanHostIdentity.js';
+import { crackableEssidPool } from '../generation/generateWifi.js';
 
 /**
  * Which `/24` a device's forwards may point INTO.

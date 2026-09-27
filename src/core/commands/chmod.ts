@@ -11,11 +11,11 @@
  * alone.
  */
 
-import type { UserType } from '../types';
-import type { FilePermissions } from '../filesystem/types';
-import type { Command, CommandEnv, CommandResult } from './types';
-import { resolveAbsPath } from '../filesystem/path';
-import { accountIn } from '../sessions/passwdAccount';
+import type { UserType } from '../types.js';
+import type { FilePermissions } from '../filesystem/types.js';
+import type { Command, CommandEnv, CommandResult } from './types.js';
+import { resolveAbsPath } from '../filesystem/path.js';
+import { accountIn } from '../sessions/passwdAccount.js';
 
 const ALL_TIERS: readonly UserType[] = ['root', 'user', 'guest'];
 

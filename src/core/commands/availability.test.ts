@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
-import { wrapWithBinaryCheck } from './availability';
-import { wrapWithLibraryCheck } from './libraryDeps';
-import { commandRegistry } from './registry';
-import { buildDirectory, buildFile } from '../../test/factories/filesystem';
-import { mockCommandEnv, mockFsViewFromTree, mockSession } from '../../test/factories/commandEnv';
-import { SYSTEM_LIBRARIES } from '../generation/libraries';
-import { asAbsPath } from '../types';
-import type { Command, CommandEnv, CommandResult, PatchApi, TerminalLine } from './types';
+import { wrapWithBinaryCheck } from './availability.js';
+import { wrapWithLibraryCheck } from './libraryDeps.js';
+import { commandRegistry } from './registry.js';
+import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
+import { mockCommandEnv, mockFsViewFromTree, mockSession } from '../../test/factories/commandEnv.js';
+import { SYSTEM_LIBRARIES } from '../generation/libraries.js';
+import { asAbsPath } from '../types.js';
+import type { Command, CommandEnv, CommandResult, PatchApi, TerminalLine } from './types.js';
 
 /**
  * Slice 1 of the binary/availability model: a command only runs when its

@@ -41,35 +41,35 @@
  */
 
 import { z } from 'zod';
-import { verifySignedRequest } from '../signedRequest/verify';
-import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
+import { verifySignedRequest } from '../signedRequest/verify.js';
+import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
 import {
   authorizeMachineAccess,
   type ActiveSession,
   type FindActiveSession,
-} from '../patches/authorizeMachineAccess';
+} from '../patches/authorizeMachineAccess.js';
 import {
   appendMachineLog,
   type MachineLogReadQuery,
   type MachineLogReadResult,
-} from '../patches/appendMachineLog';
-import type { FindOccupantWorkstationByMachineId } from '../patches/remoteWritePermission';
-import type { PatchRow } from '../patches/upsertPatch';
+} from '../patches/appendMachineLog.js';
+import type { FindOccupantWorkstationByMachineId } from '../patches/remoteWritePermission.js';
+import type { PatchRow } from '../patches/upsertPatch.js';
 import {
   formatRebootLine,
   KERN_LOG_OWNER,
   KERN_LOG_PATH,
   KERN_LOG_PERMISSIONS,
-} from '../logging/kernLog';
-import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter';
+} from '../logging/kernLog.js';
+import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
 import {
   resolveCrossPlayerSourceIp,
   type FindHomeNetworkByOwnerKey,
-} from '../logging/crossPlayerSourceIp';
-import { parseWorkstationId } from '../identity/workstation';
-import { asGameTime } from '../types';
-import type { NonceStore } from '../signedRequest/nonceStore';
-import type { EndReason } from './endSession';
+} from '../logging/crossPlayerSourceIp.js';
+import { parseWorkstationId } from '../identity/workstation.js';
+import { asGameTime } from '../types.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
+import type { EndReason } from './endSession.js';
 
 /** No `player_key`: the update is scoped to the MACHINE and nothing else, which is
  *  what lets one reboot reach a row the caller has never seen. */

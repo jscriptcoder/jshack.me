@@ -35,8 +35,8 @@
  * spelling, not about the store.
  */
 
-import { md5 } from '../generation/md5';
-import type { RedisStore } from './types';
+import { md5 } from '../generation/md5.js';
+import type { RedisStore } from './types.js';
 
 export type StoreStatementRequest = {
   readonly store: RedisStore;

@@ -6,10 +6,10 @@
  * the public web is the same for every player without anything being stored.
  */
 
-import { PUBLISHER_FIRST_OCTET } from './ip';
-import { ESSID_CATALOG, type PublishedSite } from './pools/essidCatalog';
-import { createPrng } from './prng';
-import { FINDIT_DOMAIN, FINDIT_NETWORK } from './finditNetwork';
+import { PUBLISHER_FIRST_OCTET } from './ip.js';
+import { ESSID_CATALOG, type PublishedSite } from './pools/essidCatalog.js';
+import { createPrng } from './prng.js';
+import { FINDIT_DOMAIN, FINDIT_NETWORK } from './finditNetwork.js';
 
 const SITE_BY_ESSID: ReadonlyMap<string, PublishedSite> = new Map(
   ESSID_CATALOG.flatMap((entry) => (entry.site === undefined ? [] : [[entry.essid, entry.site]])),

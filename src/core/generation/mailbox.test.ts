@@ -1,26 +1,26 @@
 import { describe, expect, it } from 'vitest';
-import { boxMail, networkMail, type MailMessage } from './networkMail';
-import { buildRemoteHostFs, npcUsername } from './remoteHostFs';
-import { buildDeepHostFs } from './deepHostFs';
-import { inhabitant } from './persona';
-import { generateHomeLan, isOnHomeLan, type LanHost } from './generateHomeLan';
-import { generateApplication } from './generateDatabase';
-import { roleOfHostname } from './pools/hostnames';
-import { lanZoneName } from '../network/resolveName';
-import { createFsView } from '../filesystem/fsView';
-import { asAbsPath } from '../types';
-import { WORLD_EPOCH } from '../cve/worldClock';
-import { networkArchetype } from './databaseApp';
-import { MAIL_SPECS, PERSONAL_THREADS } from './pools/mailThreads';
-import { CRON_OUTPUT } from './pools/cronMail';
-import { ALL_GENERATED_PASSWORDS } from './passwordPools';
+import { boxMail, networkMail, type MailMessage } from './networkMail.js';
+import { buildRemoteHostFs, npcUsername } from './remoteHostFs.js';
+import { buildDeepHostFs } from './deepHostFs.js';
+import { inhabitant } from './persona.js';
+import { generateHomeLan, isOnHomeLan, type LanHost } from './generateHomeLan.js';
+import { generateApplication } from './generateDatabase.js';
+import { roleOfHostname } from './pools/hostnames.js';
+import { lanZoneName } from '../network/resolveName.js';
+import { createFsView } from '../filesystem/fsView.js';
+import { asAbsPath } from '../types.js';
+import { WORLD_EPOCH } from '../cve/worldClock.js';
+import { networkArchetype } from './databaseApp.js';
+import { MAIL_SPECS, PERSONAL_THREADS } from './pools/mailThreads.js';
+import { CRON_OUTPUT } from './pools/cronMail.js';
+import { ALL_GENERATED_PASSWORDS } from './passwordPools.js';
 import {
   ALL_ESSIDS,
   deepBoxes,
   lanBoxes,
   softwareVersionsIn,
   type Box,
-} from '../../test/worldContent';
+} from '../../test/worldContent.js';
 
 const DAY_MS = 86_400_000;
 

@@ -1,19 +1,19 @@
 import { describe, expect, it } from 'vitest';
-import { gatewayAdminIp } from './gatewayHistory';
-import { md5 } from './md5';
-import { ALL_GENERATED_PASSWORDS } from './passwordPools';
-import { parseAclDenies } from '../network/switchAcl';
-import { createFsView } from '../filesystem/fsView';
-import { asAbsPath } from '../types';
-import type { FileNode } from '../filesystem/types';
-import { WORLD_EPOCH } from '../cve/worldClock';
-import { FIRMWARE_VENDORS, type FirmwareVendor } from '../packages/packageVersions';
+import { gatewayAdminIp } from './gatewayHistory.js';
+import { md5 } from './md5.js';
+import { ALL_GENERATED_PASSWORDS } from './passwordPools.js';
+import { parseAclDenies } from '../network/switchAcl.js';
+import { createFsView } from '../filesystem/fsView.js';
+import { asAbsPath } from '../types.js';
+import type { FileNode } from '../filesystem/types.js';
+import { WORLD_EPOCH } from '../cve/worldClock.js';
+import { FIRMWARE_VENDORS, type FirmwareVendor } from '../packages/packageVersions.js';
 import {
   ALL_ESSIDS,
   gatewaysOn,
   softwareVersionsIn,
   type Gateway,
-} from '../../test/worldContent';
+} from '../../test/worldContent.js';
 
 /**
  * A gateway's configuration backups, read the way a player who has rooted the box reads

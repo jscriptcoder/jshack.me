@@ -21,12 +21,12 @@
  * renders are most of the difference.
  */
 
-import type { Command, CommandResult } from './types';
-import { parseTypedUrl } from '../network/http';
-import { isPublicIp } from '../generation/ip';
-import { connectedWlan0 } from '../network/interfaces';
-import { addressForTarget } from '../network/resolveName';
-import { fetchPageAcrossNetwork, fetchWebPage } from './webPage';
+import type { Command, CommandResult } from './types.js';
+import { parseTypedUrl } from '../network/http.js';
+import { isPublicIp } from '../generation/ip.js';
+import { connectedWlan0 } from '../network/interfaces.js';
+import { addressForTarget } from '../network/resolveName.js';
+import { fetchPageAcrossNetwork, fetchWebPage } from './webPage.js';
 
 const error = (message: string): CommandResult => ({
   kind: 'sync',

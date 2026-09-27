@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { buildRemoteHostFs, hostServices, npcUsername } from './remoteHostFs';
-import { buildDeepHostFs } from './deepHostFs';
-import { generateHomeLan, type LanHost } from './generateHomeLan';
-import { roleOfHostname } from './pools/hostnames';
-import { deviceKindOf } from './device';
-import { createFsView } from '../filesystem/fsView';
-import { parseHttpUrl, resolveHref, resolveWebPath } from '../network/http';
-import { lanZoneName, resolveLanName } from '../network/resolveName';
-import { inhabitant, networkPersona } from './persona';
-import { asAbsPath } from '../types';
-import type { Directory } from '../filesystem/types';
+import { buildRemoteHostFs, hostServices, npcUsername } from './remoteHostFs.js';
+import { buildDeepHostFs } from './deepHostFs.js';
+import { generateHomeLan, type LanHost } from './generateHomeLan.js';
+import { roleOfHostname } from './pools/hostnames.js';
+import { deviceKindOf } from './device.js';
+import { createFsView } from '../filesystem/fsView.js';
+import { parseHttpUrl, resolveHref, resolveWebPath } from '../network/http.js';
+import { lanZoneName, resolveLanName } from '../network/resolveName.js';
+import { inhabitant, networkPersona } from './persona.js';
+import { asAbsPath } from '../types.js';
+import type { Directory } from '../filesystem/types.js';
 import {
   ALL_ESSIDS,
   deepBoxes,
@@ -17,15 +17,15 @@ import {
   lanBoxes,
   softwareVersionsIn,
   type Box,
-} from '../../test/worldContent';
-import { withoutMeasurements } from '../../test/deviceBoxes';
-import { DEFAULT_DIRLIST } from '../network/defaultDirlist';
-import { API_PAGES, PORTAL_PAGES, ROBOTS_ONLY_DIRECTORIES } from './pools/webSites';
-import { sweepWord } from '../network/webSweep';
-import { parseMysqlDatabase } from '../mysql/types';
-import { ESSID_CATALOG } from './pools/essidCatalog';
-import { siteServer } from './siteServer';
-import { publisherSite } from './publisher';
+} from '../../test/worldContent.js';
+import { withoutMeasurements } from '../../test/deviceBoxes.js';
+import { DEFAULT_DIRLIST } from '../network/defaultDirlist.js';
+import { API_PAGES, PORTAL_PAGES, ROBOTS_ONLY_DIRECTORIES } from './pools/webSites.js';
+import { sweepWord } from '../network/webSweep.js';
+import { parseMysqlDatabase } from '../mysql/types.js';
+import { ESSID_CATALOG } from './pools/essidCatalog.js';
+import { siteServer } from './siteServer.js';
+import { publisherSite } from './publisher.js';
 
 /**
  * A web server that serves a site: pages that link each other, read the way a player

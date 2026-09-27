@@ -18,7 +18,7 @@
  * is root), and any date after the world began.
  */
 
-import type { NetworkCategory } from './essidCatalog';
+import type { NetworkCategory } from './essidCatalog.js';
 
 export type SitePage = {
   /** The file it is published as, beneath the document root. */

@@ -1,17 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { buildCommandEnv } from './env';
-import { homePathFor, SEED_CONFIG, seedFs, seedSession } from './seed';
-import { generateIdentity } from '../core/identity/identity';
-import { asAbsPath } from '../core/types';
-import { buildColdStartConnectivity, type NetworkInterface } from '../core/network/interfaces';
-import { generateWifi } from '../core/generation/generateWifi';
+import { buildCommandEnv } from './env.js';
+import { homePathFor, SEED_CONFIG, seedFs, seedSession } from './seed.js';
+import { generateIdentity } from '../core/identity/identity.js';
+import { asAbsPath } from '../core/types.js';
+import { buildColdStartConnectivity, type NetworkInterface } from '../core/network/interfaces.js';
+import { generateWifi } from '../core/generation/generateWifi.js';
 import type {
   ExploitApi,
   ExploitLocalElevateParams,
   LogApi,
   PatchApi,
   ScanRecordParams,
-} from '../core/commands/types';
+} from '../core/commands/types.js';
 
 const noopPatches: PatchApi = {
   write: async () => ({ ok: true }),

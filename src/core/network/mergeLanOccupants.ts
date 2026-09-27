@@ -19,9 +19,9 @@
  * requester), so the viewer's own host is never an occupant here and survives the merge.
  */
 
-import type { HomeLan, LanHost } from '../generation/generateHomeLan';
-import type { Ipv4 } from './interfaces';
-import type { OccupantProjection } from './resolveOccupants';
+import type { HomeLan, LanHost } from '../generation/generateHomeLan.js';
+import type { Ipv4 } from './interfaces.js';
+import type { OccupantProjection } from './resolveOccupants.js';
 
 const lastOctet = (ip: string): number => Number(ip.split('.')[3]);
 

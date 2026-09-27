@@ -1,36 +1,36 @@
 import { describe, expect, it } from 'vitest';
-import { buildRemoteHostFs, hostServices, npcUsername } from './remoteHostFs';
-import { buildDeepHostFs } from './deepHostFs';
-import { drawStoreLock, generateRedisStore } from './generateRedisStore';
+import { buildRemoteHostFs, hostServices, npcUsername } from './remoteHostFs.js';
+import { buildDeepHostFs } from './deepHostFs.js';
+import { drawStoreLock, generateRedisStore } from './generateRedisStore.js';
 import {
   ARCHETYPES,
   buildApplication,
   databaseArchetype,
   networkArchetype,
   type ArchetypeKey,
-} from './databaseApp';
-import { STORE_SPECS } from './pools/storeApps';
-import { createPrng } from './prng';
-import { crackableEssidPool } from './generateWifi';
-import { generateApplication, type Application } from './generateDatabase';
-import { generateHomeLan, isOnHomeLan } from './generateHomeLan';
-import { roleOfHostname } from './pools/hostnames';
-import { ALL_GENERATED_PASSWORDS, CRACK_CHANCE, CRACKABLE_PASSWORDS } from './passwordPools';
-import { md5 } from './md5';
-import { storeIn } from '../redis/datadir';
-import { databaseIn } from '../mysql/datadir';
-import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import { lanZoneName } from '../network/resolveName';
+} from './databaseApp.js';
+import { STORE_SPECS } from './pools/storeApps.js';
+import { createPrng } from './prng.js';
+import { crackableEssidPool } from './generateWifi.js';
+import { generateApplication, type Application } from './generateDatabase.js';
+import { generateHomeLan, isOnHomeLan } from './generateHomeLan.js';
+import { roleOfHostname } from './pools/hostnames.js';
+import { ALL_GENERATED_PASSWORDS, CRACK_CHANCE, CRACKABLE_PASSWORDS } from './passwordPools.js';
+import { md5 } from './md5.js';
+import { storeIn } from '../redis/datadir.js';
+import { databaseIn } from '../mysql/datadir.js';
+import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
+import { lanZoneName } from '../network/resolveName.js';
 import {
   ALL_ESSIDS,
   deepBoxes,
   lanBoxes,
   softwareVersionsIn,
   type Box,
-} from '../../test/worldContent';
-import type { RedisStore } from '../redis/types';
-import type { Directory } from '../filesystem/types';
-import type { MysqlRow } from '../mysql/types';
+} from '../../test/worldContent.js';
+import type { RedisStore } from '../redis/types.js';
+import type { Directory } from '../filesystem/types.js';
+import type { MysqlRow } from '../mysql/types.js';
 
 type StoreBox = Box & { readonly store: RedisStore; readonly fs: Directory };
 

@@ -17,9 +17,9 @@
  * `currentPath`. Kept in lockstep with the pushed (non-base) sessions.
  */
 
-import type { AbsPath } from '../core/types';
-import type { Session, SessionKind } from '../core/commands/types';
-import { homeDirectory } from '../core/sessions/homeDirectory';
+import type { AbsPath } from '../core/types.js';
+import type { Session, SessionKind } from '../core/commands/types.js';
+import { homeDirectory } from '../core/sessions/homeDirectory.js';
 
 export type RehydratedStack = {
   readonly sessionStack: readonly Session[];

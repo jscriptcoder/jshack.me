@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@solidjs/testing-library';
-import { BootScreen } from './BootScreen';
-import type { BootCheck } from '../../core/boot/bootFiles';
+import { BootScreen } from './BootScreen.js';
+import type { BootCheck } from '../../core/boot/bootFiles.js';
 
 /**
  * The boot screen plays a kernel-boot animation, then — at the kernel-load step —

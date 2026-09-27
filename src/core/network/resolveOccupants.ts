@@ -22,11 +22,11 @@
  */
 
 import { z } from 'zod';
-import { verifySignedRequest } from '../signedRequest/verify';
-import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
-import { lanAddressesByOwner, type LanLeaseRow } from './lanAddress';
-import type { Ipv4 } from './interfaces';
-import type { NonceStore } from '../signedRequest/nonceStore';
+import { verifySignedRequest } from '../signedRequest/verify.js';
+import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
+import { lanAddressesByOwner, type LanLeaseRow } from './lanAddress.js';
+import type { Ipv4 } from './interfaces.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 /** The narrow occupancy projection the gate + merge need: whose row it is (for the
  *  LAN-boundary check + self-exclusion + lease lookup), the workstation the

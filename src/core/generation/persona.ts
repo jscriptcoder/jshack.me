@@ -7,15 +7,15 @@
  * a generated network, so every occupant reads the same place.
  */
 
-import { lanZoneName } from '../network/resolveName';
-import { createPrng } from './prng';
-import type { LanHost } from './generateHomeLan';
-import { FIRST_NAMES_BY_INITIAL, SURNAMES } from './pools/people';
+import { lanZoneName } from '../network/resolveName.js';
+import { createPrng } from './prng.js';
+import type { LanHost } from './generateHomeLan.js';
+import { FIRST_NAMES_BY_INITIAL, SURNAMES } from './pools/people.js';
 import {
   ESSID_CATALOG,
   NETWORK_CATEGORIES,
   type NetworkCategory,
-} from './pools/essidCatalog';
+} from './pools/essidCatalog.js';
 
 export type NetworkPersona = {
   readonly category: NetworkCategory;

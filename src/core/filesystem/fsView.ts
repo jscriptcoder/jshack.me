@@ -10,10 +10,10 @@
  * Writes are NOT here: mutation routes through `PatchApi`, never the view.
  */
 
-import { asAbsPath, type AbsPath, type UserType } from '../types';
-import type { Directory, FileNode, FilePermissions } from './types';
-import { canRead, canWrite, type WalkResult } from './walker';
-import type { FsListResult, FsReadResult, FsView } from '../commands/types';
+import { asAbsPath, type AbsPath, type UserType } from '../types.js';
+import type { Directory, FileNode, FilePermissions } from './types.js';
+import { canRead, canWrite, type WalkResult } from './walker.js';
+import type { FsListResult, FsReadResult, FsView } from '../commands/types.js';
 
 type Resolved = {
   /** The node at the path, or null if any segment is missing or a

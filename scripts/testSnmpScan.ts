@@ -29,26 +29,26 @@
 // Exits 0 when all checks pass, 1 on failure, 2 on missing env.
 
 import { createClient } from '@supabase/supabase-js';
-import { signRequest } from '../src/core/signedRequest/sign';
-import { generateIdentity } from '../src/core/identity/identity';
-import { computeWorkstationId } from '../src/core/identity/workstation';
-import { computeApGatewayId } from '../src/core/identity/router';
-import { lanAddressFor } from '../src/core/network/lanAddress';
-import { materializeWorkstationFs } from '../src/core/network/materializeWorkstationFs';
-import { buildApGatewayBaseFs } from '../src/core/generation/routerFs';
-import { ownStore } from '../src/core/redis/ownStore';
-import { DATADIR_PATH as STORE_PATH } from '../src/core/redis/datadir';
+import { signRequest } from '../src/core/signedRequest/sign.js';
+import { generateIdentity } from '../src/core/identity/identity.js';
+import { computeWorkstationId } from '../src/core/identity/workstation.js';
+import { computeApGatewayId } from '../src/core/identity/router.js';
+import { lanAddressFor } from '../src/core/network/lanAddress.js';
+import { materializeWorkstationFs } from '../src/core/network/materializeWorkstationFs.js';
+import { buildApGatewayBaseFs } from '../src/core/generation/routerFs.js';
+import { ownStore } from '../src/core/redis/ownStore.js';
+import { DATADIR_PATH as STORE_PATH } from '../src/core/redis/datadir.js';
 import {
   formatPidfileContent,
   pidfilePath,
   readOpenPorts,
   PIDFILE_PERMISSIONS,
   type OpenPort,
-} from '../src/core/services/pidfile';
-import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog';
-import { LOCAL_FILTER_SEED, RULES_V4_PATH } from '../src/core/network/iptablesRules';
-import { md5 } from '../src/core/generation/md5';
-import { clearPublicIps, seedPublicIps } from './networkFixture';
+} from '../src/core/services/pidfile.js';
+import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
+import { LOCAL_FILTER_SEED, RULES_V4_PATH } from '../src/core/network/iptablesRules.js';
+import { md5 } from '../src/core/generation/md5.js';
+import { clearPublicIps, seedPublicIps } from './networkFixture.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const NETWORK = process.env.NETWORK_ENDPOINT ?? 'http://localhost:3100/api/network';

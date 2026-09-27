@@ -30,14 +30,14 @@
  */
 
 import { z } from 'zod';
-import { verifySignedRequest } from '../signedRequest/verify';
-import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
-import { lanAddressesByOwner, type LanLeaseRow } from '../network/lanAddress';
-import { bootableOccupantFs } from '../network/natHosts';
-import { portsOpenToNetwork } from '../network/portsOpenToNetwork';
-import type { OwnerPatchRow } from '../network/materializeWorkstationFs';
-import type { NatOccupantRow } from './resolvePublicScan';
-import type { NonceStore } from '../signedRequest/nonceStore';
+import { verifySignedRequest } from '../signedRequest/verify.js';
+import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
+import { lanAddressesByOwner, type LanLeaseRow } from '../network/lanAddress.js';
+import { bootableOccupantFs } from '../network/natHosts.js';
+import { portsOpenToNetwork } from '../network/portsOpenToNetwork.js';
+import type { OwnerPatchRow } from '../network/materializeWorkstationFs.js';
+import type { NatOccupantRow } from './resolvePublicScan.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 export type ResolveOccupantScanDeps = {
   readonly nonceStore: NonceStore;

@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { portsOpenToNetwork } from './portsOpenToNetwork';
-import { formatPidfileContent } from '../services/pidfile';
-import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import { buildDirectory, buildFile } from '../../test/factories/filesystem';
-import type { Directory } from '../filesystem/types';
+import { portsOpenToNetwork } from './portsOpenToNetwork.js';
+import { formatPidfileContent } from '../services/pidfile.js';
+import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
+import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
+import type { Directory } from '../filesystem/types.js';
 
 /**
  * What a box answers to the NETWORK, as against what is running on it.

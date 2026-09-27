@@ -28,16 +28,16 @@
  */
 
 import { z } from 'zod';
-import { verifySignedRequest } from '../signedRequest/verify';
-import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
-import { authorizeMachineAccess, type FindActiveSession } from './authorizeMachineAccess';
+import { verifySignedRequest } from '../signedRequest/verify.js';
+import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
+import { authorizeMachineAccess, type FindActiveSession } from './authorizeMachineAccess.js';
 import {
   enforceRemoteWriteL2,
   type FindOccupantWorkstationByMachineId,
   type ListMachinePatches,
-} from './remoteWritePermission';
-import type { NonceStore } from '../signedRequest/nonceStore';
-import type { PatchRow } from './upsertPatch';
+} from './remoteWritePermission.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
+import type { PatchRow } from './upsertPatch.js';
 
 export type PatchTreeQuery = {
   readonly writer_key: string;

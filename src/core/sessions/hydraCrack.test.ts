@@ -1,64 +1,64 @@
 import { describe, expect, it, vi } from 'vitest';
-import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter';
-import { handleHydraCrack, type HydraCrackDeps } from './hydraCrack';
-import { signRequest } from '../signedRequest/sign';
-import { generateIdentity } from '../identity/identity';
-import { computeWorkstationId } from '../identity/workstation';
-import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
-import { hostServices } from '../generation/remoteHostFs';
-import { ALL_GENERATED_PASSWORDS, UNCRACKABLE_PASSWORDS } from '../generation/passwordPools';
-import { machineIdForLanHost, resolveLanHostIdentity } from '../generation/lanHostIdentity';
-import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import { DEFAULT_WORDLIST, WORDLIST_PATH, formatWordlist } from '../wordlist/defaultWordlist';
-import { accountsIn } from './passwdAccount';
-import { sweepAccounts } from '../wordlist/passwordSweep';
-import { parseMysqlDatabase, type MysqlDatabase } from '../mysql/types';
-import { md5 } from '../generation/md5';
-import { workstationGuestPassword } from '../generation/workstationFs';
-import { lanAddressFor } from '../network/lanAddress';
-import { playerDatabaseOn } from '../../test/factories/lanDatabase';
-import { DATADIR_PATH } from '../mysql/datadir';
-import { DATADIR_PATH as REDIS_DATADIR_PATH, storeIn } from '../redis/datadir';
-import { formatSnmpdState, readRwCommunityHash, SNMPD_STATE_PATH } from '../snmp/rwCommunity';
-import { ownAgentCommunity } from '../snmp/ownAgent';
+import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
+import { handleHydraCrack, type HydraCrackDeps } from './hydraCrack.js';
+import { signRequest } from '../signedRequest/sign.js';
+import { generateIdentity } from '../identity/identity.js';
+import { computeWorkstationId } from '../identity/workstation.js';
+import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
+import { hostServices } from '../generation/remoteHostFs.js';
+import { ALL_GENERATED_PASSWORDS, UNCRACKABLE_PASSWORDS } from '../generation/passwordPools.js';
+import { machineIdForLanHost, resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
+import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
+import { DEFAULT_WORDLIST, WORDLIST_PATH, formatWordlist } from '../wordlist/defaultWordlist.js';
+import { accountsIn } from './passwdAccount.js';
+import { sweepAccounts } from '../wordlist/passwordSweep.js';
+import { parseMysqlDatabase, type MysqlDatabase } from '../mysql/types.js';
+import { md5 } from '../generation/md5.js';
+import { workstationGuestPassword } from '../generation/workstationFs.js';
+import { lanAddressFor } from '../network/lanAddress.js';
+import { playerDatabaseOn } from '../../test/factories/lanDatabase.js';
+import { DATADIR_PATH } from '../mysql/datadir.js';
+import { DATADIR_PATH as REDIS_DATADIR_PATH, storeIn } from '../redis/datadir.js';
+import { formatSnmpdState, readRwCommunityHash, SNMPD_STATE_PATH } from '../snmp/rwCommunity.js';
+import { ownAgentCommunity } from '../snmp/ownAgent.js';
 import {
   formatSnmpdAttemptLine,
   SNMPD_LOG_OWNER,
   SNMPD_LOG_PATH,
-} from '../logging/snmpdLog';
-import { redisStoreSchema } from '../redis/types';
-import { formatPidfileContent, pidfilePath } from '../services/pidfile';
-import type { NatOccupantRow } from '../network/resolvePublicTarget';
+} from '../logging/snmpdLog.js';
+import { redisStoreSchema } from '../redis/types.js';
+import { formatPidfileContent, pidfilePath } from '../services/pidfile.js';
+import type { NatOccupantRow } from '../network/resolvePublicTarget.js';
 import {
   AUTH_LOG_OWNER,
   AUTH_LOG_PATH,
   AUTH_LOG_PERMISSIONS,
   formatSshdAuthLine,
-} from '../logging/authLog';
-import { VSFTPD_LOG_PATH, formatVsftpdLoginLine } from '../logging/vsftpdLog';
+} from '../logging/authLog.js';
+import { VSFTPD_LOG_PATH, formatVsftpdLoginLine } from '../logging/vsftpdLog.js';
 import {
   MYSQL_LOG_OWNER,
   MYSQL_LOG_PATH,
   MYSQL_LOG_PERMISSIONS,
   formatMysqlAttemptLine,
-} from '../logging/mysqlLog';
+} from '../logging/mysqlLog.js';
 import {
   REDIS_LOG_OWNER,
   REDIS_LOG_PATH,
   REDIS_LOG_PERMISSIONS,
   formatRedisAttemptLine,
-} from '../logging/redisLog';
-import { derivePid } from '../logging/syslog';
-import { asAbsPath, asGameTime } from '../types';
-import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog';
-import type { Directory } from '../filesystem/types';
-import type { OwnerPatchRow } from '../network/materializeMachineFs';
+} from '../logging/redisLog.js';
+import { derivePid } from '../logging/syslog.js';
+import { asAbsPath, asGameTime } from '../types.js';
+import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog.js';
+import type { Directory } from '../filesystem/types.js';
+import type { OwnerPatchRow } from '../network/materializeMachineFs.js';
 import type {
   ListPathPatchesResult,
   PathPatchRow,
   PatchRow,
-} from '../patches/upsertPatch';
-import type { NonceStore } from '../signedRequest/nonceStore';
+} from '../patches/upsertPatch.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 /**
  * `handleHydraCrack` decides what a player can crack, and it decides it

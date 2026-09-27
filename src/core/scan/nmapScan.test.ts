@@ -1,26 +1,26 @@
 import { describe, expect, it, vi } from 'vitest';
-import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter';
-import { handleNmapScan, type NmapScanDeps } from './nmapScan';
-import { signRequest } from '../signedRequest/sign';
-import { generateIdentity } from '../identity/identity';
-import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
-import { buildRemoteHostFs } from '../generation/remoteHostFs';
-import { buildApGatewayBaseFs } from '../generation/routerFs';
-import { seedApGatewayHostname } from '../generation/gatewayHostname';
-import { hostMachineId } from '../generation/remoteHostId';
-import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
-import { computeInnerGatewayId, computeApGatewayId } from '../identity/router';
-import { assignHomeNetwork } from '../network/homeNetwork';
-import { materializeWorkstationFs, type OwnerPatchRow } from '../network/materializeWorkstationFs';
-import { readOpenPorts } from '../services/pidfile';
-import { md5 } from '../generation/md5';
-import { formatNmapScanAggregate, KERN_LOG_OWNER, KERN_LOG_PERMISSIONS } from '../logging/kernLog';
-import { asGameTime, asPlayerKeyHex } from '../types';
-import type { ScanOccupant } from './nmapScan';
-import type { LanLeaseRow } from '../network/lanAddress';
-import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog';
-import type { PatchRow } from '../patches/upsertPatch';
-import type { NonceStore } from '../signedRequest/nonceStore';
+import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
+import { handleNmapScan, type NmapScanDeps } from './nmapScan.js';
+import { signRequest } from '../signedRequest/sign.js';
+import { generateIdentity } from '../identity/identity.js';
+import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
+import { buildRemoteHostFs } from '../generation/remoteHostFs.js';
+import { buildApGatewayBaseFs } from '../generation/routerFs.js';
+import { seedApGatewayHostname } from '../generation/gatewayHostname.js';
+import { hostMachineId } from '../generation/remoteHostId.js';
+import { resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
+import { computeInnerGatewayId, computeApGatewayId } from '../identity/router.js';
+import { assignHomeNetwork } from '../network/homeNetwork.js';
+import { materializeWorkstationFs, type OwnerPatchRow } from '../network/materializeWorkstationFs.js';
+import { readOpenPorts } from '../services/pidfile.js';
+import { md5 } from '../generation/md5.js';
+import { formatNmapScanAggregate, KERN_LOG_OWNER, KERN_LOG_PERMISSIONS } from '../logging/kernLog.js';
+import { asGameTime, asPlayerKeyHex } from '../types.js';
+import type { ScanOccupant } from './nmapScan.js';
+import type { LanLeaseRow } from '../network/lanAddress.js';
+import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog.js';
+import type { PatchRow } from '../patches/upsertPatch.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 /**
  * `handleNmapScan` is the server-side scan action: it verifies the signed

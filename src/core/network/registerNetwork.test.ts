@@ -3,12 +3,12 @@ import {
   handleRegisterNetwork,
   type HomeNetworkOccupantRow,
   type RegisterNetworkDeps,
-} from './registerNetwork';
-import { signRequest } from '../signedRequest/sign';
-import { generateIdentity } from '../identity/identity';
-import { assignHomeNetwork } from './homeNetwork';
-import { lanAddressFor } from './lanAddress';
-import type { NonceStore } from '../signedRequest/nonceStore';
+} from './registerNetwork.js';
+import { signRequest } from '../signedRequest/sign.js';
+import { generateIdentity } from '../identity/identity.js';
+import { assignHomeNetwork } from './homeNetwork.js';
+import { lanAddressFor } from './lanAddress.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 /**
  * `handleRegisterNetwork` is the server-side join action. It verifies the signed

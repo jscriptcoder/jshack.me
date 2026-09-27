@@ -14,9 +14,9 @@
  *   1 — any file failed to read
  */
 
-import type { Command, CommandEnv, CommandResult, FsReadResult, TerminalLine } from './types';
-import { resolveAbsPath } from '../filesystem/path';
-import { splitContentLines } from './contentHelpers';
+import type { Command, CommandEnv, CommandResult, FsReadResult, TerminalLine } from './types.js';
+import { resolveAbsPath } from '../filesystem/path.js';
+import { splitContentLines } from './contentHelpers.js';
 
 type FsReadError = Extract<FsReadResult, { readonly ok: false }>['error'];
 

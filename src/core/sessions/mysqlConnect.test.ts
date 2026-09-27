@@ -1,41 +1,41 @@
 import { describe, expect, it, vi } from 'vitest';
-import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter';
-import { handleMysqlConnect, type MysqlConnectDeps } from './mysqlConnect';
-import { signRequest } from '../signedRequest/sign';
-import { generateIdentity } from '../identity/identity';
-import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
+import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
+import { handleMysqlConnect, type MysqlConnectDeps } from './mysqlConnect.js';
+import { signRequest } from '../signedRequest/sign.js';
+import { generateIdentity } from '../identity/identity.js';
+import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
 import {
   deepDatabaseFixture,
   knownDatabaseCredentialIn,
   playerDatabaseOn,
-} from '../../test/factories/lanDatabase';
-import { computeApGatewayId } from '../identity/router';
-import { lanAddressFor, type LanLeaseRow } from '../network/lanAddress';
-import { formatPidfileContent, pidfilePath } from '../services/pidfile';
-import { DATADIR_PATH } from '../mysql/datadir';
-import type { ApNetworkLookup, NatOccupantRow } from '../network/resolvePublicTarget';
-import { databaseIn } from '../mysql/datadir';
-import { readOpenPorts } from '../services/pidfile';
-import { hostServices } from '../generation/remoteHostFs';
-import { ALL_GENERATED_PASSWORDS } from '../generation/passwordPools';
-import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
-import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import { accountsIn } from './passwdAccount';
-import { parseMysqlDatabase, type MysqlDatabase } from '../mysql/types';
-import { md5 } from '../generation/md5';
+} from '../../test/factories/lanDatabase.js';
+import { computeApGatewayId } from '../identity/router.js';
+import { lanAddressFor, type LanLeaseRow } from '../network/lanAddress.js';
+import { formatPidfileContent, pidfilePath } from '../services/pidfile.js';
+import { DATADIR_PATH } from '../mysql/datadir.js';
+import type { ApNetworkLookup, NatOccupantRow } from '../network/resolvePublicTarget.js';
+import { databaseIn } from '../mysql/datadir.js';
+import { readOpenPorts } from '../services/pidfile.js';
+import { hostServices } from '../generation/remoteHostFs.js';
+import { ALL_GENERATED_PASSWORDS } from '../generation/passwordPools.js';
+import { resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
+import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
+import { accountsIn } from './passwdAccount.js';
+import { parseMysqlDatabase, type MysqlDatabase } from '../mysql/types.js';
+import { md5 } from '../generation/md5.js';
 import {
   MYSQL_LOG_OWNER,
   MYSQL_LOG_PATH,
   MYSQL_LOG_PERMISSIONS,
   formatMysqlAttemptLine,
-} from '../logging/mysqlLog';
-import { derivePid } from '../logging/syslog';
-import { asAbsPath, asGameTime } from '../types';
-import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog';
-import type { Directory } from '../filesystem/types';
-import type { OwnerPatchRow } from '../network/materializeMachineFs';
-import type { PatchRow } from '../patches/upsertPatch';
-import type { NonceStore } from '../signedRequest/nonceStore';
+} from '../logging/mysqlLog.js';
+import { derivePid } from '../logging/syslog.js';
+import { asAbsPath, asGameTime } from '../types.js';
+import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog.js';
+import type { Directory } from '../filesystem/types.js';
+import type { OwnerPatchRow } from '../network/materializeMachineFs.js';
+import type { PatchRow } from '../patches/upsertPatch.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 /**
  * `handleMysqlConnect` decides whether a credential opens a box's database, and it

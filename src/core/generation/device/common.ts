@@ -3,10 +3,10 @@
  * world's clock as a device reads it, and the plain pages a device's UI is made of.
  */
 
-import { dir, file, HOME_DIR, HOME_FILE } from '../baseFs';
-import { WORLD_EPOCH } from '../../cve/worldClock';
-import type { Directory, FileNode } from '../../filesystem/types';
-import type { PrintedJob } from './printer';
+import { dir, file, HOME_DIR, HOME_FILE } from '../baseFs.js';
+import { WORLD_EPOCH } from '../../cve/worldClock.js';
+import type { Directory, FileNode } from '../../filesystem/types.js';
+import type { PrintedJob } from './printer.js';
 
 export type DeviceKind = 'camera' | 'recorder' | 'printer' | 'climate' | 'media' | 'plug' | 'lock';
 

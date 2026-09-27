@@ -18,14 +18,14 @@
  */
 
 import { z } from 'zod';
-import { signRequest } from '../core/signedRequest/sign';
-import { assignHomeNetwork } from '../core/network/homeNetwork';
-import { workstationIdentityFields } from '../core/network/workstationIdentity';
-import { noLanLeaseCache, type LanLeaseCache } from '../core/network/lanLeaseCache';
-import { deserializeTree, type SerializedDirectory } from '../core/filesystem/treeCodec';
-import type { HomeNetworkAssignment } from '../core/network/homeNetwork';
-import type { GameConfig } from '../core/gameConfig/gameConfig';
-import type { Directory } from '../core/filesystem/types';
+import { signRequest } from '../core/signedRequest/sign.js';
+import { assignHomeNetwork } from '../core/network/homeNetwork.js';
+import { workstationIdentityFields } from '../core/network/workstationIdentity.js';
+import { noLanLeaseCache, type LanLeaseCache } from '../core/network/lanLeaseCache.js';
+import { deserializeTree, type SerializedDirectory } from '../core/filesystem/treeCodec.js';
+import type { HomeNetworkAssignment } from '../core/network/homeNetwork.js';
+import type { GameConfig } from '../core/gameConfig/gameConfig.js';
+import type { Directory } from '../core/filesystem/types.js';
 import type {
   Identity,
   PublicFetchParams,
@@ -34,10 +34,10 @@ import type {
   PublicSweepParams,
   PublicSweepResult,
   PublicScanResolution,
-} from '../core/commands/types';
-import type { OccupantProjection } from '../core/network/resolveOccupants';
-import type { Ipv4 } from '../core/network/interfaces';
-import type { MachineId } from '../core/types';
+} from '../core/commands/types.js';
+import type { OccupantProjection } from '../core/network/resolveOccupants.js';
+import type { Ipv4 } from '../core/network/interfaces.js';
+import type { MachineId } from '../core/types.js';
 
 const DEFAULT_ENDPOINT = '/api/network';
 

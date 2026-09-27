@@ -12,8 +12,8 @@
  * lean (grill-me decision 3). They only appear once an interface has an address.
  */
 
-import type { Command, TerminalLine } from './types';
-import type { NetworkInterface } from '../network/interfaces';
+import type { Command, TerminalLine } from './types.js';
+import type { NetworkInterface } from '../network/interfaces.js';
 
 const INDENT = '        ';
 

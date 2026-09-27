@@ -9,7 +9,7 @@ import {
   validateMachineName,
   validatePassword,
   validateUsername,
-} from './gameConfig';
+} from './gameConfig.js';
 
 const getMockConfig = (overrides?: Partial<GameConfig>): GameConfig => ({
   machineName: 'skylab',

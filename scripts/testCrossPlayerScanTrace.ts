@@ -23,18 +23,18 @@
 //
 // Exits 0 when all checks pass, 1 on failure, 2 on missing env.
 
-import { apGatewayLogWriterKey } from '../src/core/logging/apGatewayLogWriter';
+import { apGatewayLogWriterKey } from '../src/core/logging/apGatewayLogWriter.js';
 import { createClient } from '@supabase/supabase-js';
-import { signRequest } from '../src/core/signedRequest/sign';
-import { generateIdentity } from '../src/core/identity/identity';
-import { computeWorkstationId } from '../src/core/identity/workstation';
-import { computeApGatewayId } from '../src/core/identity/router';
-import { md5 } from '../src/core/generation/md5';
-import { seedApGatewayHostname } from '../src/core/generation/gatewayHostname';
-import { clearPublicIps, seedPublicIps } from './networkFixture';
-import { liveCve } from '../src/core/cve/liveCve';
-import { gameDayAt } from '../src/core/cve/worldClock';
-import { asEpochMs } from '../src/core/types';
+import { signRequest } from '../src/core/signedRequest/sign.js';
+import { generateIdentity } from '../src/core/identity/identity.js';
+import { computeWorkstationId } from '../src/core/identity/workstation.js';
+import { computeApGatewayId } from '../src/core/identity/router.js';
+import { md5 } from '../src/core/generation/md5.js';
+import { seedApGatewayHostname } from '../src/core/generation/gatewayHostname.js';
+import { clearPublicIps, seedPublicIps } from './networkFixture.js';
+import { liveCve } from '../src/core/cve/liveCve.js';
+import { gameDayAt } from '../src/core/cve/worldClock.js';
+import { asEpochMs } from '../src/core/types.js';
 
 const NETWORK = process.env.NETWORK_ENDPOINT ?? 'http://localhost:3100/api/network';
 const url = process.env.SUPABASE_URL;

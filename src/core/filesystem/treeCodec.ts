@@ -13,7 +13,7 @@
  * record. Pure and symmetric: `deserializeTree(serializeTree(t))` deep-equals `t`.
  */
 
-import type { Directory, FileEntry, FileNode } from './types';
+import type { Directory, FileEntry, FileNode } from './types.js';
 
 /** A directory whose `entries` Map has been flattened to a plain record so JSON
  *  preserves it. Files serialize as-is. */

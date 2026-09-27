@@ -29,10 +29,10 @@
 
 import { randomUUID } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
-import { computeApGatewayId } from '../src/core/identity/router';
-import { FINDIT_NETWORK } from '../src/core/generation/finditNetwork';
-import { apGatewayLogWriterKey } from '../src/core/logging/apGatewayLogWriter';
-import { BOOT_ID_OWNER, BOOT_ID_PATH, BOOT_ID_PERMISSIONS } from '../src/core/boot/bootId';
+import { computeApGatewayId } from '../src/core/identity/router.js';
+import { FINDIT_NETWORK } from '../src/core/generation/finditNetwork.js';
+import { apGatewayLogWriterKey } from '../src/core/logging/apGatewayLogWriter.js';
+import { BOOT_ID_OWNER, BOOT_ID_PATH, BOOT_ID_PERMISSIONS } from '../src/core/boot/bootId.js';
 
 const url = process.env.SUPABASE_URL;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;

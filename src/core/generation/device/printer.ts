@@ -4,21 +4,21 @@
  * same jobs, by the box's log history.
  */
 
-import type { Prng } from '../prng';
-import { dir, file, ROOT_DIR, ROOT_FILE, TRAVERSABLE_DIR } from '../baseFs';
-import { uuid } from '../etcContent';
-import { renderControlFile, renderDocument } from '../documentFormats';
-import { generateHomeLan, isOnHomeLan, type LanHost } from '../generateHomeLan';
-import { peopleKnownOn } from '../mailbox';
-import type { MailPerson } from '../networkMail';
-import { networkPersona } from '../persona';
-import { roleOfHostname } from '../pools/hostnames';
-import { npcUsername } from '../remoteHostFs';
-import { buildShare, type ShareUpload } from '../share';
-import { CUPSD_CONFS, PRINTER_MODELS } from '../pools/devices';
-import { SHARE_FOLDERS } from '../pools/shareFiles';
-import type { Directory, FileNode } from '../../filesystem/types';
-import { DAY_SECONDS, LAST_SECOND, shownAt, uiPage, type DeviceFiles } from './common';
+import type { Prng } from '../prng.js';
+import { dir, file, ROOT_DIR, ROOT_FILE, TRAVERSABLE_DIR } from '../baseFs.js';
+import { uuid } from '../etcContent.js';
+import { renderControlFile, renderDocument } from '../documentFormats.js';
+import { generateHomeLan, isOnHomeLan, type LanHost } from '../generateHomeLan.js';
+import { peopleKnownOn } from '../mailbox.js';
+import type { MailPerson } from '../networkMail.js';
+import { networkPersona } from '../persona.js';
+import { roleOfHostname } from '../pools/hostnames.js';
+import { npcUsername } from '../remoteHostFs.js';
+import { buildShare, type ShareUpload } from '../share.js';
+import { CUPSD_CONFS, PRINTER_MODELS } from '../pools/devices.js';
+import { SHARE_FOLDERS } from '../pools/shareFiles.js';
+import type { Directory, FileNode } from '../../filesystem/types.js';
+import { DAY_SECONDS, LAST_SECOND, shownAt, uiPage, type DeviceFiles } from './common.js';
 
 const ALPHANUMERIC = 'ABCDEFGHJKLMNPQRSTUVWXYZ0123456789';
 

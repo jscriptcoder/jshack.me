@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { rehydrateSessionStack } from './sessionRehydrate';
-import { asEpochMs, asMachineId, asPlayerKeyHex } from '../core/types';
-import type { Session } from '../core/commands/types';
+import { rehydrateSessionStack } from './sessionRehydrate.js';
+import { asEpochMs, asMachineId, asPlayerKeyHex } from '../core/types.js';
+import type { Session } from '../core/commands/types.js';
 
 const MACHINE = asMachineId('skylab-deadbeef');
 const KEY = asPlayerKeyHex('a'.repeat(64));

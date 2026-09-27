@@ -28,21 +28,21 @@
  * the log, by the owner's own routine use of their own box.
  */
 
-import { readOpenPorts } from '../services/pidfile';
-import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import { derivePid } from '../logging/syslog';
+import { readOpenPorts } from '../services/pidfile.js';
+import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
+import { derivePid } from '../logging/syslog.js';
 import {
   formatRedisConnectLine,
   formatRedisMutationLine,
   REDIS_LOG_OWNER,
   REDIS_LOG_PATH,
   REDIS_LOG_PERMISSIONS,
-} from '../logging/redisLog';
-import { DATADIR_FILE } from '../generation/baseFs';
-import { storeIn, DATADIR_OWNER, DATADIR_PATH } from '../redis/datadir';
-import { runStatement } from '../redis/statements';
+} from '../logging/redisLog.js';
+import { DATADIR_FILE } from '../generation/baseFs.js';
+import { storeIn, DATADIR_OWNER, DATADIR_PATH } from '../redis/datadir.js';
+import { runStatement } from '../redis/statements.js';
 
-import { asGameTime } from '../types';
+import { asGameTime } from '../types.js';
 import type {
   CommandEnv,
   FsView,
@@ -50,7 +50,7 @@ import type {
   RedisConnectResult,
   RedisStatementParams,
   RedisStatementResult,
-} from './types';
+} from './types.js';
 
 /** Whether the daemon is holding the port on a tree this client can see for itself. The
  *  pidfiles are the same source `nmap` reads, so a door the player was shown is a door

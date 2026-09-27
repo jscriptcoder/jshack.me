@@ -22,9 +22,9 @@
  * consult this is already refused for naming an OID the device does not implement.
  */
 
-import { generateHomeLan, type LanHostKind } from '../generation/generateHomeLan';
-import { generateDeepLayer } from '../generation/generateDeepLayer';
-import { computeApGatewayId } from '../identity/router';
+import { generateHomeLan, type LanHostKind } from '../generation/generateHomeLan.js';
+import { generateDeepLayer } from '../generation/generateDeepLayer.js';
+import { computeApGatewayId } from '../identity/router.js';
 
 export const frontedSegment = (device: {
   readonly essid: string;

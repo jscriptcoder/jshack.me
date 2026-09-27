@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { msfconsole } from './msfconsole';
+import { msfconsole } from './msfconsole.js';
 import {
   mockCommandEnv,
   mockExploitApi,
@@ -8,13 +8,13 @@ import {
   mockPatchApi,
   mockScanApi,
   mockSession,
-} from '../../test/factories/commandEnv';
-import { md5 } from '../generation/md5';
-import { buildDirectory, buildFile } from '../../test/factories/filesystem';
-import { buildColdStartConnectivity } from '../network/interfaces';
-import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
-import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
-import { buildCommandContext } from '../scripting/commandContext';
+} from '../../test/factories/commandEnv.js';
+import { md5 } from '../generation/md5.js';
+import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
+import { buildColdStartConnectivity } from '../network/interfaces.js';
+import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
+import { resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
+import { buildCommandContext } from '../scripting/commandContext.js';
 import {
   asAbsPath,
   asEpochMs,
@@ -22,16 +22,16 @@ import {
   asNetworkAddress,
   asPlayerKeyHex,
   type UserType,
-} from '../types';
-import { computeWorkstationId } from '../identity/workstation';
-import { WORLD_EPOCH } from '../cve/worldClock';
-import { localExploitOutcome } from '../cve/localExploit';
-import { packageTimeline } from '../cve/packageTimeline';
-import { type ExploitEffectKind, backdoorPortFor } from '../cve/exploitEffect';
-import { formatListenerContent, listenerPidfilePath } from '../services/pidfile';
-import { buildEntry, formatDpkgStatus } from '../packages/dpkgStatus';
-import type { SystemLibrary } from '../generation/libraries';
-import type { OccupantProjection } from '../network/resolveOccupants';
+} from '../types.js';
+import { computeWorkstationId } from '../identity/workstation.js';
+import { WORLD_EPOCH } from '../cve/worldClock.js';
+import { localExploitOutcome } from '../cve/localExploit.js';
+import { packageTimeline } from '../cve/packageTimeline.js';
+import { type ExploitEffectKind, backdoorPortFor } from '../cve/exploitEffect.js';
+import { formatListenerContent, listenerPidfilePath } from '../services/pidfile.js';
+import { buildEntry, formatDpkgStatus } from '../packages/dpkgStatus.js';
+import type { SystemLibrary } from '../generation/libraries.js';
+import type { OccupantProjection } from '../network/resolveOccupants.js';
 import type {
   AuthLogEvent,
   CommandResult,
@@ -43,9 +43,9 @@ import type {
   ScanApi,
   Session,
   SessionKind,
-} from './types';
-import type { MachineId } from '../types';
-import type { ConnectivityState, NetworkInterface } from '../network/interfaces';
+} from './types.js';
+import type { MachineId } from '../types.js';
+import type { ConnectivityState, NetworkInterface } from '../network/interfaces.js';
 
 /**
  * `msfconsole` decides NOTHING about what a fired CVE opens — the server does, from

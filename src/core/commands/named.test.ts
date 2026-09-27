@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { asAbsPath } from '../types';
-import type { TerminalLine } from './types';
+import { asAbsPath } from '../types.js';
+import type { TerminalLine } from './types.js';
 import {
   mockCommandEnv,
   mockFsViewFromTree,
   mockPatchApi,
   mockSession,
-} from '../../test/factories/commandEnv';
-import { buildDirectory, buildFile } from '../../test/factories/filesystem';
-import { named } from './daemon';
+} from '../../test/factories/commandEnv.js';
+import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
+import { named } from './daemon.js';
 
 /**
  * The name server's own announcements.

@@ -11,8 +11,8 @@
  * certificate story, and nothing serves it yet.
  */
 
-import { asAbsPath, type AbsPath } from '../types';
-import { normalize } from '../filesystem/path';
+import { asAbsPath, type AbsPath } from '../types.js';
+import { normalize } from '../filesystem/path.js';
 
 /** The port a web server listens on absent an explicit `:port` in the URL. */
 export const HTTP_DEFAULT_PORT = 80;
