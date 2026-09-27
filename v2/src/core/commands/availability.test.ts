@@ -192,8 +192,9 @@ describe('commandRegistry gating (registry wiring)', () => {
   // touch. `find` and `strings` are the same kind of thing and have had their
   // binaries stamped since generation shipped, so the promise in `ls /bin` and
   // the answer at the prompt have to agree. Proven in BOTH directions, so the
-  // gate is shown live rather than merely absent.
-  it.each(['clear', 'whoami', 'find', 'strings', 'chmod'])(
+  // gate is shown live rather than merely absent. `head`, `tail` and `wc` ship
+  // in `/bin` on every machine, so `rm /bin/tail` takes `tail` away.
+  it.each(['clear', 'whoami', 'find', 'strings', 'chmod', 'head', 'tail', 'wc'])(
     'gates %s behind its /bin binary',
     async (name) => {
       const command = commandRegistry.get(name);
@@ -392,6 +393,39 @@ describe('commandRegistry gating (registry wiring)', () => {
     expect(errorLines(result)).toEqual([]);
     expect(textLines(result).length).toBeGreaterThan(0);
     expect(result.kind === 'sync' && result.exitCode).toBe(0);
+  });
+
+  // The text readers match no pattern, so they link no library: deleting
+  // libpcre breaks `cat` and leaves them working. `cat` failing on the same
+  // box is what proves the library really is gone.
+  it.each([
+    ['head', 'first'],
+    ['tail', 'second'],
+    ['wc', '2 2 notes.txt'],
+  ])('runs %s with no libpcre on the box, where cat cannot', async (name, printed) => {
+    const command = commandRegistry.get(name);
+    const cat = commandRegistry.get('cat');
+    if (command === undefined || cat === undefined) throw new Error(`${name} not registered`);
+    const executable = { owner: 'root', perms: { execute: ['root', 'user', 'guest'] } } as const;
+    const tree = buildDirectory({
+      bin: buildDirectory({
+        [name]: buildFile('', executable),
+        cat: buildFile('', executable),
+      }),
+      tmp: buildDirectory({ 'notes.txt': buildFile('first\nsecond\n', { owner: 'alice' }) }),
+    });
+    const env = mockCommandEnv({
+      fs: mockFsViewFromTree(tree, { userType: 'user', cwd: asAbsPath('/tmp') }),
+    });
+    const lastOrFirst = new Map<string, string | true>([['-n', '1']]);
+
+    const result = await command.execute(env, ['notes.txt'], name === 'wc' ? NO_FLAGS : lastOrFirst);
+    const catResult = await cat.execute(env, ['notes.txt'], NO_FLAGS);
+
+    expect(textLines(result)).toEqual([printed]);
+    expect(errorLines(catResult)).toEqual([
+      'cat: error while loading shared libraries: libpcre.so: cannot open shared object file: No such file or directory',
+    ]);
   });
 
   it('gates ls behind /bin/ls — command-not-found when the binary is absent', async () => {

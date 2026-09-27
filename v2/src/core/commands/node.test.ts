@@ -529,6 +529,36 @@ describe('node', () => {
     expect(textLines(result)).toEqual(['function,function,function,function']);
   });
 
+  it('reads the end of a file through tail, with -n as a flag object', async () => {
+    const env = mockCommandEnv({
+      fs: mockFsViewFromTree(
+        buildDirectory({
+          bin: buildDirectory({
+            tail: buildFile('', { owner: 'root', perms: { execute: ['root', 'user', 'guest'] } }),
+          }),
+          home: buildDirectory({
+            alice: buildDirectory(
+              {
+                'notes.txt': buildFile('first\nsecond\nlast\n', { owner: 'alice' }),
+                'run.js': buildFile("console.log(await tail('notes.txt', { '-n': '1' }))\n", {
+                  owner: 'alice',
+                }),
+              },
+              { owner: 'alice' },
+            ),
+          }),
+        }),
+        { userType: 'user', cwd: asAbsPath('/home/alice') },
+      ),
+      session: mockSession({ username: 'alice', userType: 'user' }),
+    });
+
+    const result = await drain(await node.execute(env, ['run.js'], NO_FLAGS));
+
+    expect(result.lines).toEqual([{ kind: 'text', content: 'last' }]);
+    expect(result.exitCode).toBe(0);
+  });
+
   it("sends an inner command's stderr to the terminal and lets the script carry on", async () => {
     const env = mockCommandEnv({
       fs: mockFsViewFromTree(
