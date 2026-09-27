@@ -14,8 +14,12 @@ describe('theme command', () => {
     if (result.kind !== 'sync') return;
     expect(result.exitCode).toBe(0);
     // Column-aligned so the marker reads down the left edge, and the id is
-    // padded so the display names line up whatever their length.
+    // padded so the display names line up whatever their length. The neon
+    // themes lead because the default is one of them.
     expect(result.lines).toEqual([
+      { kind: 'text', content: '    neon     Neon' },
+      { kind: 'text', content: '    redline  Redline' },
+      { kind: 'text', content: '    synth    Synth' },
       { kind: 'text', content: '  * amber    Amber' },
       { kind: 'text', content: '    green    Green Phosphor' },
       { kind: 'text', content: '    cyan     Cyan' },
@@ -60,6 +64,22 @@ describe('theme command', () => {
     expect(result.lines).toEqual([{ kind: 'text', content: 'Switched to Green Phosphor theme' }]);
   });
 
+  it.each([
+    ['neon', 'Neon'],
+    ['redline', 'Redline'],
+    ['synth', 'Synth'],
+  ])('switches to the neon theme %s by name', async (id, name) => {
+    const setTheme = vi.fn();
+    const env = mockCommandEnv({ currentTheme: () => 'amber', setTheme });
+
+    const result = await theme.execute(env, [id], NO_FLAGS);
+
+    expect(setTheme).toHaveBeenCalledWith(id);
+    expect(result.kind).toBe('sync');
+    if (result.kind !== 'sync') return;
+    expect(result.lines).toEqual([{ kind: 'text', content: `Switched to ${name} theme` }]);
+  });
+
   it('refuses an unknown theme, names the ones there are, and switches nothing', async () => {
     const setTheme = vi.fn();
     const env = mockCommandEnv({ currentTheme: () => 'amber', setTheme });
@@ -72,7 +92,8 @@ describe('theme command', () => {
     expect(result.lines).toEqual([
       {
         kind: 'error',
-        content: "theme: unknown theme 'nope'. Available: amber, green, cyan, light",
+        content:
+          "theme: unknown theme 'nope'. Available: neon, redline, synth, amber, green, cyan, light",
       },
     ]);
     // A refusal that still fired the seam would repaint the terminal on a typo

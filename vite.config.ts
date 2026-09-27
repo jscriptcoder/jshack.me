@@ -28,5 +28,9 @@ export default defineConfig(({ mode }) => ({
     testTimeout: 30000,
     include: ['src/**/*.test.{ts,tsx}'],
     exclude: ['node_modules/**', 'dist/**'],
+    // Vitest hands every stylesheet import back empty, `?raw` included. The theme
+    // tests read `index.css` as text to hold its pre-script palette to the default
+    // theme, so that one file is let through; no test imports it for styling.
+    css: { include: [/src\/index\.css/] },
   },
 }));
