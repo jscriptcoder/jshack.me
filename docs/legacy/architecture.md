@@ -1,5 +1,9 @@
 # Architecture
 
+> **Legacy, frozen.** This page describes the retired React app. Its source is preserved at git
+> tag `legacy-final`, and every `src/`, `api/`, `scripts/` or `supabase/` path below refers to that
+> tag, not to the current tree. Index: [docs/legacy/](./README.md).
+
 ## Project Structure
 
 ```
@@ -309,7 +313,7 @@ Unified filesystem-based access model (`src/commands/availability.ts`). All comm
 
 ## Seeded Mission Network Generator
 
-`src/generation/` contains the engine for procedurally generating mission networks from a seed string. See `mission-variations.md` for the complete catalog of all generation axes, templates, and pools.
+`src/generation/` contains the engine for procedurally generating mission networks from a seed string. See [`mission-variations.md`](../mission-ideas/mission-variations.md) for the complete catalog of all generation axes, templates, and pools.
 
 **Pipeline**: `generateMissionNetwork(seed, usedIps?)` has its own orchestration (for PRNG sequence stability) but shares building blocks with home networks: topology (`topology.ts`), users (`users.ts`), enrichment (`enrichment.ts`), and filesystem helpers (`filesystem/`). Mission-specific steps: objective type resolution → port closures → attack chain (`attackChain.ts`) → objective filesystems → binary wrapping (`binary.ts`). Home networks use the shared `generateNetwork()` pipeline (`generateNetwork.ts`) which composes the same building blocks. Seeds can embed keywords to override generation axes — see `parseSeedOverrides()` in `generateMission.ts`. Shared IP utilities (`ip.ts`) provide `generatePublicIp(prng, usedIps?)` and `generatePrivateSubnet(prng)` — used by both mission and home network generation. When `usedIps` is provided, public IP generation re-rolls to avoid collisions.
 
@@ -319,7 +323,7 @@ Unified filesystem-based access model (`src/commands/availability.ts`). All comm
 
 ## Mission System Integration
 
-`src/mission/` integrates the generator with React contexts. See `mission-variations.md` for entry variants, objective types, templates, and briefing intel.
+`src/mission/` integrates the generator with React contexts. See [`mission-variations.md`](../mission-ideas/mission-variations.md) for entry variants, objective types, templates, and briefing intel.
 
 **Provider hierarchy:**
 
@@ -336,7 +340,7 @@ SessionProvider → GameSession (useHomeNetworks, generateLocalhost) → Mission
 
 **Mission commands:** `missions()` (browse contracts), `accept(seed)` (generate + start), `abort()` (pop all sessions, clear state), `mail(recipient, content)` (submit proof, verify by objective type, calls `completeMission()`).
 
-**Objective types:** exfiltrate, tamper, credential_theft, script_fix, script_auto, sabotage, backdoor, portforward, forensics, malware. See `mission-variations.md` for details and completion criteria.
+**Objective types:** exfiltrate, tamper, credential_theft, script_fix, script_auto, sabotage, backdoor, portforward, forensics, malware. See [`mission-variations.md`](../mission-ideas/mission-variations.md) for details and completion criteria.
 
 ## SEO & Open Graph
 

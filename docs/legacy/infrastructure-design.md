@@ -1,5 +1,9 @@
 # Infrastructure Design — Network & Filesystem
 
+> **Legacy, frozen.** This page describes the retired React app. Its source is preserved at git
+> tag `legacy-final`, and every `src/`, `api/`, `scripts/` or `supabase/` path below refers to that
+> tag, not to the current tree. Index: [docs/legacy/](./README.md).
+
 ## WiFi Hacking Gate
 
 Before the player can access the network from localhost, they must crack a WiFi network. This is a progression gate before network access — it does not award a flag. Multiple WiFi networks are available, each providing access to a different subnet of machines.
@@ -165,7 +169,7 @@ Layer 2 (<layer2-subnet>.10, .11, ...) — 2-3 machines (target here)
 - **Forwarded** (easier): Router NATs entry machine ports to its public IP. Player connects to public IP and transparently lands on internal machine. Easy difficulty has 70% chance, medium 50%.
 - **Router-first** (harder): No forwarding. Player must hack the router to reach internal machines. Hard difficulty always uses this mode for the border router. A credential placement on the router filesystem contains SSH credentials for the internal entry machine (so the player can reach it after hacking the router).
 - **Inner layer thresholds**: Inner gateways roll independently per layer. Easy 70%, medium 50%, hard 30% forwarding chance. This creates variety in multi-layer pivoting — hard missions always start with a router-first border, but inner gateways may have pre-populated NAT rules.
-- **SNMP variant** (router-first only): Router has all TCP ports filtered and SNMP (UDP 161) open. Player discovers SNMP via `nmap -sU`, uses `snmpwalk` with the RW community string to find leaked credentials and firewall OIDs, then `snmpset` to open the SSH port. See `mission-variations.md` for full SNMP attack chain details.
+- **SNMP variant** (router-first only): Router has all TCP ports filtered and SNMP (UDP 161) open. Player discovers SNMP via `nmap -sU`, uses `snmpwalk` with the RW community string to find leaked credentials and firewall OIDs, then `snmpset` to open the SSH port. See [`mission-variations.md`](../mission-ideas/mission-variations.md) for full SNMP attack chain details.
 
 ### Port Closures
 

@@ -1,5 +1,9 @@
 # Mission Variations
 
+> **Legacy mission design, kept as inspiration for the missions rebuild.** It describes how the
+> retired React app generated missions. Every `src/` path refers to git tag `legacy-final`, not to
+> the current tree. Start at the [mission ideas index](./README.md).
+
 Comprehensive catalog of all procedural generation variation axes. Use this to track what exists and plan additions.
 
 ## Seed Keywords

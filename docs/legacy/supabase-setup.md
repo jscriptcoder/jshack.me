@@ -1,5 +1,9 @@
 # Supabase setup
 
+> **Legacy, frozen.** This page describes the retired React app. Its source is preserved at git
+> tag `legacy-final`, and every `src/`, `api/`, `scripts/` or `supabase/` path below refers to that
+> tag, not to the current tree. Index: [docs/legacy/](./README.md).
+
 This project uses Supabase (Postgres + Realtime) as the backend for multiplayer. All game state — public IP allocations, patches, sessions, mission instances — lives server-side in Postgres, accessed via the Supabase JS SDK and RLS-protected queries.
 
 This doc covers the local dev loop and the cloud preview project. Production is deliberately deferred until multiplayer launch (see `feedback_no_backward_compat.md` memory for why pre-launch iteration is kept loose).

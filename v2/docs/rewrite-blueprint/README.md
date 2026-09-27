@@ -39,7 +39,7 @@ Captured across multiple sections (Section 4 is the hub):
 
 ## Out of scope for this blueprint
 
-- **Mission content** — Player explicitly deferred. Section 7.14 sketches the lifecycle and points at `docs/mission-variations.md`. Multiplayer + CVEs come first; missions get redesigned on top.
+- **Mission content** — Player explicitly deferred. Section 7.14 sketches the lifecycle and points at `docs/mission-ideas/mission-variations.md`. Multiplayer + CVEs come first; missions get redesigned on top.
 - **UI styling specifics** — The CRT amber-on-black aesthetic and theme catalog are noted (§7.9) but exact CSS values aren't reproduced; the rewrite can re-derive from `src/theme/themes.ts`.
 - **Test coverage strategy** — TDD principles in `docs/development-guidelines.md` carry over; the smoke-test catalog (§4.19) is what matters for multiplayer.
 

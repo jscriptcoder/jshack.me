@@ -1,5 +1,9 @@
 # Technology choices
 
+> **Legacy, frozen.** This page describes the retired React app. Its source is preserved at git
+> tag `legacy-final`, and every `src/`, `api/`, `scripts/` or `supabase/` path below refers to that
+> tag, not to the current tree. Index: [docs/legacy/](./README.md).
+
 This doc captures the non-obvious technology decisions made for JSHACK.ME's Phase 5 multiplayer rollout — what was chosen, why, what was rejected, and the trade-offs we accepted. Decisions that came with the React + Vite + TypeScript baseline (i.e. anything pre-Phase-5) aren't covered here unless Phase 5 changed them.
 
 ## Stack at a glance

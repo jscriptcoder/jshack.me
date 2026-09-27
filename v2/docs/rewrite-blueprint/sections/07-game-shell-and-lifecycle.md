@@ -657,7 +657,7 @@ Tab completion and help are the same source: the command registry in `useCommand
 
 The mission system is the gameplay loop: browse contracts, accept missions (each is a seeded procedural network), hack the network, complete objectives, get paid.
 
-This section is a brief overview. User intends to design fresh mission content in Phase 4+, so implementation details are deferred to `docs/mission-variations.md`.
+This section is a brief overview. User intends to design fresh mission content in Phase 4+, so implementation details are deferred to `docs/mission-ideas/mission-variations.md`.
 
 ### Mission Provider Hierarchy
 
@@ -703,7 +703,7 @@ Decided 2026-04-23: instances are permanent + shareable + unrestricted (complete
 
 ### 7.14.4 Generation Axes (High Level)
 
-The seeded generator controls (full catalog in `docs/mission-variations.md`):
+The seeded generator controls (full catalog in `docs/mission-ideas/mission-variations.md`):
 
 1. **Difficulty** (easy/medium/hard) — Network depth via isolated subnet layers
 2. **Entry variant** (ssh/ftp/nc/exploit/http/snmp) — How to gain initial access
@@ -731,4 +731,4 @@ All axes can be controlled via seed keywords (case-insensitive substring match),
 - `src/utils/storageCache.ts`, `storage.ts` — Persistence layer
 - `src/mission/missionBoard.ts`, `MissionContext.tsx` — Mission system
 - `src/commands/help.ts`, `man.ts` — Documentation commands
-- `docs/mission-variations.md` — Mission generation axes catalog
+- `docs/mission-ideas/mission-variations.md` — Mission generation axes catalog

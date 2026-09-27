@@ -10,6 +10,8 @@ plan deletion and isn't trapped in anyone's local notes.
 | ---------------------------- | ------------------------------------------------------------------------------------------- | -------------------------------- |
 | **`v2/docs/*.md`** (here)    | **As-built** architecture, invariants, and operational gotchas for the shipped system       | Versioned with the code; durable |
 | `v2/docs/rewrite-blueprint/` | **Design intent** — the forward-looking blueprint written while planning the rewrite        | Historical reference; may drift  |
+| `docs/mission-ideas/`        | **Legacy mission design + scenario catalog** — input to the missions rebuild                | Reference until missions ship    |
+| `docs/legacy/`               | **The retired React app's design docs**; its source is at git tag `legacy-final`            | Historical reference; frozen     |
 | `plans/`                     | PR-sized implementation plans + epic story-splits (the `planning`/`story-splitting` skills) | **Deleted on completion**        |
 | `~/.claude` memory           | Working-style feedback, preferences, short-lived resume/status pointers                     | Author-local; not team docs      |
 
@@ -40,3 +42,7 @@ disagree, the code wins; fix the doc.
   (sections 01–07 + `core-contracts.md` + `decisions.md`). Split-by-section is the single
   source of truth; the old monolithic `rewrite-blueprint.md` was dropped (it had drifted
   stale). Start at [rewrite-blueprint/README.md](./rewrite-blueprint/README.md).
+- [../../docs/mission-ideas/](../../docs/mission-ideas/README.md) — how legacy missions worked
+  and every scenario they shipped, kept as inspiration for the missions rebuild.
+- [../../docs/legacy/](../../docs/legacy/README.md) — the retired React app's design docs and
+  how to read its source from the `legacy-final` tag.
