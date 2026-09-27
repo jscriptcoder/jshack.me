@@ -19,9 +19,21 @@ import type { ThemeId } from '../../core/theme/themes.js';
 const camelToKebab = (name: string): string =>
   name.replace(/[A-Z]/g, (upper) => `-${upper.toLowerCase()}`);
 
+/** The neon look is switched by a mark on `<html>` rather than by the colours
+ *  alone, because most of what it changes (glow, font, the banner's glitch) is
+ *  not a colour. Every neon rule in `index.css` hangs off this mark, so taking it
+ *  away is what makes a plain theme look exactly as it always has. The neon
+ *  colours a previous theme painted are left behind: nothing reads them once
+ *  the mark is gone. */
 export const applyTheme = (id: ThemeId): void => {
-  const style = document.documentElement.style;
-  for (const [token, value] of Object.entries(THEMES[id].colors)) {
-    style.setProperty(`--theme-${camelToKebab(token)}`, value);
+  const root = document.documentElement;
+  const { colors, neonColors } = THEMES[id];
+  for (const [token, value] of Object.entries({ ...colors, ...neonColors })) {
+    root.style.setProperty(`--theme-${camelToKebab(token)}`, value);
+  }
+  if (neonColors === undefined) {
+    delete root.dataset.look;
+  } else {
+    root.dataset.look = 'neon';
   }
 };

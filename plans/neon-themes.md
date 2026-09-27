@@ -1,13 +1,27 @@
 # Plan: Neon themes
 
 **Status**: Active. Decisions confirmed by the owner 2026-09-27.
+
 - Slice 1 ✅ merged as #567 (`dd7e0ffd`, v0.279.0).
-- Slice 2 is next.
+- Slice 2 (v0.280.0) in review on `feat/neon-look`. As built:
+  - The mark is `data-look="neon"` on `<html>`, written by `applyTheme` from
+    `ThemeDefinition.neonColors`.
+  - The banner's `data-text` is the glitch hook, and scrollback lines carry a
+    `data-kind` so prompt and error lines can glow harder.
+  - The banner uses a `font-art` Tailwind font (the stock mono stack) while the
+    neon look swaps `--font-mono`.
+  - Deviation: switching to a plain theme removes the mark but leaves the neon
+    colour tokens painted. Nothing reads them without the mark, so no test could
+    tell.
+  - Found in the browser: the flicker's 2px sideways shift flashed a horizontal
+    scrollbar under the full-width banner, so the flicker is now brightness only.
+  - The per-element glow colour (`color-mix` with `currentColor`, inherited) is
+    verified in Chromium 149. Firefox was not available to check.
 - Slice 5 (the `effects` command) was added by the owner on 2026-09-27, after slice 1
   merged.
-**Visual reference**: the interactive preview at https://claude.ai/artifact/FTXG8EPT39Ek2TF6JFEmmt
-(private to the owner). Its palettes, glow, glitch, HUD and cursor are the target; its
-commands and HUD values are mock data.
+  **Visual reference**: the interactive preview at https://claude.ai/artifact/FTXG8EPT39Ek2TF6JFEmmt
+  (private to the owner). Its palettes, glow, glitch, HUD and cursor are the target; its
+  commands and HUD values are mock data.
 
 ## Goal
 
@@ -111,13 +125,14 @@ The glow and frame come later; this is the colour layer on its own.
 **Required implementation skills**: `tdd`, `testing`, `refactoring`; `mutation-testing`
 at PR readiness.
 **Acceptance criteria**:
+
 - `theme` lists the seven themes in the decided order with the active one marked, and
   the column still lines up.
 - `theme redline` (and `neon`, `synth`) switches, says so, and survives a reload.
 - A player with nothing stored boots in Neon; a stored `amber` still boots in Amber.
 - The pre-JS palette in `index.css` equals Neon's painted tokens.
 - `applyTheme` paints every token, with none left blank, for all three new ids.
-**RED**:
+  **RED**:
 - `theme.test.ts`: the listing names neon, redline and synth in order.
 - `state.test.ts`: the boot-default assertions at lines 113 and 137 move from
   `'amber'` to `'neon'`, so they fail first.
@@ -125,15 +140,15 @@ at PR readiness.
   `:root` block, and compares them with what `applyTheme(DEFAULT_THEME_ID)` paints.
   Today the rule "change a colour in themes.ts, not there" lives only in a comment;
   this test makes a default change that forgets the fallback fail.
-**GREEN**: three `THEMES` entries with the preview's ten tokens each (`avatarBorder`
-= the text colour, as the existing themes do), the new `THEME_IDS` order,
-`DEFAULT_THEME_ID = 'neon'`, the `index.css` fallback block, and `theme-color` set to
-`#06070c`. Update the comments in `themes.ts` and `index.css` that name amber as the
-default.
-**PRE-PR MUTATION**: Stryker on `src/core/theme/themes.ts` and
-`src/core/commands/theme.ts` (json reporter, per conventions §4).
-**PR-ready when**: criteria met, `npm run typecheck`, `npm run lint` and
-`npm run test:run` green, owner approves the commit.
+  **GREEN**: three `THEMES` entries with the preview's ten tokens each (`avatarBorder`
+  = the text colour, as the existing themes do), the new `THEME_IDS` order,
+  `DEFAULT_THEME_ID = 'neon'`, the `index.css` fallback block, and `theme-color` set to
+  `#06070c`. Update the comments in `themes.ts` and `index.css` that name amber as the
+  default.
+  **PRE-PR MUTATION**: Stryker on `src/core/theme/themes.ts` and
+  `src/core/commands/theme.ts` (json reporter, per conventions §4).
+  **PR-ready when**: criteria met, `npm run typecheck`, `npm run lint` and
+  `npm run test:run` green, owner approves the commit.
 
 ### Slice 2: Neon themes glow, use the neon font, and glitch the banner
 
@@ -152,19 +167,20 @@ attribute for the glitch layers and pins it to the system-mono stack →
 **Required implementation skills**: `tdd`, `testing`, `front-end-testing`,
 `refactoring`, `typescript-strict`; `mutation-testing` at PR readiness.
 **Acceptance criteria**:
+
 - Switching to any neon theme marks the document neon and paints its effect colours;
   switching back to a plain theme removes the mark, so none of the neon rules apply.
 - In a browser, under Neon, text glows, the font is Share Tech Mono, and the banner is
   intact (no sheared box art) and glitches periodically. Under Amber it matches today.
 - With reduced motion, the banner is still.
-**RED**: `applyTheme.test.ts`: applying `neon` marks the document neon; applying
-`amber` after `neon` leaves no mark and no effect colour behind. `Terminal.test.tsx`:
-the banner exposes its full text to the glitch layers.
-**GREEN**: the optional colour group on the type, the mark in `applyTheme`, the CSS
-rules, the font import, and the banner attribute.
-**Browser evidence**: screenshots under Neon and Amber; a reduced-motion screenshot of
-a still banner; `help` output checked for rule lines.
-**Carried risks to check here, not assume**:
+  **RED**: `applyTheme.test.ts`: applying `neon` marks the document neon; applying
+  `amber` after `neon` leaves no mark and no effect colour behind. `Terminal.test.tsx`:
+  the banner exposes its full text to the glitch layers.
+  **GREEN**: the optional colour group on the type, the mark in `applyTheme`, the CSS
+  rules, the font import, and the banner attribute.
+  **Browser evidence**: screenshots under Neon and Amber; a reduced-motion screenshot of
+  a still banner; `help` output checked for rule lines.
+  **Carried risks to check here, not assume**:
 - Glow set once on an ancestor has to take each line's own colour. `text-shadow`
   with an omitted colour inherits as `currentcolor` and resolves per element, but a
   `color-mix(… currentColor …)` value may resolve at the ancestor in some engines.
@@ -172,9 +188,9 @@ a still banner; `help` output checked for rule lines.
 - The scrollback is unbounded, and blurred text-shadow on thousands of lines may make
   scrolling slow. Flood the scrollback (repeated `help`) and scroll in the browser.
 - The glyph coverage of Share Tech Mono for `—`, `…`, the braille spinner and `─`.
-**PRE-PR MUTATION**: Stryker on `src/ui/theme/applyTheme.ts` and
-`src/core/theme/themes.ts`. The CSS is `N/A`, and the browser screenshots stand in
-as its evidence.
+  **PRE-PR MUTATION**: Stryker on `src/ui/theme/applyTheme.ts` and
+  `src/core/theme/themes.ts`. The CSS is `N/A`, and the browser screenshots stand in
+  as its evidence.
 
 ### Slice 3: Under a neon theme the terminal sits in a HUD frame that reports live state
 
@@ -191,6 +207,7 @@ neon colour group (they arrive with the screen that paints them) → Rajdhani vi
 **Required implementation skills**: `tdd`, `testing`, `front-end-testing`,
 `refactoring`; `mutation-testing` at PR readiness.
 **Acceptance criteria**:
+
 - Under Neon the HUD shows `user@host` and follows an `ssh` hop and `su`.
 - It shows `ONLINE`, the wlan0 address and ESSID when associated, and `OFFLINE`,
   `WLAN0 DOWN` and `ESSID —` when not.
@@ -199,9 +216,9 @@ neon colour group (they arrive with the screen that paints them) → Rajdhani vi
 - nano and lynx open inside the frame.
 - In a browser, the cut-corner frame and bars match the preview, and the narrow-width
   layout drops the wide items.
-**RED**: `Terminal.test.tsx` (or the HUD's own test): each bullet above as a rendered
-assertion, with the clock under fake timers.
-**PRE-PR MUTATION**: Stryker on the HUD component and any formatting helpers it gains.
+  **RED**: `Terminal.test.tsx` (or the HUD's own test): each bullet above as a rendered
+  assertion, with the clock under fake timers.
+  **PRE-PR MUTATION**: Stryker on the HUD component and any formatting helpers it gains.
 
 ### Slice 4: Under a neon theme the caret is a blinking block
 
@@ -215,6 +232,7 @@ space), and the text after it, updated on input, key, click and selection change
 **Required implementation skills**: `tdd`, `testing`, `front-end-testing`,
 `refactoring`; `mutation-testing` at PR readiness.
 **Acceptance criteria**:
+
 - Under Neon the block sits on the character at the caret, and moves with arrow keys,
   Home/End, clicks, history recall and tab completion.
 - A masked prompt draws nothing of what is typed.
@@ -222,19 +240,20 @@ space), and the text after it, updated on input, key, click and selection change
 - With reduced motion, it does not blink.
 - Under Amber the native caret is used and no mirror is drawn.
 - Every existing `Terminal.test.tsx` behaviour stays green.
-**RED**: rendered assertions for the block's position after typing and after moving the
-caret, and for a masked prompt drawing nothing.
-**Carried risk**: jsdom may not fire `selectionchange` for inputs, so drive the mirror
-from explicit events the tests can dispatch. Check the real browser for IME and mobile
-keyboards.
-**PRE-PR MUTATION**: Stryker on the mirror logic, which is worth extracting as a
-pure `(value, caret, masked) → segments` function if it earns its place.
+  **RED**: rendered assertions for the block's position after typing and after moving the
+  caret, and for a masked prompt drawing nothing.
+  **Carried risk**: jsdom may not fire `selectionchange` for inputs, so drive the mirror
+  from explicit events the tests can dispatch. Check the real browser for IME and mobile
+  keyboards.
+  **PRE-PR MUTATION**: Stryker on the mirror logic, which is worth extracting as a
+  pure `(value, caret, masked) → segments` function if it earns its place.
 
 ### Slice 5: A player can switch each neon effect on or off with `effects`
 
 **Value**: a player who likes a neon palette but not one of its effects keeps the
 palette and loses only that effect. Before this, the only way out was a plain theme.
 **Path**:
+
 - `effects`, a new game command shaped like `theme`: always available,
   `category: 'general'`, `tier: 'guest'`, the same `withoutTty` and `withoutScript`
   refusals, and a manual entry. Its arguments complete to the effect names, then to
@@ -251,6 +270,7 @@ palette and loses only that effect. Before this, the only way out was a plain th
 **Required implementation skills**: `tdd`, `testing`, `front-end-testing`,
 `refactoring`, `typescript-strict`; `mutation-testing` at PR readiness.
 **Acceptance criteria**:
+
 - `effects` with no argument lists `glow`, `glitch`, `hud` and `cursor`, each
   `on` or `off`, column-aligned like `theme`.
   - Under a plain theme the listing ends with a dim line saying the effects show
@@ -277,6 +297,7 @@ palette and loses only that effect. Before this, the only way out was a plain th
   `effects` can only take effects away, never force motion back on.
 
 **RED**:
+
 - `effects.test.ts`: the listing, each switch, and the refusals, through
   `mockCommandEnv`.
 - `ui` persistence tests over an injected storage.
@@ -300,5 +321,6 @@ Per slice: mutation gate as listed, `npm run typecheck`, `npm run lint`,
 bumped, and owner approval before every commit.
 
 ---
-*Delete this file when the last slice merges, after moving any durable learning into
-`docs/conventions-and-gotchas.md`.*
+
+_Delete this file when the last slice merges, after moving any durable learning into
+`docs/conventions-and-gotchas.md`._

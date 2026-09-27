@@ -63,6 +63,16 @@ describe('Terminal', () => {
     expect(banner).toHaveTextContent('Type help for available commands');
   });
 
+  it('hands the whole banner to the glitch layers, so the split copies match it', () => {
+    // The neon glitch draws two offset copies of the banner from this attribute.
+    // A copy that differed from the banner, even by a trailing line, would tear
+    // away from the art it is meant to shadow.
+    renderTerminal();
+
+    const banner = screen.getByTestId('terminal-banner');
+    expect(banner.dataset.text).toBe(banner.textContent);
+  });
+
   it('echoes the typed command above its output', async () => {
     renderTerminal();
     runCommand('cat /etc/passwd');
@@ -356,7 +366,9 @@ describe('Terminal', () => {
     fireEvent.keyDown(document, { key: 'c', ctrlKey: true });
 
     expect(await screen.findByText('^C')).toBeInTheDocument();
-    expect(screen.getByText((content) => content.includes('scanning 10.0.0.1'))).toBeInTheDocument();
+    expect(
+      screen.getByText((content) => content.includes('scanning 10.0.0.1')),
+    ).toBeInTheDocument();
     expect(screen.queryByText((content) => content.includes('scanning 10.0.0.2'))).toBeNull();
     expect(screen.queryByText((content) => content.includes('AbortError'))).toBeNull();
   });
@@ -700,9 +712,7 @@ describe('Terminal', () => {
       expect(screen.queryByText(/^alice::1000:1000:alice/)).not.toBeInTheDocument();
       // The echo of `clear` itself goes with everything else: the screen is
       // empty AFTER the command ran, not merely up to the moment it was typed.
-      expect(
-        screen.queryByText('alice@workstation:/home/alice$ clear'),
-      ).not.toBeInTheDocument();
+      expect(screen.queryByText('alice@workstation:/home/alice$ clear')).not.toBeInTheDocument();
     });
 
     it('leaves the command history recallable after the screen is cleared', async () => {
@@ -1012,7 +1022,10 @@ describe('a sub-shell prompt', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (_url: string, init?: { body?: string }) => {
-        const fields = JSON.parse(JSON.parse(init?.body ?? '{}').payload) as Record<string, unknown>;
+        const fields = JSON.parse(JSON.parse(init?.body ?? '{}').payload) as Record<
+          string,
+          unknown
+        >;
         if (fields.action === 'mysqlConnect') {
           // The box names itself: a 200 without one is not an open door, because the
           // greeting has nothing to greet.
