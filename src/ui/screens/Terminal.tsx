@@ -192,20 +192,27 @@ export const Terminal = () => {
             <Show when={bannerVisible()}>
               <pre
                 data-testid="terminal-banner"
-                class="whitespace-pre leading-none text-[var(--theme-text-bright)]"
+                data-text={BANNER}
+                class="font-art whitespace-pre leading-none text-[var(--theme-text-bright)]"
               >
                 {BANNER}
               </pre>
             </Show>
             <For each={scrollback()}>
-              {(line) => <div class={`${LINE_BASE} ${LINE_COLOR[line.kind]}`}>{line.content}</div>}
+              {(line) => (
+                <div data-kind={line.kind} class={`${LINE_BASE} ${LINE_COLOR[line.kind]}`}>
+                  {line.content}
+                </div>
+              )}
             </For>
           </div>
           <Show
             when={busyLabel()}
             fallback={
               <div class="flex items-baseline gap-2">
-                <span class="whitespace-pre text-[var(--theme-text-bright)]">{livePrompt()}</span>
+                <span data-kind="prompt" class="whitespace-pre text-[var(--theme-text-bright)]">
+                  {livePrompt()}
+                </span>
                 <input
                   ref={inputEl}
                   aria-label="terminal input"

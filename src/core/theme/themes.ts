@@ -30,12 +30,28 @@ export type ThemeColors = {
   readonly avatarBorder: string;
 };
 
+/** What the neon look paints with beyond the ten shared tokens: the two colours
+ *  the banner's glitch splits into, and the two faint tints lit into the top and
+ *  bottom corners of the background. */
+export type NeonColors = {
+  readonly glitchA: string;
+  readonly glitchB: string;
+  readonly tintTop: string;
+  readonly tintBottom: string;
+};
+
 /** No `id` field: the record key IS the id, and `THEME_IDS` is the order. A
  *  second copy of it inside each definition would be one more thing that can
- *  disagree with the key, and nothing would ever read it to find out. */
+ *  disagree with the key, and nothing would ever read it to find out.
+ *
+ *  `neonColors` is also the switch: a theme that has them wears the neon look
+ *  (glow, the neon font, the glitching banner), and one without them looks as
+ *  the terminal always has. A separate flag beside them could say "neon" with
+ *  no colours to paint it in. */
 export type ThemeDefinition = {
   readonly name: string;
   readonly colors: ThemeColors;
+  readonly neonColors?: NeonColors;
 };
 
 /** What a player who has never chosen sees, and the fallback for a stored value
@@ -58,6 +74,12 @@ export const THEMES: Readonly<Record<ThemeId, ThemeDefinition>> = {
       link: '#fcee0a',
       avatarBorder: '#4ee6ee',
     },
+    neonColors: {
+      glitchA: '#ff1f4b',
+      glitchB: '#4ee6ee',
+      tintTop: 'rgba(78, 230, 238, 0.08)',
+      tintBottom: 'rgba(252, 238, 10, 0.05)',
+    },
   },
   redline: {
     name: 'Redline',
@@ -74,6 +96,12 @@ export const THEMES: Readonly<Record<ThemeId, ThemeDefinition>> = {
       link: '#5ef6ff',
       avatarBorder: '#ff5e57',
     },
+    neonColors: {
+      glitchA: '#5ef6ff',
+      glitchB: '#fcee0a',
+      tintTop: 'rgba(255, 94, 87, 0.09)',
+      tintBottom: 'rgba(94, 246, 255, 0.05)',
+    },
   },
   synth: {
     name: 'Synth',
@@ -88,6 +116,12 @@ export const THEMES: Readonly<Record<ThemeId, ThemeDefinition>> = {
       scrollThumbHover: 'rgba(255, 42, 109, 0.6)',
       link: '#05d9e8',
       avatarBorder: '#b9f3ff',
+    },
+    neonColors: {
+      glitchA: '#05d9e8',
+      glitchB: '#ff2a6d',
+      tintTop: 'rgba(255, 42, 109, 0.1)',
+      tintBottom: 'rgba(5, 217, 232, 0.08)',
     },
   },
   amber: {

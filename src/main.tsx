@@ -2,6 +2,9 @@ import { render } from 'solid-js/web';
 import { App } from './ui/screens/App.js';
 import { consumeFreshTabFlag } from './ui/freshTab.js';
 import { adoptStoredTheme } from './ui/state.js';
+// Self-hosted rather than linked from Google Fonts, which would hand every
+// player's IP address to Google on every boot.
+import '@fontsource/share-tech-mono';
 import './index.css';
 
 const root = document.getElementById('root');

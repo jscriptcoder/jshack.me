@@ -30,6 +30,20 @@ const PAINTED_TOKENS = [
   '--theme-avatar-border',
 ] as const;
 
+/** What only a neon theme paints: the banner glitch's two split colours and the
+ *  background's two corner tints. Listed by hand for the same reason as above. */
+const NEON_PAINTED_TOKENS = [
+  '--theme-glitch-a',
+  '--theme-glitch-b',
+  '--theme-tint-top',
+  '--theme-tint-bottom',
+] as const;
+
+const resetDocument = () => {
+  document.documentElement.removeAttribute('style');
+  document.documentElement.removeAttribute('data-look');
+};
+
 describe('applyTheme', () => {
   it.each([...THEME_IDS])(
     'paints every token the stylesheet reads, and leaves none of them blank: %s',
@@ -44,6 +58,34 @@ describe('applyTheme', () => {
       for (const token of PAINTED_TOKENS) {
         expect(document.documentElement.style.getPropertyValue(token)).not.toBe('');
       }
+    },
+  );
+
+  it.each(['neon', 'redline', 'synth'] as const)(
+    'marks the document neon and paints the neon-only tokens: %s',
+    (id) => {
+      resetDocument();
+
+      applyTheme(id);
+
+      expect(document.documentElement.dataset.look).toBe('neon');
+      for (const token of NEON_PAINTED_TOKENS) {
+        expect(document.documentElement.style.getPropertyValue(token)).not.toBe('');
+      }
+    },
+  );
+
+  it.each(['amber', 'green', 'cyan', 'light'] as const)(
+    'takes the neon mark away on switching to a plain theme: %s',
+    (id) => {
+      // A plain theme must look exactly as it did before the neon themes
+      // existed, and every neon rule in the stylesheet hangs off this mark.
+      resetDocument();
+      applyTheme('neon');
+
+      applyTheme(id);
+
+      expect(document.documentElement.dataset.look).toBeUndefined();
     },
   );
 
