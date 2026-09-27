@@ -29,6 +29,7 @@ import { echo } from './echo';
 import { exit } from './exit';
 import { find } from './find';
 import { grep } from './grep';
+import { head } from './head';
 import { help } from './help';
 import { identity } from './identity';
 import { ifconfig } from './ifconfig';
@@ -64,8 +65,10 @@ import { ssh } from './ssh';
 import { strings } from './strings';
 import { su } from './su';
 import { systemctl } from './systemctl';
+import { tail } from './tail';
 import { theme } from './theme';
 import { touch } from './touch';
+import { wc } from './wc';
 import { whoami } from './whoami';
 import { xterm } from './xterm';
 import { isAlwaysAvailable, wrapWithBinaryCheck } from './availability';
@@ -91,6 +94,7 @@ const builtins: readonly Command[] = [
   find,
   gobuster,
   grep,
+  head,
   help,
   identity,
   ifconfig,
@@ -131,8 +135,10 @@ const builtins: readonly Command[] = [
   vsftpd,
   su,
   systemctl,
+  tail,
   theme,
   touch,
+  wc,
   whoami,
   xterm,
 ];

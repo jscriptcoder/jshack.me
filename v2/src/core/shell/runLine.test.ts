@@ -6,6 +6,7 @@ import { clear } from '../commands/clear';
 import { echo } from '../commands/echo';
 import { ftp } from '../commands/ftp';
 import { grep } from '../commands/grep';
+import { head } from '../commands/head';
 import { gpg } from '../commands/gpg';
 import { find } from '../commands/find';
 import { strings } from '../commands/strings';
@@ -15,7 +16,9 @@ import { nano } from '../commands/nano';
 import { scp } from '../commands/scp';
 import { ssh } from '../commands/ssh';
 import { su } from '../commands/su';
+import { tail } from '../commands/tail';
 import { theme } from '../commands/theme';
+import { wc } from '../commands/wc';
 import { xterm } from '../commands/xterm';
 import type {
   Command,
@@ -1437,6 +1440,66 @@ describe('a box that rebooted under an open session', () => {
       );
       expect(first.value).toBe('alpha');
       expect(second.value).toBe('beta');
+    });
+  });
+});
+
+describe('the text readers at the prompt', () => {
+  const readerCommands: ReadonlyMap<string, Command> = new Map([
+    ['cat', cat],
+    ['grep', grep],
+    ['head', head],
+    ['tail', tail],
+    ['wc', wc],
+  ]);
+
+  const run = (line: string) => runCommandLine(aliceEnv(), line, readerCommands);
+
+  const printedText = (...contents: readonly string[]): CommandResult => ({
+    kind: 'sync',
+    lines: contents.map((content) => ({ kind: 'text', content })),
+    exitCode: 0,
+  });
+
+  it('reads the end of what a pipe carried', async () => {
+    expect(await run('cat notes.txt | tail -n 1')).toEqual(printedText('from alice'));
+  });
+
+  it('reads the start of what a pipe carried', async () => {
+    expect(await run('cat notes.txt | head -n 1')).toEqual(printedText('hello world'));
+  });
+
+  it('counts the lines a filter kept', async () => {
+    expect(await run('grep alice notes.txt | wc -l')).toEqual(printedText('1'));
+  });
+
+  it('counts a file the same whether it is named or piped', async () => {
+    expect(await run('wc notes.txt')).toEqual(printedText('2 4 notes.txt'));
+    expect(await run('cat notes.txt | wc')).toEqual(printedText('2 4'));
+  });
+
+  it('stacks wc -lw into -l -w', async () => {
+    expect(await run('wc -lw notes.txt')).toEqual(printedText('2 4 notes.txt'));
+  });
+
+  it('hands the value after -n to the command, so -n -1 is a bad count, not a flag', async () => {
+    expect(await run('tail -n -1 notes.txt')).toEqual({
+      kind: 'sync',
+      lines: [{ kind: 'error', content: "tail: invalid number of lines: '-1'" }],
+      exitCode: 1,
+    });
+  });
+
+  it.each([
+    ['tail -f notes.txt', 'tail: unrecognized option: -f'],
+    ['tail -5 notes.txt', 'tail: unrecognized option: -5'],
+    ['head -n5 notes.txt', 'head: unrecognized option: -n5'],
+    ['wc -c notes.txt', 'wc: unrecognized option: -c'],
+  ])('refuses %s as an option it does not have', async (line, error) => {
+    expect(await run(line)).toEqual({
+      kind: 'sync',
+      lines: [{ kind: 'error', content: error }],
+      exitCode: 2,
     });
   });
 });

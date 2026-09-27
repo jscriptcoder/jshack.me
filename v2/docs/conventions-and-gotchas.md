@@ -2771,20 +2771,9 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   keeps both (§7). Found building `>>` (v0.277.0); one `stat` and two fields, with a test beside the
   existing appendFile ones in `node.test.ts`.
 
-- **`tail` is a command the world talks about and nobody can run.** v2 has no `tail` (nor
-  `head`), so `tail /var/log/syslog.1` answers `bash: tail: command not found`. It is the natural
-  way to read the end of a log — and since world-content slice 3 every NPC box keeps rotated `.1`
-  logs a player wants the END of, while the only reader today is `cat`, which prints the whole
-  file on a surface with no pager. Generated shell histories already type it: `homeHistory.ts`
-  (`tail /var/log/auth.log`, `tail -f app.log`, `tail -f device.log`), `rootContent.ts`
-  (`tail /var/log/auth.log`, `tail -f /var/log/auth.log`) and `rootHome.ts`'s drawn log reads
-  (`tail` / `tail -f`) — allowed by the world-content epic's "no new verbs" decision 3, but every
-  such line fails when a player replays it. Scope when built: `tail [-n N] <file>` (default 10
-  lines) reading through the tier-checked fs view like `cat`, and probably `head` beside it;
-  `-f` follows nothing in a frozen base tree and a patch-backed log only changes on the next
-  trace, so decide whether `-f` is refused, prints once, or is left out. Also found in the same
-  played run: `grep -c` answers `grep: unrecognized option: -c` — `grep` takes only `-l`. Found
-  at world-content slice 3's close-out (v0.250.0).
+- **`grep -c` answers `grep: unrecognized option: -c`** — `grep` takes only `-l`. A player who
+  wants the count has `grep <pattern> <file> | wc -l` since v0.278.0, so this is parity, not a
+  missing capability. Found in world-content slice 3's played run (v0.250.0).
 
 - **A deep TERMINAL NPC box is read-only when rooted — depth alone decides whether you can
   write to an NPC.** The cross-player/deep write gate (`remoteWritePermission` L2,

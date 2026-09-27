@@ -65,6 +65,16 @@ describe('binary stubs', () => {
     });
   });
 
+  it.each(boxes)('put head, tail and wc in /bin on %s, runnable by anyone', (_label, root) => {
+    const bin = new Map(filesIn(child(root, 'bin')));
+
+    ['head', 'tail', 'wc'].forEach((name) => {
+      const node = bin.get(name);
+      expect(node?.kind === 'file' ? stubName(node.content) : null, name).toBe(name);
+      expect(node?.perms.execute, name).toEqual(['root', 'user', 'guest']);
+    });
+  });
+
   it.each(boxes)('name each library on %s as the .so it is, never as a tool', (_label, root) => {
     const libraries = filesIn(child(root, 'lib'));
 
