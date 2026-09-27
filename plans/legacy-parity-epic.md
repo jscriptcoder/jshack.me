@@ -20,7 +20,7 @@ second fortnight on (89). Slice 8 before it (libraries fall, #519–#527, v0.235
 shipped** — the loop, the effect set, the cross-network route, the defender's patch, reboot
 eviction, and both halves of local escalation (libraries and firmware). **Next is the ship gate**,
 which waited for the generated world content epic (as-built:
-[`world-content-architecture.md`](../v2/docs/world-content-architecture.md); owner decision:
+[`world-content-architecture.md`](../docs/world-content-architecture.md); owner decision:
 content is inside the ship gate). **That epic is DONE** (2026-09-25, v0.264.0, all
 twelve slices, #533–#550), so the ship gate is unblocked. **Update 2026-09-26: X2 (`findit.io`) was
 un-deferred and GRILLED ahead of the ship gate** — decisions 91–105 and a six-slice spine in
@@ -39,9 +39,9 @@ The `Status` block below is an accumulating log, not the current state.
 **Status**: **D1 shipped** (v0.109.0), with its web follow-ups D1c (v0.123.0-v0.124.0), D1b
 (v0.125.0-v0.129.0) and D1d (v0.130.0) all closed out. **D3 ✅ COMPLETE (v0.136.0)** — six slices,
 #393–#398, closed out 2026-08-15: its plan file is deleted and the as-built lives in
-[`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §1 (the shape) and §7 (the
+[`conventions-and-gotchas.md`](../docs/conventions-and-gotchas.md) §1 (the shape) and §7 (the
 invariants), with the live two-player run as Act 11 of
-[`e2e-shared-network-verification.md`](../v2/docs/e2e-shared-network-verification.md).
+[`e2e-shared-network-verification.md`](../docs/e2e-shared-network-verification.md).
 `ftp` (D3) and `scp` (D3b) were **split into separate grill + plan phases** on 2026-08-14 — scp is
 a transient two-endpoint transfer, not a door — and **BOTH are GRILLED** (D3: nine decisions;
 D3b: five decisions + three slices; see their "resolved scope & decisions" sections).
@@ -53,18 +53,18 @@ resolution rather than about reaching a box.
 **D2 ✅ COMPLETE** — D2.1 (v0.111.0), D2.2 (v0.113.0), D2.3
 (v0.114.0), D2.5 (v0.115.0), hydra's workstation-only gate lifted (v0.118.0), D2.4 all five slices
 (v0.119.0–v0.122.0), and D2.6a (#377). Its split file is deleted; the as-built lives in
-[`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §1. **D2.6b — harvestable
+[`conventions-and-gotchas.md`](../docs/conventions-and-gotchas.md) §1. **D2.6b — harvestable
 plaintext loot — is the one piece D2 named and did not build**, and it is **POSTPONED by owner
 decision (2026-08-12)** in favour of parity breadth: the harvest route can arrive with the CVE
 phase instead of as bespoke loot (see "Next action").
 **D4 ✅ COMPLETE (v0.142.0)** — four slices, #407–#411, closed out 2026-08-16: its plan file is
 deleted and the as-built lives in
-[`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §7 (the daemon descriptor,
+[`conventions-and-gotchas.md`](../docs/conventions-and-gotchas.md) §7 (the daemon descriptor,
 the single "what is running here" policy, the `env.fs` snapshot) and §9, with the browser run as
-Act 13 of [`e2e-shared-network-verification.md`](../v2/docs/e2e-shared-network-verification.md).
+Act 13 of [`e2e-shared-network-verification.md`](../docs/e2e-shared-network-verification.md).
 **D6 ✅ COMPLETE (v0.171.0)** — seven slices plus 6b, #434–#448, closed out 2026-08-23: its plan
 file is deleted and the as-built lives in
-[`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §7 (the four-vantage reach,
+[`conventions-and-gotchas.md`](../docs/conventions-and-gotchas.md) §7 (the four-vantage reach,
 the cross-player data write, the occupant-beats-sibling rule) and §9 (its remaining test debt).
 Its close-out **browser smoke test found one real defect** — a defender's own box silently
 reverting an intruder's writes — **fixed at v0.172.0 (#449)**, which also corrected the §7 claim
@@ -73,7 +73,7 @@ run, **two are closed at v0.173.0** (the sub-shell prompt echo and the self-scan
 one stays a §9 backlog entry, because it is a product decision rather than a bug.
 **D7 ✅ COMPLETE (v0.182.0)** — eight slices, #452–#461, closed out 2026-08-26: its plan file is
 deleted and the as-built lives in
-[`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §7 (the reach parameterized
+[`conventions-and-gotchas.md`](../docs/conventions-and-gotchas.md) §7 (the reach parameterized
 by daemon, the occupant-beats-sibling rule now covering PORTS, the three-outcome seam, the
 NAT-vs-inside refusal asymmetry, `secretOn`) and §9. Its twelve locked decisions stay in "D7 —
 resolved scope & decisions". It renamed the epic's own row to `rediscli`, believing `redis-cli`
@@ -97,7 +97,7 @@ wire-check fixture that had been asserting an `ssh` login against an ftp box. **
 `redis-server` (the package stays `redis`). The systemctl unit and the pidfile follow the daemon
 name, so it is `redis-server.service` now. **Trunk is at v0.184.0.**
 **D8 ✅ COMPLETE (v0.193.0)** — eight slices, #465–#473, closed out 2026-08-31: its plan file is
-deleted and the as-built lives in [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md)
+deleted and the as-built lives in [`conventions-and-gotchas.md`](../docs/conventions-and-gotchas.md)
 §7 (the indistinguishability rule now binding the SCAN, `portsOpenToNetwork`, the terminate-vs-
 pass-through rule) and §9 (the same-LAN journal-blind scan as D8's third bite, the `snmpwalk`
 own-box gap, and `snmpd.log` as the fifth stale-log writer). Its eleven locked decisions stay in
@@ -112,7 +112,7 @@ dark → the forward stands, its target closes it), with the cross-player wire-c
 "D5 — resolved scope & decisions"; it also found that §9's `ps` defect is misdiagnosed and owns
 the fix.
 **D9 ✅ COMPLETE — v0.196.0-v0.200.0** (#475-#478, #480), all five slices; the plan file is deleted
-and the as-built lives in [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md)
+and the as-built lives in [`conventions-and-gotchas.md`](../docs/conventions-and-gotchas.md)
 §2/§4/§7/§9. Seventeen locked decisions — eleven in "D9 — resolved scope & decisions", six more at
 slice 4; **decision 5 carries an amendment** (a script's output is `node`'s own `CommandResult`
 lines, not `env.output` — which is what makes it pipe), and the epic's **slice 2 was split into 2a
@@ -138,7 +138,7 @@ a **post-ship epic** — the infrastructure this epic builds is what makes them 
 
 The multiplayer/cross-player epic is **complete** — the hard part, the part legacy never solved
 because of React, is done and proven live (as-built:
-[`cross-player-architecture.md`](../v2/docs/cross-player-architecture.md); its plan file was
+[`cross-player-architecture.md`](../docs/cross-player-architecture.md); its plan file was
 retired on close-out and its deferred tail is in `conventions-and-gotchas.md` §9). What v2
 lacks is the part legacy *did* get right: **the breadth of ways to reach a machine.**
 
@@ -308,7 +308,7 @@ this work.
 | **Secrets codec** | `core/secrets/` | `secrets.ts` → `scripts/encode.ts` → `__encoded.ts`; `contentCodec.ts` (XOR+base64) |
 | **Session kinds** | `core/commands/types.ts:32` | `SessionKind` already carries `'exploit'` and `'effect_one_shot'` — ported, unused |
 | **Weak password pools** | `workstationFs.ts:51`, `remoteHostFs.ts:87`, `routerFs.ts:57` | Guest / NPC / AP-gateway pools exist; comments already anticipate *"a later hydra/wordlist epic"* |
-| **Cross-player core** | [`cross-player-architecture.md`](../v2/docs/cross-player-architecture.md) | 3-tier read filter, L1/L2 write authz, `su`, traces — all `machine_id`-keyed and **protocol-agnostic** |
+| **Cross-player core** | [`cross-player-architecture.md`](../docs/cross-player-architecture.md) | 3-tier read filter, L1/L2 write authz, `su`, traces — all `machine_id`-keyed and **protocol-agnostic** |
 
 **`apt` currently has `install` + `list` only** (`core/commands/apt.ts`) — `upgrade`, `remove`,
 and `pkg=<version>` pinning are net-new in the CVE phase.
@@ -462,18 +462,18 @@ POST-SHIP — MISSIONS
 |---|---|---|---|---|
 | **D1** ✔ | **A player serves a web page and a stranger reads it** — SHIPPED | `apache2`/`nginx` daemons (pidfile → port, root for <1024); `SERVICE_CATALOG` http row + generation placement; generated page content (legacy `pools/web.ts`); `/var/www/html` in base FSs; `curl [-i]`; the request pipeline (parse → NAT/DNS resolve → static file); `access.log` trace; `ping` folds in. **A new server handler resolves (public IP, port, path)** — `resolveCrossPlayerFs` is keyed by a `machine_id` obtained from a login, and `curl` has no login | `lynx` (own slice, fast-follow — a full overlay browser screen, UI work of a different size); `gobuster` (→ D1c, which needs the `extraFiles` seam D2.1 builds); `-X POST`; request handlers; HTTPS specifics | B `curl http://<A pub IP>` → A's page, **with no session and no credential** (tier 3 already allows it); `nmap` shows `:80` on NPC hosts running http; A reads B's hit in `/var/log/access.log` |
 | **D1b** | **A player browses a page instead of reading its source** | `lynx <url>` as a full overlay browser SCREEN (legacy carried `LynxBrowser.tsx` + `lynx/render.ts` + `lynx/fetch.ts`): render HTML to text, follow links, keyboard navigation, quit back to the terminal. Reuses D1 whole — `parseHttpUrl`, `resolveWebPath`, the own-LAN/public split, and the same `access.log` trace, so a browsed page is logged exactly like a curled one | Forms/POST; images; CSS; multi-tab | A player `lynx http://<host>` → the page renders as text with its links numbered → following a link fetches the next page → the target's `access.log` shows one line per page viewed |
-| **D1c** ✔ | **A player finds the pages a server never linked** — **SHIPPED** as slice 1 (the sweep itself, v0.123.0, #378) and slice 2 (the defender's log, v0.124.0, #379), with the live close-out run 2026-08-13 as Act 8 of [`e2e-shared-network-verification.md`](../v2/docs/e2e-shared-network-verification.md) | `gobuster <url>` + its `dirlist.txt`, shipped by the `extraFiles` seam **D2.1 shipped** (add a catalog row, no new mechanism); hits and misses both land in the target's `access.log`, so the defender's tell is the 404 wall D1 already records | Vhost/DNS modes; extensions | A player `gobuster http://<host>` → finds an unlinked path → `curl`s it; the target's `access.log` shows the sweep as a run of 404s with one 200 |
+| **D1c** ✔ | **A player finds the pages a server never linked** — **SHIPPED** as slice 1 (the sweep itself, v0.123.0, #378) and slice 2 (the defender's log, v0.124.0, #379), with the live close-out run 2026-08-13 as Act 8 of [`e2e-shared-network-verification.md`](../docs/e2e-shared-network-verification.md) | `gobuster <url>` + its `dirlist.txt`, shipped by the `extraFiles` seam **D2.1 shipped** (add a catalog row, no new mechanism); hits and misses both land in the target's `access.log`, so the defender's tell is the 404 wall D1 already records | Vhost/DNS modes; extensions | A player `gobuster http://<host>` → finds an unlinked path → `curl`s it; the target's `access.log` shows the sweep as a run of 404s with one 200 |
 | **D1d** ✔ | **A player sweeps a stranger's server for pages nobody linked** — **SHIPPED** v0.130.0 | The public-IP half of D1c: `gobuster` today refuses a public host outright (`gobuster.ts:208` → `NOT_ON_YOUR_NETWORK`) while `curl` and `lynx` both reach one through `fetchPageAcrossNetwork` (`webPage.ts:115`). Reuses the D1b slice-3/7 doors whole, so the client-side shape is a swap of one refusal for the cross-network path; the target's `access.log` keeps recording the sweep server-side, under the server-derived source IP the cross-player writers already use | Vhost/DNS modes; extensions (as D1c) | B `gobuster http://<A pub IP>` → the same hits/misses a same-LAN sweep reports; A reads the run of 404s with one 200 in `/var/log/access.log`, sourced from B's home address, not from anything B sent |
-| **D2** | **A player cracks a credential instead of being told it** — **✔ SHIPPED** as D2.1–D2.6a (v0.111.0–v0.122.0, #377); as-built in [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §1. **D2.6b (harvestable plaintext loot) is postponed** — see "Next action" | ~~`hydra <host> [service] [user]`~~ ✔; ~~`apt install hydra` ships `passwords.txt` via `extraFiles`~~ ✔; the two-pool split + per-account probability in `buildRemoteHostFs`; uncrackable pool into `secrets.ts`; wordlist-as-sole-gate; server-side md5 batch matching for cross-player; `john`; hydra trace on the target's `auth.log` | ftp/mysql/snmp as hydra *services* — each arrives with its door; **`gobuster`** (→ D1c, 2026-07-31) | B `hydra <NPC host> ssh` → cracks the user account → `ssh` succeeds; a low-probability NPC root cracks, most don't; a player's chosen root password never cracks; A appends a harvested password to `passwords.txt` via `nano` and a previously-failing crack now succeeds |
+| **D2** | **A player cracks a credential instead of being told it** — **✔ SHIPPED** as D2.1–D2.6a (v0.111.0–v0.122.0, #377); as-built in [`conventions-and-gotchas.md`](../docs/conventions-and-gotchas.md) §1. **D2.6b (harvestable plaintext loot) is postponed** — see "Next action" | ~~`hydra <host> [service] [user]`~~ ✔; ~~`apt install hydra` ships `passwords.txt` via `extraFiles`~~ ✔; the two-pool split + per-account probability in `buildRemoteHostFs`; uncrackable pool into `secrets.ts`; wordlist-as-sole-gate; server-side md5 batch matching for cross-player; `john`; hydra trace on the target's `auth.log` | ftp/mysql/snmp as hydra *services* — each arrives with its door; **`gobuster`** (→ D1c, 2026-07-31) | B `hydra <NPC host> ssh` → cracks the user account → `ssh` succeeds; a low-probability NPC root cracks, most don't; a player's chosen root password never cracks; A appends a harvested password to `passwords.txt` via `nano` and a previously-failing crack now succeeds |
 | **D3** | **A player moves files without a shell** — **ftp only; `scp` split out to D3b 2026-08-14** | `vsftpd` daemon + catalog row + placement; `ftp <host> [user] [pw]` + FTP mode command set (`get`/`put`/`ls`/`cd`/`lls`/`lcd`/`lpwd`/`quit`); `vsftpd.log` trace; ftp as a hydra service. **No content generator** — the target's FS is the content | Virtual users (`virtual_users.conf`); `scp` (→ D3b) | B `hydra`s ftp creds → `ftp <host>` → `get` a file → `put` one the owner then sees; the session authorizes at its tier through L1/L2 exactly as ssh does (decision 2) |
 | **D3b** | **A player carries a file between two machines they hold** | `scp <src> <user>@<host>:<path> [port] [pw]`; the **transient** auth session (validate → transfer → end, legacy's `withTransientAuthSession`); two-endpoint resolution (local read + remote write through NAT/forwards); async progress + cancellation. Closes D2.5's named gap — **carrying a grown wordlist onto a rooted box** | FTP mode (D3's); recursive `-r`; directory transfer — decide at planning | A `scp /usr/share/wordlists/passwords.txt root@<NPC host>:/root/` → sweeps from that box with a list the shipped wordlist does not hold; a tier the credential does not carry refuses the write |
-| **D4** ✔ | **A defender controls what their box exposes** — **✔ SHIPPED** as slices 0–3 (#407–#410, v0.140.0–v0.142.0); grill record in ["D4 — resolved scope & decisions"](#d4--resolved-scope--decisions-grill-me-2026-08-16), as-built in [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §7/§9 and [`e2e-shared-network-verification.md`](../v2/docs/e2e-shared-network-verification.md) Act 13 | `systemctl start/stop/status/restart` + `ps`, sharing ONE implementation with the shipped `sshd`/`vsftpd`/`nginx` commands (collapsed first, slice 0); symmetric pidfile open/close; runs anywhere you stand; the two login-gate fixes (`ssh` exemption + same-LAN service check) | `kill` and session **eviction** (→ D5, where a planted backdoor is worth killing); `chmod` (independent capability, out of the epic row); `enable`/`disable`; a service-state log | A `systemctl stop sshd` → pidfile gone → B's scan drops `:22` and ssh-via-forward `404`s; A `ps` lists what is running; A restarts it and reachability returns |
-| **D5** ✔ | **A player plants a backdoor and re-enters through it** — **✔ SHIPPED** as slices 0–8 (#415–#423, v0.143.0–v0.151.0); grill record in ["D5 — resolved scope & decisions"](#d5--resolved-scope--decisions-grill-me-2026-08-16), as-built in [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §7/§9 and [`e2e-shared-network-verification.md`](../v2/docs/e2e-shared-network-verification.md) Acts 14-15 | `nc <host> <port>` → restricted NC shell (no PATH); `nc -l <port>` listener with owner metadata in the pidfile; **backdoor chain forwarding** — append a `forward` on every gateway out to the public edge and report the reachable address | Exploit-planted backdoors (Phase 3) | B (inside a host) `nc -l 4444` → forward auto-appended → B leaves, `nc <public IP> <fwd>` → lands as the listener's owner; the defender greps `rules.v4` and finds the breadcrumb |
-| **D5b** ✔ | **NPC machines have a kind, and it shows** — **✔ SHIPPED** as slices 1–5 (#428–#432, v0.153.0–v0.157.0); grill record in ["D5b — resolved scope & decisions"](#d5b--resolved-scope--decisions-grill-me-2026-08-18), close-out in ["D5b — what shipped"](#d5b--what-shipped-and-what-it-deliberately-did-not-do-closed-2026-08-19-v01570), as-built in [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §7 | A real role model, widening `LanHost.kind` (today `'machine' \| 'router' \| 'switch'`, `generateHomeLan.ts:31`) toward legacy's nine — webserver, database, mailserver, fileserver, iot, dns, switch, router, workstation; role-driven hostnames (today `DEVICE_TYPES` is consumer devices — `desktop-7`, `iphone-12` — and golden-locked at `homeNetwork.ts:30`); **role-weighted service placement** (a database box almost always runs mysql; a phone almost never runs nginx); role-keyed content pools, starting with the web pages D1 ships flat | Mission-specific roles (post-ship) | `nmap` a LAN and the boxes read as a *population*: `web-04` serves nginx and a corporate portal, `db-11` runs mysql, `cam-31` is an IoT box with a camera panel. A player can tell what a box probably is before touching it |
+| **D4** ✔ | **A defender controls what their box exposes** — **✔ SHIPPED** as slices 0–3 (#407–#410, v0.140.0–v0.142.0); grill record in ["D4 — resolved scope & decisions"](#d4--resolved-scope--decisions-grill-me-2026-08-16), as-built in [`conventions-and-gotchas.md`](../docs/conventions-and-gotchas.md) §7/§9 and [`e2e-shared-network-verification.md`](../docs/e2e-shared-network-verification.md) Act 13 | `systemctl start/stop/status/restart` + `ps`, sharing ONE implementation with the shipped `sshd`/`vsftpd`/`nginx` commands (collapsed first, slice 0); symmetric pidfile open/close; runs anywhere you stand; the two login-gate fixes (`ssh` exemption + same-LAN service check) | `kill` and session **eviction** (→ D5, where a planted backdoor is worth killing); `chmod` (independent capability, out of the epic row); `enable`/`disable`; a service-state log | A `systemctl stop sshd` → pidfile gone → B's scan drops `:22` and ssh-via-forward `404`s; A `ps` lists what is running; A restarts it and reachability returns |
+| **D5** ✔ | **A player plants a backdoor and re-enters through it** — **✔ SHIPPED** as slices 0–8 (#415–#423, v0.143.0–v0.151.0); grill record in ["D5 — resolved scope & decisions"](#d5--resolved-scope--decisions-grill-me-2026-08-16), as-built in [`conventions-and-gotchas.md`](../docs/conventions-and-gotchas.md) §7/§9 and [`e2e-shared-network-verification.md`](../docs/e2e-shared-network-verification.md) Acts 14-15 | `nc <host> <port>` → restricted NC shell (no PATH); `nc -l <port>` listener with owner metadata in the pidfile; **backdoor chain forwarding** — append a `forward` on every gateway out to the public edge and report the reachable address | Exploit-planted backdoors (Phase 3) | B (inside a host) `nc -l 4444` → forward auto-appended → B leaves, `nc <public IP> <fwd>` → lands as the listener's owner; the defender greps `rules.v4` and finds the breadcrumb |
+| **D5b** ✔ | **NPC machines have a kind, and it shows** — **✔ SHIPPED** as slices 1–5 (#428–#432, v0.153.0–v0.157.0); grill record in ["D5b — resolved scope & decisions"](#d5b--resolved-scope--decisions-grill-me-2026-08-18), close-out in ["D5b — what shipped"](#d5b--what-shipped-and-what-it-deliberately-did-not-do-closed-2026-08-19-v01570), as-built in [`conventions-and-gotchas.md`](../docs/conventions-and-gotchas.md) §7 | A real role model, widening `LanHost.kind` (today `'machine' \| 'router' \| 'switch'`, `generateHomeLan.ts:31`) toward legacy's nine — webserver, database, mailserver, fileserver, iot, dns, switch, router, workstation; role-driven hostnames (today `DEVICE_TYPES` is consumer devices — `desktop-7`, `iphone-12` — and golden-locked at `homeNetwork.ts:30`); **role-weighted service placement** (a database box almost always runs mysql; a phone almost never runs nginx); role-keyed content pools, starting with the web pages D1 ships flat | Mission-specific roles (post-ship) | `nmap` a LAN and the boxes read as a *population*: `web-04` serves nginx and a corporate portal, `db-11` runs mysql, `cam-31` is an IoT box with a camera panel. A player can tell what a box probably is before touching it |
 | **D6** | **A player reads a machine's database** | `mysqld` catalog row + placement; **generated schema + data** (legacy `generateDatabase.ts`, `pools/database.ts`); `mysql <host> <user> [pw]` → `mysql>` prompt (parser/formatter/executor); hydra `mysql` service | Writes/`UPDATE` — decide at planning | B `hydra <host> mysql` → creds → `SHOW TABLES` / `SELECT` returns generated data worth reading |
 | **D7** ✅ | **A player reads a machine's key-value store** — **SHIPPED v0.174.0-v0.182.0 (#452-#461)**; twelve locked decisions in ["D7 — resolved scope & decisions"](#d7--resolved-scope--decisions-grill-me-2026-08-24) | `redis` catalog row + placement (flat 0.05, webserver 0.35, database 0.3); generated data (`generateRedisData.ts`, `pools/redis.ts`); `rediscli <host> [pw]` → `redis>` sub-shell, seven verbs; `requirepass` as an md5 in the root-only datadir; hydra `redis` service against the 60% that are locked | Redis 6 ACLs (they arrive as a VERSION difference in Phase 3, not as a door decision); `FLUSHALL`; `CONFIG GET`; `TYPE`/`SCAN`/`INFO` | B `rediscli <host>` → `KEYS *` / `GET` on the 40% that are open; `hydra <host> redis` → password (no login field) on the rest; an open store's arrival line is the defender's whole view |
-| **D8** ✅ | **A player reconfigures a device without holding a shell on it** — **SHIPPED v0.185.0-v0.193.0 (#465-#473)**; eleven locked decisions in ["D8 — resolved scope & decisions"](#d8--resolved-scope--decisions-grill-me-2026-08-27), as-built in [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §7/§9 | `snmp` catalog row at `161/udp` (a new `protocol` column) placed on routers + switches only; `snmpwalk <host> [community]` (public = identity, RW = + the port table); `snmpset <host> <community> <oid=value>` with parity to `nano`; **the OIDs are a VIEW over the `rules.v4` / `acl.conf` v2 already parses**, never a second copy; the RW community as an md5 in a root-only file, swept by `hydra snmp` via `secretOn`; its own `/var/log/snmpd.log`; `snmpd` installable, planting a `deny <port>` local firewall on a workstation | legacy's `snmpFirewallParser` / `snmpAclParser` and the `firewall*`/`acl*` OIDs inside `snmpd.conf` — REFUSED, not deferred: they are a third and fourth authority over a fact v2 already owns; `nmap -sU`; NAT on a workstation | B `snmpwalk` with `public` → identity only; B cracks the RW community → the forward table renders as OIDs → `snmpset` opens a port **without B ever logging in**, and A's `snmpd.log` names B |
-| **D9** ✅ | **A player automates an attack with a script** — **SHIPPED v0.196.0-v0.200.0 (#475-#480)** as slices 1, 2a, 2b, 3 and 4; eleven locked decisions in ["D9 — resolved scope & decisions"](#d9--resolved-scope--decisions-grill-me-2026-09-01) plus six more made at slice 4, as-built in [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §2/§4/§7/§9 | `apt install node` → `node <path> [args]`; ONE always-async mode (`execute` returns a promise, so legacy's sync mode cannot port); every command as a camelCase global returning `string[]` with `.exitCode`; a trailing flags object with dashed keys; ambient `fs` (`readFile`/`writeFile`/`appendFile`); `console.log`; real `process.argv`; `sleep(ms)`; Ctrl-C at every await | **programmatic auth — REFUSED, not deferred** (`env` is a per-line snapshot, so a script that hopped would answer about the box it left); `chmod`; world content and an example script; an `sh()` escape hatch; a Web Worker sandbox; `script_exec` as a CVE effect (Phase 3) | A writes `/root/sweep.js` chaining `hydra` across many hosts, runs `node /root/sweep.js`, and captures the results to a file; `ssh(…)` from a script refuses in the same words the prompt would |
+| **D8** ✅ | **A player reconfigures a device without holding a shell on it** — **SHIPPED v0.185.0-v0.193.0 (#465-#473)**; eleven locked decisions in ["D8 — resolved scope & decisions"](#d8--resolved-scope--decisions-grill-me-2026-08-27), as-built in [`conventions-and-gotchas.md`](../docs/conventions-and-gotchas.md) §7/§9 | `snmp` catalog row at `161/udp` (a new `protocol` column) placed on routers + switches only; `snmpwalk <host> [community]` (public = identity, RW = + the port table); `snmpset <host> <community> <oid=value>` with parity to `nano`; **the OIDs are a VIEW over the `rules.v4` / `acl.conf` v2 already parses**, never a second copy; the RW community as an md5 in a root-only file, swept by `hydra snmp` via `secretOn`; its own `/var/log/snmpd.log`; `snmpd` installable, planting a `deny <port>` local firewall on a workstation | legacy's `snmpFirewallParser` / `snmpAclParser` and the `firewall*`/`acl*` OIDs inside `snmpd.conf` — REFUSED, not deferred: they are a third and fourth authority over a fact v2 already owns; `nmap -sU`; NAT on a workstation | B `snmpwalk` with `public` → identity only; B cracks the RW community → the forward table renders as OIDs → `snmpset` opens a port **without B ever logging in**, and A's `snmpd.log` names B |
+| **D9** ✅ | **A player automates an attack with a script** — **SHIPPED v0.196.0-v0.200.0 (#475-#480)** as slices 1, 2a, 2b, 3 and 4; eleven locked decisions in ["D9 — resolved scope & decisions"](#d9--resolved-scope--decisions-grill-me-2026-09-01) plus six more made at slice 4, as-built in [`conventions-and-gotchas.md`](../docs/conventions-and-gotchas.md) §2/§4/§7/§9 | `apt install node` → `node <path> [args]`; ONE always-async mode (`execute` returns a promise, so legacy's sync mode cannot port); every command as a camelCase global returning `string[]` with `.exitCode`; a trailing flags object with dashed keys; ambient `fs` (`readFile`/`writeFile`/`appendFile`); `console.log`; real `process.argv`; `sleep(ms)`; Ctrl-C at every await | **programmatic auth — REFUSED, not deferred** (`env` is a per-line snapshot, so a script that hopped would answer about the box it left); `chmod`; world content and an example script; an `sh()` escape hatch; a Web Worker sandbox; `script_exec` as a CVE effect (Phase 3) | A writes `/root/sweep.js` chaining `hydra` across many hosts, runs `node /root/sweep.js`, and captures the results to a file; `ssh(…)` from a script refuses in the same words the prompt would |
 | **D10** ✅ | **The terminal feels like legacy's** — **SHIPPED COMPLETE v0.201.0-v0.205.0 (#481-#486)**, all five slices; fifteen locked decisions in ["D10 — resolved scope & decisions"](#d10--resolved-scope--decisions-grill-me-2026-09-02); five slices, not one | `clear` (banner + scrollback, Ctrl-L) via a new `env.clearScreen()`; `theme` — legacy's four palettes over the eight tokens v2 paints, `localStorage`-persisted and applied pre-render; `author` as a third `ModeChange` overlay; `xterm` opening a genuinely FRESH tab (skips hop rehydration); `whoami`; **plus locked decision 9's whole long tail** — `find` (legacy's positional shape), `strings`, `chmod` (read-modify-write, write-tier authz, no `-R`) and `gpg -c`/`-d` (legacy's codec keyed by md5, masked prompt, `.gpg`). `clear`/`whoami` join `SYSTEM_UTILITY_NAMES` | **`bash` — REFUSED, not deferred** (it ran binaries by path for a PATH-less NC shell v2 does not have, and `availability.ts` already resolves the search path and the execute bit); world content for `strings`/`gpg` (the loot rule owns it); a perms-only patch state; `chmod -R`; legacy's six unpainted theme tokens; a renderable `TerminalLine` kind | A player clears the screen, switches to green phosphor and it survives a reload; `author` opens the card and ESC returns; `xterm` from inside an ssh hop lands on the player's OWN box; `chmod` opens a root-only file to their tier and the change survives a reload; `gpg -c` leaves an intruder holding root with nothing readable |
 
 ## Phase 2 — discovery
@@ -613,13 +613,13 @@ count, is what D3 costs.**
 
 > **SHIPPED 2026-08-15, v0.131.0 → v0.136.0 (#393–#398).** The spine below was delivered as
 > **six** PR-sized slices (D3.2 and D3.3 were two PRs each); the plan file is deleted and the
-> as-built lives in [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §1 (D3)
+> as-built lives in [`conventions-and-gotchas.md`](../docs/conventions-and-gotchas.md) §1 (D3)
 > and §7 (the invariants it established). Nothing here was re-decided. Planning grounding added
 > two findings that changed the work and both held: the ftp session is parallel, so the **origin
 > binding already existed and only the remote one was new**, and **`put`, not `get`, is where
 > decision 3's claim got proven** (`get` writes to your own box; only `put` asks an ftp row to
 > satisfy L1). The live two-player run is Act 11 of
-> [`e2e-shared-network-verification.md`](../v2/docs/e2e-shared-network-verification.md).
+> [`e2e-shared-network-verification.md`](../docs/e2e-shared-network-verification.md).
 
 - **D3.1 — the door exists, and sweeping it is recorded.** Catalog row + `vsftpd` command
   (mirrors `sshd`: root gate → already-running → port → streamed pidfile write) + the `vsftpd.log`
@@ -5620,7 +5620,7 @@ then `tail -n 3 /var/log/auth.log` and `grep su … | wc -l` → `1`, the refusa
    `ROUTER_ADMIN_PASSWORDS`, two of whose eight words shipped in the default wordlist, so 23.8% of
    gateways cracked by accident. **All four knobs are now shipped and measured** (guest 100%,
    npcUser 70.3%, gateway 37.0-38.9%, npcRoot 11.9%); `ROUTER_ADMIN_PASSWORDS` is retired. See
-   [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §1.
+   [`conventions-and-gotchas.md`](../docs/conventions-and-gotchas.md) §1.
 
 ## Parking lot
 
@@ -5639,7 +5639,7 @@ then `tail -n 3 /var/log/auth.log` and `grep su … | wc -l` → `1`, the refusa
 - **Believable per-machine content** — populating generated machines with random, plausible
   files so a box reads as somebody's rather than as a fixture. Owner intent, stated 2026-09-01;
   its own later work, not any door's. **Now its own epic, grilled 2026-09-21 and inside the ship
-  gate, now shipped: [`world-content-architecture.md`](../v2/docs/world-content-architecture.md)** — believability only, loot stays with
+  gate, now shipped: [`world-content-architecture.md`](../docs/world-content-architecture.md)** — believability only, loot stays with
   missions (its decision 2). **It inherits D2.6b's rule**: content that carries a
   usable credential is loot, and loot arrives through the postponed harvest route, not as
   scenery.
@@ -5694,7 +5694,7 @@ been decorative outside tests since it shipped, because nothing could produce a 
 **D2.2 is COMPLETE** (2026-07-31, v0.113.0). Three PRs — #354 `f9ad49b` (two pools + the account
 curve), #356 `3af0b92` (the duplicate guest pool retired) and #357 `f69b05d` (the gateway knob).
 Its plan file has been deleted; the as-built lives in
-[`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §1. **The mechanism is now a game**: every door
+[`conventions-and-gotchas.md`](../docs/conventions-and-gotchas.md) §1. **The mechanism is now a game**: every door
 draws from one crackable pool and one uncrackable pool, and four knobs are the entire difficulty
 curve — guest 1.00, npcUser 0.70, gateway 0.40, npcRoot 0.12.
 
@@ -5714,7 +5714,7 @@ Three things it settled that outlive it:
    to within 0.3pp on unrelated seeds.
 
 **D2.3 is COMPLETE** (2026-08-09, v0.114.0). One PR — #358 `bae79f8`. Its plan file has been
-deleted; the as-built lives in [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §1. **A sweep is
+deleted; the as-built lives in [`conventions-and-gotchas.md`](../docs/conventions-and-gotchas.md) §1. **A sweep is
 now the loudest thing a player can do to a box**: the target records one `auth.log` line per
 password *tried*, `Accepted` for the one that matched and nothing after it, and writes nothing at
 all when the sweep never reached the box.
@@ -5736,7 +5736,7 @@ Two things it settled that outlive it:
    `resolveCrossPlayerSourceIp` stays for the cross-player writers. **D2.4 must switch.**
 
 **D2.5 is COMPLETE** (2026-08-09, v0.115.0). One PR — #359 `aa70cfc`. Its plan file has been
-deleted; the as-built lives in [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §1. **`john <file>`
+deleted; the as-built lives in [`conventions-and-gotchas.md`](../docs/conventions-and-gotchas.md) §1. **`john <file>`
 finds exactly what hydra finds and leaves no trace doing it** — same list, same `md5`, but no packet
 at the box the hashes came from. It reads both the file and the shared wordlist from whichever
 machine the player is standing on, and needs no `api/` change, so there is no wire-check either.
@@ -5757,7 +5757,7 @@ that recovery keeps working.
 **hydra's workstation-only gate is LIFTED** (2026-08-09, v0.118.0, #370 `aea2450`). Two slices, and
 their order was the whole design: the wordlist read first, the gate second, so no shipped version
 ever had `cat` showing a list the sweep denied existed. Its plan file is deleted; the as-built lives
-in [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §1. **The loop the owner described now works
+in [`conventions-and-gotchas.md`](../docs/conventions-and-gotchas.md) §1. **The loop the owner described now works
 end to end with no `scp`** — root an NPC box, `apt install hydra` there, sweep the LAN from it.
 
 **A second owner principle arrived with it: an NPC box is one box, and tier is the only lens.**
@@ -5781,7 +5781,7 @@ Three things it settled that outlive it:
 v0.121.0 #375 `f6748da`, v0.122.0 #376 `f160b31`). **hydra now reaches every target `ssh` does**,
 each through the same resolver `ssh` authenticates through, so the two cannot disagree about a
 target or a credential. As-built folded into
-[`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §1; the slice plan is deleted.
+[`conventions-and-gotchas.md`](../docs/conventions-and-gotchas.md) §1; the slice plan is deleted.
 **The pivot works**: an attack launched from a box the player only holds a session on is traced to
 THAT network. `sessions.essid` was already the answer — stamped server-side at hop time and returned
 by `authorizeMachineAccess` — so the slice deleted `caller_not_on_lan` rather than replacing it.
@@ -5831,7 +5831,7 @@ instant `su`, but it retunes the measured `npcRoot` 0.12 knob and makes the win 
 rather than the append. (b) was the recommendation. Placement is unresolved beyond "NPC LAN hosts
 first". Two constraints are locked either way and both are load-bearing: uncrackable-pool or the
 harvest is a no-op, and behind a tier gate or a guest walk-in reads it. Full grounding in
-[`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §1 (D2 block) and §9. Lower
+[`conventions-and-gotchas.md`](../docs/conventions-and-gotchas.md) §1 (D2 block) and §9. Lower
 priority: `AvailabilityRule` is declared
 on ten commands and read by nothing — hydra's declaration is now truthful, but the field is still
 inert. Enforce it or delete it.
@@ -5844,7 +5844,7 @@ timestamp, so the sweep costs the attacker the loudest page in the defender's lo
 11/11 wire-check and, on 2026-08-13, **by the live close-out**: a player built two directories by
 hand, swept, widened the list with `nano`, swept again, and read 84 lines back out of one row.
 Written up as Act 8 in
-[`e2e-shared-network-verification.md`](../v2/docs/e2e-shared-network-verification.md).
+[`e2e-shared-network-verification.md`](../docs/e2e-shared-network-verification.md).
 
 **The row is shipped once #379 merges.** Nothing is outstanding; pick the next slice from the
 phase list rather than from this row.
@@ -5858,7 +5858,7 @@ files, web trees, and later MySQL and Redis data are one design with one shape, 
 version built here would have set the pool shape, per-box volume and variation model that epic
 should own. So the rule is now recorded: **a door slice does not invent its own content system to
 have something to point at.** See
-[`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §9.
+[`conventions-and-gotchas.md`](../docs/conventions-and-gotchas.md) §9.
 
 **What stands in for it as evidence: the player makes the content.** `mkdir`, `touch`, `nano` and
 `rm` all ship in `/bin`, and `curl`/`gobuster` resolve the player's own address to their LIVE tree
@@ -5885,7 +5885,7 @@ door this note originally pointed at).
 
 **D1b (`lynx`) is DONE** — selected 2026-08-13 as the fast-follow, planned as seven slices and
 delivered in six (v0.125.0 → v0.129.0), with the live browser run recorded as Act 9 of
-[`e2e-shared-network-verification.md`](../v2/docs/e2e-shared-network-verification.md).
+[`e2e-shared-network-verification.md`](../docs/e2e-shared-network-verification.md).
 
 Slice 1 (v0.125.0, #381) stopped generated pages advertising doors that do not exist, which had to
 happen before the browser existed rather than after — `curl` makes a dead link a shrug, a browser
@@ -5910,8 +5910,8 @@ when the content epic lands, with no change to `lynx`.
 
 **D1d (`gobuster` across networks) is DONE** — v0.130.0, one slice, merged as the plan called it.
 Its plan file is deleted, as closed-out plans are; the as-built lives in
-[`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §1 and the live journey is
-Act 10 of [`e2e-shared-network-verification.md`](../v2/docs/e2e-shared-network-verification.md).
+[`conventions-and-gotchas.md`](../docs/conventions-and-gotchas.md) §1 and the live journey is
+Act 10 of [`e2e-shared-network-verification.md`](../docs/e2e-shared-network-verification.md).
 **The web door's cross-player parity is now complete**: `curl` reached across from D1, `lynx` from
 D1b slice 7, and the sweep was the last tool that refused a stranger.
 
@@ -5939,7 +5939,7 @@ cross-player traces cannot follow a pivot. Their slice, alongside the one `ssh` 
 client shows that log as EMPTY until something else syncs its journal — proven still pre-existing
 by control, since a `curl` through the same forward is equally invisible. That was decided
 2026-07-31 (no Supabase Realtime; the staleness accepted, a PULL as the approved fix shape if ever
-taken) and is recorded in [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §9,
+taken) and is recorded in [`conventions-and-gotchas.md`](../docs/conventions-and-gotchas.md) §9,
 which D1d re-confirmed rather than discovered. Read the row from the DB when a log looks empty.
 
 **D3 ✅ SHIPPED AND CLOSED OUT** (2026-08-15, v0.131.0 → v0.136.0, #393–#398) — six slices, plan
@@ -6016,10 +6016,10 @@ command, async progress + cancellation, and where a *silent* transfer's trace la
 
 **✅ D4 — daemon control. COMPLETE 2026-08-16 (#407-#410, v0.142.0).** Four slices; the plan
 file is deleted and its as-built lives in
-[`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §7 (the daemon descriptor,
+[`conventions-and-gotchas.md`](../docs/conventions-and-gotchas.md) §7 (the daemon descriptor,
 the single "what is running here" policy, `systemctl`'s unit-vs-program rule, the `env.fs`
 snapshot) and §9 (the one defect left open), with the browser run in
-[`e2e-shared-network-verification.md`](../v2/docs/e2e-shared-network-verification.md) Act 13.
+[`e2e-shared-network-verification.md`](../docs/e2e-shared-network-verification.md) Act 13.
 
 A defender can now close a port and have it stay closed — to their own scan, a neighbour's, a
 stranger's across the network, and across a reboot — and see what their box is running.
@@ -6051,9 +6051,9 @@ projected at the tier the credential bought. Found by the Act 13 browser run; re
 
 **✅ D5 — `nc` connect + the `nc -l` backdoor. COMPLETE 2026-08-18 (#415-#423, v0.151.0).**
 Nine slices; the plan file is deleted and its as-built lives in
-[`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §7 (the `/var/run` union,
+[`conventions-and-gotchas.md`](../docs/conventions-and-gotchas.md) §7 (the `/var/run` union,
 the derived PID, units-vs-processes, the no-TTY shell and pull eviction) and §9, with the browser
-runs in [`e2e-shared-network-verification.md`](../v2/docs/e2e-shared-network-verification.md)
+runs in [`e2e-shared-network-verification.md`](../docs/e2e-shared-network-verification.md)
 Acts 14 and 15.
 
 **A player can now leave something behind, and a defender can find it and take it away.** Plant a
@@ -6103,7 +6103,7 @@ first, and the words are not `kill`'s to choose). The own-LAN journal-replay gap
 ### D5b — what shipped, and what it deliberately did not do (closed 2026-08-19, v0.157.0)
 
 Five slices, `#428`–`#432`, v0.153.0 – v0.157.0. The plan file is gone; the durable part lives in
-[`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §7. A generated LAN reads as a
+[`conventions-and-gotchas.md`](../docs/conventions-and-gotchas.md) §7. A generated LAN reads as a
 population end to end: `nmap` returns `cam-31` and `db-11` rather than `iphone-40`, a webserver-named
 box answers `:80` at 0.95 where a camera offers `:22` at 0.1, a box you stand on keeps an `/etc`
 config a **guest** can read, the page it serves fits it, and the account `hydra` hands back belongs
@@ -6709,7 +6709,7 @@ while a public-IP scan is server-resolved. **Nothing in slice 4 caused it and no
 regressed** — the own box reads correctly, the server refuses correctly, and this slice is simply
 the first thing that could move a neighbour's version. It was fixed as its own two-PR slice under
 decisions 40-43 — **✅ SHIPPED v0.216.0–v0.217.0 (#500, #501)**, as-built above — with the runbook
-acts as [Act 16 and Act 17](../v2/docs/e2e-shared-network-verification.md).
+acts as [Act 16 and Act 17](../docs/e2e-shared-network-verification.md).
 
 The honest reading of 4b's *"after the upgrade, `nmap -sV` reports the new version with no CVE"*:
 **true** for the player's own box and for the server's own recomputation, **false** for a client-side
@@ -6982,7 +6982,7 @@ rather than legacy's builtins, so `rm /bin/whoami` takes the tool away and putti
 restores it. The stored palette is applied in an explicit boot step before `render`, and the
 browser's own first-paint timing proves there is no frame of amber on the way to it. The per-slice plan file carrying its RED
 table, mutation triage and recorded gap was retired at D10 close-out, as D3-D9 each were; the
-durable rules it produced live in [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md).
+durable rules it produced live in [`conventions-and-gotchas.md`](../docs/conventions-and-gotchas.md).
 
 All five slices have now shipped, and with them **Phase 1 is complete**: every door — web,
 hydra, ftp, scp, daemons, nc, machine kinds, mysql, redis, snmp, node and the terminal itself.
@@ -7001,7 +7001,7 @@ unpainted tokens (`link`, `avatarBorder`) arrived with the card and a third was 
 slice also paid off the two-tabs-one-session-stack hazard named in the grounding, because `xterm`
 is the command that makes anyone hit it. Its plan and close-out were retired with the D10 plan file; the
 `env.ui.*` verdict it settled is in
-[`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §7.
+[`conventions-and-gotchas.md`](../docs/conventions-and-gotchas.md) §7.
 
 **D10 slice 3 SHIPPED at v0.203.0 (`ed71cee1`, PR #484)** — the box answers questions. `find`
 searches a tree by glob and `strings` reads the text inside something that is not text, and both
@@ -7016,7 +7016,7 @@ one finding that changed the scope — **`strings /bin/ls` printed nothing on ev
 stub's longest printable run being `ELF` against a four-character minimum — so decision 2 is amended
 above and the stub now carries a real ELF's readable tail. Its plan and close-out were retired with the D10 plan file; the
 `perTest` false-survivor rule it opened, now carrying three citations, is in
-[`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §4.
+[`conventions-and-gotchas.md`](../docs/conventions-and-gotchas.md) §4.
 
 **D10 slice 4 SHIPPED at v0.204.0 (`190e7e05`, PR #485)** — permissions change hands. `chmod`
 makes a permission something players hand back and forth: symbolic modes over the three tiers, `u`
@@ -7060,7 +7060,7 @@ Two findings worth carrying. The mutation run measured that **`Command.availabil
 by command NAME and the install hint comes from the apt catalog. And a journal query during the
 close-out found the plaintext original still sitting beside the ciphertext, which is correct by
 decision but was not something the manual said; it says it now. Both are folded into
-[`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §4/§5/§7, along with the third
+[`conventions-and-gotchas.md`](../docs/conventions-and-gotchas.md) §4/§5/§7, along with the third
 `perTest` false survivor in three slices, the golden-vector rule for any ported codec, and the fact
 that two players never share a WiFi neighbourhood.
 
@@ -7077,14 +7077,14 @@ while keeping everything it had already printed.
 **The wire-check was `N/A` across all five slices**, as the grill predicted — no `api/` change
 anywhere in the door. Seventeen locked decisions in total (eleven at the grill, six more at
 slice 4). The plan file is deleted; the as-built lives in
-[`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §2 (the camelCase
+[`conventions-and-gotchas.md`](../docs/conventions-and-gotchas.md) §2 (the camelCase
 identifier rule, now shipped fact), §4 (two sandbox/stub testing traps), §7 (the scripting
 host's invariants — injection order, the interrupt rule, the guards) and §9 (the silent
 interrupted redirect).
 **D9 ✅ COMPLETE — v0.196.0–v0.200.0 (#475–#478, #480), closed out 2026-09-01.** Eleven locked
 decisions at the grill in ["D9 — resolved scope & decisions"](#d9--resolved-scope--decisions-grill-me-2026-09-01)
 plus six more at slice 4; the plan file is deleted and the durable rules live in
-[`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §2, §4, §7 and §9. The door in
+[`conventions-and-gotchas.md`](../docs/conventions-and-gotchas.md) §2, §4, §7 and §9. The door in
 full: `apt install node`, then a script the player writes in `nano` on the box drives that box's
 whole toolset — every command a camelCase async function returning the stdout it would have printed,
 carrying `.exitCode`; flags as a trailing object with the dashed keys already typed; refusals in the
@@ -7547,8 +7547,8 @@ RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR; present before starting the next. Any `a
 needs a `scripts/test*.ts` wire-check against `vercel dev` + supabase (`tsc` cannot see DB
 columns or constraints).
 
-**Foundations to read first**: [`cross-player-architecture.md`](../v2/docs/cross-player-architecture.md)
+**Foundations to read first**: [`cross-player-architecture.md`](../docs/cross-player-architecture.md)
 (§3 reachability/login, §4 authorization, §5 read filter, §8 traces) and
-[`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §1/§7.
+[`conventions-and-gotchas.md`](../docs/conventions-and-gotchas.md) §1/§7.
 Legacy references: `src/commands/README.md`, `src/network/README.md`,
 `src/themedNetworks/README.md`.

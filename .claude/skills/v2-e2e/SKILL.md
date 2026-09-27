@@ -25,7 +25,7 @@ is faster and more precise.
    Get-NetTCPConnection -LocalPort 3100,3101 -State Listen -ErrorAction SilentlyContinue |
      ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }
    ```
-2. **Start the server** as a background task, from `v2/`, with **no inner `&`** (an inner `&`
+2. **Start the server** as a background task, with **no inner `&`** (an inner `&`
    detaches it, the wrapper exits, and an old-code server may keep serving):
    `npm run vercel:dev`
 3. **Confirm it is serving the API**, not just vite. An empty POST must return **400** (not
@@ -37,12 +37,9 @@ is faster and more precise.
 4. **Confirm it is YOUR code.** The ASCII banner prints the version from `package.json`. Check it
    matches the version you just bumped — this is the cheapest guard against testing a stale
    orphaned server.
-5. **Local supabase must be up** — `npx supabase status`, **run from `v2/`**. From the repo
-   root it looks for a container named `supabase_db_jshack.me` and dies with
-   `failed to inspect container health: No such container`, which reads like supabase is down
-   when it is running fine one directory along. If you need a clean world,
-   `npx supabase db reset` — local only, safe: there is no linked project ref and
-   `SUPABASE_URL` is `127.0.0.1`.
+5. **Local supabase must be up** — `npx supabase status`. If you need a clean world,
+   `npx supabase db reset` — without `--linked` it resets only the local stack, and
+   `SUPABASE_URL` in `.env.development.local` is `127.0.0.1`.
 
 **Never run Stryker while the dev server is up** — it reports false survivors and reloads the
 app mid-run, resetting any `su` elevation.
@@ -385,7 +382,7 @@ i.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, which:
 ## 6. Deriving seeded secrets and querying the DB
 
 The game does not surface another player's secrets, and gateway credentials seed from the ESSID.
-Compute them with a **temp file inside `v2/`** — `./src/...` imports only resolve from there, and
+Compute them with a **temp file inside the repo** — `./src/...` imports only resolve from there, and
 a `/tmp` path will not work:
 
 ```bash
@@ -532,7 +529,7 @@ time.
 
 **A bricked gateway, a multi-occupant same-LAN encounter, the web surface, the path sweep and
 the text browser are now written up** — as full journeys rather than recipes — in
-[`v2/docs/e2e-shared-network-verification.md`](../../../v2/docs/e2e-shared-network-verification.md),
+[`docs/e2e-shared-network-verification.md`](../../../docs/e2e-shared-network-verification.md),
 which also carries the two-player mechanics, the ESSID-discovery constraint, and a known
 client defect worth not misreading as a test failure. Read it before driving any
 cross-player scenario. Still unwritten: a deep-chain pivot.

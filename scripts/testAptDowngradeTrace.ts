@@ -24,7 +24,7 @@
 //   - An unowned generated host keeps the CALLER's own row and the address they
 //     reported — the opposite of every branch above, so the rule is proved both ways.
 //
-// Usage (from v2/, with supabase + vercel dev running):
+// Usage (with supabase + vercel dev running):
 //   npx dotenv -e .env.development.local -- npx tsx scripts/testAptDowngradeTrace.ts
 //
 // Exits 0 when all checks pass, 1 on failure, 2 on missing env / no usable host.

@@ -48,7 +48,7 @@ reopen them by accident.
 | Decision | Consequence for missions |
 | --- | --- |
 | The ship gate is every door, hydra, discovery and the CVE system, **minus missions**. Missions are a post-ship epic | Missions build on shipped infrastructure: doors, daemons, the patch journal, cross-player reach, CVEs |
-| Generated world content exists for **believability, never loot**. No generated text pairs an in-game account with a working secret ([world-content-architecture.md](../../v2/docs/world-content-architecture.md), rule 1) | Harvestable credentials and other loot are a missions concern. When they arrive they come through missions, not as scenery |
+| Generated world content exists for **believability, never loot**. No generated text pairs an in-game account with a working secret ([world-content-architecture.md](../world-content-architecture.md), rule 1) | Harvestable credentials and other loot are a missions concern. When they arrive they come through missions, not as scenery |
 | Legacy's `snmpd.conf` credential leak was refused, and an RW-community-gated SNMP OID on infrastructure was named as the vehicle for harvestable loot | A ready-made delivery route for mission loot |
 | The generated MySQL database is about its own box. Legacy's mission code in `pools/database.ts` (the exfiltrate placement, tamper/fix scenarios, sabotage tables) was deliberately not ported | The `db_*` objectives need their scenarios re-added as a mission layer on top of v2's database |
 | Legacy's four script pools (`scriptFix`, `scriptAuto`, `malware`, `forensics`) and the `_system` hook were classed as mission code and not ported. v2's `node` has its own sandbox | A script objective needs its own verification hook designed against v2's `node` |

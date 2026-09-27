@@ -1,4 +1,4 @@
-# v2 docs — as-built reference
+# jshack.me docs — as-built reference
 
 Durable, versioned documentation for the **shipped** v2 system. These docs describe how
 v2 actually works _today_ (architecture, invariants, gotchas), so the knowledge survives
@@ -8,8 +8,8 @@ plan deletion and isn't trapped in anyone's local notes.
 
 | Home                         | Holds                                                                                       | Lifetime                         |
 | ---------------------------- | ------------------------------------------------------------------------------------------- | -------------------------------- |
-| **`v2/docs/*.md`** (here)    | **As-built** architecture, invariants, and operational gotchas for the shipped system       | Versioned with the code; durable |
-| `v2/docs/rewrite-blueprint/` | **Design intent** — the forward-looking blueprint written while planning the rewrite        | Historical reference; may drift  |
+| **`docs/*.md`** (here)       | **As-built** architecture, invariants, and operational gotchas for the shipped system       | Versioned with the code; durable |
+| `docs/legacy/rewrite-blueprint/` | **Design intent** — the blueprint written while planning the rewrite, a snapshot of legacy | Historical reference; frozen |
 | `docs/mission-ideas/`        | **Legacy mission design + scenario catalog** — input to the missions rebuild                | Reference until missions ship    |
 | `docs/legacy/`               | **The retired React app's design docs**; its source is at git tag `legacy-final`            | Historical reference; frozen     |
 | `plans/`                     | PR-sized implementation plans + epic story-splits (the `planning`/`story-splitting` skills) | **Deleted on completion**        |
@@ -17,7 +17,7 @@ plan deletion and isn't trapped in anyone's local notes.
 
 **Rule of thumb:** if a fact must survive the next plan deletion, be shared with the team,
 or be referenced from a code comment, it belongs here — not in `plans/` and not in memory.
-(Code comments may reference in-repo docs — `v2/docs/`, `docs/` — but must NOT reference
+(Code comments may reference in-repo docs under `docs/` — but must NOT reference
 `plans/` or memory files, which are transient or author-local.)
 
 These docs describe behaviour and invariants, not line-by-line code — read them with the
@@ -38,11 +38,11 @@ disagree, the code wins; fix the doc.
   machine holds and the standing rules for adding to it: personas, true references, frozen
   history in `.1` rotations, one stream per concern, version-free content, and the budgets
   (the generated world content epic, shipped).
-- [rewrite-blueprint/](./rewrite-blueprint/) — the design-intent blueprint for the rewrite
+- [legacy/rewrite-blueprint/](./legacy/rewrite-blueprint/README.md) — the design-intent blueprint for the rewrite
   (sections 01–07 + `core-contracts.md` + `decisions.md`). Split-by-section is the single
   source of truth; the old monolithic `rewrite-blueprint.md` was dropped (it had drifted
-  stale). Start at [rewrite-blueprint/README.md](./rewrite-blueprint/README.md).
-- [../../docs/mission-ideas/](../../docs/mission-ideas/README.md) — how legacy missions worked
+  stale). Start at [legacy/rewrite-blueprint/README.md](./legacy/rewrite-blueprint/README.md).
+- [mission-ideas/](./mission-ideas/README.md) — how legacy missions worked
   and every scenario they shipped, kept as inspiration for the missions rebuild.
-- [../../docs/legacy/](../../docs/legacy/README.md) — the retired React app's design docs and
+- [legacy/](./legacy/README.md) — the retired React app's design docs and
   how to read its source from the `legacy-final` tag.

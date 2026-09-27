@@ -3,7 +3,7 @@
 How one player (B) scans, enters, reads, and modifies another player's (A's) machine.
 This is the core of v2's multiplayer. It covers the shipped model — the whole
 multiplayer/cross-player epic, which is complete. Design intent lives in
-`v2/docs/rewrite-blueprint/sections/05-shared-world-and-cross-player.md`; the epic's plan file
+`docs/legacy/rewrite-blueprint/sections/05-shared-world-and-cross-player.md`; the epic's plan file
 was retired on close-out and what it deliberately deferred is in
 `conventions-and-gotchas.md` §9 under "Cross-player / multiplayer deferred".
 
