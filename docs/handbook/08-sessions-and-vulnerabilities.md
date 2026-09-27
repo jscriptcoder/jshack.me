@@ -189,10 +189,11 @@ The defender's tools are `nmap -sV` (see the vulnerability and severity, never t
 everyone).
 
 > **Time-sensitive: `WORLD_EPOCH` is a development anchor** (currently 2026-07-12). A tripwire test,
-> `src/core/cve/worldClock.test.ts`, fails once the anchor is 90 days old, which is
-> **2026-10-10 UTC**. When it fails, decide: re-stamp the epoch for launch, or move the runway
-> forward deliberately. Moving it re-dates all generated history and every vulnerability; it is free
-> before launch and irreversible after.
+> `src/core/cve/worldClock.test.ts`, fails once the anchor is `RUNWAY_DAYS` (180) days old, which
+> is **2027-01-08 UTC**. When it fails, decide: re-stamp the epoch for launch, or postpone again.
+> To postpone, raise `RUNWAY_DAYS` in the test (it was raised from 90 on 2026-09-27); that leaves
+> the world untouched. Moving the epoch instead re-dates all generated history and restarts every
+> vulnerability timeline at day 0; it is free before launch and irreversible after.
 
 ## findit.io, the in-game search engine
 

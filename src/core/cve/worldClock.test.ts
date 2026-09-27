@@ -52,9 +52,16 @@ describe('game day', () => {
  *
  * When this fails, it is asking a question rather than reporting a fault:
  * launching, or extending the runway?
+ *
+ * The runway was extended once already, from 90 to 180 days, because launch was
+ * not yet in sight when the first deadline came up. Raising this number postpones
+ * the question without touching the world; moving `WORLD_EPOCH` instead would
+ * re-date every generated file and restart every package's CVE timeline at day 0.
  */
+const RUNWAY_DAYS = 180;
+
 describe('the world epoch anchor', () => {
   it('has not gone stale — re-stamp it for launch, or move the runway forward deliberately', () => {
-    expect(gameDayAt(asEpochMs(Date.now()))).toBeLessThan(90);
+    expect(gameDayAt(asEpochMs(Date.now()))).toBeLessThan(RUNWAY_DAYS);
   });
 });

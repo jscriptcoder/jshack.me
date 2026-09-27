@@ -240,7 +240,7 @@ because it is sent to every occupant.
 
 `WORLD_EPOCH` (`cve/worldClock.ts`, currently 2026-07-12 UTC) is the date all generated history ends.
 Rotated `.1` logs are dated the day before it. It also anchors the vulnerability clock (chapter 8). A
-tripwire test fails once it is 90 days stale (**from 2026-10-10**). Re-stamping it re-dates every
+tripwire test fails once it is 180 days stale (**from 2027-01-08**). Re-stamping it re-dates every
 generated file in the world and every vulnerability; it is free before launch and irreversible after.
 
 ## Rules you must not break

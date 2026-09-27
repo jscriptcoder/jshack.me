@@ -13,7 +13,7 @@ v0.278.0 (2026-09-27). When the handbook and the code disagree, the code is righ
    `http://localhost:3100` against a local database and the tests pass.
 3. Skim [**3. Codebase map**](./03-codebase-map.md) and the [glossary](./glossary.md).
 4. Read [**13. Known issues**](./13-known-issues.md). One item is time-sensitive (a test that starts
-   failing on 2026-10-10).
+   failing on 2027-01-08).
 5. Then read the chapter for whatever you are about to change.
 
 ## Chapters
