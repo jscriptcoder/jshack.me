@@ -12,6 +12,10 @@
  * cache introduced for that measured reason; the remedy for a heavy bundle is trimming
  * pools. See `docs/conventions-and-gotchas.md` §3.
  *
+ * The timing budget is calibrated on a developer machine. Vercel's build machine runs the same
+ * code several times slower (3.1 ms per box against 0.85 ms locally), so a Vercel build checks
+ * only the bundle, which weighs the same everywhere, and the timing stays a local gate.
+ *
  * This is a script and not a vitest test because mutation testing runs the whole suite
  * under instrumentation, several times slower, and aborts its dry run on any failure: a
  * wall-clock assertion there would break mutation runs for reasons unrelated to the code
@@ -111,7 +115,12 @@ const checkBuildTime = (): Verdict => {
   };
 };
 
-const verdicts = [checkBundle(), checkBuildTime()];
+// Vercel sets VERCEL=1 during its builds.
+const onVercel = process.env.VERCEL === '1';
+if (onVercel) {
+  console.log('skip build time: timed on developer machines, not on the Vercel build machine');
+}
+const verdicts = onVercel ? [checkBundle()] : [checkBundle(), checkBuildTime()];
 verdicts.forEach((verdict) => {
   console.log(`${verdict.passed ? 'ok  ' : 'FAIL'} ${verdict.line}`);
 });

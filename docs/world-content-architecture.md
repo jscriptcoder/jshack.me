@@ -197,8 +197,9 @@ build budget.
 - **`scripts/checkBudgets.ts`** runs as `postbuild` and fails on either breach: gzipped main chunk
   over **284,975 B** (the 134,975 B pre-epic baseline + 150 KB), or the catalog networks averaging
   over **2 ms per box** through `generatedBaseFsForMachineId`. It is a script, not a vitest test,
-  because Stryker aborts its dry run on any failure. Vercel's build runs it too, so a
-  preview fails on a breach. At close-out: 221,518 B and ~0.86 ms/box. Base trees are NOT
+  because Stryker aborts its dry run on any failure. Vercel's build runs the bundle check
+  only; the timing is a local gate, since Vercel's build machine is several times slower. At
+  close-out: 221,518 B and ~0.86 ms/box. Base trees are NOT
   memoized; add memoization only when the build budget breaks, with the measurement as the reason.
 - **The 8,192-character signed-write cap.** Saving a fetched file is one signed write capped by
   `signedEnvelopeSchema`, so generated files a player can `get` must fit in JSON. Latin-1 noise
