@@ -22,7 +22,7 @@ found a **client defect: a stale shared-file buffer silently deleted another occ
 rules** — ~~fixed at v0.101.0/v0.102.0~~, see §6. Acts 1–3, 5 and 6 were not re-run on that
 tree.
 
-**Load [`.claude/skills/v2-e2e/SKILL.md`](../../.claude/skills/v2-e2e/SKILL.md) before
+**Load [`.claude/skills/v2-e2e/SKILL.md`](../.claude/skills/v2-e2e/SKILL.md) before
 running any `agent-browser` command.** It owns the preflight, the DOM quirks, and the
 base recipes. This document is the item-#5 test plan layered on top of it, and adds the
 two-player mechanics the skill does not yet cover.
@@ -79,7 +79,7 @@ These are the item-#5 acceptance criteria that only a real two-player journey sh
 
 Follow the skill's §1 in full, then two additions specific to this run:
 
-**Confirm the version banner matches `v2/package.json`.** Anything lower is a stale
+**Confirm the version banner matches `package.json`.** Anything lower is a stale
 orphaned server serving older code, and every claim below would be meaningless.
 
 **Start from a clean world.** The shared-AP assertions are about *who is on a network*,
@@ -317,7 +317,7 @@ foreign tree means the hop resolved but the fetch did not.
 Mint a **third** identity C that never joins X — the outsider. Get X's public IP:
 
 ```bash
-# in v2/, see §7 for the temp-file pattern
+# inside the repo, see §7 for the temp-file pattern
 npx dotenv -e .env.development.local -- npx tsx ./q.tmp.ts   # select public_ip from network_public_ips where essid = X
 ```
 
@@ -1179,7 +1179,7 @@ dropped — send one, read the buffer back, then send the next.
 | `network "X" not found` | B's scan does not contain X — re-`airodump-ng` (§4), it re-rolls |
 | Empty foreign tree after a successful `ssh` | the hop resolved but the fetch did not — check `/api/network` in `agent-browser console` |
 | Everything 502s | port squatter — the skill's §1 kill, then restart |
-| Results contradict the code you just read | version banner ≠ `v2/package.json` — stale orphaned server |
+| Results contradict the code you just read | version banner ≠ `package.json` — stale orphaned server |
 | A scan of an own-LAN NPC **or of the `.1` gateway** disagrees with what you just did to it | a regression in `resolveSameLanScan` (siblings closed v0.216.0, the gateway + filters v0.217.0) — run `scripts/testSameLanScan.ts` first; if that passes, the client stopped routing to it (`nmap.ts`'s `lanHostResolver`) |
 | A filtered port still shows on a LAN scan | the handler stopped reading through `scanResult` at the `sameLAN` vantage and went back to the pidfiles — `portsOpenToNetwork` is what subtracts a `deny` |
 | A NAT forward shows up on a scan of `.1` | the `sameLAN` vantage broke. Note the `resolveTargetPorts: () => []` stub ALSO prevents this, so seeing a forward means both guards went at once — read `scanResult` itself |
@@ -1295,7 +1295,7 @@ fix is not a drop-in.
 
 ## 7. Deriving secrets and querying the DB
 
-Per the skill's §6 — **a temp file inside `v2/`**, because `./src/...` imports resolve
+Per the skill's §6 — **a temp file inside the repo**, because `./src/...` imports resolve
 only from there and `npx tsx -e` produces no output in this environment.
 
 ```bash

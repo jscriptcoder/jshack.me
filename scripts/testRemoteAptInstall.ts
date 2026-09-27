@@ -26,7 +26,7 @@
 //
 // Drives the REAL endpoints against a running `vercel dev` + local supabase.
 //
-// Usage (from v2/, with supabase + vercel dev running):
+// Usage (with supabase + vercel dev running):
 //   npx dotenv -e .env.development.local -- npx tsx scripts/testRemoteAptInstall.ts
 //
 // Exits 0 when all checks pass, 1 on failure, 2 on missing env.

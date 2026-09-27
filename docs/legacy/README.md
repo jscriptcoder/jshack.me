@@ -38,7 +38,7 @@ Every page opens with a banner saying its paths refer to the tag.
 
 ## The fullest record: the rewrite blueprint
 
-[`v2/docs/rewrite-blueprint/`](../../v2/docs/rewrite-blueprint/README.md) is a seven-section snapshot of every legacy feature and design
+[`rewrite-blueprint/`](./rewrite-blueprint/README.md) is a seven-section snapshot of every legacy feature and design
 decision. It was written so v2 could be built without reading the legacy source. Start there for
 anything that is not about missions.
 

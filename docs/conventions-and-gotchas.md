@@ -10,11 +10,11 @@ code wins — fix the doc.
 
 ## 1. Project arc & current status
 
-**We are rewriting the game from scratch in Solid.js under `/v2`; the legacy React app at
-the repo root is FROZEN.** Why: legacy was single-player-first React with multiplayer
+**The game was rewritten from scratch in Solid.js (v2), which now IS the repo; the legacy React
+app was removed (source at git tag `legacy-final`, docs in [`legacy/`](./legacy/README.md)).** Why: legacy was single-player-first React with multiplayer
 retrofitted (repeated deep scars) + pervasive React stale-closure bugs. The rewrite is
 **multiplayer-first / server-authoritative**, Solid signals, with a **framework-agnostic
-`core/`**. Design intent: [`rewrite-blueprint/`](./rewrite-blueprint/).
+`core/`**. Design intent: [`legacy/rewrite-blueprint/`](./legacy/rewrite-blueprint/README.md).
 
 Shipped so far (each milestone is in git history + its as-built doc/plan):
 
@@ -592,7 +592,7 @@ deferred". Ship waited for it. X2 (`findit.io`) was un-deferred ahead of it and 
 #562), so **next is the ship gate** (see the legacy-parity epic's "Where we are now").
 
 To pick up the next work: the ship gate has no slice plan yet, so start from
-[`plans/legacy-parity-epic.md`](../../plans/legacy-parity-epic.md) — its **"Where we are now"**
+[`plans/legacy-parity-epic.md`](../plans/legacy-parity-epic.md) — its **"Where we are now"**
 line near the top, then the Phase 3 tree and the slice table for per-slice status. A slice gets
 its own `plans/*.md` only while it is IN FLIGHT, with a top block carrying live status + as-built; it is retired into the epic on close-out, so
 between slices there is no slice plan and that is expected. Then the cross-player
@@ -635,9 +635,9 @@ architecture doc if the work touches cross-player paths.
   deleted — state the WHY directly. When editing, clean only the refs in *your* change.
 - **Don't reference `plans/` or memory files from committed code.** Plans are deleted on
   completion; memory is author-local. Inline the WHY in comments; for longer-form context
-  that must survive, link an in-repo `v2/docs/` doc (those code-comment links are allowed).
-- **Bump the version on feature changes**, in BOTH `v2/package.json` and
-  `v2/package-lock.json` (the latter via `npm install --package-lock-only`). The ASCII
+  that must survive, link an in-repo `docs/` doc (those code-comment links are allowed).
+- **Bump the version on feature changes**, in BOTH `package.json` and
+  `package-lock.json` (the latter via `npm install --package-lock-only`). The ASCII
   banner reads the version from `package.json` via Vite's `define`.
 - **Command `flags` keys are dashed** — `'-p'`, never bare `p`. Hand-built flag-Map tests
   bypass `bindFlags` and hide the drift.
@@ -677,20 +677,17 @@ architecture doc if the work touches cross-player paths.
 
 ## 3. Build / test / type gates
 
-- **Type gate = `npm run typecheck` (= `tsc -b`)**, run from `v2/`. It covers `src/`,
+- **Type gate = `npm run typecheck` (= `tsc -b`)**. It covers `src/`,
   `api/`, AND `scripts/`. A plain `tsc --noEmit` is a NO-OP (root tsconfig has `files: []`)
   — do not use it.
 - **`api/*.ts` Vercel functions are NOT typechecked locally and ESLint doesn't flag broken
   imports there.** Only `vercel dev` / deploy catches their type errors, and DB-column /
   constraint correctness needs a **wire-check** (§6). Keep `api/` handlers thin; push logic
   into the typechecked `src/core/`.
-- **Format/lint gate = `npm run lint`** (ESLint). **v2 has NO Prettier** — `npm run format`
-  only exists at the legacy root and errors inside `v2/`.
-- **World budget gate = `npm run build`'s `postbuild` (`scripts/checkBudgets.ts`)**, run from
-  `v2/`. **Only a local build enforces it.** The Vercel project builds the repo ROOT, which is the
-  frozen legacy app, so no deploy or preview ever runs v2's `postbuild`, and a green Vercel check
-  on a PR says nothing about this gate. Run `npm run build` before opening any PR that grows
-  content. It fails the build when either cost of the generated world outgrows its ceiling:
+- **Format/lint gate = `npm run lint`** (ESLint).
+- **World budget gate = `npm run build`'s `postbuild` (`scripts/checkBudgets.ts`).** Vercel runs
+  `npm run build`, so a deploy or preview fails when a budget is blown; still run it locally
+  before opening any PR that grows content, rather than finding out from the preview. It fails the build when either cost of the generated world outgrows its ceiling:
   - **the gzipped main chunk exceeds 284,975 B**. That is the 134,975 B it weighed before world
     content, plus the 150 KB that content may add. The remedy is to trim pools; the allowance is
     fixed, not a number to raise.
@@ -733,14 +730,6 @@ architecture doc if the work touches cross-player paths.
   one to pass for the wrong reason.** Mutation testing is what catches it — a guard that
   survives deletion usually means the path was never reached. Before trusting such a test,
   prove the setup reaches the code by asserting the matching PRESENCE with the same inputs.
-- **Every gate runs from `v2/`, and parallel tool calls share ONE shell.** Two Bash calls issued
-  together run in the same working directory, so a `cd ..` in one leaks into the other — and the
-  gates then run the FROZEN root app's suite instead of v2's. It fails, and it reads exactly like
-  your own change breaking things. **The tell is the counts**: v2 is ~198 files / ~4200 tests, the
-  root app ~651 files / ~12290. `npm run typecheck` also simply does not exist at the root. Prefer
-  an absolute `cd` at the start of each gate call over relying on where the shell happens to be.
-  Same family as the `v2/node_modules/.bin` fallback below: from the wrong directory, the failure
-  looks like your code and is not.
 
 ---
 
@@ -1465,14 +1454,15 @@ down **between the edit and the restore**. Hit at D10 slice 2: it left `author.t
 ### Porting a renderer: capture the oracle, do not retype it
 
 When a v2 module claims to reproduce legacy output "verbatim" — an ASCII table, a log line, a banner
-— **capture the expected blocks by running legacy's own code over the same fixture**, then delete the
-temp harness from the frozen tree. A throwaway `src/**/__oracle.test.ts` at the repo root that writes
-its output to a file is enough (vitest swallows `console.log` there; use `writeFileSync`).
+— **capture the expected blocks by running legacy's own code over the same fixture**. Legacy lives
+at git tag `legacy-final`: extract it to a scratch directory outside the repo
+(`git archive legacy-final | tar -x -C <dir>`), `npm ci` there, and add a throwaway
+`src/**/__oracle.test.ts` that writes its output to a file (vitest swallows `console.log`; use
+`writeFileSync`).
 
 **Why:** hand-typed goldens make "ports verbatim" an assertion about arithmetic you did in your head.
 Captured ones make it a measurement. When the two agree it costs five minutes; when they disagree you
-have just found the bug before writing it. Verify the frozen tree is clean afterwards — the legacy app
-is FROZEN and a stray test file in it is a real change.
+have just found the bug before writing it.
 
 ### A golden-output fixture must vary in the dimension each rule acts on
 
@@ -1634,21 +1624,6 @@ test's own bug. Applies to any module-level signal a test can leave set.
   the server has stopped answering at all. Hit 2026-08-31. Read a failing wire-check's DETAIL column
   before believing the score, and treat a uniform `not_configured` as an env fault, never a product
   one.
-- **A missing `v2/node_modules/.bin` silently runs the FROZEN ROOT app's binaries, and the game
-  stops mounting.** npm resolves a script's binary by walking UP from the package, and the repo
-  root has its own `node_modules` for the frozen React app. With `v2/node_modules/.bin` absent,
-  `npm run vercel:dev` ran the root's **vite 6.4.2** instead of v2's **8.2.1**. Hit 2026-08-26.
-  The symptom is not a version error: the server serves, `/@vite/client` connects, `errors` and
-  `console` are both empty, and `#root` simply stays empty forever. **The tell is that `fetch()`
-  of a module works from the page while `import()` fails** — crawl the import graph from
-  `/src/main.tsx` and you find `/node_modules/.vite/deps/*.js` returning **504** while every one
-  of our own `/src/**` modules is 200. A cached bundled vite config masks the real crash until
-  you `rm -rf node_modules/.vite`, at which point it fails loudly with rolldown's
-  `Cannot find native binding`. Check with `ls v2/node_modules/.bin`; fix with `npm install` from
-  `v2/` (restores the links, leaves `package-lock.json` alone). **`npx` is NOT affected** — it
-  resolves from local `node_modules` directly, which is why `npx vitest run` correctly reported
-  v4.1.7 while `npm run vercel:dev` was broken, and why the wire-checks stayed green throughout
-  (`/api/*` are Node functions that never touch vite).
 - **A same-arity signature change is INVISIBLE to `tsc`.** Re-keying
   `computeInnerGatewayId(ownerKey, octet)` to `(essid, octet)` still typechecks at every call
   site, because a key and an ESSID are both `string`. The compiler is a reliable sweep only for
@@ -1828,7 +1803,7 @@ beats editing two tracked-adjacent files on faith. The reverse also bites: conta
 from a remapped session **auto-restart on the old ports** while `config.toml` says otherwise, and
 the mismatch reads as a dead stack. `docker ps --format '{{.Names}}\t{{.Ports}}'` shows it at once;
 `supabase stop --project-id jshack-me-v2` then `start` rebinds them to whatever the file now says.
-- Run: `npx dotenv -e .env.development.local -- npx tsx scripts/<name>.ts` (from `v2/`).
+- Run: `npx dotenv -e .env.development.local -- npx tsx scripts/<name>.ts`.
   Exits 0 on all-pass.
 - The script seeds the DB via the service-role client, drives the endpoints, asserts, and
   cleans up. Examples: `testDeepChainReach.ts`, `testDeepSwitchChain.ts`,
@@ -3182,7 +3157,7 @@ blocks the live PvP loop; each was a scoped owner decision, not a gap.
   `vercel dev` + supabase, and they are the ONLY thing that proves `api/` runtime correctness
   (`tsc` cannot see DB columns or constraints). A regression there ships green. (This line used to
   carry a count. It said 43 while the directory held 66, because nothing updates a number in prose
-  — `ls v2/scripts/test*.ts | wc -l` is the answer that cannot go stale.) Raised repeatedly and
+  — `ls scripts/test*.ts | wc -l` is the answer that cannot go stale.) Raised repeatedly and
   deliberately not taken on yet; it needs a CI supabase + a way to boot the functions
   headlessly, which is a piece of work in its own right rather than a config tweak.
 - **Four tools cannot pivot: `ssh`, `nmap`, `curl`, `lynx`.** They carry no `caller_machine_id`,

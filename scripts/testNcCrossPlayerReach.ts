@@ -38,7 +38,7 @@
 // Drives the REAL /api/network + /api/sessions endpoints against a running
 // `vercel dev` + local supabase, seeding join state via service_role.
 //
-// Usage (from v2/, with supabase + vercel dev running):
+// Usage (with supabase + vercel dev running):
 //   npx dotenv -e .env.development.local -- npx tsx scripts/testNcCrossPlayerReach.ts
 //
 // Exits 0 when all checks pass, 1 on failure, 2 on missing env.
