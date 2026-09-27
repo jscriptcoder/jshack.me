@@ -31,7 +31,7 @@ export const SEED_CONFIG: GameConfig = {
 export const homePathFor = (username: string): AbsPath => asAbsPath(`/home/${username}`);
 
 /** The player's own-workstation base filesystem, seeded by their identity
- *  pubkey (decision 1: `createPrng('workstation-' + pubkey)`). */
+ *  pubkey (`createPrng('workstation-' + pubkey)`). */
 export const seedFs = (config: GameConfig, identity: Identity): Directory =>
   buildWorkstationBaseFs(identity.publicKeyHex, config);
 

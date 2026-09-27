@@ -4,7 +4,7 @@
  * The access points a player's `airodump-ng` sees and `aircrack-ng`/`nmcli` act on.
  * Ported + simplified from legacy `network/wifiNetworks.ts` + `bssidFromEssid`.
  *
- * Design (grill-me decision 2): a DISCRIMINATED union on `crackable`, so the
+ * Design: a DISCRIMINATED union on `crackable`, so the
  * password lives on the type system's happy path — only a `crackable: true` AP
  * has a `password`, and TypeScript forbids reading it off a noise AP. No `tier`
  * (home-network density) yet — it ships with the shared-LAN model. The

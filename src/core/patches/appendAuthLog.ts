@@ -79,7 +79,7 @@ const suSwitchSchema = z
   .refine(noStampedKeys);
 
 // A session opened with NO authentication before it — the trace a `--local` shell success
-// leaves (decision 69). It carries only the user the shell landed as; the server formats
+// leaves. It carries only the user the shell landed as; the server formats
 // the ordinary `login` session-opened line, whose whole tell is the password line NOT
 // before it.
 const sessionOpenedSchema = z

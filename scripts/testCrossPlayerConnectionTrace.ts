@@ -7,7 +7,7 @@
 // Net-new under test (the locally-untypechecked api/ runtime):
 //   - B `ssh root@<A.publicIp>` (correct admin pw) → ONE `Accepted password for root
 //     from <B's home public IP>` line lands on A's ROUTER auth.log, keyed by A's
-//     OWNER writer_key (decision 1), naming A's seeded router hostname.
+//     OWNER writer_key, naming A's seeded router hostname.
 //   - A wrong password → `Failed password …` line still lands (sshd logs both); 401.
 //   - The source IP is SERVER-DERIVED from B's verified key (B's home network's public IP),
 //     NOT the client `source_ip` — a forged `source_ip` in the payload is ignored.
@@ -69,7 +69,7 @@ const post = async (
 const AUTH_LOG = '/var/log/auth.log';
 
 /** Read a machine's auth.log row keyed by the OWNER's writer_key — the single
- *  canonical row the system writes its login lines to (decision 1). */
+ *  canonical row the system writes its login lines to. */
 const readAuthLog = async (machineId: string, ownerKey: string): Promise<string> => {
   const { data } = await sr
     .from('patches')

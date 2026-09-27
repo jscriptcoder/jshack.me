@@ -90,7 +90,7 @@ describe('asking the database', () => {
   it('sends the statement with the whole held credential and prints what comes back', async () => {
     // The credential travels with every statement because no session row holds it.
     // A prompt that sent only the statement would be relying on a server-side
-    // session that decision 8 deliberately never created.
+    // session the door deliberately never creates.
     const run = vi.fn<MysqlApi['run']>(async () =>
       answered(['+----+', '| id |', '+----+', '1 row in set (0.00 sec)']),
     );

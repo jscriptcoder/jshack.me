@@ -117,7 +117,7 @@ const authElevateSessionSchema = z
 
 /** Stamp the elevation attempt onto the TARGET workstation's `/var/log/auth.log` via
  *  the shared system-log primitive — on BOTH outcomes (su records successful AND
- *  failed switches). The keystone (decision 1): `writerKey` is the TARGET OWNER's key
+ *  failed switches). The keystone: `writerKey` is the TARGET OWNER's key
  *  — the system owns its logs, so every attacker's line accretes into ONE row instead
  *  of colliding under the last-write-wins fold; the attacker's identity lives in the
  *  line's `by <from>` user (su lines carry no source IP). Best-effort: a logging
@@ -194,7 +194,7 @@ export const handleAuthElevateSession = async (
   // The workstation is resolved, so the attempt CAN be logged — su records both
   // successful and failed elevations. (The 404 host_unreachable above logs nothing —
   // there is no reachable box to log on.) The line is written under the OWNER's key
-  // (decision 1) on the workstation's record, naming the `from` user B switched from.
+  // on the workstation's record, naming the `from` user B switched from.
   await logCrossPlayerSu(deps, data, {
     outcome: passwordOk ? 'success' : 'failure',
     targetUser: payload.username,

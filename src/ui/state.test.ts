@@ -1771,8 +1771,8 @@ describe('the mysql sub-shell', () => {
     await typeLine(state, 'SHOW TABLES');
     await typeLine(state, 'SELECT 1');
 
-    // Decision 8's mechanism, visible: each statement re-sends the whole credential,
-    // and no session row was ever minted to send instead.
+    // The credential-per-statement mechanism, visible: each statement re-sends the whole
+    // credential, and no session row was ever minted to send instead.
     const asked = sent.filter((payload) => payload.action === 'mysqlStatement');
     expect(asked).toHaveLength(2);
     for (const payload of asked) {
@@ -2802,7 +2802,7 @@ describe('the login shell a reboot must not close', () => {
     await settle();
 
     // Ctrl-C once the box has already dropped its sessions — past the point the
-    // animation can un-ring, which is the whole of what decision 57 gave up.
+    // animation can un-ring: an eviction, once committed server-side, cannot be taken back.
     state.setInput('reboot');
     const rebooting = state.runInput();
     await vi.waitFor(() => expect(state.scrollback().some((line) => line.content.includes('Stopping system logging'))).toBe(true));

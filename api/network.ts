@@ -327,7 +327,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Story 6.1: a host-up cross-player scan leaves a kern.log trace on the TARGET
     // router's shared record. readLog/upsertPatch are the same read-modify-write
     // `patches` shapes the ssh/su auth.log appenders use; the line is written under
-    // the OWNER's writer_key (decision 1) so multi-scanner rows don't collide.
+    // the OWNER's writer_key so multi-scanner rows don't collide.
     const readLog = async ({ writer_key, machine_id, path }: MachineLogReadQuery) => {
       const { data, error } = await supabase
         .from('patches')

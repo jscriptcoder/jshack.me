@@ -16,8 +16,8 @@
 //      `userType=user` listener, still lands as `user` — a client cannot name its
 //      own rank. Without this, a backdoor would be a privilege-escalation
 //      primitive on any box anyone ever left one on;
-//   3. nothing is written to the target's `/var/log/auth.log`. Locked decision 6
-//      says a backdoor is silent, and silence is only provable against the real
+//   3. nothing is written to the target's `/var/log/auth.log`. A backdoor is silent
+//      by design, and silence is only provable against the real
 //      journal — a handler that "returns without logging" could still be logged
 //      by a shared helper further down.
 //

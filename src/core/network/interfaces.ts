@@ -7,7 +7,7 @@
  * on, no network), `eth0` is down (no wired LAN in this arc). Getting online
  * means cracking a WiFi AP and associating `wlan0` — see the arc plan.
  *
- * Design (grill-me decision 3): a RICHER union over a flat legacy interface, so
+ * Design: a RICHER union over a flat legacy interface, so
  * each NIC carries exactly the state its commands mutate — `wlan0` alone has
  * `monitorMode` (airmon-ng) and `association` (nmcli). MACs are seeded from the
  * identity so a player's NICs are stable across reloads, like the workstation FS.

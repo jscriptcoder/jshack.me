@@ -7,7 +7,7 @@
 //   - `listPatches` on a box the caller holds nothing on is 403 `no_session` — the
 //     baseline the door has to change.
 //   - An `ftp` row authorizes that same read. The L1 gate looks for an ACTIVE session
-//     and never asks which kind, which is the epic's central claim (the door adds no
+//     and never asks which kind, which is the ftp door's central claim (the door adds no
 //     authorization dimension) — but every unit test fakes `findActiveSession`, so
 //     only a live row against the live query can show that `kind:'ftp'` counts.
 //   - What comes back is the box's REAL state: the journal holds the `vsftpd.log`

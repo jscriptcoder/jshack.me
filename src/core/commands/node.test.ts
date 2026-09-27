@@ -772,7 +772,7 @@ describe("a script's filesystem", () => {
       'node: root-only.txt: Permission denied',
     ]);
     // Caught is handled: a script that answers its own failure is a script that
-    // succeeded, which is what decision 6 means by not shipping an `fs.exists`.
+    // succeeded, which is why the host ships no `fs.exists`.
     expect(result.exitCode).toBe(0);
   });
 

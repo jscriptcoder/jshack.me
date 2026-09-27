@@ -81,7 +81,7 @@ export type SegfaultLogEvent = {
   readonly pid: number;
 };
 
-/** Render a `msfconsole --local` MISS as the crash the kernel records (decision 69):
+/** Render a `msfconsole --local` MISS as the crash the kernel records:
  *  the command links a library but none of them is live, so the program faults, and
  *  what a real box writes is a segfault line — not an "exploit" line, which nothing on
  *  the system knows to write. Modelled on a null-dereference crash (`at 0`, `ip 0`), so

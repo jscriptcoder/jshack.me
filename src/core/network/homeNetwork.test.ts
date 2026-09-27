@@ -3,7 +3,7 @@ import { assignHomeNetwork } from './homeNetwork.js';
 
 /**
  * `assignHomeNetwork` is the local-deterministic stand-in for the future
- * server-authoritative home-network join (grill-me decision 6). Given the
+ * server-authoritative home-network join. Given the
  * player's identity pubkey and the ESSID they connected to, it derives a stable
  * LAN address + hostname. It is the only seam `nmcli` awaits, so its determinism
  * is what makes a reconnect survive a reload (the same identity + ESSID always

@@ -529,8 +529,8 @@ async function* fire(env: CommandEnv, attempt: Attempt): AsyncGenerator<Terminal
 }
 
 /** The recon every `--local` fire streams before it either walks in or names the hole:
- *  the phases, then the vulnerability line naming the library that fell (decision 77 —
- *  there is no port to target, so the library stands in for the service). */
+ *  the phases, then the vulnerability line naming the library that fell (there is no
+ *  port to target, so the library stands in for the service). */
 async function* localPreamble(
   env: CommandEnv,
   command: string,
@@ -544,7 +544,7 @@ async function* localPreamble(
   yield text(`[*] Vulnerability: ${outcome.cve} (${outcome.severity}) in ${outcome.library}.so`);
 }
 
-/** Record the session a shell success opens (decision 69): the ordinary auth.log line an
+/** Record the session a shell success opens: the ordinary auth.log line an
  *  opening session writes, the tell being the password line that is NOT before it. The
  *  client sends only the user; the server stamps the time and formats the line. Best-effort
  *  — a trace the server could not write must never reverse a break-in that already stands. */
@@ -609,7 +609,7 @@ async function* fireLocalShell(
   });
   env.setCwd(homeDirectory({ username: account.username, userType: outcome.tier }));
   // The session now stands, so the box records it opening — the one trace a shell success
-  // leaves (decision 69). Only the entered path records it: a scripted roll reported the
+  // leaves. Only the entered path records it: a scripted roll reported the
   // door above and opened no session, so nothing is written there.
   await appendSessionTrace(env, account.username);
   return 0;
@@ -745,7 +745,7 @@ async function* fireLocalBackdoor(
 }
 
 /** A write roll: plant the bytes of the player's own file at a path on the box, at the
- *  granted tier. The token is `local:remote` (decision 23), both halves on this box for a
+ *  granted tier. The token is `local:remote`, both halves on this box for a
  *  `--local` fire: the local half is the player's file, read at their own shell tier, and
  *  the remote half is where it lands, walked at the granted tier by the same resolver the
  *  box's own shell obeys. Nothing is pushed — a write leaves something behind and stands
@@ -876,13 +876,13 @@ async function* fireLocalScriptExec(
  *  links none or every one's `.so` is gone. `Object.hasOwn`, because `command` is a
  *  player-typed string and `libraryDeps` is a plain object — a command named `constructor`
  *  must not read a prototype member. On a miss this names the library the program faulted
- *  in; when it is undefined the miss crashed nothing and is silent (decision 69). */
+ *  in; when it is undefined the miss crashed nothing and is silent. */
 const faultedLibrary = (env: CommandEnv, command: string) =>
   (Object.hasOwn(libraryDeps, command) ? libraryDeps[command] : []).find((library) =>
     libraryPresent(env, library),
   );
 
-/** Record the crash a miss leaves (decision 69): the command links a loadable library but
+/** Record the crash a miss leaves: the command links a loadable library but
  *  none is live, so the kernel logs a segfault naming both. Best-effort — a trace the server
  *  could not write must never turn a miss into anything else — and the client sends only the
  *  command and the library, the server stamping the time and formatting the line. */
@@ -903,7 +903,7 @@ const appendCrashTrace = async (
   }
 };
 
-/** The absolute path B ran `msfconsole` from, for the server's binary check (decision 71).
+/** The absolute path B ran `msfconsole` from, for the server's binary check.
  *  argv[0] is the token the shell resolved to this binary: a path names itself (resolved
  *  against the cwd), a bare word is found on the box's own search path the way the shell
  *  found it. Falls back to the tool's own name when reached outside the shell (a script) —
@@ -921,8 +921,8 @@ const invocationPath = (env: CommandEnv): string => {
  *  union the network fire renders — rather than rolling the outcome here. The client sends
  *  the box, the command, the path B ran the tool from, and the blind payload; the server
  *  recomputes the CVE from A's own manifest, applies the effect at the tier it grants, and
- *  writes A's traces under A's own key. No password: B's open session is the authorization
- *  (decision 66), resolved server-side from the verified key. */
+ *  writes A's traces under A's own key. No password: B's open session is the
+ *  authorization, resolved server-side from the verified key. */
 async function* fireLocalCrossPlayer(
   env: CommandEnv,
   command: string,
@@ -1011,7 +1011,7 @@ const executeLocal = async (
   if (outcome === undefined) {
     // A miss where the command links a loadable library is a crash the kernel records; a
     // command that links nothing, or whose every linked `.so` is gone, crashed nothing and
-    // stays silent (decision 69).
+    // stays silent.
     const faulted = faultedLibrary(env, command);
     if (faulted !== undefined) await appendCrashTrace(env, command, faulted);
     return errorResult(localMiss(command));

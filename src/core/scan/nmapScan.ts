@@ -162,7 +162,7 @@ const logHostScan = async (
 };
 
 /** Stamp a same-LAN scan onto one fellow occupant's REAL workstation kern.log. The
- *  keystone (decision 1): `writerKey` is the TARGET OWNER's key — the system owns its
+ *  keystone: `writerKey` is the TARGET OWNER's key — the system owns its
  *  logs, so scanners accrete into ONE row; the scanner's identity lives in the line's
  *  source IP. The probed ports are the occupant's REAL open ports, materialized from
  *  their own journal (never fabricated from the scanner's seed). A bricked/dark box, a

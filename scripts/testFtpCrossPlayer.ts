@@ -329,7 +329,7 @@ check(
   afterTake === null ? 'no row' : `writer ${afterTake.writerKey.slice(0, 12)}...; ${afterTake.content.split('\n').length} lines`,
 );
 
-// --- 11/12/13. A drop, gated by the tier the credential bought — the epic's claim, live
+// --- 11/12/13. A drop, gated by the tier the credential bought — the ftp door's claim, live
 //     across the network: an ftp row authorizes a write through the shipped endpoint. ---
 const drop = (path: string) =>
   post(

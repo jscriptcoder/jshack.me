@@ -115,7 +115,7 @@ const finditFs = buildFinditFs();
  *  tier, and its `access.log` is world-readable — reading the prize needs a shell, not a
  *  privilege. (A ROOT-tier hole, which the defacement write would need, is on the world's
  *  schedule and not open at this day, so the defaced state is seeded below rather than
- *  written live — decision 122.) */
+ *  written live.) */
 const door = [SERVICE_CATALOG.http, SERVICE_CATALOG.ssh]
   .flatMap((spec) =>
     packageTimeline(spec.package, today).map((release) => ({
@@ -179,7 +179,7 @@ const writeFrontPage = (content: string) =>
   );
 
 /** The rooted attacker's write, seeded via service_role — the world will produce it once a
- *  root-granting window opens on findit's schedule (decision 122). Attributed to the
+ *  root-granting window opens on findit's schedule. Attributed to the
  *  attacker, the writer a real rooted write would carry, so restore deleting it proves the
  *  delete reaches every writer's rows. */
 const seedDefacement = async (content: string) => {
@@ -295,7 +295,7 @@ const main = async () => {
     searchLine || `no line for ${TERM} in ${log.length} chars of log`,
   );
 
-  // 4. THE FRONT DOOR, DEFACED FOR EVERYONE (seeded — decision 122).
+  // 4. THE FRONT DOOR, DEFACED FOR EVERYONE (seeded).
   await seedDefacement(DEFACED);
   const front = await fetchFindit(searcher, '/');
   check(

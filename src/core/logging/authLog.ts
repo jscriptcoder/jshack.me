@@ -80,7 +80,7 @@ export type SessionOpenedEvent = {
 };
 
 /** Render a `msfconsole --local` SHELL SUCCESS as the ordinary session-opened line
- *  opening such a session writes (decision 69): a PAM `login` session-open naming the
+ *  opening such a session writes: a PAM `login` session-open naming the
  *  user the shell landed as. It is deliberately the plain line real login writes — the
  *  whole tell is what is absent, an `Accepted password` line before it, which every
  *  legitimate session has and this one cannot. No CVE id: unlike the service axis, a
