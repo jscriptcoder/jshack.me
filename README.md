@@ -19,7 +19,7 @@ Live at [jshack.me](https://jshack.me).
 ```
 src/
   core/       pure TypeScript, no framework (shared by client and server)
-  adapters/   glue to IndexedDB, Supabase, BroadcastChannel
+  adapters/   signed fetch clients for api/, and the cross-tab BroadcastChannel
   ui/         Solid components and screens
 api/          Vercel Functions: network, patches, sessions
 scripts/      build helpers and wire-checks
@@ -32,6 +32,7 @@ plans/        live epic and slice plans
 
 ```bash
 npm install
+npm run encode              # generates the git-ignored src/core/secrets/__encoded.ts
 npx supabase start          # local Postgres in Docker
 npm run vercel:dev          # vite + api/ functions on http://localhost:3100
 ```
@@ -47,7 +48,7 @@ npm run typecheck      # tsc -b (src, api and scripts)
 npm run lint           # eslint
 npm run test:run       # vitest, once
 npm run build          # production build, then the world budget check
-npm run test:mutation  # stryker
+npm run test:mutation  # stryker (a whole-suite run does not finish; scope it, see the handbook ch. 11)
 ```
 
 ## Deployment
@@ -58,7 +59,9 @@ Supabase migrations in `supabase/migrations/`.
 
 ## Documentation
 
-Start at [docs/README.md](./docs/README.md). Working conventions and gotchas are in
+New to the project? Start with the [maintainer's handbook](./docs/handbook/README.md): architecture,
+every subsystem, the server and database reference, testing, deployment and known issues. The full
+documentation index is [docs/README.md](./docs/README.md); the long-form conventions and gotchas are in
 [docs/conventions-and-gotchas.md](./docs/conventions-and-gotchas.md).
 
 This codebase is v2, a from-scratch rewrite. The original React app is retired: its design is in

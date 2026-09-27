@@ -8,6 +8,7 @@ plan deletion and isn't trapped in anyone's local notes.
 
 | Home                         | Holds                                                                                       | Lifetime                         |
 | ---------------------------- | ------------------------------------------------------------------------------------------- | -------------------------------- |
+| **`docs/handbook/`**         | **The maintainer's handbook**: the whole system explained for a new engineer, one chapter per subsystem | Versioned with the code; updated in the same PR as the behaviour |
 | **`docs/*.md`** (here)       | **As-built** architecture, invariants, and operational gotchas for the shipped system       | Versioned with the code; durable |
 | `docs/legacy/rewrite-blueprint/` | **Design intent** — the blueprint written while planning the rewrite, a snapshot of legacy | Historical reference; frozen |
 | `docs/mission-ideas/`        | **Legacy mission design + scenario catalog** — input to the missions rebuild                | Reference until missions ship    |
@@ -26,10 +27,14 @@ disagree, the code wins; fix the doc.
 
 ## Index
 
-- [conventions-and-gotchas.md](./conventions-and-gotchas.md) — **start here.** Project arc
-  & current status (5b.4 done @ v0.82.0; next 5b.5), working conventions, build/test/type
-  gates, mutation conventions, operational gotchas (the 3100 squatter etc.), wire-check
-  infra, architecture invariants, git conventions, and the deferred backlog / future ideas.
+- [handbook/](./handbook/README.md) — **start here.** The maintainer's handbook: architecture,
+  every subsystem and its algorithms, the server and database reference, testing, deployment
+  and operations, known issues, and a glossary. Written so an engineer new to the project can
+  maintain it alone.
+- [conventions-and-gotchas.md](./conventions-and-gotchas.md) — the long-form record: project
+  arc, working conventions, build/test/type gates, mutation conventions, operational gotchas
+  (the 3100 squatter etc.), wire-check infra, architecture invariants, git conventions, and
+  the deferred backlog / future ideas (§9). Search it rather than reading it end to end.
 - [cross-player-architecture.md](./cross-player-architecture.md) — how one player scans,
   enters, reads, and modifies another player's machine: the shared patch journal, the
   public-IP registry, L1/L2 authorization, and the server-side read filter (Stories 1–3
@@ -38,6 +43,12 @@ disagree, the code wins; fix the doc.
   machine holds and the standing rules for adding to it: personas, true references, frozen
   history in `.1` rotations, one stream per concern, version-free content, and the budgets
   (the generated world content epic, shipped).
+- [discovery-architecture.md](./discovery-architecture.md) — names and the public web: the
+  in-game DNS, publisher networks, and the findit.io search engine.
+- [vulnerability-architecture.md](./vulnerability-architecture.md) — the vulnerability system:
+  the world clock, package timelines, the three axes, effects, and the defender's loop.
+- [e2e-shared-network-verification.md](./e2e-shared-network-verification.md) — two-player
+  browser journeys against a local stack, and a coverage map.
 - [legacy/rewrite-blueprint/](./legacy/rewrite-blueprint/README.md) — the design-intent blueprint for the rewrite
   (sections 01–07 + `core-contracts.md` + `decisions.md`). Split-by-section is the single
   source of truth; the old monolithic `rewrite-blueprint.md` was dropped (it had drifted
