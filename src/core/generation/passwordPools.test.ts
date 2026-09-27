@@ -3,7 +3,7 @@ import {
   ALL_GENERATED_PASSWORDS,
   CRACKABLE_PASSWORDS,
   UNCRACKABLE_PASSWORDS,
-} from './passwordPools';
+} from './passwordPools.js';
 
 /**
  * The two pools every generated account draws from. Which pool an account draws

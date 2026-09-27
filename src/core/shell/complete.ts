@@ -20,7 +20,7 @@
  * the path behavior unchanged.
  */
 
-import type { Command } from '../commands/types';
+import type { Command } from '../commands/types.js';
 
 export type CompletionKind = 'command' | 'path' | 'flag' | 'keyword';
 

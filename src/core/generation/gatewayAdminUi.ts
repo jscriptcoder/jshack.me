@@ -14,13 +14,13 @@
  * stream, keyed by its machine id.
  */
 
-import type { FileEntry } from '../filesystem/types';
-import type { FirmwareVendor } from '../packages/packageVersions';
-import { file, SERVICE_CONFIG_FILE, WEB_PAGE_FILE } from './baseFs';
-import { createPrng } from './prng';
-import type { GatewaySite } from './gatewayHistory';
-import { lanHostOctet } from './lanTopology';
-import type { DhcpGrant, DhcpService, SwitchPort } from './gatewayNetwork';
+import type { FileEntry } from '../filesystem/types.js';
+import type { FirmwareVendor } from '../packages/packageVersions.js';
+import { file, SERVICE_CONFIG_FILE, WEB_PAGE_FILE } from './baseFs.js';
+import { createPrng } from './prng.js';
+import type { GatewaySite } from './gatewayHistory.js';
+import { lanHostOctet } from './lanTopology.js';
+import type { DhcpGrant, DhcpService, SwitchPort } from './gatewayNetwork.js';
 
 const LOOPBACK = '127.0.0.1';
 

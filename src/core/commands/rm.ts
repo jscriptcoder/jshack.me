@@ -20,8 +20,8 @@
  *     patch journal's `removeNode` drops the whole subtree on replay.
  */
 
-import type { Command, CommandEnv, CommandResult, PatchResult } from './types';
-import { resolveAbsPath, dirname } from '../filesystem/path';
+import type { Command, CommandEnv, CommandResult, PatchResult } from './types.js';
+import { resolveAbsPath, dirname } from '../filesystem/path.js';
 
 const PATCH_ERROR_MESSAGE: Record<Extract<PatchResult, { ok: false }>['error'], string> = {
   no_session: 'Permission denied',

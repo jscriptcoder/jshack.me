@@ -1,13 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
-import { resolveTraceProvenance, type TraceProvenanceDeps } from './traceProvenance';
-import type { ActiveSession, FindActiveSessionResult } from './authorizeMachineAccess';
-import type { OccupantWorkstation } from './remoteWritePermission';
+import { resolveTraceProvenance, type TraceProvenanceDeps } from './traceProvenance.js';
+import type { ActiveSession, FindActiveSessionResult } from './authorizeMachineAccess.js';
+import type { OccupantWorkstation } from './remoteWritePermission.js';
 import type {
   FindHomeNetworkByOwnerKey,
   FindPublicIpByEssid,
-} from '../logging/crossPlayerSourceIp';
-import { computeWorkstationId } from '../identity/workstation';
-import { md5 } from '../generation/md5';
+} from '../logging/crossPlayerSourceIp.js';
+import { computeWorkstationId } from '../identity/workstation.js';
+import { md5 } from '../generation/md5.js';
 
 /**
  * The one rule deciding whose row a cross-player trace lands in, and which address it

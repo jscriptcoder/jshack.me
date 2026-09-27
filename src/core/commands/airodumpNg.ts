@@ -16,9 +16,9 @@
  * Revealing a key is `aircrack-ng`'s job alone.
  */
 
-import type { Command, CommandEnv, CommandResult, TerminalLine } from './types';
-import type { WifiNetwork } from '../network/wifi';
-import { isOwnWorkstation } from '../identity/workstation';
+import type { Command, CommandEnv, CommandResult, TerminalLine } from './types.js';
+import type { WifiNetwork } from '../network/wifi.js';
+import { isOwnWorkstation } from '../identity/workstation.js';
 
 const error = (message: string): CommandResult => ({
   kind: 'sync',

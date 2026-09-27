@@ -19,7 +19,7 @@
  * uses; the UI supplies the real one).
  */
 
-import type { Ipv4 } from './interfaces';
+import type { Ipv4 } from './interfaces.js';
 
 type StorageLike = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
 

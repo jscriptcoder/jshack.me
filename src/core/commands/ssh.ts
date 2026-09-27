@@ -15,15 +15,15 @@
  * session. The client never claims a tier — the userType comes back server-derived.
  */
 
-import { asMachineId } from '../types';
-import { generateHomeLan } from '../generation/generateHomeLan';
-import { isInnerGateway, resolveLanHostIdentity } from '../generation/lanHostIdentity';
-import { isPublicIp } from '../generation/ip';
-import { addressForTarget } from '../network/resolveName';
-import { parsePidfilePort } from '../services/pidfile';
-import type { Command, CommandEnv, CommandResult, Session } from './types';
-import type { Directory } from '../filesystem/types';
-import { homeDirectory } from '../sessions/homeDirectory';
+import { asMachineId } from '../types.js';
+import { generateHomeLan } from '../generation/generateHomeLan.js';
+import { isInnerGateway, resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
+import { isPublicIp } from '../generation/ip.js';
+import { addressForTarget } from '../network/resolveName.js';
+import { parsePidfilePort } from '../services/pidfile.js';
+import type { Command, CommandEnv, CommandResult, Session } from './types.js';
+import type { Directory } from '../filesystem/types.js';
+import { homeDirectory } from '../sessions/homeDirectory.js';
 
 const DEFAULT_PORT = 22;
 const SSHD_PIDFILE = 'sshd.pid';

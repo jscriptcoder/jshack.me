@@ -17,7 +17,7 @@
  * agree on what "bricked" means.
  */
 
-import type { Directory } from '../filesystem/types';
+import type { Directory } from '../filesystem/types.js';
 
 /** A required boot file, in GRUB load order (kernel first, then initrd). */
 export type BootFile = 'vmlinuz' | 'initrd.img';

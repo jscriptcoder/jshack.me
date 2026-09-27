@@ -21,13 +21,13 @@
  * real Linux, so the output is deterministic.
  */
 
-import { resolveAbsPath } from '../filesystem/path';
-import type { FileNode } from '../filesystem/types';
-import type { SystemLibrary } from '../generation/libraries';
-import { stubName } from '../generation/binaries';
-import { resolveBinary } from './availability';
-import { libraryDeps, libraryPresent } from './libraryDeps';
-import type { Command, CommandEnv, CommandResult } from './types';
+import { resolveAbsPath } from '../filesystem/path.js';
+import type { FileNode } from '../filesystem/types.js';
+import type { SystemLibrary } from '../generation/libraries.js';
+import { stubName } from '../generation/binaries.js';
+import { resolveBinary } from './availability.js';
+import { libraryDeps, libraryPresent } from './libraryDeps.js';
+import type { Command, CommandEnv, CommandResult } from './types.js';
 
 const failure = (content: string): CommandResult => ({
   kind: 'sync',

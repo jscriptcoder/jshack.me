@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { resolvePublicTarget } from '../network/resolvePublicTarget';
-import { handleResolvePublicScan } from '../scan/resolvePublicScan';
-import { signRequest } from '../signedRequest/sign';
-import { generateIdentity } from '../identity/identity';
-import { FINDIT_HOSTNAME, FINDIT_NETWORK } from '../generation/findit';
-import { computeApGatewayId } from '../identity/router';
-import { CRACKABLE_PASSWORDS } from '../generation/passwordPools';
-import { md5 } from '../generation/md5';
-import { createFsView } from '../filesystem/fsView';
-import { asAbsPath } from '../types';
+import { resolvePublicTarget } from '../network/resolvePublicTarget.js';
+import { handleResolvePublicScan } from '../scan/resolvePublicScan.js';
+import { signRequest } from '../signedRequest/sign.js';
+import { generateIdentity } from '../identity/identity.js';
+import { FINDIT_HOSTNAME, FINDIT_NETWORK } from '../generation/findit.js';
+import { computeApGatewayId } from '../identity/router.js';
+import { CRACKABLE_PASSWORDS } from '../generation/passwordPools.js';
+import { md5 } from '../generation/md5.js';
+import { createFsView } from '../filesystem/fsView.js';
+import { asAbsPath } from '../types.js';
 
 /**
  * findit is reached the way every public address is reached, so the tools a player

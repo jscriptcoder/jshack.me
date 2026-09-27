@@ -10,7 +10,7 @@
  * making accidental dependencies loud rather than silent.
  */
 
-import { asEpochMs, asMachineId, asNetworkAddress, asPlayerKeyHex } from '../../core/types';
+import { asEpochMs, asMachineId, asNetworkAddress, asPlayerKeyHex } from '../../core/types.js';
 import type {
   CommandEnv,
   HomeNetworkApi,
@@ -34,13 +34,13 @@ import type {
   HydraApi,
   ExploitApi,
   AptApi,
-} from '../../core/commands/types';
-import { basename, dirname } from '../../core/filesystem/path';
-import { canWrite } from '../../core/filesystem/walker';
-import { createFsView } from '../../core/filesystem/fsView';
-import { DEFAULT_THEME_ID } from '../../core/theme/themes';
-import { isOnline, type ConnectivityState } from '../../core/network/interfaces';
-import { buildDirectory } from './filesystem';
+} from '../../core/commands/types.js';
+import { basename, dirname } from '../../core/filesystem/path.js';
+import { canWrite } from '../../core/filesystem/walker.js';
+import { createFsView } from '../../core/filesystem/fsView.js';
+import { DEFAULT_THEME_ID } from '../../core/theme/themes.js';
+import { isOnline, type ConnectivityState } from '../../core/network/interfaces.js';
+import { buildDirectory } from './filesystem.js';
 
 const NOT_IMPLEMENTED =
   (method: string) =>

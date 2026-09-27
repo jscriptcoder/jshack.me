@@ -24,7 +24,7 @@
  * file instead of the terminal.
  */
 
-import type { Token } from './tokenize';
+import type { Token } from './tokenize.js';
 
 type WordToken = Extract<Token, { readonly kind: 'word' }>;
 /** A token that can appear in the pipe-split BODY — everything except the

@@ -24,6 +24,29 @@ export default tseslint.config(
       ],
     },
   },
+  // Vercel runs api/ as plain Node ESM, which resolves a relative import only by
+  // its exact file name — `./x` is ERR_MODULE_NOT_FOUND at runtime, `./x.js` finds
+  // x.ts. vite, vitest, tsx and `vercel dev` all forgive the missing extension, so
+  // nothing but a deploy would notice. One rule for every file keeps the question
+  // of which modules api/ happens to load from ever arising.
+  {
+    files: ['**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        ...[
+          'ImportDeclaration',
+          'ExportNamedDeclaration',
+          'ExportAllDeclaration',
+          'ImportExpression',
+        ].map((node) => ({
+          selector: `${node}[source.value=/^\\.{1,2}\\W(?!.*\\.(?:js|css)$)/]`,
+          message:
+            "Relative imports end in '.js' (it resolves to the .ts file): Vercel runs api/ as plain Node ESM, which does not guess extensions.",
+        })),
+      ],
+    },
+  },
   {
     ...solid,
     files: ['**/*.{ts,tsx}'],

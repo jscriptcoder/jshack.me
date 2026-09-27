@@ -18,18 +18,18 @@
  * land in later slices when a command actually consumes them.
  */
 
-import type { GameConfig } from '../gameConfig/gameConfig';
-import type { Directory } from '../filesystem/types';
-import { createPrng } from './prng';
+import type { GameConfig } from '../gameConfig/gameConfig.js';
+import type { Directory } from '../filesystem/types.js';
+import { createPrng } from './prng.js';
 import {
   createBinaryEntries,
   LOCALHOST_PREINSTALLED_TOOLS,
   SERVICE_CONTROL_TOOLS,
   SYSTEM_DAEMON_NAMES,
   SYSTEM_UTILITY_NAMES,
-} from './binaries';
-import { createLibraryEntries, SYSTEM_LIBRARIES } from './libraries';
-import { withPackageManifest } from '../packages/packageManifest';
+} from './binaries.js';
+import { createLibraryEntries, SYSTEM_LIBRARIES } from './libraries.js';
+import { withPackageManifest } from '../packages/packageManifest.js';
 import {
   bootDir,
   dir,
@@ -43,12 +43,12 @@ import {
   TMP_DIR,
   TRAVERSABLE_DIR,
   WEB_PAGE_FILE,
-} from './baseFs';
-import { md5 } from './md5';
-import { CRACK_CHANCE, drawPassword } from './passwordPools';
-import { ACCESS_LOG_PERMISSIONS } from '../logging/accessLog';
-import { AUTH_LOG_PERMISSIONS } from '../logging/authLog';
-import { KERN_LOG_PERMISSIONS } from '../logging/kernLog';
+} from './baseFs.js';
+import { md5 } from './md5.js';
+import { CRACK_CHANCE, drawPassword } from './passwordPools.js';
+import { ACCESS_LOG_PERMISSIONS } from '../logging/accessLog.js';
+import { AUTH_LOG_PERMISSIONS } from '../logging/authLog.js';
+import { KERN_LOG_PERMISSIONS } from '../logging/kernLog.js';
 
 // --- Player workstation composer ---
 

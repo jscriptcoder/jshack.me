@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { ownDatabase } from './ownDatabase';
-import { buildWorkstationBaseFs } from '../generation/workstationFs';
-import { drawDatabaseCredentials } from '../generation/generateDatabase';
-import { accountIn } from '../sessions/passwdAccount';
-import { asEpochMs } from '../types';
+import { ownDatabase } from './ownDatabase.js';
+import { buildWorkstationBaseFs } from '../generation/workstationFs.js';
+import { drawDatabaseCredentials } from '../generation/generateDatabase.js';
+import { accountIn } from '../sessions/passwdAccount.js';
+import { asEpochMs } from '../types.js';
 
 const BOX = { machineName: 'cracklab', username: 'neo', rootPassword: 'hunter2' };
 

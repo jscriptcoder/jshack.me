@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { parsePipeline } from './pipeline';
-import type { Token } from './tokenize';
+import { parsePipeline } from './pipeline.js';
+import type { Token } from './tokenize.js';
 
 const word = (value: string): Token => ({ kind: 'word', value });
 const pipe: Token = { kind: 'pipe' };

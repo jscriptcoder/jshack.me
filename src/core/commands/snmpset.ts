@@ -23,11 +23,11 @@
  * a working one without walking the device again.
  */
 
-import { connectedWlan0 } from '../network/interfaces';
-import { renderSetEcho, renderSetRefusal } from '../snmp/set';
-import { parseAgentAddress } from '../snmp/agentAddress';
-import { errorLine, text } from './streaming';
-import type { Command, CommandResult } from './types';
+import { connectedWlan0 } from '../network/interfaces.js';
+import { renderSetEcho, renderSetRefusal } from '../snmp/set.js';
+import { parseAgentAddress } from '../snmp/agentAddress.js';
+import { errorLine, text } from './streaming.js';
+import type { Command, CommandResult } from './types.js';
 
 const USAGE = 'usage: snmpset <host>[:<port>] <community> <oid>=<value>';
 

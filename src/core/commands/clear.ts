@@ -10,7 +10,7 @@
  * account for.
  */
 
-import type { Command } from './types';
+import type { Command } from './types.js';
 
 const execute: Command['execute'] = async (env) => {
   env.clearScreen();

@@ -26,24 +26,24 @@
  */
 
 import { z } from 'zod';
-import { verifySignedRequest } from '../signedRequest/verify';
-import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
-import { authorizeMachineAccess, type FindActiveSession } from '../patches/authorizeMachineAccess';
-import { resolveInnerGatewayTarget } from '../network/resolveInnerGatewayTarget';
-import { readOpenPorts } from '../services/pidfile';
-import { serviceByName } from '../services/serviceCatalog';
-import { sweepAccounts, wordlistOn } from '../wordlist/passwordSweep';
-import { WORDLIST_PATH } from '../wordlist/defaultWordlist';
-import type { OwnerPatchRow } from '../network/materializeMachineFs';
+import { verifySignedRequest } from '../signedRequest/verify.js';
+import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
+import { authorizeMachineAccess, type FindActiveSession } from '../patches/authorizeMachineAccess.js';
+import { resolveInnerGatewayTarget } from '../network/resolveInnerGatewayTarget.js';
+import { readOpenPorts } from '../services/pidfile.js';
+import { serviceByName } from '../services/serviceCatalog.js';
+import { sweepAccounts, wordlistOn } from '../wordlist/passwordSweep.js';
+import { WORDLIST_PATH } from '../wordlist/defaultWordlist.js';
+import type { OwnerPatchRow } from '../network/materializeMachineFs.js';
 import {
   appendMachineLog,
   type MachineLogReadQuery,
   type MachineLogReadResult,
-} from '../patches/appendMachineLog';
-import type { ListPathPatchesResult, PatchRow } from '../patches/upsertPatch';
-import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter';
-import type { HandlerResponse } from './hydraCrack';
-import type { NonceStore } from '../signedRequest/nonceStore';
+} from '../patches/appendMachineLog.js';
+import type { ListPathPatchesResult, PatchRow } from '../patches/upsertPatch.js';
+import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
+import type { HandlerResponse } from './hydraCrack.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 export type HydraCrackInnerGatewayDeps = {
   readonly nonceStore: NonceStore;

@@ -12,7 +12,7 @@
  * software version: a version dates a box, and only its package manifest may.
  */
 
-import type { MysqlColumnType, MysqlRow } from '../../mysql/types';
+import type { MysqlColumnType, MysqlRow } from '../../mysql/types.js';
 
 /** How one column's value is drawn for a row. */
 export type Fill =

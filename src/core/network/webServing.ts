@@ -7,9 +7,9 @@
  * findit lists is a page a reader can actually fetch.
  */
 
-import { readOpenPorts } from '../services/pidfile';
-import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import type { Directory } from '../filesystem/types';
+import { readOpenPorts } from '../services/pidfile.js';
+import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
+import type { Directory } from '../filesystem/types.js';
 
 export const servesWebOn = (fs: Directory, port: number): boolean =>
   readOpenPorts(fs).some(

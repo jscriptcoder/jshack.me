@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { hostForMachineId, hostMachineId } from './remoteHostId';
-import { generateHomeLan } from './generateHomeLan';
-import { deriveHostnameSuffix } from '../identity/workstation';
-import type { LanHost } from './generateHomeLan';
+import { hostForMachineId, hostMachineId } from './remoteHostId.js';
+import { generateHomeLan } from './generateHomeLan.js';
+import { deriveHostnameSuffix } from '../identity/workstation.js';
+import type { LanHost } from './generateHomeLan.js';
 
 /**
  * A generated NPC host's `machine_id` is derived from its network COORDINATES

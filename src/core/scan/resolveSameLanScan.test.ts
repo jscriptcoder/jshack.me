@@ -1,13 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
-import { handleResolveSameLanScan, type ResolveSameLanScanDeps } from './resolveSameLanScan';
-import { signRequest } from '../signedRequest/sign';
-import { generateIdentity } from '../identity/identity';
-import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
-import { crackableEssidPool } from '../generation/generateWifi';
-import { buildRemoteHostFs } from '../generation/remoteHostFs';
-import { buildApGatewayBaseFs } from '../generation/routerFs';
-import { machineIdForLanHost } from '../generation/lanHostIdentity';
-import { hostMachineId } from '../generation/remoteHostId';
+import { handleResolveSameLanScan, type ResolveSameLanScanDeps } from './resolveSameLanScan.js';
+import { signRequest } from '../signedRequest/sign.js';
+import { generateIdentity } from '../identity/identity.js';
+import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
+import { crackableEssidPool } from '../generation/generateWifi.js';
+import { buildRemoteHostFs } from '../generation/remoteHostFs.js';
+import { buildApGatewayBaseFs } from '../generation/routerFs.js';
+import { machineIdForLanHost } from '../generation/lanHostIdentity.js';
+import { hostMachineId } from '../generation/remoteHostId.js';
 import {
   readRulesV4,
   withForward,
@@ -16,7 +16,7 @@ import {
   RULES_V4_PATH,
   RULES_V4_PERMISSIONS,
   type ForwardTarget,
-} from '../network/iptablesRules';
+} from '../network/iptablesRules.js';
 import {
   formatListenerContent,
   listenerPidfileName,
@@ -25,8 +25,8 @@ import {
   readRunningProcesses,
   UNKNOWN_SERVICE,
   type OpenPort,
-} from '../services/pidfile';
-import type { ServiceSpec } from '../services/serviceCatalog';
+} from '../services/pidfile.js';
+import type { ServiceSpec } from '../services/serviceCatalog.js';
 import {
   DPKG_STATUS_OWNER,
   DPKG_STATUS_PATH,
@@ -34,12 +34,12 @@ import {
   parseDpkgVersions,
   readDpkgStatus,
   withPackageVersion,
-} from '../packages/dpkgStatus';
-import { upgradeStatusFor } from '../cve/packageTimeline';
-import { displayVersion } from '../packages/packageVersions';
-import { serviceByName } from '../services/serviceCatalog';
-import type { OwnerPatchRow } from '../network/materializeMachineFs';
-import type { NonceStore } from '../signedRequest/nonceStore';
+} from '../packages/dpkgStatus.js';
+import { upgradeStatusFor } from '../cve/packageTimeline.js';
+import { displayVersion } from '../packages/packageVersions.js';
+import { serviceByName } from '../services/serviceCatalog.js';
+import type { OwnerPatchRow } from '../network/materializeMachineFs.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 /**
  * `handleResolveSameLanScan` resolves the player's OWN-LAN `nmap` of an NPC sibling

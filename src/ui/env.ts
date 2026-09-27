@@ -11,7 +11,7 @@
  * would hide missing wiring.
  */
 
-import { asEpochMs, type AbsPath } from '../core/types';
+import { asEpochMs, type AbsPath } from '../core/types.js';
 import type {
   CommandEnv,
   HomeNetworkApi,
@@ -38,17 +38,17 @@ import type {
   RebootApi,
   AptApi,
   TerminalLine,
-} from '../core/commands/types';
-import type { Directory } from '../core/filesystem/types';
-import type { WifiNetwork } from '../core/network/wifi';
-import type { ThemeId } from '../core/theme/themes';
-import { createFsView } from '../core/filesystem/fsView';
+} from '../core/commands/types.js';
+import type { Directory } from '../core/filesystem/types.js';
+import type { WifiNetwork } from '../core/network/wifi.js';
+import type { ThemeId } from '../core/theme/themes.js';
+import { createFsView } from '../core/filesystem/fsView.js';
 import {
   isOnline,
   type ConnectivityState,
   type NetworkInterface,
-} from '../core/network/interfaces';
-import { abortableSleep } from './sleep';
+} from '../core/network/interfaces.js';
+import { abortableSleep } from './sleep.js';
 
 export type BuildCommandEnvArgs = {
   readonly identity: Identity;

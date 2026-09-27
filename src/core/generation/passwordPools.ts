@@ -14,8 +14,8 @@
  * observable across a population of hosts, never against one.
  */
 
-import { secrets } from '../secrets/__encoded';
-import type { Prng } from './prng';
+import { secrets } from '../secrets/__encoded.js';
+import type { Prng } from './prng.js';
 
 /**
  * Passwords the shipped wordlist covers completely. Obvious and guessable by

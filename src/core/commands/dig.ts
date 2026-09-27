@@ -13,15 +13,15 @@
  * instead of fresh noise on every run.
  */
 
-import type { Command, CommandEnv, CommandResult, TerminalLine } from './types';
-import { generateHomeLan } from '../generation/generateHomeLan';
-import { zoneRecordsFor, allowsZoneTransfer, nameServerStandsAt } from '../generation/generateDnsZone';
-import { createPrng } from '../generation/prng';
-import { resolveName, lanZoneName, type ResolvedName } from '../network/resolveName';
-import { connectedWlan0 } from '../network/interfaces';
-import { MONTHS } from '../logging/syslog';
-import type { EpochMs } from '../types';
-import { errorLine, text } from './streaming';
+import type { Command, CommandEnv, CommandResult, TerminalLine } from './types.js';
+import { generateHomeLan } from '../generation/generateHomeLan.js';
+import { zoneRecordsFor, allowsZoneTransfer, nameServerStandsAt } from '../generation/generateDnsZone.js';
+import { createPrng } from '../generation/prng.js';
+import { resolveName, lanZoneName, type ResolvedName } from '../network/resolveName.js';
+import { connectedWlan0 } from '../network/interfaces.js';
+import { MONTHS } from '../logging/syslog.js';
+import type { EpochMs } from '../types.js';
+import { errorLine, text } from './streaming.js';
 
 const error = (message: string): CommandResult => ({
   kind: 'sync',

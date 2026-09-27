@@ -27,10 +27,10 @@
  * onto their workstation — the same line the cross-player reach draws.
  */
 
-import type { Directory } from '../filesystem/types';
-import { readOpenPorts, type OpenPort } from '../services/pidfile';
-import { portsOpenToNetwork } from '../network/portsOpenToNetwork';
-import { parseForwardRules, readRulesV4 } from '../network/iptablesRules';
+import type { Directory } from '../filesystem/types.js';
+import { readOpenPorts, type OpenPort } from '../services/pidfile.js';
+import { portsOpenToNetwork } from '../network/portsOpenToNetwork.js';
+import { parseForwardRules, readRulesV4 } from '../network/iptablesRules.js';
 
 /** Where the scan is performed FROM. `sameLAN` = a host on the router's own LAN
  *  scanning its `.1` interface (own services only); `external` = the public IP

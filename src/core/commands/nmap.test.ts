@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
-import { nmap } from './nmap';
-import { commandRegistry } from './registry';
-import type { CommandEnv, CommandResult, ScanApi } from './types';
+import { nmap } from './nmap.js';
+import { commandRegistry } from './registry.js';
+import type { CommandEnv, CommandResult, ScanApi } from './types.js';
 import {
   mockCommandEnv,
   mockFsViewFromTree,
@@ -10,26 +10,26 @@ import {
   mockNetworkViewFromConnectivity,
   mockScanApi,
   mockSession,
-} from '../../test/factories/commandEnv';
-import { buildDirectory, buildFile } from '../../test/factories/filesystem';
-import { assignHomeNetwork } from '../network/homeNetwork';
-import { withSelfHost } from '../network/mergeLanOccupants';
-import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
-import { buildRemoteHostFs } from '../generation/remoteHostFs';
-import { publisherIp } from '../generation/publisher';
-import { readOpenPorts } from '../services/pidfile';
-import { buildEntry, formatDpkgStatus } from '../packages/dpkgStatus';
-import { bindFlags } from '../shell/bindFlags';
-import { seedApGatewayHostname } from '../generation/gatewayHostname';
-import { baseFsForLanHost, machineIdForLanHost } from '../generation/lanHostIdentity';
-import { generateDeepLayer, seedNetworkDepth } from '../generation/generateDeepLayer';
-import { crackableEssidPool } from '../generation/generateWifi';
-import { computeDeepGatewayId } from '../identity/router';
-import type { Directory } from '../filesystem/types';
-import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces';
-import { asEpochMs, asMachineId, asPlayerKeyHex } from '../types';
-import { WORLD_EPOCH } from '../cve/worldClock';
-import { exploitOutcome } from '../cve/exploitEffect';
+} from '../../test/factories/commandEnv.js';
+import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
+import { assignHomeNetwork } from '../network/homeNetwork.js';
+import { withSelfHost } from '../network/mergeLanOccupants.js';
+import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
+import { buildRemoteHostFs } from '../generation/remoteHostFs.js';
+import { publisherIp } from '../generation/publisher.js';
+import { readOpenPorts } from '../services/pidfile.js';
+import { buildEntry, formatDpkgStatus } from '../packages/dpkgStatus.js';
+import { bindFlags } from '../shell/bindFlags.js';
+import { seedApGatewayHostname } from '../generation/gatewayHostname.js';
+import { baseFsForLanHost, machineIdForLanHost } from '../generation/lanHostIdentity.js';
+import { generateDeepLayer, seedNetworkDepth } from '../generation/generateDeepLayer.js';
+import { crackableEssidPool } from '../generation/generateWifi.js';
+import { computeDeepGatewayId } from '../identity/router.js';
+import type { Directory } from '../filesystem/types.js';
+import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces.js';
+import { asEpochMs, asMachineId, asPlayerKeyHex } from '../types.js';
+import { WORLD_EPOCH } from '../cve/worldClock.js';
+import { exploitOutcome } from '../cve/exploitEffect.js';
 
 /**
  * `nmap <target>` host-discovery (generator epic, Story 2). Online on a home LAN

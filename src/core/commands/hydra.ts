@@ -22,11 +22,11 @@
  * `env.sleep`, so Ctrl-C stops a run rather than letting it finish invisibly.
  */
 
-import type { Command, CommandEnv, CommandResult, TerminalLine } from './types';
-import { connectedWlan0 } from '../network/interfaces';
-import { isPublicIp } from '../generation/ip';
-import { forwardsIntoDeepLayer } from '../generation/lanHostIdentity';
-import { serviceByName } from '../services/serviceCatalog';
+import type { Command, CommandEnv, CommandResult, TerminalLine } from './types.js';
+import { connectedWlan0 } from '../network/interfaces.js';
+import { isPublicIp } from '../generation/ip.js';
+import { forwardsIntoDeepLayer } from '../generation/lanHostIdentity.js';
+import { serviceByName } from '../services/serviceCatalog.js';
 
 const error = (message: string): CommandResult => ({
   kind: 'sync',

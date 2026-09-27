@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
-import { chmod } from './chmod';
-import { buildDirectory, buildFile } from '../../test/factories/filesystem';
-import { mockCommandEnv, mockFsViewFromTree, mockSession } from '../../test/factories/commandEnv';
-import { applyPatches, type Patch } from '../filesystem/applyPatches';
-import { createFsView } from '../filesystem/fsView';
-import { asAbsPath, type UserType } from '../types';
-import type { CommandEnv, PatchApi, TerminalLine } from './types';
-import type { Directory, FilePermissions } from '../filesystem/types';
+import { chmod } from './chmod.js';
+import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
+import { mockCommandEnv, mockFsViewFromTree, mockSession } from '../../test/factories/commandEnv.js';
+import { applyPatches, type Patch } from '../filesystem/applyPatches.js';
+import { createFsView } from '../filesystem/fsView.js';
+import { asAbsPath, type UserType } from '../types.js';
+import type { CommandEnv, PatchApi, TerminalLine } from './types.js';
+import type { Directory, FilePermissions } from '../filesystem/types.js';
 
 const NO_FLAGS = new Map<string, string | true>();
 

@@ -24,11 +24,11 @@
  * the chain without dragging a filesystem generator in behind it.
  */
 
-import { createPrng } from './prng';
-import { ROUTER_HOSTNAMES } from './gatewayHostname';
-import { machineRole } from './machineRole';
-import { HOSTNAME_PREFIXES } from './pools/hostnames';
-import type { LanHost, LanHostKind } from './generateHomeLan';
+import { createPrng } from './prng.js';
+import { ROUTER_HOSTNAMES } from './gatewayHostname.js';
+import { machineRole } from './machineRole.js';
+import { HOSTNAME_PREFIXES } from './pools/hostnames.js';
+import type { LanHost, LanHostKind } from './generateHomeLan.js';
 
 /** The gateway that FRONTS a deep layer — the seed for that layer's `/24`. Its
  *  `machineId` keys the layer (so every gateway in a chain fronts a distinct

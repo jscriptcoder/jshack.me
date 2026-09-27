@@ -205,10 +205,10 @@ value is a string; structured ones are JSON. There is no `TTL`, `TYPE` or `SCAN`
 running `hydra` for minutes. The hashes come out md5; recover the plaintext by matching the pool:
 
 ```ts
-import { drawDatabaseCredentials } from './src/core/generation/generateDatabase';
-import { drawStoreLock } from './src/core/generation/generateRedisStore';
-import { ALL_GENERATED_PASSWORDS } from './src/core/generation/passwordPools';
-import { md5 } from './src/core/generation/md5';
+import { drawDatabaseCredentials } from './src/core/generation/generateDatabase.js';
+import { drawStoreLock } from './src/core/generation/generateRedisStore.js';
+import { ALL_GENERATED_PASSWORDS } from './src/core/generation/passwordPools.js';
+import { md5 } from './src/core/generation/md5.js';
 
 const wanted = drawDatabaseCredentials(`mysql-db-${ESSID}-${IP}`); // and drawStoreLock(`redis-store-${ESSID}-${IP}`)
 for (const candidate of ALL_GENERATED_PASSWORDS) {
@@ -387,9 +387,9 @@ a `/tmp` path will not work:
 
 ```bash
 cat > ./g.tmp.ts << 'EOF'
-import { seedApGatewayAdminPw } from './src/core/generation/routerFs';
-import { seedApGatewayHostname } from './src/core/generation/gatewayHostname';
-import { computeApGatewayId } from './src/core/identity/router';
+import { seedApGatewayAdminPw } from './src/core/generation/routerFs.js';
+import { seedApGatewayHostname } from './src/core/generation/gatewayHostname.js';
+import { computeApGatewayId } from './src/core/identity/router.js';
 console.log('adminpw=' + seedApGatewayAdminPw('SHINRA-5G'));
 EOF
 npx tsx ./g.tmp.ts; rm -f ./g.tmp.ts

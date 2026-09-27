@@ -4,7 +4,7 @@ import {
   deriveHostnameSuffix,
   isOwnWorkstation,
   parseWorkstationId,
-} from './workstation';
+} from './workstation.js';
 
 const PK = 'a'.repeat(64);
 // Pinned vectors for PK (computed from sha256). Anchor the algorithm + slice.

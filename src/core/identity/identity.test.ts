@@ -8,8 +8,8 @@ import {
   sign,
   verify,
   type IdentityStorage,
-} from './identity';
-import { hexToBytes } from './hex';
+} from './identity.js';
+import { hexToBytes } from './hex.js';
 
 const HEX_64 = /^[0-9a-f]{64}$/;
 

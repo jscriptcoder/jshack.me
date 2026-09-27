@@ -16,8 +16,8 @@
  */
 
 import { createSignal, For, onCleanup, onMount } from 'solid-js';
-import type { BootCheck, BootFile } from '../../core/boot/bootFiles';
-import { BOOT_FAILURE } from '../../core/boot/bootMessages';
+import type { BootCheck, BootFile } from '../../core/boot/bootFiles.js';
+import { BOOT_FAILURE } from '../../core/boot/bootMessages.js';
 
 export type BootScreenProps = {
   readonly machineName: string;

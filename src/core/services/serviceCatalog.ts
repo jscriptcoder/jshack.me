@@ -13,19 +13,19 @@
  * CVE/version columns come with the epic that needs them, never speculatively.
  */
 
-import type { AbsPath } from '../types';
-import type { Directory, FilePermissions } from '../filesystem/types';
-import { accountsIn } from '../sessions/passwdAccount';
-import { databaseAccountsIn, databaseNameIn } from '../mysql/datadir';
-import { storeIn } from '../redis/datadir';
-import type { SweepableAccount } from '../wordlist/passwordSweep';
+import type { AbsPath } from '../types.js';
+import type { Directory, FilePermissions } from '../filesystem/types.js';
+import { accountsIn } from '../sessions/passwdAccount.js';
+import { databaseAccountsIn, databaseNameIn } from '../mysql/datadir.js';
+import { storeIn } from '../redis/datadir.js';
+import type { SweepableAccount } from '../wordlist/passwordSweep.js';
 import {
   AUTH_LOG_OWNER,
   AUTH_LOG_PATH,
   AUTH_LOG_PERMISSIONS,
   formatSshdAuthLine,
   type CredentialAttempt,
-} from '../logging/authLog';
+} from '../logging/authLog.js';
 import {
   VSFTPD_LOG_OWNER,
   VSFTPD_LOG_PATH,
@@ -33,14 +33,14 @@ import {
   formatVsftpdConnectLine,
   formatVsftpdExploitLine,
   formatVsftpdLoginLine,
-} from '../logging/vsftpdLog';
+} from '../logging/vsftpdLog.js';
 import {
   MYSQL_LOG_OWNER,
   MYSQL_LOG_PATH,
   MYSQL_LOG_PERMISSIONS,
   formatMysqlAttemptLine,
   formatMysqlExploitLine,
-} from '../logging/mysqlLog';
+} from '../logging/mysqlLog.js';
 import {
   REDIS_LOG_OWNER,
   REDIS_LOG_PATH,
@@ -48,16 +48,16 @@ import {
   formatRedisAttemptLine,
   formatRedisConnectLine,
   formatRedisExploitLine,
-} from '../logging/redisLog';
+} from '../logging/redisLog.js';
 import {
   SNMPD_LOG_OWNER,
   SNMPD_LOG_PATH,
   SNMPD_LOG_PERMISSIONS,
   formatSnmpdArrivalLine,
   formatSnmpdAttemptLine,
-} from '../logging/snmpdLog';
-import { syslogExploitLine, type ExploitEvent } from '../logging/exploitLog';
-import { readRwCommunityHash } from '../snmp/rwCommunity';
+} from '../logging/snmpdLog.js';
+import { syslogExploitLine, type ExploitEvent } from '../logging/exploitLog.js';
+import { readRwCommunityHash } from '../snmp/rwCommunity.js';
 
 /** Where a credential sweep against this service is recorded on the target, and how
  *  each attempt is written there.

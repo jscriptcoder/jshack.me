@@ -25,16 +25,16 @@
  * part of the reward.
  */
 
-import { asAbsPath, type AbsPath } from '../types';
-import type { Ipv4 } from '../network/interfaces';
-import { lanZoneName } from '../network/resolveName';
-import { createPrng } from './prng';
-import { generateDeepLayer, hostsOnLayer } from './generateDeepLayer';
-import { generateHomeLan, type LanHost } from './generateHomeLan';
-import { hostMachineId } from './remoteHostId';
-import { chainLinks } from './lanTopology';
-import type { DrawnRole } from './machineRole';
-import { roleOfHostname } from './pools/hostnames';
+import { asAbsPath, type AbsPath } from '../types.js';
+import type { Ipv4 } from '../network/interfaces.js';
+import { lanZoneName } from '../network/resolveName.js';
+import { createPrng } from './prng.js';
+import { generateDeepLayer, hostsOnLayer } from './generateDeepLayer.js';
+import { generateHomeLan, type LanHost } from './generateHomeLan.js';
+import { hostMachineId } from './remoteHostId.js';
+import { chainLinks } from './lanTopology.js';
+import type { DrawnRole } from './machineRole.js';
+import { roleOfHostname } from './pools/hostnames.js';
 
 /** One name in the zone and the address it answers with. Deliberately NOT a `LanHost`:
  *  a zone knows nothing about what kind of device is behind a name, and deep-layer

@@ -4,19 +4,19 @@ import {
   formatSnmpdState,
   readRwCommunityHash,
   readSnmpdState,
-} from './rwCommunity';
+} from './rwCommunity.js';
 import {
   parseSnmpdConf,
   readSnmpdConf,
   SNMPD_CONF_PERMISSIONS,
   SNMPD_CONF_SEED,
-} from './conf';
-import { communityTier } from '../sessions/snmpAgent';
-import { md5 } from '../generation/md5';
-import { applyPatches } from '../filesystem/applyPatches';
-import { asAbsPath } from '../types';
-import type { Directory } from '../filesystem/types';
-import { buildDirectory, buildFile } from '../../test/factories/filesystem';
+} from './conf.js';
+import { communityTier } from '../sessions/snmpAgent.js';
+import { md5 } from '../generation/md5.js';
+import { applyPatches } from '../filesystem/applyPatches.js';
+import { asAbsPath } from '../types.js';
+import type { Directory } from '../filesystem/types.js';
+import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
 
 /**
  * `/var/lib/snmp/snmpd.conf` holds the one secret this door has: the hash of the

@@ -21,18 +21,18 @@
 // Exits 0 when all checks pass, 1 on failure, 2 on missing env.
 
 import { createClient } from '@supabase/supabase-js';
-import { signRequest } from '../src/core/signedRequest/sign';
-import { generateIdentity } from '../src/core/identity/identity';
-import { apGatewayLogWriterKey } from '../src/core/logging/apGatewayLogWriter';
-import { computeWorkstationId } from '../src/core/identity/workstation';
-import { computeApGatewayId } from '../src/core/identity/router';
-import { seedApGatewayAdminPw } from '../src/core/generation/routerFs';
-import { workstationGuestPassword } from '../src/core/generation/workstationFs';
-import { lanAddressFor } from '../src/core/network/lanAddress';
-import { WORDLIST_PATH, formatWordlist } from '../src/core/wordlist/defaultWordlist';
-import { AUTH_LOG_PATH } from '../src/core/logging/authLog';
-import { md5 } from '../src/core/generation/md5';
-import { clearPublicIps, seedPublicIps } from './networkFixture';
+import { signRequest } from '../src/core/signedRequest/sign.js';
+import { generateIdentity } from '../src/core/identity/identity.js';
+import { apGatewayLogWriterKey } from '../src/core/logging/apGatewayLogWriter.js';
+import { computeWorkstationId } from '../src/core/identity/workstation.js';
+import { computeApGatewayId } from '../src/core/identity/router.js';
+import { seedApGatewayAdminPw } from '../src/core/generation/routerFs.js';
+import { workstationGuestPassword } from '../src/core/generation/workstationFs.js';
+import { lanAddressFor } from '../src/core/network/lanAddress.js';
+import { WORDLIST_PATH, formatWordlist } from '../src/core/wordlist/defaultWordlist.js';
+import { AUTH_LOG_PATH } from '../src/core/logging/authLog.js';
+import { md5 } from '../src/core/generation/md5.js';
+import { clearPublicIps, seedPublicIps } from './networkFixture.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const url = process.env.SUPABASE_URL;

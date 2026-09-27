@@ -16,12 +16,12 @@
  */
 
 import { z } from 'zod';
-import { verifySignedRequest } from '../signedRequest/verify';
-import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
-import { isOwnWorkstation } from '../identity/workstation';
-import type { NonceStore } from '../signedRequest/nonceStore';
-import type { UserType } from '../types';
-import type { SessionKind } from '../commands/types';
+import { verifySignedRequest } from '../signedRequest/verify.js';
+import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
+import { isOwnWorkstation } from '../identity/workstation.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
+import type { UserType } from '../types.js';
+import type { SessionKind } from '../commands/types.js';
 
 export type SessionRow = {
   readonly session_id: string;

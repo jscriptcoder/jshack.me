@@ -26,17 +26,17 @@
 // Exits 0 when all checks pass, 1 on failure, 2 on missing env.
 
 import { createClient } from '@supabase/supabase-js';
-import { signRequest } from '../src/core/signedRequest/sign';
-import { generateIdentity } from '../src/core/identity/identity';
-import { computeWorkstationId } from '../src/core/identity/workstation';
-import { computeApGatewayId } from '../src/core/identity/router';
-import { lanAddressFor } from '../src/core/network/lanAddress';
-import { generateHomeLan } from '../src/core/generation/generateHomeLan';
-import { formatPidfileContent } from '../src/core/services/pidfile';
-import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog';
-import { md5 } from '../src/core/generation/md5';
-import { seedApGatewayAdminPw } from '../src/core/generation/routerFs';
-import { workstationGuestPassword } from '../src/core/generation/workstationFs';
+import { signRequest } from '../src/core/signedRequest/sign.js';
+import { generateIdentity } from '../src/core/identity/identity.js';
+import { computeWorkstationId } from '../src/core/identity/workstation.js';
+import { computeApGatewayId } from '../src/core/identity/router.js';
+import { lanAddressFor } from '../src/core/network/lanAddress.js';
+import { generateHomeLan } from '../src/core/generation/generateHomeLan.js';
+import { formatPidfileContent } from '../src/core/services/pidfile.js';
+import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
+import { md5 } from '../src/core/generation/md5.js';
+import { seedApGatewayAdminPw } from '../src/core/generation/routerFs.js';
+import { workstationGuestPassword } from '../src/core/generation/workstationFs.js';
 
 const NETWORK = process.env.NETWORK_ENDPOINT ?? 'http://localhost:3100/api/network';
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';

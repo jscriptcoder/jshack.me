@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { publisherIp } from '../generation/publisher';
-import { ssh } from './ssh';
+import { publisherIp } from '../generation/publisher.js';
+import { ssh } from './ssh.js';
 import {
   mockCommandEnv,
   mockIdentity,
@@ -9,17 +9,17 @@ import {
   mockScanApi,
   mockSession,
   mockSshApi,
-} from '../../test/factories/commandEnv';
-import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
-import { buildRemoteHostFs } from '../generation/remoteHostFs';
-import { hostMachineId } from '../generation/remoteHostId';
-import { computeInnerGatewayId, computeApGatewayId } from '../identity/router';
-import { parsePidfilePort } from '../services/pidfile';
-import { bindFlags } from '../shell/bindFlags';
-import { assignHomeNetwork } from '../network/homeNetwork';
-import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces';
-import { asEpochMs, asMachineId, asPlayerKeyHex } from '../types';
-import type { Directory } from '../filesystem/types';
+} from '../../test/factories/commandEnv.js';
+import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
+import { buildRemoteHostFs } from '../generation/remoteHostFs.js';
+import { hostMachineId } from '../generation/remoteHostId.js';
+import { computeInnerGatewayId, computeApGatewayId } from '../identity/router.js';
+import { parsePidfilePort } from '../services/pidfile.js';
+import { bindFlags } from '../shell/bindFlags.js';
+import { assignHomeNetwork } from '../network/homeNetwork.js';
+import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces.js';
+import { asEpochMs, asMachineId, asPlayerKeyHex } from '../types.js';
+import type { Directory } from '../filesystem/types.js';
 import type {
   CommandResult,
   InnerGatewayAuthParams,
@@ -30,8 +30,8 @@ import type {
   RemoteAuthResult,
   SameLanAuthParams,
   Session,
-} from './types';
-import type { OccupantProjection } from '../network/resolveOccupants';
+} from './types.js';
+import type { OccupantProjection } from '../network/resolveOccupants.js';
 
 /**
  * `ssh user@host` — connect to a generated LAN host, authenticate the password

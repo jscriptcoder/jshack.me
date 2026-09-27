@@ -1,20 +1,20 @@
 import { describe, expect, it, vi } from 'vitest';
-import { handleRemovePatch, type RemovePatchDeps } from './removePatch';
-import type { ActiveSessionQuery, FindActiveSessionResult } from './authorizeMachineAccess';
+import { handleRemovePatch, type RemovePatchDeps } from './removePatch.js';
+import type { ActiveSessionQuery, FindActiveSessionResult } from './authorizeMachineAccess.js';
 import type {
   FindOccupantWorkstationByMachineId,
   ListMachinePatchesResult,
   OccupantWorkstation,
-} from './remoteWritePermission';
-import type { PatchRow } from './upsertPatch';
-import { signRequest } from '../signedRequest/sign';
-import { generateIdentity } from '../identity/identity';
-import { computeWorkstationId } from '../identity/workstation';
-import { generateHomeLan } from '../generation/generateHomeLan';
-import { hostMachineId } from '../generation/remoteHostId';
-import { md5 } from '../generation/md5';
-import type { UserType } from '../types';
-import type { NonceStore } from '../signedRequest/nonceStore';
+} from './remoteWritePermission.js';
+import type { PatchRow } from './upsertPatch.js';
+import { signRequest } from '../signedRequest/sign.js';
+import { generateIdentity } from '../identity/identity.js';
+import { computeWorkstationId } from '../identity/workstation.js';
+import { generateHomeLan } from '../generation/generateHomeLan.js';
+import { hostMachineId } from '../generation/remoteHostId.js';
+import { md5 } from '../generation/md5.js';
+import type { UserType } from '../types.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 const freshStore: NonceStore = async () => ({ fresh: true });
 const ESSID = 'BEAN-THERE-WIFI';

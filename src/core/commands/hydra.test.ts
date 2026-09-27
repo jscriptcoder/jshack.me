@@ -1,16 +1,16 @@
 import { describe, expect, it, vi } from 'vitest';
-import { hydra } from './hydra';
+import { hydra } from './hydra.js';
 import {
   mockCommandEnv,
   mockHydraApi,
   mockNetworkViewFromConnectivity,
   mockSession,
-} from '../../test/factories/commandEnv';
-import { buildColdStartConnectivity } from '../network/interfaces';
-import { asMachineId, asPlayerKeyHex, type MachineId } from '../types';
-import { computeWorkstationId } from '../identity/workstation';
-import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
-import { isInnerGateway } from '../generation/lanHostIdentity';
+} from '../../test/factories/commandEnv.js';
+import { buildColdStartConnectivity } from '../network/interfaces.js';
+import { asMachineId, asPlayerKeyHex, type MachineId } from '../types.js';
+import { computeWorkstationId } from '../identity/workstation.js';
+import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
+import { isInnerGateway } from '../generation/lanHostIdentity.js';
 import type {
   CommandResult,
   HydraCrackInnerGatewayParams,
@@ -18,8 +18,8 @@ import type {
   HydraCrackPublicParams,
   HydraCrackResult,
   TerminalLine,
-} from './types';
-import type { ConnectivityState, NetworkInterface } from '../network/interfaces';
+} from './types.js';
+import type { ConnectivityState, NetworkInterface } from '../network/interfaces.js';
 
 /**
  * `hydra` is the player-facing half of the credential layer. It decides NOTHING

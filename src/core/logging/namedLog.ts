@@ -21,9 +21,9 @@
  * Pure, framework-agnostic (core/): the timestamp is supplied by the caller.
  */
 
-import { asAbsPath, type AbsPath, type GameTime } from '../types';
-import type { FilePermissions } from '../filesystem/types';
-import { MONTHS } from './syslog';
+import { asAbsPath, type AbsPath, type GameTime } from '../types.js';
+import type { FilePermissions } from '../filesystem/types.js';
+import { MONTHS } from './syslog.js';
 
 /** The canonical `/var/log/named.log` storage identity — single source of truth
  *  shared by the boot seed (`generation/remoteHostFs`) and the server-side appender,

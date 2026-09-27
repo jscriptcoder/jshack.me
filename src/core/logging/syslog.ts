@@ -9,8 +9,8 @@
  * Framework-agnostic (core/) — no I/O, no env.
  */
 
-import type { FilePermissions } from '../filesystem/types';
-import type { GameTime } from '../types';
+import type { FilePermissions } from '../filesystem/types.js';
+import type { GameTime } from '../types.js';
 
 /** Shared with the access-log renderer, which needs the same month names in a
  *  different arrangement (`DD/MMM/YYYY`) — one table, so no log file can drift. */

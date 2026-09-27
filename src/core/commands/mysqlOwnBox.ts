@@ -33,28 +33,28 @@
  * is supposed to have to work for.
  */
 
-import { md5 } from '../generation/md5';
-import { DATADIR_FILE } from '../generation/baseFs';
+import { md5 } from '../generation/md5.js';
+import { DATADIR_FILE } from '../generation/baseFs.js';
 import {
   credentialIn,
   databaseIn,
   databaseNameIn,
   DATADIR_OWNER,
   DATADIR_PATH,
-} from '../mysql/datadir';
-import { runStatement } from '../mysql/statements';
-import { readOpenPorts } from '../services/pidfile';
-import { SERVICE_CATALOG } from '../services/serviceCatalog';
+} from '../mysql/datadir.js';
+import { runStatement } from '../mysql/statements.js';
+import { readOpenPorts } from '../services/pidfile.js';
+import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
 import {
   formatMysqlStatementLine,
   MYSQL_LOG_OWNER,
   MYSQL_LOG_PATH,
   MYSQL_LOG_PERMISSIONS,
-} from '../logging/mysqlLog';
-import { derivePid } from '../logging/syslog';
-import { asGameTime } from '../types';
+} from '../logging/mysqlLog.js';
+import { derivePid } from '../logging/syslog.js';
+import { asGameTime } from '../types.js';
 
-import type { Directory } from '../filesystem/types';
+import type { Directory } from '../filesystem/types.js';
 import type {
   CommandEnv,
   FsView,
@@ -62,7 +62,7 @@ import type {
   MysqlConnectResult,
   MysqlStatementParams,
   MysqlStatementResult,
-} from './types';
+} from './types.js';
 
 /** Whether the player's own mysqld is holding `port` right now — read from the same
  *  pidfile `nmap` and `ps` print, so a door they were shown is a door that opens and

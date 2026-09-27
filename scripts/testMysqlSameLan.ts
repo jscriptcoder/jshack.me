@@ -26,25 +26,25 @@
 // Exits 0 when all checks pass, 1 on failure, 2 on missing env.
 
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { signRequest } from '../src/core/signedRequest/sign';
-import { generateIdentity } from '../src/core/identity/identity';
-import { computeWorkstationId } from '../src/core/identity/workstation';
-import { generateHomeLan } from '../src/core/generation/generateHomeLan';
-import { resolveLanHostIdentity } from '../src/core/generation/lanHostIdentity';
-import { readOpenPorts } from '../src/core/services/pidfile';
-import { lanAddressFor } from '../src/core/network/lanAddress';
-import { materializeWorkstationFs } from '../src/core/network/materializeWorkstationFs';
-import { workstationGuestPassword } from '../src/core/generation/workstationFs';
-import { asEpochMs } from '../src/core/types';
-import { ownDatabase } from '../src/core/mysql/ownDatabase';
-import { DATADIR_PATH } from '../src/core/mysql/datadir';
-import { ALL_GENERATED_PASSWORDS } from '../src/core/generation/passwordPools';
-import { formatPidfileContent, pidfilePath, PIDFILE_PERMISSIONS } from '../src/core/services/pidfile';
-import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog';
-import { MYSQL_LOG_PATH } from '../src/core/logging/mysqlLog';
-import { AUTH_LOG_PATH } from '../src/core/logging/authLog';
-import { WORDLIST_PATH, formatWordlist } from '../src/core/wordlist/defaultWordlist';
-import { md5 } from '../src/core/generation/md5';
+import { signRequest } from '../src/core/signedRequest/sign.js';
+import { generateIdentity } from '../src/core/identity/identity.js';
+import { computeWorkstationId } from '../src/core/identity/workstation.js';
+import { generateHomeLan } from '../src/core/generation/generateHomeLan.js';
+import { resolveLanHostIdentity } from '../src/core/generation/lanHostIdentity.js';
+import { readOpenPorts } from '../src/core/services/pidfile.js';
+import { lanAddressFor } from '../src/core/network/lanAddress.js';
+import { materializeWorkstationFs } from '../src/core/network/materializeWorkstationFs.js';
+import { workstationGuestPassword } from '../src/core/generation/workstationFs.js';
+import { asEpochMs } from '../src/core/types.js';
+import { ownDatabase } from '../src/core/mysql/ownDatabase.js';
+import { DATADIR_PATH } from '../src/core/mysql/datadir.js';
+import { ALL_GENERATED_PASSWORDS } from '../src/core/generation/passwordPools.js';
+import { formatPidfileContent, pidfilePath, PIDFILE_PERMISSIONS } from '../src/core/services/pidfile.js';
+import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
+import { MYSQL_LOG_PATH } from '../src/core/logging/mysqlLog.js';
+import { AUTH_LOG_PATH } from '../src/core/logging/authLog.js';
+import { WORDLIST_PATH, formatWordlist } from '../src/core/wordlist/defaultWordlist.js';
+import { md5 } from '../src/core/generation/md5.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const url = process.env.SUPABASE_URL;

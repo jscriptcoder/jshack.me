@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
-import { verifySignedRequest } from './verify';
-import { signRequest } from './sign';
-import { REPLAY_WINDOW_MS } from './types';
-import type { NonceStore } from './nonceStore';
-import * as identity from '../identity/identity';
-import { generateIdentity, sign } from '../identity/identity';
-import { bytesToHex, hexToBytes } from '../identity/hex';
+import { verifySignedRequest } from './verify.js';
+import { signRequest } from './sign.js';
+import { REPLAY_WINDOW_MS } from './types.js';
+import type { NonceStore } from './nonceStore.js';
+import * as identity from '../identity/identity.js';
+import { generateIdentity, sign } from '../identity/identity.js';
+import { bytesToHex, hexToBytes } from '../identity/hex.js';
 
 const freshStore: NonceStore = async () => ({ fresh: true });
 const usedStore: NonceStore = async () => ({ fresh: false });

@@ -15,12 +15,12 @@ import {
   runExploit,
   postExploitLocalElevate,
   type SessionsClientDeps,
-} from './sessionsApi';
-import { generateIdentity } from '../core/identity/identity';
-import { computeWorkstationId } from '../core/identity/workstation';
-import { verifySignedRequest } from '../core/signedRequest/verify';
-import { asEpochMs, asMachineId, asPlayerKeyHex } from '../core/types';
-import type { MysqlConnectParams, Session } from '../core/commands/types';
+} from './sessionsApi.js';
+import { generateIdentity } from '../core/identity/identity.js';
+import { computeWorkstationId } from '../core/identity/workstation.js';
+import { verifySignedRequest } from '../core/signedRequest/verify.js';
+import { asEpochMs, asMachineId, asPlayerKeyHex } from '../core/types.js';
+import type { MysqlConnectParams, Session } from '../core/commands/types.js';
 
 const ENDPOINT = 'http://test.local/api/sessions';
 

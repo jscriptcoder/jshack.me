@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createSyncChannel, type PatchesChangedMessage } from './crossTabSync';
+import { createSyncChannel, type PatchesChangedMessage } from './crossTabSync.js';
 
 const HINT: PatchesChangedMessage = { type: 'patches-changed', machineId: 'box-1' };
 

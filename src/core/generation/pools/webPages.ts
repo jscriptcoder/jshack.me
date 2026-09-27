@@ -37,8 +37,8 @@
  * bucket is the right answer to that rather than a gap.
  */
 
-import { createPrng } from '../prng';
-import type { DrawnRole } from '../machineRole';
+import { createPrng } from '../prng.js';
+import type { DrawnRole } from '../machineRole.js';
 
 /** Interpolated into a template wherever the host's name belongs. */
 const HOSTNAME_PLACEHOLDER = /\{\{hostname\}\}/g;

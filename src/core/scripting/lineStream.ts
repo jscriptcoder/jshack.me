@@ -15,7 +15,7 @@
  * a way for those two to disagree.
  */
 
-import type { TerminalLine } from '../commands/types';
+import type { TerminalLine } from '../commands/types.js';
 
 export type LineStream = {
   /** Hand a line to whoever is draining. Safe before draining starts: it queues. */

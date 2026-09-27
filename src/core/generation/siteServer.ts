@@ -7,9 +7,9 @@
  * all agree on which machine the site lives on.
  */
 
-import { generateHomeLan, type LanHost } from './generateHomeLan';
-import { roleOfHostname } from './pools/hostnames';
-import { publisherSite } from './publisher';
+import { generateHomeLan, type LanHost } from './generateHomeLan.js';
+import { roleOfHostname } from './pools/hostnames.js';
+import { publisherSite } from './publisher.js';
 
 /** The machine `essid`'s website is served from, or `undefined` for a network that
  *  publishes none. */

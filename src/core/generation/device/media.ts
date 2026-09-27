@@ -4,13 +4,13 @@
  * the network's own, named the way a phone names itself: its owner's and its model's.
  */
 
-import type { Prng } from '../prng';
-import { dir, file, SERVICE_CONFIG_FILE, TRAVERSABLE_DIR } from '../baseFs';
-import { generateHomeLan, isOnHomeLan, type LanHost } from '../generateHomeLan';
-import { peopleOn } from '../networkMail';
-import { npcUsername } from '../remoteHostFs';
-import { phoneModel } from '../share';
-import { MEDIA_APPS, MEDIA_MODELS, MEDIA_ROOMS, MEDIA_TITLES } from '../pools/devices';
+import type { Prng } from '../prng.js';
+import { dir, file, SERVICE_CONFIG_FILE, TRAVERSABLE_DIR } from '../baseFs.js';
+import { generateHomeLan, isOnHomeLan, type LanHost } from '../generateHomeLan.js';
+import { peopleOn } from '../networkMail.js';
+import { npcUsername } from '../remoteHostFs.js';
+import { phoneModel } from '../share.js';
+import { MEDIA_APPS, MEDIA_MODELS, MEDIA_ROOMS, MEDIA_TITLES } from '../pools/devices.js';
 import {
   DAY_SECONDS,
   LAST_SECOND,
@@ -19,7 +19,7 @@ import {
   uiPage,
   userTree,
   type DeviceFiles,
-} from './common';
+} from './common.js';
 
 const PAIRED_PATH = '/var/lib/mediad/paired.conf';
 const RECENT_PATH = '/var/lib/mediad/recent.log';

@@ -5,16 +5,16 @@
  * listed — they come and go, and a base tree is frozen at the epoch.
  */
 
-import type { FileNode } from '../filesystem/types';
-import { createPrng } from './prng';
-import { hostMac } from './hostMac';
-import { dir, file, SERVICE_CONFIG_FILE, TRAVERSABLE_DIR } from './baseFs';
-import { generateHomeLan, type LanHost } from './generateHomeLan';
-import { generateDeepLayer } from './generateDeepLayer';
-import { chainLinks, machineIdForLanHost } from './lanTopology';
-import { hostMachineId } from './remoteHostId';
-import { computeDeepGatewayId } from '../identity/router';
-import { WORLD_EPOCH } from '../cve/worldClock';
+import type { FileNode } from '../filesystem/types.js';
+import { createPrng } from './prng.js';
+import { hostMac } from './hostMac.js';
+import { dir, file, SERVICE_CONFIG_FILE, TRAVERSABLE_DIR } from './baseFs.js';
+import { generateHomeLan, type LanHost } from './generateHomeLan.js';
+import { generateDeepLayer } from './generateDeepLayer.js';
+import { chainLinks, machineIdForLanHost } from './lanTopology.js';
+import { hostMachineId } from './remoteHostId.js';
+import { computeDeepGatewayId } from '../identity/router.js';
+import { WORLD_EPOCH } from '../cve/worldClock.js';
 
 /** One lease as dnsmasq granted it: the second of the epoch it was granted at, and the
  *  card and address it went to. */

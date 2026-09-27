@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { asGameTime } from '../types';
-import { formatNmapScanAggregate, formatSegfaultLine } from './kernLog';
+import { asGameTime } from '../types.js';
+import { formatNmapScanAggregate, formatSegfaultLine } from './kernLog.js';
 
 /**
  * Kernel-log (`/var/log/kern.log`) line formatting for an nmap port scan — an

@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { applyPatches, type Patch } from './applyPatches';
-import { createFsView } from './fsView';
-import { buildDirectory, buildFile } from '../../test/factories/filesystem';
-import { defaultDirectoryPermissions, defaultFilePermissions } from './defaultPermissions';
-import { asAbsPath } from '../types';
-import type { Directory, FilePermissions } from './types';
+import { applyPatches, type Patch } from './applyPatches.js';
+import { createFsView } from './fsView.js';
+import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
+import { defaultDirectoryPermissions, defaultFilePermissions } from './defaultPermissions.js';
+import { asAbsPath } from '../types.js';
+import type { Directory, FilePermissions } from './types.js';
 
 const rootView = (tree: Directory) => createFsView(tree, { userType: 'root' });
 

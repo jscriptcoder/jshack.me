@@ -685,6 +685,14 @@ architecture doc if the work touches cross-player paths.
   constraint correctness needs a **wire-check** (§6). Keep `api/` handlers thin; push logic
   into the typechecked `src/core/`.
 - **Format/lint gate = `npm run lint`** (ESLint).
+- **Every relative import ends in `.js`, and lint enforces it.** `./x.js` resolves to `x.ts`.
+  Vercel runs `api/` as plain Node ESM, which resolves a relative import only by its exact file
+  name, so `./x` is `ERR_MODULE_NOT_FOUND` on every request. vite, vitest, tsx and `vercel dev` all
+  guess the extension, which is why no local gate or wire-check could see it: the first deploy
+  of v2's `api/` (2026-09-27) failed exactly this way on all three functions, as legacy's had in
+  April. The rule covers every file, not just what `api/` loads, so no one has to know that
+  boundary. `scripts/encode.ts` writes `__encoded.ts` with the same `.js` import for the same
+  reason.
 - **World budget gate = `npm run build`'s `postbuild` (`scripts/checkBudgets.ts`).** Vercel runs
   `npm run build`, so a deploy or preview fails on a **bundle** breach. The **per-box timing** is
   skipped there (`VERCEL=1`): Vercel's build machine ran it at 3.1 ms/box against 0.85 ms locally,

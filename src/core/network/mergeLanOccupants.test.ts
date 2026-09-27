@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { mergeLanOccupants, withSelfHost } from './mergeLanOccupants';
-import type { OccupantProjection } from './resolveOccupants';
-import type { HomeLan, LanHost } from '../generation/generateHomeLan';
+import { mergeLanOccupants, withSelfHost } from './mergeLanOccupants.js';
+import type { OccupantProjection } from './resolveOccupants.js';
+import type { HomeLan, LanHost } from '../generation/generateHomeLan.js';
 
 /**
  * `mergeLanOccupants` overlays the REAL same-LAN occupants (the server occupant read)

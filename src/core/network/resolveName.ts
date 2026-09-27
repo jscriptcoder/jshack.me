@@ -20,10 +20,10 @@
  * client-side.
  */
 
-import { generateHomeLan } from '../generation/generateHomeLan';
-import { siteAddress } from '../generation/publisher';
-import type { Ipv4 } from './interfaces';
-import type { OccupantProjection } from './resolveOccupants';
+import { generateHomeLan } from '../generation/generateHomeLan.js';
+import { siteAddress } from '../generation/publisher.js';
+import type { Ipv4 } from './interfaces.js';
+import type { OccupantProjection } from './resolveOccupants.js';
 
 /** A name that resolved: what it is fully called, and where it is. */
 export type ResolvedName = {

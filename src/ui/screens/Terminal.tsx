@@ -1,7 +1,7 @@
 import { createEffect, For, Match, onCleanup, onMount, Show, Switch } from 'solid-js';
-import type { ModeChange, TerminalLine } from '../../core/commands/types';
-import { formatPrompt } from '../../core/shell/prompt';
-import { BANNER } from '../banner';
+import type { ModeChange, TerminalLine } from '../../core/commands/types.js';
+import { formatPrompt } from '../../core/shell/prompt.js';
+import { BANNER } from '../banner.js';
 import {
   abortRunning,
   bannerVisible,
@@ -27,11 +27,11 @@ import {
   setOverlayMode,
   submitPrompt,
   tabComplete,
-} from '../state';
-import { Author } from './Author';
-import { Lynx } from './Lynx';
-import { Nano } from './Nano';
-import { TerminalLoading } from './TerminalLoading';
+} from '../state.js';
+import { Author } from './Author.js';
+import { Lynx } from './Lynx.js';
+import { Nano } from './Nano.js';
+import { TerminalLoading } from './TerminalLoading.js';
 
 const LINE_BASE = 'whitespace-pre-wrap break-words';
 

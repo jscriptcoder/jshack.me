@@ -13,8 +13,8 @@
  * they hold.
  */
 
-import { deriveHostnameSuffix } from '../identity/workstation';
-import { generateHomeLan, type LanHost } from './generateHomeLan';
+import { deriveHostnameSuffix } from '../identity/workstation.js';
+import { generateHomeLan, type LanHost } from './generateHomeLan.js';
 
 /** The coordinate-derived machine_id for a generated host reachable on `essid`. */
 export const hostMachineId = (host: LanHost, essid: string): string =>

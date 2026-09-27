@@ -20,8 +20,8 @@
  * same sort of thing.
  */
 
-import { DEVICE_TYPES } from '../../network/homeNetwork';
-import { DRAWN_ROLES, type DrawnRole } from '../machineRole';
+import { DEVICE_TYPES } from '../../network/homeNetwork.js';
+import { DRAWN_ROLES, type DrawnRole } from '../machineRole.js';
 
 export const HOSTNAME_PREFIXES: Readonly<Record<DrawnRole, readonly string[]>> = {
   workstation: DEVICE_TYPES,

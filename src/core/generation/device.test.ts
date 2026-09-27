@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { createPatchApi } from '../../adapters/patchApi';
-import { generateIdentity } from '../identity/identity';
-import { computeWorkstationId } from '../identity/workstation';
-import { signedEnvelopeSchema } from '../signedRequest/types';
-import { asMachineId } from '../types';
-import { deviceKindOf } from './device';
-import { npcUsername } from './remoteHostFs';
-import { createFsView } from '../filesystem/fsView';
-import { asAbsPath } from '../types';
-import { filesUnder, softwareVersionsIn } from '../../test/worldContent';
+import { createPatchApi } from '../../adapters/patchApi.js';
+import { generateIdentity } from '../identity/identity.js';
+import { computeWorkstationId } from '../identity/workstation.js';
+import { signedEnvelopeSchema } from '../signedRequest/types.js';
+import { asMachineId } from '../types.js';
+import { deviceKindOf } from './device.js';
+import { npcUsername } from './remoteHostFs.js';
+import { createFsView } from '../filesystem/fsView.js';
+import { asAbsPath } from '../types.js';
+import { filesUnder, softwareVersionsIn } from '../../test/worldContent.js';
 import {
   CAMERA_PREFIXES,
   contentOf,
@@ -21,7 +21,7 @@ import {
   withoutMeasurements,
   worldBoxesNamed,
   type BuiltBox,
-} from '../../test/deviceBoxes';
+} from '../../test/deviceBoxes.js';
 
 /**
  * What every generated device shares: which kind a box is, that each keeps its own kind's

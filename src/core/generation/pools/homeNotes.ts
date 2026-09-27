@@ -16,7 +16,7 @@
  * are named in code, from the network's real population, never in a template).
  */
 
-import type { NetworkCategory } from './essidCatalog';
+import type { NetworkCategory } from './essidCatalog.js';
 
 export type NoteTemplate = { readonly file: string; readonly body: string };
 

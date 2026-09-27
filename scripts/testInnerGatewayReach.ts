@@ -21,19 +21,19 @@
 // Exits 0 when all checks pass, 1 on failure, 2 on missing env / no inner gateway.
 
 import { createClient } from '@supabase/supabase-js';
-import { signRequest } from '../src/core/signedRequest/sign';
-import { generateIdentity } from '../src/core/identity/identity';
-import { computeDeepGatewayId, computeInnerGatewayId } from '../src/core/identity/router';
-import { seedDeepGatewayAdminPw, seedInnerGatewayAdminPw } from '../src/core/generation/routerFs';
-import { generateHomeLan } from '../src/core/generation/generateHomeLan';
-import { crackableEssidPool } from '../src/core/generation/generateWifi';
-import { generateDeepLayer, seedNetworkDepth } from '../src/core/generation/generateDeepLayer';
-import { buildDeepHostFs } from '../src/core/generation/deepHostFs';
-import { hostMachineId } from '../src/core/generation/remoteHostId';
-import { accountIn } from '../src/core/sessions/passwdAccount';
-import { md5 } from '../src/core/generation/md5';
-import { ALL_GENERATED_PASSWORDS } from '../src/core/generation/passwordPools';
-import { WORDLIST_PATH, formatWordlist } from '../src/core/wordlist/defaultWordlist';
+import { signRequest } from '../src/core/signedRequest/sign.js';
+import { generateIdentity } from '../src/core/identity/identity.js';
+import { computeDeepGatewayId, computeInnerGatewayId } from '../src/core/identity/router.js';
+import { seedDeepGatewayAdminPw, seedInnerGatewayAdminPw } from '../src/core/generation/routerFs.js';
+import { generateHomeLan } from '../src/core/generation/generateHomeLan.js';
+import { crackableEssidPool } from '../src/core/generation/generateWifi.js';
+import { generateDeepLayer, seedNetworkDepth } from '../src/core/generation/generateDeepLayer.js';
+import { buildDeepHostFs } from '../src/core/generation/deepHostFs.js';
+import { hostMachineId } from '../src/core/generation/remoteHostId.js';
+import { accountIn } from '../src/core/sessions/passwdAccount.js';
+import { md5 } from '../src/core/generation/md5.js';
+import { ALL_GENERATED_PASSWORDS } from '../src/core/generation/passwordPools.js';
+import { WORDLIST_PATH, formatWordlist } from '../src/core/wordlist/defaultWordlist.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const PATCHES = process.env.PATCHES_ENDPOINT ?? 'http://localhost:3100/api/patches';

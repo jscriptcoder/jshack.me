@@ -21,14 +21,14 @@
  */
 
 import { z } from 'zod';
-import { verifySignedRequest } from '../signedRequest/verify';
-import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
-import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
-import { generateHomeLan } from '../generation/generateHomeLan';
-import { materializeMachineFs, type OwnerPatchRow } from '../network/materializeMachineFs';
-import { canBoot } from '../boot/bootFiles';
-import { scanResult } from './scanResult';
-import type { NonceStore } from '../signedRequest/nonceStore';
+import { verifySignedRequest } from '../signedRequest/verify.js';
+import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
+import { resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
+import { generateHomeLan } from '../generation/generateHomeLan.js';
+import { materializeMachineFs, type OwnerPatchRow } from '../network/materializeMachineFs.js';
+import { canBoot } from '../boot/bootFiles.js';
+import { scanResult } from './scanResult.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 export type ResolveSameLanScanDeps = {
   readonly nonceStore: NonceStore;

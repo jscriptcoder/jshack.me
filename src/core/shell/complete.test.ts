@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { classifyCursor, complete, type CompleteAdapter } from './complete';
-import type { Command } from '../commands/types';
-import type { FlagSpec } from './bindFlags';
+import { classifyCursor, complete, type CompleteAdapter } from './complete.js';
+import type { Command } from '../commands/types.js';
+import type { FlagSpec } from './bindFlags.js';
 
 /** Minimal v2 Command fixture. The completer reads `command.flags` and, for
  *  keyword completion, `command.manual.arguments[0].values` (via the adapter's

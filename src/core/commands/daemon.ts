@@ -48,17 +48,17 @@ import {
   type CommandExample,
   type CommandResult,
   type TerminalLine,
-} from './types';
-import { SERVICE_CATALOG, type ServiceSpec } from '../services/serviceCatalog';
+} from './types.js';
+import { SERVICE_CATALOG, type ServiceSpec } from '../services/serviceCatalog.js';
 import {
   formatPidfileContent,
   parsePidfilePort,
   pidfilePath,
   PIDFILE_PERMISSIONS,
-} from '../services/pidfile';
-import { errorLine, streamedResult, text } from './streaming';
-import { consumeRwCommunity, type ConsumedConfig } from '../snmp/rwCommunity';
-import type { Directory } from '../filesystem/types';
+} from '../services/pidfile.js';
+import { errorLine, streamedResult, text } from './streaming.js';
+import { consumeRwCommunity, type ConsumedConfig } from '../snmp/rwCommunity.js';
+import type { Directory } from '../filesystem/types.js';
 
 const PORT_MIN = 1;
 const PORT_MAX = 65535;

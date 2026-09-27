@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { FINDIT_NETWORK } from './findit';
-import { materializeApGatewayFs } from '../network/materializeRouterFs';
-import { readOpenPorts } from '../services/pidfile';
-import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import { canBoot } from '../boot/bootFiles';
-import { createFsView } from '../filesystem/fsView';
-import { parseDpkgVersions, readDpkgStatus } from '../packages/dpkgStatus';
-import { ALL_GENERATED_PASSWORDS, UNCRACKABLE_PASSWORDS } from './passwordPools';
-import { md5 } from './md5';
-import { asAbsPath } from '../types';
-import type { Directory } from '../filesystem/types';
+import { FINDIT_NETWORK } from './findit.js';
+import { materializeApGatewayFs } from '../network/materializeRouterFs.js';
+import { readOpenPorts } from '../services/pidfile.js';
+import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
+import { canBoot } from '../boot/bootFiles.js';
+import { createFsView } from '../filesystem/fsView.js';
+import { parseDpkgVersions, readDpkgStatus } from '../packages/dpkgStatus.js';
+import { ALL_GENERATED_PASSWORDS, UNCRACKABLE_PASSWORDS } from './passwordPools.js';
+import { md5 } from './md5.js';
+import { asAbsPath } from '../types.js';
+import type { Directory } from '../filesystem/types.js';
 
 /**
  * findit.io is a box like any other: reached at its public address, it is a machine

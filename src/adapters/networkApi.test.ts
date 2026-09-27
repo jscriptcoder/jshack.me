@@ -11,16 +11,16 @@ import {
   resolveOccupiedEssids,
   resolvePublic,
   type NetworkClientDeps,
-} from './networkApi';
-import { generateIdentity } from '../core/identity/identity';
-import { computeWorkstationId } from '../core/identity/workstation';
-import { verifySignedRequest } from '../core/signedRequest/verify';
-import { assignHomeNetwork } from '../core/network/homeNetwork';
-import { lanLeaseCacheIn } from '../core/network/lanLeaseCache';
-import { md5 } from '../core/generation/md5';
-import { serializeTree } from '../core/filesystem/treeCodec';
-import { dir, file, TRAVERSABLE_DIR } from '../core/generation/baseFs';
-import { asMachineId } from '../core/types';
+} from './networkApi.js';
+import { generateIdentity } from '../core/identity/identity.js';
+import { computeWorkstationId } from '../core/identity/workstation.js';
+import { verifySignedRequest } from '../core/signedRequest/verify.js';
+import { assignHomeNetwork } from '../core/network/homeNetwork.js';
+import { lanLeaseCacheIn } from '../core/network/lanLeaseCache.js';
+import { md5 } from '../core/generation/md5.js';
+import { serializeTree } from '../core/filesystem/treeCodec.js';
+import { dir, file, TRAVERSABLE_DIR } from '../core/generation/baseFs.js';
+import { asMachineId } from '../core/types.js';
 
 /**
  * networkApi — the signed-`/api/network` client backing the cross-player walking

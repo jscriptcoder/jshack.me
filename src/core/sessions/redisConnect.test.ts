@@ -1,31 +1,31 @@
 import { describe, expect, it, vi } from 'vitest';
-import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter';
-import { handleRedisConnect, type RedisConnectDeps } from './redisConnect';
-import { signRequest } from '../signedRequest/sign';
-import { generateIdentity } from '../identity/identity';
-import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
-import { hostServices } from '../generation/remoteHostFs';
-import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
-import { SERVICE_CATALOG } from '../services/serviceCatalog';
+import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
+import { handleRedisConnect, type RedisConnectDeps } from './redisConnect.js';
+import { signRequest } from '../signedRequest/sign.js';
+import { generateIdentity } from '../identity/identity.js';
+import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
+import { hostServices } from '../generation/remoteHostFs.js';
+import { resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
+import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
 import {
   REDIS_LOG_OWNER,
   REDIS_LOG_PATH,
   REDIS_LOG_PERMISSIONS,
   formatRedisConnectLine,
-} from '../logging/redisLog';
-import { derivePid } from '../logging/syslog';
-import { asAbsPath, asGameTime } from '../types';
-import { formatPidfileContent, pidfilePath } from '../services/pidfile';
-import { deepStoreFixture, playerStoreOn } from '../../test/factories/lanStore';
-import { computeApGatewayId } from '../identity/router';
-import { lanAddressFor, type LanLeaseRow } from '../network/lanAddress';
-import { md5 } from '../generation/md5';
-import { DATADIR_PATH } from '../redis/datadir';
-import type { ApNetworkLookup, NatOccupantRow } from '../network/resolvePublicTarget';
-import type { OwnerPatchRow } from '../network/materializeMachineFs';
-import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog';
-import type { PatchRow } from '../patches/upsertPatch';
-import type { NonceStore } from '../signedRequest/nonceStore';
+} from '../logging/redisLog.js';
+import { derivePid } from '../logging/syslog.js';
+import { asAbsPath, asGameTime } from '../types.js';
+import { formatPidfileContent, pidfilePath } from '../services/pidfile.js';
+import { deepStoreFixture, playerStoreOn } from '../../test/factories/lanStore.js';
+import { computeApGatewayId } from '../identity/router.js';
+import { lanAddressFor, type LanLeaseRow } from '../network/lanAddress.js';
+import { md5 } from '../generation/md5.js';
+import { DATADIR_PATH } from '../redis/datadir.js';
+import type { ApNetworkLookup, NatOccupantRow } from '../network/resolvePublicTarget.js';
+import type { OwnerPatchRow } from '../network/materializeMachineFs.js';
+import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog.js';
+import type { PatchRow } from '../patches/upsertPatch.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 /**
  * `handleRedisConnect` opens a key-value store, and it opens one for ANYBODY.

@@ -8,16 +8,16 @@ import {
   postKernLog,
   recordScan,
   type PatchClientDeps,
-} from './patchApi';
-import { generateIdentity } from '../core/identity/identity';
-import { computeWorkstationId } from '../core/identity/workstation';
-import { verifySignedRequest } from '../core/signedRequest/verify';
+} from './patchApi.js';
+import { generateIdentity } from '../core/identity/identity.js';
+import { computeWorkstationId } from '../core/identity/workstation.js';
+import { verifySignedRequest } from '../core/signedRequest/verify.js';
 import {
   defaultDirectoryPermissions,
   defaultFilePermissions,
-} from '../core/filesystem/defaultPermissions';
-import { contentHash } from '../core/patches/contentHash';
-import { asAbsPath, asMachineId, type UserType } from '../core/types';
+} from '../core/filesystem/defaultPermissions.js';
+import { contentHash } from '../core/patches/contentHash.js';
+import { asAbsPath, asMachineId, type UserType } from '../core/types.js';
 
 const ENDPOINT = 'http://test.local/api/patches';
 

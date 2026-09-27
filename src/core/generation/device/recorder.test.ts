@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { buildRemoteHostFs } from '../remoteHostFs';
-import { deviceKindOf } from '../device';
-import { WORLD_EPOCH } from '../../cve/worldClock';
-import { lanZoneName, resolveLanName } from '../../network/resolveName';
-import { createFsView } from '../../filesystem/fsView';
-import { asAbsPath } from '../../types';
-import { lanBoxes, softwareVersionsIn } from '../../../test/worldContent';
+import { buildRemoteHostFs } from '../remoteHostFs.js';
+import { deviceKindOf } from '../device.js';
+import { WORLD_EPOCH } from '../../cve/worldClock.js';
+import { lanZoneName, resolveLanName } from '../../network/resolveName.js';
+import { createFsView } from '../../filesystem/fsView.js';
+import { asAbsPath } from '../../types.js';
+import { lanBoxes, softwareVersionsIn } from '../../../test/worldContent.js';
 import {
   archiveOf,
   archivedSources,
@@ -17,7 +17,7 @@ import {
   servesHttp,
   worldBoxesNamed,
   type BuiltBox,
-} from '../../../test/deviceBoxes';
+} from '../../../test/deviceBoxes.js';
 
 describe('a recorder', () => {
   it('is found on home LANs and below them', () => {

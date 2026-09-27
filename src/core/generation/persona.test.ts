@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { inhabitant, networkPersona } from './persona';
-import type { LanHost } from './generateHomeLan';
-import { NETWORK_CATEGORIES } from './pools/essidCatalog';
+import { inhabitant, networkPersona } from './persona.js';
+import type { LanHost } from './generateHomeLan.js';
+import { NETWORK_CATEGORIES } from './pools/essidCatalog.js';
 
 /**
  * Who a network belongs to. Every machine behind an access point reads as part of one

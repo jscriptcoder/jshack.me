@@ -12,13 +12,13 @@
  * so neither moves any other concern's draws.
  */
 
-import type { Directory } from '../filesystem/types';
-import { dir, file, HOME_DIR, HOME_FILE, ROOT_DIR, ROOT_FILE } from './baseFs';
-import { generateHomeLan, isOnHomeLan, type LanHost } from './generateHomeLan';
-import { hostServices, npcUsername } from './remoteHostFs';
-import { isDeskMachine } from './npcHome';
-import { lanZoneName } from '../network/resolveName';
-import { createPrng, type Prng } from './prng';
+import type { Directory } from '../filesystem/types.js';
+import { dir, file, HOME_DIR, HOME_FILE, ROOT_DIR, ROOT_FILE } from './baseFs.js';
+import { generateHomeLan, isOnHomeLan, type LanHost } from './generateHomeLan.js';
+import { hostServices, npcUsername } from './remoteHostFs.js';
+import { isDeskMachine } from './npcHome.js';
+import { lanZoneName } from '../network/resolveName.js';
+import { createPrng, type Prng } from './prng.js';
 
 type SshNeighbour = { readonly host: LanHost; readonly port: number };
 

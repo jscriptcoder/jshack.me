@@ -25,9 +25,9 @@
  * caller.
  */
 
-import type { GameTime } from '../types';
-import type { FilePermissions } from '../filesystem/types';
-import { formatSyslogLine } from './syslog';
+import type { GameTime } from '../types.js';
+import type { FilePermissions } from '../filesystem/types.js';
+import { formatSyslogLine } from './syslog.js';
 
 /** `/var/log/mail.log`'s tier. **Root's alone**, unlike every other log on the box: its
  *  lines name who wrote to whom across the whole organisation, which is the same recon

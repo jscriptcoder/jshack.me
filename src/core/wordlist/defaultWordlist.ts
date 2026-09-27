@@ -20,9 +20,9 @@
  * rate, so this one file decides what falls everywhere in the game.
  */
 
-import { asAbsPath, type AbsPath } from '../types';
-import type { FilePermissions } from '../filesystem/types';
-import { CRACKABLE_PASSWORDS } from '../generation/passwordPools';
+import { asAbsPath, type AbsPath } from '../types.js';
+import type { FilePermissions } from '../filesystem/types.js';
+import { CRACKABLE_PASSWORDS } from '../generation/passwordPools.js';
 
 /** Where the wordlist lives, and where every tool that consults one looks for it.
  *  Matches the real Debian/Kali location so a player's instinct is right. */

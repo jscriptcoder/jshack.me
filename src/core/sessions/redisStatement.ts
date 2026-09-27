@@ -30,21 +30,21 @@
  */
 
 import { z } from 'zod';
-import { verifySignedRequest } from '../signedRequest/verify';
-import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
-import { reachServiceHost, type HandlerResponse, type ServiceHostLookup } from './serviceHost';
-import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import { storeIn, DATADIR_OWNER, DATADIR_PATH } from '../redis/datadir';
-import { DATADIR_FILE } from '../generation/baseFs';
-import { runStatement } from '../redis/statements';
-import { redisStoreSchema } from '../redis/types';
-import { derivePid } from '../logging/syslog';
-import { formatRedisMutationLine } from '../logging/redisLog';
-import { appendMachineLog } from '../patches/appendMachineLog';
-import { asGameTime } from '../types';
-import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog';
-import type { NonceStore } from '../signedRequest/nonceStore';
-import type { PatchRow } from '../patches/upsertPatch';
+import { verifySignedRequest } from '../signedRequest/verify.js';
+import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
+import { reachServiceHost, type HandlerResponse, type ServiceHostLookup } from './serviceHost.js';
+import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
+import { storeIn, DATADIR_OWNER, DATADIR_PATH } from '../redis/datadir.js';
+import { DATADIR_FILE } from '../generation/baseFs.js';
+import { runStatement } from '../redis/statements.js';
+import { redisStoreSchema } from '../redis/types.js';
+import { derivePid } from '../logging/syslog.js';
+import { formatRedisMutationLine } from '../logging/redisLog.js';
+import { appendMachineLog } from '../patches/appendMachineLog.js';
+import { asGameTime } from '../types.js';
+import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
+import type { PatchRow } from '../patches/upsertPatch.js';
 
 export type RedisStatementDeps = ServiceHostLookup & {
   readonly nonceStore: NonceStore;

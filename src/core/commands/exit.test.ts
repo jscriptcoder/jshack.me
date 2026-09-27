@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { mockCommandEnv, mockSession } from '../../test/factories/commandEnv';
-import type { CommandResult, Session } from './types';
-import { exit } from './exit';
+import { mockCommandEnv, mockSession } from '../../test/factories/commandEnv.js';
+import type { CommandResult, Session } from './types.js';
+import { exit } from './exit.js';
 
 /**
  * `exit` is the inverse of `su`: it drops the active (elevated/hopped) session,

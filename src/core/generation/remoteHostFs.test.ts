@@ -1,27 +1,27 @@
 import { describe, expect, it } from 'vitest';
-import { lanZoneName } from '../network/resolveName';
-import { buildDeepHostFs } from './deepHostFs';
-import { buildRemoteHostFs, hostServices, npcUsername } from './remoteHostFs';
-import { asAbsPath } from '../types';
-import { md5 } from './md5';
-import { softwareVersionsIn } from '../../test/worldContent';
-import { DEFAULT_WORDLIST } from '../wordlist/defaultWordlist';
-import { resolveWebPath } from '../network/http';
-import { createFsView } from '../filesystem/fsView';
+import { lanZoneName } from '../network/resolveName.js';
+import { buildDeepHostFs } from './deepHostFs.js';
+import { buildRemoteHostFs, hostServices, npcUsername } from './remoteHostFs.js';
+import { asAbsPath } from '../types.js';
+import { md5 } from './md5.js';
+import { softwareVersionsIn } from '../../test/worldContent.js';
+import { DEFAULT_WORDLIST } from '../wordlist/defaultWordlist.js';
+import { resolveWebPath } from '../network/http.js';
+import { createFsView } from '../filesystem/fsView.js';
 import {
   formatListenerContent,
   PIDFILE_PERMISSIONS,
   readOpenPorts,
   readRunningProcesses,
   type Listener,
-} from '../services/pidfile';
-import { BACKDOOR_PORTS } from './remoteHostFs';
-import { parseMysqlDatabase, type MysqlDatabase } from '../mysql/types';
-import { parseRedisStore, type RedisStore } from '../redis/types';
-import { filterTreeToAllowlist } from '../patches/readFilter';
-import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import { generateHomeLan, type LanHost } from './generateHomeLan';
-import type { Directory, FileEntry, FileNode } from '../filesystem/types';
+} from '../services/pidfile.js';
+import { BACKDOOR_PORTS } from './remoteHostFs.js';
+import { parseMysqlDatabase, type MysqlDatabase } from '../mysql/types.js';
+import { parseRedisStore, type RedisStore } from '../redis/types.js';
+import { filterTreeToAllowlist } from '../patches/readFilter.js';
+import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
+import { generateHomeLan, type LanHost } from './generateHomeLan.js';
+import type { Directory, FileEntry, FileNode } from '../filesystem/types.js';
 
 /**
  * `buildRemoteHostFs` is the pure per-host filesystem generator for the LAN's

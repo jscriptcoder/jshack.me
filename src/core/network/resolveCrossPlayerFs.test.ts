@@ -5,13 +5,13 @@ import {
   type OccupantWorkstation,
   type ResolveCrossPlayerFsDeps,
   type OwnerPatchRow,
-} from './resolveCrossPlayerFs';
-import { deserializeTree } from '../filesystem/treeCodec';
-import type { Directory, FileNode } from '../filesystem/types';
-import { signRequest } from '../signedRequest/sign';
-import { generateIdentity } from '../identity/identity';
-import { computeApGatewayId } from '../identity/router';
-import type { NonceStore } from '../signedRequest/nonceStore';
+} from './resolveCrossPlayerFs.js';
+import { deserializeTree } from '../filesystem/treeCodec.js';
+import type { Directory, FileNode } from '../filesystem/types.js';
+import { signRequest } from '../signedRequest/sign.js';
+import { generateIdentity } from '../identity/identity.js';
+import { computeApGatewayId } from '../identity/router.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 /**
  * `handleResolveCrossPlayerFs` is the cross-player READ (Story 2, slices 2c+2d):

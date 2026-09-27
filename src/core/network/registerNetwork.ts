@@ -20,10 +20,10 @@
  */
 
 import { z } from 'zod';
-import { verifySignedRequest } from '../signedRequest/verify';
-import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
-import { lanAddressFor } from './lanAddress';
-import type { NonceStore } from '../signedRequest/nonceStore';
+import { verifySignedRequest } from '../signedRequest/verify.js';
+import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
+import { lanAddressFor } from './lanAddress.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 /** An occupancy row: the join records the player as a live occupant of the ESSID's
  *  LAN, keyed `(essid, owner_key)` so every occupant of a shared AP coexists. This is

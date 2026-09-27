@@ -31,7 +31,7 @@
  * or an example response re-flowed into a paragraph no longer says what it said.
  */
 
-import { resolveHref } from '../core/network/http';
+import { resolveHref } from '../core/network/http.js';
 
 /** Where a form sends what was typed into it. `id` tells the forms on one page
  *  apart, so a submit sends its own form's fields and nobody else's. Only a GET form

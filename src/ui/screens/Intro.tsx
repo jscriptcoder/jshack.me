@@ -19,7 +19,7 @@ import {
   validateMachineName,
   validatePassword,
   validateUsername,
-} from '../../core/gameConfig/gameConfig';
+} from '../../core/gameConfig/gameConfig.js';
 
 export type IntroProps = {
   readonly onSubmit: (config: GameConfig) => void;

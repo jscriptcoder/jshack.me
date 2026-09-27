@@ -18,9 +18,9 @@
  * generated machine in the world, and every player's until they install one.
  */
 
-import { parseInputDenies, readRulesV4 } from './iptablesRules';
-import { readOpenPorts, type OpenPort } from '../services/pidfile';
-import type { Directory } from '../filesystem/types';
+import { parseInputDenies, readRulesV4 } from './iptablesRules.js';
+import { readOpenPorts, type OpenPort } from '../services/pidfile.js';
+import type { Directory } from '../filesystem/types.js';
 
 export const portsOpenToNetwork = (
   hostFs: Directory,

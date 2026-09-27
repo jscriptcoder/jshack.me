@@ -1,16 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { ping } from './ping';
-import type { CommandResult } from './types';
+import { ping } from './ping.js';
+import type { CommandResult } from './types.js';
 import {
   mockCommandEnv,
   mockIdentity,
   mockNetworkView,
   mockNetworkViewFromConnectivity,
-} from '../../test/factories/commandEnv';
-import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces';
-import { assignHomeNetwork } from '../network/homeNetwork';
-import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
-import { asPlayerKeyHex } from '../types';
+} from '../../test/factories/commandEnv.js';
+import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces.js';
+import { assignHomeNetwork } from '../network/homeNetwork.js';
+import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
+import { asPlayerKeyHex } from '../types.js';
 
 /**
  * `ping <host>` — the cheapest question a player can ask the network: is

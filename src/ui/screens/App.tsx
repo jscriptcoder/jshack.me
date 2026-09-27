@@ -20,11 +20,11 @@ import {
   type GameConfigStorage,
   getStoredGameConfig,
   storeGameConfig,
-} from '../../core/gameConfig/gameConfig';
-import { resolveBootCheck, startGame } from '../state';
-import { Intro } from './Intro';
-import { BootScreen } from './BootScreen';
-import { Terminal } from './Terminal';
+} from '../../core/gameConfig/gameConfig.js';
+import { resolveBootCheck, startGame } from '../state.js';
+import { Intro } from './Intro.js';
+import { BootScreen } from './BootScreen.js';
+import { Terminal } from './Terminal.js';
 
 export type AppProps = {
   readonly storage: GameConfigStorage;

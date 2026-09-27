@@ -2,17 +2,17 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   resolveInnerGatewayTarget,
   type InnerGatewayTargetDeps,
-} from './resolveInnerGatewayTarget';
-import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
-import { crackableEssidPool } from '../generation/generateWifi';
-import { generateDeepLayer, seedNetworkDepth } from '../generation/generateDeepLayer';
-import { buildDeepHostFs } from '../generation/deepHostFs';
-import { computeDeepGatewayId, computeInnerGatewayId } from '../identity/router';
-import { hostMachineId } from '../generation/remoteHostId';
-import { accountIn } from '../sessions/passwdAccount';
-import { formatPidfileContent, pidfilePath, readOpenPorts } from '../services/pidfile';
-import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import type { OwnerPatchRow } from './materializeMachineFs';
+} from './resolveInnerGatewayTarget.js';
+import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
+import { crackableEssidPool } from '../generation/generateWifi.js';
+import { generateDeepLayer, seedNetworkDepth } from '../generation/generateDeepLayer.js';
+import { buildDeepHostFs } from '../generation/deepHostFs.js';
+import { computeDeepGatewayId, computeInnerGatewayId } from '../identity/router.js';
+import { hostMachineId } from '../generation/remoteHostId.js';
+import { accountIn } from '../sessions/passwdAccount.js';
+import { formatPidfileContent, pidfilePath, readOpenPorts } from '../services/pidfile.js';
+import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
+import type { OwnerPatchRow } from './materializeMachineFs.js';
 
 /**
  * The chain walk replays and boot-gates every GATEWAY hop — it has to, to read the

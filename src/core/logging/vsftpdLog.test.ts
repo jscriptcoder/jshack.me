@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { asAbsPath, asGameTime } from '../types';
+import { asAbsPath, asGameTime } from '../types.js';
 import {
   VSFTPD_LOG_OWNER,
   VSFTPD_LOG_PATH,
   formatVsftpdConnectLine,
   formatVsftpdLoginLine,
   formatVsftpdTransferLine,
-} from './vsftpdLog';
+} from './vsftpdLog.js';
 
 /**
  * vsftpd-log (`/var/log/vsftpd.log`) line formatting — the FTP daemon's own file,

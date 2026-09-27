@@ -25,17 +25,17 @@
  */
 
 import { z } from 'zod';
-import { verifySignedRequest } from '../signedRequest/verify';
-import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
-import { materializeWorkstationFs, type OwnerPatchRow } from './materializeWorkstationFs';
-import { materializeApGatewayFs } from './materializeRouterFs';
-import { computeApGatewayId } from '../identity/router';
-import { filterTreeForRead, filterTreeToAllowlist } from '../patches/readFilter';
-import { serializeTree } from '../filesystem/treeCodec';
-import type { UserType } from '../types';
-import type { NonceStore } from '../signedRequest/nonceStore';
+import { verifySignedRequest } from '../signedRequest/verify.js';
+import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
+import { materializeWorkstationFs, type OwnerPatchRow } from './materializeWorkstationFs.js';
+import { materializeApGatewayFs } from './materializeRouterFs.js';
+import { computeApGatewayId } from '../identity/router.js';
+import { filterTreeForRead, filterTreeToAllowlist } from '../patches/readFilter.js';
+import { serializeTree } from '../filesystem/treeCodec.js';
+import type { UserType } from '../types.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
 
-export type { OwnerPatchRow } from './materializeWorkstationFs';
+export type { OwnerPatchRow } from './materializeWorkstationFs.js';
 
 /** The occupancy fields needed to reconstruct the owner's WORKSTATION (decision D2):
  *  whose box it is (guest-password + world seed) and the player-chosen identity the

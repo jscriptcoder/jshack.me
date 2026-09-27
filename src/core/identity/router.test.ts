@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { computeApGatewayId, computeDeepGatewayId, computeInnerGatewayId } from './router';
-import { computeWorkstationId, isOwnWorkstation, parseWorkstationId } from './workstation';
-import { hostMachineId } from '../generation/remoteHostId';
-import type { LanHost } from '../generation/generateHomeLan';
+import { computeApGatewayId, computeDeepGatewayId, computeInnerGatewayId } from './router.js';
+import { computeWorkstationId, isOwnWorkstation, parseWorkstationId } from './workstation.js';
+import { hostMachineId } from '../generation/remoteHostId.js';
+import type { LanHost } from '../generation/generateHomeLan.js';
 
 // A representative Ed25519 pubkey hex (64 chars). Any fixed value works — the
 // contract is determinism + DISTINCTNESS, not a specific key.

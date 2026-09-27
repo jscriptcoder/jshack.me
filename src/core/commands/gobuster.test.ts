@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { gobuster } from './gobuster';
-import { commandRegistry } from './registry';
+import { gobuster } from './gobuster.js';
+import { commandRegistry } from './registry.js';
 import type {
   AccessLogFetch,
   CommandEnv,
   CommandResult,
   PublicSweepParams,
   PublicSweepResult,
-} from './types';
+} from './types.js';
 import {
   mockCommandEnv,
   mockFsViewFromTree,
@@ -16,21 +16,21 @@ import {
   mockNetworkViewFromConnectivity,
   mockRemoteApi,
   mockSession,
-} from '../../test/factories/commandEnv';
-import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
-import { buildRemoteHostFs } from '../generation/remoteHostFs';
-import { DEFAULT_DIRLIST, DIRLIST_PATH } from '../network/defaultDirlist';
-import { applyPatches, type Patch } from '../filesystem/applyPatches';
-import type { Directory, FilePermissions } from '../filesystem/types';
-import { buildWorkstationBaseFs } from '../generation/workstationFs';
-import { binaryStub } from '../generation/binaries';
-import { formatPidfileContent, readOpenPorts } from '../services/pidfile';
-import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces';
-import { assignHomeNetwork } from '../network/homeNetwork';
-import { HTTP_DEFAULT_PORT } from '../network/http';
-import { lanZoneName } from '../network/resolveName';
-import { asAbsPath, asMachineId, asPlayerKeyHex } from '../types';
+} from '../../test/factories/commandEnv.js';
+import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
+import { buildRemoteHostFs } from '../generation/remoteHostFs.js';
+import { DEFAULT_DIRLIST, DIRLIST_PATH } from '../network/defaultDirlist.js';
+import { applyPatches, type Patch } from '../filesystem/applyPatches.js';
+import type { Directory, FilePermissions } from '../filesystem/types.js';
+import { buildWorkstationBaseFs } from '../generation/workstationFs.js';
+import { binaryStub } from '../generation/binaries.js';
+import { formatPidfileContent, readOpenPorts } from '../services/pidfile.js';
+import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
+import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces.js';
+import { assignHomeNetwork } from '../network/homeNetwork.js';
+import { HTTP_DEFAULT_PORT } from '../network/http.js';
+import { lanZoneName } from '../network/resolveName.js';
+import { asAbsPath, asMachineId, asPlayerKeyHex } from '../types.js';
 
 /**
  * `gobuster <url>` walks a list of paths against a web server and reports the ones

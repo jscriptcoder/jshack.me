@@ -1,40 +1,40 @@
 import { describe, expect, it, vi } from 'vitest';
-import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter';
+import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
 import {
   handleHydraCrackInnerGateway,
   type HydraCrackInnerGatewayDeps,
-} from './hydraCrackInnerGateway';
-import { signRequest } from '../signedRequest/sign';
-import { generateIdentity } from '../identity/identity';
-import { computeWorkstationId } from '../identity/workstation';
-import { computeDeepGatewayId, computeInnerGatewayId } from '../identity/router';
-import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
-import { crackableEssidPool } from '../generation/generateWifi';
-import { generateDeepLayer, seedNetworkDepth } from '../generation/generateDeepLayer';
-import { buildDeepHostFs } from '../generation/deepHostFs';
-import { seedDeepGatewayAdminPw, seedInnerGatewayAdminPw } from '../generation/routerFs';
-import { accountIn } from './passwdAccount';
-import { md5 } from '../generation/md5';
-import { pidfilePath } from '../services/pidfile';
-import { DATADIR_PATH } from '../redis/datadir';
-import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import { ALL_GENERATED_PASSWORDS } from '../generation/passwordPools';
-import { formatWordlist, WORDLIST_PATH } from '../wordlist/defaultWordlist';
+} from './hydraCrackInnerGateway.js';
+import { signRequest } from '../signedRequest/sign.js';
+import { generateIdentity } from '../identity/identity.js';
+import { computeWorkstationId } from '../identity/workstation.js';
+import { computeDeepGatewayId, computeInnerGatewayId } from '../identity/router.js';
+import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
+import { crackableEssidPool } from '../generation/generateWifi.js';
+import { generateDeepLayer, seedNetworkDepth } from '../generation/generateDeepLayer.js';
+import { buildDeepHostFs } from '../generation/deepHostFs.js';
+import { seedDeepGatewayAdminPw, seedInnerGatewayAdminPw } from '../generation/routerFs.js';
+import { accountIn } from './passwdAccount.js';
+import { md5 } from '../generation/md5.js';
+import { pidfilePath } from '../services/pidfile.js';
+import { DATADIR_PATH } from '../redis/datadir.js';
+import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
+import { ALL_GENERATED_PASSWORDS } from '../generation/passwordPools.js';
+import { formatWordlist, WORDLIST_PATH } from '../wordlist/defaultWordlist.js';
 import {
   AUTH_LOG_OWNER,
   AUTH_LOG_PATH,
   AUTH_LOG_PERMISSIONS,
   formatSshdAuthLine,
-} from '../logging/authLog';
-import { derivePid } from '../logging/syslog';
-import { asAbsPath, asGameTime } from '../types';
-import { hostMachineId } from '../generation/remoteHostId';
-import type { OwnerPatchRow } from '../network/materializeMachineFs';
-import type { MachineLogReadResult } from '../patches/appendMachineLog';
-import type { ListPathPatchesResult, PathPatchRow } from '../patches/upsertPatch';
-import type { NonceStore } from '../signedRequest/nonceStore';
-import { deepStoreFixture, type DeepStoreFixture } from '../../test/factories/lanStore';
-import type { Directory } from '../filesystem/types';
+} from '../logging/authLog.js';
+import { derivePid } from '../logging/syslog.js';
+import { asAbsPath, asGameTime } from '../types.js';
+import { hostMachineId } from '../generation/remoteHostId.js';
+import type { OwnerPatchRow } from '../network/materializeMachineFs.js';
+import type { MachineLogReadResult } from '../patches/appendMachineLog.js';
+import type { ListPathPatchesResult, PathPatchRow } from '../patches/upsertPatch.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
+import { deepStoreFixture, type DeepStoreFixture } from '../../test/factories/lanStore.js';
+import type { Directory } from '../filesystem/types.js';
 
 /**
  * `handleHydraCrackInnerGateway` is hydra pointed THROUGH a NAT forward on an inner

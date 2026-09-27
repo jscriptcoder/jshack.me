@@ -15,18 +15,18 @@
  */
 
 import { z } from 'zod';
-import { verifySignedRequest } from '../signedRequest/verify';
-import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
-import { authorizeMachineAccess, type FindActiveSession } from './authorizeMachineAccess';
-import { contentHash } from './contentHash';
-import { orderPatchesForReplay } from './orderPatchesForReplay';
+import { verifySignedRequest } from '../signedRequest/verify.js';
+import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
+import { authorizeMachineAccess, type FindActiveSession } from './authorizeMachineAccess.js';
+import { contentHash } from './contentHash.js';
+import { orderPatchesForReplay } from './orderPatchesForReplay.js';
 import {
   enforceRemoteWriteL2,
   type FindOccupantWorkstationByMachineId,
   type ListMachinePatches,
-} from './remoteWritePermission';
-import type { NonceStore } from '../signedRequest/nonceStore';
-import type { UserType } from '../types';
+} from './remoteWritePermission.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
+import type { UserType } from '../types.js';
 
 export type FilePermissionsRow = {
   readonly read: readonly UserType[];

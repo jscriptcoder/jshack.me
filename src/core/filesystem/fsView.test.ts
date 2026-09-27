@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { createFsView } from './fsView';
-import { buildDirectory, buildFile } from '../../test/factories/filesystem';
-import { asAbsPath } from '../types';
+import { createFsView } from './fsView.js';
+import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
+import { asAbsPath } from '../types.js';
 
 /** A tree with a user-readable file, a root-only file, and a root-only dir. */
 const tree = () =>

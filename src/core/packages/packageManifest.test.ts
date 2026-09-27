@@ -1,23 +1,23 @@
 import { describe, expect, it } from 'vitest';
-import { buildWorkstationBaseFsFromIdentity } from '../generation/workstationFs';
-import { buildRemoteHostFs, hostServices } from '../generation/remoteHostFs';
-import { buildDeepHostFs } from '../generation/deepHostFs';
+import { buildWorkstationBaseFsFromIdentity } from '../generation/workstationFs.js';
+import { buildRemoteHostFs, hostServices } from '../generation/remoteHostFs.js';
+import { buildDeepHostFs } from '../generation/deepHostFs.js';
 import {
   buildApGatewayBaseFs,
   buildDeepGatewayBaseFs,
   buildDeepSwitchBaseFs,
   buildInnerGatewayBaseFs,
   buildSwitchBaseFs,
-} from '../generation/routerFs';
-import { SYSTEM_LIBRARIES } from '../generation/libraries';
-import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import { readOpenPorts } from '../services/pidfile';
-import { filterTreeForRead, filterTreeToAllowlist } from '../patches/readFilter';
-import { buildEntry, DPKG_STATUS_PATH, formatDpkgStatus, parseDpkgVersions } from './dpkgStatus';
-import { withPackageManifest } from './packageManifest';
-import { displayVersion, PACKAGE_TEMPLATES, startingVersionOf } from './packageVersions';
-import type { LanHost } from '../generation/generateHomeLan';
-import type { Directory, FileNode } from '../filesystem/types';
+} from '../generation/routerFs.js';
+import { SYSTEM_LIBRARIES } from '../generation/libraries.js';
+import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
+import { readOpenPorts } from '../services/pidfile.js';
+import { filterTreeForRead, filterTreeToAllowlist } from '../patches/readFilter.js';
+import { buildEntry, DPKG_STATUS_PATH, formatDpkgStatus, parseDpkgVersions } from './dpkgStatus.js';
+import { withPackageManifest } from './packageManifest.js';
+import { displayVersion, PACKAGE_TEMPLATES, startingVersionOf } from './packageVersions.js';
+import type { LanHost } from '../generation/generateHomeLan.js';
+import type { Directory, FileNode } from '../filesystem/types.js';
 
 /**
  * `/var/lib/dpkg/status` is the single source of truth for what software a box

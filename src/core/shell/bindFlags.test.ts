@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bindFlags, type FlagSpec } from './bindFlags';
+import { bindFlags, type FlagSpec } from './bindFlags.js';
 
 /** Slice 1: boolean flags + strict unknown-flag errors. String flags arrive
  *  in Slice 2, stacking in Slice 4, the `--` sentinel in Slice 5. */

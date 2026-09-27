@@ -1,31 +1,31 @@
 import { describe, expect, it } from 'vitest';
-import { buildRemoteHostFs, npcUsername } from './remoteHostFs';
-import { phoneModel } from './share';
+import { buildRemoteHostFs, npcUsername } from './remoteHostFs.js';
+import { phoneModel } from './share.js';
 import {
   PERSONAL_DOWNLOADS,
   PHONE_NOTES,
   PLACE_DOWNLOADS,
   TABLET_MODELS,
-} from './pools/phoneFiles';
-import { ALL_GENERATED_PASSWORDS } from './passwordPools';
-import { createPatchApi } from '../../adapters/patchApi';
-import { generateIdentity } from '../identity/identity';
-import { computeWorkstationId } from '../identity/workstation';
-import { signedEnvelopeSchema } from '../signedRequest/types';
-import { peopleOn } from './networkMail';
-import { networkPersona } from './persona';
-import { WORLD_EPOCH } from '../cve/worldClock';
-import { createFsView } from '../filesystem/fsView';
-import { asAbsPath, asMachineId } from '../types';
-import type { Directory } from '../filesystem/types';
-import { filesUnder, lanBoxes, serialise, softwareVersionsIn } from '../../test/worldContent';
+} from './pools/phoneFiles.js';
+import { ALL_GENERATED_PASSWORDS } from './passwordPools.js';
+import { createPatchApi } from '../../adapters/patchApi.js';
+import { generateIdentity } from '../identity/identity.js';
+import { computeWorkstationId } from '../identity/workstation.js';
+import { signedEnvelopeSchema } from '../signedRequest/types.js';
+import { peopleOn } from './networkMail.js';
+import { networkPersona } from './persona.js';
+import { WORLD_EPOCH } from '../cve/worldClock.js';
+import { createFsView } from '../filesystem/fsView.js';
+import { asAbsPath, asMachineId } from '../types.js';
+import type { Directory } from '../filesystem/types.js';
+import { filesUnder, lanBoxes, serialise, softwareVersionsIn } from '../../test/worldContent.js';
 import {
   readableLinesOf,
   syntheticBoxes,
   syntheticLanBoxes,
   worldBoxesNamed,
   type BuiltBox,
-} from '../../test/deviceBoxes';
+} from '../../test/deviceBoxes.js';
 
 /**
  * A phone is not somebody's Linux account: what its person left on it is what a phone

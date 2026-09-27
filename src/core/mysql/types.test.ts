@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseMysqlDatabase } from './types';
+import { parseMysqlDatabase } from './types.js';
 
 /**
  * Reading a datadir back is a TRUST BOUNDARY, not an internal hand-off. The file

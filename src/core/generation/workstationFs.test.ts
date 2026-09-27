@@ -1,23 +1,23 @@
 import { describe, expect, it } from 'vitest';
-import type { GameConfig } from '../gameConfig/gameConfig';
-import type { Directory, FileEntry, FileNode } from '../filesystem/types';
-import { canRead, canWrite } from '../filesystem/walker';
-import { resolveWebPath, WEB_ROOT } from '../network/http';
+import type { GameConfig } from '../gameConfig/gameConfig.js';
+import type { Directory, FileEntry, FileNode } from '../filesystem/types.js';
+import { canRead, canWrite } from '../filesystem/walker.js';
+import { resolveWebPath, WEB_ROOT } from '../network/http.js';
 import {
   buildWorkstationBaseFs,
   buildWorkstationBaseFsFromIdentity,
   workstationGuestPassword,
-} from './workstationFs';
+} from './workstationFs.js';
 import {
   LOCALHOST_PREINSTALLED_TOOLS,
   SERVICE_CONTROL_TOOLS,
   RESTRICTED_EXECUTE,
   SYSTEM_DAEMON_NAMES,
   SYSTEM_UTILITY_NAMES,
-} from './binaries';
-import { md5 } from './md5';
-import { CRACKABLE_PASSWORDS } from './passwordPools';
-import { DEFAULT_WORDLIST } from '../wordlist/defaultWordlist';
+} from './binaries.js';
+import { md5 } from './md5.js';
+import { CRACKABLE_PASSWORDS } from './passwordPools.js';
+import { DEFAULT_WORDLIST } from '../wordlist/defaultWordlist.js';
 
 /**
  * Story 1: the player's own-workstation base filesystem is generated

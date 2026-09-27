@@ -18,19 +18,19 @@
  * already creates them.
  */
 
-import { applyPatches } from '../filesystem/applyPatches';
-import { SYSTEM_LIBRARIES } from '../generation/libraries';
-import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import { daemonName } from '../services/pidfile';
+import { applyPatches } from '../filesystem/applyPatches.js';
+import { SYSTEM_LIBRARIES } from '../generation/libraries.js';
+import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
+import { daemonName } from '../services/pidfile.js';
 import {
   buildEntry,
   DPKG_STATUS_OWNER,
   DPKG_STATUS_PATH,
   DPKG_STATUS_PERMISSIONS,
   formatDpkgStatus,
-} from './dpkgStatus';
-import { firmwarePackageOf, startingVersionOf, type FirmwareVendor } from './packageVersions';
-import type { Directory } from '../filesystem/types';
+} from './dpkgStatus.js';
+import { firmwarePackageOf, startingVersionOf, type FirmwareVendor } from './packageVersions.js';
+import type { Directory } from '../filesystem/types.js';
 
 /** Where a box keeps the daemons it can run. */
 const SBIN_SEGMENTS = ['usr', 'sbin'] as const;

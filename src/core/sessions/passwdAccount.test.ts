@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { accountIn, accountsIn, withAccountHash } from './passwdAccount';
-import { buildWorkstationBaseFsFromIdentity } from '../generation/workstationFs';
-import { dir, file, PASSWD_FILE, TRAVERSABLE_DIR } from '../generation/baseFs';
-import { md5 } from '../generation/md5';
+import { accountIn, accountsIn, withAccountHash } from './passwdAccount.js';
+import { buildWorkstationBaseFsFromIdentity } from '../generation/workstationFs.js';
+import { dir, file, PASSWD_FILE, TRAVERSABLE_DIR } from '../generation/baseFs.js';
+import { md5 } from '../generation/md5.js';
 
 /**
  * `accountIn` is the shared credential-reader behind BOTH ssh auth gates, so its

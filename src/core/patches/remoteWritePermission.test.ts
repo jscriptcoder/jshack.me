@@ -3,14 +3,14 @@ import {
   buildOccupantWorkstationFs,
   enforceRemoteWriteL2,
   type OccupantWorkstation,
-} from './remoteWritePermission';
-import { generateIdentity } from '../identity/identity';
-import { computeDeepGatewayId, computeInnerGatewayId, computeApGatewayId } from '../identity/router';
-import { generateHomeLan } from '../generation/generateHomeLan';
-import { crackableEssidPool } from '../generation/generateWifi';
-import { generateDeepLayer, seedNetworkDepth } from '../generation/generateDeepLayer';
-import { md5 } from '../generation/md5';
-import type { Directory, FileNode } from '../filesystem/types';
+} from './remoteWritePermission.js';
+import { generateIdentity } from '../identity/identity.js';
+import { computeDeepGatewayId, computeInnerGatewayId, computeApGatewayId } from '../identity/router.js';
+import { generateHomeLan } from '../generation/generateHomeLan.js';
+import { crackableEssidPool } from '../generation/generateWifi.js';
+import { generateDeepLayer, seedNetworkDepth } from '../generation/generateDeepLayer.js';
+import { md5 } from '../generation/md5.js';
+import type { Directory, FileNode } from '../filesystem/types.js';
 
 /**
  * `buildOccupantWorkstationFs` rebuilds a registered FOREIGN workstation's base

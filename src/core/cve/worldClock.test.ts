@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { asEpochMs } from '../types';
-import { gameDayAt, WORLD_EPOCH } from './worldClock';
+import { asEpochMs } from '../types.js';
+import { gameDayAt, WORLD_EPOCH } from './worldClock.js';
 
 const DAY_MS = 86_400_000;
 const at = (offsetMs: number) => asEpochMs(WORLD_EPOCH + offsetMs);

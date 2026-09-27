@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { ancestorPaths, basename, dirname, normalize, resolveAbsPath } from './path';
-import { asAbsPath } from '../types';
+import { ancestorPaths, basename, dirname, normalize, resolveAbsPath } from './path.js';
+import { asAbsPath } from '../types.js';
 
 describe('normalize', () => {
   it('collapses consecutive slashes', () => {

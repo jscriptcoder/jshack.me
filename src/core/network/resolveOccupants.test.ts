@@ -3,12 +3,12 @@ import {
   handleResolveOccupants,
   type OccupantListRow,
   type ResolveOccupantsDeps,
-} from './resolveOccupants';
-import { signRequest } from '../signedRequest/sign';
-import { generateIdentity } from '../identity/identity';
-import { assignHomeNetwork } from './homeNetwork';
-import type { LanLeaseRow } from './lanAddress';
-import type { NonceStore } from '../signedRequest/nonceStore';
+} from './resolveOccupants.js';
+import { signRequest } from '../signedRequest/sign.js';
+import { generateIdentity } from '../identity/identity.js';
+import { assignHomeNetwork } from './homeNetwork.js';
+import type { LanLeaseRow } from './lanAddress.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 /**
  * `handleResolveOccupants` answers "who else is on ESSID X?" to a VERIFIED occupant

@@ -12,9 +12,9 @@
  */
 
 import { z } from 'zod';
-import { verifySignedRequest } from '../signedRequest/verify';
-import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
-import type { NonceStore } from '../signedRequest/nonceStore';
+import { verifySignedRequest } from '../signedRequest/verify.js';
+import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 /** Why a session stopped. `user_exit` is the player closing it themselves —
  *  `exit` from a hop, `quit` from an ftp prompt. `abandoned` is a boot finding no

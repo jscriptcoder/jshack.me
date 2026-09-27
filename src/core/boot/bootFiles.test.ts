@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { canBoot } from './bootFiles';
-import { buildDirectory, buildFile } from '../../test/factories/filesystem';
+import { canBoot } from './bootFiles.js';
+import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
 
 /**
  * `canBoot` is the single pure authority for "can this machine come up?": a box

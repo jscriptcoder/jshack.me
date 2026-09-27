@@ -4,9 +4,9 @@ import {
   BOOT_ID_PATH,
   BOOT_ID_PERMISSIONS,
   readBootId,
-} from './bootId';
-import { canRead, canWrite } from '../filesystem/walker';
-import { buildDirectory, buildFile } from '../../test/factories/filesystem';
+} from './bootId.js';
+import { canRead, canWrite } from '../filesystem/walker.js';
+import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
 
 /**
  * The marker a reboot leaves on a box. Reading it is what tells a shell already

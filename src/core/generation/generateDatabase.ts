@@ -16,16 +16,16 @@
  * nothing toward its database, and cracking a database buys nothing toward its box.
  */
 
-import { createPrng } from './prng';
-import { md5 } from './md5';
-import { CRACK_CHANCE, drawPassword } from './passwordPools';
-import { usernamePool } from './pools/usernames';
-import { generateHomeLan, isOnHomeLan, type LanHost } from './generateHomeLan';
-import { npcUsername } from './remoteHostFs';
-import { buildApplication } from './databaseApp';
-import { MYSQL_USERNAMES } from './pools/database';
-import type { DrawnRole } from './machineRole';
-import type { MysqlCredential, MysqlDatabase } from '../mysql/types';
+import { createPrng } from './prng.js';
+import { md5 } from './md5.js';
+import { CRACK_CHANCE, drawPassword } from './passwordPools.js';
+import { usernamePool } from './pools/usernames.js';
+import { generateHomeLan, isOnHomeLan, type LanHost } from './generateHomeLan.js';
+import { npcUsername } from './remoteHostFs.js';
+import { buildApplication } from './databaseApp.js';
+import { MYSQL_USERNAMES } from './pools/database.js';
+import type { DrawnRole } from './machineRole.js';
+import type { MysqlCredential, MysqlDatabase } from '../mysql/types.js';
 
 /** How many logins an application on a deep box keeps beside the box's own account. */
 const DEEP_LOGIN_RANGE = { min: 4, max: 9 } as const;

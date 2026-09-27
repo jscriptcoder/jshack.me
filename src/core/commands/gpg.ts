@@ -21,11 +21,11 @@ import {
   type CommandResult,
   type FsReadResult,
   type TerminalLine,
-} from './types';
-import { dirname, resolveAbsPath } from '../filesystem/path';
-import { asAbsPath } from '../types';
-import { md5 } from '../generation/md5';
-import { splitContentLines } from './contentHelpers';
+} from './types.js';
+import { dirname, resolveAbsPath } from '../filesystem/path.js';
+import { asAbsPath } from '../types.js';
+import { md5 } from '../generation/md5.js';
+import { splitContentLines } from './contentHelpers.js';
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();

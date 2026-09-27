@@ -25,37 +25,37 @@
  */
 
 import { z } from 'zod';
-import { verifySignedRequest } from '../signedRequest/verify';
-import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
-import { md5 } from '../generation/md5';
-import { accountIn } from './passwdAccount';
+import { verifySignedRequest } from '../signedRequest/verify.js';
+import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
+import { md5 } from '../generation/md5.js';
+import { accountIn } from './passwdAccount.js';
 import {
   resolvePublicTarget,
   type PublicTarget,
   type ResolvePublicTargetDeps,
-} from '../network/resolvePublicTarget';
-import { derivePid } from '../logging/syslog';
-import type { SweepLog } from '../services/serviceCatalog';
-import { standingVantage, type FindActiveSession } from '../patches/authorizeMachineAccess';
+} from '../network/resolvePublicTarget.js';
+import { derivePid } from '../logging/syslog.js';
+import type { SweepLog } from '../services/serviceCatalog.js';
+import { standingVantage, type FindActiveSession } from '../patches/authorizeMachineAccess.js';
 import {
   resolveVantageSourceIp,
   type FindHomeNetworkByOwnerKey,
   type FindPublicIpByEssid,
-} from '../logging/crossPlayerSourceIp';
+} from '../logging/crossPlayerSourceIp.js';
 import {
   appendMachineLog,
   type MachineLogReadQuery,
   type MachineLogReadResult,
-} from '../patches/appendMachineLog';
-import { asGameTime } from '../types';
-import type { PatchRow } from '../patches/upsertPatch';
+} from '../patches/appendMachineLog.js';
+import { asGameTime } from '../types.js';
+import type { PatchRow } from '../patches/upsertPatch.js';
 import {
   DOOR_KINDS,
   reachDoor,
   type AuthSessionRow,
   type HandlerResponse,
-} from './authCreateSession';
-import type { NonceStore } from '../signedRequest/nonceStore';
+} from './authCreateSession.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 export type AuthCreateSessionPublicDeps = ResolvePublicTargetDeps & {
   readonly nonceStore: NonceStore;

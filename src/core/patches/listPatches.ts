@@ -13,14 +13,14 @@
  */
 
 import { z } from 'zod';
-import { verifySignedRequest } from '../signedRequest/verify';
-import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
-import { authorizeMachineAccess, type FindActiveSession } from './authorizeMachineAccess';
-import { orderPatchesForReplay } from './orderPatchesForReplay';
-import type { NonceStore } from '../signedRequest/nonceStore';
-import type { PatchRow } from './upsertPatch';
+import { verifySignedRequest } from '../signedRequest/verify.js';
+import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
+import { authorizeMachineAccess, type FindActiveSession } from './authorizeMachineAccess.js';
+import { orderPatchesForReplay } from './orderPatchesForReplay.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
+import type { PatchRow } from './upsertPatch.js';
 
-export type { PatchRow } from './upsertPatch';
+export type { PatchRow } from './upsertPatch.js';
 
 /** A persisted patch row: the write shape plus the SERVER-stamped `updated_at`
  *  the chronological replay order is derived from. */

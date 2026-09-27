@@ -15,14 +15,14 @@
  * stream, so no other concern's draws move.
  */
 
-import type { FileEntry } from '../filesystem/types';
-import { file, SERVICE_CONFIG_FILE } from './baseFs';
-import { generateHomeLan, isOnHomeLan, type LanHost } from './generateHomeLan';
-import type { HostService } from './remoteHostFs';
-import type { DrawnRole } from './machineRole';
-import { networkPersona } from './persona';
-import { lanZoneName } from '../network/resolveName';
-import { createPrng, type Prng } from './prng';
+import type { FileEntry } from '../filesystem/types.js';
+import { file, SERVICE_CONFIG_FILE } from './baseFs.js';
+import { generateHomeLan, isOnHomeLan, type LanHost } from './generateHomeLan.js';
+import type { HostService } from './remoteHostFs.js';
+import type { DrawnRole } from './machineRole.js';
+import { networkPersona } from './persona.js';
+import { lanZoneName } from '../network/resolveName.js';
+import { createPrng, type Prng } from './prng.js';
 import {
   DEBIAN_CRONTAB_HEADER,
   DEBIAN_FSTAB_HEADER,
@@ -31,7 +31,7 @@ import {
   MOTD_TEMPLATES,
   NAME_SERVER_CRON_JOBS,
   SERVICE_CRON_JOBS,
-} from './pools/etcFiles';
+} from './pools/etcFiles.js';
 
 const HEX_DIGITS = '0123456789abcdef';
 

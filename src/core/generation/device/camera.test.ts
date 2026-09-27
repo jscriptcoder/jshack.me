@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { CAMERA_MODELS, CAMERA_RESOLUTIONS } from '../pools/devices';
-import { WORLD_EPOCH } from '../../cve/worldClock';
-import { createFsView } from '../../filesystem/fsView';
-import { asAbsPath } from '../../types';
-import type { Directory } from '../../filesystem/types';
-import { softwareVersionsIn } from '../../../test/worldContent';
+import { CAMERA_MODELS, CAMERA_RESOLUTIONS } from '../pools/devices.js';
+import { WORLD_EPOCH } from '../../cve/worldClock.js';
+import { createFsView } from '../../filesystem/fsView.js';
+import { asAbsPath } from '../../types.js';
+import type { Directory } from '../../filesystem/types.js';
+import { softwareVersionsIn } from '../../../test/worldContent.js';
 import {
   cameraNameOf,
   cameras,
@@ -18,7 +18,7 @@ import {
   servesHttp,
   worldBoxesNamed,
   type BuiltBox,
-} from '../../../test/deviceBoxes';
+} from '../../../test/deviceBoxes.js';
 
 const snapshotNamesOf = (tree: Directory): readonly string[] => {
   const listing = createFsView(tree, { userType: 'root' }).list(asAbsPath('/var/lib/motion/snapshots'));

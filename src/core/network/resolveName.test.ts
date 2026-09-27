@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
-import { generateHomeLan } from '../generation/generateHomeLan';
-import { publisherIp } from '../generation/publisher';
-import { addressForTarget, resolveLanName, resolveName } from './resolveName';
+import { generateHomeLan } from '../generation/generateHomeLan.js';
+import { publisherIp } from '../generation/publisher.js';
+import { addressForTarget, resolveLanName, resolveName } from './resolveName.js';
 
 /** A real ESSID from the crackable pool, so every name and address under test is
  *  one a player could actually be standing in front of. */

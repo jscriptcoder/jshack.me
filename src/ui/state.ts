@@ -19,7 +19,7 @@
  */
 
 import { createSignal } from 'solid-js';
-import { asAbsPath, type AbsPath, type MachineId, type UserType } from '../core/types';
+import { asAbsPath, type AbsPath, type MachineId, type UserType } from '../core/types.js';
 import type {
   PublicDoorAuthParams,
   Identity,
@@ -73,20 +73,20 @@ import type {
   ModeChange,
   AptDowngrade,
   TerminalLine,
-} from '../core/commands/types';
-import { DEFAULT_THEME_ID, type ThemeId } from '../core/theme/themes';
-import { applyTheme } from './theme/applyTheme';
-import { FRESH_TAB_FLAG } from './freshTab';
-import { readStoredTheme, storeTheme } from './themePersistence';
-import type { GameConfig } from '../core/gameConfig/gameConfig';
-import type { Directory } from '../core/filesystem/types';
-import { applyPatches, type Patch } from '../core/filesystem/applyPatches';
-import { canBoot, type BootCheck } from '../core/boot/bootFiles';
-import { readBootId } from '../core/boot/bootId';
-import { isCrossPlayerHop, needsFreshTree, resolveActiveRoot } from './activeRoot';
-import { isCrossPlayerWorkstation } from '../core/network/crossPlayerHop';
-import { createFsView } from '../core/filesystem/fsView';
-import { resolveAbsPath } from '../core/filesystem/path';
+} from '../core/commands/types.js';
+import { DEFAULT_THEME_ID, type ThemeId } from '../core/theme/themes.js';
+import { applyTheme } from './theme/applyTheme.js';
+import { FRESH_TAB_FLAG } from './freshTab.js';
+import { readStoredTheme, storeTheme } from './themePersistence.js';
+import type { GameConfig } from '../core/gameConfig/gameConfig.js';
+import type { Directory } from '../core/filesystem/types.js';
+import { applyPatches, type Patch } from '../core/filesystem/applyPatches.js';
+import { canBoot, type BootCheck } from '../core/boot/bootFiles.js';
+import { readBootId } from '../core/boot/bootId.js';
+import { isCrossPlayerHop, needsFreshTree, resolveActiveRoot } from './activeRoot.js';
+import { isCrossPlayerWorkstation } from '../core/network/crossPlayerHop.js';
+import { createFsView } from '../core/filesystem/fsView.js';
+import { resolveAbsPath } from '../core/filesystem/path.js';
 import {
   buildColdStartConnectivity,
   connectedWlan0,
@@ -94,23 +94,23 @@ import {
   type ConnectivityState,
   type NetworkInterface,
   type WirelessInterface,
-} from '../core/network/interfaces';
-import { parseHttpUrl } from '../core/network/http';
-import { fetchPageAcrossNetwork, fetchWebPage } from '../core/commands/webPage';
-import { isPublicIp } from '../core/generation/ip';
-import { addressForTarget } from '../core/network/resolveName';
-import type { FollowOutcome } from './screens/Lynx';
-import { generateWifi } from '../core/generation/generateWifi';
-import type { WifiNetwork } from '../core/network/wifi';
-import { carriedCommandRegistry, commandRegistry } from '../core/commands/registry';
-import { complete, type CompleteAdapter } from '../core/shell/complete';
-import { runCommandLine } from '../core/shell/runLine';
-import { commandEchoLine } from '../core/shell/prompt';
-import { buildCommandEnv, type BuildCommandEnvArgs } from './env';
-import { homeDirectory } from '../core/sessions/homeDirectory';
-import { getPlayerIdentity } from './identity';
-import { isOwnWorkstation, parseWorkstationId } from '../core/identity/workstation';
-import { launchVantage } from '../core/sessions/launchVantage';
+} from '../core/network/interfaces.js';
+import { parseHttpUrl } from '../core/network/http.js';
+import { fetchPageAcrossNetwork, fetchWebPage } from '../core/commands/webPage.js';
+import { isPublicIp } from '../core/generation/ip.js';
+import { addressForTarget } from '../core/network/resolveName.js';
+import type { FollowOutcome } from './screens/Lynx.js';
+import { generateWifi } from '../core/generation/generateWifi.js';
+import type { WifiNetwork } from '../core/network/wifi.js';
+import { carriedCommandRegistry, commandRegistry } from '../core/commands/registry.js';
+import { complete, type CompleteAdapter } from '../core/shell/complete.js';
+import { runCommandLine } from '../core/shell/runLine.js';
+import { commandEchoLine } from '../core/shell/prompt.js';
+import { buildCommandEnv, type BuildCommandEnvArgs } from './env.js';
+import { homeDirectory } from '../core/sessions/homeDirectory.js';
+import { getPlayerIdentity } from './identity.js';
+import { isOwnWorkstation, parseWorkstationId } from '../core/identity/workstation.js';
+import { launchVantage } from '../core/sessions/launchVantage.js';
 import {
   createPatchApi,
   fetchOwnPatches,
@@ -126,8 +126,8 @@ import {
   type FtpTransferRecord,
   type PackageDowngradeRecord,
   type PatchClientDeps,
-} from '../adapters/patchApi';
-import { createSyncChannel, type SyncChannel } from '../adapters/crossTabSync';
+} from '../adapters/patchApi.js';
+import { createSyncChannel, type SyncChannel } from '../adapters/crossTabSync.js';
 import {
   authCreateServerSession,
   authCreateServerSessionInnerGateway,
@@ -154,7 +154,7 @@ import {
   rebootServerMachine,
   listServerSessions,
   type SessionsClientDeps,
-} from '../adapters/sessionsApi';
+} from '../adapters/sessionsApi.js';
 import {
   fetchPublicPage,
   sweepPublicPaths,
@@ -168,17 +168,17 @@ import {
   resolvePublic,
   resolveInnerGateway,
   type NetworkClientDeps,
-} from '../adapters/networkApi';
-import type { OccupantProjection } from '../core/network/resolveOccupants';
-import type { HomeNetworkAssignment } from '../core/network/homeNetwork';
-import { lanLeaseCacheIn } from '../core/network/lanLeaseCache';
-import { type HistoryNav, idleNav, navigateDown, navigateUp } from '../core/shell/commandHistory';
-import { homePathFor, seedFs, seedSession } from './seed';
-import { rehydrateSessionStack } from './sessionRehydrate';
-import { runFtpLine } from '../core/commands/ftpShell';
-import { runMysqlLine } from '../core/commands/mysqlShell';
-import { runRedisLine } from '../core/commands/redisShell';
-import { persistConnection, restoreConnection } from './connectionPersistence';
+} from '../adapters/networkApi.js';
+import type { OccupantProjection } from '../core/network/resolveOccupants.js';
+import type { HomeNetworkAssignment } from '../core/network/homeNetwork.js';
+import { lanLeaseCacheIn } from '../core/network/lanLeaseCache.js';
+import { type HistoryNav, idleNav, navigateDown, navigateUp } from '../core/shell/commandHistory.js';
+import { homePathFor, seedFs, seedSession } from './seed.js';
+import { rehydrateSessionStack } from './sessionRehydrate.js';
+import { runFtpLine } from '../core/commands/ftpShell.js';
+import { runMysqlLine } from '../core/commands/mysqlShell.js';
+import { runRedisLine } from '../core/commands/redisShell.js';
+import { persistConnection, restoreConnection } from './connectionPersistence.js';
 
 // ---- Config-derived game state, assigned once by `startGame`. ----
 // `let` (not top-level `const`) precisely because these can't be built at

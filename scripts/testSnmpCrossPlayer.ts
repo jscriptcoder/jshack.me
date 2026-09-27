@@ -29,26 +29,26 @@
 //
 // Exits 0 when all checks pass, 1 on failure, 2 on missing env.
 
-import { apGatewayLogWriterKey } from '../src/core/logging/apGatewayLogWriter';
+import { apGatewayLogWriterKey } from '../src/core/logging/apGatewayLogWriter.js';
 import { createClient } from '@supabase/supabase-js';
-import { signRequest } from '../src/core/signedRequest/sign';
-import { generateIdentity } from '../src/core/identity/identity';
-import { computeWorkstationId } from '../src/core/identity/workstation';
-import { computeApGatewayId } from '../src/core/identity/router';
-import { seedApGatewayCommunity } from '../src/core/generation/routerFs';
-import { seedApGatewayHostname } from '../src/core/generation/gatewayHostname';
-import { workstationGuestPassword } from '../src/core/generation/workstationFs';
-import { generateHomeLan } from '../src/core/generation/generateHomeLan';
-import { lanAddressFor } from '../src/core/network/lanAddress';
-import { formatSnmpdState } from '../src/core/snmp/rwCommunity';
-import { formatPidfileContent, pidfilePath } from '../src/core/services/pidfile';
-import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog';
-import { WORDLIST_PATH, formatWordlist } from '../src/core/wordlist/defaultWordlist';
-import { SNMPD_LOG_PATH } from '../src/core/logging/snmpdLog';
-import { RULES_V4_PATH } from '../src/core/network/iptablesRules';
-import { md5 } from '../src/core/generation/md5';
-import { clearPublicIps, seedPublicIps } from './networkFixture';
-import type { Identity } from '../src/core/commands/types';
+import { signRequest } from '../src/core/signedRequest/sign.js';
+import { generateIdentity } from '../src/core/identity/identity.js';
+import { computeWorkstationId } from '../src/core/identity/workstation.js';
+import { computeApGatewayId } from '../src/core/identity/router.js';
+import { seedApGatewayCommunity } from '../src/core/generation/routerFs.js';
+import { seedApGatewayHostname } from '../src/core/generation/gatewayHostname.js';
+import { workstationGuestPassword } from '../src/core/generation/workstationFs.js';
+import { generateHomeLan } from '../src/core/generation/generateHomeLan.js';
+import { lanAddressFor } from '../src/core/network/lanAddress.js';
+import { formatSnmpdState } from '../src/core/snmp/rwCommunity.js';
+import { formatPidfileContent, pidfilePath } from '../src/core/services/pidfile.js';
+import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
+import { WORDLIST_PATH, formatWordlist } from '../src/core/wordlist/defaultWordlist.js';
+import { SNMPD_LOG_PATH } from '../src/core/logging/snmpdLog.js';
+import { RULES_V4_PATH } from '../src/core/network/iptablesRules.js';
+import { md5 } from '../src/core/generation/md5.js';
+import { clearPublicIps, seedPublicIps } from './networkFixture.js';
+import type { Identity } from '../src/core/commands/types.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const url = process.env.SUPABASE_URL;

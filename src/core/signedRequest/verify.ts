@@ -14,10 +14,10 @@
  */
 
 import { z } from 'zod';
-import { verify as edVerify } from '../identity/identity';
-import { hexToBytes } from '../identity/hex';
-import { REPLAY_WINDOW_MS, signedEnvelopeSchema, signedPayloadBaseSchema } from './types';
-import type { NonceStore } from './nonceStore';
+import { verify as edVerify } from '../identity/identity.js';
+import { hexToBytes } from '../identity/hex.js';
+import { REPLAY_WINDOW_MS, signedEnvelopeSchema, signedPayloadBaseSchema } from './types.js';
+import type { NonceStore } from './nonceStore.js';
 
 export type VerifyFailureReason =
   | 'envelope_invalid'

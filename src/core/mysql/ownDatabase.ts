@@ -34,13 +34,13 @@
  * what keeps cracking a box and cracking its database two locks with two keys.
  */
 
-import { drawDatabaseCredentials } from '../generation/generateDatabase';
-import { bcryptHash, datetimeAt, USERS_COLUMNS } from '../generation/databaseApp';
-import { createPrng } from '../generation/prng';
-import { accountIn, accountsIn } from '../sessions/passwdAccount';
-import type { Directory } from '../filesystem/types';
-import type { EpochMs } from '../types';
-import type { MysqlDatabase } from './types';
+import { drawDatabaseCredentials } from '../generation/generateDatabase.js';
+import { bcryptHash, datetimeAt, USERS_COLUMNS } from '../generation/databaseApp.js';
+import { createPrng } from '../generation/prng.js';
+import { accountIn, accountsIn } from '../sessions/passwdAccount.js';
+import type { Directory } from '../filesystem/types.js';
+import type { EpochMs } from '../types.js';
+import type { MysqlDatabase } from './types.js';
 
 /** The database account whose password the box's own root password becomes. */
 const ROOT_ACCOUNT = 'root';

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { applyTheme } from './applyTheme';
-import { THEME_IDS } from '../../core/theme/themes';
+import { applyTheme } from './applyTheme.js';
+import { THEME_IDS } from '../../core/theme/themes.js';
 
 /**
  * Every custom property the app actually reads. Written out rather than derived

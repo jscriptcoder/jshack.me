@@ -32,7 +32,7 @@
  * it holds and which firmware it runs are the caller's to resolve.
  */
 
-import type { NatForward } from '../network/iptablesRules';
+import type { NatForward } from '../network/iptablesRules.js';
 
 export type SnmpDeviceKind = 'router' | 'switch';
 

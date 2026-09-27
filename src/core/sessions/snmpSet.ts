@@ -24,9 +24,9 @@
  */
 
 import { z } from 'zod';
-import { verifySignedRequest } from '../signedRequest/verify';
-import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
-import { reachServiceHost, type HandlerResponse, type ServiceHostLookup } from './serviceHost';
+import { verifySignedRequest } from '../signedRequest/verify.js';
+import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
+import { reachServiceHost, type HandlerResponse, type ServiceHostLookup } from './serviceHost.js';
 import {
   agentStamp,
   appendSnmpdLog,
@@ -34,9 +34,9 @@ import {
   contactLines,
   deviceKind,
   type SnmpTraceDeps,
-} from './snmpAgent';
-import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import { formatSnmpdSetLine } from '../logging/snmpdLog';
+} from './snmpAgent.js';
+import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
+import { formatSnmpdSetLine } from '../logging/snmpdLog.js';
 import {
   parseForwardRules,
   parseInputDenies,
@@ -46,7 +46,7 @@ import {
   RULES_V4_OWNER,
   RULES_V4_PATH,
   RULES_V4_PERMISSIONS,
-} from '../network/iptablesRules';
+} from '../network/iptablesRules.js';
 import {
   parseAclDenies,
   readAclConf,
@@ -54,11 +54,11 @@ import {
   ACL_CONF_OWNER,
   ACL_CONF_PATH,
   ACL_CONF_PERMISSIONS,
-} from '../network/switchAcl';
-import { describeSet, parseSnmpSet, type SnmpSetRefusal, type SnmpSetTarget } from '../snmp/set';
-import type { SnmpDeviceKind } from '../snmp/walk';
-import type { Directory } from '../filesystem/types';
-import type { NonceStore } from '../signedRequest/nonceStore';
+} from '../network/switchAcl.js';
+import { describeSet, parseSnmpSet, type SnmpSetRefusal, type SnmpSetTarget } from '../snmp/set.js';
+import type { SnmpDeviceKind } from '../snmp/walk.js';
+import type { Directory } from '../filesystem/types.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 export type SnmpSetDeps = ServiceHostLookup &
   SnmpTraceDeps & {

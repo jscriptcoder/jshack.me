@@ -1,16 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { asAbsPath, type UserType } from '../types';
-import type { Command, CommandResult, PatchResult, TerminalLine } from './types';
+import { asAbsPath, type UserType } from '../types.js';
+import type { Command, CommandResult, PatchResult, TerminalLine } from './types.js';
 import {
   mockCommandEnv,
   mockFsViewFromTree,
   mockPatchApi,
   mockSession,
-} from '../../test/factories/commandEnv';
-import { buildDirectory, buildFile } from '../../test/factories/filesystem';
-import { PIDFILE_PERMISSIONS, readOpenPorts } from '../services/pidfile';
-import { commandRegistry } from './registry';
-import { apache2, nginx } from './daemon';
+} from '../../test/factories/commandEnv.js';
+import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
+import { PIDFILE_PERMISSIONS, readOpenPorts } from '../services/pidfile.js';
+import { commandRegistry } from './registry.js';
+import { apache2, nginx } from './daemon.js';
 
 /**
  * `nginx` and `apache2` bring up THE web server on the current machine. They are

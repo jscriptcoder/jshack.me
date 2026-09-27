@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { md5 } from '../generation/md5';
-import { buildDirectory, buildFile } from '../../test/factories/filesystem';
+import { md5 } from '../generation/md5.js';
+import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
 import {
   mockCommandEnv,
   mockFsViewFromTree,
   mockIdentity,
   mockNetworkView,
   mockSession,
-} from '../../test/factories/commandEnv';
-import { computeWorkstationId } from '../identity/workstation';
-import type { WirelessInterface } from '../network/interfaces';
+} from '../../test/factories/commandEnv.js';
+import { computeWorkstationId } from '../identity/workstation.js';
+import type { WirelessInterface } from '../network/interfaces.js';
 import {
   asAbsPath,
   asEpochMs,
@@ -17,15 +17,15 @@ import {
   asPlayerKeyHex,
   type MachineId,
   type UserType,
-} from '../types';
+} from '../types.js';
 import type {
   AuthLogEvent,
   CommandResult,
   RemoteAuthResult,
   Session,
   SuElevateParams,
-} from './types';
-import { su } from './su';
+} from './types.js';
+import { su } from './su.js';
 
 /**
  * `su` switches to a target user (defaulting to `root`). It reads the target's

@@ -34,9 +34,9 @@
  * clear, whoami) — they run without a library check.
  */
 
-import { asAbsPath } from '../types';
-import type { Command, CommandEnv, CommandResult } from './types';
-import type { SystemLibrary } from '../generation/libraries';
+import { asAbsPath } from '../types.js';
+import type { Command, CommandEnv, CommandResult } from './types.js';
+import type { SystemLibrary } from '../generation/libraries.js';
 
 export const libraryDeps: Readonly<Record<string, readonly SystemLibrary[]>> = {
   su: ['libpam', 'libcrypt'],

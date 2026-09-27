@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { scp } from './scp';
-import { runFtpLine } from './ftpShell';
+import { scp } from './scp.js';
+import { runFtpLine } from './ftpShell.js';
 import {
   mockCommandEnv,
   mockFsViewFromTree,
@@ -11,17 +11,17 @@ import {
   mockScanApi,
   mockScpApi,
   mockSession,
-} from '../../test/factories/commandEnv';
-import { buildDirectory, buildFile } from '../../test/factories/filesystem';
-import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
-import { buildRemoteHostFs } from '../generation/remoteHostFs';
-import { hostMachineId } from '../generation/remoteHostId';
-import { parsePidfilePort } from '../services/pidfile';
-import { assignHomeNetwork } from '../network/homeNetwork';
-import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces';
-import { asAbsPath, asEpochMs, asMachineId, asPlayerKeyHex } from '../types';
-import type { AbsPath } from '../types';
-import type { Directory } from '../filesystem/types';
+} from '../../test/factories/commandEnv.js';
+import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
+import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
+import { buildRemoteHostFs } from '../generation/remoteHostFs.js';
+import { hostMachineId } from '../generation/remoteHostId.js';
+import { parsePidfilePort } from '../services/pidfile.js';
+import { assignHomeNetwork } from '../network/homeNetwork.js';
+import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces.js';
+import { asAbsPath, asEpochMs, asMachineId, asPlayerKeyHex } from '../types.js';
+import type { AbsPath } from '../types.js';
+import type { Directory } from '../filesystem/types.js';
 import type {
   CommandResult,
   PatchApi,
@@ -32,7 +32,7 @@ import type {
   RemoteAuthResult,
   ScpReadResult,
   Session,
-} from './types';
+} from './types.js';
 
 /**
  * `scp <local> <user>@<host>:<path>` — carrying one file onto a box you hold.

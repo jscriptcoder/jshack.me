@@ -10,21 +10,21 @@
  * no account, password, page or history already generated.
  */
 
-import { createPrng } from './prng';
-import type { LanHost } from './generateHomeLan';
-import { peopleKnownOn } from './mailbox';
-import { cameraFiles } from './device/camera';
-import { climateFiles } from './device/climate';
-import { lockFiles } from './device/lock';
-import { mediaFiles } from './device/media';
-import { plugFiles } from './device/plug';
-import { deviceKindOf, type DeviceFiles } from './device/common';
-import { printerFiles } from './device/printer';
-import { recorderFiles } from './device/recorder';
+import { createPrng } from './prng.js';
+import type { LanHost } from './generateHomeLan.js';
+import { peopleKnownOn } from './mailbox.js';
+import { cameraFiles } from './device/camera.js';
+import { climateFiles } from './device/climate.js';
+import { lockFiles } from './device/lock.js';
+import { mediaFiles } from './device/media.js';
+import { plugFiles } from './device/plug.js';
+import { deviceKindOf, type DeviceFiles } from './device/common.js';
+import { printerFiles } from './device/printer.js';
+import { recorderFiles } from './device/recorder.js';
 
-export { cameraRecordings, type CameraEvent, type CameraRecordings } from './device/camera';
-export { deviceKindOf, type DeviceFiles, type DeviceKind } from './device/common';
-export type { PrintedJob } from './device/printer';
+export { cameraRecordings, type CameraEvent, type CameraRecordings } from './device/camera.js';
+export { deviceKindOf, type DeviceFiles, type DeviceKind } from './device/common.js';
+export type { PrintedJob } from './device/printer.js';
 
 /** What the device `host` is keeps on disk, or null for a box that is no device.
  *  `username` is the box's own account, which is who a box below the LAN knows beside

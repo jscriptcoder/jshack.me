@@ -44,22 +44,22 @@
 // Exits 0 when all checks pass, 1 on failure, 2 on missing env.
 
 import { createClient } from '@supabase/supabase-js';
-import { signRequest } from '../src/core/signedRequest/sign';
-import { generateIdentity } from '../src/core/identity/identity';
-import { computeWorkstationId } from '../src/core/identity/workstation';
-import { computeApGatewayId } from '../src/core/identity/router';
-import { lanAddressFor } from '../src/core/network/lanAddress';
+import { signRequest } from '../src/core/signedRequest/sign.js';
+import { generateIdentity } from '../src/core/identity/identity.js';
+import { computeWorkstationId } from '../src/core/identity/workstation.js';
+import { computeApGatewayId } from '../src/core/identity/router.js';
+import { lanAddressFor } from '../src/core/network/lanAddress.js';
 import {
   formatListenerContent,
   listenerOn,
   listenerPidfilePath,
   PIDFILE_PERMISSIONS,
   UNKNOWN_SERVICE,
-} from '../src/core/services/pidfile';
-import { deserializeTree } from '../src/core/filesystem/treeCodec';
-import { md5 } from '../src/core/generation/md5';
-import { AUTH_LOG_PATH } from '../src/core/logging/authLog';
-import { clearPublicIps, seedPublicIps } from './networkFixture';
+} from '../src/core/services/pidfile.js';
+import { deserializeTree } from '../src/core/filesystem/treeCodec.js';
+import { md5 } from '../src/core/generation/md5.js';
+import { AUTH_LOG_PATH } from '../src/core/logging/authLog.js';
+import { clearPublicIps, seedPublicIps } from './networkFixture.js';
 
 const NETWORK = process.env.NETWORK_ENDPOINT ?? 'http://localhost:3100/api/network';
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';

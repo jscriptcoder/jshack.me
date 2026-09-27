@@ -1,22 +1,22 @@
 import { describe, expect, it } from 'vitest';
-import { asMachineId, asPlayerKeyHex } from '../types';
-import { computeWorkstationId } from '../identity/workstation';
+import { asMachineId, asPlayerKeyHex } from '../types.js';
+import { computeWorkstationId } from '../identity/workstation.js';
 import {
   buildColdStartConnectivity,
   isOnline,
   type ConnectivityState,
   type WirelessInterface,
-} from '../network/interfaces';
-import type { WifiNetwork } from '../network/wifi';
-import type { CommandResult } from './types';
+} from '../network/interfaces.js';
+import type { WifiNetwork } from '../network/wifi.js';
+import type { CommandResult } from './types.js';
 import {
   mockCommandEnv,
   mockHomeNetwork,
   mockIdentity,
   mockNetworkView,
   mockSession,
-} from '../../test/factories/commandEnv';
-import { nmcli } from './nmcli';
+} from '../../test/factories/commandEnv.js';
+import { nmcli } from './nmcli.js';
 
 /**
  * `nmcli` is the arc's finish line: connect to a cracked AP and go ONLINE.

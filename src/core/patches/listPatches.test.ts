@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { handleListPatches, type ListPatchesDeps, type PersistedPatchRow } from './listPatches';
-import type { ActiveSessionQuery, FindActiveSessionResult } from './authorizeMachineAccess';
-import { signRequest } from '../signedRequest/sign';
-import { generateIdentity } from '../identity/identity';
-import { computeWorkstationId } from '../identity/workstation';
-import type { NonceStore } from '../signedRequest/nonceStore';
+import { handleListPatches, type ListPatchesDeps, type PersistedPatchRow } from './listPatches.js';
+import type { ActiveSessionQuery, FindActiveSessionResult } from './authorizeMachineAccess.js';
+import { signRequest } from '../signedRequest/sign.js';
+import { generateIdentity } from '../identity/identity.js';
+import { computeWorkstationId } from '../identity/workstation.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 const freshStore: NonceStore = async () => ({ fresh: true });
 

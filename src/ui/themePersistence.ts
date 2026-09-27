@@ -11,8 +11,8 @@
  * line to fix it from.
  */
 
-import { DEFAULT_THEME_ID, isValidThemeId } from '../core/theme/themes';
-import type { ThemeId } from '../core/theme/themes';
+import { DEFAULT_THEME_ID, isValidThemeId } from '../core/theme/themes.js';
+import type { ThemeId } from '../core/theme/themes.js';
 
 export const THEME_KEY = 'jshack:theme';
 

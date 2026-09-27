@@ -20,8 +20,8 @@
  * a finished exchange.
  */
 
-import type { NetworkCategory } from './essidCatalog';
-import type { NetworkArchetypeKey } from '../databaseApp';
+import type { NetworkCategory } from './essidCatalog.js';
+import type { NetworkArchetypeKey } from '../databaseApp.js';
 
 export type MailThreadSpec = {
   readonly subject: string;

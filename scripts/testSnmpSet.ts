@@ -25,18 +25,18 @@
 //
 // Exits 0 when all checks pass, 1 on failure, 2 on missing env / no usable device.
 
-import { apGatewayLogWriterKey } from '../src/core/logging/apGatewayLogWriter';
+import { apGatewayLogWriterKey } from '../src/core/logging/apGatewayLogWriter.js';
 import { createClient } from '@supabase/supabase-js';
-import { signRequest } from '../src/core/signedRequest/sign';
-import { generateIdentity } from '../src/core/identity/identity';
-import { md5 } from '../src/core/generation/md5';
-import { generateHomeLan } from '../src/core/generation/generateHomeLan';
-import { resolveLanHostIdentity } from '../src/core/generation/lanHostIdentity';
-import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog';
-import { readOpenPorts } from '../src/core/services/pidfile';
-import { SNMPD_LOG_PATH } from '../src/core/logging/snmpdLog';
-import { RULES_V4_PATH } from '../src/core/network/iptablesRules';
-import { ACL_CONF_PATH } from '../src/core/network/switchAcl';
+import { signRequest } from '../src/core/signedRequest/sign.js';
+import { generateIdentity } from '../src/core/identity/identity.js';
+import { md5 } from '../src/core/generation/md5.js';
+import { generateHomeLan } from '../src/core/generation/generateHomeLan.js';
+import { resolveLanHostIdentity } from '../src/core/generation/lanHostIdentity.js';
+import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
+import { readOpenPorts } from '../src/core/services/pidfile.js';
+import { SNMPD_LOG_PATH } from '../src/core/logging/snmpdLog.js';
+import { RULES_V4_PATH } from '../src/core/network/iptablesRules.js';
+import { ACL_CONF_PATH } from '../src/core/network/switchAcl.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const url = process.env.SUPABASE_URL;

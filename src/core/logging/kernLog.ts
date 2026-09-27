@@ -11,9 +11,9 @@
  * Pure, framework-agnostic (core/): the timestamp is supplied by the caller.
  */
 
-import { asAbsPath, type AbsPath, type GameTime } from '../types';
-import type { FilePermissions } from '../filesystem/types';
-import { formatSyslogTimestamp } from './syslog';
+import { asAbsPath, type AbsPath, type GameTime } from '../types.js';
+import type { FilePermissions } from '../filesystem/types.js';
+import { formatSyslogTimestamp } from './syslog.js';
 
 /** The canonical `/var/log/kern.log` storage identity — single source of truth
  *  shared by the host-FS seed (`generation/remoteHostFs` + `workstationFs`) and

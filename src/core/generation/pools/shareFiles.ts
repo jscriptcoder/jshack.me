@@ -21,7 +21,7 @@
  * one network never hold the same note byte for byte.
  */
 
-import type { NetworkCategory } from './essidCatalog';
+import type { NetworkCategory } from './essidCatalog.js';
 
 export type ShareFileSpec =
   | { readonly name: string; readonly format: 'pdf'; readonly title: string }

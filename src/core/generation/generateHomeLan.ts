@@ -22,13 +22,13 @@
  * which is the only reason a reservation existed while the population was private.
  */
 
-import { createPrng } from './prng';
-import { machineRole, type DrawnRole } from './machineRole';
-import { publisherSite } from './publisher';
-import { HOSTNAME_PREFIXES } from './pools/hostnames';
-import { lanSubnetPrefix } from '../network/lanAddress';
-import { seedApGatewayHostname, seedInnerGatewayHostname } from './gatewayHostname';
-import type { Ipv4 } from '../network/interfaces';
+import { createPrng } from './prng.js';
+import { machineRole, type DrawnRole } from './machineRole.js';
+import { publisherSite } from './publisher.js';
+import { HOSTNAME_PREFIXES } from './pools/hostnames.js';
+import { lanSubnetPrefix } from '../network/lanAddress.js';
+import { seedApGatewayHostname, seedInnerGatewayHostname } from './gatewayHostname.js';
+import type { Ipv4 } from '../network/interfaces.js';
 
 export type LanHostKind = 'machine' | 'router' | 'switch';
 

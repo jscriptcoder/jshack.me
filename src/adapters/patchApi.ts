@@ -14,15 +14,15 @@
  * `fetchImpl` is injected so tests can drive the wire shape without a network.
  */
 
-import { signRequest } from '../core/signedRequest/sign';
-import { contentHash } from '../core/patches/contentHash';
+import { signRequest } from '../core/signedRequest/sign.js';
+import { contentHash } from '../core/patches/contentHash.js';
 import {
   defaultDirectoryPermissions,
   defaultFilePermissions,
-} from '../core/filesystem/defaultPermissions';
-import type { Patch } from '../core/filesystem/applyPatches';
-import type { TransferDirection } from '../core/logging/vsftpdLog';
-import type { FilePermissions } from '../core/filesystem/types';
+} from '../core/filesystem/defaultPermissions.js';
+import type { Patch } from '../core/filesystem/applyPatches.js';
+import type { TransferDirection } from '../core/logging/vsftpdLog.js';
+import type { FilePermissions } from '../core/filesystem/types.js';
 import type {
   AccessLogFetch,
   AuthLogEvent,
@@ -33,8 +33,8 @@ import type {
   PatchResult,
   ScanRecordParams,
   ZoneTransferRecordParams,
-} from '../core/commands/types';
-import type { AbsPath, MachineId, UserType } from '../core/types';
+} from '../core/commands/types.js';
+import type { AbsPath, MachineId, UserType } from '../core/types.js';
 
 const DEFAULT_ENDPOINT = '/api/patches';
 

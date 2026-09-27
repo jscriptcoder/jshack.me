@@ -15,9 +15,9 @@
  * with a contentless write when the read transiently failed.
  */
 
-import type { AbsPath } from '../types';
-import type { FilePermissions } from '../filesystem/types';
-import type { PatchRow } from './upsertPatch';
+import type { AbsPath } from '../types.js';
+import type { FilePermissions } from '../filesystem/types.js';
+import type { PatchRow } from './upsertPatch.js';
 
 export type MachineLogReadQuery = {
   readonly writer_key: string;

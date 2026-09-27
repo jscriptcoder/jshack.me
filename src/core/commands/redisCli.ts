@@ -18,15 +18,15 @@
  * every script down, not just the one that typed it.
  */
 
-import { generateHomeLan } from '../generation/generateHomeLan';
-import { connectedWlan0 } from '../network/interfaces';
-import { runRedisLine } from './redisShell';
-import { forwardsIntoDeepLayer, resolveLanHostIdentity } from '../generation/lanHostIdentity';
-import { isPublicIp } from '../generation/ip';
-import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import { connectOwnStore, storeListening } from './redisOwnBox';
-import { ownBoxSource } from '../network/interfaces';
-import type { Command, CommandEnv, CommandResult, TerminalLine } from './types';
+import { generateHomeLan } from '../generation/generateHomeLan.js';
+import { connectedWlan0 } from '../network/interfaces.js';
+import { runRedisLine } from './redisShell.js';
+import { forwardsIntoDeepLayer, resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
+import { isPublicIp } from '../generation/ip.js';
+import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
+import { connectOwnStore, storeListening } from './redisOwnBox.js';
+import { ownBoxSource } from '../network/interfaces.js';
+import type { Command, CommandEnv, CommandResult, TerminalLine } from './types.js';
 
 const USAGE = 'usage: redis-cli [-p port] <host> [password]';
 

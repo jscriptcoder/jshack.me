@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_THEME_ID } from '../core/theme/themes';
-import { readStoredTheme, storeTheme, THEME_KEY } from './themePersistence';
+import { DEFAULT_THEME_ID } from '../core/theme/themes.js';
+import { readStoredTheme, storeTheme, THEME_KEY } from './themePersistence.js';
 
 /**
  * The theme is the one preference the game remembers for its own sake, so the

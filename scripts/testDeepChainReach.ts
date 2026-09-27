@@ -19,15 +19,15 @@
 //
 // Exits 0 when all checks pass, 1 on failure, 2 on missing env / no depth-3 home.
 
-import { apGatewayLogWriterKey } from '../src/core/logging/apGatewayLogWriter';
+import { apGatewayLogWriterKey } from '../src/core/logging/apGatewayLogWriter.js';
 import { createClient } from '@supabase/supabase-js';
-import { signRequest } from '../src/core/signedRequest/sign';
-import { generateIdentity } from '../src/core/identity/identity';
-import { computeDeepGatewayId, computeInnerGatewayId } from '../src/core/identity/router';
-import { seedDeepGatewayAdminPw } from '../src/core/generation/routerFs';
-import { generateHomeLan } from '../src/core/generation/generateHomeLan';
-import { crackableEssidPool } from '../src/core/generation/generateWifi';
-import { generateDeepLayer, seedNetworkDepth } from '../src/core/generation/generateDeepLayer';
+import { signRequest } from '../src/core/signedRequest/sign.js';
+import { generateIdentity } from '../src/core/identity/identity.js';
+import { computeDeepGatewayId, computeInnerGatewayId } from '../src/core/identity/router.js';
+import { seedDeepGatewayAdminPw } from '../src/core/generation/routerFs.js';
+import { generateHomeLan } from '../src/core/generation/generateHomeLan.js';
+import { crackableEssidPool } from '../src/core/generation/generateWifi.js';
+import { generateDeepLayer, seedNetworkDepth } from '../src/core/generation/generateDeepLayer.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const PATCHES = process.env.PATCHES_ENDPOINT ?? 'http://localhost:3100/api/patches';

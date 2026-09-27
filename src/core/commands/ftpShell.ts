@@ -24,10 +24,10 @@
  * one.
  */
 
-import { basename, resolveAbsPath } from '../filesystem/path';
-import { bindFlags } from '../shell/bindFlags';
-import type { AbsPath } from '../types';
-import { ls } from './ls';
+import { basename, resolveAbsPath } from '../filesystem/path.js';
+import { bindFlags } from '../shell/bindFlags.js';
+import type { AbsPath } from '../types.js';
+import { ls } from './ls.js';
 import type {
   CommandEnv,
   CommandResult,
@@ -35,7 +35,7 @@ import type {
   PatchApi,
   PatchResult,
   TerminalLine,
-} from './types';
+} from './types.js';
 
 const text = (content: string): TerminalLine => ({ kind: 'text', content });
 

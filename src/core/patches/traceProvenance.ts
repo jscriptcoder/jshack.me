@@ -22,13 +22,13 @@
  * Pure/framework-agnostic (core/): every lookup is injected.
  */
 
-import { standingVantage, type FindActiveSession } from './authorizeMachineAccess';
+import { standingVantage, type FindActiveSession } from './authorizeMachineAccess.js';
 import {
   resolveVantageSourceIp,
   type FindHomeNetworkByOwnerKey,
   type FindPublicIpByEssid,
-} from '../logging/crossPlayerSourceIp';
-import type { OccupantWorkstation } from './remoteWritePermission';
+} from '../logging/crossPlayerSourceIp.js';
+import type { OccupantWorkstation } from './remoteWritePermission.js';
 
 /** The three lookups the rule needs. Declared structurally rather than as one handler's
  *  deps type, so each endpoint passes its own full deps block unchanged. */

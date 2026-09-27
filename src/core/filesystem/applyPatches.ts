@@ -21,8 +21,8 @@
  * permission-less patch so it still materializes with sane defaults.
  */
 
-import type { Directory, FileNode, FilePermissions } from './types';
-import { defaultDirectoryPermissions, defaultFilePermissions } from './defaultPermissions';
+import type { Directory, FileNode, FilePermissions } from './types.js';
+import { defaultDirectoryPermissions, defaultFilePermissions } from './defaultPermissions.js';
 
 /** Client-side patch shape. The adapter maps server rows (snake_case JSONB)
  *  into this; `applyPatches` and the write commands speak this shape. */

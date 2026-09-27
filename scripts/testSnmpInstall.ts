@@ -31,36 +31,36 @@
 // Exits 0 when all checks pass, 1 on failure, 2 on missing env.
 
 import { createClient } from '@supabase/supabase-js';
-import { signRequest } from '../src/core/signedRequest/sign';
-import { generateIdentity } from '../src/core/identity/identity';
-import { computeWorkstationId } from '../src/core/identity/workstation';
-import { lanAddressFor } from '../src/core/network/lanAddress';
-import { materializeWorkstationFs } from '../src/core/network/materializeWorkstationFs';
-import { ownStore } from '../src/core/redis/ownStore';
-import { DATADIR_PATH as STORE_PATH } from '../src/core/redis/datadir';
+import { signRequest } from '../src/core/signedRequest/sign.js';
+import { generateIdentity } from '../src/core/identity/identity.js';
+import { computeWorkstationId } from '../src/core/identity/workstation.js';
+import { lanAddressFor } from '../src/core/network/lanAddress.js';
+import { materializeWorkstationFs } from '../src/core/network/materializeWorkstationFs.js';
+import { ownStore } from '../src/core/redis/ownStore.js';
+import { DATADIR_PATH as STORE_PATH } from '../src/core/redis/datadir.js';
 import {
   formatPidfileContent,
   pidfilePath,
   PIDFILE_PERMISSIONS,
-} from '../src/core/services/pidfile';
-import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog';
-import { LOCAL_FILTER_SEED, RULES_V4_PATH } from '../src/core/network/iptablesRules';
+} from '../src/core/services/pidfile.js';
+import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
+import { LOCAL_FILTER_SEED, RULES_V4_PATH } from '../src/core/network/iptablesRules.js';
 import {
   consumeRwCommunity,
   formatSnmpdState,
   SNMPD_STATE_PATH,
   SNMPD_STATE_PERMISSIONS,
-} from '../src/core/snmp/rwCommunity';
+} from '../src/core/snmp/rwCommunity.js';
 import {
   SNMPD_CONF_PATH,
   SNMPD_CONF_PERMISSIONS,
   SNMPD_CONF_SEED,
-} from '../src/core/snmp/conf';
-import { ownAgentCommunity } from '../src/core/snmp/ownAgent';
-import { formatWordlist, WORDLIST_PATH } from '../src/core/wordlist/defaultWordlist';
-import { md5 } from '../src/core/generation/md5';
-import type { Directory, FilePermissions } from '../src/core/filesystem/types';
-import type { OwnerPatchRow } from '../src/core/network/materializeMachineFs';
+} from '../src/core/snmp/conf.js';
+import { ownAgentCommunity } from '../src/core/snmp/ownAgent.js';
+import { formatWordlist, WORDLIST_PATH } from '../src/core/wordlist/defaultWordlist.js';
+import { md5 } from '../src/core/generation/md5.js';
+import type { Directory, FilePermissions } from '../src/core/filesystem/types.js';
+import type { OwnerPatchRow } from '../src/core/network/materializeMachineFs.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const url = process.env.SUPABASE_URL;

@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { asPlayerKeyHex } from '../types';
+import { asPlayerKeyHex } from '../types.js';
 import {
   buildColdStartConnectivity,
   isOnline,
   type ConnectivityState,
   type NetworkInterface,
-} from './interfaces';
+} from './interfaces.js';
 
 /**
  * The connectivity model is the seeded cold-start snapshot of the player's

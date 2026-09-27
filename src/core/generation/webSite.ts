@@ -19,15 +19,15 @@
  * draw to another stream would move every value picked after it.
  */
 
-import { createPrng, type Prng } from './prng';
-import { generateHomeLan, isOnHomeLan, type LanHost } from './generateHomeLan';
-import { inhabitant, networkPersona, type NetworkPersona } from './persona';
-import { fillSlots } from './npcHome';
-import { hostServices, npcUsername } from './remoteHostFs';
-import { roleOfHostname } from './pools/hostnames';
-import { lanZoneName } from '../network/resolveName';
-import { isSiteServer } from './siteServer';
-import { publisherSite } from './publisher';
+import { createPrng, type Prng } from './prng.js';
+import { generateHomeLan, isOnHomeLan, type LanHost } from './generateHomeLan.js';
+import { inhabitant, networkPersona, type NetworkPersona } from './persona.js';
+import { fillSlots } from './npcHome.js';
+import { hostServices, npcUsername } from './remoteHostFs.js';
+import { roleOfHostname } from './pools/hostnames.js';
+import { lanZoneName } from '../network/resolveName.js';
+import { isSiteServer } from './siteServer.js';
+import { publisherSite } from './publisher.js';
 import {
   API_COMMON_ENDPOINTS,
   API_STATUS_ENDPOINT,
@@ -53,8 +53,8 @@ import {
   SITE_DESCRIPTIONS,
   type ApiEndpoint,
   type SitePage,
-} from './pools/webSites';
-import type { MysqlColumn, MysqlDatabase } from '../mysql/types';
+} from './pools/webSites.js';
+import type { MysqlColumn, MysqlDatabase } from '../mysql/types.js';
 
 export type WebSite = {
   /** Every file the site publishes, keyed by its path beneath the document root. */

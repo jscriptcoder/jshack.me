@@ -17,9 +17,9 @@
  * paired on all traversable dirs.
  */
 
-import type { Command, CommandEnv, CommandResult, FsListResult } from './types';
-import { resolveAbsPath } from '../filesystem/path';
-import { homeDirectory } from '../sessions/homeDirectory';
+import type { Command, CommandEnv, CommandResult, FsListResult } from './types.js';
+import { resolveAbsPath } from '../filesystem/path.js';
+import { homeDirectory } from '../sessions/homeDirectory.js';
 
 type FsListError = Extract<FsListResult, { readonly ok: false }>['error'];
 

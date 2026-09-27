@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { strings } from './strings';
-import { buildDirectory, buildFile } from '../../test/factories/filesystem';
-import { mockCommandEnv, mockFsViewFromTree } from '../../test/factories/commandEnv';
-import { asAbsPath } from '../types';
-import type { TerminalLine } from './types';
-import type { Directory } from '../filesystem/types';
-import { createBinaryEntries } from '../generation/binaries';
+import { strings } from './strings.js';
+import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
+import { mockCommandEnv, mockFsViewFromTree } from '../../test/factories/commandEnv.js';
+import { asAbsPath } from '../types.js';
+import type { TerminalLine } from './types.js';
+import type { Directory } from '../filesystem/types.js';
+import { createBinaryEntries } from '../generation/binaries.js';
 
 const NO_FLAGS = new Map<string, string | true>();
 

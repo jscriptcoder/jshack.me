@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { CLIMATE_CHIPS, CLIMATE_ROOMS } from '../pools/devices';
-import { WORLD_EPOCH } from '../../cve/worldClock';
-import { softwareVersionsIn } from '../../../test/worldContent';
+import { CLIMATE_CHIPS, CLIMATE_ROOMS } from '../pools/devices.js';
+import { WORLD_EPOCH } from '../../cve/worldClock.js';
+import { softwareVersionsIn } from '../../../test/worldContent.js';
 import {
   contentOf,
   pagesOf,
@@ -12,7 +12,7 @@ import {
   syntheticLanBoxes,
   worldBoxesNamed,
   type BuiltBox,
-} from '../../../test/deviceBoxes';
+} from '../../../test/deviceBoxes.js';
 
 const CLIMATE_PREFIXES = ['sensor', 'thermostat'];
 

@@ -22,43 +22,43 @@
  * exploit chains depend on.
  */
 
-import type { AbsPath, EpochMs, PlayerKeyHex } from '../types';
-import type { Directory, FilePermissions } from '../filesystem/types';
-import { DATADIR_FILE, SERVICE_CONFIG_FILE } from '../generation/baseFs';
-import { SYSTEM_DAEMON_NAMES } from '../generation/binaries';
-import { SYSTEM_LIBRARIES } from '../generation/libraries';
-import { DATADIR_PATH } from '../mysql/datadir';
-import { ownDatabase } from '../mysql/ownDatabase';
-import { DATADIR_PATH as STORE_PATH } from '../redis/datadir';
-import { ownStore } from '../redis/ownStore';
-import { formatRedisConf, REDIS_CONF_PATH } from '../generation/generateRedisStore';
+import type { AbsPath, EpochMs, PlayerKeyHex } from '../types.js';
+import type { Directory, FilePermissions } from '../filesystem/types.js';
+import { DATADIR_FILE, SERVICE_CONFIG_FILE } from '../generation/baseFs.js';
+import { SYSTEM_DAEMON_NAMES } from '../generation/binaries.js';
+import { SYSTEM_LIBRARIES } from '../generation/libraries.js';
+import { DATADIR_PATH } from '../mysql/datadir.js';
+import { ownDatabase } from '../mysql/ownDatabase.js';
+import { DATADIR_PATH as STORE_PATH } from '../redis/datadir.js';
+import { ownStore } from '../redis/ownStore.js';
+import { formatRedisConf, REDIS_CONF_PATH } from '../generation/generateRedisStore.js';
 import {
   LOCAL_FILTER_SEED,
   RULES_V4_PATH,
   RULES_V4_PERMISSIONS,
-} from '../network/iptablesRules';
-import { daemonName, pidfilePath } from '../services/pidfile';
-import { md5 } from '../generation/md5';
-import { SNMPD_CONF_PATH, SNMPD_CONF_PERMISSIONS, SNMPD_CONF_SEED } from '../snmp/conf';
-import { ownAgentCommunity } from '../snmp/ownAgent';
+} from '../network/iptablesRules.js';
+import { daemonName, pidfilePath } from '../services/pidfile.js';
+import { md5 } from '../generation/md5.js';
+import { SNMPD_CONF_PATH, SNMPD_CONF_PERMISSIONS, SNMPD_CONF_SEED } from '../snmp/conf.js';
+import { ownAgentCommunity } from '../snmp/ownAgent.js';
 import {
   formatSnmpdState,
   SNMPD_STATE_PATH,
   SNMPD_STATE_PERMISSIONS,
-} from '../snmp/rwCommunity';
-import { SERVICE_CATALOG } from '../services/serviceCatalog';
+} from '../snmp/rwCommunity.js';
+import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
 import {
   DEFAULT_WORDLIST,
   formatWordlist,
   WORDLIST_PATH,
   WORDLIST_PERMISSIONS,
-} from '../wordlist/defaultWordlist';
+} from '../wordlist/defaultWordlist.js';
 import {
   DEFAULT_DIRLIST,
   DIRLIST_PATH,
   DIRLIST_PERMISSIONS,
   formatDirlist,
-} from '../network/defaultDirlist';
+} from '../network/defaultDirlist.js';
 
 /** A data file a package installs alongside its binaries. Some tools are useless
  *  without one — hydra with no wordlist has nothing to try — and the file is a

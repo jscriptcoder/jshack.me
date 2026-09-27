@@ -4,8 +4,8 @@
  * the host's machine id, so two tables can never disagree about which card a box has.
  */
 
-import { createPrng } from './prng';
-import type { MacAddress } from '../network/interfaces';
+import { createPrng } from './prng.js';
+import type { MacAddress } from '../network/interfaces.js';
 
 /** Maker prefixes (OUIs) a generated card is drawn from. All are globally administered
  *  unicast, so no generated host shares the `02:` range the player's own NICs use. */

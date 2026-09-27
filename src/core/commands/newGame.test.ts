@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { mockCommandEnv } from '../../test/factories/commandEnv';
-import { bindFlags } from '../shell/bindFlags';
-import type { CommandResult, OutputSink } from './types';
-import { newGame } from './newGame';
+import { mockCommandEnv } from '../../test/factories/commandEnv.js';
+import { bindFlags } from '../shell/bindFlags.js';
+import type { CommandResult, OutputSink } from './types.js';
+import { newGame } from './newGame.js';
 
 /**
  * `new-game` is a GAME command (not a real Linux tool): it wipes the player's game

@@ -1,32 +1,32 @@
-import { formatListenerContent } from '../services/pidfile';
-import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter';
+import { formatListenerContent } from '../services/pidfile.js';
+import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
 import { describe, expect, it, vi } from 'vitest';
 import {
   handleAuthCreateSessionInnerGateway,
   type AuthCreateSessionInnerGatewayDeps,
-} from './authCreateSessionInnerGateway';
-import { signRequest } from '../signedRequest/sign';
-import { generateIdentity } from '../identity/identity';
-import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
-import { crackableEssidPool } from '../generation/generateWifi';
-import { generateDeepLayer, seedNetworkDepth } from '../generation/generateDeepLayer';
-import { buildDeepHostFs } from '../generation/deepHostFs';
-import { computeDeepGatewayId, computeInnerGatewayId } from '../identity/router';
-import { seedDeepGatewayAdminPw, seedInnerGatewayAdminPw } from '../generation/routerFs';
-import { hostMachineId } from '../generation/remoteHostId';
-import { accountIn } from './passwdAccount';
-import { md5 } from '../generation/md5';
-import { ALL_GENERATED_PASSWORDS } from '../generation/passwordPools';
-import type { OwnerPatchRow } from '../network/materializeMachineFs';
-import type { AuthSessionRow } from './authCreateSession';
-import type { NonceStore } from '../signedRequest/nonceStore';
-import type { Directory } from '../filesystem/types';
-import { AUTH_LOG_PATH } from '../logging/authLog';
+} from './authCreateSessionInnerGateway.js';
+import { signRequest } from '../signedRequest/sign.js';
+import { generateIdentity } from '../identity/identity.js';
+import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
+import { crackableEssidPool } from '../generation/generateWifi.js';
+import { generateDeepLayer, seedNetworkDepth } from '../generation/generateDeepLayer.js';
+import { buildDeepHostFs } from '../generation/deepHostFs.js';
+import { computeDeepGatewayId, computeInnerGatewayId } from '../identity/router.js';
+import { seedDeepGatewayAdminPw, seedInnerGatewayAdminPw } from '../generation/routerFs.js';
+import { hostMachineId } from '../generation/remoteHostId.js';
+import { accountIn } from './passwdAccount.js';
+import { md5 } from '../generation/md5.js';
+import { ALL_GENERATED_PASSWORDS } from '../generation/passwordPools.js';
+import type { OwnerPatchRow } from '../network/materializeMachineFs.js';
+import type { AuthSessionRow } from './authCreateSession.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
+import type { Directory } from '../filesystem/types.js';
+import { AUTH_LOG_PATH } from '../logging/authLog.js';
 import type {
   MachineLogReadQuery,
   MachineLogReadResult,
-} from '../patches/appendMachineLog';
-import type { PatchRow } from '../patches/upsertPatch';
+} from '../patches/appendMachineLog.js';
+import type { PatchRow } from '../patches/upsertPatch.js';
 
 /**
  * `handleAuthCreateSessionInnerGateway` is the server gate for `ssh user@<inner>:<fwd

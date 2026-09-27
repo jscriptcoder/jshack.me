@@ -29,10 +29,10 @@
  * resolved abs path), matching real ls output.
  */
 
-import type { AbsPath, UserType } from '../types';
-import type { Command, CommandEnv, CommandResult } from './types';
-import type { FileNode } from '../filesystem/types';
-import { dirname, resolveAbsPath } from '../filesystem/path';
+import type { AbsPath, UserType } from '../types.js';
+import type { Command, CommandEnv, CommandResult } from './types.js';
+import type { FileNode } from '../filesystem/types.js';
+import { dirname, resolveAbsPath } from '../filesystem/path.js';
 
 const isHidden = (name: string): boolean => name.startsWith('.');
 

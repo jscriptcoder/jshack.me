@@ -1,22 +1,22 @@
 import { describe, expect, it, vi } from 'vitest';
-import { handleSnmpWalk, type SnmpWalkDeps } from './snmpWalk';
-import { signRequest } from '../signedRequest/sign';
-import { generateIdentity } from '../identity/identity';
-import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
-import { generateDeepLayer, seedNetworkDepth } from '../generation/generateDeepLayer';
-import { crackableEssidPool } from '../generation/generateWifi';
-import { computeDeepGatewayId, computeInnerGatewayId } from '../identity/router';
-import { buildDeepGatewayBaseFs, buildDeepSwitchBaseFs } from '../generation/routerFs';
-import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
-import { readOpenPorts } from '../services/pidfile';
-import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import { SNMPD_LOG_PATH } from '../logging/snmpdLog';
-import { asAbsPath } from '../types';
-import type { Directory } from '../filesystem/types';
-import type { OwnerPatchRow } from '../network/materializeMachineFs';
-import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog';
-import type { PatchRow } from '../patches/upsertPatch';
-import type { NonceStore } from '../signedRequest/nonceStore';
+import { handleSnmpWalk, type SnmpWalkDeps } from './snmpWalk.js';
+import { signRequest } from '../signedRequest/sign.js';
+import { generateIdentity } from '../identity/identity.js';
+import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
+import { generateDeepLayer, seedNetworkDepth } from '../generation/generateDeepLayer.js';
+import { crackableEssidPool } from '../generation/generateWifi.js';
+import { computeDeepGatewayId, computeInnerGatewayId } from '../identity/router.js';
+import { buildDeepGatewayBaseFs, buildDeepSwitchBaseFs } from '../generation/routerFs.js';
+import { resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
+import { readOpenPorts } from '../services/pidfile.js';
+import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
+import { SNMPD_LOG_PATH } from '../logging/snmpdLog.js';
+import { asAbsPath } from '../types.js';
+import type { Directory } from '../filesystem/types.js';
+import type { OwnerPatchRow } from '../network/materializeMachineFs.js';
+import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog.js';
+import type { PatchRow } from '../patches/upsertPatch.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 /**
  * Walking a device on the HIDDEN LAYER behind an inner gateway.

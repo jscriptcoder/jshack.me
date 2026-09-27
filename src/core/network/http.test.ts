@@ -6,8 +6,8 @@ import {
   resolveWebPath,
   HTTP_DEFAULT_PORT,
   WEB_ROOT,
-} from './http';
-import { normalize } from '../filesystem/path';
+} from './http.js';
+import { normalize } from '../filesystem/path.js';
 
 /**
  * The HTTP request shape every reader of the web surface shares — the `curl` client

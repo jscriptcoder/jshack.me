@@ -13,14 +13,14 @@
  * `gw-history-backups-` stream, keyed by its machine id.
  */
 
-import type { FileNode } from '../filesystem/types';
-import { WORLD_EPOCH } from '../cve/worldClock';
-import type { FirmwareVendor } from '../packages/packageVersions';
-import { dir, file, ROOT_DIR, ROOT_FILE } from './baseFs';
-import { createPrng } from './prng';
-import type { GatewaySite } from './gatewayHistory';
-import { lanHostOctet } from './lanTopology';
-import type { DhcpService } from './gatewayNetwork';
+import type { FileNode } from '../filesystem/types.js';
+import { WORLD_EPOCH } from '../cve/worldClock.js';
+import type { FirmwareVendor } from '../packages/packageVersions.js';
+import { dir, file, ROOT_DIR, ROOT_FILE } from './baseFs.js';
+import { createPrng } from './prng.js';
+import type { GatewaySite } from './gatewayHistory.js';
+import { lanHostOctet } from './lanTopology.js';
+import type { DhcpService } from './gatewayNetwork.js';
 
 const DAY_MS = 86_400_000;
 /** How long before the epoch a gateway may have gone into service, in days. */

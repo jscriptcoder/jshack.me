@@ -20,9 +20,9 @@
  * device that answers less rather than into an error nobody can act on.
  */
 
-import type { Directory } from '../filesystem/types';
-import type { FilePermissions } from '../filesystem/types';
-import { asAbsPath, type AbsPath } from '../types';
+import type { Directory } from '../filesystem/types.js';
+import type { FilePermissions } from '../filesystem/types.js';
+import { asAbsPath, type AbsPath } from '../types.js';
 
 /** One name for the path, so the reader below and every writer of this file agree on
  *  where it is. net-snmp's own location, not one invented here. */

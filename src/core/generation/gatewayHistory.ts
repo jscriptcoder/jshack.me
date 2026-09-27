@@ -15,30 +15,30 @@
  * `gw-history-logs-`), so no other concern's draws move.
  */
 
-import type { FileEntry, FileNode } from '../filesystem/types';
-import { asGameTime, type GameTime } from '../types';
-import { WORLD_EPOCH } from '../cve/worldClock';
-import { file } from './baseFs';
-import type { DhcpGrant } from './gatewayNetwork';
-import { formatSyslogLine, SYSLOG_PERMISSIONS } from '../logging/syslog';
+import type { FileEntry, FileNode } from '../filesystem/types.js';
+import { asGameTime, type GameTime } from '../types.js';
+import { WORLD_EPOCH } from '../cve/worldClock.js';
+import { file } from './baseFs.js';
+import type { DhcpGrant } from './gatewayNetwork.js';
+import { formatSyslogLine, SYSLOG_PERMISSIONS } from '../logging/syslog.js';
 import {
   AUTH_LOG_PERMISSIONS,
   formatRootSessionLine,
   formatSshdAuthLine,
-} from '../logging/authLog';
-import { formatKernelLine, KERN_LOG_PERMISSIONS } from '../logging/kernLog';
+} from '../logging/authLog.js';
+import { formatKernelLine, KERN_LOG_PERMISSIONS } from '../logging/kernLog.js';
 import {
   formatSnmpdArrivalLine,
   formatSnmpdAttemptLine,
   SNMPD_LOG_PERMISSIONS,
-} from '../logging/snmpdLog';
-import { LOGROTATE_TIMER } from './pools/logLines';
-import { createPrng, type Prng } from './prng';
-import { generateHomeLan, type LanHost } from './generateHomeLan';
-import { chainLinks, lanHostOctet, machineIdForLanHost } from './lanTopology';
-import { isDeskMachine } from './npcHome';
-import { roleOfHostname } from './pools/hostnames';
-import { GATEWAY_ROOT_HISTORY } from './pools/rootContent';
+} from '../logging/snmpdLog.js';
+import { LOGROTATE_TIMER } from './pools/logLines.js';
+import { createPrng, type Prng } from './prng.js';
+import { generateHomeLan, type LanHost } from './generateHomeLan.js';
+import { chainLinks, lanHostOctet, machineIdForLanHost } from './lanTopology.js';
+import { isDeskMachine } from './npcHome.js';
+import { roleOfHostname } from './pools/hostnames.js';
+import { GATEWAY_ROOT_HISTORY } from './pools/rootContent.js';
 
 /** Where a gateway stands: its own host, and whether that is on the home LAN. */
 const placeOf = (

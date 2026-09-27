@@ -17,14 +17,14 @@
  * is the same whether or not its layer hangs a child.
  */
 
-import type { Directory, FileNode } from '../filesystem/types';
-import { dir, file, HOME_DIR, HOME_FILE } from './baseFs';
-import { generateHomeLan, isOnHomeLan, type LanHost } from './generateHomeLan';
-import { hostServices, npcUsername } from './remoteHostFs';
-import { inhabitant, networkPersona } from './persona';
-import { lanZoneName } from '../network/resolveName';
-import { WORLD_EPOCH } from '../cve/worldClock';
-import { createPrng, type Prng } from './prng';
+import type { Directory, FileNode } from '../filesystem/types.js';
+import { dir, file, HOME_DIR, HOME_FILE } from './baseFs.js';
+import { generateHomeLan, isOnHomeLan, type LanHost } from './generateHomeLan.js';
+import { hostServices, npcUsername } from './remoteHostFs.js';
+import { inhabitant, networkPersona } from './persona.js';
+import { lanZoneName } from '../network/resolveName.js';
+import { WORLD_EPOCH } from '../cve/worldClock.js';
+import { createPrng, type Prng } from './prng.js';
 import {
   BASHRC_ADDITIONS,
   DEBIAN_BASHRC,
@@ -33,10 +33,10 @@ import {
   GIT_ALIASES,
   GIT_DEFAULT_BRANCHES,
   GIT_EDITORS,
-} from './pools/homeSkeleton';
-import { COLLEAGUES, NOTE_TEMPLATES, TIMES, WEEKDAYS } from './pools/homeNotes';
-import { PERSONAL_HISTORY, WORK_HISTORY } from './pools/homeHistory';
-import { buildPhoneHome, deviceModel } from './phoneHome';
+} from './pools/homeSkeleton.js';
+import { COLLEAGUES, NOTE_TEMPLATES, TIMES, WEEKDAYS } from './pools/homeNotes.js';
+import { PERSONAL_HISTORY, WORK_HISTORY } from './pools/homeHistory.js';
+import { buildPhoneHome, deviceModel } from './phoneHome.js';
 
 const DESK_PREFIXES: readonly string[] = ['desktop', 'laptop', 'workstation'];
 

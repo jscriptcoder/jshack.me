@@ -23,11 +23,11 @@
  * the client to arrive at a message the server was going to send anyway.
  */
 
-import { connectedWlan0 } from '../network/interfaces';
-import { renderIdentityWalk, renderReadWriteWalk } from '../snmp/walk';
-import { parseAgentAddress } from '../snmp/agentAddress';
-import { errorLine, text } from './streaming';
-import type { Command, CommandResult } from './types';
+import { connectedWlan0 } from '../network/interfaces.js';
+import { renderIdentityWalk, renderReadWriteWalk } from '../snmp/walk.js';
+import { parseAgentAddress } from '../snmp/agentAddress.js';
+import { errorLine, text } from './streaming.js';
+import type { Command, CommandResult } from './types.js';
 
 const USAGE = 'usage: snmpwalk <host>[:<port>] [community]';
 

@@ -5,8 +5,8 @@
  * helpers live in one topic file rather than file-per-helper.
  */
 
-import type { CommandEnv, FsReadResult } from './types';
-import { resolveAbsPath } from '../filesystem/path';
+import type { CommandEnv, FsReadResult } from './types.js';
+import { resolveAbsPath } from '../filesystem/path.js';
 
 /** Split file content into lines, dropping the trailing empty segment that
  *  `split('\n')` yields for newline-terminated files. A normal file doesn't

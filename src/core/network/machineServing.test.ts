@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import type { Directory, FilePermissions } from '../filesystem/types';
-import { dir, file, TRAVERSABLE_DIR } from '../generation/baseFs';
-import { machineServing } from './machineServing';
-import { withForward } from './iptablesRules';
+import type { Directory, FilePermissions } from '../filesystem/types.js';
+import { dir, file, TRAVERSABLE_DIR } from '../generation/baseFs.js';
+import { machineServing } from './machineServing.js';
+import { withForward } from './iptablesRules.js';
 
 const FILE_PERMS: FilePermissions = {
   read: ['root', 'user', 'guest'],

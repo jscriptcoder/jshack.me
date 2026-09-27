@@ -22,47 +22,47 @@
  * standing on a box the player was never put on.
  */
 
-import { asAbsPath, asMachineId, type UserType } from '../types';
-import { connectedWlan0 } from '../network/interfaces';
-import { isPublicIp } from '../generation/ip';
-import { dir } from '../generation/baseFs';
-import { defaultDirectoryPermissions, defaultFilePermissions } from '../filesystem/defaultPermissions';
-import { createFsView } from '../filesystem/fsView';
-import { resolveWriteTarget } from '../filesystem/writeTarget';
-import { describeScriptError, runScript } from '../scripting/runScript';
-import { formatScriptValue } from '../scripting/format';
-import type { ScriptFs } from '../scripting/fsApi';
-import type { Directory } from '../filesystem/types';
-import { generateHomeLan } from '../generation/generateHomeLan';
-import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
-import { addressForTarget } from '../network/resolveName';
-import { isCrossPlayerWorkstation } from '../network/crossPlayerHop';
-import { homeDirectory } from '../sessions/homeDirectory';
-import { resolveAbsPath } from '../filesystem/path';
-import { gameDayAt } from '../cve/worldClock';
-import { parseDpkgVersions, readDpkgStatus } from '../packages/dpkgStatus';
-import { localExploitOutcome, type LocalExploitOutcome } from '../cve/localExploit';
-import { backdoorPortFor } from '../cve/exploitEffect';
+import { asAbsPath, asMachineId, type UserType } from '../types.js';
+import { connectedWlan0 } from '../network/interfaces.js';
+import { isPublicIp } from '../generation/ip.js';
+import { dir } from '../generation/baseFs.js';
+import { defaultDirectoryPermissions, defaultFilePermissions } from '../filesystem/defaultPermissions.js';
+import { createFsView } from '../filesystem/fsView.js';
+import { resolveWriteTarget } from '../filesystem/writeTarget.js';
+import { describeScriptError, runScript } from '../scripting/runScript.js';
+import { formatScriptValue } from '../scripting/format.js';
+import type { ScriptFs } from '../scripting/fsApi.js';
+import type { Directory } from '../filesystem/types.js';
+import { generateHomeLan } from '../generation/generateHomeLan.js';
+import { resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
+import { addressForTarget } from '../network/resolveName.js';
+import { isCrossPlayerWorkstation } from '../network/crossPlayerHop.js';
+import { homeDirectory } from '../sessions/homeDirectory.js';
+import { resolveAbsPath } from '../filesystem/path.js';
+import { gameDayAt } from '../cve/worldClock.js';
+import { parseDpkgVersions, readDpkgStatus } from '../packages/dpkgStatus.js';
+import { localExploitOutcome, type LocalExploitOutcome } from '../cve/localExploit.js';
+import { backdoorPortFor } from '../cve/exploitEffect.js';
 import {
   formatListenerContent,
   listenerPidfilePath,
   PIDFILE_PERMISSIONS,
-} from '../services/pidfile';
+} from '../services/pidfile.js';
 import {
   accountAtOrAbove,
   withAccountHash,
   PASSWD_OWNER,
   PASSWD_PATH,
   type NamedPasswdAccount,
-} from '../sessions/passwdAccount';
-import { PASSWD_FILE } from '../generation/baseFs';
-import { md5 } from '../generation/md5';
-import { libraryDeps, libraryPresent } from './libraryDeps';
-import { SYSTEM_LIBRARIES } from '../generation/libraries';
-import { hasTty } from '../shell/runLine';
-import { resolveBinaryPath } from './availability';
-import { errorLine, streamedResult, text } from './streaming';
-import { PATCH_ERROR_REASON } from './types';
+} from '../sessions/passwdAccount.js';
+import { PASSWD_FILE } from '../generation/baseFs.js';
+import { md5 } from '../generation/md5.js';
+import { libraryDeps, libraryPresent } from './libraryDeps.js';
+import { SYSTEM_LIBRARIES } from '../generation/libraries.js';
+import { hasTty } from '../shell/runLine.js';
+import { resolveBinaryPath } from './availability.js';
+import { errorLine, streamedResult, text } from './streaming.js';
+import { PATCH_ERROR_REASON } from './types.js';
 import type {
   Command,
   CommandEnv,
@@ -70,7 +70,7 @@ import type {
   ExploitRunResult,
   SessionKind,
   TerminalLine,
-} from './types';
+} from './types.js';
 
 const PHASE_DELAY_MS = 260;
 const MAX_PORT = 65535;

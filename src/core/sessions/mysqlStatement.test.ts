@@ -1,31 +1,31 @@
 import { describe, expect, it, vi } from 'vitest';
-import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter';
-import { handleMysqlStatement, type MysqlStatementDeps } from './mysqlStatement';
-import { signRequest } from '../signedRequest/sign';
-import { generateIdentity } from '../identity/identity';
-import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
-import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
-import { hostServices } from '../generation/remoteHostFs';
-import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import { asAbsPath } from '../types';
-import { md5 } from '../generation/md5';
+import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
+import { handleMysqlStatement, type MysqlStatementDeps } from './mysqlStatement.js';
+import { signRequest } from '../signedRequest/sign.js';
+import { generateIdentity } from '../identity/identity.js';
+import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
+import { resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
+import { hostServices } from '../generation/remoteHostFs.js';
+import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
+import { asAbsPath } from '../types.js';
+import { md5 } from '../generation/md5.js';
 import {
   databaseOn,
   deepDatabaseFixture,
   knownDatabaseCredential,
   mysqlHostOn,
   playerDatabaseOn,
-} from '../../test/factories/lanDatabase';
-import { computeApGatewayId } from '../identity/router';
-import { lanAddressFor } from '../network/lanAddress';
-import { formatPidfileContent, pidfilePath } from '../services/pidfile';
-import { DATADIR_PATH } from '../mysql/datadir';
-import type { NatOccupantRow } from '../network/resolvePublicTarget';
-import { parseMysqlDatabase } from '../mysql/types';
-import { MYSQL_LOG_PATH } from '../logging/mysqlLog';
-import type { PatchRow } from '../patches/upsertPatch';
-import type { OwnerPatchRow } from '../network/materializeMachineFs';
-import type { NonceStore } from '../signedRequest/nonceStore';
+} from '../../test/factories/lanDatabase.js';
+import { computeApGatewayId } from '../identity/router.js';
+import { lanAddressFor } from '../network/lanAddress.js';
+import { formatPidfileContent, pidfilePath } from '../services/pidfile.js';
+import { DATADIR_PATH } from '../mysql/datadir.js';
+import type { NatOccupantRow } from '../network/resolvePublicTarget.js';
+import { parseMysqlDatabase } from '../mysql/types.js';
+import { MYSQL_LOG_PATH } from '../logging/mysqlLog.js';
+import type { PatchRow } from '../patches/upsertPatch.js';
+import type { OwnerPatchRow } from '../network/materializeMachineFs.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 /**
  * `handleMysqlStatement` answers one statement against a box's real database.

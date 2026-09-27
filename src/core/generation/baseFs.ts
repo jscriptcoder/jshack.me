@@ -12,7 +12,7 @@
  * independently, so they stay local to each generator.
  */
 
-import type { Directory, FileEntry, FileNode, FilePermissions } from '../filesystem/types';
+import type { Directory, FileEntry, FileNode, FilePermissions } from '../filesystem/types.js';
 
 // --- Permission boundaries ---
 

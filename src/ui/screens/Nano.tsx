@@ -11,8 +11,8 @@
  */
 
 import { createSignal, onMount, Show } from 'solid-js';
-import type { AbsPath } from '../../core/types';
-import type { PatchResult } from '../../core/commands/types';
+import type { AbsPath } from '../../core/types.js';
+import type { PatchResult } from '../../core/commands/types.js';
 
 export type NanoProps = {
   readonly path: AbsPath;

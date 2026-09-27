@@ -7,9 +7,9 @@
  * way and the two can't drift. Row shape: `name:hash:uid:gid:gecos:home:shell`.
  */
 
-import { userTypeFromPasswdFields } from '../generation/passwdTier';
-import { asAbsPath, type UserType } from '../types';
-import type { Directory, FileEntry } from '../filesystem/types';
+import { userTypeFromPasswdFields } from '../generation/passwdTier.js';
+import { asAbsPath, type UserType } from '../types.js';
+import type { Directory, FileEntry } from '../filesystem/types.js';
 
 /** Where a box keeps its accounts, and who owns that file. Named beside the parser so a
  *  writer and a reader cannot end up pointing at two different paths for one fact. */

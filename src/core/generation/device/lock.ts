@@ -5,14 +5,14 @@
  * code: the codes stay in the lock's own secure element, which no file holds.
  */
 
-import type { Prng } from '../prng';
-import { dir, file, ROOT_FILE, SERVICE_CONFIG_FILE, TRAVERSABLE_DIR } from '../baseFs';
-import { generateHomeLan, isOnHomeLan, type LanHost } from '../generateHomeLan';
-import type { MailPerson } from '../networkMail';
-import { npcUsername } from '../remoteHostFs';
-import { phoneModel } from '../share';
-import { LOCK_DOORS, LOCK_MODELS, LOCK_ROLE_SLOTS } from '../pools/devices';
-import { DAY_SECONDS, LAST_SECOND, stamp, uiPage, userTree, type DeviceFiles } from './common';
+import type { Prng } from '../prng.js';
+import { dir, file, ROOT_FILE, SERVICE_CONFIG_FILE, TRAVERSABLE_DIR } from '../baseFs.js';
+import { generateHomeLan, isOnHomeLan, type LanHost } from '../generateHomeLan.js';
+import type { MailPerson } from '../networkMail.js';
+import { npcUsername } from '../remoteHostFs.js';
+import { phoneModel } from '../share.js';
+import { LOCK_DOORS, LOCK_MODELS, LOCK_ROLE_SLOTS } from '../pools/devices.js';
+import { DAY_SECONDS, LAST_SECOND, stamp, uiPage, userTree, type DeviceFiles } from './common.js';
 
 const SLOTS_PATH = '/var/lib/lockd/slots.conf';
 const LOG_PATH = '/var/log/lockd/access.log';

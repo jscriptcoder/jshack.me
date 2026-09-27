@@ -1,26 +1,26 @@
 import { describe, expect, it, vi } from 'vitest';
-import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter';
-import { handleNmapScanDeep, type NmapScanDeepDeps } from './nmapScanDeep';
-import { signRequest } from '../signedRequest/sign';
-import { generateIdentity } from '../identity/identity';
-import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
-import { crackableEssidPool } from '../generation/generateWifi';
-import { generateDeepLayer } from '../generation/generateDeepLayer';
-import { buildDeepHostFs } from '../generation/deepHostFs';
+import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
+import { handleNmapScanDeep, type NmapScanDeepDeps } from './nmapScanDeep.js';
+import { signRequest } from '../signedRequest/sign.js';
+import { generateIdentity } from '../identity/identity.js';
+import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
+import { crackableEssidPool } from '../generation/generateWifi.js';
+import { generateDeepLayer } from '../generation/generateDeepLayer.js';
+import { buildDeepHostFs } from '../generation/deepHostFs.js';
 import {
   machineIdForLanHost,
   pivotVantageForMachineId,
   resolveDeepGatewayIdentity,
-} from '../generation/lanHostIdentity';
-import { hostMachineId } from '../generation/remoteHostId';
-import { computeApGatewayId } from '../identity/router';
-import { readOpenPorts } from '../services/pidfile';
-import { formatNmapScanAggregate, KERN_LOG_OWNER, KERN_LOG_PERMISSIONS } from '../logging/kernLog';
-import { asGameTime, asPlayerKeyHex } from '../types';
-import type { OwnerPatchRow } from '../network/materializeMachineFs';
-import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog';
-import type { PatchRow } from '../patches/upsertPatch';
-import type { NonceStore } from '../signedRequest/nonceStore';
+} from '../generation/lanHostIdentity.js';
+import { hostMachineId } from '../generation/remoteHostId.js';
+import { computeApGatewayId } from '../identity/router.js';
+import { readOpenPorts } from '../services/pidfile.js';
+import { formatNmapScanAggregate, KERN_LOG_OWNER, KERN_LOG_PERMISSIONS } from '../logging/kernLog.js';
+import { asGameTime, asPlayerKeyHex } from '../types.js';
+import type { OwnerPatchRow } from '../network/materializeMachineFs.js';
+import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog.js';
+import type { PatchRow } from '../patches/upsertPatch.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 /**
  * `handleNmapScanDeep` is the deep-layer counterpart of `handleNmapScan`: a pivot

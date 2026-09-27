@@ -12,24 +12,24 @@
  * other concern moves.
  */
 
-import type { Directory, FileNode } from '../filesystem/types';
-import { WORLD_EPOCH } from '../cve/worldClock';
-import { dir, file, HOME_DIR, HOME_FILE } from './baseFs';
-import { renderDocument } from './documentFormats';
-import { isOnHomeLan, type LanHost } from './generateHomeLan';
-import { peopleOn } from './networkMail';
-import { networkPersona } from './persona';
-import { createPrng, type Prng } from './prng';
-import { phoneModel, type Device } from './share';
-import { fillSlots } from './npcHome';
-import { COLLEAGUES } from './pools/homeNotes';
+import type { Directory, FileNode } from '../filesystem/types.js';
+import { WORLD_EPOCH } from '../cve/worldClock.js';
+import { dir, file, HOME_DIR, HOME_FILE } from './baseFs.js';
+import { renderDocument } from './documentFormats.js';
+import { isOnHomeLan, type LanHost } from './generateHomeLan.js';
+import { peopleOn } from './networkMail.js';
+import { networkPersona } from './persona.js';
+import { createPrng, type Prng } from './prng.js';
+import { phoneModel, type Device } from './share.js';
+import { fillSlots } from './npcHome.js';
+import { COLLEAGUES } from './pools/homeNotes.js';
 import {
   PERSONAL_DOWNLOADS,
   PHONE_NOTES,
   PLACE_DOWNLOADS,
   TABLET_MODELS,
   type DownloadSpec,
-} from './pools/phoneFiles';
+} from './pools/phoneFiles.js';
 
 const DAY_SECONDS = 86_400;
 const EPOCH_SECONDS = WORLD_EPOCH / 1000;

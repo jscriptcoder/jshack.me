@@ -20,14 +20,14 @@
 // Exits 0 when all checks pass, 1 on failure, 2 on missing env / no usable sibling.
 
 import { createClient } from '@supabase/supabase-js';
-import { signRequest } from '../src/core/signedRequest/sign';
-import { generateIdentity } from '../src/core/identity/identity';
-import { generateHomeLan, type LanHost } from '../src/core/generation/generateHomeLan';
-import { crackableEssidPool } from '../src/core/generation/generateWifi';
-import { buildRemoteHostFs } from '../src/core/generation/remoteHostFs';
-import { buildApGatewayBaseFs } from '../src/core/generation/routerFs';
-import { machineIdForLanHost } from '../src/core/generation/lanHostIdentity';
-import { hostMachineId } from '../src/core/generation/remoteHostId';
+import { signRequest } from '../src/core/signedRequest/sign.js';
+import { generateIdentity } from '../src/core/identity/identity.js';
+import { generateHomeLan, type LanHost } from '../src/core/generation/generateHomeLan.js';
+import { crackableEssidPool } from '../src/core/generation/generateWifi.js';
+import { buildRemoteHostFs } from '../src/core/generation/remoteHostFs.js';
+import { buildApGatewayBaseFs } from '../src/core/generation/routerFs.js';
+import { machineIdForLanHost } from '../src/core/generation/lanHostIdentity.js';
+import { hostMachineId } from '../src/core/generation/remoteHostId.js';
 import {
   readRulesV4,
   withForward,
@@ -35,14 +35,14 @@ import {
   RULES_V4_OWNER,
   RULES_V4_PATH,
   RULES_V4_PERMISSIONS,
-} from '../src/core/network/iptablesRules';
+} from '../src/core/network/iptablesRules.js';
 import {
   formatListenerContent,
   listenerPidfileName,
   pidfilePath,
   readOpenPorts,
   readRunningProcesses,
-} from '../src/core/services/pidfile';
+} from '../src/core/services/pidfile.js';
 import {
   DPKG_STATUS_OWNER,
   DPKG_STATUS_PATH,
@@ -50,12 +50,12 @@ import {
   parseDpkgVersions,
   readDpkgStatus,
   withPackageVersion,
-} from '../src/core/packages/dpkgStatus';
-import { upgradeStatusFor } from '../src/core/cve/packageTimeline';
-import { displayVersion } from '../src/core/packages/packageVersions';
-import { serviceByName } from '../src/core/services/serviceCatalog';
-import { gameDayAt } from '../src/core/cve/worldClock';
-import { asEpochMs } from '../src/core/types';
+} from '../src/core/packages/dpkgStatus.js';
+import { upgradeStatusFor } from '../src/core/cve/packageTimeline.js';
+import { displayVersion } from '../src/core/packages/packageVersions.js';
+import { serviceByName } from '../src/core/services/serviceCatalog.js';
+import { gameDayAt } from '../src/core/cve/worldClock.js';
+import { asEpochMs } from '../src/core/types.js';
 
 const PATCHES = process.env.PATCHES_ENDPOINT ?? 'http://localhost:3100/api/patches';
 const NETWORK = process.env.NETWORK_ENDPOINT ?? 'http://localhost:3100/api/network';

@@ -29,19 +29,19 @@
 // Exits 0 when all checks pass, 1 on failure, 2 on missing env.
 
 import { createClient } from '@supabase/supabase-js';
-import { signRequest } from '../src/core/signedRequest/sign';
-import { generateIdentity } from '../src/core/identity/identity';
-import { generateHomeLan } from '../src/core/generation/generateHomeLan';
+import { signRequest } from '../src/core/signedRequest/sign.js';
+import { generateIdentity } from '../src/core/identity/identity.js';
+import { generateHomeLan } from '../src/core/generation/generateHomeLan.js';
 import {
   lanBaseFsForMachineId,
   machineIdForLanHost,
-} from '../src/core/generation/lanHostIdentity';
+} from '../src/core/generation/lanHostIdentity.js';
 import {
   formatListenerContent,
   listenerPidfilePath,
   PIDFILE_PERMISSIONS,
-} from '../src/core/services/pidfile';
-import { AUTH_LOG_PATH } from '../src/core/logging/authLog';
+} from '../src/core/services/pidfile.js';
+import { AUTH_LOG_PATH } from '../src/core/logging/authLog.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const url = process.env.SUPABASE_URL;

@@ -43,17 +43,17 @@ import {
   type Session,
   type SessionKind,
   type TerminalLine,
-} from '../commands/types';
-import { listenerOn } from '../services/pidfile';
-import { readBootId } from '../boot/bootId';
-import type { AbsPath } from '../types';
-import { tokenize } from './tokenize';
-import { parsePipeline, type Stage } from './pipeline';
-import { bindFlags } from './bindFlags';
-import { resolveWriteTarget, type WriteTarget } from '../filesystem/writeTarget';
-import { resolveAbsPath } from '../filesystem/path';
-import { stubName } from '../generation/binaries';
-import { mayExecute } from '../commands/availability';
+} from '../commands/types.js';
+import { listenerOn } from '../services/pidfile.js';
+import { readBootId } from '../boot/bootId.js';
+import type { AbsPath } from '../types.js';
+import { tokenize } from './tokenize.js';
+import { parsePipeline, type Stage } from './pipeline.js';
+import { bindFlags } from './bindFlags.js';
+import { resolveWriteTarget, type WriteTarget } from '../filesystem/writeTarget.js';
+import { resolveAbsPath } from '../filesystem/path.js';
+import { stubName } from '../generation/binaries.js';
+import { mayExecute } from '../commands/availability.js';
 
 const syncError = (content: string, exitCode: number): CommandResult => ({
   kind: 'sync',

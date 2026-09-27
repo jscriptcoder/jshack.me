@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { ESSID_CATALOG } from './pools/essidCatalog';
-import { createPrng } from './prng';
-import { generatePublicIp, isPublicIp, PUBLISHER_FIRST_OCTET } from './ip';
-import { publisherAt, publisherIp, publisherSite, siteAddress } from './publisher';
-import { FINDIT_NETWORK } from './findit';
-import { resolveName } from '../network/resolveName';
+import { ESSID_CATALOG } from './pools/essidCatalog.js';
+import { createPrng } from './prng.js';
+import { generatePublicIp, isPublicIp, PUBLISHER_FIRST_OCTET } from './ip.js';
+import { publisherAt, publisherIp, publisherSite, siteAddress } from './publisher.js';
+import { FINDIT_NETWORK } from './findit.js';
+import { resolveName } from '../network/resolveName.js';
 
 /**
  * The institutions of the world publish a website: every office, café, the university,

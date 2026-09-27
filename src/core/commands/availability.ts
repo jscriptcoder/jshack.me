@@ -22,11 +22,11 @@
  * `/lib/*.so` library check are wired.
  */
 
-import { asAbsPath } from '../types';
-import type { AbsPath, UserType } from '../types';
-import type { FileNode } from '../filesystem/types';
-import type { Command, CommandEnv, CommandResult } from './types';
-import { packageForBinary } from '../packages/aptPackages';
+import { asAbsPath } from '../types.js';
+import type { AbsPath, UserType } from '../types.js';
+import type { FileNode } from '../filesystem/types.js';
+import type { Command, CommandEnv, CommandResult } from './types.js';
+import { packageForBinary } from '../packages/aptPackages.js';
 
 /** Shell builtins — always available, no binary needed. Listed to MATCH the
  *  builtins v2 actually implements: adding a speculative entry for an

@@ -1,15 +1,15 @@
 import { describe, expect, it, vi } from 'vitest';
-import { asMachineId, asPlayerKeyHex } from '../types';
-import { computeWorkstationId } from '../identity/workstation';
+import { asMachineId, asPlayerKeyHex } from '../types.js';
+import { computeWorkstationId } from '../identity/workstation.js';
 import {
   buildColdStartConnectivity,
   isOnline,
   type ConnectivityState,
   type WirelessInterface,
-} from '../network/interfaces';
-import type { WifiNetwork } from '../network/wifi';
-import { buildDirectory, buildFile } from '../../test/factories/filesystem';
-import { SYSTEM_LIBRARIES } from '../generation/libraries';
+} from '../network/interfaces.js';
+import type { WifiNetwork } from '../network/wifi.js';
+import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
+import { SYSTEM_LIBRARIES } from '../generation/libraries.js';
 import {
   mockCommandEnv,
   mockFsViewFromTree,
@@ -17,10 +17,10 @@ import {
   mockNetworkView,
   mockScanApi,
   mockSession,
-} from '../../test/factories/commandEnv';
-import type { CommandEnv, CommandResult } from './types';
-import { commandRegistry } from './registry';
-import { airodumpNg } from './airodumpNg';
+} from '../../test/factories/commandEnv.js';
+import type { CommandEnv, CommandResult } from './types.js';
+import { commandRegistry } from './registry.js';
+import { airodumpNg } from './airodumpNg.js';
 
 /**
  * `airodump-ng` is the player's WiFi scan: with monitor mode on, it streams the
@@ -276,7 +276,7 @@ describe('airodump-ng', () => {
         rescanWifi: () => WIFI,
       }),
     });
-    const { runCommandLine } = await import('../shell/runLine');
+    const { runCommandLine } = await import('../shell/runLine.js');
 
     const { lines } = await drain(await runCommandLine(env, 'airodump-ng', commandRegistry));
     expect(lines.join('\n')).toContain('Scan complete');

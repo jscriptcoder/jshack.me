@@ -19,9 +19,9 @@
  * had already been written into somebody's auth.log.
  */
 
-import type { Command, CommandEnv, TerminalLine } from '../commands/types';
-import type { FlagSpec } from '../shell/bindFlags';
-import { collectStageOutput, hasTty, refuseWithoutTty } from '../shell/runLine';
+import type { Command, CommandEnv, TerminalLine } from '../commands/types.js';
+import type { FlagSpec } from '../shell/bindFlags.js';
+import { collectStageOutput, hasTty, refuseWithoutTty } from '../shell/runLine.js';
 
 /** The JS identifier a command is reachable by inside a script.
  *

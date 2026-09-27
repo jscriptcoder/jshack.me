@@ -17,38 +17,38 @@
  */
 
 import { z } from 'zod';
-import { verifySignedRequest } from '../signedRequest/verify';
-import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
-import { materializeApGatewayFs } from '../network/materializeRouterFs';
-import type { OwnerPatchRow } from '../network/materializeWorkstationFs';
-import { canBoot } from '../boot/bootFiles';
-import { parseForwardRules, readRulesV4 } from '../network/iptablesRules';
-import { scanResult } from './scanResult';
-import { bootableOccupantFs, natPortResolver } from '../network/natHosts';
-import { lanAddressesByOwner, type LanLeaseRow } from '../network/lanAddress';
-import { seedApGatewayHostname } from '../generation/gatewayHostname';
-import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter';
-import { generatedLanBox } from '../network/generatedLanBox';
+import { verifySignedRequest } from '../signedRequest/verify.js';
+import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
+import { materializeApGatewayFs } from '../network/materializeRouterFs.js';
+import type { OwnerPatchRow } from '../network/materializeWorkstationFs.js';
+import { canBoot } from '../boot/bootFiles.js';
+import { parseForwardRules, readRulesV4 } from '../network/iptablesRules.js';
+import { scanResult } from './scanResult.js';
+import { bootableOccupantFs, natPortResolver } from '../network/natHosts.js';
+import { lanAddressesByOwner, type LanLeaseRow } from '../network/lanAddress.js';
+import { seedApGatewayHostname } from '../generation/gatewayHostname.js';
+import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
+import { generatedLanBox } from '../network/generatedLanBox.js';
 import {
   formatNmapScanAggregate,
   KERN_LOG_OWNER,
   KERN_LOG_PATH,
   KERN_LOG_PERMISSIONS,
-} from '../logging/kernLog';
+} from '../logging/kernLog.js';
 import {
   resolveCrossPlayerSourceIp,
   type FindHomeNetworkByOwnerKey,
-} from '../logging/crossPlayerSourceIp';
+} from '../logging/crossPlayerSourceIp.js';
 import {
   appendMachineLog,
   type MachineLogReadQuery,
   type MachineLogReadResult,
-} from '../patches/appendMachineLog';
-import { asGameTime } from '../types';
-import type { PatchRow } from '../patches/upsertPatch';
-import type { Directory } from '../filesystem/types';
-import type { OpenPort } from '../services/pidfile';
-import type { NonceStore } from '../signedRequest/nonceStore';
+} from '../patches/appendMachineLog.js';
+import { asGameTime } from '../types.js';
+import type { PatchRow } from '../patches/upsertPatch.js';
+import type { Directory } from '../filesystem/types.js';
+import type { OpenPort } from '../services/pidfile.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 /** One occupant a NAT forward can reach: its machine id (the journal scope), the
  *  `owner_key` (with the essid, finds its LAN lease) and the identity needed to

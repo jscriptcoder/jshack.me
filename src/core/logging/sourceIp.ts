@@ -18,7 +18,7 @@
  * own-vs-remote check stays correct as workstation identity evolves.
  */
 
-import type { Ipv4 } from '../network/interfaces';
+import type { Ipv4 } from '../network/interfaces.js';
 
 /** The /24 subnet prefix of an IP (`192.168.1.50` → `192.168.1`). */
 const subnet = (ip: Ipv4): string => ip.split('.').slice(0, 3).join('.');

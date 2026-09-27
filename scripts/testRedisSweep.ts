@@ -21,23 +21,23 @@
 // Exits 0 when all checks pass, 1 on failure, 2 on missing env / no usable host.
 
 import { createClient } from '@supabase/supabase-js';
-import { signRequest } from '../src/core/signedRequest/sign';
-import { generateIdentity } from '../src/core/identity/identity';
-import { computeWorkstationId } from '../src/core/identity/workstation';
-import { generateHomeLan, type LanHost } from '../src/core/generation/generateHomeLan';
-import { hostServices } from '../src/core/generation/remoteHostFs';
-import { resolveLanHostIdentity } from '../src/core/generation/lanHostIdentity';
-import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog';
-import { storeIn } from '../src/core/redis/datadir';
-import { md5 } from '../src/core/generation/md5';
+import { signRequest } from '../src/core/signedRequest/sign.js';
+import { generateIdentity } from '../src/core/identity/identity.js';
+import { computeWorkstationId } from '../src/core/identity/workstation.js';
+import { generateHomeLan, type LanHost } from '../src/core/generation/generateHomeLan.js';
+import { hostServices } from '../src/core/generation/remoteHostFs.js';
+import { resolveLanHostIdentity } from '../src/core/generation/lanHostIdentity.js';
+import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
+import { storeIn } from '../src/core/redis/datadir.js';
+import { md5 } from '../src/core/generation/md5.js';
 import {
   DEFAULT_WORDLIST,
   WORDLIST_PATH,
   WORDLIST_PERMISSIONS,
   formatWordlist,
-} from '../src/core/wordlist/defaultWordlist';
-import { AUTH_LOG_PATH } from '../src/core/logging/authLog';
-import { REDIS_LOG_OWNER, REDIS_LOG_PATH } from '../src/core/logging/redisLog';
+} from '../src/core/wordlist/defaultWordlist.js';
+import { AUTH_LOG_PATH } from '../src/core/logging/authLog.js';
+import { REDIS_LOG_OWNER, REDIS_LOG_PATH } from '../src/core/logging/redisLog.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const url = process.env.SUPABASE_URL;

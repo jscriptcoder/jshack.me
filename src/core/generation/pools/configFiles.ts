@@ -25,9 +25,9 @@
  * `mysql.cnf` means in v2 what it meant in the app this one replaces.
  */
 
-import { createPrng } from '../prng';
-import { SERVICE_CATALOG, type ServiceSpec } from '../../services/serviceCatalog';
-import type { DrawnRole } from '../machineRole';
+import { createPrng } from '../prng.js';
+import { SERVICE_CATALOG, type ServiceSpec } from '../../services/serviceCatalog.js';
+import type { DrawnRole } from '../machineRole.js';
 
 /** Interpolated wherever the host's own name belongs. */
 const HOSTNAME_PLACEHOLDER = /\{\{hostname\}\}/g;

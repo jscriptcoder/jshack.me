@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Directory, FileNode } from '../filesystem/types';
+import type { Directory, FileNode } from '../filesystem/types.js';
 import {
   dir,
   file,
@@ -8,15 +8,15 @@ import {
   ROOT_DIR,
   TMP_DIR,
   TRAVERSABLE_DIR,
-} from '../generation/baseFs';
+} from '../generation/baseFs.js';
 import {
   EXTERNALLY_OBSERVABLE_ALLOWLIST,
   filterTreeForRead,
   filterTreeToAllowlist,
-} from './readFilter';
-import { serializeTree } from '../filesystem/treeCodec';
-import { buildApGatewayBaseFs } from '../generation/routerFs';
-import { readRwCommunityHash } from '../snmp/rwCommunity';
+} from './readFilter.js';
+import { serializeTree } from '../filesystem/treeCodec.js';
+import { buildApGatewayBaseFs } from '../generation/routerFs.js';
+import { readRwCommunityHash } from '../snmp/rwCommunity.js';
 
 /**
  * The cross-player READ filter (Story 2, slice 2c — tier 2). Given a fully

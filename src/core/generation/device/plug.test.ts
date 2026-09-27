@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { PLUG_APPLIANCES } from '../pools/devices';
-import { WORLD_EPOCH } from '../../cve/worldClock';
-import { softwareVersionsIn } from '../../../test/worldContent';
+import { PLUG_APPLIANCES } from '../pools/devices.js';
+import { WORLD_EPOCH } from '../../cve/worldClock.js';
+import { softwareVersionsIn } from '../../../test/worldContent.js';
 import {
   contentOf,
   pagesOf,
@@ -11,7 +11,7 @@ import {
   syntheticLanBoxes,
   worldBoxesNamed,
   type BuiltBox,
-} from '../../../test/deviceBoxes';
+} from '../../../test/deviceBoxes.js';
 
 const CONF = '/etc/plugd/plugd.conf';
 const SCHEDULE = '/var/lib/plugd/schedule.conf';

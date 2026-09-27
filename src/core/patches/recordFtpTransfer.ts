@@ -33,30 +33,30 @@
  */
 
 import { z } from 'zod';
-import { verifySignedRequest } from '../signedRequest/verify';
-import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
-import { asAbsPath, asGameTime } from '../types';
+import { verifySignedRequest } from '../signedRequest/verify.js';
+import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
+import { asAbsPath, asGameTime } from '../types.js';
 import {
   VSFTPD_LOG_OWNER,
   VSFTPD_LOG_PATH,
   VSFTPD_LOG_PERMISSIONS,
   formatVsftpdTransferLine,
-} from '../logging/vsftpdLog';
-import { derivePid } from '../logging/syslog';
-import { authorizeMachineAccess, type FindActiveSession } from './authorizeMachineAccess';
+} from '../logging/vsftpdLog.js';
+import { derivePid } from '../logging/syslog.js';
+import { authorizeMachineAccess, type FindActiveSession } from './authorizeMachineAccess.js';
 import type {
   FindHomeNetworkByOwnerKey,
   FindPublicIpByEssid,
-} from '../logging/crossPlayerSourceIp';
-import { resolveTraceProvenance } from './traceProvenance';
+} from '../logging/crossPlayerSourceIp.js';
+import { resolveTraceProvenance } from './traceProvenance.js';
 import {
   appendMachineLog,
   type MachineLogReadQuery,
   type MachineLogReadResult,
-} from './appendMachineLog';
-import type { FindOccupantWorkstationByMachineId } from './remoteWritePermission';
-import type { NonceStore } from '../signedRequest/nonceStore';
-import type { PatchRow } from './upsertPatch';
+} from './appendMachineLog.js';
+import type { FindOccupantWorkstationByMachineId } from './remoteWritePermission.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
+import type { PatchRow } from './upsertPatch.js';
 
 export type RecordFtpTransferDeps = {
   readonly nonceStore: NonceStore;

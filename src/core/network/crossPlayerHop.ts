@@ -26,8 +26,8 @@
  *     two from drifting.
  */
 
-import { isOwnWorkstation } from '../identity/workstation';
-import { generatedBaseFsForMachineId } from '../generation/lanHostIdentity';
+import { isOwnWorkstation } from '../identity/workstation.js';
+import { generatedBaseFsForMachineId } from '../generation/lanHostIdentity.js';
 
 export const isCrossPlayerWorkstation = (args: {
   readonly machineId: string;

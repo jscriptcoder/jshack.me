@@ -30,14 +30,14 @@
 // Exits 0 when all checks pass, 1 on failure, 2 on missing env / no usable host.
 
 import { createClient } from '@supabase/supabase-js';
-import { signRequest } from '../src/core/signedRequest/sign';
-import { generateIdentity } from '../src/core/identity/identity';
-import { computeWorkstationId } from '../src/core/identity/workstation';
-import { generateHomeLan } from '../src/core/generation/generateHomeLan';
-import { lanBaseFsForMachineId, machineIdForLanHost } from '../src/core/generation/lanHostIdentity';
-import { md5 } from '../src/core/generation/md5';
-import { DPKG_LOG_PATH } from '../src/core/logging/dpkgLog';
-import { clearPublicIps, seedPublicIps } from './networkFixture';
+import { signRequest } from '../src/core/signedRequest/sign.js';
+import { generateIdentity } from '../src/core/identity/identity.js';
+import { computeWorkstationId } from '../src/core/identity/workstation.js';
+import { generateHomeLan } from '../src/core/generation/generateHomeLan.js';
+import { lanBaseFsForMachineId, machineIdForLanHost } from '../src/core/generation/lanHostIdentity.js';
+import { md5 } from '../src/core/generation/md5.js';
+import { DPKG_LOG_PATH } from '../src/core/logging/dpkgLog.js';
+import { clearPublicIps, seedPublicIps } from './networkFixture.js';
 
 const PATCHES = process.env.PATCHES_ENDPOINT ?? 'http://localhost:3100/api/patches';
 const url = process.env.SUPABASE_URL;

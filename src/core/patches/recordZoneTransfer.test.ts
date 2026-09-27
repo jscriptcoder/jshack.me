@@ -1,19 +1,19 @@
 import { describe, expect, it, vi } from 'vitest';
-import { handleRecordZoneTransfer, type RecordZoneTransferDeps } from './recordZoneTransfer';
-import type { PatchRow } from './upsertPatch';
-import type { MachineLogReadQuery, MachineLogReadResult } from './appendMachineLog';
-import type { FindHomeNetworkByOwnerKey } from '../logging/crossPlayerSourceIp';
-import type { NonceStore } from '../signedRequest/nonceStore';
-import { signRequest } from '../signedRequest/sign';
-import { generateIdentity } from '../identity/identity';
-import { asGameTime } from '../types';
-import { lanZoneName } from '../network/resolveName';
+import { handleRecordZoneTransfer, type RecordZoneTransferDeps } from './recordZoneTransfer.js';
+import type { PatchRow } from './upsertPatch.js';
+import type { MachineLogReadQuery, MachineLogReadResult } from './appendMachineLog.js';
+import type { FindHomeNetworkByOwnerKey } from '../logging/crossPlayerSourceIp.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
+import { signRequest } from '../signedRequest/sign.js';
+import { generateIdentity } from '../identity/identity.js';
+import { asGameTime } from '../types.js';
+import { lanZoneName } from '../network/resolveName.js';
 import {
   allowsZoneTransfer,
   nameServerMachineIdAt,
   zoneRecordsFor,
-} from '../generation/generateDnsZone';
-import { NAMED_LOG_OWNER, NAMED_LOG_PATH, NAMED_LOG_PERMISSIONS, formatNamedXfrLine } from '../logging/namedLog';
+} from '../generation/generateDnsZone.js';
+import { NAMED_LOG_OWNER, NAMED_LOG_PATH, NAMED_LOG_PERMISSIONS, formatNamedXfrLine } from '../logging/namedLog.js';
 
 /**
  * handleRecordZoneTransfer — the server side of the door's one trace. A zone

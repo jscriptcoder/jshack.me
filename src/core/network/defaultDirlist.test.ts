@@ -4,7 +4,7 @@ import {
   DIRLIST_PERMISSIONS,
   formatDirlist,
   parseDirlist,
-} from './defaultDirlist';
+} from './defaultDirlist.js';
 
 /**
  * The shipped path list and the file it becomes. `apt install gobuster` writes

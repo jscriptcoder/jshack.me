@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@solidjs/testing-library';
-import { Nano, type NanoProps } from './Nano';
-import { asAbsPath } from '../../core/types';
-import type { PatchResult } from '../../core/commands/types';
+import { Nano, type NanoProps } from './Nano.js';
+import { asAbsPath } from '../../core/types.js';
+import type { PatchResult } from '../../core/commands/types.js';
 
 const okSave = (): NanoProps['onSave'] => vi.fn(async () => ({ ok: true }) as PatchResult);
 

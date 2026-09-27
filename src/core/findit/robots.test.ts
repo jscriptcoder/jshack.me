@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { robotsAllowFindit } from './robots';
+import { robotsAllowFindit } from './robots.js';
 
 /**
  * Whether a site lets findit list it — read the way a real crawler reads `robots.txt`,

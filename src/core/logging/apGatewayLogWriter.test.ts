@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { apGatewayLogWriterKey } from './apGatewayLogWriter';
+import { apGatewayLogWriterKey } from './apGatewayLogWriter.js';
 
 /**
  * The row every ownerless box on a network keeps its logs in. It belongs to the network,

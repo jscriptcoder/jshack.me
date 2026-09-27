@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { curl } from './curl';
-import { runCommandLine } from '../shell/runLine';
+import { curl } from './curl.js';
+import { runCommandLine } from '../shell/runLine.js';
 import type {
   AccessLogFetch,
   CommandResult,
   PublicFetchParams,
   PublicFetchResult,
-} from './types';
+} from './types.js';
 import {
   mockCommandEnv,
   mockFsViewFromTree,
@@ -14,23 +14,23 @@ import {
   mockNetworkView,
   mockNetworkViewFromConnectivity,
   mockRemoteApi,
-} from '../../test/factories/commandEnv';
-import { applyPatches, type Patch } from '../filesystem/applyPatches';
-import { defaultFilePermissions } from '../filesystem/defaultPermissions';
-import type { Directory } from '../filesystem/types';
-import { buildWorkstationBaseFs } from '../generation/workstationFs';
-import { formatPidfileContent } from '../services/pidfile';
-import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces';
-import { assignHomeNetwork } from '../network/homeNetwork';
-import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
-import { buildRemoteHostFs } from '../generation/remoteHostFs';
-import { baseFsForLanHost } from '../generation/lanHostIdentity';
-import { publisherIp } from '../generation/publisher';
-import { readOpenPorts } from '../services/pidfile';
-import { createFsView } from '../filesystem/fsView';
-import { HTTP_DEFAULT_PORT } from '../network/http';
-import { asAbsPath, asPlayerKeyHex } from '../types';
+} from '../../test/factories/commandEnv.js';
+import { applyPatches, type Patch } from '../filesystem/applyPatches.js';
+import { defaultFilePermissions } from '../filesystem/defaultPermissions.js';
+import type { Directory } from '../filesystem/types.js';
+import { buildWorkstationBaseFs } from '../generation/workstationFs.js';
+import { formatPidfileContent } from '../services/pidfile.js';
+import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
+import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces.js';
+import { assignHomeNetwork } from '../network/homeNetwork.js';
+import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
+import { buildRemoteHostFs } from '../generation/remoteHostFs.js';
+import { baseFsForLanHost } from '../generation/lanHostIdentity.js';
+import { publisherIp } from '../generation/publisher.js';
+import { readOpenPorts } from '../services/pidfile.js';
+import { createFsView } from '../filesystem/fsView.js';
+import { HTTP_DEFAULT_PORT } from '../network/http.js';
+import { asAbsPath, asPlayerKeyHex } from '../types.js';
 
 /**
  * `curl <url>` fetches over HTTP — the one door that opens without a credential.

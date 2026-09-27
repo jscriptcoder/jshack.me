@@ -15,8 +15,8 @@
  * credential attack can open, this one widens what a server will admit to having.
  */
 
-import { asAbsPath, type AbsPath } from '../types';
-import type { FilePermissions } from '../filesystem/types';
+import { asAbsPath, type AbsPath } from '../types.js';
+import type { FilePermissions } from '../filesystem/types.js';
 
 /** Where the path list lives, and where a sweep looks for one. Sits alongside the
  *  password wordlist in the directory a player already knows. */

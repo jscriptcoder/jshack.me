@@ -17,9 +17,9 @@
  * of the stream and `runInput` stops it, so the key is never reached.
  */
 
-import type { Command, CommandEnv, CommandResult, TerminalLine } from './types';
-import type { WifiNetwork } from '../network/wifi';
-import { isOwnWorkstation } from '../identity/workstation';
+import type { Command, CommandEnv, CommandResult, TerminalLine } from './types.js';
+import type { WifiNetwork } from '../network/wifi.js';
+import { isOwnWorkstation } from '../identity/workstation.js';
 
 const error = (message: string): CommandResult => ({
   kind: 'sync',

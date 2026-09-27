@@ -20,7 +20,7 @@
  * `{count}` a small number, `{note}` the name of a note this home actually has.
  */
 
-import type { NetworkCategory } from './essidCatalog';
+import type { NetworkCategory } from './essidCatalog.js';
 
 /** Lines any person types, whatever the network is. */
 export const PERSONAL_HISTORY: readonly string[] = [

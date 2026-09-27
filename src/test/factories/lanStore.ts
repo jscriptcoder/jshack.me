@@ -17,22 +17,22 @@
  * box.
  */
 
-import { generateHomeLan, type LanHost } from '../../core/generation/generateHomeLan';
-import { crackableEssidPool } from '../../core/generation/generateWifi';
-import { generateDeepLayer, type DeepLayer } from '../../core/generation/generateDeepLayer';
-import { buildDeepHostFs } from '../../core/generation/deepHostFs';
-import { computeInnerGatewayId } from '../../core/identity/router';
-import { hostMachineId } from '../../core/generation/remoteHostId';
-import { storeIn } from '../../core/redis/datadir';
-import { ownStore } from '../../core/redis/ownStore';
-import { materializeWorkstationFs } from '../../core/network/materializeWorkstationFs';
-import type { NatOccupantRow } from '../../core/network/resolvePublicTarget';
-import { readOpenPorts } from '../../core/services/pidfile';
-import { SERVICE_CATALOG } from '../../core/services/serviceCatalog';
-import { ALL_GENERATED_PASSWORDS } from '../../core/generation/passwordPools';
-import { md5 } from '../../core/generation/md5';
-import type { RedisStore } from '../../core/redis/types';
-import type { Directory } from '../../core/filesystem/types';
+import { generateHomeLan, type LanHost } from '../../core/generation/generateHomeLan.js';
+import { crackableEssidPool } from '../../core/generation/generateWifi.js';
+import { generateDeepLayer, type DeepLayer } from '../../core/generation/generateDeepLayer.js';
+import { buildDeepHostFs } from '../../core/generation/deepHostFs.js';
+import { computeInnerGatewayId } from '../../core/identity/router.js';
+import { hostMachineId } from '../../core/generation/remoteHostId.js';
+import { storeIn } from '../../core/redis/datadir.js';
+import { ownStore } from '../../core/redis/ownStore.js';
+import { materializeWorkstationFs } from '../../core/network/materializeWorkstationFs.js';
+import type { NatOccupantRow } from '../../core/network/resolvePublicTarget.js';
+import { readOpenPorts } from '../../core/services/pidfile.js';
+import { SERVICE_CATALOG } from '../../core/services/serviceCatalog.js';
+import { ALL_GENERATED_PASSWORDS } from '../../core/generation/passwordPools.js';
+import { md5 } from '../../core/generation/md5.js';
+import type { RedisStore } from '../../core/redis/types.js';
+import type { Directory } from '../../core/filesystem/types.js';
 
 export type DeepStoreFixture = {
   readonly essid: string;

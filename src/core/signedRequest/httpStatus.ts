@@ -6,7 +6,7 @@
  * that verifies a signed envelope so the mapping can't drift between them.
  */
 
-import type { VerifyFailureReason } from './verify';
+import type { VerifyFailureReason } from './verify.js';
 
 export const STATUS_BY_VERIFY_REASON: Record<VerifyFailureReason, number> = {
   envelope_invalid: 400,

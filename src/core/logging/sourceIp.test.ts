@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { resolveLogSourceIP } from './sourceIp';
+import { resolveLogSourceIP } from './sourceIp.js';
 
 /**
  * Source-IP resolution for the line a scan/connection leaves on a TARGET

@@ -1,7 +1,7 @@
 import { render } from 'solid-js/web';
-import { App } from './ui/screens/App';
-import { consumeFreshTabFlag } from './ui/freshTab';
-import { adoptStoredTheme } from './ui/state';
+import { App } from './ui/screens/App.js';
+import { consumeFreshTabFlag } from './ui/freshTab.js';
+import { adoptStoredTheme } from './ui/state.js';
 import './index.css';
 
 const root = document.getElementById('root');

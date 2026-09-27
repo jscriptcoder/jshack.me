@@ -7,11 +7,11 @@
  * One answer, so a fetch and a scan can never disagree about whether the site is there.
  */
 
-import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
-import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
-import { canBoot } from '../boot/bootFiles';
-import { materializeMachineFs, type OwnerPatchRow } from './materializeMachineFs';
-import type { Directory } from '../filesystem/types';
+import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
+import { resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
+import { canBoot } from '../boot/bootFiles.js';
+import { materializeMachineFs, type OwnerPatchRow } from './materializeMachineFs.js';
+import type { Directory } from '../filesystem/types.js';
 
 export type FindMachinePatches = (query: {
   readonly machine_id: string;

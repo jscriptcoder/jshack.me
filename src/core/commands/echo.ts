@@ -11,7 +11,7 @@
  * escapes) are deferred until a player needs them.
  */
 
-import type { Command, CommandEnv, CommandResult } from './types';
+import type { Command, CommandEnv, CommandResult } from './types.js';
 
 const execute = async (
   _env: CommandEnv,

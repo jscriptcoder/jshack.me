@@ -12,8 +12,8 @@
  * caller can put them in its own `CommandResult` and keep a script pipeable.
  */
 
-import type { TerminalLine } from '../commands/types';
-import { formatScriptValue } from './format';
+import type { TerminalLine } from '../commands/types.js';
+import { formatScriptValue } from './format.js';
 
 export type ScriptConsole = {
   readonly log: (...values: readonly unknown[]) => void;

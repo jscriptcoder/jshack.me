@@ -16,8 +16,8 @@
  * permissions, which is why the shape carries them now.
  */
 
-import { isOwnWorkstation } from '../identity/workstation';
-import type { UserType } from '../types';
+import { isOwnWorkstation } from '../identity/workstation.js';
+import type { UserType } from '../types.js';
 
 export type ActiveSession = {
   /** The account the session was opened as. Read off the row rather than taken

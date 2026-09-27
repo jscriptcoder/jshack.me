@@ -25,19 +25,19 @@
  * status and reason its caller returns verbatim, mirroring `authorizeMachineAccess`.
  */
 
-import { seedApGatewayHostname } from '../generation/gatewayHostname';
-import { materializeApGatewayFs } from './materializeRouterFs';
-import { FINDIT_HOSTNAME, FINDIT_NETWORK } from '../generation/findit';
-import type { OwnerPatchRow } from './materializeWorkstationFs';
-import { machineServing, type ServedMachine } from './machineServing';
-import { bootableOccupantFs } from './natHosts';
-import { lanAddressesByOwner, type LanLeaseRow } from './lanAddress';
-import { portsOpenToNetwork } from './portsOpenToNetwork';
-import { canBoot } from '../boot/bootFiles';
-import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter';
-import { frontedSegment } from './frontedSegment';
-import { generatedLanBox } from './generatedLanBox';
-import type { Directory } from '../filesystem/types';
+import { seedApGatewayHostname } from '../generation/gatewayHostname.js';
+import { materializeApGatewayFs } from './materializeRouterFs.js';
+import { FINDIT_HOSTNAME, FINDIT_NETWORK } from '../generation/findit.js';
+import type { OwnerPatchRow } from './materializeWorkstationFs.js';
+import { machineServing, type ServedMachine } from './machineServing.js';
+import { bootableOccupantFs } from './natHosts.js';
+import { lanAddressesByOwner, type LanLeaseRow } from './lanAddress.js';
+import { portsOpenToNetwork } from './portsOpenToNetwork.js';
+import { canBoot } from '../boot/bootFiles.js';
+import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
+import { frontedSegment } from './frontedSegment.js';
+import { generatedLanBox } from './generatedLanBox.js';
+import type { Directory } from '../filesystem/types.js';
 
 /** One occupant a NAT forward can land on: its machine id (the journal scope AND
  *  the session target), the `owner_key` that rebuilds its tree and owns its logs,

@@ -3,7 +3,7 @@ import {
   defaultDirectoryPermissions,
   defaultFilePermissions,
   defaultPermissionsForNode,
-} from './defaultPermissions';
+} from './defaultPermissions.js';
 
 describe('defaultFilePermissions', () => {
   it('grants read+write to root and the owner tier, execute to root only', () => {

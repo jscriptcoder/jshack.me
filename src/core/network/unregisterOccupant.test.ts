@@ -2,10 +2,10 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   handleUnregisterOccupant,
   type UnregisterOccupantDeps,
-} from './unregisterOccupant';
-import { signRequest } from '../signedRequest/sign';
-import { generateIdentity } from '../identity/identity';
-import type { NonceStore } from '../signedRequest/nonceStore';
+} from './unregisterOccupant.js';
+import { signRequest } from '../signedRequest/sign.js';
+import { generateIdentity } from '../identity/identity.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 /**
  * `handleUnregisterOccupant` is the disconnect half of the occupancy lifecycle

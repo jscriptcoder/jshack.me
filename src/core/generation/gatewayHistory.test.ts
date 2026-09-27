@@ -1,18 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { gatewayAdminIp, gatewayRootHistory } from './gatewayHistory';
-import { GATEWAY_ROOT_HISTORY } from './pools/rootContent';
-import { generateHomeLan, type LanHost } from './generateHomeLan';
-import { isDeskMachine } from './npcHome';
-import { roleOfHostname } from './pools/hostnames';
-import { createFsView } from '../filesystem/fsView';
-import { asAbsPath } from '../types';
-import type { Directory, FileNode } from '../filesystem/types';
+import { gatewayAdminIp, gatewayRootHistory } from './gatewayHistory.js';
+import { GATEWAY_ROOT_HISTORY } from './pools/rootContent.js';
+import { generateHomeLan, type LanHost } from './generateHomeLan.js';
+import { isDeskMachine } from './npcHome.js';
+import { roleOfHostname } from './pools/hostnames.js';
+import { createFsView } from '../filesystem/fsView.js';
+import { asAbsPath } from '../types.js';
+import type { Directory, FileNode } from '../filesystem/types.js';
 import {
   ALL_ESSIDS,
   gatewaysOn,
   softwareVersionsIn,
   type Gateway,
-} from '../../test/worldContent';
+} from '../../test/worldContent.js';
 
 const HISTORY_PATH = '/root/.bash_history';
 const IPV4 = /\b\d{1,3}(?:\.\d{1,3}){3}\b/g;

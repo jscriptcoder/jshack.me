@@ -20,14 +20,14 @@
  * journal — so this layer never reads the world itself.
  */
 
-import { generateDeepLayer, hostsOnLayer } from '../generation/generateDeepLayer';
-import { buildDeepHostFs } from '../generation/deepHostFs';
-import { resolveDeepGatewayIdentity, type PivotVantage } from '../generation/lanHostIdentity';
-import { hostMachineId } from '../generation/remoteHostId';
-import { parseAclDenies, readAclConf } from '../network/switchAcl';
-import { readOpenPorts, type OpenPort } from '../services/pidfile';
-import type { Directory } from '../filesystem/types';
-import type { LanHost } from '../generation/generateHomeLan';
+import { generateDeepLayer, hostsOnLayer } from '../generation/generateDeepLayer.js';
+import { buildDeepHostFs } from '../generation/deepHostFs.js';
+import { resolveDeepGatewayIdentity, type PivotVantage } from '../generation/lanHostIdentity.js';
+import { hostMachineId } from '../generation/remoteHostId.js';
+import { parseAclDenies, readAclConf } from '../network/switchAcl.js';
+import { readOpenPorts, type OpenPort } from '../services/pidfile.js';
+import type { Directory } from '../filesystem/types.js';
+import type { LanHost } from '../generation/generateHomeLan.js';
 
 /** One host on a pivot-scanned deep layer: the host descriptor, the machine_id its
  *  trace + reach land on, and its open ports after the vantage ACL filter. */

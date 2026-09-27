@@ -5,8 +5,8 @@
  * renders whatever lines it's given).
  */
 
-import type { TerminalLine } from '../commands/types';
-import type { UserType } from '../types';
+import type { TerminalLine } from '../commands/types.js';
+import type { UserType } from '../types.js';
 
 export type PromptLocation = {
   readonly username: string;

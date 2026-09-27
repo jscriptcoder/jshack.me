@@ -6,15 +6,15 @@
  * who you are TO IT, which is a question `/etc/passwd` genuinely cannot answer.
  */
 
-import { generateHomeLan } from '../generation/generateHomeLan';
-import { connectedWlan0 } from '../network/interfaces';
-import { forwardsIntoDeepLayer, resolveLanHostIdentity } from '../generation/lanHostIdentity';
-import { isPublicIp } from '../generation/ip';
-import { readOpenPorts } from '../services/pidfile';
-import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import { connectOwnDatabase, ownDaemonListening } from './mysqlOwnBox';
-import { ownBoxSource } from '../network/interfaces';
-import type { Command, CommandEnv, CommandResult, TerminalLine } from './types';
+import { generateHomeLan } from '../generation/generateHomeLan.js';
+import { connectedWlan0 } from '../network/interfaces.js';
+import { forwardsIntoDeepLayer, resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
+import { isPublicIp } from '../generation/ip.js';
+import { readOpenPorts } from '../services/pidfile.js';
+import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
+import { connectOwnDatabase, ownDaemonListening } from './mysqlOwnBox.js';
+import { ownBoxSource } from '../network/interfaces.js';
+import type { Command, CommandEnv, CommandResult, TerminalLine } from './types.js';
 
 const USAGE = 'usage: mysql [-p port] <host> [user]';
 

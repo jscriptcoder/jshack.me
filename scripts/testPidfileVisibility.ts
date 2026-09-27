@@ -31,20 +31,20 @@
 // Exits 0 when all checks pass, 1 on failure, 2 on missing env.
 
 import { createClient } from '@supabase/supabase-js';
-import { signRequest } from '../src/core/signedRequest/sign';
-import { generateIdentity } from '../src/core/identity/identity';
-import { computeWorkstationId } from '../src/core/identity/workstation';
-import { md5 } from '../src/core/generation/md5';
-import { deserializeTree, type SerializedDirectory } from '../src/core/filesystem/treeCodec';
-import { defaultFilePermissions } from '../src/core/filesystem/defaultPermissions';
-import type { Directory, FileNode } from '../src/core/filesystem/types';
+import { signRequest } from '../src/core/signedRequest/sign.js';
+import { generateIdentity } from '../src/core/identity/identity.js';
+import { computeWorkstationId } from '../src/core/identity/workstation.js';
+import { md5 } from '../src/core/generation/md5.js';
+import { deserializeTree, type SerializedDirectory } from '../src/core/filesystem/treeCodec.js';
+import { defaultFilePermissions } from '../src/core/filesystem/defaultPermissions.js';
+import type { Directory, FileNode } from '../src/core/filesystem/types.js';
 import {
   formatPidfileContent,
   pidfilePath,
   PIDFILE_PERMISSIONS,
-} from '../src/core/services/pidfile';
-import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog';
-import { clearPublicIps, seedPublicIps } from './networkFixture';
+} from '../src/core/services/pidfile.js';
+import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
+import { clearPublicIps, seedPublicIps } from './networkFixture.js';
 
 const NETWORK = process.env.NETWORK_ENDPOINT ?? 'http://localhost:3100/api/network';
 const PATCHES = process.env.PATCHES_ENDPOINT ?? 'http://localhost:3100/api/patches';

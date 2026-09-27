@@ -1,20 +1,20 @@
 import { describe, expect, it, vi } from 'vitest';
-import { binaryStub, stubName } from '../generation/binaries';
-import { SYSTEM_LIBRARIES, type SystemLibrary } from '../generation/libraries';
-import type { Directory, FilePermissions } from '../filesystem/types';
-import { asAbsPath, asEpochMs, asPlayerKeyHex, type UserType } from '../types';
-import type { AptApi, CommandEnv, CommandResult, PatchResult, TerminalLine } from './types';
+import { binaryStub, stubName } from '../generation/binaries.js';
+import { SYSTEM_LIBRARIES, type SystemLibrary } from '../generation/libraries.js';
+import type { Directory, FilePermissions } from '../filesystem/types.js';
+import { asAbsPath, asEpochMs, asPlayerKeyHex, type UserType } from '../types.js';
+import type { AptApi, CommandEnv, CommandResult, PatchResult, TerminalLine } from './types.js';
 import {
   CVE_TIMING,
   newestReleaseOn,
   packageTimeline,
   repoHolds,
   upgradeStatusFor,
-} from '../cve/packageTimeline';
-import { WORLD_EPOCH } from '../cve/worldClock';
-import { exploitOutcome } from '../cve/exploitEffect';
-import { assignHomeNetwork } from '../network/homeNetwork';
-import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces';
+} from '../cve/packageTimeline.js';
+import { WORLD_EPOCH } from '../cve/worldClock.js';
+import { exploitOutcome } from '../cve/exploitEffect.js';
+import { assignHomeNetwork } from '../network/homeNetwork.js';
+import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces.js';
 import {
   buildEntry,
   DPKG_STATUS_PATH,
@@ -22,15 +22,15 @@ import {
   parseDpkgStatus,
   parseDpkgVersions,
   readDpkgStatus,
-} from '../packages/dpkgStatus';
+} from '../packages/dpkgStatus.js';
 import {
   displayVersion,
   FIRMWARE_VENDORS,
   firmwarePackageOf,
   PACKAGE_TEMPLATES,
   startingVersionOf,
-} from '../packages/packageVersions';
-import { bindFlags } from '../shell/bindFlags';
+} from '../packages/packageVersions.js';
+import { bindFlags } from '../shell/bindFlags.js';
 import {
   mockCommandEnv,
   mockFsViewFromTree,
@@ -39,56 +39,56 @@ import {
   mockNetworkViewFromConnectivity,
   mockPatchApi,
   mockSession,
-} from '../../test/factories/commandEnv';
-import { applyPatches } from '../filesystem/applyPatches';
-import { createFsView } from '../filesystem/fsView';
-import { buildWorkstationBaseFs } from '../generation/workstationFs';
-import { buildApGatewayBaseFs } from '../generation/routerFs';
-import { DATADIR_FILE, PASSWD_FILE, SERVICE_CONFIG_FILE } from '../generation/baseFs';
-import { md5 } from '../generation/md5';
-import { DATADIR_OWNER, DATADIR_PATH } from '../mysql/datadir';
+} from '../../test/factories/commandEnv.js';
+import { applyPatches } from '../filesystem/applyPatches.js';
+import { createFsView } from '../filesystem/fsView.js';
+import { buildWorkstationBaseFs } from '../generation/workstationFs.js';
+import { buildApGatewayBaseFs } from '../generation/routerFs.js';
+import { DATADIR_FILE, PASSWD_FILE, SERVICE_CONFIG_FILE } from '../generation/baseFs.js';
+import { md5 } from '../generation/md5.js';
+import { DATADIR_OWNER, DATADIR_PATH } from '../mysql/datadir.js';
 import {
   LOCAL_FILTER_SEED,
   parseForwardRules,
   parseInputDenies,
   RULES_V4_PATH,
   RULES_V4_PERMISSIONS,
-} from '../network/iptablesRules';
-import { binariesForService, packageForBinary } from '../packages/aptPackages';
-import { SNMPD_CONF_PATH, SNMPD_CONF_PERMISSIONS, SNMPD_CONF_SEED } from '../snmp/conf';
-import { ownAgentCommunity } from '../snmp/ownAgent';
+} from '../network/iptablesRules.js';
+import { binariesForService, packageForBinary } from '../packages/aptPackages.js';
+import { SNMPD_CONF_PATH, SNMPD_CONF_PERMISSIONS, SNMPD_CONF_SEED } from '../snmp/conf.js';
+import { ownAgentCommunity } from '../snmp/ownAgent.js';
 import {
   readRwCommunityHash,
   SNMPD_STATE_PATH,
   SNMPD_STATE_PERMISSIONS,
-} from '../snmp/rwCommunity';
+} from '../snmp/rwCommunity.js';
 import {
   daemonName,
   formatPidfileContent,
   PIDFILE_PERMISSIONS,
   pidfilePath,
   readOpenPorts,
-} from '../services/pidfile';
-import { parseMysqlDatabase } from '../mysql/types';
-import { DATADIR_DIR as STORE_DIR, DATADIR_PATH as STORE_PATH } from '../redis/datadir';
-import { parseRedisStore } from '../redis/types';
-import { REDIS_CONF_PATH } from '../generation/generateRedisStore';
-import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import { accountIn, accountsIn } from '../sessions/passwdAccount';
-import { buildDirectory, buildFile } from '../../test/factories/filesystem';
-import { apt, installExtraFiles, installPackageLibraries } from './apt';
-import { nmap } from './nmap';
-import { APT_PACKAGES } from '../packages/aptPackages';
+} from '../services/pidfile.js';
+import { parseMysqlDatabase } from '../mysql/types.js';
+import { DATADIR_DIR as STORE_DIR, DATADIR_PATH as STORE_PATH } from '../redis/datadir.js';
+import { parseRedisStore } from '../redis/types.js';
+import { REDIS_CONF_PATH } from '../generation/generateRedisStore.js';
+import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
+import { accountIn, accountsIn } from '../sessions/passwdAccount.js';
+import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
+import { apt, installExtraFiles, installPackageLibraries } from './apt.js';
+import { nmap } from './nmap.js';
+import { APT_PACKAGES } from '../packages/aptPackages.js';
 import {
   DEFAULT_WORDLIST,
   formatWordlist,
   WORDLIST_PERMISSIONS as WORDLIST_PERMS,
-} from '../wordlist/defaultWordlist';
+} from '../wordlist/defaultWordlist.js';
 import {
   DEFAULT_DIRLIST,
   formatDirlist,
   DIRLIST_PERMISSIONS as DIRLIST_PERMS,
-} from '../network/defaultDirlist';
+} from '../network/defaultDirlist.js';
 
 /**
  * `apt install` is the reachability mechanism: as root + online, it writes a

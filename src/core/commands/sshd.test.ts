@@ -1,16 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { asAbsPath, type UserType } from '../types';
-import type { CommandResult, PatchResult, TerminalLine } from './types';
+import { asAbsPath, type UserType } from '../types.js';
+import type { CommandResult, PatchResult, TerminalLine } from './types.js';
 import {
   mockCommandEnv,
   mockFsViewFromTree,
   mockPatchApi,
   mockSession,
-} from '../../test/factories/commandEnv';
-import { buildDirectory, buildFile } from '../../test/factories/filesystem';
-import type { FilePermissions } from '../filesystem/types';
-import { PIDFILE_PERMISSIONS } from '../services/pidfile';
-import { sshd } from './daemon';
+} from '../../test/factories/commandEnv.js';
+import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
+import type { FilePermissions } from '../filesystem/types.js';
+import { PIDFILE_PERMISSIONS } from '../services/pidfile.js';
+import { sshd } from './daemon.js';
 
 /**
  * `sshd` brings up the OpenSSH daemon on the current machine by writing

@@ -17,11 +17,11 @@
  * player wait for a delay the game does not otherwise model.
  */
 
-import type { Command, CommandResult } from './types';
-import { generateHomeLan } from '../generation/generateHomeLan';
-import { resolveName } from '../network/resolveName';
-import { connectedWlan0 } from '../network/interfaces';
-import { errorLine, text } from './streaming';
+import type { Command, CommandResult } from './types.js';
+import { generateHomeLan } from '../generation/generateHomeLan.js';
+import { resolveName } from '../network/resolveName.js';
+import { connectedWlan0 } from '../network/interfaces.js';
+import { errorLine, text } from './streaming.js';
 
 const error = (message: string): CommandResult => ({
   kind: 'sync',

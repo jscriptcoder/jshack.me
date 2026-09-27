@@ -12,7 +12,7 @@
  * because the game's model is one user-tier account per machine.
  */
 
-import type { EpochMs, UserType } from '../types';
+import type { EpochMs, UserType } from '../types.js';
 
 /** Tier-based permission allowlist. A user passes if their tier appears
  *  in the relevant array. */

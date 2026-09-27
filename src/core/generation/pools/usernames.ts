@@ -34,8 +34,8 @@
  * test in `remoteHostFs.test.ts` holds that, hash for hash, rather than trusting it.
  */
 
-import type { Prng } from '../prng';
-import type { DrawnRole } from '../machineRole';
+import type { Prng } from '../prng.js';
+import type { DrawnRole } from '../machineRole.js';
 
 /** What a box whose name claims no role carries: service accounts general enough to
  *  say nothing about the machine. A deep NPC named from its gateway's stream can

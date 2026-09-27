@@ -16,14 +16,14 @@
  */
 
 import { z } from 'zod';
-import { signRequest } from '../core/signedRequest/sign';
+import { signRequest } from '../core/signedRequest/sign.js';
 import {
   asEpochMs,
   asMachineId,
   asPlayerKeyHex,
   type MachineId,
   type UserType,
-} from '../core/types';
+} from '../core/types.js';
 import type {
   MysqlConnectParams,
   MysqlConnectResult,
@@ -62,10 +62,10 @@ import type {
   ExploitRunResult,
   ExploitLocalElevateParams,
   RebootEvictResult,
-} from '../core/commands/types';
-import type { SessionSummary } from '../core/sessions/listSessions';
-import type { EndReason } from '../core/sessions/endSession';
-import type { DoorKind } from '../core/sessions/authCreateSession';
+} from '../core/commands/types.js';
+import type { SessionSummary } from '../core/sessions/listSessions.js';
+import type { EndReason } from '../core/sessions/endSession.js';
+import type { DoorKind } from '../core/sessions/authCreateSession.js';
 
 const DEFAULT_ENDPOINT = '/api/sessions';
 

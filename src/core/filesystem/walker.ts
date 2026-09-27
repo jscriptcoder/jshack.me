@@ -14,8 +14,8 @@
  * display (`ls -l`); permissions are tier-based by the arrays.
  */
 
-import type { UserType } from '../types';
-import type { FilePermissions } from './types';
+import type { UserType } from '../types.js';
+import type { FilePermissions } from './types.js';
 
 export type WalkResult =
   | { readonly allowed: true }

@@ -18,24 +18,24 @@
  * after the world stopped.
  */
 
-import { WORLD_EPOCH } from '../cve/worldClock';
-import { createPrng, type Prng } from './prng';
-import { networkPersona } from './persona';
-import { arrivedIn, boxMail, networkMail, subjectOf } from './networkMail';
-import { isOnHomeLan } from './generateHomeLan';
-import { roleOfHostname } from './pools/hostnames';
-import { FIRST_NAMES_BY_INITIAL, SURNAMES } from './pools/people';
+import { WORLD_EPOCH } from '../cve/worldClock.js';
+import { createPrng, type Prng } from './prng.js';
+import { networkPersona } from './persona.js';
+import { arrivedIn, boxMail, networkMail, subjectOf } from './networkMail.js';
+import { isOnHomeLan } from './generateHomeLan.js';
+import { roleOfHostname } from './pools/hostnames.js';
+import { FIRST_NAMES_BY_INITIAL, SURNAMES } from './pools/people.js';
 import {
   ARCHETYPE_DEFINITIONS,
   type ColumnSpec,
   type Draft,
   type DraftContext,
   type TableSpec,
-} from './pools/databaseApps';
-import { lanZoneName } from '../network/resolveName';
-import type { LanHost } from './generateHomeLan';
-import type { NetworkCategory } from './pools/essidCatalog';
-import type { MysqlColumn, MysqlRow, MysqlTable } from '../mysql/types';
+} from './pools/databaseApps.js';
+import { lanZoneName } from '../network/resolveName.js';
+import type { LanHost } from './generateHomeLan.js';
+import type { NetworkCategory } from './pools/essidCatalog.js';
+import type { MysqlColumn, MysqlRow, MysqlTable } from '../mysql/types.js';
 
 const DAY_MS = 86_400_000;
 

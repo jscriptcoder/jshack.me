@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ftp } from './ftp';
-import { runFtpLine } from './ftpShell';
+import { ftp } from './ftp.js';
+import { runFtpLine } from './ftpShell.js';
 import {
   mockCommandEnv,
   mockFsViewFromTree,
@@ -11,18 +11,18 @@ import {
   mockPatchApi,
   mockScanApi,
   mockSession,
-} from '../../test/factories/commandEnv';
-import { buildDirectory, buildFile } from '../../test/factories/filesystem';
-import { applyPatches, type Patch } from '../filesystem/applyPatches';
-import { defaultFilePermissions } from '../filesystem/defaultPermissions';
-import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
-import { buildRemoteHostFs } from '../generation/remoteHostFs';
-import { hostMachineId } from '../generation/remoteHostId';
-import { readOpenPorts } from '../services/pidfile';
-import { assignHomeNetwork } from '../network/homeNetwork';
-import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces';
-import { asAbsPath, asEpochMs, asMachineId, asPlayerKeyHex } from '../types';
-import type { AbsPath, UserType } from '../types';
+} from '../../test/factories/commandEnv.js';
+import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
+import { applyPatches, type Patch } from '../filesystem/applyPatches.js';
+import { defaultFilePermissions } from '../filesystem/defaultPermissions.js';
+import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
+import { buildRemoteHostFs } from '../generation/remoteHostFs.js';
+import { hostMachineId } from '../generation/remoteHostId.js';
+import { readOpenPorts } from '../services/pidfile.js';
+import { assignHomeNetwork } from '../network/homeNetwork.js';
+import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces.js';
+import { asAbsPath, asEpochMs, asMachineId, asPlayerKeyHex } from '../types.js';
+import type { AbsPath, UserType } from '../types.js';
 import type {
   CommandResult,
   PublicDoorAuthParams,
@@ -31,7 +31,7 @@ import type {
   RemoteAuthParams,
   RemoteAuthResult,
   Session,
-} from './types';
+} from './types.js';
 
 /**
  * `ftp <host>` — the second door. It authenticates against the SAME `/etc/passwd`

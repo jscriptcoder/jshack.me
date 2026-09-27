@@ -10,15 +10,15 @@
  * world already generated.
  */
 
-import { WORLD_EPOCH } from '../cve/worldClock';
-import type { Directory, FileEntry } from '../filesystem/types';
-import { dir, file, SHARE_DIR, SHARE_FILE, TRAVERSABLE_DIR } from './baseFs';
-import { renderDocument } from './documentFormats';
-import { generateHomeLan, isOnHomeLan, type LanHost } from './generateHomeLan';
-import type { MailPerson } from './networkMail';
-import { networkPersona } from './persona';
-import { CAMERAS, PHONE_MODELS, SHARE_FOLDERS, type ShareFileSpec } from './pools/shareFiles';
-import { createPrng, type Prng } from './prng';
+import { WORLD_EPOCH } from '../cve/worldClock.js';
+import type { Directory, FileEntry } from '../filesystem/types.js';
+import { dir, file, SHARE_DIR, SHARE_FILE, TRAVERSABLE_DIR } from './baseFs.js';
+import { renderDocument } from './documentFormats.js';
+import { generateHomeLan, isOnHomeLan, type LanHost } from './generateHomeLan.js';
+import type { MailPerson } from './networkMail.js';
+import { networkPersona } from './persona.js';
+import { CAMERAS, PHONE_MODELS, SHARE_FOLDERS, type ShareFileSpec } from './pools/shareFiles.js';
+import { createPrng, type Prng } from './prng.js';
 
 const DAY_SECONDS = 86_400;
 const LAST_SECOND = WORLD_EPOCH / 1000 - 1;

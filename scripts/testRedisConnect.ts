@@ -43,18 +43,18 @@
 // Exits 0 when all checks pass, 1 on failure, 2 on missing env / no usable host.
 
 import { createClient } from '@supabase/supabase-js';
-import { signRequest } from '../src/core/signedRequest/sign';
-import { generateIdentity } from '../src/core/identity/identity';
-import { generateHomeLan, type LanHost } from '../src/core/generation/generateHomeLan';
-import { hostServices } from '../src/core/generation/remoteHostFs';
-import { resolveLanHostIdentity } from '../src/core/generation/lanHostIdentity';
-import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog';
-import { storeIn, DATADIR_PATH } from '../src/core/redis/datadir';
-import { redisStoreSchema } from '../src/core/redis/types';
-import { DATADIR_FILE } from '../src/core/generation/baseFs';
-import { REDIS_LOG_OWNER, REDIS_LOG_PATH } from '../src/core/logging/redisLog';
-import { ALL_GENERATED_PASSWORDS } from '../src/core/generation/passwordPools';
-import { md5 } from '../src/core/generation/md5';
+import { signRequest } from '../src/core/signedRequest/sign.js';
+import { generateIdentity } from '../src/core/identity/identity.js';
+import { generateHomeLan, type LanHost } from '../src/core/generation/generateHomeLan.js';
+import { hostServices } from '../src/core/generation/remoteHostFs.js';
+import { resolveLanHostIdentity } from '../src/core/generation/lanHostIdentity.js';
+import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
+import { storeIn, DATADIR_PATH } from '../src/core/redis/datadir.js';
+import { redisStoreSchema } from '../src/core/redis/types.js';
+import { DATADIR_FILE } from '../src/core/generation/baseFs.js';
+import { REDIS_LOG_OWNER, REDIS_LOG_PATH } from '../src/core/logging/redisLog.js';
+import { ALL_GENERATED_PASSWORDS } from '../src/core/generation/passwordPools.js';
+import { md5 } from '../src/core/generation/md5.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const url = process.env.SUPABASE_URL;

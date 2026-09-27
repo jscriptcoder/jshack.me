@@ -9,9 +9,9 @@ import {
   RULES_V4_OWNER,
   RULES_V4_PATH,
   RULES_V4_PERMISSIONS,
-} from './iptablesRules';
-import { buildApGatewayBaseFs } from '../generation/routerFs';
-import { buildDirectory } from '../../test/factories/filesystem';
+} from './iptablesRules.js';
+import { buildApGatewayBaseFs } from '../generation/routerFs.js';
+import { buildDirectory } from '../../test/factories/filesystem.js';
 
 /**
  * `/etc/iptables/rules.v4` is the SINGLE parsed source of truth for the router's NAT

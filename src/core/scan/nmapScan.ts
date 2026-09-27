@@ -23,38 +23,38 @@
  */
 
 import { z } from 'zod';
-import { verifySignedRequest } from '../signedRequest/verify';
-import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
-import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
-import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
-import { lanAddressesByOwner, type LanLeaseRow } from '../network/lanAddress';
-import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter';
+import { verifySignedRequest } from '../signedRequest/verify.js';
+import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
+import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
+import { resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
+import { lanAddressesByOwner, type LanLeaseRow } from '../network/lanAddress.js';
+import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
 import {
   parseScanTarget,
   hostsInScanTarget,
   octetInScanTarget,
   type ScanTarget,
-} from '../network/scanTarget';
+} from '../network/scanTarget.js';
 import {
   materializeWorkstationFs,
   type OwnerPatchRow,
-} from '../network/materializeWorkstationFs';
-import { canBoot } from '../boot/bootFiles';
-import { readOpenPorts } from '../services/pidfile';
+} from '../network/materializeWorkstationFs.js';
+import { canBoot } from '../boot/bootFiles.js';
+import { readOpenPorts } from '../services/pidfile.js';
 import {
   formatNmapScanAggregate,
   KERN_LOG_OWNER,
   KERN_LOG_PATH,
   KERN_LOG_PERMISSIONS,
-} from '../logging/kernLog';
+} from '../logging/kernLog.js';
 import {
   appendMachineLog,
   type MachineLogReadQuery,
   type MachineLogReadResult,
-} from '../patches/appendMachineLog';
-import { asGameTime } from '../types';
-import type { PatchRow } from '../patches/upsertPatch';
-import type { NonceStore } from '../signedRequest/nonceStore';
+} from '../patches/appendMachineLog.js';
+import { asGameTime } from '../types.js';
+import type { PatchRow } from '../patches/upsertPatch.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 /** The occupancy fields a same-LAN scan trace needs: whose row it is (the LAN-boundary
  *  gate + self-exclusion + LAN-IP match), the workstation the trace lands on + its

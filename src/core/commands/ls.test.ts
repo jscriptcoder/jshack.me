@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { ls } from './ls';
-import { buildDirectory, buildFile } from '../../test/factories/filesystem';
-import { mockCommandEnv, mockFsViewFromTree } from '../../test/factories/commandEnv';
-import { asAbsPath } from '../types';
-import type { TerminalLine } from './types';
+import { ls } from './ls.js';
+import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
+import { mockCommandEnv, mockFsViewFromTree } from '../../test/factories/commandEnv.js';
+import { asAbsPath } from '../types.js';
+import type { TerminalLine } from './types.js';
 
 const NO_FLAGS = new Map<string, string | true>();
 
@@ -462,8 +462,8 @@ describe('ls -la (stacked, parsed end-to-end)', () => {
   // parser stack-expansion AND ls's response, in one shot.
   it('parses `ls -la` into the same Map as `ls -l -a`', async () => {
     // Imported here to keep the prior describes pure-unit.
-    const { runCommandLine } = await import('../shell/runLine');
-    const { ls: realLs } = await import('./ls');
+    const { runCommandLine } = await import('../shell/runLine.js');
+    const { ls: realLs } = await import('./ls.js');
     const tree = buildDirectory({
       home: buildDirectory({
         alice: buildDirectory(
@@ -493,8 +493,8 @@ describe('ls -la (stacked, parsed end-to-end)', () => {
   });
 
   it('rejects `cat -na` — cat does NOT opt into stacking (regression)', async () => {
-    const { runCommandLine } = await import('../shell/runLine');
-    const { cat } = await import('./cat');
+    const { runCommandLine } = await import('../shell/runLine.js');
+    const { cat } = await import('./cat.js');
     const env = mockCommandEnv({
       fs: mockFsViewFromTree(buildDirectory({}), { userType: 'user' }),
     });

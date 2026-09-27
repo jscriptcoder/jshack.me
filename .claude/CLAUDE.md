@@ -25,4 +25,5 @@ Always-apply project rules (full detail + rationale in that doc):
 - **Don't reference `plans/` or memory files from committed code** — inline the WHY; link a `docs/` doc for longer context.
 - **Bump the version on feature changes** in both `package.json` and `package-lock.json` (`npm install --package-lock-only`).
 - **Gates:** type = `npm run typecheck` (`tsc -b`, covers `api/` + `scripts/`; a plain `tsc --noEmit` is a NO-OP); format/lint = `npm run lint`. UI tests = jsdom + `@solidjs/testing-library` (NOT Browser Mode). `api/` runtime correctness needs a `scripts/test*.ts` **wire-check** vs `vercel dev` + supabase.
+- **Every relative import ends in `.js`** (`./x.js` resolves to `x.ts`; lint-enforced). Vercel runs `api/` as plain Node ESM, which does not guess extensions; vite, vitest, tsx and `vercel dev` all do, so only a deploy would notice.
 - **No backward-compat burden until launch** (free to reshape schema/IDs/generators) — this rule sunsets at multiplayer announce.

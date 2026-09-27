@@ -5,8 +5,8 @@ import {
   MYSQL_LOG_PERMISSIONS,
   formatMysqlAttemptLine,
   formatMysqlConnectLine,
-} from './mysqlLog';
-import { asGameTime } from '../types';
+} from './mysqlLog.js';
+import { asGameTime } from '../types.js';
 
 /**
  * `/var/log/mysql.log` is the defender's whole view of who has knocked on their

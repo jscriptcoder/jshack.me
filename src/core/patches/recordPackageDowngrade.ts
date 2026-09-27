@@ -32,29 +32,29 @@
  */
 
 import { z } from 'zod';
-import { verifySignedRequest } from '../signedRequest/verify';
-import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
-import { asGameTime } from '../types';
+import { verifySignedRequest } from '../signedRequest/verify.js';
+import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
+import { asGameTime } from '../types.js';
 import {
   DPKG_LOG_OWNER,
   DPKG_LOG_PATH,
   DPKG_LOG_PERMISSIONS,
   formatPackageDowngradeLine,
-} from '../logging/dpkgLog';
-import { authorizeMachineAccess, type FindActiveSession } from './authorizeMachineAccess';
+} from '../logging/dpkgLog.js';
+import { authorizeMachineAccess, type FindActiveSession } from './authorizeMachineAccess.js';
 import type {
   FindHomeNetworkByOwnerKey,
   FindPublicIpByEssid,
-} from '../logging/crossPlayerSourceIp';
-import { resolveTraceProvenance } from './traceProvenance';
+} from '../logging/crossPlayerSourceIp.js';
+import { resolveTraceProvenance } from './traceProvenance.js';
 import {
   appendMachineLog,
   type MachineLogReadQuery,
   type MachineLogReadResult,
-} from './appendMachineLog';
-import type { FindOccupantWorkstationByMachineId } from './remoteWritePermission';
-import type { NonceStore } from '../signedRequest/nonceStore';
-import type { PatchRow } from './upsertPatch';
+} from './appendMachineLog.js';
+import type { FindOccupantWorkstationByMachineId } from './remoteWritePermission.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
+import type { PatchRow } from './upsertPatch.js';
 
 export type RecordPackageDowngradeDeps = {
   readonly nonceStore: NonceStore;

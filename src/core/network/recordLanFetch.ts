@@ -33,27 +33,27 @@
  */
 
 import { z } from 'zod';
-import { verifySignedRequest } from '../signedRequest/verify';
-import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
-import { generateHomeLan } from '../generation/generateHomeLan';
-import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
-import { lanAddressesByOwner, type LanLeaseRow } from './lanAddress';
-import { materializeWorkstationFs, type OwnerPatchRow } from './materializeWorkstationFs';
-import { createFsView } from '../filesystem/fsView';
-import { resolveWebPath } from './http';
-import { readOpenPorts } from '../services/pidfile';
-import { SERVICE_CATALOG } from '../services/serviceCatalog';
+import { verifySignedRequest } from '../signedRequest/verify.js';
+import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
+import { generateHomeLan } from '../generation/generateHomeLan.js';
+import { resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
+import { lanAddressesByOwner, type LanLeaseRow } from './lanAddress.js';
+import { materializeWorkstationFs, type OwnerPatchRow } from './materializeWorkstationFs.js';
+import { createFsView } from '../filesystem/fsView.js';
+import { resolveWebPath } from './http.js';
+import { readOpenPorts } from '../services/pidfile.js';
+import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
 import {
   ACCESS_LOG_OWNER,
   ACCESS_LOG_PATH,
   ACCESS_LOG_PERMISSIONS,
   formatAccessLogLine,
-} from '../logging/accessLog';
-import { appendMachineLog, type MachineLogReadQuery, type MachineLogReadResult } from '../patches/appendMachineLog';
-import { asGameTime } from '../types';
-import type { Directory } from '../filesystem/types';
-import type { PatchRow } from '../patches/upsertPatch';
-import type { NonceStore } from '../signedRequest/nonceStore';
+} from '../logging/accessLog.js';
+import { appendMachineLog, type MachineLogReadQuery, type MachineLogReadResult } from '../patches/appendMachineLog.js';
+import { asGameTime } from '../types.js';
+import type { Directory } from '../filesystem/types.js';
+import type { PatchRow } from '../patches/upsertPatch.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 /** The occupancy fields an own-LAN fetch trace needs: whose row it is (to spot the
  *  caller fetching THEMSELVES) and the identity fields that rebuild their box so the

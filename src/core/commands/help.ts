@@ -13,7 +13,7 @@
  * `help` command supplies the live `commandRegistry` — the registry's doc
  * comment anticipates exactly this consumer.
  *
- * The registry is pulled in via a runtime `import('./registry')` inside
+ * The registry is pulled in via a runtime `import('./registry.js')` inside
  * `execute`, NOT a static top-level import. `registry.ts` statically imports
  * `help` (to list it among the builtins); a static back-edge here would form a
  * load-order cycle that crashes whenever `help` is imported before the registry
@@ -21,7 +21,7 @@
  * time `execute` runs, every command (including `help`) is fully initialized.
  */
 
-import { COMMAND_CATEGORIES, type Command, type CommandCategory, type TerminalLine } from './types';
+import { COMMAND_CATEGORIES, type Command, type CommandCategory, type TerminalLine } from './types.js';
 
 const CATEGORY_LABELS: Readonly<Record<CommandCategory, string>> = {
   general: 'General',
@@ -75,7 +75,7 @@ export const formatCommandList = (commands: readonly Command[]): readonly Termin
 };
 
 const execute: Command['execute'] = async () => {
-  const { commandRegistry } = await import('./registry');
+  const { commandRegistry } = await import('./registry.js');
   return {
     kind: 'sync',
     lines: formatCommandList([...commandRegistry.values()]),

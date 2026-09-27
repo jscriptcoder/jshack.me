@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { nc } from './nc';
-import { commandRegistry } from './registry';
+import { nc } from './nc.js';
+import { commandRegistry } from './registry.js';
 import {
   mockCommandEnv,
   mockFsViewFromTree,
@@ -10,18 +10,18 @@ import {
   mockPatchApi,
   mockScanApi,
   mockSession,
-} from '../../test/factories/commandEnv';
-import { buildDirectory, buildFile } from '../../test/factories/filesystem';
-import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
-import { buildRemoteHostFs } from '../generation/remoteHostFs';
-import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
-import { PIDFILE_PERMISSIONS, readOpenPorts } from '../services/pidfile';
-import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import { assignHomeNetwork } from '../network/homeNetwork';
-import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces';
-import { asAbsPath, asMachineId, asNetworkAddress, asPlayerKeyHex, type UserType } from '../types';
-import type { FilePermissions } from '../filesystem/types';
-import type { CommandEnv, CommandResult, NcApi, PatchResult } from './types';
+} from '../../test/factories/commandEnv.js';
+import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
+import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
+import { buildRemoteHostFs } from '../generation/remoteHostFs.js';
+import { resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
+import { PIDFILE_PERMISSIONS, readOpenPorts } from '../services/pidfile.js';
+import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
+import { assignHomeNetwork } from '../network/homeNetwork.js';
+import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces.js';
+import { asAbsPath, asMachineId, asNetworkAddress, asPlayerKeyHex, type UserType } from '../types.js';
+import type { FilePermissions } from '../filesystem/types.js';
+import type { CommandEnv, CommandResult, NcApi, PatchResult } from './types.js';
 
 /**
  * `nc <host> <port>` — point netcat at a port and learn what answers.

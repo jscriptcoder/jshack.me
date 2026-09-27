@@ -3,24 +3,24 @@ import {
   handleAuthCreateSession,
   type AuthCreateSessionDeps,
   type AuthSessionRow,
-} from './authCreateSession';
-import { signRequest } from '../signedRequest/sign';
-import { generateIdentity } from '../identity/identity';
-import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
-import { buildRemoteHostFs } from '../generation/remoteHostFs';
-import { ALL_GENERATED_PASSWORDS } from '../generation/passwordPools';
-import { seedInnerGatewayAdminPw, seedApGatewayAdminPw } from '../generation/routerFs';
-import { hostMachineId } from '../generation/remoteHostId';
-import { computeInnerGatewayId, computeApGatewayId } from '../identity/router';
-import { md5 } from '../generation/md5';
-import { asAbsPath, asGameTime } from '../types';
-import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import { AUTH_LOG_PATH, formatSshdAuthLine } from '../logging/authLog';
+} from './authCreateSession.js';
+import { signRequest } from '../signedRequest/sign.js';
+import { generateIdentity } from '../identity/identity.js';
+import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
+import { buildRemoteHostFs } from '../generation/remoteHostFs.js';
+import { ALL_GENERATED_PASSWORDS } from '../generation/passwordPools.js';
+import { seedInnerGatewayAdminPw, seedApGatewayAdminPw } from '../generation/routerFs.js';
+import { hostMachineId } from '../generation/remoteHostId.js';
+import { computeInnerGatewayId, computeApGatewayId } from '../identity/router.js';
+import { md5 } from '../generation/md5.js';
+import { asAbsPath, asGameTime } from '../types.js';
+import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
+import { AUTH_LOG_PATH, formatSshdAuthLine } from '../logging/authLog.js';
 import {
   VSFTPD_LOG_PATH,
   formatVsftpdConnectLine,
   formatVsftpdLoginLine,
-} from '../logging/vsftpdLog';
+} from '../logging/vsftpdLog.js';
 import {
   formatListenerContent,
   listenerPidfilePath,
@@ -28,13 +28,13 @@ import {
   readOpenPorts,
   readRunningProcesses,
   type Listener,
-} from '../services/pidfile';
-import { derivePid } from '../logging/syslog';
-import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog';
-import type { OwnerPatchRow } from '../network/materializeMachineFs';
-import type { PatchRow } from '../patches/upsertPatch';
-import type { Directory } from '../filesystem/types';
-import type { NonceStore } from '../signedRequest/nonceStore';
+} from '../services/pidfile.js';
+import { derivePid } from '../logging/syslog.js';
+import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog.js';
+import type { OwnerPatchRow } from '../network/materializeMachineFs.js';
+import type { PatchRow } from '../patches/upsertPatch.js';
+import type { Directory } from '../filesystem/types.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 /**
  * `handleAuthCreateSession` is the server-side gate for an ssh session on a

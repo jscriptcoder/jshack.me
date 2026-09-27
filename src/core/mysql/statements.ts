@@ -24,8 +24,8 @@
  * what lets a caller persist without deciding anything about verbs for itself.
  */
 
-import type { MysqlColumn, MysqlColumnType, MysqlDatabase, MysqlRow, MysqlTable } from './types';
-import type { UserType } from '../types';
+import type { MysqlColumn, MysqlColumnType, MysqlDatabase, MysqlRow, MysqlTable } from './types.js';
+import type { UserType } from '../types.js';
 
 export type StatementRequest = {
   readonly database: MysqlDatabase;

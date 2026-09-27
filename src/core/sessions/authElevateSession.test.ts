@@ -4,22 +4,22 @@ import {
   type AuthElevateSessionDeps,
   type OccupantWorkstation,
   type SuSessionRow,
-} from './authElevateSession';
-import { workstationGuestPassword } from '../generation/workstationFs';
-import { signRequest } from '../signedRequest/sign';
-import { generateIdentity } from '../identity/identity';
-import { md5 } from '../generation/md5';
-import { asGameTime } from '../types';
+} from './authElevateSession.js';
+import { workstationGuestPassword } from '../generation/workstationFs.js';
+import { signRequest } from '../signedRequest/sign.js';
+import { generateIdentity } from '../identity/identity.js';
+import { md5 } from '../generation/md5.js';
+import { asGameTime } from '../types.js';
 import {
   AUTH_LOG_OWNER,
   AUTH_LOG_PATH,
   AUTH_LOG_PERMISSIONS,
   formatSuAuthLine,
-} from '../logging/authLog';
-import { derivePid } from '../logging/syslog';
-import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog';
-import type { PatchRow } from '../patches/upsertPatch';
-import type { NonceStore } from '../signedRequest/nonceStore';
+} from '../logging/authLog.js';
+import { derivePid } from '../logging/syslog.js';
+import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog.js';
+import type { PatchRow } from '../patches/upsertPatch.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 /**
  * `handleAuthElevateSession` is the server-authoritative `su`-to-root gate for a

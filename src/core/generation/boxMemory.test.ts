@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { buildRemoteHostFs, hostServices, npcUsername } from './remoteHostFs';
-import { buildDeepHostFs } from './deepHostFs';
-import { crackableEssidPool } from './generateWifi';
-import { generateHomeLan } from './generateHomeLan';
-import { roleOfHostname } from './pools/hostnames';
-import { createFsView } from '../filesystem/fsView';
-import { parseMysqlDatabase } from '../mysql/types';
-import { lanZoneName } from '../network/resolveName';
-import { asAbsPath } from '../types';
-import type { Directory, FileEntry, FileNode } from '../filesystem/types';
-import { WORLD_EPOCH } from '../cve/worldClock';
+import { buildRemoteHostFs, hostServices, npcUsername } from './remoteHostFs.js';
+import { buildDeepHostFs } from './deepHostFs.js';
+import { crackableEssidPool } from './generateWifi.js';
+import { generateHomeLan } from './generateHomeLan.js';
+import { roleOfHostname } from './pools/hostnames.js';
+import { createFsView } from '../filesystem/fsView.js';
+import { parseMysqlDatabase } from '../mysql/types.js';
+import { lanZoneName } from '../network/resolveName.js';
+import { asAbsPath } from '../types.js';
+import type { Directory, FileEntry, FileNode } from '../filesystem/types.js';
+import { WORLD_EPOCH } from '../cve/worldClock.js';
 import {
   ALL_ESSIDS,
   deepBoxes,
@@ -18,7 +18,7 @@ import {
   lanBoxes,
   softwareVersionsIn,
   type Box,
-} from '../../test/worldContent';
+} from '../../test/worldContent.js';
 
 /**
  * What a generated box remembers of its last day before the world began: the rotated

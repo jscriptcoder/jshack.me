@@ -15,11 +15,11 @@
  */
 
 import { z } from 'zod';
-import { verifySignedRequest } from '../signedRequest/verify';
-import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
-import type { NonceStore } from '../signedRequest/nonceStore';
-import type { UserType } from '../types';
-import type { SessionKind } from '../commands/types';
+import { verifySignedRequest } from '../signedRequest/verify.js';
+import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
+import type { UserType } from '../types.js';
+import type { SessionKind } from '../commands/types.js';
 
 export type SessionSummary = {
   readonly session_id: string;

@@ -18,13 +18,13 @@
  * are different questions, and the second one belongs to the door that names a service.
  */
 
-import { canBoot } from '../boot/bootFiles';
-import { resolveDeepGatewayIdentity } from '../generation/lanHostIdentity';
-import { buildDeepHostFs } from '../generation/deepHostFs';
-import { hostMachineId } from '../generation/remoteHostId';
-import { materializeMachineFs, type OwnerPatchRow } from './materializeMachineFs';
-import type { Directory } from '../filesystem/types';
-import type { LanHost, LanHostKind } from '../generation/generateHomeLan';
+import { canBoot } from '../boot/bootFiles.js';
+import { resolveDeepGatewayIdentity } from '../generation/lanHostIdentity.js';
+import { buildDeepHostFs } from '../generation/deepHostFs.js';
+import { hostMachineId } from '../generation/remoteHostId.js';
+import { materializeMachineFs, type OwnerPatchRow } from './materializeMachineFs.js';
+import type { Directory } from '../filesystem/types.js';
+import type { LanHost, LanHostKind } from '../generation/generateHomeLan.js';
 
 export type DeepBoxHop =
   | { readonly kind: 'box'; readonly fs: Directory; readonly machineId: string }

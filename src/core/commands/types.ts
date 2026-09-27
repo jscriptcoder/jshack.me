@@ -11,20 +11,20 @@
  * harness, or anywhere else.
  */
 
-import type { AbsPath, EpochMs, MachineId, NetworkAddress, PlayerKeyHex, UserType } from '../types';
-import type { Directory, FileNode, FilePermissions } from '../filesystem/types';
-import type { WalkResult } from '../filesystem/walker';
-import type { TransferDirection } from '../logging/vsftpdLog';
-import type { NetworkInterface } from '../network/interfaces';
-import type { HomeNetworkAssignment } from '../network/homeNetwork';
-import type { OccupantProjection } from '../network/resolveOccupants';
-import type { WifiNetwork } from '../network/wifi';
-import type { CveSeverity } from '../cve/packageTimeline';
-import type { OpenPort } from '../services/pidfile';
-import type { SnmpIdentity, SnmpPortTable } from '../snmp/walk';
-import type { SnmpSetRefusal } from '../snmp/set';
-import type { ThemeId } from '../theme/themes';
-import type { FlagSpec } from '../shell/bindFlags';
+import type { AbsPath, EpochMs, MachineId, NetworkAddress, PlayerKeyHex, UserType } from '../types.js';
+import type { Directory, FileNode, FilePermissions } from '../filesystem/types.js';
+import type { WalkResult } from '../filesystem/walker.js';
+import type { TransferDirection } from '../logging/vsftpdLog.js';
+import type { NetworkInterface } from '../network/interfaces.js';
+import type { HomeNetworkAssignment } from '../network/homeNetwork.js';
+import type { OccupantProjection } from '../network/resolveOccupants.js';
+import type { WifiNetwork } from '../network/wifi.js';
+import type { CveSeverity } from '../cve/packageTimeline.js';
+import type { OpenPort } from '../services/pidfile.js';
+import type { SnmpIdentity, SnmpPortTable } from '../snmp/walk.js';
+import type { SnmpSetRefusal } from '../snmp/set.js';
+import type { ThemeId } from '../theme/themes.js';
+import type { FlagSpec } from '../shell/bindFlags.js';
 
 // ---- Identity & session (read-only snapshots in CommandEnv) ----
 

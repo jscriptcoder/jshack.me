@@ -25,16 +25,16 @@
  * what the column is for.
  */
 
-import type { Command, CommandResult } from './types';
-import type { MachineId } from '../types';
+import type { Command, CommandResult } from './types.js';
+import type { MachineId } from '../types.js';
 import {
   daemonName,
   listenerPid,
   readRunningProcesses,
   LISTENER_COMMAND,
   type RunningProcess,
-} from '../services/pidfile';
-import { text } from './streaming';
+} from '../services/pidfile.js';
+import { text } from './streaming.js';
 
 const PID_COL = 8;
 const USER_COL = 10;

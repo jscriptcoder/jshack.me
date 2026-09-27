@@ -1,23 +1,23 @@
 import { describe, expect, it } from 'vitest';
-import { asAbsPath, type UserType } from '../types';
-import type { Directory } from '../filesystem/types';
-import type { Command, CommandResult, TerminalLine } from '../commands/types';
+import { asAbsPath, type UserType } from '../types.js';
+import type { Directory } from '../filesystem/types.js';
+import type { Command, CommandResult, TerminalLine } from '../commands/types.js';
 import {
   mockCommandEnv,
   mockFsViewFromTree,
   mockPatchApi,
   mockSession,
-} from '../../test/factories/commandEnv';
-import { applyPatches, type Patch } from '../filesystem/applyPatches';
-import { defaultFilePermissions } from '../filesystem/defaultPermissions';
-import { buildRemoteHostFs, hostServices } from '../generation/remoteHostFs';
-import { generateDeepLayer, type FrontingGateway } from '../generation/generateDeepLayer';
-import { buildDeepHostFs } from '../generation/deepHostFs';
-import type { LanHost } from '../generation/generateHomeLan';
-import { apt } from '../commands/apt';
-import { systemctl } from '../commands/systemctl';
-import { SERVICE_CATALOG } from './serviceCatalog';
-import { readOpenPorts } from './pidfile';
+} from '../../test/factories/commandEnv.js';
+import { applyPatches, type Patch } from '../filesystem/applyPatches.js';
+import { defaultFilePermissions } from '../filesystem/defaultPermissions.js';
+import { buildRemoteHostFs, hostServices } from '../generation/remoteHostFs.js';
+import { generateDeepLayer, type FrontingGateway } from '../generation/generateDeepLayer.js';
+import { buildDeepHostFs } from '../generation/deepHostFs.js';
+import type { LanHost } from '../generation/generateHomeLan.js';
+import { apt } from '../commands/apt.js';
+import { systemctl } from '../commands/systemctl.js';
+import { SERVICE_CATALOG } from './serviceCatalog.js';
+import { readOpenPorts } from './pidfile.js';
 
 /**
  * A door on a box the WORLD generated, opened and shut.

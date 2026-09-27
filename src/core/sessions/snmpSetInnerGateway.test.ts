@@ -1,23 +1,23 @@
 import { describe, expect, it, vi } from 'vitest';
-import { handleSnmpSet, type SnmpSetDeps } from './snmpSet';
-import { signRequest } from '../signedRequest/sign';
-import { generateIdentity } from '../identity/identity';
-import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
-import { generateDeepLayer, seedNetworkDepth } from '../generation/generateDeepLayer';
-import { crackableEssidPool } from '../generation/generateWifi';
-import { computeDeepGatewayId, computeInnerGatewayId } from '../identity/router';
-import { buildDeepSwitchBaseFs, seedSnmpCommunity } from '../generation/routerFs';
-import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
-import { readOpenPorts } from '../services/pidfile';
-import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import { ACL_CONF_PATH } from '../network/switchAcl';
-import { RULES_V4_PATH } from '../network/iptablesRules';
-import { asAbsPath } from '../types';
-import type { Directory } from '../filesystem/types';
-import type { OwnerPatchRow } from '../network/materializeMachineFs';
-import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog';
-import type { PatchRow } from '../patches/upsertPatch';
-import type { NonceStore } from '../signedRequest/nonceStore';
+import { handleSnmpSet, type SnmpSetDeps } from './snmpSet.js';
+import { signRequest } from '../signedRequest/sign.js';
+import { generateIdentity } from '../identity/identity.js';
+import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
+import { generateDeepLayer, seedNetworkDepth } from '../generation/generateDeepLayer.js';
+import { crackableEssidPool } from '../generation/generateWifi.js';
+import { computeDeepGatewayId, computeInnerGatewayId } from '../identity/router.js';
+import { buildDeepSwitchBaseFs, seedSnmpCommunity } from '../generation/routerFs.js';
+import { resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
+import { readOpenPorts } from '../services/pidfile.js';
+import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
+import { ACL_CONF_PATH } from '../network/switchAcl.js';
+import { RULES_V4_PATH } from '../network/iptablesRules.js';
+import { asAbsPath } from '../types.js';
+import type { Directory } from '../filesystem/types.js';
+import type { OwnerPatchRow } from '../network/materializeMachineFs.js';
+import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog.js';
+import type { PatchRow } from '../patches/upsertPatch.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 /**
  * Writing to a device through an inner gateway, and what a forward on that gateway is

@@ -14,9 +14,9 @@
  */
 
 import { z } from 'zod';
-import { verifySignedRequest } from '../signedRequest/verify';
-import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
-import type { NonceStore } from '../signedRequest/nonceStore';
+import { verifySignedRequest } from '../signedRequest/verify.js';
+import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 export type UnregisterOccupantDeps = {
   readonly nonceStore: NonceStore;

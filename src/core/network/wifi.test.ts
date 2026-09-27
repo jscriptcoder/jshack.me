@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bssidFromEssid } from './wifi';
+import { bssidFromEssid } from './wifi.js';
 
 /**
  * `bssidFromEssid` derives a deterministic AP MAC from the ESSID — the AP's

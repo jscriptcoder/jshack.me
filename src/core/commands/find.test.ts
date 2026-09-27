@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { find } from './find';
-import { buildDirectory, buildFile } from '../../test/factories/filesystem';
-import { mockCommandEnv, mockFsViewFromTree } from '../../test/factories/commandEnv';
-import { asAbsPath } from '../types';
-import type { TerminalLine } from './types';
-import type { Directory } from '../filesystem/types';
+import { find } from './find.js';
+import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
+import { mockCommandEnv, mockFsViewFromTree } from '../../test/factories/commandEnv.js';
+import { asAbsPath } from '../types.js';
+import type { TerminalLine } from './types.js';
+import type { Directory } from '../filesystem/types.js';
 
 const NO_FLAGS = new Map<string, string | true>();
 

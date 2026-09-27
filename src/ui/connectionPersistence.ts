@@ -12,9 +12,9 @@
  * (`ui/state`) supplies the real `localStorage`.
  */
 
-import { lanLeaseCacheIn } from '../core/network/lanLeaseCache';
-import type { ConnectivityState, NetworkInterface } from '../core/network/interfaces';
-import { bssidFromEssid } from '../core/network/wifi';
+import { lanLeaseCacheIn } from '../core/network/lanLeaseCache.js';
+import type { ConnectivityState, NetworkInterface } from '../core/network/interfaces.js';
+import { bssidFromEssid } from '../core/network/wifi.js';
 
 export const CONNECTED_ESSID_KEY = 'jshack:connected-essid';
 

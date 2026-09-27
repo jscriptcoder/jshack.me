@@ -1,33 +1,33 @@
 import { describe, expect, it, vi } from 'vitest';
-import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter';
-import { handleSnmpSet, type SnmpSetDeps } from './snmpSet';
-import { signRequest } from '../signedRequest/sign';
-import { generateIdentity } from '../identity/identity';
-import { generateHomeLan } from '../generation/generateHomeLan';
-import { seedApGatewayCommunity, seedSnmpCommunity } from '../generation/routerFs';
-import { generateDeepLayer } from '../generation/generateDeepLayer';
-import { crackableEssidPool } from '../generation/generateWifi';
-import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
-import { computeApGatewayId } from '../identity/router';
-import { pidfilePath, formatPidfileContent, readOpenPorts } from '../services/pidfile';
-import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import { RULES_V4_PATH } from '../network/iptablesRules';
-import { formatSnmpdState } from '../snmp/rwCommunity';
-import { SNMPD_LOG_PATH } from '../logging/snmpdLog';
-import { md5 } from '../generation/md5';
-import { asAbsPath } from '../types';
-import { resolvePublicTarget } from '../network/resolvePublicTarget';
+import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
+import { handleSnmpSet, type SnmpSetDeps } from './snmpSet.js';
+import { signRequest } from '../signedRequest/sign.js';
+import { generateIdentity } from '../identity/identity.js';
+import { generateHomeLan } from '../generation/generateHomeLan.js';
+import { seedApGatewayCommunity, seedSnmpCommunity } from '../generation/routerFs.js';
+import { generateDeepLayer } from '../generation/generateDeepLayer.js';
+import { crackableEssidPool } from '../generation/generateWifi.js';
+import { resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
+import { computeApGatewayId } from '../identity/router.js';
+import { pidfilePath, formatPidfileContent, readOpenPorts } from '../services/pidfile.js';
+import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
+import { RULES_V4_PATH } from '../network/iptablesRules.js';
+import { formatSnmpdState } from '../snmp/rwCommunity.js';
+import { SNMPD_LOG_PATH } from '../logging/snmpdLog.js';
+import { md5 } from '../generation/md5.js';
+import { asAbsPath } from '../types.js';
+import { resolvePublicTarget } from '../network/resolvePublicTarget.js';
 import type {
   ApNetworkLookup,
   NatOccupantRow,
   ResolvePublicTargetDeps,
-} from '../network/resolvePublicTarget';
-import type { LanLeaseRow } from '../network/lanAddress';
-import type { OwnerPatchRow } from '../network/materializeMachineFs';
-import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog';
-import type { PatchRow } from '../patches/upsertPatch';
-import type { NonceStore } from '../signedRequest/nonceStore';
-import type { Identity } from '../commands/types';
+} from '../network/resolvePublicTarget.js';
+import type { LanLeaseRow } from '../network/lanAddress.js';
+import type { OwnerPatchRow } from '../network/materializeMachineFs.js';
+import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog.js';
+import type { PatchRow } from '../patches/upsertPatch.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
+import type { Identity } from '../commands/types.js';
 
 /**
  * Writing to a device that belongs to somebody else, reached by their public address —

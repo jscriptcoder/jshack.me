@@ -4,17 +4,17 @@
  * and what a camera or a recorder holds, read the way a player reads it.
  */
 
-import { buildRemoteHostFs, hostServices } from '../core/generation/remoteHostFs';
-import { buildDeepHostFs } from '../core/generation/deepHostFs';
-import { strings } from '../core/commands/strings';
-import type { TerminalLine } from '../core/commands/types';
-import { createFsView } from '../core/filesystem/fsView';
-import { asAbsPath } from '../core/types';
-import type { Directory } from '../core/filesystem/types';
-import type { LanHost } from '../core/generation/generateHomeLan';
-import { buildDirectory, buildFile } from './factories/filesystem';
-import { mockCommandEnv, mockFsViewFromTree } from './factories/commandEnv';
-import { ALL_ESSIDS, deepBoxes, filesUnder, lanBoxes, type Box } from './worldContent';
+import { buildRemoteHostFs, hostServices } from '../core/generation/remoteHostFs.js';
+import { buildDeepHostFs } from '../core/generation/deepHostFs.js';
+import { strings } from '../core/commands/strings.js';
+import type { TerminalLine } from '../core/commands/types.js';
+import { createFsView } from '../core/filesystem/fsView.js';
+import { asAbsPath } from '../core/types.js';
+import type { Directory } from '../core/filesystem/types.js';
+import type { LanHost } from '../core/generation/generateHomeLan.js';
+import { buildDirectory, buildFile } from './factories/filesystem.js';
+import { mockCommandEnv, mockFsViewFromTree } from './factories/commandEnv.js';
+import { ALL_ESSIDS, deepBoxes, filesUnder, lanBoxes, type Box } from './worldContent.js';
 
 export const prefixOf = (hostname: string): string => hostname.slice(0, hostname.lastIndexOf('-'));
 

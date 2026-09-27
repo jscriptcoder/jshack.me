@@ -11,25 +11,25 @@
  * the pool — which is a thing only a test standing outside the game can do.
  */
 
-import { generateHomeLan, type LanHost } from '../../core/generation/generateHomeLan';
-import { crackableEssidPool } from '../../core/generation/generateWifi';
-import { generateDeepLayer, type DeepLayer } from '../../core/generation/generateDeepLayer';
-import { buildDeepHostFs } from '../../core/generation/deepHostFs';
-import { computeInnerGatewayId } from '../../core/identity/router';
-import { hostMachineId } from '../../core/generation/remoteHostId';
-import { databaseIn } from '../../core/mysql/datadir';
-import { readOpenPorts } from '../../core/services/pidfile';
-import { hostServices } from '../../core/generation/remoteHostFs';
-import { resolveLanHostIdentity } from '../../core/generation/lanHostIdentity';
-import { ALL_GENERATED_PASSWORDS } from '../../core/generation/passwordPools';
-import { SERVICE_CATALOG } from '../../core/services/serviceCatalog';
-import { md5 } from '../../core/generation/md5';
-import { parseMysqlDatabase, type MysqlDatabase } from '../../core/mysql/types';
-import { asEpochMs } from '../../core/types';
-import { ownDatabase } from '../../core/mysql/ownDatabase';
-import { materializeWorkstationFs } from '../../core/network/materializeWorkstationFs';
-import type { NatOccupantRow } from '../../core/network/resolvePublicTarget';
-import type { Directory } from '../../core/filesystem/types';
+import { generateHomeLan, type LanHost } from '../../core/generation/generateHomeLan.js';
+import { crackableEssidPool } from '../../core/generation/generateWifi.js';
+import { generateDeepLayer, type DeepLayer } from '../../core/generation/generateDeepLayer.js';
+import { buildDeepHostFs } from '../../core/generation/deepHostFs.js';
+import { computeInnerGatewayId } from '../../core/identity/router.js';
+import { hostMachineId } from '../../core/generation/remoteHostId.js';
+import { databaseIn } from '../../core/mysql/datadir.js';
+import { readOpenPorts } from '../../core/services/pidfile.js';
+import { hostServices } from '../../core/generation/remoteHostFs.js';
+import { resolveLanHostIdentity } from '../../core/generation/lanHostIdentity.js';
+import { ALL_GENERATED_PASSWORDS } from '../../core/generation/passwordPools.js';
+import { SERVICE_CATALOG } from '../../core/services/serviceCatalog.js';
+import { md5 } from '../../core/generation/md5.js';
+import { parseMysqlDatabase, type MysqlDatabase } from '../../core/mysql/types.js';
+import { asEpochMs } from '../../core/types.js';
+import { ownDatabase } from '../../core/mysql/ownDatabase.js';
+import { materializeWorkstationFs } from '../../core/network/materializeWorkstationFs.js';
+import type { NatOccupantRow } from '../../core/network/resolvePublicTarget.js';
+import type { Directory } from '../../core/filesystem/types.js';
 
 /** A LAN host running mysqld — the only kind with a database to open. */
 export const mysqlHostOn = (essid: string): LanHost => {

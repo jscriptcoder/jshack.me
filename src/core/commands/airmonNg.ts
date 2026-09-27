@@ -12,8 +12,8 @@
  * mutually exclusive (you can't sniff a NIC that's joined to a network).
  */
 
-import type { Command, CommandResult } from './types';
-import { isOwnWorkstation } from '../identity/workstation';
+import type { Command, CommandResult } from './types.js';
+import { isOwnWorkstation } from '../identity/workstation.js';
 
 const error = (message: string): CommandResult => ({
   kind: 'sync',

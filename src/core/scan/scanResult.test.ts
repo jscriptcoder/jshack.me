@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import type { Directory, FilePermissions } from '../filesystem/types';
-import type { OpenPort } from '../services/pidfile';
-import { dir, file, TRAVERSABLE_DIR } from '../generation/baseFs';
-import { scanResult } from './scanResult';
-import { buildEntry, formatDpkgStatus } from '../packages/dpkgStatus';
+import type { Directory, FilePermissions } from '../filesystem/types.js';
+import type { OpenPort } from '../services/pidfile.js';
+import { dir, file, TRAVERSABLE_DIR } from '../generation/baseFs.js';
+import { scanResult } from './scanResult.js';
+import { buildEntry, formatDpkgStatus } from '../packages/dpkgStatus.js';
 
 const FILE_PERMS: FilePermissions = {
   read: ['root', 'user', 'guest'],

@@ -11,7 +11,7 @@
  * A GAME command: there is no `/bin/author` to remove.
  */
 
-import type { Command } from './types';
+import type { Command } from './types.js';
 
 const execute: Command['execute'] = async () => ({
   kind: 'mode_change',

@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { lanZoneName, resolveLanName } from '../network/resolveName';
-import { buildDirectory } from '../../test/factories/filesystem';
-import { resolveDeepScanHosts } from '../scan/deepScanHosts';
-import { generateHomeLan, type LanHost } from './generateHomeLan';
-import { crackableEssidPool } from './generateWifi';
-import { chainLinks } from './lanTopology';
-import { roleOfHostname } from './pools/hostnames';
+import { lanZoneName, resolveLanName } from '../network/resolveName.js';
+import { buildDirectory } from '../../test/factories/filesystem.js';
+import { resolveDeepScanHosts } from '../scan/deepScanHosts.js';
+import { generateHomeLan, type LanHost } from './generateHomeLan.js';
+import { crackableEssidPool } from './generateWifi.js';
+import { chainLinks } from './lanTopology.js';
+import { roleOfHostname } from './pools/hostnames.js';
 import {
   allowsZoneTransfer,
   formatDnsZone,
@@ -13,7 +13,7 @@ import {
   zoneFilePathFor,
   zoneRecordsFor,
   type ZoneRecord,
-} from './generateDnsZone';
+} from './generateDnsZone.js';
 
 const ESSID = 'ACME-CORP';
 const ZONE = lanZoneName(ESSID);

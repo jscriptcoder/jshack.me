@@ -14,13 +14,13 @@
  * server walks it again to authorize one.
  */
 
-import { createPrng, type Prng } from '../generation/prng';
+import { createPrng, type Prng } from '../generation/prng.js';
 import {
   formatVersion,
   PACKAGE_TEMPLATES,
   type VersionTemplate,
-} from '../packages/packageVersions';
-import { WORLD_EPOCH } from './worldClock';
+} from '../packages/packageVersions.js';
+import { WORLD_EPOCH } from './worldClock.js';
 
 const DAY_MS = 86_400_000;
 

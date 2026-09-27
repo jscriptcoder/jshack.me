@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createSignal } from 'solid-js';
 import { cleanup, fireEvent, render, screen } from '@solidjs/testing-library';
-import { Lynx, type FollowOutcome } from './Lynx';
+import { Lynx, type FollowOutcome } from './Lynx.js';
 
 const PAGE =
   '<html><body><h1>db-01</h1><p>Server operational. Build 4.2.1</p><!-- TODO: remove debug endpoints --></body></html>';

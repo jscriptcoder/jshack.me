@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { PACKAGE_TEMPLATES, startingVersionOf } from '../packages/packageVersions';
-import { liveCve } from './liveCve';
-import { CVE_TIMING } from './packageTimeline';
+import { PACKAGE_TEMPLATES, startingVersionOf } from '../packages/packageVersions.js';
+import { liveCve } from './liveCve.js';
+import { CVE_TIMING } from './packageTimeline.js';
 
 const KEYS = Object.keys(PACKAGE_TEMPLATES);
 const SSH = 'openssh-server';

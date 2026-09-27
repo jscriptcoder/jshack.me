@@ -11,10 +11,10 @@
  * would only tell a tamperer how their edit failed.
  */
 
-import { parseMysqlDatabase, type MysqlCredential, type MysqlDatabase } from './types';
-import { asAbsPath } from '../types';
-import type { Directory, FileNode } from '../filesystem/types';
-import type { SweepableAccount } from '../wordlist/passwordSweep';
+import { parseMysqlDatabase, type MysqlCredential, type MysqlDatabase } from './types.js';
+import { asAbsPath } from '../types.js';
+import type { Directory, FileNode } from '../filesystem/types.js';
+import type { SweepableAccount } from '../wordlist/passwordSweep.js';
 
 /**
  * Where a box keeps its database: walked by the reader below, and named by whoever

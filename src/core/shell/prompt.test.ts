@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { commandEchoLine, formatPrompt } from './prompt';
+import { commandEchoLine, formatPrompt } from './prompt.js';
 
 const aliceAtHome = { username: 'alice', host: 'workstation', cwd: '/home/alice' } as const;
 

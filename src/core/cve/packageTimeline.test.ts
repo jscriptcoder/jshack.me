@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { PACKAGE_TEMPLATES, startingVersionOf } from '../packages/packageVersions';
-import { liveCve } from './liveCve';
+import { PACKAGE_TEMPLATES, startingVersionOf } from '../packages/packageVersions.js';
+import { liveCve } from './liveCve.js';
 import {
   assertCveTimingInvariants,
   bumpForRoll,
@@ -13,8 +13,8 @@ import {
   repoHolds,
   severityForRoll,
   upgradeStatusFor,
-} from './packageTimeline';
-import { WORLD_EPOCH } from './worldClock';
+} from './packageTimeline.js';
+import { WORLD_EPOCH } from './worldClock.js';
 
 const KEYS = Object.keys(PACKAGE_TEMPLATES);
 const SSH = 'openssh-server';

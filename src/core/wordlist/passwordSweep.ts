@@ -17,12 +17,12 @@
  * accounts, the address to record and the stamp.
  */
 
-import { md5 } from '../generation/md5';
-import type { CredentialAttempt } from '../logging/authLog';
-import { derivePid } from '../logging/syslog';
-import { asGameTime } from '../types';
-import { orderPatchesForReplay } from '../patches/orderPatchesForReplay';
-import type { PathPatchRow } from '../patches/upsertPatch';
+import { md5 } from '../generation/md5.js';
+import type { CredentialAttempt } from '../logging/authLog.js';
+import { derivePid } from '../logging/syslog.js';
+import { asGameTime } from '../types.js';
+import { orderPatchesForReplay } from '../patches/orderPatchesForReplay.js';
+import type { PathPatchRow } from '../patches/upsertPatch.js';
 
 /** What a wordlist sweep needs to know about one account: the name to report, and
  *  the hash a candidate password is checked against.

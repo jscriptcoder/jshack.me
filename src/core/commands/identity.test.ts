@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { identity } from './identity';
-import { mockCommandEnv, mockIdentity } from '../../test/factories/commandEnv';
-import { asPlayerKeyHex } from '../types';
+import { identity } from './identity.js';
+import { mockCommandEnv, mockIdentity } from '../../test/factories/commandEnv.js';
+import { asPlayerKeyHex } from '../types.js';
 
 const NO_FLAGS = new Map<string, string | true>();
 

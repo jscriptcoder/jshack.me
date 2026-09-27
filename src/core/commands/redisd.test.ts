@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { redisServer, DAEMONS } from './daemon';
-import { mockCommandEnv, mockFsViewFromTree, mockSession } from '../../test/factories/commandEnv';
-import { buildDirectory, buildFile } from '../../test/factories/filesystem';
-import { formatPidfileContent, pidfilePath, readOpenPorts, PIDFILE_PERMISSIONS } from '../services/pidfile';
-import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import { applyPatches } from '../filesystem/applyPatches';
-import { asAbsPath, type UserType } from '../types';
-import type { CommandResult, TerminalLine } from './types';
+import { redisServer, DAEMONS } from './daemon.js';
+import { mockCommandEnv, mockFsViewFromTree, mockSession } from '../../test/factories/commandEnv.js';
+import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
+import { formatPidfileContent, pidfilePath, readOpenPorts, PIDFILE_PERMISSIONS } from '../services/pidfile.js';
+import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
+import { applyPatches } from '../filesystem/applyPatches.js';
+import { asAbsPath, type UserType } from '../types.js';
+import type { CommandResult, TerminalLine } from './types.js';
 
 /**
  * `redis-server` — the sixth front door, and the second a player has to BUY.

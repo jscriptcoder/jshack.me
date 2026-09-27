@@ -1,6 +1,6 @@
-import { ownAgentCommunity } from '../snmp/ownAgent';
+import { ownAgentCommunity } from '../snmp/ownAgent.js';
 import { describe, expect, it } from 'vitest';
-import type { Directory, FileNode } from '../filesystem/types';
+import type { Directory, FileNode } from '../filesystem/types.js';
 import {
   buildApGatewayBaseFs,
   buildDeepGatewayBaseFs,
@@ -13,26 +13,26 @@ import {
   seedApGatewayAdminPw,
   seedApGatewayCommunity,
   seedApGatewayHasSsh,
-} from './routerFs';
-import { ROUTER_HOSTNAMES, seedApGatewayHostname } from './gatewayHostname';
-import { computeInnerGatewayId } from '../identity/router';
-import { workstationGuestPassword } from './workstationFs';
+} from './routerFs.js';
+import { ROUTER_HOSTNAMES, seedApGatewayHostname } from './gatewayHostname.js';
+import { computeInnerGatewayId } from '../identity/router.js';
+import { workstationGuestPassword } from './workstationFs.js';
 import {
   LOCALHOST_PREINSTALLED_TOOLS,
   SERVICE_CONTROL_TOOLS,
   SYSTEM_DAEMON_NAMES,
   SYSTEM_UTILITY_NAMES,
-} from './binaries';
-import { md5 } from './md5';
-import { readOpenPorts, type OpenPort } from '../services/pidfile';
-import { parseForwardRules } from '../network/iptablesRules';
-import { ESSID_CATALOG } from './pools/essidCatalog';
-import { publisherSite } from './publisher';
-import { generateHomeLan } from './generateHomeLan';
-import { hostServices } from './remoteHostFs';
-import { parseAclDenies } from '../network/switchAcl';
-import { parseSnmpdConf, readSnmpdConf } from '../snmp/conf';
-import { DEFAULT_WORDLIST } from '../wordlist/defaultWordlist';
+} from './binaries.js';
+import { md5 } from './md5.js';
+import { readOpenPorts, type OpenPort } from '../services/pidfile.js';
+import { parseForwardRules } from '../network/iptablesRules.js';
+import { ESSID_CATALOG } from './pools/essidCatalog.js';
+import { publisherSite } from './publisher.js';
+import { generateHomeLan } from './generateHomeLan.js';
+import { hostServices } from './remoteHostFs.js';
+import { parseAclDenies } from '../network/switchAcl.js';
+import { parseSnmpdConf, readSnmpdConf } from '../snmp/conf.js';
+import { DEFAULT_WORDLIST } from '../wordlist/defaultWordlist.js';
 
 // Two distinct valid 64-hex pubkeys — the owner-key seed source.
 // Owner keys — still what a DEEP gateway (below the shared LAN) and a workstation

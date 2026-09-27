@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import type { Directory, FileNode } from '../filesystem/types';
-import { binaryStub, stubName } from './binaries';
-import { buildWorkstationBaseFs } from './workstationFs';
-import { buildRemoteHostFs } from './remoteHostFs';
-import { buildApGatewayBaseFs, buildSwitchBaseFs } from './routerFs';
+import type { Directory, FileNode } from '../filesystem/types.js';
+import { binaryStub, stubName } from './binaries.js';
+import { buildWorkstationBaseFs } from './workstationFs.js';
+import { buildRemoteHostFs } from './remoteHostFs.js';
+import { buildApGatewayBaseFs, buildSwitchBaseFs } from './routerFs.js';
 
 const ESSID = 'BEAN-THERE-WIFI';
 

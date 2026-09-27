@@ -23,23 +23,23 @@
  */
 
 import { z } from 'zod';
-import { verifySignedRequest } from '../signedRequest/verify';
-import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
-import { innerGatewayAt, resolveLanHostIdentity } from '../generation/lanHostIdentity';
+import { verifySignedRequest } from '../signedRequest/verify.js';
+import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
+import { innerGatewayAt, resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
 import {
   generateDeepLayer,
   seedNetworkDepth,
   type FrontingGateway,
-} from '../generation/generateDeepLayer';
-import { materializeMachineFs, type OwnerPatchRow } from '../network/materializeMachineFs';
-import { resolveChildGatewayHop, resolveDeepHostHop } from '../network/deepLayerHop';
-import { parseForwardRules, readRulesV4 } from '../network/iptablesRules';
-import { canBoot } from '../boot/bootFiles';
-import type { OpenPort } from '../services/pidfile';
-import { portsOpenToNetwork } from '../network/portsOpenToNetwork';
-import { scanResult } from './scanResult';
-import type { Directory } from '../filesystem/types';
-import type { NonceStore } from '../signedRequest/nonceStore';
+} from '../generation/generateDeepLayer.js';
+import { materializeMachineFs, type OwnerPatchRow } from '../network/materializeMachineFs.js';
+import { resolveChildGatewayHop, resolveDeepHostHop } from '../network/deepLayerHop.js';
+import { parseForwardRules, readRulesV4 } from '../network/iptablesRules.js';
+import { canBoot } from '../boot/bootFiles.js';
+import type { OpenPort } from '../services/pidfile.js';
+import { portsOpenToNetwork } from '../network/portsOpenToNetwork.js';
+import { scanResult } from './scanResult.js';
+import type { Directory } from '../filesystem/types.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 export type ResolveInnerGatewayScanDeps = {
   readonly nonceStore: NonceStore;

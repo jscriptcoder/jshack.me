@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { tail } from './tail';
-import { buildDirectory, buildFile } from '../../test/factories/filesystem';
-import { mockCommandEnv, mockFsViewFromTree, mockSession } from '../../test/factories/commandEnv';
-import { asAbsPath } from '../types';
-import type { CommandResult } from './types';
+import { tail } from './tail.js';
+import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
+import { mockCommandEnv, mockFsViewFromTree, mockSession } from '../../test/factories/commandEnv.js';
+import { asAbsPath } from '../types.js';
+import type { CommandResult } from './types.js';
 
 const NO_FLAGS = new Map<string, string | true>();
 

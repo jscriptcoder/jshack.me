@@ -19,18 +19,18 @@
  * (fail closed). Own-workstation writes never reach here (L1 bypasses L2).
  */
 
-import { applyPatches, type Patch } from '../filesystem/applyPatches';
-import { createFsView } from '../filesystem/fsView';
+import { applyPatches, type Patch } from '../filesystem/applyPatches.js';
+import { createFsView } from '../filesystem/fsView.js';
 import {
   chainGatewayBaseFsForMachineId,
   lanBaseFsForMachineId,
-} from '../generation/lanHostIdentity';
-import { buildWorkstationBaseFsFromIdentity } from '../generation/workstationFs';
-import { buildApGatewayBaseFs } from '../generation/routerFs';
-import { computeApGatewayId } from '../identity/router';
-import { asAbsPath } from '../types';
-import type { Directory } from '../filesystem/types';
-import type { ActiveSession } from './authorizeMachineAccess';
+} from '../generation/lanHostIdentity.js';
+import { buildWorkstationBaseFsFromIdentity } from '../generation/workstationFs.js';
+import { buildApGatewayBaseFs } from '../generation/routerFs.js';
+import { computeApGatewayId } from '../identity/router.js';
+import { asAbsPath } from '../types.js';
+import type { Directory } from '../filesystem/types.js';
+import type { ActiveSession } from './authorizeMachineAccess.js';
 
 /** What a write gate needs to know about a session: the tier it carries and the
  *  network it was opened on. Never the account name — a permission question is

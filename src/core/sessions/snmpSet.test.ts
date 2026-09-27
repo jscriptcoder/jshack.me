@@ -1,22 +1,22 @@
 import { describe, expect, it, vi } from 'vitest';
-import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter';
-import { handleSnmpSet, type SnmpSetDeps } from './snmpSet';
-import { signRequest } from '../signedRequest/sign';
-import { generateIdentity } from '../identity/identity';
-import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
-import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
-import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import { formatPidfileContent, pidfilePath, readOpenPorts } from '../services/pidfile';
-import { SNMPD_LOG_PATH } from '../logging/snmpdLog';
-import { RULES_V4_OWNER, RULES_V4_PATH, RULES_V4_PERMISSIONS } from '../network/iptablesRules';
-import { ACL_CONF_PATH } from '../network/switchAcl';
-import { formatSnmpdState } from '../snmp/rwCommunity';
-import { md5 } from '../generation/md5';
-import { asAbsPath } from '../types';
-import type { OwnerPatchRow } from '../network/materializeMachineFs';
-import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog';
-import type { PatchRow } from '../patches/upsertPatch';
-import type { NonceStore } from '../signedRequest/nonceStore';
+import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
+import { handleSnmpSet, type SnmpSetDeps } from './snmpSet.js';
+import { signRequest } from '../signedRequest/sign.js';
+import { generateIdentity } from '../identity/identity.js';
+import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
+import { resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
+import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
+import { formatPidfileContent, pidfilePath, readOpenPorts } from '../services/pidfile.js';
+import { SNMPD_LOG_PATH } from '../logging/snmpdLog.js';
+import { RULES_V4_OWNER, RULES_V4_PATH, RULES_V4_PERMISSIONS } from '../network/iptablesRules.js';
+import { ACL_CONF_PATH } from '../network/switchAcl.js';
+import { formatSnmpdState } from '../snmp/rwCommunity.js';
+import { md5 } from '../generation/md5.js';
+import { asAbsPath } from '../types.js';
+import type { OwnerPatchRow } from '../network/materializeMachineFs.js';
+import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog.js';
+import type { PatchRow } from '../patches/upsertPatch.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 /**
  * `handleSnmpSet` is the write half of the door, and the only place in the game where a
@@ -44,12 +44,12 @@ const FIXED_NOW = Date.UTC(2026, 7, 9, 11, 4, 7);
 const CLIENT_IP = '192.168.1.50';
 const RW_COMMUNITY = 'corpnet';
 
-import { ownAgentCommunity } from '../snmp/ownAgent';
-import { SNMPD_CONF_PATH, SNMPD_CONF_SEED } from '../snmp/conf';
-import { SNMPD_STATE_PATH } from '../snmp/rwCommunity';
-import { lanAddressFor } from '../network/lanAddress';
-import { portsOpenToNetwork } from '../network/portsOpenToNetwork';
-import { buildDirectory, buildFile } from '../../test/factories/filesystem';
+import { ownAgentCommunity } from '../snmp/ownAgent.js';
+import { SNMPD_CONF_PATH, SNMPD_CONF_SEED } from '../snmp/conf.js';
+import { SNMPD_STATE_PATH } from '../snmp/rwCommunity.js';
+import { lanAddressFor } from '../network/lanAddress.js';
+import { portsOpenToNetwork } from '../network/portsOpenToNetwork.js';
+import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
 const CANDIDATE_ESSIDS = ['BEAN-THERE-WIFI', 'BREW-AND-CODE', 'NAKATOMI-PLAZA', 'PIED-PIPER'];
 
 const runsAgent = (host: LanHost, essid: string): boolean =>

@@ -14,11 +14,11 @@
  * a string anyone can type.
  */
 
-import type { AbsPath } from '../types';
-import type { Command, CommandEnv, CommandResult, FsListResult } from './types';
-import type { FileNode } from '../filesystem/types';
-import { basename, resolveAbsPath } from '../filesystem/path';
-import { walkTree } from '../filesystem/walkTree';
+import type { AbsPath } from '../types.js';
+import type { Command, CommandEnv, CommandResult, FsListResult } from './types.js';
+import type { FileNode } from '../filesystem/types.js';
+import { basename, resolveAbsPath } from '../filesystem/path.js';
+import { walkTree } from '../filesystem/walkTree.js';
 
 const USAGE = 'find: usage: find <path> <pattern> [user]';
 

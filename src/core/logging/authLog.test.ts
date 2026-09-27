@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { asGameTime } from '../types';
-import { formatSessionOpenedLine, formatSshdAuthLine, formatSuAuthLine } from './authLog';
+import { asGameTime } from '../types.js';
+import { formatSessionOpenedLine, formatSshdAuthLine, formatSuAuthLine } from './authLog.js';
 
 /**
  * Auth-log line formatting — the syslog-style `/var/log/auth.log` entry `su`

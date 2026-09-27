@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@solidjs/testing-library';
-import { BRAILLE_FRAMES, FRAME_INTERVAL_MS, TerminalLoading } from './TerminalLoading';
+import { BRAILLE_FRAMES, FRAME_INTERVAL_MS, TerminalLoading } from './TerminalLoading.js';
 
 describe('TerminalLoading', () => {
   afterEach(() => {

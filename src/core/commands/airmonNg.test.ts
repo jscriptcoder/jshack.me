@@ -1,23 +1,23 @@
 import { describe, expect, it } from 'vitest';
-import { asMachineId, asPlayerKeyHex } from '../types';
-import { computeWorkstationId } from '../identity/workstation';
+import { asMachineId, asPlayerKeyHex } from '../types.js';
+import { computeWorkstationId } from '../identity/workstation.js';
 import {
   buildColdStartConnectivity,
   type ConnectivityState,
   type WirelessInterface,
-} from '../network/interfaces';
-import { isOnline } from '../network/interfaces';
-import { buildDirectory, buildFile } from '../../test/factories/filesystem';
-import { SYSTEM_LIBRARIES } from '../generation/libraries';
+} from '../network/interfaces.js';
+import { isOnline } from '../network/interfaces.js';
+import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
+import { SYSTEM_LIBRARIES } from '../generation/libraries.js';
 import {
   mockCommandEnv,
   mockFsViewFromTree,
   mockIdentity,
   mockNetworkView,
   mockSession,
-} from '../../test/factories/commandEnv';
-import { commandRegistry } from './registry';
-import { airmonNg } from './airmonNg';
+} from '../../test/factories/commandEnv.js';
+import { commandRegistry } from './registry.js';
+import { airmonNg } from './airmonNg.js';
 
 /**
  * `airmon-ng` is the player's first real WiFi action: put `wlan0` into monitor
@@ -206,7 +206,7 @@ describe('airmon-ng', () => {
         current = { interfaces: new Map(current.interfaces).set(name, iface) };
       },
     });
-    const { runCommandLine } = await import('../shell/runLine');
+    const { runCommandLine } = await import('../shell/runLine.js');
 
     const result = await runCommandLine(env, 'airmon-ng start wlan0', commandRegistry);
 

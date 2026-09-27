@@ -4,11 +4,11 @@ import {
   isOnline,
   type ConnectivityState,
   type WirelessInterface,
-} from '../core/network/interfaces';
-import { assignHomeNetwork } from '../core/network/homeNetwork';
-import { bssidFromEssid } from '../core/network/wifi';
-import { CONNECTED_ESSID_KEY, persistConnection, restoreConnection } from './connectionPersistence';
-import { lanLeaseCacheIn } from '../core/network/lanLeaseCache';
+} from '../core/network/interfaces.js';
+import { assignHomeNetwork } from '../core/network/homeNetwork.js';
+import { bssidFromEssid } from '../core/network/wifi.js';
+import { CONNECTED_ESSID_KEY, persistConnection, restoreConnection } from './connectionPersistence.js';
+import { lanLeaseCacheIn } from '../core/network/lanLeaseCache.js';
 
 /**
  * Connection persistence is the "survives a reload" half of nmcli: the connected

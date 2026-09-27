@@ -19,17 +19,17 @@
 // Exits 0 when all checks pass, 1 on failure, 2 on missing env.
 
 import { createClient } from '@supabase/supabase-js';
-import { signRequest } from '../src/core/signedRequest/sign';
-import { generateIdentity } from '../src/core/identity/identity';
-import { computeWorkstationId } from '../src/core/identity/workstation';
-import { computeApGatewayId } from '../src/core/identity/router';
-import { machineIdForLanHost } from '../src/core/generation/lanTopology';
-import { publisherIp } from '../src/core/generation/publisher';
-import { siteServer } from '../src/core/generation/siteServer';
-import { apGatewayLogWriterKey } from '../src/core/logging/apGatewayLogWriter';
-import { ACCESS_LOG_PATH } from '../src/core/logging/accessLog';
-import { md5 } from '../src/core/generation/md5';
-import { clearPublicIps } from './networkFixture';
+import { signRequest } from '../src/core/signedRequest/sign.js';
+import { generateIdentity } from '../src/core/identity/identity.js';
+import { computeWorkstationId } from '../src/core/identity/workstation.js';
+import { computeApGatewayId } from '../src/core/identity/router.js';
+import { machineIdForLanHost } from '../src/core/generation/lanTopology.js';
+import { publisherIp } from '../src/core/generation/publisher.js';
+import { siteServer } from '../src/core/generation/siteServer.js';
+import { apGatewayLogWriterKey } from '../src/core/logging/apGatewayLogWriter.js';
+import { ACCESS_LOG_PATH } from '../src/core/logging/accessLog.js';
+import { md5 } from '../src/core/generation/md5.js';
+import { clearPublicIps } from './networkFixture.js';
 
 const NETWORK = process.env.NETWORK_ENDPOINT ?? 'http://localhost:3100/api/network';
 const url = process.env.SUPABASE_URL;

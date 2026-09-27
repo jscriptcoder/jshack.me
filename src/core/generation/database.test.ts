@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { buildRemoteHostFs, hostServices, npcUsername } from './remoteHostFs';
-import { generateHomeLan, isOnHomeLan } from './generateHomeLan';
-import { lanZoneName } from '../network/resolveName';
-import { buildDeepHostFs } from './deepHostFs';
-import { drawDatabaseCredentials } from './generateDatabase';
+import { buildRemoteHostFs, hostServices, npcUsername } from './remoteHostFs.js';
+import { generateHomeLan, isOnHomeLan } from './generateHomeLan.js';
+import { lanZoneName } from '../network/resolveName.js';
+import { buildDeepHostFs } from './deepHostFs.js';
+import { drawDatabaseCredentials } from './generateDatabase.js';
 import {
   ARCHETYPES,
   ARCHETYPES_BY_CATEGORY,
@@ -11,25 +11,25 @@ import {
   databaseArchetype,
   networkArchetype,
   type ArchetypeKey,
-} from './databaseApp';
-import { createPrng } from './prng';
-import { networkPersona } from './persona';
-import { roleOfHostname } from './pools/hostnames';
-import { usernamePool } from './pools/usernames';
-import { crackableEssidPool } from './generateWifi';
-import { CRACK_CHANCE, CRACKABLE_PASSWORDS } from './passwordPools';
-import { MYSQL_USERNAMES } from './pools/database';
-import { md5 } from './md5';
-import { databaseIn } from '../mysql/datadir';
-import { SERVICE_CATALOG } from '../services/serviceCatalog';
+} from './databaseApp.js';
+import { createPrng } from './prng.js';
+import { networkPersona } from './persona.js';
+import { roleOfHostname } from './pools/hostnames.js';
+import { usernamePool } from './pools/usernames.js';
+import { crackableEssidPool } from './generateWifi.js';
+import { CRACK_CHANCE, CRACKABLE_PASSWORDS } from './passwordPools.js';
+import { MYSQL_USERNAMES } from './pools/database.js';
+import { md5 } from './md5.js';
+import { databaseIn } from '../mysql/datadir.js';
+import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
 import {
   ALL_ESSIDS,
   deepBoxes,
   lanBoxes,
   softwareVersionsIn,
   type Box,
-} from '../../test/worldContent';
-import type { MysqlDatabase, MysqlRow, MysqlTable } from '../mysql/types';
+} from '../../test/worldContent.js';
+import type { MysqlDatabase, MysqlRow, MysqlTable } from '../mysql/types.js';
 
 type DatabaseBox = Box & { readonly database: MysqlDatabase };
 

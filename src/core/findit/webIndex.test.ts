@@ -5,13 +5,13 @@ import {
   type MachinePatchRow,
   type WebIndexDeps,
   type StoredAddress,
-} from './webIndex';
-import { computeApGatewayId } from '../identity/router';
-import { siteServer } from '../generation/siteServer';
-import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
-import { publisherIp, publisherSite } from '../generation/publisher';
-import { FINDIT_NETWORK } from '../generation/findit';
-import { rankPages } from './search';
+} from './webIndex.js';
+import { computeApGatewayId } from '../identity/router.js';
+import { siteServer } from '../generation/siteServer.js';
+import { resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
+import { publisherIp, publisherSite } from '../generation/publisher.js';
+import { FINDIT_NETWORK } from '../generation/findit.js';
+import { rankPages } from './search.js';
 
 /**
  * What findit holds when somebody searches: every homepage on the public web as it is

@@ -1,25 +1,25 @@
 import { describe, expect, it, vi } from 'vitest';
-import { runCommandLine } from './runLine';
-import { cat } from '../commands/cat';
-import { author } from '../commands/author';
-import { clear } from '../commands/clear';
-import { echo } from '../commands/echo';
-import { ftp } from '../commands/ftp';
-import { grep } from '../commands/grep';
-import { head } from '../commands/head';
-import { gpg } from '../commands/gpg';
-import { find } from '../commands/find';
-import { strings } from '../commands/strings';
-import { chmod } from '../commands/chmod';
-import { lynx } from '../commands/lynx';
-import { nano } from '../commands/nano';
-import { scp } from '../commands/scp';
-import { ssh } from '../commands/ssh';
-import { su } from '../commands/su';
-import { tail } from '../commands/tail';
-import { theme } from '../commands/theme';
-import { wc } from '../commands/wc';
-import { xterm } from '../commands/xterm';
+import { runCommandLine } from './runLine.js';
+import { cat } from '../commands/cat.js';
+import { author } from '../commands/author.js';
+import { clear } from '../commands/clear.js';
+import { echo } from '../commands/echo.js';
+import { ftp } from '../commands/ftp.js';
+import { grep } from '../commands/grep.js';
+import { head } from '../commands/head.js';
+import { gpg } from '../commands/gpg.js';
+import { find } from '../commands/find.js';
+import { strings } from '../commands/strings.js';
+import { chmod } from '../commands/chmod.js';
+import { lynx } from '../commands/lynx.js';
+import { nano } from '../commands/nano.js';
+import { scp } from '../commands/scp.js';
+import { ssh } from '../commands/ssh.js';
+import { su } from '../commands/su.js';
+import { tail } from '../commands/tail.js';
+import { theme } from '../commands/theme.js';
+import { wc } from '../commands/wc.js';
+import { xterm } from '../commands/xterm.js';
 import type {
   Command,
   CommandEnv,
@@ -27,17 +27,17 @@ import type {
   PatchApi,
   PatchResult,
   TerminalLine,
-} from '../commands/types';
-import type { Directory } from '../filesystem/types';
+} from '../commands/types.js';
+import type { Directory } from '../filesystem/types.js';
 import {
   mockCommandEnv,
   mockFsViewFromTree,
   mockPatchApi,
   mockSession,
-} from '../../test/factories/commandEnv';
-import { buildDirectory, buildFile } from '../../test/factories/filesystem';
-import { formatListenerContent } from '../services/pidfile';
-import { asAbsPath } from '../types';
+} from '../../test/factories/commandEnv.js';
+import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
+import { formatListenerContent } from '../services/pidfile.js';
+import { asAbsPath } from '../types.js';
 
 /** A `user`-tier session in /home/alice with two files she owns (and can read). */
 const aliceEnv = () =>

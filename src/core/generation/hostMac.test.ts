@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { hostMac } from './hostMac';
-import { generateHomeLan } from './generateHomeLan';
-import { generateDeepLayer } from './generateDeepLayer';
-import { chainLinks, machineIdForLanHost } from './lanTopology';
-import { hostMachineId } from './remoteHostId';
-import { ALL_ESSIDS } from '../../test/worldContent';
+import { hostMac } from './hostMac.js';
+import { generateHomeLan } from './generateHomeLan.js';
+import { generateDeepLayer } from './generateDeepLayer.js';
+import { chainLinks, machineIdForLanHost } from './lanTopology.js';
+import { hostMachineId } from './remoteHostId.js';
+import { ALL_ESSIDS } from '../../test/worldContent.js';
 
 /** Every generated host a network holds, by machine id: its LAN (the access point, its
  *  gateways and machines), every gateway down its chain, and each deep layer's NPC. A

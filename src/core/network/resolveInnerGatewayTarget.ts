@@ -35,14 +35,14 @@ import {
   generateDeepLayer,
   seedNetworkDepth,
   type FrontingGateway,
-} from '../generation/generateDeepLayer';
-import { innerGatewayAt, resolveLanHostIdentity } from '../generation/lanHostIdentity';
-import { frontedSegment } from './frontedSegment';
-import { materializeMachineFs, type OwnerPatchRow } from './materializeMachineFs';
-import { resolveChildGatewayHop, resolveDeepHostHop } from './deepLayerHop';
-import { machineServing } from './machineServing';
-import { canBoot } from '../boot/bootFiles';
-import type { Directory } from '../filesystem/types';
+} from '../generation/generateDeepLayer.js';
+import { innerGatewayAt, resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
+import { frontedSegment } from './frontedSegment.js';
+import { materializeMachineFs, type OwnerPatchRow } from './materializeMachineFs.js';
+import { resolveChildGatewayHop, resolveDeepHostHop } from './deepLayerHop.js';
+import { machineServing } from './machineServing.js';
+import { canBoot } from '../boot/bootFiles.js';
+import type { Directory } from '../filesystem/types.js';
 
 export type InnerGatewayTargetDeps = {
   /** A machine's FULL patch journal (scoped to its `machine_id`, server order) so each

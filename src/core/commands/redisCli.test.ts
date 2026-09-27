@@ -1,32 +1,32 @@
 import { describe, expect, it, vi } from 'vitest';
-import { redisCli } from './redisCli';
+import { redisCli } from './redisCli.js';
 import {
   mockCommandEnv,
   mockFsViewFromTree,
   mockNetworkViewFromConnectivity,
   mockRedisApi,
   mockScanApi,
-} from '../../test/factories/commandEnv';
-import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
-import { isInnerGateway } from '../generation/lanHostIdentity';
-import { hostServices } from '../generation/remoteHostFs';
-import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces';
-import { assignHomeNetwork } from '../network/homeNetwork';
-import { buildDirectory, buildFile } from '../../test/factories/filesystem';
-import { formatPidfileContent, pidfilePath, PIDFILE_PERMISSIONS } from '../services/pidfile';
-import { buildWorkstationBaseFs } from '../generation/workstationFs';
-import { applyPatches } from '../filesystem/applyPatches';
-import { ownStore } from '../redis/ownStore';
-import { DATADIR_OWNER, DATADIR_PATH } from '../redis/datadir';
-import { DATADIR_FILE } from '../generation/baseFs';
-import { REDIS_LOG_PATH, REDIS_LOG_PERMISSIONS } from '../logging/redisLog';
-import { asAbsPath, asPlayerKeyHex, type AbsPath } from '../types';
-import type { Directory } from '../filesystem/types';
-import type { FsView } from './types';
-import { bindFlags } from '../shell/bindFlags';
-import { SERVICE_CATALOG as CATALOG } from '../services/serviceCatalog';
-import type { CommandEnv, CommandResult, RedisApi } from './types';
+} from '../../test/factories/commandEnv.js';
+import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
+import { isInnerGateway } from '../generation/lanHostIdentity.js';
+import { hostServices } from '../generation/remoteHostFs.js';
+import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
+import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces.js';
+import { assignHomeNetwork } from '../network/homeNetwork.js';
+import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
+import { formatPidfileContent, pidfilePath, PIDFILE_PERMISSIONS } from '../services/pidfile.js';
+import { buildWorkstationBaseFs } from '../generation/workstationFs.js';
+import { applyPatches } from '../filesystem/applyPatches.js';
+import { ownStore } from '../redis/ownStore.js';
+import { DATADIR_OWNER, DATADIR_PATH } from '../redis/datadir.js';
+import { DATADIR_FILE } from '../generation/baseFs.js';
+import { REDIS_LOG_PATH, REDIS_LOG_PERMISSIONS } from '../logging/redisLog.js';
+import { asAbsPath, asPlayerKeyHex, type AbsPath } from '../types.js';
+import type { Directory } from '../filesystem/types.js';
+import type { FsView } from './types.js';
+import { bindFlags } from '../shell/bindFlags.js';
+import { SERVICE_CATALOG as CATALOG } from '../services/serviceCatalog.js';
+import type { CommandEnv, CommandResult, RedisApi } from './types.js';
 
 /**
  * `redis-cli <host>` — the fifth door, and the only one that asks the player for

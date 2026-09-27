@@ -5,7 +5,7 @@
  * range lives here, where only the tablet's own storage reads it.
  */
 
-import type { NetworkCategory } from './essidCatalog';
+import type { NetworkCategory } from './essidCatalog.js';
 
 /** The tablets a household buys. The maker decides which storage the tablet keeps, so an
  *  iPad keeps an iPhone's and every other tablet an android's. */

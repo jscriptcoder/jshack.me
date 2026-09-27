@@ -1,24 +1,24 @@
 import { describe, expect, it } from 'vitest';
-import { asMachineId, asPlayerKeyHex } from '../types';
-import { computeWorkstationId } from '../identity/workstation';
+import { asMachineId, asPlayerKeyHex } from '../types.js';
+import { computeWorkstationId } from '../identity/workstation.js';
 import {
   buildColdStartConnectivity,
   type ConnectivityState,
   type WirelessInterface,
-} from '../network/interfaces';
-import type { WifiNetwork } from '../network/wifi';
-import { buildDirectory, buildFile } from '../../test/factories/filesystem';
-import { SYSTEM_LIBRARIES } from '../generation/libraries';
+} from '../network/interfaces.js';
+import type { WifiNetwork } from '../network/wifi.js';
+import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
+import { SYSTEM_LIBRARIES } from '../generation/libraries.js';
 import {
   mockCommandEnv,
   mockFsViewFromTree,
   mockIdentity,
   mockNetworkView,
   mockSession,
-} from '../../test/factories/commandEnv';
-import type { CommandEnv, CommandResult } from './types';
-import { commandRegistry } from './registry';
-import { aircrackNg } from './aircrackNg';
+} from '../../test/factories/commandEnv.js';
+import type { CommandEnv, CommandResult } from './types.js';
+import { commandRegistry } from './registry.js';
+import { aircrackNg } from './aircrackNg.js';
 
 /**
  * `aircrack-ng` is the payoff of the WiFi arc: target a BSSID and either recover
@@ -302,7 +302,7 @@ describe('aircrack-ng', () => {
         wifiNetworks: () => WIFI,
       }),
     });
-    const { runCommandLine } = await import('../shell/runLine');
+    const { runCommandLine } = await import('../shell/runLine.js');
 
     const { lines } = await drain(
       await runCommandLine(env, `aircrack-ng ${CRACKABLE.bssid}`, commandRegistry),

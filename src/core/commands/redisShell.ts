@@ -23,9 +23,9 @@
  * dropping local state, and dropping the way back in with it.
  */
 
-import { runOwnStatement } from './redisOwnBox';
-import { isOwnBoxTarget } from '../network/interfaces';
-import type { CommandEnv, CommandResult, RedisConnection, TerminalLine } from './types';
+import { runOwnStatement } from './redisOwnBox.js';
+import { isOwnBoxTarget } from '../network/interfaces.js';
+import type { CommandEnv, CommandResult, RedisConnection, TerminalLine } from './types.js';
 
 const text = (content: string): TerminalLine => ({ kind: 'text', content });
 

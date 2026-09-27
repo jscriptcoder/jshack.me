@@ -25,30 +25,30 @@
  */
 
 import { z } from 'zod';
-import { verifySignedRequest } from '../signedRequest/verify';
-import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
-import { md5 } from '../generation/md5';
-import { resolveInnerGatewayTarget } from '../network/resolveInnerGatewayTarget';
-import { accountIn } from './passwdAccount';
-import type { OwnerPatchRow } from '../network/materializeMachineFs';
+import { verifySignedRequest } from '../signedRequest/verify.js';
+import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
+import { md5 } from '../generation/md5.js';
+import { resolveInnerGatewayTarget } from '../network/resolveInnerGatewayTarget.js';
+import { accountIn } from './passwdAccount.js';
+import type { OwnerPatchRow } from '../network/materializeMachineFs.js';
 import {
   AUTH_LOG_OWNER,
   AUTH_LOG_PATH,
   AUTH_LOG_PERMISSIONS,
   formatSshdAuthLine,
-} from '../logging/authLog';
-import { derivePid } from '../logging/syslog';
+} from '../logging/authLog.js';
+import { derivePid } from '../logging/syslog.js';
 import {
   appendMachineLog,
   type MachineLogReadQuery,
   type MachineLogReadResult,
-} from '../patches/appendMachineLog';
-import { asGameTime } from '../types';
-import type { PatchRow } from '../patches/upsertPatch';
-import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter';
-import { DOOR_KINDS, type AuthSessionRow, type HandlerResponse } from './authCreateSession';
-import { listenerOn, readOpenPorts } from '../services/pidfile';
-import type { NonceStore } from '../signedRequest/nonceStore';
+} from '../patches/appendMachineLog.js';
+import { asGameTime } from '../types.js';
+import type { PatchRow } from '../patches/upsertPatch.js';
+import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
+import { DOOR_KINDS, type AuthSessionRow, type HandlerResponse } from './authCreateSession.js';
+import { listenerOn, readOpenPorts } from '../services/pidfile.js';
+import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 export type AuthCreateSessionInnerGatewayDeps = {
   readonly nonceStore: NonceStore;

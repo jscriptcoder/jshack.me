@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseAgentAddress } from './agentAddress';
+import { parseAgentAddress } from './agentAddress.js';
 
 /**
  * `<host>` or `<host>:<port>` — net-snmp's own way of naming an agent, and here the

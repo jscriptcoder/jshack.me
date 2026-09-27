@@ -33,18 +33,18 @@
  * the patch delay is the window nobody can buy their way out of.
  */
 
-import { asAbsPath, type AbsPath } from '../types';
-import type { FilePermissions } from '../filesystem/types';
-import type { Command, CommandEnv, CommandResult, PatchResult, TerminalLine } from './types';
-import { binaryStub } from '../generation/binaries';
-import { LIBRARY_PERMS } from '../generation/libraries';
-import type { SystemLibrary } from '../generation/libraries';
+import { asAbsPath, type AbsPath } from '../types.js';
+import type { FilePermissions } from '../filesystem/types.js';
+import type { Command, CommandEnv, CommandResult, PatchResult, TerminalLine } from './types.js';
+import { binaryStub } from '../generation/binaries.js';
+import { LIBRARY_PERMS } from '../generation/libraries.js';
+import type { SystemLibrary } from '../generation/libraries.js';
 import {
   APT_PACKAGES,
   BASE_IMAGE_PACKAGES,
   packageContents,
   type AptExtraFile,
-} from '../packages/aptPackages';
+} from '../packages/aptPackages.js';
 import {
   buildEntry,
   DPKG_STATUS_OWNER,
@@ -54,19 +54,19 @@ import {
   readDpkgStatus,
   withPackageEntries,
   withPackageVersion,
-} from '../packages/dpkgStatus';
+} from '../packages/dpkgStatus.js';
 import {
   movesForward,
   newestReleaseOn,
   repoHolds,
   upgradeStatusFor,
   type UpgradeStatus,
-} from '../cve/packageTimeline';
-import { gameDayAt } from '../cve/worldClock';
-import { liveCve } from '../cve/liveCve';
-import { libraryDeps } from './libraryDeps';
-import { binaryExists } from './availability';
-import { errorLine, streamedResult, text } from './streaming';
+} from '../cve/packageTimeline.js';
+import { gameDayAt } from '../cve/worldClock.js';
+import { liveCve } from '../cve/liveCve.js';
+import { libraryDeps } from './libraryDeps.js';
+import { binaryExists } from './availability.js';
+import { errorLine, streamedResult, text } from './streaming.js';
 
 /** Beat between apt's steps, so reaching the repo takes visible time even when
  *  the writes behind it return instantly. */

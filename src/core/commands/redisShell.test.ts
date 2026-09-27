@@ -1,30 +1,30 @@
 import { describe, expect, it, vi } from 'vitest';
-import { runRedisLine } from './redisShell';
+import { runRedisLine } from './redisShell.js';
 import {
   mockCommandEnv,
   mockFsViewFromTree,
   mockNetworkViewFromConnectivity,
   mockRedisApi,
-} from '../../test/factories/commandEnv';
-import { buildWorkstationBaseFs } from '../generation/workstationFs';
-import { applyPatches } from '../filesystem/applyPatches';
-import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces';
-import { assignHomeNetwork } from '../network/homeNetwork';
-import { ownStore } from '../redis/ownStore';
-import { DATADIR_OWNER, DATADIR_PATH, storeIn } from '../redis/datadir';
-import { DATADIR_FILE } from '../generation/baseFs';
-import { REDIS_LOG_PATH } from '../logging/redisLog';
-import { formatPidfileContent, pidfilePath, PIDFILE_PERMISSIONS } from '../services/pidfile';
-import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import { asAbsPath, asPlayerKeyHex, type AbsPath } from '../types';
-import type { Directory } from '../filesystem/types';
+} from '../../test/factories/commandEnv.js';
+import { buildWorkstationBaseFs } from '../generation/workstationFs.js';
+import { applyPatches } from '../filesystem/applyPatches.js';
+import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces.js';
+import { assignHomeNetwork } from '../network/homeNetwork.js';
+import { ownStore } from '../redis/ownStore.js';
+import { DATADIR_OWNER, DATADIR_PATH, storeIn } from '../redis/datadir.js';
+import { DATADIR_FILE } from '../generation/baseFs.js';
+import { REDIS_LOG_PATH } from '../logging/redisLog.js';
+import { formatPidfileContent, pidfilePath, PIDFILE_PERMISSIONS } from '../services/pidfile.js';
+import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
+import { asAbsPath, asPlayerKeyHex, type AbsPath } from '../types.js';
+import type { Directory } from '../filesystem/types.js';
 import type {
   CommandResult,
   FsView,
   RedisApi,
   RedisConnection,
   RedisStatementResult,
-} from './types';
+} from './types.js';
 
 /**
  * The `redis> ` prompt. The same three claims the database prompt holds, pulling the

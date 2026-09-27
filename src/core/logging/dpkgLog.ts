@@ -27,8 +27,8 @@
  * Pure, framework-agnostic (core/): the timestamp is supplied by the caller.
  */
 
-import { asAbsPath, type AbsPath, type GameTime } from '../types';
-import type { FilePermissions } from '../filesystem/types';
+import { asAbsPath, type AbsPath, type GameTime } from '../types.js';
+import type { FilePermissions } from '../filesystem/types.js';
 
 /** The canonical `/var/log/dpkg.log` storage identity — single source of truth shared by
  *  every server-side appender, so each appended patch agrees on path, owner and perms.

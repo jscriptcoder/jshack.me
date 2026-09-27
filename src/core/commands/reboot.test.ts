@@ -1,18 +1,18 @@
 import { describe, expect, it, vi } from 'vitest';
-import { buildDirectory, buildFile } from '../../test/factories/filesystem';
+import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
 import {
   mockCommandEnv,
   mockFsViewFromTree,
   mockNetworkView,
   mockRebootApi,
   mockSession,
-} from '../../test/factories/commandEnv';
-import { commandRegistry } from './registry';
-import { createBinaryEntries } from '../generation/binaries';
-import { asAbsPath, asMachineId, type MachineId } from '../types';
-import type { CommandResult, HopChain, NetworkView, RebootApi, Session } from './types';
-import type { Directory, FileNode } from '../filesystem/types';
-import { reboot } from './reboot';
+} from '../../test/factories/commandEnv.js';
+import { commandRegistry } from './registry.js';
+import { createBinaryEntries } from '../generation/binaries.js';
+import { asAbsPath, asMachineId, type MachineId } from '../types.js';
+import type { CommandResult, HopChain, NetworkView, RebootApi, Session } from './types.js';
+import type { Directory, FileNode } from '../filesystem/types.js';
+import { reboot } from './reboot.js';
 
 /**
  * `reboot` cold-boots the machine the active session sits on (own box, or a box

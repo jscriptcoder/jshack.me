@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { orderPatchesForReplay } from './orderPatchesForReplay';
+import { orderPatchesForReplay } from './orderPatchesForReplay.js';
 
 /** A minimal replay-orderable row. The real reads pass richer rows
  *  (`OwnerPatchRow`, own-box rows); this proves the ordering contract those

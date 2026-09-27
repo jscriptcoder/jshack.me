@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { runCommandLine } from './runLine';
-import { carriedCommandRegistry, commandRegistry } from '../commands/registry';
-import { binaryStub } from '../generation/binaries';
-import { SYSTEM_LIBRARIES } from '../generation/libraries';
-import { mockCommandEnv, mockFsViewFromTree, mockSession } from '../../test/factories/commandEnv';
-import { buildDirectory, buildFile } from '../../test/factories/filesystem';
-import { asAbsPath, type UserType } from '../types';
-import type { FileNode } from '../filesystem/types';
-import type { CommandResult, TerminalLine } from '../commands/types';
+import { runCommandLine } from './runLine.js';
+import { carriedCommandRegistry, commandRegistry } from '../commands/registry.js';
+import { binaryStub } from '../generation/binaries.js';
+import { SYSTEM_LIBRARIES } from '../generation/libraries.js';
+import { mockCommandEnv, mockFsViewFromTree, mockSession } from '../../test/factories/commandEnv.js';
+import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
+import { asAbsPath, type UserType } from '../types.js';
+import type { FileNode } from '../filesystem/types.js';
+import type { CommandResult, TerminalLine } from '../commands/types.js';
 
 /**
  * A binary a player carried onto a box — dropped in `/tmp` or their home with

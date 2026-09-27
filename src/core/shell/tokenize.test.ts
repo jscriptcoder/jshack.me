@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { tokenize, type Token } from './tokenize';
+import { tokenize, type Token } from './tokenize.js';
 
 /** Slice 3 of the shell parser added quoted strings + the unterminated-quote
  *  error path. The pipes chunk reshapes `tokens` from a flat string array into

@@ -30,23 +30,23 @@
 // Exits 0 when all checks pass, 1 on failure, 2 on missing env / no usable network.
 
 import { createClient } from '@supabase/supabase-js';
-import { signRequest } from '../src/core/signedRequest/sign';
-import { generateIdentity } from '../src/core/identity/identity';
-import { generateHomeLan, type LanHost } from '../src/core/generation/generateHomeLan';
-import { crackableEssidPool } from '../src/core/generation/generateWifi';
-import { generateDeepLayer } from '../src/core/generation/generateDeepLayer';
-import { buildDeepHostFs } from '../src/core/generation/deepHostFs';
-import { computeInnerGatewayId } from '../src/core/identity/router';
-import { hostMachineId } from '../src/core/generation/remoteHostId';
-import { storeIn, DATADIR_PATH } from '../src/core/redis/datadir';
-import { readOpenPorts } from '../src/core/services/pidfile';
-import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog';
-import { ALL_GENERATED_PASSWORDS } from '../src/core/generation/passwordPools';
-import { md5 } from '../src/core/generation/md5';
-import { DATADIR_FILE } from '../src/core/generation/baseFs';
-import { REDIS_LOG_OWNER, REDIS_LOG_PATH } from '../src/core/logging/redisLog';
-import { WORDLIST_PATH, formatWordlist } from '../src/core/wordlist/defaultWordlist';
-import type { RedisStore } from '../src/core/redis/types';
+import { signRequest } from '../src/core/signedRequest/sign.js';
+import { generateIdentity } from '../src/core/identity/identity.js';
+import { generateHomeLan, type LanHost } from '../src/core/generation/generateHomeLan.js';
+import { crackableEssidPool } from '../src/core/generation/generateWifi.js';
+import { generateDeepLayer } from '../src/core/generation/generateDeepLayer.js';
+import { buildDeepHostFs } from '../src/core/generation/deepHostFs.js';
+import { computeInnerGatewayId } from '../src/core/identity/router.js';
+import { hostMachineId } from '../src/core/generation/remoteHostId.js';
+import { storeIn, DATADIR_PATH } from '../src/core/redis/datadir.js';
+import { readOpenPorts } from '../src/core/services/pidfile.js';
+import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
+import { ALL_GENERATED_PASSWORDS } from '../src/core/generation/passwordPools.js';
+import { md5 } from '../src/core/generation/md5.js';
+import { DATADIR_FILE } from '../src/core/generation/baseFs.js';
+import { REDIS_LOG_OWNER, REDIS_LOG_PATH } from '../src/core/logging/redisLog.js';
+import { WORDLIST_PATH, formatWordlist } from '../src/core/wordlist/defaultWordlist.js';
+import type { RedisStore } from '../src/core/redis/types.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const PATCHES = process.env.PATCHES_ENDPOINT ?? 'http://localhost:3100/api/patches';

@@ -14,10 +14,10 @@
  * live (patched) `fs` view BEFORE any write is issued.
  */
 
-import type { AbsPath } from '../types';
-import { asAbsPath } from '../types';
-import type { Command, CommandEnv, CommandResult, FsView, PatchResult } from './types';
-import { resolveAbsPath } from '../filesystem/path';
+import type { AbsPath } from '../types.js';
+import { asAbsPath } from '../types.js';
+import type { Command, CommandEnv, CommandResult, FsView, PatchResult } from './types.js';
+import { resolveAbsPath } from '../filesystem/path.js';
 
 const PATCH_ERROR_MESSAGE: Record<Extract<PatchResult, { ok: false }>['error'], string> = {
   no_session: 'Permission denied',

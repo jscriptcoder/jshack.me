@@ -18,9 +18,9 @@
  * the sweeper is shown. A directory with no index serves nothing and is not a find.
  */
 
-import type { Directory } from '../filesystem/types';
-import { createFsView } from '../filesystem/fsView';
-import { resolveWebPath } from './http';
+import type { Directory } from '../filesystem/types.js';
+import { createFsView } from '../filesystem/fsView.js';
+import { resolveWebPath } from './http.js';
 
 /** One request that reached the server, and what it answered with. */
 export type ProbedPath = {

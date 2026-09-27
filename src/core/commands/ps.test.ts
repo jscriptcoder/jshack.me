@@ -1,26 +1,26 @@
 import { describe, expect, it } from 'vitest';
-import { asAbsPath, asMachineId, type UserType } from '../types';
-import type { CommandResult } from './types';
-import type { Directory } from '../filesystem/types';
+import { asAbsPath, asMachineId, type UserType } from '../types.js';
+import type { CommandResult } from './types.js';
+import type { Directory } from '../filesystem/types.js';
 import {
   mockCommandEnv,
   mockFsViewFromTree,
   mockPatchApi,
   mockSession,
-} from '../../test/factories/commandEnv';
-import { buildDirectory, buildFile } from '../../test/factories/filesystem';
-import { binaryStub, createBinaryEntries } from '../generation/binaries';
-import { createLibraryEntries, SYSTEM_LIBRARIES } from '../generation/libraries';
-import { applyPatches, type Patch } from '../filesystem/applyPatches';
-import { defaultFilePermissions } from '../filesystem/defaultPermissions';
-import { createFsView } from '../filesystem/fsView';
-import { filterTreeForRead } from '../patches/readFilter';
-import { basename } from '../filesystem/path';
-import { commandRegistry } from './registry';
-import { sshd } from './daemon';
-import { nc } from './nc';
-import { systemctl } from './systemctl';
-import { ps } from './ps';
+} from '../../test/factories/commandEnv.js';
+import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
+import { binaryStub, createBinaryEntries } from '../generation/binaries.js';
+import { createLibraryEntries, SYSTEM_LIBRARIES } from '../generation/libraries.js';
+import { applyPatches, type Patch } from '../filesystem/applyPatches.js';
+import { defaultFilePermissions } from '../filesystem/defaultPermissions.js';
+import { createFsView } from '../filesystem/fsView.js';
+import { filterTreeForRead } from '../patches/readFilter.js';
+import { basename } from '../filesystem/path.js';
+import { commandRegistry } from './registry.js';
+import { sshd } from './daemon.js';
+import { nc } from './nc.js';
+import { systemctl } from './systemctl.js';
+import { ps } from './ps.js';
 
 /**
  * `ps` is the survey instrument on the box you are standing on: one row per

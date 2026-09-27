@@ -22,10 +22,10 @@
  * level.
  */
 
-import type { AbsPath } from '../types';
-import type { FsView } from '../commands/types';
-import type { FileNode } from './types';
-import { resolveAbsPath } from './path';
+import type { AbsPath } from '../types.js';
+import type { FsView } from '../commands/types.js';
+import type { FileNode } from './types.js';
+import { resolveAbsPath } from './path.js';
 
 export const walkTree = <T>(
   fs: FsView,
