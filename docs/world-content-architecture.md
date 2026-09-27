@@ -51,7 +51,7 @@ most are enforced by a property test named in "How it is tested".
    genuinely different device gets an overlay (printer, camera, phone, `nginx-`, `api-`);
    synonym prefixes share the role pool. Prefix lists may grow within a role, but that re-rolls
    hostnames → machine ids → orphans journals and moves every pin, wire-check host selection
-   and the `v2-e2e` skill's derived secrets.
+   and the `e2e` skill's derived secrets.
 8. **A network persona plus a box inhabitant.** The persona comes from the ESSID's category
    (`pools/essidCatalog.ts`; uncatalogued ESSIDs seed one) and gives an organisation, a kind of
    place, its vocabulary and a `.lan` domain. The inhabitant comes from the box's existing

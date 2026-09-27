@@ -1917,7 +1917,7 @@ row rather than a brick. (`testBrickedDark.ts` says so in a comment — worth re
 hand-rolling tombstone rows.)
 
 Live browser E2E (agent-browser vs `vercel dev`) is covered by the project skill
-**`v2-e2e`** (`.claude/skills/v2-e2e/SKILL.md`) — load it before writing any agent-browser
+**`e2e`** (`.claude/skills/e2e/SKILL.md`) — load it before writing any agent-browser
 command. It holds the preflight, recipes for reaching a given in-game state (fresh player →
 connected with nmap; a shell on the AP gateway; the two-identity cross-player loop), the
 terminal/nano DOM quirks, and how to derive seeded secrets offline. Add a recipe whenever a

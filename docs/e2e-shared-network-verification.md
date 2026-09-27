@@ -22,7 +22,7 @@ found a **client defect: a stale shared-file buffer silently deleted another occ
 rules** — ~~fixed at v0.101.0/v0.102.0~~, see §6. Acts 1–3, 5 and 6 were not re-run on that
 tree.
 
-**Load [`.claude/skills/v2-e2e/SKILL.md`](../.claude/skills/v2-e2e/SKILL.md) before
+**Load [`.claude/skills/e2e/SKILL.md`](../.claude/skills/e2e/SKILL.md) before
 running any `agent-browser` command.** It owns the preflight, the DOM quirks, and the
 base recipes. This document is the item-#5 test plan layered on top of it, and adds the
 two-player mechanics the skill does not yet cover.

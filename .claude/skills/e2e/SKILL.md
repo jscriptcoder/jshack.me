@@ -1,9 +1,9 @@
 ---
-name: v2-e2e
-description: Drive the jshack.me v2 game live in a real browser with agent-browser against `vercel dev` + local supabase. Use whenever a slice needs browser-only confirmation (terminal flows, the nano editor, keyboard/focus), when asked to "run the app", "smoke test", "E2E this", or take a screenshot of the game, and before writing any agent-browser command against this project. Holds the preflight, the exact in-game command sequences to reach a given state, the terminal/DOM quirks, and how to derive seeded secrets offline.
+name: e2e
+description: Drive the jshack.me game live in a real browser with agent-browser against `vercel dev` + local supabase. Use whenever a slice needs browser-only confirmation (terminal flows, the nano editor, keyboard/focus), when asked to "run the app", "smoke test", "E2E this", or take a screenshot of the game, and before writing any agent-browser command against this project. Holds the preflight, the exact in-game command sequences to reach a given state, the terminal/DOM quirks, and how to derive seeded secrets offline.
 ---
 
-# v2 live E2E runbook
+# Live E2E runbook
 
 Everything here is verified against the running game. Follow the recipes rather than
 rediscovering the in-game commands — several have ordering traps that fail with unhelpful
@@ -283,7 +283,7 @@ ESPRESSO-EXPRESS: `ssh agarcia@192.168.232.180`, password `letmein` (a Galaxy Ta
 
 | Trap | What actually works |
 |---|---|
-| `ls -a ~` → `cannot access '~'` | v2's `ls` does not expand `~`; you land in the home, so `ls -a` there |
+| `ls -a ~` → `cannot access '~'` | `ls` does not expand `~`; you land in the home, so `ls -a` there |
 | Looking for `Download/` on an iPhone | The layout follows the MAKER: Android devices (and non-Apple tablets) keep `DCIM/Camera/IMG_YYYYMMDD_HHMMSS.jpg`, `Download/`, `Documents/`, `Movies/`, `Music/`, `Pictures/`; an iPhone or iPad keeps `DCIM/100APPLE/IMG_NNNN.JPG`, `Downloads/`, `Documents/` |
 | `cat` on a photo or PDF shows noise | `strings` it: a photo gives `JFIF`, `Exif`, make, model, the moment it was taken (no artist line); a PDF's Info line gives its title and author |
 

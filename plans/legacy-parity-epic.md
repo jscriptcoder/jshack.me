@@ -4751,7 +4751,7 @@ session inside the university's LAN — before anybody has joined its wifi.
    | `AIRPORT-LOUNGE-VIP` | `flyridgemont.com` | Ridgemont International Airport |
    | `TRAIN-STATION-FREE` | `ridgemontcentral.org` | Ridgemont Central Station |
 
-7. **Independent PRs**, each closed by a `v2-e2e` browser run; 1a and 1c carry an `api/` change and
+7. **Independent PRs**, each closed by a `e2e` browser run; 1a and 1c carry an `api/` change and
    so a wire-check. Planned as three; a fourth (1d) was added after 1b with the owner's agreement.
 
 #### 1a — a publisher's website answers at its public IP (v0.265.0, #551)
@@ -4840,7 +4840,7 @@ the game's tools do too.
   port left unwritten). That is required, not cosmetic: the address bar is the base every link
   resolves against, so a bare base would break following links. A URL typed with its scheme
   keeps its typed spelling.
-- **Manuals** for both commands name the shorthand and carry a bare-domain example. The `v2-e2e`
+- **Manuals** for both commands name the shorthand and carry a bare-domain example. The `e2e`
   runbook row that said "lynx wants a URL" is corrected.
 - **Gates:** 6146 unit tests green, typecheck and lint clean. Wire-check `N/A`: client-only, no
   `api/` change. Stryker on `http.ts`: 111 killed, 1 survived — the pre-existing
@@ -4961,7 +4961,7 @@ password does not crack.
   typing `university` and Enter opened `http://findit.io/?q=university` with Ridgemont as `[1]`;
   following it opened `http://ridgemont.edu/`; Back returned to the results. On the form `q` typed
   `[q_]`; after Escape, `q` quit. agent-browser's `keyboard type` fires no `keydown`, so it cannot
-  type into lynx — recorded in the `v2-e2e` runbook (use `press` per key).
+  type into lynx — recorded in the `e2e` runbook (use `press` per key).
 
 #### Risks carried forward
 
@@ -5071,7 +5071,7 @@ longer does.
   - **A opts out.** A's nano-written `Disallow: /` took the page out of findit, while a direct `curl`
     still served it.
   - **No trace.** A's `access.log` held only B's two real visits.
-- **Runbook:** the `v2-e2e` runbook gained "Putting a player's page on findit". A's public IP is shown
+- **Runbook:** the `e2e` runbook gained "Putting a player's page on findit". A's public IP is shown
   nowhere in-game; `echo >` writes one line, with no `>>` and no `-e`, so `robots.txt` needs nano.
 
 #### Risks carried forward
