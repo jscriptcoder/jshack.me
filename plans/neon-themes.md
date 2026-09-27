@@ -1,6 +1,10 @@
 # Plan: Neon themes
 
-**Status**: Active. Decisions confirmed by the owner 2026-09-27; no slice started.
+**Status**: Active. Decisions confirmed by the owner 2026-09-27.
+- Slice 1 ✅ merged as #567 (`dd7e0ffd`, v0.279.0).
+- Slice 2 is next.
+- Slice 5 (the `effects` command) was added by the owner on 2026-09-27, after slice 1
+  merged.
 **Visual reference**: the interactive preview at https://claude.ai/artifact/FTXG8EPT39Ek2TF6JFEmmt
 (private to the owner). Its palettes, glow, glitch, HUD and cursor are the target; its
 commands and HUD values are mock data.
@@ -24,13 +28,17 @@ angular HUD and glitch the banner, and a new player starts in one of them.
    never runs during play. Nothing else in the terminal animates beyond the cursor
    blink.
 6. **Glow, the HUD frame and the block cursor ship as previewed.**
+7. **A player can switch each effect on or off** with an `effects` command, added as
+   slice 5 once all four effects exist. Each effect is its own switch rather than one
+   master switch, because a player who dislikes the glitch may still want the glow.
 
 Decided in planning, open to review:
 
 - **The look belongs to the theme.** A neon theme carries its extra effect colours,
   and their presence is what switches the look on. There is no separate
-  `effects: boolean` that could disagree with them, and no player-facing on/off. A
-  player who wants no effects picks a plain theme.
+  `effects: boolean` on a theme that could disagree with them. The player's
+  per-effect switches (decision 7) are a separate preference that only narrows what
+  a neon theme shows, and a plain theme still shows none of it.
 - **Fonts are self-hosted** through `@fontsource` packages: Share Tech Mono for the
   terminal text and Rajdhani for the HUD labels (both OFL licensed). Loading from
   Google Fonts' CDN would send every player's IP to Google on every boot, which the
@@ -74,13 +82,16 @@ Decided in planning, open to review:
       wlan0 address, ESSID and version.
 - [ ] Under a neon theme the caret is a solid block over the character it sits on. A
       masked prompt (su's `Password:`) never draws the typed characters.
+- [ ] `effects` lists glow, glitch, hud and cursor with their state, and
+      `effects <name> on|off` switches one. The choice survives a reload.
 
 ## Slices
 
-Four independent PRs against `main`, in order: each starts after the previous one has
+Five independent PRs against `main`, in order: each starts after the previous one has
 merged (no stack). Slices 2 to 4 build on the neon themes from slice 1, and slices 3
-and 4 are only visible under the neon look that slice 2 introduces. Each slice bumps the
-minor version in `package.json` and `package-lock.json`.
+and 4 are only visible under the neon look that slice 2 introduces. Slice 5 switches
+the effects that slices 2 to 4 add, so it comes last. Each slice bumps the minor
+version in `package.json` and `package-lock.json`.
 
 Common evidence route: jsdom tests prove the contracts (which themes exist, what is
 painted onto the document, what the HUD shows, what the cursor draws). jsdom cannot
@@ -219,13 +230,68 @@ keyboards.
 **PRE-PR MUTATION**: Stryker on the mirror logic, which is worth extracting as a
 pure `(value, caret, masked) → segments` function if it earns its place.
 
+### Slice 5: A player can switch each neon effect on or off with `effects`
+
+**Value**: a player who likes a neon palette but not one of its effects keeps the
+palette and loses only that effect. Before this, the only way out was a plain theme.
+**Path**:
+- `effects`, a new game command shaped like `theme`: always available,
+  `category: 'general'`, `tier: 'guest'`, the same `withoutTty` and `withoutScript`
+  refusals, and a manual entry. Its arguments complete to the effect names, then to
+  `on` and `off`.
+- New command-env seams, read and write, beside `currentTheme` and `setTheme` in
+  `ui/env.ts`.
+- `ui/state.ts` holds an effects signal and persists it under its own key, next to
+  `jshack:theme`.
+- The single neon mark from slice 2 splits into one mark per effect that is on. The
+  HUD (slice 3) and the cursor (slice 4) read their switch from the signal.
+
+**Class**: Behavior change.
+**Delivery**: independent PR, branch `feat/neon-effects`, after slice 4 merges.
+**Required implementation skills**: `tdd`, `testing`, `front-end-testing`,
+`refactoring`, `typescript-strict`; `mutation-testing` at PR readiness.
+**Acceptance criteria**:
+- `effects` with no argument lists `glow`, `glitch`, `hud` and `cursor`, each
+  `on` or `off`, column-aligned like `theme`.
+  - Under a plain theme the listing ends with a dim line saying the effects show
+    only under the neon themes. The settings are still kept, and still apply when
+    the player next switches to a neon theme.
+- `effects glitch off`:
+  - stops the banner glitch;
+  - leaves glow, HUD and cursor as they were;
+  - says what it did;
+  - survives a reload.
+- `effects glitch on` brings the glitch back.
+- `effects hud off` removes the frame and its bars. The terminal fills the screen as
+  it does under a plain theme.
+- `effects cursor off` goes back to the native caret.
+- `effects glow off` removes the glow. The neon font and colours stay, because they
+  belong to the palette.
+- Refusals exit 1 and change nothing:
+  - an unknown effect names the ones there are;
+  - a missing or unrecognised state prints the usage line.
+- Nothing stored, or an unreadable stored value, means every effect on (the same
+  fallback rule as the theme). `new-game` wipes the origin, so a fresh game starts
+  with every effect on.
+- Reduced motion still stops the glitch and the blink whatever `effects` says.
+  `effects` can only take effects away, never force motion back on.
+
+**RED**:
+- `effects.test.ts`: the listing, each switch, and the refusals, through
+  `mockCommandEnv`.
+- `ui` persistence tests over an injected storage.
+- A rendered test per effect: glitch mark gone, HUD gone, native caret back.
+
+**Browser evidence**: a screenshot under Neon with the glitch and HUD off, and glow and
+cursor still on.
+**PRE-PR MUTATION**: Stryker on the command, its persistence module and the parts of
+`applyTheme` that write the marks.
+
 ## Out of scope
 
 - `public/og-image.*` and the meta and OG descriptions in `index.html` still show and
   describe the amber terminal. Refreshing the social preview is a separate job once the
   look lands.
-- Any in-game setting to turn effects off separately from the theme. Plain themes are
-  that setting.
 
 ## Pre-PR Quality Gate
 
