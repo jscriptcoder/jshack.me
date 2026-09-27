@@ -26,7 +26,7 @@ import { DEFAULT_WORDLIST } from '../wordlist/defaultWordlist.js';
  * behaviour through its public output (the `Directory` tree), not internals.
  */
 
-// Two distinct valid 64-hex pubkeys — the seed source per decision 1.
+// Two distinct valid 64-hex pubkeys — the seed source.
 const SEED_A = '1'.repeat(64);
 const SEED_B = '2'.repeat(64);
 

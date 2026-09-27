@@ -6,7 +6,7 @@
 // Net-new under test (the locally-untypechecked api/ runtime):
 //   - B (already ssh'd into A as guest) `su root` (correct root pw) → ONE `Successful
 //     su for root by guest` line lands on A's WORKSTATION auth.log, keyed by A's OWNER
-//     writer_key (decision 1), naming A's workstation machine name.
+//     writer_key, naming A's workstation machine name.
 //   - A wrong password → `FAILED su for root by guest` line still lands (su logs both
 //     outcomes); 401.
 //   - su lines carry the `by <from>` user from the payload (no source IP).
@@ -60,7 +60,7 @@ const post = async (
 const AUTH_LOG = '/var/log/auth.log';
 
 /** Read a machine's auth.log row keyed by the OWNER's writer_key — the single
- *  canonical row the system writes its su lines to (decision 1). */
+ *  canonical row the system writes its su lines to. */
 const readAuthLog = async (machineId: string, ownerKey: string): Promise<string> => {
   const { data } = await sr
     .from('patches')

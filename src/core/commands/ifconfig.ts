@@ -9,7 +9,7 @@
  *
  * `netmask` and `gateway` are render-derived from the assigned IPv4 (a /24 home
  * network, gateway at `.1`) rather than stored — the connectivity model stays
- * lean (grill-me decision 3). They only appear once an interface has an address.
+ * lean. They only appear once an interface has an address.
  */
 
 import type { Command, TerminalLine } from './types.js';

@@ -352,7 +352,7 @@ export type PublicSweepResult =
   | { readonly ok: false; readonly error: 'host_unreachable' | 'network_error' };
 
 /** An event a command hands to `log.appendAuthLog` for the box's own `/var/log/auth.log`.
- *  Two shapes today (decision 69): a `su` user-switch, and a session opened with NO
+ *  Two shapes today: a `su` user-switch, and a session opened with NO
  *  authentication before it — the trace a `--local` shell success leaves, whose whole tell
  *  is the missing password line. Neither carries a timestamp: the SERVER stamps the time
  *  (UTC) and the pid when it records the line, so a crafted client request can't dictate
@@ -374,8 +374,8 @@ export type AuthLogEvent =
     };
 
 /** The crash a `msfconsole --local` MISS hands to `log.appendKernLog` — the command
- *  links a loadable library but none of them is live, so a real box records a segfault
- *  (decision 69). Carries no timestamp or pid: the SERVER stamps both when it formats
+ *  links a loadable library but none of them is live, so a real box records a
+ *  segfault. Carries no timestamp or pid: the SERVER stamps both when it formats
  *  the `/var/log/kern.log` line, exactly as the auth.log appender does. `command` and
  *  `library` name what faulted; `hostname` is the display name rendered into the line. */
 export type KernLogEvent = {
@@ -824,8 +824,8 @@ export type MysqlApi = {
 };
 
 /** What one statement is sent with: the whole held credential, again. There is no
- *  session id to send instead — that is decision 8's mechanism, not an oversight —
- *  which is also why a datadir edited between two statements bites on the second. */
+ *  session id to send instead — the door mints no session row by design, not by
+ *  oversight — which is also why a datadir edited between two statements bites on the second. */
 export type MysqlStatementParams = MysqlConnectParams & {
   /** The line exactly as the player typed it. Parsed on the server, so a syntax
    *  error is the database's answer rather than the client's guess. */
@@ -1272,7 +1272,7 @@ export type ExploitRunResult =
 /** What `msfconsole --local` hands the CROSS-PLAYER exploit action: the box B is
  *  standing on (A's registered workstation), the command whose linked library carries
  *  the hole, and the PATH B ran the tool from — so the server can confirm a runnable
- *  `msfconsole` is really there (decision 71) rather than take a forged client's word.
+ *  `msfconsole` is really there rather than take a forged client's word.
  *  No version, CVE, effect or tier: the server recomputes every one from A's own
  *  regenerated manifest and its own clock, exactly as `ExploitRunParams` withholds them
  *  from the network path. B's OWN open session on the box is the authorization, resolved
@@ -1566,7 +1566,7 @@ export type CommandEnv = {
    *  binary and would otherwise discard the token; it is carried for the one command that
    *  must name WHERE it ran from: a cross-player `msfconsole --local` tells the server the
    *  path B ran the tool from, so a box that regenerates elsewhere can confirm the tool is
-   *  really there (decision 71). Absent when a command is not reached through the shell (a
+   *  really there. Absent when a command is not reached through the shell (a
    *  script, a bare test); the reader falls back to its own name, resolved on the box. */
   readonly argv0?: string;
 

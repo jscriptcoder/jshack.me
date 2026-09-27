@@ -118,7 +118,7 @@ describe('formatSshdAuthLine', () => {
 describe('formatSessionOpenedLine', () => {
   it('renders a bare session-opened line for the user the shell landed as', () => {
     // A `--local` shell success writes the ordinary session line opening such a session
-    // writes (decision 69) — a PAM `login` session-open. The whole tell is what is NOT
+    // writes — a PAM `login` session-open. The whole tell is what is NOT
     // here: no "Accepted password" line precedes it and no CVE id names how it happened.
     const line = formatSessionOpenedLine({
       user: 'root',

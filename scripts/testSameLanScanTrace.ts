@@ -7,7 +7,7 @@
 // Net-new under test (the locally-untypechecked api/ runtime):
 //   - B (a live occupant of X) `nmap <A's LAN IP>` → ONE `[iptables] Port scan from
 //     <B's LAN IP> — probed ports 22` line lands on A's WORKSTATION kern.log, keyed by
-//     A's OWNER writer_key (decision 1), naming A's hostname, listing A's REAL ports.
+//     A's OWNER writer_key, naming A's hostname, listing A's REAL ports.
 //   - The source is B's server-derived LAN IP — NOT a forged client source_ip, NOT B's
 //     home public IP.
 //   - A range covering A traces A too; scanners accrete into the one owner-keyed row.
@@ -60,7 +60,7 @@ const post = async (
 const KERN_LOG = '/var/log/kern.log';
 
 /** Read a machine's kern.log row keyed by the OWNER's writer_key — the single canonical
- *  row the system writes its scan lines to (decision 1). */
+ *  row the system writes its scan lines to. */
 const readKernLog = async (machineId: string, ownerKey: string): Promise<string> => {
   const { data } = await sr
     .from('patches')

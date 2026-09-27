@@ -1788,7 +1788,7 @@ describe('msfconsole --local', () => {
     const { text, exitCode } = await drain(await msfconsole.execute(env, ['su'], localFlags));
 
     expect(exitCode).toBe(0);
-    // The whole ordered transcript (decision 77), so a dropped or reworded phase line is
+    // The whole ordered transcript, so a dropped or reworded phase line is
     // caught, not just the presence of the shell line.
     expect(text.split('\n')).toEqual([
       '[*] Exploiting su locally',
@@ -1875,7 +1875,7 @@ describe('msfconsole --local', () => {
 
     expect(exitCode).toBe(0);
     // The whole ordered transcript: a read ends in the file's own bytes, streamed line by
-    // line after a header naming the path and the tier it was read as (decision 77).
+    // line after a header naming the path and the tier it was read as.
     expect(text.split('\n')).toEqual([
       '[*] Exploiting cat locally',
       '[*] Sending exploit payload...',
@@ -1927,7 +1927,7 @@ describe('msfconsole --local', () => {
   });
 
   it('reads at the granted tier, so a lesser CVE cannot reach a root-only file', async () => {
-    // The read is scoped to the tier the severity granted (decision 9's library floor), not
+    // The read is scoped to the tier the severity granted (the library floor), not
     // to whatever the caller's own shell holds. The box's `/etc/passwd` is root-readable
     // only, so a medium/low libpcre CVE — which floors at user — bounces on the very file
     // the root test above reads. The two together prove the view is tier-scoped rather than
@@ -2131,7 +2131,7 @@ describe('msfconsole --local', () => {
   });
 
   it('plants a file at the granted tier from a local:remote pair when a write hole rolls', async () => {
-    // Decision 23's grammar, both halves on this box: the bytes come off the local half,
+    // The `local:remote` grammar, both halves on this box: the bytes come off the local half,
     // read at the caller's own shell tier, and land at the remote half, written at the tier
     // the severity granted.
     const release = effectReleaseFor('rm', 'libpcre', 'file_write', 'root');
@@ -2563,7 +2563,7 @@ describe('msfconsole --local', () => {
   });
 
   it('lands a lesser CVE at user, as a user account rather than root', async () => {
-    // The library floor bottoms at user (decision 9), so a medium/low libpam CVE opens a
+    // The library floor bottoms at user, so a medium/low libpam CVE opens a
     // shell as the box's user account, never root — the same command, one tier down.
     const release = shellReleaseFor('su', 'libpam', 'user');
     const { env, pushed, cwds } = localBoxEnv({
@@ -2601,7 +2601,7 @@ describe('msfconsole --local', () => {
   });
 
   it('passes a PTY-less shell onward: a full roll pushes a limited hop', async () => {
-    // Decision 73: an escalated shell inherits the caller's terminal state. Fired from a
+    // An escalated shell inherits the caller's terminal state. Fired from a
     // shell with no TTY (a limited exploit, a backdoor), a `shell_full` roll still can't
     // open a full one — the tier rises to root, but the door stays a limited hop.
     const release = rootShellReleaseFor('su', 'libpam');
@@ -2775,7 +2775,7 @@ describe('msfconsole --local', () => {
   });
 
   it('reports a shell rather than entering it when run from a script', async () => {
-    // Decision 70: a script has nowhere to stand a session, so the door is reported and
+    // A script has nowhere to stand a session, so the door is reported and
     // the script is left where it was — never a shell it cannot occupy.
     const release = rootShellReleaseFor('su', 'libpam');
     const { fire, pushed, cwds } = scriptedLocalRun({
@@ -2793,7 +2793,7 @@ describe('msfconsole --local', () => {
   });
 
   it('reports a limited shell from a script when the caller has no terminal', async () => {
-    // A `shell_full` roll from a PTY-less shell is a limited hop (decision 73), and a
+    // A `shell_full` roll from a PTY-less shell is a limited hop, and a
     // script reports it rather than entering — so the line is the limited one, not the full.
     const release = rootShellReleaseFor('su', 'libpam');
     const { fire, pushed } = scriptedLocalRun({
@@ -2811,7 +2811,7 @@ describe('msfconsole --local', () => {
   });
 
   it('records a kern.log crash line naming the command and library on a miss with a loadable library', async () => {
-    // Decision 69: a miss where the command links a loadable library is a crash, and a real
+    // A miss where the command links a loadable library is a crash, and a real
     // box records it — one kern.log segfault line naming the command and the library it fell
     // in. The library IS present; only its CVE window has not opened. No shell opened, so
     // nothing lands in auth.log.
@@ -2833,7 +2833,7 @@ describe('msfconsole --local', () => {
 
   it('records nothing on a miss for a command that links no library — it crashed nothing', async () => {
     // `mkdir` links no library, so a miss on it faulted nothing: no crash line, and no
-    // shell, so both logs stay empty (decision 69).
+    // shell, so both logs stay empty.
     const firstPam = packageTimeline('libpam', 400)[0]!;
     const { env, logs } = localBoxEnv({
       library: 'libpam',
@@ -2849,7 +2849,7 @@ describe('msfconsole --local', () => {
 
   it('records nothing on a miss whose linked .so has been deleted — nothing could load it', async () => {
     // The CVE is live, but the deleted `.so` could not be loaded, so nothing faulted: a
-    // missing library writes no crash line (decision 69).
+    // missing library writes no crash line.
     const release = rootShellReleaseFor('su', 'libpam');
     const { env, logs } = localBoxEnv({
       library: 'libpam',
@@ -2865,7 +2865,7 @@ describe('msfconsole --local', () => {
   });
 
   it('records a no-auth session line in auth.log on a shell success, and no crash line', async () => {
-    // Decision 69: opening a shell writes the ordinary session line — the tell is the
+    // Opening a shell writes the ordinary session line — the tell is the
     // missing password line before it, so the event carries only the user the shell landed
     // as. A hit is not a crash, so kern.log stays empty.
     const release = rootShellReleaseFor('su', 'libpam');
@@ -2886,7 +2886,7 @@ describe('msfconsole --local', () => {
   });
 
   it('leaves both logs silent on a non-shell success — a read is quiet', async () => {
-    // Decision 69: stock Linux does not log file access, so a read/list/write/reset/
+    // Stock Linux does not log file access, so a read/list/write/reset/
     // backdoor/script success writes nothing at all — no crash and no session line.
     const release = readReleaseFor('cat', 'libpcre', 'root');
     const { env, logs } = localBoxEnv({
@@ -2905,7 +2905,7 @@ describe('msfconsole --local', () => {
   });
 
   it('opens no auth.log session line when a shell roll is only reported from a script', async () => {
-    // A scripted roll reports the door and opens no session (decision 70), so there is no
+    // A scripted roll reports the door and opens no session, so there is no
     // session to record — auth.log stays empty.
     const release = rootShellReleaseFor('su', 'libpam');
     const { fire, pushed, logs } = scriptedLocalRun({
@@ -2922,7 +2922,7 @@ describe('msfconsole --local', () => {
   });
 
   it('keeps a shell success standing when auth.log is unreachable — the trace is best-effort', async () => {
-    // Decision 69: the append is best-effort. A trace the server could not record must never
+    // The append is best-effort. A trace the server could not record must never
     // reverse a break-in that already stands, so the shell still opens and exits 0.
     const release = rootShellReleaseFor('su', 'libpam');
     const { env, pushed } = localBoxEnv({

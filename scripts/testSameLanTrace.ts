@@ -7,7 +7,7 @@
 // Net-new under test (the locally-untypechecked api/ runtime):
 //   - B (a live occupant of X) `ssh guest@<A's LAN IP>` (correct pw) → ONE `Accepted
 //     password for guest from <B's LAN IP>` line on A's WORKSTATION auth.log, keyed by
-//     A's OWNER writer_key (decision 1), naming A's workstation hostname.
+//     A's OWNER writer_key, naming A's workstation hostname.
 //   - A wrong password → `Failed password for guest from <B's LAN IP>` still lands
 //     (sshd logs both outcomes); 401.
 //   - The source is B's LAN IP — NOT B's home public IP, NOT a forged client source_ip.
@@ -63,7 +63,7 @@ const post = async (
 const AUTH_LOG = '/var/log/auth.log';
 
 /** Read a machine's auth.log row keyed by the OWNER's writer_key — the single canonical
- *  row the system writes its sshd + su lines to (decision 1). */
+ *  row the system writes its sshd + su lines to. */
 const readAuthLog = async (machineId: string, ownerKey: string): Promise<string> => {
   const { data } = await sr
     .from('patches')

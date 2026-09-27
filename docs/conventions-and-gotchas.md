@@ -158,9 +158,22 @@ Shipped so far (each milestone is in git history + its as-built doc/plan):
   the editor open); a refused one leaves it alone. Wire-check `scripts/testModifiedSinceOpen.ts`;
   three-player browser verification in `e2e-shared-network-verification.md` §6.
 
-**Current epic — legacy parity:** `plans/legacy-parity-epic.md` — every remaining way into a
-machine (doors → discovery → CVE vulnerabilities), grilled to nine locked decisions. The ship gate
-is legacy parity **minus missions**; missions are a post-ship epic.
+**Legacy parity is COMPLETE — the epic is retired.** Every way into a machine shipped: the doors
+(Phase 1), discovery (Phase 2), and the CVE vulnerability system (Phase 3). The ship gate was
+legacy parity **minus missions**, and it is met; missions are a post-ship epic. The epic's plan
+file (`plans/legacy-parity-epic.md`) was deleted on close-out — its full slice-by-slice as-built is
+in git history, and its durable design lives in three as-built docs plus this section:
+
+- **[`vulnerability-architecture.md`](./vulnerability-architecture.md)** — the CVE system (Phase 3):
+  the one recompute-never-store derivation, the three axes, the timeline, effects, traces, and the
+  defender's loop.
+- **[`discovery-architecture.md`](./discovery-architecture.md)** — DNS and the public web (Phase 2):
+  name resolution, the zone transfer, publisher networks and `findit.io`.
+- **[`world-content-architecture.md`](./world-content-architecture.md)** — the believable content
+  every generated box carries.
+
+The door-by-door as-built (D1–D10) and the cross-cutting design rules stay in this section (§1) and
+in §7.
 
 **🏁 PHASE 1 (the doors) IS COMPLETE at v0.205.0.** Every door in the locked order has shipped —
 web, hydra, ftp, scp, daemons, nc, machine kinds, mysql, redis, snmp, node, and the terminal
@@ -179,11 +192,14 @@ reference or their intranet; and another shipped v0.275.0 (#561): `curl`/`lynx`/
 router or switch as its own firmware, as `nmap` does, where 66 of 171 had answered a web page on a
 port a scan showed closed. Its slice 6 (the `retail` category — four shops publishing `.com`
 sites, each running the `shop` application) SHIPPED v0.276.0 (#562), and **X2 is COMPLETE**. The
-epic's X2 section holds the decisions and every shipped slice's as-built.
+design and every slice's as-built are in
+[`discovery-architecture.md`](./discovery-architecture.md).
 
-**Phase 3 — vulnerabilities is GRILLED (2026-09-09) and ready for `planning`.** Twenty-three locked
-decisions and a nine-slice, loop-first spine live in the epic. Three things a v2 session should know
-before touching it:
+**Phase 3 — vulnerabilities is COMPLETE (v0.210.0–v0.247.0, #491–#532).** The whole CVE system
+shipped — three axes (service, library, firmware) reading one recompute-never-store derivation, the
+attack → patch → inert loop, and reboot eviction; the design and its accepted costs are in
+[`vulnerability-architecture.md`](./vulnerability-architecture.md). Three things a v2 session should
+still know before touching it:
 
 - **Legacy's service treadmill never ran.** Its 8 libraries were seeded at `startTuple` so the
   LIBRARY timeline worked, but services were seeded `'latest'` — a sentinel picked so no CVE could
@@ -295,7 +311,7 @@ before touching it:
   D2.5 (v0.115.0), both follow-ups (v0.116.0, v0.118.0), D2.4 all five slices (v0.119.0 →
   v0.122.0), and D2.6a (#377). Its split file was deleted on close-out — everything durable from it
   lives in this section, and the one piece of unbuilt work it named (**D2.6b**, harvestable
-  plaintext loot) is a content story in `plans/legacy-parity-epic.md` and §9 below. PRs #351, #352,
+  plaintext loot) is a content story in §9 below. PRs #351, #352,
   #354, #356, #357, #358, #359, #362, #370, #371, #372, #373, #374, #375, #376, #377.
 
   **hydra now reaches every target `ssh` does**, which was the point of D2.4: its own LAN, a
@@ -589,14 +605,14 @@ reference true within its network, history frozen at `WORLD_EPOCH` in rotated `.
 and its standing rules: [`world-content-architecture.md`](./world-content-architecture.md); the
 epic's plan file was retired on close-out and its open questions are in §9 under "World content
 deferred". Ship waited for it. X2 (`findit.io`) was un-deferred ahead of it and is COMPLETE (v0.276.0,
-#562), so **next is the ship gate** (see the legacy-parity epic's "Where we are now").
+#562). With it and Phase 3 done, **legacy parity is complete and the ship gate is met.**
 
-To pick up the next work: the ship gate has no slice plan yet, so start from
-[`plans/legacy-parity-epic.md`](../plans/legacy-parity-epic.md) — its **"Where we are now"**
-line near the top, then the Phase 3 tree and the slice table for per-slice status. A slice gets
-its own `plans/*.md` only while it is IN FLIGHT, with a top block carrying live status + as-built; it is retired into the epic on close-out, so
-between slices there is no slice plan and that is expected. Then the cross-player
-architecture doc if the work touches cross-player paths.
+To pick up the next work: legacy parity is done, so there is no active epic. The remaining named
+work is the **post-ship missions epic** (see §9 and `docs/mission-ideas/`) and the deferred backlog
+in §9. When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
+carrying live status + as-built, and is retired on close-out — between slices there is no slice plan
+and that is expected. For the shipped systems, start from the three as-built docs named at the top
+of this section, then the cross-player architecture doc if the work touches cross-player paths.
 
 ---
 
@@ -3181,7 +3197,7 @@ blocks the live PvP loop; each was a scoped owner decision, not a gap.
   `authorizeMachineAccess` the other two already call. The work is the client half plus one
   decision: **`curl` needs no session at all today**, so giving it a caller machine changes a
   contract deliberately left open (the credential-free door). Detail at §1's cross-player trace
-  entry and in D1d's as-built; named as open in `plans/legacy-parity-epic.md`.
+  entry and in D1d's as-built.
 
 - **`scp` moves one file, one hop, one direction at a time.** Named and deferred at D3b's
   close-out (2026-08-16): **remote-to-remote** (`scp root@A:/f root@B:/g` — two transient
@@ -3561,3 +3577,28 @@ blocks the live PvP loop; each was a scoped owner decision, not a gap.
 **Realism notes** — same-LAN scans log the LAN IP, cross-network log the public IP (the
 same-LAN-IP leak is load-bearing for defender gameplay). `nmap <router.1>` from inside the
 LAN shows a merged view real PREROUTING wouldn't — a known realism gap.
+
+**Legacy-parity parking lot** (named across the epic's grills, deliberately not built; the
+epic that owned them is retired):
+
+- **A pre-release realism pass over every command's argument surface.** v2's house style
+  deliberately simplifies flags the real tools spell out (`hydra [-p port] <host> [service]
+  [user]`, `john <file>`, `snmpwalk <host> [community]`, `redis-cli <host> [password]`, `find`'s
+  positional shape). #464 bought realism in the binary NAMES, not the arguments. The
+  realism-versus-simplicity tension is real, so the whole set gets tweaked **together, once, before
+  release**, with a player's muscle memory in view — not one command at a time.
+- **Tutorials dropped into the player's home folder** — readable in-game files explaining the
+  mechanics, and the one place the game names `findit.io` (X2 plants no in-world hint). Landing
+  before release; shape still to be decided; must cover scripting (D9 routed its example-script idea
+  here rather than shipping one via `apt install node`).
+- **`nmap`'s SERVICE column as a port→name GUESS.** Real nmap labels a port from `/etc/services`
+  (31337→elite, 4444→krb524, unlisted→unknown), so the column is never evidence. One small table,
+  flavour only; a listener reads `unknown` either way and probing stays how you learn the truth.
+- **`techparts.io` and further themed/publisher networks** — content, not capability; drop-ins once
+  X2's registry exists (see `discovery-architecture.md`).
+- **Wordlist hardening** — the recorded path if the obfuscated-uncrackable-pool cost ever bites:
+  ship md5 hashes to the client, keep plaintext server-side, make hydra/john server calls. Same
+  posture as the reverted nonce store; revisit at multiplayer hardening.
+- **A service drawn onto a box that can never answer it is a wasted placement** — a `mysql` rolled
+  onto a router/switch is unreachable (its in-play ports are `22`+`161`). Surfaced by X2 slice 5;
+  the doors and web tools agree with the scan now (#561), but the placement itself is still spent.

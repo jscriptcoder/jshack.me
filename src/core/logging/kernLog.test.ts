@@ -111,7 +111,7 @@ describe('formatSegfaultLine', () => {
 
     expect(line).toContain('systemctl[100]: segfault');
     expect(line).toContain('in libsystemd.so');
-    // The tell of decision 69: a crash names no CVE, unlike the service path's trace.
+    // The tell: a crash names no CVE, unlike the service path's trace.
     expect(line).not.toMatch(/CVE-/);
   });
 });

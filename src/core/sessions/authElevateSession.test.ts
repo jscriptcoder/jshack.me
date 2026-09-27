@@ -326,7 +326,7 @@ describe('handleAuthElevateSession', () => {
   });
 
   // Story 6.3: a resolved cross-player su attempt leaves a truthful auth.log trace on
-  // A's shared WORKSTATION record. Keystone (decision 1): the line is written under the
+  // A's shared WORKSTATION record. Keystone: the line is written under the
   // TARGET OWNER's writer_key (the system owns its logs) so multi-attacker rows don't
   // collapse under the last-write-wins fold — the attacker's identity lives in the line
   // content (the `from` user), never in writer_key. An unknown machine_id (404) logs

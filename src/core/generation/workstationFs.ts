@@ -4,7 +4,7 @@
  * Ed25519 identity pubkey always yields the same `/etc/passwd` + home dirs,
  * observable today through `ls` / `cat`.
  *
- * Layering (epic decision 7 — keep primitives NPC-agnostic):
+ * Layering (keep primitives NPC-agnostic):
  *   - the shared box-FS toolkit (permission boundaries, node constructors,
  *     `generatePasswd`) lives in `baseFs.ts`, reused by every box generator.
  *   - `buildWorkstationBaseFs` is the thin player-specific composer that builds
@@ -189,7 +189,7 @@ export const buildWorkstationBaseFsFromIdentity = (identity: {
 
 /**
  * Build the player's own-workstation base filesystem, seeded by their Ed25519
- * identity pubkey (decision 1: `createPrng('workstation-' + pubkey)`). Thin
+ * identity pubkey (`createPrng('workstation-' + pubkey)`). Thin
  * wrapper that hashes the config's plaintext root password and delegates to
  * `buildWorkstationBaseFsFromIdentity` — the shared generator.
  */

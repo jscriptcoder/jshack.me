@@ -48,7 +48,7 @@ const REFERENCE = { min: 10_000, max: 99_999 } as const;
 /** A document is saved again within a couple of days of being made, if at all. */
 const MAX_EDIT_SECONDS = 2 * DAY_SECONDS;
 
-/** What a phone or tablet holds in all (decision 9), and at most how many notes. The
+/** What a phone or tablet holds in all, and at most how many notes. The
  *  notes take up the slack: a device with few photos and downloads typed more. */
 const CONTENT_FILES = { min: 10, max: 25 } as const;
 const MAX_NOTES = 3;

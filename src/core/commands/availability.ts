@@ -66,7 +66,7 @@ const BINARY_SEARCH_PATH: readonly string[] = ['/bin', '/usr/bin', '/usr/sbin'];
 
 /** The PATH of the first existing binary file for `name` across the search path, or null.
  *  Where a bare name a player typed actually lives — `/usr/bin/msfconsole` for an installed
- *  tool — which a cross-player `--local` fire must name to the server (decision 71), since
+ *  tool — which a cross-player `--local` fire must name to the server, since
  *  the box could no longer be asked to find it after the fact. */
 export const resolveBinaryPath = (env: CommandEnv, name: string): AbsPath | null => {
   for (const directory of BINARY_SEARCH_PATH) {

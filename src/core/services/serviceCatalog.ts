@@ -10,7 +10,7 @@
  * Discipline (don't gold-plate): ROWS arrive when a service ships, COLUMNS when
  * something consumes them — the generation knobs (`placement`, `altPorts`,
  * `altPortChance`) landed with the per-host FS generator that reads them.
- * CVE/version columns come with the epic that needs them, never speculatively.
+ * CVE/version columns came with the vulnerability system that needs them, never speculatively.
  */
 
 import type { AbsPath } from '../types.js';
