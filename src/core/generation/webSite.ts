@@ -28,6 +28,8 @@ import { roleOfHostname } from './pools/hostnames.js';
 import { lanZoneName } from '../network/resolveName.js';
 import { isSiteServer } from './siteServer.js';
 import { publisherSite } from './publisher.js';
+import { declaredNetwork } from './world.js';
+import type { PublishedSite } from './pools/essidCatalog.js';
 import {
   API_COMMON_ENDPOINTS,
   API_STATUS_ENDPOINT,
@@ -152,6 +154,19 @@ const servicesPage = (essid: string, neighbours: readonly LanHost[]): Page => {
   };
 };
 
+/** A town's directory: every institution in the town, by the name it publishes under, each
+ *  linked at the front page of its own site. */
+const directoryPage = (sites: readonly PublishedSite[]): Page => ({
+  file: 'directory.html',
+  title: 'Town directory',
+  body: [
+    '<p>The public bodies of {town}, and where to find each of them online.</p>',
+    '<ul>',
+    ...sites.map((site) => `<li><a href="http://${site.domain}/">${site.name}</a></li>`),
+    '</ul>',
+  ].join('\n'),
+});
+
 const apiReference = (intro: string, documents: readonly ApiEndpoint[]): string =>
   [
     intro,
@@ -175,8 +190,11 @@ const planFor = (options: {
   readonly neighbours: readonly LanHost[];
   /** Whether this is the box its institution publishes its public website from. */
   readonly publishing: boolean;
+  /** The institutions its town's directory lists, when this box publishes the site that
+   *  keeps it. */
+  readonly directory: readonly PublishedSite[] | undefined;
 }): Plan => {
-  const { prng, essid, host, persona, author, neighbours, publishing } = options;
+  const { prng, essid, host, persona, author, neighbours, publishing, directory } = options;
   const people = neighbours.map(
     (neighbour) =>
       inhabitant({ essid, host: neighbour, username: npcUsername(essid, neighbour) }).fullName,
@@ -215,7 +233,7 @@ const planFor = (options: {
           : [];
   return {
     front: prng.pick(FRONT_PAGES[persona.category]),
-    fixed,
+    fixed: directory === undefined ? fixed : [...fixed, directoryPage(directory)],
     pool: [...SITE_PAGES[persona.category], ...SHARED_PAGES],
     documents: [],
   };
@@ -483,6 +501,7 @@ export const buildWebSite = ({
     author,
     neighbours,
     publishing: published !== undefined,
+    directory: published === undefined ? undefined : declaredNetwork(essid)?.directory,
   });
   const alongside = plan.fixed.length + plan.documents.length;
   const drawnCount = prng.nextInt(

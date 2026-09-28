@@ -9,6 +9,8 @@
 //   - findit's live index lists the town's institutions, so a search for the town's name
 //     finds its council, its police and its library.
 //   - A scan of a town network's address reaches its gateway, whose ssh answers.
+//   - The council's front page links the town directory, which links every institution in
+//     the town, and following its link to the police reaches the police's own front page.
 //
 // Usage (with v2 supabase + vercel dev running on 3100):
 //   npx dotenv -e .env.development.local -- npx tsx scripts/testMillbrook.ts
@@ -73,20 +75,31 @@ const COUNCIL_IP = siteAddress('millbrook.gov');
 const FINDIT_IP = siteAddress(FINDIT_DOMAIN);
 const COUNCIL = COUNCIL_IP === undefined ? undefined : publisherAt(COUNCIL_IP);
 const SERVER = COUNCIL === undefined ? undefined : siteServer(COUNCIL);
+const POLICE_IP = siteAddress('millbrookpd.gov');
+const POLICE = POLICE_IP === undefined ? undefined : publisherAt(POLICE_IP);
+const POLICE_SERVER = POLICE === undefined ? undefined : siteServer(POLICE);
 if (
   COUNCIL_IP === undefined ||
   FINDIT_IP === undefined ||
   COUNCIL === undefined ||
-  SERVER === undefined
+  SERVER === undefined ||
+  POLICE_IP === undefined ||
+  POLICE === undefined ||
+  POLICE_SERVER === undefined
 ) {
-  console.error('Millbrook has no council on the internet — the world is unusable.');
+  console.error('Millbrook has no council or police on the internet — the world is unusable.');
   process.exit(2);
 }
-const COUNCIL_MACHINES = [computeApGatewayId(COUNCIL), machineIdForLanHost(SERVER, COUNCIL)];
+const TOWN_MACHINES = [
+  computeApGatewayId(COUNCIL),
+  machineIdForLanHost(SERVER, COUNCIL),
+  computeApGatewayId(POLICE),
+  machineIdForLanHost(POLICE_SERVER, POLICE),
+];
 // Every fetch appends to the reached box's access log, which is all a run leaves behind on
-// the council. findit's own log is shared with every other search and left to accrete.
+// the town. findit's own log is shared with every other search and left to accrete.
 const cleanup = async () => {
-  await sr.from('patches').delete().in('machine_id', COUNCIL_MACHINES).eq('path', ACCESS_LOG_PATH);
+  await sr.from('patches').delete().in('machine_id', TOWN_MACHINES).eq('path', ACCESS_LOG_PATH);
 };
 await cleanup();
 
@@ -131,6 +144,30 @@ check(
   "nmap <the council's address> shows its gateway up with 22/ssh",
   scanned.status === 200 && foundOf(scanned.body) && ports.includes('22/ssh'),
   `status=${scanned.status} ports=${ports.join(',')}`,
+);
+
+// === 5. The council's directory links every institution, and its links lead there. ===
+const directoryFetch = await post(
+  signRequest(visitor, 'resolveHttpFetch', { target: COUNCIL_IP, port: 80, path: '/directory.html' }),
+);
+const directory = contentOf(directoryFetch.body);
+const linked = [...directory.matchAll(/<a href="(http:\/\/[^"]+)">/g)].map(([, href]) => href);
+check(
+  'the council front page links its town directory, which links every institution in the town',
+  homepage.includes('<a href="/directory.html">Town directory</a>') &&
+    directoryFetch.status === 200 &&
+    linked.join(' ') === 'http://millbrook.gov/ http://millbrookpd.gov/ http://millbrooklibrary.org/',
+  `status=${directoryFetch.status} error=${errorOf(directoryFetch.body)} links=${linked.join(',')}`,
+);
+const followed = await post(
+  signRequest(visitor, 'resolveHttpFetch', { target: POLICE_IP, port: 80, path: '/' }),
+);
+check(
+  "following the directory's link to millbrookpd.gov reaches the police's own front page",
+  linked.includes('http://millbrookpd.gov/') &&
+    followed.status === 200 &&
+    contentOf(followed.body).includes('<title>Millbrook Police Department</title>'),
+  `status=${followed.status} error=${errorOf(followed.body)}`,
 );
 
 await cleanup();
