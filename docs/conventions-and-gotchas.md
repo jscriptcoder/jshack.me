@@ -2795,6 +2795,28 @@ state costs you more than one wrong attempt.
 
 Forward-looking direction not yet built (preserved as pointers; design when actually built).
 
+- **`testCrossPlayerConnectionTrace` fails 3/7 even run alone: it reads the router's trace under
+  the wrong writer key.** It looks up A's router `auth.log` row by A's OWNER `writer_key`
+  (`readAuthLog`, `.eq('writer_key', ownerKey)`), but a gateway's lines now file under
+  `apGatewayLogWriterKey(essid)`, `ap:<essid>` (`logging/apGatewayLogWriter.ts`), so all four
+  trace checks read an empty row. §6's sweep note, which lists it among the scripts that pass
+  alone, predates the move. Found at procedural-world slice 1a's sweep (2026-09-28), failing
+  identically on `main`. Point the reads at the gateway's key, and seed the router row under
+  that key too.
+
+- **`testMysqlDeep` leaves its deep box's mysqld stopped, which fails `testExploitDeepChain`
+  5/11 on every later run.** Its last check plants a null `/var/run/mysqld.pid` on the deep box
+  and exits without restoring it; it cleans that box only at its own setup. Both scripts pick
+  their target from the game day, and on day 78 both land on `android-164` behind INITECH-5G, so
+  the exploit meets `not_vulnerable`. Deleting the box's three rows returned it to 11/11. It is
+  the `testDeepChainReach` shape (§6) poisoning a neighbour rather than itself, and which pair
+  collides moves with the day. Found at procedural-world slice 1b's sweep (2026-09-28). Clean the
+  deep box at teardown as well as setup.
+
+- **`testSharedApForwards` still mints both players fresh**, so its guest-password check fails
+  about one run in 17 (§5, "A test that mints a RANDOM identity…"). It failed 7/8 in slice 1a's
+  sweep and passed 8/8 alone and in 1b's. Draw B again until its guest password differs from A's.
+
 - **Generated files too big to carry home.** Saving a file a player fetched (`ftp get`, `scp`,
   `cp` onto their own box) is one signed write whose payload `signedEnvelopeSchema` caps at 8192
   characters of JSON, so a larger file fails with `local: <path>: I/O error`. Measured across every
