@@ -3025,8 +3025,11 @@ blocks the live PvP loop; each was a scoped owner decision, not a gap.
   player who closes the tab stays an occupant until they disconnect); and **matchmaking** beyond
   the rendezvous note in the procedural-expansion item below.
 
-- **Procedural world expansion — GRILLED & RESOLVED 2026-07-29, no open questions; needs only
-  `planning` to become slices.** Split deliberately out of shared-network reconciliation, which
+- **Procedural world expansion — GRILLED & RESOLVED 2026-07-29; RE-GRILLED 2026-09-28 in
+  [`plans/procedural-world.md`](../plans/procedural-world.md), which wins where the two
+  disagree** (the catalog stays as hand-authored landmarks rather than becoming templates; the
+  world is regions → towns → networks; every public IP is derived and the allocator retires).
+  Split deliberately out of shared-network reconciliation, which
   depends on the ESSID being the seed and not on the world being big — and doing reconciliation
   first was cheaper to VERIFY, since today's 50-entry pool plus `INJECT_MAX = 3` makes encounters
   frequent enough to exercise the shared-LAN behaviour live. Expanding the world first would have
