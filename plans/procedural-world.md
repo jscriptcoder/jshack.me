@@ -1,6 +1,7 @@
 # Plan: Procedural world
 
-**Status**: Grilled and gap-reviewed (find-gaps) 2026-09-28; slices not yet planned.
+**Status**: Grilled and gap-reviewed (find-gaps) 2026-09-28. Slice 1 planned 2026-09-28 as
+slices 1a–1c (see Slice plans); the rest not yet planned.
 Amends the §9 backlog item "Procedural world expansion — GRILLED & RESOLVED 2026-07-29" in
 `docs/conventions-and-gotchas.md`; where the two disagree, this file wins.
 
@@ -132,8 +133,14 @@ relations, forwards, institution sets. (Added by find-gaps 2026-09-28.)
     `essid`, so a modified client can join a made-up network and the allocator gives it an
     address; once the allocator retires, an undeclared network has no address at all. And
     procedural keys (`r0/t3/n07`) are guessable, so town locality cannot stay client-only once
-    a second town exists. Lands in slice 1. The WiFi password itself stays client-checked (see
-    Parked). (Added by find-gaps 2026-09-28.)
+    a second town exists. Lands in slice 1c, before slice 2 retires the allocator. The WiFi
+    password itself stays client-checked (see Parked). (Added by find-gaps 2026-09-28.)
+    **Wire-checks keep their lab networks** (planning 2026-09-28): 50 of the 85 `scripts/`
+    wire-checks join 45 made-up ESSIDs (`LEASE-TEST-NET`, `MYSQL-LAB-3`, …) so every run starts
+    on a clean gateway journal. The refusal takes the joinable set as an injected dependency,
+    and the `api/` adapter admits an undeclared key only when a local-only env flag is set for
+    `vercel dev`, the same local posture as its noop nonce store. The flag is never set on
+    Preview or Production. An out-of-town key is refused even with the flag.
 
 ### Variety
 
@@ -146,6 +153,9 @@ relations, forwards, institution sets. (Added by find-gaps 2026-09-28.)
 11. **Three size profiles**, drawn on a new stream and weighted by category: `lone` (gateway and
     one box), `flat` (gateway and 2–5 boxes, no inner gateway, no deep chain) and `deep` (today's
     shape). A pawn shop is usually `lone`, a hospital usually `deep`. Landmarks keep their shape.
+    `flat` lands with `lone` in slice 5, not in the walking skeleton (planning 2026-09-28): every
+    network today has an inner gateway, a switch and a deep chain, so either profile means
+    teaching the generator and every materializer about a network without them.
 
 ### Discovery
 
@@ -202,14 +212,14 @@ relations, forwards, institution sets. (Added by find-gaps 2026-09-28.)
 ### Order
 
 19. **Slice order**:
-    1. Walking skeleton: the world declaration (region #0 holding Ridgemont and one new town),
-       network keys, derived town-block addresses, and one internet-only town built from the
-       existing categories in the `flat` and `deep` profiles, whose `.gov` hub findit lists and
-       which links the rest. The `{town}` placeholders and the join refusal (8a) land here.
+    1. Walking skeleton, as three PRs (planning 2026-09-28): 1a the world declaration (region #0
+       holding Ridgemont and the village of Millbrook), network keys, derived addresses and
+       Millbrook's publishers in the `deep` profile, with the `{town}` placeholders; 1b the
+       town hub; 1c the join refusal (8a).
     2. Re-address the landmarks and retire the allocator (`reduce-system-complexity`).
     3. `whois`.
     4. Relations, seeded forwards, the rule-3 loosening and unlisted sites.
-    5. The `lone` profile and subtypes.
+    5. The `lone` and `flat` profiles and subtypes.
     6. The healthcare category.
     7. Procedural corporations (decision 19a).
     8. The remaining towns, the findit index split and the sampled budgets.
@@ -219,6 +229,163 @@ relations, forwards, institution sets. (Added by find-gaps 2026-09-28.)
     towns, so those towns are generated with branches in place. 20–40 placeless corporations in
     the `193` block, each with 0–3 town branches linked by parent/branch relations; a landmark
     corporation may gain branches too. (Added by find-gaps 2026-09-28.)
+
+## Slice plans
+
+Each slice is one independent PR against `main`. A slice's branch is cut from `main` only after
+the previous slice has merged. Each behaviour-changing slice loads `tdd`, `testing` and
+`refactoring` before any code, presents its acceptance criteria for approval first, bumps the
+minor version
+(`package.json` + `npm install --package-lock-only`), and waits for approval before every
+commit.
+
+### Slice 1a: Any player can find Millbrook's council on findit and fetch its site by domain
+
+**Value**: the first network outside the catalog. A player searching findit for Millbrook
+finds its council, police, library and a few businesses, fetches each site by its domain, and
+reaches each network's gateway at its public address.
+**Path**: `curl`/`lynx <domain>` → `resolveName` → `siteAddress` → an `87.x.y.z` address →
+`isPublicIp` → `/api/network` web fetch → `findNetworkByPublicIp`, whose fallback becomes the
+world's pure `ip → key` lookup (today `publisherAt`, in `api/network.ts:114,302` and
+`api/sessions.ts:199`) → `resolvePublicTarget` → the gateway's `:80` forward → the network's
+site server → `buildWebSite`, reading the network's declared persona and site. findit's
+`PUBLISHERS` (`findit/webIndex.ts`) list from the same declaration.
+**Class**: behaviour change.
+**Delivery**: independent PR against `main`, branch `feat/procedural-world-skeleton`.
+**Required implementation skills**: `tdd`, `testing`, `refactoring`; `mutation-testing` at
+PR-readiness.
+**Reduction program**: N/A.
+**Scope**:
+
+- A world declaration: region #0 with first octet `87` and two town rows, Ridgemont (#0,
+  holding the 57 landmarks, keys unchanged) and Millbrook (#1, size class village, a flavour
+  line). A region row carries only what something reads; its name arrives with `whois`
+  (slice 3), its character with the remaining towns (slice 8).
+- Millbrook's networks, generated from its row on streams keyed by the network key
+  `r0/t1/n<k>`: a council (`.gov`), a police force and a library, plus 3–6 businesses from
+  the existing `cafe`, `retail` and `corporate` categories. Each has an ESSID unique within
+  Millbrook, a place name and a site domain. All publish, all listed, all `deep`. Homes wait
+  for slice 4, since before relations nothing could lead to one.
+- Addresses: `87.<town permutation>.<network permutation>`, with the fourth octet 2–254.
+  `isPublicIp` learns `87`.
+- One `declaredNetwork(key)` lookup replaces the catalog reads in `publisher.ts`,
+  `persona.ts` and `webIndex.ts`. It answers ESSID, category, place, site, town and public
+  address, landmarks included. `lanZoneName` and the persona domain take the ESSID, never the
+  key (decision 4).
+- The `{town}` placeholder replaces "Ridgemont" in `pools/webSites.ts:40,90,526`, filled from
+  the network's town, so Millbrook's sites name Millbrook and the landmarks still read
+  Ridgemont.
+
+**Out of scope**: homes, the town hub (1b), the join refusal (1c), `whois`, landmark
+addresses (slice 2), anything on WiFi.
+**Acceptance criteria** (to be confirmed before any code):
+
+- [ ] **1a-1** Any player who runs `curl http://<Millbrook council domain>/` gets the council's
+      front page, and it names Millbrook, never Ridgemont.
+- [ ] **1a-2** A findit search for `Millbrook` lists the council and every other Millbrook
+      publisher, each by its domain.
+- [ ] **1a-3** Every Millbrook network's public IP is in `87.0.0.0/8` with a fourth octet in
+      2–254. A test over the declaration proves those addresses are distinct from each other
+      and from every landmark and findit address.
+- [ ] **1a-4** `nmap <a Millbrook network's address>` reports its gateway up with `22/tcp open`,
+      from any player.
+- [ ] **1a-5** No WiFi scan ever offers a Millbrook network.
+- [ ] **1a-6** Ridgemont is unchanged. Every landmark's public IP, LAN, content and site text is
+      identical, and its public and retail sites still read "Ridgemont".
+- [ ] **1a-7** `checkBudgets` passes: gzipped main chunk ≤ 284,975 B, landmark sweep ≤ 2 ms per box.
+
+**RED**: a behaviour test that Millbrook's council domain resolves to an `87.` address and
+that its site server's front page names Millbrook. Then the findit listing (1a-2), the
+address properties (1a-3) and the scan (1a-5), one at a time.
+**GREEN**: the declaration, the address permutation, `declaredNetwork` and `networkAt`, and
+the `{town}` fill, each only as far as the failing test needs.
+**REFACTOR**: fold the catalog-only lookups into `declaredNetwork` once they are all
+behind it.
+**Server evidence**: a new wire-check, `scripts/testMillbrook.ts`, against `vercel dev` and
+jshack-dev proves 1a-1, 1a-2 and 1a-4 through `/api/network`. The existing
+`testPublisherWeb.ts` and `testFindit.ts` stay green (1a-6).
+**PRE-PR MUTATION**: Stryker scoped to the world declaration, the address permutation and the
+changed lookups (json reporter).
+**PR-ready when**: every 1a criterion holds, typecheck, lint, `vitest run` and the build's
+`checkBudgets` pass, the wire-checks pass, and the owner approves the commit.
+**Slice complete when**: its PR merges.
+
+### Slice 1b: Millbrook's council site links every institution in the town
+
+**Value**: the town hub (decision 13). A player on the council site follows a Directory link
+to a page listing every Millbrook institution by domain. It is the route that later leads to
+unlisted sites (slice 4).
+**Path**: `lynx http://<council domain>/` → nav link → `/directory.html` on the council's site
+server, written by `buildWebSite` from the world declaration.
+**Class**: behaviour change.
+**Delivery**: independent PR against `main` after 1a merges, branch
+`feat/procedural-world-town-hub`.
+**Required implementation skills**: `tdd`, `testing`, `refactoring`; `mutation-testing` at
+PR-readiness.
+**Reduction program**: N/A.
+**Scope**: procedural `.gov` councils only. Ridgemont's landmark council gets no hub, because
+AC-7 keeps landmark content identical. Its hub, if wanted, is a later decision.
+**Acceptance criteria** (to be confirmed before any code):
+
+- [ ] **1b-1** Millbrook's council front page links a directory page.
+- [ ] **1b-2** The directory page links `http://<domain>/` for every Millbrook institution
+      (council, police, library), and every link it holds fetches a live page.
+- [ ] **1b-3** The directory names no network outside Millbrook.
+
+**RED**: a `buildWebSite` behaviour test for Millbrook's council, reading its directory's links
+against the declaration.
+**GREEN**: a fixed page on the council's site. It adds no draw to any existing stream.
+**REFACTOR**: assess only.
+**Server evidence**: `scripts/testMillbrook.ts` gains the directory fetch and follows one link.
+**PRE-PR MUTATION**: Stryker scoped to the directory page's writer.
+**PR-ready when**: every 1b criterion holds, the same gates as 1a pass, and the owner approves
+the commit.
+**Slice complete when**: its PR merges.
+
+### Slice 1c: The server refuses a join to an undeclared or out-of-town network
+
+**Value**: decision 8a. A modified client can no longer join a made-up network or a Millbrook
+network. The refused join writes nothing, so slice 2 can retire the allocator knowing every
+joined network has a derived address.
+**Path**: `nmcli connect` → `env.homeNetwork.join` → `/api/network` `registerNetwork` →
+`handleRegisterNetwork`, which checks the key against the joinable set before any
+allocation.
+**Class**: behaviour change.
+**Delivery**: independent PR against `main` after 1b merges, branch
+`feat/procedural-world-join-refusal`.
+**Required implementation skills**: `tdd`, `testing`, `refactoring`; `mutation-testing` at
+PR-readiness.
+**Reduction program**: N/A.
+**Scope**: the joinable set is Ridgemont's declared networks, which today means the landmarks.
+It is an injected dependency of the handler. The `api/` adapter admits an undeclared key
+only when the local-only flag `JSHACK_ADMIT_LAB_NETWORKS=1` is set in
+`.env.development.local` (gitignored), which is what keeps the 50 lab-network wire-checks
+working (decision 8a). An out-of-town key is refused with or without the flag.
+`docs/conventions-and-gotchas.md`'s wire-check section records that a run needs the flag.
+**Acceptance criteria** (to be confirmed before any code):
+
+- [ ] **1c-1** A signed join to a Millbrook key is refused with `403 network_not_joinable`, and
+      no public IP, LAN lease or occupancy row is written.
+- [ ] **1c-2** Without the flag, a signed join to a key the world does not declare is refused the
+      same way.
+- [ ] **1c-3** A join to any Ridgemont landmark succeeds exactly as today.
+- [ ] **1c-4** With the flag set, a join to an undeclared lab network succeeds, and a Millbrook
+      key is still refused.
+- [ ] **1c-5** The flag is set on neither the Preview nor the Production Vercel environment.
+
+**RED**: `handleRegisterNetwork` behaviour tests for 1c-1 to 1c-4. The allocation and upsert
+fakes record that nothing was written.
+**GREEN**: the joinable check ahead of `allocatePublicIp`, plus the adapter's one-line flag
+read.
+**REFACTOR**: assess only.
+**Server evidence**: a new wire-check, `scripts/testJoinRefusal.ts`, run with the flag set,
+proves 1c-1 and 1c-4 against jshack-dev by reading the three tables afterwards. The whole
+wire-check suite still passes with the flag set (1c-3, and the lab networks). 1c-5 is
+operational evidence: Vercel's environment-variable listing for the project.
+**PRE-PR MUTATION**: Stryker scoped to `registerNetwork.ts` and the joinable predicate.
+**PR-ready when**: every 1c criterion holds, the same gates as 1a pass, and the owner approves
+the commit.
+**Slice complete when**: its PR merges. That completes slice 1.
 
 ## Acceptance Criteria
 
