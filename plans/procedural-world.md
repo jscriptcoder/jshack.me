@@ -1,7 +1,8 @@
 # Plan: Procedural world
 
 **Status**: Grilled and gap-reviewed (find-gaps) 2026-09-28. Slice 1 planned 2026-09-28 as
-slices 1a–1c (see Slice plans); the rest not yet planned.
+slices 1a–1c (see Slice plans); 1a complete 2026-09-28 (#572, v0.284.0); the rest not yet
+planned.
 Amends the §9 backlog item "Procedural world expansion — GRILLED & RESOLVED 2026-07-29" in
 `docs/conventions-and-gotchas.md`; where the two disagree, this file wins.
 
@@ -252,6 +253,7 @@ site server → `buildWebSite`, reading the network's declared persona and site.
 `PUBLISHERS` (`findit/webIndex.ts`) list from the same declaration.
 **Class**: behaviour change.
 **Delivery**: independent PR against `main`, branch `feat/procedural-world-skeleton`.
+**Status**: complete, merged as #572 (`5f6fe73b`).
 **Required implementation skills**: `tdd`, `testing`, `refactoring`; `mutation-testing` at
 PR-readiness.
 **Reduction program**: N/A.
@@ -280,19 +282,19 @@ PR-readiness.
 addresses (slice 2), anything on WiFi.
 **Acceptance criteria** (to be confirmed before any code):
 
-- [ ] **1a-1** Any player who runs `curl http://<Millbrook council domain>/` gets the council's
+- [x] **1a-1** Any player who runs `curl http://<Millbrook council domain>/` gets the council's
       front page, and it names Millbrook, never Ridgemont.
-- [ ] **1a-2** A findit search for `Millbrook` lists the council and every other Millbrook
+- [x] **1a-2** A findit search for `Millbrook` lists the council and every other Millbrook
       publisher, each by its domain.
-- [ ] **1a-3** Every Millbrook network's public IP is in `87.0.0.0/8` with a fourth octet in
+- [x] **1a-3** Every Millbrook network's public IP is in `87.0.0.0/8` with a fourth octet in
       2–254. A test over the declaration proves those addresses are distinct from each other
       and from every landmark and findit address.
-- [ ] **1a-4** `nmap <a Millbrook network's address>` reports its gateway up with `22/tcp open`,
+- [x] **1a-4** `nmap <a Millbrook network's address>` reports its gateway up with `22/tcp open`,
       from any player.
-- [ ] **1a-5** No WiFi scan ever offers a Millbrook network.
-- [ ] **1a-6** Ridgemont is unchanged. Every landmark's public IP, LAN, content and site text is
+- [x] **1a-5** No WiFi scan ever offers a Millbrook network.
+- [x] **1a-6** Ridgemont is unchanged. Every landmark's public IP, LAN, content and site text is
       identical, and its public and retail sites still read "Ridgemont".
-- [ ] **1a-7** `checkBudgets` passes: gzipped main chunk ≤ 284,975 B, landmark sweep ≤ 2 ms per box.
+- [x] **1a-7** `checkBudgets` passes: gzipped main chunk ≤ 284,975 B, landmark sweep ≤ 2 ms per box.
 
 **RED**: a behaviour test that Millbrook's council domain resolves to an `87.` address and
 that its site server's front page names Millbrook. Then the findit listing (1a-2), the
