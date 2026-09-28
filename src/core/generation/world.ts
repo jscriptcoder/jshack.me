@@ -26,6 +26,9 @@ export type DeclaredNetwork = {
   readonly site?: PublishedSite;
   /** The town it stands in. */
   readonly town: string;
+  /** The sites of its town's institutions, when it is the network that keeps the town's
+   *  directory. */
+  readonly directory?: readonly PublishedSite[];
 };
 
 /** Every region's first octet: the block its towns' addresses are carved from. Kept out
@@ -41,8 +44,11 @@ type Town = { readonly region: number; readonly index: number; readonly name: st
 
 const MILLBROOK: Town = { region: 0, index: 1, name: 'Millbrook' };
 
-/** A network as a town declares it, before it has a key or a town. */
-type Institution = Omit<DeclaredNetwork, 'key' | 'town'>;
+/** A network as a town declares it, before it has a key or a town. The town's council
+ *  keeps its directory: a page on its site linking every institution in the town. */
+type Institution = Omit<DeclaredNetwork, 'key' | 'town' | 'directory'> & {
+  readonly keepsDirectory?: true;
+};
 
 /** Millbrook's council, police and library. A village has one of each, named for it. */
 const MILLBROOK_INSTITUTIONS: readonly Institution[] = [
@@ -51,6 +57,7 @@ const MILLBROOK_INSTITUTIONS: readonly Institution[] = [
     category: 'government',
     place: 'the town hall',
     site: { domain: 'millbrook.gov', name: 'Millbrook Town Council' },
+    keepsDirectory: true,
   },
   {
     essid: 'MILLBROOK-PD',
@@ -88,8 +95,14 @@ const networksOf = (
 ): readonly DeclaredNetwork[] => {
   const prng = createPrng(`town-businesses-${townKey(town)}`);
   const count = prng.nextInt(VILLAGE_BUSINESSES_MIN, VILLAGE_BUSINESSES_MAX);
+  const directory = institutions.flatMap((institution) => institution.site ?? []);
   return [...institutions, ...prng.pickN(TOWN_BUSINESSES, count).map(business)].map(
-    (network, index) => ({ ...network, key: `${townKey(town)}/n${index}`, town: town.name }),
+    ({ keepsDirectory, ...network }: Institution, index) => ({
+      ...network,
+      key: `${townKey(town)}/n${index}`,
+      town: town.name,
+      ...(keepsDirectory === true ? { directory } : {}),
+    }),
   );
 };
 

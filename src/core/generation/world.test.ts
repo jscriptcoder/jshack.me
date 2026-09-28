@@ -18,8 +18,9 @@ import { resolveLanName } from '../network/resolveName.js';
  * Ridgemont's do. Nobody stands on its wifi yet, so the internet is the only way there.
  */
 
-/** The front page served at `domain`, read off the box its network serves the web from. */
-const homepageAt = (domain: string): string => {
+/** The page at `file` beneath the web root of the box `domain`'s network serves the web
+ *  from, or `undefined` when that site keeps no such page. */
+const pageAt = (domain: string, file: string): string | undefined => {
   const address = siteAddress(domain);
   if (address === undefined) throw new Error(`nobody holds ${domain}`);
   const key = publisherAt(address);
@@ -28,10 +29,23 @@ const homepageAt = (domain: string): string => {
   if (server === undefined) throw new Error(`${key} serves no site`);
   const read = createFsView(resolveLanHostIdentity(server, key).baseFs, {
     userType: 'root',
-  }).read(asAbsPath('/var/www/html/index.html'));
-  if (!read.ok) throw new Error(`${key} has no front page`);
-  return read.content;
+  }).read(asAbsPath(`/var/www/html/${file}`));
+  return read.ok ? read.content : undefined;
 };
+
+/** The front page served at `domain`. */
+const homepageAt = (domain: string): string => {
+  const homepage = pageAt(domain, 'index.html');
+  if (homepage === undefined) throw new Error(`${domain} has no front page`);
+  return homepage;
+};
+
+/** Every link a page holds out of its own site, as its address and the words it is
+ *  written under, in the order the page holds them. */
+const outboundLinksIn = (page: string): readonly (readonly [string, string])[] =>
+  [...page.matchAll(/<a href="(http:\/\/[^"]+)">([^<]*)<\/a>/g)].map(
+    ([, href, label]) => [href ?? '', label ?? ''] as const,
+  );
 
 /** What a front page says about itself in its `<meta name="description">`. */
 const descriptionOf = (homepage: string): string =>
@@ -210,6 +224,67 @@ describe('Millbrook', () => {
       for (const [path, content] of servedFiles(network.key)) {
         expect(content, `${network.key} ${path}`).not.toContain('Ridgemont');
       }
+    }
+  });
+});
+
+describe("Millbrook's town directory", () => {
+  /** The council's directory page, which every other test here reads. */
+  const directory = (): string => {
+    const page = pageAt('millbrook.gov', 'directory.html');
+    if (page === undefined) throw new Error('millbrook.gov keeps no directory');
+    return page;
+  };
+
+  it('is linked from every page of the council site a reader can browse', () => {
+    const council = millbrook().find((network) => network.site?.domain === 'millbrook.gov');
+    const browsable = servedFiles(council?.key ?? '').filter(([, content]) =>
+      content.includes('<a href="/">Home</a>'),
+    );
+    expect(browsable.length).toBeGreaterThan(1);
+    for (const [path, content] of browsable) {
+      expect(content, path).toContain('<a href="/directory.html">Town directory</a>');
+    }
+    expect(directory()).toContain('<h1>Town directory</h1>');
+  });
+
+  it("links every one of the town's institutions under its own name", () => {
+    expect(outboundLinksIn(directory())).toEqual([
+      ['http://millbrook.gov/', 'Millbrook Town Council'],
+      ['http://millbrookpd.gov/', 'Millbrook Police Department'],
+      ['http://millbrooklibrary.org/', 'Millbrook Public Library'],
+    ]);
+  });
+
+  it('leads every link to the front page of the institution it names', () => {
+    for (const [href, label] of outboundLinksIn(directory())) {
+      const domain = new URL(href).hostname;
+      expect(homepageAt(domain), href).toContain(`<title>${label}</title>`);
+    }
+  });
+
+  it("names no network but the town's own institutions", () => {
+    const listed = ['millbrook.gov', 'millbrookpd.gov', 'millbrooklibrary.org'];
+    const page = directory();
+    for (const network of DECLARED_NETWORKS) {
+      if (network.site !== undefined && listed.includes(network.site.domain)) continue;
+      expect(page, network.key).not.toContain(network.essid);
+      if (network.site === undefined) continue;
+      expect(page, network.key).not.toContain(network.site.domain);
+      expect(page, network.key).not.toContain(network.site.name);
+    }
+  });
+
+  it("is kept by the town's council alone", () => {
+    const others = DECLARED_NETWORKS.flatMap((network) =>
+      network.site === undefined || network.site.domain === 'millbrook.gov'
+        ? []
+        : [network.site.domain],
+    );
+    expect(others).toContain('ridgemont.gov');
+    for (const domain of others) {
+      expect(pageAt(domain, 'directory.html'), domain).toBeUndefined();
+      expect(homepageAt(domain), domain).not.toContain('Town directory');
     }
   });
 });
