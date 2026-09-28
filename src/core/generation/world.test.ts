@@ -248,6 +248,30 @@ describe("Millbrook's town directory", () => {
     expect(directory()).toContain('<h1>Town directory</h1>');
   });
 
+  it('introduces the institutions as those of its own town', () => {
+    expect(directory()).toContain('<p>The public bodies of Millbrook,');
+  });
+
+  it("is kept on the council's public site, never on another box of its network", () => {
+    const council = millbrook().find((network) => network.site?.domain === 'millbrook.gov');
+    const key = council?.key ?? '';
+    const server = siteServer(key);
+    const others = generateHomeLan(key).hosts.filter(
+      (host) => host.kind === 'machine' && host.ip !== server?.ip,
+    );
+    const webBoxes = others.filter((host) =>
+      createFsView(resolveLanHostIdentity(host, key).baseFs, { userType: 'root' })
+        .read(asAbsPath('/var/www/html/index.html')).ok,
+    );
+    expect(webBoxes.length).toBeGreaterThan(0);
+    for (const host of webBoxes) {
+      const read = createFsView(resolveLanHostIdentity(host, key).baseFs, {
+        userType: 'root',
+      }).read(asAbsPath('/var/www/html/directory.html'));
+      expect(read.ok, host.hostname).toBe(false);
+    }
+  });
+
   it("links every one of the town's institutions under its own name", () => {
     expect(outboundLinksIn(directory())).toEqual([
       ['http://millbrook.gov/', 'Millbrook Town Council'],
