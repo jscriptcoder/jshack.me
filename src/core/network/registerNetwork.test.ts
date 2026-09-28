@@ -9,6 +9,7 @@ import { generateIdentity } from '../identity/identity.js';
 import { assignHomeNetwork } from './homeNetwork.js';
 import { lanAddressFor } from './lanAddress.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
+import { DECLARED_NETWORKS, RIDGEMONT } from '../generation/world.js';
 
 /**
  * `handleRegisterNetwork` is the server-side join action. It verifies the signed
@@ -55,6 +56,7 @@ const makeDeps = (over: Partial<RegisterNetworkDeps> = {}) => {
     allocatePublicIp,
     allocateLanLease,
     upsertOccupant,
+    admitsUndeclaredNetworks: false,
     ...over,
   };
   return { deps, upsertOccupant, allocatePublicIp, allocateLanLease };
@@ -322,4 +324,105 @@ describe('handleRegisterNetwork', () => {
     expect(result).toEqual({ status: 500, body: { error: 'lease_allocation_failed' } });
     expect(upsertOccupant).not.toHaveBeenCalled();
   });
+});
+
+// Until players can travel, every player lives in Ridgemont, so its networks are the only
+// ones a join may reach. Another town's networks are never offered on WiFi, and their keys
+// are guessable, so a modified client could otherwise sit on them.
+const RIDGEMONT_KEYS = DECLARED_NETWORKS.filter((network) => network.town === RIDGEMONT).map(
+  (network) => network.key,
+);
+const OUT_OF_TOWN_KEYS = DECLARED_NETWORKS.filter((network) => network.town !== RIDGEMONT).map(
+  (network) => network.key,
+);
+// A made-up network of the kind the wire-checks join, so each run starts on a gateway
+// nobody has written to.
+const LAB_NETWORK = 'LEASE-TEST-NET';
+const NOT_JOINABLE = { status: 403, body: { error: 'network_not_joinable' } };
+
+describe('handleRegisterNetwork: which networks a player may join', () => {
+  it.each(OUT_OF_TOWN_KEYS)('refuses a join to %s, outside Ridgemont, without writing', async (key) => {
+    const id = generateIdentity();
+    const { deps, allocatePublicIp, allocateLanLease, upsertOccupant } = makeDeps();
+
+    const result = await handleRegisterNetwork(envelope(id, { essid: key }), deps);
+
+    expect(result).toEqual(NOT_JOINABLE);
+    expect(allocatePublicIp).not.toHaveBeenCalled();
+    expect(allocateLanLease).not.toHaveBeenCalled();
+    expect(upsertOccupant).not.toHaveBeenCalled();
+  });
+
+  it('refuses a join to a network the world does not declare, without writing', async () => {
+    const id = generateIdentity();
+    const { deps, allocatePublicIp, allocateLanLease, upsertOccupant } = makeDeps();
+
+    const result = await handleRegisterNetwork(envelope(id, { essid: LAB_NETWORK }), deps);
+
+    expect(result).toEqual(NOT_JOINABLE);
+    expect(allocatePublicIp).not.toHaveBeenCalled();
+    expect(allocateLanLease).not.toHaveBeenCalled();
+    expect(upsertOccupant).not.toHaveBeenCalled();
+  });
+
+  it('still answers a badly signed join by its signature, before asking where it leads', async () => {
+    const id = generateIdentity();
+    const { deps } = makeDeps();
+    const signed = envelope(id, { essid: OUT_OF_TOWN_KEYS[0] });
+    const tampered = { ...signed, payload: `${signed.payload} ` };
+
+    const result = await handleRegisterNetwork(tampered, deps);
+
+    expect(result).toEqual({ status: 401, body: { error: 'signature_invalid' } });
+  });
+
+  it('lets a player join every one of Ridgemont’s networks', async () => {
+    const id = generateIdentity();
+    const joined = await Promise.all(
+      RIDGEMONT_KEYS.map(async (key) => {
+        const { deps, upsertOccupant } = makeDeps();
+        const result = await handleRegisterNetwork(envelope(id, { essid: key }), deps);
+        return { key, result, occupantEssid: upsertOccupant.mock.calls[0]?.[0].essid };
+      }),
+    );
+
+    expect(RIDGEMONT_KEYS).toHaveLength(57);
+    expect(joined).toEqual(
+      RIDGEMONT_KEYS.map((key) => ({
+        key,
+        result: { status: 200, body: { ok: true, local_ip: lanAddressFor(key, LEASED_OCTET) } },
+        occupantEssid: key,
+      })),
+    );
+  });
+
+  it('admits a network the world does not declare when undeclared networks are admitted', async () => {
+    const id = generateIdentity();
+    const { deps, upsertOccupant } = makeDeps({ admitsUndeclaredNetworks: true });
+
+    const result = await handleRegisterNetwork(envelope(id, { essid: LAB_NETWORK }), deps);
+
+    expect(result).toEqual({
+      status: 200,
+      body: { ok: true, local_ip: lanAddressFor(LAB_NETWORK, LEASED_OCTET) },
+    });
+    expect(upsertOccupant.mock.calls[0]?.[0].essid).toBe(LAB_NETWORK);
+  });
+
+  it.each(OUT_OF_TOWN_KEYS)(
+    'still refuses %s, outside Ridgemont, when undeclared networks are admitted',
+    async (key) => {
+      const id = generateIdentity();
+      const { deps, allocatePublicIp, allocateLanLease, upsertOccupant } = makeDeps({
+        admitsUndeclaredNetworks: true,
+      });
+
+      const result = await handleRegisterNetwork(envelope(id, { essid: key }), deps);
+
+      expect(result).toEqual(NOT_JOINABLE);
+      expect(allocatePublicIp).not.toHaveBeenCalled();
+      expect(allocateLanLease).not.toHaveBeenCalled();
+      expect(upsertOccupant).not.toHaveBeenCalled();
+    },
+  );
 });

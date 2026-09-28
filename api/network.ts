@@ -861,6 +861,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         },
       ),
     upsertOccupant,
+    // Set only in a local `.env.development.local`, never on Preview or Production.
+    admitsUndeclaredNetworks: process.env.JSHACK_ADMIT_LAB_NETWORKS === '1',
   });
   res.status(status).json(body);
 }

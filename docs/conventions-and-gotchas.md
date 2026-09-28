@@ -1833,6 +1833,13 @@ real endpoints against `vercel dev` + local supabase.
   itself, so a bare invocation serves happily on 3100 while EVERY request returns
   `500 {"error":"not_configured"}` from the `SUPABASE_URL`/`SERVICE_ROLE_KEY` guard. The tell is
   that `{}` returns 500 instead of 400 — check that before blaming the seed data or the handler.
+- **`.env.development.local` must set `JSHACK_ADMIT_LAB_NETWORKS=1`.** The server refuses a
+  join to any network outside Ridgemont or undeclared by the world
+  (`403 network_not_joinable`), and most wire-checks join a made-up network (`LEASE-TEST-NET`,
+  `MYSQL-LAB-3`, …) so each run starts on a gateway nobody has written to. The flag admits the
+  undeclared ones on local `vercel dev` only; another town's networks stay refused. It is set on
+  neither Preview nor Production, so a wire-check pointed at a deployment gets 403 on every
+  lab join. Only the exact value `1` counts.
 
 **Windows can silently reserve supabase's whole port block.** Symptom: `npx supabase start`
 reports success and `npx supabase status` prints the usual URLs, but every request to the REST

@@ -23,6 +23,7 @@ import { z } from 'zod';
 import { verifySignedRequest } from '../signedRequest/verify.js';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
 import { lanAddressFor } from './lanAddress.js';
+import { declaredNetwork, RIDGEMONT } from '../generation/world.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 /** An occupancy row: the join records the player as a live occupant of the ESSID's
@@ -60,6 +61,10 @@ export type RegisterNetworkDeps = {
    *  adapter from `allocateLanLease` over the `network_lan_leases` store. */
   readonly allocateLanLease: (essid: string, ownerKey: string) => Promise<number>;
   readonly upsertOccupant: (row: HomeNetworkOccupantRow) => Promise<{ readonly error: unknown }>;
+  /** Whether a join may reach a network the world does not declare. Only a local
+   *  `vercel dev` admits them, so the wire-checks can each join a made-up network whose
+   *  gateway nobody has written to. */
+  readonly admitsUndeclaredNetworks: boolean;
 };
 
 export type HandlerResponse = {
@@ -92,6 +97,17 @@ export const handleRegisterNetwork = async (
     return { status: STATUS_BY_VERIFY_REASON[verified.reason], body: { error: verified.reason } };
   }
   const { publicKey, payload } = verified;
+
+  // Every player lives in Ridgemont until travel exists, so its networks are the only
+  // ones a join may reach. Another town's are never offered on WiFi and their keys are
+  // guessable, so the client cannot be trusted to stay home. Refused before either
+  // allocation, so a refused join leaves nothing behind.
+  const network = declaredNetwork(payload.essid);
+  const joinable =
+    network === undefined ? deps.admitsUndeclaredNetworks : network.town === RIDGEMONT;
+  if (!joinable) {
+    return { status: 403, body: { error: 'network_not_joinable' } };
+  }
 
   // The public IP is allocated server-side per ESSID — one globally-unique WAN
   // address belonging to the AP, drawn on the first join and recalled on every later
