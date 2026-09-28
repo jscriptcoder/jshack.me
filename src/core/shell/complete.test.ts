@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { classifyCursor, complete, type CompleteAdapter } from './complete.js';
+import { effects } from '../commands/effects.js';
 import type { Command } from '../commands/types.js';
 import type { FlagSpec } from './bindFlags.js';
 
 /** Minimal v2 Command fixture. The completer reads `command.flags` and, for
- *  keyword completion, `command.manual.arguments[0].values` (via the adapter's
+ *  keyword completion, `command.manual.arguments[N].values` (via the adapter's
  *  getCommand). `firstArgValues`, when given, declares the first positional's
  *  fixed value set. */
 const makeCommand = (
@@ -450,6 +451,18 @@ describe('complete', () => {
       expect(result.replacement).toBe('apt install report.txt');
     });
 
+    it('path-completes for a command whose manual declares no arguments at all', () => {
+      // `clear` has a manual page and nothing to pass it.
+      const adapter2 = makeAdapter({
+        commandNames: ['clear'],
+        getCommand: () => ({ ...makeCommand('clear'), manual: { synopsis: '', description: '' } }),
+        listPath: (abs) => (abs === '/home/alice' ? ['notes.txt'] : null),
+        resolvePath: (path) => (path === '.' ? '/home/alice' : path),
+      });
+
+      expect(complete('clear no', 8, adapter2).matches).toEqual(['notes.txt']);
+    });
+
     it('a command without declared values still path-completes its first arg', () => {
       const adapter2 = makeAdapter({
         commandNames: ['cat'],
@@ -462,6 +475,38 @@ describe('complete', () => {
 
       expect(result.kind).toBe('path');
       expect(result.matches).toEqual(['notes.txt']);
+    });
+
+    describe('a command that declares values for its later positionals too', () => {
+      // `effects glow off`: the effect names first, then on/off for the one named.
+      const effectsAdapter = makeAdapter({
+        commandNames: ['effects'],
+        getCommand: (name) => (name === 'effects' ? effects : undefined),
+      });
+
+      it('completes the first positional against its own values', () => {
+        expect(complete('effects gl', 10, effectsAdapter).matches).toEqual(['glitch', 'glow']);
+      });
+
+      it('completes the second positional against the second set, not the first', () => {
+        const result = complete('effects glow of', 15, effectsAdapter);
+
+        expect(result.kind).toBe('keyword');
+        expect(result.matches).toEqual(['off']);
+        expect(result.replacement).toBe('effects glow off ');
+      });
+
+      it('lists both states for a bare second positional', () => {
+        expect(complete('effects glow ', 13, effectsAdapter).matches).toEqual(['off', 'on']);
+      });
+
+      it('counts the words, not the spaces between them', () => {
+        expect(complete('effects  glow  ', 15, effectsAdapter).matches).toEqual(['off', 'on']);
+      });
+
+      it('leaves a positional past the declared ones to path completion', () => {
+        expect(complete('effects glow off o', 18, effectsAdapter).kind).toBe('path');
+      });
     });
   });
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applyTheme } from './applyTheme.js';
+import { ALL_EFFECTS_ON } from '../../core/theme/effects.js';
 import { DEFAULT_THEME_ID, THEME_IDS } from '../../core/theme/themes.js';
 // The stylesheet as text: tests run without Tailwind, so there is no cascade to
 // read the pre-script palette from, only the source that declares it.
@@ -45,7 +46,15 @@ const NEON_PAINTED_TOKENS = [
 const resetDocument = () => {
   document.documentElement.removeAttribute('style');
   document.documentElement.removeAttribute('data-look');
+  document.documentElement.removeAttribute('data-effects');
 };
+
+/** The effects the document is marked as showing, in any order. */
+const markedEffects = (): readonly string[] =>
+  (document.documentElement.dataset.effects ?? '')
+    .split(' ')
+    .filter((word) => word !== '')
+    .sort();
 
 describe('applyTheme', () => {
   it.each([...THEME_IDS])(
@@ -53,7 +62,7 @@ describe('applyTheme', () => {
     (id) => {
       document.documentElement.removeAttribute('style');
 
-      applyTheme(id);
+      applyTheme(id, ALL_EFFECTS_ON);
 
       // A blank token is the failure that matters: the browser falls back to an
       // inherited or unset value, so one missing colour can leave text the same
@@ -69,7 +78,7 @@ describe('applyTheme', () => {
     (id) => {
       resetDocument();
 
-      applyTheme(id);
+      applyTheme(id, ALL_EFFECTS_ON);
 
       expect(document.documentElement.dataset.look).toBe('neon');
       for (const token of NEON_PAINTED_TOKENS) {
@@ -84,13 +93,47 @@ describe('applyTheme', () => {
       // A plain theme must look exactly as it did before the neon themes
       // existed, and every neon rule in the stylesheet hangs off this mark.
       resetDocument();
-      applyTheme('neon');
+      applyTheme('neon', ALL_EFFECTS_ON);
 
-      applyTheme(id);
+      applyTheme(id, ALL_EFFECTS_ON);
 
       expect(document.documentElement.dataset.look).toBeUndefined();
     },
   );
+
+  it('marks every effect under a neon theme with all of them on', () => {
+    resetDocument();
+
+    applyTheme('neon', ALL_EFFECTS_ON);
+
+    expect(markedEffects()).toEqual(['cursor', 'glitch', 'glow', 'hud']);
+  });
+
+  it.each(['glow', 'glitch', 'hud', 'cursor'] as const)(
+    'leaves the mark off for an effect switched off, and only that one: %s',
+    (name) => {
+      resetDocument();
+
+      applyTheme('synth', { ...ALL_EFFECTS_ON, [name]: false });
+
+      expect(markedEffects()).toEqual(
+        ['cursor', 'glitch', 'glow', 'hud'].filter((marked) => marked !== name),
+      );
+      // The palette is not an effect: its font and colours stay.
+      expect(document.documentElement.dataset.look).toBe('neon');
+    },
+  );
+
+  it('takes every effect mark away with the neon one under a plain theme', () => {
+    // The stylesheet's glow and glitch rules hang off these marks alone, so one
+    // left behind would glow a plain theme.
+    resetDocument();
+    applyTheme('redline', ALL_EFFECTS_ON);
+
+    applyTheme('green', ALL_EFFECTS_ON);
+
+    expect(document.documentElement.dataset.effects).toBeUndefined();
+  });
 
   it('paints the default theme exactly as the stylesheet does before any script runs', () => {
     // `index.css` has to hold its own copy of the default palette, because it
@@ -99,7 +142,7 @@ describe('applyTheme', () => {
     // boots in one colour and flips to another as the script arrives.
     document.documentElement.removeAttribute('style');
 
-    applyTheme(DEFAULT_THEME_ID);
+    applyTheme(DEFAULT_THEME_ID, ALL_EFFECTS_ON);
 
     const painted = Object.fromEntries(
       PAINTED_TOKENS.map((token) => [

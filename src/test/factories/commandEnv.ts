@@ -38,6 +38,7 @@ import type {
 import { basename, dirname } from '../../core/filesystem/path.js';
 import { canWrite } from '../../core/filesystem/walker.js';
 import { createFsView } from '../../core/filesystem/fsView.js';
+import { ALL_EFFECTS_ON } from '../../core/theme/effects.js';
 import { DEFAULT_THEME_ID } from '../../core/theme/themes.js';
 import { isOnline, type ConnectivityState } from '../../core/network/interfaces.js';
 import { buildDirectory } from './filesystem.js';
@@ -342,6 +343,8 @@ export const mockCommandEnv = (overrides: Partial<CommandEnv> = {}): CommandEnv 
   clearScreen: () => undefined,
   currentTheme: () => DEFAULT_THEME_ID,
   setTheme: () => undefined,
+  currentEffects: () => ALL_EFFECTS_ON,
+  setEffect: () => undefined,
   openTerminal: () => undefined,
   setChildCommand: () => undefined,
   sleep: () => Promise.resolve(),

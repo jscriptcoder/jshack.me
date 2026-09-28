@@ -11,6 +11,8 @@
  * colour in `themes.ts`, not there.
  */
 
+import { EFFECT_NAMES } from '../../core/theme/effects.js';
+import type { Effects } from '../../core/theme/effects.js';
 import { THEMES } from '../../core/theme/themes.js';
 import type { ThemeId } from '../../core/theme/themes.js';
 
@@ -24,8 +26,12 @@ const camelToKebab = (name: string): string =>
  *  not a colour. Every neon rule in `index.css` hangs off this mark, so taking it
  *  away is what makes a plain theme look exactly as it always has. The neon
  *  colours a previous theme painted are left behind: nothing reads them once
- *  the mark is gone. */
-export const applyTheme = (id: ThemeId): void => {
+ *  the mark is gone.
+ *
+ *  Each effect the player has on gets its own mark beside it, in `data-effects`,
+ *  and the glow and glitch rules hang off those. They go with the neon mark under a
+ *  plain theme, which shows no effects whatever the player chose. */
+export const applyTheme = (id: ThemeId, effects: Effects): void => {
   const root = document.documentElement;
   const { colors, neonColors } = THEMES[id];
   for (const [token, value] of Object.entries({ ...colors, ...neonColors })) {
@@ -33,7 +39,9 @@ export const applyTheme = (id: ThemeId): void => {
   }
   if (neonColors === undefined) {
     delete root.dataset.look;
+    delete root.dataset.effects;
   } else {
     root.dataset.look = 'neon';
+    root.dataset.effects = EFFECT_NAMES.filter((name) => effects[name]).join(' ');
   }
 };

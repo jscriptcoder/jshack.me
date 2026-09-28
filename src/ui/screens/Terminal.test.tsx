@@ -6,6 +6,7 @@ import {
   runInput,
   scrollback,
   setInput,
+  setEffect,
   setOverlayMode,
   setTheme,
   startGame,
@@ -19,6 +20,7 @@ import { SERVICE_CATALOG } from '../../core/services/serviceCatalog.js';
 import { lanLeaseCacheIn } from '../../core/network/lanLeaseCache.js';
 import { binaryStub } from '../../core/generation/binaries.js';
 import { machineIdForLanHost } from '../../core/generation/lanHostIdentity.js';
+import { EFFECT_NAMES } from '../../core/theme/effects.js';
 import type { ThemeId } from '../../core/theme/themes.js';
 import { asAbsPath } from '../../core/types.js';
 
@@ -41,6 +43,14 @@ const renderTerminal = () => {
  *  test that leaves an app open hands the NEXT one a terminal with no input field,
  *  which reads as that test's own failure. */
 afterEach(() => setOverlayMode(null));
+
+/** Switch every neon effect back on. Like the theme they are a module signal that
+ *  outlives each test, and `startGame` does not reset them (a new game in a real
+ *  browser gets the full look by wiping the origin instead), so a test that took
+ *  the HUD away would otherwise hand every later one a terminal without it. */
+afterEach(() => {
+  for (const name of EFFECT_NAMES) setEffect(name, true);
+});
 
 const runCommand = (value: string) => {
   const field = screen.getByRole('textbox', { name: /terminal input/i });
@@ -1249,6 +1259,28 @@ describe('the neon HUD', () => {
     expect(screen.queryByRole('contentinfo')).not.toBeInTheDocument();
   });
 
+  it('takes the frame away when the player switches the HUD off, and keeps the terminal', async () => {
+    renderTerminalIn('neon');
+
+    runCommand('effects hud off');
+    await screen.findByText('Switched hud off');
+
+    expect(screen.queryByRole('banner')).not.toBeInTheDocument();
+    expect(screen.queryByRole('contentinfo')).not.toBeInTheDocument();
+    expect(inputField()).toBeInTheDocument();
+  });
+
+  it('brings the frame back when the HUD is switched on again', async () => {
+    renderTerminalIn('neon');
+    runCommand('effects hud off');
+    await screen.findByText('Switched hud off');
+
+    runCommand('effects hud on');
+    await screen.findByText('Switched hud on');
+
+    expect(topBar()).toHaveTextContent('JSHACK.ME');
+  });
+
   it('frames nothing under a plain theme', () => {
     renderTerminalIn('amber');
 
@@ -1390,5 +1422,46 @@ describe('the neon cursor', () => {
     setTheme('amber');
 
     expect(screen.queryByTestId('terminal-cursor')).not.toBeInTheDocument();
+  });
+
+  it('goes back to the native caret when the player switches the cursor off', async () => {
+    renderTerminalIn('neon');
+
+    runCommand('effects cursor off');
+    await screen.findByText('Switched cursor off');
+    typeInput('echo');
+
+    expect(screen.queryByTestId('terminal-cursor')).not.toBeInTheDocument();
+  });
+});
+
+describe('switching the neon effects', () => {
+  /** The effects the document is marked as showing, which is what the stylesheet's
+   *  glow and glitch rules hang off. jsdom paints nothing, so the mark is as close
+   *  to the glow as a test here can get; the browser check covers the rest. */
+  const markedEffects = () => document.documentElement.dataset.effects;
+
+  it('stops the glitch and leaves the glow, the HUD and the cursor as they were', async () => {
+    setTheme('neon');
+    renderTerminal();
+
+    runCommand('effects glitch off');
+    await screen.findByText('Switched glitch off');
+
+    expect(markedEffects()).toBe('glow hud cursor');
+    expect(screen.getByRole('banner')).toBeInTheDocument();
+    expect(screen.getByTestId('terminal-cursor')).toBeInTheDocument();
+  });
+
+  it('takes the glow away and keeps the neon palette', async () => {
+    setTheme('neon');
+    renderTerminal();
+
+    runCommand('effects glow off');
+    await screen.findByText('Switched glow off');
+
+    expect(markedEffects()).toBe('glitch hud cursor');
+    // The font and colours belong to the palette, which hangs off its own mark.
+    expect(document.documentElement.dataset.look).toBe('neon');
   });
 });

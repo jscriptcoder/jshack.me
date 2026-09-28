@@ -23,6 +23,7 @@ import type { CveSeverity } from '../cve/packageTimeline.js';
 import type { OpenPort } from '../services/pidfile.js';
 import type { SnmpIdentity, SnmpPortTable } from '../snmp/walk.js';
 import type { SnmpSetRefusal } from '../snmp/set.js';
+import type { EffectName, Effects } from '../theme/effects.js';
 import type { ThemeId } from '../theme/themes.js';
 import type { FlagSpec } from '../shell/bindFlags.js';
 
@@ -1537,6 +1538,14 @@ export type CommandEnv = {
    *  stored value cannot disagree. `core/` only knows a valid id went out. */
   readonly setTheme: (id: ThemeId) => void;
 
+  /** Which neon effects are on — `effects`' listing. A getter for the same reason
+   *  as `currentTheme`. */
+  readonly currentEffects: () => Effects;
+
+  /** Switch one neon effect — `effects <name> <on|off>`'s seam. The UI owns what
+   *  that means (repainting and remembering it), in one place, as with `setTheme`. */
+  readonly setEffect: (name: EffectName, on: boolean) => void;
+
   /** Open another terminal — `xterm`'s seam. The UI owns what a second terminal
    *  IS (a browser tab, told at boot not to rehydrate the hop chain so it comes
    *  up on the player's own box rather than inside whatever this one is ssh'd
@@ -1596,9 +1605,10 @@ export type CommandEnv = {
  *  ARGUMENTS section. `required` defaults to optional when omitted.
  *
  *  `values` is the discrete set this argument accepts (e.g. apt's `operation`
- *  is `install | list`). Tab-completion reads it for a fixed-value FIRST
- *  positional (`apt <TAB>` → install/list) via `arguments[0].values`; declare
- *  the positionals in order so `arguments[0]` is the command's first one. */
+ *  is `install | list`). Tab-completion reads it for the positional under the
+ *  cursor (`apt <TAB>` → install/list from `arguments[0]`, `effects glow <TAB>` →
+ *  on/off from `arguments[1]`); declare the positionals in order so `arguments[N]`
+ *  is the command's Nth one. */
 export type CommandArgument = {
   readonly name: string;
   readonly description: string;

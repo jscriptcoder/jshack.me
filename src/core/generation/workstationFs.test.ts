@@ -258,7 +258,7 @@ describe('buildWorkstationBaseFs', () => {
       // slice 1 did for the real ones and stamp it into /bin, which would hand
       // players a way to delete the terminal's own controls.
       const binKeys = [...dirAt(baseFs(), 'bin').entries.keys()];
-      ['author', 'xterm', 'theme', 'identity', 'new-game'].forEach((name) =>
+      ['author', 'xterm', 'theme', 'effects', 'identity', 'new-game'].forEach((name) =>
         expect(binKeys).not.toContain(name),
       );
     });

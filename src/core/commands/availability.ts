@@ -44,6 +44,7 @@ const GAME_COMMANDS: ReadonlySet<string> = new Set([
   'identity',
   'new-game',
   'theme',
+  'effects',
   'author',
   'xterm',
 ]);

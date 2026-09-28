@@ -37,7 +37,7 @@
   - Carried to slice 4: at 390px wide the prompt row already overflows the page on
     `main`, under any theme, because the input keeps its intrinsic minimum width.
     Slice 4 rebuilds that row.
-- Slice 4 (v0.282.0) in review on `feat/neon-cursor`. As built:
+- Slice 4 ✅ merged as #570 (`92e5b17f`, v0.282.0). As built:
   - The input and its drawn copy of the line share one `relative min-w-0 flex-1`
     wrapper under every theme. Under neon the input turns `opacity-0` and lies over
     the copy. The copy is `aria-hidden`, so a screen reader still reads only the
@@ -65,6 +65,32 @@
   **Visual reference**: the interactive preview at https://claude.ai/artifact/FTXG8EPT39Ek2TF6JFEmmt
   (private to the owner). Its palettes, glow, glitch, HUD and cursor are the target; its
   commands and HUD values are mock data.
+- Slice 5 (v0.283.0) in review on `feat/neon-effects`. As built:
+  - The effect names have one owner, `EFFECT_NAMES` in `core/theme/effects.ts`.
+    `effects` lists them, `on`/`off` go through one `stateWord` helper, and the
+    seams are `env.currentEffects` and `env.setEffect(name, on)`.
+  - The mark is `data-effects` on `<html>`, a space-separated list of the effects
+    that are on, written by `applyTheme(id, effects)` only under a neon theme.
+    `data-look="neon"` stays for the palette, so `effects glow off` keeps the font
+    and the backdrop. The CSS reads `glow` and `glitch`, and the banner's halo moved
+    to the glow, so each survives the other going off. The HUD pip's and the block
+    cursor's halos went with the glow too.
+  - The HUD and the cursor ask `effectShown(name)` in `state.ts`: the theme is neon
+    and the effect is on. That replaced the two copies of the neon check that slice 4
+    left in `Hud.tsx` and `Terminal.tsx`.
+  - Stored under `jshack:effects` as the names of the effects that are off, so an
+    effect added later comes up on. Any word that is not an effect means all on.
+    `adoptStoredTheme` adopts it at boot beside the theme; the name was kept
+    because the handbook refers to it.
+  - Tab completion now reaches past the first positional: `arguments[N].values`
+    completes the Nth word, so `effects glow <TAB>` offers `off, on`. No other
+    command declares values beyond `arguments[0]`, so nothing else changed.
+  - The Terminal suite resets every effect after each test: the signal outlives
+    a test, as the theme's does, and `startGame` does not reset it.
+  - Checked in Chromium: the listing, the switches, a reload, the dim line under
+    Amber, both completions, glow off (no text shadow, neon font kept), glitch and
+    HUD off, cursor off (native caret), and reduced motion stopping the flicker,
+    the split copies and the blink with the glitch on.
 
 ## Goal
 

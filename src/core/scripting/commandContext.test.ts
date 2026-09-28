@@ -4,6 +4,7 @@ import { cat } from '../commands/cat.js';
 import { author } from '../commands/author.js';
 import { clear } from '../commands/clear.js';
 import { theme } from '../commands/theme.js';
+import { effects } from '../commands/effects.js';
 import { xterm } from '../commands/xterm.js';
 import { find } from '../commands/find.js';
 import { strings } from '../commands/strings.js';
@@ -424,6 +425,7 @@ describe('a script calling the machine commands', () => {
   it.each([
     [clear, 'clear: cannot be run from a script'],
     [theme, 'theme: cannot be run from a script'],
+    [effects, 'effects: cannot be run from a script'],
     [author, 'author: cannot be run from a script'],
     [xterm, 'xterm: cannot be run from a script'],
   ])('refuses to let a script act on a terminal nobody is watching: %#', async (command, refusal) => {

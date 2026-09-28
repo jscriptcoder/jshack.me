@@ -74,10 +74,16 @@ import type {
   AptDowngrade,
   TerminalLine,
 } from '../core/commands/types.js';
-import { DEFAULT_THEME_ID, type ThemeId } from '../core/theme/themes.js';
+import { ALL_EFFECTS_ON, type EffectName, type Effects } from '../core/theme/effects.js';
+import { DEFAULT_THEME_ID, THEMES, type ThemeId } from '../core/theme/themes.js';
 import { applyTheme } from './theme/applyTheme.js';
 import { FRESH_TAB_FLAG } from './freshTab.js';
-import { readStoredTheme, storeTheme } from './themePersistence.js';
+import {
+  readStoredEffects,
+  readStoredTheme,
+  storeEffects,
+  storeTheme,
+} from './themePersistence.js';
 import type { GameConfig } from '../core/gameConfig/gameConfig.js';
 import type { Directory } from '../core/filesystem/types.js';
 import { applyPatches, type Patch } from '../core/filesystem/applyPatches.js';
@@ -221,6 +227,15 @@ const [bannerVisible, setBannerVisible] = createSignal(true);
 // storage HERE would make importing this module read storage, which is the
 // import-time side effect the tests above pin against.
 const [currentTheme, setCurrentTheme] = createSignal<ThemeId>(DEFAULT_THEME_ID);
+// Which neon effects the player has on — what the `effects` listing shows, and
+// what the HUD and the block cursor ask before they draw. Seeded at boot beside
+// the theme, for the same reason.
+const [currentEffects, setCurrentEffects] = createSignal<Effects>(ALL_EFFECTS_ON);
+
+/** Whether an effect is on screen: the theme wears the neon look, and the player
+ *  has left that effect on. What the HUD and the block cursor ask before drawing. */
+export const effectShown = (name: EffectName): boolean =>
+  THEMES[currentTheme()].neonColors !== undefined && currentEffects()[name];
 const [input, setInput] = createSignal('');
 const [cwd, setCwd] = createSignal<AbsPath>(asAbsPath('/'));
 const [patches, setPatches] = createSignal<readonly Patch[]>([]);
@@ -439,6 +454,7 @@ const [childCommand, setChildCommand] = createSignal<string | null>(null);
 export {
   bannerVisible,
   childCommand,
+  currentEffects,
   currentTheme,
   cwd,
   input,
@@ -1637,15 +1653,17 @@ export const historyDown = (): void => {
   setInput(step.value);
 };
 
-/** Adopt the player's stored choice at boot: paint it and seed the signal, in one
- *  synchronous step so `main.tsx` can call it BEFORE the first render and the
- *  terminal never appears in the default palette first. Deliberately does not
- *  write back — reading a choice is not making one, and a write here would put a
- *  second author on the stored value. */
+/** Adopt the player's stored choice at boot, the theme and its effects: paint them
+ *  and seed the signals, in one synchronous step so `main.tsx` can call it BEFORE
+ *  the first render and the terminal never appears in the default look first.
+ *  Deliberately does not write back — reading a choice is not making one, and a
+ *  write here would put a second author on the stored value. */
 export const adoptStoredTheme = (): void => {
-  const stored = readStoredTheme(localStorage);
-  setCurrentTheme(stored);
-  applyTheme(stored);
+  const theme = readStoredTheme(localStorage);
+  const effects = readStoredEffects(localStorage);
+  setCurrentTheme(theme);
+  setCurrentEffects(effects);
+  applyTheme(theme, effects);
 };
 
 /** Switch the terminal's theme (backs `env.setTheme`). Paints the palette and
@@ -1653,8 +1671,18 @@ export const adoptStoredTheme = (): void => {
  *  reload can come up in a colour the screen never showed. */
 export const setTheme = (id: ThemeId): void => {
   setCurrentTheme(id);
-  applyTheme(id);
+  applyTheme(id, currentEffects());
   storeTheme(localStorage, id);
+};
+
+/** Switch one neon effect (backs `env.setEffect`), painting and remembering it in
+ *  one place, as `setTheme` does. Under a plain theme nothing shows, but the choice
+ *  is kept for the next neon one. */
+export const setEffect = (name: EffectName, on: boolean): void => {
+  const effects = { ...currentEffects(), [name]: on };
+  setCurrentEffects(effects);
+  applyTheme(currentTheme(), effects);
+  storeEffects(localStorage, effects);
 };
 
 /** Empty the screen (backs `env.clearScreen`, and Ctrl-L straight from the key
@@ -1907,6 +1935,8 @@ const executeLine = async (line: string): Promise<void> => {
     onClearScreen: clearScreen,
     onCurrentTheme: currentTheme,
     onSetTheme: setTheme,
+    onCurrentEffects: currentEffects,
+    onSetEffect: setEffect,
     onOpenTerminal: openTerminal,
     // `reset` prints its danger warning mid-command via `env.output`, before the
     // confirm prompt — append it straight to scrollback.

@@ -150,7 +150,7 @@ ones is wrapped as `wrapWithBinaryCheck(wrapWithLibraryCheck(command))`:
    `/lib`, or the command fails with a glibc-style loader error (127).
 
 **Always available** (`availability.ts`): the shell builtins `cd`, `echo`, `exit`, `pwd`, `help`, and
-the game commands `identity`, `new-game`, `theme`, `author`, `xterm`. `clear` and `whoami` are **not**
+the game commands `identity`, `new-game`, `theme`, `effects`, `author`, `xterm`. `clear` and `whoami` are **not**
 builtins; they are real `/bin` binaries a player can delete.
 
 A second registry, `carriedCommandRegistry`, serves binaries run by path (`/tmp/tool`). The tool is
@@ -266,6 +266,7 @@ registered commands; `registry.ts` is the source of truth.
 | `su`       | Switch user (default root), masked password prompt            | S      |
 | `identity` | Show the player's public key and fingerprint                  | S      |
 | `theme`    | List or switch colour themes                                  | S      |
+| `effects`  | List or switch the neon effects (glow, glitch, HUD, cursor)   | S      |
 | `author`   | Show the author card                                          | M      |
 | `xterm`    | Open a second terminal (new tab) on your own box              | S      |
 | `new-game` | Wipe progress and restart, after confirmation (`-y`)          | S      |

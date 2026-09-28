@@ -71,6 +71,11 @@ body {
    The neon look. Everything below applies only while `applyTheme` has marked
    the document neon, so a plain theme looks exactly as it did before these
    themes existed. The colours come from each theme's `neonColors`.
+
+   The palette (font, backdrop) hangs off `data-look`. The glow and the glitch
+   hang off their own words in `data-effects`, which `applyTheme` writes only for
+   the effects the player has left on, so `effects glow off` takes the glow and
+   nothing else.
    ------------------------------------------------------------------------ */
 
 :root[data-look='neon'] {
@@ -87,20 +92,20 @@ body {
     var(--theme-bg);
 }
 
-[data-look='neon'] body {
+[data-effects~='glow'] body {
   /* Inherited, and the colour is mixed from each element's own: an error line
      glows red and a prompt glows in the bright colour without either being named
      here. */
   text-shadow: 0 0 6px color-mix(in srgb, currentColor 45%, transparent);
 }
 
-[data-look='neon'] [data-kind='prompt'] {
+[data-effects~='glow'] [data-kind='prompt'] {
   text-shadow:
     0 0 1px currentColor,
     0 0 9px color-mix(in srgb, currentColor 60%, transparent);
 }
 
-[data-look='neon'] [data-kind='error'] {
+[data-effects~='glow'] [data-kind='error'] {
   text-shadow:
     0 0 1px currentColor,
     0 0 11px color-mix(in srgb, currentColor 75%, transparent);
@@ -113,18 +118,22 @@ body {
 /* The banner glitch: two copies of the banner, drawn from its `data-text`,
    flash offset in the theme's two glitch colours for a fraction of a second every
    few seconds. Only the banner carries `data-text`, and `clear` takes the banner
-   away, so nothing flickers once play is under way. */
-[data-look='neon'] [data-text] {
-  position: relative;
+   away, so nothing flickers once play is under way. Its halo is the glow's, so
+   each of the two survives the other being switched off. */
+[data-effects~='glow'] [data-text] {
   text-shadow:
     0 0 2px currentColor,
     0 0 10px color-mix(in srgb, currentColor 65%, transparent),
     0 0 30px color-mix(in srgb, currentColor 35%, transparent);
+}
+
+[data-effects~='glitch'] [data-text] {
+  position: relative;
   animation: neon-flicker 6.5s infinite;
 }
 
-[data-look='neon'] [data-text]::before,
-[data-look='neon'] [data-text]::after {
+[data-effects~='glitch'] [data-text]::before,
+[data-effects~='glitch'] [data-text]::after {
   content: attr(data-text);
   /* An empty alternative keeps screen readers from reading the banner three
      times. A browser without the syntax drops this line and keeps the one above. */
@@ -139,12 +148,12 @@ body {
   mix-blend-mode: screen;
 }
 
-[data-look='neon'] [data-text]::before {
+[data-effects~='glitch'] [data-text]::before {
   color: var(--theme-glitch-a);
   animation: neon-glitch-a 6.5s infinite steps(1, end);
 }
 
-[data-look='neon'] [data-text]::after {
+[data-effects~='glitch'] [data-text]::after {
   color: var(--theme-glitch-b);
   animation: neon-glitch-b 6.5s infinite steps(1, end);
 }
@@ -232,7 +241,8 @@ body {
 }
 
 /* ------------------------------------------------------------------------
-   The HUD frame. `Hud.tsx` puts these classes on only under a neon theme.
+   The HUD frame. `Hud.tsx` puts these classes on only under a neon theme, and
+   only while the player has left the HUD on.
    ------------------------------------------------------------------------ */
 
 /* In the components layer so Tailwind's utilities on the same elements win: the
@@ -334,6 +344,9 @@ body {
     width: 7px;
     height: 7px;
     background: currentColor;
+  }
+
+  [data-effects~='glow'] .hud-pip {
     box-shadow: 0 0 6px currentColor;
   }
 
@@ -357,7 +370,7 @@ body {
 }
 
 /* ------------------------------------------------------------------------
-   The block cursor. Only a neon theme draws it: the input lies invisible over
+   The block cursor. Only a neon theme draws it, with the cursor effect on: the input lies invisible over
    this copy of the line, which wraps where the input would have scrolled.
    ------------------------------------------------------------------------ */
 
@@ -373,8 +386,11 @@ body {
   background: var(--theme-caret);
   color: var(--theme-bg);
   text-shadow: none;
-  box-shadow: 0 0 10px color-mix(in srgb, var(--theme-caret) 70%, transparent);
   animation: prompt-cursor-blink 1.06s steps(1) infinite;
+}
+
+[data-effects~='glow'] .prompt-cursor {
+  box-shadow: 0 0 10px color-mix(in srgb, var(--theme-caret) 70%, transparent);
 }
 
 /* Hollow and still while the input is not taking keys, as a terminal window's
@@ -394,10 +410,11 @@ input:not(:focus) + .prompt-mirror .prompt-cursor {
   }
 }
 
+/* Whatever `effects` says: it can take motion away, never force it back on. */
 @media (prefers-reduced-motion: reduce) {
-  [data-look='neon'] [data-text],
-  [data-look='neon'] [data-text]::before,
-  [data-look='neon'] [data-text]::after,
+  [data-effects~='glitch'] [data-text],
+  [data-effects~='glitch'] [data-text]::before,
+  [data-effects~='glitch'] [data-text]::after,
   .prompt-cursor {
     animation: none;
   }

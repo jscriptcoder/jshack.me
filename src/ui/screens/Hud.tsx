@@ -7,15 +7,15 @@
  *
  * It wraps the terminal AND its full-screen apps, so nano and lynx open inside
  * the frame rather than tearing it down. The wrapper is always rendered and only
- * its dressing comes and goes with the theme: rendering the terminal in one branch
- * with a frame and another without would remount it on every `theme` switch.
+ * its dressing comes and goes with the theme and `effects hud`: rendering the
+ * terminal in one branch with a frame and another without would remount it on
+ * every switch.
  */
 
 import { createSignal, onCleanup, Show, type JSX } from 'solid-js';
-import { THEMES } from '../../core/theme/themes.js';
 import {
   connectedWireless,
-  currentTheme,
+  effectShown,
   linkOnline,
   promptHost,
   promptUsername,
@@ -89,10 +89,7 @@ type HudProps = {
 };
 
 export const Hud = (props: HudProps) => {
-  // The theme's own neon colours are what switch the look on, so the frame asks
-  // the same question `applyTheme` does rather than reading the mark it leaves on
-  // the document.
-  const framed = () => THEMES[currentTheme()].neonColors !== undefined;
+  const framed = () => effectShown('hud');
 
   return (
     <div class="h-full" classList={{ 'p-2': framed() }}>
