@@ -11,6 +11,7 @@
  */
 
 import type { Prng } from './prng.js';
+import { REGION_FIRST_OCTETS } from './world.js';
 
 /** Realistic public IP first-octet pool (routable hosting/cloud prefixes). */
 export const publicFirstOctets: readonly number[] = [
@@ -38,10 +39,15 @@ const SINGLE_IP = /^(\d{1,3})\.\d{1,3}\.\d{1,3}\.\d{1,3}$/;
  *  player's own LAN; a range, a private/own-subnet address, or any other shape is
  *  not a cross-player target. Consistent-by-construction with `generatePublicIp`
  *  (same prefix pool), so every registered public IP classifies true, and so does
- *  every address an institution publishes its website at. */
+ *  every address an institution publishes its website at and every address a town
+ *  network answers at. */
 export const isPublicIp = (target: string): boolean => {
   const match = target.match(SINGLE_IP);
   if (match === null) return false;
   const firstOctet = Number(match[1]);
-  return publicFirstOctets.includes(firstOctet) || firstOctet === PUBLISHER_FIRST_OCTET;
+  return (
+    publicFirstOctets.includes(firstOctet) ||
+    firstOctet === PUBLISHER_FIRST_OCTET ||
+    REGION_FIRST_OCTETS.includes(firstOctet)
+  );
 };

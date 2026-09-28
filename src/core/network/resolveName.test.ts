@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { generateHomeLan } from '../generation/generateHomeLan.js';
 import { publisherIp } from '../generation/publisher.js';
-import { addressForTarget, resolveLanName, resolveName } from './resolveName.js';
+import { addressForTarget, lanZoneName, resolveLanName, resolveName } from './resolveName.js';
 
 /** A real ESSID from the crackable pool, so every name and address under test is
  *  one a player could actually be standing in front of. */
@@ -49,6 +49,12 @@ describe('resolving a name against the network you are standing on', () => {
       routers.map((router) => router.ip),
     );
     expect(routers.length).toBeGreaterThan(1);
+  });
+
+  it('names a network whose wifi runs separators together with one hyphen between words', () => {
+    // A name a player gives their own access point can be as ragged as they like; the
+    // zone it becomes still has to be a name a resolver can echo back.
+    expect(lanZoneName('Cafe -- Free WiFi')).toBe('cafe-free-wifi.lan');
   });
 
   it('refuses a name qualified with a different network domain', () => {

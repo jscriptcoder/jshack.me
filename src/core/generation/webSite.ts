@@ -461,7 +461,13 @@ export const buildWebSite = ({
   const site = headed(published?.name ?? persona.place);
   const description =
     published === undefined ? null : (SITE_DESCRIPTIONS[persona.category] ?? '{site}');
-  const slots = { site, place: persona.place, domain: persona.domain, hostname: host.hostname };
+  const slots = {
+    site,
+    place: persona.place,
+    town: persona.town,
+    domain: persona.domain,
+    hostname: host.hostname,
+  };
   const author = inhabitant({ essid, host, username: npcUsername(essid, host) }).fullName;
   const neighbours = isOnHomeLan(essid, host)
     ? generateHomeLan(essid).hosts.filter(

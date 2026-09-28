@@ -12,6 +12,7 @@ import { resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
 import { publisherIp, publisherSite } from '../generation/publisher.js';
 import { FINDIT_NETWORK } from '../generation/findit.js';
 import { rankPages } from './search.js';
+import { DECLARED_NETWORKS } from '../generation/world.js';
 
 /**
  * What findit holds when somebody searches: every homepage on the public web as it is
@@ -76,7 +77,8 @@ describe('the web findit searches', () => {
 
   it('puts the institution a search names first: the police for police, the court for court', async () => {
     const web = await indexWith();
-    expect(rankPages(web, 'police')[0]?.address).toBe('ridgemontpd.gov');
+    const police = rankPages(web, 'police').map((page) => page.address);
+    expect(police.slice(0, 2)).toEqual(['millbrookpd.gov', 'ridgemontpd.gov']);
     expect(rankPages(web, 'court')[0]?.address).toBe('ridgemontcourts.gov');
   });
 
@@ -85,6 +87,26 @@ describe('the web findit searches', () => {
     const shops = ['kwikemart.com', 'monstromart.com', 'buynlarge.com', 'megalomart.com'];
     expect(rankPages(web, 'monstromart')[0]?.address).toBe('monstromart.com');
     expect(shops).toContain(rankPages(web, 'groceries')[0]?.address);
+  });
+
+  it('lists the council, the police and the library of a town beyond Ridgemont for its name', async () => {
+    const web = await indexWith();
+    const found = rankPages(web, 'millbrook').map((page) => page.address);
+    expect(found).toEqual(
+      expect.arrayContaining(['millbrook.gov', 'millbrookpd.gov', 'millbrooklibrary.org']),
+    );
+  });
+
+  it("lists each of that town's businesses for its own name", async () => {
+    const web = await indexWith();
+    const businesses = DECLARED_NETWORKS.filter(
+      (network) =>
+        network.town === 'Millbrook' && ['cafe', 'retail', 'corporate'].includes(network.category),
+    );
+    expect(businesses.length).toBeGreaterThan(0);
+    for (const business of businesses) {
+      expect(rankPages(web, business.place)[0]?.address).toBe(business.site?.domain);
+    }
   });
 
   it('reads each homepage for what the site calls itself and says about itself', async () => {

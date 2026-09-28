@@ -7,21 +7,28 @@
  */
 
 import { PUBLISHER_FIRST_OCTET } from './ip.js';
-import { ESSID_CATALOG, type PublishedSite } from './pools/essidCatalog.js';
+import type { PublishedSite } from './pools/essidCatalog.js';
 import { createPrng } from './prng.js';
 import { FINDIT_DOMAIN, FINDIT_NETWORK } from './finditNetwork.js';
+import { DECLARED_NETWORKS, townAddress } from './world.js';
 
 const SITE_BY_ESSID: ReadonlyMap<string, PublishedSite> = new Map(
-  ESSID_CATALOG.flatMap((entry) => (entry.site === undefined ? [] : [[entry.essid, entry.site]])),
+  DECLARED_NETWORKS.flatMap((network) =>
+    network.site === undefined ? [] : [[network.key, network.site]],
+  ),
 );
 
 /** The website `essid` publishes, or `undefined` for a network that publishes none. */
 export const publisherSite = (essid: string): PublishedSite | undefined => SITE_BY_ESSID.get(essid);
 
-const derivedIp = (essid: string): string => {
+const hashedIp = (essid: string): string => {
   const prng = createPrng(`publisher-ip-${essid}`);
   return `${PUBLISHER_FIRST_OCTET}.${prng.nextInt(1, 254)}.${prng.nextInt(1, 254)}.${prng.nextInt(2, 254)}`;
 };
+
+/** A town network answers inside its town's block; a Ridgemont institution keeps the
+ *  address it has always had. */
+const derivedIp = (essid: string): string => townAddress(essid) ?? hashedIp(essid);
 
 /** Where `essid`'s website answers on the internet, or `undefined` for a network that
  *  publishes none. The address is derived rather than allocated, so it exists before
