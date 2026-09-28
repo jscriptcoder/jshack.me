@@ -83,6 +83,48 @@ describe('Millbrook', () => {
     }
   });
 
+  it('keeps every network under the key, name, domain and address it was declared with', () => {
+    // A key, a name or an address that moved would strand every journal, bookmark and note
+    // a player holds about the network, so the declaration only ever grows.
+    expect(
+      millbrook().map((network) => [
+        network.key,
+        network.essid,
+        network.place,
+        network.site?.domain,
+        publisherIp(network.key),
+      ]),
+    ).toEqual([
+      ['r0/t1/n0', 'TOWN-HALL-WIFI', 'the town hall', 'millbrook.gov', '87.98.0.2'],
+      ['r0/t1/n1', 'MILLBROOK-PD', 'the police station', 'millbrookpd.gov', '87.98.97.142'],
+      ['r0/t1/n2', 'LIBRARY-PUBLIC', 'the public library', 'millbrooklibrary.org', '87.98.195.29'],
+      ['r0/t1/n3', 'TIPSY-TEAPOT', 'Tipsy Teapot', 'tipsyteapot.com', '87.98.36.169'],
+      ['r0/t1/n4', 'HARVEST-MARKET', 'Harvest Market', 'harvestmarket.com', '87.98.134.56'],
+      [
+        'r0/t1/n5',
+        'GREENLEAF-GROCERS',
+        'Greenleaf Grocers',
+        'greenleafgrocers.com',
+        '87.98.231.196',
+      ],
+      ['r0/t1/n6', 'CORNER-PANTRY', 'Corner Pantry', 'cornerpantry.com', '87.98.73.83'],
+      [
+        'r0/t1/n7',
+        'KEYSTONE-LOGISTICS',
+        'Keystone Logistics',
+        'keystonelogistics.com',
+        '87.98.170.223',
+      ],
+      [
+        'r0/t1/n8',
+        'PINNACLE-IT-SOLUTIONS',
+        'Pinnacle IT Solutions',
+        'pinnacleitsolutions.com',
+        '87.98.12.110',
+      ],
+    ]);
+  });
+
   it('scatters its networks across its block rather than numbering them in a row', () => {
     const slots = millbrook().map((network) => {
       const [, , third, fourth] = (publisherIp(network.key) ?? '').split('.').map(Number);
