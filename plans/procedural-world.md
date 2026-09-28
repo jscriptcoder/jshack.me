@@ -1,8 +1,8 @@
 # Plan: Procedural world
 
 **Status**: Grilled and gap-reviewed (find-gaps) 2026-09-28. Slice 1 planned 2026-09-28 as
-slices 1a–1c (see Slice plans); 1a complete 2026-09-28 (#572, v0.284.0); the rest not yet
-planned.
+slices 1a–1c (see Slice plans); 1a complete 2026-09-28 (#572, v0.284.0); 1b complete
+2026-09-28 (#573, v0.285.0); the rest not yet planned.
 Amends the §9 backlog item "Procedural world expansion — GRILLED & RESOLVED 2026-07-29" in
 `docs/conventions-and-gotchas.md`; where the two disagree, this file wins.
 
@@ -322,6 +322,7 @@ server, written by `buildWebSite` from the world declaration.
 **Class**: behaviour change.
 **Delivery**: independent PR against `main` after 1a merges, branch
 `feat/procedural-world-town-hub`.
+**Status**: complete, merged as #573 (`f66326a7`).
 **Required implementation skills**: `tdd`, `testing`, `refactoring`; `mutation-testing` at
 PR-readiness.
 **Reduction program**: N/A.
@@ -329,10 +330,22 @@ PR-readiness.
 AC-7 keeps landmark content identical. Its hub, if wanted, is a later decision.
 **Acceptance criteria** (to be confirmed before any code):
 
-- [ ] **1b-1** Millbrook's council front page links a directory page.
-- [ ] **1b-2** The directory page links `http://<domain>/` for every Millbrook institution
-      (council, police, library), and every link it holds fetches a live page.
-- [ ] **1b-3** The directory names no network outside Millbrook.
+- [x] **1b-1** Every page on Millbrook's council site links **Town directory**
+      (`/directory.html`) in its navigation. The label is not plain "Directory", because the
+      council already draws a "Staff directory" page. The sitemap lists the new page.
+- [x] **1b-2** The directory links exactly `http://millbrook.gov/`, `http://millbrookpd.gov/`
+      and `http://millbrooklibrary.org/`, each under the institution's name, and each opens
+      that institution's front page.
+- [x] **1b-3** The directory names no network outside Millbrook: no other network's domain,
+      site name or wifi name. It leaves out Millbrook's businesses too, because the hub lists
+      institutions only.
+- [x] **1b-4** No other site gets a directory. Millbrook's police, library and businesses serve
+      no `/directory.html`, and neither does Ridgemont's council. All 57 landmark hashes were
+      identical before and after.
+
+Adding a fixed page shrinks the room left for the optional pages the council draws, so
+Millbrook's council draws a different set of them than before. No other site changes, and no
+stream other code reads gains or loses a draw.
 
 **RED**: a `buildWebSite` behaviour test for Millbrook's council, reading its directory's links
 against the declaration.
