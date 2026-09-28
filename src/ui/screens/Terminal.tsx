@@ -1,12 +1,14 @@
-import { createEffect, For, Match, onCleanup, onMount, Show, Switch } from 'solid-js';
+import { createEffect, createSignal, For, Match, onCleanup, onMount, Show, Switch } from 'solid-js';
 import type { ModeChange, TerminalLine } from '../../core/commands/types.js';
 import { formatPrompt } from '../../core/shell/prompt.js';
+import { THEMES } from '../../core/theme/themes.js';
 import { BANNER } from '../banner.js';
 import {
   abortRunning,
   bannerVisible,
   cancelPrompt,
   clearScreen,
+  currentTheme,
   cwd,
   historyDown,
   followLink,
@@ -81,6 +83,41 @@ export const Terminal = () => {
   // back rather than being overwritten is what restores `node` between calls.
   const busyLabel = (): string | null =>
     pendingPrompt() ? null : (childCommand() ?? runningCommand());
+
+  // Where the caret sits in the input, for the block a neon theme draws there. The
+  // input moves its own caret without saying so, so this is read back after each
+  // thing that can move it: a new value, a key, a click, a completion.
+  const [caretAt, setCaretAt] = createSignal(0);
+  const readCaret = () => setCaretAt(inputEl?.selectionStart ?? input().length);
+
+  // A value set from outside the input (history recall, a submitted line) moves the
+  // caret to its end. By the time this runs the new value is in the input.
+  createEffect(() => {
+    input();
+    readCaret();
+  });
+
+  // A held arrow key repeats without a keyup; only the selection change reports it.
+  onMount(() => {
+    document.addEventListener('selectionchange', readCaret);
+    onCleanup(() => document.removeEventListener('selectionchange', readCaret));
+  });
+
+  const neonCursor = () => THEMES[currentTheme()].neonColors !== undefined;
+
+  /** The line as drawn: the text before the caret, the character under the block
+   *  (a space at the end of the line), and the rest. A masked answer is drawn as the
+   *  block alone, so its length shows no more than a real terminal's would. */
+  const drawnLine = () => {
+    if (pendingPrompt()?.masked) return { before: '', under: ' ', after: '' };
+    const value = input();
+    const caret = caretAt();
+    return {
+      before: value.slice(0, caret),
+      under: value[caret] ?? ' ',
+      after: value.slice(caret + 1),
+    };
+  };
 
   // Keep the newest output in view as the scrollback grows.
   createEffect(() => {
@@ -177,7 +214,12 @@ export const Terminal = () => {
       // The replacement is applied to the `input` signal; Solid flushes the
       // controlled value at the end of this event, so reposition the caret in a
       // microtask — by then the DOM value reflects the completion.
-      if (caret !== null) queueMicrotask(() => inputEl?.setSelectionRange(caret, caret));
+      if (caret !== null) {
+        queueMicrotask(() => {
+          inputEl?.setSelectionRange(caret, caret);
+          readCaret();
+        });
+      }
     }
   };
 
@@ -215,18 +257,35 @@ export const Terminal = () => {
                   <span data-kind="prompt" class="whitespace-pre text-[var(--theme-text-bright)]">
                     {livePrompt()}
                   </span>
-                  <input
-                    ref={inputEl}
-                    aria-label="terminal input"
-                    type={pendingPrompt()?.masked ? 'password' : 'text'}
-                    class="flex-1 border-none bg-transparent p-0 text-inherit caret-[var(--theme-caret)] outline-none [font:inherit]"
-                    autocomplete="off"
-                    autocapitalize="off"
-                    spellcheck={false}
-                    value={input()}
-                    onInput={(event) => setInput(event.currentTarget.value)}
-                    onKeyDown={onKeyDown}
-                  />
+                  {/* The real input keeps focus, the keyboard and its label under
+                      every theme. Under neon it turns invisible and lies over a
+                      drawn copy of the line that carries the block. */}
+                  <div class="relative min-w-0 flex-1">
+                    <input
+                      ref={inputEl}
+                      aria-label="terminal input"
+                      type={pendingPrompt()?.masked ? 'password' : 'text'}
+                      class="w-full min-w-0 border-none bg-transparent p-0 text-inherit caret-[var(--theme-caret)] outline-none [font:inherit]"
+                      classList={{ 'absolute inset-0 h-full opacity-0': neonCursor() }}
+                      autocomplete="off"
+                      autocapitalize="off"
+                      spellcheck={false}
+                      value={input()}
+                      onInput={(event) => setInput(event.currentTarget.value)}
+                      onKeyDown={onKeyDown}
+                      onKeyUp={readCaret}
+                      onClick={readCaret}
+                    />
+                    <Show when={neonCursor()}>
+                      <span aria-hidden="true" class="prompt-mirror">
+                        {drawnLine().before}
+                        <span data-testid="terminal-cursor" class="prompt-cursor">
+                          {drawnLine().under}
+                        </span>
+                        {drawnLine().after}
+                      </span>
+                    </Show>
+                  </div>
                 </div>
               }
             >

@@ -637,7 +637,11 @@ describe('Terminal', () => {
 
       expect(inputField()).toHaveValue('help ');
       // A unique completion must not also dump a candidate list into the scrollback.
-      expect(screen.queryByText('help')).not.toBeInTheDocument();
+      // The neon cursor's drawn copy of the line is hidden from a screen reader, and
+      // from this query with it.
+      expect(
+        screen.queryByText('help', { ignore: '[aria-hidden="true"], script, style' }),
+      ).not.toBeInTheDocument();
     });
 
     it('decorates a completed directory with a trailing slash', () => {
@@ -1262,5 +1266,129 @@ describe('the neon HUD', () => {
     setOverlayMode({ kind: 'nano', path: asAbsPath('/home/alice/notes.txt'), content: 'draft' });
     expect(await screen.findByDisplayValue('draft')).toBeInTheDocument();
     expect(bottomBar()).toHaveTextContent('alice@workstation');
+  });
+});
+
+describe('the neon cursor', () => {
+  const renderTerminalIn = (theme: ThemeId) => {
+    setTheme(theme);
+    return renderTerminal();
+  };
+
+  const typeInput = (value: string) => fireEvent.input(inputField(), { target: { value } });
+
+  /** jsdom moves no caret for a key or a click, so each test places the caret the
+   *  way the browser would have and then sends the event the browser sends after. */
+  const placeCaret = (position: number) =>
+    screen
+      .getByRole<HTMLInputElement>('textbox', { name: /terminal input/i })
+      .setSelectionRange(position, position);
+
+  /** The line as the player sees it, with the block's character in brackets. */
+  const drawnLine = () => {
+    const cursor = screen.getByTestId('terminal-cursor');
+    const mirror = [...(cursor.parentElement?.childNodes ?? [])];
+    return mirror
+      .map((node) => (node === cursor ? `[${node.textContent}]` : node.textContent))
+      .join('');
+  };
+
+  it('draws the block on the space after what is typed', () => {
+    renderTerminalIn('neon');
+    typeInput('echo');
+
+    expect(drawnLine()).toBe('echo[ ]');
+  });
+
+  it.each(['ArrowLeft', 'Home', 'End'])('follows the caret moved by %s', (key) => {
+    renderTerminalIn('neon');
+    typeInput('echo');
+
+    placeCaret(1);
+    fireEvent.keyUp(inputField(), { key });
+
+    expect(drawnLine()).toBe('e[c]ho');
+  });
+
+  it('follows the caret to where the player clicks', () => {
+    renderTerminalIn('neon');
+    typeInput('echo');
+
+    placeCaret(2);
+    fireEvent.click(inputField());
+
+    expect(drawnLine()).toBe('ec[h]o');
+  });
+
+  it('follows a held arrow key, which repeats without a keyup', () => {
+    renderTerminalIn('neon');
+    typeInput('echo');
+
+    placeCaret(3);
+    fireEvent(document, new Event('selectionchange'));
+
+    expect(drawnLine()).toBe('ech[o]');
+  });
+
+  it('moves to the end of a line recalled from history', async () => {
+    renderTerminalIn('neon');
+    runCommand('echo one');
+    await screen.findByText('one');
+    await awaitPrompt();
+    expect(drawnLine()).toBe('[ ]');
+
+    typeInput('ab');
+    placeCaret(0);
+    fireEvent.keyUp(inputField(), { key: 'Home' });
+    fireEvent.keyDown(inputField(), { key: 'ArrowUp' });
+
+    expect(drawnLine()).toBe('echo one[ ]');
+  });
+
+  it('lands after a completion made in the middle of the line', async () => {
+    renderTerminalIn('neon');
+    typeInput('cat /etc/pa notes');
+    placeCaret('cat /etc/pa'.length);
+    fireEvent.keyUp(inputField(), { key: 'ArrowLeft' });
+
+    fireEvent.keyDown(inputField(), { key: 'Tab' });
+
+    await waitFor(() => expect(drawnLine()).toBe('cat /etc/passwd[ ]notes'));
+  });
+
+  it('stays put when Tab has nothing to complete', async () => {
+    renderTerminalIn('neon');
+    typeInput('zzz');
+
+    fireEvent.keyDown(inputField(), { key: 'Tab' });
+    await Promise.resolve();
+
+    expect(drawnLine()).toBe('zzz[ ]');
+  });
+
+  it('draws nothing of a masked answer', async () => {
+    renderTerminalIn('neon');
+    runCommand('su');
+    await screen.findByText('Password:');
+
+    fireEvent.input(screen.getByLabelText(/terminal input/i), { target: { value: 'hunter2' } });
+
+    expect(drawnLine()).toBe('[ ]');
+    expect(screen.queryByText(/hunter2/)).not.toBeInTheDocument();
+  });
+
+  it('leaves a plain theme its own caret', () => {
+    renderTerminalIn('amber');
+    typeInput('echo');
+
+    expect(screen.queryByTestId('terminal-cursor')).not.toBeInTheDocument();
+  });
+
+  it('stops drawing the moment the player switches to a plain theme', () => {
+    renderTerminalIn('neon');
+
+    setTheme('amber');
+
+    expect(screen.queryByTestId('terminal-cursor')).not.toBeInTheDocument();
   });
 });

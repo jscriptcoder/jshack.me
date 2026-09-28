@@ -356,10 +356,49 @@ body {
   }
 }
 
+/* ------------------------------------------------------------------------
+   The block cursor. Only a neon theme draws it: the input lies invisible over
+   this copy of the line, which wraps where the input would have scrolled.
+   ------------------------------------------------------------------------ */
+
+.prompt-mirror {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.prompt-cursor {
+  display: inline-block;
+  min-width: 1ch;
+  white-space: pre;
+  background: var(--theme-caret);
+  color: var(--theme-bg);
+  text-shadow: none;
+  box-shadow: 0 0 10px color-mix(in srgb, var(--theme-caret) 70%, transparent);
+  animation: prompt-cursor-blink 1.06s steps(1) infinite;
+}
+
+/* Hollow and still while the input is not taking keys, as a terminal window's
+   cursor is when the window loses focus. */
+input:not(:focus) + .prompt-mirror .prompt-cursor {
+  animation: none;
+  background: transparent;
+  color: inherit;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--theme-caret) 60%, transparent);
+}
+
+@keyframes prompt-cursor-blink {
+  50% {
+    background: transparent;
+    color: inherit;
+    box-shadow: none;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   [data-look='neon'] [data-text],
   [data-look='neon'] [data-text]::before,
-  [data-look='neon'] [data-text]::after {
+  [data-look='neon'] [data-text]::after,
+  .prompt-cursor {
     animation: none;
   }
 }

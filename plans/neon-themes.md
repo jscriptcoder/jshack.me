@@ -17,7 +17,7 @@
     scrollbar under the full-width banner, so the flicker is now brightness only.
   - The per-element glow colour (`color-mix` with `currentColor`, inherited) is
     verified in Chromium 149. Firefox was not available to check.
-- Slice 3 (v0.281.0) in review on `feat/neon-hud`. As built:
+- Slice 3 ✅ merged as #569 (`64179ecd`, v0.281.0). As built:
   - `Hud.tsx` wraps everything `Terminal` renders. The wrapper is always there and
     only its frame and bars depend on the theme, so a `theme` switch never remounts
     the terminal.
@@ -37,6 +37,29 @@
   - Carried to slice 4: at 390px wide the prompt row already overflows the page on
     `main`, under any theme, because the input keeps its intrinsic minimum width.
     Slice 4 rebuilds that row.
+- Slice 4 (v0.282.0) in review on `feat/neon-cursor`. As built:
+  - The input and its drawn copy of the line share one `relative min-w-0 flex-1`
+    wrapper under every theme. Under neon the input turns `opacity-0` and lies over
+    the copy. The copy is `aria-hidden`, so a screen reader still reads only the
+    input.
+  - The caret is read back from `selectionStart` on keyup, click, a document
+    `selectionchange` (a held arrow key sends no keyup), every new value (an effect
+    on the input signal), and after a Tab completion repositions it.
+  - The `(value, caret, masked) → segments` logic stayed inline as `drawnLine`. At
+    six lines and one caller, it did not earn a module.
+  - A masked answer draws the block alone at the start of the line. The native
+    password input still takes the keys.
+  - Hollow-when-unfocused is `input:not(:focus) + .prompt-mirror`. That, the blink
+    and reduced motion are CSS, checked in Chromium, not jsdom.
+  - The 390px overflow from slice 3 is gone: the input is `min-w-0` and its wrapper
+    takes the row's remaining width. Checked under Neon and Amber.
+  - Known limits, found in the browser:
+    - The copy wraps a long line while the input scrolls, so a click on a wrapped
+      second line places the caret by the input's single-line layout.
+    - A selection made with Shift and the arrows is not drawn.
+    - The output pane's horizontal scrollbar under the wide banner at phone width
+      predates this slice.
+  - IME and mobile keyboards were not checked; no such device was available.
 - Slice 5 (the `effects` command) was added by the owner on 2026-09-27, after slice 1
   merged.
   **Visual reference**: the interactive preview at https://claude.ai/artifact/FTXG8EPT39Ek2TF6JFEmmt
