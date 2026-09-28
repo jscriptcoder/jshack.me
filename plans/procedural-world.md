@@ -2,8 +2,8 @@
 
 **Status**: Grilled and gap-reviewed (find-gaps) 2026-09-28. Slice 1 planned 2026-09-28 as
 slices 1a–1c (see Slice plans); 1a complete 2026-09-28 (#572, v0.284.0); 1b complete
-2026-09-28 (#573, v0.285.0); 1c complete 2026-09-28 (#574, v0.286.0). Slice 1 complete;
-slices 2 onward not yet planned.
+2026-09-28 (#573, v0.285.0); 1c complete 2026-09-28 (#574, v0.286.0). Slice 1 complete.
+Slice 2 grilled and planned 2026-09-28 as slices 2a–2b; slices 3 onward not yet planned.
 Amends the §9 backlog item "Procedural world expansion — GRILLED & RESOLVED 2026-07-29" in
 `docs/conventions-and-gotchas.md`; where the two disagree, this file wins.
 
@@ -129,6 +129,44 @@ relations, forwards, institution sets. (Added by find-gaps 2026-09-28.)
    derived from the scheme: `scripts/testPublisherWeb.ts:86`'s `193.0.0.1` ("no publisher
    holds this") could otherwise become findit's or a corporation's address and silently test
    the wrong thing.
+   **Slice 2's shape** (grilled 2026-09-28, owner-confirmed):
+   - **Only a declared network has a public address.** No lab network can have one: the
+     server could only map an address back to it from something stored. Every wire-check
+     that reaches a network by address, about 27 of them, moves onto a landmark. It prefers
+     the 18 that publish nothing, clears that landmark's gateway journal before and after,
+     and computes the landmark's derived address. Lab networks stay for the checks that only
+     use a network's own machines (`MYSQL-LAB-3`, `REDIS-LAB-4`, …), so the 1c flag stays.
+     Rejected: keeping `network_public_ips` as a lab-only table the server reads when the
+     flag is set, which leaves the table, the fixture and a flag-dependent read at about 8
+     places in production code. Also rejected: hashing lab networks into a lab block, which
+     needs a new flag-dependent database read to map an address back.
+   - Ridgemont is town #0, so its landmarks sit at `87.1.x.y`, each placed by its position
+     in the catalog through the same scattering Millbrook uses. Millbrook (`87.98.x.y`) does
+     not move. New catalog entries can only be added at the end.
+   - findit (#0) and the 20 corporate landmarks (#1–20, in catalog order) take the `193`
+     block by position. Slice 7's generated corporations are added after them. The hashed
+     `193` addresses go, and so does the test that checked they never collided; one test
+     over the whole world checks that every address is different.
+   - Only the `87` and `193` blocks count as public; the allocator's 12 first octets stop.
+   - A join to a declared network stores no address. The allocation step and its
+     `500 allocation_failed` go, and the join's response is unchanged.
+   - findit checks every declared network that has no site of its own for a player's page,
+     instead of every network anybody has ever joined. The results are the same, because a
+     page exists only once an occupant has written a forward on the gateway. A lab network is
+     never listed. Slice 8's index split takes over from there.
+   - The source address in a trace log is the derived address of the network the player is
+     on. A player on a lab network shows `unknown`.
+   - The migration drops `network_public_ips`. It is applied only after the merge is live on
+     Production, first to jshack-dev and then to jshack-prod, because dropping it earlier
+     breaks joins on the code still deployed. The owner runs or approves the cloud pushes,
+     and the result is checked read-only afterwards.
+   - A wire-check that needs an address where nobody answers uses a `.1` address inside a
+     declared block (`87.1.0.1`, `193.0.0.1`). No network ever answers at `.1`, so this holds
+     for any world, not just today's.
+   - Every landmark keeps its LAN, content and passwords; only its public address moves (AC-7).
+     No generated content contains a public address.
+   - Two PRs: 2a derives the addresses and moves the wire-checks; 2b deletes the allocator
+     and drops the table. 2a bumps the minor version; 2b gets no bump.
 
 8a. **The server refuses a join to an undeclared network, or to a network outside the player's
     town** (Ridgemont until travel exists). Today `registerNetwork` accepts any non-empty
@@ -143,6 +181,9 @@ relations, forwards, institution sets. (Added by find-gaps 2026-09-28.)
     and the `api/` adapter admits an undeclared key only when a local-only env flag is set for
     `vercel dev`, the same local posture as its noop nonce store. The flag is never set on
     Preview or Production. An out-of-town key is refused even with the flag.
+    Narrowed by slice 2's grill (2026-09-28): a lab network has no public address once the
+    allocator retires, so lab networks serve only the checks that use a network's own
+    machines. Checks that reach a network by address use landmarks.
 
 ### Variety
 
@@ -409,6 +450,182 @@ operational evidence: Vercel's environment-variable listing for the project.
 **PR-ready when**: every 1c criterion holds, the same gates as 1a pass, and the owner approves
 the commit.
 **Slice complete when**: its PR merges. That completes slice 1.
+
+### Slice 2: every network's public address is derived from its place in the world
+
+A `reduce-system-complexity` program in two PRs: 2a is its transition, 2b its terminal
+reduction.
+
+**Reduction program** (ledger taken 2026-09-28):
+
+- **Conserved contract**:
+  - Every network has one public address, shared by all its occupants, and a player's
+    public address is the address of the network they are on.
+  - Scanning or fetching an address reaches that network's gateway and its forwards.
+  - An address stays the same across re-joins, and no two networks share one.
+  - A site's domain resolves to its network's address.
+  - findit lists every published page whose `robots.txt` allows it.
+  - A trace log names the actor's network address as the source, or `unknown` when the actor
+    is on no network.
+  - Lab networks still join locally while the flag is set.
+- **Visible change, accepted before launch**: every landmark's address moves once. A declared
+  network nobody has joined now answers at its address; today one with no site has no
+  address until somebody joins it.
+- **Superseded mechanism**, the allocator and everything that exists to feed or read it:
+  - `allocatePublicIp.ts` and its redraw loop.
+  - `generatePublicIp` and the 12 `publicFirstOctets`.
+  - The hashed `publisher-ip-` `193` addresses.
+  - The `network_public_ips` table, with its `essid` primary key, its `UNIQUE (public_ip)` and
+    RLS.
+  - The adapter's read and claim, including the `23505` redraw branch.
+  - The join's `allocation_failed` branch.
+  - 12 queries of the table in `api/`: 7 in `network.ts`, 2 in `sessions.ts` and 3 in
+    `patches.ts`. They cover the lookup from address to network, the source-address
+    lookups and findit's address list, each with a fallback to `publisherAt`.
+  - `scripts/networkFixture.ts`, with its 32 callers seeding hard-coded addresses.
+  - `scripts/testPublicIpAllocation.ts`.
+- **Target**:
+  - one pure pair in the world declaration, key → address and address → key, with every
+    reader going through it;
+  - no table, no draw and no fixture.
+- **Terminal slice**: 2b.
+- **Temporary bridge**: after 2a, `network_public_ips` holds only lab-network joins.
+  - **What stays**: a lab-network join still calls the allocator. The lookups check the
+    derivation first and fall back to the table only for a key the world does not declare.
+    A stored row for a declared network is ignored.
+  - **Why**: 2a proves the moved wire-checks against the derived addresses before anything
+    is deleted.
+  - **Owner**: slice 2b.
+  - **Removal condition**: no wire-check reaches a lab network by address. 2a delivers this.
+  - **Latest removal**: 2b, before slice 3 starts.
+- **Behavior gate**:
+  - `vitest run`, typecheck and lint pass.
+  - Before/after fingerprints of all 57 landmarks show the same LAN, content, passwords and
+    site text.
+  - The wire-check sweep passes with the flag set, apart from failures already in the
+    backlog.
+- **Mechanism gate** (2b):
+  - Nothing in `src/`, `api/` or `scripts/` mentions `network_public_ips`,
+    `allocatePublicIp`, `generatePublicIp`, `publicFirstOctets` or `networkFixture`.
+    Migrations are the only exception.
+  - The 12 table queries are gone, not moved.
+  - The cloud databases no longer have the table.
+
+### Slice 2a: every landmark answers at an address derived from its place in the world
+
+**Value**: any player can scan or fetch any declared network at an address the world
+works out. Wire-checks reach networks at those addresses instead of rows they wrote.
+**Path**:
+- **Reaching a network**: `nmap`/`curl <address>` → `isPublicIp` → `/api/network` → the
+  lookup from address to network. That lookup is now the world's pure address → key
+  function, falling back to the table only for undeclared keys. It then reaches
+  `resolvePublicTarget` → the gateway.
+- **Resolving a domain**: `resolveName` → the derived address.
+- **Joining**: `registerNetwork` stores an address only for an undeclared key.
+- **Tracing**: the source address comes from the derivation.
+- **findit**: it lists player pages across the declared networks that have no site.
+**Class**: reduction transition (program above; terminal slice 2b). It carries one
+behaviour change, the moved addresses, so its new address rules are driven by failing tests.
+**Delivery**: independent PR against `main`, branch `feat/procedural-world-derived-addresses`.
+**Status**: planned.
+**Required implementation skills**: `reduce-system-complexity`, `tdd`, `testing`,
+`refactoring`; `mutation-testing` at PR-readiness.
+**Acceptance criteria** (to be confirmed before any code):
+
+- [ ] **2a-1** Each landmark has a derived address, taken by its position in the world:
+      - a non-corporate landmark: `87.1.x.y`;
+      - findit and a corporate landmark: `193.x.y.z`;
+      - the fourth octet is always 2–254.
+      `nmap` on that address reports the gateway up with `22/tcp open`, from any player,
+      whether or not anybody has joined the network.
+- [ ] **2a-2** A test over the whole declaration proves three things:
+      - every address is different;
+      - mapping any declared network to its address and back returns the same network;
+      - no network answers at a `.1` address.
+      Millbrook's addresses are unchanged.
+- [ ] **2a-3** Every site's domain resolves to its network's derived address. A findit search
+      still lists every publisher by its domain.
+- [ ] **2a-4** A player's own page, served through a forward on a landmark with no site, is
+      listed by findit at that landmark's derived address.
+- [ ] **2a-5** A join to a declared network writes no `network_public_ips` row, and still writes
+      its lease and occupant. A join to a lab network, admitted by the flag, still stores an
+      address.
+- [ ] **2a-6** A cross-player scan from a player on a landmark logs that landmark's derived
+      address as the source.
+- [ ] **2a-7** Only the `87` and `193` blocks count as public. An address in one of the 12
+      retired first octets does not.
+- [ ] **2a-8** Every landmark's LAN, content, passwords and site text are unchanged, proven by
+      before/after fingerprints of all 57.
+- [ ] **2a-9** Every wire-check that reaches a network by address uses a declared network and its
+      derived address. The only literal public addresses left in `scripts/` are `.1`
+      addresses where nobody answers. The sweep passes with the flag set, apart from failures
+      already in the backlog.
+- [ ] **2a-10** `checkBudgets` passes: gzipped main chunk ≤ 284,975 B, landmark sweep ≤ 2 ms per
+      box.
+
+**RED**: a world test that a non-corporate landmark's address is in `87.1.0.0/16` and maps
+back to it. Then the corporate and findit `193` positions, the whole-world distinctness
+test, `isPublicIp`, the join that stores nothing, and findit's player listing, one at a time.
+**GREEN**:
+- landmarks placed through the existing town scattering;
+- a placeless `193` numbering;
+- `publisherIp`, `publisherAt` and `siteAddress` read from the derivation;
+- the derivation-first lookups in `api/`;
+- the join skipping allocation for a declared key.
+**REFACTOR**: fold `townAddress`, the hashed `193` and `publisherAt` into one pair from key to
+address and back.
+**Server evidence**: the moved wire-checks, plus `testMillbrook.ts`, `testPublisherWeb.ts`,
+`testFindit.ts` and `testJoinRefusal.ts`, against `vercel dev` and local supabase with the
+flag set.
+**PRE-PR MUTATION**: Stryker scoped to the address derivation, `isPublicIp`,
+`registerNetwork.ts` and findit's player listing (json reporter).
+**PR-ready when**: every 2a criterion holds, typecheck, lint, `vitest run` and the build's
+`checkBudgets` pass, the sweep passes, and the owner approves the commit. Bumps the minor
+version.
+**Slice complete when**: its PR merges.
+
+### Slice 2b: the public-address allocator and its table are gone
+
+**Value**: nothing about a network's address is stored or drawn any more. Every reader asks
+the world.
+**Path**: the same paths as 2a, with the table fallbacks and the allocation call removed.
+**Class**: terminal reduction (program above). It discharges 2a's bridge.
+**Delivery**: independent PR against `main` after 2a merges, branch
+`refactor/procedural-world-retire-allocator`.
+**Status**: planned.
+**Required implementation skills**: `reduce-system-complexity`, `testing`, `refactoring`;
+`mutation-testing` at PR-readiness.
+**Acceptance criteria** (to be confirmed before any code):
+
+- [ ] **2b-1** The removals in the mechanism gate have happened:
+      - these are deleted: `allocatePublicIp.ts` and its test, `generatePublicIp`,
+        `publicFirstOctets`, `networkFixture.ts` and `testPublicIpAllocation.ts`;
+      - these are removed: the adapter's read and claim, the `allocatePublicIp` dependency
+        and the join's `allocation_failed` branch;
+      - all 12 table queries are gone.
+- [ ] **2b-2** A lab-network join admitted by the flag still returns `200` with its `local_ip`.
+      `testJoinRefusal.ts` stops counting public-address rows.
+- [ ] **2b-3** A migration drops `network_public_ips`, and it applies cleanly to local supabase.
+- [ ] **2b-4** The behaviour gate still holds: `vitest run`, typecheck and lint pass, and the
+      sweep matches 2a's result.
+- [ ] **2b-5** The as-built docs describe addresses as derived. Several mention the table or the
+      allocator and are updated:
+      - `cross-player-architecture.md`;
+      - handbook chapters 1, 3, 6, 7, 9, 10 and 11;
+      - `conventions-and-gotchas.md` §6 and §9;
+      - `e2e-shared-network-verification.md`;
+      - the repo's `e2e` skill.
+- [ ] **2b-6** After the merge is live on Production, the migration is applied to jshack-dev
+      and then to jshack-prod. `migration list --linked` and a read-only check show the table
+      gone on both.
+
+**Evidence**: a terminal reduction, so no new RED. The behaviour gate starts green from 2a
+and stays green.
+**PRE-PR MUTATION**: Stryker on `registerNetwork.ts`, which loses a branch. The deletions
+are `N/A`; grep proves they are gone and the sweep proves nothing depended on them.
+**PR-ready when**: 2b-1 to 2b-5 hold and the owner approves the commit. 2b-6 is the
+post-merge operational step.
+**Slice complete when**: its PR merges and 2b-6 is done. That completes slice 2 and AC-7.
 
 ## Acceptance Criteria
 
