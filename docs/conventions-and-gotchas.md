@@ -607,6 +607,13 @@ epic's plan file was retired on close-out and its open questions are in §9 unde
 deferred". Ship waited for it. X2 (`findit.io`) was un-deferred ahead of it and is COMPLETE (v0.276.0,
 #562). With it and Phase 3 done, **legacy parity is complete and the ship gate is met.**
 
+**Neon themes — DONE (2026-09-28, v0.283.0):** five slices (#567–#571). Three Cyberpunk-style
+palettes (`neon`, the default, `redline` and `synth`) with a text glow, a neon font, a glitching
+banner, a HUD frame whose bars report live state, and a blinking block cursor; `effects` switches
+glow, glitch, HUD and cursor one at a time. Amber, green, cyan and light look exactly as they did.
+As built: handbook chapter 4, *Theming*. The plan was retired on close-out; its open items are in
+§9 under "Neon themes deferred".
+
 To pick up the next work: legacy parity is done, so there is no active epic. The remaining named
 work is the **post-ship missions epic** (see §9 and `docs/mission-ideas/`) and the deferred backlog
 in §9. When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
@@ -814,14 +821,24 @@ are already gitignored, so only those two need removing. Same for the `vitest.co
 inside the stryker config: keep it project-relative, because Stryker copies the project into a
 sandbox and an absolute path escapes it.
 
-**That throwaway vitest config must carry three things the real one supplies, or NOTHING runs.**
+**That throwaway vitest config must carry what the real one supplies, or NOTHING runs.**
 Copy `include` alone and the battery dies with `ConfigError: No tests were executed`, which reads
 like a bad `--mutate` glob and is not. It needs `setupFiles: './src/test/setup.ts'`,
 `define: { __APP_VERSION__ }`, and — the one that actually bites — `solid({ hot: false })`.
 Stryker's runner does not set mode `'test'`, so solid-refresh stays enabled and its virtual module
 is unresolvable under jsdom; every test file fails to transform and the runner reports zero tests
-rather than an import error. Start from `vite.config.ts` and narrow `include`, rather than writing
-a minimal config from scratch.
+rather than an import error. For a rendered (`.tsx`) battery it also needs `globals: true`: without
+it `@solidjs/testing-library` registers no automatic cleanup, every render piles onto the last, and
+the dry run fails every test. Keep `testTimeout: 30000` and, when a theme test is in the battery,
+`css: { include: [/src\/index\.css/] }`. Start from `vite.config.ts` and narrow `include`, rather
+than writing a minimal config from scratch.
+
+**A narrowed battery reports survivors the full suite kills.** Perturbative coverage only sees the
+tests in `include`. Neon slice 5 first ran the `effects` command's mutants against its own test file
+and the UI suites, and 28 survived; the category, the no-terminal refusal and the script refusal are
+asserted in `help`, `man`, `availability`, `runLine` and `commandContext` tests, and a rerun with
+those included killed them. Before calling a registry-level field a survivor, include the suites
+that walk the registry.
 
 **A hand-verification harness must restore the file in a `finally`, or it leaves a MUTANT in the
 tree.** Hand-checking a module-load survivor means patching the source, running the tests and
@@ -1508,6 +1525,19 @@ one is usually cheaper than reworking the realistic one — and it leaves the re
 
 ### Testing gotchas found at the rendered layer
 
+- **⚠️ The theme and the neon effects are module signals that outlive a test, and `startGame`
+  resets neither.** In a real browser `new-game` wipes the origin instead, so nothing in the game
+  needs a reset. In `Terminal.test.tsx` a test that switched the HUD off handed every later test a
+  terminal without it. The suite resets every effect in an `afterEach`; the theme is not reset,
+  so **every test that depends on the palette names its own theme** (`setTheme('neon')` before
+  rendering) rather than trusting whatever the previous test left.
+
+- **jsdom moves no caret for a key or a click.** `selectionStart` stays where the last
+  `setSelectionRange` or value change put it, so a test of anything that follows the caret (the
+  neon block cursor) places it with `setSelectionRange` and then fires the event the browser sends
+  afterwards: `keyUp` for an arrow, `click` for a click, `selectionchange` on `document` for a held
+  key. A test that fires only the key proves nothing about where the caret went.
+
 - **⚠️ The script sandbox runs in the HOST realm, so an uninjected global silently resolves
   to the test runner's own.** `runScript` builds an `AsyncFunction`, which closes over
   whatever the environment already has. `process` is the first injected name that collides
@@ -1616,6 +1646,17 @@ test's own bug. Applies to any module-level signal a test can leave set.
 
 ## 5. Operational gotchas
 
+- **Tailwind utilities lose to unlayered CSS.** Tailwind v4 puts its utilities in a cascade layer,
+  and any rule in `index.css` outside a layer beats every layered rule whatever its specificity.
+  The neon HUD bars set `display: flex` unlayered, and `max-sm:hidden` on their items did nothing
+  until the HUD rules moved into `@layer components`. Put component CSS that Tailwind classes on the
+  same element must be able to override in `@layer components`; leave unlayered only what must win.
+- **Several files on `main` are not Prettier-clean** (`ui/state.ts`, `ui/env.ts`,
+  `core/commands/types.ts` and a handful of tests, as of 2026-09-28). `npm run lint` is ESLint and
+  does not check formatting, so nothing fails. Running `prettier --write` on one of them reformats
+  far more than the change and buries it in the diff; before formatting a file, check whether its
+  `main` version is clean (`git show main:<path> | npx prettier --stdin-filepath <path> --check`),
+  and format only files the branch made dirty.
 - **A cp1252 em-dash byte gets committed and breaks every UTF-8 reader of the file.** An `—`
   written through some tool paths lands as the single byte `0x97` instead of UTF-8's three, and
   nothing in the normal loop notices: `tsc`, `eslint` and `vitest` all read the file happily, and
@@ -3343,6 +3384,14 @@ blocks the live PvP loop; each was a scoped owner decision, not a gap.
   So the CVE phase must ship a route producing a plaintext the player did not hold, or the
   progression stays inert however many doors parity adds. The three loot designs worked out before
   the postponement are recorded in the parity epic's "Next action" so the option set survives.
+- **Neon themes deferred.** Known limits of the block cursor, found in Chromium and left as they
+  are: the drawn line wraps where the invisible input scrolls, so a click on a wrapped second line
+  places the caret by the input's single-line layout; a selection made with Shift and the arrows is
+  not drawn; IME and mobile keyboards were never checked. The output pane shows a horizontal
+  scrollbar under the wide banner at phone width, older than the neon work. Firefox was not
+  checked for the glow's `color-mix` with `currentColor`. Out of the epic's scope:
+  `public/og-image.*` and the meta and OG descriptions in `index.html` still show and describe the
+  amber terminal.
 - **World content deferred.** The generated world content epic shipped (#533–#550, as-built in
   [`world-content-architecture.md`](./world-content-architecture.md)); its motivating backlog
   entry, which stood here since the owner decision of 2026-08-12, is retired. Named at its grills
