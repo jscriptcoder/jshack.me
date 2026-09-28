@@ -90,7 +90,7 @@ src/
 | `patches/`         | Server handlers for the journal (write, list, remove, log appends, traces), L1, L2, the read filter.                      | 9, 10   |
 | `signedRequest/`   | Envelope schema, signing, verification.                                                                                   | 9       |
 | `boot/`            | `canBoot` (the brick check) and the boot-id marker.                                                                       | 4, 8    |
-| `theme/`           | Colour palettes as data.                                                                                                  | 4       |
+| `theme/`           | Colour palettes and the neon effects, as data.                                                                            | 4       |
 
 Tests sit next to the code they test (`x.ts` and `x.test.ts` in the same folder).
 

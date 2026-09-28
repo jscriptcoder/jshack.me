@@ -18,6 +18,7 @@ import { ssh } from '../commands/ssh.js';
 import { su } from '../commands/su.js';
 import { tail } from '../commands/tail.js';
 import { theme } from '../commands/theme.js';
+import { effects } from '../commands/effects.js';
 import { wc } from '../commands/wc.js';
 import { xterm } from '../commands/xterm.js';
 import type {
@@ -1120,7 +1121,7 @@ describe('a shell with no terminal behind it', () => {
 
   it('says so in each real command’s own voice', async () => {
     const refusals = await Promise.all(
-      [su, nano, ssh, scp, ftp, lynx, clear, theme, author, xterm].map(async (command) =>
+      [su, nano, ssh, scp, ftp, lynx, clear, theme, effects, author, xterm].map(async (command) =>
         contentOf(
           expectSync(await runCommandLine(throughABackdoor(aliceEnv()), command.name, only(command)))
             .lines,
@@ -1140,6 +1141,7 @@ describe('a shell with no terminal behind it', () => {
       // no browser to open a second tab in.
       'clear: must be run from a terminal',
       'theme: must be run from a terminal',
+      'effects: must be run from a terminal',
       'author: must be run from a terminal',
       'xterm: must be run from a terminal',
     ]);

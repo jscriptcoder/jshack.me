@@ -13,11 +13,12 @@
  *
  * v2 differences from legacy: flag candidates come from `command.flags` (the
  * authoritative FlagSpec that `bindFlags`/`runLine` consume), not from manual
- * metadata. Keyword-at-arg0 completion (legacy's `values`) IS ported: when the
- * cursor sits on a command's FIRST positional and that command declares
- * `manual.arguments[0].values` (apt's `install | list`), those keywords are the
- * candidates instead of filesystem paths. Commands without declared values keep
- * the path behavior unchanged.
+ * metadata. Keyword completion (legacy's `values`) IS ported, and reaches past the
+ * first positional: when the cursor sits on a command's Nth positional and that
+ * command declares `manual.arguments[N].values` (apt's `install | list`, then
+ * `effects`' `on | off` after an effect name), those keywords are the candidates
+ * instead of filesystem paths. Positionals without declared values keep the path
+ * behavior unchanged.
  */
 
 import type { Command } from '../commands/types.js';
@@ -307,11 +308,11 @@ const completeFlag = (
   };
 };
 
-/** The fixed value set for the positional under the cursor, or undefined when
- *  it isn't the FIRST positional or the command declares none. Keyword
- *  completion applies only to a command's first positional (`apt <TAB>`), so
- *  the token must be preceded by exactly the command word — no other completed
- *  positionals. Returns the declared `arguments[0].values` (apt: install/list). */
+/** The fixed value set for the positional under the cursor, or undefined when the
+ *  command declares none for it. The words already typed after the command say
+ *  which positional that is: none before `apt <TAB>` makes it `arguments[0]`
+ *  (install/list), one before `effects glow <TAB>` makes it `arguments[1]`
+ *  (on/off). */
 const keywordValuesAtCursor = (
   input: string,
   ctx: CursorContext,
@@ -321,9 +322,8 @@ const keywordValuesAtCursor = (
   const stageStart = pipeIdx === -1 ? 0 : pipeIdx + 1;
   const before = input.slice(stageStart, ctx.tokenStart).trim();
   if (before === '') return undefined; // cursor is on the command name itself
-  const words = before.split(/\s+/);
-  if (words.length !== 1) return undefined; // not the FIRST positional
-  return adapter.getCommand(words[0])?.manual?.arguments?.[0]?.values;
+  const [commandName, ...typed] = before.split(/\s+/);
+  return adapter.getCommand(commandName)?.manual?.arguments?.[typed.length]?.values;
 };
 
 const completeKeyword = (

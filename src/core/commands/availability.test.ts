@@ -164,7 +164,7 @@ describe('commandRegistry gating (registry wiring)', () => {
   // binary on the filesystem — that IS the "always available" contract. Driving
   // each through the registry against an empty /bin kills the set-membership
   // literals: drop one from the set and that command gets gated → not-found.
-  it.each(['cd', 'echo', 'pwd', 'help', 'identity', 'theme', 'author', 'xterm'])(
+  it.each(['cd', 'echo', 'pwd', 'help', 'identity', 'theme', 'effects', 'author', 'xterm'])(
     'runs the always-available command %s with no binary on the filesystem',
     async (name) => {
       const command = commandRegistry.get(name);

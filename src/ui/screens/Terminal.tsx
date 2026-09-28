@@ -1,15 +1,14 @@
 import { createEffect, createSignal, For, Match, onCleanup, onMount, Show, Switch } from 'solid-js';
 import type { ModeChange, TerminalLine } from '../../core/commands/types.js';
 import { formatPrompt } from '../../core/shell/prompt.js';
-import { THEMES } from '../../core/theme/themes.js';
 import { BANNER } from '../banner.js';
 import {
   abortRunning,
   bannerVisible,
   cancelPrompt,
   clearScreen,
-  currentTheme,
   cwd,
+  effectShown,
   historyDown,
   followLink,
   historyUp,
@@ -103,7 +102,7 @@ export const Terminal = () => {
     onCleanup(() => document.removeEventListener('selectionchange', readCaret));
   });
 
-  const neonCursor = () => THEMES[currentTheme()].neonColors !== undefined;
+  const neonCursor = () => effectShown('cursor');
 
   /** The line as drawn: the text before the caret, the character under the block
    *  (a space at the end of the line), and the rest. A masked answer is drawn as the

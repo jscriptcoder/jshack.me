@@ -144,6 +144,109 @@ describe('adopting the stored theme at boot', () => {
     expect(setItem).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * The effects ride with the theme: adopted before the first render, remembered
+ * on every switch, and kept under a plain theme for when the player next wears a
+ * neon one. What each effect then looks like is the stylesheet's business, so
+ * these read the marks it hangs off.
+ */
+describe('the neon effects', () => {
+  const stubStorage = (entries: readonly (readonly [string, string])[] = []) => {
+    const store = new Map<string, string>(entries);
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => store.set(key, value),
+      removeItem: (key: string) => store.delete(key),
+      clear: () => store.clear(),
+    });
+    return store;
+  };
+
+  const bootedState = async () => {
+    vi.resetModules();
+    const state = await import('./state.js');
+    state.adoptStoredTheme();
+    return state;
+  };
+
+  const markedEffects = () => document.documentElement.dataset.effects;
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    document.documentElement.removeAttribute('style');
+    document.documentElement.removeAttribute('data-look');
+    document.documentElement.removeAttribute('data-effects');
+  });
+
+  it('comes up with the stored effects already marked, before anything renders', async () => {
+    stubStorage([['jshack:effects', 'glitch hud']]);
+
+    const state = await bootedState();
+
+    expect(markedEffects()).toBe('glow cursor');
+    expect(state.currentEffects()).toEqual({ glow: true, glitch: false, hud: false, cursor: true });
+  });
+
+  it('comes up with every effect on once the origin has been wiped', async () => {
+    // `new-game` clears the whole origin, so a fresh game starts in the full look.
+    const store = stubStorage([['jshack:effects', 'glow']]);
+    const state = await bootedState();
+    expect(state.currentEffects().glow).toBe(false);
+
+    store.clear();
+    state.adoptStoredTheme();
+
+    expect(state.currentEffects()).toEqual({ glow: true, glitch: true, hud: true, cursor: true });
+    expect(markedEffects()).toBe('glow glitch hud cursor');
+  });
+
+  it('switches one effect off, leaves the rest, and still has it off after a reload', async () => {
+    stubStorage();
+    const state = await bootedState();
+
+    state.setEffect('glitch', false);
+
+    expect(markedEffects()).toBe('glow hud cursor');
+    expect(state.currentEffects()).toEqual({ glow: true, glitch: false, hud: true, cursor: true });
+    const reloaded = await bootedState();
+    expect(reloaded.currentEffects().glitch).toBe(false);
+    expect(markedEffects()).toBe('glow hud cursor');
+  });
+
+  it('switches an effect back on', async () => {
+    stubStorage([['jshack:effects', 'glitch']]);
+    const state = await bootedState();
+
+    state.setEffect('glitch', true);
+
+    expect(markedEffects()).toBe('glow glitch hud cursor');
+  });
+
+  it('keeps the effects across a switch to another neon theme', async () => {
+    stubStorage();
+    const state = await bootedState();
+    state.setEffect('hud', false);
+
+    state.setTheme('synth');
+
+    expect(markedEffects()).toBe('glow glitch cursor');
+  });
+
+  it('keeps a switch made under a plain theme for the next neon one', async () => {
+    stubStorage();
+    const state = await bootedState();
+    state.setTheme('amber');
+
+    state.setEffect('glow', false);
+
+    // Amber shows no effects whatever the player chose...
+    expect(markedEffects()).toBeUndefined();
+    // ...and the choice is waiting when a neon theme comes back.
+    state.setTheme('neon');
+    expect(markedEffects()).toBe('glitch hud cursor');
+  });
+});
 /**
  * A second terminal is a second TAB, and it has to come up standing on the
  * player's own box rather than inside whatever this one is ssh'd into. A flag on

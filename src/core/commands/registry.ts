@@ -26,6 +26,7 @@ import { curl } from './curl.js';
 import { dig } from './dig.js';
 import { apache2, mysqld, named, nginx, redisServer, sshd, vsftpd } from './daemon.js';
 import { echo } from './echo.js';
+import { effects } from './effects.js';
 import { exit } from './exit.js';
 import { find } from './find.js';
 import { grep } from './grep.js';
@@ -90,6 +91,7 @@ const builtins: readonly Command[] = [
   curl,
   dig,
   echo,
+  effects,
   exit,
   find,
   gobuster,

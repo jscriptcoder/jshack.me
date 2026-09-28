@@ -41,6 +41,7 @@ import type {
 } from '../core/commands/types.js';
 import type { Directory } from '../core/filesystem/types.js';
 import type { WifiNetwork } from '../core/network/wifi.js';
+import type { EffectName, Effects } from '../core/theme/effects.js';
 import type { ThemeId } from '../core/theme/themes.js';
 import { createFsView } from '../core/filesystem/fsView.js';
 import {
@@ -302,6 +303,10 @@ export type BuildCommandEnvArgs = {
   /** The theme-switching seam — backs `env.setTheme`. The UI wires it to paint the
    *  palette AND remember the choice, in one place. Optional, same reason. */
   readonly onSetTheme?: (id: ThemeId) => void;
+  /** The effects reader and switch — back `env.currentEffects` and
+   *  `env.setEffect`. Optional, same reason: only `effects` uses them. */
+  readonly onCurrentEffects?: () => Effects;
+  readonly onSetEffect?: (name: EffectName, on: boolean) => void;
   /** The second-terminal seam — backs `env.openTerminal`. The UI wires it to open
    *  a tab that boots fresh. Optional, same reason: only `xterm` fires it, and a
    *  stray call should be loud rather than quietly do nothing — a player told a
@@ -523,6 +528,8 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
   clearScreen: args.onClearScreen ?? notWired('clearScreen'),
   currentTheme: args.onCurrentTheme ?? notWired('currentTheme'),
   setTheme: args.onSetTheme ?? notWired('setTheme'),
+  currentEffects: args.onCurrentEffects ?? notWired('currentEffects'),
+  setEffect: args.onSetEffect ?? notWired('setEffect'),
   openTerminal: args.onOpenTerminal ?? notWired('openTerminal'),
   // A no-op default rather than `notWired`: the label is cosmetic, so an env
   // built without it should simply show no child, not throw part-way through

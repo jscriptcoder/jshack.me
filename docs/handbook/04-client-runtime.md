@@ -82,7 +82,7 @@ is why the rewrite chose signals and kept logic out of components.
 
 ```mermaid
 flowchart TD
-  A["index.html loads /src/main.tsx"] --> B["adoptStoredTheme()<br/>read jshack:theme, paint CSS vars"]
+  A["index.html loads /src/main.tsx"] --> B["adoptStoredTheme()<br/>read jshack:theme and jshack:effects, paint CSS vars"]
   B --> C["consumeFreshTabFlag()<br/>strip ?fresh, remember it"]
   C --> D["render App"]
   D --> E{"valid game config<br/>in localStorage?"}
@@ -102,8 +102,9 @@ the terminal._
 Step by step:
 
 1. **Theme first.** `main.tsx` calls `adoptStoredTheme()` synchronously, before `render`. It reads
-   `jshack:theme` from `localStorage` and writes the palette as CSS custom properties on `<html>`.
-   Doing this in a Solid effect would paint one frame of the default amber theme first.
+   `jshack:theme` and `jshack:effects` from `localStorage`, writes the palette as CSS custom
+   properties on `<html>`, and marks the neon effects that are on. Doing this in a Solid effect would
+   paint one frame of the default look first.
 2. **The `?fresh` flag.** `consumeFreshTabFlag` reads the query string and immediately strips it
    with `history.replaceState`. The `xterm` command opens a new tab with `?fresh`, which means "boot
    at home on your own box, do not restore remote sessions". Spending the flag at once means a later
@@ -153,7 +154,8 @@ server.
 | -------------------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
 | `jshack.identity`          | `core/identity/identity.ts`                                                              | The Ed25519 keypair as hex. Malformed → silently regenerated (which means a new world).           |
 | `jshack.gameConfig`        | `core/gameConfig/gameConfig.ts`                                                          | `{machineName, username, rootPassword}`, re-validated on load. The root password is a game token. |
-| `jshack:theme`             | `ui/themePersistence.ts`                                                                 | A theme id; anything unknown reads as `amber`.                                                    |
+| `jshack:theme`             | `ui/themePersistence.ts`                                                                 | A theme id; anything unknown reads as `neon`.                                                     |
+| `jshack:effects`           | `ui/themePersistence.ts`                                                                 | The neon effects switched off, space-separated; anything unknown reads as every effect on.        |
 | `jshack:connected-essid`   | `ui/connectionPersistence.ts`                                                            | The WiFi network `wlan0` is associated with; removed on disconnect.                               |
 | `jshack:lan-lease:<essid>` | `ui/connectionPersistence.ts` (via `lanLeaseCacheIn` in `core/network/lanLeaseCache.ts`) | The LAN IP the server leased you on that network. Kept after disconnect.                          |
 
@@ -362,12 +364,20 @@ All tabs in one browser share `localStorage`, so they are the same player with t
 
 ## Theming
 
-Palettes are pure data in `src/core/theme/themes.ts`: four themes, each with ten colour tokens
+Palettes are pure data in `src/core/theme/themes.ts`: seven themes, each with ten colour tokens
 (`bg`, `text`, `textBright`, `textDim`, `error`, `caret`, `scrollThumb`, `scrollThumbHover`, `link`,
-`avatarBorder`). `applyTheme(id)` writes them as `--theme-<kebab-name>` custom properties on
-`<html>`. Components never hold colours; they use Tailwind arbitrary values such as
+`avatarBorder`). The three neon ones (`neon`, the default, `redline` and `synth`) add `neonColors`.
+`applyTheme(id, effects)` writes the colours as `--theme-<kebab-name>` custom properties on `<html>`.
+Components never hold colours; they use Tailwind arbitrary values such as
 `text-[var(--theme-text-dim)]`. The `theme <name>` command calls `setTheme`, which sets the signal,
 paints, and stores the choice in one function so the screen and storage cannot disagree.
+
+Under a neon theme `applyTheme` also sets `data-look="neon"` (the font and backdrop) and lists the
+effects the player has on in `data-effects`: `glow` and `glitch` are CSS rules hanging off those
+words, while the HUD frame (`Hud.tsx`) and the block cursor (`Terminal.tsx`) read the `currentEffects`
+signal. `effects <name> on|off` calls `setEffect`, which works like `setTheme`. A plain theme shows
+no effects but keeps the player's choice for the next neon one. Reduced motion stops the glitch and
+the blink whatever the effects say.
 
 ## Rules you must not break
 

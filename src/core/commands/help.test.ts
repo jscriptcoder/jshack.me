@@ -153,6 +153,8 @@ describe('help', () => {
     expect(rowOf('clear')).toBeLessThan(filesystem);
     expect(rowOf('theme')).toBeGreaterThan(general);
     expect(rowOf('theme')).toBeLessThan(filesystem);
+    expect(rowOf('effects')).toBeGreaterThan(general);
+    expect(rowOf('effects')).toBeLessThan(filesystem);
     expect(rowOf('whoami')).toBeGreaterThan(filesystem);
     // Searching a box and reading what is on it are questions about the box
     // too — they belong with `ls` and `cat`, not with the shell's own controls.

@@ -191,6 +191,7 @@ describe('man', () => {
   it.each([
     'clear',
     'theme',
+    'effects',
     'whoami',
     'author',
     'xterm',
