@@ -11,11 +11,8 @@ import { lanZoneName } from '../network/resolveName.js';
 import { createPrng } from './prng.js';
 import type { LanHost } from './generateHomeLan.js';
 import { FIRST_NAMES_BY_INITIAL, SURNAMES } from './pools/people.js';
-import {
-  ESSID_CATALOG,
-  NETWORK_CATEGORIES,
-  type NetworkCategory,
-} from './pools/essidCatalog.js';
+import { NETWORK_CATEGORIES, type NetworkCategory } from './pools/essidCatalog.js';
+import { declaredNetwork, RIDGEMONT } from './world.js';
 
 export type NetworkPersona = {
   readonly category: NetworkCategory;
@@ -23,6 +20,8 @@ export type NetworkPersona = {
   readonly place: string;
   /** The network's own domain, which its people's addresses end in. */
   readonly domain: string;
+  /** The town the place stands in. */
+  readonly town: string;
 };
 
 /** What the people on an uncatalogued network call where they are. A catalog network
@@ -39,19 +38,18 @@ const UNNAMED_PLACES: Readonly<Record<NetworkCategory, readonly string[]>> = {
   retail: ['the shop', 'the store', 'the corner shop', 'the supermarket', 'the stockroom'],
 };
 
-const CATALOG_BY_ESSID = new Map(ESSID_CATALOG.map((entry) => [entry.essid, entry]));
-
 export const networkPersona = (essid: string): NetworkPersona => {
   const domain = lanZoneName(essid);
-  const known = CATALOG_BY_ESSID.get(essid);
+  const known = declaredNetwork(essid);
   if (known !== undefined) {
-    return { category: known.category, place: known.place, domain };
+    return { category: known.category, place: known.place, domain, town: known.town };
   }
   // A network another player named, or one that left the catalog, still belongs
-  // somewhere: its own stream picks a kind of place and a name for it.
+  // somewhere: its own stream picks a kind of place and a name for it. It stands where
+  // everybody who could have joined it stands.
   const prng = createPrng(`network-persona-${essid}`);
   const category = prng.pick(NETWORK_CATEGORIES);
-  return { category, place: prng.pick(UNNAMED_PLACES[category]), domain };
+  return { category, place: prng.pick(UNNAMED_PLACES[category]), domain, town: RIDGEMONT };
 };
 
 export type Inhabitant = {

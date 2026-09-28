@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { inhabitant, networkPersona } from './persona.js';
 import type { LanHost } from './generateHomeLan.js';
 import { NETWORK_CATEGORIES } from './pools/essidCatalog.js';
+import { DECLARED_NETWORKS } from './world.js';
 
 /**
  * Who a network belongs to. Every machine behind an access point reads as part of one
@@ -15,6 +16,7 @@ describe('networkPersona', () => {
       category: 'corporate',
       place: 'Waystar Royco',
       domain: 'waystar-wifi.lan',
+      town: 'Ridgemont',
     });
     expect(networkPersona('NIGHT-OWL-CAFE')).toMatchObject({
       category: 'cafe',
@@ -31,11 +33,24 @@ describe('networkPersona', () => {
     });
   });
 
+  it("knows a town's network by what the town declares, under the name its wifi broadcasts", () => {
+    const council = DECLARED_NETWORKS.find((network) => network.site?.domain === 'millbrook.gov');
+
+    expect(networkPersona(council?.key ?? '')).toEqual({
+      category: 'government',
+      place: 'the town hall',
+      domain: 'town-hall-wifi.lan',
+      town: 'Millbrook',
+    });
+  });
+
   it('gives a network outside the catalog a place of its own, the same one every time', () => {
     const persona = networkPersona('Linksys-Kitchen');
 
     expect(NETWORK_CATEGORIES).toContain(persona.category);
     expect(persona.domain).toBe('linksys-kitchen.lan');
+    // Nobody can stand anywhere but Ridgemont yet, so that is where it is.
+    expect(persona.town).toBe('Ridgemont');
     expect(persona.place).not.toBe('');
     expect(networkPersona('Linksys-Kitchen')).toEqual(persona);
   });

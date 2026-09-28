@@ -22,6 +22,7 @@
 
 import { generateHomeLan } from '../generation/generateHomeLan.js';
 import { siteAddress } from '../generation/publisher.js';
+import { declaredNetwork } from '../generation/world.js';
 import type { Ipv4 } from './interfaces.js';
 import type { OccupantProjection } from './resolveOccupants.js';
 
@@ -38,12 +39,13 @@ export type ResolvedName = {
  *  says at a glance that the name is local rather than out on the internet. */
 const LOCAL_ZONE = 'lan';
 
-/** An ESSID as a DNS label: lowercased, with every run of characters a hostname
- *  cannot carry collapsed to a single hyphen. `HOME-WIFI-2.4G` is a real name a
- *  real access point broadcasts, and `home-wifi-2-4g` is what it can be called
- *  inside a name. */
+/** A network's ESSID as a DNS label: lowercased, with every run of characters a
+ *  hostname cannot carry collapsed to a single hyphen. `HOME-WIFI-2.4G` is a real name a
+ *  real access point broadcasts, and `home-wifi-2-4g` is what it can be called inside a
+ *  name. A network the world declares under a key of its own is named for the wifi it
+ *  broadcasts, never for that key: nobody on it has ever seen the key. */
 const essidSlug = (essid: string): string =>
-  essid.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+  (declaredNetwork(essid)?.essid ?? essid).toLowerCase().replace(/[^a-z0-9]+/g, '-');
 
 /** The domain a network's own names live under — `acme-corp.lan` for `ACME-CORP`.
  *

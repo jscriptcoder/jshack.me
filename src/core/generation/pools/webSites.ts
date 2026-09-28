@@ -37,7 +37,7 @@ export const SITE_DESCRIPTIONS: Readonly<Partial<Record<NetworkCategory, string>
   corporate: '{site}: products, services, careers and news from the company.',
   cafe: '{site}: coffee, food, opening hours and free wifi for customers.',
   university: '{site}: admissions, courses, research and campus life.',
-  public: '{site}: opening hours, services and visitor information for the people of Ridgemont.',
+  public: '{site}: opening hours, services and visitor information for the people of {town}.',
   government: '{site}: public services, opening hours, forms to download and how to contact the office.',
   retail: '{site}: groceries and household essentials, weekly offers, opening hours, delivery and the loyalty card.',
 };
@@ -87,7 +87,7 @@ export const FRONT_PAGES: Readonly<Record<NetworkCategory, readonly string[]>> =
     '<p>Projects, meetups and the wiki for {site}. Be excellent to each other.</p>',
   ],
   government: [
-    '<p>{site} serves the people of Ridgemont. Opening hours, forms and contact details are below.</p>\n<p>Most requests can be dealt with at the front counter without an appointment.</p>',
+    '<p>{site} serves the people of {town}. Opening hours, forms and contact details are below.</p>\n<p>Most requests can be dealt with at the front counter without an appointment.</p>',
     '<p>Welcome to {site}. Notices are published here first and posted at the entrance the same day.</p>',
     '<p>{site} — public counter open on weekdays. Forms can be downloaded before you come in, which saves a wait.</p>',
     '<p>This is the official site of {site}. Staff should use the internal address for anything not published here.</p>',
@@ -523,7 +523,7 @@ export const SITE_PAGES: Readonly<Record<NetworkCategory, readonly SitePage[]>> 
       file: 'delivery.html',
       title: 'Delivery and collection',
       bodies: [
-        '<p>Order by phone before noon for delivery the same evening within Ridgemont.</p>\n<p>Collection is free from the customer service desk.</p>',
+        '<p>Order by phone before noon for delivery the same evening within {town}.</p>\n<p>Collection is free from the customer service desk.</p>',
         '<p>Deliveries go out twice a day. Bulky items are delivered on Thursdays only.</p>',
       ],
     },

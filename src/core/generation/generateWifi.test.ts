@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { generateWifi } from './generateWifi.js';
+import { DECLARED_NETWORKS } from './world.js';
 import { bssidFromEssid, type WifiNetwork } from '../network/wifi.js';
 import { secrets } from '../secrets/__encoded.js';
 
@@ -54,6 +55,19 @@ describe('generateWifi', () => {
     expect(offered('id-0')).toEqual(['CS-DEPT-LAB', 'NIGHT-OWL-CAFE', 'UNIV-DORM-7']);
     expect(offered('id-1')).toEqual(['WAYSTAR-WIFI', 'BUY-N-LARGE']);
     expect(offered('id-2')).toEqual(['ROBOVAC-AP', 'APERTURE-WIFI']);
+  });
+
+  it('offers only networks in the town the player stands in', () => {
+    // Everybody stands in Ridgemont: another town's networks are out of wifi range and
+    // reachable over the internet alone.
+    const elsewhere = DECLARED_NETWORKS.filter((network) => network.town !== 'Ridgemont');
+    expect(elsewhere.length).toBeGreaterThan(0);
+    const names = new Set(elsewhere.flatMap((network) => [network.key, network.essid]));
+    for (let scan = 0; scan < 500; scan++) {
+      for (const network of generateWifi({ seedPubkeyHex: SEED_A, scanIndex: scan })) {
+        expect(names.has(network.essid), network.essid).toBe(false);
+      }
+    }
   });
 
   it('yields 2-3 crackable and 3-5 noise networks', () => {

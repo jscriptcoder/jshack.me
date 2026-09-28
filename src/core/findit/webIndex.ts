@@ -21,7 +21,7 @@
  * index cannot rebuild, is fetched the ordinary way, alone.
  */
 
-import { ESSID_CATALOG } from '../generation/pools/essidCatalog.js';
+import { DECLARED_NETWORKS } from '../generation/world.js';
 import { publisherIp, publisherSite } from '../generation/publisher.js';
 import { FINDIT_NETWORK } from '../generation/findit.js';
 import { siteServer } from '../generation/siteServer.js';
@@ -78,16 +78,16 @@ type Publisher = {
   readonly serverId: string;
 };
 
-const PUBLISHERS: readonly Publisher[] = ESSID_CATALOG.flatMap((entry) => {
-  const server = entry.site === undefined ? undefined : siteServer(entry.essid);
-  if (entry.site === undefined || server === undefined) return [];
+const PUBLISHERS: readonly Publisher[] = DECLARED_NETWORKS.flatMap((network) => {
+  const server = network.site === undefined ? undefined : siteServer(network.key);
+  if (network.site === undefined || server === undefined) return [];
   return [
     {
-      essid: entry.essid,
-      domain: entry.site.domain,
-      gatewayId: computeApGatewayId(entry.essid),
+      essid: network.key,
+      domain: network.site.domain,
+      gatewayId: computeApGatewayId(network.key),
       server,
-      serverId: resolveLanHostIdentity(server, entry.essid).machineId,
+      serverId: resolveLanHostIdentity(server, network.key).machineId,
     },
   ];
 });
