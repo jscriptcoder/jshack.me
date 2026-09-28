@@ -3,7 +3,7 @@
 **Status**: Active. Decisions confirmed by the owner 2026-09-27.
 
 - Slice 1 ✅ merged as #567 (`dd7e0ffd`, v0.279.0).
-- Slice 2 (v0.280.0) in review on `feat/neon-look`. As built:
+- Slice 2 ✅ merged as #568 (`122d5fa6`, v0.280.0). As built:
   - The mark is `data-look="neon"` on `<html>`, written by `applyTheme` from
     `ThemeDefinition.neonColors`.
   - The banner's `data-text` is the glitch hook, and scrollback lines carry a
@@ -17,6 +17,26 @@
     scrollbar under the full-width banner, so the flicker is now brightness only.
   - The per-element glow colour (`color-mix` with `currentColor`, inherited) is
     verified in Chromium 149. Firefox was not available to check.
+- Slice 3 (v0.281.0) in review on `feat/neon-hud`. As built:
+  - `Hud.tsx` wraps everything `Terminal` renders. The wrapper is always there and
+    only its frame and bars depend on the theme, so a `theme` switch never remounts
+    the terminal.
+  - The bars are a `<header>` and a `<footer>`, so a screen reader finds them as
+    landmarks and the tests query them by role.
+  - `state.ts` gained two readers, `linkOnline` and `connectedWireless`.
+    `followLink` now uses the second instead of building the same view inline.
+  - The frame colours are `frameA`/`frameB` (tokens `--theme-frame-a`/`-b`), named
+    like `glitchA`/`glitchB` rather than the preview's `frame`/`frame2`.
+  - Deviation from the preview: the values (`user@host`, the ESSID) keep their own
+    case inside the upper-case bars, because they are things a player types back.
+  - The barcode ornament from the preview stays. It is `aria-hidden` and claims no
+    meaning.
+  - Found in the browser: the HUD CSS has to sit in `@layer components`, or the
+    bars' own `display: flex` beats Tailwind's `max-sm:hidden` and the narrow layout
+    keeps every item.
+  - Carried to slice 4: at 390px wide the prompt row already overflows the page on
+    `main`, under any theme, because the input keeps its intrinsic minimum width.
+    Slice 4 rebuilds that row.
 - Slice 5 (the `effects` command) was added by the owner on 2026-09-27, after slice 1
   merged.
   **Visual reference**: the interactive preview at https://claude.ai/artifact/FTXG8EPT39Ek2TF6JFEmmt
@@ -199,7 +219,7 @@ the preview shows.
 **Path**: a new HUD component wrapping `Terminal`'s root (prompt screen and overlays)
 → reads `promptUsername`/`promptHost`, `connectivity()` through `isOnline` and
 `connectedWlan0`, the app version, and a one-second clock → shown only while the
-document is neon (the theme signal, not a DOM read) → `frame`/`frame2` colours join the
+document is neon (the theme signal, not a DOM read) → `frameA`/`frameB` colours join the
 neon colour group (they arrive with the screen that paints them) → Rajdhani via
 `@fontsource/rajdhani`.
 **Class**: Behavior change.

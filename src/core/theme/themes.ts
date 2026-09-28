@@ -31,13 +31,16 @@ export type ThemeColors = {
 };
 
 /** What the neon look paints with beyond the ten shared tokens: the two colours
- *  the banner's glitch splits into, and the two faint tints lit into the top and
- *  bottom corners of the background. */
+ *  the banner's glitch splits into, the two faint tints lit into the top and
+ *  bottom corners of the background, and the two colours the HUD frame fades
+ *  between, from its top-left corner to its bottom-right. */
 export type NeonColors = {
   readonly glitchA: string;
   readonly glitchB: string;
   readonly tintTop: string;
   readonly tintBottom: string;
+  readonly frameA: string;
+  readonly frameB: string;
 };
 
 /** No `id` field: the record key IS the id, and `THEME_IDS` is the order. A
@@ -79,6 +82,8 @@ export const THEMES: Readonly<Record<ThemeId, ThemeDefinition>> = {
       glitchB: '#4ee6ee',
       tintTop: 'rgba(78, 230, 238, 0.08)',
       tintBottom: 'rgba(252, 238, 10, 0.05)',
+      frameA: '#fcee0a',
+      frameB: '#4ee6ee',
     },
   },
   redline: {
@@ -101,6 +106,8 @@ export const THEMES: Readonly<Record<ThemeId, ThemeDefinition>> = {
       glitchB: '#fcee0a',
       tintTop: 'rgba(255, 94, 87, 0.09)',
       tintBottom: 'rgba(94, 246, 255, 0.05)',
+      frameA: '#ff5e57',
+      frameB: '#5ef6ff',
     },
   },
   synth: {
@@ -122,6 +129,8 @@ export const THEMES: Readonly<Record<ThemeId, ThemeDefinition>> = {
       glitchB: '#ff2a6d',
       tintTop: 'rgba(255, 42, 109, 0.1)',
       tintBottom: 'rgba(5, 217, 232, 0.08)',
+      frameA: '#ff2a6d',
+      frameB: '#05d9e8',
     },
   },
   amber: {

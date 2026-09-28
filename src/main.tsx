@@ -5,6 +5,11 @@ import { adoptStoredTheme } from './ui/state.js';
 // Self-hosted rather than linked from Google Fonts, which would hand every
 // player's IP address to Google on every boot.
 import '@fontsource/share-tech-mono';
+// The HUD's bars, in the three weights they use. Latin only: the bars show
+// nothing outside it, and every other script would be one more face declared.
+import '@fontsource/rajdhani/latin-500.css';
+import '@fontsource/rajdhani/latin-600.css';
+import '@fontsource/rajdhani/latin-700.css';
 import './index.css';
 
 const root = document.getElementById('root');

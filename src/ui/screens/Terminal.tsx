@@ -29,6 +29,7 @@ import {
   tabComplete,
 } from '../state.js';
 import { Author } from './Author.js';
+import { Hud } from './Hud.js';
 import { Lynx } from './Lynx.js';
 import { Nano } from './Nano.js';
 import { TerminalLoading } from './TerminalLoading.js';
@@ -181,85 +182,87 @@ export const Terminal = () => {
   };
 
   return (
-    <Show
-      when={overlayMode()}
-      fallback={
-        <main
-          class="flex h-full flex-col p-4 font-mono text-sm leading-relaxed"
-          onClick={refocusPrompt}
-        >
-          <div ref={output} class="flex-1 overflow-y-auto">
-            <Show when={bannerVisible()}>
-              <pre
-                data-testid="terminal-banner"
-                data-text={BANNER}
-                class="font-art whitespace-pre leading-none text-[var(--theme-text-bright)]"
-              >
-                {BANNER}
-              </pre>
-            </Show>
-            <For each={scrollback()}>
-              {(line) => (
-                <div data-kind={line.kind} class={`${LINE_BASE} ${LINE_COLOR[line.kind]}`}>
-                  {line.content}
-                </div>
-              )}
-            </For>
-          </div>
-          <Show
-            when={busyLabel()}
-            fallback={
-              <div class="flex items-baseline gap-2">
-                <span data-kind="prompt" class="whitespace-pre text-[var(--theme-text-bright)]">
-                  {livePrompt()}
-                </span>
-                <input
-                  ref={inputEl}
-                  aria-label="terminal input"
-                  type={pendingPrompt()?.masked ? 'password' : 'text'}
-                  class="flex-1 border-none bg-transparent p-0 text-inherit caret-[var(--theme-caret)] outline-none [font:inherit]"
-                  autocomplete="off"
-                  autocapitalize="off"
-                  spellcheck={false}
-                  value={input()}
-                  onInput={(event) => setInput(event.currentTarget.value)}
-                  onKeyDown={onKeyDown}
-                />
-              </div>
-            }
+    <Hud>
+      <Show
+        when={overlayMode()}
+        fallback={
+          <main
+            class="flex h-full flex-col p-4 font-mono text-sm leading-relaxed"
+            onClick={refocusPrompt}
           >
-            {(label) => <TerminalLoading commandName={label()} />}
-          </Show>
-        </main>
-      }
-    >
-      {(mode) => (
-        <Switch>
-          <Match when={asNano(mode())}>
-            {(nano) => (
-              <Nano
-                path={nano().path}
-                content={nano().content}
-                onSave={saveEditor}
-                onExit={closeOverlay}
-              />
-            )}
-          </Match>
-          <Match when={asLynx(mode())}>
-            {(browser) => (
-              <Lynx
-                url={browser().url}
-                content={browser().content}
-                onExit={closeOverlay}
-                onFollow={followLink}
-              />
-            )}
-          </Match>
-          <Match when={asAuthor(mode())}>
-            <Author onExit={closeOverlay} />
-          </Match>
-        </Switch>
-      )}
-    </Show>
+            <div ref={output} class="flex-1 overflow-y-auto">
+              <Show when={bannerVisible()}>
+                <pre
+                  data-testid="terminal-banner"
+                  data-text={BANNER}
+                  class="font-art whitespace-pre leading-none text-[var(--theme-text-bright)]"
+                >
+                  {BANNER}
+                </pre>
+              </Show>
+              <For each={scrollback()}>
+                {(line) => (
+                  <div data-kind={line.kind} class={`${LINE_BASE} ${LINE_COLOR[line.kind]}`}>
+                    {line.content}
+                  </div>
+                )}
+              </For>
+            </div>
+            <Show
+              when={busyLabel()}
+              fallback={
+                <div class="flex items-baseline gap-2">
+                  <span data-kind="prompt" class="whitespace-pre text-[var(--theme-text-bright)]">
+                    {livePrompt()}
+                  </span>
+                  <input
+                    ref={inputEl}
+                    aria-label="terminal input"
+                    type={pendingPrompt()?.masked ? 'password' : 'text'}
+                    class="flex-1 border-none bg-transparent p-0 text-inherit caret-[var(--theme-caret)] outline-none [font:inherit]"
+                    autocomplete="off"
+                    autocapitalize="off"
+                    spellcheck={false}
+                    value={input()}
+                    onInput={(event) => setInput(event.currentTarget.value)}
+                    onKeyDown={onKeyDown}
+                  />
+                </div>
+              }
+            >
+              {(label) => <TerminalLoading commandName={label()} />}
+            </Show>
+          </main>
+        }
+      >
+        {(mode) => (
+          <Switch>
+            <Match when={asNano(mode())}>
+              {(nano) => (
+                <Nano
+                  path={nano().path}
+                  content={nano().content}
+                  onSave={saveEditor}
+                  onExit={closeOverlay}
+                />
+              )}
+            </Match>
+            <Match when={asLynx(mode())}>
+              {(browser) => (
+                <Lynx
+                  url={browser().url}
+                  content={browser().content}
+                  onExit={closeOverlay}
+                  onFollow={followLink}
+                />
+              )}
+            </Match>
+            <Match when={asAuthor(mode())}>
+              <Author onExit={closeOverlay} />
+            </Match>
+          </Switch>
+        )}
+      </Show>
+    </Hud>
   );
 };
