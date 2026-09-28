@@ -2,7 +2,8 @@
 
 **Status**: Grilled and gap-reviewed (find-gaps) 2026-09-28. Slice 1 planned 2026-09-28 as
 slices 1a–1c (see Slice plans); 1a complete 2026-09-28 (#572, v0.284.0); 1b complete
-2026-09-28 (#573, v0.285.0); the rest not yet planned.
+2026-09-28 (#573, v0.285.0); 1c complete 2026-09-28 (#574, v0.286.0). Slice 1 complete;
+slices 2 onward not yet planned.
 Amends the §9 backlog item "Procedural world expansion — GRILLED & RESOLVED 2026-07-29" in
 `docs/conventions-and-gotchas.md`; where the two disagree, this file wins.
 
@@ -368,6 +369,7 @@ allocation.
 **Class**: behaviour change.
 **Delivery**: independent PR against `main` after 1b merges, branch
 `feat/procedural-world-join-refusal`.
+**Status**: complete, merged as #574 (`ce45c01a`).
 **Required implementation skills**: `tdd`, `testing`, `refactoring`; `mutation-testing` at
 PR-readiness.
 **Reduction program**: N/A.
@@ -379,14 +381,20 @@ working (decision 8a). An out-of-town key is refused with or without the flag.
 `docs/conventions-and-gotchas.md`'s wire-check section records that a run needs the flag.
 **Acceptance criteria** (to be confirmed before any code):
 
-- [ ] **1c-1** A signed join to a Millbrook key is refused with `403 network_not_joinable`, and
-      no public IP, LAN lease or occupancy row is written.
-- [ ] **1c-2** Without the flag, a signed join to a key the world does not declare is refused the
-      same way.
-- [ ] **1c-3** A join to any Ridgemont landmark succeeds exactly as today.
-- [ ] **1c-4** With the flag set, a join to an undeclared lab network succeeds, and a Millbrook
+- [x] **1c-1** A signed join to any Millbrook key (`r0/t1/n0`, …) is refused with
+      `403 network_not_joinable`, and no public IP, LAN lease or occupancy row is written. The
+      signature is checked first, so a badly signed join keeps its `401`.
+- [x] **1c-2** Without the flag, a signed join to a key the world does not declare is refused the
+      same way. The flag counts as set only when its value is exactly `1`.
+- [x] **1c-3** All 57 Ridgemont landmarks join exactly as before (`200` with their `local_ip`).
+- [x] **1c-4** With the flag set, a join to an undeclared lab network succeeds, and a Millbrook
       key is still refused.
-- [ ] **1c-5** The flag is set on neither the Preview nor the Production Vercel environment.
+- [x] **1c-5** The flag is set on neither the Preview nor the Production Vercel environment
+      (owner's `vercel env ls`, 2026-09-28).
+
+As built: the handler asks the world itself whether a key is Ridgemont's and takes one boolean,
+`admitsUndeclaredNetworks`, instead of an injected joinable set (owner-approved 2026-09-28). The
+wire-check ran against local supabase, not jshack-dev.
 
 **RED**: `handleRegisterNetwork` behaviour tests for 1c-1 to 1c-4. The allocation and upsert
 fakes record that nothing was written.
@@ -412,7 +420,7 @@ the commit.
       region. On an address or domain that no network holds, it answers no match.
 - [ ] **AC-4** A test over the whole declared world proves every network can be reached from
       findit plus Ridgemont by following references.
-- [ ] **AC-5** A join to a network outside Ridgemont, or to a key the world does not declare, is
+- [x] **AC-5** A join to a network outside Ridgemont, or to a key the world does not declare, is
       refused by the server, and no occupancy row is written.
 - [ ] **AC-6** An unlisted publisher answers a fetch by its domain and never appears in any
       findit result.
