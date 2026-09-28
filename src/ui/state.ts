@@ -91,6 +91,7 @@ import {
   buildColdStartConnectivity,
   connectedWlan0,
   isOnline,
+  type ConnectedWlan0,
   type ConnectivityState,
   type NetworkInterface,
   type WirelessInterface,
@@ -1172,6 +1173,17 @@ export const promptUsername = (): string => activeSession()?.username ?? config?
 /** Active tier — drives the prompt symbol (`#` for root after `su`, else `$`). */
 export const promptTier = (): UserType => activeSession()?.userType ?? 'user';
 
+/** Whether the workstation can reach a network at all. Reactive, for the HUD. */
+export const linkOnline = (): boolean => isOnline(connectivity());
+
+/** The wlan0 the player is connected through, with its network and address, or
+ *  null when there is none. Reactive, for the HUD; `followLink` asks it too. */
+export const connectedWireless = (): ConnectedWlan0 | null =>
+  connectedWlan0({
+    isOnline: linkOnline,
+    interfaces: () => [...connectivity().interfaces.values()],
+  });
+
 /** Re-pull the ACTIVE machine's journal and replace the local view. A late result
  *  is dropped if the player has since hopped to another machine — a journal belongs
  *  to exactly one box, so the answer for the box we left must never paint over the
@@ -1470,10 +1482,7 @@ export const followLink = async (url: string): Promise<FollowOutcome> => {
   }
   // The command builds its whole environment to run; a follow needs the three
   // readers the fetch actually uses, all of which are already to hand here.
-  const wlan0 = connectedWlan0({
-    isOnline: () => isOnline(connectivity()),
-    interfaces: () => [...connectivity().interfaces.values()],
-  });
+  const wlan0 = connectedWireless();
   if (wlan0 === null) {
     return { ok: false, alert: 'lynx: (7) Failed to connect — network is unreachable' };
   }

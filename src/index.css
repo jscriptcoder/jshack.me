@@ -27,6 +27,9 @@
   --font-art:
     ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New',
     monospace;
+  /* The HUD's condensed labels. Only a neon theme draws the HUD, so only a neon
+     theme ever asks for it. */
+  --font-hud: 'Rajdhani', 'Arial Narrow', system-ui, sans-serif;
 }
 
 * {
@@ -74,11 +77,17 @@ body {
   --font-mono: 'Share Tech Mono', var(--font-art);
 }
 
-[data-look='neon'] body {
+/* The HUD's screen repaints the same backdrop: it has to be opaque to hide the
+   frame's gradient everywhere but the one-pixel edge. */
+[data-look='neon'] body,
+.hud-screen {
   background:
     radial-gradient(120% 80% at 0% 0%, var(--theme-tint-top), transparent 55%),
     radial-gradient(90% 70% at 100% 100%, var(--theme-tint-bottom), transparent 60%),
     var(--theme-bg);
+}
+
+[data-look='neon'] body {
   /* Inherited, and the colour is mixed from each element's own: an error line
      glows red and a prompt glows in the bright colour without either being named
      here. */
@@ -219,6 +228,131 @@ body {
   100% {
     opacity: 0;
     transform: none;
+  }
+}
+
+/* ------------------------------------------------------------------------
+   The HUD frame. `Hud.tsx` puts these classes on only under a neon theme.
+   ------------------------------------------------------------------------ */
+
+/* In the components layer so Tailwind's utilities on the same elements win: the
+   narrow-screen `max-sm:hidden` has to beat the bars' own `display: flex`. */
+@layer components {
+  /* A cut-corner frame with a one-pixel border that fades between the theme's two
+     frame colours. CSS borders cannot follow a clipped corner, so the border is the
+     frame's own gradient background showing through a one-pixel gap around the
+     screen, which is clipped to the same shape. */
+  .hud-frame {
+    --hud-cut: 22px;
+    padding: 1px;
+    background: linear-gradient(
+      135deg,
+      var(--theme-frame-a) 0%,
+      color-mix(in srgb, var(--theme-frame-a) 22%, transparent) 28%,
+      color-mix(in srgb, var(--theme-frame-b) 22%, transparent) 72%,
+      var(--theme-frame-b) 100%
+    );
+  }
+
+  .hud-frame,
+  .hud-screen {
+    clip-path: polygon(
+      0 0,
+      calc(100% - var(--hud-cut)) 0,
+      100% var(--hud-cut),
+      100% 100%,
+      var(--hud-cut) 100%,
+      0 calc(100% - var(--hud-cut))
+    );
+  }
+
+  .hud-top,
+  .hud-bottom {
+    display: flex;
+    flex: none;
+    font-family: var(--font-hud);
+    font-size: 12px;
+    line-height: 1;
+    text-transform: uppercase;
+    white-space: nowrap;
+    color: var(--theme-text-dim);
+  }
+
+  .hud-top > span,
+  .hud-bottom > span {
+    display: flex;
+    align-items: center;
+    gap: 0.5em;
+  }
+
+  .hud-top {
+    align-items: stretch;
+    gap: 18px;
+    height: 30px;
+    /* Clear of the cut corner on the right. */
+    padding-right: 34px;
+    border-bottom: 1px solid color-mix(in srgb, var(--theme-frame-a) 30%, transparent);
+    font-weight: 600;
+    letter-spacing: 0.16em;
+  }
+
+  .hud-bottom {
+    align-items: center;
+    gap: 20px;
+    height: 26px;
+    /* Clear of the cut corner on the left. */
+    padding: 0 18px 0 36px;
+    border-top: 1px solid color-mix(in srgb, var(--theme-frame-b) 28%, transparent);
+    font-weight: 500;
+    letter-spacing: 0.14em;
+  }
+
+  .hud-value {
+    color: var(--theme-text);
+    font-weight: 600;
+  }
+
+  .hud-brand {
+    padding: 0 26px 0 14px;
+    background: var(--theme-frame-a);
+    color: var(--theme-bg);
+    font-weight: 700;
+    letter-spacing: 0.2em;
+    /* Dark text on a lit tab: a glow would only smear it. */
+    text-shadow: none;
+    clip-path: polygon(0 0, 100% 0, calc(100% - 14px) 100%, 0 100%);
+  }
+
+  .hud-brand i {
+    font-style: normal;
+    opacity: 0.6;
+  }
+
+  /* The link light, in whatever colour the element is given: lit for a link, the
+     error colour without one. */
+  .hud-pip {
+    width: 7px;
+    height: 7px;
+    background: currentColor;
+    box-shadow: 0 0 6px currentColor;
+  }
+
+  .hud-barcode {
+    width: 84px;
+    height: 10px;
+    color: var(--theme-frame-a);
+    opacity: 0.65;
+    background: repeating-linear-gradient(
+      90deg,
+      currentColor 0 2px,
+      transparent 2px 3px,
+      currentColor 3px 4px,
+      transparent 4px 7px,
+      currentColor 7px 10px,
+      transparent 10px 11px,
+      currentColor 11px 12px,
+      transparent 12px 15px
+    );
   }
 }
 

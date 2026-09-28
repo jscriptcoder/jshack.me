@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest';
-import { fireEvent, render, screen } from '@solidjs/testing-library';
+import { fireEvent, render, screen, waitFor, within } from '@solidjs/testing-library';
 import { Terminal } from './Terminal.js';
 import {
   pendingPrompt,
@@ -7,6 +7,7 @@ import {
   scrollback,
   setInput,
   setOverlayMode,
+  setTheme,
   startGame,
 } from '../state.js';
 import { SEED_CONFIG } from '../seed.js';
@@ -17,6 +18,9 @@ import { readOpenPorts } from '../../core/services/pidfile.js';
 import { SERVICE_CATALOG } from '../../core/services/serviceCatalog.js';
 import { lanLeaseCacheIn } from '../../core/network/lanLeaseCache.js';
 import { binaryStub } from '../../core/generation/binaries.js';
+import { machineIdForLanHost } from '../../core/generation/lanHostIdentity.js';
+import type { ThemeId } from '../../core/theme/themes.js';
+import { asAbsPath } from '../../core/types.js';
 
 /** Fresh terminal state per test — the module-singleton session + signals are
  *  rebuilt by `startGame`, which also clears the scrollback, so this both
@@ -1095,5 +1099,168 @@ describe('a sub-shell prompt', () => {
 
     await screen.findByText('Bye');
     expect(await screen.findByText('alice@workstation:/home/alice$')).toBeInTheDocument();
+  });
+});
+
+describe('the neon HUD', () => {
+  /** The theme is a module signal that outlives each test, and earlier tests leave
+   *  it on whatever palette they switched to, so every HUD test names its own. */
+  const renderTerminalIn = (theme: ThemeId) => {
+    setTheme(theme);
+    return renderTerminal();
+  };
+
+  const topBar = () => screen.getByRole('banner');
+  const bottomBar = () => screen.getByRole('contentinfo');
+
+  /** Start the game already associated with `essid` — the state a reload restores
+   *  from a remembered connection — without cracking a network first. */
+  const rememberConnection = (essid: string, localIp: string) => {
+    localStorage.setItem(CONNECTED_ESSID_KEY, essid);
+    lanLeaseCacheIn(localStorage).remember(essid, localIp);
+    onTestFinished(() => localStorage.removeItem(CONNECTED_ESSID_KEY));
+  };
+
+  it('frames a neon terminal with its name, the session and the version', () => {
+    renderTerminalIn('neon');
+
+    expect(topBar()).toHaveTextContent('JSHACK.ME');
+    expect(topBar()).toHaveTextContent('NET TERMINAL');
+    expect(bottomBar()).toHaveTextContent('alice@workstation');
+    expect(bottomBar()).toHaveTextContent(`v${__APP_VERSION__}`);
+  });
+
+  it('reports a player with no network as offline', () => {
+    renderTerminalIn('neon');
+
+    expect(within(topBar()).getByText('OFFLINE')).toBeInTheDocument();
+    expect(bottomBar()).toHaveTextContent('WLAN0 DOWN');
+    expect(bottomBar()).toHaveTextContent('ESSID —');
+  });
+
+  it('reports the network and the address the player is on', () => {
+    setTheme('neon');
+    rememberConnection('ferro-cafe', '192.168.31.77');
+    startGame(SEED_CONFIG);
+    render(() => <Terminal />);
+
+    expect(within(topBar()).getByText('ONLINE')).toBeInTheDocument();
+    expect(bottomBar()).toHaveTextContent('WLAN0 192.168.31.77');
+    expect(bottomBar()).toHaveTextContent('ESSID ferro-cafe');
+  });
+
+  it('follows the player up to root when su succeeds', async () => {
+    renderTerminalIn('neon');
+
+    runCommand('su');
+    await screen.findByText('Password:');
+    // Masked, so no longer a textbox: found by its label, as a player's reader would.
+    const password = screen.getByLabelText(/terminal input/i);
+    fireEvent.input(password, { target: { value: 'hunter2' } });
+    fireEvent.keyDown(password, { key: 'Enter' });
+
+    await waitFor(() => expect(bottomBar()).toHaveTextContent('root@workstation'));
+    expect(bottomBar()).not.toHaveTextContent('alice@workstation');
+  });
+
+  it('names the machine an ssh hop stands on, not the player’s own', async () => {
+    // The hop is the one a reload rebuilds from the server's session list, which is
+    // the shortest honest way onto another box without a live server to log into.
+    const essid = 'ferro-cafe';
+    const lan = generateHomeLan(essid);
+    const hopHost = lan.hosts.find((host) => host.kind === 'machine');
+    if (hopHost === undefined) throw new Error(`no ordinary host generated on ${essid}`);
+    const hopSession = {
+      session_id: 'ssh-hop-1',
+      machine_id: machineIdForLanHost(hopHost, essid),
+      credentials: { username: 'root', userType: 'root' },
+      parent_session_id: null,
+      source_ip: null,
+      kind: 'ssh',
+      created_at: '2026-01-01T00:00:00.000Z',
+    };
+    onTestFinished(() => {
+      vi.unstubAllGlobals();
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: { body?: string }) => {
+        const fields = JSON.parse(JSON.parse(init?.body ?? '{}').payload) as Record<
+          string,
+          unknown
+        >;
+        const body = fields.action === 'listSessions' ? { sessions: [hopSession] } : {};
+        return new Response(JSON.stringify({ patches: [], sessions: [], ...body }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }),
+    );
+    setTheme('neon');
+    rememberConnection(essid, `${lan.subnet}.77`);
+    startGame(SEED_CONFIG);
+    render(() => <Terminal />);
+
+    await waitFor(() => expect(bottomBar()).toHaveTextContent(`root@${hopHost.hostname}`));
+  });
+
+  it('keeps a local clock that ticks every second', () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] });
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+    // Single digits in every field, so a clock that forgot to pad would show it.
+    vi.setSystemTime(new Date(2026, 8, 28, 9, 5, 58));
+    renderTerminalIn('neon');
+
+    expect(topBar()).toHaveTextContent('09:05:58');
+    vi.advanceTimersByTime(1000);
+    expect(topBar()).toHaveTextContent('09:05:59');
+    vi.advanceTimersByTime(1000);
+    expect(topBar()).toHaveTextContent('09:06:00');
+  });
+
+  it('stops the clock when the frame goes away', () => {
+    // A clock left running behind a plain theme ticks for nothing, and every switch
+    // back to neon and away again would leave one more behind.
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+    renderTerminalIn('neon');
+    expect(vi.getTimerCount()).toBe(1);
+
+    setTheme('amber');
+
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('takes the frame away when the player switches to a plain theme', async () => {
+    renderTerminalIn('neon');
+
+    runCommand('theme amber');
+    await screen.findByText('Switched to Amber theme');
+
+    expect(screen.queryByRole('banner')).not.toBeInTheDocument();
+    expect(screen.queryByRole('contentinfo')).not.toBeInTheDocument();
+  });
+
+  it('frames nothing under a plain theme', () => {
+    renderTerminalIn('amber');
+
+    expect(screen.queryByRole('banner')).not.toBeInTheDocument();
+    expect(screen.queryByRole('contentinfo')).not.toBeInTheDocument();
+  });
+
+  it('keeps the full-screen apps inside the frame', async () => {
+    renderTerminalIn('neon');
+
+    setOverlayMode({ kind: 'lynx', url: 'http://192.168.1.5/', content: '<p>a page</p>' });
+    expect(await screen.findByText('a page')).toBeInTheDocument();
+    expect(bottomBar()).toHaveTextContent('alice@workstation');
+
+    setOverlayMode({ kind: 'nano', path: asAbsPath('/home/alice/notes.txt'), content: 'draft' });
+    expect(await screen.findByDisplayValue('draft')).toBeInTheDocument();
+    expect(bottomBar()).toHaveTextContent('alice@workstation');
   });
 });

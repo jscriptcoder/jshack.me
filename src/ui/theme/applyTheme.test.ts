@@ -30,13 +30,16 @@ const PAINTED_TOKENS = [
   '--theme-avatar-border',
 ] as const;
 
-/** What only a neon theme paints: the banner glitch's two split colours and the
- *  background's two corner tints. Listed by hand for the same reason as above. */
+/** What only a neon theme paints: the banner glitch's two split colours, the
+ *  background's two corner tints, and the two colours the HUD frame fades between.
+ *  Listed by hand for the same reason as above. */
 const NEON_PAINTED_TOKENS = [
   '--theme-glitch-a',
   '--theme-glitch-b',
   '--theme-tint-top',
   '--theme-tint-bottom',
+  '--theme-frame-a',
+  '--theme-frame-b',
 ] as const;
 
 const resetDocument = () => {
