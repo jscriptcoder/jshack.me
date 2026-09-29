@@ -219,6 +219,37 @@ relations, forwards, institution sets. (Added by find-gaps 2026-09-28.)
     reveals no occupancy, answering the same whether anyone is there. (Confirmed by find-gaps
     2026-09-28.) **Rejected**: sweeping public
     ranges with `nmap`, which would make every other route pointless.
+    **Slice 3's shape** (grilled 2026-09-29, owner-confirmed):
+    - **One record per declared network.** An address no network holds answers no match,
+      even inside a town's block (`87.1.0.1`). Rejected: nested town and region blocks that
+      answer any address in them, which only repeat what the first two octets already say.
+      `whois` does show whether an address is held, but `nmap` on a public address already
+      does, and there are no shell loops to sweep a block with.
+    - **`netname`** is the network's ESSID, the bridge from an address to a name a player can
+      recognise in a scan. findit broadcasts nothing, so its netname is its key spelt as an
+      ESSID, `FINDIT-IO`; findit does not join `DECLARED_NETWORKS`.
+    - **`org-name`** is the site's name when the network publishes one. Otherwise it is the
+      town's ISP, `<Town> Broadband`, as a real registry shows for a home line. Rejected: the
+      `place` capitalised ("The kitchen"), and per-category rules the data cannot back.
+    - **Region #0 is Harrow Valley.** The world gains its first region row, a name and the
+      first octet `87`; the region's character waits for slice 8, its first reader.
+    - A record prints, under a `% Harrow Valley registry` header, `inetnum: <ip> - <ip>`,
+      `netname:`, `org-name:`, `domain:` (sited networks only, so an address query also
+      answers its domain), `city:` and `region:`. A placeless network (findit, the
+      corporations) omits `city:` and `region:`.
+    - `whois <domain>` resolves the domain through the world's DNS and prints the same record
+      as its address. Domains match case-insensitively, as `nslookup` does.
+    - No match is `%ERROR:101: no entries found`, exit 1, for anything no network holds: an
+      empty declared address, a private LAN address, an unknown domain, a lab network, or
+      junk. No argument prints the usage line.
+    - `whois` is an apt package of its own (binary in `/usr/bin`, absent until installed,
+      as `dnsutils` is), with `help` and `man` entries. It needs a network connection, as
+      `nslookup` does. It is client-only and pure: no server call, nothing logged on the
+      target network, no occupancy shown, so no wire-check.
+    - The AC-7 snapshot test lands in this slice as its own first commit, pinning every
+      landmark's LAN, content and passwords before slices 4 and 5 change the generators.
+    - One PR, minor bump (0.288.0). `discovery-architecture.md` and the handbook chapter
+      listing the recon commands learn the route.
 14. **World-content rule 3 loosens without being dropped.** A reference may cross networks, but
     only to one of the network's declared relations, and only by public address or domain,
     never another network's LAN addresses. "Every reference is true" still holds.
