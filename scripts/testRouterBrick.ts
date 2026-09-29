@@ -130,7 +130,7 @@ await sr.from('sessions').insert([
     // A's own-router session (as her `ssh root@<subnet>.1` login leaves it) so she can
     // write her own NAT forward — the own ROUTER needs a session (only the own
     // WORKSTATION bypasses L1).
-    session_id: `ssh-alice-router-${A_PUBLIC_IP}`,
+    session_id: `router-brick-ssh-alice-router-${A_PUBLIC_IP}`,
     player_key: alice.publicKeyHex,
     machine_id: A_ROUTER,
     credentials: { username: 'root', userType: 'root' },
@@ -138,7 +138,7 @@ await sr.from('sessions').insert([
     essid: ESSID,
   },
   {
-    session_id: `ssh-bob-router-${A_PUBLIC_IP}`,
+    session_id: `router-brick-ssh-bob-router-${A_PUBLIC_IP}`,
     player_key: bob.publicKeyHex,
     machine_id: A_ROUTER,
     credentials: { username: 'root', userType: 'root' },
@@ -146,7 +146,7 @@ await sr.from('sessions').insert([
     essid: ESSID,
   },
   {
-    session_id: `ssh-bob-ws-${A_PUBLIC_IP}`,
+    session_id: `router-brick-ssh-bob-ws-${A_PUBLIC_IP}`,
     player_key: bob.publicKeyHex,
     machine_id: A_WS,
     credentials: { username: 'root', userType: 'root' },
@@ -196,7 +196,7 @@ check(
 const a2 = await post(
   SESSIONS,
   signRequest(carol, 'authCreateSessionPublic', {
-    session_id: `c-ws-pre-${A_PUBLIC_IP}`,
+    session_id: `router-brick-c-ws-pre-${A_PUBLIC_IP}`,
     target: A_PUBLIC_IP,
     username: 'guest',
     password: WS_GUEST_PW,
@@ -237,7 +237,7 @@ check(
 const a5 = await post(
   SESSIONS,
   signRequest(carol, 'authCreateSessionPublic', {
-    session_id: `c-ws-post-${A_PUBLIC_IP}`,
+    session_id: `router-brick-c-ws-post-${A_PUBLIC_IP}`,
     target: A_PUBLIC_IP,
     username: 'guest',
     password: WS_GUEST_PW,
@@ -254,7 +254,7 @@ check(
 const a6 = await post(
   SESSIONS,
   signRequest(carol, 'authCreateSessionPublic', {
-    session_id: `c-router-up-${A_PUBLIC_IP}`,
+    session_id: `router-brick-c-router-up-${A_PUBLIC_IP}`,
     target: A_PUBLIC_IP,
     username: 'root',
     password: ROUTER_ADMIN_PW,
@@ -291,7 +291,7 @@ check(
 const a9 = await post(
   SESSIONS,
   signRequest(carol, 'authCreateSessionPublic', {
-    session_id: `c-router-dark-${A_PUBLIC_IP}`,
+    session_id: `router-brick-c-router-dark-${A_PUBLIC_IP}`,
     target: A_PUBLIC_IP,
     username: 'root',
     password: ROUTER_ADMIN_PW,
@@ -314,7 +314,7 @@ const gatewayHost = generateHomeLan(ESSID).hosts.find(
 const a10 = await post(
   SESSIONS,
   signRequest(alice, 'authCreateSession', {
-    session_id: `a-ownlan-dark-${A_PUBLIC_IP}`,
+    session_id: `router-brick-a-ownlan-dark-${A_PUBLIC_IP}`,
     essid: ESSID,
     target_ip: gatewayHost?.ip ?? '',
     username: 'root',

@@ -131,7 +131,7 @@ await sr.from('home_network_occupants').insert({
 });
 await sr.from('sessions').insert([
   {
-    session_id: `ssh-bob-router-${A_PUBLIC_IP}`,
+    session_id: `cross-router-ssh-bob-router-${A_PUBLIC_IP}`,
     player_key: bob.publicKeyHex,
     machine_id: A_ROUTER,
     credentials: { username: 'root', userType: 'root' },
@@ -139,7 +139,7 @@ await sr.from('sessions').insert([
     essid: ESSID,
   },
   {
-    session_id: `ssh-dave-router-${A_PUBLIC_IP}`,
+    session_id: `cross-router-ssh-dave-router-${A_PUBLIC_IP}`,
     player_key: dave.publicKeyHex,
     machine_id: A_ROUTER,
     credentials: { username: 'guest', userType: 'guest' },
@@ -147,7 +147,7 @@ await sr.from('sessions').insert([
     essid: ESSID,
   },
   {
-    session_id: `ssh-bob-ws-${A_PUBLIC_IP}`,
+    session_id: `cross-router-ssh-bob-ws-${A_PUBLIC_IP}`,
     player_key: bob.publicKeyHex,
     machine_id: A_WS,
     credentials: { username: 'guest', userType: 'guest' },

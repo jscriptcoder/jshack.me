@@ -68,8 +68,8 @@ const A_MACHINE = computeWorkstationId('skylab', alice.publicKeyHex);
 const A_PUBLIC_IP = publicAddressOf('BEAN-THERE-WIFI');
 const ROOT_PW = 'alice-root-secret';
 const ROOT_HASH = md5(ROOT_PW);
-const GUEST_SESSION = `ssh-bob-${A_PUBLIC_IP}`;
-const SU_SESSION = `su-bob-root-${A_PUBLIC_IP}`;
+const GUEST_SESSION = `su-elevate-ssh-bob-${A_PUBLIC_IP}`;
+const SU_SESSION = `su-elevate-su-bob-root-${A_PUBLIC_IP}`;
 // A NEW file under root-only /etc — a create the containing dir gates to root only.
 const IMPLANT = '/etc/implant';
 

@@ -103,7 +103,7 @@ await sr.from('home_network_occupants').insert({
   workstation_root_hash: ROOT_HASH,
 });
 await sr.from('sessions').insert({
-  session_id: `ssh-bob-${A_PUBLIC_IP}`,
+  session_id: `cross-write-ssh-bob-${A_PUBLIC_IP}`,
   player_key: bob.publicKeyHex,
   machine_id: A_MACHINE,
   credentials: { username: 'guest', userType: 'guest' },

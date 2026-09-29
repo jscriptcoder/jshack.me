@@ -358,9 +358,15 @@ describe("a player's page on the public web", () => {
         },
       }),
     );
+    // Exactly the machines a listing can come from: every publisher's, and the gateway of
+    // every declared network that publishes nothing. A search costs what the world holds.
+    const unpublishedGateways = DECLARED_NETWORKS.filter(
+      (network) => network.site === undefined,
+    ).map((network) => computeApGatewayId(network.key));
+    expect(unpublishedGateways).toContain(computeApGatewayId(HOME));
     expect(asked).toHaveLength(1);
-    expect(asked[0]).toEqual(
-      expect.arrayContaining([...publisherMachineIds(), computeApGatewayId(HOME)]),
+    expect([...(asked[0] ?? [])].sort()).toEqual(
+      [...publisherMachineIds(), ...unpublishedGateways].sort(),
     );
   });
 
