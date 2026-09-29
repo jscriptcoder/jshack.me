@@ -6,8 +6,8 @@ slices 1a–1c (see Slice plans); 1a complete 2026-09-28 (#572, v0.284.0); 1b co
 Slice 2 grilled and planned 2026-09-28 as slices 2a–2b; 2a complete 2026-09-29 (#575,
 v0.287.0); 2b complete 2026-09-29 (#576, table dropped on jshack-dev and jshack-prod).
 Slice 2 complete. Slice 3 grilled and planned 2026-09-29, complete 2026-09-29 (#577,
-v0.288.0). Slice 4 grilled 2026-09-29 as slices 4a–4c; not yet planned. Slices 5 onward not
-yet planned.
+v0.288.0). Slice 4 grilled and planned 2026-09-29 as slices 4a–4c. Slices 5 onward not yet
+planned.
 Amends the §9 backlog item "Procedural world expansion — GRILLED & RESOLVED 2026-07-29" in
 `docs/conventions-and-gotchas.md`; where the two disagree, this file wins.
 
@@ -860,6 +860,191 @@ unchanged.
 **PR-ready when**: 3-1 to 3-13 hold, typecheck, lint, `vitest run` and the build's
 `checkBudgets` pass, and the owner approves the commit. Bumps the minor version to 0.288.0.
 **Slice complete when**: its PR merges. That completes AC-3 and AC-7.
+
+### Slice 4: networks lead to one another
+
+Three independent PRs against `main`, each cut only after the previous one merges: 4a seeded
+forwards, 4b homes and relations, 4c unlisted publishers. Their shape is decision 15a's
+grill record. Only procedural networks change: every landmark's gateway and boxes stay as
+the AC-7 fingerprint test pins them, and no landmark is a relation's source or target.
+
+### Slice 4a: every Millbrook network shows the internet more than its gateway
+
+**Value**: from outside, a Millbrook network is no longer just its gateway's `sshd:22`. A
+player who scans a Millbrook address sees the services its gateway forwards (ssh on a high
+port to a desk, ftp to a file server, a web app on `:8080`) and can connect through each to
+the box behind it.
+**Path**: `buildApGatewayBaseFs(key)` → `apGatewayRules` → the site's `:80` forward, then
+the seeded forwards drawn on `gw-forwards-<key>` from the edge LAN's `hostServices` → the
+gateway's `rules.v4`. From any player: `nmap <address>` or a connection to
+`<address>:<port>` → `/api` → `resolvePublicTarget` → `machineServing` reads the forward →
+`generatedLanBox` → the box's service. Only the generator changes; the server path is the
+one a publisher's `:80` already takes.
+**Class**: behaviour change.
+**Delivery**: independent PR against `main`, branch `feat/procedural-world-forwards`.
+**Status**: planned.
+**Required implementation skills**: `tdd`, `testing`, `refactoring`; `mutation-testing` at
+PR-readiness.
+**Reduction program**: `N/A`.
+**Acceptance criteria** (to be confirmed before any code):
+
+- [ ] **4a-1** Every Millbrook gateway's `rules.v4` keeps its site's `:80` line (publishers)
+      and then its seeded forwards, in the existing `forward <port> to <ip>:<port>` form. The
+      count is 1–2 for a `corporate` or `government` network and 0–1 for a `retail`,
+      `public` or `cafe` one, a café drawing one less often than a shop (and a home, from 4b,
+      0–1). A network with fewer candidates than it draws takes all it has.
+- [ ] **4a-2** Every seeded forward names a machine on the network's edge LAN (never its
+      gateway, inner gateway or switch) and a port that machine serves. The site server's
+      forwarded http port is never forwarded twice; its other services may be.
+- [ ] **4a-3** Public ports:
+      - an ssh forward takes the first free port of `2222`, `2022`, `8022`, `22222`, in that
+        order, and never `22`;
+      - an http forward takes its own port unless it is `80` on a publisher, then the first
+        free of `8080`, `8000`, `8888`, `8081`;
+      - any other service takes its own port, and a pair whose port is already taken is not
+        drawn;
+      - no two forwards on one gateway share a public port.
+- [ ] **4a-4** From any player, `nmap <a Millbrook address>` lists `22/tcp open` and every
+      seeded forward's public port open, and a publisher's `80/tcp` as before.
+- [ ] **4a-5** Connecting through a seeded forward reaches the box behind it: an ssh forward
+      offers that box's login, not the gateway's, and an http forward serves that box's
+      page.
+- [ ] **4a-6** Every landmark's `rules.v4` is unchanged: the AC-7 fingerprint test passes
+      untouched. Millbrook's keys, ESSIDs, addresses and sites are unchanged.
+- [ ] **4a-7** `checkBudgets` passes: gzipped main chunk ≤ 284,975 B, landmark sweep ≤ 2 ms per
+      box.
+- [ ] **4a-8** `world-content-architecture.md`'s streams table lists `gw-forwards-`.
+
+**RED**: a `routerFs` behaviour test over Millbrook's gateways for 4a-1, then the target
+rule (4a-2) and the port rules (4a-3), one at a time, each over every Millbrook network so
+the drawn values cannot pass by luck. Then a public-scan test through the command layer for
+4a-4, and one resolution through `resolvePublicTarget` for 4a-5.
+**GREEN**: a pure `seededForwards(key)` on its own stream beside `siteForward`, folded into
+`apGatewayRules` with `withForward`, only for declared procedural networks.
+**REFACTOR**: assess whether `siteForward` and the seeded forwards read better as one list
+of the gateway's forwards. Only if it removes a second walk of the LAN.
+**Server evidence**: `scripts/testMillbrook.ts` gains an `nmap` of a Millbrook address with
+a seeded ssh forward and a connection through that forward, against `vercel dev` and
+jshack-dev. `testPublisherWeb.ts` stays green.
+**PRE-PR MUTATION**: Stryker on the forward draw and `apGatewayRules` (json reporter).
+**PR-ready when**: 4a-1 to 4a-8 hold, typecheck, lint, `vitest run`, the build's
+`checkBudgets` and the wire-checks pass, and the owner approves the commit. Bumps the minor
+version to 0.289.0.
+**Slice complete when**: its PR merges.
+
+### Slice 4b: a player who breaks into a Millbrook business finds the way to a home
+
+**Value**: Millbrook gains homes, which publish nothing and never appear on findit or
+WiFi. The only way to one is a lead on a business's boxes: the IT contractor's
+`.ssh/config` naming a client's address and port, or a crontab copying a share offsite to a
+home's box, where the copy waits.
+**Path**: the world declaration → Millbrook's homes on `town-homes-r0/t1` → the relations
+graph on `relations-<key>` → the source's content (`sshContent` for a contractor desk,
+`etcContent`'s crontab for a backup source) and the target's content (a backup copy under
+the forwarded box's home). A player reads them through the existing `cat`, and follows them
+with `nmap`, `ssh -p` or `whois` to the home's address.
+**Class**: behaviour change.
+**Delivery**: independent PR against `main` after 4a merges, branch
+`feat/procedural-world-relations`.
+**Status**: planned.
+**Required implementation skills**: `tdd`, `testing`, `refactoring`; `mutation-testing` at
+PR-readiness.
+**Reduction program**: `N/A`.
+**Acceptance criteria** (to be re-confirmed before any code, once 4a has merged):
+
+- [ ] **4b-1** Millbrook declares 4–8 `residential` homes after its businesses, keyed
+      `r0/t1/n9…`, each with an ESSID and place from `pools/townHomes.ts`, unique among
+      Millbrook's ESSIDs. The 9 existing keys and addresses do not move.
+- [ ] **4b-2** A home publishes nothing: no domain resolves to it, no findit search lists it,
+      no directory names it, no WiFi scan offers it. `whois` on its address answers its
+      ESSID, `org-name: Millbrook Broadband` and `city: Millbrook`.
+- [ ] **4b-3** Every home is the target of 1–3 relations and every Millbrook publisher of 0–2.
+      Every source is a listed Millbrook publisher other than the target. A contractor
+      source is a `corporate` publisher with a desk on its edge LAN; a backup target has an
+      ssh forward.
+- [ ] **4b-4** A contractor relation puts, on one desk of the source's edge LAN, a
+      `Host <target ESSID, lowercased>` block in `~/.ssh/config` naming the target's address,
+      its ssh forward's port (or none, meaning `22`, for its gateway) and the NPC user of the
+      box behind it (`root` for a gateway), with the matching `known_hosts` line. No secret
+      appears.
+- [ ] **4b-5** A backup relation puts, on a source box that keeps `/srv`, an `/etc/crontab`
+      job `rsync -az /srv/ <user>@<address>:backups/<source ESSID, lowercased>/ -e 'ssh -p
+      <port>'`, and the box behind the target's ssh forward keeps `~/backups/<source>/` with
+      the same files as the source's `/srv`. `syslog.1` and root's cron mail on the source
+      agree with the new job.
+- [ ] **4b-6** Rule 3, loosened: a property test over every procedural box proves every
+      public address in its content belongs to one of its network's relations, at a port
+      open there, and no content names another network's LAN address.
+- [ ] **4b-7** (AC-4) A test over the whole declaration proves every network is listed on
+      findit, a Ridgemont landmark, an institution on its town's directory, or the target of
+      a relation whose source is one of those.
+- [ ] **4b-8** The AC-7 fingerprint test passes untouched.
+- [ ] **4b-9** `checkBudgets` passes, with the backup copy's cost measured in RED against the
+      2 ms/box budget. Only a breach drops the copy to an empty `backups/<source>/`.
+- [ ] **4b-10** `world-content-architecture.md` states rule 3 as loosened and lists
+      `town-homes-` and `relations-`; `discovery-architecture.md` describes following a
+      relation.
+
+**RED**: the declaration test for 4b-1 and 4b-2 first, then the graph's properties (4b-3)
+over the declaration, then each surface (4b-4, 4b-5) through the built box, then the rule-3
+and reachability tests.
+**GREEN**: the homes pool and their draw; a pure `relationsOf(key)` over the declaration;
+the contractor lines on the desk's `.ssh/`; the crontab job and the target's copy, each on
+its own stream, derived from one relation value on both sides.
+**REFACTOR**: assess only.
+**Server evidence**: `N/A`, no new wire-check. The server rebuilds every generated box from
+its key, so new base content reaches it unchanged, and 4a's wire-check proves the forward
+path a lead is followed along.
+**PRE-PR MUTATION**: Stryker on the homes draw, the relations graph and both surfaces (json
+reporter).
+**PR-ready when**: 4b-1 to 4b-10 hold, the same gates as 4a pass, and the owner approves
+the commit. Bumps the minor version to 0.290.0.
+**Slice complete when**: its PR merges. That completes AC-4.
+
+### Slice 4c: a Millbrook site answers by its name but never appears on findit
+
+**Value**: a site a search cannot find. One Millbrook publisher asks crawlers to stay away;
+a player finds it on the council's directory if it is an institution, or on a supplier's
+invoice in a business's share if it is a business, and fetches it by its domain.
+**Path**: the declaration's unlisted pick on `town-unlisted-<town key>` → `buildWebSite`
+writes `robots.txt` as `User-agent: *` / `Disallow: /` → findit's live crawl, which already
+honours it, skips the site. A supplier relation → an invoice on a listed publisher's
+`/srv` naming the domain.
+**Class**: behaviour change.
+**Delivery**: independent PR against `main` after 4b merges, branch
+`feat/procedural-world-unlisted`.
+**Status**: planned.
+**Required implementation skills**: `tdd`, `testing`, `refactoring`; `mutation-testing` at
+PR-readiness.
+**Reduction program**: `N/A`.
+**Acceptance criteria** (to be re-confirmed before any code, once 4b has merged):
+
+- [ ] **4c-1** Each town unlists `max(1, round(15%))` of its publishers; Millbrook unlists
+      exactly one. Its `robots.txt` reads `User-agent: *` then `Disallow: /`, and nothing
+      else.
+- [ ] **4c-2** (AC-6) No findit search lists the unlisted site, by its name, its domain or its
+      town, while `curl http://<its domain>/` still answers its front page.
+- [ ] **4c-3** An unlisted institution stays on its town's directory. An unlisted business is
+      the target of at least one supplier relation: an invoice document on a listed
+      publisher's `/srv` share names it by domain and site name. A supplier source keeps
+      `/srv`.
+- [ ] **4c-4** The rule-3 and reachability tests from 4b pass with the supplier relation
+      among the kinds.
+- [ ] **4c-5** The AC-7 fingerprint test passes untouched.
+- [ ] **4c-6** `discovery-architecture.md` describes unlisted sites and the supplier lead.
+
+**RED**: the unlisted pick over the declaration, then the site's `robots.txt`, then the
+findit listing through `webIndex`, then the supplier invoice through the built share.
+**GREEN**: the pick, the `robots.txt` override in `buildWebSite`, and the supplier kind in
+the relations graph with its invoice on its own stream.
+**REFACTOR**: assess only.
+**Server evidence**: `scripts/testMillbrook.ts` asserts live that findit never lists the
+unlisted site and that its domain answers.
+**PRE-PR MUTATION**: Stryker on the pick, the `robots.txt` override and the supplier surface
+(json reporter).
+**PR-ready when**: 4c-1 to 4c-6 hold, the same gates as 4a pass, and the owner approves
+the commit. Bumps the minor version to 0.291.0.
+**Slice complete when**: its PR merges. That completes AC-6.
 
 ## Acceptance Criteria
 
