@@ -27,15 +27,27 @@ export type DeclaredNetwork = {
   readonly site?: PublishedSite;
   /** The town it stands in. */
   readonly town: string;
+  /** The region its town stands in. */
+  readonly region: string;
   /** The sites of its town's institutions, when it is the network that keeps the town's
    *  directory. */
   readonly directory?: readonly PublishedSite[];
 };
 
-/** Every region's first octet: the block its towns' addresses are carved from. Kept out
- *  of the octets a joining network draws its address from, and out of the placeless
- *  block, so no derived address can ever equal one of theirs. */
-export const REGION_FIRST_OCTETS: readonly number[] = [87];
+/** A region of the world: what it is called, and the first octet of the block its
+ *  towns' addresses are carved from. */
+type Region = { readonly name: string; readonly firstOctet: number };
+
+/** The region Ridgemont stands in, and until a second arrives the whole world. */
+export const HARROW_VALLEY = 'Harrow Valley';
+
+/** The world's regions, by index. Only ever appended: a region's index is part of every
+ *  key and address inside it. */
+const REGIONS: readonly Region[] = [{ name: HARROW_VALLEY, firstOctet: 87 }];
+
+/** Every region's first octet. Each is kept out of the placeless block, so no town's
+ *  address can ever equal a placeless network's. */
+export const REGION_FIRST_OCTETS: readonly number[] = REGIONS.map((region) => region.firstOctet);
 
 /** The town everybody stands in, whose networks are the catalog. */
 export const RIDGEMONT = 'Ridgemont';
@@ -43,11 +55,15 @@ export const RIDGEMONT = 'Ridgemont';
 /** A town's place among its region's towns, and what it is called. */
 type Town = { readonly region: number; readonly index: number; readonly name: string };
 
+const RIDGEMONT_TOWN: Town = { region: 0, index: 0, name: RIDGEMONT };
 const MILLBROOK: Town = { region: 0, index: 1, name: 'Millbrook' };
+
+/** The name of the region `town` stands in. */
+const regionOf = (town: Town): string => REGIONS[town.region].name;
 
 /** A network as a town declares it, before it has a key or a town. The town's council
  *  keeps its directory: a page on its site linking every institution in the town. */
-type Institution = Omit<DeclaredNetwork, 'key' | 'town' | 'directory'> & {
+type Institution = Omit<DeclaredNetwork, 'key' | 'town' | 'region' | 'directory'> & {
   readonly keepsDirectory?: true;
 };
 
@@ -102,6 +118,7 @@ const networksOf = (
       ...network,
       key: `${townKey(town)}/n${index}`,
       town: town.name,
+      region: regionOf(town),
       ...(keepsDirectory === true ? { directory } : {}),
     }),
   );
@@ -114,6 +131,7 @@ const LANDMARKS: readonly DeclaredNetwork[] = ESSID_CATALOG.map((entry) => ({
   ...entry,
   key: entry.essid,
   town: RIDGEMONT,
+  region: regionOf(RIDGEMONT_TOWN),
 }));
 
 /** Every network the world declares, Ridgemont's first. */
@@ -152,7 +170,7 @@ const hostOctets = (slot: number): string =>
 const addressOf = (town: Town, index: number): string => {
   const second = ((town.index * TOWN_STRIDE) % TOWNS_PER_REGION) + 1;
   const slot = (index * NETWORK_STRIDE) % NETWORKS_PER_TOWN;
-  return `${REGION_FIRST_OCTETS[town.region]}.${second}.${hostOctets(slot)}`;
+  return `${REGIONS[town.region].firstOctet}.${second}.${hostOctets(slot)}`;
 };
 
 /** The block of the networks that stand in no town: findit, and the corporations. */
@@ -169,8 +187,6 @@ const placelessAddress = (index: number): string => {
   const second = Math.floor(slot / NETWORKS_PER_TOWN) + 1;
   return `${PLACELESS_FIRST_OCTET}.${second}.${hostOctets(slot % NETWORKS_PER_TOWN)}`;
 };
-
-const RIDGEMONT_TOWN: Town = { region: 0, index: 0, name: RIDGEMONT };
 
 /** A corporation stands in no town, so a landmark corporation answers in the placeless
  *  block, after findit, in the catalog's order. Every other landmark answers in

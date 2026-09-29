@@ -23,7 +23,8 @@ and on the cross-player reachability, forwarding and trace machinery
 
 Source: `src/core/network/resolveName.ts` and `http.ts` (name resolution), the `dig`/
 `nslookup` commands and `generation/generateDnsZone.ts` (X1), and `src/core/findit/`,
-`generation/publisher.ts`, `generation/siteServer.ts`, `generation/findit.ts` (X2).
+`generation/publisher.ts`, `generation/siteServer.ts`, `generation/findit.ts` (X2), and
+the `whois` command (the registry over the world's addresses).
 
 ## X1 — DNS
 
@@ -130,6 +131,29 @@ the site on `CAMPUS-GUEST-OPEN` alone; a test holds that only institutional-cate
 entries carry a `site` and each institution is hosted exactly once. A bare address is
 treated as a URL (`parseTypedUrl` defaults a scheme-less string to `http://`), as real
 `curl` and `lynx` do.
+
+### whois: who holds an address
+
+`whois <ip|domain>` (its own apt package) is the world DNS read the other way: from an
+address, or a domain resolved through `siteAddress`, to the network behind it. It answers
+from the declaration alone (`networkAt`, then `declaredNetwork`), so it is client-side,
+asks no server, logs nothing on the target and answers the same whether anybody is on the
+network. It still needs a joined network, as `nslookup` does, because the registry is out
+on the internet.
+
+| Field | Rule |
+|---|---|
+| Header | `% Harrow Valley registry`, the name of region #0 |
+| `netname:` | the network's ESSID, so an address in a trace becomes a name a player can look for in a scan; findit broadcasts nothing, so its key is spelt as one, `FINDIT-IO` |
+| `org-name:` | the site's name; a network with no site is a line from its town's ISP, `<Town> Broadband` |
+| `domain:` | only for a network with a site, so an address query also gives up its domain |
+| `city:`, `region:` | only for an address in a region's block; findit and the corporations answer in the placeless `193` block and stand in no town |
+| No match | `%ERROR:101: no entries found`, exit 1, for anything no network holds, even an empty address inside a town's block |
+
+One record per network, never a town's or a region's block: a block record for an empty
+address would only repeat what the first two octets already say. `whois` does show whether
+an address is held, as `nmap` on a public address already does, and there are no shell
+loops to sweep a block with.
 
 ### findit.io
 

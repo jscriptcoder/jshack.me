@@ -302,6 +302,7 @@ registered commands; `registry.ts` is the source of truth.
 | `nmap`                                                                  | Scan a host or range; `-sV` adds versions and known vulnerabilities                | A      |
 | `ping`                                                                  | Check reachability                                                                 | A      |
 | `nslookup`, `dig`                                                       | Resolve names; `dig @server axfr` attempts a zone transfer                         | S      |
+| `whois`                                                                 | Look up the network, organisation, town and region behind an address or a domain   | S      |
 | `curl`                                                                  | Fetch a URL (`-i` for headers)                                                     | A      |
 | `lynx`                                                                  | Browse a page full-screen                                                          | M      |
 | `gobuster`                                                              | Probe a web server for paths from a list                                           | A      |

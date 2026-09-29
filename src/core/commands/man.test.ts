@@ -200,6 +200,7 @@ describe('man', () => {
     'chmod',
     'gpg',
     'msfconsole',
+    'whois',
   ])(
     'renders a real manual page for %s, not the no-manual fallback',
     async (name) => {

@@ -283,6 +283,31 @@ describe('commandRegistry gating (registry wiring)', () => {
     },
   );
 
+  it('gates whois behind an apt install of its own, then runs it once its /usr/bin binary is there', async () => {
+    const command = commandRegistry.get('whois');
+    if (command === undefined) throw new Error('whois not registered');
+
+    const fresh = mockCommandEnv({
+      fs: mockFsViewFromTree(buildDirectory({ tmp: buildDirectory({}) }), {
+        userType: 'user',
+        cwd: asAbsPath('/tmp'),
+      }),
+    });
+    const before = await command.execute(fresh, [], NO_FLAGS);
+    expect(errorLines(before)).toEqual([
+      'bash: whois: command not found. Install with: apt install whois',
+    ]);
+    expect(before.kind === 'sync' && before.exitCode).toBe(127);
+
+    const installed = mockCommandEnv({
+      fs: mockFsViewFromTree(treeWithUsrBinary('whois'), { userType: 'user', cwd: asAbsPath('/') }),
+    });
+    const after = await command.execute(installed, [], NO_FLAGS);
+
+    // Its own answer, not the gate's — the command was reached.
+    expect(errorLines(after)).toEqual(['whois: usage: whois <ip|domain>']);
+  });
+
   it('gates named behind an apt install, then reaches it once /usr/sbin/named is there', async () => {
     // A binary the world installs that no command answers to reads as a broken install
     // — the reason `dig` shipped a slice early rather than sit in /usr/bin saying
