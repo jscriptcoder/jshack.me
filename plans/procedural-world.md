@@ -5,7 +5,7 @@ slices 1a–1c (see Slice plans); 1a complete 2026-09-28 (#572, v0.284.0); 1b co
 2026-09-28 (#573, v0.285.0); 1c complete 2026-09-28 (#574, v0.286.0). Slice 1 complete.
 Slice 2 grilled and planned 2026-09-28 as slices 2a–2b; 2a complete 2026-09-29 (#575,
 v0.287.0); 2b complete 2026-09-29 (#576, table dropped on jshack-dev and jshack-prod).
-Slice 2 complete. Slices 3 onward not yet planned.
+Slice 2 complete. Slice 3 grilled and planned 2026-09-29. Slices 4 onward not yet planned.
 Amends the §9 backlog item "Procedural world expansion — GRILLED & RESOLVED 2026-07-29" in
 `docs/conventions-and-gotchas.md`; where the two disagree, this file wins.
 
@@ -693,7 +693,88 @@ and stays green.
 are `N/A`; grep proves they are gone and the sweep proves nothing depended on them.
 **PR-ready when**: 2b-1 to 2b-5 hold and the owner approves the commit. 2b-6 is the
 post-merge operational step.
-**Slice complete when**: its PR merges and 2b-6 is done. That completes slice 2 and AC-7.
+**Slice complete when**: its PR merges and 2b-6 is done. That completes slice 2. AC-7's
+address half holds; its snapshot test moves to slice 3.
+
+### Slice 3: any player can ask `whois` who holds an address or a domain
+
+**Value**: a player holding an address (from a trace log, a findit result or a scan) or a
+domain learns which network it is: its WiFi name, the organisation behind it, its town and
+its region. An attacker's address becomes a name to look for in a scan, and a bare address
+gives up its domain.
+**Path**: `whois <ip|domain>` → the binary check (`/usr/bin/whois`, from `apt install whois`)
+→ the wlan check → a pure lookup over the world declaration: domain → `siteAddress`,
+address → `networkAt` → the network's record → printed lines. Nothing crosses to the
+server, so the path ends in the client.
+**Class**: behaviour change.
+**Delivery**: independent PR against `main`, branch `feat/procedural-world-whois`.
+**Status**: planned.
+**Required implementation skills**: `tdd`, `testing`, `refactoring`; `mutation-testing` at
+PR-readiness.
+**Reduction program**: `N/A`.
+**Acceptance criteria** (to be confirmed before any code):
+
+- [ ] **3-1** With `whois` installed and a network joined, `whois` on the address of a sited
+      Ridgemont landmark prints a `% Harrow Valley registry` header and a record, and exits 0:
+      - `inetnum:` its address as a one-address range (`87.1.13.14 - 87.1.13.14`);
+      - `netname:` its ESSID;
+      - `org-name:` its site's name;
+      - `domain:` its site's domain;
+      - `city: Ridgemont` and `region: Harrow Valley`.
+- [ ] **3-2** A landmark with no site (`CASA-DE-RAMIREZ`) answers `org-name: Ridgemont
+      Broadband` and prints no `domain:` line.
+- [ ] **3-3** A corporate landmark and findit print no `city:` or `region:` line. findit's
+      `netname:` is `FINDIT-IO` and its `domain:` is `findit.io`.
+- [ ] **3-4** A Millbrook network answers `city: Millbrook` and `region: Harrow Valley`, with
+      its ESSID as `netname:` (`TOWN-HALL-WIFI`), never its key.
+- [ ] **3-5** `whois <domain>` prints the same record as `whois` on that domain's address, in
+      any letter case (`RIDGEMONT.GOV`).
+- [ ] **3-6** Anything no network holds prints `%ERROR:101: no entries found` and exits 1:
+      an empty address in a declared block (`87.1.0.1`), a private LAN address
+      (`192.168.1.10`), an unknown domain, a lab network's name, and junk. `whois` with no
+      argument prints `whois: usage: whois <ip|domain>` and exits 1.
+- [ ] **3-7** A test over the whole declared world proves every network's address answers a
+      record naming that network: its ESSID as `netname:` (`FINDIT-IO` for findit), its town
+      as `city:` and `Harrow Valley` as `region:` for every town network.
+- [ ] **3-8** On a fresh box `whois` is not found and points at `apt install whois`, which
+      installs it. `help` lists it and `man whois` describes it.
+- [ ] **3-9** With no network joined, `whois` prints `whois: network is unreachable — connect
+      to a network first` and exits 1.
+- [ ] **3-10** `whois` reaches no server: it answers the same with every server-facing
+      dependency of the command environment failing.
+- [ ] **3-11** (AC-7) A committed test fingerprints all 57 landmarks: persona, `.lan` zone,
+      WiFi password, the gateway's files and every LAN box's files, everything except the
+      public address. Its expected values equal fingerprints generated at `63f0b03b`, the
+      commit before the epic's first code.
+- [ ] **3-12** `checkBudgets` passes: gzipped main chunk ≤ 284,975 B, landmark sweep ≤ 2 ms per
+      box.
+- [ ] **3-13** `discovery-architecture.md` describes the `whois` route, and handbook chapter 5's
+      command table lists `whois`.
+
+**RED**:
+- The AC-7 fingerprint test comes first, as its own commit. It is preservation evidence,
+  not new behaviour, so its RED is an empty expected table failing against real digests.
+  Its values are then checked against a run of the same fingerprinting at `63f0b03b`.
+- Then a command test that `whois` on `ridgemont.gov`'s address prints the 3-1 record,
+  followed by the unsited, placeless, Millbrook, domain, no-match, usage, unreachable and
+  no-server cases, one at a time. The whole-world test and the availability tests come
+  last.
+**GREEN**:
+- the world gains a region row, `{ name: 'Harrow Valley', firstOctet: 87 }`, from which
+  `REGION_FIRST_OCTETS` is read;
+- a pure lookup beside the declaration from an address or a domain to a record;
+- `whois.ts` printing that record;
+- a `whois` apt package, the command in the registry, and its `help` and `man` text.
+**REFACTOR**: assess whether the lookup's town and region should come from one `Town` value
+the declaration already keeps. Only if it removes a second spelling.
+**Server evidence**: `N/A`. Nothing in `api/` changes and the command makes no request,
+which 3-10 proves.
+**PRE-PR MUTATION**: Stryker on `whois.ts` and the record lookup (json reporter). The
+fingerprint test is `N/A`: its mutants would be in the generators it pins, which are
+unchanged.
+**PR-ready when**: 3-1 to 3-13 hold, typecheck, lint, `vitest run` and the build's
+`checkBudgets` pass, and the owner approves the commit. Bumps the minor version to 0.288.0.
+**Slice complete when**: its PR merges. That completes AC-3 and AC-7.
 
 ## Acceptance Criteria
 
