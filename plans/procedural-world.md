@@ -6,8 +6,8 @@ slices 1a–1c (see Slice plans); 1a complete 2026-09-28 (#572, v0.284.0); 1b co
 Slice 2 grilled and planned 2026-09-28 as slices 2a–2b; 2a complete 2026-09-29 (#575,
 v0.287.0); 2b complete 2026-09-29 (#576, table dropped on jshack-dev and jshack-prod).
 Slice 2 complete. Slice 3 grilled and planned 2026-09-29, complete 2026-09-29 (#577,
-v0.288.0). Slice 4 grilled and planned 2026-09-29 as slices 4a–4c. Slices 5 onward not yet
-planned.
+v0.288.0). Slice 4 grilled and planned 2026-09-29 as slices 4a–4c; 4a complete 2026-09-29
+(#578, v0.289.0). Slices 5 onward not yet planned.
 Amends the §9 backlog item "Procedural world expansion — GRILLED & RESOLVED 2026-07-29" in
 `docs/conventions-and-gotchas.md`; where the two disagree, this file wins.
 
@@ -882,21 +882,21 @@ gateway's `rules.v4`. From any player: `nmap <address>` or a connection to
 one a publisher's `:80` already takes.
 **Class**: behaviour change.
 **Delivery**: independent PR against `main`, branch `feat/procedural-world-forwards`.
-**Status**: planned.
+**Status**: complete, merged as #578 (`44714640`).
 **Required implementation skills**: `tdd`, `testing`, `refactoring`; `mutation-testing` at
 PR-readiness.
 **Reduction program**: `N/A`.
 **Acceptance criteria** (to be confirmed before any code):
 
-- [ ] **4a-1** Every Millbrook gateway's `rules.v4` keeps its site's `:80` line (publishers)
+- [x] **4a-1** Every Millbrook gateway's `rules.v4` keeps its site's `:80` line (publishers)
       and then its seeded forwards, in the existing `forward <port> to <ip>:<port>` form. The
       count is 1–2 for a `corporate` or `government` network and 0–1 for a `retail`,
       `public` or `cafe` one, a café drawing one less often than a shop (and a home, from 4b,
       0–1). A network with fewer candidates than it draws takes all it has.
-- [ ] **4a-2** Every seeded forward names a machine on the network's edge LAN (never its
+- [x] **4a-2** Every seeded forward names a machine on the network's edge LAN (never its
       gateway, inner gateway or switch) and a port that machine serves. The site server's
       forwarded http port is never forwarded twice; its other services may be.
-- [ ] **4a-3** Public ports:
+- [x] **4a-3** Public ports:
       - an ssh forward takes the first free port of `2222`, `2022`, `8022`, `22222`, in that
         order, and never `22`;
       - an http forward takes its own port unless it is `80` on a publisher, then the first
@@ -904,16 +904,37 @@ PR-readiness.
       - any other service takes its own port, and a pair whose port is already taken is not
         drawn;
       - no two forwards on one gateway share a public port.
-- [ ] **4a-4** From any player, `nmap <a Millbrook address>` lists `22/tcp open` and every
+- [x] **4a-4** From any player, `nmap <a Millbrook address>` lists `22/tcp open` and every
       seeded forward's public port open, and a publisher's `80/tcp` as before.
-- [ ] **4a-5** Connecting through a seeded forward reaches the box behind it: an ssh forward
+- [x] **4a-5** Connecting through a seeded forward reaches the box behind it: an ssh forward
       offers that box's login, not the gateway's, and an http forward serves that box's
       page.
-- [ ] **4a-6** Every landmark's `rules.v4` is unchanged: the AC-7 fingerprint test passes
+- [x] **4a-6** Every landmark's `rules.v4` is unchanged: the AC-7 fingerprint test passes
       untouched. Millbrook's keys, ESSIDs, addresses and sites are unchanged.
-- [ ] **4a-7** `checkBudgets` passes: gzipped main chunk ≤ 284,975 B, landmark sweep ≤ 2 ms per
+- [x] **4a-7** `checkBudgets` passes: gzipped main chunk ≤ 284,975 B, landmark sweep ≤ 2 ms per
       box.
-- [ ] **4a-8** `world-content-architecture.md`'s streams table lists `gw-forwards-`.
+- [x] **4a-8** `world-content-architecture.md`'s streams table lists `gw-forwards-`.
+
+As built:
+- `seededForwards(key)` in `generation/seededForwards.ts`, folded into `apGatewayRules`
+  after the site forward. A category's count is one chance per forward
+  (`corporate`/`government` `[1, 0.5]`, shops, library, homes `[0.5]`, café `[0.3]`).
+- 4a-3 tightened in build: public `:80` is never a seeded forward's on ANY network, not
+  only on a publisher, because findit lists whatever a non-publisher serves there and
+  4b's homes would land on findit. The gateway's own `161` (snmp) is reserved beside
+  `22`, so snmp is never forwarded.
+- Millbrook as drawn: the council `2222`→a phone's ssh; the police `21` and `2121`; the
+  library and Greenleaf Grocers `21`; Keystone Logistics and Pinnacle IT Solutions
+  `2222`, Pinnacle also `21`; the café and two grocers none. No seeded http forward yet.
+- Evidence: `vitest run` 6618/6618; `checkBudgets` 238,793 B and 1.43 ms per box under
+  load (`main` 1.535 ms under the same load); `testMillbrook` 8/8 live, including
+  `ssh -p 2222` logging its failure in `printer-57`'s own `auth.log`; `testPublisherWeb`
+  6/6, `testFindit` 18/18. Stryker: 60 killed, 12 survived, 1 no coverage. One survivor
+  is equivalent (`<` → `<=` on a float draw). The other 11 and the uncovered one are
+  unreachable in today's world: the http port rule, the web and gateway port lists,
+  categories Millbrook lacks, and the site-pair filter. **Carried to 4b**: its homes
+  exercise the site-less path and the residential chance, and its golden table must
+  pin them.
 
 **RED**: a `routerFs` behaviour test over Millbrook's gateways for 4a-1, then the target
 rule (4a-2) and the port rules (4a-3), one at a time, each over every Millbrook network so
