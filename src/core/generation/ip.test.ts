@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createPrng } from './prng.js';
-import { generatePublicIp, isPublicIp, PUBLISHER_FIRST_OCTET, publicFirstOctets } from './ip.js';
+import { generatePublicIp, isPublicIp, publicFirstOctets } from './ip.js';
+import { PLACELESS_FIRST_OCTET } from './world.js';
 
 /**
  * `generatePublicIp` is the seeded WAN/public-IP generator (ported from legacy
@@ -52,20 +53,23 @@ describe('generatePublicIp', () => {
 });
 
 describe('isPublicIp', () => {
-  it('accepts every address a joining network can draw', () => {
-    for (let seed = 0; seed < 50; seed++) {
-      expect(isPublicIp(generatePublicIp(createPrng(`join-${seed}`)))).toBe(true);
-    }
+  it("accepts an address in a region's block and in the placeless block", () => {
+    expect(isPublicIp('87.1.0.159')).toBe(true);
+    expect(isPublicIp(`${PLACELESS_FIRST_OCTET}.44.12.9`)).toBe(true);
   });
 
-  it("accepts an address an institution's website answers at", () => {
-    expect(isPublicIp(`${PUBLISHER_FIRST_OCTET}.44.12.9`)).toBe(true);
+  it('refuses an address outside every block the world answers in', () => {
+    // Every network's address is derived from its place in the world, so an address in
+    // no block of it is no network's: aimed at, it is just an address off the LAN.
+    for (const octet of publicFirstOctets) {
+      expect(isPublicIp(`${octet}.12.34.56`), String(octet)).toBe(false);
+    }
   });
 
   it('refuses a private address, a range, a name and a longer run of digits', () => {
     expect(isPublicIp('192.168.1.5')).toBe(false);
-    expect(isPublicIp('45.12.34.56-60')).toBe(false);
-    expect(isPublicIp('1045.12.34.56')).toBe(false);
+    expect(isPublicIp('87.12.34.56-60')).toBe(false);
+    expect(isPublicIp('1087.12.34.56')).toBe(false);
     expect(isPublicIp('ridgemont.edu')).toBe(false);
   });
 });

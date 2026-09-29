@@ -59,7 +59,7 @@ import {
 import { deserializeTree } from '../src/core/filesystem/treeCodec.js';
 import { md5 } from '../src/core/generation/md5.js';
 import { AUTH_LOG_PATH } from '../src/core/logging/authLog.js';
-import { clearPublicIps, seedPublicIps } from './networkFixture.js';
+import { publicAddressOf } from './publicAddressOf.js';
 
 const NETWORK = process.env.NETWORK_ENDPOINT ?? 'http://localhost:3100/api/network';
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
@@ -113,11 +113,10 @@ const portList = (body: unknown): string =>
 const alice = generateIdentity();
 const carol = generateIdentity();
 
-const ESSID = 'PORT-FORWARD-WIFI';
+const ESSID = 'HACKERSPACE-2600';
 const CAROL_ESSID = 'ELSEWHERE-NET';
 const AP_GATEWAY = computeApGatewayId(ESSID);
-const AP_PUBLIC_IP = '203.0.113.181';
-const CAROL_PUBLIC_IP = '192.0.2.181';
+const AP_PUBLIC_IP = publicAddressOf(ESSID);
 
 const ALICE_WS_NAME = 'daisy-chain';
 const ALICE_WS = computeWorkstationId(ALICE_WS_NAME, alice.publicKeyHex);
@@ -206,10 +205,6 @@ const authLogRows = async (): Promise<number> => {
 };
 
 const clean = async () => {
-  await clearPublicIps(sr, [
-    { essid: ESSID, publicIp: AP_PUBLIC_IP },
-    { essid: CAROL_ESSID, publicIp: CAROL_PUBLIC_IP },
-  ]);
   await sr.from('home_network_occupants').delete().in('essid', [ESSID, CAROL_ESSID]);
   // Leases are permanent by design, so a re-run would otherwise find the octet held.
   await sr.from('network_lan_leases').delete().in('essid', [ESSID, CAROL_ESSID]);
@@ -222,10 +217,6 @@ const clean = async () => {
 // --- Setup ---------------------------------------------------------------------
 
 await clean();
-await seedPublicIps(sr, [
-  { essid: ESSID, publicIp: AP_PUBLIC_IP },
-  { essid: CAROL_ESSID, publicIp: CAROL_PUBLIC_IP },
-]);
 await sr.from('network_lan_leases').insert([
   { essid: ESSID, owner_key: alice.publicKeyHex, octet: ALICE_OCTET },
   { essid: CAROL_ESSID, owner_key: carol.publicKeyHex, octet: 42 },

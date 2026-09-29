@@ -29,6 +29,7 @@ import { formatPidfileContent } from '../src/core/services/pidfile.js';
 import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
 import { md5 } from '../src/core/generation/md5.js';
 import { workstationGuestPassword } from '../src/core/generation/workstationFs.js';
+import { publicAddressOf } from './publicAddressOf.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const url = process.env.SUPABASE_URL;
@@ -82,7 +83,7 @@ const alice = generateIdentity();
 const bob = generateIdentity();
 const carol = generateIdentity();
 
-const ESSID = 'SAME-LAN-TRACE-WIFI';
+const ESSID = 'CS-DEPT-LAB';
 const A_WS_NAME = 'skylab';
 const B_WS_NAME = 'nebuchadnezzar';
 const A_WS = computeWorkstationId(A_WS_NAME, alice.publicKeyHex);
@@ -92,10 +93,10 @@ const A_OCTET = 11;
 const B_OCTET = 12;
 const A_LAN = lanAddressFor(ESSID, A_OCTET); // A's ws LAN ip
 const B_LAN = lanAddressFor(ESSID, B_OCTET); // B's LAN ip — the source
-const B_PUBLIC = '198.51.100.42'; // a home public IP that must NOT appear (the source is the LAN IP)
+const B_PUBLIC = publicAddressOf(ESSID); // B's public IP, which must NOT appear (the source is the LAN IP)
 const GUEST_PW = workstationGuestPassword(alice.publicKeyHex); // A's ws guest pw
 const A_ROOT_PW = 'root-secret'; // matches the seeded workstation_root_hash below
-const FORGED_SOURCE = '203.0.113.250'; // a client-claimed source_ip the server must ignore
+const FORGED_SOURCE = '87.1.0.1'; // a client-claimed source_ip the server must ignore
 
 const WORLD_PID = { read: ['root', 'user', 'guest'], write: ['root'], execute: [] };
 

@@ -6,11 +6,9 @@
  * the public web is the same for every player without anything being stored.
  */
 
-import { PUBLISHER_FIRST_OCTET } from './ip.js';
 import type { PublishedSite } from './pools/essidCatalog.js';
-import { createPrng } from './prng.js';
 import { FINDIT_DOMAIN, FINDIT_NETWORK } from './finditNetwork.js';
-import { DECLARED_NETWORKS, townAddress } from './world.js';
+import { DECLARED_NETWORKS, publicAddress } from './world.js';
 
 const SITE_BY_ESSID: ReadonlyMap<string, PublishedSite> = new Map(
   DECLARED_NETWORKS.flatMap((network) =>
@@ -21,40 +19,21 @@ const SITE_BY_ESSID: ReadonlyMap<string, PublishedSite> = new Map(
 /** The website `essid` publishes, or `undefined` for a network that publishes none. */
 export const publisherSite = (essid: string): PublishedSite | undefined => SITE_BY_ESSID.get(essid);
 
-const hashedIp = (essid: string): string => {
-  const prng = createPrng(`publisher-ip-${essid}`);
-  return `${PUBLISHER_FIRST_OCTET}.${prng.nextInt(1, 254)}.${prng.nextInt(1, 254)}.${prng.nextInt(2, 254)}`;
-};
-
-/** A town network answers inside its town's block; a Ridgemont institution keeps the
- *  address it has always had. */
-const derivedIp = (essid: string): string => townAddress(essid) ?? hashedIp(essid);
-
 /** Where `essid`'s website answers on the internet, or `undefined` for a network that
- *  publishes none. The address is derived rather than allocated, so it exists before
- *  anybody has joined the network, and its first octet is one no joining network draws,
- *  so a player's own address can never land on it. */
+ *  publishes none. The address is the network's own, derived from its place in the
+ *  world, so it exists before anybody has joined the network. */
 export const publisherIp = (essid: string): string | undefined =>
-  SITE_BY_ESSID.has(essid) ? derivedIp(essid) : undefined;
+  SITE_BY_ESSID.has(essid) ? publicAddress(essid) : undefined;
 
-const PUBLISHER_BY_IP: ReadonlyMap<string, string> = new Map([
-  ...[...SITE_BY_ESSID.keys()].map((essid): [string, string] => [derivedIp(essid), essid]),
-  // findit is on the internet the same way, at an address of the same kind, but as a
-  // network of its own that no wifi carries.
-  [derivedIp(FINDIT_NETWORK), FINDIT_NETWORK],
-]);
-
-/** The network whose website answers at `ip` — an institution's, or findit's — or
- *  `undefined` when none does. The server asks this when no joined network holds an
- *  address, so a site is on the internet before anybody has ever stood on its wifi. */
-export const publisherAt = (ip: string): string | undefined => PUBLISHER_BY_IP.get(ip);
-
-const IP_BY_DOMAIN: ReadonlyMap<string, string> = new Map([
-  ...[...SITE_BY_ESSID].map(([essid, site]): [string, string] => [site.domain, derivedIp(essid)]),
-  [FINDIT_DOMAIN, derivedIp(FINDIT_NETWORK)],
+const NETWORK_BY_DOMAIN: ReadonlyMap<string, string> = new Map([
+  ...[...SITE_BY_ESSID].map(([essid, site]): [string, string] => [site.domain, essid]),
+  [FINDIT_DOMAIN, FINDIT_NETWORK],
 ]);
 
 /** The address the website called `domain` answers at, or `undefined` when nobody
- *  holds that domain. This is the world's whole DNS: every published
- *  name is catalog data, so every player's resolver gives the same answer. */
-export const siteAddress = (domain: string): string | undefined => IP_BY_DOMAIN.get(domain);
+ *  holds that domain. This is the world's whole DNS: every published name is declared,
+ *  so every player's resolver gives the same answer. */
+export const siteAddress = (domain: string): string | undefined => {
+  const essid = NETWORK_BY_DOMAIN.get(domain);
+  return essid === undefined ? undefined : publicAddress(essid);
+};

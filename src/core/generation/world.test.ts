@@ -1,13 +1,20 @@
 import { describe, expect, it } from 'vitest';
-import { publisherAt, publisherIp, siteAddress } from './publisher.js';
-import { isPublicIp, publicFirstOctets, PUBLISHER_FIRST_OCTET } from './ip.js';
-import { FINDIT_DOMAIN } from './finditNetwork.js';
+import { publisherIp, siteAddress } from './publisher.js';
+import { isPublicIp, publicFirstOctets } from './ip.js';
+import { FINDIT_DOMAIN, FINDIT_NETWORK } from './finditNetwork.js';
 import { siteServer } from './siteServer.js';
 import { resolveLanHostIdentity } from './lanHostIdentity.js';
 import { createFsView } from '../filesystem/fsView.js';
 import { walkTree } from '../filesystem/walkTree.js';
 import { asAbsPath } from '../types.js';
-import { DECLARED_NETWORKS, REGION_FIRST_OCTETS, type DeclaredNetwork } from './world.js';
+import {
+  DECLARED_NETWORKS,
+  networkAt,
+  PLACELESS_FIRST_OCTET,
+  publicAddress,
+  REGION_FIRST_OCTETS,
+  type DeclaredNetwork,
+} from './world.js';
 import { generateHomeLan } from './generateHomeLan.js';
 import { buildApGatewayBaseFs } from './routerFs.js';
 import { resolveLanName } from '../network/resolveName.js';
@@ -23,7 +30,7 @@ import { resolveLanName } from '../network/resolveName.js';
 const pageAt = (domain: string, file: string): string | undefined => {
   const address = siteAddress(domain);
   if (address === undefined) throw new Error(`nobody holds ${domain}`);
-  const key = publisherAt(address);
+  const key = networkAt(address);
   if (key === undefined) throw new Error(`nothing answers at ${address}`);
   const server = siteServer(key);
   if (server === undefined) throw new Error(`${key} serves no site`);
@@ -181,7 +188,7 @@ describe('Millbrook', () => {
 
   it('finds each network again behind the address it answers at', () => {
     for (const network of millbrook()) {
-      expect(publisherAt(publisherIp(network.key) ?? '')).toBe(network.key);
+      expect(networkAt(publisherIp(network.key) ?? '')).toBe(network.key);
     }
   });
 
@@ -321,11 +328,100 @@ describe('Ridgemont', () => {
   });
 });
 
+/** Every landmark: the catalog's networks, all of them standing in Ridgemont. */
+const landmarks = (): readonly DeclaredNetwork[] =>
+  DECLARED_NETWORKS.filter((network) => network.town === 'Ridgemont');
+
+/** An address's four octets, as numbers. */
+const octetsOf = (address: string | undefined): readonly number[] =>
+  (address ?? '').split('.').map(Number);
+
+describe("Ridgemont's addresses", () => {
+  it('answers every landmark but a corporation inside its own block of the region', () => {
+    const local = landmarks().filter((network) => network.category !== 'corporate');
+    expect(local.length).toBeGreaterThan(0);
+    for (const network of local) {
+      const address = publicAddress(network.key);
+      expect(address, network.key).toMatch(/^87\.1\.\d{1,3}\.\d{1,3}$/);
+      expect(isPublicIp(address ?? ''), network.key).toBe(true);
+    }
+  });
+
+  it('answers findit and every corporation in the placeless block', () => {
+    const corporations = landmarks().filter((network) => network.category === 'corporate');
+    expect(corporations).toHaveLength(20);
+    for (const key of [FINDIT_NETWORK, ...corporations.map((network) => network.key)]) {
+      const address = publicAddress(key);
+      expect(address, key).toMatch(/^193\.\d{1,3}\.\d{1,3}\.\d{1,3}$/);
+      expect(isPublicIp(address ?? ''), key).toBe(true);
+    }
+  });
+
+  it('keeps findit and the landmarks at the addresses they were given', () => {
+    // An address that moved would strand every note, log line and script a player holds
+    // about the network, so the catalog only ever grows at its end.
+    expect(
+      [FINDIT_NETWORK, 'ACME-CORP', 'NAKATOMI-PLAZA', 'BREW-AND-CODE', 'MEGA-LO-MART'].map(
+        (key) => [key, publicAddress(key)],
+      ),
+    ).toEqual([
+      [FINDIT_NETWORK, '193.1.0.2'],
+      ['ACME-CORP', '193.16.112.149'],
+      ['NAKATOMI-PLAZA', '193.55.203.159'],
+      ['BREW-AND-CODE', '87.1.159.19'],
+      ['MEGA-LO-MART', '87.1.86.252'],
+    ]);
+  });
+
+  it('answers a network nobody publishes from, before anybody has joined it', () => {
+    // A home network publishes nothing, yet its gateway is on the internet like anyone's.
+    expect(publicAddress('FAMILY-WIFI-2G')).toMatch(/^87\.1\./);
+    expect(networkAt(publicAddress('FAMILY-WIFI-2G') ?? '')).toBe('FAMILY-WIFI-2G');
+  });
+});
+
+describe('the addresses of the world', () => {
+  /** Every network with a public address: all the declared ones, and findit. */
+  const everyKey = (): readonly string[] => [
+    ...DECLARED_NETWORKS.map((network) => network.key),
+    FINDIT_NETWORK,
+  ];
+
+  it('gives every network an address no other network holds', () => {
+    const addresses = everyKey().map((key) => publicAddress(key));
+    expect(addresses).not.toContain(undefined);
+    expect(new Set(addresses).size).toBe(addresses.length);
+  });
+
+  it('finds every network again behind the address it answers at', () => {
+    for (const key of everyKey()) {
+      expect(networkAt(publicAddress(key) ?? ''), key).toBe(key);
+    }
+  });
+
+  it('never answers a network at a .0, a .1 or a .255', () => {
+    // A `.1` is where nobody answers, which is what a wire-check aims at to prove a miss.
+    for (const key of everyKey()) {
+      const fourth = octetsOf(publicAddress(key))[3] ?? 0;
+      expect(fourth, key).toBeGreaterThanOrEqual(2);
+      expect(fourth, key).toBeLessThanOrEqual(254);
+    }
+    expect(networkAt('87.1.0.1')).toBeUndefined();
+    expect(networkAt('193.0.0.1')).toBeUndefined();
+  });
+
+  it('holds no address for a network the world does not declare', () => {
+    expect(publicAddress('LEASE-TEST-NET')).toBeUndefined();
+    expect(networkAt('45.12.34.56')).toBeUndefined();
+    expect(networkAt('ridgemont.edu')).toBeUndefined();
+  });
+});
+
 describe('the regions of the world', () => {
   it('carve their blocks from octets no joining network draws and no placeless site holds', () => {
     for (const octet of REGION_FIRST_OCTETS) {
       expect(publicFirstOctets).not.toContain(octet);
-      expect(octet).not.toBe(PUBLISHER_FIRST_OCTET);
+      expect(octet).not.toBe(PLACELESS_FIRST_OCTET);
     }
   });
 });

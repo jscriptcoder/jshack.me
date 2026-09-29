@@ -58,7 +58,7 @@ const freshStore: NonceStore = async () => ({ fresh: true });
 // 2026-08-09 11:04:07 UTC — the server clock every log line here is stamped with.
 const FIXED_NOW = Date.UTC(2026, 7, 9, 11, 4, 7);
 
-const TARGET_PUBLIC_IP = '203.0.113.9';
+const TARGET_PUBLIC_IP = '87.0.113.9';
 const TARGET_ESSID = 'PIED-PIPER-GUEST';
 const AP_GATEWAY_ID = computeApGatewayId(TARGET_ESSID);
 const AP_NETWORK: ApNetworkLookup = { router_machine_id: AP_GATEWAY_ID, essid: TARGET_ESSID };
@@ -75,11 +75,11 @@ const ATTACKER_ESSID = 'BEAN-THERE-WIFI';
 
 /** The attacker's own public address, as the server resolves it from their VERIFIED
  *  key — the address the defender's log will carry. */
-const ATTACKER_PUBLIC_IP = '198.51.100.22';
+const ATTACKER_PUBLIC_IP = '87.51.100.22';
 
 /** A SECOND stranger, from a third network. One device visited by two people who have
  *  never met is the case the gateway's single log row exists for. */
-const SECOND_ATTACKER_PUBLIC_IP = '198.51.100.77';
+const SECOND_ATTACKER_PUBLIC_IP = '87.51.100.77';
 
 const TARGET_SUBNET = generateHomeLan(TARGET_ESSID).subnet;
 const ATTACKER_SUBNET = generateHomeLan(ATTACKER_ESSID).subnet;

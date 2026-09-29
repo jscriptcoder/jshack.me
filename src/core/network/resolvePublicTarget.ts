@@ -38,6 +38,8 @@ import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
 import { frontedSegment } from './frontedSegment.js';
 import { generatedLanBox } from './generatedLanBox.js';
 import type { Directory } from '../filesystem/types.js';
+import { networkAt } from '../generation/world.js';
+import { computeApGatewayId } from '../identity/router.js';
 
 /** One occupant a NAT forward can land on: its machine id (the journal scope AND
  *  the session target), the `owner_key` that rebuilds its tree and owns its logs,
@@ -61,6 +63,19 @@ export type NatOccupantRow = {
 export type ApNetworkLookup = {
   readonly router_machine_id: string;
   readonly essid: string;
+};
+
+/** The network standing at `publicIp`'s place in the world, and the gateway that bears
+ *  the address. The world is the whole record of who is where, so nothing is read: an
+ *  address no network answers at resolves to `null` without being an error. */
+export const derivedNetworkByPublicIp = async (
+  publicIp: string,
+): Promise<{ readonly data: ApNetworkLookup | null; readonly error: null }> => {
+  const essid = networkAt(publicIp);
+  return {
+    data: essid === undefined ? null : { router_machine_id: computeApGatewayId(essid), essid },
+    error: null,
+  };
 };
 
 export type ResolvePublicTargetDeps = {

@@ -27,7 +27,7 @@ import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
 import { md5 } from '../src/core/generation/md5.js';
 import { deserializeTree, type SerializedDirectory } from '../src/core/filesystem/treeCodec.js';
 import type { Directory, FileNode } from '../src/core/filesystem/types.js';
-import { clearPublicIps, seedPublicIps } from './networkFixture.js';
+import { publicAddressOf } from './publicAddressOf.js';
 
 const PATCHES = process.env.PATCHES_ENDPOINT ?? 'http://localhost:3100/api/patches';
 const NETWORK = process.env.NETWORK_ENDPOINT ?? 'http://localhost:3100/api/network';
@@ -94,7 +94,7 @@ const dave = generateIdentity();
 const ESSID = 'ABSTERGO-NET';
 const A_WS = computeWorkstationId('skylab', alice.publicKeyHex);
 const A_ROUTER = computeApGatewayId(ESSID);
-const A_PUBLIC_IP = '203.0.113.91';
+const A_PUBLIC_IP = publicAddressOf(ESSID);
 // A's workstation answers at the address A LEASES on its ESSID, so the NAT forward
 // below must name that address — a forward aimed anywhere else reaches no host.
 const A_OCTET = 11;
@@ -109,7 +109,6 @@ const FORWARD_RULES = `# /etc/iptables/rules.v4 — NAT port-forward table\nforw
 // Clean slate, then seed A's occupancy row (as the join would) + B's ROOT session on
 // A's ROUTER (as the 5.1.2 `ssh root@<A.publicIp>` login would), D's guest session on
 // the router (the denial case), and B's guest session on A's WORKSTATION (regression).
-await clearPublicIps(sr, [{ essid: ESSID, publicIp: A_PUBLIC_IP }]);
 await sr.from('home_network_occupants').delete().eq('essid', ESSID);
 await sr.from('network_lan_leases').delete().eq('essid', ESSID);
 await sr.from('patches').delete().eq('machine_id', A_ROUTER);
@@ -120,9 +119,8 @@ for (const id of [bob, carol, dave]) {
 await sr
   .from('network_lan_leases')
   .insert({ essid: ESSID, owner_key: alice.publicKeyHex, octet: A_OCTET });
-// The join state a real `registerNetwork` writes: the AP's public IP, plus the owner
-// as an OCCUPANT of its ESSID — occupancy is what makes a box reachable.
-await seedPublicIps(sr, [{ essid: ESSID, publicIp: A_PUBLIC_IP }]);
+// The join state a real `registerNetwork` writes: the owner as an OCCUPANT of
+// its ESSID — occupancy is what makes a box reachable.
 await sr.from('home_network_occupants').insert({
   essid: ESSID,
   owner_key: alice.publicKeyHex,
@@ -133,7 +131,7 @@ await sr.from('home_network_occupants').insert({
 });
 await sr.from('sessions').insert([
   {
-    session_id: `ssh-bob-router-${A_PUBLIC_IP}`,
+    session_id: `cross-router-ssh-bob-router-${A_PUBLIC_IP}`,
     player_key: bob.publicKeyHex,
     machine_id: A_ROUTER,
     credentials: { username: 'root', userType: 'root' },
@@ -141,7 +139,7 @@ await sr.from('sessions').insert([
     essid: ESSID,
   },
   {
-    session_id: `ssh-dave-router-${A_PUBLIC_IP}`,
+    session_id: `cross-router-ssh-dave-router-${A_PUBLIC_IP}`,
     player_key: dave.publicKeyHex,
     machine_id: A_ROUTER,
     credentials: { username: 'guest', userType: 'guest' },
@@ -149,7 +147,7 @@ await sr.from('sessions').insert([
     essid: ESSID,
   },
   {
-    session_id: `ssh-bob-ws-${A_PUBLIC_IP}`,
+    session_id: `cross-router-ssh-bob-ws-${A_PUBLIC_IP}`,
     player_key: bob.publicKeyHex,
     machine_id: A_WS,
     credentials: { username: 'guest', userType: 'guest' },
@@ -294,7 +292,6 @@ check(
 );
 
 // Cleanup.
-await clearPublicIps(sr, [{ essid: ESSID, publicIp: A_PUBLIC_IP }]);
 await sr.from('home_network_occupants').delete().eq('essid', ESSID);
 await sr.from('network_lan_leases').delete().eq('essid', ESSID);
 await sr.from('patches').delete().eq('machine_id', A_ROUTER);

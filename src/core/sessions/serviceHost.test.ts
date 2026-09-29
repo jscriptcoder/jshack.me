@@ -539,11 +539,11 @@ describe('reaching a box on the layer behind an inner gateway', () => {
 
 // ─── across the world: somebody else's public address ───
 
-const TARGET_PUBLIC_IP = '203.0.113.9';
+const TARGET_PUBLIC_IP = '87.0.113.9';
 const TARGET_ESSID = 'PIED-PIPER-GUEST';
 const AP_GATEWAY_ID = computeApGatewayId(TARGET_ESSID);
 const AP_NETWORK: ApNetworkLookup = { router_machine_id: AP_GATEWAY_ID, essid: TARGET_ESSID };
-const ATTACKER_PUBLIC_IP = '198.51.100.22';
+const ATTACKER_PUBLIC_IP = '87.51.100.22';
 
 const PUBLIC_DEFENDER_OCTET = 84;
 const PUBLIC_DEFENDER_LAN_IP = lanAddressFor(TARGET_ESSID, PUBLIC_DEFENDER_OCTET);

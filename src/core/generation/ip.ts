@@ -11,17 +11,12 @@
  */
 
 import type { Prng } from './prng.js';
-import { REGION_FIRST_OCTETS } from './world.js';
+import { PLACELESS_FIRST_OCTET, REGION_FIRST_OCTETS } from './world.js';
 
 /** Realistic public IP first-octet pool (routable hosting/cloud prefixes). */
 export const publicFirstOctets: readonly number[] = [
   45, 51, 62, 78, 91, 103, 138, 162, 185, 198, 203, 212,
 ];
-
-/** The first octet of every address an institution publishes its website at. It is
- *  kept out of `publicFirstOctets`, so a network drawing its address on join never
- *  lands inside the published web. */
-export const PUBLISHER_FIRST_OCTET = 193;
 
 export const generatePublicIp = (prng: Prng): string => {
   const first = prng.pick(publicFirstOctets);
@@ -33,21 +28,14 @@ export const generatePublicIp = (prng: Prng): string => {
 
 const SINGLE_IP = /^(\d{1,3})\.\d{1,3}\.\d{1,3}\.\d{1,3}$/;
 
-/** Whether `target` is a single public IP the game could have generated — a
- *  `x.y.z.w` whose first octet is one of the routable prefixes. Used by `nmap` to
- *  route a public-IP target to cross-player server resolution instead of the
- *  player's own LAN; a range, a private/own-subnet address, or any other shape is
- *  not a cross-player target. Consistent-by-construction with `generatePublicIp`
- *  (same prefix pool), so every registered public IP classifies true, and so does
- *  every address an institution publishes its website at and every address a town
- *  network answers at. */
+/** Whether `target` is a single public address: a `x.y.z.w` inside one of the blocks
+ *  the world answers in, a region's or the placeless one. Used by every command that
+ *  reaches across networks to route the target to the server instead of the player's
+ *  own LAN; a range, a private or own-subnet address, or any other shape is not one.
+ *  Every declared network's address classifies true by construction. */
 export const isPublicIp = (target: string): boolean => {
   const match = target.match(SINGLE_IP);
   if (match === null) return false;
   const firstOctet = Number(match[1]);
-  return (
-    publicFirstOctets.includes(firstOctet) ||
-    firstOctet === PUBLISHER_FIRST_OCTET ||
-    REGION_FIRST_OCTETS.includes(firstOctet)
-  );
+  return firstOctet === PLACELESS_FIRST_OCTET || REGION_FIRST_OCTETS.includes(firstOctet);
 };

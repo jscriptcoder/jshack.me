@@ -14,13 +14,11 @@ import { handleUnregisterOccupant } from '../src/core/network/unregisterOccupant
 import {
   handleResolvePublicScan,
   type NatOccupantRow,
-  type ApNetworkLookup,
 } from '../src/core/scan/resolvePublicScan.js';
 import { gameDayAt } from '../src/core/cve/worldClock.js';
 import { asEpochMs } from '../src/core/types.js';
 import {
   handleResolveHttpFetch,
-  type ApNetworkLookup as HttpApNetworkLookup,
   type HttpFetchOccupant,
   type WebTargetDeps,
 } from '../src/core/network/resolveHttpFetch.js';
@@ -29,7 +27,6 @@ import type {
   ActiveSessionQuery,
   FindActiveSessionResult,
 } from '../src/core/patches/authorizeMachineAccess.js';
-import { computeApGatewayId } from '../src/core/identity/router.js';
 import { handleResolveInnerGatewayScan } from '../src/core/scan/resolveInnerGatewayScan.js';
 import { handleResolveOccupantScan } from '../src/core/scan/resolveOccupantScan.js';
 import { handleResolveSameLanScan } from '../src/core/scan/resolveSameLanScan.js';
@@ -54,11 +51,9 @@ import { assignHomeNetwork } from '../src/core/network/homeNetwork.js';
 import { generateHomeLan } from '../src/core/generation/generateHomeLan.js';
 import { generatePublicIp } from '../src/core/generation/ip.js';
 import { createPrng } from '../src/core/generation/prng.js';
-import { publisherAt } from '../src/core/generation/publisher.js';
-import type {
-  MachinePatchRow as WebIndexPatchRow,
-  StoredAddress,
-} from '../src/core/findit/webIndex.js';
+import { derivedPublicIpByEssid } from '../src/core/logging/crossPlayerSourceIp.js';
+import type { MachinePatchRow as WebIndexPatchRow } from '../src/core/findit/webIndex.js';
+import { derivedNetworkByPublicIp } from '../src/core/network/resolvePublicTarget.js';
 import { randomUUID } from 'node:crypto';
 
 // Vercel adapter for POST /api/network — joining an AP, and reaching what is on it.
@@ -98,24 +93,7 @@ const logFailure = (label: string, error: unknown) => {
  * order, or the two would disagree about what is even there.
  */
 const webTargetDepsVia = ({ supabase, label }: QuerySpec): WebTargetDeps => ({
-  findNetworkByPublicIp: async (publicIp: string) => {
-    const network = await supabase
-      .from('network_public_ips')
-      .select('essid')
-      .eq('public_ip', publicIp)
-      .maybeSingle();
-    if (network.error) {
-      logFailure(`${label} public-ip lookup`, network.error);
-      return { data: null, error: network.error };
-    }
-    // An institution's website answers at an address derived from its ESSID, so it
-    // is on the internet before anybody has joined its wifi and stored one.
-    const essid =
-      (network.data as { essid: string } | null)?.essid ?? publisherAt(publicIp) ?? null;
-    if (essid === null) return { data: null, error: null };
-    const resolved: HttpApNetworkLookup = { router_machine_id: computeApGatewayId(essid), essid };
-    return { data: resolved, error: null };
-  },
+  findNetworkByPublicIp: derivedNetworkByPublicIp,
   // Per-machine journal: the gateway's (boot state + the live forward table), then the
   // reached box's (its running services and the pages themselves).
   findPatches: async ({ machine_id }: { machine_id: string }) => {
@@ -171,18 +149,6 @@ const accessLogWriterVia = ({ supabase, label }: QuerySpec) => ({
   },
 });
 
-const findPublicIpByEssidVia =
-  ({ supabase, label }: QuerySpec) =>
-  async (essid: string) => {
-    const { data, error } = await supabase
-      .from('network_public_ips')
-      .select('public_ip')
-      .eq('essid', essid)
-      .maybeSingle();
-    logFailure(`${label} essid public-ip lookup`, error);
-    return { data: data as { public_ip: string } | null, error };
-  };
-
 /** The REQUESTER's own home public IP — the truthful source IP, server-derived from
  *  their verified key. One player may carry rows for several APs they have joined; the
  *  most-recently-updated is their current network ("one network at a time"), and a
@@ -204,7 +170,7 @@ const findHomeNetworkByOwnerKeyVia =
     }
     const essid = (occupancy.data as { essid: string } | null)?.essid ?? null;
     if (essid === null) return { data: null, error: null };
-    return findPublicIpByEssidVia({ supabase, label })(essid);
+    return derivedPublicIpByEssid(essid);
   };
 
 /** Whether the caller is really present on the machine they named — the ssh hop they
@@ -286,29 +252,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // A public IP belongs to the ESSID's shared GATEWAY, a distinct machine whose id
     // derives from the ESSID: its journal drives the boot-state check, its own sshd:22,
     // and the forward table the handler liveness-gates each occupant's box against.
-    const findNetworkByPublicIp = async (publicIp: string) => {
-      const network = await supabase
-        .from('network_public_ips')
-        .select('essid')
-        .eq('public_ip', publicIp)
-        .maybeSingle();
-      if (network.error) {
-        console.error('[network] public-ip lookup error:', network.error);
-        return { data: null, error: network.error };
-      }
-      // An institution's website answers at an address derived from its ESSID, so it
-      // is on the internet before anybody has joined its wifi and stored one.
-      const essid =
-        (network.data as { essid: string } | null)?.essid ?? publisherAt(publicIp) ?? null;
-      if (essid === null) return { data: null, error: null };
-      // The AP itself always answers: a gateway is the access point's own infrastructure,
-      // not a machine that joins the network, so it exists whether or not anyone is on it.
-      const resolved: ApNetworkLookup = {
-        router_machine_id: computeApGatewayId(essid),
-        essid,
-      };
-      return { data: resolved, error: null };
-    };
+    const findNetworkByPublicIp = derivedNetworkByPublicIp;
     // The resolved ROUTER's FULL journal (scoped to router_machine_id, server order)
     // so the handler can replay it over the seeded router base — to ask `canBoot`
     // (a `/boot` tombstone takes the public IP dark) and to read its open ports off
@@ -366,13 +310,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
       const essid = (occupancy.data as { essid: string } | null)?.essid ?? null;
       if (essid === null) return { data: null, error: null };
-      const { data, error } = await supabase
-        .from('network_public_ips')
-        .select('public_ip')
-        .eq('essid', essid)
-        .maybeSingle();
-      if (error) console.error('[network] scanner source-ip lookup error:', error);
-      return { data: data as { public_ip: string } | null, error };
+      return derivedPublicIpByEssid(essid);
     };
     // Who a forward can reach: every occupant currently ON the ESSID, with the identity
     // fields that rebuild each box. Occupancy is also the reachability test — a machine
@@ -438,13 +376,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         logFailure('http-fetch web index lookup', error);
         return { data: data as readonly WebIndexPatchRow[] | null, error };
       },
-      // Only findit's search reaches this too: every network anybody has joined, so a
-      // page served on any of their public addresses can be found.
-      listPublicAddresses: async () => {
-        const { data, error } = await supabase.from('network_public_ips').select('essid, public_ip');
-        logFailure('http-fetch web index addresses', error);
-        return { data: data as readonly StoredAddress[] | null, error };
-      },
     });
     res.status(status).json(body);
     return;
@@ -465,7 +396,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       findHomeNetworkByOwnerKey: findHomeNetworkByOwnerKeyVia({ supabase, label: 'http-sweep' }),
       // A sweep launched from a box the caller only holds a session on is traced to THAT
       // network — the box that was actually used, not the attacker's home.
-      findPublicIpByEssid: findPublicIpByEssidVia({ supabase, label: 'http-sweep' }),
+      findPublicIpByEssid: derivedPublicIpByEssid,
       findActiveSession: findActiveSessionVia({ supabase, label: 'http-sweep' }),
       listPathPatches: listPathPatchesVia({ supabase, label: 'http-sweep' }),
     });

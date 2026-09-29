@@ -43,7 +43,6 @@ import {
 } from '../src/core/generation/lanHostIdentity.js';
 import { md5 } from '../src/core/generation/md5.js';
 import { binaryStub } from '../src/core/generation/binaries.js';
-import { clearPublicIps, seedPublicIps } from './networkFixture.js';
 
 const PATCHES = process.env.PATCHES_ENDPOINT ?? 'http://localhost:3100/api/patches';
 const url = process.env.SUPABASE_URL;
@@ -78,7 +77,6 @@ const errorOf = (body: unknown): string | undefined =>
 // --- The world under test ------------------------------------------------------
 
 const ESSID = 'APT-REMOTE-WIFI';
-const PUBLIC_IP = '203.0.113.91';
 
 // What `apt install netcat` really sends, byte for byte.
 const NC_PATH = '/usr/bin/nc';
@@ -151,13 +149,11 @@ const seedSession = async (machineId: string, userType: 'guest' | 'root') => {
 // Generated hosts are ESSID-seeded, so their machine_id is identical across runs.
 // Cleaning only at teardown lets a crashed run leave rows the next one reads as its
 // own — so the target machines are cleared at SETUP.
-await clearPublicIps(sr, [{ essid: ESSID, publicIp: PUBLIC_IP }]);
 await sr.from('home_network_occupants').delete().eq('essid', ESSID);
 await sr.from('patches').delete().eq('machine_id', NPC_MACHINE);
 await sr.from('patches').delete().eq('machine_id', VICTIM_MACHINE);
 await sr.from('sessions').delete().eq('player_key', attacker.publicKeyHex);
 
-await seedPublicIps(sr, [{ essid: ESSID, publicIp: PUBLIC_IP }]);
 await sr.from('home_network_occupants').insert({
   essid: ESSID,
   owner_key: victim.publicKeyHex,
@@ -236,7 +232,6 @@ await sr.from('patches').delete().eq('machine_id', NPC_MACHINE);
 await sr.from('patches').delete().eq('machine_id', VICTIM_MACHINE);
 await sr.from('sessions').delete().eq('player_key', attacker.publicKeyHex);
 await sr.from('home_network_occupants').delete().eq('essid', ESSID);
-await clearPublicIps(sr, [{ essid: ESSID, publicIp: PUBLIC_IP }]);
 
 const failed = results.filter((result) => !result.pass).length;
 console.log('');

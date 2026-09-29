@@ -750,7 +750,7 @@ describe('nmap — scan logging (3a)', () => {
  * single public IP routes to the resolver; everything else stays the LAN path.
  */
 describe('nmap — cross-player public-IP scan (slice 1a)', () => {
-  const PUBLIC_IP = '203.0.113.7';
+  const PUBLIC_IP = '87.0.113.7';
 
   const envWithResolve = (resolvePublic: ScanApi['resolvePublic']) =>
     mockCommandEnv({
@@ -772,9 +772,9 @@ describe('nmap — cross-player public-IP scan (slice 1a)', () => {
     // the report lines AND their blank-line spacing are both pinned.
     expect(text).toBe(
       [
-        'Starting Nmap scan — 203.0.113.7',
+        'Starting Nmap scan — 87.0.113.7',
         '',
-        'Nmap scan report for 203.0.113.7',
+        'Nmap scan report for 87.0.113.7',
         'Host is up.',
         '',
         'Nmap done — 1 host up',
@@ -820,9 +820,9 @@ describe('nmap — cross-player public-IP scan (slice 1a)', () => {
     expect(exitCode).toBe(0);
     expect(text).toBe(
       [
-        'Starting Nmap scan — 203.0.113.7',
+        'Starting Nmap scan — 87.0.113.7',
         '',
-        'Nmap scan report for 203.0.113.7',
+        'Nmap scan report for 87.0.113.7',
         'Host is up.',
         '',
         'PORT     STATE SERVICE',
@@ -843,7 +843,7 @@ describe('nmap — cross-player public-IP scan (slice 1a)', () => {
     expect(exitCode).toBe(0);
     expect(text).toBe(
       [
-        'Starting Nmap scan — 203.0.113.7',
+        'Starting Nmap scan — 87.0.113.7',
         '',
         'Host seems down.',
         '',
@@ -891,7 +891,7 @@ describe('nmap — cross-player public-IP scan (slice 1a)', () => {
 
     const result = await nmap.execute(
       envWithResolve(resolvePublic),
-      ['203.0.113.1-254'],
+      ['87.0.113.1-254'],
       new Map(),
     );
     if (result.kind !== 'sync') throw new Error('expected sync result');
@@ -1293,7 +1293,7 @@ describe('nmap — same-LAN occupant merge', () => {
       scan: mockScanApi({ resolveOccupants, resolvePublic: async () => ({ found: true, ports: [] }) }),
     });
 
-    await drain(await nmap.execute(env, ['203.0.113.7'], new Map()));
+    await drain(await nmap.execute(env, ['87.0.113.7'], new Map()));
 
     expect(resolveOccupants).not.toHaveBeenCalled();
   });
@@ -2250,7 +2250,7 @@ describe('nmap — the player is listed at its leased address', () => {
  */
 describe('nmap -sV — the version scan', () => {
   const SELF_IP = '192.168.29.188';
-  const PUBLIC_IP = '203.0.113.7';
+  const PUBLIC_IP = '87.0.113.7';
   const VERSION_SCAN = new Map<string, string | true>([['-sV', true]]);
 
   /** An online env whose own box runs `pidfiles` and carries `packages` in its

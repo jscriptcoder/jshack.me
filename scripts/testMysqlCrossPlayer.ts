@@ -38,7 +38,7 @@ import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
 import { MYSQL_LOG_PATH } from '../src/core/logging/mysqlLog.js';
 import { WORDLIST_PATH, formatWordlist } from '../src/core/wordlist/defaultWordlist.js';
 import { md5 } from '../src/core/generation/md5.js';
-import { clearPublicIps, seedPublicIps } from './networkFixture.js';
+import { publicAddressOf } from './publicAddressOf.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const url = process.env.SUPABASE_URL;
@@ -78,8 +78,8 @@ const textOf = (body: unknown): string =>
 const defender = generateIdentity();
 const attacker = generateIdentity();
 
-const TARGET_ESSID = 'PIED-PIPER-GUEST';
-const TARGET_PUBLIC_IP = '203.0.113.78';
+const TARGET_ESSID = 'SUITE-401';
+const TARGET_PUBLIC_IP = publicAddressOf(TARGET_ESSID);
 const TARGET_GATEWAY = computeApGatewayId(TARGET_ESSID);
 const DEFENDER_HOSTNAME = 'anton';
 const DEFENDER_WS = computeWorkstationId(DEFENDER_HOSTNAME, defender.publicKeyHex);
@@ -90,7 +90,7 @@ const DEFENDER_LAN_IP = lanAddressFor(TARGET_ESSID, DEFENDER_OCTET);
 const FORWARD_PORT = 43306;
 
 const ATTACKER_ESSID = 'BEAN-THERE-WIFI';
-const ATTACKER_PUBLIC_IP = '198.51.100.45';
+const ATTACKER_PUBLIC_IP = publicAddressOf(ATTACKER_ESSID);
 const ATTACKER_WS = computeWorkstationId('cracklab', attacker.publicKeyHex);
 
 const defenderOccupant = {
@@ -127,10 +127,6 @@ const firstTable = Object.keys(database.tables)[0];
 const firstColumn = database.tables[firstTable]?.columns[0]?.name;
 
 const clean = async () => {
-  await clearPublicIps(sr, [
-    { essid: TARGET_ESSID, publicIp: TARGET_PUBLIC_IP },
-    { essid: ATTACKER_ESSID, publicIp: ATTACKER_PUBLIC_IP },
-  ]);
   for (const essid of [TARGET_ESSID, ATTACKER_ESSID]) {
     await sr.from('home_network_occupants').delete().eq('essid', essid);
     await sr.from('network_lan_leases').delete().eq('essid', essid);
@@ -142,10 +138,6 @@ const clean = async () => {
 
 await clean();
 
-await seedPublicIps(sr, [
-  { essid: TARGET_ESSID, publicIp: TARGET_PUBLIC_IP },
-  { essid: ATTACKER_ESSID, publicIp: ATTACKER_PUBLIC_IP },
-]);
 await sr
   .from('network_lan_leases')
   .insert({ essid: TARGET_ESSID, owner_key: defender.publicKeyHex, octet: DEFENDER_OCTET });

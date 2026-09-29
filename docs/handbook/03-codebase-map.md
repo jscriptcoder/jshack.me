@@ -108,15 +108,15 @@ builders), `lanDatabase.ts` and `lanStore.ts` (find real generated database and 
 
 ## `scripts/`
 
-| Script                     | Purpose                                                                                                                                          |
-| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `encode.ts`                | Writes `src/core/secrets/__encoded.ts`. Runs before dev, build, typecheck and tests.                                                             |
-| `checkBudgets.ts`          | Post-build bundle-size and per-box timing budget.                                                                                                |
-| `test*.ts` (79 files)      | Wire-checks: drive the real `api/` endpoints against `vercel dev` and local Supabase.                                                            |
-| `networkFixture.ts`        | The shared helper for seeding and clearing `network_public_ips` (use it in new wire-checks; a few older scripts still write the table directly). |
-| `seedCrossPlayerTarget.ts` | One-shot setup for a two-player browser run (not self-cleaning; run with `clean` after).                                                         |
-| `restoreFindit.ts`         | Operator tool: reset the shared `findit.io` machine. Can target production.                                                                      |
-| `verifyPatchesRls.ts`      | Checks row-level security on `patches` (anonymous access denied).                                                                                |
+| Script                     | Purpose                                                                                                                          |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `encode.ts`                | Writes `src/core/secrets/__encoded.ts`. Runs before dev, build, typecheck and tests.                                             |
+| `checkBudgets.ts`          | Post-build bundle-size and per-box timing budget.                                                                                |
+| `test*.ts` (80 files)      | Wire-checks: drive the real `api/` endpoints against `vercel dev` and local Supabase.                                            |
+| `publicAddressOf.ts`       | A declared network's derived public address, for a wire-check to aim at; stops the run for a network the world does not declare. |
+| `seedCrossPlayerTarget.ts` | One-shot setup for a two-player browser run (not self-cleaning; run with `clean` after).                                         |
+| `restoreFindit.ts`         | Operator tool: reset the shared `findit.io` machine. Can target production.                                                      |
+| `verifyPatchesRls.ts`      | Checks row-level security on `patches` (anonymous access denied).                                                                |
 
 Run any of them with `npx dotenv -e .env.development.local -- npx tsx scripts/<name>.ts`.
 

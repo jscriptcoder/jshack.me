@@ -52,7 +52,9 @@ Shipped so far (each milestone is in git history + its as-built doc/plan):
   redraw on a `public_ip` 23505; permanent, no GC), wired into `registerNetwork` in place of the
   old `home-public-${essid}` PRNG derivation (which could birthday-collide across ESSIDs).
   `assignHomeNetwork` returns `{localIp, hostname}` only — **no client-side public IP remains**.
-  Wire-check: `scripts/testPublicIpAllocation.ts`.
+  Superseded 2026-09-28: every declared network's address is now derived from its place in
+  the world (`world.ts` `publicAddress`), and the allocator serves only local lab networks
+  until it retires.
 
 - **Shared-network reconciliation 🔨 IN PROGRESS (sharing work DONE at v0.94.0; only the registry removal remains)** (epic doc item #5, grilled & resolved
   2026-07-25). The ESSID becomes the seed for the whole LAN. Merged so far:
@@ -1957,23 +1959,17 @@ as passing and the loop cheerfully prints `32/32`. Assign without the pipe and c
 next line (or read `${PIPESTATUS[0]}`). Hit on 2026-08-10; the false `32/32` was caught only because
 the number looked too good for a run that included a just-changed resolver.
 
-**All public-IP seeding goes through `scripts/networkFixture.ts`** (`seedPublicIps` /
-`clearPublicIps`) — never a hand-rolled delete + insert. `network_public_ips` is keyed on
-**essid** (PK) with **public_ip** merely UNIQUE, so a script that hardcodes its own address and
-cleans up with `.delete().eq('public_ip', …)` never clears a row the same ESSID holds under a
-DIFFERENT address — and a real `registerNetwork` allocates exactly such rows. The seed then
-violates the essid PK, the bare insert swallows it, and the scenario silently never gets built.
+**A wire-check that reaches a network by address stands on a declared network** and aims at
+`publicAddressOf(key)` (`scripts/publicAddressOf.ts`), the address the world derives, never a
+hand-written one. A lab network (`LEASE-TEST-NET`, `MYSQL-LAB-3`, …) has no public address, so it
+serves only checks that use a network's own machines. An address where nobody answers is a `.1`
+inside a declared block (`87.1.0.1`, `193.0.0.1`): no network ever answers at a `.1`.
 
-This cost real time on 2026-08-09: `testRouterBrick` (6/10) and `testCrossPlayerRouter` (7/8) sat at
-a **false red** that read exactly like a NAT-forward regression — `resolvePublicScan` returning
-`{found:false, ports:[]}` and the forwarded login 404ing. Nothing was broken. Both scripts share
-ESSID `ABSTERGO-NET` with different hardcoded IPs, and the live table held
-`(ABSTERGO-NET, 203.4.16.180)` from some earlier allocation. Clearing that row alone took them to
-10/10 and 8/8; re-injecting it reproduced the failure exactly. **A red wire-check is not evidence of
-a code regression until its fixture is proven to have been built.**
-
-Scripts that only ever DELETE from `network_public_ips` (cleaning up after a real `registerNetwork`,
-e.g. `testGatewayBrickLanAlive`) need no fixture — they have no seed to block.
+The rule replaced a stored-address fixture whose silent failures cost real time on 2026-08-09:
+`testRouterBrick` (6/10) and `testCrossPlayerRouter` (7/8) sat at a **false red** that read exactly
+like a NAT-forward regression, because a stale row held the ESSID at a different address and the
+seed insert was swallowed. **A red wire-check is not evidence of a code regression until its
+fixture is proven to have been built.**
 
 **The specific trap behind that one: a `/boot` tombstone keeps `node_type: 'file'`.** `content:
 null` is the deletion marker; `node_type` is NOT NULL, so an explicit `null` there is a rejected

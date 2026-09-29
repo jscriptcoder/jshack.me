@@ -26,6 +26,9 @@ import { DECLARED_NETWORKS, RIDGEMONT } from '../generation/world.js';
 
 const freshStore: NonceStore = async () => ({ fresh: true });
 const ESSID = 'BEAN-THERE-WIFI';
+// A made-up network of the kind the wire-checks join, so each run starts on a gateway
+// nobody has written to.
+const LAB_NETWORK = 'LEASE-TEST-NET';
 const WORKSTATION_ID = 'skylab-deadbeef';
 // The player-private workstation identity the server persists so a cross-player
 // reader can reconstruct the box. The root value is already an md5 HASH — the client
@@ -33,10 +36,9 @@ const WORKSTATION_ID = 'skylab-deadbeef';
 const USERNAME = 'neo';
 const MACHINE_NAME = 'skylab';
 const ROOT_HASH = 'd41d8cd98f00b204e9800998ecf8427e';
-// What the stub allocator issues for the ESSID. The handler never reads the value —
-// its job is to make the allocation HAPPEN, and that stored row is what a foreign
-// scanner resolves the AP by. Sharing one IP across an ESSID is `allocatePublicIp`'s
-// own claim, proven in its tests and wire-checked end to end.
+// What the stub allocator issues for a lab network. The handler never reads the value:
+// a declared network's address is its place in the world, and only a network the world
+// does not declare is given one to store.
 const ALLOCATED_IP = '203.0.113.7';
 // The host octet the stub lease allocator issues. Opaque to the handler in the same
 // way the public IP is: the join's job is to make the allocation happen, and the
@@ -73,7 +75,7 @@ const envelope = (id: ReturnType<typeof generateIdentity>, over: Record<string, 
   });
 
 describe('handleRegisterNetwork', () => {
-  it('allocates the AP’s public IP for the joined ESSID, so the network is resolvable from outside', async () => {
+  it('stores no public address for a network the world declares, whose place in it is its address', async () => {
     const id = generateIdentity();
     const { deps, allocatePublicIp } = makeDeps();
 
@@ -83,10 +85,19 @@ describe('handleRegisterNetwork', () => {
       status: 200,
       body: { ok: true, local_ip: lanAddressFor(ESSID, LEASED_OCTET) },
     });
-    // Keyed by the ESSID the caller joined — an address belonging to the ACCESS POINT,
-    // not to the joiner, which is why nothing about the caller enters the call.
+    expect(allocatePublicIp).not.toHaveBeenCalled();
+  });
+
+  it('allocates a public address for an admitted network the world does not declare', async () => {
+    const id = generateIdentity();
+    const { deps, allocatePublicIp } = makeDeps({ admitsUndeclaredNetworks: true });
+
+    await handleRegisterNetwork(envelope(id, { essid: LAB_NETWORK }), deps);
+
+    // Keyed by the network the caller joined, an address belonging to the ACCESS POINT
+    // rather than the joiner, which is why nothing about the caller enters the call.
     expect(allocatePublicIp).toHaveBeenCalledTimes(1);
-    expect(allocatePublicIp).toHaveBeenCalledWith(ESSID);
+    expect(allocatePublicIp).toHaveBeenCalledWith(LAB_NETWORK);
   });
 
   it('persists the workstation identity (username/machineName/root-hash) so a cross-player reader can reconstruct the box', async () => {
@@ -147,18 +158,18 @@ describe('handleRegisterNetwork', () => {
   it('keys the public-IP allocation on the ESSID alone — two identities joining one AP make the same request', async () => {
     const idA = generateIdentity();
     const idB = generateIdentity();
-    const { deps: depsA, allocatePublicIp: allocA } = makeDeps();
-    const { deps: depsB, allocatePublicIp: allocB } = makeDeps();
+    const { deps: depsA, allocatePublicIp: allocA } = makeDeps({ admitsUndeclaredNetworks: true });
+    const { deps: depsB, allocatePublicIp: allocB } = makeDeps({ admitsUndeclaredNetworks: true });
 
-    await handleRegisterNetwork(envelope(idA), depsA);
-    await handleRegisterNetwork(envelope(idB), depsB);
+    await handleRegisterNetwork(envelope(idA, { essid: LAB_NETWORK }), depsA);
+    await handleRegisterNetwork(envelope(idB, { essid: LAB_NETWORK }), depsB);
 
     // The address belongs to the ACCESS POINT, so two occupants ask the allocator the
     // same question and get one answer. That they then SHARE it is `allocatePublicIp`'s
     // claim (it recalls a known ESSID's IP without drawing); what the join owes is that
     // nothing identity-specific enters the request in the first place.
-    expect(allocA).toHaveBeenCalledWith(ESSID);
-    expect(allocB).toHaveBeenCalledWith(ESSID);
+    expect(allocA).toHaveBeenCalledWith(LAB_NETWORK);
+    expect(allocB).toHaveBeenCalledWith(LAB_NETWORK);
     expect(allocA.mock.calls[0]).toEqual(allocB.mock.calls[0]);
   });
 
@@ -210,12 +221,13 @@ describe('handleRegisterNetwork', () => {
   it('reports a server error when public-IP allocation fails, without writing', async () => {
     const id = generateIdentity();
     const { deps, upsertOccupant } = makeDeps({
+      admitsUndeclaredNetworks: true,
       allocatePublicIp: vi.fn(async () => {
         throw new Error('allocation exhausted');
       }),
     });
 
-    const result = await handleRegisterNetwork(envelope(id), deps);
+    const result = await handleRegisterNetwork(envelope(id, { essid: LAB_NETWORK }), deps);
 
     expect(result).toEqual({ status: 500, body: { error: 'allocation_failed' } });
     // Allocation precedes the write — a failure must not leave an occupant on a
@@ -335,9 +347,6 @@ const RIDGEMONT_KEYS = DECLARED_NETWORKS.filter((network) => network.town === RI
 const OUT_OF_TOWN_KEYS = DECLARED_NETWORKS.filter((network) => network.town !== RIDGEMONT).map(
   (network) => network.key,
 );
-// A made-up network of the kind the wire-checks join, so each run starts on a gateway
-// nobody has written to.
-const LAB_NETWORK = 'LEASE-TEST-NET';
 const NOT_JOINABLE = { status: 403, body: { error: 'network_not_joinable' } };
 
 describe('handleRegisterNetwork: which networks a player may join', () => {
@@ -380,9 +389,14 @@ describe('handleRegisterNetwork: which networks a player may join', () => {
     const id = generateIdentity();
     const joined = await Promise.all(
       RIDGEMONT_KEYS.map(async (key) => {
-        const { deps, upsertOccupant } = makeDeps();
+        const { deps, upsertOccupant, allocatePublicIp } = makeDeps();
         const result = await handleRegisterNetwork(envelope(id, { essid: key }), deps);
-        return { key, result, occupantEssid: upsertOccupant.mock.calls[0]?.[0].essid };
+        return {
+          key,
+          result,
+          occupantEssid: upsertOccupant.mock.calls[0]?.[0].essid,
+          allocations: allocatePublicIp.mock.calls.length,
+        };
       }),
     );
 
@@ -392,6 +406,7 @@ describe('handleRegisterNetwork: which networks a player may join', () => {
         key,
         result: { status: 200, body: { ok: true, local_ip: lanAddressFor(key, LEASED_OCTET) } },
         occupantEssid: key,
+        allocations: 0,
       })),
     );
   });

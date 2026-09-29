@@ -275,7 +275,7 @@ describe('the vantages this client cannot settle for itself', () => {
   it('asks the server about a PUBLIC address instead of refusing it here', async () => {
     const connect = vi.fn(async () => ({ ok: true as const, hostname: 'somebody-elses-box' }));
 
-    await run(onLan({ connect }), ['203.0.113.9']);
+    await run(onLan({ connect }), ['87.0.113.9']);
 
     // A public address names an ACCESS POINT, and which box sits behind which forward
     // lives in that gateway's server-side journal. Refusing it from the generated LAN

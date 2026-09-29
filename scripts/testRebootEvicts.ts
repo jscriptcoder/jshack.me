@@ -50,7 +50,7 @@ import { computeWorkstationId } from '../src/core/identity/workstation.js';
 import { computeApGatewayId } from '../src/core/identity/router.js';
 import { BOOT_ID_PATH } from '../src/core/boot/bootId.js';
 import { KERN_LOG_PATH } from '../src/core/logging/kernLog.js';
-import { clearPublicIps, seedPublicIps } from './networkFixture.js';
+import { publicAddressOf } from './publicAddressOf.js';
 import type { UserType } from '../src/core/types.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
@@ -93,16 +93,16 @@ const stranger = generateIdentity();
 // second one still has to work.
 const OWN_BOX = computeWorkstationId('wirebox', defender.publicKeyHex);
 // Nobody owns an access point, so only the root-session arm can ever reboot one.
-const HOME_ESSID = 'WIRE-AP-9F2A';
+const HOME_ESSID = 'SUITE-401';
 const GATEWAY = computeApGatewayId(HOME_ESSID);
 const ELSEWHERE = 'reboot-wire-other-box';
 
 // The intruder's own network, so the address their line carries is derived from a real
 // occupancy row of theirs rather than from anything they send.
-const INTRUDER_ESSID = 'WIRE-AP-INTRUDER';
+const INTRUDER_ESSID = 'HOUSE-OF-CARDS';
 const INTRUDER_BOX = computeWorkstationId('crackbox', intruder.publicKeyHex);
-const HOME_IP = '203.0.113.11';
-const INTRUDER_IP = '198.51.100.22';
+const HOME_IP = publicAddressOf(HOME_ESSID);
+const INTRUDER_IP = publicAddressOf(INTRUDER_ESSID);
 
 const DEFENDER_SHELL = 'reboot-wire-defender-shell';
 const DEFENDER_UNNAMED = 'reboot-wire-defender-unnamed';
@@ -187,10 +187,6 @@ const wipeWorld = async () => {
     await sr.from('home_network_occupants').delete().eq('essid', essid);
     await sr.from('network_lan_leases').delete().eq('essid', essid);
   }
-  await clearPublicIps(sr, [
-    { essid: HOME_ESSID, publicIp: HOME_IP },
-    { essid: INTRUDER_ESSID, publicIp: INTRUDER_IP },
-  ]);
 };
 
 // Clean slate, then seed. The defender's second shell is load-bearing: it sits on
@@ -200,10 +196,6 @@ const wipeWorld = async () => {
 // identical across runs, so a crashed run would leave rows the next one reads as its own.
 await wipeWorld();
 
-await seedPublicIps(sr, [
-  { essid: HOME_ESSID, publicIp: HOME_IP },
-  { essid: INTRUDER_ESSID, publicIp: INTRUDER_IP },
-]);
 
 // Who owns which box. It decides whose row each kern.log line accretes under, and — read
 // the other way, by owner key — which address the server derives for the actor.

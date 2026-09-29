@@ -319,12 +319,12 @@ describe('hydra', () => {
     // because a log line on a foreign box is evidence rather than decoration.
     const { env, crack, crackPublic } = hydraEnv();
 
-    await drain(await hydra.execute(env, ['203.0.113.7'], new Map()));
+    await drain(await hydra.execute(env, ['87.0.113.7'], new Map()));
 
     expect(crack).not.toHaveBeenCalled();
     expect(crackPublic).toHaveBeenCalledWith({
       essid: ESSID,
-      target: '203.0.113.7',
+      target: '87.0.113.7',
       service: 'ssh',
       port: undefined,
       username: undefined,
@@ -337,7 +337,7 @@ describe('hydra', () => {
     // this is how a player says "the machine somebody published", not "the gateway".
     const { env, crackPublic } = hydraEnv();
 
-    await drain(await hydra.execute(env, ['203.0.113.7'], new Map([['-p', '5544']])));
+    await drain(await hydra.execute(env, ['87.0.113.7'], new Map([['-p', '5544']])));
 
     expect(crackPublic).toHaveBeenCalledWith(expect.objectContaining({ port: 5544 }));
   });
@@ -354,7 +354,7 @@ describe('hydra', () => {
     // become port 1 or port 0 either: a wrong door is worse than the default one.
     const { env, crackPublic } = hydraEnv();
 
-    await drain(await hydra.execute(env, ['203.0.113.7'], new Map([['-p', raw]])));
+    await drain(await hydra.execute(env, ['87.0.113.7'], new Map([['-p', raw]])));
 
     expect(crackPublic).toHaveBeenCalledWith(expect.objectContaining({ port: undefined }));
   });

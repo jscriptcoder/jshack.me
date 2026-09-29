@@ -6,10 +6,9 @@
 //     Nothing here seeds `/etc/snmp/snmpd.conf` — the file the boot generator plants is
 //     what accepts `public`, so a generator that stopped planting it turns the accepted
 //     walk into a refusal and this script goes red.
-//   - The gateway's SECOND address is a `network_public_ips` ROW READ, not a generated
-//     value. Every unit test hands `findPublicIpByEssid` a fake, so the live wiring —
-//     right table, right column, right key — is proven only here. Checked in BOTH
-//     directions: with the row seeded, and again once it is gone.
+//   - The gateway's SECOND address is its network's public address, derived from the
+//     network's place in the world. Every unit test hands `findPublicIpByEssid` a fake,
+//     so the live wiring is proven only here.
 //   - The two lines land at the TARGET's own `/var/log/snmpd.log`, as ONE row,
 //     root-owned, with NOTHING in auth.log. `patches` is keyed on
 //     `(machine_id, path, writer_key)`, so a trace filed under the wrong daemon, the
@@ -46,7 +45,7 @@ import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
 import { readOpenPorts } from '../src/core/services/pidfile.js';
 import { AUTH_LOG_PATH } from '../src/core/logging/authLog.js';
 import { SNMPD_LOG_OWNER, SNMPD_LOG_PATH } from '../src/core/logging/snmpdLog.js';
-import { clearPublicIps, seedPublicIps } from './networkFixture.js';
+import { publicAddressOf } from './publicAddressOf.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const url = process.env.SUPABASE_URL;
@@ -77,8 +76,8 @@ const post = async (envelope: unknown): Promise<{ status: number; body: unknown 
 
 // Its own ESSID, shared with no other check. Machines are ESSID-seeded, so two scripts
 // on one ESSID read each other's rows as their own.
-const ESSID = 'SNMP-WALK-WIFI';
-const PUBLIC_IP = '198.51.100.77';
+const ESSID = 'NULL-BYTE';
+const PUBLIC_IP = publicAddressOf(ESSID);
 const ATTACKER_IP = '192.168.1.50';
 const NOWHERE_IP = '10.255.255.254';
 /** The community this run plants, in the clear. The generated one is drawn from a pool
@@ -252,7 +251,6 @@ const main = async (): Promise<void> => {
   );
 
   await clear();
-  await seedPublicIps(sr, [{ essid: ESSID, publicIp: PUBLIC_IP }]);
 
   // ─── the walk that is answered ───
   const answered = await walk(gateway.ip, 'public');
@@ -276,7 +274,7 @@ const main = async (): Promise<void> => {
     `platform ${JSON.stringify(identity['platform'])}, expected ${JSON.stringify(EXPECTED_PLATFORM)}`,
   );
   check(
-    'the second address is the network_public_ips row, read live',
+    'the second address is the network’s public address, as the world derives it',
     JSON.stringify(addressesIn(answered.body)) === JSON.stringify([gateway.ip, PUBLIC_IP]),
     `addresses ${JSON.stringify(addressesIn(answered.body))}`,
   );
@@ -333,15 +331,6 @@ const main = async (): Promise<void> => {
     JSON.stringify(added),
   );
 
-  // ─── the address that is not in the table ───
-  await clearPublicIps(sr, [{ essid: ESSID, publicIp: PUBLIC_IP }]);
-  const unregistered = await walk(gateway.ip, 'public');
-  check(
-    'with no row for the ESSID the gateway shows the one address it really holds',
-    JSON.stringify(addressesIn(unregistered.body)) === JSON.stringify([gateway.ip]),
-    `addresses ${JSON.stringify(addressesIn(unregistered.body))}`,
-  );
-
   check(
     'and none of it minted a session, because this door has no account to session',
     (await sessionRowsForCaller()) === 0,
@@ -354,7 +343,6 @@ const main = async (): Promise<void> => {
   // fake, so which path is read, and whether the row replays at all, is proven only
   // here.
   await clear();
-  await seedPublicIps(sr, [{ essid: ESSID, publicIp: PUBLIC_IP }]);
   await plant(RW_STATE_PATH, `rwcommunity ${md5(RW_COMMUNITY)}\n`);
 
   const readOnly = await walk(gateway.ip, 'public');
@@ -392,7 +380,6 @@ const main = async (): Promise<void> => {
   );
 
   await clear();
-  await clearPublicIps(sr, [{ essid: ESSID, publicIp: PUBLIC_IP }]);
 
   const failed = results.filter((result) => !result.pass).length;
   console.log(`\n${results.length - failed}/${results.length} checks passed`);

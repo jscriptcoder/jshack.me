@@ -4,7 +4,6 @@ import {
   publisherMachineIds,
   type MachinePatchRow,
   type WebIndexDeps,
-  type StoredAddress,
 } from './webIndex.js';
 import { computeApGatewayId } from '../identity/router.js';
 import { siteServer } from '../generation/siteServer.js';
@@ -12,7 +11,7 @@ import { resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
 import { publisherIp, publisherSite } from '../generation/publisher.js';
 import { FINDIT_NETWORK } from '../generation/findit.js';
 import { rankPages } from './search.js';
-import { DECLARED_NETWORKS } from '../generation/world.js';
+import { DECLARED_NETWORKS, publicAddress } from '../generation/world.js';
 
 /**
  * What findit holds when somebody searches: every homepage on the public web as it is
@@ -52,7 +51,6 @@ const depsWith = (
     data: rows.filter((row) => machineIds.includes(row.machine_id)),
     error: null,
   }),
-  listPublicAddresses: async () => ({ data: [], error: null }),
   siteAt: async () => null,
   ...overrides,
 });
@@ -168,7 +166,6 @@ describe('the web findit searches', () => {
         ],
         error: null,
       }),
-      listPublicAddresses: async () => ({ data: [], error: null }),
       siteAt: async () =>
         servedSite('<html><head><title>Somebody else</title></head><body><p>Mine now.</p></body></html>'),
     });
@@ -218,7 +215,6 @@ describe('the web findit searches', () => {
         ],
         error: null,
       }),
-      listPublicAddresses: async () => ({ data: [], error: null }),
       siteAt: async () =>
         servedSite('<html><head><title>Gateway page</title></head><body><p>Served here now.</p></body></html>'),
     });
@@ -232,7 +228,6 @@ describe('the web findit searches', () => {
         asked.push([...machineIds]);
         return { data: [], error: null };
       },
-      listPublicAddresses: async () => ({ data: [], error: null }),
       siteAt: async () => null,
     });
     expect(asked).toHaveLength(1);
@@ -242,7 +237,6 @@ describe('the web findit searches', () => {
   it('finds nothing at all when the journals cannot be read', async () => {
     const web = await indexedWeb({
       findPatchesForMachines: async () => ({ data: null, error: new Error('down') }),
-      listPublicAddresses: async () => ({ data: [], error: null }),
       siteAt: async () => null,
     });
     expect(web).toEqual([]);
@@ -256,12 +250,8 @@ describe('the web findit searches', () => {
  */
 
 const HOME = 'APT-3B-WIFI';
-const HOME_IP = '45.12.7.9';
+const HOME_IP = publicAddress(HOME) ?? '';
 const HOME_LAN_BOX = '192.168.77.20';
-
-const stored =
-  (...addresses: readonly StoredAddress[]) =>
-  async () => ({ data: addresses, error: null });
 
 const homeGateway = (content: string): MachinePatchRow =>
   patchRow({ machine_id: computeApGatewayId(HOME), path: '/etc/iptables/rules.v4', content });
@@ -286,7 +276,6 @@ describe("a player's page on the public web", () => {
   it('is listed under the bare address it answers at', async () => {
     const web = await indexedWeb(
       depsWith([HOME_FORWARDING_THE_WEB], {
-        listPublicAddresses: stored({ essid: HOME, public_ip: HOME_IP }),
         siteAt: async (publicIp) => (publicIp === HOME_IP ? servedSite(PLAYER_PAGE) : null),
       }),
     );
@@ -301,7 +290,6 @@ describe("a player's page on the public web", () => {
   it('is titled by its address when it names nothing', async () => {
     const web = await indexedWeb(
       depsWith([HOME_FORWARDING_THE_WEB], {
-        listPublicAddresses: stored({ essid: HOME, public_ip: HOME_IP }),
         siteAt: async () => servedSite('<html><body><p>No title here.</p></body></html>'),
       }),
     );
@@ -311,7 +299,6 @@ describe("a player's page on the public web", () => {
   it('is not there when a visitor to that address would be served nothing', async () => {
     const web = await indexedWeb(
       depsWith([HOME_FORWARDING_THE_WEB], {
-        listPublicAddresses: stored({ essid: HOME, public_ip: HOME_IP }),
         siteAt: async () => null,
       }),
     );
@@ -330,8 +317,7 @@ describe("a player's page on the public web", () => {
           }),
         ],
         {
-          listPublicAddresses: stored({ essid: HOME, public_ip: HOME_IP }),
-          siteAt: async () => servedSite(PLAYER_PAGE),
+            siteAt: async () => servedSite(PLAYER_PAGE),
         },
       ),
     );
@@ -341,7 +327,7 @@ describe("a player's page on the public web", () => {
   it('is never looked for on a network whose gateway serves no web at all', async () => {
     const { visited, siteAt } = recordingVisits();
     const web = await indexedWeb(
-      depsWith([], { listPublicAddresses: stored({ essid: HOME, public_ip: HOME_IP }), siteAt }),
+      depsWith([], { siteAt }),
     );
     expect(web.map((page) => page.address)).not.toContain(HOME_IP);
     expect(visited).toEqual([]);
@@ -355,7 +341,7 @@ describe("a player's page on the public web", () => {
           HOME_FORWARDING_THE_WEB,
           patchRow({ machine_id: computeApGatewayId(HOME), path: '/boot/vmlinuz', content: null }),
         ],
-        { listPublicAddresses: stored({ essid: HOME, public_ip: HOME_IP }), siteAt },
+        { siteAt },
       ),
     );
     expect(web.map((page) => page.address)).not.toContain(HOME_IP);
@@ -370,21 +356,25 @@ describe("a player's page on the public web", () => {
           asked.push([...machineIds]);
           return { data: [], error: null };
         },
-        listPublicAddresses: stored({ essid: HOME, public_ip: HOME_IP }),
       }),
     );
+    // Exactly the machines a listing can come from: every publisher's, and the gateway of
+    // every declared network that publishes nothing. A search costs what the world holds.
+    const unpublishedGateways = DECLARED_NETWORKS.filter(
+      (network) => network.site === undefined,
+    ).map((network) => computeApGatewayId(network.key));
+    expect(unpublishedGateways).toContain(computeApGatewayId(HOME));
     expect(asked).toHaveLength(1);
-    expect(asked[0]).toEqual(
-      expect.arrayContaining([...publisherMachineIds(), computeApGatewayId(HOME)]),
+    expect([...(asked[0] ?? [])].sort()).toEqual(
+      [...publisherMachineIds(), ...unpublishedGateways].sort(),
     );
   });
 
-  it('lists a joined institution once, by its domain, never again by its address', async () => {
+  it('lists an institution once, by its domain, never again by its address', async () => {
     const campusIp = publisherIp(CAMPUS);
     if (campusIp === undefined) throw new Error('the campus has no address');
     const web = await indexedWeb(
       depsWith([], {
-        listPublicAddresses: stored({ essid: CAMPUS, public_ip: campusIp }),
         siteAt: async () => servedSite(PLAYER_PAGE),
       }),
     );
@@ -393,20 +383,62 @@ describe("a player's page on the public web", () => {
   });
 
   it('never lists findit among its own results', async () => {
+    const finditIp = publicAddress(FINDIT_NETWORK);
     const web = await indexedWeb(
-      depsWith([], {
-        listPublicAddresses: stored({ essid: FINDIT_NETWORK, public_ip: HOME_IP }),
-        siteAt: async () => servedSite(PLAYER_PAGE),
-      }),
+      depsWith(
+        [
+          patchRow({
+            machine_id: computeApGatewayId(FINDIT_NETWORK),
+            path: '/etc/iptables/rules.v4',
+            content: `forward 80 to ${HOME_LAN_BOX}:80
+`,
+          }),
+        ],
+        { siteAt: async () => servedSite(PLAYER_PAGE) },
+      ),
     );
-    expect(web.map((page) => page.address)).not.toContain(HOME_IP);
+    expect(web.map((page) => page.address)).not.toContain(finditIp);
   });
 
-  it('lists the institutions still when no network has been joined at all', async () => {
+  it('is looked for on every network nobody publishes from, joined or not', async () => {
+    // Every network's address is its place in the world, so a page served through any
+    // gateway that forwards the web is found there, with no record of who ever joined.
+    const unpublished = DECLARED_NETWORKS.filter((network) => network.site === undefined);
     const web = await indexedWeb(
-      depsWith([], { listPublicAddresses: async () => ({ data: null, error: null }) }),
+      depsWith(
+        unpublished.map((network) =>
+          patchRow({
+            machine_id: computeApGatewayId(network.key),
+            path: '/etc/iptables/rules.v4',
+            content: `forward 80 to ${HOME_LAN_BOX}:80
+`,
+          }),
+        ),
+        { siteAt: async () => servedSite(PLAYER_PAGE) },
+      ),
     );
-    expect(web.map((page) => page.address)).toContain(CAMPUS_DOMAIN);
+    expect(unpublished.length).toBeGreaterThan(0);
+    expect(web.map((page) => page.address)).toEqual(
+      expect.arrayContaining(unpublished.map((network) => publicAddress(network.key))),
+    );
+  });
+
+  it('never looks for a page on a network the world does not declare', async () => {
+    const { visited, siteAt } = recordingVisits();
+    await indexedWeb(
+      depsWith(
+        [
+          patchRow({
+            machine_id: computeApGatewayId('LEASE-TEST-NET'),
+            path: '/etc/iptables/rules.v4',
+            content: `forward 80 to ${HOME_LAN_BOX}:80
+`,
+          }),
+        ],
+        { siteAt },
+      ),
+    );
+    expect(visited).toEqual([]);
   });
 
   it('lists the institutions as generated when no journal holds a row', async () => {
@@ -416,14 +448,6 @@ describe("a player's page on the public web", () => {
     expect(web.map((page) => page.address)).toContain(CAMPUS_DOMAIN);
   });
 
-  it('finds nothing at all when the stored addresses cannot be read', async () => {
-    const web = await indexedWeb(
-      depsWith([], {
-        listPublicAddresses: async () => ({ data: null, error: new Error('down') }),
-      }),
-    );
-    expect(web).toEqual([]);
-  });
 });
 
 describe('a site that asks not to be listed', () => {
@@ -432,7 +456,6 @@ describe('a site that asks not to be listed', () => {
   it("keeps a player's page out", async () => {
     const web = await indexedWeb(
       depsWith([HOME_FORWARDING_THE_WEB], {
-        listPublicAddresses: stored({ essid: HOME, public_ip: HOME_IP }),
         siteAt: async () => servedSite(PLAYER_PAGE, SHUT_OUT),
       }),
     );
@@ -442,7 +465,6 @@ describe('a site that asks not to be listed', () => {
   it("keeps a player's page in when it shuts out only somebody else", async () => {
     const web = await indexedWeb(
       depsWith([HOME_FORWARDING_THE_WEB], {
-        listPublicAddresses: stored({ essid: HOME, public_ip: HOME_IP }),
         siteAt: async () => servedSite(PLAYER_PAGE, 'User-agent: Googlebot\nDisallow: /\n'),
       }),
     );

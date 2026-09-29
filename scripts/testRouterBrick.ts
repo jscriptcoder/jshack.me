@@ -28,7 +28,7 @@ import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
 import { md5 } from '../src/core/generation/md5.js';
 import { seedApGatewayAdminPw } from '../src/core/generation/routerFs.js';
 import { workstationGuestPassword } from '../src/core/generation/workstationFs.js';
-import { clearPublicIps, seedPublicIps } from './networkFixture.js';
+import { publicAddressOf } from './publicAddressOf.js';
 
 const PATCHES = process.env.PATCHES_ENDPOINT ?? 'http://localhost:3100/api/patches';
 const NETWORK = process.env.NETWORK_ENDPOINT ?? 'http://localhost:3100/api/network';
@@ -87,7 +87,7 @@ const carol = generateIdentity();
 const ESSID = 'ABSTERGO-NET';
 const A_WS = computeWorkstationId('skylab', alice.publicKeyHex);
 const A_ROUTER = computeApGatewayId(ESSID);
-const A_PUBLIC_IP = '203.0.113.92';
+const A_PUBLIC_IP = publicAddressOf(ESSID);
 // A's workstation answers at the address A LEASES on its ESSID, so the NAT forward
 // below must name that address — a forward aimed anywhere else reaches no host.
 const A_OCTET = 11;
@@ -105,7 +105,6 @@ const WS_GUEST_PW = workstationGuestPassword(alice.publicKeyHex);
 
 // Clean slate, then seed A's occupancy row (as the join would) + B's ROOT sessions on
 // A's ROUTER and A's WORKSTATION (as the escalated `su root` would leave them).
-await clearPublicIps(sr, [{ essid: ESSID, publicIp: A_PUBLIC_IP }]);
 await sr.from('home_network_occupants').delete().eq('essid', ESSID);
 await sr.from('network_lan_leases').delete().eq('essid', ESSID);
 await sr.from('patches').delete().eq('machine_id', A_ROUTER);
@@ -116,9 +115,8 @@ for (const id of [alice, bob, carol]) {
 await sr
   .from('network_lan_leases')
   .insert({ essid: ESSID, owner_key: alice.publicKeyHex, octet: A_OCTET });
-// The join state a real `registerNetwork` writes: the AP's public IP, plus the owner
-// as an OCCUPANT of its ESSID — occupancy is what makes a box reachable.
-await seedPublicIps(sr, [{ essid: ESSID, publicIp: A_PUBLIC_IP }]);
+// The join state a real `registerNetwork` writes: the owner as an OCCUPANT of
+// its ESSID — occupancy is what makes a box reachable.
 await sr.from('home_network_occupants').insert({
   essid: ESSID,
   owner_key: alice.publicKeyHex,
@@ -132,7 +130,7 @@ await sr.from('sessions').insert([
     // A's own-router session (as her `ssh root@<subnet>.1` login leaves it) so she can
     // write her own NAT forward — the own ROUTER needs a session (only the own
     // WORKSTATION bypasses L1).
-    session_id: `ssh-alice-router-${A_PUBLIC_IP}`,
+    session_id: `router-brick-ssh-alice-router-${A_PUBLIC_IP}`,
     player_key: alice.publicKeyHex,
     machine_id: A_ROUTER,
     credentials: { username: 'root', userType: 'root' },
@@ -140,7 +138,7 @@ await sr.from('sessions').insert([
     essid: ESSID,
   },
   {
-    session_id: `ssh-bob-router-${A_PUBLIC_IP}`,
+    session_id: `router-brick-ssh-bob-router-${A_PUBLIC_IP}`,
     player_key: bob.publicKeyHex,
     machine_id: A_ROUTER,
     credentials: { username: 'root', userType: 'root' },
@@ -148,7 +146,7 @@ await sr.from('sessions').insert([
     essid: ESSID,
   },
   {
-    session_id: `ssh-bob-ws-${A_PUBLIC_IP}`,
+    session_id: `router-brick-ssh-bob-ws-${A_PUBLIC_IP}`,
     player_key: bob.publicKeyHex,
     machine_id: A_WS,
     credentials: { username: 'root', userType: 'root' },
@@ -198,7 +196,7 @@ check(
 const a2 = await post(
   SESSIONS,
   signRequest(carol, 'authCreateSessionPublic', {
-    session_id: `c-ws-pre-${A_PUBLIC_IP}`,
+    session_id: `router-brick-c-ws-pre-${A_PUBLIC_IP}`,
     target: A_PUBLIC_IP,
     username: 'guest',
     password: WS_GUEST_PW,
@@ -239,7 +237,7 @@ check(
 const a5 = await post(
   SESSIONS,
   signRequest(carol, 'authCreateSessionPublic', {
-    session_id: `c-ws-post-${A_PUBLIC_IP}`,
+    session_id: `router-brick-c-ws-post-${A_PUBLIC_IP}`,
     target: A_PUBLIC_IP,
     username: 'guest',
     password: WS_GUEST_PW,
@@ -256,7 +254,7 @@ check(
 const a6 = await post(
   SESSIONS,
   signRequest(carol, 'authCreateSessionPublic', {
-    session_id: `c-router-up-${A_PUBLIC_IP}`,
+    session_id: `router-brick-c-router-up-${A_PUBLIC_IP}`,
     target: A_PUBLIC_IP,
     username: 'root',
     password: ROUTER_ADMIN_PW,
@@ -293,7 +291,7 @@ check(
 const a9 = await post(
   SESSIONS,
   signRequest(carol, 'authCreateSessionPublic', {
-    session_id: `c-router-dark-${A_PUBLIC_IP}`,
+    session_id: `router-brick-c-router-dark-${A_PUBLIC_IP}`,
     target: A_PUBLIC_IP,
     username: 'root',
     password: ROUTER_ADMIN_PW,
@@ -316,7 +314,7 @@ const gatewayHost = generateHomeLan(ESSID).hosts.find(
 const a10 = await post(
   SESSIONS,
   signRequest(alice, 'authCreateSession', {
-    session_id: `a-ownlan-dark-${A_PUBLIC_IP}`,
+    session_id: `router-brick-a-ownlan-dark-${A_PUBLIC_IP}`,
     essid: ESSID,
     target_ip: gatewayHost?.ip ?? '',
     username: 'root',
@@ -332,7 +330,6 @@ check(
 );
 
 // Cleanup.
-await clearPublicIps(sr, [{ essid: ESSID, publicIp: A_PUBLIC_IP }]);
 await sr.from('home_network_occupants').delete().eq('essid', ESSID);
 await sr.from('network_lan_leases').delete().eq('essid', ESSID);
 await sr.from('patches').delete().eq('machine_id', A_ROUTER);

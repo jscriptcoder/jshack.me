@@ -109,7 +109,7 @@ const SOURCE_IP = `${LAN.subnet}.50`;
 /** Somebody else's access point, reached across the internet. TEST-NET-3, so the address
  *  is unmistakably off this LAN — and unmistakably not something the client can generate
  *  a host list for. */
-const PUBLIC_IP = '203.0.113.9';
+const PUBLIC_IP = '87.0.113.9';
 
 /** A fellow occupant's own machine, which only the registry knows about: a player's box
  *  is on nobody's generated LAN, so its id cannot be derived from the address the way a

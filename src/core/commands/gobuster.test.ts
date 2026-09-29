@@ -658,7 +658,7 @@ describe('gobuster reports what it swept', () => {
 });
 
 describe('gobuster sweeps a server on another network', () => {
-  const THEIR_PUBLIC_IP = '203.0.113.7';
+  const THEIR_PUBLIC_IP = '87.0.113.7';
 
   const swept = (
     ...results: readonly { path: string; status: number; size: number }[]

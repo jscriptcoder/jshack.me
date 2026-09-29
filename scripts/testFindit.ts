@@ -42,7 +42,8 @@ import { lanAddressFor } from '../src/core/network/lanAddress.js';
 import { formatPidfileContent } from '../src/core/services/pidfile.js';
 import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
 import { publisherMachineIds } from '../src/core/findit/webIndex.js';
-import { clearPublicIps, seedPublicIps } from './networkFixture.js';
+import { DECLARED_NETWORKS } from '../src/core/generation/world.js';
+import { publicAddressOf } from './publicAddressOf.js';
 
 const NETWORK = process.env.NETWORK_ENDPOINT ?? 'http://localhost:3100/api/network';
 const url = process.env.SUPABASE_URL;
@@ -133,10 +134,10 @@ const logLines = async (): Promise<string> => {
   return own.map((row) => row.content ?? '').join('\n');
 };
 
-/** The searcher's own network through the REAL endpoint, so the server allocates the
- *  address the trace has to name. */
+/** The searcher's own network, joined through the REAL endpoint. The address the trace
+ *  has to name is that network's place in the world. */
 const registerSearcherHome = async (): Promise<string | null> => {
-  await post(
+  const joined = await post(
     signRequest(searcher, 'registerNetwork', {
       essid: searcherEssid,
       workstation_machine_id: computeWorkstationId('probe', searcher.publicKeyHex),
@@ -145,19 +146,14 @@ const registerSearcherHome = async (): Promise<string | null> => {
       workstation_root_hash: md5('probe-root-secret'),
     }),
   );
-  const { data } = await sr
-    .from('network_public_ips')
-    .select('public_ip')
-    .eq('essid', searcherEssid)
-    .maybeSingle();
-  return (data as { public_ip: string } | null)?.public_ip ?? null;
+  return joined.status === 200 ? publicAddressOf(searcherEssid) : null;
 };
 
 /** A player who publishes: somebody on a home network nobody else publishes for, who has
  *  forwarded its public `:80` to their own box and is serving a page there. */
 const player = generateIdentity();
 const PLAYER_ESSID = 'FAMILY-WIFI-2G';
-const PLAYER_IP = '203.0.113.171';
+const PLAYER_IP = publicAddressOf(PLAYER_ESSID);
 const PLAYER_GATEWAY = computeApGatewayId(PLAYER_ESSID);
 const PLAYER_WS_NAME = 'workbench';
 const PLAYER_WS = computeWorkstationId(PLAYER_WS_NAME, player.publicKeyHex);
@@ -187,7 +183,6 @@ const seatPlayer = async () => {
 };
 
 const clearPlayerPage = async () => {
-  await clearPublicIps(sr, [{ essid: PLAYER_ESSID, publicIp: PLAYER_IP }]);
   await sr.from('home_network_occupants').delete().eq('essid', PLAYER_ESSID);
   // Leases are permanent by design, so a re-run would otherwise find the octet held.
   await sr.from('network_lan_leases').delete().eq('essid', PLAYER_ESSID);
@@ -200,7 +195,6 @@ const clearPlayerPage = async () => {
  *  to put a page on the public web. */
 const stagePlayerPage = async () => {
   await clearPlayerPage();
-  await seedPublicIps(sr, [{ essid: PLAYER_ESSID, publicIp: PLAYER_IP }]);
   const lease = await sr
     .from('network_lan_leases')
     .insert({ essid: PLAYER_ESSID, owner_key: player.publicKeyHex, octet: PLAYER_OCTET });
@@ -402,9 +396,7 @@ const main = async () => {
     .from('patches')
     .select('machine_id', { count: 'exact', head: true })
     .in('machine_id', [...publisherMachineIds(), PLAYER_GATEWAY]);
-  const { count: storedNetworks } = await sr
-    .from('network_public_ips')
-    .select('essid', { count: 'exact', head: true });
+  const unpublishedNetworks = DECLARED_NETWORKS.filter((network) => network.site === undefined);
   const timed = async (request: () => Promise<unknown>): Promise<number> => {
     const started = performance.now();
     for (let i = 0; i < COST_SAMPLES; i++) await request();
@@ -413,7 +405,7 @@ const main = async () => {
   const searchMs = await timed(() => search(PLAYER_NEW_WORD));
   const fetchMs = await timed(() => fetchPath(siteAddress(CAMPUS_DOMAIN)!, '/'));
   console.log(
-    `\nCOST  a search reads ${storedNetworks ?? '?'} stored network(s) and ${batchRows ?? '?'} journal row(s); ` +
+    `\nCOST  a search looks behind ${unpublishedNetworks.length} unpublished network(s) and ${batchRows ?? '?'} journal row(s); ` +
       `${searchMs.toFixed(0)} ms per search against ${fetchMs.toFixed(0)} ms per single fetch ` +
       `(mean of ${COST_SAMPLES}).`,
   );

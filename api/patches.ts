@@ -1,3 +1,4 @@
+import { derivedPublicIpByEssid } from '../src/core/logging/crossPlayerSourceIp.js';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
 import {
@@ -306,15 +307,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Whose box it is decides both the row the line lands in and the address it names:
     // a generated host keeps the caller's own row and the address they reported, while
     // another player's box owns its log and is told where the visitor really came from.
-    const findPublicIpByEssid = async (essid: string) => {
-      const { data, error } = await supabase
-        .from('network_public_ips')
-        .select('public_ip')
-        .eq('essid', essid)
-        .maybeSingle();
-      if (error) console.error('[patches] ftp vantage-ip lookup error:', error);
-      return { data: data as { public_ip: string } | null, error };
-    };
+    const findPublicIpByEssid = derivedPublicIpByEssid;
     const findHomeNetworkByOwnerKey = async (ownerKey: string) => {
       const occupancy = await supabase
         .from('home_network_occupants')
@@ -356,15 +349,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // The two lookups are re-declared rather than shared with the branch above: each
     // branch owns its closures, as `recordZoneTransfer` below does, so retuning one
     // cannot silently retune another.
-    const findPublicIpByEssid = async (essid: string) => {
-      const { data, error } = await supabase
-        .from('network_public_ips')
-        .select('public_ip')
-        .eq('essid', essid)
-        .maybeSingle();
-      if (error) console.error('[patches] downgrade vantage-ip lookup error:', error);
-      return { data: data as { public_ip: string } | null, error };
-    };
+    const findPublicIpByEssid = derivedPublicIpByEssid;
     const findHomeNetworkByOwnerKey = async (ownerKey: string) => {
       const occupancy = await supabase
         .from('home_network_occupants')
@@ -564,15 +549,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // itself, under the caller's key, via the same machine-log read-modify-write. The
     // source IP is the actor's HOME public IP, resolved from their verified key —
     // never a client claim.
-    const findPublicIpByEssid = async (essid: string) => {
-      const { data, error } = await supabase
-        .from('network_public_ips')
-        .select('public_ip')
-        .eq('essid', essid)
-        .maybeSingle();
-      if (error) console.error('[patches] axfr source-ip lookup error:', error);
-      return { data: data as { public_ip: string } | null, error };
-    };
+    const findPublicIpByEssid = derivedPublicIpByEssid;
     const findHomeNetworkByOwnerKey = async (ownerKey: string) => {
       const occupancy = await supabase
         .from('home_network_occupants')

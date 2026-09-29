@@ -44,7 +44,7 @@ import { accountsIn } from '../src/core/sessions/passwdAccount.js';
 import { md5 } from '../src/core/generation/md5.js';
 import { AUTH_LOG_PATH } from '../src/core/logging/authLog.js';
 import { VSFTPD_LOG_PATH } from '../src/core/logging/vsftpdLog.js';
-import { clearPublicIps, seedPublicIps } from './networkFixture.js';
+import { publicAddressOf } from './publicAddressOf.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const PATCHES = process.env.PATCHES_ENDPOINT ?? 'http://localhost:3100/api/patches';
@@ -175,8 +175,8 @@ const lanLogin = (options: {
 const defender = generateIdentity();
 const visitor = generateIdentity();
 
-const A_ESSID = 'PIED-PIPER-GUEST';
-const A_PUBLIC_IP = '203.0.113.78';
+const A_ESSID = 'SUITE-401';
+const A_PUBLIC_IP = publicAddressOf(A_ESSID);
 const A_GATEWAY = computeApGatewayId(A_ESSID);
 const A_WS = computeWorkstationId('anton', defender.publicKeyHex);
 const A_OCTET = 24;
@@ -188,7 +188,7 @@ const SSH_FORWARD = 5544;
 const FTP_FORWARD = 2121;
 
 const B_ESSID = 'BEAN-THERE-WIFI';
-const B_PUBLIC_IP = '198.51.100.45';
+const B_PUBLIC_IP = publicAddressOf(B_ESSID);
 const B_WS = computeWorkstationId('cracklab', visitor.publicKeyHex);
 
 const CARRIED = '/tmp/carried.txt';
@@ -201,10 +201,6 @@ const clean = async () => {
   for (const id of [targetMachine, doorlessMachine, A_GATEWAY, A_WS, B_WS]) {
     await sr.from('patches').delete().eq('machine_id', id);
   }
-  await clearPublicIps(sr, [
-    { essid: A_ESSID, publicIp: A_PUBLIC_IP },
-    { essid: B_ESSID, publicIp: B_PUBLIC_IP },
-  ]);
   for (const essid of [A_ESSID, B_ESSID]) {
     await sr.from('home_network_occupants').delete().eq('essid', essid);
     await sr.from('network_lan_leases').delete().eq('essid', essid);
@@ -338,7 +334,6 @@ const main = async (): Promise<void> => {
   );
 
   // --- The far side: A's network, A's forwards, A's running daemons. ---
-  await seedPublicIps(sr, [{ essid: A_ESSID, publicIp: A_PUBLIC_IP }]);
   await sr
     .from('network_lan_leases')
     .insert({ essid: A_ESSID, owner_key: defender.publicKeyHex, octet: A_OCTET });
@@ -350,7 +345,6 @@ const main = async (): Promise<void> => {
     workstation_machine_name: 'anton',
     workstation_root_hash: md5('defender-root-secret'),
   });
-  await seedPublicIps(sr, [{ essid: B_ESSID, publicIp: B_PUBLIC_IP }]);
   await sr.from('home_network_occupants').insert({
     essid: B_ESSID,
     owner_key: visitor.publicKeyHex,

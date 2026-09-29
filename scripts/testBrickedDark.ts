@@ -27,7 +27,7 @@ import { computeWorkstationId } from '../src/core/identity/workstation.js';
 import { computeApGatewayId } from '../src/core/identity/router.js';
 import { md5 } from '../src/core/generation/md5.js';
 import { seedApGatewayAdminPw } from '../src/core/generation/routerFs.js';
-import { clearPublicIps, seedPublicIps } from './networkFixture.js';
+import { publicAddressOf } from './publicAddressOf.js';
 
 const NETWORK = process.env.ENDPOINT ?? 'http://localhost:3100/api/network';
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
@@ -80,7 +80,7 @@ const A_MACHINE = computeWorkstationId('skylab', alice.publicKeyHex);
 // must darken BOTH boxes — each keyed on its own machine id / journal.
 const ESSID = 'BEAN-THERE-WIFI';
 const A_ROUTER = computeApGatewayId(ESSID);
-const A_PUBLIC_IP = '203.0.113.66';
+const A_PUBLIC_IP = publicAddressOf(ESSID);
 const ROOT_HASH = md5('alice-root-secret');
 // The gateway's admin password — server-recoverable from the ESSID alone, the
 // credential B types to log into the gateway over the public IP.
@@ -89,11 +89,9 @@ const ROUTER_ADMIN_PW = seedApGatewayAdminPw(ESSID);
 const bootPerms = { read: ['root', 'user', 'guest'], write: ['root'], execute: ['root'] };
 
 const seedRegistry = async () => {
-  await clearPublicIps(sr, [{ essid: ESSID, publicIp: A_PUBLIC_IP }]);
 await sr.from('home_network_occupants').delete().eq('essid', ESSID);
-  // The join state a real `registerNetwork` writes: the AP's public IP, plus the owner
-  // as an OCCUPANT of its ESSID — occupancy is what makes a box reachable.
-  await seedPublicIps(sr, [{ essid: ESSID, publicIp: A_PUBLIC_IP }]);
+  // The join state a real `registerNetwork` writes: the owner as an OCCUPANT of
+  // its ESSID — occupancy is what makes a box reachable.
   await sr.from('home_network_occupants').insert({
     essid: ESSID,
     owner_key: alice.publicKeyHex,
@@ -105,7 +103,6 @@ await sr.from('home_network_occupants').delete().eq('essid', ESSID);
 };
 
 const cleanup = async () => {
-  await clearPublicIps(sr, [{ essid: ESSID, publicIp: A_PUBLIC_IP }]);
 await sr.from('home_network_occupants').delete().eq('essid', ESSID);
   await sr.from('patches').delete().eq('machine_id', A_MACHINE);
   await sr.from('patches').delete().eq('machine_id', A_ROUTER);

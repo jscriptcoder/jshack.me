@@ -13,17 +13,16 @@
  * only because it is deliberate — a fresh gateway forwards nothing — and because a site
  * that would rather not be listed can say so in its `robots.txt`.
  *
- * The cost is paid in as few reads as the answer allows: every network anybody has
- * joined, then ONE read of every publisher's gateway and web server together with every
- * joined network's gateway. The institutions are resolved in memory from that. A joined
- * network whose gateway answers nothing on `:80` — nearly all of them — costs no more;
+ * The cost is paid in as few reads as the answer allows: ONE read of every publisher's
+ * gateway and web server together with the gateway of every other network the world
+ * declares. The institutions are resolved in memory from that. A network whose gateway
+ * answers nothing on `:80` — nearly all of them — costs no more;
  * one that does answer, and an institution whose gateway was repointed somewhere this
  * index cannot rebuild, is fetched the ordinary way, alone.
  */
 
-import { DECLARED_NETWORKS } from '../generation/world.js';
-import { publisherIp, publisherSite } from '../generation/publisher.js';
-import { FINDIT_NETWORK } from '../generation/findit.js';
+import { DECLARED_NETWORKS, publicAddress } from '../generation/world.js';
+import { publisherIp } from '../generation/publisher.js';
 import { siteServer } from '../generation/siteServer.js';
 import { resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
 import { computeApGatewayId } from '../identity/router.js';
@@ -44,9 +43,6 @@ import type { LanHost } from '../generation/generateHomeLan.js';
  *  everything a single-machine read already gives. */
 export type MachinePatchRow = OwnerPatchRow & { readonly machine_id: string };
 
-/** A network somebody has joined, and the public address it was given. */
-export type StoredAddress = { readonly essid: string; readonly public_ip: string };
-
 /** What a visitor to a site is served at its front door, and what it tells crawlers.
  *  A site with no `robots.txt` has told them nothing. */
 export type ServedSite = { readonly homepage: string; readonly robotsTxt: string | null };
@@ -57,11 +53,6 @@ export type WebIndexDeps = {
   readonly findPatchesForMachines: (
     machineIds: readonly string[],
   ) => Promise<{ readonly data: readonly MachinePatchRow[] | null; readonly error: unknown }>;
-  /** Every network anybody has joined, with the address it answers at. */
-  readonly listPublicAddresses: () => Promise<{
-    readonly data: readonly StoredAddress[] | null;
-    readonly error: unknown;
-  }>;
   /** The site at a public address, fetched the ordinary way — for a page this index
    *  cannot rebuild from the generated world. Null when nothing answers. */
   readonly siteAt: (publicIp: string) => Promise<ServedSite | null>;
@@ -162,24 +153,30 @@ const publisherSiteServed = async (
   return siteOn(serverFs);
 };
 
-/** A joined network with no domain of its own: every one but an institution's, which is
- *  listed under its domain already, and findit's, which is not a page to find. */
-const isPlayerNetwork = (stored: StoredAddress): boolean =>
-  publisherSite(stored.essid) === undefined && stored.essid !== FINDIT_NETWORK;
+/** A network that could serve a player's page: every one the world declares but an
+ *  institution's, which is listed under its domain already. findit is no declared
+ *  network, so it is never among them. */
+const PLAYER_NETWORKS: readonly { readonly essid: string; readonly address: string }[] =
+  DECLARED_NETWORKS.flatMap((network) => {
+    const address = publicAddress(network.key);
+    return network.site === undefined && address !== undefined
+      ? [{ essid: network.key, address }]
+      : [];
+  });
 
-/** What a visitor to a joined network's public `:80` would be served. Its gateway is
- *  read first, from the batch, so a network that answers nothing there — nearly every
- *  one — is ruled out without another read; only one that answers is fetched. */
+/** What a visitor to a network's public `:80` would be served. Its gateway is read
+ *  first, from the batch, so a network that answers nothing there — nearly every one —
+ *  is ruled out without another read; only one that answers is fetched. */
 const playerSiteServed = async (
   deps: WebIndexDeps,
-  stored: StoredAddress,
+  network: (typeof PLAYER_NETWORKS)[number],
   journals: ReadonlyMap<string, readonly OwnerPatchRow[]>,
 ): Promise<ServedSite | null> => {
   const gatewayFs = materializeApGatewayFs(
-    { essid: stored.essid },
-    journals.get(computeApGatewayId(stored.essid)) ?? null,
+    { essid: network.essid },
+    journals.get(computeApGatewayId(network.essid)) ?? null,
   );
-  return webBehind(gatewayFs) === null ? null : deps.siteAt(stored.public_ip);
+  return webBehind(gatewayFs) === null ? null : deps.siteAt(network.address);
 };
 
 /** A served site as findit lists it — or not at all, when nothing is served there or
@@ -197,13 +194,9 @@ const listing = (site: ServedSite | null, address: string): readonly IndexedPage
  * admitting the search found nothing.
  */
 export const indexedWeb = async (deps: WebIndexDeps): Promise<readonly IndexedPage[]> => {
-  const addresses = await deps.listPublicAddresses();
-  if (addresses.error) return [];
-  const players = (addresses.data ?? []).filter(isPlayerNetwork);
-
   const patches = await deps.findPatchesForMachines([
     ...publisherMachineIds(),
-    ...players.map((stored) => computeApGatewayId(stored.essid)),
+    ...PLAYER_NETWORKS.map((network) => computeApGatewayId(network.essid)),
   ]);
   if (patches.error) return [];
   const journals = rowsByMachine(patches.data ?? []);
@@ -212,8 +205,8 @@ export const indexedWeb = async (deps: WebIndexDeps): Promise<readonly IndexedPa
     ...PUBLISHERS.map(async (publisher) =>
       listing(await publisherSiteServed(deps, publisher, journals), publisher.domain),
     ),
-    ...players.map(async (stored) =>
-      listing(await playerSiteServed(deps, stored, journals), stored.public_ip),
+    ...PLAYER_NETWORKS.map(async (network) =>
+      listing(await playerSiteServed(deps, network, journals), network.address),
     ),
   ]);
   return pages.flat();

@@ -792,7 +792,7 @@ describe('curl against the player own address', () => {
 });
 
 describe('curl across the network, at another player public IP', () => {
-  const THEIR_PUBLIC_IP = '203.0.113.7';
+  const THEIR_PUBLIC_IP = '87.0.113.7';
   const THEIR_PAGE = '<h1>welcome to nebuchadnezzar</h1>';
 
   /** Run `curl <url>` with the cross-network fetch stubbed, capturing what the client

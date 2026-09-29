@@ -32,7 +32,7 @@ import { lanAddressFor } from '../src/core/network/lanAddress.js';
 import { WORDLIST_PATH, formatWordlist } from '../src/core/wordlist/defaultWordlist.js';
 import { AUTH_LOG_PATH } from '../src/core/logging/authLog.js';
 import { md5 } from '../src/core/generation/md5.js';
-import { clearPublicIps, seedPublicIps } from './networkFixture.js';
+import { publicAddressOf } from './publicAddressOf.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const url = process.env.SUPABASE_URL;
@@ -75,8 +75,8 @@ const crackedIn = (body: unknown): readonly { username: string; password: string
 const resident = generateIdentity();
 const attacker = generateIdentity();
 
-const TARGET_ESSID = 'PIED-PIPER-GUEST';
-const TARGET_PUBLIC_IP = '203.0.113.77';
+const TARGET_ESSID = 'SUITE-401';
+const TARGET_PUBLIC_IP = publicAddressOf(TARGET_ESSID);
 const TARGET_GATEWAY = computeApGatewayId(TARGET_ESSID);
 const RESIDENT_WS = computeWorkstationId('anton', resident.publicKeyHex);
 const ADMIN_PW = seedApGatewayAdminPw(TARGET_ESSID);
@@ -90,17 +90,17 @@ const FORWARD_PORT = 5544;
 // The attacker's OWN network — this is what the server must walk to derive the address
 // the target records. Nothing the client sends can name it.
 const ATTACKER_ESSID = 'BEAN-THERE-WIFI';
-const ATTACKER_PUBLIC_IP = '198.51.100.44';
+const ATTACKER_PUBLIC_IP = publicAddressOf(ATTACKER_ESSID);
 const ATTACKER_WS = computeWorkstationId('cracklab', attacker.publicKeyHex);
 
-const UNREGISTERED_IP = '203.0.113.254';
+const UNREGISTERED_IP = '87.1.0.1';
 
 // A THIRD network, so the pivot has somewhere to point that is neither the attacker's
 // home nor the network they are standing on. Without three parties the derived origin
 // and the attacker's own address can be the same string by accident.
 const bystander = generateIdentity();
-const VICTIM_ESSID = 'HOOLI-XYZ';
-const VICTIM_PUBLIC_IP = '203.0.113.99';
+const VICTIM_ESSID = 'HOUSE-OF-CARDS';
+const VICTIM_PUBLIC_IP = publicAddressOf(VICTIM_ESSID);
 const VICTIM_GATEWAY = computeApGatewayId(VICTIM_ESSID);
 const VICTIM_ADMIN_PW = seedApGatewayAdminPw(VICTIM_ESSID);
 const BYSTANDER_WS = computeWorkstationId('erlich', bystander.publicKeyHex);
@@ -110,11 +110,6 @@ const BYSTANDER_OCTET = 31;
 const PIVOT_SESSION = 'ssh-pivot-wirecheck';
 
 const clean = async () => {
-  await clearPublicIps(sr, [
-    { essid: TARGET_ESSID, publicIp: TARGET_PUBLIC_IP },
-    { essid: ATTACKER_ESSID, publicIp: ATTACKER_PUBLIC_IP },
-    { essid: VICTIM_ESSID, publicIp: VICTIM_PUBLIC_IP },
-  ]);
   for (const essid of [TARGET_ESSID, ATTACKER_ESSID, VICTIM_ESSID]) {
     await sr.from('home_network_occupants').delete().eq('essid', essid);
     await sr.from('network_lan_leases').delete().eq('essid', essid);
@@ -129,7 +124,6 @@ await clean();
 
 // The target AP as a real join leaves it: a public IP, one occupant, and the lease
 // that occupant holds — the lease is what gives the ownerless gateway a stable log key.
-await seedPublicIps(sr, [{ essid: TARGET_ESSID, publicIp: TARGET_PUBLIC_IP }]);
 await sr
   .from('network_lan_leases')
   .insert({ essid: TARGET_ESSID, owner_key: resident.publicKeyHex, octet: RESIDENT_OCTET });
@@ -143,7 +137,6 @@ await sr.from('home_network_occupants').insert({
 });
 
 // The attacker's own home network, so the server can derive their public address.
-await seedPublicIps(sr, [{ essid: ATTACKER_ESSID, publicIp: ATTACKER_PUBLIC_IP }]);
 await sr.from('home_network_occupants').insert({
   essid: ATTACKER_ESSID,
   owner_key: attacker.publicKeyHex,
@@ -360,7 +353,6 @@ check(
 //     gateway. What that third party's log must record is the network the attack was
 //     launched from — not the attacker's own, which is the only address the server
 //     could have known before this. ---
-await seedPublicIps(sr, [{ essid: VICTIM_ESSID, publicIp: VICTIM_PUBLIC_IP }]);
 await sr
   .from('network_lan_leases')
   .insert({ essid: VICTIM_ESSID, owner_key: bystander.publicKeyHex, octet: BYSTANDER_OCTET });
