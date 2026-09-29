@@ -47,6 +47,7 @@ import { nc } from './nc.js';
 import { nmap } from './nmap.js';
 import { nmcli } from './nmcli.js';
 import { nslookup } from './nslookup.js';
+import { whois } from './whois.js';
 import { node } from './node.js';
 import { ping } from './ping.js';
 import { ps } from './ps.js';
@@ -114,6 +115,7 @@ const builtins: readonly Command[] = [
   nmcli,
   node,
   nslookup,
+  whois,
   ping,
   ps,
   pwd,

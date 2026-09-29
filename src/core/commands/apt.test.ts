@@ -430,6 +430,14 @@ describe('apt', () => {
       expect(writes.map((write) => write.path)).toEqual(['/usr/bin/nc']);
     });
 
+    it('installs whois into /usr/bin', async () => {
+      const { env, writes } = aptEnv();
+
+      await streamResult(await apt.execute(env, ['install', 'whois'], NO_FLAGS));
+
+      expect(writes.map((write) => write.path)).toEqual(['/usr/bin/whois']);
+    });
+
     it('installs both DNS tools into /usr/bin — neither half of the pair is a daemon', async () => {
       const { env, writes } = aptEnv();
 
