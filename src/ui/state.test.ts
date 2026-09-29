@@ -723,7 +723,7 @@ describe('a transfer across the network', () => {
 
   const ESSID = 'ferro-cafe';
   const LAN = generateHomeLan(ESSID);
-  const THEIR_PUBLIC_IP = '203.0.113.7';
+  const THEIR_PUBLIC_IP = '87.0.113.7';
   const THEIR_BOX = 'workstation-a1b2c3d4';
   const FORWARDED_PORT = 2222;
   /** A word that appears nowhere on the player's own generated box, so reading it
@@ -879,7 +879,7 @@ describe('the ftp sub-shell', () => {
   const OTHER_MACHINE_ID = machineIdForLanHost(OTHER_FTP_HOST, ESSID);
   const TARGET_IDS = new Set([FTP_MACHINE_ID, OTHER_MACHINE_ID]);
   // Somebody else's address, and the port they published their ftp door on.
-  const THEIR_PUBLIC_IP = '203.0.113.7';
+  const THEIR_PUBLIC_IP = '87.0.113.7';
   const FORWARDED_PORT = 2121;
 
   const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
@@ -1367,7 +1367,7 @@ describe('an ftp session on a box across the network', () => {
   const ESSID = 'ferro-cafe';
   const LAN = generateHomeLan(ESSID);
   const THEIR_ESSID = 'ground-zero-coffee';
-  const THEIR_PUBLIC_IP = '203.0.113.41';
+  const THEIR_PUBLIC_IP = '87.0.113.41';
   const FORWARDED_PORT = 2121;
 
   /** A box on that other network running an ftp door. Its own `vsftpd.pid` is the
@@ -2328,7 +2328,7 @@ describe('full-screen apps a command opens', () => {
     expect(state.overlayMode()).toBeNull();
   });
 
-  const THEIR_PUBLIC_IP = '203.0.113.7';
+  const THEIR_PUBLIC_IP = '87.0.113.7';
   /** Another player's page — and nothing on this player's own box is named like it,
    *  so reading these words proves the request left the LAN. */
   const THEIR_PAGE = '<h1>nebuchadnezzar</h1><p>Also <a href="/deeper.html">deeper in</a>.</p>';
@@ -2546,7 +2546,7 @@ describe('a backdoor on a box across the network', () => {
   const ESSID = 'ferro-cafe';
   const LAN = generateHomeLan(ESSID);
   const THEIR_ESSID = 'nakatomi-plaza';
-  const THEIR_PUBLIC_IP = '198.51.100.23';
+  const THEIR_PUBLIC_IP = '87.51.100.23';
   const PORT = 31337;
   const CLOSED = 'nc: connection closed by foreign host';
 

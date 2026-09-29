@@ -34,7 +34,7 @@ import { md5 } from '../src/core/generation/md5.js';
 import { seedApGatewayAdminPw } from '../src/core/generation/routerFs.js';
 import { seedApGatewayHostname } from '../src/core/generation/gatewayHostname.js';
 import { workstationGuestPassword } from '../src/core/generation/workstationFs.js';
-import { clearPublicIps, seedPublicIps } from './networkFixture.js';
+import { publicAddressOf } from './publicAddressOf.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const url = process.env.SUPABASE_URL;
@@ -89,12 +89,12 @@ const bob = generateIdentity();
 const carol = generateIdentity();
 
 const A_ESSID = 'ABSTERGO-NET';
-const B_ESSID = 'BLUE-SUN-CAFE';
-const C_ESSID = 'CYBERDYNE-GUEST';
+const B_ESSID = 'UPSTAIRS-NEIGHBOR';
+const C_ESSID = 'CASA-DE-RAMIREZ';
 const A_WS_NAME = 'skylab';
 const A_WS = computeWorkstationId(A_WS_NAME, alice.publicKeyHex);
 const A_ROUTER = computeApGatewayId(A_ESSID);
-const A_PUBLIC_IP = '203.0.113.93';
+const A_PUBLIC_IP = publicAddressOf(A_ESSID);
 // A's workstation answers at the address A LEASES on its ESSID, so the NAT forward
 // below must name that address — a forward aimed anywhere else reaches no host.
 const A_OCTET = 11;
@@ -102,8 +102,8 @@ const A_LAN = lanAddressFor(A_ESSID, A_OCTET); // A's ws LAN ip
 // B's + C's truthful source IPs: the public IPs in their seeded occupancy rows, which the
 // server recovers from each verified key via their home network — never a client claim. Explicit
 // constants, since this script seeds those rows directly (self-consistent with the asserts).
-const B_PUBLIC_IP = '198.51.100.93';
-const C_PUBLIC_IP = '192.0.2.93';
+const B_PUBLIC_IP = publicAddressOf(B_ESSID);
+const C_PUBLIC_IP = publicAddressOf(C_ESSID);
 const A_ROUTER_HOST = seedApGatewayHostname(A_ESSID);
 const ADMIN_PW = seedApGatewayAdminPw(A_ESSID); // A's router root (admin) pw
 const GUEST_PW = workstationGuestPassword(alice.publicKeyHex); // A's ws guest pw
@@ -132,11 +132,6 @@ const occupantRow = (
 
 // Clean slate, then seed the three players' occupancy rows (as each player's join would), A's
 // NAT forward + her workstation sshd pidfile (as A's own config writes would).
-await clearPublicIps(sr, [
-  { essid: A_ESSID, publicIp: A_PUBLIC_IP },
-  { essid: B_ESSID, publicIp: B_PUBLIC_IP },
-  { essid: C_ESSID, publicIp: C_PUBLIC_IP },
-]);
 await sr.from('home_network_occupants').delete().in('essid', [A_ESSID, B_ESSID, C_ESSID]);
 await sr.from('network_lan_leases').delete().eq('essid', A_ESSID);
 await sr.from('patches').delete().eq('machine_id', A_ROUTER);
@@ -147,11 +142,6 @@ for (const id of [bob, carol]) {
 await sr
   .from('network_lan_leases')
   .insert({ essid: A_ESSID, owner_key: alice.publicKeyHex, octet: A_OCTET });
-await seedPublicIps(sr, [
-  { essid: A_ESSID, publicIp: A_PUBLIC_IP },
-  { essid: B_ESSID, publicIp: B_PUBLIC_IP },
-  { essid: C_ESSID, publicIp: C_PUBLIC_IP },
-]);
 await sr
   .from('home_network_occupants')
   .insert([
@@ -272,7 +262,7 @@ const s6 = await post(
   SESSIONS,
   signRequest(bob, 'authCreateSessionPublic', {
     session_id: 'ssh-b-x-1',
-    target: '203.0.113.250',
+    target: '87.1.0.1',
     username: 'root',
     password: ADMIN_PW,
   }),
@@ -285,11 +275,6 @@ check(
 );
 
 // Cleanup.
-await clearPublicIps(sr, [
-  { essid: A_ESSID, publicIp: A_PUBLIC_IP },
-  { essid: B_ESSID, publicIp: B_PUBLIC_IP },
-  { essid: C_ESSID, publicIp: C_PUBLIC_IP },
-]);
 await sr.from('home_network_occupants').delete().in('essid', [A_ESSID, B_ESSID, C_ESSID]);
 await sr.from('network_lan_leases').delete().eq('essid', A_ESSID);
 await sr.from('patches').delete().eq('machine_id', A_ROUTER);

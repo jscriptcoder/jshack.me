@@ -275,10 +275,10 @@ describe('mysql', () => {
     // cross-player database in the game before the player finished typing.
     const connect = vi.fn(async () => ({ ok: false as const, reason: 'denied' as const, fromIp: LOCAL_IP }));
 
-    await mysql.execute(mysqlEnv({ mysql: { connect } }), ['203.0.113.9'], new Map([['-p', '43306']]));
+    await mysql.execute(mysqlEnv({ mysql: { connect } }), ['87.0.113.9'], new Map([['-p', '43306']]));
 
     expect(connect).toHaveBeenCalledWith(
-      expect.objectContaining({ targetIp: '203.0.113.9', port: 43306 }),
+      expect.objectContaining({ targetIp: '87.0.113.9', port: 43306 }),
     );
   });
 

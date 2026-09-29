@@ -550,7 +550,7 @@ describe('a store on a hidden layer', () => {
 // block is a walk-in — between players there is always a secret, so `AUTH` is always
 // the next question.
 
-const TARGET_PUBLIC_IP = '203.0.113.9';
+const TARGET_PUBLIC_IP = '87.0.113.9';
 const TARGET_ESSID = 'PIED-PIPER-GUEST';
 const AP_GATEWAY_ID = computeApGatewayId(TARGET_ESSID);
 const AP_NETWORK: ApNetworkLookup = { router_machine_id: AP_GATEWAY_ID, essid: TARGET_ESSID };
@@ -558,7 +558,7 @@ const AP_NETWORK: ApNetworkLookup = { router_machine_id: AP_GATEWAY_ID, essid: T
 /** The attacker's own home address, as the server resolves it from their VERIFIED key.
  *  A cross-player log line is the defender's only evidence, so the address in it is
  *  never the one the client typed. */
-const ATTACKER_PUBLIC_IP = '198.51.100.22';
+const ATTACKER_PUBLIC_IP = '87.51.100.22';
 
 const DEFENDER = generateIdentity();
 const DEFENDER_OCTET = 84;

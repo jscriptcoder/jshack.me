@@ -44,7 +44,6 @@ import {
   PIDFILE_PERMISSIONS,
 } from '../src/core/services/pidfile.js';
 import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
-import { clearPublicIps, seedPublicIps } from './networkFixture.js';
 
 const NETWORK = process.env.NETWORK_ENDPOINT ?? 'http://localhost:3100/api/network';
 const PATCHES = process.env.PATCHES_ENDPOINT ?? 'http://localhost:3100/api/patches';
@@ -92,7 +91,6 @@ const nodeAt = (tree: Directory, ...segments: readonly string[]): FileNode | und
 // --- The world under test ------------------------------------------------------
 
 const ESSID = 'PIDFILE-VISIBILITY-WIFI';
-const PUBLIC_IP = '203.0.113.77';
 const OWNER_HOSTNAME = 'skylab';
 
 const owner = generateIdentity();
@@ -134,12 +132,10 @@ const treeAsVisitorSeesIt = async (): Promise<Directory | null> => {
 // --- Setup ---------------------------------------------------------------------
 // Cleared at SETUP, not only at teardown: a crashed run would otherwise leave rows
 // the next run reads as its own.
-await clearPublicIps(sr, [{ essid: ESSID, publicIp: PUBLIC_IP }]);
 await sr.from('home_network_occupants').delete().eq('essid', ESSID);
 await sr.from('patches').delete().eq('machine_id', OWNER_MACHINE);
 await sr.from('sessions').delete().eq('player_key', visitor.publicKeyHex);
 
-await seedPublicIps(sr, [{ essid: ESSID, publicIp: PUBLIC_IP }]);
 await sr.from('home_network_occupants').insert({
   essid: ESSID,
   owner_key: owner.publicKeyHex,
@@ -238,7 +234,6 @@ check(
 await sr.from('patches').delete().eq('machine_id', OWNER_MACHINE);
 await sr.from('sessions').delete().eq('player_key', visitor.publicKeyHex);
 await sr.from('home_network_occupants').delete().eq('essid', ESSID);
-await clearPublicIps(sr, [{ essid: ESSID, publicIp: PUBLIC_IP }]);
 
 const failed = results.filter((result) => !result.pass).length;
 console.log('');

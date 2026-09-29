@@ -988,7 +988,7 @@ describe('scp', () => {
    * daemon is not a door this command can open.
    */
   describe('across the network', () => {
-    const THEIR_PUBLIC_IP = '203.0.113.7';
+    const THEIR_PUBLIC_IP = '87.0.113.7';
     const THEIR_BOX = 'workstation-a1b2c3d4';
     const FORWARD = 2222;
 

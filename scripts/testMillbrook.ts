@@ -22,7 +22,8 @@ import { signRequest } from '../src/core/signedRequest/sign.js';
 import { generateIdentity } from '../src/core/identity/identity.js';
 import { computeApGatewayId } from '../src/core/identity/router.js';
 import { machineIdForLanHost } from '../src/core/generation/lanTopology.js';
-import { publisherAt, siteAddress } from '../src/core/generation/publisher.js';
+import { siteAddress } from '../src/core/generation/publisher.js';
+import { networkAt } from '../src/core/generation/world.js';
 import { siteServer } from '../src/core/generation/siteServer.js';
 import { FINDIT_DOMAIN } from '../src/core/generation/findit.js';
 import { ACCESS_LOG_PATH } from '../src/core/logging/accessLog.js';
@@ -73,10 +74,10 @@ const visitor = generateIdentity();
 
 const COUNCIL_IP = siteAddress('millbrook.gov');
 const FINDIT_IP = siteAddress(FINDIT_DOMAIN);
-const COUNCIL = COUNCIL_IP === undefined ? undefined : publisherAt(COUNCIL_IP);
+const COUNCIL = COUNCIL_IP === undefined ? undefined : networkAt(COUNCIL_IP);
 const SERVER = COUNCIL === undefined ? undefined : siteServer(COUNCIL);
 const POLICE_IP = siteAddress('millbrookpd.gov');
-const POLICE = POLICE_IP === undefined ? undefined : publisherAt(POLICE_IP);
+const POLICE = POLICE_IP === undefined ? undefined : networkAt(POLICE_IP);
 const POLICE_SERVER = POLICE === undefined ? undefined : siteServer(POLICE);
 if (
   COUNCIL_IP === undefined ||

@@ -1077,11 +1077,11 @@ describe('a store on a hidden layer', () => {
 // outsider straight in — cannot arise here at all. `AUTH` is always the next question,
 // and the password is one a sweep will not find.
 
-const TARGET_PUBLIC_IP = '203.0.113.9';
+const TARGET_PUBLIC_IP = '87.0.113.9';
 const TARGET_ESSID = 'PIED-PIPER-GUEST';
 const AP_GATEWAY_ID = computeApGatewayId(TARGET_ESSID);
 const AP_NETWORK: ApNetworkLookup = { router_machine_id: AP_GATEWAY_ID, essid: TARGET_ESSID };
-const ATTACKER_PUBLIC_IP = '198.51.100.22';
+const ATTACKER_PUBLIC_IP = '87.51.100.22';
 
 const DEFENDER = generateIdentity();
 const DEFENDER_OCTET = 84;

@@ -37,7 +37,7 @@ import { generateHomeLan } from '../src/core/generation/generateHomeLan.js';
 import { lanBaseFsForMachineId, machineIdForLanHost } from '../src/core/generation/lanHostIdentity.js';
 import { md5 } from '../src/core/generation/md5.js';
 import { DPKG_LOG_PATH } from '../src/core/logging/dpkgLog.js';
-import { clearPublicIps, seedPublicIps } from './networkFixture.js';
+import { publicAddressOf } from './publicAddressOf.js';
 
 const PATCHES = process.env.PATCHES_ENDPOINT ?? 'http://localhost:3100/api/patches';
 const url = process.env.SUPABASE_URL;
@@ -78,16 +78,16 @@ const victim = generateIdentity();
 const attacker = generateIdentity();
 const bystander = generateIdentity();
 
-const A_ESSID = 'DPKG-LAB-A';
-const A_PUBLIC_IP = '203.0.113.41';
+const A_ESSID = 'CS-DEPT-LAB';
+const A_PUBLIC_IP = publicAddressOf(A_ESSID);
 const A_WS = computeWorkstationId('victimbox', victim.publicKeyHex);
 
-const B_ESSID = 'DPKG-LAB-B';
-const B_PUBLIC_IP = '198.51.100.62';
+const B_ESSID = 'EV-CHARGER-LOT-3';
+const B_PUBLIC_IP = publicAddressOf(B_ESSID);
 const B_WS = computeWorkstationId('cracklab', attacker.publicKeyHex);
 
-const C_ESSID = 'DPKG-LAB-C';
-const C_PUBLIC_IP = '203.0.113.88';
+const C_ESSID = 'DOORBELL-CAM-OPEN';
+const C_PUBLIC_IP = publicAddressOf(C_ESSID);
 const C_WS = computeWorkstationId('borrowed', bystander.publicKeyHex);
 
 // An ordinary generated sibling nobody owns — the branch where the caller's own row IS
@@ -195,11 +195,6 @@ const seedPivotAndTarget = async () => {
 };
 
 const clean = async () => {
-  await clearPublicIps(sr, [
-    { essid: A_ESSID, publicIp: A_PUBLIC_IP },
-    { essid: B_ESSID, publicIp: B_PUBLIC_IP },
-    { essid: C_ESSID, publicIp: C_PUBLIC_IP },
-  ]);
   for (const essid of [A_ESSID, B_ESSID, C_ESSID]) {
     await sr.from('home_network_occupants').delete().eq('essid', essid);
   }
@@ -214,11 +209,6 @@ const clean = async () => {
 // across runs, so a crashed run would otherwise leave rows the next one reads as its own.
 await clean();
 
-await seedPublicIps(sr, [
-  { essid: A_ESSID, publicIp: A_PUBLIC_IP },
-  { essid: B_ESSID, publicIp: B_PUBLIC_IP },
-  { essid: C_ESSID, publicIp: C_PUBLIC_IP },
-]);
 
 const occupancy = await sr.from('home_network_occupants').insert([
   {

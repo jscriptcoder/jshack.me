@@ -45,6 +45,7 @@ import { md5 } from '../src/core/generation/md5.js';
 import { deserializeTree, type SerializedDirectory } from '../src/core/filesystem/treeCodec.js';
 import type { Directory, FileNode } from '../src/core/filesystem/types.js';
 import { asEpochMs } from '../src/core/types.js';
+import { publicAddressOf } from './publicAddressOf.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const NETWORK = process.env.NETWORK_ENDPOINT ?? 'http://localhost:3100/api/network';
@@ -144,7 +145,7 @@ const registerHome = async (
   essid: string,
   name: string,
 ): Promise<string | null> => {
-  await post(
+  const joined = await post(
     NETWORK,
     signRequest(player, 'registerNetwork', {
       essid,
@@ -154,12 +155,7 @@ const registerHome = async (
       workstation_root_hash: md5(`${name}-root-secret`),
     }),
   );
-  const { data } = await sr
-    .from('network_public_ips')
-    .select('public_ip')
-    .eq('essid', essid)
-    .maybeSingle();
-  return (data as { public_ip: string } | null)?.public_ip ?? null;
+  return joined.status === 200 ? publicAddressOf(essid) : null;
 };
 
 const fetchFindit = (player: ReturnType<typeof generateIdentity>, path: string) =>

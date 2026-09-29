@@ -133,9 +133,9 @@ seed-error checks it predates (step 4). The anatomy:
 detail)` helper, and a `post()` helper.
 3. Identities from `generateIdentity()`; every id, address and password from the production
    derivations, never hand-written constants.
-4. **Clean at setup**, including permanent tables (`network_lan_leases`, and `network_public_ips`
-   through `scripts/networkFixture.ts`), then **seed loudly** (check every insert's `error` and exit on
-   failure). Seed a lease together with occupancy.
+4. **Clean at setup**, including permanent tables (`network_lan_leases`), then **seed loudly** (check
+   every insert's `error` and exit on failure). Seed a lease together with occupancy. Aim at a
+   declared network's address through `scripts/publicAddressOf.ts`.
 5. Drive the real endpoint with signed envelopes; assert status, error code and the resulting rows.
    On shared machines, snapshot before and assert on the difference.
 6. Clean up, print `N/M checks passed`, and exit 0 only if all passed.

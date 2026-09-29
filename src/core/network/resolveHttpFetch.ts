@@ -43,12 +43,7 @@ import { HTTP_DEFAULT_PORT, resolveWebPath } from './http.js';
 import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
 import { generatedLanBox } from './generatedLanBox.js';
 import { FINDIT_NETWORK } from '../generation/findit.js';
-import {
-  indexedWeb,
-  siteOn,
-  type MachinePatchRow,
-  type WebIndexDeps,
-} from '../findit/webIndex.js';
+import { indexedWeb, siteOn, type MachinePatchRow } from '../findit/webIndex.js';
 import { rankPages } from '../findit/search.js';
 import { searchResultsPage } from '../findit/page.js';
 import {
@@ -134,9 +129,6 @@ export type ResolveHttpFetchDeps = WebTargetDeps & {
   readonly findPatchesForMachines: (
     machineIds: readonly string[],
   ) => Promise<{ readonly data: readonly MachinePatchRow[] | null; readonly error: unknown }>;
-  /** Every network anybody has joined, for findit to look for the pages they serve.
-   *  Only a search reaches it. */
-  readonly listPublicAddresses: WebIndexDeps['listPublicAddresses'];
 };
 
 const UNREACHABLE: HandlerResponse = { status: 404, body: { error: 'host_unreachable' } };
@@ -381,7 +373,6 @@ const answerSearch = async (
 ): Promise<string> => {
   const web = await indexedWeb({
     findPatchesForMachines: deps.findPatchesForMachines,
-    listPublicAddresses: deps.listPublicAddresses,
     // Every site this index cannot rebuild from the generated world — a player's page,
     // or a gateway somebody repointed — is fetched exactly as a reader would fetch it,
     // so what is listed is what a visitor would be served. Only READ: the crawl leaves

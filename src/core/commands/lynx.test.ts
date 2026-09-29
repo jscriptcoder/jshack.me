@@ -263,7 +263,7 @@ describe('lynx refuses in the terminal rather than opening on nothing', () => {
 });
 
 describe('lynx across the network, at another player public IP', () => {
-  const THEIR_PUBLIC_IP = '203.0.113.7';
+  const THEIR_PUBLIC_IP = '87.0.113.7';
   const THEIR_PAGE = '<h1>welcome to nebuchadnezzar</h1><p>Nothing to see.</p>';
 
   /** Run `lynx <url>` with the cross-network fetch stubbed, capturing what the client

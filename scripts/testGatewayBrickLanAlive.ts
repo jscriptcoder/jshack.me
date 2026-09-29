@@ -37,6 +37,7 @@ import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
 import { md5 } from '../src/core/generation/md5.js';
 import { seedApGatewayAdminPw } from '../src/core/generation/routerFs.js';
 import { workstationGuestPassword } from '../src/core/generation/workstationFs.js';
+import { publicAddressOf } from './publicAddressOf.js';
 
 const NETWORK = process.env.NETWORK_ENDPOINT ?? 'http://localhost:3100/api/network';
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
@@ -82,7 +83,7 @@ const bob = generateIdentity();
 const carol = generateIdentity();
 const dave = generateIdentity();
 
-const ESSID = 'BRICKED-AP-WIFI';
+const ESSID = 'SMART-FRIDGE-NET';
 const A_WS_NAME = 'skylab';
 const B_WS_NAME = 'nebuchadnezzar';
 const C_WS_NAME = 'discovery';
@@ -122,7 +123,6 @@ const join = (owner: ReturnType<typeof generateIdentity>, wsName: string) =>
   });
 
 // Clean slate for this ESSID.
-await sr.from('network_public_ips').delete().eq('essid', ESSID);
 await sr.from('home_network_occupants').delete().eq('essid', ESSID);
 await sr.from('network_lan_leases').delete().eq('essid', ESSID);
 await sr.from('patches').delete().eq('machine_id', GATEWAY);
@@ -133,22 +133,18 @@ for (const id of [alice, bob, carol, dave]) {
 
 // A and B join the SAME AP through the real endpoint — one shared gateway, one shared
 // public IP, two occupancy rows.
-await post(NETWORK, join(alice, A_WS_NAME));
-await post(NETWORK, join(bob, B_WS_NAME));
+const joinedA = await post(NETWORK, join(alice, A_WS_NAME));
+const joinedB = await post(NETWORK, join(bob, B_WS_NAME));
 
 const A_LAN = await leasedAddress(alice);
 const B_LAN = await leasedAddress(bob);
 
-const allocated = await sr
-  .from('network_public_ips')
-  .select('public_ip')
-  .eq('essid', ESSID)
-  .maybeSingle();
-const PUBLIC_IP = (allocated.data as { public_ip?: string } | null)?.public_ip ?? '';
+// The one address both occupants share: the network's place in the world.
+const PUBLIC_IP = publicAddressOf(ESSID);
 check(
-  'setup: the AP allocated one shared public IP for the ESSID',
-  PUBLIC_IP.length > 0,
-  `public_ip=${PUBLIC_IP || '-'}`,
+  'setup: both occupants joined the AP',
+  joinedA.status === 200 && joinedB.status === 200,
+  `A=${joinedA.status} B=${joinedB.status}`,
 );
 
 // A's sshd comes up so B has something to reach over the LAN (a fresh box is dark).
@@ -314,7 +310,6 @@ check(
 );
 
 // Cleanup.
-await sr.from('network_public_ips').delete().eq('essid', ESSID);
 await sr.from('home_network_occupants').delete().eq('essid', ESSID);
 await sr.from('network_lan_leases').delete().eq('essid', ESSID);
 await sr.from('patches').delete().eq('machine_id', GATEWAY);

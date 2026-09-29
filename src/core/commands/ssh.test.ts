@@ -516,7 +516,7 @@ describe('ssh', () => {
  * workstation id (the name in that id drives the prompt hostname). The own-LAN path
  * is untouched.
  */
-const PUBLIC_IP = '203.0.113.7';
+const PUBLIC_IP = '87.0.113.7';
 const A_MACHINE_ID = 'skylab-deadbeef';
 
 type PublicEnvOver = {

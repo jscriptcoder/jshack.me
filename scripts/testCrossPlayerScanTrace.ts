@@ -31,7 +31,7 @@ import { computeWorkstationId } from '../src/core/identity/workstation.js';
 import { computeApGatewayId } from '../src/core/identity/router.js';
 import { md5 } from '../src/core/generation/md5.js';
 import { seedApGatewayHostname } from '../src/core/generation/gatewayHostname.js';
-import { clearPublicIps, seedPublicIps } from './networkFixture.js';
+import { publicAddressOf } from './publicAddressOf.js';
 import { liveCve } from '../src/core/cve/liveCve.js';
 import { gameDayAt } from '../src/core/cve/worldClock.js';
 import { asEpochMs } from '../src/core/types.js';
@@ -100,23 +100,18 @@ const bob = generateIdentity();
 const carol = generateIdentity();
 
 const A_ESSID = 'ABSTERGO-NET';
-const B_ESSID = 'BLUE-SUN-CAFE';
-const C_ESSID = 'CYBERDYNE-GUEST';
+const B_ESSID = 'UPSTAIRS-NEIGHBOR';
+const C_ESSID = 'CASA-DE-RAMIREZ';
 const A_ROUTER = computeApGatewayId(A_ESSID);
-const A_PUBLIC_IP = '203.0.113.92';
+const A_PUBLIC_IP = publicAddressOf(A_ESSID);
 // B's + C's truthful source IPs: the public IPs in their seeded occupancy rows, which the
 // server recovers from each verified key via their home network — never a client claim. Explicit
 // constants, since this script seeds those rows directly (self-consistent with the asserts).
-const B_PUBLIC_IP = '198.51.100.92';
-const C_PUBLIC_IP = '192.0.2.92';
+const B_PUBLIC_IP = publicAddressOf(B_ESSID);
+const C_PUBLIC_IP = publicAddressOf(C_ESSID);
 const A_ROUTER_HOST = seedApGatewayHostname(A_ESSID);
 
 // Clean slate, then seed the three players' occupancy rows (as each player's join would).
-await clearPublicIps(sr, [
-  { essid: A_ESSID, publicIp: A_PUBLIC_IP },
-  { essid: B_ESSID, publicIp: B_PUBLIC_IP },
-  { essid: C_ESSID, publicIp: C_PUBLIC_IP },
-]);
 await sr.from('home_network_occupants').delete().in('essid', [A_ESSID, B_ESSID, C_ESSID]);
 await sr.from('network_lan_leases').delete().in('essid', [A_ESSID, B_ESSID, C_ESSID]);
 await sr.from('patches').delete().eq('machine_id', A_ROUTER);
@@ -131,11 +126,6 @@ const occupantRow = (owner: ReturnType<typeof generateIdentity>, essid: string, 
   workstation_machine_name: wsName,
   workstation_root_hash: md5('root-secret'),
 });
-await seedPublicIps(sr, [
-  { essid: A_ESSID, publicIp: A_PUBLIC_IP },
-  { essid: B_ESSID, publicIp: B_PUBLIC_IP },
-  { essid: C_ESSID, publicIp: C_PUBLIC_IP },
-]);
 await sr
   .from('home_network_occupants')
   .insert([
@@ -234,7 +224,7 @@ check(
 
 // === 4. found:false (unknown public IP) writes nothing. ===
 const before = await readRouterKernLog(A_ROUTER, apGatewayLogWriterKey(A_ESSID));
-const s4 = await post(NETWORK, signRequest(bob, 'resolvePublicScan', { target: '203.0.113.250' }));
+const s4 = await post(NETWORK, signRequest(bob, 'resolvePublicScan', { target: '87.1.0.1' }));
 const after = await readRouterKernLog(A_ROUTER, apGatewayLogWriterKey(A_ESSID));
 check(
   'scanning an unregistered IP is host-down and writes no trace',
@@ -244,11 +234,6 @@ check(
 
 // Cleanup. The lease table is permanent by design, so a re-run would otherwise find the
 // octets already held.
-await clearPublicIps(sr, [
-  { essid: A_ESSID, publicIp: A_PUBLIC_IP },
-  { essid: B_ESSID, publicIp: B_PUBLIC_IP },
-  { essid: C_ESSID, publicIp: C_PUBLIC_IP },
-]);
 await sr.from('home_network_occupants').delete().in('essid', [A_ESSID, B_ESSID, C_ESSID]);
 await sr.from('network_lan_leases').delete().in('essid', [A_ESSID, B_ESSID, C_ESSID]);
 await sr.from('patches').delete().eq('machine_id', A_ROUTER);

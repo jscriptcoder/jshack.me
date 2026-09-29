@@ -23,7 +23,7 @@ import { signRequest } from '../src/core/signedRequest/sign.js';
 import { generateIdentity } from '../src/core/identity/identity.js';
 import { computeWorkstationId } from '../src/core/identity/workstation.js';
 import { md5 } from '../src/core/generation/md5.js';
-import { clearPublicIps, seedPublicIps } from './networkFixture.js';
+import { publicAddressOf } from './publicAddressOf.js';
 
 const PATCHES = process.env.PATCHES_ENDPOINT ?? 'http://localhost:3100/api/patches';
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
@@ -65,7 +65,7 @@ const userTypeOf = (body: unknown): string | undefined =>
 const alice = generateIdentity();
 const bob = generateIdentity();
 const A_MACHINE = computeWorkstationId('skylab', alice.publicKeyHex);
-const A_PUBLIC_IP = '203.0.113.78';
+const A_PUBLIC_IP = publicAddressOf('BEAN-THERE-WIFI');
 const ROOT_PW = 'alice-root-secret';
 const ROOT_HASH = md5(ROOT_PW);
 const GUEST_SESSION = `ssh-bob-${A_PUBLIC_IP}`;
@@ -109,13 +109,11 @@ const suRowsForBob = async (): Promise<readonly { credentials: { userType: strin
 // session on A (as the 2b cross-player ssh login would). The guest row is stamped
 // in the PAST so the su row (inserted live by suElevate) is unambiguously the top
 // of the stack that L1's findActiveSession returns.
-await clearPublicIps(sr, [{ essid: 'BEAN-THERE-WIFI', publicIp: A_PUBLIC_IP }]);
 await sr.from('home_network_occupants').delete().eq('essid', 'BEAN-THERE-WIFI');
 await sr.from('patches').delete().eq('machine_id', A_MACHINE);
 await sr.from('sessions').delete().eq('player_key', bob.publicKeyHex);
-// The join state a real `registerNetwork` writes: the AP's public IP, plus the owner
-// as an OCCUPANT of its ESSID — occupancy is what makes a box reachable.
-await seedPublicIps(sr, [{ essid: 'BEAN-THERE-WIFI', publicIp: A_PUBLIC_IP }]);
+// The join state a real `registerNetwork` writes: the owner as an OCCUPANT of
+// its ESSID — occupancy is what makes a box reachable.
 await sr.from('home_network_occupants').insert({
   essid: 'BEAN-THERE-WIFI',
   owner_key: alice.publicKeyHex,
@@ -250,7 +248,6 @@ check(
 );
 
 // Cleanup.
-await clearPublicIps(sr, [{ essid: 'BEAN-THERE-WIFI', publicIp: A_PUBLIC_IP }]);
 await sr.from('home_network_occupants').delete().eq('essid', 'BEAN-THERE-WIFI');
 await sr.from('patches').delete().eq('machine_id', A_MACHINE);
 await sr.from('sessions').delete().eq('player_key', bob.publicKeyHex);

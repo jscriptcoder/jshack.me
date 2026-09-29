@@ -8,9 +8,9 @@
  * cross-player resolver answers from this row plus the ESSID's public IP.
  *
  * Server-stamped, never client-claimed:
- *   - `public_ip` is allocated server-side per ESSID (a globally-unique WAN address
- *     belonging to the AP, shared by every occupant) — a client cannot register a
- *     foreign IP.
+ *   - `public_ip` is never claimed: a declared network's address is derived from its
+ *     place in the world, and an admitted lab network's is allocated server-side — a
+ *     client cannot register a foreign IP.
  *   - `owner_key` is the verified Ed25519 pubkey, never a payload claim.
  *
  * The AP's gateway is a DISTINCT machine and is NOT recorded here: its id derives
@@ -50,7 +50,7 @@ export type HomeNetworkOccupantRow = {
 
 export type RegisterNetworkDeps = {
   readonly nonceStore: NonceStore;
-  /** Issue (or recall) the AP's globally-unique public IP for this ESSID. Composed
+  /** Issue (or recall) a public IP for a network the world does not declare. Composed
    *  in the api/ adapter from `allocatePublicIp` over the `network_public_ips`
    *  store; rejects on a store error or allocation exhaustion. */
   readonly allocatePublicIp: (essid: string) => Promise<string>;
@@ -109,16 +109,16 @@ export const handleRegisterNetwork = async (
     return { status: 403, body: { error: 'network_not_joinable' } };
   }
 
-  // The public IP is allocated server-side per ESSID — one globally-unique WAN
-  // address belonging to the AP, drawn on the first join and recalled on every later
-  // one. The join itself has no use for the address; what it needs is for the
-  // allocation to have HAPPENED, because that stored row is what a foreign scanner
-  // resolves this AP by. A failure (store error / exhaustion) is a clean 500, never a
-  // join that leaves the network unreachable from outside.
-  try {
-    await deps.allocatePublicIp(payload.essid);
-  } catch {
-    return { status: 500, body: { error: 'allocation_failed' } };
+  // A declared network's public address is its place in the world, so its join stores
+  // none. Only an admitted network the world does not declare is still given one, drawn
+  // on the first join and recalled on every later one. A failure (store error /
+  // exhaustion) is a clean 500, never a join half made.
+  if (network === undefined) {
+    try {
+      await deps.allocatePublicIp(payload.essid);
+    } catch {
+      return { status: 500, body: { error: 'allocation_failed' } };
+    }
   }
 
   // The occupant's own address on that AP's LAN, leased against a uniqueness

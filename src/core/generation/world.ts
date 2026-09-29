@@ -12,6 +12,7 @@
 import { ESSID_CATALOG, type NetworkCategory, type PublishedSite } from './pools/essidCatalog.js';
 import { TOWN_BUSINESSES, type TownBusiness } from './pools/townBusinesses.js';
 import { createPrng } from './prng.js';
+import { FINDIT_NETWORK } from './finditNetwork.js';
 
 /** A network the world declares: where it is, what it is, and what it publishes. */
 export type DeclaredNetwork = {
@@ -144,20 +145,65 @@ const NETWORKS_PER_TOWN = 256 * HOST_OCTETS;
  *  numbered in a row. */
 const NETWORK_STRIDE = 24_681;
 
+/** A slot in a town's block, as the third and fourth octets it answers at. */
+const hostOctets = (slot: number): string =>
+  `${Math.floor(slot / HOST_OCTETS)}.${(slot % HOST_OCTETS) + FIRST_HOST_OCTET}`;
+
 const addressOf = (town: Town, index: number): string => {
   const second = ((town.index * TOWN_STRIDE) % TOWNS_PER_REGION) + 1;
   const slot = (index * NETWORK_STRIDE) % NETWORKS_PER_TOWN;
-  const third = Math.floor(slot / HOST_OCTETS);
-  const fourth = (slot % HOST_OCTETS) + FIRST_HOST_OCTET;
-  return `${REGION_FIRST_OCTETS[town.region]}.${second}.${third}.${fourth}`;
+  return `${REGION_FIRST_OCTETS[town.region]}.${second}.${hostOctets(slot)}`;
 };
 
-const ADDRESS_BY_KEY: ReadonlyMap<string, string> = new Map(
-  MILLBROOK_NETWORKS.map((network, index) => [network.key, addressOf(MILLBROOK, index)]),
+/** The block of the networks that stand in no town: findit, and the corporations. */
+export const PLACELESS_FIRST_OCTET = 193;
+/** How many networks the placeless block holds: every second octet by a town's worth. */
+const PLACELESS_NETWORKS = TOWNS_PER_REGION * NETWORKS_PER_TOWN;
+/** Steps through the placeless block. A prime sharing no factor with
+ *  `PLACELESS_NETWORKS` (2⁹ · 11 · 23 · 127), it lands every index on an address of
+ *  its own, and neighbouring indices in different second octets. */
+const PLACELESS_STRIDE = 1_000_003;
+
+const placelessAddress = (index: number): string => {
+  const slot = (index * PLACELESS_STRIDE) % PLACELESS_NETWORKS;
+  const second = Math.floor(slot / NETWORKS_PER_TOWN) + 1;
+  return `${PLACELESS_FIRST_OCTET}.${second}.${hostOctets(slot % NETWORKS_PER_TOWN)}`;
+};
+
+const RIDGEMONT_TOWN: Town = { region: 0, index: 0, name: RIDGEMONT };
+
+/** A corporation stands in no town, so a landmark corporation answers in the placeless
+ *  block, after findit, in the catalog's order. Every other landmark answers in
+ *  Ridgemont's block, placed by its position in the catalog. */
+const landmarkAddresses = (): readonly (readonly [string, string])[] => {
+  const corporations = LANDMARKS.filter((network) => network.category === 'corporate');
+  return LANDMARKS.map((network, index) => [
+    network.key,
+    network.category === 'corporate'
+      ? placelessAddress(corporations.indexOf(network) + 1)
+      : addressOf(RIDGEMONT_TOWN, index),
+  ]);
+};
+
+const ADDRESS_BY_KEY: ReadonlyMap<string, string> = new Map([
+  [FINDIT_NETWORK, placelessAddress(0)],
+  ...landmarkAddresses(),
+  ...MILLBROOK_NETWORKS.map((network, index): [string, string] => [
+    network.key,
+    addressOf(MILLBROOK, index),
+  ]),
+]);
+
+const KEY_BY_ADDRESS: ReadonlyMap<string, string> = new Map(
+  [...ADDRESS_BY_KEY].map(([key, address]) => [address, key]),
 );
 
-/** Where a town network answers on the internet: its region's octet, then the town's
- *  place in the region, then the network's place in the town. Positions are distinct,
- *  so addresses are too, without anything being drawn. A landmark has no town address
- *  yet; it keeps the one it has always had. */
-export const townAddress = (key: string): string | undefined => ADDRESS_BY_KEY.get(key);
+/** Where the network known by `key` answers on the internet, or `undefined` for a
+ *  network the world does not declare. A town network answers in its town's block: its
+ *  region's octet, then the town's place in the region, then the network's place in the
+ *  town. findit and the corporations answer in the placeless block. Positions are
+ *  distinct, so addresses are too, without anything being drawn or stored. */
+export const publicAddress = (key: string): string | undefined => ADDRESS_BY_KEY.get(key);
+
+/** The network that answers at `address`, or `undefined` where none does. */
+export const networkAt = (address: string): string | undefined => KEY_BY_ADDRESS.get(address);

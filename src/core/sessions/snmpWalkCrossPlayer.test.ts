@@ -49,7 +49,7 @@ const freshStore: NonceStore = async () => ({ fresh: true });
 // 2026-08-09 11:04:07 UTC — the server clock every log line here is stamped with.
 const FIXED_NOW = Date.UTC(2026, 7, 9, 11, 4, 7);
 
-const TARGET_PUBLIC_IP = '203.0.113.9';
+const TARGET_PUBLIC_IP = '87.0.113.9';
 const TARGET_ESSID = 'PIED-PIPER-GUEST';
 const AP_GATEWAY_ID = computeApGatewayId(TARGET_ESSID);
 const AP_NETWORK: ApNetworkLookup = { router_machine_id: AP_GATEWAY_ID, essid: TARGET_ESSID };
@@ -61,7 +61,7 @@ const COMMUNITY = seedApGatewayCommunity(TARGET_ESSID);
 /** The network the ATTACKER's card is associated with, and therefore the ESSID their
  *  client sends. Deliberately not the defender's. */
 const ATTACKER_ESSID = 'BEAN-THERE-WIFI';
-const ATTACKER_PUBLIC_IP = '198.51.100.22';
+const ATTACKER_PUBLIC_IP = '87.51.100.22';
 
 /** The firmware the defender's gateway runs, as `sysDescr` names it across the world —
  *  derived from that box's own manifest, since which vendor it rolled is seeded. A

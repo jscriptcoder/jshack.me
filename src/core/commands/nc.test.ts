@@ -228,11 +228,11 @@ describe('nc against a port on someone else’s box', () => {
       }),
     });
 
-    const { lines, exitCode } = await drain(await nc.execute(env, ['203.0.113.7', '21'], NO_FLAGS));
+    const { lines, exitCode } = await drain(await nc.execute(env, ['87.0.113.7', '21'], NO_FLAGS));
 
     expect(lines).toEqual([
-      'Connecting to 203.0.113.7:21...',
-      'Connected to 203.0.113.7.',
+      'Connecting to 87.0.113.7:21...',
+      'Connected to 87.0.113.7.',
       '220 FTP server ready.',
       '',
       'Connection closed.',
@@ -245,9 +245,9 @@ describe('nc against a port on someone else’s box', () => {
       scan: mockScanApi({ resolvePublic: async () => ({ found: false, ports: [] }) }),
     });
 
-    const { text, exitCode } = sync(await nc.execute(env, ['203.0.113.7', '21'], NO_FLAGS));
+    const { text, exitCode } = sync(await nc.execute(env, ['87.0.113.7', '21'], NO_FLAGS));
 
-    expect(text).toBe('nc: connect to 203.0.113.7 port 21: Connection timed out');
+    expect(text).toBe('nc: connect to 87.0.113.7 port 21: Connection timed out');
     expect(exitCode).toBe(1);
   });
 
@@ -258,9 +258,9 @@ describe('nc against a port on someone else’s box', () => {
       }),
     });
 
-    const { text } = sync(await nc.execute(env, ['203.0.113.7', '22'], NO_FLAGS));
+    const { text } = sync(await nc.execute(env, ['87.0.113.7', '22'], NO_FLAGS));
 
-    expect(text).toBe('nc: connect to 203.0.113.7 port 22: Connection refused');
+    expect(text).toBe('nc: connect to 87.0.113.7 port 22: Connection refused');
   });
 
   it('stops mid-connect without ever printing the banner when the pace aborts', async () => {
@@ -749,7 +749,7 @@ describe('nc when a listener answers instead of a service', () => {
       ...stranger.env,
       scan: mockScanApi({ resolvePublic: async () => ({ found: true, ports: [] }) }),
     };
-    await nc.execute(strangerEnv, ['203.0.113.7', '4444'], NO_FLAGS);
+    await nc.execute(strangerEnv, ['87.0.113.7', '4444'], NO_FLAGS);
 
     expect(lan.connect).toHaveBeenCalledTimes(1);
     expect(neighbour.connectSameLan).toHaveBeenCalledTimes(1);
@@ -865,11 +865,11 @@ describe('what nc actually sends when it knocks', () => {
       session: mockSession({ id: 'sess-below', machineId: asMachineId('ws-mine') }),
     });
 
-    await nc.execute(env, ['203.0.113.7', '4444'], NO_FLAGS);
+    await nc.execute(env, ['87.0.113.7', '4444'], NO_FLAGS);
 
     expect(connectPublic).toHaveBeenCalledWith({
       sessionId: expect.stringContaining('nc-4444-'),
-      target: '203.0.113.7',
+      target: '87.0.113.7',
       callerMachineId: 'ws-mine',
       port: 4444,
       parentSessionId: 'sess-below',

@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { handleCreateSession, type SessionRow } from '../src/core/sessions/createSession.js';
-import { publisherAt } from '../src/core/generation/publisher.js';
+import { derivedPublicIpByEssid } from '../src/core/logging/crossPlayerSourceIp.js';
 import {
   handleAuthCreateSession,
   type AuthSessionRow,
@@ -13,8 +13,10 @@ import {
   type ExploitSessionRow,
 } from '../src/core/sessions/exploitCreateSession.js';
 import { handleExploitLocalElevate } from '../src/core/sessions/exploitLocalElevate.js';
-import type { NatOccupantRow, ApNetworkLookup } from '../src/core/network/resolvePublicTarget.js';
-import { computeApGatewayId } from '../src/core/identity/router.js';
+import {
+  derivedNetworkByPublicIp,
+  type NatOccupantRow,
+} from '../src/core/network/resolvePublicTarget.js';
 import {
   handleAuthCreateSessionSameLan,
   type OccupantConnectRow,
@@ -177,66 +179,19 @@ const upsertPatchVia =
     return { error };
   };
 
-/** What a public IP resolves to: the AP that bears it. The gateway is the access point's
- *  own infrastructure, so it answers whether or not anyone is on the WiFi and its id
- *  derives from the ESSID — there is no gateway row to miss. A public IP nobody bears
- *  resolves to `null` without being an error. */
-const findNetworkByPublicIpVia =
-  ({ supabase, label }: QuerySpec) =>
-  async (publicIp: string) => {
-    const network = await supabase
-      .from('network_public_ips')
-      .select('essid')
-      .eq('public_ip', publicIp)
-      .maybeSingle();
-    if (network.error) {
-      logFailure(label, network.error);
-      return { data: null, error: network.error };
-    }
-    // An institution's website answers at an address derived from its ESSID, so it
-    // is on the internet before anybody has joined its wifi and stored one.
-    const essid =
-      (network.data as { essid: string } | null)?.essid ?? publisherAt(publicIp) ?? null;
-    if (essid === null) return { data: null, error: null };
-    const resolved: ApNetworkLookup = {
-      router_machine_id: computeApGatewayId(essid),
-      essid,
-    };
-    return { data: resolved, error: null };
-  };
-
-/** One network's public address, by ESSID. The address belongs to the AP and is shared
- *  by every occupant, so this answers "what does traffic from that network look like
- *  from outside" without asking who owns it — which is what a trace needs when the actor
- *  is operating from a box they do not own. An ESSID nobody has been allocated an
- *  address for resolves to `null` without being an error. */
-const findPublicIpByEssidVia =
-  ({ supabase, label }: QuerySpec) =>
-  async (essid: string) => {
-    const { data, error } = await supabase
-      .from('network_public_ips')
-      .select('public_ip')
-      .eq('essid', essid)
-      .maybeSingle();
-    logFailure(label, error);
-    return { data: data as { public_ip: string } | null, error };
-  };
-
 /** The caller's own home public IP — the truthful source address for a trace they leave
  *  from their own workstation, server-derived from their verified owner key and never the
  *  client's claimed `source_ip`. One player may carry rows for several APs they have
  *  joined; the most-recently-updated is their current network ("one network at a time").
- *  `owner_key` is not the PK, hence the order+limit. Two reads, so two labels: the
- *  occupancy that names their network, then the same ESSID lookup above. */
+ *  `owner_key` is not the PK, hence the order+limit. The occupancy names their network,
+ *  and the network's address is its place in the world. */
 const findHomeNetworkByOwnerKeyVia =
   ({
     supabase,
     occupancyLabel,
-    lookupLabel,
   }: {
     readonly supabase: SupabaseClient;
     readonly occupancyLabel: string;
-    readonly lookupLabel: string;
   }) =>
   async (ownerKey: string) => {
     const occupancy = await supabase
@@ -252,7 +207,7 @@ const findHomeNetworkByOwnerKeyVia =
     }
     const essid = (occupancy.data as { essid: string } | null)?.essid ?? null;
     if (essid === null) return { data: null, error: null };
-    return findPublicIpByEssidVia({ supabase, label: lookupLabel })(essid);
+    return derivedPublicIpByEssid(essid);
   };
 
 /** Every occupant currently ON an ESSID, with the identity fields that rebuild each box
@@ -464,7 +419,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       findHomeNetworkByOwnerKey: findHomeNetworkByOwnerKeyVia({
         supabase,
         occupancyLabel: 'reboot trace occupancy',
-        lookupLabel: 'reboot trace source-ip',
       }),
       readLog: readAuthLogVia({ supabase, label: 'reboot kern-log read' }),
       upsertPatch: upsertPatchVia({ supabase, label: 'reboot kern-log upsert' }),
@@ -509,10 +463,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       readLog: readAuthLogVia({ supabase, label: 'exploit trace read' }),
       upsertPatch: upsertPatchVia({ supabase, label: 'exploit trace upsert' }),
       listLeasesByEssid: listLeasesByEssidVia({ supabase, label: 'exploit lan-lease list' }),
-      findNetworkByPublicIp: findNetworkByPublicIpVia({
-        supabase,
-        label: 'exploit public-ip lookup',
-      }),
+      findNetworkByPublicIp: derivedNetworkByPublicIp,
       listOccupantsByEssid: listOccupantsByEssidVia<NatOccupantRow>({
         supabase,
         label: 'exploit occupant list',
@@ -520,7 +471,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       findHomeNetworkByOwnerKey: findHomeNetworkByOwnerKeyVia({
         supabase,
         occupancyLabel: 'exploit source-ip occupancy',
-        lookupLabel: 'exploit source-ip lookup',
       }),
     });
     res.status(status).json(body);
@@ -575,7 +525,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { status, body } = await handleAuthCreateSessionPublic(req.body, {
       nonceStore: noopNonceStore,
       now: () => Date.now(),
-      findNetworkByPublicIp: findNetworkByPublicIpVia({ supabase, label: 'public-ip lookup' }),
+      findNetworkByPublicIp: derivedNetworkByPublicIp,
       findPatches: findPatchesVia({ supabase, label: 'public auth boot-state lookup' }),
       listOccupantsByEssid: listOccupantsByEssidVia<NatOccupantRow>({
         supabase,
@@ -588,14 +538,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       findHomeNetworkByOwnerKey: findHomeNetworkByOwnerKeyVia({
         supabase,
         occupancyLabel: 'public auth source-ip occupancy',
-        lookupLabel: 'public auth source-ip lookup',
       }),
       // A door that names the box it was run from gets the honest address: the network
       // that box is on, which is what the target actually saw.
-      findPublicIpByEssid: findPublicIpByEssidVia({
-        supabase,
-        label: 'public auth vantage-ip lookup',
-      }),
+      findPublicIpByEssid: derivedPublicIpByEssid,
       findActiveSession: findActiveSessionVia({ supabase, label: 'public auth active-session' }),
     });
     res.status(status).json(body);
@@ -666,10 +612,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       findPatches: findPatchesVia({ supabase, label: 'mysql target journal lookup' }),
       readMysqlLog: readAuthLogVia({ supabase, label: 'mysql log read' }),
       upsertPatch: upsertPatchVia({ supabase, label: 'mysql log upsert' }),
-      findNetworkByPublicIp: findNetworkByPublicIpVia({
-        supabase,
-        label: 'mysql connect public-ip lookup',
-      }),
+      findNetworkByPublicIp: derivedNetworkByPublicIp,
       listOccupantsByEssid: listOccupantsByEssidVia<NatOccupantRow>({
         supabase,
         label: 'mysql connect occupant list',
@@ -678,7 +621,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       findHomeNetworkByOwnerKey: findHomeNetworkByOwnerKeyVia({
         supabase,
         occupancyLabel: 'mysql connect source-ip occupancy',
-        lookupLabel: 'mysql connect source-ip lookup',
       }),
     });
     res.status(status).json(body);
@@ -703,10 +645,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       findPatches: findPatchesVia({ supabase, label: 'mysql statement journal lookup' }),
       readMysqlLog: readAuthLogVia({ supabase, label: 'mysql statement log read' }),
       upsertPatch: upsertPatchVia({ supabase, label: 'mysql datadir + log upsert' }),
-      findNetworkByPublicIp: findNetworkByPublicIpVia({
-        supabase,
-        label: 'mysql statement public-ip lookup',
-      }),
+      findNetworkByPublicIp: derivedNetworkByPublicIp,
       listOccupantsByEssid: listOccupantsByEssidVia<NatOccupantRow>({
         supabase,
         label: 'mysql statement occupant list',
@@ -715,7 +654,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       findHomeNetworkByOwnerKey: findHomeNetworkByOwnerKeyVia({
         supabase,
         occupancyLabel: 'mysql statement source-ip occupancy',
-        lookupLabel: 'mysql statement source-ip lookup',
       }),
     });
     res.status(status).json(body);
@@ -741,10 +679,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       findPatches: findPatchesVia({ supabase, label: 'redis target journal lookup' }),
       readRedisLog: readAuthLogVia({ supabase, label: 'redis log read' }),
       upsertPatch: upsertPatchVia({ supabase, label: 'redis log upsert' }),
-      findNetworkByPublicIp: findNetworkByPublicIpVia({
-        supabase,
-        label: 'redis connect public-ip lookup',
-      }),
+      findNetworkByPublicIp: derivedNetworkByPublicIp,
       listOccupantsByEssid: listOccupantsByEssidVia<NatOccupantRow>({
         supabase,
         label: 'redis connect occupant list',
@@ -753,7 +688,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       findHomeNetworkByOwnerKey: findHomeNetworkByOwnerKeyVia({
         supabase,
         occupancyLabel: 'redis connect source-ip occupancy',
-        lookupLabel: 'redis connect source-ip lookup',
       }),
     });
     res.status(status).json(body);
@@ -781,14 +715,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       findPatches: findPatchesVia({ supabase, label: 'snmp target journal lookup' }),
       readSnmpdLog: readAuthLogVia({ supabase, label: 'snmpd log read' }),
       upsertPatch: upsertPatchVia({ supabase, label: 'snmpd log upsert' }),
-      findPublicIpByEssid: findPublicIpByEssidVia({
-        supabase,
-        label: 'snmp walk public-ip lookup',
-      }),
-      findNetworkByPublicIp: findNetworkByPublicIpVia({
-        supabase,
-        label: 'snmp walk public-ip resolve',
-      }),
+      findPublicIpByEssid: derivedPublicIpByEssid,
+      findNetworkByPublicIp: derivedNetworkByPublicIp,
       listOccupantsByEssid: listOccupantsByEssidVia<NatOccupantRow>({
         supabase,
         label: 'snmp walk occupant list',
@@ -797,7 +725,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       findHomeNetworkByOwnerKey: findHomeNetworkByOwnerKeyVia({
         supabase,
         occupancyLabel: 'snmp walk source-ip occupancy',
-        lookupLabel: 'snmp walk source-ip lookup',
       }),
     });
     res.status(status).json(body);
@@ -829,10 +756,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       findPatches: findPatchesVia({ supabase, label: 'snmp set target journal lookup' }),
       readSnmpdLog: readAuthLogVia({ supabase, label: 'snmpd set log read' }),
       upsertPatch: upsertPatchVia({ supabase, label: 'snmpd set upsert' }),
-      findNetworkByPublicIp: findNetworkByPublicIpVia({
-        supabase,
-        label: 'snmp set public-ip resolve',
-      }),
+      findNetworkByPublicIp: derivedNetworkByPublicIp,
       listOccupantsByEssid: listOccupantsByEssidVia<NatOccupantRow>({
         supabase,
         label: 'snmp set occupant list',
@@ -841,7 +765,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       findHomeNetworkByOwnerKey: findHomeNetworkByOwnerKeyVia({
         supabase,
         occupancyLabel: 'snmp set source-ip occupancy',
-        lookupLabel: 'snmp set source-ip lookup',
       }),
     });
     res.status(status).json(body);
@@ -866,10 +789,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       findPatches: findPatchesVia({ supabase, label: 'redis statement journal lookup' }),
       readRedisLog: readAuthLogVia({ supabase, label: 'redis statement log read' }),
       upsertPatch: upsertPatchVia({ supabase, label: 'redis statement upsert' }),
-      findNetworkByPublicIp: findNetworkByPublicIpVia({
-        supabase,
-        label: 'redis statement public-ip lookup',
-      }),
+      findNetworkByPublicIp: derivedNetworkByPublicIp,
       listOccupantsByEssid: listOccupantsByEssidVia<NatOccupantRow>({
         supabase,
         label: 'redis statement occupant list',
@@ -878,7 +798,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       findHomeNetworkByOwnerKey: findHomeNetworkByOwnerKeyVia({
         supabase,
         occupancyLabel: 'redis statement source-ip occupancy',
-        lookupLabel: 'redis statement source-ip lookup',
       }),
     });
     res.status(status).json(body);
@@ -924,10 +843,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { status, body } = await handleHydraCrackPublic(req.body, {
       nonceStore: noopNonceStore,
       now: () => Date.now(),
-      findNetworkByPublicIp: findNetworkByPublicIpVia({
-        supabase,
-        label: 'hydra public-ip lookup',
-      }),
+      findNetworkByPublicIp: derivedNetworkByPublicIp,
       findPatches: findPatchesVia({ supabase, label: 'hydra public target journal' }),
       listOccupantsByEssid: listOccupantsByEssidVia<NatOccupantRow>({
         supabase,
@@ -939,12 +855,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       findHomeNetworkByOwnerKey: findHomeNetworkByOwnerKeyVia({
         supabase,
         occupancyLabel: 'hydra public source-ip occupancy',
-        lookupLabel: 'hydra public source-ip lookup',
       }),
-      findPublicIpByEssid: findPublicIpByEssidVia({
-        supabase,
-        label: 'hydra public vantage-ip lookup',
-      }),
+      findPublicIpByEssid: derivedPublicIpByEssid,
       readAuthLog: readAuthLogVia({ supabase, label: 'hydra public auth-log read' }),
       upsertPatch: upsertPatchVia({ supabase, label: 'hydra public auth-log upsert' }),
     });

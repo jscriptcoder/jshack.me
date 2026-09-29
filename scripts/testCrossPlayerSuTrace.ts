@@ -25,7 +25,6 @@ import { signRequest } from '../src/core/signedRequest/sign.js';
 import { generateIdentity } from '../src/core/identity/identity.js';
 import { computeWorkstationId } from '../src/core/identity/workstation.js';
 import { md5 } from '../src/core/generation/md5.js';
-import { clearPublicIps, seedPublicIps } from './networkFixture.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const url = process.env.SUPABASE_URL;
@@ -82,7 +81,6 @@ const carol = generateIdentity();
 const A_ESSID = 'ABSTERGO-NET';
 const A_WS_NAME = 'skylab';
 const A_WS = computeWorkstationId(A_WS_NAME, alice.publicKeyHex);
-const A_PUBLIC_IP = '203.0.113.94';
 const A_ROOT_PW = 'root-secret'; // matches the seeded workstation_root_hash below
 
 // The join state a real `registerNetwork` writes: A as an OCCUPANT of its ESSID.
@@ -98,13 +96,11 @@ const occupantRow = {
 
 // Clean slate, then seed A's occupancy row (as A's join would). su needs no forward or
 // pidfile — it targets A's workstation directly by machine_id.
-await clearPublicIps(sr, [{ essid: A_ESSID, publicIp: A_PUBLIC_IP }]);
 await sr.from('home_network_occupants').delete().eq('essid', A_ESSID);
 await sr.from('patches').delete().eq('machine_id', A_WS);
 for (const id of [bob, carol]) {
   await sr.from('sessions').delete().eq('player_key', id.publicKeyHex);
 }
-await seedPublicIps(sr, [{ essid: A_ESSID, publicIp: A_PUBLIC_IP }]);
 await sr.from('home_network_occupants').insert([occupantRow]);
 
 const suElevate = (
@@ -191,7 +187,6 @@ check(
 );
 
 // Cleanup.
-await clearPublicIps(sr, [{ essid: A_ESSID, publicIp: A_PUBLIC_IP }]);
 await sr.from('home_network_occupants').delete().eq('essid', A_ESSID);
 await sr.from('patches').delete().eq('machine_id', A_WS);
 for (const id of [bob, carol]) {

@@ -28,9 +28,10 @@ import type {
 } from '../patches/appendMachineLog.js';
 import type { PatchRow } from '../patches/upsertPatch.js';
 import { siteAddress } from '../generation/publisher.js';
+import { publicAddress } from '../generation/world.js';
 import { FINDIT_DOMAIN, FINDIT_NETWORK } from '../generation/findit.js';
 import { FINDIT_FRONT_PAGE } from '../findit/page.js';
-import type { MachinePatchRow, StoredAddress } from '../findit/webIndex.js';
+import type { MachinePatchRow } from '../findit/webIndex.js';
 
 /**
  * `handleResolveHttpFetch` is the credential-free cross-player door: a fetch carries no
@@ -161,7 +162,6 @@ const BOB_PUBLIC_IP = '198.51.100.22';
 
 type HomeNetworkResult = { data: { readonly public_ip: string } | null; error: unknown };
 type WebPatchesResult = { data: readonly MachinePatchRow[] | null; error: unknown };
-type StoredAddressesResult = { data: readonly StoredAddress[] | null; error: unknown };
 
 type FetchOverrides = {
   lookup?: (publicIp: string) => Promise<LookupResult>;
@@ -172,7 +172,6 @@ type FetchOverrides = {
   upsertPatch?: (row: PatchRow) => Promise<{ error: unknown }>;
   findHomeNetworkByOwnerKey?: (ownerKey: string) => Promise<HomeNetworkResult>;
   findPatchesForMachines?: (machineIds: readonly string[]) => Promise<WebPatchesResult>;
-  listPublicAddresses?: () => Promise<StoredAddressesResult>;
 };
 
 const makeDeps = (over: FetchOverrides = {}) => {
@@ -200,13 +199,9 @@ const makeDeps = (over: FetchOverrides = {}) => {
   const findPatchesForMachines = vi.fn<
     (machineIds: readonly string[]) => Promise<WebPatchesResult>
   >(over.findPatchesForMachines ?? (async () => ({ data: [], error: null })));
-  const listPublicAddresses = vi.fn<() => Promise<StoredAddressesResult>>(
-    over.listPublicAddresses ?? (async () => ({ data: [], error: null })),
-  );
   const deps: ResolveHttpFetchDeps = {
     nonceStore: freshStore,
     findPatchesForMachines,
-    listPublicAddresses,
     findNetworkByPublicIp,
     findPatches,
     listOccupantsByEssid,
@@ -1068,7 +1063,7 @@ describe("findit finds a player's page, and leaves no trace doing it", () => {
   /** A home network nobody publishes a site for: the only way onto the web from it is
    *  a forward its occupant writes. */
   const HOME = 'APT-3B-WIFI';
-  const HOME_IP = '45.12.7.9';
+  const HOME_IP = publicAddress(HOME) ?? '';
   const HOME_GATEWAY_ID = computeApGatewayId(HOME);
   const ADA_WS = 'workstation-ada00001';
   const ADA_OCTET = 250;
@@ -1106,7 +1101,6 @@ describe("findit finds a player's page, and leaves no trace doing it", () => {
         : [],
       error: null,
     }),
-    listPublicAddresses: async () => ({ data: [{ essid: HOME, public_ip: HOME_IP }], error: null }),
   });
 
   const search = (term: string) =>

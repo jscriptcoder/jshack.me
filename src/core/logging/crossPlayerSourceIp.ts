@@ -22,6 +22,8 @@
  * Pure/framework-agnostic (core/): the network lookup is injected.
  */
 
+import { publicAddress } from '../generation/world.js';
+
 export type FindHomeNetworkByOwnerKey = (
   ownerKey: string,
 ) => Promise<{ readonly data: { readonly public_ip: string } | null; readonly error: unknown }>;
@@ -32,6 +34,13 @@ export type FindHomeNetworkByOwnerKey = (
 export type FindPublicIpByEssid = (
   essid: string,
 ) => Promise<{ readonly data: { readonly public_ip: string } | null; readonly error: unknown }>;
+
+/** A network's public address, derived from its place in the world. A network the world
+ *  does not declare has none, so an actor standing on one is traced as `unknown`. */
+export const derivedPublicIpByEssid: FindPublicIpByEssid = async (essid) => {
+  const address = publicAddress(essid);
+  return { data: address === undefined ? null : { public_ip: address }, error: null };
+};
 
 export const resolveCrossPlayerSourceIp = async (
   findHomeNetworkByOwnerKey: FindHomeNetworkByOwnerKey,

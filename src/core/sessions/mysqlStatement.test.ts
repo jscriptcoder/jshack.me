@@ -178,10 +178,10 @@ const FORWARD_PORT = 33306;
 // outsider can say. Everything under the forward is the server's — the occupancy
 // row, the lease, the journal — because a client that could name the box directly
 // could reach one its owner never published.
-const TARGET_PUBLIC_IP = '203.0.113.9';
+const TARGET_PUBLIC_IP = '87.0.113.9';
 const TARGET_ESSID = 'PIED-PIPER-GUEST';
 const AP_GATEWAY_ID = computeApGatewayId(TARGET_ESSID);
-const ATTACKER_PUBLIC_IP = '198.51.100.22';
+const ATTACKER_PUBLIC_IP = '87.51.100.22';
 const PUBLIC_PORT = 43306;
 const DEFENDER_OCTET = 84;
 const DEFENDER_LAN_IP = lanAddressFor(TARGET_ESSID, DEFENDER_OCTET);

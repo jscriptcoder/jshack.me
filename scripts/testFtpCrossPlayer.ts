@@ -31,7 +31,7 @@ import { AUTH_LOG_PATH } from '../src/core/logging/authLog.js';
 import { md5 } from '../src/core/generation/md5.js';
 import { deserializeTree, type SerializedDirectory } from '../src/core/filesystem/treeCodec.js';
 import type { Directory, FileNode } from '../src/core/filesystem/types.js';
-import { clearPublicIps, seedPublicIps } from './networkFixture.js';
+import { publicAddressOf } from './publicAddressOf.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const PATCHES = process.env.PATCHES_ENDPOINT ?? 'http://localhost:3100/api/patches';
@@ -82,8 +82,8 @@ const entryAt = (tree: Directory, ...segments: readonly string[]): FileNode | un
 const defender = generateIdentity();
 const visitor = generateIdentity();
 
-const A_ESSID = 'PIED-PIPER-GUEST';
-const A_PUBLIC_IP = '203.0.113.77';
+const A_ESSID = 'SUITE-401';
+const A_PUBLIC_IP = publicAddressOf(A_ESSID);
 const A_GATEWAY = computeApGatewayId(A_ESSID);
 const A_WS = computeWorkstationId('anton', defender.publicKeyHex);
 const A_OCTET = 23;
@@ -97,13 +97,13 @@ const SSH_FORWARD = 5544;
 // B's own network — what the server must walk to derive the address A's log records.
 // Nothing B sends can name it.
 const B_ESSID = 'BEAN-THERE-WIFI';
-const B_PUBLIC_IP = '198.51.100.44';
+const B_PUBLIC_IP = publicAddressOf(B_ESSID);
 const B_WS = computeWorkstationId('cracklab', visitor.publicKeyHex);
 
 // A THIRD network, so the pivot has somewhere to point that is neither B's home nor A's.
 const bystander = generateIdentity();
-const C_ESSID = 'HOOLI-XYZ';
-const C_PUBLIC_IP = '203.0.113.99';
+const C_ESSID = 'HOUSE-OF-CARDS';
+const C_PUBLIC_IP = publicAddressOf(C_ESSID);
 const C_WS = computeWorkstationId('erlich', bystander.publicKeyHex);
 const C_OCTET = 31;
 // The hop that puts B on C's box, stamped as a real ssh login would stamp it.
@@ -116,11 +116,6 @@ const LEFT_BYTES = 512;
 const SEALED = '/root/dropped.sh';
 
 const clean = async () => {
-  await clearPublicIps(sr, [
-    { essid: A_ESSID, publicIp: A_PUBLIC_IP },
-    { essid: B_ESSID, publicIp: B_PUBLIC_IP },
-    { essid: C_ESSID, publicIp: C_PUBLIC_IP },
-  ]);
   for (const essid of [A_ESSID, B_ESSID, C_ESSID]) {
     await sr.from('home_network_occupants').delete().eq('essid', essid);
     await sr.from('network_lan_leases').delete().eq('essid', essid);
@@ -135,7 +130,6 @@ await clean();
 
 // A's network as a real join leaves it: a public IP, the occupancy row, and the lease
 // their published forward names.
-await seedPublicIps(sr, [{ essid: A_ESSID, publicIp: A_PUBLIC_IP }]);
 await sr
   .from('network_lan_leases')
   .insert({ essid: A_ESSID, owner_key: defender.publicKeyHex, octet: A_OCTET });
@@ -149,7 +143,6 @@ await sr.from('home_network_occupants').insert({
 });
 
 // B's own home network, so the server can derive B's public address.
-await seedPublicIps(sr, [{ essid: B_ESSID, publicIp: B_PUBLIC_IP }]);
 await sr.from('home_network_occupants').insert({
   essid: B_ESSID,
   owner_key: visitor.publicKeyHex,
@@ -398,7 +391,6 @@ check(
 
 // --- 15/16. The pivot: B stands on C's box and reaches A from there. What A's log has
 //     to record is the network the visit came from — C's, not B's own. ---
-await seedPublicIps(sr, [{ essid: C_ESSID, publicIp: C_PUBLIC_IP }]);
 await sr
   .from('network_lan_leases')
   .insert({ essid: C_ESSID, owner_key: bystander.publicKeyHex, octet: C_OCTET });

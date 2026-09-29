@@ -37,7 +37,7 @@ import {
 } from '../src/core/generation/generateDnsZone.js';
 import { lanZoneName } from '../src/core/network/resolveName.js';
 import { NAMED_LOG_PATH } from '../src/core/logging/namedLog.js';
-import { seedPublicIps, clearPublicIps } from './networkFixture.js';
+import { publicAddressOf } from './publicAddressOf.js';
 
 const PATCHES = process.env.PATCHES_ENDPOINT ?? 'http://localhost:3100/api/patches';
 const url = process.env.SUPABASE_URL;
@@ -98,8 +98,8 @@ const OPEN_RECORDS = zoneRecordsFor(OPEN_ESSID).length;
 // so the server recovers HER public IP from her verified key — the address every trace
 // line must carry, and the one a forged client `source_ip` must never displace.
 const alice = generateIdentity();
-const ALICE_HOME = 'NEUROMANCER-NET';
-const ALICE_PUBLIC_IP = '203.0.113.181';
+const ALICE_HOME = 'DEFCON-VILLAGE';
+const ALICE_PUBLIC_IP = publicAddressOf(ALICE_HOME);
 
 const recordTransfer = (essid: string, serverIp: string, over: Record<string, unknown> = {}) =>
   post(PATCHES, signRequest(alice, 'recordZoneTransfer', { essid, server_ip: serverIp, ...over }));
@@ -131,7 +131,6 @@ const namedLogRowCount = async (): Promise<number> => {
 const clear = async () => {
   await sr.from('patches').delete().eq('writer_key', alice.publicKeyHex).eq('path', NAMED_LOG_PATH);
   await sr.from('home_network_occupants').delete().eq('owner_key', alice.publicKeyHex);
-  await clearPublicIps(sr, [{ essid: ALICE_HOME, publicIp: ALICE_PUBLIC_IP }]);
 };
 
 const main = async (): Promise<void> => {
@@ -139,7 +138,6 @@ const main = async (): Promise<void> => {
 
   // The join state a real registerNetwork leaves: the actor's home public IP, and herself
   // as an occupant of its ESSID — which is where her source IP is derived from.
-  await seedPublicIps(sr, [{ essid: ALICE_HOME, publicIp: ALICE_PUBLIC_IP }]);
   await sr.from('home_network_occupants').insert({
     essid: ALICE_HOME,
     owner_key: alice.publicKeyHex,

@@ -29,7 +29,7 @@ import { formatPidfileContent } from '../src/core/services/pidfile.js';
 import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
 import { workstationGuestPassword } from '../src/core/generation/workstationFs.js';
 import { md5 } from '../src/core/generation/md5.js';
-import { clearPublicIps, seedPublicIps } from './networkFixture.js';
+import { publicAddressOf } from './publicAddressOf.js';
 
 const NETWORK = process.env.NETWORK_ENDPOINT ?? 'http://localhost:3100/api/network';
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
@@ -94,11 +94,10 @@ const alice = generateIdentity();
 const bob = generateIdentity();
 const carol = generateIdentity();
 
-const ESSID = 'SYNDICATE-MESH';
+const ESSID = 'APT-3B-WIFI';
 const C_ESSID = 'CYBERDYNE-GUEST';
 const AP_GATEWAY = computeApGatewayId(ESSID);
-const AP_PUBLIC_IP = '203.0.113.94';
-const C_PUBLIC_IP = '192.0.2.94';
+const AP_PUBLIC_IP = publicAddressOf(ESSID);
 
 const A_WS_NAME = 'skylab';
 const B_WS_NAME = 'nebuchadnezzar';
@@ -151,10 +150,6 @@ const sshdPidRow = (machineId: string, ownerKey: string) => ({
 });
 
 const clean = async () => {
-  await clearPublicIps(sr, [
-    { essid: ESSID, publicIp: AP_PUBLIC_IP },
-    { essid: C_ESSID, publicIp: C_PUBLIC_IP },
-  ]);
   await sr.from('home_network_occupants').delete().in('essid', [ESSID, C_ESSID]);
   // Leases are permanent by design, so a re-run would otherwise find the octets held.
   await sr.from('network_lan_leases').delete().in('essid', [ESSID, C_ESSID]);
@@ -168,10 +163,6 @@ const clean = async () => {
 // players — the AP's public IP, each occupant's lease, then the occupancy row — plus the
 // gateway's shared NAT table and both occupants' running sshd.
 await clean();
-await seedPublicIps(sr, [
-  { essid: ESSID, publicIp: AP_PUBLIC_IP },
-  { essid: C_ESSID, publicIp: C_PUBLIC_IP },
-]);
 await sr.from('network_lan_leases').insert([
   { essid: ESSID, owner_key: alice.publicKeyHex, octet: A_OCTET },
   { essid: ESSID, owner_key: bob.publicKeyHex, octet: B_OCTET },

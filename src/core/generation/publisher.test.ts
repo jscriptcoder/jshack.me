@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { ESSID_CATALOG } from './pools/essidCatalog.js';
 import { createPrng } from './prng.js';
-import { generatePublicIp, isPublicIp, PUBLISHER_FIRST_OCTET } from './ip.js';
-import { publisherAt, publisherIp, publisherSite, siteAddress } from './publisher.js';
+import { generatePublicIp, isPublicIp } from './ip.js';
+import { networkAt, PLACELESS_FIRST_OCTET } from './world.js';
+import { publisherIp, publisherSite, siteAddress } from './publisher.js';
 import { FINDIT_NETWORK } from './findit.js';
 import { resolveName } from '../network/resolveName.js';
 
@@ -85,7 +86,7 @@ describe('publisherIp', () => {
 
     expect(new Set(addresses).size).toBe(addresses.length);
     for (const address of addresses) {
-      expect(address).toMatch(/^193\.\d{1,3}\.\d{1,3}\.\d{1,3}$/);
+      expect(address).toMatch(/^(87|193)\.\d{1,3}\.\d{1,3}\.\d{1,3}$/);
       expect(isPublicIp(address ?? '')).toBe(true);
     }
   });
@@ -106,25 +107,11 @@ describe('publisherIp', () => {
   });
 });
 
-describe('publisherAt', () => {
-  it('finds the institution behind every published address', () => {
-    for (const essid of Object.keys(PUBLISHED_SITES)) {
-      expect(publisherAt(publisherIp(essid) ?? '')).toBe(essid);
-    }
-  });
-
-  it('finds nobody behind an address no institution publishes at', () => {
-    expect(publisherAt('193.0.0.1')).toBeUndefined();
-    expect(publisherAt('45.12.34.56')).toBeUndefined();
-    expect(publisherAt('ridgemont.edu')).toBeUndefined();
-  });
-});
-
 describe('findit.io, the search engine the public web is found by', () => {
   it('answers its domain from anywhere, at an address of the reserved kind', async () => {
     const address = siteAddress('findit.io');
     expect(address).toBeDefined();
-    expect(address!.startsWith(`${PUBLISHER_FIRST_OCTET}.`)).toBe(true);
+    expect(address!.startsWith(`${PLACELESS_FIRST_OCTET}.`)).toBe(true);
     expect(isPublicIp(address!)).toBe(true);
     const resolved = await resolveName({
       essid: 'APT-3B-WIFI',
@@ -140,7 +127,7 @@ describe('findit.io, the search engine the public web is found by', () => {
   });
 
   it('is found behind its own address, as its own network', () => {
-    expect(publisherAt(siteAddress('findit.io')!)).toBe(FINDIT_NETWORK);
+    expect(networkAt(siteAddress('findit.io')!)).toBe(FINDIT_NETWORK);
   });
 
   it('is no wifi network anybody can join', () => {

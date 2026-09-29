@@ -21,6 +21,7 @@ import { assignHomeNetwork } from '../src/core/network/homeNetwork.js';
 import { md5 } from '../src/core/generation/md5.js';
 import { asPlayerKeyHex } from '../src/core/types.js';
 import type { Identity } from '../src/core/commands/types.js';
+import { publicAddressOf } from './publicAddressOf.js';
 
 ed.hashes.sha512 = sha512;
 
@@ -34,8 +35,8 @@ if (!url || !serviceKey) {
 const sr = createClient(url, serviceKey, { auth: { persistSession: false } });
 
 // A FIXED 64-hex private key so the target is reproducible across runs (same pubkey →
-// same workstation id + guest password; the public IP is server-allocated, read back from
-// network_public_ips) and `clean` matches by owner_key + ESSID.
+// same workstation id + guest password; the public IP is the network's place in the
+// world) and `clean` matches by owner_key + ESSID.
 const A_PRIV = 'a1b2c3d4'.repeat(8);
 const privBytes = hexToBytes(A_PRIV);
 if (privBytes === null) throw new Error('bad A private key');
@@ -43,33 +44,21 @@ const alice: Identity = {
   publicKeyHex: asPlayerKeyHex(bytesToHex(ed.getPublicKey(privBytes))),
   privateKeyHex: A_PRIV,
 };
-const ESSID = 'CAFE-DELACROIX-5G';
+const ESSID = 'EV-CHARGER-LOT-3';
 const A_MACHINE = computeWorkstationId('skylab', alice.publicKeyHex);
 const A_ROUTER = computeApGatewayId(ESSID);
 const A_LAN = assignHomeNetwork(alice.publicKeyHex, ESSID).localIp;
 const GUEST_PW = workstationGuestPassword(alice.publicKeyHex);
 const ROOT_PW = 'alice-root-secret'; // matches the registered workstation_root_hash
 
-// The address actually allocated + stored for the ESSID on join (the source of truth B
-// must ssh to — no longer a client-side derive).
-const storedIpFor = async (essid: string): Promise<string | null> => {
-  const { data } = await sr
-    .from('network_public_ips')
-    .select('public_ip')
-    .eq('essid', essid)
-    .maybeSingle();
-  return (data as { public_ip: string } | null)?.public_ip ?? null;
-};
-
 if (process.argv[2] === 'clean') {
   await sr.from('patches').delete().eq('machine_id', A_MACHINE);
   await sr.from('patches').delete().eq('machine_id', A_ROUTER);
-  await sr.from('network_public_ips').delete().eq('essid', ESSID);
-  console.log('cleaned A’s occupancy row, allocation + patches');
+  console.log('cleaned A’s patches');
   process.exit(0);
 }
 
-// Register A through the real endpoint (server stamps owner_key + allocates public_ip).
+// Register A through the real endpoint (the server stamps owner_key).
 const registerRes = await fetch(ENDPOINT, {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
@@ -85,12 +74,12 @@ const registerRes = await fetch(ENDPOINT, {
 });
 console.log(`registerNetwork → ${registerRes.status}`);
 
-// Read back the server-allocated public IP for the ESSID — this is the real target B types.
-const PUBLIC_IP = await storedIpFor(ESSID);
-if (PUBLIC_IP === null) {
-  console.error('registerNetwork did not allocate a public IP — is vercel dev running?');
+// The network's address is its place in the world — the real target B types.
+if (!registerRes.ok) {
+  console.error('registerNetwork refused the join — is vercel dev running?');
   process.exit(1);
 }
+const PUBLIC_IP = publicAddressOf(ESSID);
 
 // Seed A's machine-scoped patches (shared journal): guest-readable loot, user-only
 // secret, sshd pidfile — all written by A (writer_key = owner).

@@ -47,7 +47,7 @@ import { WORDLIST_PATH, formatWordlist } from '../src/core/wordlist/defaultWordl
 import { SNMPD_LOG_PATH } from '../src/core/logging/snmpdLog.js';
 import { RULES_V4_PATH } from '../src/core/network/iptablesRules.js';
 import { md5 } from '../src/core/generation/md5.js';
-import { clearPublicIps, seedPublicIps } from './networkFixture.js';
+import { publicAddressOf } from './publicAddressOf.js';
 import type { Identity } from '../src/core/commands/types.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
@@ -103,8 +103,8 @@ const attacker = generateIdentity();
 // than asserted about one.
 const bystander = generateIdentity();
 
-const TARGET_ESSID = 'PIED-PIPER-CROSS';
-const TARGET_PUBLIC_IP = '203.0.113.41';
+const TARGET_ESSID = 'SUITE-401';
+const TARGET_PUBLIC_IP = publicAddressOf(TARGET_ESSID);
 const TARGET_GATEWAY = computeApGatewayId(TARGET_ESSID);
 const TARGET_SUBNET = generateHomeLan(TARGET_ESSID).subnet;
 const GATEWAY_HOSTNAME = seedApGatewayHostname(TARGET_ESSID);
@@ -121,13 +121,13 @@ const DEFENDER_WS_COMMUNITY = 'homelab';
 
 // B's own network. Only the server can name it: it walks B's verified key to their
 // occupancy row and reads the address from there, which is what makes A's log evidence.
-const ATTACKER_ESSID = 'BEAN-THERE-CROSS';
-const ATTACKER_PUBLIC_IP = '198.51.100.31';
+const ATTACKER_ESSID = 'UPSTAIRS-NEIGHBOR';
+const ATTACKER_PUBLIC_IP = publicAddressOf(ATTACKER_ESSID);
 const ATTACKER_SUBNET = generateHomeLan(ATTACKER_ESSID).subnet;
 const ATTACKER_WS = computeWorkstationId('cracklab', attacker.publicKeyHex);
 
-const BYSTANDER_ESSID = 'HOOLI-CROSS';
-const BYSTANDER_PUBLIC_IP = '198.51.100.32';
+const BYSTANDER_ESSID = 'HOUSE-OF-CARDS';
+const BYSTANDER_PUBLIC_IP = publicAddressOf(BYSTANDER_ESSID);
 const BYSTANDER_WS = computeWorkstationId('erlich', bystander.publicKeyHex);
 
 if (TARGET_SUBNET === ATTACKER_SUBNET) {
@@ -135,7 +135,7 @@ if (TARGET_SUBNET === ATTACKER_SUBNET) {
   process.exit(2);
 }
 
-const UNREGISTERED_IP = '203.0.113.254';
+const UNREGISTERED_IP = '87.1.0.1';
 /** The door B opens into A's LAN. Not 22: on this address 22 is the GATEWAY. */
 const PUBLISHED_PORT = 2222;
 /** A door A opened for themselves BEFORE any of this, onto their own agent. It shares
@@ -148,15 +148,10 @@ const ROOT_ONLY = { read: ['root'], write: ['root'], execute: [] };
 const WORLD_READABLE = { read: ['root', 'user', 'guest'], write: ['root'], execute: [] };
 
 const MACHINES = [TARGET_GATEWAY, DEFENDER_WS, ATTACKER_WS, BYSTANDER_WS];
-const NETWORKS = [
-  { essid: TARGET_ESSID, publicIp: TARGET_PUBLIC_IP },
-  { essid: ATTACKER_ESSID, publicIp: ATTACKER_PUBLIC_IP },
-  { essid: BYSTANDER_ESSID, publicIp: BYSTANDER_PUBLIC_IP },
-];
+const NETWORKS = [TARGET_ESSID, ATTACKER_ESSID, BYSTANDER_ESSID];
 
 const clean = async (): Promise<void> => {
-  await clearPublicIps(sr, NETWORKS);
-  for (const { essid } of NETWORKS) {
+  for (const essid of NETWORKS) {
     await sr.from('home_network_occupants').delete().eq('essid', essid);
     await sr.from('network_lan_leases').delete().eq('essid', essid);
   }
@@ -280,7 +275,6 @@ const sessionRowsFor = async (player: Identity): Promise<number> => {
 
 // === The world, as a real join would leave it ===
 await clean();
-await seedPublicIps(sr, NETWORKS);
 
 // A joined their own network and holds its only lease — which is what gives their
 // ownerless gateway a stable row to keep its log in.

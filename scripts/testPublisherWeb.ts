@@ -3,15 +3,14 @@
 // /api/network endpoint against a running `vercel dev` + supabase.
 //
 // Net-new under test (the locally-untypechecked api/ runtime):
-//   - The public-IP lookup falls back to the address an institution's ESSID derives when
-//     `network_public_ips` holds no row for it, so `curl` and `nmap` reach a network
-//     nobody has registered.
+//   - The public-IP lookup answers from the address the institution's place in the world
+//     derives, so `curl` and `nmap` reach a network nobody has joined.
 //   - The gateway's seeded forward sends the public web port to a GENERATED box on the
 //     LAN — not a player occupant — and the fetch returns that box's page.
 //   - The hit is recorded in the site server's own access.log, under the network's own
 //     stable writer key, which only the database can settle.
-//   - Joining the institution stores exactly the derived address, and the site still
-//     answers there afterwards.
+//   - Joining the institution stores no address at all, and the site still answers at
+//     the derived one afterwards.
 //
 // Usage (with v2 supabase + vercel dev running):
 //   npx dotenv -e .env.development.local -- npx tsx scripts/testPublisherWeb.ts
@@ -29,7 +28,6 @@ import { siteServer } from '../src/core/generation/siteServer.js';
 import { apGatewayLogWriterKey } from '../src/core/logging/apGatewayLogWriter.js';
 import { ACCESS_LOG_PATH } from '../src/core/logging/accessLog.js';
 import { md5 } from '../src/core/generation/md5.js';
-import { clearPublicIps } from './networkFixture.js';
 
 const NETWORK = process.env.NETWORK_ENDPOINT ?? 'http://localhost:3100/api/network';
 const url = process.env.SUPABASE_URL;
@@ -97,7 +95,9 @@ const readAccessLog = async (): Promise<string> => {
 };
 
 const cleanup = async () => {
-  await clearPublicIps(sr, [{ essid: ESSID, publicIp: SITE_IP }]);
+  // A row left by an older build, when a join still stored the address, must not pass
+  // for one this join wrote.
+  await sr.from('network_public_ips').delete().eq('essid', ESSID);
   await sr.from('home_network_occupants').delete().eq('owner_key', bob.publicKeyHex);
   await sr.from('network_lan_leases').delete().eq('essid', ESSID);
   await sr.from('patches').delete().in('machine_id', [AP_GATEWAY, SERVER_MACHINE]);
@@ -142,7 +142,7 @@ check(
   `status=${nobody.status} error=${errorOf(nobody.body)}`,
 );
 
-// === 5. Joining the university stores the address its site already answers at. ===
+// === 5. Joining the university stores no address: its place in the world is its address. ===
 const WS_NAME = 'dorm-laptop';
 const joined = await post(
   signRequest(bob, 'registerNetwork', {
@@ -160,8 +160,8 @@ const { data: stored } = await sr
   .maybeSingle();
 const storedIp = (stored as { public_ip: string } | null)?.public_ip ?? null;
 check(
-  'joining the institution stores its derived address',
-  joined.status === 200 && storedIp === SITE_IP,
+  'joining the institution stores no address',
+  joined.status === 200 && storedIp === null,
   `status=${joined.status} stored=${storedIp} derived=${SITE_IP}`,
 );
 

@@ -48,7 +48,7 @@ import {
 import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
 import { LOCAL_FILTER_SEED, RULES_V4_PATH } from '../src/core/network/iptablesRules.js';
 import { md5 } from '../src/core/generation/md5.js';
-import { clearPublicIps, seedPublicIps } from './networkFixture.js';
+import { publicAddressOf } from './publicAddressOf.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const NETWORK = process.env.NETWORK_ENDPOINT ?? 'http://localhost:3100/api/network';
@@ -102,8 +102,8 @@ const foundIn = (body: unknown): boolean => (body as { found?: boolean } | null)
 const defender = generateIdentity();
 const stranger = generateIdentity();
 
-const ESSID = 'SCAN-HONESTY-WIFI';
-const PUBLIC_IP = '203.0.113.44';
+const ESSID = 'DEFCON-VILLAGE';
+const PUBLIC_IP = publicAddressOf(ESSID);
 const GATEWAY_ID = computeApGatewayId(ESSID);
 
 const DEFENDER_HOSTNAME = 'dinesh';
@@ -152,7 +152,6 @@ const store = ownStore({
 });
 
 const clean = async () => {
-  await clearPublicIps(sr, [{ essid: ESSID, publicIp: PUBLIC_IP }]);
   await sr.from('home_network_occupants').delete().eq('essid', ESSID);
   await sr.from('network_lan_leases').delete().eq('essid', ESSID);
   for (const machineId of [GATEWAY_ID, DEFENDER_WS, STRANGER_WS]) {
@@ -161,7 +160,6 @@ const clean = async () => {
 };
 
 await clean();
-await seedPublicIps(sr, [{ essid: ESSID, publicIp: PUBLIC_IP }]);
 
 failFast(
   'lease seed',

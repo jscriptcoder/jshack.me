@@ -38,7 +38,7 @@ import { HTTP_DEFAULT_PORT } from '../src/core/network/http.js';
 import { DIRLIST_PATH } from '../src/core/network/defaultDirlist.js';
 import { ACCESS_LOG_PATH } from '../src/core/logging/accessLog.js';
 import { md5 } from '../src/core/generation/md5.js';
-import { clearPublicIps } from './networkFixture.js';
+import { publicAddressOf } from './publicAddressOf.js';
 
 const NETWORK = process.env.NETWORK_ENDPOINT ?? 'http://localhost:3100/api/network';
 const url = process.env.SUPABASE_URL;
@@ -82,14 +82,14 @@ const alice = generateIdentity();
 const bob = generateIdentity();
 const carol = generateIdentity();
 
-const ESSID = 'SYNDICATE-MESH';
-const B_ESSID = 'CYBERDYNE-GUEST';
-const PIVOT_ESSID = 'TYRELL-LOBBY';
+const ESSID = 'APT-3B-WIFI';
+const B_ESSID = 'CASA-DE-RAMIREZ';
+const PIVOT_ESSID = 'UNIV-DORM-7';
 const AP_GATEWAY = computeApGatewayId(ESSID);
-const AP_PUBLIC_IP = '203.0.113.94';
-const B_PUBLIC_IP = '192.0.2.94';
-const PIVOT_PUBLIC_IP = '198.51.100.94';
-const UNKNOWN_PUBLIC_IP = '203.0.113.199';
+const AP_PUBLIC_IP = publicAddressOf(ESSID);
+const B_PUBLIC_IP = publicAddressOf(B_ESSID);
+const PIVOT_PUBLIC_IP = publicAddressOf(PIVOT_ESSID);
+const UNKNOWN_PUBLIC_IP = '87.1.0.1';
 
 const A_WS_NAME = 'skylab';
 const A_WS = computeWorkstationId(A_WS_NAME, alice.publicKeyHex);
@@ -210,11 +210,6 @@ const seed = async (table: string, rows: readonly Record<string, unknown>[], lab
 };
 
 const clean = async () => {
-  await clearPublicIps(sr, [
-    { essid: ESSID, publicIp: AP_PUBLIC_IP },
-    { essid: B_ESSID, publicIp: B_PUBLIC_IP },
-    { essid: PIVOT_ESSID, publicIp: PIVOT_PUBLIC_IP },
-  ]);
   await sr.from('home_network_occupants').delete().in('essid', [ESSID, B_ESSID, PIVOT_ESSID]);
   await sr.from('network_lan_leases').delete().in('essid', [ESSID, B_ESSID, PIVOT_ESSID]);
   await sr.from('sessions').delete().eq('player_key', bob.publicKeyHex);
@@ -251,15 +246,6 @@ const stampsIn = (lines: readonly string[]): ReadonlySet<string> =>
   new Set(lines.map((line) => line.slice(line.indexOf('[') + 1, line.indexOf(']'))));
 
 await clean();
-await seed(
-  'network_public_ips',
-  [
-    { essid: ESSID, public_ip: AP_PUBLIC_IP },
-    { essid: B_ESSID, public_ip: B_PUBLIC_IP },
-    { essid: PIVOT_ESSID, public_ip: PIVOT_PUBLIC_IP },
-  ],
-  'public ips',
-);
 await seed(
   'network_lan_leases',
   [
