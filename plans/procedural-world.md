@@ -3,7 +3,8 @@
 **Status**: Grilled and gap-reviewed (find-gaps) 2026-09-28. Slice 1 planned 2026-09-28 as
 slices 1a–1c (see Slice plans); 1a complete 2026-09-28 (#572, v0.284.0); 1b complete
 2026-09-28 (#573, v0.285.0); 1c complete 2026-09-28 (#574, v0.286.0). Slice 1 complete.
-Slice 2 grilled and planned 2026-09-28 as slices 2a–2b; slices 3 onward not yet planned.
+Slice 2 grilled and planned 2026-09-28 as slices 2a–2b; 2a complete 2026-09-29 (#575,
+v0.287.0). Slices 3 onward not yet planned.
 Amends the §9 backlog item "Procedural world expansion — GRILLED & RESOLVED 2026-07-29" in
 `docs/conventions-and-gotchas.md`; where the two disagree, this file wins.
 
@@ -527,41 +528,56 @@ works out. Wire-checks reach networks at those addresses instead of rows they wr
 **Class**: reduction transition (program above; terminal slice 2b). It carries one
 behaviour change, the moved addresses, so its new address rules are driven by failing tests.
 **Delivery**: independent PR against `main`, branch `feat/procedural-world-derived-addresses`.
-**Status**: planned.
+**Status**: complete, merged as #575 (`d8f2dedf`).
 **Required implementation skills**: `reduce-system-complexity`, `tdd`, `testing`,
 `refactoring`; `mutation-testing` at PR-readiness.
 **Acceptance criteria** (to be confirmed before any code):
 
-- [ ] **2a-1** Each landmark has a derived address, taken by its position in the world:
+- [x] **2a-1** Each landmark has a derived address, taken by its position in the world:
       - a non-corporate landmark: `87.1.x.y`;
       - findit and a corporate landmark: `193.x.y.z`;
       - the fourth octet is always 2–254.
       `nmap` on that address reports the gateway up with `22/tcp open`, from any player,
       whether or not anybody has joined the network.
-- [ ] **2a-2** A test over the whole declaration proves three things:
+- [x] **2a-2** A test over the whole declaration proves three things:
       - every address is different;
       - mapping any declared network to its address and back returns the same network;
       - no network answers at a `.1` address.
       Millbrook's addresses are unchanged.
-- [ ] **2a-3** Every site's domain resolves to its network's derived address. A findit search
+- [x] **2a-3** Every site's domain resolves to its network's derived address. A findit search
       still lists every publisher by its domain.
-- [ ] **2a-4** A player's own page, served through a forward on a landmark with no site, is
+- [x] **2a-4** A player's own page, served through a forward on a landmark with no site, is
       listed by findit at that landmark's derived address.
-- [ ] **2a-5** A join to a declared network writes no `network_public_ips` row, and still writes
+- [x] **2a-5** A join to a declared network writes no `network_public_ips` row, and still writes
       its lease and occupant. A join to a lab network, admitted by the flag, still stores an
       address.
-- [ ] **2a-6** A cross-player scan from a player on a landmark logs that landmark's derived
+- [x] **2a-6** A cross-player scan from a player on a landmark logs that landmark's derived
       address as the source.
-- [ ] **2a-7** Only the `87` and `193` blocks count as public. An address in one of the 12
+- [x] **2a-7** Only the `87` and `193` blocks count as public. An address in one of the 12
       retired first octets does not.
-- [ ] **2a-8** Every landmark's LAN, content, passwords and site text are unchanged, proven by
+- [x] **2a-8** Every landmark's LAN, content, passwords and site text are unchanged, proven by
       before/after fingerprints of all 57.
-- [ ] **2a-9** Every wire-check that reaches a network by address uses a declared network and its
+- [x] **2a-9** Every wire-check that reaches a network by address uses a declared network and its
       derived address. The only literal public addresses left in `scripts/` are `.1`
       addresses where nobody answers. The sweep passes with the flag set, apart from failures
       already in the backlog.
-- [ ] **2a-10** `checkBudgets` passes: gzipped main chunk ≤ 284,975 B, landmark sweep ≤ 2 ms per
+- [x] **2a-10** `checkBudgets` passes: gzipped main chunk ≤ 284,975 B, landmark sweep ≤ 2 ms per
       box.
+
+As built:
+- The lookups ask the world only; none falls back to the table. A lab network has no
+  public address, so a trace names an actor standing on one as `unknown` (decision 8a).
+  The table is now written only by lab-network joins and read only by the allocator.
+- `publisherAt` and the hashed `193` numbering are gone, folded into the world's
+  `publicAddress`/`networkAt` pair. Scripts take an address from `publicAddressOf`, which
+  stops the run on an undeclared key; `networkFixture.ts` and
+  `testPublicIpAllocation.ts` are deleted.
+- Evidence: fingerprints identical for all 57 landmarks; `checkBudgets` 237,696 B and
+  1.684 ms per box. The sweep passed apart from `testCrossPlayerConnectionTrace` and
+  `testExploitDeepChain` (both in the backlog) and `testRemoteAptInstall`, which hits
+  `timestamp_skew` only under the sweep and passes alone.
+- Mutation: 136 mutants, 124 killed by Stryker. Six static survivors were killed by
+  applying them by hand, one by a tightened findit test, and five are equivalent.
 
 **RED**: a world test that a non-corporate landmark's address is in `87.1.0.0/16` and maps
 back to it. Then the corporate and findit `193` positions, the whole-world distinctness
