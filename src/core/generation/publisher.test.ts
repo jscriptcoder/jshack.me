@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ESSID_CATALOG } from './pools/essidCatalog.js';
-import { createPrng } from './prng.js';
-import { generatePublicIp, isPublicIp } from './ip.js';
+import { isPublicIp } from './ip.js';
 import { networkAt, PLACELESS_FIRST_OCTET } from './world.js';
 import { publisherIp, publisherSite, siteAddress } from './publisher.js';
 import { FINDIT_NETWORK } from './findit.js';
@@ -98,12 +97,6 @@ describe('publisherIp', () => {
   it('gives a network that publishes nothing no address', () => {
     expect(publisherIp('APT-3B-WIFI')).toBeUndefined();
     expect(publisherIp('Linksys-Kitchen')).toBeUndefined();
-  });
-
-  it('never hands a publisher address to a network that joins the internet', () => {
-    for (let seed = 0; seed < 2000; seed++) {
-      expect(generatePublicIp(createPrng(`join-${seed}`))).not.toMatch(/^193\./);
-    }
   });
 });
 

@@ -65,16 +65,19 @@ RLS denies anon/authenticated entirely; only the service-role function touches t
   breaks auth/L1/L2. `isOwnWorkstation(machineId, pubkey)` matches that suffix. Because the
   id already encodes the owner, `(machine_id, …)` is a sound shared key and never merges two
   players' (or per-viewer NPC) boxes.
-- **Public IP** = one server-allocated address per ESSID, drawn from a fixed prefix
-  allowlist (`core/generation/ip.ts`, `isPublicIp`) and stored in **`network_public_ips`**
-  (PK `essid`, `public_ip` UNIQUE). Joining allocates it if the ESSID has none, then
-  recalls it forever after, so every occupant of an AP shares one WAN address.
+- **Public IP** = one address per ESSID, derived from the network's place in the world and
+  never stored: `publicAddress(key)` and its inverse `networkAt(address)`
+  (`core/generation/world.ts`). Every occupant of an AP shares it, and it answers before
+  anybody has joined. A town's networks sit in their region's block (Ridgemont's landmarks at
+  `87.1.x.y`); findit and the corporations sit in the placeless `193` block. `isPublicIp`
+  (`core/generation/ip.ts`) accepts exactly those blocks. A network the world does not declare
+  (a local lab network) has no public address.
 - **Who is on an AP** = **`home_network_occupants`** (PK `(essid, owner_key)`, plus an index
   on `workstation_machine_id` for the reverse lookup): `workstation_machine_id`,
   `workstation_username`, `workstation_machine_name`, `workstation_root_hash`. Written on
   join, deleted on `nmcli disconnect` — so its rows mean "this machine is on this WiFi", and
   every cross-player resolver reads it (`core/network/registerNetwork.ts`, migrations
-  `20260621120000_home_network_occupants.sql` + `20260625000000_network_public_ips.sql`).
+  `20260621120000_home_network_occupants.sql`).
   The AP's gateway is not stored at all: `computeApGatewayId(essid)` derives it.
 - **NAT (Story 5.1):** the router is a real, journal-backed machine
   (`router_machine_id = computeRouterId(owner_key)`, `core/identity/router.ts`) that bears the
@@ -101,7 +104,7 @@ internalPort}`; else `none` (router-own wins a same-port tie). It shares `readRu
 
 - **Scan:** `nmap <public IP>` from an outsider routes to a signed `resolvePublicScan`
   (`core/scan/resolvePublicScan.ts`). The server resolves the public IP to its **ESSID**
-  (`network_public_ips`) and from there to the AP's shared **gateway** — a machine id that is a
+  (`networkAt`, the world's address → network function) and from there to the AP's shared **gateway** — a machine id that is a
   pure function of the ESSID, so no ownership lookup is involved. It materializes the gateway
   (seeded base + journal replay — `core/network/materializeRouterFs.ts`), checks `canBoot` (a
   bricked gateway takes the whole IP dark), and returns its open ports via `scanResult` (external

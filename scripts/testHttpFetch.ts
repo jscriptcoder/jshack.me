@@ -6,8 +6,8 @@
 //
 // Net-new under test (the locally-untypechecked api/ runtime):
 //   - `resolveHttpFetch` resolves public IP → ESSID → gateway → forward → the occupant
-//     LEASING that internal address, reading `network_public_ips`, `patches`,
-//     `home_network_occupants` and `network_lan_leases` by their real column names.
+//     LEASING that internal address, reading `patches`, `home_network_occupants` and
+//     `network_lan_leases` by their real column names.
 //   - The page is read AS THE SERVER: a page published by root is root-readable only, so
 //     a read at the caller's tier would 404 the owner's own page. Seeded root-only here
 //     precisely so a regression to a caller-tier read fails this script.

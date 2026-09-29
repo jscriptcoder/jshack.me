@@ -24,7 +24,7 @@ journal in memory, and re-pulls it after every write. Nothing is ever pushed fro
 | Supabase `patches`                                  | Every file change to every machine, by every writer                                                  | Permanent                             |
 | Supabase `sessions`                                 | Every session (hop) row; active while `ended_at` is null                                             | Permanent (ended rows stay)           |
 | Supabase `home_network_occupants`                   | Who is connected to which WiFi network                                                               | Until `nmcli disconnect`              |
-| Supabase `network_lan_leases`, `network_public_ips` | Permanent LAN addresses per (network, player); a public IP per network                               | Permanent, never released             |
+| Supabase `network_lan_leases`                       | Permanent LAN addresses per (network, player)                                                        | Permanent, never released             |
 
 **There is no IndexedDB and no offline write queue.** A write that fails is lost and the command
 reports an error. The one IndexedDB mention in the code (`src/ui/seed.ts`) is a stale comment.

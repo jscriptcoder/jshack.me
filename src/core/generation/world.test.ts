@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { publisherIp, siteAddress } from './publisher.js';
-import { isPublicIp, publicFirstOctets } from './ip.js';
+import { isPublicIp } from './ip.js';
 import { FINDIT_DOMAIN, FINDIT_NETWORK } from './finditNetwork.js';
 import { siteServer } from './siteServer.js';
 import { resolveLanHostIdentity } from './lanHostIdentity.js';
@@ -418,9 +418,8 @@ describe('the addresses of the world', () => {
 });
 
 describe('the regions of the world', () => {
-  it('carve their blocks from octets no joining network draws and no placeless site holds', () => {
+  it('carve their blocks from octets no placeless site holds', () => {
     for (const octet of REGION_FIRST_OCTETS) {
-      expect(publicFirstOctets).not.toContain(octet);
       expect(octet).not.toBe(PLACELESS_FIRST_OCTET);
     }
   });

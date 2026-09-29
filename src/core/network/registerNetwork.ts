@@ -2,15 +2,14 @@
  * handleRegisterNetwork — the server-side join action.
  *
  * When a player connects to a cracked AP, the client's `env.homeNetwork.join`
- * round-trip lands here: it verifies the signed envelope, allocates the addresses
- * the join needs, and records the player as an occupant of the ESSID. Occupancy is
+ * round-trip lands here: it verifies the signed envelope, leases the player an
+ * address on the ESSID's LAN, and records them as an occupant of it. Occupancy is
  * what makes one identity's box reachable by another's `nmap`/`ssh` — every
  * cross-player resolver answers from this row plus the ESSID's public IP.
  *
  * Server-stamped, never client-claimed:
- *   - `public_ip` is never claimed: a declared network's address is derived from its
- *     place in the world, and an admitted lab network's is allocated server-side — a
- *     client cannot register a foreign IP.
+ *   - `public_ip` is never claimed or stored: a network's address is derived from its
+ *     place in the world, so a client cannot register a foreign IP.
  *   - `owner_key` is the verified Ed25519 pubkey, never a payload claim.
  *
  * The AP's gateway is a DISTINCT machine and is NOT recorded here: its id derives
@@ -50,10 +49,6 @@ export type HomeNetworkOccupantRow = {
 
 export type RegisterNetworkDeps = {
   readonly nonceStore: NonceStore;
-  /** Issue (or recall) a public IP for a network the world does not declare. Composed
-   *  in the api/ adapter from `allocatePublicIp` over the `network_public_ips`
-   *  store; rejects on a store error or allocation exhaustion. */
-  readonly allocatePublicIp: (essid: string) => Promise<string>;
   /** Issue (or recall) this occupant's host octet on the ESSID's `/24`. Where the
    *  public IP is ONE address shared by the whole AP, a LAN lease is per
    *  `(essid, owner_key)` — each occupant holds its own, and the `(essid, octet)`
@@ -100,8 +95,8 @@ export const handleRegisterNetwork = async (
 
   // Every player lives in Ridgemont until travel exists, so its networks are the only
   // ones a join may reach. Another town's are never offered on WiFi and their keys are
-  // guessable, so the client cannot be trusted to stay home. Refused before either
-  // allocation, so a refused join leaves nothing behind.
+  // guessable, so the client cannot be trusted to stay home. Refused before the lease,
+  // so a refused join leaves nothing behind.
   const network = declaredNetwork(payload.essid);
   const joinable =
     network === undefined ? deps.admitsUndeclaredNetworks : network.town === RIDGEMONT;
@@ -109,22 +104,10 @@ export const handleRegisterNetwork = async (
     return { status: 403, body: { error: 'network_not_joinable' } };
   }
 
-  // A declared network's public address is its place in the world, so its join stores
-  // none. Only an admitted network the world does not declare is still given one, drawn
-  // on the first join and recalled on every later one. A failure (store error /
-  // exhaustion) is a clean 500, never a join half made.
-  if (network === undefined) {
-    try {
-      await deps.allocatePublicIp(payload.essid);
-    } catch {
-      return { status: 500, body: { error: 'allocation_failed' } };
-    }
-  }
-
   // The occupant's own address on that AP's LAN, leased against a uniqueness
-  // constraint so two occupants of one ESSID can never hold the same one. Like the
-  // public IP it precedes the writes: a full subnet or a store failure is a clean
-  // 500, never a join that registers a player on a network they hold no address on.
+  // constraint so two occupants of one ESSID can never hold the same one. It precedes
+  // the write: a full subnet or a store failure is a clean 500, never a join that
+  // registers a player on a network they hold no address on.
   let leasedOctet: number;
   try {
     leasedOctet = await deps.allocateLanLease(payload.essid, publicKey);
@@ -132,8 +115,7 @@ export const handleRegisterNetwork = async (
     return { status: 500, body: { error: 'lease_allocation_failed' } };
   }
 
-  // Both addresses are held, so record the player as a live occupant of the ESSID's
-  // LAN. Keyed by (essid, owner_key) so every occupant of a shared AP coexists.
+  // The address is held, so record the player as a live occupant of the ESSID's LAN. Keyed by (essid, owner_key) so every occupant of a shared AP coexists.
   const occupant: HomeNetworkOccupantRow = {
     essid: payload.essid,
     owner_key: publicKey,

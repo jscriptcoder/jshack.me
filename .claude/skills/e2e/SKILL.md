@@ -410,8 +410,9 @@ docker exec supabase_db_jshack-me psql -U postgres -tAc "select * from home_netw
 ```
 
 Useful lookups: `workstationGuestPassword(ownerKey)`, `assignHomeNetwork(ownerKey, essid)` →
-`{ localIp, hostname }` (no `publicIp` — public IPs are server-allocated), and the
-`network_public_ips` table for an ESSID's actual public IP. Cross-check any derived `localIp`
+`{ localIp, hostname }` (no `publicIp`), and `publicAddressOf(essid)` from
+`scripts/publicAddressOf.ts` for an ESSID's public IP, which the world derives from the
+network's place in it. Cross-check any derived `localIp`
 against the live `ifconfig`. Delete the temp file when done.
 
 ---
@@ -543,8 +544,8 @@ site makes the link count meaningless.
 `ESPRESSO-EXPRESS`). A publishes as above, then `ssh root@<subnet>.1` (password per §4) and
 `echo "forward 80 to <A's LAN IP>:80" > /etc/iptables/rules.v4`. Nothing else: B's
 `curl "findit.io/?q=<a word on A's page>"` lists it at once, by title and A's bare public IP.
-- **A's public IP is shown nowhere in the game.** Read it off the database:
-  `docker exec supabase_db_jshack-me psql -U postgres -tAc "select public_ip from network_public_ips where essid='<ESSID>'"`.
+- **A's public IP is shown nowhere in the game.** The world derives it:
+  `npx tsx -e "import { publicAddressOf } from './scripts/publicAddressOf.ts'; console.log(publicAddressOf('<ESSID>'))"`.
 - **Pick a network with no site of its own.** On a publisher's network (every corporate, café
   and institutional one — including the three government ones, `RIDGEMONT-PD` `ridgemontpd.gov`,
   `CITY-HALL-WIFI` `ridgemont.gov` and `COURTHOUSE-GUEST` `ridgemontcourts.gov`, since v0.273.0, and

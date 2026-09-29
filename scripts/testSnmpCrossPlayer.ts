@@ -9,7 +9,7 @@
 // Net-new under test (the locally-untypechecked api/ runtime):
 //   - the SNMP doors DISPATCHED for a public address at all. Every unit test hands the
 //     handlers a fake filesystem and a fake lookup; that a public IP resolves through
-//     the real column selections — network_public_ips, home_network_occupants,
+//     the real column selections — home_network_occupants,
 //     network_lan_leases, patches — is provable only here.
 //   - the community a sweep reports being the one the walk and the set then ACCEPT.
 //     Three doors reading one seeded string off one materialized gateway; a live run is

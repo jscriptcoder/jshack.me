@@ -13,9 +13,9 @@ import { DECLARED_NETWORKS, RIDGEMONT } from '../generation/world.js';
 
 /**
  * `handleRegisterNetwork` is the server-side join action. It verifies the signed
- * envelope, makes both allocations the join depends on — the AP's per-ESSID public
- * IP and the caller's own LAN lease — and records the caller as an occupant of the
- * ESSID. That occupancy row is the whole cross-player surface: it is what lets a
+ * envelope, leases the caller its own address on the ESSID's LAN, and records the caller
+ * as an occupant of the ESSID. The AP's public address is its place in the world, so
+ * the join stores none. That occupancy row is the whole cross-player surface: it is what lets a
  * DIFFERENT identity resolve, reach, and reconstruct this box, and it exists exactly
  * while the machine is on the WiFi. `owner_key` is stamped from the verified pubkey,
  * never claimed.
@@ -36,32 +36,26 @@ const WORKSTATION_ID = 'skylab-deadbeef';
 const USERNAME = 'neo';
 const MACHINE_NAME = 'skylab';
 const ROOT_HASH = 'd41d8cd98f00b204e9800998ecf8427e';
-// What the stub allocator issues for a lab network. The handler never reads the value:
-// a declared network's address is its place in the world, and only a network the world
-// does not declare is given one to store.
-const ALLOCATED_IP = '203.0.113.7';
-// The host octet the stub lease allocator issues. Opaque to the handler in the same
-// way the public IP is: the join's job is to make the allocation happen, and the
-// real uniqueness guarantee is a database constraint, so it is wire-checked.
+// The host octet the stub lease allocator issues. Opaque to the handler: the join's job
+// is to make the allocation happen, and the real uniqueness guarantee is a database
+// constraint, so it is wire-checked.
 const LEASED_OCTET = 84;
 
 const makeDeps = (over: Partial<RegisterNetworkDeps> = {}) => {
   const upsertOccupant = vi.fn<(row: HomeNetworkOccupantRow) => Promise<{ error: unknown }>>(
     async () => ({ error: null }),
   );
-  const allocatePublicIp = vi.fn<(essid: string) => Promise<string>>(async () => ALLOCATED_IP);
   const allocateLanLease = vi.fn<(essid: string, ownerKey: string) => Promise<number>>(
     async () => LEASED_OCTET,
   );
   const deps: RegisterNetworkDeps = {
     nonceStore: freshStore,
-    allocatePublicIp,
     allocateLanLease,
     upsertOccupant,
     admitsUndeclaredNetworks: false,
     ...over,
   };
-  return { deps, upsertOccupant, allocatePublicIp, allocateLanLease };
+  return { deps, upsertOccupant, allocateLanLease };
 };
 
 const envelope = (id: ReturnType<typeof generateIdentity>, over: Record<string, unknown> = {}) =>
@@ -75,31 +69,6 @@ const envelope = (id: ReturnType<typeof generateIdentity>, over: Record<string, 
   });
 
 describe('handleRegisterNetwork', () => {
-  it('stores no public address for a network the world declares, whose place in it is its address', async () => {
-    const id = generateIdentity();
-    const { deps, allocatePublicIp } = makeDeps();
-
-    const result = await handleRegisterNetwork(envelope(id), deps);
-
-    expect(result).toEqual({
-      status: 200,
-      body: { ok: true, local_ip: lanAddressFor(ESSID, LEASED_OCTET) },
-    });
-    expect(allocatePublicIp).not.toHaveBeenCalled();
-  });
-
-  it('allocates a public address for an admitted network the world does not declare', async () => {
-    const id = generateIdentity();
-    const { deps, allocatePublicIp } = makeDeps({ admitsUndeclaredNetworks: true });
-
-    await handleRegisterNetwork(envelope(id, { essid: LAB_NETWORK }), deps);
-
-    // Keyed by the network the caller joined, an address belonging to the ACCESS POINT
-    // rather than the joiner, which is why nothing about the caller enters the call.
-    expect(allocatePublicIp).toHaveBeenCalledTimes(1);
-    expect(allocatePublicIp).toHaveBeenCalledWith(LAB_NETWORK);
-  });
-
   it('persists the workstation identity (username/machineName/root-hash) so a cross-player reader can reconstruct the box', async () => {
     const id = generateIdentity();
     const { deps, upsertOccupant } = makeDeps();
@@ -155,24 +124,6 @@ describe('handleRegisterNetwork', () => {
     expect(upsertOccupant).not.toHaveBeenCalled();
   });
 
-  it('keys the public-IP allocation on the ESSID alone — two identities joining one AP make the same request', async () => {
-    const idA = generateIdentity();
-    const idB = generateIdentity();
-    const { deps: depsA, allocatePublicIp: allocA } = makeDeps({ admitsUndeclaredNetworks: true });
-    const { deps: depsB, allocatePublicIp: allocB } = makeDeps({ admitsUndeclaredNetworks: true });
-
-    await handleRegisterNetwork(envelope(idA, { essid: LAB_NETWORK }), depsA);
-    await handleRegisterNetwork(envelope(idB, { essid: LAB_NETWORK }), depsB);
-
-    // The address belongs to the ACCESS POINT, so two occupants ask the allocator the
-    // same question and get one answer. That they then SHARE it is `allocatePublicIp`'s
-    // claim (it recalls a known ESSID's IP without drawing); what the join owes is that
-    // nothing identity-specific enters the request in the first place.
-    expect(allocA).toHaveBeenCalledWith(LAB_NETWORK);
-    expect(allocB).toHaveBeenCalledWith(LAB_NETWORK);
-    expect(allocA.mock.calls[0]).toEqual(allocB.mock.calls[0]);
-  });
-
   it('rejects an envelope that smuggles a client-supplied player_key without writing', async () => {
     const id = generateIdentity();
     const { deps, upsertOccupant } = makeDeps();
@@ -215,23 +166,6 @@ describe('handleRegisterNetwork', () => {
     );
 
     expect(result.status).toBe(400);
-    expect(upsertOccupant).not.toHaveBeenCalled();
-  });
-
-  it('reports a server error when public-IP allocation fails, without writing', async () => {
-    const id = generateIdentity();
-    const { deps, upsertOccupant } = makeDeps({
-      admitsUndeclaredNetworks: true,
-      allocatePublicIp: vi.fn(async () => {
-        throw new Error('allocation exhausted');
-      }),
-    });
-
-    const result = await handleRegisterNetwork(envelope(id, { essid: LAB_NETWORK }), deps);
-
-    expect(result).toEqual({ status: 500, body: { error: 'allocation_failed' } });
-    // Allocation precedes the write — a failure must not leave an occupant on a
-    // network that has no address to be reached at.
     expect(upsertOccupant).not.toHaveBeenCalled();
   });
 
@@ -331,8 +265,7 @@ describe('handleRegisterNetwork', () => {
     const result = await handleRegisterNetwork(envelope(id), deps);
 
     // A full subnet (or a store failure) is a clean 500, never a partial join that
-    // registers the player on a network they hold no address on. Distinct from
-    // `allocation_failed` so the two allocators are separable in a log.
+    // registers the player on a network they hold no address on.
     expect(result).toEqual({ status: 500, body: { error: 'lease_allocation_failed' } });
     expect(upsertOccupant).not.toHaveBeenCalled();
   });
@@ -352,25 +285,23 @@ const NOT_JOINABLE = { status: 403, body: { error: 'network_not_joinable' } };
 describe('handleRegisterNetwork: which networks a player may join', () => {
   it.each(OUT_OF_TOWN_KEYS)('refuses a join to %s, outside Ridgemont, without writing', async (key) => {
     const id = generateIdentity();
-    const { deps, allocatePublicIp, allocateLanLease, upsertOccupant } = makeDeps();
+    const { deps, allocateLanLease, upsertOccupant } = makeDeps();
 
     const result = await handleRegisterNetwork(envelope(id, { essid: key }), deps);
 
     expect(result).toEqual(NOT_JOINABLE);
-    expect(allocatePublicIp).not.toHaveBeenCalled();
-    expect(allocateLanLease).not.toHaveBeenCalled();
+        expect(allocateLanLease).not.toHaveBeenCalled();
     expect(upsertOccupant).not.toHaveBeenCalled();
   });
 
   it('refuses a join to a network the world does not declare, without writing', async () => {
     const id = generateIdentity();
-    const { deps, allocatePublicIp, allocateLanLease, upsertOccupant } = makeDeps();
+    const { deps, allocateLanLease, upsertOccupant } = makeDeps();
 
     const result = await handleRegisterNetwork(envelope(id, { essid: LAB_NETWORK }), deps);
 
     expect(result).toEqual(NOT_JOINABLE);
-    expect(allocatePublicIp).not.toHaveBeenCalled();
-    expect(allocateLanLease).not.toHaveBeenCalled();
+        expect(allocateLanLease).not.toHaveBeenCalled();
     expect(upsertOccupant).not.toHaveBeenCalled();
   });
 
@@ -389,13 +320,12 @@ describe('handleRegisterNetwork: which networks a player may join', () => {
     const id = generateIdentity();
     const joined = await Promise.all(
       RIDGEMONT_KEYS.map(async (key) => {
-        const { deps, upsertOccupant, allocatePublicIp } = makeDeps();
+        const { deps, upsertOccupant } = makeDeps();
         const result = await handleRegisterNetwork(envelope(id, { essid: key }), deps);
         return {
           key,
           result,
           occupantEssid: upsertOccupant.mock.calls[0]?.[0].essid,
-          allocations: allocatePublicIp.mock.calls.length,
         };
       }),
     );
@@ -406,7 +336,6 @@ describe('handleRegisterNetwork: which networks a player may join', () => {
         key,
         result: { status: 200, body: { ok: true, local_ip: lanAddressFor(key, LEASED_OCTET) } },
         occupantEssid: key,
-        allocations: 0,
       })),
     );
   });
@@ -428,15 +357,14 @@ describe('handleRegisterNetwork: which networks a player may join', () => {
     'still refuses %s, outside Ridgemont, when undeclared networks are admitted',
     async (key) => {
       const id = generateIdentity();
-      const { deps, allocatePublicIp, allocateLanLease, upsertOccupant } = makeDeps({
+      const { deps, allocateLanLease, upsertOccupant } = makeDeps({
         admitsUndeclaredNetworks: true,
       });
 
       const result = await handleRegisterNetwork(envelope(id, { essid: key }), deps);
 
       expect(result).toEqual(NOT_JOINABLE);
-      expect(allocatePublicIp).not.toHaveBeenCalled();
-      expect(allocateLanLease).not.toHaveBeenCalled();
+            expect(allocateLanLease).not.toHaveBeenCalled();
       expect(upsertOccupant).not.toHaveBeenCalled();
     },
   );
