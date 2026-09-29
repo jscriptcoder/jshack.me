@@ -4,7 +4,8 @@
 slices 1a–1c (see Slice plans); 1a complete 2026-09-28 (#572, v0.284.0); 1b complete
 2026-09-28 (#573, v0.285.0); 1c complete 2026-09-28 (#574, v0.286.0). Slice 1 complete.
 Slice 2 grilled and planned 2026-09-28 as slices 2a–2b; 2a complete 2026-09-29 (#575,
-v0.287.0). Slices 3 onward not yet planned.
+v0.287.0); 2b complete 2026-09-29 (#576, table dropped on jshack-dev and jshack-prod).
+Slice 2 complete. Slices 3 onward not yet planned.
 Amends the §9 backlog item "Procedural world expansion — GRILLED & RESOLVED 2026-07-29" in
 `docs/conventions-and-gotchas.md`; where the two disagree, this file wins.
 
@@ -608,32 +609,52 @@ the world.
 **Class**: terminal reduction (program above). It discharges 2a's bridge.
 **Delivery**: independent PR against `main` after 2a merges, branch
 `refactor/procedural-world-retire-allocator`.
-**Status**: planned.
+**Status**: complete, merged as #576 (`d15eae3f`).
 **Required implementation skills**: `reduce-system-complexity`, `testing`, `refactoring`;
 `mutation-testing` at PR-readiness.
 **Acceptance criteria** (to be confirmed before any code):
 
-- [ ] **2b-1** The removals in the mechanism gate have happened:
+- [x] **2b-1** The removals in the mechanism gate have happened:
       - these are deleted: `allocatePublicIp.ts` and its test, `generatePublicIp`,
         `publicFirstOctets`, `networkFixture.ts` and `testPublicIpAllocation.ts`;
       - these are removed: the adapter's read and claim, the `allocatePublicIp` dependency
         and the join's `allocation_failed` branch;
       - all 12 table queries are gone.
-- [ ] **2b-2** A lab-network join admitted by the flag still returns `200` with its `local_ip`.
+- [x] **2b-2** A lab-network join admitted by the flag still returns `200` with its `local_ip`.
       `testJoinRefusal.ts` stops counting public-address rows.
-- [ ] **2b-3** A migration drops `network_public_ips`, and it applies cleanly to local supabase.
-- [ ] **2b-4** The behaviour gate still holds: `vitest run`, typecheck and lint pass, and the
+- [x] **2b-3** A migration drops `network_public_ips`, and it applies cleanly to local supabase.
+- [x] **2b-4** The behaviour gate still holds: `vitest run`, typecheck and lint pass, and the
       sweep matches 2a's result.
-- [ ] **2b-5** The as-built docs describe addresses as derived. Several mention the table or the
+- [x] **2b-5** The as-built docs describe addresses as derived. Several mention the table or the
       allocator and are updated:
       - `cross-player-architecture.md`;
       - handbook chapters 1, 3, 6, 7, 9, 10 and 11;
       - `conventions-and-gotchas.md` §6 and §9;
       - `e2e-shared-network-verification.md`;
       - the repo's `e2e` skill.
-- [ ] **2b-6** After the merge is live on Production, the migration is applied to jshack-dev
+- [x] **2b-6** After the merge is live on Production, the migration is applied to jshack-dev
       and then to jshack-prod. `migration list --linked` and a read-only check show the table
       gone on both.
+
+As built:
+- `networkFixture.ts` and `testPublicIpAllocation.ts` had already gone in 2a. 2b removed
+  the last 13 table queries (2 in `api/network.ts`, 11 in scripts), not 12.
+- `testLanLeaseAllocation` lost its public-IP check and `testPublisherWeb`'s check 5 now
+  asserts only that the join succeeds. The tests that used `publicFirstOctets` keep the 12
+  retired octets as a written-out list, and the publisher test that the random draw never
+  hit `193` is deleted. `discovery-architecture.md` was updated too; handbook chapters 3 and
+  11 were already current from 2a.
+- Evidence: `vitest run` 6592/6592; `checkBudgets` 237,696 B and 1.535 ms per box. The
+  sweep was 77/80: the two backlog failures from 2a, plus `testMysqlDeep`, which hit
+  `timestamp_skew` only under the sweep and passed 13/13 three times alone. Stryker on
+  `registerNetwork.ts`: 51 killed, 0 survived.
+- 2b-6: the owner applied the migration to jshack-dev, then jshack-prod, on 2026-09-29, once
+  #575 was live on Production. `migration list --linked` and a read-only `to_regclass`
+  check show `network_public_ips` gone and `network_lan_leases` intact on both.
+- AC-7 stays open. Its address half is done: only the public address moved, and 2a's
+  before/after fingerprints of all 57 landmarks were identical. But those fingerprints were a
+  one-off comparison, no committed snapshot test pins landmark content yet, and later slices
+  could still change it.
 
 **Evidence**: a terminal reduction, so no new RED. The behaviour gate starts green from 2a
 and stays green.
