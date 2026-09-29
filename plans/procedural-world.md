@@ -5,7 +5,8 @@ slices 1a–1c (see Slice plans); 1a complete 2026-09-28 (#572, v0.284.0); 1b co
 2026-09-28 (#573, v0.285.0); 1c complete 2026-09-28 (#574, v0.286.0). Slice 1 complete.
 Slice 2 grilled and planned 2026-09-28 as slices 2a–2b; 2a complete 2026-09-29 (#575,
 v0.287.0); 2b complete 2026-09-29 (#576, table dropped on jshack-dev and jshack-prod).
-Slice 2 complete. Slice 3 grilled and planned 2026-09-29. Slices 4 onward not yet planned.
+Slice 2 complete. Slice 3 grilled and planned 2026-09-29, complete 2026-09-29 (#577,
+v0.288.0). Slices 4 onward not yet planned.
 Amends the §9 backlog item "Procedural world expansion — GRILLED & RESOLVED 2026-07-29" in
 `docs/conventions-and-gotchas.md`; where the two disagree, this file wins.
 
@@ -708,48 +709,63 @@ address → `networkAt` → the network's record → printed lines. Nothing cros
 server, so the path ends in the client.
 **Class**: behaviour change.
 **Delivery**: independent PR against `main`, branch `feat/procedural-world-whois`.
-**Status**: planned.
+**Status**: complete, merged as #577 (`cfc4dbf3`).
 **Required implementation skills**: `tdd`, `testing`, `refactoring`; `mutation-testing` at
 PR-readiness.
 **Reduction program**: `N/A`.
 **Acceptance criteria** (to be confirmed before any code):
 
-- [ ] **3-1** With `whois` installed and a network joined, `whois` on the address of a sited
+- [x] **3-1** With `whois` installed and a network joined, `whois` on the address of a sited
       Ridgemont landmark prints a `% Harrow Valley registry` header and a record, and exits 0:
       - `inetnum:` its address as a one-address range (`87.1.13.14 - 87.1.13.14`);
       - `netname:` its ESSID;
       - `org-name:` its site's name;
       - `domain:` its site's domain;
       - `city: Ridgemont` and `region: Harrow Valley`.
-- [ ] **3-2** A landmark with no site (`CASA-DE-RAMIREZ`) answers `org-name: Ridgemont
+- [x] **3-2** A landmark with no site (`CASA-DE-RAMIREZ`) answers `org-name: Ridgemont
       Broadband` and prints no `domain:` line.
-- [ ] **3-3** A corporate landmark and findit print no `city:` or `region:` line. findit's
+- [x] **3-3** A corporate landmark and findit print no `city:` or `region:` line. findit's
       `netname:` is `FINDIT-IO` and its `domain:` is `findit.io`.
-- [ ] **3-4** A Millbrook network answers `city: Millbrook` and `region: Harrow Valley`, with
+- [x] **3-4** A Millbrook network answers `city: Millbrook` and `region: Harrow Valley`, with
       its ESSID as `netname:` (`TOWN-HALL-WIFI`), never its key.
-- [ ] **3-5** `whois <domain>` prints the same record as `whois` on that domain's address, in
+- [x] **3-5** `whois <domain>` prints the same record as `whois` on that domain's address, in
       any letter case (`RIDGEMONT.GOV`).
-- [ ] **3-6** Anything no network holds prints `%ERROR:101: no entries found` and exits 1:
+- [x] **3-6** Anything no network holds prints `%ERROR:101: no entries found` and exits 1:
       an empty address in a declared block (`87.1.0.1`), a private LAN address
       (`192.168.1.10`), an unknown domain, a lab network's name, and junk. `whois` with no
       argument prints `whois: usage: whois <ip|domain>` and exits 1.
-- [ ] **3-7** A test over the whole declared world proves every network's address answers a
+- [x] **3-7** A test over the whole declared world proves every network's address answers a
       record naming that network: its ESSID as `netname:` (`FINDIT-IO` for findit), its town
       as `city:` and `Harrow Valley` as `region:` for every town network.
-- [ ] **3-8** On a fresh box `whois` is not found and points at `apt install whois`, which
+- [x] **3-8** On a fresh box `whois` is not found and points at `apt install whois`, which
       installs it. `help` lists it and `man whois` describes it.
-- [ ] **3-9** With no network joined, `whois` prints `whois: network is unreachable — connect
+- [x] **3-9** With no network joined, `whois` prints `whois: network is unreachable — connect
       to a network first` and exits 1.
-- [ ] **3-10** `whois` reaches no server: it answers the same with every server-facing
+- [x] **3-10** `whois` reaches no server: it answers the same with every server-facing
       dependency of the command environment failing.
-- [ ] **3-11** (AC-7) A committed test fingerprints all 57 landmarks: persona, `.lan` zone,
+- [x] **3-11** (AC-7) A committed test fingerprints all 57 landmarks: persona, `.lan` zone,
       WiFi password, the gateway's files and every LAN box's files, everything except the
       public address. Its expected values equal fingerprints generated at `63f0b03b`, the
       commit before the epic's first code.
-- [ ] **3-12** `checkBudgets` passes: gzipped main chunk ≤ 284,975 B, landmark sweep ≤ 2 ms per
+- [x] **3-12** `checkBudgets` passes: gzipped main chunk ≤ 284,975 B, landmark sweep ≤ 2 ms per
       box.
-- [ ] **3-13** `discovery-architecture.md` describes the `whois` route, and handbook chapter 5's
+- [x] **3-13** `discovery-architecture.md` describes the `whois` route, and handbook chapter 5's
       command table lists `whois`.
+
+As built:
+- The record lookup stayed in `whois.ts`, its only consumer, not beside the declaration.
+  The world exports `HARROW_VALLEY` beside `RIDGEMONT`; every declared network carries
+  its `region`, and `REGION_FIRST_OCTETS` is read from the region rows.
+- Whether a network stands in a town is read from its address block, not its category:
+  Millbrook has two `corporate` businesses in its `87.98` block, and they name their town.
+- findit's `org-name` is `findit.io`, what its pages call it.
+- 3-11: the fingerprint leaves out the persona object. Slice 1a added `town: "Ridgemont"`
+  to it, but every file it feeds is byte-identical, so all 57 fingerprints equal those
+  generated at `63f0b03b`.
+- Evidence: `vitest run` 6612/6612; `checkBudgets` 238,381 B and 0.849 ms per box.
+  Stryker on `whois.ts` and the changed `world.ts` lines: 107 killed. Of the survivors, 5
+  static ones were killed by applying them by hand, 2 are equivalent, and 1 with no
+  coverage is on an existing directory line this slice did not touch.
 
 **RED**:
 - The AC-7 fingerprint test comes first, as its own commit. It is preservation evidence,
@@ -782,7 +798,7 @@ unchanged.
       whole declared world proves every network has a distinct public IP.
 - [ ] **AC-2** Any player can fetch a procedural town's council site by its domain. Its directory
       page links every institution in that town, listed or not.
-- [ ] **AC-3** `whois <ip|domain>` on any declared network answers organisation, town and
+- [x] **AC-3** `whois <ip|domain>` on any declared network answers organisation, town and
       region. On an address or domain that no network holds, it answers no match.
 - [ ] **AC-4** A test over the whole declared world proves every network can be reached from
       findit plus Ridgemont by following references.
@@ -790,7 +806,7 @@ unchanged.
       refused by the server, and no occupancy row is written.
 - [ ] **AC-6** An unlisted publisher answers a fetch by its domain and never appears in any
       findit result.
-- [ ] **AC-7** Every landmark's LAN, content and passwords are identical to before the epic
+- [x] **AC-7** Every landmark's LAN, content and passwords are identical to before the epic
       (snapshot tests). Only its public IP changes.
 - [ ] **AC-8** At least one town holds a hospital network whose boxes carry healthcare content in
       every category pool.
