@@ -11,6 +11,9 @@
 //   - A scan of a town network's address reaches its gateway, whose ssh answers.
 //   - The council's front page links the town directory, which links every institution in
 //     the town, and following its link to the police reaches the police's own front page.
+//   - An office's gateway forwards services beside its site: a scan of its address shows
+//     them, and ssh through the forwarded high port reaches the box behind it, whose own
+//     auth.log records the attempt.
 //
 // Usage (with v2 supabase + vercel dev running on 3100):
 //   npx dotenv -e .env.development.local -- npx tsx scripts/testMillbrook.ts
@@ -23,12 +26,17 @@ import { generateIdentity } from '../src/core/identity/identity.js';
 import { computeApGatewayId } from '../src/core/identity/router.js';
 import { machineIdForLanHost } from '../src/core/generation/lanTopology.js';
 import { siteAddress } from '../src/core/generation/publisher.js';
-import { networkAt } from '../src/core/generation/world.js';
+import { DECLARED_NETWORKS, networkAt, publicAddress } from '../src/core/generation/world.js';
+import { seededForwards } from '../src/core/generation/seededForwards.js';
+import { generateHomeLan } from '../src/core/generation/generateHomeLan.js';
+import { npcUsername } from '../src/core/generation/remoteHostFs.js';
 import { siteServer } from '../src/core/generation/siteServer.js';
 import { FINDIT_DOMAIN } from '../src/core/generation/findit.js';
 import { ACCESS_LOG_PATH } from '../src/core/logging/accessLog.js';
+import { AUTH_LOG_PATH } from '../src/core/logging/authLog.js';
 
 const NETWORK = process.env.NETWORK_ENDPOINT ?? 'http://localhost:3100/api/network';
+const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const url = process.env.SUPABASE_URL;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -45,8 +53,11 @@ const check = (name: string, pass: boolean, detail: string) => {
   console.log(`${pass ? 'PASS' : 'FAIL'}  ${name}  —  ${detail}`);
 };
 
-const post = async (envelope: unknown): Promise<{ status: number; body: unknown }> => {
-  const response = await fetch(NETWORK, {
+const post = async (
+  envelope: unknown,
+  endpoint: string = NETWORK,
+): Promise<{ status: number; body: unknown }> => {
+  const response = await fetch(endpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(envelope),
@@ -149,7 +160,11 @@ check(
 
 // === 5. The council's directory links every institution, and its links lead there. ===
 const directoryFetch = await post(
-  signRequest(visitor, 'resolveHttpFetch', { target: COUNCIL_IP, port: 80, path: '/directory.html' }),
+  signRequest(visitor, 'resolveHttpFetch', {
+    target: COUNCIL_IP,
+    port: 80,
+    path: '/directory.html',
+  }),
 );
 const directory = contentOf(directoryFetch.body);
 const linked = [...directory.matchAll(/<a href="(http:\/\/[^"]+)">/g)].map(([, href]) => href);
@@ -157,7 +172,8 @@ check(
   'the council front page links its town directory, which links every institution in the town',
   homepage.includes('<a href="/directory.html">Town directory</a>') &&
     directoryFetch.status === 200 &&
-    linked.join(' ') === 'http://millbrook.gov/ http://millbrookpd.gov/ http://millbrooklibrary.org/',
+    linked.join(' ') ===
+      'http://millbrook.gov/ http://millbrookpd.gov/ http://millbrooklibrary.org/',
   `status=${directoryFetch.status} error=${errorOf(directoryFetch.body)} links=${linked.join(',')}`,
 );
 const followed = await post(
@@ -170,6 +186,70 @@ check(
     contentOf(followed.body).includes('<title>Millbrook Police Department</title>'),
   `status=${followed.status} error=${errorOf(followed.body)}`,
 );
+
+// === 6. An office's gateway forwards more than its site, and a scan shows each. ===
+const OFFICE = DECLARED_NETWORKS.find((network) => network.essid === 'PINNACLE-IT-SOLUTIONS');
+const OFFICE_IP = OFFICE === undefined ? undefined : publicAddress(OFFICE.key);
+const SSH_FORWARD =
+  OFFICE === undefined
+    ? undefined
+    : seededForwards(OFFICE.key).find((forward) => forward.internalPort === 22);
+const DESK = generateHomeLan(OFFICE?.key ?? '').hosts.find(
+  (host) => host.ip === SSH_FORWARD?.internalIp,
+);
+if (
+  OFFICE === undefined ||
+  OFFICE_IP === undefined ||
+  SSH_FORWARD === undefined ||
+  DESK === undefined
+) {
+  console.error('Pinnacle IT Solutions forwards no ssh — the world is unusable.');
+  process.exit(2);
+}
+const DESK_ID = machineIdForLanHost(DESK, OFFICE.key);
+const clearDeskLog = async () => {
+  await sr.from('patches').delete().eq('machine_id', DESK_ID).eq('path', AUTH_LOG_PATH);
+};
+await clearDeskLog();
+
+const officeScan = await post(signRequest(visitor, 'resolvePublicScan', { target: OFFICE_IP }));
+const officePorts = portsOf(officeScan.body).map(
+  (openPort) => `${openPort.port}/${openPort.service}`,
+);
+check(
+  "nmap <an office's address> shows every service its gateway forwards",
+  officeScan.status === 200 &&
+    ['22/ssh', '80/http', '21/ftp', `${SSH_FORWARD.publicPort}/ssh`].every((port) =>
+      officePorts.includes(port),
+    ),
+  `status=${officeScan.status} ports=${officePorts.join(',')}`,
+);
+
+// === 7. Connecting through the forward reaches the box behind it, not the gateway. ===
+const login = await post(
+  signRequest(visitor, 'authCreateSessionPublic', {
+    session_id: `millbrook-forward-${Date.now()}`,
+    target: OFFICE_IP,
+    username: npcUsername(OFFICE.key, DESK),
+    password: 'not-the-password',
+    port: SSH_FORWARD.publicPort,
+  }),
+  SESSIONS,
+);
+const { data: deskLog } = await sr
+  .from('patches')
+  .select('content')
+  .eq('machine_id', DESK_ID)
+  .eq('path', AUTH_LOG_PATH)
+  .maybeSingle();
+check(
+  `ssh -p ${SSH_FORWARD.publicPort} reaches ${DESK.hostname} behind the office's gateway`,
+  login.status === 401 &&
+    typeof deskLog?.content === 'string' &&
+    deskLog.content.includes('Failed password'),
+  `status=${login.status} error=${errorOf(login.body)} logged=${deskLog !== null}`,
+);
+await clearDeskLog();
 
 await cleanup();
 

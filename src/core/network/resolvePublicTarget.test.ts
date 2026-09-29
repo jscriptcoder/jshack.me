@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { derivedNetworkByPublicIp } from './resolvePublicTarget.js';
+import {
+  derivedNetworkByPublicIp,
+  resolvePublicTarget,
+  type ResolvePublicTargetDeps,
+} from './resolvePublicTarget.js';
 import { computeApGatewayId } from '../identity/router.js';
-import { publicAddress } from '../generation/world.js';
+import { DECLARED_NETWORKS, publicAddress } from '../generation/world.js';
+import { generateHomeLan } from '../generation/generateHomeLan.js';
+import { machineIdForLanHost } from '../generation/lanHostIdentity.js';
 
 /**
  * A public address leads to the network that stands at that place in the world, and to
@@ -19,5 +25,36 @@ describe('derivedNetworkByPublicIp', () => {
   it('leads nowhere from an address no network answers at', async () => {
     expect(await derivedNetworkByPublicIp('87.1.0.1')).toEqual({ data: null, error: null });
     expect(await derivedNetworkByPublicIp('203.0.113.7')).toEqual({ data: null, error: null });
+  });
+});
+
+/** A world nobody has touched: every journal empty, nobody on any network. */
+const untouchedWorld: ResolvePublicTargetDeps = {
+  findNetworkByPublicIp: derivedNetworkByPublicIp,
+  findPatches: async () => ({ data: [], error: null }),
+  listOccupantsByEssid: async () => ({ data: [], error: null }),
+  listLeasesByEssid: async () => ({ data: [], error: null }),
+};
+
+describe('resolvePublicTarget', () => {
+  it("reaches, through a port a Millbrook office's gateway forwards, the box behind it rather than the gateway", async () => {
+    const office = DECLARED_NETWORKS.find((network) => network.essid === 'PINNACLE-IT-SOLUTIONS');
+    if (office === undefined) throw new Error('Millbrook declares no Pinnacle IT Solutions');
+    const printer = generateHomeLan(office.key).hosts.find(
+      (host) => host.hostname === 'printer-57',
+    );
+    if (printer === undefined) throw new Error('Pinnacle IT Solutions keeps no printer-57');
+
+    const result = await resolvePublicTarget(untouchedWorld, {
+      publicIp: publicAddress(office.key) ?? '',
+      port: 2222,
+    });
+
+    expect(result.ok && { ...result.target, fs: undefined }).toMatchObject({
+      machineId: machineIdForLanHost(printer, office.key),
+      hostname: 'printer-57',
+      essid: office.key,
+      reachedPort: 22,
+    });
   });
 });

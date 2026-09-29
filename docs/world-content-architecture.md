@@ -107,6 +107,7 @@ gateways on their own seed key or machine id.
 | `phone-content-`, `tablet-` | a phone or tablet's storage, a tablet's model |
 | `mac-<machineId>`, `gw-net-<seed key>` | one MAC per host, a gateway's leases or MAC table |
 | `gw-admin-`, `gw-history-`, `gw-history-logs-`, `gw-history-backups-`, `gw-history-ui-` (by machine id) | a gateway's admin, history, rotations, backups, admin UI |
+| `gw-forwards-<key>` | the services a gateway beyond Ridgemont forwards beside its site: which, and on which public port |
 
 ## What a box holds
 

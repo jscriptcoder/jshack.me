@@ -15,6 +15,7 @@ import { formatNmapScanAggregate, KERN_LOG_OWNER, KERN_LOG_PERMISSIONS } from '.
 import { asGameTime } from '../types.js';
 import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
 import { siteServer } from '../generation/siteServer.js';
+import { DECLARED_NETWORKS } from '../generation/world.js';
 import { machineIdForLanHost } from '../generation/lanHostIdentity.js';
 import {
   formatListenerContent,
@@ -297,6 +298,26 @@ describe('handleResolvePublicScan', () => {
       expect(portsOf(result.body)).toContain('22/ssh');
       expect(portsOf(result.body)).not.toContain('80/http');
     });
+  });
+
+  it("shows, at a Millbrook office's address, every service its gateway forwards beside its own doors", async () => {
+    const office = DECLARED_NETWORKS.find((network) => network.essid === 'PINNACLE-IT-SOLUTIONS');
+    if (office === undefined) throw new Error('Millbrook declares no Pinnacle IT Solutions');
+    const { deps } = makeDeps({
+      lookup: async () => ({
+        data: { router_machine_id: computeApGatewayId(office.key), essid: office.key },
+        error: null,
+      }),
+      listOccupantsByEssid: async () => ({ data: [], error: null }),
+      listLeasesByEssid: async () => ({ data: [], error: null }),
+    });
+
+    const result = await handleResolvePublicScan(envelope(generateIdentity(), TARGET), deps);
+
+    const ports = ((result.body.ports ?? []) as readonly { port: number; service: string }[])
+      .toSorted((left, right) => left.port - right.port)
+      .map((openPort) => `${openPort.port}/${openPort.service}`);
+    expect(ports).toEqual(['21/ftp', '22/ssh', '80/http', '161/snmp', '2222/ssh']);
   });
 
   it("resolves a registered public IP to the AP gateway's own sshd:22 (every occupant dark behind NAT)", async () => {
