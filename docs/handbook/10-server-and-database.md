@@ -75,7 +75,7 @@ false}})`, per request. The service role bypasses row-level security.
 
 | Action                      | Purpose                                                                                                 | Auth             |
 | --------------------------- | ------------------------------------------------------------------------------------------------------- | ---------------- |
-| `registerNetwork` (default) | Join a WiFi network: allocate the network's public IP, your lease, write occupancy. Returns `local_ip`. | SIG              |
+| `registerNetwork` (default) | Join a WiFi network: lease your LAN address, write occupancy. Returns `local_ip`.                        | SIG              |
 | `unregisterOccupant`        | Leave a network (delete your occupancy row; the lease stays).                                           | SIG              |
 | `resolveOccupiedEssids`     | Names of networks anyone is connected to (discovery).                                                   | SIG              |
 | `resolveOccupants`          | Fellow players on your network, with their LAN addresses.                                               | SIG + OCC        |
@@ -158,12 +158,6 @@ Primary key `(essid, owner_key)`. Also `workstation_machine_id` (indexed), `work
 sees the plaintext), `created_at`, `updated_at`. The row's existence **is** reachability; it is
 deleted on `nmcli disconnect`.
 
-### `network_public_ips`: one public IP per network
-
-`essid` (primary key), `public_ip` (unique), `created_at`. Allocated on first join with
-`INSERT … ON CONFLICT (essid) DO NOTHING`; a unique violation (`23505`) on `public_ip` means another
-network holds it, so the allocator redraws. Never released.
-
 ### `network_lan_leases`: permanent LAN addresses
 
 Primary key `(essid, owner_key)`, unique `(essid, octet)`, `octet SMALLINT CHECK (2..254)`. The lease
@@ -174,8 +168,7 @@ network's generated machines use, prefers the player's derived octet, and redraw
 
 Most queries use a primary-key prefix. A few scan whole tables, fine at current scale and worth
 revisiting at launch: `rebootMachine`'s update of all sessions on a machine, finding a player's
-current network by `owner_key`, `resolveOccupiedEssids` (every occupancy row), and findit's list of
-every public address.
+current network by `owner_key`, `resolveOccupiedEssids` (every occupancy row).
 
 ### Migration history
 
@@ -190,9 +183,10 @@ every public address.
 | `20260614130000_patches_shared_journal.sql`              | **Destructive** re-create of `patches` as the shared journal keyed `(machine_id, path, writer_key)`, plus the trigger. |
 | `20260617000000_drop_network_registry_forward_table.sql` | Forwards now live only in the router's `rules.v4` file.                                                                |
 | `20260621120000_home_network_occupants.sql`              | Same-WiFi occupancy.                                                                                                   |
-| `20260625000000_network_public_ips.sql`                  | A collision-free public IP per network.                                                                                |
+| `20260625000000_network_public_ips.sql`                  | A collision-free public IP per network (later dropped).                                                                |
 | `20260726000000_network_lan_leases.sql`                  | Leased LAN addresses.                                                                                                  |
 | `20260727000000_drop_network_registry.sql`               | Index occupants by machine id, then drop `network_registry`.                                                           |
+| `20260929000000_drop_network_public_ips.sql`             | Drop `network_public_ips`: every network's public IP is derived from its place in the world.                           |
 
 Migrations are forward-only; there are no down migrations. The files moved from `v2/supabase/` to the
 repository root when v2 became the whole repo.

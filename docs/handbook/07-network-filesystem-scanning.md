@@ -46,7 +46,7 @@ journal.
 | `network/interfaces.ts`                                               | Network interfaces (`lo`, `eth0`, `wlan0`), `connectedWlan0`, `isOnline`, `ownBoxSource`.     |
 | `network/wifi.ts`                                                     | `WifiNetwork` and `bssidFromEssid`.                                                           |
 | `network/lanAddress.ts`, `homeNetwork.ts`                             | The LAN subnet for an ESSID; a player's preferred host octet.                                 |
-| `network/allocateLanLease.ts`, `allocatePublicIp.ts`                  | Pure allocators for LAN leases and public IPs (the server injects the database).              |
+| `network/allocateLanLease.ts`                                         | Pure allocator for LAN leases (the server injects the database).                              |
 | `network/registerNetwork.ts`, `unregisterOccupant.ts`                 | Join and leave a WiFi network (server handlers).                                              |
 | `network/iptablesRules.ts`, `switchAcl.ts`                            | Parse and edit `rules.v4` and `acl.conf`.                                                     |
 | `network/portsOpenToNetwork.ts`                                       | What a box answers to the **network**: running services minus its input denies.               |
@@ -222,8 +222,7 @@ the `ed25519:` prefix.
 | Generated host octets       | `generateHomeLan`                                                                              | Pure      |
 | A player's LAN address      | A **lease** in `network_lan_leases`, permanent per (ESSID, player), never on a generated octet | Server    |
 | Deep subnet `10.a.b`        | `generateDeepLayer`                                                                            | Pure      |
-| An access point's public IP | `network_public_ips`, allocated on first join from a fixed pool of first octets                | Server    |
-| A publisher's public IP     | `193.x.y.z`, derived from its ESSID (the allocator never draws 193)                            | Pure      |
+| An access point's public IP | Its place in the world (`publicAddress` in `world.ts`), even before anybody joins              | Pure      |
 
 `isPublicIp(target)` is the switch between "resolve this through the server, cross-player" and
 "resolve this on my own LAN".
@@ -231,9 +230,9 @@ the `ed25519:` prefix.
 ### Joining and leaving
 
 1. The player cracks a WiFi password and runs `nmcli connect <essid> <password>`.
-2. The client posts a signed `registerNetwork` action. The server allocates the network's public IP
-   if it has none, allocates or reuses the player's LAN lease, and only then writes the occupancy
-   row, so every occupant has an address.
+2. The client posts a signed `registerNetwork` action. The server allocates or reuses the player's
+   LAN lease, and only then writes the occupancy row, so every occupant has an address. The
+   network's public IP is its place in the world, so the join stores none.
 3. The client sets `wlan0` to associated with the leased IP and caches the lease in `localStorage`.
    If the server is unreachable later, a cached lease lets the client come back online; a network
    never joined cannot be joined offline, because the client never invents an address.

@@ -110,7 +110,6 @@ const join = (owner: ReturnType<typeof generateIdentity>, wsName: string) =>
   });
 
 // Clean slate.
-await sr.from('network_public_ips').delete().eq('essid', ESSID);
 await sr.from('home_network_occupants').delete().eq('essid', ESSID);
 await sr.from('network_lan_leases').delete().eq('essid', ESSID);
 await sr.from('patches').delete().eq('machine_id', A_WS);
@@ -176,7 +175,6 @@ check(
 );
 
 // Cleanup.
-await sr.from('network_public_ips').delete().eq('essid', ESSID);
 await sr.from('home_network_occupants').delete().eq('essid', ESSID);
 await sr.from('network_lan_leases').delete().eq('essid', ESSID);
 await sr.from('patches').delete().eq('machine_id', A_WS);

@@ -89,9 +89,6 @@ const occupantsOf = (body: unknown): readonly WireOccupant[] =>
 
 // Clean slate.
 await sr.from('home_network_occupants').delete().eq('essid', X_ESSID);
-// The ESSID's public IP is server-allocated, so drop the allocation itself rather
-// than trying to name a now-stale derived address.
-await sr.from('network_public_ips').delete().eq('essid', X_ESSID);
 
 // === 1. A's signed join writes an occupancy row keyed (essid, owner_key). ===
 const j1 = await post(signRequest(alice, 'registerNetwork', joinPayload('skylab', A_WS)));
@@ -163,7 +160,6 @@ check(
 
 // Cleanup.
 await sr.from('home_network_occupants').delete().eq('essid', X_ESSID);
-await sr.from('network_public_ips').delete().eq('essid', X_ESSID);
 
 const passed = results.filter((result) => result.pass).length;
 console.log(`\n${passed}/${results.length} checks passed`);

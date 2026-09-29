@@ -9,8 +9,8 @@
 //     LAN — not a player occupant — and the fetch returns that box's page.
 //   - The hit is recorded in the site server's own access.log, under the network's own
 //     stable writer key, which only the database can settle.
-//   - Joining the institution stores no address at all, and the site still answers at
-//     the derived one afterwards.
+//   - The institution can be joined, and the site still answers at the derived address
+//     afterwards.
 //
 // Usage (with v2 supabase + vercel dev running):
 //   npx dotenv -e .env.development.local -- npx tsx scripts/testPublisherWeb.ts
@@ -95,9 +95,6 @@ const readAccessLog = async (): Promise<string> => {
 };
 
 const cleanup = async () => {
-  // A row left by an older build, when a join still stored the address, must not pass
-  // for one this join wrote.
-  await sr.from('network_public_ips').delete().eq('essid', ESSID);
   await sr.from('home_network_occupants').delete().eq('owner_key', bob.publicKeyHex);
   await sr.from('network_lan_leases').delete().eq('essid', ESSID);
   await sr.from('patches').delete().in('machine_id', [AP_GATEWAY, SERVER_MACHINE]);
@@ -142,7 +139,7 @@ check(
   `status=${nobody.status} error=${errorOf(nobody.body)}`,
 );
 
-// === 5. Joining the university stores no address: its place in the world is its address. ===
+// === 5. The university can be joined like any other network. ===
 const WS_NAME = 'dorm-laptop';
 const joined = await post(
   signRequest(bob, 'registerNetwork', {
@@ -153,16 +150,10 @@ const joined = await post(
     workstation_root_hash: md5('root-secret'),
   }),
 );
-const { data: stored } = await sr
-  .from('network_public_ips')
-  .select('public_ip')
-  .eq('essid', ESSID)
-  .maybeSingle();
-const storedIp = (stored as { public_ip: string } | null)?.public_ip ?? null;
 check(
-  'joining the institution stores no address',
-  joined.status === 200 && storedIp === null,
-  `status=${joined.status} stored=${storedIp} derived=${SITE_IP}`,
+  'the institution can be joined',
+  joined.status === 200,
+  `status=${joined.status} error=${errorOf(joined.body)}`,
 );
 
 // === 6. After the join, the site still answers at the same address. ===

@@ -1,10 +1,10 @@
 // Wire-payload smoke for the JOIN REFUSAL — the server decides which networks a player may
 // join. Drives the REAL /api/network `registerNetwork` action against a running
-// `vercel dev` + supabase, then reads the three tables a join writes.
+// `vercel dev` + supabase, then reads the two tables a join writes.
 //
 // Net-new under test (the locally-untypechecked api/ runtime):
 //   - A signed join to a network in another town is refused with 403 network_not_joinable,
-//     and leaves no public IP, no LAN lease and no occupant row behind.
+//     and leaves no LAN lease and no occupant row behind.
 //   - With `JSHACK_ADMIT_LAB_NETWORKS=1` in `.env.development.local`, a join to a network the
 //     world does not declare still succeeds and records its occupant, which is what every
 //     lab-network wire-check relies on.
@@ -70,7 +70,6 @@ const rowsFor = async (essid: string) => {
     return rows ?? 0;
   };
   return {
-    publicIps: await count('network_public_ips'),
     leases: await count('network_lan_leases'),
     occupants: await count('home_network_occupants'),
   };
@@ -88,7 +87,6 @@ const cleanup = async () => {
   for (const essid of [OUT_OF_TOWN.key, LAB_NETWORK]) {
     await sr.from('home_network_occupants').delete().eq('essid', essid);
     await sr.from('network_lan_leases').delete().eq('essid', essid);
-    await sr.from('network_public_ips').delete().eq('essid', essid);
   }
 };
 await cleanup();
@@ -104,9 +102,9 @@ check(
   `status=${refused.status} error=${errorOf(refused.body)}`,
 );
 check(
-  'the refused join leaves no public IP, LAN lease or occupant row',
-  leftBehind.publicIps === 0 && leftBehind.leases === 0 && leftBehind.occupants === 0,
-  `public_ips=${leftBehind.publicIps} leases=${leftBehind.leases} occupants=${leftBehind.occupants}`,
+  'the refused join leaves no LAN lease or occupant row',
+  leftBehind.leases === 0 && leftBehind.occupants === 0,
+  `leases=${leftBehind.leases} occupants=${leftBehind.occupants}`,
 );
 
 // === 2. With the local flag set, a lab network still joins and records its occupant. ===
@@ -114,8 +112,8 @@ const admitted = await post(joinEnvelope(player, LAB_NETWORK));
 const labRows = await rowsFor(LAB_NETWORK);
 check(
   `a join to the undeclared ${LAB_NETWORK} succeeds while the local flag is set`,
-  admitted.status === 200 && labRows.publicIps === 1 && labRows.leases === 1 && labRows.occupants === 1,
-  `status=${admitted.status} error=${errorOf(admitted.body)} public_ips=${labRows.publicIps} leases=${labRows.leases} occupants=${labRows.occupants}`,
+  admitted.status === 200 && labRows.leases === 1 && labRows.occupants === 1,
+  `status=${admitted.status} error=${errorOf(admitted.body)} leases=${labRows.leases} occupants=${labRows.occupants}`,
 );
 
 await cleanup();

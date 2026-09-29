@@ -31,9 +31,8 @@ import type { Prng } from '../generation/prng.js';
 const LAN_OCTET_MIN = 2;
 const LAN_OCTET_MAX = 254;
 
-/** Bounded redraws. Unlike the public-IP allocator — whose address space is large
- *  enough that exhaustion is purely pathological — this pool is 253 wide, so
- *  exhaustion is reachable in principle. It stays vanishingly unlikely at any
+/** Bounded redraws. The pool is only 253 wide, so exhaustion is reachable in
+ *  principle. It stays vanishingly unlikely at any
  *  plausible occupancy (with 50 occupants on one AP, all 8 attempts colliding is
  *  ~2e-6), and failing cleanly beats looping on a genuinely full subnet. */
 const DEFAULT_MAX_ATTEMPTS = 8;

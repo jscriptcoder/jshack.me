@@ -19,7 +19,6 @@
 //   - A join whose DERIVED octet is one of the ESSID's NPC hosts is relocated off it,
 //     and the address the join reports back is that relocated one. A lease on an NPC
 //     would delete that machine for every occupant of the AP, not just the joiner.
-//   - The existing per-ESSID public-IP allocation is unbroken by the new step.
 //
 // Usage (with v2 supabase + vercel dev running):
 //   npx dotenv -e .env.development.local -- npx tsx scripts/testLanLeaseAllocation.ts
@@ -167,7 +166,6 @@ const allKeys = [alice.publicKeyHex, squatter.publicKeyHex, ...raceKeys];
 
 const cleanup = async () => {
   await sr.from('network_lan_leases').delete().in('essid', [SOLO_ESSID, RACE_ESSID]);
-  await sr.from('network_public_ips').delete().in('essid', [SOLO_ESSID, RACE_ESSID]);
   await sr.from('home_network_occupants').delete().in('owner_key', allKeys);
   await sr.from('patches').delete().eq('machine_id', computeApGatewayId(SOLO_ESSID));
   await sr.from('patches').delete().eq('machine_id', computeApGatewayId(RACE_ESSID));
@@ -263,19 +261,7 @@ check(
   `code=${(gatewayClaim.error as { code?: string } | null)?.code ?? 'none'}`,
 );
 
-// === 10. The existing per-ESSID public-IP allocation is unbroken by the new step. ===
-const { data: publicIpRow } = await sr
-  .from('network_public_ips')
-  .select('public_ip')
-  .eq('essid', RACE_ESSID)
-  .maybeSingle();
-check(
-  'the join still allocates one shared public IP per ESSID alongside the per-occupant lease',
-  (publicIpRow as { public_ip: string } | null)?.public_ip !== undefined,
-  `publicIp=${(publicIpRow as { public_ip: string } | null)?.public_ip ?? 'none'}`,
-);
-
-// === 11. A derivation that lands on an NPC is relocated off it. ===
+// === 10. A derivation that lands on an NPC is relocated off it. ===
 // Before the population was shared this could not even be defined: every viewer drew
 // a different NPC set, so there was nothing for an allocator to avoid. Now the set is
 // the network's, and a lease on one of its octets would delete that host for every
@@ -292,7 +278,7 @@ check(
   `derived=.${squatterDerived} (an NPC) leased=.${squatterLeased ?? 'none'} npcs=${[...SOLO_NPCS].join(',')}`,
 );
 
-// === 12. The address the join REPORTS is the leased one, and it is off the NPC set. ===
+// === 11. The address the join REPORTS is the leased one, and it is off the NPC set. ===
 const reportedIp = (squatterJoin.body as { local_ip?: string } | null)?.local_ip;
 check(
   'the join reports the leased address back to the client, clear of every NPC',

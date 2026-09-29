@@ -313,7 +313,9 @@ Add it to `secrets/secrets.ts` as a JSON string, run `npm run encode`, and read 
 
 - **The player's key is not the world seed**, despite a few stale comments (`prng.ts`,
   `gameConfig.ts`). It seeds only the player-private items listed above.
-- **Public IPs of ordinary networks are random and stored**, not derived. Read `network_public_ips`.
+- **A public IP is derived, never stored.** It is the network's place in the world
+  (`publicAddress`/`networkAt` in `world.ts`), so moving a network in the declaration moves its
+  address. A network the world does not declare has none.
 - **`pickUsername` deliberately uses the caller's `host-fs-` stream.** Giving it its own stream would
   remove a draw and re-roll every generated password.
 - **Renaming or adding a hostname prefix re-rolls machine ids** (the id embeds the hostname), which

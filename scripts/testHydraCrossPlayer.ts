@@ -11,7 +11,7 @@
 //     credential layer rests on, and only a live run proves both handlers resolve the
 //     same box from the same address.
 //   - the source IP the trace records, which is derived SERVER-side by walking
-//     home_network_occupants -> network_public_ips for the attacker's own key.
+//     home_network_occupants to the attacker's network, whose address the world derives.
 //   - the writer key the trace accretes under: the AP's own stable key, never the
 //     attacker's, so two attackers cannot erase each other's lines.
 //

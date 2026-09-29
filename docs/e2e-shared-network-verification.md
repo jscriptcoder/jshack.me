@@ -314,11 +314,11 @@ foreign tree means the hop resolved but the fetch did not.
 
 ### Act 4 — the outside view: public scan and a live forward
 
-Mint a **third** identity C that never joins X — the outsider. Get X's public IP:
+Mint a **third** identity C that never joins X — the outsider. Get X's public IP, which
+the world derives from X's place in it:
 
 ```bash
-# inside the repo, see §7 for the temp-file pattern
-npx dotenv -e .env.development.local -- npx tsx ./q.tmp.ts   # select public_ip from network_public_ips where essid = X
+npx tsx -e "import { publicAddressOf } from './scripts/publicAddressOf.ts'; console.log(publicAddressOf('X'))"
 ```
 
 As **C**: `apt install nmap` (after `su root`), then `nmap <public IP of X>`.
@@ -442,7 +442,7 @@ connect` → `su root` → `apt install nginx` → `nginx` → `curl http://<own
 A on `ROBOVAC-AP`, B on `ABSTERGO-NET` — **different networks**, which is the point.
 A: `nginx` → `nano` a page → `ssh root@<subnet>.1` (gateway pw offline, §7) → `nano
 /etc/iptables/rules.v4` → append `forward 80 to <A's LAN IP>:80`. Get A's public IP from
-`network_public_ips`. Then B: `curl http://<A's public IP>`.
+`scripts/publicAddressOf.ts` (see Act 4). Then B: `curl http://<A's public IP>`.
 
 | Check | Result |
 |---|---|
@@ -1018,7 +1018,7 @@ full of 4-5 digit ports.
 - **`ifconfig` does not show a public IP** — only `inet`, `netmask`, `gateway`, `ether`. The
   draft's step 7 asked B to read A's public IP from it. There is no in-game way to learn a
   foreign AP's public IP today (a contract supplies it in the real loop), so the run took it
-  from `network_public_ips` per the skill's section 6.
+  from the world's derivation (`scripts/publicAddressOf.ts`), as the skill describes.
 - **`whoami` and `hostname` are not commands** — both answered `command not found`. Identity and
   location are shown by the prompt itself, and proved by reading a file only that box has.
 
@@ -1337,8 +1337,9 @@ and compare what the server returns against what the terminal shows. That is exa
 the §6 defect was isolated. Note `signRequest` takes `(identity, action, fields)` —
 positional, not one options object.
 
-Useful reads: `network_public_ips` (an ESSID's public IP), `home_network_occupants`
-(who is on it, and the identity fields), `network_lan_leases` (who holds which octet).
+Useful reads: `home_network_occupants` (who is on a network, and the identity fields),
+`network_lan_leases` (who holds which octet). An ESSID's public IP is not stored: take it
+from `scripts/publicAddressOf.ts`.
 **`network_registry` no longer exists** — a query against it should error, and that
 error is itself a valid check.
 

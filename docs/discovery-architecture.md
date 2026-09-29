@@ -116,13 +116,13 @@ That is the point: wifi and the internet are two routes into one network.
 
 Every publishing network has a domain (`ridgemont.edu`, `harbor-cafe.com`,
 `metro-police.gov`) that resolves from anywhere to that network's public IP; `findit.io`
-is one more entry. A publisher's address is **DERIVED from its ESSID, never allocated**:
-it is `193.x.y.z`, where `193` (`PUBLISHER_FIRST_OCTET`) is reserved and never drawn by
-`generatePublicIp`, so the random allocator can never collide with a publisher, and a
-catalog-wide test proves publishers distinct. The world DNS is then a pure client-side
-table (`siteAddress`, domain → derived IP), and the server's public-IP lookup falls back
-to the same derivation — so a publisher is reachable before anybody has joined it, with no
-seeding step.
+is one more entry. A publisher's address is **its network's place in the world**, like
+every network's: `publicAddress(essid)` in `core/generation/world.ts`. A town's publishers
+answer in its region's block (Ridgemont's at `87.1.x.y`); findit and the corporations
+answer in the placeless `193` block. A test over the whole world proves every address
+distinct. The world DNS is then a pure client-side table (`siteAddress`, domain → derived
+IP), and the server's public-IP lookup (`networkAt`) is the same derivation run backwards —
+so a publisher is reachable before anybody has joined it, with no seeding step.
 
 An `ESSID_CATALOG` entry carries an optional `site: { domain, name }` naming the
 institution it hosts. **One website per institution:** the university's five networks put

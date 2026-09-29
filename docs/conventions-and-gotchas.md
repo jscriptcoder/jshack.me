@@ -52,9 +52,9 @@ Shipped so far (each milestone is in git history + its as-built doc/plan):
   redraw on a `public_ip` 23505; permanent, no GC), wired into `registerNetwork` in place of the
   old `home-public-${essid}` PRNG derivation (which could birthday-collide across ESSIDs).
   `assignHomeNetwork` returns `{localIp, hostname}` only — **no client-side public IP remains**.
-  Superseded 2026-09-28: every declared network's address is now derived from its place in
-  the world (`world.ts` `publicAddress`), and the allocator serves only local lab networks
-  until it retires.
+  Superseded 2026-09-28 and retired 2026-09-29: every network's address is now derived from
+  its place in the world (`world.ts` `publicAddress`), and the allocator, `generatePublicIp` and
+  the table are gone (`20260929000000_drop_network_public_ips.sql`).
 
 - **Shared-network reconciliation 🔨 IN PROGRESS (sharing work DONE at v0.94.0; only the registry removal remains)** (epic doc item #5, grilled & resolved
   2026-07-25). The ESSID becomes the seed for the whole LAN. Merged so far:
@@ -1762,7 +1762,7 @@ test's own bug. Applies to any module-level signal a test can leave set.
   the lease too: `lanLeaseCacheIn(storage).remember(essid, ip)` before `startGame`, with an
   address no generated host occupies. This is the unit-test twin of the wire-check rule below.
 - **A wire-check clean-slate must clear PERMANENT tables, not just the per-session ones.**
-  `network_lan_leases` and `network_public_ips` deliberately outlive occupancy, so a script
+  `network_lan_leases` deliberately outlives occupancy, so a script
   that only deletes `home_network_occupants` leaves a lease holding an octet forever. Every
   re-run then either fails its `UNIQUE (essid, octet)` insert (silently — the scripts don't
   check insert errors) or forces the allocator to redraw, which moves an address the script
@@ -1910,7 +1910,7 @@ the whole directory back-to-back in one loop produced three RED scripts
 (`testCrossPlayerConnectionTrace` 3/7, `testCrossPlayerRead` 6/7, `testCrossPlayerRouter` 6/8)
 that were **7/7, 7/7 and 8/8 when each was run alone**. Nothing was wrong with the code or the
 checks: this is the stale-row rule above at suite scale. Machines are ESSID-seeded, so scripts
-share `machine_id`s and public-IP rows, and each one's setup-time cleanup only covers the machines
+share `machine_id`s and gateway journals, and each one's setup-time cleanup only covers the machines
 IT knows about. A close-out sweep is therefore a series of individual runs, and **a RED from a
 back-to-back loop must be re-run alone before it is believed** — the count in a sweep report means
 "scripts that passed individually", not "scripts that pass in sequence".
@@ -3053,7 +3053,8 @@ blocks the live PvP loop; each was a scoped owner decision, not a gap.
 - **Procedural world expansion — GRILLED & RESOLVED 2026-07-29; RE-GRILLED 2026-09-28 in
   [`plans/procedural-world.md`](../plans/procedural-world.md), which wins where the two
   disagree** (the catalog stays as hand-authored landmarks rather than becoming templates; the
-  world is regions → towns → networks; every public IP is derived and the allocator retires).
+  world is regions → towns → networks; every public IP is derived, and the allocator retired
+  2026-09-29).
   Split deliberately out of shared-network reconciliation, which
   depends on the ESSID being the seed and not on the world being big — and doing reconciliation
   first was cheaper to VERIFY, since today's 50-entry pool plus `INJECT_MAX = 3` makes encounters
@@ -3068,8 +3069,8 @@ blocks the live PvP loop; each was a scoped owner decision, not a gap.
     become naming TEMPLATES rather than fixed world objects. Realism argues the same way — a fixed
     catalog of 50 is the least realistic element in the design, and against an effectively
     unbounded AP space permanent destruction becomes *more* plausible, not less. It costs little
-    infrastructure: public-IP allocation explicitly rejected pre-seeding so the allocator would
-    cover injected/dynamic/future-themed ESSIDs, and the DHCP lease table inherits that lazy shape.
+    infrastructure: the DHCP lease table is allocated lazily, so it already covers
+    injected/dynamic/future-themed ESSIDs, and public addresses are derived, not stored.
     Also the natural substrate for the deferred themed/mission networks. Periodic world reset was
     considered and **rejected** (it destroys the persistence that makes PvP damage meaningful).
   - **The deferred fixed-IP mission catalog rides on this.** Themed/mission networks — a

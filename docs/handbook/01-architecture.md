@@ -26,7 +26,7 @@ flowchart LR
     FN["3 Node functions<br/>/api/network<br/>/api/patches<br/>/api/sessions"]
   end
   subgraph Supabase["Supabase Postgres"]
-    DB[("patches<br/>sessions<br/>home_network_occupants<br/>network_public_ips<br/>network_lan_leases")]
+    DB[("patches<br/>sessions<br/>home_network_occupants<br/>network_lan_leases")]
   end
   Player -->|"loads"| SPA
   Player -->|"signed JSON POSTs"| FN

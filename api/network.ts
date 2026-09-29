@@ -45,11 +45,9 @@ import type {
   PathPatchRow,
 } from '../src/core/patches/upsertPatch.js';
 import type { NonceStore } from '../src/core/signedRequest/nonceStore.js';
-import { allocatePublicIp } from '../src/core/network/allocatePublicIp.js';
 import { allocateLanLease, drawLanOctet } from '../src/core/network/allocateLanLease.js';
 import { assignHomeNetwork } from '../src/core/network/homeNetwork.js';
 import { generateHomeLan } from '../src/core/generation/generateHomeLan.js';
-import { generatePublicIp } from '../src/core/generation/ip.js';
 import { createPrng } from '../src/core/generation/prng.js';
 import { derivedPublicIpByEssid } from '../src/core/logging/crossPlayerSourceIp.js';
 import type { MachinePatchRow as WebIndexPatchRow } from '../src/core/findit/webIndex.js';
@@ -62,8 +60,8 @@ import { randomUUID } from 'node:crypto';
 // `action`; each handler re-verifies the envelope itself, so routing on the raw
 // action is safe. `registerNetwork` is the fallthrough. The two that define the
 // shape of the rest:
-//   - registerNetwork: allocate the ESSID's public IP and the caller's LAN lease,
-//     then record the caller as an occupant (owner_key server-stamped)
+//   - registerNetwork: lease the caller an address on the ESSID's LAN, then record
+//     the caller as an occupant (owner_key server-stamped)
 //   - resolvePublicScan: resolve a DIFFERENT identity's nmap of a public IP to the
 //     AP's GATEWAY (a distinct ESSID-seeded machine bearing that IP) — host up/down
 //     + its open ports (its seeded sshd:22, read off the materialized tree)
@@ -678,39 +676,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (error) console.error('[network] occupant upsert error:', error);
     return { error };
   };
-  // Allocate the AP's globally-unique public IP for this ESSID (epic item #4). The
-  // read is the fast path (a re-join returns the stored address with no draw).
-  const readEssidIp = async (essid: string): Promise<string | null> => {
-    const { data, error } = await supabase
-      .from('network_public_ips')
-      .select('public_ip')
-      .eq('essid', essid)
-      .maybeSingle();
-    if (error) {
-      console.error('[network] public-ip read error:', error);
-      throw new Error('public_ip_read_failed');
-    }
-    return (data as { public_ip: string } | null)?.public_ip ?? null;
-  };
-  // INSERT … ON CONFLICT (essid) DO NOTHING: a row back ⇒ we claimed the drawn IP;
-  // no row ⇒ the ESSID was already allocated (read + adopt it); a 23505 ⇒ the drawn
-  // IP belongs to ANOTHER ESSID (the `public_ip` UNIQUE constraint, NOT the
-  // ON CONFLICT target), so null signals a redraw.
-  const claimEssidIp = async (essid: string, ip: string): Promise<string | null> => {
-    const { data, error } = await supabase
-      .from('network_public_ips')
-      .upsert({ essid, public_ip: ip }, { onConflict: 'essid', ignoreDuplicates: true })
-      .select('public_ip')
-      .maybeSingle();
-    if (error) {
-      if (error.code === '23505') return null;
-      console.error('[network] public-ip claim error:', error);
-      throw new Error('public_ip_claim_failed');
-    }
-    if (data !== null) return (data as { public_ip: string }).public_ip;
-    return readEssidIp(essid);
-  };
-
   // The occupant's host octet on the ESSID's /24, leased against `UNIQUE (essid,
   // octet)`. Nothing reads these leases yet — every address is still derived — so
   // this establishes the allocation of record ahead of the readers moving onto it.
@@ -764,15 +729,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     new Set(generateHomeLan(essid).hosts.map((host) => Number(host.ip.split('.')[3])));
   const { status, body } = await handleRegisterNetwork(req.body, {
     nonceStore: noopNonceStore,
-    // A fresh random seed per draw so a redraw yields a DIFFERENT candidate (an
-    // ESSID-seeded draw would loop forever on a collision). The result is stored, so
-    // determinism doesn't matter.
-    allocatePublicIp: (essid: string) =>
-      allocatePublicIp(essid, {
-        readByEssid: readEssidIp,
-        drawIp: () => generatePublicIp(createPrng(randomUUID())),
-        claim: claimEssidIp,
-      }),
     // The preferred octet is the address the pure derivation issues today, so an
     // occupant already connected under it leases the address it is ALREADY using and
     // never moves. Only a genuine collision redraws — with a fresh random seed per

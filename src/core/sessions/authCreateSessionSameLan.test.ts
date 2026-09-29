@@ -72,8 +72,7 @@ const REDRAWN_OCTETS = [2, 3, 4, 5].filter(
 const A_REDRAWN_OCTET = REDRAWN_OCTETS[0]!;
 const B_REDRAWN_OCTET = REDRAWN_OCTETS[1]!;
 // A representative home/WAN public IP that must NEVER surface in a same-LAN trace: a LAN
-// connect is sourced from the occupant's LAN IP, never any public address (the real public
-// IP is server-allocated, not client-derivable).
+// connect is sourced from the occupant's LAN IP, never any public address.
 const B_HOME_PUBLIC_IP = '198.51.100.50';
 // A's deterministic weak guest password — the credential B types to land a guest shell.
 const GUEST_PW = workstationGuestPassword(ALICE.publicKeyHex);
