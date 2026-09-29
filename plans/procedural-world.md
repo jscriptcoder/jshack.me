@@ -6,7 +6,8 @@ slices 1a–1c (see Slice plans); 1a complete 2026-09-28 (#572, v0.284.0); 1b co
 Slice 2 grilled and planned 2026-09-28 as slices 2a–2b; 2a complete 2026-09-29 (#575,
 v0.287.0); 2b complete 2026-09-29 (#576, table dropped on jshack-dev and jshack-prod).
 Slice 2 complete. Slice 3 grilled and planned 2026-09-29, complete 2026-09-29 (#577,
-v0.288.0). Slices 4 onward not yet planned.
+v0.288.0). Slice 4 grilled 2026-09-29 as slices 4a–4c; not yet planned. Slices 5 onward not
+yet planned.
 Amends the §9 backlog item "Procedural world expansion — GRILLED & RESOLVED 2026-07-29" in
 `docs/conventions-and-gotchas.md`; where the two disagree, this file wins.
 
@@ -268,6 +269,74 @@ relations, forwards, institution sets. (Added by find-gaps 2026-09-28.)
     relation has nothing to point at. Relations reference them by public address and port (a
     contractor's `.ssh/config` names `-p 2222` on a client's public IP). Lands with relations in
     slice 4. (Added by find-gaps 2026-09-28.)
+    **Slice 4's shape** (grilled 2026-09-29, owner-confirmed):
+    - **Three PRs, in order:** 4a seeded forwards; 4b Millbrook's homes, the relations
+      graph, the rule-3 loosening and the reachability test (AC-4); 4c unlisted publishers
+      and the supplier relation (AC-6). Forwards come first because references point at
+      them; homes ride with relations because before relations nothing leads to a home;
+      unlisted comes last so the reachability test already covers it. Rejected: splitting
+      homes from relations (the first relations would lead nowhere new) and one PR.
+    - **4a, what a forward points at.** Each procedural network draws forwards on
+      `gw-forwards-<key>`: 1–2 for `corporate` and `government`, 0–1 for `retail`,
+      `public` and `residential`, 0–1 leaning 0 for `cafe`. Landmarks draw none (AC-7).
+      A forward is drawn only from (edge-LAN box, port it really serves) pairs, never the
+      site box's already-forwarded `:80`. The public port is the service's own where free;
+      ssh (`22` is the gateway's own `sshd`) draws from `2222`, `2022`, `8022`, `22222`, and
+      an http port clashing with the site's `:80` from `8080`, `8000`, `8888`, `8081`; a
+      further clash takes the pool's next free entry. The lines join the gateway's
+      `rules.v4` after the site's `:80`, in the existing `forward <port> to <ip>:<port>`
+      form. No server change: a forward with no occupant already reaches the box the key
+      generated there. Rejected: keeping the internal port and dropping a clash (no ssh
+      forward could exist), and curating by hostname prefix (most networks would draw none).
+    - **4b, homes.** Millbrook draws 4–8 `residential` homes on `town-homes-r0/t1`, appended
+      after its businesses (`r0/t1/n9…`), so no existing key or address moves. ESSID and
+      place come from a new `pools/townHomes.ts` in the catalog's home style (a family, a
+      flat, a joke name), drawn without replacement and never equal to another Millbrook
+      ESSID. Homes never publish; `whois` names them `Millbrook Broadband`. Rejected: ISP
+      default ESSIDs (every home alike) and a fixed count.
+    - **4b, two relation kinds, both naming the target by public address and port.**
+      - IT contractor: one desk on a `corporate` publisher's edge LAN gets a
+        `Host <client ESSID, lowercased>` block in `~/.ssh/config` and its `[ip]:port` line
+        in `known_hosts`, one derivation. The port is the client's ssh forward, or `22` (the
+        client's gateway) when it has none. `User` is the target box's NPC user, or `root`
+        for a gateway. No secret (rule 1). A corporate publisher with no edge-LAN desk
+        cannot be a contractor, so in Millbrook only Keystone Logistics is one (accepted
+        knowing Pinnacle IT Solutions' edge LAN has no desk).
+      - Offsite backup: an edge-LAN box that keeps `/srv` gains an `/etc/crontab` job
+        `rsync -az /srv/ <user>@<ip>:backups/<source ESSID, lowercased>/ -e 'ssh -p <port>'`.
+        Its target must have an ssh forward, and the box behind it keeps
+        `~/backups/<source>/` holding a copy of the source's `/srv` files, built by the
+        same share builder (rule 15). Its cost is measured against the 2 ms/box budget in
+        RED; only a breach drops the copy to an empty directory.
+      - Supplier waits for 4c, with the network that needs it; parent/branch for slice 7.
+    - **4b, the graph.** Each network draws its INCOMING relations on `relations-<key>`:
+      1–3 for a home, 0–2 for a publisher. Every source is a listed publisher in the same
+      town; homes are never sources. So every home is one hop from findit by construction,
+      and the whole-world test only confirms it. Rejected: homes as sources (needs a path
+      search and a rule against closed clusters) and cross-town sources (no second
+      procedural town until slice 8).
+    - **4b, rule 3** reads in `world-content-architecture.md`: a reference may cross to one
+      of its network's declared relations, by public address or domain and a port that
+      answers there, never by a LAN address. A property test proves every public address in
+      a procedural box's content belongs to one of its network's relations at an open port.
+      The streams table gains `gw-forwards-`, `town-homes-` and `relations-`.
+    - **4b, reachability (AC-4):** every declared network is findit-listed, a Ridgemont
+      landmark, an institution on its town's directory, or the target of a relation whose
+      source is one of those; checked over the whole declaration. No new wire-check: the
+      server rebuilds boxes from the key, and 4a proves the forward path.
+    - **4c, unlisted.** Each town unlists `max(1, round(15%))` of its publishers, picked on
+      `town-unlisted-<town key>`, so Millbrook (9 publishers) unlists exactly one; a
+      per-site 15% roll could draw none and leave AC-6 untestable. An unlisted site's
+      `robots.txt` is `User-agent: *` / `Disallow: /`, replacing any drawn one; findit is
+      unchanged. An unlisted institution stays on the directory; an unlisted business is a
+      supplier target.
+    - **4c, supplier:** an invoice document on a listed publisher's `/srv` share names the
+      supplier by domain and site name; its source must keep `/srv`.
+    - **Evidence:** 4a extends `testMillbrook.ts` with an `nmap` of an address with a seeded
+      forward and a connection through it; 4c asserts live that findit never lists the
+      unlisted site and its domain still answers. The AC-7 fingerprint test stays green in
+      all three. Each PR bumps the minor version; `discovery-architecture.md` learns
+      relations (4b) and unlisted sites (4c).
 
 ### Engineering
 
