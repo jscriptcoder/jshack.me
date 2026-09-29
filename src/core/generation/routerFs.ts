@@ -43,6 +43,7 @@ import { KERN_LOG_PERMISSIONS } from '../logging/kernLog.js';
 import { SNMPD_LOG_PERMISSIONS } from '../logging/snmpdLog.js';
 import { RULES_V4_PERMISSIONS, withForward } from '../network/iptablesRules.js';
 import { siteForward } from './remoteHostFs.js';
+import { seededForwards } from './seededForwards.js';
 import { ACL_CONF_PERMISSIONS, parseAclDenies } from '../network/switchAcl.js';
 import { gatewayBackups } from './gatewayBackups.js';
 import { gatewayAdminUi } from './gatewayAdminUi.js';
@@ -411,10 +412,14 @@ export const buildApGatewayBaseFs = (essid: string): Directory =>
 
 /** The AP gateway's NAT table. An institution that publishes a website sends the
  *  public web port to the box serving it, so the site answers at the network's public
- *  address; every other network forwards nothing. */
+ *  address; a network beyond Ridgemont then forwards a few more of its services. */
 const apGatewayRules = (essid: string): string => {
   const forward = siteForward(essid);
-  return forward === undefined ? RULES_V4_SEED : withForward(RULES_V4_SEED, 80, forward);
+  const withSite = forward === undefined ? RULES_V4_SEED : withForward(RULES_V4_SEED, 80, forward);
+  return seededForwards(essid).reduce(
+    (rules, { publicPort, ...target }) => withForward(rules, publicPort, target),
+    withSite,
+  );
 };
 
 /** The inner gateway root ("admin") password, seeded from the ESSID AND the gateway's

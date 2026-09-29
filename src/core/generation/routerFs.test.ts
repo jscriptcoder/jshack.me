@@ -28,6 +28,7 @@ import { readOpenPorts, type OpenPort } from '../services/pidfile.js';
 import { parseForwardRules } from '../network/iptablesRules.js';
 import { ESSID_CATALOG } from './pools/essidCatalog.js';
 import { publisherSite } from './publisher.js';
+import { DECLARED_NETWORKS } from './world.js';
 import { generateHomeLan } from './generateHomeLan.js';
 import { hostServices } from './remoteHostFs.js';
 import { parseAclDenies } from '../network/switchAcl.js';
@@ -844,5 +845,123 @@ describe('the AP gateway of an institution that publishes a website', () => {
   it('forwards nothing for a network that publishes nothing', () => {
     expect(forwardsOf('APT-3B-WIFI')).toEqual([]);
     expect(forwardsOf('DEFCON-VILLAGE')).toEqual([]);
+  });
+});
+
+/**
+ * A network in a town beyond Ridgemont shows the internet more than its gateway: its
+ * gateway forwards a few of the services its LAN really runs, ssh to a desk on a high
+ * port, ftp to a file server, a web app on 8080. They are what a lead from another
+ * network can point at, and what makes one network look unlike the next from outside.
+ * Only the ports the gateway does not answer on itself can be forwarded, and never the
+ * public web port a site or a player's own page answers on.
+ */
+describe('the AP gateway of a network in another town', () => {
+  const forwardsOf = (key: string) =>
+    parseForwardRules(fileAt(buildApGatewayBaseFs(key), ['etc', 'iptables'], 'rules.v4'));
+
+  const millbrook = DECLARED_NETWORKS.filter((network) => network.town === 'Millbrook');
+
+  /** The forwards the gateway draws, after a publisher's site forward. */
+  const seededOf = (key: string) => {
+    const forwards = forwardsOf(key);
+    return publisherSite(key) === undefined ? forwards : forwards.slice(1);
+  };
+
+  const servicesOn = (key: string, ip: string) => {
+    const host = generateHomeLan(key).hosts.find((candidate) => candidate.ip === ip);
+    return host === undefined
+      ? []
+      : hostServices(key, host).map(({ spec, port }) => ({ host, service: spec.service, port }));
+  };
+
+  it("keeps its site's forward first, then draws one or two more for an office or a council, and at most one for a shop, a library or a café", () => {
+    const most = { corporate: 2, government: 2, retail: 1, public: 1, cafe: 1 } as const;
+    const least = { corporate: 1, government: 1, retail: 0, public: 0, cafe: 0 } as const;
+
+    const counts = millbrook.map((network) => {
+      const category = network.category as keyof typeof most;
+      const seeded = seededOf(network.key).length;
+      return {
+        key: network.key,
+        siteFirst: forwardsOf(network.key)[0]?.publicPort === 80,
+        inRange: seeded >= least[category] && seeded <= most[category],
+      };
+    });
+
+    expect(counts).toEqual(millbrook.map(({ key }) => ({ key, siteFirst: true, inRange: true })));
+  });
+
+  it('forwards only a service a machine on its own LAN really runs, and never the site again', () => {
+    const misrouted = millbrook.flatMap((network) =>
+      seededOf(network.key).filter((forward) => {
+        const running = servicesOn(network.key, forward.internalIp);
+        const site = forwardsOf(network.key)[0];
+        return (
+          running.length === 0 ||
+          running[0]?.host.kind !== 'machine' ||
+          !running.some(({ port }) => port === forward.internalPort) ||
+          (forward.internalIp === site?.internalIp && forward.internalPort === site.internalPort)
+        );
+      }),
+    );
+
+    expect(misrouted).toEqual([]);
+  });
+
+  it('moves ssh to a high port and web apps off the public web port, keeps every other port its own, and never forwards a port twice', () => {
+    const SSH_PORTS = [2222, 2022, 8022, 22222];
+    const WEB_PORTS = [8080, 8000, 8888, 8081];
+    const wrong = millbrook.flatMap((network) => {
+      const all = forwardsOf(network.key);
+      const publicPorts = all.map((forward) => forward.publicPort);
+      const duplicated = new Set(publicPorts).size !== publicPorts.length;
+      return seededOf(network.key).flatMap((forward) => {
+        const running = servicesOn(network.key, forward.internalIp).find(
+          ({ port }) => port === forward.internalPort,
+        );
+        const service = running?.service;
+        const expected =
+          service === 'ssh'
+            ? SSH_PORTS.includes(forward.publicPort)
+            : service === 'http' && forward.internalPort === 80
+              ? WEB_PORTS.includes(forward.publicPort)
+              : service === 'http'
+                ? forward.publicPort === forward.internalPort ||
+                  WEB_PORTS.includes(forward.publicPort)
+                : forward.publicPort === forward.internalPort;
+        const onGatewayOwn =
+          forward.publicPort === 22 || forward.publicPort === 161 || forward.publicPort === 80;
+        return expected && !onGatewayOwn && !duplicated
+          ? []
+          : [{ key: network.key, forward, service }];
+      });
+    });
+
+    expect(wrong).toEqual([]);
+  });
+
+  it('is pinned per network (golden): locks the gw-forwards- stream, its chances and its ports', () => {
+    const tables = Object.fromEntries(
+      millbrook.map((network) => [
+        network.essid,
+        forwardsOf(network.key).map(
+          ({ publicPort, internalIp, internalPort }) =>
+            `${publicPort} → .${internalIp.split('.')[3]}:${internalPort}`,
+        ),
+      ]),
+    );
+
+    expect(tables).toEqual({
+      'TOWN-HALL-WIFI': ['80 → .58:80', '2222 → .57:22'],
+      'MILLBROOK-PD': ['80 → .9:80', '21 → .218:21', '2121 → .42:2121'],
+      'LIBRARY-PUBLIC': ['80 → .199:8000', '21 → .199:21'],
+      'TIPSY-TEAPOT': ['80 → .104:80'],
+      'HARVEST-MARKET': ['80 → .15:80'],
+      'GREENLEAF-GROCERS': ['80 → .252:8000', '21 → .73:21'],
+      'CORNER-PANTRY': ['80 → .8:8000'],
+      'KEYSTONE-LOGISTICS': ['80 → .136:8080', '2222 → .40:22'],
+      'PINNACLE-IT-SOLUTIONS': ['80 → .188:80', '21 → .57:21', '2222 → .57:22'],
+    });
   });
 });
