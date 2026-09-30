@@ -7,7 +7,8 @@ Slice 2 grilled and planned 2026-09-28 as slices 2a–2b; 2a complete 2026-09-29
 v0.287.0); 2b complete 2026-09-29 (#576, table dropped on jshack-dev and jshack-prod).
 Slice 2 complete. Slice 3 grilled and planned 2026-09-29, complete 2026-09-29 (#577,
 v0.288.0). Slice 4 grilled and planned 2026-09-29 as slices 4a–4c; 4a complete 2026-09-29
-(#578, v0.289.0); 4b complete 2026-09-30 (#579, v0.290.0). Slices 5 onward not yet planned.
+(#578, v0.289.0); 4b complete 2026-09-30 (#579, v0.290.0); 4c complete 2026-09-30
+(#581, v0.291.0). Slice 4 complete. Slices 5 onward not yet planned.
 Amends the §9 backlog item "Procedural world expansion — GRILLED & RESOLVED 2026-07-29" in
 `docs/conventions-and-gotchas.md`; where the two disagree, this file wins.
 
@@ -1071,25 +1072,51 @@ honours it, skips the site. A supplier relation → an invoice on a listed publi
 **Class**: behaviour change.
 **Delivery**: independent PR against `main` after 4b merges, branch
 `feat/procedural-world-unlisted`.
-**Status**: planned.
+**Status**: complete, merged as #581 (`1a9aee8b`).
 **Required implementation skills**: `tdd`, `testing`, `refactoring`; `mutation-testing` at
 PR-readiness.
 **Reduction program**: `N/A`.
-**Acceptance criteria** (to be re-confirmed before any code, once 4b has merged):
+**Acceptance criteria** (re-confirmed 2026-09-30 after 4b merged, unchanged):
 
-- [ ] **4c-1** Each town unlists `max(1, round(15%))` of its publishers; Millbrook unlists
+- [x] **4c-1** Each town unlists `max(1, round(15%))` of its publishers; Millbrook unlists
       exactly one. Its `robots.txt` reads `User-agent: *` then `Disallow: /`, and nothing
       else.
-- [ ] **4c-2** (AC-6) No findit search lists the unlisted site, by its name, its domain or its
+- [x] **4c-2** (AC-6) No findit search lists the unlisted site, by its name, its domain or its
       town, while `curl http://<its domain>/` still answers its front page.
-- [ ] **4c-3** An unlisted institution stays on its town's directory. An unlisted business is
+- [x] **4c-3** An unlisted institution stays on its town's directory. An unlisted business is
       the target of at least one supplier relation: an invoice document on a listed
       publisher's `/srv` share names it by domain and site name. A supplier source keeps
       `/srv`.
-- [ ] **4c-4** The rule-3 and reachability tests from 4b pass with the supplier relation
+- [x] **4c-4** The rule-3 and reachability tests from 4b pass with the supplier relation
       among the kinds.
-- [ ] **4c-5** The AC-7 fingerprint test passes untouched.
-- [ ] **4c-6** `discovery-architecture.md` describes unlisted sites and the supplier lead.
+- [x] **4c-5** The AC-7 fingerprint test passes untouched.
+- [x] **4c-6** `discovery-architecture.md` describes unlisted sites and the supplier lead.
+
+As built:
+- Millbrook unlists **Harvest Market**. The pick never takes the council that keeps the
+  directory, so an unlisted institution would still be linked from it; Millbrook drew a
+  business. The shut-out `robots.txt` replaces the drawn one, and every draw is kept.
+- The supplier lead is drawn on `relation-supplier-<key>`, only for an unlisted business no
+  directory names, and appended after the logins, so 4b's graph did not move. Its source is
+  a listed publisher's working file server, never a backup box: Keystone Logistics'
+  `share-102` files `invoices/harvest-market-<number>.txt` naming the site and
+  `harvestmarket.com`, and one line in its `vsftpd.log.1` records the upload. Both are on
+  `relation-invoice-<key>-<ip>`.
+- `buildServerShare` builds `/srv` for the box and for its offsite copy, so a backup stays
+  file for file. `Relation` is `Login` (contractor, backup) | `Supply`; the ssh and backup
+  surfaces narrow to `Login`.
+- A byte-diff of every Millbrook LAN box against `main` moved exactly three files: Harvest
+  Market's `robots.txt`, the invoice, and the appended transfer-log line. No landmark moved.
+- The live check matches findit's result links: findit echoes the query, so a plain text
+  match reports a leak that is not there.
+- Evidence: `vitest run` 6674/6674; `checkBudgets` 241,453 B and 0.864 ms per landmark box.
+  Wire-checks live: `testMillbrook` 10/10 (two new checks), `testFindit` 18/18,
+  `testPublisherWeb` 6/6, `testSnmpSet` 16/16.
+- Stryker (json reporter): 227 killed / 54 survived / 6 no coverage, 0 timeouts. The invoice's
+  arrival-time survivor was killed with a pinned log line; the `webSite`/`world` survivors
+  were hand-verified killed (a cached box hides them). Left: equivalent guards, and code a
+  one-town world cannot reach (an unlisted institution, a second unlisted site, a customer
+  whose share already keeps an `invoices` folder).
 
 **RED**: the unlisted pick over the declaration, then the site's `robots.txt`, then the
 findit listing through `webIndex`, then the supplier invoice through the built share.
@@ -1112,11 +1139,11 @@ the commit. Bumps the minor version to 0.291.0.
       page links every institution in that town, listed or not.
 - [x] **AC-3** `whois <ip|domain>` on any declared network answers organisation, town and
       region. On an address or domain that no network holds, it answers no match.
-- [ ] **AC-4** A test over the whole declared world proves every network can be reached from
+- [x] **AC-4** A test over the whole declared world proves every network can be reached from
       findit plus Ridgemont by following references.
 - [x] **AC-5** A join to a network outside Ridgemont, or to a key the world does not declare, is
       refused by the server, and no occupancy row is written.
-- [ ] **AC-6** An unlisted publisher answers a fetch by its domain and never appears in any
+- [x] **AC-6** An unlisted publisher answers a fetch by its domain and never appears in any
       findit result.
 - [x] **AC-7** Every landmark's LAN, content and passwords are identical to before the epic
       (snapshot tests). Only its public IP changes.
