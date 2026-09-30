@@ -8,8 +8,8 @@ v0.287.0); 2b complete 2026-09-29 (#576, table dropped on jshack-dev and jshack-
 Slice 2 complete. Slice 3 grilled and planned 2026-09-29, complete 2026-09-29 (#577,
 v0.288.0). Slice 4 grilled and planned 2026-09-29 as slices 4a–4c; 4a complete 2026-09-29
 (#578, v0.289.0); 4b complete 2026-09-30 (#579, v0.290.0); 4c complete 2026-09-30
-(#581, v0.291.0). Slice 4 complete. Slice 5 grilled 2026-09-30 as slices 5a–5b; 5a planned
-2026-09-30. Slices 6 onward not yet planned.
+(#581, v0.291.0). Slice 4 complete. Slice 5 grilled 2026-09-30 as slices 5a–5b; 5a complete
+2026-09-30 (#582, v0.292.0); 5b not yet planned. Slices 6 onward not yet planned.
 Amends the §9 backlog item "Procedural world expansion — GRILLED & RESOLVED 2026-07-29" in
 `docs/conventions-and-gotchas.md`; where the two disagree, this file wins.
 
@@ -1226,40 +1226,68 @@ relations graph and the seeded forwards draw from the reshaped boxes. A player s
 through `nmap` from a box inside, the gateway's files, and the forwards seen from outside.
 **Class**: behaviour change.
 **Delivery**: independent PR against `main`, branch `feat/procedural-world-profiles`.
-**Status**: planned.
+**Status**: complete, merged as #582 (`9dfe7796`).
 **Required implementation skills**: `tdd`, `testing`, `refactoring`; `mutation-testing` at
 PR-readiness.
 **Reduction program**: `N/A`.
 **Acceptance criteria** (owner-confirmed 2026-09-30):
 
-- [ ] **5a-1** Every procedural network declares a profile, drawn once on
+- [x] **5a-1** Every procedural network declares a profile, drawn once on
       `network-profile-<key>` with its category's weights (government 0/30/70
       lone/flat/deep, public 10/60/30, corporate 0/40/60, retail 40/50/10, cafe 60/40/0,
       residential 40/60/0). Millbrook draws `deep` for Town Hall, the police and Pinnacle;
       `lone` for Harvest Market, Greenleaf, Garden Flat, Rose Cottage and Okonkwo; `flat`
       for the other seven. A landmark declares none.
-- [ ] **5a-2** A `lone` network's LAN is its `.1` gateway and exactly one machine; a
+- [x] **5a-2** A `lone` network's LAN is its `.1` gateway and exactly one machine; a
       `flat` network's is its `.1` gateway and 2–5 machines. Neither holds any other router
       or a switch, so nothing hangs a deep layer. A publisher's LAN holds the web server its
       site answers from, whatever its profile.
-- [ ] **5a-3** A `deep` network's LAN is today's, byte for byte: Millbrook's three `deep`
+- [x] **5a-3** A `deep` network's LAN is today's, byte for byte: Millbrook's three `deep`
       networks keep their hosts, and the AC-7 fingerprint test passes untouched.
-- [ ] **5a-4** Nothing on a `lone` or `flat` network names an inner gateway, a switch or a
+- [x] **5a-4** Nothing on a `lone` or `flat` network names an inner gateway, a switch or a
       deep layer: the 4b rule-3 property test passes over the reshaped Millbrook, and an
       inner-gateway hop or scan aimed at one of its addresses is refused like one at any
       absent host.
-- [ ] **5a-5** Slice 4's guarantees hold over the reshaped Millbrook: every home has 1–3
+- [x] **5a-5** Slice 4's guarantees hold over the reshaped Millbrook: every home has 1–3
       leads and every publisher 0–2, every home that forwards ssh keeps a backup, the
       unlisted business has a supplier, every forward reaches a box on the reshaped LAN that
       serves its port, and the AC-4 reachability test passes. If one fails, work stops and
-      the owner gets the failure with one rule that fixes it.
-- [ ] **5a-6** `scripts/testMillbrook.ts` passes live, and its forward checks land on a
+      the owner gets the failure with one rule that fixes it. **It failed once** (owner,
+      2026-09-30): no home forwarded ssh any more, so Millbrook kept no backup at all. Fixed
+      by one rule: a home that forwards anything forwards ssh first when a machine there
+      runs it.
+- [x] **5a-6** `scripts/testMillbrook.ts` passes live, and its forward checks land on a
       network that is not `deep`, so the server's box behind the forward is the reshaped
       LAN's.
-- [ ] **5a-7** `checkBudgets` passes, and Millbrook's per-box time is measured against
+- [x] **5a-7** `checkBudgets` passes, and Millbrook's per-box time is measured against
       `main`'s.
-- [ ] **5a-8** `world-content-architecture.md` describes the three profiles, and its
+- [x] **5a-8** `world-content-architecture.md` describes the three profiles, and its
       streams table lists `network-profile-`.
+
+As built:
+- Millbrook draws `deep` for Town Hall, the police and Pinnacle; `lone` for Harvest Market,
+  Greenleaf, Garden Flat, Rose Cottage and Okonkwo; `flat` for the other seven. Its boxes
+  fall from 129 to 65.
+- `generateHomeLan` reads the profile from the declaration; `lone` and `flat` draw their
+  machines on `home-lan-<key>` like `deep`, through one `machinesAt` that names them and
+  keeps a publisher's web server. `deep` is unchanged byte for byte.
+- The reshape moved every lead: Keystone's desk is now `workstation-33`; Pinnacle's
+  `share-16` is the town's one file server, backing up nightly (`11 1 * * *`) to Pear
+  Tree's `laptop-13` through `2222 → :8022`, and holding Harvest Market's invoice
+  (`harvest-market-7123.txt`). Every pin was re-pinned once.
+- A findit test pinned "groceries" to Ridgemont's shops; Corner Pantry now ranks first, and
+  the test takes any declared retail site.
+- `testMillbrook`'s forward checks moved from Pinnacle (`deep`) to the first `lone`/`flat`
+  publisher forwarding ssh, Keystone, and derive the expected ports from its forwards.
+- A walk of every file on every `lone`/`flat` box found no private address that is not a
+  host on its LAN, only DHCP ranges, the subnet and a package version.
+- Evidence: `vitest run` 6683/6683; `checkBudgets` 241,664 B and 0.900 ms per landmark box;
+  Millbrook 1.36 ms per box (2.01 on `main`). Wire-checks live: `testMillbrook` 10/10,
+  `testFindit` 18/18, `testPublisherWeb` 6/6, `testSnmpSet` 16/16.
+- Stryker (json reporter): 101 killed / 14 survived / 1 no coverage, 0 timeouts. `world.ts`'s
+  import-time survivors hand-verified killed; the missing-weights guard equivalent for every
+  drawn category; the ssh-first fallback for a home running no ssh unreachable in Millbrook;
+  `isOnHomeLan` unchanged, out of scope.
 
 **RED**: the profile over the declaration (5a-1), then each profile's LAN through
 `generateHomeLan` (5a-2, 5a-3), then slice 4's guarantee tests over the reshaped town
