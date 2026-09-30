@@ -11,6 +11,7 @@
 
 import { ESSID_CATALOG, type NetworkCategory, type PublishedSite } from './pools/essidCatalog.js';
 import { TOWN_BUSINESSES, type TownBusiness } from './pools/townBusinesses.js';
+import { TOWN_HOMES, type TownHome } from './pools/townHomes.js';
 import { createPrng } from './prng.js';
 import { FINDIT_NETWORK } from './finditNetwork.js';
 
@@ -102,26 +103,45 @@ const business = ([category, name]: TownBusiness): Institution => ({
   site: { domain: `${name.toLowerCase().replace(/[^a-z0-9]+/g, '')}.com`, name },
 });
 
+/** The fewest and the most homes a village keeps. */
+const VILLAGE_HOMES_MIN = 4;
+const VILLAGE_HOMES_MAX = 8;
+
+/** A home, which publishes nothing. */
+const home = ([essid, place]: TownHome): Institution => ({
+  essid,
+  category: 'residential',
+  place,
+});
+
 const townKey = (town: Town): string => `r${town.region}/t${town.index}`;
 
-/** Every network in `town`: its institutions first, then the businesses it draws on a
- *  stream of its own, each keyed by its place in the town. */
+/** Every network in `town`: its institutions first, then the businesses and then the
+ *  homes it draws, each on a stream of its own, each keyed by its place in the town. The
+ *  homes come last so that drawing them moved no business's key or address. */
 const networksOf = (
   town: Town,
   institutions: readonly Institution[],
 ): readonly DeclaredNetwork[] => {
   const prng = createPrng(`town-businesses-${townKey(town)}`);
   const count = prng.nextInt(VILLAGE_BUSINESSES_MIN, VILLAGE_BUSINESSES_MAX);
-  const directory = institutions.flatMap((institution) => institution.site ?? []);
-  return [...institutions, ...prng.pickN(TOWN_BUSINESSES, count).map(business)].map(
-    ({ keepsDirectory, ...network }: Institution, index) => ({
-      ...network,
-      key: `${townKey(town)}/n${index}`,
-      town: town.name,
-      region: regionOf(town),
-      ...(keepsDirectory === true ? { directory } : {}),
-    }),
+  const homesPrng = createPrng(`town-homes-${townKey(town)}`);
+  const homes = homesPrng.pickN(
+    TOWN_HOMES,
+    homesPrng.nextInt(VILLAGE_HOMES_MIN, VILLAGE_HOMES_MAX),
   );
+  const directory = institutions.flatMap((institution) => institution.site ?? []);
+  return [
+    ...institutions,
+    ...prng.pickN(TOWN_BUSINESSES, count).map(business),
+    ...homes.map(home),
+  ].map(({ keepsDirectory, ...network }: Institution, index) => ({
+    ...network,
+    key: `${townKey(town)}/n${index}`,
+    town: town.name,
+    region: regionOf(town),
+    ...(keepsDirectory === true ? { directory } : {}),
+  }));
 };
 
 const MILLBROOK_NETWORKS = networksOf(MILLBROOK, MILLBROOK_INSTITUTIONS);

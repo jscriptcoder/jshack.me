@@ -972,6 +972,7 @@ describe('what a file server’s own config claims about it', () => {
             ports: new Map([['ftp', 21]]),
             cidr: '192.168.4.0/24',
             zone: 'acme-corp.lan',
+            sshNeighbours: [],
           }).content,
       ),
     );
@@ -1042,6 +1043,7 @@ describe('the users a file server lets in over ftp', () => {
           ports: new Map([['ftp', 21]]),
           cidr: '192.168.4.0/24',
           zone: 'acme-corp.lan',
+          sshNeighbours: [],
         }).content,
     ).filter((config) => /^userlist_enable=YES$/m.test(config));
     expect(configs.length).toBeGreaterThan(0);
@@ -1172,5 +1174,40 @@ describe('what a tier may add to on a generated box', () => {
 
     expect(trees.length).toBeGreaterThan(500);
     expect(writableUnread).toEqual([]);
+  });
+});
+
+/**
+ * A workstation's system-wide ssh client config may set a shortcut to a box its people
+ * reach often. That box is a neighbour on its own LAN, and it answers ssh on the port
+ * the shortcut names, so following it logs in rather than timing out.
+ */
+describe("a workstation's ssh client config", () => {
+  it('names only a neighbour on its own LAN, at the port its sshd answers on', () => {
+    let named = 0;
+    const wrong = [...lanBoxes(ALL_ESSIDS), ...deepBoxes(ALL_ESSIDS)].flatMap((box) => {
+      const config = readAs(treeOf(box), 'root', '/etc/ssh_config');
+      if (config === null) return [];
+      return [...config.matchAll(/^Host (\S+)\n {2}HostName (\S+)(?:\n {2}Port (\d+))?/gm)].flatMap(
+        ([, alias, address, port]) => {
+          named += 1;
+          const neighbour = generateHomeLan(box.essid).hosts.find(
+            (host) => host.ip === address && host.ip !== box.host.ip,
+          );
+          const ssh =
+            neighbour === undefined
+              ? undefined
+              : hostServices(box.essid, neighbour).find(({ spec }) => spec.service === 'ssh');
+          const answers =
+            neighbour?.hostname === alias && ssh !== undefined && ssh.port === Number(port ?? 22);
+          return answers
+            ? []
+            : [`${box.essid} ${box.host.hostname}: ${alias} ${address}:${port ?? 22}`];
+        },
+      );
+    });
+
+    expect(named).toBeGreaterThan(0);
+    expect(wrong).toEqual([]);
   });
 });

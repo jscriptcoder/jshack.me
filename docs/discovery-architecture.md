@@ -220,6 +220,40 @@ it is a **reboot**: it ends every open session on findit (`rebooted`), empties i
 box has its writes refused mid-restore and cannot survive onto the clean one. Wiping the
 journal alone would leave a standing root shell still root on the clean box.
 
+### Leads: the only way to a home
+
+A town beyond Ridgemont keeps homes as well as publishers (Millbrook draws 4–8 on
+`town-homes-<town key>`, appended after its businesses so no earlier key or address
+moves). A home publishes nothing: no domain, no findit listing, no place on the town
+directory, no wifi a player can scan. `whois` on its address still answers, with
+`<Town> Broadband` as its organisation, but nothing tells a player that address exists.
+
+What leads there is a **relation** (`generation/relations.ts`): a lead kept on a
+publisher's box to a door on another network of the same town. Each is drawn on the side
+it leads TO, on `relations-<key>` (a home 1–3, a publisher 0–2), and the side it comes
+FROM reads the same value by asking its town, so the lead and the door cannot disagree.
+Only a listed publisher of the same town keeps one. The door is the box behind the
+target's forwarded ssh when its gateway keeps one, else the gateway's own sshd on `22` as
+`root`. Two kinds:
+
+- **The IT contractor.** An office with a desk keeps a shortcut to every client in the
+  desk owner's `~/.ssh/config` (`Host <client wifi, lowercased>`, its address, the
+  account, a `Port` off `22`) and the matching `known_hosts` line. Millbrook's is
+  Keystone Logistics' `laptop-33`, which reaches every other business and five homes.
+- **The offsite backup.** A business with a file server copies `/srv` every night to a
+  home, never to another business, and a home that lets ssh in from outside always
+  receives one. The file server's `/etc/crontab` runs
+  `rsync -az /srv/ <account>@<address>:backups/<source>/ -e 'ssh -p <port>'`, its
+  `syslog.1` and `auth.log.1` show the run, and the box at the other end keeps the share
+  file for file under `~/backups/<source>/` (`generation/offsiteBackups.ts`).
+
+Following one takes the shipped verbs: `cat` the shortcut or the crontab on a box the
+player is on, `whois` the address, `nmap` it for the forwarded port, `ssh -p` in as the
+account the lead names. A lead gives up where and who, never a password: the door is
+still cracked or exploited like any other. Every network the world declares is found on
+findit, in Ridgemont, on its town's directory, or by a lead kept on one of those, and a
+test over the whole declaration holds it (`world.test.ts`, "the reach of the world").
+
 ### New categories
 
 `government` (police, city hall, courts — `ridgemontpd.gov`, `ridgemont.gov`,

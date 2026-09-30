@@ -270,7 +270,7 @@ const main = async (): Promise<void> => {
   check(
     'and it is the seeded file plus one line, header and commented example intact',
     (stored?.content ?? '').includes('# /etc/iptables/rules.v4 — NAT port-forward table') &&
-      (stored?.content ?? '').includes('# forward 2222 to 10.0.0.10:22') &&
+      (stored?.content ?? '').includes('# forward 2222 to <internal_ip>:22') &&
       linesOf(stored?.content ?? '').filter((line) => !line.startsWith('#')).length === 1,
     JSON.stringify(stored?.content ?? ''),
   );

@@ -79,10 +79,11 @@ import { buildNpcHome } from './npcHome.js';
 import { buildEtcContent } from './etcContent.js';
 import { buildLogHistory } from './logHistory.js';
 import { buildRootHome } from './rootHome.js';
-import { buildSshDirectories } from './sshContent.js';
+import { buildSshDirectories, sshNeighboursOf } from './sshContent.js';
 import { mailEntries, peopleKnownOn } from './mailbox.js';
 import { MAIL_LOG_PERMISSIONS } from '../logging/mailLog.js';
 import { buildShare } from './share.js';
+import { offsiteCopies, offsiteJobs } from './offsiteBackups.js';
 import { DEBIAN_BASH_LOGOUT, DEBIAN_BASHRC, DEBIAN_PROFILE } from './pools/homeSkeleton.js';
 import { pickUsername } from './pools/usernames.js';
 import { placementOf } from './rolePlacement.js';
@@ -213,6 +214,10 @@ export const siteForward = (essid: string): ForwardTarget | undefined => {
   return http === undefined ? undefined : { internalIp: server.ip, internalPort: http.port };
 };
 
+/** `home` with the copies other networks send offsite to it, where it keeps any. */
+const withBackups = (home: Directory, backups: Directory | null): Directory =>
+  backups === null ? home : { ...home, entries: new Map(home.entries).set('backups', backups) };
+
 /** The uid-1000 account on `host`, without building the box. It is the FIRST draw of
  *  the box's own `host-fs-` stream, the same draw `buildRemoteHostFs` takes before its
  *  passwords, so the two always agree. A neighbour's content needs this name. Building
@@ -327,6 +332,7 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
           // be read against a scan rather than being furniture.
           cidr: `${host.ip.split('.').slice(0, 3).join('.')}.0/24`,
           zone: lanZoneName(essid),
+          sshNeighbours: sshNeighboursOf(essid, host),
         });
 
   const serves = services.some(({ spec }) => spec === SERVICE_CATALOG.http);
@@ -452,11 +458,15 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
       : { www: dir({ html: publishedTree(webFiles) }, TRAVERSABLE_DIR) };
 
   const etc = buildEtcContent({ essid, host, services, role });
+  // The nightly copies a file server sends offsite, after the jobs the box keeps for
+  // itself. Everything that reads the crontab reads it whole, so none can miss them.
+  const offsite = offsiteJobs(essid, host);
+  const crontab = `${etc.crontab.content}${offsite}`;
 
   // What the box keeps of its network's mail, derived ONCE: the spool it holds and the
   // deliveries that filled it are one answer, so the log below cannot disagree with the
   // mailboxes a player reads beside it.
-  const mail = mailEntries({ essid, host, username, crontab: etc.crontab.content });
+  const mail = mailEntries({ essid, host, username, crontab });
 
   // A file server keeps its network's work under /srv, written by the network's own
   // people. Its own stream, like the page and the mailboxes: giving a box a share moves
@@ -511,6 +521,7 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
       host,
       services,
       crontab: etc.crontab.content,
+      offsiteJobs: offsite,
       fstab: etc.fstab.content,
       pages: visited,
       database,
@@ -547,6 +558,7 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
       etc: dir(
         {
           ...etc,
+          crontab: { ...etc.crontab, content: crontab },
           passwd: file(passwd, PASSWD_FILE),
           ...(config === null ? {} : { [config.name]: file(config.content, SERVICE_CONFIG_FILE) }),
           ...device?.etc,
@@ -617,7 +629,10 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
       ),
       home: dir(
         {
-          [username]: buildNpcHome({ essid, host, username, sshDirectory: ssh.home }),
+          [username]: withBackups(
+            buildNpcHome({ essid, host, username, sshDirectory: ssh.home }),
+            offsiteCopies(essid, host, username),
+          ),
           guest: guestHome(),
         },
         TRAVERSABLE_DIR,

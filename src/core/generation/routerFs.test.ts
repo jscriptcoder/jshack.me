@@ -875,16 +875,19 @@ describe('the AP gateway of a network in another town', () => {
       : hostServices(key, host).map(({ spec, port }) => ({ host, service: spec.service, port }));
   };
 
-  it("keeps its site's forward first, then draws one or two more for an office or a council, and at most one for a shop, a library or a café", () => {
-    const most = { corporate: 2, government: 2, retail: 1, public: 1, cafe: 1 } as const;
-    const least = { corporate: 1, government: 1, retail: 0, public: 0, cafe: 0 } as const;
+  it("keeps a publisher's site forward first, then draws one or two more for an office or a council, and at most one for a shop, a library, a café or a home", () => {
+    const most = { corporate: 2, government: 2, retail: 1, public: 1, cafe: 1, residential: 1 };
+    const least = { corporate: 1, government: 1, retail: 0, public: 0, cafe: 0, residential: 0 };
 
     const counts = millbrook.map((network) => {
       const category = network.category as keyof typeof most;
       const seeded = seededOf(network.key).length;
       return {
         key: network.key,
-        siteFirst: forwardsOf(network.key)[0]?.publicPort === 80,
+        siteFirst:
+          network.site === undefined
+            ? forwardsOf(network.key).every((forward) => forward.publicPort !== 80)
+            : forwardsOf(network.key)[0]?.publicPort === 80,
         inRange: seeded >= least[category] && seeded <= most[category],
       };
     });
@@ -896,7 +899,7 @@ describe('the AP gateway of a network in another town', () => {
     const misrouted = millbrook.flatMap((network) =>
       seededOf(network.key).filter((forward) => {
         const running = servicesOn(network.key, forward.internalIp);
-        const site = forwardsOf(network.key)[0];
+        const site = network.site === undefined ? undefined : forwardsOf(network.key)[0];
         return (
           running.length === 0 ||
           running[0]?.host.kind !== 'machine' ||
@@ -962,6 +965,12 @@ describe('the AP gateway of a network in another town', () => {
       'CORNER-PANTRY': ['80 → .8:8000'],
       'KEYSTONE-LOGISTICS': ['80 → .136:8080', '2222 → .40:22'],
       'PINNACLE-IT-SOLUTIONS': ['80 → .188:80', '21 → .57:21', '2222 → .57:22'],
+      'KOWALSKI-WIFI': [],
+      'THE-HARGREAVES': [],
+      'GARDEN-FLAT': [],
+      'ROSE-COTTAGE': [],
+      'PEAR-TREE-HOUSE': ['8080 → .49:80'],
+      'OKONKWO-FAMILY': ['2222 → .92:22'],
     });
   });
 });

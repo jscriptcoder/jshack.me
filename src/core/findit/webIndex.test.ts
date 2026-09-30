@@ -333,6 +333,19 @@ describe("a player's page on the public web", () => {
     expect(visited).toEqual([]);
   });
 
+  it('is never looked for at a home in another town, whose gateway keeps its web to itself', async () => {
+    const homes = DECLARED_NETWORKS.filter(
+      (network) => network.town === 'Millbrook' && network.category === 'residential',
+    ).map((network) => publicAddress(network.key));
+    expect(homes.length).toBeGreaterThan(0);
+    const { visited, siteAt } = recordingVisits();
+    const web = await indexedWeb(depsWith([], { siteAt }));
+    for (const address of homes) {
+      expect(visited).not.toContain(address);
+      expect(web.map((page) => page.address)).not.toContain(address);
+    }
+  });
+
   it('is never looked for behind a gateway that will not come up', async () => {
     const { visited, siteAt } = recordingVisits();
     const web = await indexedWeb(

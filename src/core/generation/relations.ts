@@ -1,0 +1,176 @@
+/**
+ * Who in a town beyond Ridgemont knows the way to whom.
+ *
+ * A home publishes nothing, so nothing on the internet leads to it. The businesses of
+ * its town know where it is: an IT contractor keeps a shortcut to every client it looks
+ * after, and a shop that backs its files up offsite copies them to somebody's box every
+ * night. Each such lead is a relation, and a relation is the only way a network that
+ * publishes nothing can be found.
+ *
+ * A relation is drawn on the side it leads TO, on a stream of the target's own, so every
+ * network knows its own leads without walking the town, and adding a network to a town
+ * moves nobody else's. The side it comes FROM finds it by asking every network of its
+ * town, and so reads the very same value: the shortcut on the contractor's desk and the
+ * door it opens can never disagree.
+ */
+
+import {
+  declaredNetwork,
+  DECLARED_NETWORKS,
+  publicAddress,
+  RIDGEMONT,
+  type DeclaredNetwork,
+} from './world.js';
+import { generateHomeLan, type LanHost } from './generateHomeLan.js';
+import { hostServices, npcUsername } from './remoteHostFs.js';
+import { seededForwards } from './seededForwards.js';
+import { isDeskMachine } from './npcHome.js';
+import { roleOfHostname } from './pools/hostnames.js';
+import { createPrng } from './prng.js';
+
+/** A lead from one network's box to a door on another network's address. */
+export type Relation = {
+  /** A contractor's shortcut on a desk, or a file server's nightly offsite copy. */
+  readonly kind: 'contractor' | 'backup';
+  /** The key of the network the lead is kept on. */
+  readonly source: string;
+  /** The box the lead is kept on. */
+  readonly sourceHost: LanHost;
+  /** The key of the network the lead goes to. */
+  readonly target: string;
+  /** The address the target answers at on the internet. */
+  readonly address: string;
+  /** The port that opens onto the box the lead reaches there. */
+  readonly port: number;
+  /** The box that port reaches: one behind the target's gateway, or the gateway. */
+  readonly targetHost: LanHost;
+  /** The account the lead logs in as on that box. */
+  readonly user: string;
+};
+
+/** How many leads a home and a publisher are the target of. Every home is somebody's
+ *  client, or nothing would lead to it; a business may be nobody's. */
+const HOME_RELATIONS = { min: 1, max: 3 };
+const PUBLISHER_RELATIONS = { min: 0, max: 2 };
+
+/** The standard ssh port, on which a gateway answers itself. */
+const GATEWAY_SSH_PORT = 22;
+/** The one account a gateway's sshd knows. */
+const GATEWAY_USER = 'root';
+
+type Endpoint = Pick<Relation, 'port' | 'targetHost' | 'user'>;
+
+/** The door a lead to `key` opens: the box behind its gateway's ssh forward when it
+ *  keeps one, otherwise the gateway's own sshd. */
+const endpointOf = (key: string): { readonly endpoint: Endpoint; readonly forwarded: boolean } => {
+  const hosts = generateHomeLan(key).hosts;
+  const forwarded = seededForwards(key).flatMap((forward) => {
+    const host = hosts.find((candidate) => candidate.ip === forward.internalIp);
+    const runsSsh =
+      host !== undefined &&
+      hostServices(key, host).some(
+        ({ spec, port }) => spec.service === 'ssh' && port === forward.internalPort,
+      );
+    return runsSsh ? [{ port: forward.publicPort, targetHost: host }] : [];
+  })[0];
+  if (forwarded !== undefined) {
+    return {
+      endpoint: { ...forwarded, user: npcUsername(key, forwarded.targetHost) },
+      forwarded: true,
+    };
+  }
+  const [gateway] = hosts;
+  if (gateway === undefined) throw new Error(`${key} has no gateway`);
+  return {
+    endpoint: { port: GATEWAY_SSH_PORT, targetHost: gateway, user: GATEWAY_USER },
+    forwarded: false,
+  };
+};
+
+type Candidate = {
+  readonly kind: Relation['kind'];
+  readonly source: string;
+  readonly hosts: readonly LanHost[];
+};
+
+/** A publisher of a town, with the boxes a lead to another network could be kept on:
+ *  the desks of an office, where a contractor keeps shortcuts, and the file servers
+ *  whose share could be copied offsite. */
+type Keeper = {
+  readonly source: string;
+  readonly desks: readonly LanHost[];
+  readonly fileServers: readonly LanHost[];
+};
+
+/** Every publisher of `town`, in the order the world declares them, read once for all
+ *  the networks a caller draws for. */
+const keepersIn = (town: string): readonly Keeper[] =>
+  DECLARED_NETWORKS.filter((network) => network.town === town && network.site !== undefined).map(
+    (network) => {
+      // A router's name is never a desk's or a file server's, so the whole LAN can be read.
+      const { hosts } = generateHomeLan(network.key);
+      return {
+        source: network.key,
+        desks: network.category === 'corporate' ? hosts.filter(isDeskMachine) : [],
+        fileServers: hosts.filter((host) => roleOfHostname(host.hostname) === 'fileserver'),
+      };
+    },
+  );
+
+/** Every lead that goes to `target`, drawn from the leads `keepers` could keep. */
+const drawnTo = (target: DeclaredNetwork, keepers: readonly Keeper[]): readonly Relation[] => {
+  const address = publicAddress(target.key);
+  if (address === undefined) return [];
+
+  // A business keeps its offsite copy at somebody's home, never at another business; and
+  // a home that lets ssh in from outside does so for the copy it keeps.
+  const isHome = target.site === undefined;
+  const { endpoint, forwarded } = endpointOf(target.key);
+  const takesBackups = isHome && forwarded;
+  const candidates = keepers
+    .filter((keeper) => keeper.source !== target.key)
+    .flatMap(({ source, desks, fileServers }): readonly Candidate[] => [
+      ...(desks.length > 0 ? [{ kind: 'contractor' as const, source, hosts: desks }] : []),
+      ...(takesBackups && fileServers.length > 0
+        ? [{ kind: 'backup' as const, source, hosts: fileServers }]
+        : []),
+    ]);
+
+  const prng = createPrng(`relations-${target.key}`);
+  const range = isHome ? HOME_RELATIONS : PUBLISHER_RELATIONS;
+  const count = prng.nextInt(range.min, range.max);
+  const backups = candidates.filter((candidate) => candidate.kind === 'backup');
+  const first = takesBackups && backups.length > 0 ? [prng.pick(backups)] : [];
+  const rest = prng.pickN(
+    candidates.filter((candidate) => !first.includes(candidate)),
+    count - first.length,
+  );
+  return [...first, ...rest].map(({ kind, source, hosts }) => ({
+    kind,
+    source,
+    sourceHost: prng.pick(hosts),
+    target: target.key,
+    address,
+    ...endpoint,
+  }));
+};
+
+/** Every lead that goes to `key`, in the order it was drawn. */
+export const relationsTo = (key: string): readonly Relation[] => {
+  const target = declaredNetwork(key);
+  if (target === undefined || target.town === RIDGEMONT) return [];
+  return drawnTo(target, keepersIn(target.town));
+};
+
+/** Every lead kept on `key`'s boxes, read from the networks of its town it leads to. A
+ *  network with no desk or file server to keep one on keeps none, and is not asked. */
+export const relationsFrom = (key: string): readonly Relation[] => {
+  const source = declaredNetwork(key);
+  if (source === undefined || source.town === RIDGEMONT) return [];
+  const keepers = keepersIn(source.town);
+  const own = keepers.find((keeper) => keeper.source === key);
+  if (own === undefined || (own.desks.length === 0 && own.fileServers.length === 0)) return [];
+  return DECLARED_NETWORKS.filter((network) => network.town === source.town).flatMap((network) =>
+    drawnTo(network, keepers).filter((relation) => relation.source === key),
+  );
+};
