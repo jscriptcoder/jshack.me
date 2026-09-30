@@ -7,7 +7,7 @@ Slice 2 grilled and planned 2026-09-28 as slices 2a–2b; 2a complete 2026-09-29
 v0.287.0); 2b complete 2026-09-29 (#576, table dropped on jshack-dev and jshack-prod).
 Slice 2 complete. Slice 3 grilled and planned 2026-09-29, complete 2026-09-29 (#577,
 v0.288.0). Slice 4 grilled and planned 2026-09-29 as slices 4a–4c; 4a complete 2026-09-29
-(#578, v0.289.0). Slices 5 onward not yet planned.
+(#578, v0.289.0); 4b complete 2026-09-30 (#579, v0.290.0). Slices 5 onward not yet planned.
 Amends the §9 backlog item "Procedural world expansion — GRILLED & RESOLVED 2026-07-29" in
 `docs/conventions-and-gotchas.md`; where the two disagree, this file wins.
 
@@ -967,44 +967,81 @@ with `nmap`, `ssh -p` or `whois` to the home's address.
 **Class**: behaviour change.
 **Delivery**: independent PR against `main` after 4a merges, branch
 `feat/procedural-world-relations`.
-**Status**: planned.
+**Status**: complete, merged as #579 (`efccb72e`).
 **Required implementation skills**: `tdd`, `testing`, `refactoring`; `mutation-testing` at
 PR-readiness.
 **Reduction program**: `N/A`.
-**Acceptance criteria** (to be re-confirmed before any code, once 4a has merged):
+**Acceptance criteria** (re-confirmed 2026-09-29 after 4a merged, with 4b-3, 4b-6 and 4b-8
+revised in build by the owner):
 
-- [ ] **4b-1** Millbrook declares 4–8 `residential` homes after its businesses, keyed
+- [x] **4b-1** Millbrook declares 4–8 `residential` homes after its businesses, keyed
       `r0/t1/n9…`, each with an ESSID and place from `pools/townHomes.ts`, unique among
-      Millbrook's ESSIDs. The 9 existing keys and addresses do not move.
-- [ ] **4b-2** A home publishes nothing: no domain resolves to it, no findit search lists it,
+      the world's ESSIDs. The 9 existing keys and addresses do not move.
+- [x] **4b-2** A home publishes nothing: no domain resolves to it, no findit search lists it,
       no directory names it, no WiFi scan offers it. `whois` on its address answers its
       ESSID, `org-name: Millbrook Broadband` and `city: Millbrook`.
-- [ ] **4b-3** Every home is the target of 1–3 relations and every Millbrook publisher of 0–2.
+- [x] **4b-3** Every home is the target of 1–3 relations and every Millbrook publisher of 0–2.
       Every source is a listed Millbrook publisher other than the target. A contractor
-      source is a `corporate` publisher with a desk on its edge LAN; a backup target has an
-      ssh forward.
-- [ ] **4b-4** A contractor relation puts, on one desk of the source's edge LAN, a
+      source is a `corporate` publisher with a desk (in Millbrook, Keystone alone). **A backup
+      goes only to a home that forwards ssh, and every such home receives one** (owner,
+      2026-09-30: the free draw left Millbrook with no backup at all, and the two it drew to
+      businesses landed on a phone and a database box).
+- [x] **4b-4** A contractor relation puts, on one desk of the source's LAN, a
       `Host <target ESSID, lowercased>` block in `~/.ssh/config` naming the target's address,
       its ssh forward's port (or none, meaning `22`, for its gateway) and the NPC user of the
       box behind it (`root` for a gateway), with the matching `known_hosts` line. No secret
       appears.
-- [ ] **4b-5** A backup relation puts, on a source box that keeps `/srv`, an `/etc/crontab`
-      job `rsync -az /srv/ <user>@<address>:backups/<source ESSID, lowercased>/ -e 'ssh -p
+- [x] **4b-5** A backup relation puts, on a source file server, an `/etc/crontab` job
+      `rsync -az /srv/ <user>@<address>:backups/<source ESSID, lowercased>/ -e 'ssh -p
       <port>'`, and the box behind the target's ssh forward keeps `~/backups/<source>/` with
-      the same files as the source's `/srv`. `syslog.1` and root's cron mail on the source
-      agree with the new job.
-- [ ] **4b-6** Rule 3, loosened: a property test over every procedural box proves every
-      public address in its content belongs to one of its network's relations, at a port
-      open there, and no content names another network's LAN address.
-- [ ] **4b-7** (AC-4) A test over the whole declaration proves every network is listed on
+      the same files as the source's `/srv`. `syslog.1` and `auth.log.1` record the run;
+      root's cron mail stays silent, as `rsync -az` prints nothing.
+- [x] **4b-6** Rule 3, loosened: a property test over every Millbrook box (LAN, deep and
+      gateways) proves every public address it names is its network's own or a relation's,
+      and **every private address is on the network whose facts the file states**, a backup
+      copy being read as its source's. (Two networks can share a /24, so "no other network's
+      LAN address" could not be tested.)
+- [x] **4b-7** (AC-4) A test over the whole declaration proves every network is listed on
       findit, a Ridgemont landmark, an institution on its town's directory, or the target of
       a relation whose source is one of those.
-- [ ] **4b-8** The AC-7 fingerprint test passes untouched.
-- [ ] **4b-9** `checkBudgets` passes, with the backup copy's cost measured in RED against the
-      2 ms/box budget. Only a breach drops the copy to an empty `backups/<source>/`.
-- [ ] **4b-10** `world-content-architecture.md` states rule 3 as loosened and lists
-      `town-homes-` and `relations-`; `discovery-architecture.md` describes following a
-      relation.
+- [x] **4b-8** Every landmark's fingerprint moved **once, deliberately** (owner, 2026-09-30:
+      fix, do not exempt). Two workstation `ssh_config` templates named `10.0.0.10` and
+      `192.168.1.20`, and the `rules.v4` example named `10.0.0.10`, none of which any network
+      holds. A byte-diff of every landmark file against `main` moved only 57 `rules.v4` and
+      40 `ssh_config`, and the 57 fingerprints were re-pinned.
+- [x] **4b-9** `checkBudgets` passes. The backup copy costs next to nothing and stays full.
+- [x] **4b-10** `world-content-architecture.md` states rule 3 as loosened and lists
+      `town-homes-`, `relations-` and the relation surfaces' streams;
+      `discovery-architecture.md` describes following a relation.
+
+As built:
+- Millbrook drew six homes: Kowalski Wifi, The Hargreaves, Garden Flat, Rose Cottage, Pear
+  Tree House, Okonkwo Family. Pear Tree House forwards `8080 → .49:80` and Okonkwo Family
+  `2222 → .92:22` (a NAS); the other four forward nothing.
+- The graph: Keystone's `laptop-33` keeps shortcuts to five businesses and five homes;
+  Corner Pantry's `vault-61` backs up nightly (`33 5 * * *`) to `vsftpd@nas-92` at the
+  Okonkwo home. Harvest Market and Pinnacle keep file servers but drew no lead.
+- `relationsTo(key)` draws a target's leads; `relationsFrom(key)` reads a source's by drawing
+  its town, reading each publisher's desks and file servers once per call. No module cache:
+  a cache filled before Stryker switches a mutant on hides it.
+- The new job's time is on `relation-cron-`, its log lines on `relation-cron-log-`, the
+  clients' host keys on `relation-host-key-`: no box's existing draws moved, and
+  `vault-61`'s `syslog.1`/`auth.log.1` keep every line they had.
+- The ssh_config fix: a shortcut template names a neighbour that answers ssh, on its port;
+  a box with none redraws from the templates that name nobody. `roleConfigFile` takes the
+  neighbours from `sshNeighboursOf`. The `rules.v4` example reads `<internal_ip>`.
+- Evidence: `vitest run` 6663/6663; `checkBudgets` 240,547 B and 0.886 ms per landmark box.
+  Millbrook boxes average 3.5 ms (2.0 on `main`): the relations lookup costs about 7 ms on
+  the dozen boxes that keep a lead. Wire-checks live: `testMillbrook` 8/8, `testSnmpSet`
+  16/16, `testFindit` 18/18, `testPublisherWeb` 6/6.
+- Stryker: battery A 298 killed / 61 survived / 3 no coverage, battery B 169 / 23, no
+  timeouts. Valuable survivors killed and re-run (crontab shape, stray `backups/`, pinned
+  schedule, syslog line and host key, undeclared networks, the homes pool at 100%). Left:
+  equivalent guards and optional chains; unreachable in a one-town world (a home forwarding
+  ssh in a town with no file server, a second lead after the guaranteed backup, a network
+  with two backing-up file servers, forward chances for categories Millbrook lacks).
+  `world.ts`'s import-time survivors were hand-verified killed. The 4a carry-over is
+  closed: Pear Tree House draws the http forward and the homes pin the residential chance.
 
 **RED**: the declaration test for 4b-1 and 4b-2 first, then the graph's properties (4b-3)
 over the declaration, then each surface (4b-4, 4b-5) through the built box, then the rule-3
