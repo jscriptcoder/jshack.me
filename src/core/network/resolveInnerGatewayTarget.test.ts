@@ -13,6 +13,8 @@ import { accountIn } from '../sessions/passwdAccount.js';
 import { formatPidfileContent, pidfilePath, readOpenPorts } from '../services/pidfile.js';
 import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
 import type { OwnerPatchRow } from './materializeMachineFs.js';
+import { DECLARED_NETWORKS } from '../generation/world.js';
+import { chainLinks } from '../generation/lanTopology.js';
 
 /**
  * The chain walk replays and boot-gates every GATEWAY hop — it has to, to read the
@@ -211,5 +213,31 @@ describe('resolveInnerGatewayTarget, at the end of the chain', () => {
     if (!resolved.ok) return;
     expect(accountIn(resolved.target.fs, 'ghost')).not.toBeNull();
     expect(resolved.target.machineId).toBe(CHAINED_HOST_ID);
+  });
+});
+
+describe('resolveInnerGatewayTarget on a network with nothing behind its machines', () => {
+  const small = DECLARED_NETWORKS.filter(
+    (network) => network.profile === 'lone' || network.profile === 'flat',
+  );
+
+  it('finds no inner gateway at any address on a lone or flat network, and reads no journal', async () => {
+    expect(small).not.toEqual([]);
+    for (const { key } of small) {
+      const findPatches = vi.fn<InnerGatewayTargetDeps['findPatches']>();
+      for (const host of generateHomeLan(key).hosts) {
+        const result = await resolveInnerGatewayTarget(
+          { findPatches },
+          { essid: key, target: host.ip, port: 22 },
+        );
+        expect(result, `${key} ${host.hostname}`).toEqual({
+          ok: false,
+          status: 404,
+          error: 'host_unreachable',
+        });
+      }
+      expect(findPatches, key).not.toHaveBeenCalled();
+      expect(chainLinks(key), key).toEqual([]);
+    }
   });
 });

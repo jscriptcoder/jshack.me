@@ -13,7 +13,8 @@
 //     the town, and following its link to the police reaches the police's own front page.
 //   - An office's gateway forwards services beside its site: a scan of its address shows
 //     them, and ssh through the forwarded high port reaches the box behind it, whose own
-//     auth.log records the attempt.
+//     auth.log records the attempt. The office is one that stands no inner router, so the
+//     box the server finds there is the one its smaller LAN holds.
 //   - The town's unlisted site answers a fetch by its domain, and findit's live index
 //     never lists it, whether searched by its name, its domain or its town.
 //
@@ -190,7 +191,14 @@ check(
 );
 
 // === 6. An office's gateway forwards more than its site, and a scan shows each. ===
-const OFFICE = DECLARED_NETWORKS.find((network) => network.essid === 'PINNACLE-IT-SOLUTIONS');
+// A town network that is not `deep`, whose gateway forwards ssh to a box behind it.
+const OFFICE = DECLARED_NETWORKS.find(
+  (network) =>
+    network.profile !== undefined &&
+    network.profile !== 'deep' &&
+    network.site !== undefined &&
+    seededForwards(network.key).some((forward) => forward.internalPort === 22),
+);
 const OFFICE_IP = OFFICE === undefined ? undefined : publicAddress(OFFICE.key);
 const SSH_FORWARD =
   OFFICE === undefined
@@ -205,7 +213,7 @@ if (
   SSH_FORWARD === undefined ||
   DESK === undefined
 ) {
-  console.error('Pinnacle IT Solutions forwards no ssh — the world is unusable.');
+  console.error('No lone or flat publisher in Millbrook forwards ssh — the world is unusable.');
   process.exit(2);
 }
 const DESK_ID = machineIdForLanHost(DESK, OFFICE.key);
@@ -218,12 +226,14 @@ const officeScan = await post(signRequest(visitor, 'resolvePublicScan', { target
 const officePorts = portsOf(officeScan.body).map(
   (openPort) => `${openPort.port}/${openPort.service}`,
 );
+const forwardedPorts = seededForwards(OFFICE.key).map((forward) => forward.publicPort);
 check(
-  "nmap <an office's address> shows every service its gateway forwards",
+  `nmap <${OFFICE.essid}'s address> (${OFFICE.profile}) shows every service its gateway forwards`,
   officeScan.status === 200 &&
-    ['22/ssh', '80/http', '21/ftp', `${SSH_FORWARD.publicPort}/ssh`].every((port) =>
+    ['22/ssh', '80/http', `${SSH_FORWARD.publicPort}/ssh`].every((port) =>
       officePorts.includes(port),
-    ),
+    ) &&
+    forwardedPorts.every((port) => officePorts.some((open) => open.startsWith(`${port}/`))),
   `status=${officeScan.status} ports=${officePorts.join(',')}`,
 );
 

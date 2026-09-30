@@ -944,6 +944,27 @@ describe('the AP gateway of a network in another town', () => {
     expect(wrong).toEqual([]);
   });
 
+  it('opens ssh first from a home that forwards anything, when a machine there runs it', () => {
+    const homesRunningSsh = millbrook.filter(
+      (network) =>
+        network.category === 'residential' &&
+        seededOf(network.key).length > 0 &&
+        generateHomeLan(network.key).hosts.some((host) =>
+          hostServices(network.key, host).some(({ spec }) => spec.service === 'ssh'),
+        ),
+    );
+
+    // Without a home that forwards something and runs ssh, nothing here would prove it.
+    expect(homesRunningSsh).not.toEqual([]);
+    for (const network of homesRunningSsh) {
+      const [first] = seededOf(network.key);
+      const running = servicesOn(network.key, first?.internalIp ?? '').find(
+        ({ port }) => port === first?.internalPort,
+      );
+      expect(running?.service, network.essid).toBe('ssh');
+    }
+  });
+
   it('is pinned per network (golden): locks the gw-forwards- stream, its chances and its ports', () => {
     const tables = Object.fromEntries(
       millbrook.map((network) => [
@@ -958,19 +979,19 @@ describe('the AP gateway of a network in another town', () => {
     expect(tables).toEqual({
       'TOWN-HALL-WIFI': ['80 → .58:80', '2222 → .57:22'],
       'MILLBROOK-PD': ['80 → .9:80', '21 → .218:21', '2121 → .42:2121'],
-      'LIBRARY-PUBLIC': ['80 → .199:8000', '21 → .199:21'],
-      'TIPSY-TEAPOT': ['80 → .104:80'],
-      'HARVEST-MARKET': ['80 → .15:80'],
-      'GREENLEAF-GROCERS': ['80 → .252:8000', '21 → .73:21'],
-      'CORNER-PANTRY': ['80 → .8:8000'],
+      'LIBRARY-PUBLIC': ['80 → .71:8000', '21 → .246:21'],
+      'TIPSY-TEAPOT': ['80 → .85:80'],
+      'HARVEST-MARKET': ['80 → .221:8000'],
+      'GREENLEAF-GROCERS': ['80 → .253:80', '6379 → .253:6379'],
+      'CORNER-PANTRY': ['80 → .10:80'],
       'KEYSTONE-LOGISTICS': ['80 → .136:8080', '2222 → .40:22'],
       'PINNACLE-IT-SOLUTIONS': ['80 → .188:80', '21 → .57:21', '2222 → .57:22'],
       'KOWALSKI-WIFI': [],
       'THE-HARGREAVES': [],
       'GARDEN-FLAT': [],
       'ROSE-COTTAGE': [],
-      'PEAR-TREE-HOUSE': ['8080 → .49:80'],
-      'OKONKWO-FAMILY': ['2222 → .92:22'],
+      'PEAR-TREE-HOUSE': ['2222 → .13:8022'],
+      'OKONKWO-FAMILY': [],
     });
   });
 });

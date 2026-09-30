@@ -1,7 +1,8 @@
 /**
  * generateHomeLan — pure NPC topology for an ACCESS POINT's LAN, behind
  * `nmap <subnet>`: the AP gateway at `.1`, an inner gateway, a switch, and sibling
- * machines. Seeded by the ESSID ALONE, so every occupant of a network sees one
+ * machines, or for a network declared `lone` or `flat`, the gateway and its machines
+ * alone. Seeded by the ESSID ALONE, so every occupant of a network sees one
  * population: the same machines, at the same addresses, under the same names.
  *
  * The LAN belongs to the access point, not to whoever is looking at it. Seeding it
@@ -22,9 +23,10 @@
  * which is the only reason a reservation existed while the population was private.
  */
 
-import { createPrng } from './prng.js';
+import { createPrng, type Prng } from './prng.js';
 import { machineRole, type DrawnRole } from './machineRole.js';
 import { publisherSite } from './publisher.js';
+import { declaredNetwork } from './world.js';
 import { HOSTNAME_PREFIXES } from './pools/hostnames.js';
 import { lanSubnetPrefix } from '../network/lanAddress.js';
 import { seedApGatewayHostname, seedInnerGatewayHostname } from './gatewayHostname.js';
@@ -48,8 +50,47 @@ export type HomeLan = {
 /** Sibling-machine count drawn per LAN (excludes the gateway and the player). */
 const HOST_COUNT_MIN = 3;
 const HOST_COUNT_MAX = 8;
+/** How many machines stand behind the gateway of a `flat` network. */
+const FLAT_COUNT_MIN = 2;
+const FLAT_COUNT_MAX = 5;
 
 const lastOctet = (host: LanHost): number => Number(host.ip.split('.')[3]);
+
+/** A LAN's hosts in ascending-octet order, the order `HomeLan` promises. */
+const byOctet = (hosts: readonly LanHost[]): readonly LanHost[] =>
+  [...hosts].sort((left, right) => lastOctet(left) - lastOctet(right));
+
+/**
+ * The machines at `octets` on `essid`'s LAN, each named for what it is for.
+ *
+ * The ROLE comes off its own stream: appending a draw to the LAN's would move every value
+ * picked after it, including a switch's octet, and the lease allocator excludes these
+ * octets when it issues an occupant an address. Naming is exactly ONE `pick` per machine,
+ * whatever the chosen pool's size, so the addresses do not move.
+ *
+ * An institution that publishes a website needs a box to serve it from. When none of its
+ * machines drew that role, the lowest-addressed one takes it instead: an override rather
+ * than a draw, for the same reason.
+ */
+const machinesAt = (
+  essid: string,
+  subnet: string,
+  octets: readonly number[],
+  prng: Prng,
+): readonly LanHost[] => {
+  const drawn = octets.map((octet) => ({ octet, role: machineRole(essid, `${subnet}.${octet}`) }));
+  const needsWebserver =
+    publisherSite(essid) !== undefined && !drawn.some(({ role }) => role === 'webserver');
+  const lowest = Math.min(...octets);
+  return drawn.map(({ octet, role }): LanHost => {
+    const servedRole: DrawnRole = needsWebserver && octet === lowest ? 'webserver' : role;
+    return {
+      ip: `${subnet}.${octet}`,
+      hostname: `${prng.pick(HOSTNAME_PREFIXES[servedRole])}-${octet}`,
+      kind: 'machine',
+    };
+  });
+};
 
 export const generateHomeLan = (essid: string): HomeLan => {
   const subnet = lanSubnetPrefix(essid);
@@ -72,38 +113,31 @@ export const generateHomeLan = (essid: string): HomeLan => {
   // — a second router that fronts the deeper layers — and the rest are ordinary
   // machines.
   const prng = createPrng(`home-lan-${essid}`);
-  const count = prng.nextInt(HOST_COUNT_MIN, HOST_COUNT_MAX);
   const usableOctets = Array.from({ length: 253 }, (_, index) => index + 2);
+
+  // A `lone` or `flat` network is its gateway and the machines behind it: no inner
+  // gateway, no switch, and so no deeper layer. A landmark declares no profile and keeps
+  // the shape it was authored with.
+  const profile = declaredNetwork(essid)?.profile ?? 'deep';
+  if (profile !== 'deep') {
+    const count = profile === 'lone' ? 1 : prng.nextInt(FLAT_COUNT_MIN, FLAT_COUNT_MAX);
+    return {
+      subnet,
+      hosts: byOctet([
+        gateway,
+        ...machinesAt(essid, subnet, prng.pickN(usableOctets, count), prng),
+      ]),
+    };
+  }
+
+  const count = prng.nextInt(HOST_COUNT_MIN, HOST_COUNT_MAX);
   const [gatewayOctet, ...siblingOctets] = prng.pickN(usableOctets, count + 1);
   const innerGateway: LanHost = {
     ip: `${subnet}.${gatewayOctet}`,
     hostname: seedInnerGatewayHostname(essid, gatewayOctet),
     kind: 'router',
   };
-  // The name says what the box is for as well as where it is. The ROLE comes off its
-  // own stream — appending a draw here would move every value picked after it,
-  // including the switch's octet below, and the lease allocator excludes these octets
-  // when it issues an occupant an address. Naming is still exactly ONE `pick` per
-  // sibling, whatever the chosen pool's size, so the addresses do not move.
-  //
-  // An institution that publishes a website needs a box to serve it from. When none
-  // of its machines drew that role, the lowest-addressed one takes it instead — an
-  // override rather than a draw, for the same reason.
-  const drawn = siblingOctets.map((octet) => ({
-    octet,
-    role: machineRole(essid, `${subnet}.${octet}`),
-  }));
-  const needsWebserver =
-    publisherSite(essid) !== undefined && !drawn.some(({ role }) => role === 'webserver');
-  const lowestSibling = Math.min(...siblingOctets);
-  const siblings: readonly LanHost[] = drawn.map(({ octet, role }): LanHost => {
-    const servedRole: DrawnRole = needsWebserver && octet === lowestSibling ? 'webserver' : role;
-    return {
-      ip: `${subnet}.${octet}`,
-      hostname: `${prng.pick(HOSTNAME_PREFIXES[servedRole])}-${octet}`,
-      kind: 'machine',
-    };
-  });
+  const siblings = machinesAt(essid, subnet, siblingOctets, prng);
 
   // The switch is a SECOND inner gateway. It is drawn LAST, from the octets the
   // gateway+sibling draw left behind, so it can never collide with them and — by
@@ -120,10 +154,7 @@ export const generateHomeLan = (essid: string): HomeLan => {
     kind: 'switch',
   };
 
-  const hosts = [gateway, innerGateway, innerSwitch, ...siblings].sort(
-    (left, right) => lastOctet(left) - lastOctet(right),
-  );
-  return { subnet, hosts };
+  return { subnet, hosts: byOctet([gateway, innerGateway, innerSwitch, ...siblings]) };
 };
 
 /** Whether `host` is one of the machines on `essid`'s home LAN, rather than a box on a

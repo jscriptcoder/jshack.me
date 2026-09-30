@@ -82,7 +82,9 @@ describe('the web findit searches', () => {
 
   it('puts a shop first for its own name, and for the groceries only a shop says it sells', async () => {
     const web = await indexWith();
-    const shops = ['kwikemart.com', 'monstromart.com', 'buynlarge.com', 'megalomart.com'];
+    const shops = DECLARED_NETWORKS.filter((network) => network.category === 'retail').flatMap(
+      (network) => network.site?.domain ?? [],
+    );
     expect(rankPages(web, 'monstromart')[0]?.address).toBe('monstromart.com');
     expect(shops).toContain(rankPages(web, 'groceries')[0]?.address);
   });

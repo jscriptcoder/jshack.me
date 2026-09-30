@@ -13,6 +13,7 @@ import {
   PLACELESS_FIRST_OCTET,
   publicAddress,
   REGION_FIRST_OCTETS,
+  RIDGEMONT,
   type DeclaredNetwork,
 } from './world.js';
 import { generateHomeLan } from './generateHomeLan.js';
@@ -389,6 +390,54 @@ describe("Millbrook's homes", () => {
     for (const home of homes()) {
       expect(crackableEssidPool, home.key).not.toContain(home.essid);
     }
+  });
+});
+
+/** The essids of Millbrook's networks that drew `profile`. */
+const drew = (profile: string): readonly string[] =>
+  millbrook()
+    .filter((network) => network.profile === profile)
+    .map((network) => network.essid);
+
+describe("Millbrook's network sizes", () => {
+  it('sizes every network in the town as lone, flat or deep, and no landmark at all', () => {
+    for (const network of millbrook()) {
+      expect(['lone', 'flat', 'deep'], network.essid).toContain(network.profile);
+    }
+    for (const network of DECLARED_NETWORKS.filter((each) => each.town === RIDGEMONT)) {
+      expect(network.profile, network.essid).toBeUndefined();
+    }
+  });
+
+  it('never hides a chain behind a home or a cafe, nor shrinks a council or an office to one box', () => {
+    for (const network of millbrook()) {
+      if (network.category === 'residential' || network.category === 'cafe') {
+        expect(network.profile, network.essid).not.toBe('deep');
+      }
+      if (network.category === 'government' || network.category === 'corporate') {
+        expect(network.profile, network.essid).not.toBe('lone');
+      }
+    }
+  });
+
+  it('is pinned (golden): locks the network-profile- stream and its weights', () => {
+    expect(drew('deep')).toEqual(['TOWN-HALL-WIFI', 'MILLBROOK-PD', 'PINNACLE-IT-SOLUTIONS']);
+    expect(drew('lone')).toEqual([
+      'HARVEST-MARKET',
+      'GREENLEAF-GROCERS',
+      'GARDEN-FLAT',
+      'ROSE-COTTAGE',
+      'OKONKWO-FAMILY',
+    ]);
+    expect(drew('flat')).toEqual([
+      'LIBRARY-PUBLIC',
+      'TIPSY-TEAPOT',
+      'CORNER-PANTRY',
+      'KEYSTONE-LOGISTICS',
+      'KOWALSKI-WIFI',
+      'THE-HARGREAVES',
+      'PEAR-TREE-HOUSE',
+    ]);
   });
 });
 
