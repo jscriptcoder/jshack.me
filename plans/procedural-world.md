@@ -10,7 +10,9 @@ v0.288.0). Slice 4 grilled and planned 2026-09-29 as slices 4a–4c; 4a complete
 (#578, v0.289.0); 4b complete 2026-09-30 (#579, v0.290.0); 4c complete 2026-09-30
 (#581, v0.291.0). Slice 4 complete. Slice 5 grilled 2026-09-30 as slices 5a–5b; 5a complete
 2026-09-30 (#582, v0.292.0); 5b complete 2026-09-30 (#583, v0.293.0). Slice 5 complete. Slice 6 grilled 2026-09-30 as slices 6a–6b;
-6a planned 2026-09-30. Slices 7 onward not yet planned.
+6a planned 2026-09-30; 6a-1 to 6a-5 implemented 2026-09-30 (`024117a2`, unpushed), paused
+behind 5c. Slice 5c (the whole town in the content sweep) found and implemented 2026-09-30,
+awaiting its PR. Slices 7 onward not yet planned.
 Amends the §9 backlog item "Procedural world expansion — GRILLED & RESOLVED 2026-07-29" in
 `docs/conventions-and-gotchas.md`; where the two disagree, this file wins.
 
@@ -516,7 +518,8 @@ relations, forwards, institution sets. (Added by find-gaps 2026-09-28.)
     2. Re-address the landmarks and retire the allocator (`reduce-system-complexity`).
     3. `whois`.
     4. Relations, seeded forwards, the rule-3 loosening and unlisted sites.
-    5. The `lone` and `flat` profiles and subtypes.
+    5. The `lone` and `flat` profiles and subtypes. 5c, found while implementing 6a: every
+       Millbrook network in the whole-world content sweep.
     6. The healthcare category, as two PRs (grill 2026-09-30): 6a the category and
        Millbrook's cottage hospital, 6b the practices.
     7. Procedural corporations (decision 19a).
@@ -1491,6 +1494,77 @@ declaration and runs live against the renamed town; `testFindit.ts` proves the i
 owner approves the commit. Bumps the minor version to 0.293.0.
 **Slice complete when**: its PR merges. That completes slice 5.
 
+### Slice 5c: every Millbrook network in the whole-world content sweep
+
+Found 2026-09-30 while implementing 6a-6. The owner chose a separate PR for it, landing before
+6a. **Status**: fixes A–E taken by the owner 2026-09-30 ("tackle those failing tests") and
+implemented the same day on the branch; full suite 6,698 green, typecheck and lint clean, the
+invoice line's one mutant killed (narrowed battery). Awaiting commit and PR.
+**Delivery**: independent PR against `main`, branch `fix/procedural-world-town-sweep` (cut from
+`main` at `50a71460`). Its RED is stashed there as "town-sweep RED: TOWN_KEYS in ALL_ESSIDS":
+`src/test/worldContent.ts` gains `TOWN_KEYS` (every declared network outside Ridgemont, by
+key) appended to `ALL_ESSIDS`. Bumps the minor version to 0.294.0; 6a then rebases onto it and
+moves to 0.295.0, 6b to 0.296.0.
+
+**Value**: every content property the world's tests hold (no dead reference, no version, no
+unfilled slot, every mailbox readable) is proven over the towns too, not only over the catalog.
+Slice 8 multiplies the towns, so the sweep must cover them first.
+
+**Facts measured** (2026-09-30):
+
+- On `main`, with every Millbrook key in `ALL_ESSIDS`, 23 tests fail in six files (boxMemory
+  2, boxSurface 2, mailbox 12, npcHome 2, share 2, webSite 3). On 6a's branch the same set
+  plus one: a `wip` path (below). None of them is about healthcare, and 6a's hospital alone
+  passes every property.
+- Every `lone` network writes no mail (`networkMail` has 0 threads): FRESHWAY-COFFEE,
+  ABERNETHY-AND-SONS-HARDWARE, VARLEYS-BAKERY, GARDEN-FLAT, ROSE-COTTAGE, OKONKWO-FAMILY.
+  OKONKWO-FAMILY's one box is a desk, `desktop-142`, with no `/var/mail/mrodriguez`.
+- The leads of slices 4 and 5 name other networks: WESTBROOK-HAULAGE `laptop-56` keeps
+  `[87.98.0.2]:2222` in its known hosts; a backup job `rsync -az /srv/ mrodriguez@87.98.244.51`
+  (PEAR-TREE-HOUSE); access and redis logs record a client at `87.98.244.51`; a home's notes
+  name `87.98.0.2`; the council's `directory.html` links `millbrook.gov`, `millbrookpd.gov`,
+  `millbrooklibrary.org`; the office share keeps an `invoices` folder the corporate
+  departments do not list.
+- PEAR-TREE-HOUSE `laptop-13` keeps a backup copy of the office share under
+  `~/backups/westbrook-haulage/share/`; its PDFs start `%PDF-1.7`, which the home test reads
+  as a version. The share tests already exempt the PDF header.
+- The unlisted site's `robots.txt` (`Disallow: /`) fails "asks crawlers to stay out of paths
+  it really serves and never links" (`/ is linked`) and "holds what its name promises".
+- The supplier invoice reads `Goods supplied, as ordered    2217.00` and `TOTAL DUE  2217.00`:
+  the only content defect, against the rule that no decimal is written (it reads as a version).
+
+**Fixes** (taken 2026-09-30):
+
+- **A. Leads that cross networks** (7 tests: boxMemory 2, boxSurface 2, npcHome addresses,
+  webSite directory links, share `invoices` folder). A box may name another network's address
+  or domain only where one of its leads (the relation graph, `relations.ts`) or the town
+  directory points there. The tests consult the relation graph and the directory instead of
+  refusing every outside address. Tests only.
+- **B. The backup copy's PDF header** (npcHome version, 1 test). Exempt `%PDF-` in homes as the
+  share tests do: it states a file format, not a software version. Tests only.
+- **C. Unlisted sites' `robots.txt`** (webSite, 2 tests). An unlisted site's shut-out covers
+  the whole site, so the robots-path tests skip it; the unlisted-site tests already prove
+  what it says. Tests only.
+- **D. `lone` networks' mail** (mailbox, 12 tests). One person has nobody to write to: a
+  one-person network keeps no correspondence and its desk no spool. The mail tests read the
+  networks that have a correspondence, and one new test pins the lone rule. Tests only.
+- **E. The invoice** (share, 1 test). Whole euros, `2217 €`, as the menus and shares write
+  money. Content; re-pins `relations.test.ts`'s invoice and its upload log's byte count.
+
+**As built**: `src/test/worldContent.ts` gains `leadsKeptOn(box)`, the contractor and backup
+logins kept on a box, which `falsehoodIn`, the known-hosts and ssh-config checks, the cron
+check, the home-address check and the log-address check all read. One of boxMemory's two
+failures was D's, not A's: a box alone on its network logs loopback as its only client, which
+the test's title ("a neighbour wherever the box has one") already allowed. `webSite.test.ts`'s
+`deadLink` accepts a link to another network's site only from `/directory.html` and only to a
+site its town lists, and a new assertion proves it refuses one from anywhere else. The stale
+comment in `networkMail.ts` ("No network this small exists") now states the lone rule.
+
+**Left to 6a after it rebases**: with the hospital, the police site becomes unlisted, and its
+robots-only directory `wip` is then named nowhere (its `robots.txt` is the shut-out), so no
+player can find it. Proposed rule, to confirm then: an unlisted site keeps no robots-only
+directory.
+
 ### Slice 6: the healthcare category
 
 Grilled 2026-09-30 (decision 9, "Slice 6's shape"). Two PRs, in order: 6a the category and
@@ -1511,7 +1585,32 @@ indexes its site, `whois` names it. A player sees it on the directory page, in f
 `whois`, and in every file on its boxes.
 **Class**: behaviour change.
 **Delivery**: independent PR against `main`, branch `feat/procedural-world-healthcare`.
-**Status**: planned 2026-09-30.
+**Status**: planned 2026-09-30. 6a-1 to 6a-5 implemented and committed 2026-09-30 as
+`024117a2` on the branch (not pushed); paused behind 5c, onto which it rebases.
+
+**Progress** (2026-09-30):
+
+- 6a-1 to 6a-5 hold; full suite 6,709 green, typecheck and lint clean. Pool files keep their
+  neighbours' dense style, which Prettier already rejects on `main`.
+- 6a-2's re-pins, as planned: the hospital answers at `87.98.183.78`; its LAN is `core-rtr`,
+  `api-17` (site server), `iphone-32`, `sensor-83`, `mikrotik01`, `opnsense`; its forwards
+  `80 → .17:8080`, `2121 → .83:2121`. Unlisted: MILLBROOK-PD and ABERNETHY-AND-SONS-HARDWARE
+  (FreshWay Coffee listed again); the supplier lead and its invoice follow the hardware shop;
+  the office gains a contractor lead to the hospital. Two findit tests that assumed the police
+  is listed were rewritten.
+- 6a-4's `appointments` archetype: patients (`PT-` numbers, a text date of birth, since the
+  schema has no DATE type and a row's first DATETIME dates it), clinicians, appointments,
+  optional rooms and waiting list. The per-archetype samplers in `database.test.ts` and
+  `store.test.ts`, and "draws every archetype", now read `ALL_ESSIDS` rather than the catalog.
+- 6a-5 measured: the hospital's boxes reach its site, API, database, phone downloads, MOTDs
+  and forwards, **not** home notes and history (it has no desk). Those are proven on a
+  healthcare desk outside the catalog (`npcHome.test.ts`); the AC-5 list needs that change,
+  pending the owner. Three healthcare fixtures outside the catalog (`HealthCentre-WiFi`,
+  `Practice-Staff`, `Patient-Staff`) carry mail, shares and unnamed places.
+- 6a-6: the sweep reads only the hospital for now (`TOWN_KEYS` filtered to `healthcare`, said
+  so in its comment); the whole town joins once 5c lands.
+- Left: 6a-6 in full, the `wip` rule, 6a-7 (byte-diff against `main`), 6a-8 (guarantees),
+  6a-9 (live wire-checks, `checkBudgets`), 6a-10 (docs, version), the Stryker gate.
 **Required implementation skills**: `tdd`, `testing`, `refactoring`; `mutation-testing` at
 PR-readiness.
 **Reduction program**: `N/A`.
