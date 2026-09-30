@@ -9,7 +9,8 @@ Slice 2 complete. Slice 3 grilled and planned 2026-09-29, complete 2026-09-29 (#
 v0.288.0). Slice 4 grilled and planned 2026-09-29 as slices 4a–4c; 4a complete 2026-09-29
 (#578, v0.289.0); 4b complete 2026-09-30 (#579, v0.290.0); 4c complete 2026-09-30
 (#581, v0.291.0). Slice 4 complete. Slice 5 grilled 2026-09-30 as slices 5a–5b; 5a complete
-2026-09-30 (#582, v0.292.0); 5b complete 2026-09-30 (#583, v0.293.0). Slice 5 complete. Slices 6 onward not yet planned.
+2026-09-30 (#582, v0.292.0); 5b complete 2026-09-30 (#583, v0.293.0). Slice 5 complete. Slice 6 grilled 2026-09-30 as slices 6a–6b;
+not yet planned. Slices 7 onward not yet planned.
 Amends the §9 backlog item "Procedural world expansion — GRILLED & RESOLVED 2026-07-29" in
 `docs/conventions-and-gotchas.md`; where the two disagree, this file wins.
 
@@ -196,6 +197,74 @@ relations, forwards, institution sets. (Added by find-gaps 2026-09-28.)
 9. **New categories arrive one per slice, healthcare first** (hospital, clinic, dentist), then
    education, finance, media, industrial and hospitality. Each fills every
    `Record<NetworkCategory, …>` pool in the same PR, as `government` and `retail` did.
+   **Slice 6's shape** (grilled 2026-09-30, owner-confirmed):
+   - **Millbrook gains a hand-written cottage hospital, appended after its homes as
+     `r0/t1/n15`.** No existing key, address, LAN or password moves; it is an institution, so
+     the council's directory links it (AC-2). Accepted cost: with more publishers, 15% rounds
+     to a second unlisted site and the unlisted pick is redrawn, and the hospital joins the
+     keepers, so some of slice 4's leads are redrawn and re-pinned. Rejected: a hospital among
+     the institutions at `n3` (renames every business and home key), a second town declared
+     now (pulls slice 8's size classes forward), a Ridgemont hospital (slice 9's filler).
+   - **Clinics and dentists are a town's practices: a count of their own, beside its shops.**
+     A village draws 1–2 on a new stream `town-practices-<town key>`, each a clinic or a
+     dentist, no kind twice while the other is left, named from grammars of their own under
+     the same world-unique name check as businesses, appended after the hospital (`n16`, …).
+     Decision 2 already lists a town's "N shops, clinics and schools" apart; slice 8 sizes the
+     count by size class. Measured: adding `healthcare` to the business-kinds draw at any
+     weight up to 50 redraws four of Millbrook's six businesses and still gives it no
+     practice. Rejected: healthcare as a fourth business category, and the hospital alone
+     with the practices waiting for slice 8.
+   - **`healthcare` is appended to `NETWORK_CATEGORIES`**, so an uncatalogued network draws
+     it like any category. In play every joinable network is declared (the scan offers only
+     the catalog, and 1c refuses an undeclared key), so only test fixtures move; the
+     whole-world property and variety tests then build hundreds of healthcare networks.
+     Rejected: freezing the uncatalogued pick at today's nine, which protects nothing a player
+     reaches and would be repeated for every later category.
+   - **6's remaining calls** (taken in bulk):
+     - **Two PRs: 6a the category, 6b the practices.** 6a: `healthcare` in every category
+       pool, a new database archetype, and the hospital at `n15`. 6b: the practices (clinic
+       and dentist names, site words, `n16` onward). Rejected: one PR, fifteen pools of new
+       content and a new draw at once.
+     - The hospital: ESSID `COTTAGE-HOSPITAL`, place "the cottage hospital", site
+       `millbrookhospital.org` named "Millbrook Cottage Hospital", subtype `hospital`. Like
+       every institution it always publishes and may be drawn unlisted, found then through
+       the directory.
+     - Healthcare's subtypes are `hospital`, `clinic` and `dentist`; the subtype type widens
+       from a business's kind to a declared network's. An uncatalogued healthcare network has
+       none and fills its slots from `CATEGORY_WORDS.healthcare`, neutral words.
+     - A practice is a business in every rule but its count: it always publishes, joins the
+       unlisted draw, is a relation's target and keeper as a business is (an unlisted practice
+       gets a supplier), and is spelt as a business is (`.com`).
+     - `PROFILE_WEIGHTS.healthcare` is 0/50/50: never `lone`, since even a surgery keeps a
+       reception and a consulting room. Measured: `n15` draws `deep`, `n16` `flat`, `n17`
+       `deep`. One row per category, so decision 11's "a hospital usually `deep`" is not
+       enforced per subtype, as 5b dropped its pawn-shop example.
+     - Every category pool gains a `healthcare` entry the size and style of its neighbours:
+       front pages, site pages, the findit description (a `{care}` slot each subtype fills),
+       people roles (consultant, practice manager, receptionist, dental nurse), API endpoints,
+       MOTDs, work history, notes, personal mail, phone downloads, share departments
+       (admissions, radiology, pharmacy, estates, rotas), unnamed places.
+     - A new database archetype `appointments` (named `appointments`, `patient_admin` or
+       `pas`): patients, clinicians and appointments tables, with a `STORE_SPECS` entry;
+       `ARCHETYPES_BY_CATEGORY.healthcare` is `['appointments']`.
+     - Patient data is mundane and fictional: names, dates of birth, a patient number and an
+       appointment type (check-up, blood test, filling). No diagnosis and no clinical note.
+     - A healthcare site's fixed team page is `clinicians.html`, "Our clinicians", as an
+       office, a university and a council each have theirs.
+     - `FORWARD_CHANCES.healthcare` is `[1]`: every healthcare network forwards one thing,
+       its booking portal or remote access.
+     - A healthcare network keeps leads as any non-office publisher does, on its file servers
+       only, with no desk rule. Slice 4's and 5b's guarantees rerun over the grown Millbrook
+       in RED; a failure comes back to the owner with one rule to fix it, as in 5a.
+     - AC-8's proof: a test builds every box of Millbrook's hospital and finds healthcare
+       content from each pool; the whole-world properties cover uncatalogued healthcare
+       networks.
+     - No server change, so no new wire-check: `testMillbrook` and `testFindit` run live
+       against the grown town, and `checkBudgets` passes. A byte-diff shows every landmark
+       unchanged, and before `n15` only Millbrook's unlisted draw and redrawn leads move.
+     - `world-content-architecture.md` describes the category, the practices and their
+       streams; `discovery-architecture.md` follows the re-pins. 6a bumps the minor version to
+       0.294.0, 6b to 0.295.0.
 10. **Subtypes are cheap variety inside a category**: a name grammar plus a vocabulary overlay
     for the site text and findit description (retail → bakery, pharmacy, bookshop, electronics,
     hardware, pawn, florist). A subtype adds no content pool.
@@ -445,7 +514,8 @@ relations, forwards, institution sets. (Added by find-gaps 2026-09-28.)
     3. `whois`.
     4. Relations, seeded forwards, the rule-3 loosening and unlisted sites.
     5. The `lone` and `flat` profiles and subtypes.
-    6. The healthcare category.
+    6. The healthcare category, as two PRs (grill 2026-09-30): 6a the category and
+       Millbrook's cottage hospital, 6b the practices.
     7. Procedural corporations (decision 19a).
     8. The remaining towns, the findit index split and the sampled budgets.
     9. Ridgemont's WiFi filler and the injector turned down.
