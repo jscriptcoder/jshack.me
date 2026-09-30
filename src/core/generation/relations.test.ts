@@ -480,8 +480,8 @@ describe("an unlisted business's supplier lead", () => {
           'Date: 2026-07-04',
           'Payment due within 30 days.',
           '',
-          'Goods supplied, as ordered    2217.00',
-          'TOTAL DUE                     2217.00',
+          'Goods supplied, as ordered    2217 €',
+          'TOTAL DUE                     2217 €',
           '',
         ].join('\n'),
       ],
@@ -490,7 +490,7 @@ describe("an unlisted business's supplier lead", () => {
     const log = fileOn(relation.source, relation.sourceHost, '/var/log/vsftpd.log.1') ?? '';
     expect(log.split('\n')).toContain(
       'Sat Jul  4 16:08:15 2026 [pid 65126] [nasadmin] OK UPLOAD: Client "192.168.10.57", ' +
-        '"/srv/share/invoices/freshway-coffee-7123.txt", 208 bytes',
+        '"/srv/share/invoices/freshway-coffee-7123.txt", 206 bytes',
     );
   });
 

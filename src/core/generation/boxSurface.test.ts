@@ -26,6 +26,7 @@ import {
   filesUnder,
   gatewaysOn,
   lanBoxes,
+  leadsKeptOn,
   serialise,
   softwareVersionsIn,
   type Box,
@@ -45,6 +46,9 @@ const etcFileOf = (tree: Directory, name: string): string => {
 };
 
 /** The lines of a config that say something: no comments, no blanks. */
+/** A nightly copy of a share to another network, over its ssh forward. */
+const OFFSITE_COPY = /^rsync -az \/srv\/ (\S+)@([\d.]+):backups\/[a-z0-9-]+\/ -e 'ssh -p (\d+)'$/;
+
 const statedLines = (content: string): readonly string[] =>
   content
     .split('\n')
@@ -442,6 +446,14 @@ const knownHostFalsehood = (box: Box, entry: string): string | null => {
   const [hostname, address] = (names ?? '').split(',');
   const target = bracketed === null ? address : bracketed[1];
   const port = bracketed === null ? 22 : Number(bracketed[2]);
+  // A lead to another network is known by its address alone, which is all anybody typed.
+  const lead = leadsKeptOn(box).find(
+    (candidate) => candidate.address === (bracketed?.[1] ?? names),
+  );
+  if (lead !== undefined) {
+    if (lead.port !== port) return `${lead.address} answers ssh on ${lead.port}, not ${port}`;
+    return bracketed !== null && port === 22 ? 'brackets a port-22 entry' : null;
+  }
   const neighbour = sshNeighboursOf(box).find((candidate) => candidate.host.ip === target);
   if (neighbour === undefined) return `${target} runs no sshd on this network`;
   if (neighbour.port !== port) return `${target} answers ssh on ${neighbour.port}, not ${port}`;
@@ -523,8 +535,14 @@ describe('who a box remembers meeting', () => {
             expect(knownHostFalsehood(box, entry), `${box.host.hostname}: ${entry}`).toBeNull();
           });
         const commands = sshCommandsIn(config.content);
-        expect(commands.length).toBeGreaterThanOrEqual(1);
-        expect(commands.length).toBeLessThanOrEqual(2);
+        const leads = leadsKeptOn(box).map((lead) => `@${lead.address}`);
+        const toNeighbours = commands.filter(
+          (line) => !leads.some((address) => line.endsWith(address)),
+        );
+        expect(toNeighbours.length).toBeGreaterThanOrEqual(1);
+        expect(toNeighbours.length).toBeLessThanOrEqual(2);
+        // Every lead kept on the desk is a shortcut in its config.
+        expect(commands.length - toNeighbours.length).toBe(leads.length);
         commands.forEach((line) => {
           expect(falsehoodIn({ line, box, tree, home }), `${box.host.hostname}: ${line}`).toBeNull();
         });
@@ -590,10 +608,20 @@ describe('what a box writes is written the way the real file is', () => {
   });
 
   it('schedules jobs that look after the services a box runs, and a zone check on a name server', () => {
-    const everyJob = lanBoxes(ALL_ESSIDS).flatMap(({ essid, host }) =>
-      statedLines(etcFileOf(buildRemoteHostFs(essid, host), 'crontab')).map((line) =>
-        line.split(/\s+/).slice(6).join(' '),
-      ),
+    const everyJob = lanBoxes(ALL_ESSIDS).flatMap((box) =>
+      statedLines(etcFileOf(buildRemoteHostFs(box.essid, box.host), 'crontab'))
+        .map((line) => line.split(/\s+/).slice(6).join(' '))
+        // A file server's offsite copy goes where a backup lead kept on it goes.
+        .filter((job) => {
+          const [, user, address, port] = OFFSITE_COPY.exec(job) ?? [];
+          return !leadsKeptOn(box).some(
+            (lead) =>
+              lead.kind === 'backup' &&
+              lead.user === user &&
+              lead.address === address &&
+              lead.port === Number(port),
+          );
+        }),
     );
     const serviceJobs = Object.values(SERVICE_CRON_JOBS).flat();
     expect(everyJob.some((job) => serviceJobs.includes(job))).toBe(true);

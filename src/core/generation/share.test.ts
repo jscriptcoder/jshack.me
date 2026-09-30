@@ -27,6 +27,7 @@ import { createPrng } from './prng.js';
 import { renderDocument, type DocumentMetadata } from './documentFormats.js';
 import { buildRemoteHostFs, hostServices, npcUsername } from './remoteHostFs.js';
 import { networkPersona } from './persona.js';
+import { relationsFrom } from './relations.js';
 import { boxMail, networkMail } from './networkMail.js';
 import { ALL_GENERATED_PASSWORDS } from './passwordPools.js';
 import { PHONE_MODELS, SHARE_FOLDERS } from './pools/shareFiles.js';
@@ -287,6 +288,15 @@ const FOLDERS_BY_CATEGORY: Readonly<Record<NetworkCategory, readonly string[]>> 
   retail: ['rotas', 'stock', 'promotions', 'cash-office', 'health-and-safety'],
 };
 
+/** Where an office files what its suppliers bill it, beside its own departments. Only a
+ *  share whose box a supplier sends invoices to keeps one. */
+const INVOICE_FOLDER = 'invoices';
+
+const filesInvoices = ({ essid, host }: Box): boolean =>
+  relationsFrom(essid).some(
+    (relation) => relation.kind === 'supplier' && relation.sourceHost.ip === host.ip,
+  );
+
 const WORKING_SHARE_PREFIXES: readonly string[] = ['share', 'files', 'nas'];
 
 const prefixOf = (hostname: string): string => hostname.slice(0, hostname.lastIndexOf('-'));
@@ -370,10 +380,12 @@ describe('a working share holds the departments of the place it serves', () => {
     const boxes = workingShareBoxes();
     expect(boxes.length).toBeGreaterThan(0);
 
-    boxes.forEach(({ essid, host }) => {
+    boxes.forEach((box) => {
+      const { essid, host } = box;
       const share = directoryAt(buildRemoteHostFs(essid, host), ['srv', 'share']);
       const folders = [...share.entries.keys()];
-      const allowed = FOLDERS_BY_CATEGORY[networkPersona(essid).category];
+      const departments = FOLDERS_BY_CATEGORY[networkPersona(essid).category];
+      const allowed = filesInvoices(box) ? [...departments, INVOICE_FOLDER] : departments;
 
       expect(folders.length, `${essid} ${host.hostname}`).toBeGreaterThanOrEqual(3);
       folders.forEach((folder) => {

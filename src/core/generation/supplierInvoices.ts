@@ -59,7 +59,7 @@ const invoiceFor = ({
   const number = prng.nextInt(INVOICE_NUMBER.min, INVOICE_NUMBER.max);
   const day = EPOCH_DAY - prng.nextInt(INVOICE_AGE_DAYS.min, INVOICE_AGE_DAYS.max);
   const filedAt = day * DAY_SECONDS + prng.nextInt(OFFICE_HOURS.first, OFFICE_HOURS.last);
-  const total = `${prng.nextInt(INVOICE_TOTAL.min, INVOICE_TOTAL.max)}.00`;
+  const total = `${prng.nextInt(INVOICE_TOTAL.min, INVOICE_TOTAL.max)} €`;
   const name = `${supplier.essid.toLowerCase()}-${number}.txt`;
   const content = [
     `INVOICE ${number}`,

@@ -26,6 +26,7 @@ import { parseMysqlDatabase } from '../mysql/types.js';
 import { ESSID_CATALOG } from './pools/essidCatalog.js';
 import { siteServer } from './siteServer.js';
 import { publisherSite } from './publisher.js';
+import { DECLARED_NETWORKS, declaredNetwork } from './world.js';
 
 /**
  * A web server that serves a site: pages that link each other, read the way a player
@@ -147,15 +148,38 @@ const crawl = (built: Built): ReadonlyMap<string, string> => {
   return visit(['/'], new Map());
 };
 
+/** Why a link to another network's public site goes nowhere, or null when it goes somewhere
+ *  real. Only a town's directory links out, and only to a site its town lists: the page it
+ *  names is served by the box that site is published from. */
+const deadSiteLink = (
+  built: Built,
+  path: string,
+  url: { readonly host: string; readonly path: string },
+): string | null => {
+  const listed = declaredNetwork(built.box.essid)?.directory ?? [];
+  if (path !== '/directory.html' || !listed.some((site) => site.domain === url.host)) {
+    return `${url.host} is linked from ${path}, which is not its town's directory`;
+  }
+  const network = DECLARED_NETWORKS.find((candidate) => candidate.site?.domain === url.host);
+  const server = network === undefined ? undefined : siteServer(network.key);
+  if (network === undefined || server === undefined) return `${url.host} is published from no box`;
+  return served(buildRemoteHostFs(network.key, server), url.path) === null
+    ? `${url.path} is not served on ${url.host}`
+    : null;
+};
+
 /** Why `href` on the page at `path` goes nowhere, or null when it goes somewhere real:
- *  a page this host serves, or a page a generated web host on the same LAN serves on
- *  the port it really listens on. A href a browser does not number (`mailto:`, `#`) is
- *  text, and goes nowhere by design. */
+ *  a page this host serves, a page a generated web host on the same LAN serves on the
+ *  port it really listens on, or a page of a site its town's directory lists. A href a
+ *  browser does not number (`mailto:`, `#`) is text, and goes nowhere by design. */
 const deadLink = (built: Built, path: string, href: string): string | null => {
   const target = resolveHref({ base: `${originOf(built)}${path}`, href });
   if (target === null) return null;
   const url = parseHttpUrl(target);
   if (url === null) return `${href} is not a url`;
+  if (DECLARED_NETWORKS.some((network) => network.site?.domain === url.host)) {
+    return deadSiteLink(built, path, url);
+  }
   const { essid, host } = built.box;
   const onLan = isOnLan(built.box);
   // A LAN box may name itself as its network does; nothing on a deep layer has a name.
@@ -224,6 +248,11 @@ describe('a web server serves a site', () => {
     expect(deadLink(built, '/', '/nothing-here.html')).toBe('/nothing-here.html is not served here');
     expect(deadLink(built, '/', '/')).toBeNull();
     expect(deadLink(built, '/', 'mailto:info@example.lan')).toBeNull();
+    // Another network's site is reached only from its town's directory.
+    const elsewhere = DECLARED_NETWORKS.find((network) => network.site !== undefined)?.site?.domain;
+    expect(deadLink(built, '/', `http://${elsewhere}/`)).toBe(
+      `${elsewhere} is linked from /, which is not its town's directory`,
+    );
   });
 
   it('publishes every file world-readable and root-write-only, never executable', () => {
@@ -429,6 +458,11 @@ const sitemapUrlsOf = (built: Built): readonly string[] =>
     ([, url]) => url ?? '',
   );
 
+/** Whether the site is one its town keeps off every search, whose `robots.txt` shuts every
+ *  crawler out of the whole of it rather than out of one path. */
+const shutsOut = (built: Built): boolean =>
+  servesPublicSite(built.box) && declaredNetwork(built.box.essid)?.unlisted === true;
+
 /** Every path an HTML comment on the site names. */
 const commentedPathsOf = (built: Built): readonly string[] =>
   htmlPagesOf(built.tree).flatMap(([, page]) =>
@@ -581,17 +615,21 @@ describe('a web server leaves breadcrumbs to what it did not link', () => {
   });
 
   it('asks crawlers to stay out of paths it really serves and never links', () => {
-    const wrong = servingBoxes(isWebserver).flatMap((built) => {
-      const reached = new Set(crawl(built).keys());
-      const paths = robotsPathsOf(built);
-      if (webRootOf(built.tree).has('robots.txt') && paths.length === 0) {
-        return [`${built.box.host.hostname} robots.txt names nothing`];
-      }
-      return paths.flatMap((path) => [
-        ...(deadLink(built, '/robots.txt', path) === null ? [] : [`${path} is not served`]),
-        ...(reached.has(path) ? [`${path} is linked`] : []),
-      ]).map((fault) => `${built.box.host.hostname}: ${fault}`);
-    });
+    const wrong = servingBoxes(isWebserver)
+      .filter((built) => !shutsOut(built))
+      .flatMap((built) => {
+        const reached = new Set(crawl(built).keys());
+        const paths = robotsPathsOf(built);
+        if (webRootOf(built.tree).has('robots.txt') && paths.length === 0) {
+          return [`${built.box.host.hostname} robots.txt names nothing`];
+        }
+        return paths
+          .flatMap((path) => [
+            ...(deadLink(built, '/robots.txt', path) === null ? [] : [`${path} is not served`]),
+            ...(reached.has(path) ? [`${path} is linked`] : []),
+          ])
+          .map((fault) => `${built.box.host.hostname}: ${fault}`);
+      });
     expect(wrong).toEqual([]);
   });
 
@@ -841,11 +879,15 @@ describe('what an unlinked path holds', () => {
         return file === undefined ? [] : [{ built, file, content: webRootOf(built.tree).get(file) ?? '' }];
       }),
     );
-    const broken = kept.flatMap(({ built, file, content }) => {
-      const promise = PROMISES.find(([name]) => name.test(file));
-      if (promise === undefined) return [];
-      return promise[1].test(content) ? [] : [`${built.box.host.hostname} /${file}`];
-    });
+    // A site that shuts crawlers out names no path in its robots file; what it says
+    // instead is the unlisted site's own promise.
+    const broken = kept
+      .filter(({ built, file }) => !(file === 'robots.txt' && shutsOut(built)))
+      .flatMap(({ built, file, content }) => {
+        const promise = PROMISES.find(([name]) => name.test(file));
+        if (promise === undefined) return [];
+        return promise[1].test(content) ? [] : [`${built.box.host.hostname} /${file}`];
+      });
     expect(broken).toEqual([]);
     // Every kind of unlinked path is met somewhere, so no promise above goes unread.
     const met = new Set(kept.map(({ file }) => PROMISES.findIndex(([name]) => name.test(file))));

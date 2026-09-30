@@ -6,6 +6,8 @@
 
 import { hostServices, npcUsername } from '../core/generation/remoteHostFs.js';
 import { crackableEssidPool } from '../core/generation/generateWifi.js';
+import { DECLARED_NETWORKS, RIDGEMONT } from '../core/generation/world.js';
+import { relationsFrom, type Login } from '../core/generation/relations.js';
 import { generateHomeLan, type LanHost } from '../core/generation/generateHomeLan.js';
 import { generateDeepLayer } from '../core/generation/generateDeepLayer.js';
 import { chainLinks, machineIdForLanHost } from '../core/generation/lanTopology.js';
@@ -25,7 +27,11 @@ export const UNCATALOGUED_ESSIDS = [
   'HOME-WIFI-2.4G',
   'xfinitywifi',
 ];
-export const ALL_ESSIDS = [...crackableEssidPool, ...UNCATALOGUED_ESSIDS];
+/** Every network a town beyond Ridgemont declares, by the key its machines are built from. */
+export const TOWN_KEYS = DECLARED_NETWORKS.filter((network) => network.town !== RIDGEMONT).map(
+  (network) => network.key,
+);
+export const ALL_ESSIDS = [...crackableEssidPool, ...UNCATALOGUED_ESSIDS, ...TOWN_KEYS];
 
 /** Every generated machine on these networks' home LANs. */
 export const lanBoxes = (essids: readonly string[]): readonly Box[] =>
@@ -103,6 +109,15 @@ export const serialise = (node: FileNode): unknown =>
     ? node
     : { ...node, entries: [...node.entries].map(([name, child]) => [name, serialise(child)]) };
 
+/** The logins kept on a box that lead to another network of its town: a contractor's
+ *  shortcut on a desk, or a file server's offsite copy. They are the one way a box names a
+ *  machine off its own LAN, by the address that network answers at on the internet. */
+export const leadsKeptOn = ({ essid, host }: Box): readonly Login[] =>
+  relationsFrom(essid).filter(
+    (relation): relation is Login =>
+      relation.kind !== 'supplier' && relation.sourceHost.ip === host.ip,
+  );
+
 /** Why a history line is false on this box, or null when everything it names is real.
  *  A player replays these lines exactly as written, so each must succeed the way it
  *  did for the person who typed it. `home` is where `~` points for whoever typed it. */
@@ -141,6 +156,11 @@ export const falsehoodIn = (options: {
   if (command === 'ssh') {
     const port = words[1] === '-p' ? Number(words[2]) : 22;
     const [user, target] = (words.at(-1) ?? '').split('@');
+    const lead = leadsKeptOn(box).find((candidate) => candidate.address === target);
+    if (lead !== undefined) {
+      if (lead.port !== port) return `${target} answers ssh on ${lead.port}, not ${port}`;
+      return user === lead.user ? null : `${target} logs ${lead.user} in, not ${user}`;
+    }
     const neighbour = neighbourNamed(target ?? '');
     if (neighbour === null || neighbour.ip === box.host.ip) return `${target} is not a neighbour`;
     const runsSshThere = hostServices(box.essid, neighbour).some(
