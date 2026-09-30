@@ -9,7 +9,7 @@ Slice 2 complete. Slice 3 grilled and planned 2026-09-29, complete 2026-09-29 (#
 v0.288.0). Slice 4 grilled and planned 2026-09-29 as slices 4a–4c; 4a complete 2026-09-29
 (#578, v0.289.0); 4b complete 2026-09-30 (#579, v0.290.0); 4c complete 2026-09-30
 (#581, v0.291.0). Slice 4 complete. Slice 5 grilled 2026-09-30 as slices 5a–5b; 5a complete
-2026-09-30 (#582, v0.292.0); 5b not yet planned. Slices 6 onward not yet planned.
+2026-09-30 (#582, v0.292.0); 5b planned 2026-09-30. Slices 6 onward not yet planned.
 Amends the §9 backlog item "Procedural world expansion — GRILLED & RESOLVED 2026-07-29" in
 `docs/conventions-and-gotchas.md`; where the two disagree, this file wins.
 
@@ -1303,6 +1303,85 @@ changed (json reporter).
 **PR-ready when**: 5a-1 to 5a-8 hold, `vitest run`, typecheck, lint and format pass, and the
 owner approves the commit. Bumps the minor version to 0.292.0.
 **Slice complete when**: its PR merges.
+
+### Slice 5b: a Millbrook business is a kind of shop, café or office, and says so
+
+**Value**: a player reading findit or walking Millbrook's high street meets a bakery, a
+pawn shop and an insurance broker, not a sixth grocer drawn from a list of sixteen names.
+Each business's name, findit line and front page say what it is, and the same grammars
+will name slice 8's hundreds of businesses without a hand-written list.
+**Path**: the town's business count on `town-businesses-<town key>` (unchanged) → each
+business's category and subtype on `town-business-kinds-<town key>` → its name from its
+subtype's grammar on `town-business-names-<town key>` → the ESSID, domain and site name
+spelt from it as today → `networkPersona` carries the subtype → `buildWebSite` fills the
+description's and front page's slots with the subtype's words → findit indexes them. A
+player sees it in findit's results, the front page, `whois`, and the wifi a scan inside
+Millbrook shows.
+**Class**: behaviour change.
+**Delivery**: independent PR against `main`, branch `feat/procedural-world-subtypes`.
+**Status**: planned 2026-09-30; in progress.
+**Required implementation skills**: `tdd`, `testing`, `refactoring`; `mutation-testing` at
+PR-readiness.
+**Reduction program**: `N/A`.
+**Acceptance criteria** (owner-confirmed 2026-09-30):
+
+- [ ] **5b-1** Every business a town draws declares a category and a subtype. The category
+      is drawn with weights cafe 30, retail 40, corporate 30; the subtype comes from its
+      category's list (`retail`: grocer, bakery, pharmacy, bookshop, electronics, hardware,
+      pawn, florist; `cafe`: café, tea room, coffee bar; `corporate`: consulting,
+      logistics, insurance, IT services, accounting), and no subtype repeats in a town
+      while its category has one left. Both are drawn on `town-business-kinds-<town key>`.
+      The count stays on `town-businesses-<town key>`, so Millbrook keeps six businesses
+      and all fifteen keys and addresses. Institutions, homes and landmarks declare no
+      subtype.
+- [ ] **5b-2** A business's name comes from its subtype's grammar: a few templates built
+      from a surname list, a street-or-place list and filler words, the old names' words
+      among them (`{surname}'s Bakery`, `{street} Hardware`, `Harvest Market`), drawn on
+      `town-business-names-<town key>`. No network in the world shares its name, ESSID or
+      domain; a draw that would is redrawn. Its ESSID and domain are spelt from it as today,
+      an accent folded (`Café` → `CAFE`, `cafe`), and the ESSID is at most 32 characters.
+      `TOWN_BUSINESSES` and its pool file are gone. The lists and grammars freeze at launch
+      (decision 7); a comment says so, as `townBusinesses.ts` did.
+- [ ] **5b-3** A business's findit description and front page say what its subtype sells or
+      does. Every `retail`, `cafe` and `corporate` description and front page reads through
+      slots (`{goods}`, `{service}`) its subtype fills, and no sentence left outside a slot
+      names what only one subtype sells. For every subtype, its built front page and
+      description carry its own words and none of another subtype's in the same category
+      (a pawn shop never says groceries or fresh bread), and findit lists a listed
+      Millbrook business for its subtype's words.
+- [ ] **5b-4** A landmark fills the slots with today's words: the AC-7 fingerprint test
+      passes untouched, and findit still lists every Ridgemont shop for "groceries".
+- [ ] **5b-5** Nothing outside Millbrook moved: a byte-diff of every landmark box, findit's
+      own and every Ridgemont site against `main` is empty. Millbrook's pins are re-pinned
+      once, deliberately: the declaration (names, ESSIDs, domains), the profiles, the deep
+      LANs, the forwards, the relations graph, the invoice and the unlisted pick.
+- [ ] **5b-6** Slice 4's and 5a's guarantees hold over the renamed Millbrook, as 5a-5 lists
+      them. If one fails, work stops and the owner gets the failure with one rule that fixes
+      it.
+- [ ] **5b-7** `testMillbrook.ts` and `testFindit.ts` pass live against the renamed town, and
+      `checkBudgets` passes.
+- [ ] **5b-8** `world-content-architecture.md` describes subtypes, their grammars and slots,
+      and its streams table lists `town-business-kinds-` and `town-business-names-`.
+
+Out of scope, by the grill's "no subtype writes its own pages" and "a subtype adds no content
+pool": a business's other pages (a shop's offers, returns and loyalty card, a café's menu, an
+office's services), its API, database, shares, mail and notes stay its category's. A pawn
+shop's offers page may still list a loaf of bread; a later content slice owns that.
+
+**RED**: the kinds over the declaration (5b-1), then the names and their spelling (5b-2), then
+a built front page and description per subtype and a landmark's unchanged (5b-3, 5b-4), then
+slice 4's and 5a's guarantee tests over the renamed town (5b-6).
+**GREEN**: the kinds and name draws in `world.ts` and a grammar pool file replacing
+`townBusinesses.ts`; the subtype on `DeclaredNetwork` and `NetworkPersona`; slots in
+`SITE_DESCRIPTIONS` and `FRONT_PAGES` for the three categories, filled by `buildWebSite`.
+**REFACTOR**: assess only.
+**Server evidence**: no server change. `testMillbrook.ts` derives every name from the
+declaration and runs live against the renamed town; `testFindit.ts` proves the index.
+**PRE-PR MUTATION**: Stryker on the kind and name draws, the grammars and the slot filling
+(json reporter).
+**PR-ready when**: 5b-1 to 5b-8 hold, `vitest run`, typecheck, lint and format pass, and the
+owner approves the commit. Bumps the minor version to 0.293.0.
+**Slice complete when**: its PR merges. That completes slice 5.
 
 ## Acceptance Criteria
 
