@@ -8,7 +8,8 @@ v0.287.0); 2b complete 2026-09-29 (#576, table dropped on jshack-dev and jshack-
 Slice 2 complete. Slice 3 grilled and planned 2026-09-29, complete 2026-09-29 (#577,
 v0.288.0). Slice 4 grilled and planned 2026-09-29 as slices 4a–4c; 4a complete 2026-09-29
 (#578, v0.289.0); 4b complete 2026-09-30 (#579, v0.290.0); 4c complete 2026-09-30
-(#581, v0.291.0). Slice 4 complete. Slices 5 onward not yet planned.
+(#581, v0.291.0). Slice 4 complete. Slice 5 grilled 2026-09-30 as slices 5a–5b; 5a planned
+2026-09-30. Slices 6 onward not yet planned.
 Amends the §9 backlog item "Procedural world expansion — GRILLED & RESOLVED 2026-07-29" in
 `docs/conventions-and-gotchas.md`; where the two disagree, this file wins.
 
@@ -1207,6 +1208,73 @@ unlisted site and that its domain answers.
 **PR-ready when**: 4c-1 to 4c-6 hold, the same gates as 4a pass, and the owner approves
 the commit. Bumps the minor version to 0.291.0.
 **Slice complete when**: its PR merges. That completes AC-6.
+
+### Slice 5: networks come in three sizes, and businesses in kinds
+
+Grilled 2026-09-30 (decision 11, "Slice 5's shape"). Two PRs, in order: 5a profiles, 5b
+subtypes. 5b is planned once 5a has merged.
+
+### Slice 5a: a Millbrook network is as big as what it is
+
+**Value**: a player who gets into a Millbrook shop or home finds a gateway and one or a few
+machines, not the same inner router, switch and hidden chain as a council. What is worth
+walking down is now worth something: only a `deep` network hides a chain.
+**Path**: the declaration's profile, drawn on `network-profile-<key>` → `generateHomeLan`
+builds the LAN the profile allows → every reader of the shape (scans, ssh reach, the
+inner-gateway lookups, the DNS zone, snmp, the gateway's own files) reads that LAN → the
+relations graph and the seeded forwards draw from the reshaped boxes. A player sees it
+through `nmap` from a box inside, the gateway's files, and the forwards seen from outside.
+**Class**: behaviour change.
+**Delivery**: independent PR against `main`, branch `feat/procedural-world-profiles`.
+**Status**: planned.
+**Required implementation skills**: `tdd`, `testing`, `refactoring`; `mutation-testing` at
+PR-readiness.
+**Reduction program**: `N/A`.
+**Acceptance criteria** (owner-confirmed 2026-09-30):
+
+- [ ] **5a-1** Every procedural network declares a profile, drawn once on
+      `network-profile-<key>` with its category's weights (government 0/30/70
+      lone/flat/deep, public 10/60/30, corporate 0/40/60, retail 40/50/10, cafe 60/40/0,
+      residential 40/60/0). Millbrook draws `deep` for Town Hall, the police and Pinnacle;
+      `lone` for Harvest Market, Greenleaf, Garden Flat, Rose Cottage and Okonkwo; `flat`
+      for the other seven. A landmark declares none.
+- [ ] **5a-2** A `lone` network's LAN is its `.1` gateway and exactly one machine; a
+      `flat` network's is its `.1` gateway and 2–5 machines. Neither holds any other router
+      or a switch, so nothing hangs a deep layer. A publisher's LAN holds the web server its
+      site answers from, whatever its profile.
+- [ ] **5a-3** A `deep` network's LAN is today's, byte for byte: Millbrook's three `deep`
+      networks keep their hosts, and the AC-7 fingerprint test passes untouched.
+- [ ] **5a-4** Nothing on a `lone` or `flat` network names an inner gateway, a switch or a
+      deep layer: the 4b rule-3 property test passes over the reshaped Millbrook, and an
+      inner-gateway hop or scan aimed at one of its addresses is refused like one at any
+      absent host.
+- [ ] **5a-5** Slice 4's guarantees hold over the reshaped Millbrook: every home has 1–3
+      leads and every publisher 0–2, every home that forwards ssh keeps a backup, the
+      unlisted business has a supplier, every forward reaches a box on the reshaped LAN that
+      serves its port, and the AC-4 reachability test passes. If one fails, work stops and
+      the owner gets the failure with one rule that fixes it.
+- [ ] **5a-6** `scripts/testMillbrook.ts` passes live, and its forward checks land on a
+      network that is not `deep`, so the server's box behind the forward is the reshaped
+      LAN's.
+- [ ] **5a-7** `checkBudgets` passes, and Millbrook's per-box time is measured against
+      `main`'s.
+- [ ] **5a-8** `world-content-architecture.md` describes the three profiles, and its
+      streams table lists `network-profile-`.
+
+**RED**: the profile over the declaration (5a-1), then each profile's LAN through
+`generateHomeLan` (5a-2, 5a-3), then slice 4's guarantee tests over the reshaped town
+(5a-5), then the rule-3 test and an inner-gateway lookup on a `flat` address (5a-4).
+**GREEN**: the weights and the draw in `world.ts`; `generateHomeLan` building `lone` and
+`flat` from the profile, with `deep` untouched; whatever reader still assumes an inner
+gateway learns there may be none.
+**REFACTOR**: assess only.
+**Server evidence**: `testMillbrook.ts` live (5a-6). The server rebuilds every box from its
+key, so a reshaped LAN reaches it unchanged; the forward check proves the path.
+**PRE-PR MUTATION**: Stryker on the profile draw, the `lone`/`flat` LAN and any reader
+changed (json reporter).
+**PR-ready when**: 5a-1 to 5a-8 hold, `vitest run`, typecheck, lint and format pass, and the
+owner approves the commit. Bumps the minor version to 0.292.0.
+**Slice complete when**: its PR merges.
 
 ## Acceptance Criteria
 
