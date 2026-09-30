@@ -171,19 +171,20 @@ describe("a Millbrook network's relations", () => {
     );
 
     expect(graph).toEqual([
-      'KEYSTONE-LOGISTICS workstation-33 -contractor-> TOWN-HALL-WIFI hkim@android-57:2222',
-      'KEYSTONE-LOGISTICS workstation-33 -contractor-> MILLBROOK-PD root@net-gateway:22',
-      'KEYSTONE-LOGISTICS workstation-33 -contractor-> LIBRARY-PUBLIC root@dist-rtr:22',
-      'KEYSTONE-LOGISTICS workstation-33 -contractor-> TIPSY-TEAPOT root@gw-main:22',
-      'KEYSTONE-LOGISTICS workstation-33 -contractor-> HARVEST-MARKET root@core-rtr:22',
-      'PINNACLE-IT-SOLUTIONS share-16 -supplier-> HARVEST-MARKET',
-      'KEYSTONE-LOGISTICS workstation-33 -contractor-> GREENLEAF-GROCERS root@firewall01:22',
-      'KEYSTONE-LOGISTICS workstation-33 -contractor-> KOWALSKI-WIFI root@pfsense01:22',
-      'KEYSTONE-LOGISTICS workstation-33 -contractor-> THE-HARGREAVES root@core-rtr:22',
-      'KEYSTONE-LOGISTICS workstation-33 -contractor-> GARDEN-FLAT root@mikrotik01:22',
-      'KEYSTONE-LOGISTICS workstation-33 -contractor-> ROSE-COTTAGE root@switch-core:22',
-      'PINNACLE-IT-SOLUTIONS share-16 -backup-> PEAR-TREE-HOUSE mrodriguez@laptop-13:2222',
-      'KEYSTONE-LOGISTICS workstation-33 -contractor-> OKONKWO-FAMILY root@firewall01:22',
+      'WESTBROOK-HAULAGE laptop-56 -contractor-> TOWN-HALL-WIFI hkim@android-57:2222',
+      'WESTBROOK-HAULAGE laptop-56 -contractor-> MILLBROOK-PD root@net-gateway:22',
+      'WESTBROOK-HAULAGE laptop-56 -contractor-> LIBRARY-PUBLIC root@dist-rtr:22',
+      'WESTBROOK-HAULAGE laptop-56 -contractor-> WHITLOCKS-CAFE root@gw-main:22',
+      'WESTBROOK-HAULAGE laptop-56 -contractor-> FRESHWAY-COFFEE root@core-rtr:22',
+      'WESTBROOK-HAULAGE files-16 -supplier-> FRESHWAY-COFFEE',
+      'WESTBROOK-HAULAGE laptop-56 -contractor-> ABERNETHY-AND-SONS-HARDWARE root@firewall01:22',
+      'WESTBROOK-HAULAGE laptop-56 -contractor-> VARLEYS-BAKERY root@edge-rtr:22',
+      'WESTBROOK-HAULAGE laptop-56 -contractor-> KOWALSKI-WIFI root@pfsense01:22',
+      'WESTBROOK-HAULAGE laptop-56 -contractor-> THE-HARGREAVES root@core-rtr:22',
+      'WESTBROOK-HAULAGE laptop-56 -contractor-> GARDEN-FLAT root@mikrotik01:22',
+      'WESTBROOK-HAULAGE laptop-56 -contractor-> ROSE-COTTAGE root@switch-core:22',
+      'WESTBROOK-HAULAGE files-16 -backup-> PEAR-TREE-HOUSE mrodriguez@laptop-13:2222',
+      'WESTBROOK-HAULAGE laptop-56 -contractor-> OKONKWO-FAMILY root@firewall01:22',
     ]);
   });
 });
@@ -300,7 +301,7 @@ describe("a business's offsite backup", () => {
     for (const relation of backups()) {
       const syslog = fileOn(relation.source, relation.sourceHost, '/var/log/syslog.1') ?? '';
       expect(syslog.split('\n'), relation.source).toContain(
-        `Jul 11 01:11:00 share-16 CRON[94770]: (root) CMD (${commandOf(relation)})`,
+        `Jul 11 01:11:00 files-16 CRON[94770]: (root) CMD (${commandOf(relation)})`,
       );
       const mail = fileOn(relation.source, relation.sourceHost, '/var/mail/root') ?? '';
       expect(mail, relation.source).not.toContain('rsync');
@@ -468,13 +469,13 @@ describe("an unlisted business's supplier lead", () => {
     if (relation === undefined) throw new Error('Millbrook has no supplier');
     expect([...invoicesOf(relation)]).toEqual([
       [
-        'harvest-market-7123.txt',
+        'freshway-coffee-7123.txt',
         [
           'INVOICE 7123',
           '',
-          'From: Harvest Market',
-          '      harvestmarket.com',
-          'To:   Pinnacle IT Solutions',
+          'From: FreshWay Coffee',
+          '      freshwaycoffee.com',
+          'To:   Westbrook Haulage',
           '',
           'Date: 2026-07-04',
           'Payment due within 30 days.',
@@ -489,7 +490,7 @@ describe("an unlisted business's supplier lead", () => {
     const log = fileOn(relation.source, relation.sourceHost, '/var/log/vsftpd.log.1') ?? '';
     expect(log.split('\n')).toContain(
       'Sat Jul  4 16:08:15 2026 [pid 65126] [nasadmin] OK UPLOAD: Client "192.168.10.57", ' +
-        '"/srv/share/invoices/harvest-market-7123.txt", 210 bytes',
+        '"/srv/share/invoices/freshway-coffee-7123.txt", 208 bytes',
     );
   });
 

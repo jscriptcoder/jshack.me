@@ -7,6 +7,8 @@ import { HOSTNAME_PREFIXES, roleOfHostname } from './pools/hostnames.js';
 import { ESSID_CATALOG } from './pools/essidCatalog.js';
 import { publisherSite } from './publisher.js';
 import { DECLARED_NETWORKS, type DeclaredNetwork } from './world.js';
+import { isDeskMachine } from './npcHome.js';
+import { keepsSnapshots } from './share.js';
 
 /**
  * `generateHomeLan` is the pure topology generator behind `nmap <subnet>`. Given an
@@ -398,6 +400,38 @@ describe('generateHomeLan for an institution that publishes a website', () => {
   });
 });
 
+describe('generateHomeLan for an office in a town', () => {
+  const offices = (): readonly DeclaredNetwork[] =>
+    DECLARED_NETWORKS.filter(
+      (network) => network.category === 'corporate' && network.subtype !== undefined,
+    );
+  const isWorkingShare = (host: LanHost): boolean =>
+    roleOfHostname(host.hostname) === 'fileserver' && !keepsSnapshots(host);
+
+  it('keeps a desk and a working share beside the box that serves its site', () => {
+    expect(offices()).not.toEqual([]);
+    for (const { key } of offices()) {
+      const machines = machinesOf(key);
+      expect(machines.some(isDeskMachine), key).toBe(true);
+      expect(machines.some(isWorkingShare), key).toBe(true);
+      expect(
+        machines.some((host) => roleOfHostname(host.hostname) === 'webserver'),
+        key,
+      ).toBe(true);
+    }
+  });
+
+  it('names every workstation there a desk, and every file server a working share', () => {
+    for (const { key } of offices()) {
+      for (const host of machinesOf(key)) {
+        const role = roleOfHostname(host.hostname);
+        if (role === 'workstation') expect(isDeskMachine(host), host.hostname).toBe(true);
+        if (role === 'fileserver') expect(keepsSnapshots(host), host.hostname).toBe(false);
+      }
+    }
+  });
+});
+
 describe('generateHomeLan for a network sized by its profile', () => {
   const sized = (profile: string): readonly DeclaredNetwork[] =>
     DECLARED_NETWORKS.filter((network) => network.profile === profile);
@@ -442,7 +476,7 @@ describe('generateHomeLan for a network sized by its profile', () => {
     }
   });
 
-  it('is pinned (golden): leaves a deep network in the town exactly as it was', () => {
+  it('is pinned (golden): locks the home-lan- stream for every deep network in the town', () => {
     const hostnamesOf = (essid: string): readonly string[] =>
       generateHomeLan(
         DECLARED_NETWORKS.find((network) => network.essid === essid)?.key ?? '',
@@ -467,10 +501,10 @@ describe('generateHomeLan for a network sized by its profile', () => {
       'cam-65',
       'sensor-218',
     ]);
-    expect(hostnamesOf('PINNACLE-IT-SOLUTIONS')).toEqual([
+    expect(hostnamesOf('WESTBROOK-HAULAGE')).toEqual([
       'pfsense01',
-      'share-16',
-      'doorbell-56',
+      'files-16',
+      'laptop-56',
       'printer-57',
       'gw-main',
       'border-gw',

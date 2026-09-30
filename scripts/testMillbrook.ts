@@ -11,10 +11,10 @@
 //   - A scan of a town network's address reaches its gateway, whose ssh answers.
 //   - The council's front page links the town directory, which links every institution in
 //     the town, and following its link to the police reaches the police's own front page.
-//   - An office's gateway forwards services beside its site: a scan of its address shows
-//     them, and ssh through the forwarded high port reaches the box behind it, whose own
-//     auth.log records the attempt. The office is one that stands no inner router, so the
-//     box the server finds there is the one its smaller LAN holds.
+//   - A network's gateway forwards ssh to a box behind it: a scan of its address shows
+//     every forward, and ssh through the forwarded port reaches the box behind it, whose
+//     own auth.log records the attempt. The network is one that stands no inner router,
+//     so the box the server finds there is the one its smaller LAN holds.
 //   - The town's unlisted site answers a fetch by its domain, and findit's live index
 //     never lists it, whether searched by its name, its domain or its town.
 //
@@ -32,7 +32,7 @@ import { siteAddress } from '../src/core/generation/publisher.js';
 import { DECLARED_NETWORKS, networkAt, publicAddress } from '../src/core/generation/world.js';
 import { seededForwards } from '../src/core/generation/seededForwards.js';
 import { generateHomeLan } from '../src/core/generation/generateHomeLan.js';
-import { npcUsername } from '../src/core/generation/remoteHostFs.js';
+import { hostServices, npcUsername } from '../src/core/generation/remoteHostFs.js';
 import { siteServer } from '../src/core/generation/siteServer.js';
 import { FINDIT_DOMAIN } from '../src/core/generation/findit.js';
 import { ACCESS_LOG_PATH } from '../src/core/logging/accessLog.js';
@@ -190,59 +190,70 @@ check(
   `status=${followed.status} error=${errorOf(followed.body)}`,
 );
 
-// === 6. An office's gateway forwards more than its site, and a scan shows each. ===
+// === 6. A gateway forwards ssh to a box behind it, and a scan shows every forward. ===
+/** The forward of `key`'s gateway that lands on a box serving ssh, if any does. */
+const sshForwardOf = (key: string) =>
+  seededForwards(key).find((forward) =>
+    generateHomeLan(key).hosts.some(
+      (host) =>
+        host.ip === forward.internalIp &&
+        hostServices(key, host).some(
+          ({ spec, port }) => spec.service === 'ssh' && port === forward.internalPort,
+        ),
+    ),
+  );
 // A town network that is not `deep`, whose gateway forwards ssh to a box behind it.
-const OFFICE = DECLARED_NETWORKS.find(
+const FORWARDER = DECLARED_NETWORKS.find(
   (network) =>
     network.profile !== undefined &&
     network.profile !== 'deep' &&
-    network.site !== undefined &&
-    seededForwards(network.key).some((forward) => forward.internalPort === 22),
+    sshForwardOf(network.key) !== undefined,
 );
-const OFFICE_IP = OFFICE === undefined ? undefined : publicAddress(OFFICE.key);
-const SSH_FORWARD =
-  OFFICE === undefined
-    ? undefined
-    : seededForwards(OFFICE.key).find((forward) => forward.internalPort === 22);
-const DESK = generateHomeLan(OFFICE?.key ?? '').hosts.find(
+const FORWARDER_IP = FORWARDER === undefined ? undefined : publicAddress(FORWARDER.key);
+const SSH_FORWARD = FORWARDER === undefined ? undefined : sshForwardOf(FORWARDER.key);
+const DESK = generateHomeLan(FORWARDER?.key ?? '').hosts.find(
   (host) => host.ip === SSH_FORWARD?.internalIp,
 );
 if (
-  OFFICE === undefined ||
-  OFFICE_IP === undefined ||
+  FORWARDER === undefined ||
+  FORWARDER_IP === undefined ||
   SSH_FORWARD === undefined ||
   DESK === undefined
 ) {
-  console.error('No lone or flat publisher in Millbrook forwards ssh — the world is unusable.');
+  console.error('No lone or flat network in Millbrook forwards ssh — the world is unusable.');
   process.exit(2);
 }
-const DESK_ID = machineIdForLanHost(DESK, OFFICE.key);
+const DESK_ID = machineIdForLanHost(DESK, FORWARDER.key);
 const clearDeskLog = async () => {
   await sr.from('patches').delete().eq('machine_id', DESK_ID).eq('path', AUTH_LOG_PATH);
 };
 await clearDeskLog();
 
-const officeScan = await post(signRequest(visitor, 'resolvePublicScan', { target: OFFICE_IP }));
-const officePorts = portsOf(officeScan.body).map(
+const forwarderScan = await post(
+  signRequest(visitor, 'resolvePublicScan', { target: FORWARDER_IP }),
+);
+const forwarderPorts = portsOf(forwarderScan.body).map(
   (openPort) => `${openPort.port}/${openPort.service}`,
 );
-const forwardedPorts = seededForwards(OFFICE.key).map((forward) => forward.publicPort);
+const forwardedPorts = seededForwards(FORWARDER.key).map((forward) => forward.publicPort);
 check(
-  `nmap <${OFFICE.essid}'s address> (${OFFICE.profile}) shows every service its gateway forwards`,
-  officeScan.status === 200 &&
-    ['22/ssh', '80/http', `${SSH_FORWARD.publicPort}/ssh`].every((port) =>
-      officePorts.includes(port),
-    ) &&
-    forwardedPorts.every((port) => officePorts.some((open) => open.startsWith(`${port}/`))),
-  `status=${officeScan.status} ports=${officePorts.join(',')}`,
+  `nmap <${FORWARDER.essid}'s address> (${FORWARDER.profile}) shows every service its gateway forwards`,
+  forwarderScan.status === 200 &&
+    [
+      '22/ssh',
+      `${SSH_FORWARD.publicPort}/ssh`,
+      ...(FORWARDER.site === undefined ? [] : ['80/http']),
+    ].every((port) => forwarderPorts.includes(port)) &&
+    forwardedPorts.every((port) => forwarderPorts.some((open) => open.startsWith(`${port}/`))),
+  `status=${forwarderScan.status} ports=${forwarderPorts.join(',')}`,
 );
 
 // === 7. Connecting through the forward reaches the box behind it, not the gateway. ===
 const login = await post(
   signRequest(visitor, 'authCreateSessionPublic', {
     session_id: `millbrook-forward-${Date.now()}`,
-    target: OFFICE_IP,
-    username: npcUsername(OFFICE.key, DESK),
+    target: FORWARDER_IP,
+    username: npcUsername(FORWARDER.key, DESK),
     password: 'not-the-password',
     port: SSH_FORWARD.publicPort,
   }),
@@ -255,7 +266,7 @@ const { data: deskLog } = await sr
   .eq('path', AUTH_LOG_PATH)
   .maybeSingle();
 check(
-  `ssh -p ${SSH_FORWARD.publicPort} reaches ${DESK.hostname} behind the office's gateway`,
+  `ssh -p ${SSH_FORWARD.publicPort} reaches ${DESK.hostname} behind ${FORWARDER.essid}'s gateway`,
   login.status === 401 &&
     typeof deskLog?.content === 'string' &&
     deskLog.content.includes('Failed password'),

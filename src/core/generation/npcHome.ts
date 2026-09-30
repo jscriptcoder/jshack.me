@@ -25,6 +25,7 @@ import { inhabitant, networkPersona } from './persona.js';
 import { lanZoneName } from '../network/resolveName.js';
 import { WORLD_EPOCH } from '../cve/worldClock.js';
 import { createPrng, type Prng } from './prng.js';
+import { DESK_PREFIXES } from './pools/hostnames.js';
 import {
   BASHRC_ADDITIONS,
   DEBIAN_BASHRC,
@@ -37,8 +38,6 @@ import {
 import { COLLEAGUES, NOTE_TEMPLATES, TIMES, WEEKDAYS } from './pools/homeNotes.js';
 import { PERSONAL_HISTORY, WORK_HISTORY } from './pools/homeHistory.js';
 import { buildPhoneHome, deviceModel } from './phoneHome.js';
-
-const DESK_PREFIXES: readonly string[] = ['desktop', 'laptop', 'workstation'];
 
 export const isDeskMachine = (host: LanHost): boolean =>
   DESK_PREFIXES.some((prefix) => host.hostname.startsWith(`${prefix}-`));

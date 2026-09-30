@@ -116,6 +116,9 @@ gateways on their own seed key or machine id.
 | `gw-admin-`, `gw-history-`, `gw-history-logs-`, `gw-history-backups-`, `gw-history-ui-` (by machine id) | a gateway's admin, history, rotations, backups, admin UI |
 | `network-profile-<key>` | how much stands behind a network's gateway beyond Ridgemont: `lone`, `flat` or `deep`, weighed by its category |
 | `gw-forwards-<key>` | the services a gateway beyond Ridgemont forwards beside its site: which, and on which public port (a home forwards ssh first when a machine there runs it) |
+| `town-businesses-<town key>` | how many businesses a town keeps |
+| `town-business-kinds-<town key>` | each business's category and kind, no kind twice while its category has another |
+| `town-business-names-<town key>` | each business's name, from its kind's templates |
 | `town-homes-<town key>` | how many homes a town keeps, and which |
 | `relations-<key>` | the leads that go to a network: how many, from whom, of which kind, from which box |
 | `relation-host-key-<key>-<ip>` | the host key every desk that has met a client box records for it |
@@ -140,6 +143,33 @@ A home or a café is never `deep`, and a council or an office never `lone`. A pu
 always holds the web server its site answers from. Every reader of the shape (scans, ssh
 reach, the inner-gateway lookups, the DNS zone, snmp, the gateway's own files) asks the LAN,
 never the profile, so a network with no inner gateway has none anywhere.
+
+## What a business is
+
+A town's businesses (`world.ts`) each draw a category, cafe 30, retail 40 or corporate 30,
+and then a **kind** from that category's list (`pools/businessKinds.ts`): a grocer, a bakery,
+a pharmacy, a bookshop, an electronics shop, a hardware shop, a pawn shop or a florist; a
+café, a tea room or a coffee bar; a consultancy, a logistics firm, an insurer, an IT firm or
+an accountant. No kind repeats in a town while its category has another left. Institutions,
+homes and Ridgemont's networks have no kind.
+
+- **Its name** comes from its kind's templates (`{surname}'s Bakery`, `{street} Hardware`,
+  `{filler} Market`), each with one slot filled from a surname, street or filler list. A
+  name whose wifi or domain another network already holds is drawn again. The wifi and the
+  domain are spelt from the name without its accents or apostrophes (`Whitlock's Café` is
+  `WHITLOCKS-CAFE`, `whitlockscafe.com`). The templates and lists only grow at the end,
+  and freeze at launch.
+- **Its site** says what it sells or does. Its category's search description and front
+  pages carry slots (`{goods}`, `{service}`, and a shop's `{daily}` and `{range}`, an
+  office's `{work}`) that its kind fills (`SITE_WORDS` in `pools/webSites.ts`). A shop,
+  café or office with no kind fills them with the words its category always had
+  (`CATEGORY_WORDS`), so Ridgemont's sites read as they always did. Every other page, and
+  everything else on its boxes, is its category's.
+- **Every town keeps an office.** The leads to a town's homes and hidden sites start on an
+  office's desk or its file share, so when a town draws no office its last business is one.
+  A town's office names every workstation a desk and every file server a working share, and
+  when none of its machines drew one, the lowest free machines (never the one serving its
+  site) become a file server and a desk.
 
 ## What a box holds
 

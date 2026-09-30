@@ -239,7 +239,9 @@ target's forwarded ssh when its gateway keeps one, else the gateway's own sshd o
 - **The IT contractor.** An office with a desk keeps a shortcut to every client in the
   desk owner's `~/.ssh/config` (`Host <client wifi, lowercased>`, its address, the
   account, a `Port` off `22`) and the matching `known_hosts` line. Millbrook's is
-  Keystone Logistics' `laptop-33`, which reaches every other business and five homes.
+  Westbrook Haulage's `laptop-56`, which reaches seven other publishers and five homes.
+  Every town keeps an office with a desk and a working share, so every town has a place
+  its leads start from (`world-content-architecture.md`, "What a business is").
 - **The offsite backup.** A business with a file server copies `/srv` every night to a
   home, never to another business, and a home that lets ssh in from outside always
   receives one. The file server's `/etc/crontab` runs
@@ -251,8 +253,8 @@ target's forwarded ssh when its gateway keeps one, else the gateway's own sshd o
   `/srv/share/invoices/<supplier wifi, lowercased>-<number>.txt`, naming it by site name
   and domain, with its arrival in the share's `vsftpd.log.1`
   (`generation/supplierInvoices.ts`). Drawn on `relation-supplier-<key>`, after the
-  target's other leads, so they kept their draws. Millbrook's is Harvest Market's, on
-  Keystone Logistics' `share-102`.
+  target's other leads, so they kept their draws. Millbrook's is FreshWay Coffee's, on
+  Westbrook Haulage's `files-16`.
 
 Following one takes the shipped verbs: `cat` the shortcut or the crontab on a box the
 player is on, `whois` the address, `nmap` it for the forwarded port, `ssh -p` in as the
@@ -265,7 +267,7 @@ test over the whole declaration holds it (`world.test.ts`, "the reach of the wor
 
 About 15% of a town's publishers keep their site off every search:
 `max(1, round(15%))`, picked on `town-unlisted-<town key>` and flagged `unlisted` on the
-declaration (Millbrook unlists Harvest Market). The council is never picked: its directory
+declaration (Millbrook unlists FreshWay Coffee). The council is never picked: its directory
 is how the town's unlisted institutions are found, so it must be found first. An unlisted
 site's `robots.txt` reads `User-agent: *` / `Disallow: /` and nothing else, in place of
 whatever it drew (the draws are still made, so nothing after them moves). findit needs no
