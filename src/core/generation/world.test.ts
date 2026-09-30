@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { publisherIp, siteAddress } from './publisher.js';
+import { siteAddress } from './publisher.js';
 import { isPublicIp } from './ip.js';
 import { FINDIT_DOMAIN, FINDIT_NETWORK } from './finditNetwork.js';
 import { siteServer } from './siteServer.js';
@@ -18,6 +18,10 @@ import {
 import { generateHomeLan } from './generateHomeLan.js';
 import { buildApGatewayBaseFs } from './routerFs.js';
 import { resolveLanName } from '../network/resolveName.js';
+import { crackableEssidPool } from './generateWifi.js';
+import { TOWN_HOMES } from './pools/townHomes.js';
+import { relationsTo } from './relations.js';
+import { indexedWeb } from '../findit/webIndex.js';
 
 /**
  * The world reaches past Ridgemont. Millbrook is a village of its own, with its own block
@@ -95,7 +99,7 @@ describe('Millbrook', () => {
 
   it('gives every network an address in its region block that a player can reach', () => {
     for (const network of millbrook()) {
-      const address = publisherIp(network.key) ?? '';
+      const address = publicAddress(network.key) ?? '';
       expect(address, network.key).toMatch(/^87\.\d{1,3}\.\d{1,3}\.\d{1,3}$/);
       const fourth = Number(address.split('.')[3]);
       expect(fourth, network.key).toBeGreaterThanOrEqual(2);
@@ -113,7 +117,7 @@ describe('Millbrook', () => {
         network.essid,
         network.place,
         network.site?.domain,
-        publisherIp(network.key),
+        publicAddress(network.key),
       ]),
     ).toEqual([
       ['r0/t1/n0', 'TOWN-HALL-WIFI', 'the town hall', 'millbrook.gov', '87.98.0.2'],
@@ -143,12 +147,18 @@ describe('Millbrook', () => {
         'pinnacleitsolutions.com',
         '87.98.12.110',
       ],
+      ['r0/t1/n9', 'KOWALSKI-WIFI', "the Kowalskis' house", undefined, '87.98.109.250'],
+      ['r0/t1/n10', 'THE-HARGREAVES', "the Hargreaves' house", undefined, '87.98.207.137'],
+      ['r0/t1/n11', 'GARDEN-FLAT', 'the garden flat', undefined, '87.98.49.24'],
+      ['r0/t1/n12', 'ROSE-COTTAGE', 'Rose Cottage', undefined, '87.98.146.164'],
+      ['r0/t1/n13', 'PEAR-TREE-HOUSE', 'Pear Tree House', undefined, '87.98.244.51'],
+      ['r0/t1/n14', 'OKONKWO-FAMILY', 'the Okonkwo family home', undefined, '87.98.85.191'],
     ]);
   });
 
   it('scatters its networks across its block rather than numbering them in a row', () => {
     const slots = millbrook().map((network) => {
-      const [, , third, fourth] = (publisherIp(network.key) ?? '').split('.').map(Number);
+      const [, , third, fourth] = (publicAddress(network.key) ?? '').split('.').map(Number);
       return (third ?? 0) * 256 + (fourth ?? 0);
     });
     for (const slot of slots) {
@@ -175,7 +185,7 @@ describe('Millbrook', () => {
 
   it('gives no two networks in the world the same address or the same domain', () => {
     const addresses = [
-      ...DECLARED_NETWORKS.flatMap((network) => publisherIp(network.key) ?? []),
+      ...DECLARED_NETWORKS.flatMap((network) => publicAddress(network.key) ?? []),
       siteAddress(FINDIT_DOMAIN),
     ];
     const domains = [
@@ -188,7 +198,7 @@ describe('Millbrook', () => {
 
   it('finds each network again behind the address it answers at', () => {
     for (const network of millbrook()) {
-      expect(networkAt(publisherIp(network.key) ?? '')).toBe(network.key);
+      expect(networkAt(publicAddress(network.key) ?? '')).toBe(network.key);
     }
   });
 
@@ -317,6 +327,102 @@ describe("Millbrook's town directory", () => {
       expect(pageAt(domain, 'directory.html'), domain).toBeUndefined();
       expect(homepageAt(domain), domain).not.toContain('Town directory');
     }
+  });
+});
+
+/** The most homes a village can keep, which the pool must be able to fill. */
+const VILLAGE_HOMES_MOST = 8;
+
+/** Millbrook's homes: the networks there that nobody publishes from. */
+const homes = (): readonly DeclaredNetwork[] =>
+  millbrook().filter((network) => network.category === 'residential');
+
+describe("Millbrook's homes", () => {
+  it('keeps 4 to 8 homes, declared after every business so no earlier key moves', () => {
+    const networks = millbrook();
+    const count = homes().length;
+    expect(count).toBeGreaterThanOrEqual(4);
+    expect(count).toBeLessThanOrEqual(8);
+    expect(networks.slice(-count)).toEqual(homes());
+    expect(networks.map((network) => network.key)).toEqual(
+      networks.map((_, index) => `r0/t1/n${index}`),
+    );
+  });
+
+  it('names every home under a wifi and a place of its own', () => {
+    const essids = DECLARED_NETWORKS.map((network) => network.essid);
+    expect(new Set(essids).size).toBe(essids.length);
+    for (const home of homes()) {
+      expect(home.essid).toMatch(/^[A-Z0-9]+(-[A-Z0-9]+)*$/);
+      expect(home.place).not.toBe('');
+    }
+  });
+
+  it('publishes nothing from a home: no site, no domain, no place in the directory', () => {
+    const directory = pageAt('millbrook.gov', 'directory.html') ?? '';
+    for (const home of homes()) {
+      expect(home.site, home.key).toBeUndefined();
+      expect(home.directory, home.key).toBeUndefined();
+      expect(directory, home.key).not.toContain(home.essid);
+      expect(directory, home.key).not.toContain(home.place);
+    }
+    const homeAddresses = homes().map((home) => publicAddress(home.key));
+    for (const network of DECLARED_NETWORKS) {
+      if (network.site === undefined) continue;
+      expect(homeAddresses, network.site.domain).not.toContain(siteAddress(network.site.domain));
+    }
+  });
+
+  it('draws every home from a pool of distinct wifi names, each with a place of its own', () => {
+    const essids = TOWN_HOMES.map(([essid]) => essid);
+    expect(essids.length).toBeGreaterThanOrEqual(VILLAGE_HOMES_MOST);
+    expect(new Set(essids).size).toBe(essids.length);
+    for (const [essid, place] of TOWN_HOMES) {
+      expect(essid).toMatch(/^[A-Z0-9]+(-[A-Z0-9]+)*$/);
+      expect(crackableEssidPool, essid).not.toContain(essid);
+      expect(place.trim(), essid).not.toBe('');
+    }
+  });
+
+  it('broadcasts no home to a wifi scan in Ridgemont', () => {
+    for (const home of homes()) {
+      expect(crackableEssidPool, home.key).not.toContain(home.essid);
+    }
+  });
+});
+
+/**
+ * Nothing in the world is out of reach. A network is found on findit, by standing in
+ * Ridgemont, on its town's directory, or by a lead kept on a network found one of those
+ * ways. One that none of them reach could never be played.
+ */
+describe('the reach of the world', () => {
+  it('leaves no network that nothing leads to', async () => {
+    const web = await indexedWeb({
+      findPatchesForMachines: async () => ({ data: [], error: null }),
+      siteAt: async () => null,
+    });
+    const searchable = new Set(web.map((page) => page.address));
+    const inDirectory = new Set(
+      DECLARED_NETWORKS.flatMap((network) => network.directory ?? []).map((site) => site.domain),
+    );
+    const found = new Set(
+      DECLARED_NETWORKS.filter(
+        (network) =>
+          network.town === 'Ridgemont' ||
+          (network.site !== undefined &&
+            (searchable.has(network.site.domain) || inDirectory.has(network.site.domain))),
+      ).map((network) => network.key),
+    );
+
+    const unreached = DECLARED_NETWORKS.filter(
+      (network) =>
+        !found.has(network.key) &&
+        !relationsTo(network.key).some((relation) => found.has(relation.source)),
+    ).map((network) => network.essid);
+
+    expect(homes().length).toBeGreaterThan(0);
+    expect(unreached).toEqual([]);
   });
 });
 

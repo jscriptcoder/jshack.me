@@ -128,8 +128,11 @@ export type LogHistoryOptions = {
   readonly essid: string;
   readonly host: LanHost;
   readonly services: readonly HostService[];
-  /** `/etc/crontab` as the box keeps it. */
+  /** The jobs the box keeps in `/etc/crontab` for itself. */
   readonly crontab: string;
+  /** The jobs its network's offsite backups add after them. Logged on a stream of
+   *  their own, so the box's own history keeps every draw it made before they came. */
+  readonly offsiteJobs: string;
   /** `/etc/fstab` as the box keeps it. */
   readonly fstab: string;
   /** The pages a visitor walks to on the box's web server, `/` first, each with the
@@ -186,6 +189,7 @@ export const buildLogHistory = (options: LogHistoryOptions): Readonly<Record<str
     host,
     services,
     crontab,
+    offsiteJobs,
     fstab,
     pages,
     database,
@@ -233,16 +237,22 @@ export const buildLogHistory = (options: LogHistoryOptions): Readonly<Record<str
       .flatMap((daily) => timer(prng.nextInt(0, LAST_SECOND - 60), daily)),
   ];
 
-  const cron = cronRuns(crontab).map(({ second, command }) => {
-    const pid = pidFrom(prng);
-    return {
-      syslog: syslog(second, 'CRON', pid, `(root) CMD (${command})`),
-      auth: [
-        rootSession(second, 'CRON', pid, 'opened'),
-        rootSession(laterBy(second, prng.nextInt(0, 30)), 'CRON', pid, 'closed'),
-      ],
+  const cronRun =
+    (draws: Prng) =>
+    ({ second, command }: CronRun) => {
+      const pid = pidFrom(draws);
+      return {
+        syslog: syslog(second, 'CRON', pid, `(root) CMD (${command})`),
+        auth: [
+          rootSession(second, 'CRON', pid, 'opened'),
+          rootSession(laterBy(second, draws.nextInt(0, 30)), 'CRON', pid, 'closed'),
+        ],
+      };
     };
-  });
+  const cron = [
+    ...cronRuns(crontab).map(cronRun(prng)),
+    ...cronRuns(offsiteJobs).map(cronRun(createPrng(`relation-cron-log-${essid}-${host.ip}`))),
+  ];
 
   const rebootAt = prng.next() < REBOOT_CHANCE ? prng.nextInt(0, LAST_SECOND - 60) : null;
   const boot =

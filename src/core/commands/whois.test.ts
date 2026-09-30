@@ -114,6 +114,29 @@ describe('whois', () => {
     });
   });
 
+  it("names a home in another town by its wifi, with that town's ISP as its organisation", async () => {
+    const home = DECLARED_NETWORKS.find(
+      (network) => network.town === 'Millbrook' && network.category === 'residential',
+    );
+    if (home === undefined) throw new Error('Millbrook declares no home');
+    const address = addressOf(home.key);
+
+    const { lines, exitCode } = await run(address);
+
+    expect({ lines, exitCode }).toEqual({
+      lines: [
+        '% Harrow Valley registry',
+        '',
+        `inetnum:        ${address} - ${address}`,
+        `netname:        ${home.essid}`,
+        'org-name:       Millbrook Broadband',
+        'city:           Millbrook',
+        'region:         Harrow Valley',
+      ],
+      exitCode: 0,
+    });
+  });
+
   it('names no town or region for a corporation, which stands in none', async () => {
     const address = addressOf('ACME-CORP');
 

@@ -37,6 +37,21 @@ const PORT_PLACEHOLDER = /\{\{port\}\}/g;
 const CIDR_PLACEHOLDER = /\{\{cidr\}\}/g;
 /** Interpolated wherever the zone the box's network answers for belongs. */
 const ZONE_PLACEHOLDER = /\{\{zone\}\}/g;
+/** Interpolated with a neighbour the box reaches over ssh: its name, its address, and
+ *  the port its sshd answers on. A template naming one is drawn only by a box that has
+ *  such a neighbour. */
+const SSH_HOST_PLACEHOLDER = /\{\{sshHost\}\}/g;
+const SSH_ADDRESS_PLACEHOLDER = /\{\{sshAddress\}\}/g;
+const SSH_PORT_PLACEHOLDER = /\{\{sshPort\}\}/g;
+
+/** A neighbouring machine that answers ssh, as a config names it. */
+export type SshNeighbour = {
+  readonly hostname: string;
+  readonly ip: string;
+  readonly port: number;
+};
+
+const namesNeighbour = (template: string): boolean => template.includes('{{sshHost}}');
 
 type RoleConfig = {
   readonly filename: string;
@@ -69,9 +84,9 @@ const CONFIG_BY_ROLE: Readonly<Record<PooledConfigRole, RoleConfig>> = {
     filename: 'ssh_config',
     templates: [
       '# ssh client config — {{hostname}}\nHost *\n  ServerAliveInterval 60\n  ServerAliveCountMax 3\n  HashKnownHosts yes',
-      '# {{hostname}}\nHost bastion\n  HostName 10.0.0.10\n  IdentityFile ~/.ssh/id_rsa\n  ForwardAgent yes\n  StrictHostKeyChecking ask',
+      '# {{hostname}}\nHost {{sshHost}}\n  HostName {{sshAddress}}\n  Port {{sshPort}}\n  IdentityFile ~/.ssh/id_rsa\n  ForwardAgent yes\n  StrictHostKeyChecking ask',
       '# {{hostname}}\nHost *\n  Compression yes\n  ControlMaster auto\n  ControlPath ~/.ssh/cm-%r@%h:%p\n  ControlPersist 10m',
-      '# {{hostname}}\nHost fileserver\n  HostName 192.168.1.20\n  Port 21\nHost *\n  ServerAliveInterval 120\n  TCPKeepAlive yes',
+      '# {{hostname}}\nHost {{sshHost}}\n  HostName {{sshAddress}}\n  Port {{sshPort}}\nHost *\n  ServerAliveInterval 120\n  TCPKeepAlive yes',
       '# {{hostname}}\nHost *\n  PubkeyAuthentication yes\n  PasswordAuthentication yes\n  IdentitiesOnly yes\n  LogLevel INFO',
     ],
   },
@@ -153,6 +168,10 @@ const CONFIG_BY_ROLE: Readonly<Record<PooledConfigRole, RoleConfig>> = {
  * The draw takes the caller's seed as its OWN stream rather than continuing the
  * host's other draws: appending to a shared PRNG sequence would re-roll every value
  * picked after it, silently moving accounts and passwords already generated.
+ *
+ * `sshNeighbours` are the machines the box could keep a shortcut to. A template that
+ * names one, drawn by a box with none, is drawn again from the templates that do not:
+ * a shortcut to a box that is not there would only ever time out.
  */
 export const roleConfigFile = ({
   role,
@@ -161,6 +180,7 @@ export const roleConfigFile = ({
   ports,
   cidr,
   zone,
+  sshNeighbours,
 }: {
   readonly role: PooledConfigRole;
   readonly hostname: string;
@@ -170,13 +190,24 @@ export const roleConfigFile = ({
   readonly cidr: string;
   /** The zone the box's network answers for, `acme-corp.lan`. */
   readonly zone: string;
+  /** The neighbours the box reaches over ssh; none where it has met nobody. */
+  readonly sshNeighbours: readonly SshNeighbour[];
 }): { readonly name: string; readonly content: string } => {
   const config = CONFIG_BY_ROLE[role];
-  const template = createPrng(seed).pick(config.templates);
+  const prng = createPrng(seed);
+  const drawn = prng.pick(config.templates);
+  const template =
+    namesNeighbour(drawn) && sshNeighbours.length === 0
+      ? prng.pick(config.templates.filter((candidate) => !namesNeighbour(candidate)))
+      : drawn;
+  const neighbour = namesNeighbour(template) ? prng.pick(sshNeighbours) : undefined;
   const named = template
     .replace(HOSTNAME_PLACEHOLDER, hostname)
     .replace(CIDR_PLACEHOLDER, cidr)
-    .replace(ZONE_PLACEHOLDER, zone);
+    .replace(ZONE_PLACEHOLDER, zone)
+    .replace(SSH_HOST_PLACEHOLDER, neighbour?.hostname ?? '')
+    .replace(SSH_ADDRESS_PLACEHOLDER, neighbour?.ip ?? '')
+    .replace(SSH_PORT_PLACEHOLDER, String(neighbour?.port ?? ''));
   if (config.service === undefined) return { name: config.filename, content: named };
 
   const listening = ports.get(config.service.service);

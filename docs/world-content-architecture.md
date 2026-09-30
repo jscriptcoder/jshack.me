@@ -26,12 +26,19 @@ most are enforced by a property test named in "How it is tested".
    content honestly is not a verb (lynx's `<table>`/`<pre>`, stamping `/home/guest`). Refused
    and not to be re-asked: `SHOW DATABASES`/`USE`, `LIMIT`/`COUNT`, Redis hashes and lists,
    `zcat`. Generated histories may still TYPE commands v2 lacks (`tail`) — see §9.
-3. **Every reference is true, within its network.** A host, IP, hostname, `.lan` name, port,
-   URL or path that would live in the game exists: `/etc/hosts`, `known_hosts`, `.ssh/config`,
-   histories, crontabs, app configs, intranet links, leases. References stay inside the box's
-   own network (its LAN and gateway chain), name generated hosts only (never player occupants,
-   who come and go), and things outside the game (github.com, vendor URLs) are fiction and
-   exempt. A person's name is not a world reference.
+3. **Every reference is true, and stays within its network unless a relation leads out.** A
+   host, IP, hostname, `.lan` name, port, URL or path that would live in the game exists:
+   `/etc/hosts`, `known_hosts`, `.ssh/config`, histories, crontabs, app configs, intranet
+   links, leases. References stay inside the box's own network (its LAN and gateway chain),
+   name generated hosts only (never player occupants, who come and go), and things outside the
+   game (github.com, vendor URLs) are fiction and exempt. A person's name is not a world
+   reference. The one way out is a **relation** of the box's own network
+   (`generation/relations.ts`): a contractor's shortcut or an offsite backup job may name
+   another network's public address, at a port open there. A backup copy is its source's
+   files, so it states its source's network, never the box it sits on. Even a template's
+   example names a real neighbour or none: the workstation `ssh_config` shortcuts name a
+   neighbour that answers ssh on that port, and `rules.v4`'s example forward says
+   `<internal_ip>`.
 4. **History is frozen and ends at the epoch.** Each box has a seeded life ending at
    `WORLD_EPOCH` (2026-07-12, `core/cve/worldClock.ts`) on one calendar; afterwards only players
    change it. The base tree stays a pure function of the box's coordinates. Every NPC box reads
@@ -108,6 +115,10 @@ gateways on their own seed key or machine id.
 | `mac-<machineId>`, `gw-net-<seed key>` | one MAC per host, a gateway's leases or MAC table |
 | `gw-admin-`, `gw-history-`, `gw-history-logs-`, `gw-history-backups-`, `gw-history-ui-` (by machine id) | a gateway's admin, history, rotations, backups, admin UI |
 | `gw-forwards-<key>` | the services a gateway beyond Ridgemont forwards beside its site: which, and on which public port |
+| `town-homes-<town key>` | how many homes a town keeps, and which |
+| `relations-<key>` | the leads that go to a network: how many, from whom, of which kind, from which box |
+| `relation-host-key-<key>-<ip>` | the host key every desk that has met a client box records for it |
+| `relation-cron-`, `relation-cron-log-` | an offsite backup job's time of night; its `syslog.1`/`auth.log.1` lines |
 
 ## What a box holds
 
@@ -219,6 +230,9 @@ build budget.
   slot, no account but root where one is forbidden, no date after the epoch, no password-pool
   word, every pool entry reachable. Shared helpers: `src/test/worldContent.ts`,
   `src/test/deviceBoxes.ts`.
+- **Leads out of a town network have their own properties** (`relations.test.ts`): every
+  public address a Millbrook box names is its own or a relation's, every private one is on
+  the network whose facts the file states, and both ends of each relation agree.
 - **Variety has a number.** Within a network no two boxes share a byte-identical free-text file;
   across the catalog each category meets a distinct-body ratio (e.g. ≥ 95% root histories).
   Files that state one network fact (`resolv.conf`) are exempt.

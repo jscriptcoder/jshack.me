@@ -135,7 +135,7 @@ const RULES_V4_SEED = [
   '# /etc/iptables/rules.v4 — NAT port-forward table',
   '# One rule per line:  forward <public_port> to <internal_ip>:<internal_port>',
   '# Uncomment & edit to expose an internal host (nothing is forwarded by default):',
-  '# forward 2222 to 10.0.0.10:22',
+  '# forward 2222 to <internal_ip>:22',
   '',
 ].join('\n');
 
