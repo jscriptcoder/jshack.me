@@ -285,6 +285,8 @@ type DrawnWord = Exclude<HiddenWord, 'dump.sql'>;
  *  a directory the default list never tries, the share that keep a sitemap, and the
  *  share with a comment in one page naming an unlinked path. */
 const ROBOTS_SHARE = 0.8;
+/** The robots.txt of a site that asks every crawler to stay away from all of it. */
+const SHUT_OUT_ROBOTS = 'User-agent: *\nDisallow: /\n';
 const ROBOTS_ONLY_SHARE = 0.3;
 const SITEMAP_SHARE = 0.5;
 const COMMENT_SHARE = 0.5;
@@ -573,6 +575,16 @@ export const buildWebSite = ({
                 ] as const,
               ]),
         ];
+  // A site its town keeps off every search asks all crawlers to stay away from the whole
+  // of it, in place of whatever it drew. The draws are made all the same, so nothing
+  // after them moves.
+  const unlisted = published !== undefined && declaredNetwork(essid)?.unlisted === true;
+  const crawlerRules = unlisted
+    ? [
+        ['robots.txt', SHUT_OUT_ROBOTS] as const,
+        ...robots.filter(([file]) => file !== 'robots.txt'),
+      ]
+    : robots;
   const origin = ownUrl.slice(0, -1);
   const sitemap =
     prng.next() < SITEMAP_SHARE
@@ -619,10 +631,9 @@ export const buildWebSite = ({
         document.file,
         fillSlots(document.body, slots),
       ]),
-      ...[...hidden, ...dump, ...robots, ...sitemap].map(([file, content]): readonly [string, string] => [
-        file,
-        fillSlots(content, slots),
-      ]),
+      ...[...hidden, ...dump, ...crawlerRules, ...sitemap].map(
+        ([file, content]): readonly [string, string] => [file, fillSlots(content, slots)],
+      ),
     ]),
     publicPaths,
   };

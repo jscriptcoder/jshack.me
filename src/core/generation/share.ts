@@ -62,6 +62,11 @@ const REVISION_CHANCE = 0.2;
 
 const prefixOf = (hostname: string): string => hostname.slice(0, hostname.lastIndexOf('-'));
 
+/** Whether a file server keeps dated snapshots under `/srv/backup` rather than the
+ *  working tree under `/srv/share`. */
+export const keepsSnapshots = (host: LanHost): boolean =>
+  BACKUP_PREFIXES.includes(prefixOf(host.hostname));
+
 /** How long the nightly job takes to collect everything the desks send it. */
 const PUSH_SPREAD_SECONDS = 1200;
 
@@ -388,7 +393,7 @@ export const buildShare = ({
   readonly account: string;
   readonly people: readonly MailPerson[];
 }): Share => {
-  const keepsBackups = BACKUP_PREFIXES.includes(prefixOf(host.hostname));
+  const keepsBackups = keepsSnapshots(host);
   const prng = createPrng(`share-${essid}-${host.ip}`);
   const cast: ShareCast = {
     people,

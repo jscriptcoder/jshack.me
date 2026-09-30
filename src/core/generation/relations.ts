@@ -27,11 +27,10 @@ import { seededForwards } from './seededForwards.js';
 import { isDeskMachine } from './npcHome.js';
 import { roleOfHostname } from './pools/hostnames.js';
 import { createPrng } from './prng.js';
+import { keepsSnapshots } from './share.js';
 
-/** A lead from one network's box to a door on another network's address. */
-export type Relation = {
-  /** A contractor's shortcut on a desk, or a file server's nightly offsite copy. */
-  readonly kind: 'contractor' | 'backup';
+/** A lead kept on one network's box to another network. */
+type Lead = {
   /** The key of the network the lead is kept on. */
   readonly source: string;
   /** The box the lead is kept on. */
@@ -40,6 +39,12 @@ export type Relation = {
   readonly target: string;
   /** The address the target answers at on the internet. */
   readonly address: string;
+};
+
+/** A lead that logs in at the target: a contractor's shortcut on a desk, or a file
+ *  server's nightly offsite copy. */
+export type Login = Lead & {
+  readonly kind: 'contractor' | 'backup';
   /** The port that opens onto the box the lead reaches there. */
   readonly port: number;
   /** The box that port reaches: one behind the target's gateway, or the gateway. */
@@ -47,6 +52,11 @@ export type Relation = {
   /** The account the lead logs in as on that box. */
   readonly user: string;
 };
+
+/** An unlisted business's invoice, kept on the share of a customer that is listed. */
+export type Supply = Lead & { readonly kind: 'supplier' };
+
+export type Relation = Login | Supply;
 
 /** How many leads a home and a publisher are the target of. Every home is somebody's
  *  client, or nothing would lead to it; a business may be nobody's. */
@@ -58,7 +68,7 @@ const GATEWAY_SSH_PORT = 22;
 /** The one account a gateway's sshd knows. */
 const GATEWAY_USER = 'root';
 
-type Endpoint = Pick<Relation, 'port' | 'targetHost' | 'user'>;
+type Endpoint = Pick<Login, 'port' | 'targetHost' | 'user'>;
 
 /** The door a lead to `key` opens: the box behind its gateway's ssh forward when it
  *  keeps one, otherwise the gateway's own sshd. */
@@ -88,16 +98,18 @@ const endpointOf = (key: string): { readonly endpoint: Endpoint; readonly forwar
 };
 
 type Candidate = {
-  readonly kind: Relation['kind'];
+  readonly kind: Login['kind'];
   readonly source: string;
   readonly hosts: readonly LanHost[];
 };
 
 /** A publisher of a town, with the boxes a lead to another network could be kept on:
  *  the desks of an office, where a contractor keeps shortcuts, and the file servers
- *  whose share could be copied offsite. */
+ *  whose share could be copied offsite or hold a supplier's invoice. */
 type Keeper = {
   readonly source: string;
+  /** Set when no search lists it, so nobody finds a lead it keeps. */
+  readonly unlisted: boolean;
   readonly desks: readonly LanHost[];
   readonly fileServers: readonly LanHost[];
 };
@@ -111,11 +123,50 @@ const keepersIn = (town: string): readonly Keeper[] =>
       const { hosts } = generateHomeLan(network.key);
       return {
         source: network.key,
+        unlisted: network.unlisted === true,
         desks: network.category === 'corporate' ? hosts.filter(isDeskMachine) : [],
         fileServers: hosts.filter((host) => roleOfHostname(host.hostname) === 'fileserver'),
       };
     },
   );
+
+/** Whether `target`'s site is on its town's directory, where an unlisted institution is
+ *  found. */
+const isOnDirectory = (target: DeclaredNetwork): boolean =>
+  DECLARED_NETWORKS.some(
+    (network) =>
+      network.town === target.town &&
+      (network.directory ?? []).some((site) => site.domain === target.site?.domain),
+  );
+
+/** The supplier lead to an unlisted business, which no search lists and no directory
+ *  names: its invoice, on the working share of a customer a search does list. Drawn on
+ *  a stream of its own, so the target's other leads keep theirs. */
+const supplierTo = (
+  target: DeclaredNetwork,
+  address: string,
+  keepers: readonly Keeper[],
+): readonly Supply[] => {
+  if (target.unlisted !== true || isOnDirectory(target)) return [];
+  const customers = keepers.flatMap((keeper) => {
+    const shares = keeper.fileServers.filter((host) => !keepsSnapshots(host));
+    return keeper.source === target.key || keeper.unlisted || shares.length === 0
+      ? []
+      : [{ source: keeper.source, shares }];
+  });
+  if (customers.length === 0) return [];
+  const prng = createPrng(`relation-supplier-${target.key}`);
+  const customer = prng.pick(customers);
+  return [
+    {
+      kind: 'supplier',
+      source: customer.source,
+      sourceHost: prng.pick(customer.shares),
+      target: target.key,
+      address,
+    },
+  ];
+};
 
 /** Every lead that goes to `target`, drawn from the leads `keepers` could keep. */
 const drawnTo = (target: DeclaredNetwork, keepers: readonly Keeper[]): readonly Relation[] => {
@@ -145,14 +196,17 @@ const drawnTo = (target: DeclaredNetwork, keepers: readonly Keeper[]): readonly 
     candidates.filter((candidate) => !first.includes(candidate)),
     count - first.length,
   );
-  return [...first, ...rest].map(({ kind, source, hosts }) => ({
-    kind,
-    source,
-    sourceHost: prng.pick(hosts),
-    target: target.key,
-    address,
-    ...endpoint,
-  }));
+  const logins = [...first, ...rest].map(
+    ({ kind, source, hosts }): Login => ({
+      kind,
+      source,
+      sourceHost: prng.pick(hosts),
+      target: target.key,
+      address,
+      ...endpoint,
+    }),
+  );
+  return [...logins, ...supplierTo(target, address, keepers)];
 };
 
 /** Every lead that goes to `key`, in the order it was drawn. */

@@ -22,6 +22,7 @@ import { crackableEssidPool } from './generateWifi.js';
 import { TOWN_HOMES } from './pools/townHomes.js';
 import { relationsTo } from './relations.js';
 import { indexedWeb } from '../findit/webIndex.js';
+import { robotsAllowFindit } from '../findit/robots.js';
 
 /**
  * The world reaches past Ridgemont. Millbrook is a village of its own, with its own block
@@ -391,6 +392,53 @@ describe("Millbrook's homes", () => {
   });
 });
 
+/** The share of a town's publishers that ask crawlers to stay away. */
+const UNLISTED_SHARE = 0.15;
+
+/** Millbrook's publishers: the networks there that put a site on the internet. */
+const publishers = (): readonly DeclaredNetwork[] =>
+  millbrook().filter((network) => network.site !== undefined);
+
+/** The one line a site that asks every crawler to stay away serves as its robots.txt. */
+const SHUT_OUT = 'User-agent: *\nDisallow: /\n';
+
+describe("Millbrook's unlisted site", () => {
+  it('unlists 15% of the publishers, at least one, and never the council that keeps the directory', () => {
+    const unlisted = publishers().filter((network) => network.unlisted === true);
+    expect(unlisted).toHaveLength(Math.max(1, Math.round(publishers().length * UNLISTED_SHARE)));
+    for (const network of unlisted) {
+      expect(network.directory, network.essid).toBeUndefined();
+    }
+    for (const network of millbrook()) {
+      if (network.site === undefined) expect(network.unlisted, network.essid).toBeUndefined();
+    }
+  });
+
+  it('is pinned (golden): locks the town-unlisted- stream, the publisher it picks', () => {
+    expect(
+      millbrook()
+        .filter((network) => network.unlisted === true)
+        .map((network) => network.essid),
+    ).toEqual(['HARVEST-MARKET']);
+  });
+
+  it('asks every crawler to stay away from the whole site, and says nothing else', () => {
+    for (const network of publishers()) {
+      const robots = pageAt(network.site?.domain ?? '', 'robots.txt');
+      if (network.unlisted === true) expect(robots, network.essid).toBe(SHUT_OUT);
+      else expect(robotsAllowFindit(robots ?? null), network.essid).toBe(true);
+    }
+  });
+
+  it('still answers its front page to anybody who knows its domain', () => {
+    for (const network of publishers().filter((each) => each.unlisted === true)) {
+      expect(homepageAt(network.site?.domain ?? '')).toContain(
+        `<title>${network.site?.name}</title>`,
+      );
+    }
+  });
+});
+
 /**
  * Nothing in the world is out of reach. A network is found on findit, by standing in
  * Ridgemont, on its town's directory, or by a lead kept on a network found one of those
@@ -403,8 +451,13 @@ describe('the reach of the world', () => {
       siteAt: async () => null,
     });
     const searchable = new Set(web.map((page) => page.address));
+    // A directory leads anywhere only once its council's own site is found.
     const inDirectory = new Set(
-      DECLARED_NETWORKS.flatMap((network) => network.directory ?? []).map((site) => site.domain),
+      DECLARED_NETWORKS.filter(
+        (network) => network.site !== undefined && searchable.has(network.site.domain),
+      )
+        .flatMap((network) => network.directory ?? [])
+        .map((site) => site.domain),
     );
     const found = new Set(
       DECLARED_NETWORKS.filter(

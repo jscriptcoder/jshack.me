@@ -24,7 +24,7 @@ import { hostServices, npcUsername } from './remoteHostFs.js';
 import { isDeskMachine } from './npcHome.js';
 import { lanZoneName } from '../network/resolveName.js';
 import { createPrng, type Prng } from './prng.js';
-import { relationsFrom, type Relation } from './relations.js';
+import { relationsFrom, type Login } from './relations.js';
 import type { SshNeighbour as ShortcutTarget } from './pools/configFiles.js';
 import { declaredNetwork } from './world.js';
 
@@ -67,13 +67,13 @@ const knownHosts = (prng: Prng, met: readonly SshNeighbour[]): string =>
     .join('');
 
 /** The clients whose shortcuts are kept on `host`, an IT contractor's desk. */
-const clientsAt = (essid: string, host: LanHost): readonly Relation[] =>
-  relationsFrom(essid).filter(
-    (relation) => relation.kind === 'contractor' && relation.sourceHost.ip === host.ip,
-  );
+const clientsAt = (essid: string, host: LanHost): readonly Login[] =>
+  relationsFrom(essid)
+    .filter((relation): relation is Login => relation.kind === 'contractor')
+    .filter((relation) => relation.sourceHost.ip === host.ip);
 
 /** `known_hosts` lines for the clients, as ssh writes a host met by address alone. */
-const clientKnownHosts = (clients: readonly Relation[]): string =>
+const clientKnownHosts = (clients: readonly Login[]): string =>
   clients
     .map(({ address, port, target, targetHost }) => {
       const names = port === 22 ? address : `[${address}]:${port}`;
@@ -83,7 +83,7 @@ const clientKnownHosts = (clients: readonly Relation[]): string =>
     .join('');
 
 /** A shortcut per client, named by the wifi the client's own people know it by. */
-const clientShortcuts = (clients: readonly Relation[]): readonly string[] =>
+const clientShortcuts = (clients: readonly Login[]): readonly string[] =>
   clients.map(({ address, port, target, user }) => {
     const name = (declaredNetwork(target)?.essid ?? target).toLowerCase();
     const portLine = port === 22 ? '' : `    Port ${port}\n`;
@@ -109,7 +109,7 @@ const sshConfig = (
   prng: Prng,
   essid: string,
   met: readonly SshNeighbour[],
-  clients: readonly Relation[],
+  clients: readonly Login[],
 ): string => {
   const defaults = prng
     .pickN(DEFAULT_OPTIONS, prng.nextInt(1, 3))

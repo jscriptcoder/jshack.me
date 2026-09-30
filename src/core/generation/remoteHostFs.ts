@@ -82,7 +82,7 @@ import { buildRootHome } from './rootHome.js';
 import { buildSshDirectories, sshNeighboursOf } from './sshContent.js';
 import { mailEntries, peopleKnownOn } from './mailbox.js';
 import { MAIL_LOG_PERMISSIONS } from '../logging/mailLog.js';
-import { buildShare } from './share.js';
+import { buildServerShare } from './supplierInvoices.js';
 import { offsiteCopies, offsiteJobs } from './offsiteBackups.js';
 import { DEBIAN_BASH_LOGOUT, DEBIAN_BASHRC, DEBIAN_PROFILE } from './pools/homeSkeleton.js';
 import { pickUsername } from './pools/usernames.js';
@@ -474,7 +474,7 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
   // the same reason as the mail.
   const share =
     role === 'fileserver'
-      ? buildShare({
+      ? buildServerShare({
           essid,
           host,
           account: username,

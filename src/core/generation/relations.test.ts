@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { relationsFrom, relationsTo, type Relation } from './relations.js';
+import { relationsFrom, relationsTo, type Login, type Relation } from './relations.js';
 import {
   DECLARED_NETWORKS,
   PLACELESS_FIRST_OCTET,
@@ -38,6 +38,13 @@ const millbrook = DECLARED_NETWORKS.filter((network) => network.town === 'Millbr
 const allRelations = (): readonly Relation[] =>
   millbrook.flatMap((network) => relationsTo(network.key));
 
+/** Every lead to `key` that logs in there, leaving out a supplier's invoice. */
+const loginsTo = (key: string): readonly Login[] =>
+  relationsTo(key).filter((relation): relation is Login => relation.kind !== 'supplier');
+
+/** Every lead in Millbrook that logs in where it leads. */
+const allLogins = (): readonly Login[] => millbrook.flatMap((network) => loginsTo(network.key));
+
 /** The ssh a gateway forwards to a box behind it, if it forwards one. */
 const sshForwardOf = (key: string) =>
   seededForwards(key).find((forward) => {
@@ -53,13 +60,13 @@ const sshForwardOf = (key: string) =>
   });
 
 describe("a Millbrook network's relations", () => {
-  it('leads to every home from one to three businesses, and to a business from at most two', () => {
+  it('logs in at every home from one to three businesses, and at a business from at most two', () => {
     const counts = millbrook.map((network) => ({
       key: network.key,
       inRange:
         network.category === 'residential'
-          ? relationsTo(network.key).length >= 1 && relationsTo(network.key).length <= 3
-          : relationsTo(network.key).length <= 2,
+          ? loginsTo(network.key).length >= 1 && loginsTo(network.key).length <= 3
+          : loginsTo(network.key).length <= 2,
     }));
 
     expect(counts).toEqual(millbrook.map(({ key }) => ({ key, inRange: true })));
@@ -76,7 +83,7 @@ describe("a Millbrook network's relations", () => {
   });
 
   it("keeps a contractor's shortcuts on a desk of an office's own LAN", () => {
-    const contractors = allRelations().filter((relation) => relation.kind === 'contractor');
+    const contractors = allLogins().filter((relation) => relation.kind === 'contractor');
     expect(contractors.length).toBeGreaterThan(0);
     for (const relation of contractors) {
       const source = millbrook.find((network) => network.key === relation.source);
@@ -87,7 +94,7 @@ describe("a Millbrook network's relations", () => {
   });
 
   it("backs up a file server of the source's own LAN to a box the target forwards ssh to", () => {
-    const backups = allRelations().filter((relation) => relation.kind === 'backup');
+    const backups = allLogins().filter((relation) => relation.kind === 'backup');
     expect(backups.length).toBeGreaterThan(0);
     for (const relation of backups) {
       expect(generateHomeLan(relation.source).hosts).toContainEqual(relation.sourceHost);
@@ -100,7 +107,7 @@ describe("a Millbrook network's relations", () => {
   });
 
   it('backs a business up to a home alone, and to every home that lets ssh in from outside', () => {
-    for (const relation of allRelations().filter((each) => each.kind === 'backup')) {
+    for (const relation of allLogins().filter((each) => each.kind === 'backup')) {
       const target = millbrook.find((network) => network.key === relation.target);
       expect(target?.category, relation.target).toBe('residential');
     }
@@ -119,6 +126,8 @@ describe("a Millbrook network's relations", () => {
   it('names the address the target answers at and a port that opens there onto an account that exists', () => {
     for (const relation of allRelations()) {
       expect(relation.address).toBe(publicAddress(relation.target));
+    }
+    for (const relation of allLogins()) {
       const forward = sshForwardOf(relation.target);
       if (forward === undefined) {
         // Nothing behind the gateway is reachable over ssh, so the lead is to the gateway
@@ -155,7 +164,10 @@ describe("a Millbrook network's relations", () => {
     const graph = allRelations().map(
       (relation) =>
         `${essidOf(relation.source)} ${relation.sourceHost.hostname} -${relation.kind}-> ` +
-        `${essidOf(relation.target)} ${relation.user}@${relation.targetHost.hostname}:${relation.port}`,
+        `${essidOf(relation.target)}` +
+        (relation.kind === 'supplier'
+          ? ''
+          : ` ${relation.user}@${relation.targetHost.hostname}:${relation.port}`),
     );
 
     expect(graph).toEqual([
@@ -164,6 +176,7 @@ describe("a Millbrook network's relations", () => {
       'KEYSTONE-LOGISTICS laptop-33 -contractor-> LIBRARY-PUBLIC root@dist-rtr:22',
       'KEYSTONE-LOGISTICS laptop-33 -contractor-> TIPSY-TEAPOT root@gw-main:22',
       'KEYSTONE-LOGISTICS laptop-33 -contractor-> HARVEST-MARKET root@core-rtr:22',
+      'KEYSTONE-LOGISTICS share-102 -supplier-> HARVEST-MARKET',
       'KEYSTONE-LOGISTICS laptop-33 -contractor-> GREENLEAF-GROCERS root@firewall01:22',
       'KEYSTONE-LOGISTICS laptop-33 -contractor-> KOWALSKI-WIFI root@pfsense01:22',
       'KEYSTONE-LOGISTICS laptop-33 -contractor-> THE-HARGREAVES root@core-rtr:22',
@@ -184,7 +197,7 @@ const fileOn = (key: string, host: LanHost, path: string): string | undefined =>
 };
 
 describe("an IT contractor's shortcuts", () => {
-  const contractors = () => allRelations().filter((relation) => relation.kind === 'contractor');
+  const contractors = () => allLogins().filter((relation) => relation.kind === 'contractor');
 
   /** Where the person at the contractor's desk keeps their `.ssh/`. */
   const sshDirOf = (relation: Relation) =>
@@ -261,10 +274,10 @@ const filesUnder = (key: string, host: LanHost, path: string): ReadonlyMap<strin
 };
 
 describe("a business's offsite backup", () => {
-  const backups = () => allRelations().filter((relation) => relation.kind === 'backup');
+  const backups = () => allLogins().filter((relation) => relation.kind === 'backup');
 
   /** The job the source's crontab runs, as it would be typed. */
-  const commandOf = (relation: Relation) => {
+  const commandOf = (relation: Login) => {
     const name = millbrook.find((network) => network.key === relation.source)?.essid;
     return (
       `rsync -az /srv/ ${relation.user}@${relation.address}:backups/${name?.toLowerCase()}/ ` +
@@ -395,6 +408,115 @@ describe("a business's offsite backup", () => {
  * one only where a relation of its own network leads, and nothing on a LAN it does not
  * stand on. A backup copy is its source's files, so it is read as its source's.
  */
+describe("an unlisted business's supplier lead", () => {
+  const supplies = () => allRelations().filter((relation) => relation.kind === 'supplier');
+
+  /** Whether `key`'s site is on its town's directory, which is how an unlisted
+   *  institution is found. */
+  const onDirectory = (key: string) => {
+    const domain = millbrook.find((network) => network.key === key)?.site?.domain;
+    return millbrook.some((network) =>
+      (network.directory ?? []).some((site) => site.domain === domain),
+    );
+  };
+
+  /** The invoices `relation`'s customer keeps on its share, by file name. */
+  const invoicesOf = (relation: Relation) =>
+    filesUnder(relation.source, relation.sourceHost, '/srv/share/invoices/');
+
+  it('leads to every unlisted business, and to nothing else', () => {
+    const unlistedBusinesses = millbrook.filter(
+      (network) => network.unlisted === true && !onDirectory(network.key),
+    );
+    expect(unlistedBusinesses.length).toBeGreaterThan(0);
+    for (const network of unlistedBusinesses) {
+      expect(
+        relationsTo(network.key).some((relation) => relation.kind === 'supplier'),
+        network.essid,
+      ).toBe(true);
+    }
+    for (const relation of supplies()) {
+      expect(unlistedBusinesses.map((network) => network.key)).toContain(relation.target);
+    }
+  });
+
+  it('is kept by a listed publisher, on a file server that keeps a working share', () => {
+    expect(supplies().length).toBeGreaterThan(0);
+    for (const relation of supplies()) {
+      const source = millbrook.find((network) => network.key === relation.source);
+      expect(source?.site, relation.source).toBeDefined();
+      expect(source?.unlisted, relation.source).toBeUndefined();
+      expect(generateHomeLan(relation.source).hosts).toContainEqual(relation.sourceHost);
+      expect(filesUnder(relation.source, relation.sourceHost, '/srv/share/').size).toBeGreaterThan(
+        0,
+      );
+    }
+  });
+
+  it("leaves its invoice on the customer's share, naming the supplier by its site and domain", () => {
+    for (const relation of supplies()) {
+      const site = millbrook.find((network) => network.key === relation.target)?.site;
+      const invoices = [...invoicesOf(relation).values()].filter(
+        (content) => content.includes(site?.domain ?? '') && content.includes(site?.name ?? ''),
+      );
+      expect(invoices, relation.target).toHaveLength(1);
+    }
+  });
+
+  it('is pinned (golden): locks the relation-invoice- stream, the invoice the customer keeps', () => {
+    const [relation] = supplies();
+    if (relation === undefined) throw new Error('Millbrook has no supplier');
+    expect([...invoicesOf(relation)]).toEqual([
+      [
+        'harvest-market-6068.txt',
+        [
+          'INVOICE 6068',
+          '',
+          'From: Harvest Market',
+          '      harvestmarket.com',
+          'To:   Keystone Logistics',
+          '',
+          'Date: 2026-05-16',
+          'Payment due within 30 days.',
+          '',
+          'Goods supplied, as ordered    1560.00',
+          'TOTAL DUE                     1560.00',
+          '',
+        ].join('\n'),
+      ],
+    ]);
+    // Filed in office hours on the day it is dated, from the desk of whoever filed it.
+    const log = fileOn(relation.source, relation.sourceHost, '/var/log/vsftpd.log.1') ?? '';
+    expect(log.split('\n')).toContain(
+      'Sat May 16 11:22:54 2026 [pid 75129] [storage] OK UPLOAD: Client "192.168.154.220", ' +
+        '"/srv/share/invoices/harvest-market-6068.txt", 207 bytes',
+    );
+  });
+
+  it('keeps no invoice from the supplier on any other box of the town', () => {
+    const kept = supplies().map((relation) => `${relation.source} ${relation.sourceHost.ip}`);
+    for (const network of millbrook) {
+      for (const host of generateHomeLan(network.key).hosts.filter(
+        (candidate) => candidate.kind === 'machine',
+      )) {
+        const invoices = filesUnder(network.key, host, '/srv/share/invoices/');
+        expect(invoices.size > 0, `${network.essid} ${host.hostname}`).toBe(
+          kept.includes(`${network.key} ${host.ip}`),
+        );
+      }
+    }
+  });
+
+  it('records the invoice arriving on the share, like every other file there', () => {
+    for (const relation of supplies()) {
+      const log = fileOn(relation.source, relation.sourceHost, '/var/log/vsftpd.log.1') ?? '';
+      for (const name of invoicesOf(relation).keys()) {
+        expect(log, name).toContain(`/srv/share/invoices/${name}`);
+      }
+    }
+  });
+});
+
 describe('what a Millbrook box names beyond its own network', () => {
   const keys = millbrook.map((network) => network.key);
 
@@ -420,7 +542,7 @@ describe('what a Millbrook box names beyond its own network', () => {
   /** Every file on `tree`, each with the network whose facts it states: a backup copy's
    *  are its source's, everything else the box's own. */
   const statements = (essid: string, tree: Directory) => {
-    const copies = relationsTo(essid).filter((relation) => relation.kind === 'backup');
+    const copies = loginsTo(essid).filter((relation) => relation.kind === 'backup');
     return walkTree(createFsView(tree, { userType: 'root' }), asAbsPath('/'), (path, node) => {
       if (node.kind !== 'file') return [];
       const copy = copies.find((relation) => {
