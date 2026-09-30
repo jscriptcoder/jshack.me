@@ -770,18 +770,23 @@ describe('how a site is written out', () => {
               ? ['people.html']
               : category === 'government'
                 ? ['staff.html']
-                : [];
-      const listed = files.filter((file) => ['team.html', 'people.html', 'staff.html'].includes(file));
+                : category === 'healthcare'
+                  ? ['clinicians.html']
+                  : [];
+      const listed = files.filter((file) =>
+        ['team.html', 'people.html', 'staff.html', 'clinicians.html'].includes(file),
+      );
       if (JSON.stringify(listed) !== JSON.stringify(expected)) {
         return [`${box.host.hostname} (${category}) lists people in ${listed.join() || 'nothing'}`];
       }
       // The heading is what a reader sees, and each kind of place has its own word for
       // it: an office keeps a Team, a department its People, a council its Staff
-      // directory.
+      // directory, a place of care its clinicians.
       const headings: Readonly<Record<string, string>> = {
         'team.html': 'Team',
         'people.html': 'People',
         'staff.html': 'Staff directory',
+        'clinicians.html': 'Our clinicians',
       };
       return listed.flatMap((file) =>
         (served(tree, `/${file}`) ?? '').includes(`<h1>${headings[file]}</h1>`)

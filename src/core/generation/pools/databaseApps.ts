@@ -824,6 +824,91 @@ const cases: Archetype = {
   ],
 };
 
+/** When the patients of a place of care were born, as the application stores a date it
+ *  never calculates with: text, so it is never mistaken for the moment a row was made. */
+const BIRTH_DATES = [
+  '1938-02-11', '1941-07-30', '1944-11-02', '1947-05-19', '1949-09-08', '1952-01-23',
+  '1954-03-12', '1956-12-04', '1958-06-27', '1960-10-15', '1962-04-01', '1964-08-21',
+  '1966-02-09', '1968-11-30', '1970-07-14', '1972-03-26', '1975-09-03', '1977-12-18',
+  '1980-05-07', '1983-01-29', '1985-10-11', '1988-06-02', '1990-02-24', '1993-08-16',
+  '1996-04-05', '1999-11-22', '2003-07-09', '2008-03-17', '2012-09-28', '2017-05-13',
+];
+
+const APPOINTMENT_TYPES = [
+  'Check-up', 'Blood test', 'Filling', 'Vaccination', 'Follow-up', 'Scale and polish',
+  'Eye test', 'Hearing test', 'Physiotherapy',
+];
+
+/** A place of care's appointments: who its patients are, who sees them, and when. It
+ *  holds nothing about what is wrong with anybody. */
+const appointments: Archetype = {
+  names: ['appointments', 'patient_admin', 'pas'],
+  tables: [
+    {
+      name: 'patients',
+      required: true,
+      columns: [
+        id,
+        code('patient_number', 'PT-', 40001),
+        person('name'),
+        pick('date_of_birth', BIRTH_DATES),
+        stamp('registered_at'),
+      ],
+    },
+    {
+      name: 'clinicians',
+      required: true,
+      columns: [
+        id,
+        person('name'),
+        pick('role', [
+          'Consultant', 'Ward sister', 'Practice nurse', 'Dentist', 'Dental nurse', 'Physiotherapist',
+          'Pharmacist',
+        ]),
+        whole('sessions_a_week', 1, 10),
+        stamp('joined_at'),
+      ],
+    },
+    {
+      name: 'appointments',
+      required: true,
+      columns: [
+        id,
+        ref('patient_id', 'patients'),
+        ref('clinician_id', 'clinicians'),
+        pick('type', APPOINTMENT_TYPES),
+        pick('status', ['booked', 'arrived', 'seen', 'cancelled', 'did not attend']),
+        ref('booked_by', 'users'),
+        stamp('booked_at'),
+      ],
+    },
+    {
+      name: 'rooms',
+      required: false,
+      columns: [
+        id,
+        unique('name', [
+          'Clinic room 1', 'Clinic room 2', 'Clinic room 3', 'Consulting room A', 'Consulting room B',
+          'Dental surgery', 'X-ray room', 'Day room',
+        ]),
+        pick('floor', ['Ground', 'First']),
+        stamp('added_at'),
+      ],
+    },
+    {
+      name: 'waiting_list',
+      required: false,
+      columns: [
+        id,
+        ref('patient_id', 'patients'),
+        pick('type', APPOINTMENT_TYPES),
+        whole('weeks_waiting', 1, 18),
+        stamp('added_at'),
+      ],
+    },
+  ],
+};
+
 const shop: Archetype = {
   names: ['shop', 'store_pos', 'retail'],
   tables: [
@@ -1064,6 +1149,7 @@ export const ARCHETYPE_DEFINITIONS = {
   bookings,
   cases,
   shop,
+  appointments,
   telemetry,
   scoreboard,
   wiki,

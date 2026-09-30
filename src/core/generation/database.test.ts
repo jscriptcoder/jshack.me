@@ -305,7 +305,7 @@ describe('the application a database holds', () => {
   });
 
   it('draws every archetype a kind of place can run on some network', () => {
-    const drawn = new Set(crackableEssidPool.map((essid) => networkArchetype(essid)));
+    const drawn = new Set(ALL_ESSIDS.map((essid) => networkArchetype(essid)));
     const undrawn = Object.values(ARCHETYPES_BY_CATEGORY)
       .flat()
       .filter((archetype) => !drawn.has(archetype));
@@ -367,6 +367,39 @@ describe('the application a database holds', () => {
     expect(wrong).toEqual([]);
   });
 
+  it('keeps appointments on a place of care’s network: its patients, clinicians and appointments', () => {
+    const essids = ALL_ESSIDS.filter((essid) => networkPersona(essid).category === 'healthcare');
+    const wrong = essids.flatMap((essid) => {
+      const host = { ip: '10.40.0.9', hostname: 'db-9', kind: 'machine' as const };
+      const { name, tables } = buildApplication({
+        prng: createPrng(`healthcare-${essid}`),
+        essid,
+        host,
+        people: ['mrodriguez', 'jchen', 'agarcia'],
+      });
+      return ['patients', 'clinicians', 'appointments', 'users'].every((table) => table in tables) &&
+        ['appointments', 'patient_admin', 'pas'].some((candidate) => name.startsWith(candidate))
+        ? []
+        : [`${essid}: ${name} holds ${Object.keys(tables).join(', ')}`];
+    });
+
+    expect(essids.length).toBeGreaterThan(0);
+    expect(wrong).toEqual([]);
+  });
+
+  it('keeps nothing about a patient but who they are and when they are booked in', () => {
+    // A place of care's application is somebody's records: the world keeps them mundane
+    // and fictional, with no table or column for what is wrong with anybody.
+    const clinical = /diagnos|clinical|condition|symptom|treatment|medication|note/i;
+    const named = ARCHETYPES.appointments.tables.flatMap((table) => [
+      table.name,
+      ...table.columns.map((column) => `${table.name}.${column.name}`),
+    ]);
+
+    expect(named.filter((name) => clinical.test(name))).toEqual([]);
+    expect(ARCHETYPES_BY_CATEGORY.healthcare).toEqual(['appointments']);
+  });
+
   it('keeps a till and its customers on a shop’s network: its products, sales, sale lines and loyalty members', () => {
     const essids = crackableEssidPool.filter((essid) => networkPersona(essid).category === 'retail');
     const wrong = essids.flatMap((essid) => {
@@ -395,7 +428,7 @@ const oneOfEach = (): readonly (Box & { readonly archetype: ArchetypeKey; readon
   (Object.keys(ARCHETYPES) as ArchetypeKey[]).map((archetype) => {
     const prefix = archetype === 'cms' ? 'portal' : archetype === 'api' ? 'api' : archetype === 'mail' ? 'mail' : 'db';
     const essid =
-      crackableEssidPool.find((candidate) => networkArchetype(candidate) === archetype) ?? 'BEAN-THERE-WIFI';
+      ALL_ESSIDS.find((candidate) => networkArchetype(candidate) === archetype) ?? 'BEAN-THERE-WIFI';
     const host = { ip: '10.40.0.9', hostname: `${prefix}-9`, kind: 'machine' as const };
     const people = ['mrodriguez', 'jchen', 'agarcia', 'hkim'];
     const { name, tables } = buildApplication({ prng: createPrng(`sample-${archetype}`), essid, host, people });
@@ -697,7 +730,7 @@ const manyOfEach = (): readonly (Box & { readonly archetype: ArchetypeKey; reado
       const prefix =
         archetype === 'cms' ? 'portal' : archetype === 'api' ? 'api' : archetype === 'mail' ? 'mail' : 'db';
       const essid =
-        crackableEssidPool.find((candidate) => networkArchetype(candidate) === archetype) ?? 'BEAN-THERE-WIFI';
+        ALL_ESSIDS.find((candidate) => networkArchetype(candidate) === archetype) ?? 'BEAN-THERE-WIFI';
       const host = { ip: `10.40.0.${index + 1}`, hostname: `${prefix}-${index + 1}`, kind: 'machine' as const };
       const people = ['mrodriguez', 'jchen', 'agarcia', 'hkim', 'tnguyen'].slice(0, 2 + (index % 4));
       const { name, tables } = buildApplication({

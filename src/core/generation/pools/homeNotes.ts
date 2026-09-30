@@ -161,4 +161,18 @@ export const NOTE_TEMPLATES: Readonly<Record<NetworkCategory, readonly NoteTempl
     { file: 'keys.txt', body: 'keys for {place}\nshutter key with {colleague} until {day}\nalarm code changes on {date}\n' },
     { file: 'handover.md', body: 'handover {date}, {place}\ntwo deliveries due\none refund waiting on {colleague}\nthe rest keeps until {day}\n\n-- {first}\n' },
   ],
+  healthcare: [
+    { file: 'rota.txt', body: 'rota week of {date}\n{day}: me on the early shift from {time}\n{colleague}: nights\nswaps go through the office at {place}\n' },
+    { file: 'handover.md', body: 'handover {date}, {place}\n- {count} beds turned round today\n- the linen came late again\n- {colleague} has the key to the store\n\n-- {first}\n' },
+    { file: 'training.md', body: 'mandatory training {date}\n- fire safety, done\n- manual handling, booked for {day}\n- {colleague} still owes me the sign-off\n' },
+    { file: 'supplies.txt', body: 'stores order for {place}\n- gloves, medium x{count}\n- the good hand gel, not the one that stings\n- ask {colleague} about the missing trolley\n' },
+    { file: 'clinic.txt', body: 'clinic on {day}\nstarts {time}, {count} booked in\n{colleague} on the front desk\nborrow the extra chairs from {place}\n' },
+    { file: 'parking.txt', body: 'staff car park at {place}\npermit renewal due {date}\n{colleague} says the barrier is stuck again\nparked on the road {count} times this month\n' },
+    { file: 'leave.md', body: 'leave request\noff from {date}\n{colleague} covers my shifts at {place}\nback on {day}\n\n-- {first}\n' },
+    { file: 'meeting.md', body: 'team meeting {date}\n- new appointment letters from next month\n- the waiting room chairs are finally here\n- {colleague} wants the tea fund at {place} audited\n' },
+    { file: 'reminders.txt', body: 'reminders\n- overtime sheet before {time}\n- chase {colleague} about the new badge\n- {place} shuts the front desk early on {day}\n' },
+    { file: 'students.txt', body: 'students with us from {date}\n{count} of them, all first years\n{colleague} does the tour of {place}\nI do the fire exits\n' },
+    { file: 'shifts.md', body: 'extra shifts this month\n{count} so far, two of them nights\n{day} was the long one, home at {time}\nclaim form to {colleague}\n\n-- {first}\n' },
+    { file: 'fair.md', body: 'summer fair at {place} {date}\nstalls from {time}\n{colleague} is doing the cakes\nthe raffle had {count} prizes last year\n' },
+  ],
 };

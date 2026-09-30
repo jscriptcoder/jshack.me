@@ -778,6 +778,80 @@ export const MAIL_SPECS: Readonly<Record<NetworkArchetypeKey, readonly MailThrea
       ],
     },
   ],
+  appointments: [
+    {
+      subject: 'Patients who did not attend',
+      opener: [
+        'Last week had more missed appointments than any week this year.',
+        'Most were booked a long way ahead and never reminded.',
+        'Could we switch the text reminders on for everything, not just the clinics?',
+      ],
+      replies: [
+        ['Switched on. The reminder goes out two days before.'],
+        ['The did-not-attend list is half what it was. Worth keeping.'],
+      ],
+    },
+    {
+      subject: 'Two patients under one number',
+      opener: [
+        'Reception found a patient number with two different people behind it.',
+        'One registered years ago and one last month, with the same surname.',
+        'Nothing is merged yet. Could somebody who knows the system look before anything is booked?',
+      ],
+      replies: [
+        ['Looked. The newer one gets a number of their own, and the old one stays as it was.'],
+        ['Done, and the appointments moved across to the right person.'],
+      ],
+    },
+    {
+      subject: 'Clinicians who have left',
+      opener: [
+        'The list of clinicians still has two people who left in the spring.',
+        'Their names come up when reception books, and people pick them by mistake.',
+        'Can they be marked as gone rather than deleted, so their old appointments still read?',
+      ],
+      replies: [
+        ['Marked. They no longer appear when booking.'],
+        ['Checked the old appointments. They still show who the patient saw.'],
+      ],
+    },
+    {
+      subject: 'The waiting list',
+      opener: [
+        'The waiting list has patients on it who were seen weeks ago.',
+        'Nobody took them off after their appointment, so the numbers look worse than they are.',
+        'Could whoever books the appointment also clear the waiting list entry?',
+      ],
+      replies: [
+        ['I will do mine from today. There are a few from last month I can clear now.'],
+        ['The list is down by a third, and every name on it is really waiting.'],
+      ],
+    },
+    {
+      subject: 'Room bookings for the Thursday clinic',
+      opener: [
+        'The Thursday clinic keeps losing its room to whoever books first.',
+        'Twice this month the patients waited in the corridor.',
+        'Could the room be held for the clinic every week?',
+      ],
+      replies: [
+        ['Held until the end of the year. Anybody else needs to ask first.'],
+        ['Clinic has had its room every Thursday since. Nobody has been in the corridor.'],
+      ],
+    },
+    {
+      subject: 'Printing the day lists',
+      opener: [
+        'The day lists print overnight and the printer by reception jams on the long ones.',
+        'This morning half of them were missing when the first patients arrived.',
+        'Could the lists go to the office printer instead?',
+      ],
+      replies: [
+        ['Moved. The office printer takes the long lists without complaint.'],
+        ['A full set every morning this week. Reception says thank you.'],
+      ],
+    },
+  ],
   shop: [
     {
       subject: 'Till two keeps freezing',
@@ -1959,6 +2033,104 @@ export const PERSONAL_THREADS: Readonly<Record<NetworkCategory, readonly MailThr
       replies: [
         ['That was me. Moved, and it will not happen again.'],
         ['Bay was clear all week. The driver even said thank you.'],
+      ],
+    },
+  ],
+  healthcare: [
+    {
+      subject: 'Staff car park permits',
+      opener: [
+        'The new permits are ready to collect from the estates office.',
+        'The old ones stop working at the end of the month.',
+        'Bring the old one back when you collect, or they will not hand the new one over.',
+      ],
+      replies: [
+        ['Collected mine. The queue at lunchtime is long, go first thing.'],
+        ['Nearly everybody has theirs now. The last few are on the office door.'],
+      ],
+    },
+    {
+      subject: 'Kettle in the staff room',
+      opener: [
+        'The staff room kettle is leaking from underneath.',
+        'It has left a puddle by the sockets twice this week.',
+        'I have unplugged it and put a note on it.',
+      ],
+      replies: [
+        ['Thanks. There is an old one in the seminar room we can borrow for now.'],
+        ['A new one came from the league of friends. It is on the side, and it does not leak.'],
+      ],
+    },
+    {
+      subject: 'Lockers on the ground floor',
+      opener: [
+        'Several lockers downstairs have had the same padlock on them since the spring.',
+        'Nobody seems to know whose they are.',
+        'Estates will cut them off next month unless somebody claims them.',
+      ],
+      replies: [
+        ['One of those is mine. I will empty it this week.'],
+        ['Claimed or cleared, all of them. There are free lockers now if you need one.'],
+      ],
+    },
+    {
+      subject: 'Leaving collection',
+      opener: [
+        'There is a card and an envelope going round for the night porter.',
+        'Thirty years here, and retiring at the end of the month.',
+        'The card is at the front desk until Friday.',
+      ],
+      replies: [
+        ['Signed. Somebody should put a photo in with it, from the old days.'],
+        ['Handed over at the end of the last shift. There were a few tears.'],
+      ],
+    },
+    {
+      subject: 'The Christmas rota',
+      opener: [
+        'The Christmas rota goes up next week.',
+        'Anybody who worked Christmas Day last year gets first pick of the days off.',
+        'Put your preferences on the sheet in the office by Friday.',
+      ],
+      replies: [
+        ['Done. I am happy to take New Year if it helps somebody.'],
+        ['Rota is up. Nobody is working both days, which is a first.'],
+      ],
+    },
+    {
+      subject: 'Lost property at reception',
+      opener: [
+        'The box behind reception is overflowing again.',
+        'Mostly umbrellas, reading glasses and one very good scarf.',
+        'Anything not claimed by the end of the month goes to the charity shop.',
+      ],
+      replies: [
+        ['The scarf might be mine. I will come and look at lunch.'],
+        ['Box emptied. Two umbrellas went home with their owners.'],
+      ],
+    },
+    {
+      subject: 'The lift by the main entrance',
+      opener: [
+        'The lift by the main entrance is stopping between floors.',
+        'Porters are taking beds round by the back lift for now.',
+        'Please keep the back lift free for them where you can.',
+      ],
+      replies: [
+        ['The engineer is booked for tomorrow morning.'],
+        ['Fixed. Both lifts are running and the corridor is quiet again.'],
+      ],
+    },
+    {
+      subject: 'Tea fund',
+      opener: [
+        'The tea fund tin is nearly empty.',
+        'It has paid for milk and biscuits for everybody on the ward since the summer.',
+        'If you have been drinking the tea, a coin or two would help.',
+      ],
+      replies: [
+        ['Put some in this morning. The good biscuits were worth it.'],
+        ['Tin is full again. Thank you, everybody.'],
       ],
     },
   ],

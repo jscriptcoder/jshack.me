@@ -36,6 +36,7 @@ const UNNAMED_PLACES: Readonly<Record<NetworkCategory, readonly string[]>> = {
   hacker: ['the hackerspace', 'the lab', 'the basement', 'the workshop', 'the bunker'],
   government: ['the council offices', 'the precinct', 'the county court', 'the records office', 'the registry'],
   retail: ['the shop', 'the store', 'the corner shop', 'the supermarket', 'the stockroom'],
+  healthcare: ['the surgery', 'the clinic', 'the health centre', 'the ward', 'the practice'],
 };
 
 export const networkPersona = (essid: string): NetworkPersona => {

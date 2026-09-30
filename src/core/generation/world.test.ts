@@ -22,8 +22,25 @@ import { buildApGatewayBaseFs } from './routerFs.js';
 import { resolveLanName } from '../network/resolveName.js';
 import { crackableEssidPool } from './generateWifi.js';
 import { TOWN_HOMES } from './pools/townHomes.js';
-import { NAME_TEMPLATES, NAME_WORDS, type BusinessSubtype } from './pools/businessKinds.js';
-import { FRONT_PAGES, SITE_DESCRIPTIONS, SITE_WORDS } from './pools/webSites.js';
+import {
+  NAME_TEMPLATES,
+  NAME_WORDS,
+  type BusinessSubtype,
+  type NetworkSubtype,
+} from './pools/businessKinds.js';
+import {
+  API_ENDPOINTS,
+  CATEGORY_WORDS,
+  FRONT_PAGES,
+  PEOPLE_ROLES,
+  SITE_DESCRIPTIONS,
+  SITE_WORDS,
+} from './pools/webSites.js';
+import { MOTD_TEMPLATES } from './pools/etcFiles.js';
+import { PLACE_DOWNLOADS } from './pools/phoneFiles.js';
+import { buildRemoteHostFs } from './remoteHostFs.js';
+import { buildDeepHostFs } from './deepHostFs.js';
+import { deepBoxes, filesUnder, lanBoxes } from '../../test/worldContent.js';
 import type { NetworkCategory } from './pools/essidCatalog.js';
 import { fillSlots } from './npcHome.js';
 import { relationsTo } from './relations.js';
@@ -92,6 +109,7 @@ describe('Millbrook', () => {
     ['millbrook.gov', 'Millbrook Town Council'],
     ['millbrookpd.gov', 'Millbrook Police Department'],
     ['millbrooklibrary.org', 'Millbrook Public Library'],
+    ['millbrookhospital.org', 'Millbrook Cottage Hospital'],
   ])('serves %s under the name of the institution that holds it', (domain, name) => {
     expect(homepageAt(domain)).toContain(`<title>${name}</title>`);
   });
@@ -102,6 +120,7 @@ describe('Millbrook', () => {
     expect(descriptionOf(homepageAt('millbrooklibrary.org'))).toContain(
       'visitor information for the people of Millbrook.',
     );
+    expect(descriptionOf(homepageAt('millbrookhospital.org'))).toContain('wards');
   });
 
   it('gives every network an address in its region block that a player can reach', () => {
@@ -154,6 +173,13 @@ describe('Millbrook', () => {
       ['r0/t1/n12', 'ROSE-COTTAGE', 'Rose Cottage', undefined, '87.98.146.164'],
       ['r0/t1/n13', 'PEAR-TREE-HOUSE', 'Pear Tree House', undefined, '87.98.244.51'],
       ['r0/t1/n14', 'OKONKWO-FAMILY', 'the Okonkwo family home', undefined, '87.98.85.191'],
+      [
+        'r0/t1/n15',
+        'COTTAGE-HOSPITAL',
+        'the cottage hospital',
+        'millbrookhospital.org',
+        '87.98.183.78',
+      ],
     ]);
   });
 
@@ -295,6 +321,7 @@ describe("Millbrook's town directory", () => {
       ['http://millbrook.gov/', 'Millbrook Town Council'],
       ['http://millbrookpd.gov/', 'Millbrook Police Department'],
       ['http://millbrooklibrary.org/', 'Millbrook Public Library'],
+      ['http://millbrookhospital.org/', 'Millbrook Cottage Hospital'],
     ]);
   });
 
@@ -306,7 +333,12 @@ describe("Millbrook's town directory", () => {
   });
 
   it("names no network but the town's own institutions", () => {
-    const listed = ['millbrook.gov', 'millbrookpd.gov', 'millbrooklibrary.org'];
+    const listed = [
+      'millbrook.gov',
+      'millbrookpd.gov',
+      'millbrooklibrary.org',
+      'millbrookhospital.org',
+    ];
     const page = directory();
     for (const network of DECLARED_NETWORKS) {
       if (network.site !== undefined && listed.includes(network.site.domain)) continue;
@@ -344,7 +376,11 @@ describe("Millbrook's homes", () => {
     const count = homes().length;
     expect(count).toBeGreaterThanOrEqual(4);
     expect(count).toBeLessThanOrEqual(8);
-    expect(networks.slice(-count)).toEqual(homes());
+    const first = networks.indexOf(homes()[0]);
+    expect(networks.slice(first, first + count)).toEqual(homes());
+    for (const business of businesses()) {
+      expect(networks.indexOf(business), business.essid).toBeLessThan(first);
+    }
     expect(networks.map((network) => network.key)).toEqual(
       networks.map((_, index) => `r0/t1/n${index}`),
     );
@@ -392,6 +428,79 @@ describe("Millbrook's homes", () => {
   });
 });
 
+describe("Millbrook's cottage hospital", () => {
+  it('stands after every home, so declaring it moved no earlier key', () => {
+    const networks = millbrook();
+    expect(hospitals()).toHaveLength(1);
+    const [hospital] = hospitals();
+    expect(hospital).toMatchObject({
+      key: `r0/t1/n${networks.length - 1}`,
+      essid: 'COTTAGE-HOSPITAL',
+      category: 'healthcare',
+      subtype: 'hospital',
+      place: 'the cottage hospital',
+      site: { domain: 'millbrookhospital.org', name: 'Millbrook Cottage Hospital' },
+    });
+    for (const home of homes()) {
+      expect(networks.indexOf(home), home.essid).toBeLessThan(networks.indexOf(hospital));
+    }
+  });
+
+  it('reads as a hospital on every box a player can reach: its sites, its database, its phone and every login banner', () => {
+    // The hospital keeps no desk, mail server or file server, so notes, shell history,
+    // mail and shares reach no box of its; those are proven on places of care elsewhere.
+    const [hospital] = hospitals();
+    const key = hospital?.key ?? '';
+    const boxes = [
+      ...lanBoxes([key]).map(({ host }) => ({
+        host,
+        files: filesUnder(buildRemoteHostFs(key, host)),
+      })),
+      ...deepBoxes([key]).map(({ host }) => ({
+        host,
+        files: filesUnder(buildDeepHostFs(key, host)),
+      })),
+    ];
+    const pathsUnder = (prefix: string): readonly string[] =>
+      boxes.flatMap(({ files }) => [...files.keys()].filter((path) => path.startsWith(prefix)));
+
+    for (const { host, files } of boxes) {
+      const banners = MOTD_TEMPLATES.healthcare.map((template) =>
+        fillSlots(template, { place: 'the cottage hospital', hostname: host.hostname }),
+      );
+      expect(banners, host.hostname).toContain(files.get('etc/motd'));
+    }
+
+    const clinicians = boxes.flatMap(
+      ({ files }) => files.get('var/www/html/clinicians.html') ?? [],
+    );
+    expect(clinicians).toHaveLength(1);
+    const roles = [
+      ...(clinicians[0] ?? '').matchAll(/<tr><td>[^<]*<\/td><td>([^<]*)<\/td><\/tr>/g),
+    ].map(([, role]) => role);
+    expect(roles.length).toBeGreaterThan(1);
+    for (const role of roles) expect(['Webmaster', ...PEOPLE_ROLES.healthcare]).toContain(role);
+
+    const ownEndpoints = API_ENDPOINTS.healthcare.map(({ file }) => `var/www/html/${file}`);
+    expect(pathsUnder('var/www/html/api/v1/').some((path) => ownEndpoints.includes(path))).toBe(
+      true,
+    );
+
+    expect(
+      boxes.some(({ files }) =>
+        (files.get('var/lib/mysql/data.json') ?? '').includes('"patients"'),
+      ),
+    ).toBe(true);
+
+    const paperwork = PLACE_DOWNLOADS.healthcare.map(
+      ({ name }) => new RegExp(`/Downloads/${name.replace('.', '\\.').replace('{ref}', '\\d+')}$`),
+    );
+    expect(
+      pathsUnder('home/').some((path) => paperwork.some((pattern) => pattern.test(path))),
+    ).toBe(true);
+  });
+});
+
 /** The essids of Millbrook's networks that drew `profile`. */
 const drew = (profile: string): readonly string[] =>
   millbrook()
@@ -408,19 +517,24 @@ describe("Millbrook's network sizes", () => {
     }
   });
 
-  it('never hides a chain behind a home or a cafe, nor shrinks a council or an office to one box', () => {
+  it('never hides a chain behind a home or a cafe, nor shrinks a council, an office or a hospital to one box', () => {
     for (const network of millbrook()) {
       if (network.category === 'residential' || network.category === 'cafe') {
         expect(network.profile, network.essid).not.toBe('deep');
       }
-      if (network.category === 'government' || network.category === 'corporate') {
+      if (['government', 'corporate', 'healthcare'].includes(network.category)) {
         expect(network.profile, network.essid).not.toBe('lone');
       }
     }
   });
 
   it('is pinned (golden): locks the network-profile- stream and its weights', () => {
-    expect(drew('deep')).toEqual(['TOWN-HALL-WIFI', 'MILLBROOK-PD', 'WESTBROOK-HAULAGE']);
+    expect(drew('deep')).toEqual([
+      'TOWN-HALL-WIFI',
+      'MILLBROOK-PD',
+      'WESTBROOK-HAULAGE',
+      'COTTAGE-HOSPITAL',
+    ]);
     expect(drew('lone')).toEqual([
       'FRESHWAY-COFFEE',
       'ABERNETHY-AND-SONS-HARDWARE',
@@ -476,6 +590,20 @@ const KIND_WORDS: Readonly<Record<BusinessSubtype, string>> = {
   accounting: 'payroll',
 };
 
+/** Whether `kind` is a kind of shop, café or office rather than of a place of care. */
+const isBusinessKind = (kind: NetworkSubtype): kind is BusinessSubtype => kind in KIND_WORDS;
+
+/** The kind of shop, café or office `business` is: a grocer when it drew none. */
+const kindOf = (business: DeclaredNetwork): BusinessSubtype => {
+  const kind = business.subtype ?? 'grocer';
+  if (!isBusinessKind(kind)) throw new Error(`${business.essid} is no kind of business`);
+  return kind;
+};
+
+/** Millbrook's hospitals. */
+const hospitals = (): readonly DeclaredNetwork[] =>
+  millbrook().filter((network) => network.category === 'healthcare');
+
 /** Millbrook's businesses: its shops, cafés and offices. */
 const businesses = (): readonly DeclaredNetwork[] =>
   millbrook().filter((network) => network.category in BUSINESS_SUBTYPES);
@@ -515,12 +643,13 @@ describe("Millbrook's kinds of business", () => {
   it('describes every business to a search by the words of its kind', () => {
     for (const business of businesses()) {
       const description = descriptionOf(homepageAt(business.site?.domain ?? ''));
-      expect(description, business.essid).toContain(KIND_WORDS[business.subtype ?? 'grocer']);
+      expect(description, business.essid).toContain(KIND_WORDS[kindOf(business)]);
     }
   });
 
-  it('gives no kind to an institution, a home or a Ridgemont network', () => {
-    for (const network of DECLARED_NETWORKS.filter((each) => !businesses().includes(each))) {
+  it('gives no kind to a council, a library, a home or a Ridgemont network', () => {
+    const kinded = [...businesses(), ...hospitals()];
+    for (const network of DECLARED_NETWORKS.filter((each) => !kinded.includes(each))) {
       expect(network.subtype, network.essid).toBeUndefined();
     }
   });
@@ -560,6 +689,30 @@ describe('what a business says of its kind', () => {
   });
 });
 
+describe('what a place of care says of itself', () => {
+  /** Its search description and each front page its site may draw, in `words`. */
+  const pagesIn = (words: Readonly<Record<string, string>>): readonly string[] =>
+    [SITE_DESCRIPTIONS.healthcare ?? '', ...FRONT_PAGES.healthcare].map((template) =>
+      fillSlots(template, { ...words, site: 'X', town: 'Y' }),
+    );
+
+  it("says a hospital's wards, visiting hours and clinics on every page it draws", () => {
+    const pages = pagesIn(SITE_WORDS.hospital);
+    expect(pages.join('\n')).not.toMatch(/\{\w+\}/);
+    for (const page of pages) {
+      expect(page).toContain('wards, visiting hours and outpatient clinics');
+    }
+  });
+
+  it('says neither where it is no hospital, and still fills every slot', () => {
+    const pages = pagesIn(CATEGORY_WORDS.healthcare ?? {});
+    expect(pages.join('\n')).not.toMatch(/\{\w+\}/);
+    for (const page of pages) {
+      expect(page).not.toMatch(/wards|visiting hours|outpatient/);
+    }
+  });
+});
+
 /** Every name a kind's templates can spell: each template's one slot filled with each
  *  word of its list. */
 const namesFor = (subtype: BusinessSubtype): readonly string[] =>
@@ -571,7 +724,7 @@ const namesFor = (subtype: BusinessSubtype): readonly string[] =>
 describe("Millbrook's business names", () => {
   it('names every business the way its kind of business is named', () => {
     for (const business of businesses()) {
-      const subtype = business.subtype ?? 'grocer';
+      const subtype = kindOf(business);
       expect(namesFor(subtype), business.essid).toContain(business.place);
       expect(business.site?.name).toBe(business.place);
     }
@@ -650,7 +803,7 @@ describe("Millbrook's unlisted site", () => {
       millbrook()
         .filter((network) => network.unlisted === true)
         .map((network) => network.essid),
-    ).toEqual(['FRESHWAY-COFFEE']);
+    ).toEqual(['MILLBROOK-PD', 'ABERNETHY-AND-SONS-HARDWARE']);
   });
 
   it('asks every crawler to stay away from the whole site, and says nothing else', () => {

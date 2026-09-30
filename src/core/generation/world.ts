@@ -17,6 +17,7 @@ import {
   NAME_WORDS,
   type BusinessCategory,
   type BusinessSubtype,
+  type NetworkSubtype,
 } from './pools/businessKinds.js';
 import { TOWN_HOMES, type TownHome } from './pools/townHomes.js';
 import { createPrng } from './prng.js';
@@ -49,8 +50,9 @@ export type DeclaredNetwork = {
   /** How much stands behind its gateway. A landmark declares none: it keeps the shape it
    *  was authored with, which is `deep`. */
   readonly profile?: NetworkProfile;
-  /** What kind of shop, café or office it is. Only a business a town draws has one. */
-  readonly subtype?: BusinessSubtype;
+  /** What kind of shop, café, office or place of care it is. Only a business a town
+   *  draws, and a hospital, has one. */
+  readonly subtype?: NetworkSubtype;
 };
 
 /** A region of the world: what it is called, and the first octet of the block its
@@ -106,6 +108,18 @@ const MILLBROOK_INSTITUTIONS: readonly Institution[] = [
     category: 'public',
     place: 'the public library',
     site: { domain: 'millbrooklibrary.org', name: 'Millbrook Public Library' },
+  },
+];
+
+/** Millbrook's institutions declared after its homes: the town already had its keys when
+ *  they arrived, so they stand last and move none of them. */
+const MILLBROOK_LATER_INSTITUTIONS: readonly Institution[] = [
+  {
+    essid: 'COTTAGE-HOSPITAL',
+    category: 'healthcare',
+    subtype: 'hospital',
+    place: 'the cottage hospital',
+    site: { domain: 'millbrookhospital.org', name: 'Millbrook Cottage Hospital' },
   },
 ];
 
@@ -178,6 +192,7 @@ const PROFILE_WEIGHTS: Readonly<
   public: { lone: 10, flat: 60, deep: 30 },
   corporate: { lone: 0, flat: 40, deep: 60 },
   retail: { lone: 40, flat: 50, deep: 10 },
+  healthcare: { lone: 0, flat: 50, deep: 50 },
   cafe: { lone: 60, flat: 40, deep: 0 },
   residential: { lone: 40, flat: 60, deep: 0 },
 };
@@ -235,11 +250,13 @@ const unlistedOf = (town: Town, networks: readonly Institution[]): readonly Inst
 };
 
 /** Every network in `town`: its institutions first, then the businesses and then the
- *  homes it draws, each on a stream of its own, each keyed by its place in the town. The
- *  homes come last so that drawing them moved no business's key or address. */
+ *  homes it draws, each on a stream of its own, then the institutions declared later,
+ *  each keyed by its place in the town. Whatever arrived later comes after what was there,
+ *  so declaring it moved no earlier key or address. */
 const networksOf = (
   town: Town,
   institutions: readonly Institution[],
+  later: readonly Institution[],
 ): readonly DeclaredNetwork[] => {
   const prng = createPrng(`town-businesses-${townKey(town)}`);
   const count = prng.nextInt(VILLAGE_BUSINESSES_MIN, VILLAGE_BUSINESSES_MAX);
@@ -248,11 +265,12 @@ const networksOf = (
     TOWN_HOMES,
     homesPrng.nextInt(VILLAGE_HOMES_MIN, VILLAGE_HOMES_MAX),
   );
-  const directory = institutions.flatMap((institution) => institution.site ?? []);
+  const directory = [...institutions, ...later].flatMap((institution) => institution.site ?? []);
   const networks = [
     ...institutions,
-    ...businessesOf(town, kindsOf(town, count), [...institutions, ...homes.map(home)]),
+    ...businessesOf(town, kindsOf(town, count), [...institutions, ...homes.map(home), ...later]),
     ...homes.map(home),
+    ...later,
   ];
   const unlisted = unlistedOf(town, networks);
   return networks.map((institution: Institution, index) => {
@@ -270,7 +288,11 @@ const networksOf = (
   });
 };
 
-const MILLBROOK_NETWORKS = networksOf(MILLBROOK, MILLBROOK_INSTITUTIONS);
+const MILLBROOK_NETWORKS = networksOf(
+  MILLBROOK,
+  MILLBROOK_INSTITUTIONS,
+  MILLBROOK_LATER_INSTITUTIONS,
+);
 
 /** Ridgemont's networks are the catalog's, each known by the name it broadcasts. */
 const LANDMARKS: readonly DeclaredNetwork[] = ESSID_CATALOG.map((entry) => ({

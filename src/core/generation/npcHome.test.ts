@@ -7,6 +7,8 @@ import { generateHomeLan, type LanHost } from './generateHomeLan.js';
 import { generateDeepLayer } from './generateDeepLayer.js';
 import { chainLinks } from './lanTopology.js';
 import { inhabitant, networkPersona } from './persona.js';
+import { NOTE_TEMPLATES } from './pools/homeNotes.js';
+import { WORK_HISTORY } from './pools/homeHistory.js';
 import { createFsView } from '../filesystem/fsView.js';
 import { WORLD_EPOCH } from '../cve/worldClock.js';
 import { asAbsPath } from '../types.js';
@@ -135,6 +137,32 @@ describe('an NPC desktop reads as somebody’s', () => {
       const { place } = networkPersona(box.essid);
 
       expect(notesOf(homeFilesOf(box)).some((note) => note.includes(place))).toBe(true);
+    });
+  });
+
+  it('keeps the notes and the work of a place of care on a desk there', () => {
+    const desks = deskBoxes(ALL_ESSIDS).filter(
+      (box) => networkPersona(box.essid).category === 'healthcare',
+    );
+    const ownNotes = NOTE_TEMPLATES.healthcare.map(({ file }) => `notes/${file}`);
+    // Lines only a place of care's history holds, so finding one proves the pool is read.
+    const otherWork = Object.entries(WORK_HISTORY)
+      .filter(([category]) => category !== 'healthcare')
+      .flatMap(([, lines]) => lines);
+    const ownWork = WORK_HISTORY.healthcare.filter((line) => !otherWork.includes(line));
+
+    expect(desks.length).toBeGreaterThan(0);
+    desks.forEach((box) => {
+      const files = homeFilesOf(box);
+      const notes = [...files.keys()].filter((path) => path.startsWith('notes/'));
+      const history = (files.get('.bash_history') ?? '').split('\n');
+
+      expect(notes.length, box.host.hostname).toBeGreaterThan(0);
+      notes.forEach((path) => expect(ownNotes, box.host.hostname).toContain(path));
+      expect(
+        history.some((line) => ownWork.includes(line)),
+        box.host.hostname,
+      ).toBe(true);
     });
   });
 

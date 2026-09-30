@@ -24,6 +24,7 @@ export const NETWORK_CATEGORIES = [
   'hacker',
   'government',
   'retail',
+  'healthcare',
 ] as const;
 
 export type NetworkCategory = (typeof NETWORK_CATEGORIES)[number];

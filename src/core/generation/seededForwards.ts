@@ -26,6 +26,7 @@ const FORWARD_CHANCES: Readonly<Record<NetworkCategory, readonly number[]>> = {
   corporate: [1, 0.5],
   government: [1, 0.5],
   university: [1, 0.5],
+  healthcare: [1],
   retail: [0.5],
   public: [0.5],
   residential: [0.5],

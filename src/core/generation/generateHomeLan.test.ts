@@ -481,7 +481,7 @@ describe('generateHomeLan for a network sized by its profile', () => {
       generateHomeLan(
         DECLARED_NETWORKS.find((network) => network.essid === essid)?.key ?? '',
       ).hosts.map((host) => host.hostname);
-    expect(sized('deep').filter((network) => network.town === 'Millbrook')).toHaveLength(3);
+    expect(sized('deep').filter((network) => network.town === 'Millbrook')).toHaveLength(4);
     expect(hostnamesOf('TOWN-HALL-WIFI')).toEqual([
       'firewall01',
       'android-57',
@@ -510,6 +510,14 @@ describe('generateHomeLan for a network sized by its profile', () => {
       'border-gw',
       'ns-133',
       'nginx-188',
+    ]);
+    expect(hostnamesOf('COTTAGE-HOSPITAL')).toEqual([
+      'core-rtr',
+      'api-17',
+      'iphone-32',
+      'sensor-83',
+      'mikrotik01',
+      'opnsense',
     ]);
   });
 });

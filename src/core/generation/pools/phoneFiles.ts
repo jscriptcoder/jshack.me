@@ -90,6 +90,11 @@ export const PLACE_DOWNLOADS: Readonly<Record<NetworkCategory, readonly Download
     { name: 'rota-week-{ref}.pdf', title: 'Staff rota' },
     { name: 'price-changes.pdf', title: 'Price changes this week' },
   ],
+  healthcare: [
+    { name: 'shift-rota-{ref}.pdf', title: 'Shift rota' },
+    { name: 'visiting-times.pdf', title: 'Visiting times' },
+    { name: 'hand-hygiene.pdf', title: 'Hand hygiene policy' },
+  ],
 };
 
 /** What a person types into their phone's notes and saves as text: `{place}` is what the

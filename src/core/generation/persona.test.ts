@@ -63,6 +63,14 @@ describe('networkPersona', () => {
     expect(categories.size).toBeGreaterThan(3);
   });
 
+  it('puts some networks outside the catalog in a hospital, a surgery or a clinic', () => {
+    const personas = Array.from({ length: 200 }, (_unused, index) =>
+      networkPersona(`Uncatalogued-${index}`),
+    );
+
+    expect(personas.some((persona) => persona.category === 'healthcare')).toBe(true);
+  });
+
   it('names a network outside the catalog whatever kind of place it turns out to be', () => {
     const personas = Array.from({ length: 200 }, (_unused, index) =>
       networkPersona(`Uncatalogued-${index}`),

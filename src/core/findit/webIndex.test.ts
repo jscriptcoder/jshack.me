@@ -76,7 +76,7 @@ describe('the web findit searches', () => {
   it('puts the institution a search names first: the police for police, the court for court', async () => {
     const web = await indexWith();
     const police = rankPages(web, 'police').map((page) => page.address);
-    expect(police.slice(0, 2)).toEqual(['millbrookpd.gov', 'ridgemontpd.gov']);
+    expect(police[0]).toBe('ridgemontpd.gov');
     expect(rankPages(web, 'court')[0]?.address).toBe('ridgemontcourts.gov');
   });
 
@@ -89,12 +89,17 @@ describe('the web findit searches', () => {
     expect(shops).toContain(rankPages(web, 'groceries')[0]?.address);
   });
 
-  it('lists the council, the police and the library of a town beyond Ridgemont for its name', async () => {
+  it('lists the council, the library and the hospital of a town beyond Ridgemont for its name', async () => {
     const web = await indexWith();
     const found = rankPages(web, 'millbrook').map((page) => page.address);
     expect(found).toEqual(
-      expect.arrayContaining(['millbrook.gov', 'millbrookpd.gov', 'millbrooklibrary.org']),
+      expect.arrayContaining(['millbrook.gov', 'millbrooklibrary.org', 'millbrookhospital.org']),
     );
+  });
+
+  it('puts the hospital first for the wards only a hospital says it keeps', async () => {
+    const web = await indexWith();
+    expect(rankPages(web, 'wards')[0]?.address).toBe('millbrookhospital.org');
   });
 
   it("lists each of that town's listed businesses for its own name", async () => {

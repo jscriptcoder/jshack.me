@@ -19,7 +19,7 @@
  */
 
 import type { NetworkCategory } from './essidCatalog.js';
-import type { BusinessSubtype } from './businessKinds.js';
+import type { NetworkSubtype } from './businessKinds.js';
 
 export type SitePage = {
   /** The file it is published as, beneath the document root. */
@@ -41,6 +41,7 @@ export const SITE_DESCRIPTIONS: Readonly<Partial<Record<NetworkCategory, string>
   public: '{site}: opening hours, services and visitor information for the people of {town}.',
   government: '{site}: public services, opening hours, forms to download and how to contact the office.',
   retail: '{site}: {goods}, weekly offers, opening hours, delivery and the loyalty card.',
+  healthcare: '{site}: {care}, opening times and how to reach us.',
 };
 
 /** What a site says on its front page, by kind of place. One is drawn per box. */
@@ -99,11 +100,18 @@ export const FRONT_PAGES: Readonly<Record<NetworkCategory, readonly string[]>> =
     '<p>{range}</p>\n<p>See opening hours and delivery below.</p>',
     '<p>This is the public site of {site}. Staff rotas and stock queries go through the store office, not this page.</p>',
   ],
+  healthcare: [
+    '<p>{site} cares for the people of {town} and the villages around it: {care}.</p>\n<p>In an emergency, call an ambulance. Please do not email us.</p>',
+    '<p>Welcome to {site}. Read about {care} below, with our opening times and how to reach us.</p>\n<p>Please arrive ten minutes before your appointment.</p>',
+    '<p>{site} — {care}.</p>\n<p>The front desk can book, move or cancel an appointment by phone. Results are given by a clinician, never over reception.</p>',
+    '<p>This is the public site of {site}: {care}. Staff looking for rotas or the appointment system should use the internal address.</p>',
+  ],
 };
 
-/** The words that fill a shop's, a café's or an office's description and front page:
- *  `goods` and `service` what it sells or does, `daily` and `range` how a shop's front
- *  page puts it, and `work` how an office's does. */
+/** The words that fill a shop's, a café's, an office's or a place of care's description
+ *  and front page: `goods` and `service` what it sells or does, `daily` and `range` how a
+ *  shop's front page puts it, `work` how an office's does, and `care` what a place of
+ *  care looks after. */
 type KindWords = Readonly<Record<string, string>>;
 
 /** What a grocer says of itself. Every shop, café and office a town did not draw a kind
@@ -116,8 +124,8 @@ const GROCER_WORDS: KindWords = {
     'Everything for the house in one trip: groceries, cleaning, stationery and a little of everything else.',
 };
 
-/** The words each kind of business says of itself. */
-export const SITE_WORDS: Readonly<Record<BusinessSubtype, KindWords>> = {
+/** The words each kind of business or place of care says of itself. */
+export const SITE_WORDS: Readonly<Record<NetworkSubtype, KindWords>> = {
   grocer: GROCER_WORDS,
   bakery: {
     goods: 'bread, cakes and pastries baked every morning',
@@ -177,10 +185,12 @@ export const SITE_WORDS: Readonly<Record<BusinessSubtype, KindWords>> = {
     service: 'bookkeeping, payroll and tax returns',
     work: 'keeps the books and runs the payroll of businesses across the region',
   },
+  hospital: { care: 'wards, visiting hours and outpatient clinics' },
 };
 
-/** The words a shop, café or office with no kind says of itself: what its category said
- *  before kinds existed. */
+/** The words a shop, café, office or place of care with no kind says of itself: what its
+ *  category said before kinds existed, and for a place of care nothing only a hospital, a
+ *  clinic or a dentist would say. */
 export const CATEGORY_WORDS: Readonly<Partial<Record<NetworkCategory, KindWords>>> = {
   retail: GROCER_WORDS,
   cafe: { goods: 'coffee, food' },
@@ -188,6 +198,7 @@ export const CATEGORY_WORDS: Readonly<Partial<Record<NetworkCategory, KindWords>
     service: 'products, services',
     work: 'builds and runs the systems its clients rely on every day',
   },
+  healthcare: { care: 'appointments, check-ups and advice' },
 };
 
 /** Pages every kind of place keeps, reading as their place through their slots. */
@@ -634,6 +645,48 @@ export const SITE_PAGES: Readonly<Record<NetworkCategory, readonly SitePage[]>> 
       ],
     },
   ],
+  healthcare: [
+    {
+      file: 'appointments.html',
+      title: 'Appointments',
+      bodies: [
+        '<p>Book, move or cancel an appointment by phone from eight in the morning.</p>\n<p>If you cannot come, tell us: somebody else can have the slot.</p>',
+        '<table>\n<tr><th>Appointment</th><th>Book</th></tr>\n<tr><td>Routine</td><td>Up to four weeks ahead</td></tr>\n<tr><td>Check-up</td><td>By phone or at the desk</td></tr>\n<tr><td>Blood test</td><td>Mornings only</td></tr>\n</table>',
+      ],
+    },
+    {
+      file: 'visiting.html',
+      title: 'Visiting',
+      bodies: [
+        '<table>\n<tr><td>Afternoons</td><td>14:00–16:00</td></tr>\n<tr><td>Evenings</td><td>18:00–20:00</td></tr>\n</table>\n<p>Two visitors at a time, please.</p>',
+        '<p>Visitors are welcome every afternoon and evening.</p>\n<p>Please stay away if you have been unwell in the last two days.</p>',
+      ],
+    },
+    {
+      file: 'services.html',
+      title: 'Services',
+      bodies: [
+        '<ul>\n<li>Check-ups and routine appointments</li>\n<li>Blood tests</li>\n<li>Vaccinations</li>\n<li>Advice from the pharmacy</li>\n</ul>',
+        '<p>{site} offers routine appointments, tests and advice. Anything we cannot do here, we refer you on for.</p>',
+      ],
+    },
+    {
+      file: 'patients.html',
+      title: 'Patient information',
+      bodies: [
+        '<p>Bring a list of anything you take regularly to every appointment.</p>\n<p>Tell the front desk if your address or phone number changes.</p>',
+        '<p>You can ask to see what we hold about you. Write to the practice manager at <a href="mailto:info@{domain}">info@{domain}</a>.</p>',
+      ],
+    },
+    {
+      file: 'feedback.html',
+      title: 'Feedback',
+      bodies: [
+        '<p>Tell us what went well and what did not. Cards are at the front desk, or write to <a href="mailto:info@{domain}">info@{domain}</a>.</p>',
+        '<p>Every comment is read by the practice manager and answered within two weeks.</p>',
+      ],
+    },
+  ],
 };
 
 /** What a place calls the people it lists, by kind of place — the roles a team page
@@ -648,6 +701,7 @@ export const PEOPLE_ROLES: Readonly<Record<NetworkCategory, readonly string[]>> 
   hacker: ['Keyholder', 'Treasurer', 'Member', 'Events'],
   government: ['Front office', 'Records', 'Licensing', 'Committee clerk', 'Duty officer'],
   retail: ['Store manager', 'Cashier', 'Stock associate', 'Customer service', 'Deliveries'],
+  healthcare: ['Consultant', 'Ward sister', 'Practice manager', 'Receptionist', 'Dental nurse', 'Pharmacist'],
 };
 
 /** What an intranet portal says on its front page. */
@@ -777,6 +831,11 @@ export const API_ENDPOINTS: Readonly<Record<NetworkCategory, readonly ApiEndpoin
     { file: 'api/v1/hours', summary: 'store opening hours', body: '{"monday_saturday":"07:00-22:00","sunday":"10:00-16:00"}' },
     { file: 'api/v1/offers', summary: 'this week’s offers, prices in euros', body: '{"offers":[{"name":"Loaf of bread","price":1},{"name":"Coffee, large jar","price":6}]}' },
     { file: 'api/v1/deliveries/slots', summary: 'delivery slots left today', body: '{"morning":0,"evening":4}' },
+  ],
+  healthcare: [
+    { file: 'api/v1/hours', summary: 'opening hours', body: '{"weekdays":"08:00-18:30","saturday":"09:00-12:00","sunday":null}' },
+    { file: 'api/v1/appointments/free', summary: 'appointments free today', body: '{"morning":2,"afternoon":5}' },
+    { file: 'api/v1/notices', summary: 'current notices', body: '{"notices":["Vaccination clinics start next month"]}' },
   ],
 };
 

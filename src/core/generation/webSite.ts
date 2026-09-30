@@ -232,7 +232,9 @@ const planFor = (options: {
         ? [team('people.html', 'People')]
         : persona.category === 'government'
           ? [team('staff.html', 'Staff directory')]
-          : [];
+          : persona.category === 'healthcare'
+            ? [team('clinicians.html', 'Our clinicians')]
+            : [];
   return {
     front: prng.pick(FRONT_PAGES[persona.category]),
     fixed: directory === undefined ? fixed : [...fixed, directoryPage(directory)],
@@ -483,8 +485,8 @@ export const buildWebSite = ({
   const site = headed(published?.name ?? persona.place);
   const description =
     published === undefined ? null : (SITE_DESCRIPTIONS[persona.category] ?? '{site}');
-  // A shop, café or office says what it sells or does in its own kind's words; one no
-  // town drew a kind for says it as its category always has.
+  // A shop, café, office or hospital says what it sells, does or cares for in its own
+  // kind's words; one no town drew a kind for says it as its category always has.
   const subtype = declaredNetwork(essid)?.subtype;
   const slots = {
     ...(subtype === undefined ? CATEGORY_WORDS[persona.category] : SITE_WORDS[subtype]),

@@ -20,12 +20,17 @@ import type { Directory, FileNode } from '../core/filesystem/types.js';
 
 export type Box = { readonly essid: string; readonly host: LanHost };
 
-/** Networks outside the catalog: another player's, or a router's factory name. */
+/** Networks outside the catalog: another player's, or a router's factory name. The last
+ *  three draw healthcare, which no catalog network is: between them their mail speaks
+ *  every healthcare thread and their file servers keep every healthcare department. */
 export const UNCATALOGUED_ESSIDS = [
   'Linksys-Kitchen',
   'TP-LINK_5G_4A2F',
   'HOME-WIFI-2.4G',
   'xfinitywifi',
+  'HealthCentre-WiFi',
+  'Practice-Staff',
+  'Patient-Staff',
 ];
 /** Every network a town beyond Ridgemont declares, by the key its machines are built from. */
 export const TOWN_KEYS = DECLARED_NETWORKS.filter((network) => network.town !== RIDGEMONT).map(
