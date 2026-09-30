@@ -45,6 +45,21 @@ export const HOSTNAME_PREFIXES: Readonly<Record<DrawnRole, readonly string[]>> =
   dns: ['dns', 'ns', 'resolver', 'bind'],
 };
 
+/** The names of the workstations somebody sits at, rather than carries. */
+export const DESK_PREFIXES: readonly string[] = ['desktop', 'laptop', 'workstation'];
+
+/** The names of the file servers that keep dated snapshots rather than a working tree. */
+export const BACKUP_PREFIXES: readonly string[] = ['backup', 'vault'];
+
+/** The names an office gives the machines a home would name any way it liked: a
+ *  workstation there is a desk, never a phone, and a file server keeps the working share
+ *  the staff save to, never only its backups. */
+export const OFFICE_HOSTNAME_PREFIXES: Readonly<Record<DrawnRole, readonly string[]>> = {
+  ...HOSTNAME_PREFIXES,
+  workstation: DESK_PREFIXES,
+  fileserver: HOSTNAME_PREFIXES.fileserver.filter((prefix) => !BACKUP_PREFIXES.includes(prefix)),
+};
+
 /** Every prefix mapped back to the role that owns it. Built once, and only sound
  *  because no prefix appears twice in the table above. */
 const ROLE_BY_PREFIX: ReadonlyMap<string, DrawnRole> = new Map(

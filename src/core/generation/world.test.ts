@@ -8,6 +8,7 @@ import { createFsView } from '../filesystem/fsView.js';
 import { walkTree } from '../filesystem/walkTree.js';
 import { asAbsPath } from '../types.js';
 import {
+  businessSpelling,
   DECLARED_NETWORKS,
   networkAt,
   PLACELESS_FIRST_OCTET,
@@ -21,6 +22,10 @@ import { buildApGatewayBaseFs } from './routerFs.js';
 import { resolveLanName } from '../network/resolveName.js';
 import { crackableEssidPool } from './generateWifi.js';
 import { TOWN_HOMES } from './pools/townHomes.js';
+import { NAME_TEMPLATES, NAME_WORDS, type BusinessSubtype } from './pools/businessKinds.js';
+import { FRONT_PAGES, SITE_DESCRIPTIONS, SITE_WORDS } from './pools/webSites.js';
+import type { NetworkCategory } from './pools/essidCatalog.js';
+import { fillSlots } from './npcHome.js';
 import { relationsTo } from './relations.js';
 import { indexedWeb } from '../findit/webIndex.js';
 import { robotsAllowFindit } from '../findit/robots.js';
@@ -125,28 +130,22 @@ describe('Millbrook', () => {
       ['r0/t1/n0', 'TOWN-HALL-WIFI', 'the town hall', 'millbrook.gov', '87.98.0.2'],
       ['r0/t1/n1', 'MILLBROOK-PD', 'the police station', 'millbrookpd.gov', '87.98.97.142'],
       ['r0/t1/n2', 'LIBRARY-PUBLIC', 'the public library', 'millbrooklibrary.org', '87.98.195.29'],
-      ['r0/t1/n3', 'TIPSY-TEAPOT', 'Tipsy Teapot', 'tipsyteapot.com', '87.98.36.169'],
-      ['r0/t1/n4', 'HARVEST-MARKET', 'Harvest Market', 'harvestmarket.com', '87.98.134.56'],
+      ['r0/t1/n3', 'WHITLOCKS-CAFE', "Whitlock's Café", 'whitlockscafe.com', '87.98.36.169'],
+      ['r0/t1/n4', 'FRESHWAY-COFFEE', 'FreshWay Coffee', 'freshwaycoffee.com', '87.98.134.56'],
       [
         'r0/t1/n5',
-        'GREENLEAF-GROCERS',
-        'Greenleaf Grocers',
-        'greenleafgrocers.com',
+        'ABERNETHY-AND-SONS-HARDWARE',
+        'Abernethy and Sons Hardware',
+        'abernethyandsonshardware.com',
         '87.98.231.196',
       ],
-      ['r0/t1/n6', 'CORNER-PANTRY', 'Corner Pantry', 'cornerpantry.com', '87.98.73.83'],
-      [
-        'r0/t1/n7',
-        'KEYSTONE-LOGISTICS',
-        'Keystone Logistics',
-        'keystonelogistics.com',
-        '87.98.170.223',
-      ],
+      ['r0/t1/n6', 'ABERNETHYS-BOOKS', "Abernethy's Books", 'abernethysbooks.com', '87.98.73.83'],
+      ['r0/t1/n7', 'VARLEYS-BAKERY', "Varley's Bakery", 'varleysbakery.com', '87.98.170.223'],
       [
         'r0/t1/n8',
-        'PINNACLE-IT-SOLUTIONS',
-        'Pinnacle IT Solutions',
-        'pinnacleitsolutions.com',
+        'WESTBROOK-HAULAGE',
+        'Westbrook Haulage',
+        'westbrookhaulage.com',
         '87.98.12.110',
       ],
       ['r0/t1/n9', 'KOWALSKI-WIFI', "the Kowalskis' house", undefined, '87.98.109.250'],
@@ -421,23 +420,206 @@ describe("Millbrook's network sizes", () => {
   });
 
   it('is pinned (golden): locks the network-profile- stream and its weights', () => {
-    expect(drew('deep')).toEqual(['TOWN-HALL-WIFI', 'MILLBROOK-PD', 'PINNACLE-IT-SOLUTIONS']);
+    expect(drew('deep')).toEqual(['TOWN-HALL-WIFI', 'MILLBROOK-PD', 'WESTBROOK-HAULAGE']);
     expect(drew('lone')).toEqual([
-      'HARVEST-MARKET',
-      'GREENLEAF-GROCERS',
+      'FRESHWAY-COFFEE',
+      'ABERNETHY-AND-SONS-HARDWARE',
+      'VARLEYS-BAKERY',
       'GARDEN-FLAT',
       'ROSE-COTTAGE',
       'OKONKWO-FAMILY',
     ]);
     expect(drew('flat')).toEqual([
       'LIBRARY-PUBLIC',
-      'TIPSY-TEAPOT',
-      'CORNER-PANTRY',
-      'KEYSTONE-LOGISTICS',
+      'WHITLOCKS-CAFE',
+      'ABERNETHYS-BOOKS',
       'KOWALSKI-WIFI',
       'THE-HARGREAVES',
       'PEAR-TREE-HOUSE',
     ]);
+  });
+});
+
+/** The kinds of business a town draws, by category. */
+const BUSINESS_SUBTYPES: Readonly<Record<string, readonly string[]>> = {
+  retail: [
+    'grocer',
+    'bakery',
+    'pharmacy',
+    'bookshop',
+    'electronics',
+    'hardware',
+    'pawn',
+    'florist',
+  ],
+  cafe: ['cafe', 'tea-room', 'coffee-bar'],
+  corporate: ['consulting', 'logistics', 'insurance', 'it-services', 'accounting'],
+};
+
+/** A word only one kind of business in its category uses of itself. */
+const KIND_WORDS: Readonly<Record<BusinessSubtype, string>> = {
+  grocer: 'groceries',
+  bakery: 'pastries',
+  pharmacy: 'prescriptions',
+  bookshop: 'books',
+  electronics: 'cables',
+  hardware: 'screws',
+  pawn: 'jewellery',
+  florist: 'wreaths',
+  cafe: 'light lunches',
+  'tea-room': 'scones',
+  'coffee-bar': 'cold brew',
+  consulting: 'audits',
+  logistics: 'freight',
+  insurance: 'insurance',
+  'it-services': 'managed IT',
+  accounting: 'payroll',
+};
+
+/** Millbrook's businesses: its shops, cafés and offices. */
+const businesses = (): readonly DeclaredNetwork[] =>
+  millbrook().filter((network) => network.category in BUSINESS_SUBTYPES);
+
+describe("Millbrook's kinds of business", () => {
+  it('makes every business one kind of shop, café or office', () => {
+    expect(businesses()).toHaveLength(6);
+    for (const business of businesses()) {
+      expect(BUSINESS_SUBTYPES[business.category], business.essid).toContain(business.subtype);
+    }
+  });
+
+  it('keeps two businesses from being the same kind while their category has another', () => {
+    for (const [category, subtypes] of Object.entries(BUSINESS_SUBTYPES)) {
+      const drawn = businesses()
+        .filter((business) => business.category === category)
+        .map((business) => business.subtype);
+      expect(new Set(drawn).size, category).toBe(Math.min(drawn.length, subtypes.length));
+    }
+  });
+
+  it('is pinned (golden): locks the town-business-kinds- stream and its weights', () => {
+    expect(businesses().map((business) => `${business.essid} ${business.subtype}`)).toEqual([
+      'WHITLOCKS-CAFE cafe',
+      'FRESHWAY-COFFEE coffee-bar',
+      'ABERNETHY-AND-SONS-HARDWARE hardware',
+      'ABERNETHYS-BOOKS bookshop',
+      'VARLEYS-BAKERY bakery',
+      'WESTBROOK-HAULAGE logistics',
+    ]);
+  });
+
+  it('keeps an office in the town, which the leads to its homes and hidden sites start from', () => {
+    expect(businesses().filter((business) => business.category === 'corporate')).not.toEqual([]);
+  });
+
+  it('describes every business to a search by the words of its kind', () => {
+    for (const business of businesses()) {
+      const description = descriptionOf(homepageAt(business.site?.domain ?? ''));
+      expect(description, business.essid).toContain(KIND_WORDS[business.subtype ?? 'grocer']);
+    }
+  });
+
+  it('gives no kind to an institution, a home or a Ridgemont network', () => {
+    for (const network of DECLARED_NETWORKS.filter((each) => !businesses().includes(each))) {
+      expect(network.subtype, network.essid).toBeUndefined();
+    }
+  });
+});
+
+describe('what a business says of its kind', () => {
+  /** Every word a business of `subtype` can publish about itself: its search description
+   *  and each front page its site may draw, with the kind's words in their slots. */
+  const pagesOf = (category: string, subtype: BusinessSubtype): readonly string[] =>
+    [
+      SITE_DESCRIPTIONS[category as NetworkCategory] ?? '',
+      ...FRONT_PAGES[category as NetworkCategory],
+    ].map((template) => fillSlots(template, { ...SITE_WORDS[subtype], site: 'X', town: 'Y' }));
+
+  it('fills every slot, and says nothing another kind of its category says of itself', () => {
+    for (const [category, subtypes] of Object.entries(BUSINESS_SUBTYPES)) {
+      for (const subtype of subtypes as BusinessSubtype[]) {
+        const pages = pagesOf(category, subtype);
+        expect(pages.join('\n'), subtype).not.toMatch(/\{\w+\}/);
+        expect(pages[0], subtype).toContain(KIND_WORDS[subtype]);
+        for (const other of (subtypes as BusinessSubtype[]).filter((each) => each !== subtype)) {
+          for (const page of pages) {
+            expect(page, `${subtype} ${other}`).not.toContain(KIND_WORDS[other]);
+          }
+        }
+      }
+    }
+  });
+
+  it('never has a shop that sells no food offer groceries or bread', () => {
+    const nonFood = BUSINESS_SUBTYPES.retail.filter((each) => !['grocer', 'bakery'].includes(each));
+    for (const subtype of nonFood) {
+      for (const page of pagesOf('retail', subtype as BusinessSubtype)) {
+        expect(page, subtype).not.toMatch(/groceries|bread/i);
+      }
+    }
+  });
+});
+
+/** Every name a kind's templates can spell: each template's one slot filled with each
+ *  word of its list. */
+const namesFor = (subtype: BusinessSubtype): readonly string[] =>
+  NAME_TEMPLATES[subtype].flatMap((template) => {
+    const slot = template.match(/\{(\w+)\}/)?.[1] as keyof typeof NAME_WORDS;
+    return NAME_WORDS[slot].map((word) => template.replace(`{${slot}}`, word));
+  });
+
+describe("Millbrook's business names", () => {
+  it('names every business the way its kind of business is named', () => {
+    for (const business of businesses()) {
+      const subtype = business.subtype ?? 'grocer';
+      expect(namesFor(subtype), business.essid).toContain(business.place);
+      expect(business.site?.name).toBe(business.place);
+    }
+  });
+
+  it('names no business the way any other network in the world is named', () => {
+    for (const business of businesses()) {
+      const others = DECLARED_NETWORKS.filter((network) => network !== business).flatMap(
+        (network) => [network.place, network.site?.name ?? network.place],
+      );
+      expect(
+        others.map((name) => name.toLowerCase()),
+        business.essid,
+      ).not.toContain(business.place.toLowerCase());
+    }
+    const essids = DECLARED_NETWORKS.map((network) => network.essid);
+    expect(new Set(essids).size).toBe(essids.length);
+  });
+
+  it('spells the wifi and the domain from the name, without its accents or apostrophes', () => {
+    expect(businessSpelling("Ashworth's Café")).toEqual({
+      essid: 'ASHWORTHS-CAFE',
+      domain: 'ashworthscafe.com',
+    });
+    expect(businessSpelling('Main Street Mini Mart')).toEqual({
+      essid: 'MAIN-STREET-MINI-MART',
+      domain: 'mainstreetminimart.com',
+    });
+    expect(businessSpelling('Hearth & Grain')).toEqual({
+      essid: 'HEARTH-GRAIN',
+      domain: 'hearthgrain.com',
+    });
+    for (const business of businesses()) {
+      expect(businessSpelling(business.place)).toEqual({
+        essid: business.essid,
+        domain: business.site?.domain,
+      });
+    }
+  });
+
+  it('can spell every name its kinds are given as a wifi a scan will show', () => {
+    const subtypes = Object.values(BUSINESS_SUBTYPES).flat() as BusinessSubtype[];
+    for (const name of subtypes.flatMap(namesFor)) {
+      const { essid, domain } = businessSpelling(name);
+      expect(essid, name).toMatch(/^[A-Z0-9]+(-[A-Z0-9]+)*$/);
+      expect(essid.length, name).toBeLessThanOrEqual(32);
+      expect(domain, name).toMatch(/^[a-z0-9]+\.com$/);
+    }
   });
 });
 
@@ -468,7 +650,7 @@ describe("Millbrook's unlisted site", () => {
       millbrook()
         .filter((network) => network.unlisted === true)
         .map((network) => network.essid),
-    ).toEqual(['HARVEST-MARKET']);
+    ).toEqual(['FRESHWAY-COFFEE']);
   });
 
   it('asks every crawler to stay away from the whole site, and says nothing else', () => {

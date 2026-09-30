@@ -19,6 +19,7 @@ import type { MailPerson } from './networkMail.js';
 import { networkPersona } from './persona.js';
 import { CAMERAS, PHONE_MODELS, SHARE_FOLDERS, type ShareFileSpec } from './pools/shareFiles.js';
 import { createPrng, type Prng } from './prng.js';
+import { BACKUP_PREFIXES } from './pools/hostnames.js';
 
 const DAY_SECONDS = 86_400;
 const LAST_SECOND = WORLD_EPOCH / 1000 - 1;
@@ -42,10 +43,6 @@ const BACKUP_FILES_MAX = 80;
 
 /** How often a photo carries the name of whoever took it. */
 const SIGNED_PHOTO_CHANCE = 0.5;
-
-/** The hostname prefixes of a file server that keeps backups; every other file server
- *  (`share-`, `files-`, `nas-`) keeps the working tree. */
-const BACKUP_PREFIXES: readonly string[] = ['backup', 'vault'];
 
 const SNAPSHOT_COUNT = { min: 2, max: 4 } as const;
 /** Days from the last snapshot to the world stopping, and between two snapshots. */

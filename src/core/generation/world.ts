@@ -10,7 +10,14 @@
  */
 
 import { ESSID_CATALOG, type NetworkCategory, type PublishedSite } from './pools/essidCatalog.js';
-import { TOWN_BUSINESSES, type TownBusiness } from './pools/townBusinesses.js';
+import {
+  BUSINESS_CATEGORY_WEIGHTS,
+  BUSINESS_SUBTYPES,
+  NAME_TEMPLATES,
+  NAME_WORDS,
+  type BusinessCategory,
+  type BusinessSubtype,
+} from './pools/businessKinds.js';
 import { TOWN_HOMES, type TownHome } from './pools/townHomes.js';
 import { createPrng } from './prng.js';
 import { FINDIT_NETWORK } from './finditNetwork.js';
@@ -42,6 +49,8 @@ export type DeclaredNetwork = {
   /** How much stands behind its gateway. A landmark declares none: it keeps the shape it
    *  was authored with, which is `deep`. */
   readonly profile?: NetworkProfile;
+  /** What kind of shop, café or office it is. Only a business a town draws has one. */
+  readonly subtype?: BusinessSubtype;
 };
 
 /** A region of the world: what it is called, and the first octet of the block its
@@ -104,13 +113,46 @@ const MILLBROOK_INSTITUTIONS: readonly Institution[] = [
 const VILLAGE_BUSINESSES_MIN = 3;
 const VILLAGE_BUSINESSES_MAX = 6;
 
+/** A business: what kind it is, and the name over its door. */
+type BusinessKind = { readonly category: BusinessCategory; readonly subtype: BusinessSubtype };
+
+/** The wifi and the domain a business's name is spelt as: its letters and digits, with
+ *  no accent and no apostrophe, as the sign over the door reads to somebody typing it. */
+export const businessSpelling = (name: string): { essid: string; domain: string } => {
+  const plain = name.normalize('NFD').replace(/[\p{M}'’]/gu, '');
+  return {
+    essid: plain.toUpperCase().replace(/[^A-Z0-9]+/g, '-'),
+    domain: `${plain.toLowerCase().replace(/[^a-z0-9]+/g, '')}.com`,
+  };
+};
+
 /** A business under the name over its door: its wifi and its domain are spelt from it. */
-const business = ([category, name]: TownBusiness): Institution => ({
-  essid: name.toUpperCase().replace(/[^A-Z0-9]+/g, '-'),
-  category,
-  place: name,
-  site: { domain: `${name.toLowerCase().replace(/[^a-z0-9]+/g, '')}.com`, name },
-});
+const business = ({ category, subtype }: BusinessKind, name: string): Institution => {
+  const { essid, domain } = businessSpelling(name);
+  return { essid, category, subtype, place: name, site: { domain, name } };
+};
+
+/** The kind of each of `town`'s `count` businesses, on a stream of the town's own. No
+ *  two are the same kind while their category has another left.
+ *
+ *  Every town keeps an office: the leads to its homes and to its hidden sites start on
+ *  an office's desk or its file share, so a town without one would be a dead end. When
+ *  the draw holds none, the last business is one instead; it still draws its category,
+ *  so nothing drawn after it moves. */
+const kindsOf = (town: Town, count: number): readonly BusinessKind[] => {
+  const prng = createPrng(`town-business-kinds-${townKey(town)}`);
+  const weighted = (Object.keys(BUSINESS_CATEGORY_WEIGHTS) as BusinessCategory[]).flatMap(
+    (category) => Array.from({ length: BUSINESS_CATEGORY_WEIGHTS[category] }, () => category),
+  );
+  return Array.from({ length: count }).reduce<readonly BusinessKind[]>((drawn, _, index) => {
+    const drew = prng.pick(weighted);
+    const lacksOffice = index === count - 1 && !drawn.some((kind) => kind.category === 'corporate');
+    const category = lacksOffice ? 'corporate' : drew;
+    const subtypes: readonly BusinessSubtype[] = BUSINESS_SUBTYPES[category];
+    const left = subtypes.filter((subtype) => !drawn.some((kind) => kind.subtype === subtype));
+    return [...drawn, { category, subtype: prng.pick(left.length > 0 ? left : subtypes) }];
+  }, []);
+};
 
 /** The fewest and the most homes a village keeps. */
 const VILLAGE_HOMES_MIN = 4;
@@ -152,6 +194,34 @@ const profileOf = (key: string, category: NetworkCategory): NetworkProfile => {
 
 const townKey = (town: Town): string => `r${town.region}/t${town.index}`;
 
+/** Each of `town`'s businesses under a name from its kind's templates, drawn on a stream
+ *  of the town's own. A name whose wifi or domain another network already holds is drawn
+ *  again: two networks under one domain would answer as one site. */
+const businessesOf = (
+  town: Town,
+  kinds: readonly BusinessKind[],
+  neighbours: readonly Institution[],
+): readonly Institution[] => {
+  const prng = createPrng(`town-business-names-${townKey(town)}`);
+  const held = [...ESSID_CATALOG, ...neighbours];
+  const essids = new Set(held.map((network) => network.essid));
+  const domains = new Set([
+    FINDIT_NETWORK,
+    ...held.flatMap((network) => network.site?.domain ?? []),
+  ]);
+  const draw = (kind: BusinessKind): string => {
+    const name = prng
+      .pick(NAME_TEMPLATES[kind.subtype])
+      .replace(/\{(\w+)\}/, (_, slot: keyof typeof NAME_WORDS) => prng.pick(NAME_WORDS[slot]));
+    const { essid, domain } = businessSpelling(name);
+    if (essids.has(essid) || domains.has(domain)) return draw(kind);
+    essids.add(essid);
+    domains.add(domain);
+    return name;
+  };
+  return kinds.map((kind) => business(kind, draw(kind)));
+};
+
 /** The publishers of a town whose sites no search lists: 15% of them, at least one, drawn
  *  on a stream of the town's own. The council is never among them: its directory is how
  *  the town's unlisted institutions are found, so it must be found first. */
@@ -181,7 +251,7 @@ const networksOf = (
   const directory = institutions.flatMap((institution) => institution.site ?? []);
   const networks = [
     ...institutions,
-    ...prng.pickN(TOWN_BUSINESSES, count).map(business),
+    ...businessesOf(town, kindsOf(town, count), [...institutions, ...homes.map(home)]),
     ...homes.map(home),
   ];
   const unlisted = unlistedOf(town, networks);

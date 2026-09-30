@@ -19,6 +19,7 @@
  */
 
 import type { NetworkCategory } from './essidCatalog.js';
+import type { BusinessSubtype } from './businessKinds.js';
 
 export type SitePage = {
   /** The file it is published as, beneath the document root. */
@@ -34,18 +35,18 @@ export type SitePage = {
  *  the words beyond its name that a search can find it by. Only the kinds of place that
  *  publish a site have one. */
 export const SITE_DESCRIPTIONS: Readonly<Partial<Record<NetworkCategory, string>>> = {
-  corporate: '{site}: products, services, careers and news from the company.',
-  cafe: '{site}: coffee, food, opening hours and free wifi for customers.',
+  corporate: '{site}: {service}, careers and news from the company.',
+  cafe: '{site}: {goods}, opening hours and free wifi for customers.',
   university: '{site}: admissions, courses, research and campus life.',
   public: '{site}: opening hours, services and visitor information for the people of {town}.',
   government: '{site}: public services, opening hours, forms to download and how to contact the office.',
-  retail: '{site}: groceries and household essentials, weekly offers, opening hours, delivery and the loyalty card.',
+  retail: '{site}: {goods}, weekly offers, opening hours, delivery and the loyalty card.',
 };
 
 /** What a site says on its front page, by kind of place. One is drawn per box. */
 export const FRONT_PAGES: Readonly<Record<NetworkCategory, readonly string[]>> = {
   corporate: [
-    '<p>{site} builds and runs the systems its clients rely on every day.</p>\n<p>Browse our services, meet the team, or get in touch below.</p>',
+    '<p>{site} {work}.</p>\n<p>Browse our services, meet the team, or get in touch below.</p>',
     '<p>Welcome to {site}. We have been delivering for our clients since before most of them had a website.</p>\n<p>Quarterly results are published under News.</p>',
     '<p>{site} — trusted by partners across three continents.</p>\n<p>Existing customers: support requests go to the helpdesk, not to your account manager.</p>',
     '<p>This is the public site of {site}. Staff looking for the intranet should use the internal address.</p>',
@@ -93,11 +94,100 @@ export const FRONT_PAGES: Readonly<Record<NetworkCategory, readonly string[]>> =
     '<p>This is the official site of {site}. Staff should use the internal address for anything not published here.</p>',
   ],
   retail: [
-    '<p>Welcome to {site}. Everyday essentials, fresh bread every morning and this week’s offers below.</p>\n<p>Open late, seven days a week.</p>',
+    '<p>Welcome to {site}. {daily} and this week’s offers below.</p>\n<p>Open late, seven days a week.</p>',
     '<p>{site} — the week’s offers are in store and on this site from Monday.</p>\n<p>Collect points on every shop with a loyalty card.</p>',
-    '<p>Everything for the house in one trip: groceries, cleaning, stationery and a little of everything else.</p>\n<p>See opening hours and delivery below.</p>',
+    '<p>{range}</p>\n<p>See opening hours and delivery below.</p>',
     '<p>This is the public site of {site}. Staff rotas and stock queries go through the store office, not this page.</p>',
   ],
+};
+
+/** The words that fill a shop's, a café's or an office's description and front page:
+ *  `goods` and `service` what it sells or does, `daily` and `range` how a shop's front
+ *  page puts it, and `work` how an office's does. */
+type KindWords = Readonly<Record<string, string>>;
+
+/** What a grocer says of itself. Every shop, café and office a town did not draw a kind
+ *  for (Ridgemont's, and any network nobody declared) reads as its category did before
+ *  kinds existed, and for a shop that was a grocer. */
+const GROCER_WORDS: KindWords = {
+  goods: 'groceries and household essentials',
+  daily: 'Everyday essentials, fresh bread every morning',
+  range:
+    'Everything for the house in one trip: groceries, cleaning, stationery and a little of everything else.',
+};
+
+/** The words each kind of business says of itself. */
+export const SITE_WORDS: Readonly<Record<BusinessSubtype, KindWords>> = {
+  grocer: GROCER_WORDS,
+  bakery: {
+    goods: 'bread, cakes and pastries baked every morning',
+    daily: 'Fresh bread, cakes and pastries out of the oven every morning',
+    range: 'Bread, cakes and pastries baked here before we open, and birthday cakes to order.',
+  },
+  pharmacy: {
+    goods: 'prescriptions, remedies and toiletries',
+    daily: 'Prescriptions filled while you wait, remedies and toiletries',
+    range: 'Prescriptions, remedies and toiletries, and a pharmacist to ask about any of them.',
+  },
+  bookshop: {
+    goods: 'new and second-hand books, and orders for anything in print',
+    daily: 'New books every week, a second-hand shelf',
+    range: 'Books new and second-hand, and anything still in print ordered in by Friday.',
+  },
+  electronics: {
+    goods: 'phones, laptops, cables and repairs',
+    daily: 'Phones, laptops and cables, repairs done in store',
+    range: 'Phones, laptops, cables and chargers, and cracked screens replaced in an hour.',
+  },
+  hardware: {
+    goods: 'tools, paint, screws and garden supplies',
+    daily: 'Tools, paint and screws by the box',
+    range: 'Tools, paint, screws and garden supplies, and keys cut while you wait.',
+  },
+  pawn: {
+    goods: 'watches, jewellery and guitars, bought and sold',
+    daily: 'Watches, jewellery and guitars bought and sold',
+    range: 'Watches, jewellery and guitars bought and sold, and loans against anything of value.',
+  },
+  florist: {
+    goods: 'fresh flowers, plants and wreaths',
+    daily: 'Fresh flowers every morning, plants and wreaths to order',
+    range: 'Fresh flowers, plants and wreaths, and bouquets delivered anywhere in town.',
+  },
+  cafe: { goods: 'coffee, cakes and light lunches' },
+  'tea-room': { goods: 'loose-leaf tea, scones and afternoon tea' },
+  'coffee-bar': { goods: 'espresso, cold brew and pastries to go' },
+  consulting: {
+    service: 'advice, audits and interim managers',
+    work: 'advises the businesses of the region on how to run them better',
+  },
+  logistics: {
+    service: 'freight, warehousing and deliveries',
+    work: 'moves and stores freight for the businesses of the region',
+  },
+  insurance: {
+    service: 'home, business and motor insurance',
+    work: 'covers the homes, businesses and cars of the region',
+  },
+  'it-services': {
+    service: 'managed IT, support and cloud services',
+    work: 'builds and runs the systems its clients rely on every day',
+  },
+  accounting: {
+    service: 'bookkeeping, payroll and tax returns',
+    work: 'keeps the books and runs the payroll of businesses across the region',
+  },
+};
+
+/** The words a shop, café or office with no kind says of itself: what its category said
+ *  before kinds existed. */
+export const CATEGORY_WORDS: Readonly<Partial<Record<NetworkCategory, KindWords>>> = {
+  retail: GROCER_WORDS,
+  cafe: { goods: 'coffee, food' },
+  corporate: {
+    service: 'products, services',
+    work: 'builds and runs the systems its clients rely on every day',
+  },
 };
 
 /** Pages every kind of place keeps, reading as their place through their slots. */

@@ -27,7 +27,7 @@ import { createPrng, type Prng } from './prng.js';
 import { machineRole, type DrawnRole } from './machineRole.js';
 import { publisherSite } from './publisher.js';
 import { declaredNetwork } from './world.js';
-import { HOSTNAME_PREFIXES } from './pools/hostnames.js';
+import { HOSTNAME_PREFIXES, OFFICE_HOSTNAME_PREFIXES } from './pools/hostnames.js';
 import { lanSubnetPrefix } from '../network/lanAddress.js';
 import { seedApGatewayHostname, seedInnerGatewayHostname } from './gatewayHostname.js';
 import type { Ipv4 } from '../network/interfaces.js';
@@ -60,6 +60,43 @@ const lastOctet = (host: LanHost): number => Number(host.ip.split('.')[3]);
 const byOctet = (hosts: readonly LanHost[]): readonly LanHost[] =>
   [...hosts].sort((left, right) => lastOctet(left) - lastOctet(right));
 
+/** A machine's address on its LAN, and what it is for. */
+type Placed = { readonly octet: number; readonly role: DrawnRole };
+
+/** `machines` with the lowest one outside `kept` doing `role` instead, unless one of them
+ *  does it already or none is left to. */
+const withRole = (
+  machines: readonly Placed[],
+  role: DrawnRole,
+  kept: readonly number[],
+): readonly Placed[] => {
+  if (machines.some((machine) => machine.role === role)) return machines;
+  const [free] = machines
+    .filter((machine) => !kept.includes(machine.octet))
+    .sort((left, right) => left.octet - right.octet);
+  return machines.map((machine) => (machine === free ? { ...machine, role } : machine));
+};
+
+/** The lowest-addressed of `machines` doing `role`, if any does. */
+const lowestDoing = (machines: readonly Placed[], role: DrawnRole): number | undefined => {
+  const octets = machines.filter((machine) => machine.role === role).map(({ octet }) => octet);
+  return octets.length === 0 ? undefined : Math.min(...octets);
+};
+
+/** An office's machines, with the file server and the desk every lead from it starts on:
+ *  when none of them drew one, the lowest machines free take the roles, never the one
+ *  serving the site. */
+const staffed = (machines: readonly Placed[]): readonly Placed[] => {
+  const site = lowestDoing(machines, 'webserver');
+  const withShare = withRole(machines, 'fileserver', site === undefined ? [] : [site]);
+  const share = lowestDoing(withShare, 'fileserver');
+  return withRole(
+    withShare,
+    'workstation',
+    [site, share].filter((octet) => octet !== undefined),
+  );
+};
+
 /**
  * The machines at `octets` on `essid`'s LAN, each named for what it is for.
  *
@@ -78,18 +115,28 @@ const machinesAt = (
   octets: readonly number[],
   prng: Prng,
 ): readonly LanHost[] => {
-  const drawn = octets.map((octet) => ({ octet, role: machineRole(essid, `${subnet}.${octet}`) }));
+  const drawn = octets.map(
+    (octet): Placed => ({ octet, role: machineRole(essid, `${subnet}.${octet}`) }),
+  );
   const needsWebserver =
     publisherSite(essid) !== undefined && !drawn.some(({ role }) => role === 'webserver');
   const lowest = Math.min(...octets);
-  return drawn.map(({ octet, role }): LanHost => {
-    const servedRole: DrawnRole = needsWebserver && octet === lowest ? 'webserver' : role;
-    return {
+  const served = drawn.map(
+    ({ octet, role }): Placed => ({
+      octet,
+      role: needsWebserver && octet === lowest ? 'webserver' : role,
+    }),
+  );
+  const network = declaredNetwork(essid);
+  const isOffice = network?.category === 'corporate' && network.subtype !== undefined;
+  const prefixes = isOffice ? OFFICE_HOSTNAME_PREFIXES : HOSTNAME_PREFIXES;
+  return (isOffice ? staffed(served) : served).map(
+    ({ octet, role }): LanHost => ({
       ip: `${subnet}.${octet}`,
-      hostname: `${prng.pick(HOSTNAME_PREFIXES[servedRole])}-${octet}`,
+      hostname: `${prng.pick(prefixes[role])}-${octet}`,
       kind: 'machine',
-    };
-  });
+    }),
+  );
 };
 
 export const generateHomeLan = (essid: string): HomeLan => {

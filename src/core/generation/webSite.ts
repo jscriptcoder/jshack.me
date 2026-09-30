@@ -38,6 +38,7 @@ import {
   API_ENDPOINTS,
   API_FRONT_PAGES,
   API_PAGES,
+  CATEGORY_WORDS,
   FRONT_PAGES,
   PEOPLE_ROLES,
   PORTAL_FRONT_PAGES,
@@ -53,6 +54,7 @@ import {
   ROBOTS_ONLY_DIRECTORIES,
   ROBOTS_ONLY_PAGES,
   SITE_DESCRIPTIONS,
+  SITE_WORDS,
   type ApiEndpoint,
   type SitePage,
 } from './pools/webSites.js';
@@ -481,7 +483,11 @@ export const buildWebSite = ({
   const site = headed(published?.name ?? persona.place);
   const description =
     published === undefined ? null : (SITE_DESCRIPTIONS[persona.category] ?? '{site}');
+  // A shop, café or office says what it sells or does in its own kind's words; one no
+  // town drew a kind for says it as its category always has.
+  const subtype = declaredNetwork(essid)?.subtype;
   const slots = {
+    ...(subtype === undefined ? CATEGORY_WORDS[persona.category] : SITE_WORDS[subtype]),
     site,
     place: persona.place,
     town: persona.town,
