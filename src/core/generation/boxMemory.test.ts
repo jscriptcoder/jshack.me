@@ -16,6 +16,7 @@ import {
   filesUnder,
   gatewaysOn,
   lanBoxes,
+  leadsKeptOn,
   softwareVersionsIn,
   type Box,
 } from '../../test/worldContent.js';
@@ -190,6 +191,14 @@ const cronRunsIn = (syslog: string): readonly string[] =>
 
 const IPV4 = /\b\d{1,3}(?:\.\d{1,3}){3}\b/g;
 
+/** The other machines on a box's LAN, by address; none for a deep box. */
+const neighboursOf = ({ box, onLan }: Built): readonly string[] =>
+  onLan
+    ? generateHomeLan(box.essid)
+        .hosts.filter((host) => host.kind === 'machine' && host.ip !== box.host.ip)
+        .map((host) => host.ip)
+    : [];
+
 describe('what a box remembers of its last day', () => {
   it('keeps an empty live syslog beside a syslog.1 that holds the day', () => {
     everyLoggingTree().forEach((tree) => {
@@ -353,17 +362,18 @@ describe('the jobs a box ran', () => {
 });
 
 describe('who reached a box that day', () => {
-  it('names only neighbouring machines on its own LAN, or the box itself through loopback', () => {
-    everyBox().forEach(({ box, tree, onLan }) => {
-      const neighbours = onLan
-        ? generateHomeLan(box.essid)
-            .hosts.filter((host) => host.kind === 'machine' && host.ip !== box.host.ip)
-            .map((host) => host.ip)
-        : [];
-      rotatedOf(tree).forEach((content) => {
+  it('names only its LAN neighbours, itself through loopback, or where its own leads go', () => {
+    everyBox().forEach((built) => {
+      const known = [
+        '127.0.0.1',
+        '0.0.0.0',
+        ...neighboursOf(built),
+        ...leadsKeptOn(built.box).map((lead) => lead.address),
+      ];
+      rotatedOf(built.tree).forEach((content) => {
         (content.match(IPV4) ?? []).forEach((ip) => {
           // `0.0.0.0` is every interface a daemon listens on, not a host.
-          expect(['127.0.0.1', '0.0.0.0', ...neighbours]).toContain(ip);
+          expect(known).toContain(ip);
         });
       });
     });
@@ -394,7 +404,10 @@ describe('who reached a box that day', () => {
 
   it('names a real machine as every client, a neighbour wherever the box has one', () => {
     const lanSources = new Set<string>();
-    everyBox().forEach(({ box, tree, onLan }) => {
+    everyBox().forEach((built) => {
+      const { box, tree } = built;
+      // A box alone on its network has nobody to be reached by but itself.
+      const onLan = built.onLan && neighboursOf(built).length > 0;
       rotatedOf(tree).forEach((content, name) => {
         const source = SOURCES[name];
         if (source === undefined) return;

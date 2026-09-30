@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { boxMail, networkMail, type MailMessage } from './networkMail.js';
+import { boxMail, networkMail, peopleOn, type MailMessage } from './networkMail.js';
 import { buildRemoteHostFs, npcUsername } from './remoteHostFs.js';
 import { buildDeepHostFs } from './deepHostFs.js';
 import { inhabitant } from './persona.js';
@@ -49,9 +49,25 @@ const accountsOn = (essid: string) => {
 const everyMessage = (essid: string): readonly MailMessage[] =>
   networkMail(essid).threads.flatMap((thread) => thread.messages);
 
+/** The networks whose people write to each other. A network one person has to themselves
+ *  keeps no correspondence, because there is nobody for them to write to. */
+const CORRESPONDING = ALL_ESSIDS.filter((essid) => peopleOn(essid).length > 1);
+
 describe('a network correspondence', () => {
+  it('is kept by nobody on a network one person has to themselves, not even as a spool', () => {
+    const alone = ALL_ESSIDS.filter((essid) => !CORRESPONDING.includes(essid));
+    expect(alone.length).toBeGreaterThan(0);
+    for (const essid of alone) {
+      expect(`${essid}: ${networkMail(essid).threads.length}`).toBe(`${essid}: 0`);
+      for (const box of lanBoxes([essid])) {
+        const spool = mailboxOn(box, npcUsername(essid, box.host));
+        expect(`${box.host.hostname}: ${spool.ok}`).toBe(`${box.host.hostname}: false`);
+      }
+    }
+  });
+
   it('is between people who really have accounts on the network', () => {
-    for (const essid of ALL_ESSIDS) {
+    for (const essid of CORRESPONDING) {
       const real = new Map(accountsOn(essid).map((person) => [person.username, person]));
       for (const message of everyMessage(essid)) {
         for (const person of [message.from, ...message.to]) {
@@ -67,7 +83,7 @@ describe('a network correspondence', () => {
   });
 
   it('answers each message with a reply sent after it', () => {
-    for (const essid of ALL_ESSIDS) {
+    for (const essid of CORRESPONDING) {
       for (const thread of networkMail(essid).threads) {
         expect(thread.messages.length).toBeGreaterThanOrEqual(1);
         expect(thread.messages.length).toBeLessThanOrEqual(4);
@@ -85,7 +101,7 @@ describe('a network correspondence', () => {
   });
 
   it('is finished before the world stopped, and begun after any application was installed', () => {
-    for (const essid of ALL_ESSIDS) {
+    for (const essid of CORRESPONDING) {
       const messages = everyMessage(essid);
       expect(messages.length).toBeGreaterThan(0);
       for (const message of messages) {
@@ -102,7 +118,7 @@ describe('a network correspondence', () => {
   });
 
   it('writes TO everyone on the network, so no mailbox is left empty', () => {
-    for (const essid of ALL_ESSIDS) {
+    for (const essid of CORRESPONDING) {
       const mail = networkMail(essid);
       for (const person of accountsOn(essid)) {
         // A mailbox holds what arrived, so a thread only fills one when the person was
@@ -128,7 +144,7 @@ const PERSONAL_PREFIXES = ['android', 'iphone', 'tablet'];
 const prefixOf = (hostname: string): string => hostname.slice(0, hostname.lastIndexOf('-'));
 
 const desks = (): readonly Box[] =>
-  lanBoxes(ALL_ESSIDS).filter(({ host }) => DESK_PREFIXES.includes(prefixOf(host.hostname)));
+  lanBoxes(CORRESPONDING).filter(({ host }) => DESK_PREFIXES.includes(prefixOf(host.hostname)));
 
 /** One message as it sits in an mbox file: the separator line a reader splits on, its
  *  headers (a `Received:` chain may repeat, so those are kept in order), and the body. */
@@ -592,7 +608,7 @@ const everySubject = (): readonly string[] => [
 
 describe('what the mail is about', () => {
   it('speaks the business the network runs', () => {
-    for (const essid of ALL_ESSIDS) {
+    for (const essid of CORRESPONDING) {
       const theirs = new Set(
         MAIL_SPECS[networkArchetype(essid)].map((thread) => thread.subject),
       );
@@ -869,7 +885,7 @@ describe('the order a mailbox opens in', () => {
       ),
     );
     let checked = 0;
-    for (const essid of ALL_ESSIDS) {
+    for (const essid of CORRESPONDING) {
       const business = new Set(
         MAIL_SPECS[networkArchetype(essid)].map((thread) => thread.subject),
       );

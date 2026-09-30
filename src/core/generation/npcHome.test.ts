@@ -16,6 +16,7 @@ import {
   falsehoodIn,
   filesUnder,
   lanBoxes,
+  leadsKeptOn,
   serialise,
   type Box,
 } from '../../test/worldContent.js';
@@ -42,6 +43,10 @@ const homeOf = (tree: Directory, username: string): Directory => {
 
 const homeFilesOf = (box: Box): ReadonlyMap<string, string> =>
   filesUnder(homeOf(buildRemoteHostFs(box.essid, box.host), npcUsername(box.essid, box.host)));
+
+/** A file as it reads past the header a PDF opens with, which states its format. */
+const withoutPdfHeader = (content: string): string =>
+  content.startsWith('%PDF-') ? content.slice(content.indexOf('\n') + 1) : content;
 
 const notesOf = (files: ReadonlyMap<string, string>): readonly string[] =>
   [...files].filter(([path]) => path.startsWith('notes/')).map(([, content]) => content);
@@ -173,9 +178,14 @@ describe('what a home names is really there', () => {
   it('names no machine the network does not have, anywhere in the home', () => {
     deskBoxes(ALL_ESSIDS).forEach((box) => {
       const lanHosts = generateHomeLan(box.essid).hosts;
+      // Past its own LAN, a home names only where the leads kept on its desk go.
+      const known = [
+        ...lanHosts.map((host) => host.ip),
+        ...leadsKeptOn(box).map((lead) => lead.address),
+      ];
       const text = [...homeFilesOf(box).values()].join('\n');
       (text.match(/\b\d{1,3}(?:\.\d{1,3}){3}\b/g) ?? []).forEach((address) => {
-        expect(lanHosts.map((host) => host.ip)).toContain(address);
+        expect(known).toContain(address);
       });
     });
   });
@@ -288,7 +298,8 @@ describe('a home keeps to the world’s rules', () => {
 
   it('carries no software version, which would date it', () => {
     allHomeFiles().forEach((files) => {
-      [...files.values()].forEach((content) => {
+      // A PDF's first line names the format it is written in, not software that wrote it.
+      [...files.values()].map(withoutPdfHeader).forEach((content) => {
         const versions = (content.match(/\bv?\d+\.\d+(?:\.\d+)?\b/g) ?? []).filter(
           (match) => !/^\d{1,3}(?:\.\d{1,3}){3}$/.test(match),
         );

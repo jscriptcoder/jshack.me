@@ -232,8 +232,8 @@ const weave = ({
   readonly zone: string;
   readonly prng: Prng;
 }): NetworkMail => {
-  // One person is nobody to write to. No network this small exists, but a mailbox built
-  // on one would be a person talking to themselves.
+  // One person is nobody to write to: a network somebody has to themselves keeps no
+  // correspondence, and a mailbox built on one would be a person talking to themselves.
   const cast = people.slice(0, MAX_CAST);
   if (cast.length < 2) return { people, threads: [] };
 
