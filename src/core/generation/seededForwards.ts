@@ -79,7 +79,17 @@ export const seededForwards = (key: string): readonly NatForward[] => {
     )
     .filter(({ ip, port }) => ip !== site?.internalIp || port !== site.internalPort);
 
-  return prng.shuffle(candidates).reduce<readonly NatForward[]>((forwards, candidate) => {
+  // Somebody opens a port at home to reach their own computer from outside, so a home
+  // that forwards anything forwards ssh first when a machine there runs it.
+  const shuffled = prng.shuffle(candidates);
+  const ordered =
+    network.category === 'residential'
+      ? [
+          ...shuffled.filter(({ service }) => service === 'ssh'),
+          ...shuffled.filter(({ service }) => service !== 'ssh'),
+        ]
+      : shuffled;
+  return ordered.reduce<readonly NatForward[]>((forwards, candidate) => {
     if (forwards.length === count) return forwards;
     const taken = new Set([
       ...GATEWAY_PORTS,

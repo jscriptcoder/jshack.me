@@ -171,19 +171,19 @@ describe("a Millbrook network's relations", () => {
     );
 
     expect(graph).toEqual([
-      'KEYSTONE-LOGISTICS laptop-33 -contractor-> TOWN-HALL-WIFI hkim@android-57:2222',
-      'KEYSTONE-LOGISTICS laptop-33 -contractor-> MILLBROOK-PD root@net-gateway:22',
-      'KEYSTONE-LOGISTICS laptop-33 -contractor-> LIBRARY-PUBLIC root@dist-rtr:22',
-      'KEYSTONE-LOGISTICS laptop-33 -contractor-> TIPSY-TEAPOT root@gw-main:22',
-      'KEYSTONE-LOGISTICS laptop-33 -contractor-> HARVEST-MARKET root@core-rtr:22',
-      'KEYSTONE-LOGISTICS share-102 -supplier-> HARVEST-MARKET',
-      'KEYSTONE-LOGISTICS laptop-33 -contractor-> GREENLEAF-GROCERS root@firewall01:22',
-      'KEYSTONE-LOGISTICS laptop-33 -contractor-> KOWALSKI-WIFI root@pfsense01:22',
-      'KEYSTONE-LOGISTICS laptop-33 -contractor-> THE-HARGREAVES root@core-rtr:22',
-      'KEYSTONE-LOGISTICS laptop-33 -contractor-> GARDEN-FLAT root@mikrotik01:22',
-      'KEYSTONE-LOGISTICS laptop-33 -contractor-> ROSE-COTTAGE root@switch-core:22',
-      'KEYSTONE-LOGISTICS laptop-33 -contractor-> PEAR-TREE-HOUSE root@border-gw:22',
-      'CORNER-PANTRY vault-61 -backup-> OKONKWO-FAMILY vsftpd@nas-92:2222',
+      'KEYSTONE-LOGISTICS workstation-33 -contractor-> TOWN-HALL-WIFI hkim@android-57:2222',
+      'KEYSTONE-LOGISTICS workstation-33 -contractor-> MILLBROOK-PD root@net-gateway:22',
+      'KEYSTONE-LOGISTICS workstation-33 -contractor-> LIBRARY-PUBLIC root@dist-rtr:22',
+      'KEYSTONE-LOGISTICS workstation-33 -contractor-> TIPSY-TEAPOT root@gw-main:22',
+      'KEYSTONE-LOGISTICS workstation-33 -contractor-> HARVEST-MARKET root@core-rtr:22',
+      'PINNACLE-IT-SOLUTIONS share-16 -supplier-> HARVEST-MARKET',
+      'KEYSTONE-LOGISTICS workstation-33 -contractor-> GREENLEAF-GROCERS root@firewall01:22',
+      'KEYSTONE-LOGISTICS workstation-33 -contractor-> KOWALSKI-WIFI root@pfsense01:22',
+      'KEYSTONE-LOGISTICS workstation-33 -contractor-> THE-HARGREAVES root@core-rtr:22',
+      'KEYSTONE-LOGISTICS workstation-33 -contractor-> GARDEN-FLAT root@mikrotik01:22',
+      'KEYSTONE-LOGISTICS workstation-33 -contractor-> ROSE-COTTAGE root@switch-core:22',
+      'PINNACLE-IT-SOLUTIONS share-16 -backup-> PEAR-TREE-HOUSE mrodriguez@laptop-13:2222',
+      'KEYSTONE-LOGISTICS workstation-33 -contractor-> OKONKWO-FAMILY root@firewall01:22',
     ]);
   });
 });
@@ -300,7 +300,7 @@ describe("a business's offsite backup", () => {
     for (const relation of backups()) {
       const syslog = fileOn(relation.source, relation.sourceHost, '/var/log/syslog.1') ?? '';
       expect(syslog.split('\n'), relation.source).toContain(
-        `Jul 11 05:33:00 vault-61 CRON[8461]: (root) CMD (${commandOf(relation)})`,
+        `Jul 11 01:11:00 share-16 CRON[94770]: (root) CMD (${commandOf(relation)})`,
       );
       const mail = fileOn(relation.source, relation.sourceHost, '/var/mail/root') ?? '';
       expect(mail, relation.source).not.toContain('rsync');
@@ -341,7 +341,7 @@ describe("a business's offsite backup", () => {
     const jobs = (fileOn(relation.source, relation.sourceHost, '/etc/crontab') ?? '')
       .split('\n')
       .filter((line) => line.includes('rsync'));
-    expect(jobs).toEqual([`33 5\t* * *\troot\t${commandOf(relation)}`]);
+    expect(jobs).toEqual([`11 1\t* * *\troot\t${commandOf(relation)}`]);
   });
 
   it('runs on no box of the town but a file server that backs its share up', () => {
@@ -468,19 +468,19 @@ describe("an unlisted business's supplier lead", () => {
     if (relation === undefined) throw new Error('Millbrook has no supplier');
     expect([...invoicesOf(relation)]).toEqual([
       [
-        'harvest-market-6068.txt',
+        'harvest-market-7123.txt',
         [
-          'INVOICE 6068',
+          'INVOICE 7123',
           '',
           'From: Harvest Market',
           '      harvestmarket.com',
-          'To:   Keystone Logistics',
+          'To:   Pinnacle IT Solutions',
           '',
-          'Date: 2026-05-16',
+          'Date: 2026-07-04',
           'Payment due within 30 days.',
           '',
-          'Goods supplied, as ordered    1560.00',
-          'TOTAL DUE                     1560.00',
+          'Goods supplied, as ordered    2217.00',
+          'TOTAL DUE                     2217.00',
           '',
         ].join('\n'),
       ],
@@ -488,8 +488,8 @@ describe("an unlisted business's supplier lead", () => {
     // Filed in office hours on the day it is dated, from the desk of whoever filed it.
     const log = fileOn(relation.source, relation.sourceHost, '/var/log/vsftpd.log.1') ?? '';
     expect(log.split('\n')).toContain(
-      'Sat May 16 11:22:54 2026 [pid 75129] [storage] OK UPLOAD: Client "192.168.154.220", ' +
-        '"/srv/share/invoices/harvest-market-6068.txt", 207 bytes',
+      'Sat Jul  4 16:08:15 2026 [pid 65126] [nasadmin] OK UPLOAD: Client "192.168.10.57", ' +
+        '"/srv/share/invoices/harvest-market-7123.txt", 210 bytes',
     );
   });
 

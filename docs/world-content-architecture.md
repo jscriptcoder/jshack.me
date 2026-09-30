@@ -114,7 +114,8 @@ gateways on their own seed key or machine id.
 | `phone-content-`, `tablet-` | a phone or tablet's storage, a tablet's model |
 | `mac-<machineId>`, `gw-net-<seed key>` | one MAC per host, a gateway's leases or MAC table |
 | `gw-admin-`, `gw-history-`, `gw-history-logs-`, `gw-history-backups-`, `gw-history-ui-` (by machine id) | a gateway's admin, history, rotations, backups, admin UI |
-| `gw-forwards-<key>` | the services a gateway beyond Ridgemont forwards beside its site: which, and on which public port |
+| `network-profile-<key>` | how much stands behind a network's gateway beyond Ridgemont: `lone`, `flat` or `deep`, weighed by its category |
+| `gw-forwards-<key>` | the services a gateway beyond Ridgemont forwards beside its site: which, and on which public port (a home forwards ssh first when a machine there runs it) |
 | `town-homes-<town key>` | how many homes a town keeps, and which |
 | `relations-<key>` | the leads that go to a network: how many, from whom, of which kind, from which box |
 | `relation-host-key-<key>-<ip>` | the host key every desk that has met a client box records for it |
@@ -122,6 +123,23 @@ gateways on their own seed key or machine id.
 | `town-unlisted-<town key>` | which of a town's publishers keep their site off every search |
 | `relation-supplier-<key>` | which listed customer, and which of its working shares, keeps an unlisted business's invoice |
 | `relation-invoice-<key>-<ip>` | an invoice's number, date, total and the person who filed it |
+
+## How big a network is
+
+A network beyond Ridgemont declares a **profile** (`world.ts`), and `generateHomeLan` builds
+the LAN it allows:
+
+- `lone`: the `.1` gateway and one machine.
+- `flat`: the `.1` gateway and 2–5 machines.
+- `deep`: the `.1` gateway, an inner router, a switch and 3–8 machines, with a chain of hidden
+  segments behind the inner router (`generateDeepLayer`). A landmark declares no profile and
+  is always this shape.
+
+Only `deep` hides anything, so only a council, an office or a big shop is worth walking down.
+A home or a café is never `deep`, and a council or an office never `lone`. A publisher's LAN
+always holds the web server its site answers from. Every reader of the shape (scans, ssh
+reach, the inner-gateway lookups, the DNS zone, snmp, the gateway's own files) asks the LAN,
+never the profile, so a network with no inner gateway has none anywhere.
 
 ## What a box holds
 

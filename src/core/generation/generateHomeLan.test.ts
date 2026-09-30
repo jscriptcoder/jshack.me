@@ -6,6 +6,7 @@ import { DRAWN_ROLES, machineRole } from './machineRole.js';
 import { HOSTNAME_PREFIXES, roleOfHostname } from './pools/hostnames.js';
 import { ESSID_CATALOG } from './pools/essidCatalog.js';
 import { publisherSite } from './publisher.js';
+import { DECLARED_NETWORKS, type DeclaredNetwork } from './world.js';
 
 /**
  * `generateHomeLan` is the pure topology generator behind `nmap <subnet>`. Given an
@@ -394,5 +395,87 @@ describe('generateHomeLan for an institution that publishes a website', () => {
 
     expect(withoutWebserver).not.toEqual([]);
     for (const essid of others) expect(renamedOn(essid)).toEqual([]);
+  });
+});
+
+describe('generateHomeLan for a network sized by its profile', () => {
+  const sized = (profile: string): readonly DeclaredNetwork[] =>
+    DECLARED_NETWORKS.filter((network) => network.profile === profile);
+
+  /** Every device on the LAN besides the edge gateway at `.1` that is not a machine. */
+  const innerDevicesOf = (key: string): readonly LanHost[] =>
+    generateHomeLan(key).hosts.filter((host) => host.kind !== 'machine' && octetOf(host.ip) !== 1);
+
+  it('stands one machine behind the gateway of a lone network, and nothing else', () => {
+    expect(sized('lone')).not.toEqual([]);
+    for (const { key } of sized('lone')) {
+      const { hosts } = generateHomeLan(key);
+      expect(
+        hosts.map((host) => host.kind),
+        key,
+      ).toEqual(['router', 'machine']);
+      expect(octetOf(hosts[0]?.ip ?? ''), key).toBe(1);
+    }
+  });
+
+  it('stands two to five machines behind the gateway of a flat network, and no inner router or switch', () => {
+    expect(sized('flat')).not.toEqual([]);
+    const counts = new Set<number>();
+    for (const { key } of sized('flat')) {
+      const machines = machinesOf(key);
+      counts.add(machines.length);
+      expect(machines.length, key).toBeGreaterThanOrEqual(2);
+      expect(machines.length, key).toBeLessThanOrEqual(5);
+      expect(innerDevicesOf(key), key).toEqual([]);
+    }
+    // Seven flat networks drawing one size between them would say nothing of the range.
+    expect(counts.size).toBeGreaterThan(1);
+  });
+
+  it('keeps a machine to serve the site of every publisher, however few it has', () => {
+    for (const network of [...sized('lone'), ...sized('flat')]) {
+      if (network.site === undefined) continue;
+      expect(
+        machinesOf(network.key).some((host) => roleOfHostname(host.hostname) === 'webserver'),
+        network.key,
+      ).toBe(true);
+    }
+  });
+
+  it('is pinned (golden): leaves a deep network in the town exactly as it was', () => {
+    const hostnamesOf = (essid: string): readonly string[] =>
+      generateHomeLan(
+        DECLARED_NETWORKS.find((network) => network.essid === essid)?.key ?? '',
+      ).hosts.map((host) => host.hostname);
+    expect(sized('deep').filter((network) => network.town === 'Millbrook')).toHaveLength(3);
+    expect(hostnamesOf('TOWN-HALL-WIFI')).toEqual([
+      'firewall01',
+      'android-57',
+      'portal-58',
+      'fw-dmz',
+      'web-120',
+      'border-gw',
+      'mysql-167',
+      'laptop-177',
+    ]);
+    expect(hostnamesOf('MILLBROOK-PD')).toEqual([
+      'net-gateway',
+      'www-9',
+      'mikrotik01',
+      'doorbell-42',
+      'mikrotik01',
+      'cam-65',
+      'sensor-218',
+    ]);
+    expect(hostnamesOf('PINNACLE-IT-SOLUTIONS')).toEqual([
+      'pfsense01',
+      'share-16',
+      'doorbell-56',
+      'printer-57',
+      'gw-main',
+      'border-gw',
+      'ns-133',
+      'nginx-188',
+    ]);
   });
 });

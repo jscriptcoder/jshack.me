@@ -15,6 +15,10 @@ import { TOWN_HOMES, type TownHome } from './pools/townHomes.js';
 import { createPrng } from './prng.js';
 import { FINDIT_NETWORK } from './finditNetwork.js';
 
+/** How much stands behind a network's gateway: one machine, a few, or today's inner
+ *  router, switch and chain of hidden segments. */
+export type NetworkProfile = 'lone' | 'flat' | 'deep';
+
 /** A network the world declares: where it is, what it is, and what it publishes. */
 export type DeclaredNetwork = {
   /** What the network is known by everywhere a machine or a journal is keyed. */
@@ -35,6 +39,9 @@ export type DeclaredNetwork = {
   readonly directory?: readonly PublishedSite[];
   /** Set when its site asks every crawler to stay away, so no search ever lists it. */
   readonly unlisted?: true;
+  /** How much stands behind its gateway. A landmark declares none: it keeps the shape it
+   *  was authored with, which is `deep`. */
+  readonly profile?: NetworkProfile;
 };
 
 /** A region of the world: what it is called, and the first octet of the block its
@@ -66,7 +73,7 @@ const regionOf = (town: Town): string => REGIONS[town.region].name;
 
 /** A network as a town declares it, before it has a key or a town. The town's council
  *  keeps its directory: a page on its site linking every institution in the town. */
-type Institution = Omit<DeclaredNetwork, 'key' | 'town' | 'region' | 'directory'> & {
+type Institution = Omit<DeclaredNetwork, 'key' | 'town' | 'region' | 'directory' | 'profile'> & {
   readonly keepsDirectory?: true;
 };
 
@@ -119,6 +126,30 @@ const home = ([essid, place]: TownHome): Institution => ({
 /** The share of a town's publishers whose site asks every crawler to stay away. */
 const UNLISTED_SHARE = 0.15;
 
+/** How likely each kind of place is to stand as each profile. Nobody keeps an inner
+ *  router and a chain of hidden segments at home or behind a café counter, and no council
+ *  or office runs on one machine. A category no town draws yet has no row. */
+const PROFILE_WEIGHTS: Readonly<
+  Partial<Record<NetworkCategory, Readonly<Record<NetworkProfile, number>>>>
+> = {
+  government: { lone: 0, flat: 30, deep: 70 },
+  public: { lone: 10, flat: 60, deep: 30 },
+  corporate: { lone: 0, flat: 40, deep: 60 },
+  retail: { lone: 40, flat: 50, deep: 10 },
+  cafe: { lone: 60, flat: 40, deep: 0 },
+  residential: { lone: 40, flat: 60, deep: 0 },
+};
+
+/** The profile the network under `key` draws for its category, on a stream of its own. */
+const profileOf = (key: string, category: NetworkCategory): NetworkProfile => {
+  const weights = PROFILE_WEIGHTS[category];
+  if (weights === undefined) throw new Error(`no town draws a ${category} network yet`);
+  const weighted = (['lone', 'flat', 'deep'] as const).flatMap((profile) =>
+    Array.from({ length: weights[profile] }, () => profile),
+  );
+  return createPrng(`network-profile-${key}`).pick(weighted);
+};
+
 const townKey = (town: Town): string => `r${town.region}/t${town.index}`;
 
 /** The publishers of a town whose sites no search lists: 15% of them, at least one, drawn
@@ -156,9 +187,11 @@ const networksOf = (
   const unlisted = unlistedOf(town, networks);
   return networks.map((institution: Institution, index) => {
     const { keepsDirectory, ...network } = institution;
+    const key = `${townKey(town)}/n${index}`;
     return {
       ...network,
-      key: `${townKey(town)}/n${index}`,
+      key,
+      profile: profileOf(key, network.category),
       town: town.name,
       region: regionOf(town),
       ...(keepsDirectory === true ? { directory } : {}),
