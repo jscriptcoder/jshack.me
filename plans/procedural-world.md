@@ -204,6 +204,83 @@ relations, forwards, institution sets. (Added by find-gaps 2026-09-28.)
     `flat` lands with `lone` in slice 5, not in the walking skeleton (planning 2026-09-28): every
     network today has an inner gateway, a switch and a deep chain, so either profile means
     teaching the generator and every materializer about a network without them.
+    **Slice 5's shape** (grilled 2026-09-30, owner-confirmed):
+    - **Every procedural network draws a profile, Millbrook's 15 included.** Keys,
+      addresses and domains stay; what stands on a LAN may change, and slice 4's leads
+      are redrawn against the new shapes (pre-launch, no compatibility owed). Rejected:
+      keeping Millbrook `deep` and profiling only later towns, which leaves `lone` and
+      `flat` untestable until slice 8 and makes Millbrook a second exception.
+    - **Two PRs: 5a profiles, then 5b subtypes.** They touch different code (the LAN and
+      every reader of its shape, against names and wording). Profiles go first: they
+      weigh by category, which exists, and they are the riskier change. Rejected:
+      subtypes first (only needed if a subtype weighs the profile) and one PR.
+    - **One weighted draw per network on `network-profile-<key>`**, weighed by category:
+      government 0/30/70 (lone/flat/deep), public 10/60/30, corporate 0/40/60, retail
+      40/50/10, cafe 60/40/0, residential 40/60/0. A home is never `deep`; a council or an
+      office never `lone`. Categories no town draws yet get no row. Millbrook draws 3 deep
+      (Town Hall, Police, Pinnacle), 7 flat and 5 lone. Rejected: a per-town quota of each
+      profile; no test needs every town to hold every profile.
+    - **`lone` is the `.1` gateway and one machine; `flat` the gateway and 2–5.** A
+      publisher's lowest machine serves its site when none drew the role, as today. Neither
+      has an inner gateway, a switch or a deep chain. `deep` is today's generator, byte for
+      byte. Rejected: a `flat` switch that fronts nothing (a switch is an inner gateway here).
+    - **One role table for every network.** A one-box home may be a name server, as some
+      landmark homes are. Rejected: category role tables, a new rule that would move `deep`
+      names or need a carve-out for `lone` and `flat`.
+    - **Slice 4's guarantees stay binding** (AC-4, every home 1–3 leads, every home that
+      forwards ssh a backup, every unlisted business a supplier). The relations code draws
+      fewer leads when a source is gone, so RED draws the profiles first and runs those
+      tests over the reshaped Millbrook; a failure comes back to the owner with one rule to
+      fix it (such as a `corporate` network always keeping a desk). Rejected: deciding that
+      rule before measuring, and loosening the guarantees.
+    - **5a's remaining calls** (taken in bulk):
+      - The profile is a `DeclaredNetwork` field; a landmark has none, meaning `deep`.
+        `whois` does not show it: a network's shape is learnt by getting in.
+      - Every reader of the shape (scans, ssh reach, inner-gateway lookups, the DNS zone,
+        snmp, the gateway admin page, router content) asks the LAN, never the profile, so
+        a network without an inner gateway has none anywhere and a hop to one is refused
+        like one to any absent host.
+      - 4a's forwards are unchanged; on `lone` and `flat` the whole LAN is the gateway's.
+        This amends 15a's "weighted by category and profile": a `lone` network's one box
+        already forwards less, and a second weighting would be a second rule.
+      - `testMillbrook.ts` proves live that the server agrees with the client on a `lone`
+        and a `flat` network: nothing behind the gateway, an inner-gateway hop refused
+        (planning may narrow this to the one server path a Millbrook LAN takes).
+      - AC-7 untouched; Millbrook's `deep` networks keep their LANs byte for byte, only
+        content made from redrawn leads moves. `checkBudgets` passes, measured in RED.
+      - `world-content-architecture.md` describes the profiles and lists
+        `network-profile-`. 5a bumps the minor version to 0.292.0.
+    - **5b: a subtype is a name grammar, and `TOWN_BUSINESSES` retires.** Millbrook's
+      businesses are renamed once, before launch: keys and addresses stay; names, domains
+      and ESSIDs move, and the slice 4 and 5a pins are re-pinned. The old names' words may
+      survive as grammar fillers. Rejected: tagging the hand-written list (does not reach
+      slice 8's 600–1,200 networks) and grammars for new towns only (two naming
+      mechanisms, Millbrook an exception again).
+    - **5b: the subtypes.** `retail`: grocer, bakery, pharmacy, bookshop, electronics,
+      hardware, pawn, florist. `cafe`: café, tea room, coffee bar. `corporate`: consulting,
+      logistics, insurance, IT services, accounting. Institutions, homes and categories no
+      town draws yet have none. Each business draws its category (cafe 30, retail 40,
+      corporate 30), then a subtype, without repeats in its town while any are left, on a
+      new stream, so the business count and every key stay put. Rejected: subtypes for
+      government and public, which a town declares by hand.
+    - **5b's remaining calls** (taken in bulk):
+      - The overlay is slots, not pages: a category's front pages and findit description
+        gain slots (`{goods}`, `{service}`) each subtype fills; a landmark fills them with
+        today's words, byte for byte (AC-7). Grocer-only sentences become slots or neutral
+        with care, since landmarks must not move. No subtype writes its own pages.
+      - The profile stays weighed by category alone; decision 11's pawn-shop example is
+        dropped, the retail row already making most shops `lone` or `flat`.
+      - A name is built from a surname list, a street or place list and filler words (the
+        old names' among them), is unique in its town, and spells its domain and ESSID as
+        today. The lists freeze at launch (decision 7).
+      - `whois`, the unlisted pick and the relations follow the names with no change;
+        `testMillbrook.ts` already derives every name from the declaration.
+      - Slice 4's and 5a's pins (names, graph, invoice, unlisted site) are re-pinned once,
+        deliberately; a byte-diff against `main` shows nothing outside Millbrook moved.
+      - No server change, so no new wire-check: `testMillbrook` runs live against the
+        renamed town, and `checkBudgets` passes.
+      - `world-content-architecture.md` describes subtypes and lists their streams. 5b
+        bumps the minor version to 0.293.0.
 
 ### Discovery
 
