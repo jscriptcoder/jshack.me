@@ -9,7 +9,7 @@ Slice 2 complete. Slice 3 grilled and planned 2026-09-29, complete 2026-09-29 (#
 v0.288.0). Slice 4 grilled and planned 2026-09-29 as slices 4a–4c; 4a complete 2026-09-29
 (#578, v0.289.0); 4b complete 2026-09-30 (#579, v0.290.0); 4c complete 2026-09-30
 (#581, v0.291.0). Slice 4 complete. Slice 5 grilled 2026-09-30 as slices 5a–5b; 5a complete
-2026-09-30 (#582, v0.292.0); 5b planned 2026-09-30. Slices 6 onward not yet planned.
+2026-09-30 (#582, v0.292.0); 5b complete 2026-09-30 (#583, v0.293.0). Slice 5 complete. Slices 6 onward not yet planned.
 Amends the §9 backlog item "Procedural world expansion — GRILLED & RESOLVED 2026-07-29" in
 `docs/conventions-and-gotchas.md`; where the two disagree, this file wins.
 
@@ -1319,13 +1319,13 @@ player sees it in findit's results, the front page, `whois`, and the wifi a scan
 Millbrook shows.
 **Class**: behaviour change.
 **Delivery**: independent PR against `main`, branch `feat/procedural-world-subtypes`.
-**Status**: planned 2026-09-30; in progress.
+**Status**: complete, merged as #583 (`1c25537c`).
 **Required implementation skills**: `tdd`, `testing`, `refactoring`; `mutation-testing` at
 PR-readiness.
 **Reduction program**: `N/A`.
 **Acceptance criteria** (owner-confirmed 2026-09-30):
 
-- [ ] **5b-1** Every business a town draws declares a category and a subtype. The category
+- [x] **5b-1** Every business a town draws declares a category and a subtype. The category
       is drawn with weights cafe 30, retail 40, corporate 30; the subtype comes from its
       category's list (`retail`: grocer, bakery, pharmacy, bookshop, electronics, hardware,
       pawn, florist; `cafe`: café, tea room, coffee bar; `corporate`: consulting,
@@ -1334,39 +1334,74 @@ PR-readiness.
       The count stays on `town-businesses-<town key>`, so Millbrook keeps six businesses
       and all fifteen keys and addresses. Institutions, homes and landmarks declare no
       subtype.
-- [ ] **5b-2** A business's name comes from its subtype's grammar: a few templates built
+- [x] **5b-2** A business's name comes from its subtype's grammar: a few templates built
       from a surname list, a street-or-place list and filler words, the old names' words
       among them (`{surname}'s Bakery`, `{street} Hardware`, `Harvest Market`), drawn on
       `town-business-names-<town key>`. No network in the world shares its name, ESSID or
-      domain; a draw that would is redrawn. Its ESSID and domain are spelt from it as today,
+      domain; a draw that would is redrawn. (Planning widened the grill's "unique in its
+      town": two towns drawing one name would share a domain.) Its ESSID and domain are spelt from it as today,
       an accent folded (`Café` → `CAFE`, `cafe`), and the ESSID is at most 32 characters.
       `TOWN_BUSINESSES` and its pool file are gone. The lists and grammars freeze at launch
       (decision 7); a comment says so, as `townBusinesses.ts` did.
-- [ ] **5b-3** A business's findit description and front page say what its subtype sells or
+- [x] **5b-3** A business's findit description and front page say what its subtype sells or
       does. Every `retail`, `cafe` and `corporate` description and front page reads through
       slots (`{goods}`, `{service}`) its subtype fills, and no sentence left outside a slot
       names what only one subtype sells. For every subtype, its built front page and
       description carry its own words and none of another subtype's in the same category
       (a pawn shop never says groceries or fresh bread), and findit lists a listed
       Millbrook business for its subtype's words.
-- [ ] **5b-4** A landmark fills the slots with today's words: the AC-7 fingerprint test
+- [x] **5b-4** A landmark fills the slots with today's words: the AC-7 fingerprint test
       passes untouched, and findit still lists every Ridgemont shop for "groceries".
-- [ ] **5b-5** Nothing outside Millbrook moved: a byte-diff of every landmark box, findit's
+- [x] **5b-5** Nothing outside Millbrook moved: a byte-diff of every landmark box, findit's
       own and every Ridgemont site against `main` is empty. Millbrook's pins are re-pinned
       once, deliberately: the declaration (names, ESSIDs, domains), the profiles, the deep
       LANs, the forwards, the relations graph, the invoice and the unlisted pick.
-- [ ] **5b-6** Slice 4's and 5a's guarantees hold over the renamed Millbrook, as 5a-5 lists
+- [x] **5b-6** Slice 4's and 5a's guarantees hold over the renamed Millbrook, as 5a-5 lists
       them. If one fails, work stops and the owner gets the failure with one rule that fixes
-      it.
-- [ ] **5b-7** `testMillbrook.ts` and `testFindit.ts` pass live against the renamed town, and
+      it. **It failed once** (owner, 2026-09-30): the renamed Millbrook drew no office and no
+      file server, so it kept no lead at all and seven networks nothing reached. Fixed by
+      one rule: every town keeps an office, with a desk and a working share.
+- [x] **5b-7** `testMillbrook.ts` and `testFindit.ts` pass live against the renamed town, and
       `checkBudgets` passes.
-- [ ] **5b-8** `world-content-architecture.md` describes subtypes, their grammars and slots,
+- [x] **5b-8** `world-content-architecture.md` describes subtypes, their grammars and slots,
       and its streams table lists `town-business-kinds-` and `town-business-names-`.
 
 Out of scope, by the grill's "no subtype writes its own pages" and "a subtype adds no content
 pool": a business's other pages (a shop's offers, returns and loyalty card, a café's menu, an
 office's services), its API, database, shares, mail and notes stay its category's. A pawn
 shop's offers page may still list a loaf of bread; a later content slice owns that.
+
+As built:
+- Millbrook's businesses are Whitlock's Café, FreshWay Coffee (unlisted), Abernethy and Sons
+  Hardware, Abernethy's Books, Varley's Bakery and Westbrook Haulage. No draw held an office,
+  so the last business, `r0/t1/n8`, became one: it keeps Pinnacle's key, and so Pinnacle's
+  `deep` LAN.
+- The office rule: when a town's kind draw holds no office, its last business is one (its
+  category is still drawn, so nothing after it moves). A town's office names every
+  workstation from the desk prefixes and every file server from the working-share ones
+  (`OFFICE_HOSTNAME_PREFIXES`), and when it drew neither, its lowest free machines, never the
+  site server, take the roles (`staffed` in `generateHomeLan`). Westbrook keeps `laptop-56`,
+  which holds every contractor lead, and `files-16`, which backs up to Pear Tree and keeps
+  FreshWay Coffee's invoice.
+- The slots are `{goods}` and `{service}` in the descriptions, a shop's `{daily}` and
+  `{range}` and an office's `{work}` on the front pages. A grocer's words are the ones every
+  shop had, so Ridgemont's shops fill the slots with the grocer's words (`CATEGORY_WORDS`).
+- `testMillbrook`'s forward check picks any non-`deep` network forwarding ssh: no non-`deep`
+  business does any more, so it lands on Pear Tree House (`2222 → laptop-13:8022`).
+- `discovery-architecture.md` still named Keystone's boxes from before 5a; it now names
+  Millbrook's current leads.
+- Evidence: `vitest run` 6697/6697; `checkBudgets` 243,675 B and 0.882 ms per box. Every
+  Ridgemont and findit box byte-identical to `main` (30,632 files on 58 networks).
+  Wire-checks live: `testMillbrook` 10/10, `testFindit` 18/18, `testPublisherWeb` 6/6,
+  `testSnmpSet` 16/16.
+- Stryker (json reporter): 127 killed / 71 survived / 3 no coverage. Every survivor in the
+  slice's code re-run by hand: 28 killed (import-time throws), one killed by a new spelling
+  example (`Hearth & Grain`), one removed by a refactor. The rest a one-town world cannot
+  reach, and each is equivalent for Millbrook: `staffed`'s override steps, the office rule
+  when a town drew an office, a category running out, a name clash redrawn.
+- **Carried to slice 8:** the approved rule includes a `flat` office holding at least three
+  machines (a site server, a share and a desk); no declared office is `flat`, so it was not
+  built. Slice 8's sampled towns reach it, and the survivors above.
 
 **RED**: the kinds over the declaration (5b-1), then the names and their spelling (5b-2), then
 a built front page and description per subtype and a landmark's unchanged (5b-3, 5b-4), then
