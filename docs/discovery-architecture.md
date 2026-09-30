@@ -234,7 +234,7 @@ it leads TO, on `relations-<key>` (a home 1–3, a publisher 0–2), and the sid
 FROM reads the same value by asking its town, so the lead and the door cannot disagree.
 Only a listed publisher of the same town keeps one. The door is the box behind the
 target's forwarded ssh when its gateway keeps one, else the gateway's own sshd on `22` as
-`root`. Two kinds:
+`root`. Two kinds log in there, and a third leads to an unlisted business (below):
 
 - **The IT contractor.** An office with a desk keeps a shortcut to every client in the
   desk owner's `~/.ssh/config` (`Host <client wifi, lowercased>`, its address, the
@@ -246,6 +246,13 @@ target's forwarded ssh when its gateway keeps one, else the gateway's own sshd o
   `rsync -az /srv/ <account>@<address>:backups/<source>/ -e 'ssh -p <port>'`, its
   `syslog.1` and `auth.log.1` show the run, and the box at the other end keeps the share
   file for file under `~/backups/<source>/` (`generation/offsiteBackups.ts`).
+- **The supplier.** An unlisted business's invoice, on the working share (`/srv/share`,
+  never a snapshot box) of a listed publisher it supplies:
+  `/srv/share/invoices/<supplier wifi, lowercased>-<number>.txt`, naming it by site name
+  and domain, with its arrival in the share's `vsftpd.log.1`
+  (`generation/supplierInvoices.ts`). Drawn on `relation-supplier-<key>`, after the
+  target's other leads, so they kept their draws. Millbrook's is Harvest Market's, on
+  Keystone Logistics' `share-102`.
 
 Following one takes the shipped verbs: `cat` the shortcut or the crontab on a box the
 player is on, `whois` the address, `nmap` it for the forwarded port, `ssh -p` in as the
@@ -253,6 +260,21 @@ account the lead names. A lead gives up where and who, never a password: the doo
 still cracked or exploited like any other. Every network the world declares is found on
 findit, in Ridgemont, on its town's directory, or by a lead kept on one of those, and a
 test over the whole declaration holds it (`world.test.ts`, "the reach of the world").
+
+### Unlisted sites
+
+About 15% of a town's publishers keep their site off every search:
+`max(1, round(15%))`, picked on `town-unlisted-<town key>` and flagged `unlisted` on the
+declaration (Millbrook unlists Harvest Market). The council is never picked: its directory
+is how the town's unlisted institutions are found, so it must be found first. An unlisted
+site's `robots.txt` reads `User-agent: *` / `Disallow: /` and nothing else, in place of
+whatever it drew (the draws are still made, so nothing after them moves). findit needs no
+change: its live crawl already honours `robots.txt`, so the site answers `curl` by its
+domain or address and is never listed, whatever the search.
+
+A player finds one the other ways: an unlisted institution stays on its town's directory,
+and an unlisted business is always the target of a supplier lead (above). Rewriting the
+`robots.txt` lists it like any other site.
 
 ### New categories
 

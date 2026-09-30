@@ -14,6 +14,8 @@
 //   - An office's gateway forwards services beside its site: a scan of its address shows
 //     them, and ssh through the forwarded high port reaches the box behind it, whose own
 //     auth.log records the attempt.
+//   - The town's unlisted site answers a fetch by its domain, and findit's live index
+//     never lists it, whether searched by its name, its domain or its town.
 //
 // Usage (with v2 supabase + vercel dev running on 3100):
 //   npx dotenv -e .env.development.local -- npx tsx scripts/testMillbrook.ts
@@ -250,6 +252,66 @@ check(
   `status=${login.status} error=${errorOf(login.body)} logged=${deskLog !== null}`,
 );
 await clearDeskLog();
+
+// === 7. An unlisted site answers by its domain, and no findit search lists it. ===
+const UNLISTED = DECLARED_NETWORKS.find((network) => network.unlisted === true);
+const UNLISTED_SITE = UNLISTED?.site;
+const UNLISTED_IP = UNLISTED_SITE === undefined ? undefined : siteAddress(UNLISTED_SITE.domain);
+const UNLISTED_SERVER = UNLISTED === undefined ? undefined : siteServer(UNLISTED.key);
+if (
+  UNLISTED === undefined ||
+  UNLISTED_SITE === undefined ||
+  UNLISTED_IP === undefined ||
+  UNLISTED_SERVER === undefined
+) {
+  console.error('Millbrook unlists no site on the internet — the world is unusable.');
+  process.exit(2);
+}
+const clearUnlistedLog = async () => {
+  await sr
+    .from('patches')
+    .delete()
+    .eq('machine_id', machineIdForLanHost(UNLISTED_SERVER, UNLISTED.key))
+    .eq('path', ACCESS_LOG_PATH);
+};
+await clearUnlistedLog();
+
+const unlistedFetch = await post(
+  signRequest(visitor, 'resolveHttpFetch', { target: UNLISTED_IP, port: 80, path: '/' }),
+);
+check(
+  `curl http://${UNLISTED_SITE.domain}/ returns its own front page`,
+  unlistedFetch.status === 200 &&
+    contentOf(unlistedFetch.body).includes(`<title>${UNLISTED_SITE.name}</title>`),
+  `status=${unlistedFetch.status} error=${errorOf(unlistedFetch.body)}`,
+);
+
+const searchesFor = [UNLISTED_SITE.name, UNLISTED_SITE.domain, UNLISTED.town];
+const unlistedSearches = await Promise.all(
+  searchesFor.map((words) =>
+    post(
+      signRequest(visitor, 'resolveHttpFetch', {
+        target: FINDIT_IP,
+        port: 80,
+        path: `/?q=${encodeURIComponent(words)}`,
+      }),
+    ),
+  ),
+);
+// A result is a link to the site; the page also echoes the query, which may be the domain.
+const leaking = searchesFor.filter(
+  (_, index) =>
+    unlistedSearches[index]?.status !== 200 ||
+    contentOf(unlistedSearches[index]?.body).includes(`<a href="http://${UNLISTED_SITE.domain}/">`),
+);
+const listedLink = contentOf(searched.body).includes('<a href="http://millbrook.gov/">');
+check(
+  `no findit search for its name, its domain or its town lists ${UNLISTED_SITE.domain}`,
+  // A listed site's result must match the same link, or finding none would prove nothing.
+  listedLink && leaking.length === 0,
+  `searched=${searchesFor.join(' | ')} leaking=${leaking.join(' | ')} listedLink=${listedLink}`,
+);
+await clearUnlistedLog();
 
 await cleanup();
 

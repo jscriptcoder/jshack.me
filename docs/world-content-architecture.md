@@ -119,6 +119,9 @@ gateways on their own seed key or machine id.
 | `relations-<key>` | the leads that go to a network: how many, from whom, of which kind, from which box |
 | `relation-host-key-<key>-<ip>` | the host key every desk that has met a client box records for it |
 | `relation-cron-`, `relation-cron-log-` | an offsite backup job's time of night; its `syslog.1`/`auth.log.1` lines |
+| `town-unlisted-<town key>` | which of a town's publishers keep their site off every search |
+| `relation-supplier-<key>` | which listed customer, and which of its working shares, keeps an unlisted business's invoice |
+| `relation-invoice-<key>-<ip>` | an invoice's number, date, total and the person who filed it |
 
 ## What a box holds
 

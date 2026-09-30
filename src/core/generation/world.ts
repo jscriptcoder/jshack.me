@@ -33,6 +33,8 @@ export type DeclaredNetwork = {
   /** The sites of its town's institutions, when it is the network that keeps the town's
    *  directory. */
   readonly directory?: readonly PublishedSite[];
+  /** Set when its site asks every crawler to stay away, so no search ever lists it. */
+  readonly unlisted?: true;
 };
 
 /** A region of the world: what it is called, and the first octet of the block its
@@ -114,7 +116,22 @@ const home = ([essid, place]: TownHome): Institution => ({
   place,
 });
 
+/** The share of a town's publishers whose site asks every crawler to stay away. */
+const UNLISTED_SHARE = 0.15;
+
 const townKey = (town: Town): string => `r${town.region}/t${town.index}`;
+
+/** The publishers of a town whose sites no search lists: 15% of them, at least one, drawn
+ *  on a stream of the town's own. The council is never among them: its directory is how
+ *  the town's unlisted institutions are found, so it must be found first. */
+const unlistedOf = (town: Town, networks: readonly Institution[]): readonly Institution[] => {
+  const publishers = networks.filter((network) => network.site !== undefined);
+  const count = Math.max(1, Math.round(publishers.length * UNLISTED_SHARE));
+  return createPrng(`town-unlisted-${townKey(town)}`).pickN(
+    publishers.filter((network) => network.keepsDirectory !== true),
+    count,
+  );
+};
 
 /** Every network in `town`: its institutions first, then the businesses and then the
  *  homes it draws, each on a stream of its own, each keyed by its place in the town. The
@@ -131,17 +148,23 @@ const networksOf = (
     homesPrng.nextInt(VILLAGE_HOMES_MIN, VILLAGE_HOMES_MAX),
   );
   const directory = institutions.flatMap((institution) => institution.site ?? []);
-  return [
+  const networks = [
     ...institutions,
     ...prng.pickN(TOWN_BUSINESSES, count).map(business),
     ...homes.map(home),
-  ].map(({ keepsDirectory, ...network }: Institution, index) => ({
-    ...network,
-    key: `${townKey(town)}/n${index}`,
-    town: town.name,
-    region: regionOf(town),
-    ...(keepsDirectory === true ? { directory } : {}),
-  }));
+  ];
+  const unlisted = unlistedOf(town, networks);
+  return networks.map((institution: Institution, index) => {
+    const { keepsDirectory, ...network } = institution;
+    return {
+      ...network,
+      key: `${townKey(town)}/n${index}`,
+      town: town.name,
+      region: regionOf(town),
+      ...(keepsDirectory === true ? { directory } : {}),
+      ...(unlisted.includes(institution) ? { unlisted: true as const } : {}),
+    };
+  });
 };
 
 const MILLBROOK_NETWORKS = networksOf(MILLBROOK, MILLBROOK_INSTITUTIONS);

@@ -13,9 +13,9 @@
 
 import type { Directory, FileNode } from '../filesystem/types.js';
 import type { LanHost } from './generateHomeLan.js';
-import { relationsFrom, relationsTo, type Relation } from './relations.js';
+import { relationsFrom, relationsTo, type Login, type Relation } from './relations.js';
 import { declaredNetwork } from './world.js';
-import { buildShare } from './share.js';
+import { buildServerShare } from './supplierInvoices.js';
 import { npcUsername } from './remoteHostFs.js';
 import { peopleKnownOn } from './mailbox.js';
 import { HOME_DIR, dir } from './baseFs.js';
@@ -28,10 +28,10 @@ const NIGHT_HOURS = { first: 0, last: 5 };
 /** The folder a network's copies are kept under, named by the wifi its people know. */
 const folderOf = (key: string): string => (declaredNetwork(key)?.essid ?? key).toLowerCase();
 
-const isBackup = (relation: Relation): boolean => relation.kind === 'backup';
+const isBackup = (relation: Relation): relation is Login => relation.kind === 'backup';
 
 /** The copy a backup runs, as the crontab states it. */
-const commandOf = ({ source, user, address, port }: Relation): string =>
+const commandOf = ({ source, user, address, port }: Login): string =>
   `rsync -az /srv/ ${user}@${address}:backups/${folderOf(source)}/ -e 'ssh -p ${port}'`;
 
 /** The lines the offsite backups kept on `host` add to its `/etc/crontab`, each at a
@@ -39,9 +39,9 @@ const commandOf = ({ source, user, address, port }: Relation): string =>
 export const offsiteJobs = (essid: string, host: LanHost): string => {
   // Only a file server keeps a share to copy, so no other box is worth asking.
   if (roleOfHostname(host.hostname) !== 'fileserver') return '';
-  const jobs = relationsFrom(essid).filter(
-    (relation) => isBackup(relation) && relation.sourceHost.ip === host.ip,
-  );
+  const jobs = relationsFrom(essid)
+    .filter(isBackup)
+    .filter((relation) => relation.sourceHost.ip === host.ip);
   if (jobs.length === 0) return '';
   const prng = createPrng(`relation-cron-${essid}-${host.ip}`);
   return jobs
@@ -65,9 +65,9 @@ const ownedBy = (node: FileNode, owner: string): FileNode =>
       };
 
 /** The share `relation`'s file server keeps, as it would build it. */
-const shareOf = ({ source, sourceHost }: Relation): Directory => {
+const shareOf = ({ source, sourceHost }: Login): Directory => {
   const account = npcUsername(source, sourceHost);
-  return buildShare({
+  return buildServerShare({
     essid: source,
     host: sourceHost,
     account,
@@ -78,9 +78,9 @@ const shareOf = ({ source, sourceHost }: Relation): Directory => {
 /** The `backups` directory `username` keeps on `host`, one folder per network that
  *  copies its share there, or null where nothing is copied to it. */
 export const offsiteCopies = (essid: string, host: LanHost, username: string): Directory | null => {
-  const copies = relationsTo(essid).filter(
-    (relation) => isBackup(relation) && relation.targetHost.ip === host.ip,
-  );
+  const copies = relationsTo(essid)
+    .filter(isBackup)
+    .filter((relation) => relation.targetHost.ip === host.ip);
   if (copies.length === 0) return null;
   return dir(
     Object.fromEntries(

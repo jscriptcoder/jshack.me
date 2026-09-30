@@ -95,11 +95,13 @@ describe('the web findit searches', () => {
     );
   });
 
-  it("lists each of that town's businesses for its own name", async () => {
+  it("lists each of that town's listed businesses for its own name", async () => {
     const web = await indexWith();
     const businesses = DECLARED_NETWORKS.filter(
       (network) =>
-        network.town === 'Millbrook' && ['cafe', 'retail', 'corporate'].includes(network.category),
+        network.town === 'Millbrook' &&
+        network.unlisted !== true &&
+        ['cafe', 'retail', 'corporate'].includes(network.category),
     );
     expect(businesses.length).toBeGreaterThan(0);
     for (const business of businesses) {
@@ -176,8 +178,10 @@ describe('the web findit searches', () => {
     const web = await indexWith([
       patchRow({ machine_id: campusServerId(), path: '/boot/vmlinuz', content: null }),
     ]);
-    // Two machines are read per publisher, and exactly one publisher has gone dark.
-    expect(web.length).toBe(publisherMachineIds().length / 2 - 1);
+    // Two machines are read per publisher, exactly one publisher has gone dark, and the
+    // unlisted ones are read only to be left out.
+    const unlisted = DECLARED_NETWORKS.filter((network) => network.unlisted === true).length;
+    expect(web.length).toBe(publisherMachineIds().length / 2 - 1 - unlisted);
     for (const page of web) {
       expect(page.address).not.toBe('');
       expect(typeof page.title).toBe('string');
@@ -465,6 +469,25 @@ describe("a player's page on the public web", () => {
 
 describe('a site that asks not to be listed', () => {
   const SHUT_OUT = 'User-agent: *\nDisallow: /\n';
+
+  it('never lists a site its town keeps off every search, by its name, its domain or its town', async () => {
+    const web = await indexWith();
+    const unlisted = DECLARED_NETWORKS.filter((network) => network.unlisted === true);
+    expect(unlisted.length).toBeGreaterThan(0);
+    for (const network of unlisted) {
+      const domain = network.site?.domain ?? '';
+      expect(
+        web.map((page) => page.address),
+        network.essid,
+      ).not.toContain(domain);
+      for (const words of [network.site?.name ?? '', network.place, domain, network.town]) {
+        expect(
+          rankPages(web, words).map((page) => page.address),
+          words,
+        ).not.toContain(domain);
+      }
+    }
+  });
 
   it("keeps a player's page out", async () => {
     const web = await indexedWeb(
