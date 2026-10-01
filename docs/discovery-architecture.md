@@ -286,11 +286,23 @@ and an unlisted business or practice is always the target of a supplier lead (ab
 The 20 landmark corporations (Acme, Initech, Nakatomi, …) and the 20–40 the world draws
 (`c0`, `c1`, …; see `world-content-architecture.md`) answer in the placeless `193` block, in
 that order after findit, so `whois` names each by its site and prints no `city:` or
-`region:`. A drawn corporation stands in no town at all, keeps no lead and receives none, and
-a join to it is refused: it always publishes and is always listed, and findit is the one way
-in. A search shows at most ten results, so it is a corporation's name that always puts it
+`region:`. A drawn corporation stands in no town at all, receives no lead, and a join to it is
+refused: it always publishes and is always listed, and findit is the one way in. A search shows at most ten results, so it is a corporation's name that always puts it
 first, not its kind's word: `freight` already fills its page with nine logistics firms and
 Westbrook Haulage.
+
+### Branches: from the head office to the village
+
+A town keeps offices of the corporations (Millbrook one, `LORIMER-GROUP-MILLBROOK`, an
+office of Lorimer Group). A branch publishes nothing and no business of its town leads to
+it; its IT is the head office's. The way there crosses towns: find the corporation on
+findit, get onto its gateway, and read root's `~/.ssh/config`, whose
+`Host <branch wifi, lowercased>` block names the branch's address, the account and a `Port`
+off `22`, with the matching `known_hosts` line. This is a relation of its own kind,
+`branch`, drawn with no stream: each branch is the target of exactly one, from its parent,
+and the door is the branch's forwarded ssh or else its gateway's `22` as `root`, as for any
+lead. `whois` on the address names the corporation's site, with the branch's `city:` and
+`region:`, as a registry names the company holding a line.
 
 ### New categories
 

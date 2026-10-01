@@ -15,6 +15,9 @@
  * shortcut to every client they look after, at the client's public address. Those are
  * the relations the town draws, so each names a door that really opens; its host key
  * is drawn on the client box's own stream, so every desk that has met it agrees.
+ *
+ * A corporation's head office keeps the same kind of shortcut to each of its branches,
+ * in root's `.ssh/` on its gateway: the branch's IT is the head office's.
  */
 
 import type { Directory } from '../filesystem/types.js';
@@ -24,7 +27,7 @@ import { hostServices, npcUsername } from './remoteHostFs.js';
 import { isDeskMachine } from './npcHome.js';
 import { lanZoneName } from '../network/resolveName.js';
 import { createPrng, type Prng } from './prng.js';
-import { relationsFrom, type Login } from './relations.js';
+import { branchLeadsFrom, relationsFrom, type Login } from './relations.js';
 import type { SshNeighbour as ShortcutTarget } from './pools/configFiles.js';
 import { declaredNetwork } from './world.js';
 
@@ -121,6 +124,21 @@ const sshConfig = (
     return `Host ${host.hostname}\n    HostName ${hostName}\n    User ${npcUsername(essid, host)}\n${portLine}`;
   });
   return [`Host *\n${defaults}`, ...shortcuts, ...clientShortcuts(clients)].join('\n');
+};
+
+/** The `.ssh/` a head office's gateway keeps for root: a shortcut to each of its
+ *  corporation's branches, and the host it has met there. Null for a network with no
+ *  branch. */
+export const buildBranchSshDirectory = (essid: string): Directory | null => {
+  const branches = branchLeadsFrom(essid);
+  if (branches.length === 0) return null;
+  return dir(
+    {
+      known_hosts: file(clientKnownHosts(branches), ROOT_FILE),
+      config: file(clientShortcuts(branches).join('\n'), ROOT_FILE),
+    },
+    ROOT_DIR,
+  );
 };
 
 /** The `.ssh/` directories this box keeps: root's, and the desk owner's where somebody

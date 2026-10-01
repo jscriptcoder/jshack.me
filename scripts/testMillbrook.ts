@@ -17,6 +17,9 @@
 //     so the box the server finds there is the one its smaller LAN holds.
 //   - The town's unlisted site answers a fetch by its domain, and findit's live index
 //     never lists it, whether searched by its name, its domain or its town.
+//   - A corporation's branch in the town answers at the address its head office's lead
+//     names, with ssh on the port the lead logs in at, and the head office's own gateway,
+//     where the lead is kept, answers ssh at the corporation's address.
 //
 // Usage (with v2 supabase + vercel dev running on 3100):
 //   npx dotenv -e .env.development.local -- npx tsx scripts/testMillbrook.ts
@@ -36,6 +39,7 @@ import {
   publicAddress,
 } from '../src/core/generation/world.js';
 import { seededForwards } from '../src/core/generation/seededForwards.js';
+import { relationsTo, type Login } from '../src/core/generation/relations.js';
 import { generateHomeLan } from '../src/core/generation/generateHomeLan.js';
 import { hostServices, npcUsername } from '../src/core/generation/remoteHostFs.js';
 import { siteServer } from '../src/core/generation/siteServer.js';
@@ -345,6 +349,46 @@ check(
   `searched=${searchesFor.join(' | ')} leaking=${leaking.join(' | ')} listedLink=${listedLink}`,
 );
 await clearUnlistedLog();
+
+// === 8. A branch answers where its head office's lead points, and so does the head office. ===
+const BRANCH = DECLARED_NETWORKS.find(
+  (network) => network.town === 'Millbrook' && network.parent !== undefined,
+);
+const BRANCH_LEAD =
+  BRANCH === undefined
+    ? undefined
+    : relationsTo(BRANCH.key).find((relation): relation is Login => relation.kind === 'branch');
+const HEAD_OFFICE_IP = BRANCH?.parent === undefined ? undefined : publicAddress(BRANCH.parent);
+if (BRANCH === undefined || BRANCH_LEAD === undefined || HEAD_OFFICE_IP === undefined) {
+  console.error('Millbrook keeps no branch its head office leads to — the world is unusable.');
+  process.exit(2);
+}
+const headOfficeScan = await post(
+  signRequest(visitor, 'resolvePublicScan', { target: HEAD_OFFICE_IP }),
+);
+const headOfficePorts = portsOf(headOfficeScan.body).map(
+  (openPort) => `${openPort.port}/${openPort.service}`,
+);
+check(
+  `nmap <${BRANCH.parent}'s address> shows the head office's gateway up with 22/ssh`,
+  headOfficeScan.status === 200 &&
+    foundOf(headOfficeScan.body) &&
+    headOfficePorts.includes('22/ssh'),
+  `address=${HEAD_OFFICE_IP} status=${headOfficeScan.status} ports=${headOfficePorts.join(',')}`,
+);
+const branchScan = await post(
+  signRequest(visitor, 'resolvePublicScan', { target: BRANCH_LEAD.address }),
+);
+const branchPorts = portsOf(branchScan.body).map(
+  (openPort) => `${openPort.port}/${openPort.service}`,
+);
+check(
+  `nmap <${BRANCH.essid}'s address> answers ssh on the port its head office's lead names`,
+  branchScan.status === 200 &&
+    foundOf(branchScan.body) &&
+    branchPorts.includes(`${BRANCH_LEAD.port}/ssh`),
+  `address=${BRANCH_LEAD.address} lead=${BRANCH_LEAD.user}@:${BRANCH_LEAD.port} status=${branchScan.status} ports=${branchPorts.join(',')}`,
+);
 
 await cleanup();
 

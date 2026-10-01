@@ -48,11 +48,13 @@ const recordAt = (address: string): RegistryRecord | undefined => {
   const network = declaredNetwork(key ?? '');
   if (network === undefined) return undefined;
   const { town, region } = network;
+  // A corporation's branch publishes nothing, but the line is its company's.
+  const holder = declaredNetwork(network.parent ?? '') ?? network;
   return {
     netname: network.essid,
     // A network that publishes nothing is somebody's line from the town's ISP, which is
     // all a real registry says about a home or a small shop.
-    orgName: network.site?.name ?? `${town} Broadband`,
+    orgName: holder.site?.name ?? `${town} Broadband`,
     ...(network.site === undefined ? {} : { domain: network.site.domain }),
     // The corporations answer in the placeless block, so no town or region stands
     // behind them.
@@ -128,7 +130,7 @@ export const whois: Command = {
   manual: {
     synopsis: 'whois <ip|domain>',
     description:
-      "Ask the registry who holds a public address or a domain: the network's name, the organisation behind it, the domain its site answers to, and the town and region it stands in. A network that publishes no site is listed under its town's ISP, and a corporation stands in no town. An address or domain nobody holds has no entry.",
+      "Ask the registry who holds a public address or a domain: the network's name, the organisation behind it, the domain its site answers to, and the town and region it stands in. A network that publishes no site is listed under its town's ISP, or a corporation's branch under its company, and a corporation stands in no town. An address or domain nobody holds has no entry.",
     arguments: [
       {
         name: 'ip|domain',

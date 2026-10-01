@@ -32,7 +32,16 @@ import type { LanHost } from './generateHomeLan.js';
  * client of at least one business, and every lead names a door that really opens.
  */
 
-const millbrook = DECLARED_NETWORKS.filter((network) => network.town === 'Millbrook');
+/** The networks Millbrook draws of its own. A corporation's branch there is its
+ *  company's, and only its company leads to it. */
+const millbrook = DECLARED_NETWORKS.filter(
+  (network) => network.town === 'Millbrook' && network.parent === undefined,
+);
+
+/** The offices the corporations keep in Millbrook. */
+const branches = DECLARED_NETWORKS.filter(
+  (network) => network.town === 'Millbrook' && network.parent !== undefined,
+);
 
 /** Every relation in Millbrook, each once, from the side it is drawn on. */
 const allRelations = (): readonly Relation[] =>
@@ -220,15 +229,102 @@ describe('the leads a Millbrook network keeps', () => {
 
 describe("a corporation's relations", () => {
   // Leads are drawn among the networks of one town. A corporation stands in none, so no
-  // contractor looks after it and it backs nothing up to anybody's home.
+  // contractor looks after it and it backs nothing up to anybody's home. It knows the way
+  // to its own branches.
   const corporations = DECLARED_NETWORKS.filter((network) => network.town === undefined);
 
-  it('keeps no lead to any network, and is the target of none', () => {
+  it('is the target of no lead', () => {
     expect(corporations).not.toEqual([]);
     for (const { key } of corporations) {
       expect(relationsTo(key), key).toEqual([]);
-      expect(relationsFrom(key), key).toEqual([]);
     }
+  });
+
+  it('keeps a lead to each of its branches, and to no other network', () => {
+    for (const { key } of corporations) {
+      const own = branches.filter((branch) => branch.parent === key).map((branch) => branch.key);
+      expect(
+        relationsFrom(key).map((relation) => `${relation.kind} ${relation.target}`),
+        key,
+      ).toEqual(own.map((target) => `branch ${target}`));
+    }
+  });
+});
+
+/**
+ * A corporation's branch publishes nothing and keeps to its company: its IT is the head
+ * office's, so no business of its town looks after it, and it looks after nobody. The one
+ * way to it is the shortcut the head office's gateway keeps.
+ */
+describe("a branch's relations", () => {
+  it("is reached by one lead alone, from its corporation, kept on that corporation's gateway", () => {
+    expect(branches).not.toEqual([]);
+    for (const branch of branches) {
+      const parent = branch.parent ?? '';
+      expect(relationsTo(branch.key), branch.key).toEqual([
+        expect.objectContaining({
+          kind: 'branch',
+          source: parent,
+          sourceHost: generateHomeLan(parent).hosts[0],
+          target: branch.key,
+          address: publicAddress(branch.key),
+        }),
+      ]);
+    }
+  });
+
+  it('opens a door that is really there: its ssh forward, or else its gateway as root', () => {
+    for (const branch of branches) {
+      const [relation] = loginsTo(branch.key);
+      const forward = sshForwardOf(branch.key);
+      if (forward === undefined) {
+        expect(relation, branch.key).toMatchObject({
+          port: 22,
+          user: 'root',
+          targetHost: generateHomeLan(branch.key).hosts[0],
+        });
+      } else {
+        expect(relation?.port, branch.key).toBe(forward.publicPort);
+        expect(relation?.targetHost.ip, branch.key).toBe(forward.internalIp);
+        expect(relation?.user, branch.key).toBe(
+          npcUsername(branch.key, relation?.targetHost ?? generateHomeLan(branch.key).hosts[0]),
+        );
+      }
+    }
+  });
+
+  it('is the same lead from either side', () => {
+    for (const branch of branches) {
+      expect(relationsFrom(branch.parent ?? ''), branch.key).toEqual(
+        expect.arrayContaining([...relationsTo(branch.key)]),
+      );
+    }
+  });
+
+  it('keeps no lead to any network', () => {
+    for (const branch of branches) {
+      expect(relationsFrom(branch.key), branch.key).toEqual([]);
+    }
+  });
+
+  it('is the target of no lead its town keeps', () => {
+    const keys = branches.map((branch) => branch.key);
+    const leads = millbrook.flatMap((network) =>
+      relationsFrom(network.key).map((relation) => [network.key, relation.target] as const),
+    );
+    expect(leads.filter(([, target]) => keys.includes(target))).toEqual([]);
+  });
+
+  it('is pinned (golden): locks the branch lead, its keeper and its door', () => {
+    expect(
+      branches.flatMap((branch) =>
+        loginsTo(branch.key).map(
+          (relation) =>
+            `${relation.source} ${relation.sourceHost.hostname} -${relation.kind}-> ` +
+            `${branch.essid} ${relation.user}@${relation.targetHost.hostname}:${relation.port}`,
+        ),
+      ),
+    ).toEqual(['c6 edge-rtr -branch-> LORIMER-GROUP-MILLBROOK root@core-rtr:22']);
   });
 });
 
@@ -295,6 +391,63 @@ describe("an IT contractor's shortcuts", () => {
           ).not.toContain(relation.address);
         }
       }
+    }
+  });
+});
+
+describe("a head office's shortcut to its branch", () => {
+  const leads = () => branches.flatMap((branch) => loginsTo(branch.key));
+
+  it("names each branch in its gateway's root ssh config, by its wifi, at its address, as its account", () => {
+    expect(leads().length).toBeGreaterThan(0);
+    for (const relation of leads()) {
+      const config = fileOn(relation.source, relation.sourceHost, '/root/.ssh/config');
+      const name = branches.find((network) => network.key === relation.target)?.essid;
+      const portLine = relation.port === 22 ? '' : `    Port ${relation.port}\n`;
+      const blocks = (config ?? '').split(/\n(?=Host )/);
+      expect(blocks, relation.target).toContain(
+        `Host ${name?.toLowerCase()}\n    HostName ${relation.address}\n    User ${relation.user}\n${portLine}`,
+      );
+    }
+  });
+
+  it('has met each branch over ssh, at the address and port it connects to', () => {
+    for (const relation of leads()) {
+      const knownHosts = fileOn(relation.source, relation.sourceHost, '/root/.ssh/known_hosts');
+      const names =
+        relation.port === 22 ? relation.address : `[${relation.address}]:${relation.port}`;
+      expect(
+        (knownHosts ?? '')
+          .split('\n')
+          .some((line) => /^\S+ ssh-ed25519 AAAA\S+$/.test(line) && line.startsWith(`${names} `)),
+        relation.target,
+      ).toBe(true);
+    }
+  });
+
+  it("is pinned (golden): locks the head office's ssh config and the key its branch shows", () => {
+    const lorimer = leads().find((relation) => relation.source === 'c6');
+    if (lorimer === undefined) throw new Error('Lorimer Group keeps no lead to its branch');
+    expect(fileOn('c6', lorimer.sourceHost, '/root/.ssh/config')).toBe(
+      'Host lorimer-group-millbrook\n    HostName 87.98.122.105\n    User root\n',
+    );
+    expect(fileOn('c6', lorimer.sourceHost, '/root/.ssh/known_hosts')).toBe(
+      '87.98.122.105 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI0v/0zJ9HpP0+wf7BLpnBQe4GYIxALpSRXOXQ7uZ68pZ\n',
+    );
+  });
+
+  it('keeps no ssh shortcut on the gateway of a network with no branch', () => {
+    const parents = branches.map((branch) => branch.parent);
+    const others = DECLARED_NETWORKS.filter(
+      (network) => network.town !== RIDGEMONT && !parents.includes(network.key),
+    );
+    expect(others.length).toBeGreaterThan(0);
+    for (const network of others) {
+      const [gateway] = generateHomeLan(network.key).hosts;
+      if (gateway === undefined) throw new Error(`${network.key} has no gateway`);
+      const home = resolveLanHostIdentity(gateway, network.key).baseFs.entries.get('root');
+      if (home?.kind !== 'directory') throw new Error(`${network.key}'s gateway has no /root`);
+      expect([...home.entries.keys()], network.key).not.toContain('.ssh');
     }
   });
 });
@@ -571,7 +724,11 @@ describe("an unlisted business's supplier lead", () => {
 });
 
 describe('what a Millbrook box names beyond its own network', () => {
-  const keys = millbrook.map((network) => network.key);
+  // A branch's head office keeps a lead into the town, so its boxes are held to the same.
+  const keys = [
+    ...millbrook.map((network) => network.key),
+    ...branches.flatMap((branch) => [branch.key, branch.parent ?? '']),
+  ];
 
   /** Every box of `keys`, with the tree it is built with. */
   const boxes = () => [
