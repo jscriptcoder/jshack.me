@@ -584,15 +584,11 @@ export const buildWebSite = ({
               ]),
         ];
   // A site its town keeps off every search asks all crawlers to stay away from the whole
-  // of it, in place of whatever it drew. The draws are made all the same, so nothing
-  // after them moves.
+  // of it, in place of whatever it drew, and keeps no directory only its robots file
+  // would have named: that file names nothing else, so nobody could find one. The draws
+  // are made all the same, so nothing after them moves.
   const unlisted = published !== undefined && declaredNetwork(essid)?.unlisted === true;
-  const crawlerRules = unlisted
-    ? [
-        ['robots.txt', SHUT_OUT_ROBOTS] as const,
-        ...robots.filter(([file]) => file !== 'robots.txt'),
-      ]
-    : robots;
+  const crawlerRules = unlisted ? [['robots.txt', SHUT_OUT_ROBOTS] as const] : robots;
   const origin = ownUrl.slice(0, -1);
   const sitemap =
     prng.next() < SITEMAP_SHARE

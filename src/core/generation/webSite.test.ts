@@ -633,6 +633,19 @@ describe('a web server leaves breadcrumbs to what it did not link', () => {
     expect(wrong).toEqual([]);
   });
 
+  it('keeps no directory only its robots file could name, where that file shuts crawlers out', () => {
+    // Its robots file names nothing but the whole site, so such a directory would be
+    // named nowhere and no player could ever find it.
+    const shut = servingBoxes(isWebserver).filter(shutsOut);
+    expect(shut.length).toBeGreaterThan(0);
+    const unreachable = shut.flatMap((built) =>
+      [...webRootOf(built.tree).keys()]
+        .filter((file) => ROBOTS_ONLY_DIRECTORIES.some((name) => file.startsWith(`${name}/`)))
+        .map((file) => `${built.box.host.hostname} /${file}`),
+    );
+    expect(unreachable).toEqual([]);
+  });
+
   it('names a path off the default list in a seeded share of robots files', () => {
     const robots = servingBoxes(isWebserver).filter(({ tree }) => webRootOf(tree).has('robots.txt'));
     const offList = robots.filter((built) =>

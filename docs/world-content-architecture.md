@@ -60,8 +60,9 @@ most are enforced by a property test named in "How it is tested".
    hostnames → machine ids → orphans journals and moves every pin, wire-check host selection
    and the `e2e` skill's derived secrets.
 8. **A network persona plus a box inhabitant.** The persona comes from the ESSID's category
-   (`pools/essidCatalog.ts`; uncatalogued ESSIDs seed one) and gives an organisation, a kind of
-   place, its vocabulary and a `.lan` domain. The inhabitant comes from the box's existing
+   (`pools/essidCatalog.ts`; uncatalogued ESSIDs seed one from every category, findit's is fixed
+   in `finditNetwork.ts` so a new category never re-rolls a box players reach) and gives an
+   organisation, a kind of place, its vocabulary and a `.lan` domain. The inhabitant comes from the box's existing
    username (`mrodriguez` → Maria Rodriguez) and agrees across `.gitconfig`, history, notes,
    mail and DB rows. Roles are drawn blind to the persona, so the persona adapts to what was
    drawn. Domains are the network's X1 `.lan` zone — no invented public domains.
@@ -139,7 +140,8 @@ the LAN it allows:
   is always this shape.
 
 Only `deep` hides anything, so only a council, an office or a big shop is worth walking down.
-A home or a café is never `deep`, and a council or an office never `lone`. A publisher's LAN
+A home or a café is never `deep`, and a council, an office or a place of care never
+`lone`. A publisher's LAN
 always holds the web server its site answers from. Every reader of the shape (scans, ssh
 reach, the inner-gateway lookups, the DNS zone, snmp, the gateway's own files) asks the LAN,
 never the profile, so a network with no inner gateway has none anywhere.
@@ -170,6 +172,27 @@ homes and Ridgemont's networks have no kind.
   A town's office names every workstation a desk and every file server a working share, and
   when none of its machines drew one, the lowest free machines (never the one serving its
   site) become a file server and a desk.
+
+## What a place of care is
+
+`healthcare` is the tenth category, appended to `NETWORK_CATEGORIES`, so every category pool
+holds its entry: front pages, site pages, people roles, API endpoints, MOTDs, notes, work
+history, personal mail, phone downloads, share departments (admissions, radiology, pharmacy,
+estates, rotas) and unnamed places. Millbrook's is **the cottage hospital** (`COTTAGE-HOSPITAL`,
+`millbrookhospital.org`), an institution declared after the town's homes (`MILLBROOK_LATER_INSTITUTIONS`
+in `world.ts`) so no earlier key or address moves, but listed on the directory with the other
+institutions. It is `flat` or `deep`, never `lone`.
+
+- **Its site** fills a `{care}` slot: the hospital (`SITE_WORDS.hospital`) with wards, visiting
+  hours and outpatient clinics, any other place of care (`CATEGORY_WORDS.healthcare`) with
+  appointments, check-ups and advice. Its team page is `clinicians.html`, "Our clinicians".
+- **Its database** is the `appointments` archetype: patients (`PT-` numbers, a name, a date of
+  birth kept as text, since the schema has no DATE type and a row's first DATETIME dates it),
+  clinicians, appointments, and sometimes rooms and a waiting list. Nothing clinical: no table
+  holds a diagnosis, a condition, a treatment or a note.
+- **Its boxes** carry no desk, mail server or file server in Millbrook's draw, so its notes,
+  history, mail and share departments are proven on healthcare networks outside the catalog
+  (`HealthCentre-WiFi`, `Practice-Staff`, `Patient-Staff` in `src/test/worldContent.ts`).
 
 ## What a box holds
 
@@ -211,7 +234,7 @@ path is served; and 1–4 unlinked paths drawn from the shipped dirlist so a def
 pays. `dump.sql` is schema-only and always present on a mysql webserver. The web tools resolve
 `.lan` names through `resolveLanName`. Other http hosts serve one version-free page.
 
-**Databases** (`generateDatabase.ts`, `databaseApp.ts`, `pools/databaseApps.ts`): 17 application
+**Databases** (`generateDatabase.ts`, `databaseApp.ts`, `pools/databaseApps.ts`): 18 application
 archetypes as data, picked by prefix (`portal-` cms, `api-` api), role (mail) or the network's
 category. A LAN `users` table holds the box's account plus every neighbour's; other tables hold
 5–40 rows, referentially sound and dated inside the application's life. `generateApplication` is
@@ -277,13 +300,15 @@ build budget.
 - **Property tests over the whole world**, not examples: `npcHome`, `boxSurface`, `boxMemory`,
   `webSite`, `database`, `store`, `mailbox`/`networkMail`, `share`, `device` (+ one per kind),
   `gatewayNetwork`/`gatewayHistory`, `phoneHome`. Each reads every catalog and uncatalogued
-  network, LAN and deep, for: no dead reference, no version (`softwareVersionsIn`), no unfilled
+  network and every network of a town beyond Ridgemont, LAN and deep, for: no dead reference, no version (`softwareVersionsIn`), no unfilled
   slot, no account but root where one is forbidden, no date after the epoch, no password-pool
   word, every pool entry reachable. Shared helpers: `src/test/worldContent.ts`,
   `src/test/deviceBoxes.ts`.
 - **Leads out of a town network have their own properties** (`relations.test.ts`): every
   public address a Millbrook box names is its own or a relation's, every private one is on
-  the network whose facts the file states, and both ends of each relation agree.
+  the network whose facts the file states, and both ends of each relation agree. The
+  whole-world tests read the same leads through `leadsKeptOn(box)`, and a one-person network
+  keeps no correspondence: there is nobody for its person to write to.
 - **Variety has a number.** Within a network no two boxes share a byte-identical free-text file;
   across the catalog each category meets a distinct-body ratio (e.g. ≥ 95% root histories).
   Files that state one network fact (`resolv.conf`) are exempt.

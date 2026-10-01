@@ -16,3 +16,8 @@ export const FINDIT_DOMAIN = 'findit.io';
 
 /** What findit calls itself on its own disk. */
 export const FINDIT_HOSTNAME = 'findit';
+
+/** The kind of place findit's box is, and what its people call it. Fixed rather than
+ *  drawn, as a network outside the catalog would draw it: players reach this box, and a
+ *  kind of place added to the world must not turn it into another. */
+export const FINDIT_PLACE = { category: 'hacker', place: 'the workshop' } as const;

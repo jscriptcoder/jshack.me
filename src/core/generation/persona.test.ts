@@ -3,6 +3,7 @@ import { inhabitant, networkPersona } from './persona.js';
 import type { LanHost } from './generateHomeLan.js';
 import { NETWORK_CATEGORIES } from './pools/essidCatalog.js';
 import { DECLARED_NETWORKS } from './world.js';
+import { FINDIT_NETWORK } from './finditNetwork.js';
 
 /**
  * Who a network belongs to. Every machine behind an access point reads as part of one
@@ -53,6 +54,17 @@ describe('networkPersona', () => {
     expect(persona.town).toBe('Ridgemont');
     expect(persona.place).not.toBe('');
     expect(networkPersona('Linksys-Kitchen')).toEqual(persona);
+  });
+
+  it('keeps findit the workshop it has always been, however many kinds of place the world grows', () => {
+    // findit is no catalog network, but players reach its box; a new category must not
+    // turn it into some other kind of place.
+    expect(networkPersona(FINDIT_NETWORK)).toEqual({
+      category: 'hacker',
+      place: 'the workshop',
+      domain: 'findit-io.lan',
+      town: 'Ridgemont',
+    });
   });
 
   it('does not put every network outside the catalog in the same kind of place', () => {
