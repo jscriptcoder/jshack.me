@@ -294,7 +294,8 @@ if (
   UNLISTED === undefined ||
   UNLISTED_SITE === undefined ||
   UNLISTED_IP === undefined ||
-  UNLISTED_SERVER === undefined
+  UNLISTED_SERVER === undefined ||
+  UNLISTED.town === undefined
 ) {
   console.error('Millbrook unlists no site on the internet — the world is unusable.');
   process.exit(2);

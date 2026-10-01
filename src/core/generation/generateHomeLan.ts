@@ -53,6 +53,8 @@ const HOST_COUNT_MAX = 8;
 /** How many machines stand behind the gateway of a `flat` network. */
 const FLAT_COUNT_MIN = 2;
 const FLAT_COUNT_MAX = 5;
+/** The fewest an office keeps: a box for its site, its working share and a desk. */
+const FLAT_OFFICE_COUNT_MIN = 3;
 
 const lastOctet = (host: LanHost): number => Number(host.ip.split('.')[3]);
 
@@ -75,6 +77,13 @@ const withRole = (
     .filter((machine) => !kept.includes(machine.octet))
     .sort((left, right) => left.octet - right.octet);
   return machines.map((machine) => (machine === free ? { ...machine, role } : machine));
+};
+
+/** Whether the network under `essid` is an office: a corporate network a town or the
+ *  world drew a kind for. */
+const isOffice = (essid: string): boolean => {
+  const network = declaredNetwork(essid);
+  return network?.category === 'corporate' && network.subtype !== undefined;
 };
 
 /** The lowest-addressed of `machines` doing `role`, if any does. */
@@ -127,10 +136,9 @@ const machinesAt = (
       role: needsWebserver && octet === lowest ? 'webserver' : role,
     }),
   );
-  const network = declaredNetwork(essid);
-  const isOffice = network?.category === 'corporate' && network.subtype !== undefined;
-  const prefixes = isOffice ? OFFICE_HOSTNAME_PREFIXES : HOSTNAME_PREFIXES;
-  return (isOffice ? staffed(served) : served).map(
+  const office = isOffice(essid);
+  const prefixes = office ? OFFICE_HOSTNAME_PREFIXES : HOSTNAME_PREFIXES;
+  return (office ? staffed(served) : served).map(
     ({ octet, role }): LanHost => ({
       ip: `${subnet}.${octet}`,
       hostname: `${prng.pick(prefixes[role])}-${octet}`,
@@ -167,7 +175,8 @@ export const generateHomeLan = (essid: string): HomeLan => {
   // the shape it was authored with.
   const profile = declaredNetwork(essid)?.profile ?? 'deep';
   if (profile !== 'deep') {
-    const count = profile === 'lone' ? 1 : prng.nextInt(FLAT_COUNT_MIN, FLAT_COUNT_MAX);
+    const least = isOffice(essid) ? FLAT_OFFICE_COUNT_MIN : FLAT_COUNT_MIN;
+    const count = profile === 'lone' ? 1 : prng.nextInt(least, FLAT_COUNT_MAX);
     return {
       subnet,
       hosts: byOctet([

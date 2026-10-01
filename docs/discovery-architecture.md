@@ -281,6 +281,17 @@ A player finds one the other ways: an unlisted institution stays on its town's d
 and an unlisted business or practice is always the target of a supplier lead (above). Rewriting the
 `robots.txt` lists it like any other site.
 
+### The corporations
+
+The 20 landmark corporations (Acme, Initech, Nakatomi, …) and the 20–40 the world draws
+(`c0`, `c1`, …; see `world-content-architecture.md`) answer in the placeless `193` block, in
+that order after findit, so `whois` names each by its site and prints no `city:` or
+`region:`. A drawn corporation stands in no town at all, keeps no lead and receives none, and
+a join to it is refused: it always publishes and is always listed, and findit is the one way
+in. A search shows at most ten results, so it is a corporation's name that always puts it
+first, not its kind's word: `freight` already fills its page with nine logistics firms and
+Westbrook Haulage.
+
 ### New categories
 
 `government` (police, city hall, courts — `ridgemontpd.gov`, `ridgemont.gov`,

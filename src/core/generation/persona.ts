@@ -21,8 +21,8 @@ export type NetworkPersona = {
   readonly place: string;
   /** The network's own domain, which its people's addresses end in. */
   readonly domain: string;
-  /** The town the place stands in. */
-  readonly town: string;
+  /** The town the place stands in. A corporation stands in none. */
+  readonly town?: string;
 };
 
 /** What the people on an uncatalogued network call where they are. A catalog network
@@ -44,7 +44,8 @@ export const networkPersona = (essid: string): NetworkPersona => {
   const domain = lanZoneName(essid);
   const known = declaredNetwork(essid);
   if (known !== undefined) {
-    return { category: known.category, place: known.place, domain, town: known.town };
+    const { category, place, town } = known;
+    return { category, place, domain, ...(town === undefined ? {} : { town }) };
   }
   if (essid === FINDIT_NETWORK) return { ...FINDIT_PLACE, domain, town: RIDGEMONT };
   // A network another player named, or one that left the catalog, still belongs

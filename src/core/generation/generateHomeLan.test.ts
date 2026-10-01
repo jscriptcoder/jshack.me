@@ -400,7 +400,7 @@ describe('generateHomeLan for an institution that publishes a website', () => {
   });
 });
 
-describe('generateHomeLan for an office in a town', () => {
+describe('generateHomeLan for an office', () => {
   const offices = (): readonly DeclaredNetwork[] =>
     DECLARED_NETWORKS.filter(
       (network) => network.category === 'corporate' && network.subtype !== undefined,
@@ -418,6 +418,15 @@ describe('generateHomeLan for an office in a town', () => {
         machines.some((host) => roleOfHostname(host.hostname) === 'webserver'),
         key,
       ).toBe(true);
+    }
+  });
+
+  it('stands three to five machines behind a flat office, room for its site, its share and a desk', () => {
+    const flat = offices().filter((network) => network.profile === 'flat');
+    expect(flat).not.toEqual([]);
+    for (const { key } of flat) {
+      expect(machinesOf(key).length, key).toBeGreaterThanOrEqual(3);
+      expect(machinesOf(key).length, key).toBeLessThanOrEqual(5);
     }
   });
 

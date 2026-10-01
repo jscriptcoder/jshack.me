@@ -95,6 +95,16 @@ export const NAME_TEMPLATES: Readonly<Record<NamedSubtype, readonly string[]>> =
   ],
 };
 
+/** How a corporation is named: bigger than a village office, and never for a street.
+ *  Drawn by position and frozen at launch, as the businesses' templates are. Two slots of
+ *  one name never take the same word. */
+export const CORPORATION_NAME_TEMPLATES: readonly string[] = [
+  '{surname} Group',
+  '{filler} Holdings',
+  '{surname} & {surname}',
+  '{filler} International',
+];
+
 /** The words a name template's slots are filled from. Fictional throughout. */
 export const NAME_WORDS: Readonly<Record<'surname' | 'street' | 'filler', readonly string[]>> = {
   surname: [

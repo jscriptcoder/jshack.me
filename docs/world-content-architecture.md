@@ -122,6 +122,8 @@ gateways on their own seed key or machine id.
 | `town-business-names-<town key>` | each business's name, from its kind's templates |
 | `town-practices-<town key>` | how many practices a town keeps beside its businesses, and whether each is a clinic or a dentist |
 | `town-practice-names-<town key>` | each practice's name, from its kind's templates, clear of every name drawn before it |
+| `corporations` | how many corporations the world draws beyond the landmarks, and each one's kind, no kind twice while another is left |
+| `corporation-names` | each corporation's name, from the corporations' own grammar, clear of every name drawn before it |
 | `town-homes-<town key>` | how many homes a town keeps, and which |
 | `relations-<key>` | the leads that go to a network: how many, from whom, of which kind, from which box |
 | `relation-host-key-<key>-<ip>` | the host key every desk that has met a client box records for it |
@@ -136,7 +138,8 @@ A network beyond Ridgemont declares a **profile** (`world.ts`), and `generateHom
 the LAN it allows:
 
 - `lone`: the `.1` gateway and one machine.
-- `flat`: the `.1` gateway and 2–5 machines.
+- `flat`: the `.1` gateway and 2–5 machines; an office 3–5, room for a box serving its site,
+  a working share and a desk.
 - `deep`: the `.1` gateway, an inner router, a switch and 3–8 machines, with a chain of hidden
   segments behind the inner router (`generateDeepLayer`). A landmark declares no profile and
   is always this shape.
@@ -174,6 +177,29 @@ homes and Ridgemont's networks have no kind.
   A town's office names every workstation a desk and every file server a working share, and
   when none of its machines drew one, the lowest free machines (never the one serving its
   site) become a file server and a desk.
+
+## What a corporation is
+
+Beyond the twenty landmark corporations the world draws 20–40 more (`world.ts`), declared
+after every town and keyed `c0`, `c1`, …, so no town's key moves. Each is one head office
+that **stands in no town**: its declaration names no town or region, `whois` prints no
+`city:` or `region:` for it, its people never name a town, and a join to it is refused as to
+any network outside Ridgemont. It answers in the placeless `193` block after findit and the
+landmark corporations (`c<n>` at the block's position 21 + n).
+
+In every other rule it is an office: one of the five corporate kinds, no kind twice while
+another is left; the corporate profile row, so `flat` or `deep`; a desk and a working share
+beside its site server; its site forward and one or two more. It always publishes and is
+always listed (the unlisted draw is a town's), so findit is the one way in. It keeps no lead
+and receives none: leads are drawn among the networks of one town.
+
+- **Its name** comes from a grammar of its own (`CORPORATION_NAME_TEMPLATES` in
+  `pools/businessKinds.ts`): `{surname} Group`, `{filler} Holdings`, `{surname} & {surname}`,
+  `{filler} International`, filled from the businesses' word lists. Every slot is filled and
+  no word fills two slots of one name (the name draw does this for every template, and a
+  business's one slot draws as it always did). It is drawn after every other name, clear of
+  them all, and spelt into its wifi and `.com` domain as a business's is (`Quayle & Bellamy`
+  is `QUAYLE-BELLAMY`, `quaylebellamy.com`).
 
 ## What a place of care is
 
@@ -325,7 +351,9 @@ build budget.
   keeps no correspondence: there is nobody for its person to write to.
 - **Variety has a number.** Within a network no two boxes share a byte-identical free-text file;
   across the catalog each category meets a distinct-body ratio (e.g. ≥ 95% root histories).
-  Files that state one network fact (`resolv.conf`) are exempt.
+  Files that state one network fact (`resolv.conf`) are exempt, and so are those that state one
+  policy of the whole organisation, which a real one copies to every box: a department's
+  `README.md` on its shares and a site's `robots.txt` on its web servers.
 - **Rare roles get synthetic networks.** Any ESSID generates a whole network, so tests add 120
   `HOME-NET-<n>` LANs or one-of-each databases where the catalog holds too few. The synthetic deep
   boxes in `deviceBoxes.ts` share an address, so measure variety over machines a network really

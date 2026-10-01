@@ -125,6 +125,29 @@ describe('the web findit searches', () => {
     }
   });
 
+  it("lists every corporation, which nothing but a search leads to, first for its own name and described in its kind's words", async () => {
+    /** A word only one kind of office uses of itself. */
+    const kindWords: Readonly<Record<string, string>> = {
+      consulting: 'audits',
+      logistics: 'freight',
+      insurance: 'insurance',
+      'it-services': 'managed IT',
+      accounting: 'payroll',
+    };
+    const web = await indexWith();
+    const corporations = DECLARED_NETWORKS.filter((network) => network.town === undefined);
+    expect(corporations.length).toBeGreaterThanOrEqual(20);
+    for (const corporation of corporations) {
+      const domain = corporation.site?.domain;
+      expect(rankPages(web, corporation.place)[0]?.address, corporation.key).toBe(domain);
+      // A search shows one page of results, so it is the description a search reads, not
+      // a place on that page, that every office of a kind can count on.
+      expect(web.find((page) => page.address === domain)?.description, corporation.key).toContain(
+        kindWords[corporation.subtype ?? ''],
+      );
+    }
+  });
+
   it('reads each homepage for what the site calls itself and says about itself', async () => {
     const campus = await found(CAMPUS_DOMAIN);
     expect(campus?.title).toBe(publisherSite(CAMPUS)?.name);
@@ -496,7 +519,8 @@ describe('a site that asks not to be listed', () => {
         web.map((page) => page.address),
         network.essid,
       ).not.toContain(domain);
-      for (const words of [network.site?.name ?? '', network.place, domain, network.town]) {
+      const town = network.town === undefined ? [] : [network.town];
+      for (const words of [network.site?.name ?? '', network.place, domain, ...town]) {
         expect(
           rankPages(web, words).map((page) => page.address),
           words,

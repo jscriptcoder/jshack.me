@@ -492,7 +492,7 @@ export const buildWebSite = ({
     ...(subtype === undefined ? CATEGORY_WORDS[persona.category] : SITE_WORDS[subtype]),
     site,
     place: persona.place,
-    town: persona.town,
+    ...(persona.town === undefined ? {} : { town: persona.town }),
     domain: persona.domain,
     hostname: host.hostname,
   };

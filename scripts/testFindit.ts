@@ -43,6 +43,7 @@ import { formatPidfileContent } from '../src/core/services/pidfile.js';
 import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
 import { publisherMachineIds } from '../src/core/findit/webIndex.js';
 import { DECLARED_NETWORKS } from '../src/core/generation/world.js';
+import { escapeHtml } from '../src/core/findit/page.js';
 import { publicAddressOf } from './publicAddressOf.js';
 
 const NETWORK = process.env.NETWORK_ENDPOINT ?? 'http://localhost:3100/api/network';
@@ -254,6 +255,19 @@ const main = async () => {
       rankedPage.includes(`<a href="http://${CAMPUS_DOMAIN}/">Ridgemont University</a>`),
     `status ${ranked.status}, ${rankedPage.length} chars`,
   );
+  // A corporation stands in no town, and nothing but a search leads to it.
+  const corporation = DECLARED_NETWORKS.find((network) => network.town === undefined);
+  const corporationSite = corporation?.site;
+  const byName = contentOf((await search(corporation?.place ?? '')).body);
+  check(
+    `a search for ${corporation?.place} lists that corporation, which stands in no town`,
+    corporationSite !== undefined &&
+      byName.includes(
+        `<a href="http://${corporationSite.domain}/">${escapeHtml(corporationSite.name)}</a>`,
+      ),
+    `${(byName.match(/<li>/g) ?? []).length} result(s)`,
+  );
+
   const empty = await search('zzz-nothing-anywhere');
   check(
     'a search nothing answers says so, rather than inventing a result',

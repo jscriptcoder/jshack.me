@@ -693,10 +693,14 @@ describe('a web server leaves breadcrumbs to what it did not link', () => {
 });
 
 describe('no two web servers read alike', () => {
-  it('serves no file on one web server that another on its network serves byte for byte', () => {
+  it('serves no file on one web server that another on its network serves byte for byte, but for robots.txt', () => {
+    // A robots.txt states one policy of the whole organisation, which a real one copies to
+    // every web server it runs. Every other file is somebody's page.
+    const pagesOf = (tree: Directory): readonly (readonly [string, string])[] =>
+      [...webRootOf(tree)].filter(([file]) => file !== 'robots.txt');
     const copies = servingBoxes(isWebserver).reduce(
       ({ seen, repeated }, { box, tree }) => {
-        const fresh = [...webRootOf(tree)].flatMap(([file, content]) => {
+        const fresh = pagesOf(tree).flatMap(([file, content]) => {
           const key = `${box.essid} ${content}`;
           const first = seen.get(key);
           return first === undefined ? [] : [`${box.essid}: ${first} = ${box.host.hostname} /${file}`];
@@ -704,9 +708,10 @@ describe('no two web servers read alike', () => {
         return {
           seen: new Map([
             ...seen,
-            ...[...webRootOf(tree)].map(
-              ([file, content]): readonly [string, string] => [`${box.essid} ${content}`, `${box.host.hostname} /${file}`],
-            ),
+            ...pagesOf(tree).map(([file, content]): readonly [string, string] => [
+              `${box.essid} ${content}`,
+              `${box.host.hostname} /${file}`,
+            ]),
           ]),
           repeated: [...repeated, ...fresh],
         };
