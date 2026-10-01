@@ -11,7 +11,8 @@ v0.288.0). Slice 4 grilled and planned 2026-09-29 as slices 4a–4c; 4a complete
 (#581, v0.291.0). Slice 4 complete. Slice 5 grilled 2026-09-30 as slices 5a–5b; 5a complete
 2026-09-30 (#582, v0.292.0); 5b complete 2026-09-30 (#583, v0.293.0). Slice 5 complete. Slice 6 grilled 2026-09-30 as slices 6a–6b;
 Slice 5c (the whole town in the content sweep) complete 2026-09-30 (#584, v0.294.0); 6a
-complete 2026-10-01 (#585, v0.295.0); 6b to be planned. Slices 7 onward not yet planned.
+complete 2026-10-01 (#585, v0.295.0); 6b planned 2026-10-01. Slices 7 onward not yet
+planned.
 Amends the §9 backlog item "Procedural world expansion — GRILLED & RESOLVED 2026-07-29" in
 `docs/conventions-and-gotchas.md`; where the two disagree, this file wins.
 
@@ -1567,7 +1568,7 @@ directory.
 ### Slice 6: the healthcare category
 
 Grilled 2026-09-30 (decision 9, "Slice 6's shape"). Two PRs, in order: 6a the category and
-Millbrook's cottage hospital, 6b the practices. 6b is planned once 6a has merged.
+Millbrook's cottage hospital, 6b the practices. 6b planned 2026-10-01, after 6a merged.
 
 ### Slice 6a: Millbrook has a cottage hospital, and a hospital's boxes read like one
 
@@ -1729,6 +1730,128 @@ reachability tests, not mutants.
 **PR-ready when**: 6a-1 to 6a-10 hold, `vitest run`, typecheck, lint and format pass, and the
 owner approves the commit. Bumps the minor version to 0.294.0.
 **Slice complete when**: its PR merges.
+
+### Slice 6b: a town keeps a clinic or a dentist, and each reads as what it is
+
+**Value**: a player walking Millbrook finds a dentist beside its shops: a site findit lists
+for check-ups and fillings (or one only the leads reach, when it is drawn unlisted), an
+appointments database, and boxes whose files belong to a practice. Every later town draws its
+practices the same way, and slice 8 only sizes their count.
+**Path**: a town draws its practices on streams of its own → each is a `healthcare` network
+with subtype `clinic` or `dentist`, named from its subtype's grammar under the world-unique
+name check, appended after the institutions declared later (`n16`, …) → its profile on
+`network-profile-<key>`, its place in the unlisted draw, the relations it keeps and receives
+as a business → its site's `{care}` slot filled from `SITE_WORDS[subtype]` → findit indexes
+it, `whois` names it. A player sees it in findit, in `whois`, on the contractor desk's leads,
+and in every file on its boxes.
+**Class**: behaviour change.
+**Delivery**: independent PR against `main`, branch `feat/procedural-world-practices`.
+**Status**: planned 2026-10-01.
+**Required implementation skills**: `tdd`, `testing`, `refactoring`; `mutation-testing` at
+PR-readiness.
+**Reduction program**: `N/A`.
+
+**Facts measured while planning** (2026-10-01, against `main` at `38dd1c8a`, by a throwaway
+prototype of the draw, reverted):
+
+- Millbrook draws **one** practice, a dentist, at `r0/t1/n16`: `flat`, answering at
+  `87.98.24.218`, its LAN a site server (`www-34`, the lowest machine), a smart lock, a
+  database (`db-177`, so an `appointments` database) and a phone. It keeps no desk and no
+  file server, so it keeps no lead. The grill's "`n16` flat, `n17` deep" assumed two; the
+  count is drawn and came out 1, so no clinic is declared and `n17` is not.
+- Publishers go from 10 to 11; 15% still rounds to 2 unlisted, but the pick is redrawn:
+  **Millbrook police is listed again, Abernethy's Books becomes unlisted** (and gains a
+  supplier lead and invoice on Westbrook Haulage's `files-16`), Abernethy and Sons Hardware
+  stays unlisted with its invoice. `files-16` then keeps two invoices.
+- The contractor desk `laptop-56` gains a lead to the dentist: nine publishers and five
+  homes. Every other lead keeps its draw (the prototype's relation graph is otherwise
+  identical).
+- Profile, address, LAN and leads depend on the key, not the name, so the grammar's exact
+  templates move only the dentist's name, ESSID and domain.
+- Nothing before `n16` changes its key, address, LAN or password. The council's directory
+  lists institutions only, so the practice joins it no more than a shop does.
+- `SITE_WORDS` is keyed by `NetworkSubtype`; 5b proved every subtype's words by filling the
+  templates with them directly (`world.test.ts`), with no need for a declared network of
+  each kind. The clinic's words and grammar are proven the same way.
+
+**Decisions taken in planning** (the grill's, made exact; to confirm with the criteria):
+
+- **Two streams, as businesses keep theirs apart**: `town-practices-<town key>` draws the
+  count (1–2 in a village) and each practice's kind; `town-practice-names-<town key>` draws
+  their names. The grill named one stream; the names get their own so the name draw is the
+  businesses' own, reused, and a redrawn clash moves no kind.
+- **A practice's name avoids every name drawn before it**: the catalog, findit, the
+  institutions, the businesses, the homes and the hospital. Businesses are drawn first and
+  are not asked to avoid the practices, so no business moves.
+- **Grammars**: `clinic` `['{street} Medical Centre', '{filler} Health Centre', '{surname}
+  Family Practice', '{street} Surgery']`; `dentist` `['{street} Dental Practice', '{surname}
+  Dental Care', '{filler} Dental', '{street} Dental Surgery']`, from the same `NAME_WORDS`
+  and frozen at launch like the businesses'. `PRACTICE_SUBTYPES` sits beside
+  `BUSINESS_SUBTYPES`; `NetworkSubtype` widens to take it.
+- **Words**: `SITE_WORDS.clinic` `{ care: 'GP appointments, vaccinations and repeat
+  prescriptions' }`, `SITE_WORDS.dentist` `{ care: 'check-ups, fillings and the hygienist' }`.
+- **Unreachable in a one-town world, carried to slice 8**: the second practice and the "no
+  kind twice while the other is left" rule (Millbrook draws one), and a declared clinic. Their
+  mutants are equivalent for Millbrook, as 5b's were; slice 8's sampled towns reach them.
+
+**Acceptance criteria** (to confirm with the owner before any code):
+
+- [ ] **6b-1** A town draws 1–2 practices on `town-practices-<town key>`, each a `healthcare`
+      network with subtype `clinic` or `dentist`, no kind twice while the other is left,
+      appended after the institutions declared later. Millbrook's is a dentist at
+      `r0/t1/n16`; every key, address, LAN and password before it is unchanged, and no
+      landmark declares a practice.
+- [ ] **6b-2** A practice's name comes from its subtype's grammar on
+      `town-practice-names-<town key>`, spelt into its ESSID and `.com` domain as a business's
+      is (ESSID at most 32 characters). No network in the world shares its name, ESSID or
+      domain; a draw that would is redrawn. Every template of both grammars fills to a name
+      that spells cleanly.
+- [ ] **6b-3** A practice is a business in every rule but its count: it always publishes, it
+      is in its town's unlisted draw, it is a lead's target as a business is (an unlisted
+      practice gets a supplier), the council's directory lists it no more than a shop, its
+      profile is drawn from healthcare's row (never `lone`), and it forwards one thing.
+- [ ] **6b-4** A practice's site says what it is: its findit description and front pages fill
+      `{care}` with its subtype's words, a clinic's and a dentist's each carry their own words
+      and none of the other's or the hospital's (no dentist mentions wards), and findit lists
+      Millbrook's dentist, when listed, for its own words. Its team page is `clinicians.html`
+      and its database `appointments`, as every healthcare network's.
+- [ ] **6b-5** Nothing outside Millbrook moved: a byte-diff of every landmark and findit box
+      against `main` is empty, and the AC-7 fingerprint test passes untouched. Inside
+      Millbrook only the unlisted pick (police listed, Abernethy's Books unlisted), the
+      `robots.txt` and robots-only directories that follow it, the new supplier invoice and
+      its backup copy, the share's upload log, and the contractor desk's ssh config and known
+      hosts move, plus the new `n16`; their pins are re-pinned once, deliberately.
+- [ ] **6b-6** Slice 4's and 5's guarantees hold over the grown Millbrook (AC-4, every home
+      1–3 leads, every home that forwards ssh a backup, every unlisted business or practice a
+      supplier, the town's office with its desk and working share), and every whole-world
+      content property holds over `n16` through the town sweep. If one fails, work stops and
+      the owner gets the failure with one rule that fixes it.
+- [ ] **6b-7** `testMillbrook.ts` and `testFindit.ts` pass live against the grown town, and
+      `checkBudgets` passes.
+- [ ] **6b-8** `world-content-architecture.md` describes the practices, their grammars and
+      words, and its streams table lists `town-practices-` and `town-practice-names-`;
+      `discovery-architecture.md` follows the re-pins (unlisted pick, invoices, the
+      contractor desk's reach).
+
+Out of scope: the practices' other pages (a clinic's services page may still list blood
+tests, a dentist's too), which stay their category's as 5b left a shop's; staffing a practice
+with a desk or a share; sizing the count by size class (slice 8).
+
+**RED**: the draw over the declaration (6b-1), then the names and their spelling (6b-2), then
+the business rules over the practice (6b-3), then the built site per subtype and findit
+(6b-4), then slice 4's and 5's guarantee tests and the town sweep over the grown town (6b-6).
+**GREEN**: `PRACTICE_SUBTYPES` and their grammars beside the businesses'; a practice draw in
+`world.ts` reusing the business name draw on its own stream, appended in `networksOf`;
+`SITE_WORDS.clinic` and `SITE_WORDS.dentist`.
+**REFACTOR**: assess only; the name draw is shared, not copied.
+**Server evidence**: no server change. `testMillbrook.ts` derives Millbrook from the
+declaration and runs live against the grown town; `testFindit.ts` proves the index.
+**PRE-PR MUTATION**: Stryker on the practice draw, the shared name draw and the slot filling
+(narrowed battery, json reporter). The grammars and words are authored data: their evidence
+is 6b-2's and 6b-4's tests.
+**PR-ready when**: 6b-1 to 6b-8 hold, `vitest run`, typecheck, lint and format pass, and the
+owner approves the commit. Bumps the minor version to 0.296.0.
+**Slice complete when**: its PR merges. That completes slice 6.
 
 ## Acceptance Criteria
 
