@@ -10,8 +10,8 @@ v0.288.0). Slice 4 grilled and planned 2026-09-29 as slices 4a–4c; 4a complete
 (#578, v0.289.0); 4b complete 2026-09-30 (#579, v0.290.0); 4c complete 2026-09-30
 (#581, v0.291.0). Slice 4 complete. Slice 5 grilled 2026-09-30 as slices 5a–5b; 5a complete
 2026-09-30 (#582, v0.292.0); 5b complete 2026-09-30 (#583, v0.293.0). Slice 5 complete. Slice 6 grilled 2026-09-30 as slices 6a–6b;
-6a planned 2026-09-30 and implemented 2026-09-30, awaiting its PR. Slice 5c (the whole town
-in the content sweep) complete 2026-09-30 (#584, v0.294.0). Slices 7 onward not yet planned.
+Slice 5c (the whole town in the content sweep) complete 2026-09-30 (#584, v0.294.0); 6a
+complete 2026-10-01 (#585, v0.295.0); 6b to be planned. Slices 7 onward not yet planned.
 Amends the §9 backlog item "Procedural world expansion — GRILLED & RESOLVED 2026-07-29" in
 `docs/conventions-and-gotchas.md`; where the two disagree, this file wins.
 
@@ -1497,8 +1497,8 @@ owner approves the commit. Bumps the minor version to 0.293.0.
 
 Found 2026-09-30 while implementing 6a-6. The owner chose a separate PR for it, landing before
 6a. **Status**: fixes A–E taken by the owner 2026-09-30 ("tackle those failing tests") and
-implemented the same day on the branch; full suite 6,698 green, typecheck and lint clean, the
-invoice line's one mutant killed (narrowed battery). Awaiting commit and PR.
+implemented the same day; full suite 6,698 green, typecheck and lint clean, the invoice
+line's one mutant killed (narrowed battery). **Complete** 2026-09-30 (#584, v0.294.0).
 **Delivery**: independent PR against `main`, branch `fix/procedural-world-town-sweep` (cut from
 `main` at `50a71460`). Its RED is stashed there as "town-sweep RED: TOWN_KEYS in ALL_ESSIDS":
 `src/test/worldContent.ts` gains `TOWN_KEYS` (every declared network outside Ridgemont, by
@@ -1584,8 +1584,8 @@ indexes its site, `whois` names it. A player sees it on the directory page, in f
 `whois`, and in every file on its boxes.
 **Class**: behaviour change.
 **Delivery**: independent PR against `main`, branch `feat/procedural-world-healthcare`.
-**Status**: implemented 2026-09-30 on the branch, rebased onto 5c (#584); 6a-1 to 6a-10
-hold, awaiting commit and PR. Bumps the minor version to 0.295.0 (5c took 0.294.0).
+**Status**: **complete** 2026-10-01 (#585, v0.295.0), rebased onto 5c (#584); 6a-1 to 6a-10
+hold. 6b is planned next.
 
 **Progress** (2026-09-30):
 
@@ -1660,51 +1660,51 @@ PR-readiness.
 
 **Acceptance criteria** (owner-confirmed 2026-09-30):
 
-- [ ] **6a-1** `healthcare` is the last entry of `NETWORK_CATEGORIES`, and every category
+- [x] **6a-1** `healthcare` is the last entry of `NETWORK_CATEGORIES`, and every category
       pool holds a healthcare entry the size and style of its neighbours: front pages, site
       pages, the findit description, people roles (consultant, ward sister, practice manager,
       receptionist, dental nurse), API endpoints, MOTDs, work history, notes, personal mail
       threads, phone downloads, share departments (admissions, radiology, pharmacy, estates,
       rotas), unnamed places, forward chances (`[1]`) and profile weights (0/50/50). An
       uncatalogued network draws `healthcare` as it draws any category.
-- [ ] **6a-2** Millbrook declares `r0/t1/n15`: ESSID `COTTAGE-HOSPITAL`, category
+- [x] **6a-2** Millbrook declares `r0/t1/n15`: ESSID `COTTAGE-HOSPITAL`, category
       `healthcare`, subtype `hospital`, place "the cottage hospital", site
       `millbrookhospital.org` named "Millbrook Cottage Hospital". It draws `deep`, answers at
       its derived address, and `whois` names it. The council's directory links it, as every
       institution. Every earlier key, address, LAN and password is unchanged.
-- [ ] **6a-3** A healthcare site says what it is. Its findit description and front pages
+- [x] **6a-3** A healthcare site says what it is. Its findit description and front pages
       read through a `{care}` slot: the hospital fills it with a hospital's words (wards,
       visiting hours, outpatient clinics), and a healthcare network with no subtype with
       neutral words (`CATEGORY_WORDS.healthcare`). Its fixed team page is `clinicians.html`,
       "Our clinicians", its rows drawn from healthcare's people roles. findit lists the
       hospital, when listed, for its own words.
-- [ ] **6a-4** A healthcare network's database is the new `appointments` archetype (named
+- [x] **6a-4** A healthcare network's database is the new `appointments` archetype (named
       `appointments`, `patient_admin` or `pas`): patients, clinicians and appointments,
       referentially sound, dated inside the application's life, with a store spec for its
       working set. Patient data is mundane and fictional: a name, a date of birth, a patient
       number and an appointment type (check-up, blood test, filling). No table holds a
       diagnosis or a clinical note.
-- [ ] **6a-5** AC-8: the hospital's boxes carry healthcare content from every category pool
+- [x] **6a-5** AC-8: the hospital's boxes carry healthcare content from every category pool
       they reach (the list is measured in RED and named in the test: its site, API, database,
       phone downloads, MOTDs and forwards), and synthetic healthcare networks prove the rest
       (home notes and history on a healthcare desk, personal mail, share departments, unnamed
       places). (Reworded 2026-09-30, owner-confirmed: the hospital keeps no desk.)
-- [ ] **6a-6** Every declared town network joins the whole-world content sweep beside the
+- [x] **6a-6** Every declared town network joins the whole-world content sweep beside the
       catalog and the uncatalogued fixtures, and every standing property holds over it (no
       dead reference, no version, no unfilled slot, no forbidden account, no future date, no
       password-pool word). A failure unrelated to healthcare stops the work and goes to the
       owner.
-- [ ] **6a-7** Nothing outside Millbrook moved: a byte-diff of every landmark and findit box
+- [x] **6a-7** Nothing outside Millbrook moved: a byte-diff of every landmark and findit box
       against `main` is empty, and the AC-7 fingerprint test passes untouched. Inside
       Millbrook only the council's directory page, the unlisted pick and the leads drawn from
       it move, and their pins are re-pinned once, deliberately.
-- [ ] **6a-8** Slice 4's, 5a's and 5b's guarantees hold over the grown Millbrook: AC-4, every
+- [x] **6a-8** Slice 4's, 5a's and 5b's guarantees hold over the grown Millbrook: AC-4, every
       home 1–3 leads, every home that forwards ssh a backup, every unlisted business a
       supplier, the town's office with its desk and working share. If one fails, work stops
       and the owner gets the failure with one rule that fixes it.
-- [ ] **6a-9** `testMillbrook.ts` and `testFindit.ts` pass live against the grown town, and
+- [x] **6a-9** `testMillbrook.ts` and `testFindit.ts` pass live against the grown town, and
       `checkBudgets` passes.
-- [ ] **6a-10** `world-content-architecture.md` describes the healthcare category, the
+- [x] **6a-10** `world-content-architecture.md` describes the healthcare category, the
       hospital and the `appointments` archetype; `discovery-architecture.md` follows the
       re-pins.
 
@@ -1746,7 +1746,7 @@ owner approves the commit. Bumps the minor version to 0.294.0.
       findit result.
 - [x] **AC-7** Every landmark's LAN, content and passwords are identical to before the epic
       (snapshot tests). Only its public IP changes.
-- [ ] **AC-8** At least one town holds a hospital network whose boxes carry healthcare content
+- [x] **AC-8** At least one town holds a hospital network whose boxes carry healthcare content
       from every category pool they reach, and every other healthcare pool is proven on
       synthetic healthcare networks. (Reworded by 6a's planning, owner-confirmed 2026-09-30: a
       declared network never draws `UNNAMED_PLACES`, and Millbrook's hospital keeps no desk,
