@@ -14,7 +14,8 @@ Slice 5c (the whole town in the content sweep) complete 2026-09-30 (#584, v0.294
 complete 2026-10-01 (#585, v0.295.0); 6b complete 2026-10-01 (#586, v0.296.0). Slice 6
 complete. Slice 7 grilled 2026-10-01 as slices 7a–7b; 7a complete 2026-10-01 (#587,
 v0.297.0); 7b complete 2026-10-01 (#588, v0.298.0). Slice 7 complete. Slice 8 grilled
-2026-10-01 as slices 8a–8d (decision 19b). Slice 9 not yet planned.
+2026-10-01 as slices 8a–8d (decision 19b); 8a planned 2026-10-01. Slice 9 not yet
+planned.
 Amends the §9 backlog item "Procedural world expansion — GRILLED & RESOLVED 2026-07-29" in
 `docs/conventions-and-gotchas.md`; where the two disagree, this file wins.
 
@@ -2439,6 +2440,155 @@ reporter).
 owner approves the commit.
 **Slice complete when**: its PR merges; slice 7 is complete and slice 8 is planned next.
 (Done 2026-10-01: #588 merged; slice 8 is next.)
+
+### Slice 8: the remaining towns
+
+Grilled 2026-10-01 (decision 19b). Four PRs, in order, each cut from `main` after the one
+before it merges: 8a a second village, 8b the town size class, 8c the city, 8d the remaining
+rows and findit's index split. 8a planned 2026-10-01; each later PR is planned after the one
+before it merges, from what that one measured.
+
+### Slice 8a: a second village, Ashby, and findit finds a town's places by its name
+
+**Value**: any player can fetch Ashby's council by its domain and walk its directory, and a
+search for a town and a kind of place finds that town's place: "Millbrook café" finds
+Whitlock's Café again once a second town competes for the answer. The world's town rows
+stop being Millbrook alone, and every path only a second town reaches is reached.
+**Path**: a town row (`r0/t2`, Ashby) → its institutions named by rule from its name → its
+businesses, homes, practices and branches drawn on the streams Millbrook draws on, keyed by
+`r0/t2` → its addresses in `87.195.x.y` → its relations drawn within the town → its sites in
+findit's index, each description naming its town → a search ranking pages that match every
+word first → `whois`, a fetch by domain, and a refused join.
+**Class**: behaviour change.
+**Delivery**: independent PR against `main`, branch `feat/procedural-world-second-village`.
+**Status**: planned 2026-10-01.
+**Required implementation skills**: `tdd`, `testing`, `refactoring`; `mutation-testing` at
+PR-readiness.
+**Reduction program**: `N/A`.
+
+**Facts measured while planning** (2026-10-01, against `main` at `43392288`, by a throwaway
+prototype declaring Ashby alone after the corporations, reverted):
+
+- Ashby draws **18** networks: council `ashby.gov`, police `ashbypd.gov` (`ASHBY-PD`),
+  library `ashbylibrary.org`; four businesses (Greenleaf Bakehouse, Greenleaf Pharmacy,
+  Lantern Tools, Brightline Consulting) and Bridge Street Café; six homes; a clinic (Garrow
+  Family Practice) and a dentist (Lorimer Dental Care); and **two** branches,
+  `OAKWOOD-HOLDINGS-ASHBY` of `c17` and `RADLEY-OAKLEY-ASHBY` of `c22`. Profiles: 3 `deep`
+  institutions, the rest `lone`, `flat` and one `deep` branch. Addresses `87.195.x.y`, every
+  one in the world distinct; the longest ESSID 27 characters.
+- The paths 5b, 6b and 7b carried here are reached: a second practice of the other kind, a
+  second branch in one town, Millbrook's names avoided by a second town's draw. One is not:
+  no corporation keeps branches in two towns, so the `join` between two `Host` blocks on one
+  gateway stays unreached (8b's town draws 2–3 more).
+- **Ashby reuses four of Millbrook's home names** (`ROSE-COTTAGE`, `OKONKWO-FAMILY`,
+  `GARDEN-FLAT`, `WILLOW-VIEW`): both towns draw from the same 14. ESSIDs are unique within a
+  town (decision 4), so nothing breaks; 8b's home grammar renames every home.
+- The suite goes from 1m44s to 1m50s (6,852 tests). **Nine assertions fail**:
+  - six test-side, each assuming one town: findit's "the police for police" ranking
+    (`ashbypd.gov` now ties `millbrookpd.gov`), the branch tests reading `c17` as a
+    corporation with none, "the directory is kept by the council alone" (Millbrook's only),
+    and two counts of distinct ESSIDs across the world (116 of 121: `TOWN-HALL-WIFI`,
+    `LIBRARY-PUBLIC` and four homes repeat across the two towns);
+  - **three real**, below.
+- **Ashby's homes are unreachable** ("leaves no network that nothing leads to": 5 homes).
+  Ashby's one office, Brightline Consulting, was drawn unlisted, and it keeps every
+  contractor lead to the homes, so the leads start where nothing leads. Slice 4b's rule says
+  "every source is a listed publisher", but the code lets an unlisted publisher keep leads;
+  Millbrook never drew an unlisted office, so nothing showed it. Excluding offices from the
+  unlisted draw moves Millbrook's pick (its police would go unlisted, its bookshop listed);
+  keeping a town's last listed office moves nothing in Millbrook.
+- **Three API servers serve the same pages** ("serves no file on one web server that another
+  on its network serves byte for byte"): Ashby's council (`deep`) keeps `api-38`, `api-131`
+  and `api-188`, whose `/api/v1/status`, `hours`, `forms` and `notices` documents match: an
+  endpoint's document is the category's, not the box's. 16 landmarks keep one API server
+  each, none two; Millbrook's hospital keeps two and passes, for a reason not yet read.
+- **A crontab gives away its box's account** ("never gives away the account a player has to
+  earn"): Brightline's file server `files-6`, whose account is `rsync`, backs up to The Old
+  Rectory's box, whose account is also `rsync`, so its job reads `rsync@87.195.109.250`.
+- No business or practice page names its town (measured over Millbrook: only the council,
+  the police, the library and the hospital do). `SITE_DESCRIPTIONS` is the line findit
+  indexes as a page's description, and its `retail`, `cafe`, `corporate` and `healthcare`
+  templates name no town.
+
+**Planning calls** (owner-confirmed 2026-10-01, with the criteria):
+
+- **A town keeps its last listed office.** The unlisted draw is redrawn when it would leave
+  a town no listed office, and a lead's source is a listed publisher, as 4b states. Nothing
+  in Millbrook moves. Rejected: an office is never unlisted (one harsher rule, but it moves
+  Millbrook's unlisted pick and re-pins 4c and 6a).
+- **The API servers' rule is found in RED, and moves no landmark.** RED first reads why
+  Millbrook's hospital's two API servers pass where Ashby's three do not, then brings back
+  one rule. Ruled out now: an API document naming its host on every network, which rewrites
+  the 16 landmarks' API servers (AC-7).
+- **A box keeps no backup job to an account of its own name.** The backup draw skips a
+  source box whose account is the target's. Rejected: exempting a relation's far account in
+  the test (the job still tells a player the local account).
+- **Homes keep repeating across villages until 8b**, whose grammar renames every home.
+
+**Acceptance criteria** (owner-confirmed 2026-10-01):
+
+- [ ] **8a-1** The world declares Ashby, its second generated town: `r0/t2`, Harrow Valley,
+      a village. Its council, police and library are named by rule from the town's name
+      (`{Town} Town Council`, `{town}.gov`, `TOWN-HALL-WIFI`; `{Town} Police Department`,
+      `{town}pd.gov`, `{TOWN}-PD`; `{Town} Public Library`, `{town}library.org`,
+      `LIBRARY-PUBLIC`), and Millbrook's three come from the same rule with nothing moved.
+      Ashby draws its businesses, homes, practices and branches as Millbrook does, keyed
+      after its institutions in that order, and answers in `87.195.x.y`; every declared
+      address stays distinct.
+- [ ] **8a-2** A name another network holds is drawn again: no domain repeats in the world,
+      and no ESSID repeats within a town. Every declared ESSID is at most 32 characters.
+- [ ] **8a-3** Any player can fetch `ashby.gov` by its domain, and its directory page links
+      every Ashby institution, listed or not, and nothing of Millbrook's (AC-2). Millbrook's
+      directory links nothing of Ashby's.
+- [ ] **8a-4** Every Ashby network is reached (AC-4's test over the whole declaration): a
+      town keeps at least one listed office, and every lead starts on a listed publisher.
+      Ashby's branches are led to from their parents alone.
+- [ ] **8a-5** Every procedural publisher standing in a town beyond Ridgemont names its town
+      in the description findit indexes; no landmark's page moves (AC-7) and no
+      corporation's does. findit ranks a page matching every word of a query above one
+      matching fewer, and ties as before. For every listed site in Millbrook and Ashby, a
+      search for its town and a word its description uses for its kind lists it in the top
+      ten; "Millbrook café" lists Whitlock's Café.
+- [ ] **8a-6** Every whole-world content property holds over Ashby: no two API servers on a
+      network serve the same document, and no box's crontab names an account of its own
+      name.
+- [ ] **8a-7** `whois` on an Ashby address names its organisation with `city: Ashby` (a
+      branch's, its parent's), and a join to an Ashby network is refused, as 1c refuses any
+      town beyond Ridgemont.
+- [ ] **8a-8** Nothing else moved: a byte-diff against `main` differs only by Ashby's
+      networks, the descriptions of Millbrook's businesses and practices and their indexed
+      pages, and the gateways of the corporations that gain an Ashby branch.
+- [ ] **8a-9** A new live wire-check, `scripts/testTowns.ts`, fetches each generated town's
+      council by its domain, asks `whois` about it, finds one of its sites on findit by town
+      and kind, and has a join to it refused; `testMillbrook`, `testFindit` and
+      `testJoinRefusal` pass; `checkBudgets` passes.
+- [ ] **8a-10** `world-content-architecture.md` describes the town rows, the institutions'
+      rule and the listed-office rule; `discovery-architecture.md` describes findit's town
+      words and its ranking. The minor version is bumped to 0.299.0.
+
+Out of scope: the size classes and their counts, the courthouse and the hospital draw, the
+home grammar and the grown word lists, the relations cache (8b); the city and the sampled
+sweeps (8c); the remaining rows and findit's index split (8d).
+
+**RED**: the declaration of Ashby with Millbrook's institutions from the rule (8a-1, 8a-2),
+then its directory (8a-3), then reachability with the listed-office rule (8a-4), then
+findit's town words and ranking (8a-5), then the whole-world properties over Ashby (8a-6),
+then `whois` (8a-7). The six one-town test assumptions are reshaped where each is met, never
+loosened past what decision 4 allows.
+**GREEN**: the town rows and the institutions' rule in `world.ts`, Ashby's draw after the
+corporations; the listed-office redraw and the listed-source filter; a `{town}` reading in
+`SITE_DESCRIPTIONS` that a landmark and a corporation fill with nothing; the all-words
+order in `rankPages`; the API servers' rule; the backup draw's own-account skip.
+**REFACTOR**: assess; `networksOf` and `branchesOf` take a town row rather than Millbrook's
+constants.
+**Server evidence**: no server code change. `testTowns.ts` is new and runs live against
+`vercel dev`; `testMillbrook`, `testFindit` and `testJoinRefusal` rerun.
+**PRE-PR MUTATION**: Stryker on the town rows and the institutions' rule, the unlisted
+redraw and the source filter, the description's town, `rankPages`, the API servers' rule
+and the backup skip (narrowed battery, json reporter).
+**PR-ready when**: 8a-1 to 8a-10 hold, `vitest run`, typecheck, lint and format pass, the
+full sweep is recorded, and the owner approves the commit.
+**Slice complete when**: its PR merges; 8b is planned next.
 
 ## Acceptance Criteria
 
