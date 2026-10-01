@@ -13,7 +13,8 @@ v0.288.0). Slice 4 grilled and planned 2026-09-29 as slices 4a–4c; 4a complete
 Slice 5c (the whole town in the content sweep) complete 2026-09-30 (#584, v0.294.0); 6a
 complete 2026-10-01 (#585, v0.295.0); 6b complete 2026-10-01 (#586, v0.296.0). Slice 6
 complete. Slice 7 grilled 2026-10-01 as slices 7a–7b; 7a complete 2026-10-01 (#587,
-v0.297.0); 7b planned 2026-10-01. Slices 8 onward not yet planned.
+v0.297.0); 7b complete 2026-10-01 (#588, v0.298.0). Slice 7 complete. Slices 8 onward not
+yet planned.
 Amends the §9 backlog item "Procedural world expansion — GRILLED & RESOLVED 2026-07-29" in
 `docs/conventions-and-gotchas.md`; where the two disagree, this file wins.
 
@@ -1963,7 +1964,8 @@ owner approves the commit. Bumps the minor version to 0.296.0.
 
 Grilled 2026-10-01 (decision 19a, "Slice 7's shape"). Two PRs, in order: 7a the
 corporations, 7b the branches. 7a planned 2026-10-01; 7b is planned after 7a merges.
-**7a complete** 2026-10-01 (#587, v0.297.0). 7b planned 2026-10-01.
+**7a complete** 2026-10-01 (#587, v0.297.0). **7b complete** 2026-10-01 (#588, v0.298.0).
+**Slice 7 complete.**
 
 ### Slice 7a: the world holds 20–40 corporations that stand in no town
 
@@ -2146,10 +2148,45 @@ keeps the lead in `/root/.ssh/` → `whois` names the parent. A player sees it i
 head office's gateway, in `whois`, and at the door the lead opens.
 **Class**: behaviour change.
 **Delivery**: independent PR against `main`, branch `feat/procedural-world-branches`.
-**Status**: planned 2026-10-01.
+**Status**: **complete** 2026-10-01 (#588, `8560c344`, v0.298.0); 7b-1 to 7b-9 hold.
 **Required implementation skills**: `tdd`, `testing`, `refactoring`; `mutation-testing` at
 PR-readiness.
 **Reduction program**: `N/A`.
+
+**As built** (2026-10-01):
+
+- Millbrook keeps **one** branch, as measured: `r0/t1/n17` `LORIMER-GROUP-MILLBROOK`,
+  logistics, `deep`, at `87.98.122.105`, an office of `c6` Lorimer Group. `DeclaredNetwork`
+  gains `parent`; `branchesOf` in `world.ts` draws the branches, declared last in
+  `DECLARED_NETWORKS` and addressed as Millbrook's next. A golden pins the draw.
+- The relation `branch` (`relations.ts`): `relationsTo` of a branch is its parent's one lead;
+  `branchLeadsFrom` reads a network's branch leads without walking any town, and is what the
+  gateway asks; `relationsFrom` is the branch leads then the town's, and the town's draw
+  skips every branch.
+- The head office's access point keeps root's `.ssh/` (`buildBranchSshDirectory` in
+  `sshContent.ts`, from the contractor's shortcut and `known_hosts` derivation):
+  `Host lorimer-group-millbrook`, `HostName 87.98.122.105`, `User root`, and its
+  `known_hosts` line. `whois` names a branch's line after its parent's site.
+- **Decided while building** (owner-confirmed 2026-10-01): the head office's access point
+  held 12 files of its own against the 5–10 rule from #549, so **an access point holds 5–12**:
+  one rule, one number, which no head office can pass, because more branches add lines to
+  the same two files rather than files. Rejected: leaving `.ssh/` out of the count (a
+  carve-out) and a head office keeping less of its own content (a new rule that moves `c6`).
+- Evidence: `vitest run` 6,816 green, typecheck and lint clean. Byte-diff against `main` over
+  all 104 networks and every findit page: only `c6`'s leads and access-point gateway moved,
+  plus the new branch. `testMillbrook` 12/12 live (two new: `c6`'s gateway and the branch
+  answer ssh where the lead points), `testFindit` 19/19, `testJoinRefusal` 5/5;
+  `checkBudgets` 249,443 B gzipped and 0.913 ms per box.
+- Stryker (narrowed battery, json reporter): 88 killed / 21 survived. 84 by Stryker, 3 load
+  throws by hand, 1 by a strengthened test (a gateway with no branch keeps no `.ssh` at all;
+  a null entry passed before). Equivalent: `branchLead`'s unreachable guard (6, 2 with no
+  coverage), the town-lead guard and filter moved from `relationsFrom` (9, carried since
+  7a), the `± index` offsets and the `join` between `Host` blocks (3), three always-defined
+  checks (3).
+- **Carried to slice 8**: a branch ESSID overflowing 32 characters in a town whose name has
+  more than nine letters; sizing the branch count by size class; and what only a second
+  branch reaches: the key and address offsets, and the `join` between `Host` blocks once a
+  corporation keeps branches in two towns.
 
 **Facts measured while planning** (2026-10-01, against `main` at `1b61488b`, by a throwaway
 prototype of the draw and the relation, reverted):
@@ -2202,32 +2239,32 @@ prototype of the draw and the relation, reverted):
 
 **Acceptance criteria** (owner-confirmed 2026-10-01):
 
-- [ ] **7b-1** Millbrook declares 1–2 branches, keyed after its practices (`r0/t1/n17`
+- [x] **7b-1** Millbrook declares 1–2 branches, keyed after its practices (`r0/t1/n17`
       first), each with a different parent among the drawn corporations: `corporate`, its
       parent's subtype, ESSID `<PARENT-ESSID>-MILLBROOK` (at most 32 characters), place "the
       Millbrook office", no site, a corporate-row profile and 1–2 forwards. Each answers at
       Millbrook's next address; every declared address stays distinct.
-- [ ] **7b-2** The parent's gateway keeps the lead: `/root/.ssh/config` holds a
+- [x] **7b-2** The parent's gateway keeps the lead: `/root/.ssh/config` holds a
       `Host <branch ESSID, lowercased>` block naming the branch's address, the port and the
       account the lead logs in as, and `/root/.ssh/known_hosts` its line. The door is real:
       the branch's ssh forward and that box's user, or else its gateway's `:22` as `root`.
-- [ ] **7b-3** Nothing else leads to a branch: it keeps no Millbrook lead and receives none,
+- [x] **7b-3** Nothing else leads to a branch: it keeps no Millbrook lead and receives none,
       Millbrook's relations (their goldens) do not move, and AC-4's reach test holds with
       the branch reached from its parent.
-- [ ] **7b-4** `whois` on a branch's address names its parent's site, with `city: Millbrook`
+- [x] **7b-4** `whois` on a branch's address names its parent's site, with `city: Millbrook`
       and `region: Harrow Valley`.
-- [ ] **7b-5** Every whole-world content property holds over the branch. Rule 3's property
+- [x] **7b-5** Every whole-world content property holds over the branch. Rule 3's property
       ("names no address of the world but its own and its relations'") extends to the
       parent's boxes, and a corporation's files name no town but in its branch's lead
       (matched case-insensitively).
-- [ ] **7b-6** Nothing else moved: a byte-diff against `main` differs only on the parent's
+- [x] **7b-6** Nothing else moved: a byte-diff against `main` differs only on the parent's
       gateway, by its two `.ssh` files, and the new branch.
-- [ ] **7b-7** `testMillbrook.ts` reaches the branch's gateway live (`22/ssh` on its
+- [x] **7b-7** `testMillbrook.ts` reaches the branch's gateway live (`22/ssh` on its
       address); `testFindit.ts` and `testJoinRefusal.ts` pass; `checkBudgets` passes.
-- [ ] **7b-8** `world-content-architecture.md` describes the branch and lists
+- [x] **7b-8** `world-content-architecture.md` describes the branch and lists
       `town-branches-` in its streams table; `discovery-architecture.md` describes the route
       from findit to the head office to the branch.
-- [ ] **7b-9** The minor version is bumped to 0.298.0.
+- [x] **7b-9** The minor version is bumped to 0.298.0.
 
 Out of scope: the branch's content speaking for its company; branches of the landmark
 corporations (decision 19a: none); sizing the count by size class and a branch ESSID over 32
@@ -2248,6 +2285,7 @@ reporter).
 **PR-ready when**: 7b-1 to 7b-9 hold, `vitest run`, typecheck, lint and format pass, and the
 owner approves the commit.
 **Slice complete when**: its PR merges; slice 7 is complete and slice 8 is planned next.
+(Done 2026-10-01: #588 merged; slice 8 is next.)
 
 ## Acceptance Criteria
 
