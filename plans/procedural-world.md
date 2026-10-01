@@ -10,9 +10,8 @@ v0.288.0). Slice 4 grilled and planned 2026-09-29 as slices 4a–4c; 4a complete
 (#578, v0.289.0); 4b complete 2026-09-30 (#579, v0.290.0); 4c complete 2026-09-30
 (#581, v0.291.0). Slice 4 complete. Slice 5 grilled 2026-09-30 as slices 5a–5b; 5a complete
 2026-09-30 (#582, v0.292.0); 5b complete 2026-09-30 (#583, v0.293.0). Slice 5 complete. Slice 6 grilled 2026-09-30 as slices 6a–6b;
-6a planned 2026-09-30; 6a-1 to 6a-5 implemented 2026-09-30 (`024117a2`, unpushed), paused
-behind 5c. Slice 5c (the whole town in the content sweep) found and implemented 2026-09-30,
-awaiting its PR. Slices 7 onward not yet planned.
+6a planned 2026-09-30 and implemented 2026-09-30, awaiting its PR. Slice 5c (the whole town
+in the content sweep) complete 2026-09-30 (#584, v0.294.0). Slices 7 onward not yet planned.
 Amends the §9 backlog item "Procedural world expansion — GRILLED & RESOLVED 2026-07-29" in
 `docs/conventions-and-gotchas.md`; where the two disagree, this file wins.
 
@@ -1585,8 +1584,8 @@ indexes its site, `whois` names it. A player sees it on the directory page, in f
 `whois`, and in every file on its boxes.
 **Class**: behaviour change.
 **Delivery**: independent PR against `main`, branch `feat/procedural-world-healthcare`.
-**Status**: planned 2026-09-30. 6a-1 to 6a-5 implemented and committed 2026-09-30 as
-`024117a2` on the branch (not pushed); paused behind 5c, onto which it rebases.
+**Status**: implemented 2026-09-30 on the branch, rebased onto 5c (#584); 6a-1 to 6a-10
+hold, awaiting commit and PR. Bumps the minor version to 0.295.0 (5c took 0.294.0).
 
 **Progress** (2026-09-30):
 
@@ -1607,10 +1606,35 @@ indexes its site, `whois` names it. A player sees it on the directory page, in f
   healthcare desk outside the catalog (`npcHome.test.ts`); the AC-5 list needs that change,
   pending the owner. Three healthcare fixtures outside the catalog (`HealthCentre-WiFi`,
   `Practice-Staff`, `Patient-Staff`) carry mail, shares and unnamed places.
-- 6a-6: the sweep reads only the hospital for now (`TOWN_KEYS` filtered to `healthcare`, said
-  so in its comment); the whole town joins once 5c lands.
-- Left: 6a-6 in full, the `wip` rule, 6a-7 (byte-diff against `main`), 6a-8 (guarantees),
-  6a-9 (live wire-checks, `checkBudgets`), 6a-10 (docs, version), the Stryker gate.
+- 6a-6: after the rebase onto 5c every Millbrook network is in the sweep; one failure, the
+  `wip` path below.
+- **Owner decision, `wip`** (2026-09-30): an unlisted site keeps no directory only its
+  `robots.txt` would have named (`webSite.ts`); the draws are still made. It was the hardware
+  shop's `api-253 /wip/`, not the police's as first written.
+- **Owner decision, AC-5** (2026-09-30): the hospital keeps no desk, so 6a-5 proves notes and
+  history on a healthcare desk outside the catalog; 6a-5 is reworded below.
+- **6a-7 failed once, owner decision** (2026-09-30): findit's own box moved. findit is no
+  declared network, so it draws its persona as an uncatalogued network does, and appending
+  `healthcare` turned it from a hacker workshop into a government records office (the grill's
+  "only test fixtures move" missed it). Fixed by one rule: findit's persona is fixed
+  (`FINDIT_PLACE` in `finditNetwork.ts`, hacker, "the workshop"). After it the per-network
+  byte-diff of every landmark and findit against `main` is empty; inside Millbrook only the
+  council's `directory.html`, the `robots.txt` of the three sites whose listing changed (and
+  the dropped `wip`), the invoice's name on the office share and on PEAR-TREE-HOUSE's backup
+  copy, the share's `vsftpd.log.1`, and the contractor desk's ssh config and known hosts moved,
+  plus the new `n15`.
+- 6a-8: slice 4's and 5's guarantee tests all hold over the grown town (full suite green);
+  the contractor desk now reaches eight publishers and five homes.
+- 6a-9: `testMillbrook.ts` 10/10 live after its search and directory checks were derived from
+  the declaration (they had hard-coded the police as listed and three directory links);
+  `testFindit.ts` 18/18; `checkBudgets` 248,565 B gzipped, 1.023 ms per box.
+- 6a-10: both as-built docs updated (a "What a place of care is" section, 18 archetypes, the
+  sweep's reach, the re-pinned leads and unlisted pick, the fixed findit persona).
+- Mutation gate (narrowed battery, json reporter): 44 killed, 6 survived, 1 no coverage.
+  Four survivors throw at module load and fail the suite by hand (killed); three are
+  equivalent in the declared world (`site ?? []` with every institution publishing, the
+  business-name neighbour list with no collision drawn, `?.unlisted` behind a published site).
+- Full suite 6,712 green, typecheck and lint clean.
 **Required implementation skills**: `tdd`, `testing`, `refactoring`; `mutation-testing` at
 PR-readiness.
 **Reduction program**: `N/A`.
@@ -1661,9 +1685,10 @@ PR-readiness.
       number and an appointment type (check-up, blood test, filling). No table holds a
       diagnosis or a clinical note.
 - [ ] **6a-5** AC-8: the hospital's boxes carry healthcare content from every category pool
-      they reach (the list is measured in RED and named in the test: at least its site, API,
-      database, phone downloads, MOTDs, home notes and history, and forwards), and synthetic
-      healthcare networks prove the rest (personal mail, share departments, unnamed places).
+      they reach (the list is measured in RED and named in the test: its site, API, database,
+      phone downloads, MOTDs and forwards), and synthetic healthcare networks prove the rest
+      (home notes and history on a healthcare desk, personal mail, share departments, unnamed
+      places). (Reworded 2026-09-30, owner-confirmed: the hospital keeps no desk.)
 - [ ] **6a-6** Every declared town network joins the whole-world content sweep beside the
       catalog and the uncatalogued fixtures, and every standing property holds over it (no
       dead reference, no version, no unfilled slot, no forbidden account, no future date, no
