@@ -490,7 +490,7 @@ describe('generateHomeLan for a network sized by its profile', () => {
       generateHomeLan(
         DECLARED_NETWORKS.find((network) => network.essid === essid)?.key ?? '',
       ).hosts.map((host) => host.hostname);
-    expect(sized('deep').filter((network) => network.town === 'Millbrook')).toHaveLength(4);
+    expect(sized('deep').filter((network) => network.town === 'Millbrook')).toHaveLength(5);
     expect(hostnamesOf('TOWN-HALL-WIFI')).toEqual([
       'firewall01',
       'android-57',
@@ -527,6 +527,17 @@ describe('generateHomeLan for a network sized by its profile', () => {
       'sensor-83',
       'mikrotik01',
       'opnsense',
+    ]);
+    expect(hostnamesOf('LORIMER-GROUP-MILLBROOK')).toEqual([
+      'core-rtr',
+      'nginx-69',
+      'nas-102',
+      'web-116',
+      'nginx-124',
+      'www-170',
+      'workstation-184',
+      'vpn-gw',
+      'mikrotik01',
     ]);
   });
 });

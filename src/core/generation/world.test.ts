@@ -48,6 +48,7 @@ import { networkPersona } from './persona.js';
 import type { NetworkCategory } from './pools/essidCatalog.js';
 import { fillSlots } from './npcHome.js';
 import { relationsTo } from './relations.js';
+import { seededForwards } from './seededForwards.js';
 import { indexedWeb } from '../findit/webIndex.js';
 import { robotsAllowFindit } from '../findit/robots.js';
 
@@ -103,6 +104,10 @@ const servedFiles = (key: string): readonly (readonly [string, string])[] => {
 /** Every network the world declares in Millbrook. */
 const millbrook = (): readonly DeclaredNetwork[] =>
   DECLARED_NETWORKS.filter((network) => network.town === 'Millbrook');
+
+/** The networks Millbrook draws of its own: every one but the corporations' branches. */
+const townsOwn = (): readonly DeclaredNetwork[] =>
+  millbrook().filter((network) => network.parent === undefined);
 
 describe('Millbrook', () => {
   it("answers the council's domain at an address in its region's block", () => {
@@ -185,6 +190,7 @@ describe('Millbrook', () => {
         '87.98.183.78',
       ],
       ['r0/t1/n16', 'OAKWOOD-DENTAL', 'Oakwood Dental', 'oakwooddental.com', '87.98.24.218'],
+      ['r0/t1/n17', 'LORIMER-GROUP-MILLBROOK', 'the Millbrook office', undefined, '87.98.122.105'],
     ]);
   });
 
@@ -199,7 +205,7 @@ describe('Millbrook', () => {
   });
 
   it('keeps 3 to 6 businesses of its own on the internet, each under its own name', () => {
-    const businesses = millbrook().filter((network) =>
+    const businesses = townsOwn().filter((network) =>
       ['cafe', 'retail', 'corporate'].includes(network.category),
     );
     expect(businesses.length).toBeGreaterThanOrEqual(3);
@@ -377,7 +383,7 @@ const homes = (): readonly DeclaredNetwork[] =>
 
 describe("Millbrook's homes", () => {
   it('keeps 4 to 8 homes, declared after every business so no earlier key moves', () => {
-    const networks = millbrook();
+    const networks = townsOwn();
     const count = homes().length;
     expect(count).toBeGreaterThanOrEqual(4);
     expect(count).toBeLessThanOrEqual(8);
@@ -435,7 +441,7 @@ describe("Millbrook's homes", () => {
 
 describe("Millbrook's cottage hospital", () => {
   it('stands after every home and before the practices, so declaring it moved no earlier key', () => {
-    const networks = millbrook();
+    const networks = townsOwn();
     expect(hospitals()).toHaveLength(1);
     const [hospital] = hospitals();
     expect(hospital).toMatchObject({
@@ -539,6 +545,7 @@ describe("Millbrook's network sizes", () => {
       'MILLBROOK-PD',
       'WESTBROOK-HAULAGE',
       'COTTAGE-HOSPITAL',
+      'LORIMER-GROUP-MILLBROOK',
     ]);
     expect(drew('lone')).toEqual([
       'FRESHWAY-COFFEE',
@@ -634,7 +641,7 @@ const practices = (): readonly DeclaredNetwork[] =>
 
 /** Millbrook's businesses: its shops, cafés and offices. */
 const businesses = (): readonly DeclaredNetwork[] =>
-  millbrook().filter((network) => network.category in BUSINESS_SUBTYPES);
+  townsOwn().filter((network) => network.category in BUSINESS_SUBTYPES);
 
 describe("Millbrook's kinds of business", () => {
   it('makes every business one kind of shop, café or office', () => {
@@ -676,7 +683,7 @@ describe("Millbrook's kinds of business", () => {
   });
 
   it('gives no kind to a council, a library, a home or a Ridgemont network', () => {
-    const kinded = [...businesses(), ...hospitals(), ...practices()];
+    const kinded = [...businesses(), ...hospitals(), ...practices(), ...branches()];
     const towns = [...landmarks(), ...millbrook()];
     for (const network of towns.filter((each) => !kinded.includes(each))) {
       expect(network.subtype, network.essid).toBeUndefined();
@@ -821,7 +828,7 @@ describe("Millbrook's business names", () => {
 
 describe("Millbrook's practices", () => {
   it('keeps 1 or 2 clinics or dentists, declared after the hospital so no earlier key moves', () => {
-    const networks = millbrook();
+    const networks = townsOwn();
     const [hospital] = hospitals();
     expect(practices().length).toBeGreaterThanOrEqual(1);
     expect(practices().length).toBeLessThanOrEqual(2);
@@ -944,12 +951,9 @@ describe("Millbrook's unlisted site", () => {
   });
 });
 
-/** The corporations: every network the world declares after Millbrook's last. */
-const corporations = (): readonly DeclaredNetwork[] => {
-  const last = millbrook().at(-1);
-  if (last === undefined) throw new Error('Millbrook declares no network');
-  return DECLARED_NETWORKS.slice(DECLARED_NETWORKS.indexOf(last) + 1);
-};
+/** The corporations: the networks the world declares in no town. */
+const corporations = (): readonly DeclaredNetwork[] =>
+  DECLARED_NETWORKS.filter((network) => network.town === undefined);
 
 /**
  * Beyond Acme and Initech the world holds a few dozen more companies, drawn rather than
@@ -1047,8 +1051,15 @@ describe('the corporations', () => {
     }
   });
 
-  it('names no town and no region in any file on its gateways or its boxes, nor leaves a slot for one', () => {
+  it('names no town and no region in any file on its gateways or its boxes but its branches, nor leaves a slot for one', () => {
     const keys = corporations().map((network) => network.key);
+    // A head office's shortcut to its branch is named for the branch's wifi, which carries
+    // the town the office stands in.
+    const branchHosts = new Set(
+      DECLARED_NETWORKS.filter((network) => network.parent !== undefined).map(
+        (branch) => `Host ${branch.essid.toLowerCase()}`,
+      ),
+    );
     const trees = [
       ...gatewaysOn(keys).map((gateway) => ({ name: gateway.name, tree: gateway.tree })),
       ...lanBoxes(keys).map((box) => ({
@@ -1063,11 +1074,15 @@ describe('the corporations', () => {
     expect(trees.length).toBeGreaterThan(keys.length * 2);
     const named = trees.flatMap(({ name, tree }) =>
       [...filesUnder(tree)].flatMap(([path, content]) =>
-        /Ridgemont|Millbrook|Harrow Valley|\{town\}|\{region\}/.test(content)
+        content
+          .split('\n')
+          .filter((line) => !branchHosts.has(line))
+          .some((line) => /Ridgemont|Millbrook|Harrow Valley|\{town\}|\{region\}/i.test(line))
           ? [`${name} /${path}`]
           : [],
       ),
     );
+    expect(branchHosts.size).toBeGreaterThan(0);
     expect(named).toEqual([]);
   });
 });
@@ -1141,6 +1156,70 @@ describe("the corporations' names", () => {
       expect(essid.length, name).toBeLessThanOrEqual(32);
       expect(domain, name).toMatch(/^[a-z0-9]+\.com$/);
     }
+  });
+});
+
+/** Millbrook's branches: the offices the corporations keep there. */
+const branches = (): readonly DeclaredNetwork[] =>
+  millbrook().filter((network) => network.parent !== undefined);
+
+/** The fewest and the most branches a village keeps. */
+const VILLAGE_BRANCHES = { min: 1, max: 2 };
+
+/**
+ * A corporation keeps offices in the villages as well as its head office. A branch
+ * publishes nothing: its company's site is its public face, and the way in is the head
+ * office's own lead to it.
+ */
+describe("Millbrook's branches", () => {
+  it('keeps one or two offices of the corporations, keyed after every other network of the town', () => {
+    const own = townsOwn();
+    expect(branches().length).toBeGreaterThanOrEqual(VILLAGE_BRANCHES.min);
+    expect(branches().length).toBeLessThanOrEqual(VILLAGE_BRANCHES.max);
+    expect(branches().map((network) => network.key)).toEqual(
+      branches().map((_, index) => `r0/t1/n${own.length + index}`),
+    );
+  });
+
+  it('keeps each for a different corporation, as an office of its kind under its wifi', () => {
+    const parents = branches().map((network) => network.parent);
+    expect(new Set(parents).size).toBe(parents.length);
+    for (const branch of branches()) {
+      const parent = corporations().find((network) => network.key === branch.parent);
+      expect(parent, branch.key).toBeDefined();
+      expect(branch.category, branch.key).toBe('corporate');
+      expect(branch.subtype, branch.key).toBe(parent?.subtype);
+      expect(branch.essid, branch.key).toBe(`${parent?.essid}-MILLBROOK`);
+      expect(branch.place, branch.key).toBe('the Millbrook office');
+      expect(branch.town, branch.key).toBe('Millbrook');
+      expect(branch.region, branch.key).toBe('Harrow Valley');
+    }
+  });
+
+  it('publishes nothing, never stands on one machine, and forwards a thing or two as an office does', () => {
+    for (const branch of branches()) {
+      expect(branch.site, branch.key).toBeUndefined();
+      expect(['flat', 'deep'], branch.key).toContain(branch.profile);
+      expect(seededForwards(branch.key).length, branch.key).toBeGreaterThanOrEqual(1);
+      expect(seededForwards(branch.key).length, branch.key).toBeLessThanOrEqual(2);
+    }
+  });
+
+  it("can name an office in Millbrook for any corporation within a wifi's 32 characters", () => {
+    for (const corporation of corporations()) {
+      expect(`${corporation.essid}-MILLBROOK`.length, corporation.key).toBeLessThanOrEqual(32);
+    }
+  });
+
+  it("is pinned (golden): locks the town-branches- stream, each branch's corporation, size and address", () => {
+    // A branch that moved would strand every note a player holds about it, so the town
+    // only ever grows.
+    expect(
+      branches().map(
+        (network) =>
+          `${network.key} ${network.parent} ${network.essid} ${network.subtype} ${network.profile} ${publicAddress(network.key)}`,
+      ),
+    ).toEqual(['r0/t1/n17 c6 LORIMER-GROUP-MILLBROOK logistics deep 87.98.122.105']);
   });
 });
 

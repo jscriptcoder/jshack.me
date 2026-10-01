@@ -56,6 +56,8 @@ export type DeclaredNetwork = {
   /** What kind of shop, café, office or place of care it is. Only a business or a
    *  practice a town draws, and a hospital, has one. */
   readonly subtype?: NetworkSubtype;
+  /** The key of the corporation a branch is an office of. Only a branch has one. */
+  readonly parent?: string;
 };
 
 /** A region of the world: what it is called, and the first octet of the block its
@@ -377,6 +379,39 @@ const CORPORATIONS: readonly DeclaredNetwork[] = namedOf(
   return { ...corporation, key, profile: profileOf(key, corporation.category) };
 });
 
+/** The fewest and the most branches of the corporations a village keeps. */
+const VILLAGE_BRANCHES_MIN = 1;
+const VILLAGE_BRANCHES_MAX = 2;
+
+/** The offices the corporations keep in `town`, on a stream of the town's own, keyed
+ *  after the `count` networks the town already holds. No corporation keeps two offices in
+ *  one town. A branch publishes nothing: its company's site is its public face. */
+const branchesOf = (town: Town, count: number): readonly DeclaredNetwork[] => {
+  const prng = createPrng(`town-branches-${townKey(town)}`);
+  const parents = prng.pickN(
+    CORPORATIONS,
+    prng.nextInt(VILLAGE_BRANCHES_MIN, VILLAGE_BRANCHES_MAX),
+  );
+  return parents.map((parent, index) => {
+    const key = `${townKey(town)}/n${count + index}`;
+    return {
+      key,
+      essid: `${parent.essid}-${town.name.toUpperCase()}`,
+      category: parent.category,
+      ...(parent.subtype === undefined ? {} : { subtype: parent.subtype }),
+      place: `the ${town.name} office`,
+      town: town.name,
+      region: regionOf(town),
+      profile: profileOf(key, parent.category),
+      parent: parent.key,
+    };
+  });
+};
+
+/** Millbrook's branches: declared after the corporations, whose names they carry, and
+ *  still keyed as the town's next networks. */
+const MILLBROOK_BRANCHES = branchesOf(MILLBROOK, MILLBROOK_NETWORKS.length);
+
 /** Ridgemont's networks are the catalog's, each known by the name it broadcasts. */
 const LANDMARKS: readonly DeclaredNetwork[] = ESSID_CATALOG.map((entry) => ({
   ...entry,
@@ -386,11 +421,12 @@ const LANDMARKS: readonly DeclaredNetwork[] = ESSID_CATALOG.map((entry) => ({
 }));
 
 /** Every network the world declares: Ridgemont's first, then each town's, then the
- *  corporations. */
+ *  corporations, then the branches they keep in the towns. */
 export const DECLARED_NETWORKS: readonly DeclaredNetwork[] = [
   ...LANDMARKS,
   ...MILLBROOK_NETWORKS,
   ...CORPORATIONS,
+  ...MILLBROOK_BRANCHES,
 ];
 
 const DECLARED_BY_KEY: ReadonlyMap<string, DeclaredNetwork> = new Map(
@@ -468,6 +504,11 @@ const ADDRESS_BY_KEY: ReadonlyMap<string, string> = new Map([
   ...CORPORATIONS.map((network, index): [string, string] => [
     network.key,
     placelessAddress(1 + LANDMARK_CORPORATIONS.length + index),
+  ]),
+  // A branch answers in its town's block, after every network the town held before it.
+  ...MILLBROOK_BRANCHES.map((network, index): [string, string] => [
+    network.key,
+    addressOf(MILLBROOK, MILLBROOK_NETWORKS.length + index),
   ]),
 ]);
 

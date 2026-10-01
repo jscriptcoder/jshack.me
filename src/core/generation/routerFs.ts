@@ -66,6 +66,7 @@ import {
 import { gatewayLogRotations, gatewayRootHistory, gatewaySite } from './gatewayHistory.js';
 import { SYSLOG_PERMISSIONS } from '../logging/syslog.js';
 import { buildFinditFs, FINDIT_NETWORK } from './findit.js';
+import { buildBranchSshDirectory } from './sshContent.js';
 
 /** The AP gateway's root account plaintext password, seeded from the ESSID alone
  *  (the `ap-gw-admin-` namespace) so every occupant of the access point faces the
@@ -387,6 +388,10 @@ export const buildRouterBaseFsFromIdentity = (
  * gateway's journal over this base separately.
  */
 export const buildApGatewayBaseFs = (essid: string): Directory =>
+  withRootSsh(apGatewayFs(essid), buildBranchSshDirectory(essid));
+
+/** The AP gateway's tree before root's `.ssh/`. */
+const apGatewayFs = (essid: string): Directory =>
   // findit owns its public address with nothing behind it, so the box a request to that
   // address reaches, its "gateway", is findit itself.
   essid === FINDIT_NETWORK
@@ -409,6 +414,15 @@ export const buildApGatewayBaseFs = (essid: string): Directory =>
       apGatewayNetwork(essid),
       apGatewayRules(essid),
     );
+
+/** `tree` with `ssh` as root's `.ssh/`, where the gateway keeps one: a head office's
+ *  shortcuts to its branches. */
+const withRootSsh = (tree: Directory, ssh: Directory | null): Directory => {
+  const root = tree.entries.get('root');
+  if (ssh === null || root?.kind !== 'directory') return tree;
+  const home: Directory = { ...root, entries: new Map([...root.entries, ['.ssh', ssh]]) };
+  return { ...tree, entries: new Map([...tree.entries, ['root', home]]) };
+};
 
 /** The AP gateway's NAT table. An institution that publishes a website sends the
  *  public web port to the box serving it, so the site answers at the network's public

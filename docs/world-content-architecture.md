@@ -33,8 +33,9 @@ most are enforced by a property test named in "How it is tested".
    name generated hosts only (never player occupants, who come and go), and things outside the
    game (github.com, vendor URLs) are fiction and exempt. A person's name is not a world
    reference. The one way out is a **relation** of the box's own network
-   (`generation/relations.ts`): a contractor's shortcut or an offsite backup job may name
-   another network's public address, at a port open there. A backup copy is its source's
+   (`generation/relations.ts`): a contractor's shortcut, an offsite backup job or a head
+   office's shortcut to its branch may name another network's public address, at a port
+   open there. A backup copy is its source's
    files, so it states its source's network, never the box it sits on. Even a template's
    example names a real neighbour or none: the workstation `ssh_config` shortcuts name a
    neighbour that answers ssh on that port, and `rules.v4`'s example forward says
@@ -124,9 +125,10 @@ gateways on their own seed key or machine id.
 | `town-practice-names-<town key>` | each practice's name, from its kind's templates, clear of every name drawn before it |
 | `corporations` | how many corporations the world draws beyond the landmarks, and each one's kind, no kind twice while another is left |
 | `corporation-names` | each corporation's name, from the corporations' own grammar, clear of every name drawn before it |
+| `town-branches-<town key>` | how many branches of the corporations a town keeps (a village 1–2), and each one's corporation, none twice |
 | `town-homes-<town key>` | how many homes a town keeps, and which |
 | `relations-<key>` | the leads that go to a network: how many, from whom, of which kind, from which box |
-| `relation-host-key-<key>-<ip>` | the host key every desk that has met a client box records for it |
+| `relation-host-key-<key>-<ip>` | the host key every desk or head office that has met a client or branch box records for it |
 | `relation-cron-`, `relation-cron-log-` | an offsite backup job's time of night; its `syslog.1`/`auth.log.1` lines |
 | `town-unlisted-<town key>` | which of a town's publishers keep their site off every search |
 | `relation-supplier-<key>` | which listed customer, and which of its working shares, keeps an unlisted business's invoice |
@@ -190,8 +192,9 @@ landmark corporations (`c<n>` at the block's position 21 + n).
 In every other rule it is an office: one of the five corporate kinds, no kind twice while
 another is left; the corporate profile row, so `flat` or `deep`; a desk and a working share
 beside its site server; its site forward and one or two more. It always publishes and is
-always listed (the unlisted draw is a town's), so findit is the one way in. It keeps no lead
-and receives none: leads are drawn among the networks of one town.
+always listed (the unlisted draw is a town's), so findit is the one way in. It receives no
+lead, as leads are drawn among the networks of one town, and keeps one only to each of its
+branches.
 
 - **Its name** comes from a grammar of its own (`CORPORATION_NAME_TEMPLATES` in
   `pools/businessKinds.ts`): `{surname} Group`, `{filler} Holdings`, `{surname} & {surname}`,
@@ -200,6 +203,19 @@ and receives none: leads are drawn among the networks of one town.
   business's one slot draws as it always did). It is drawn after every other name, clear of
   them all, and spelt into its wifi and `.com` domain as a business's is (`Quayle & Bellamy`
   is `QUAYLE-BELLAMY`, `quaylebellamy.com`).
+- **Its branches**: a town draws 1–2 offices of the corporations (a village; on
+  `town-branches-<town key>`, no corporation twice), keyed as the town's next networks after
+  its practices but declared last of all, after the corporations whose names they carry.
+  A branch declares its `parent`; it is `corporate` with its parent's kind, its wifi
+  `<PARENT-ESSID>-<TOWN>`, its place "the <Town> office"; it publishes nothing and draws the
+  corporate profile and forwards. Its IT is the head office's: no network of its town leads
+  to it and it leads to none. The head office's gateway keeps the one lead, in root's
+  `.ssh/config` and `known_hosts` (`buildBranchSshDirectory` in `sshContent.ts`), so a head
+  office's access point holds up to 12 files of its own where any other holds 10, and its
+  files name no town but in that shortcut. `whois` names the branch's line after its parent's
+  site, in the branch's town. Millbrook keeps one, `r0/t1/n17` `LORIMER-GROUP-MILLBROOK`, an
+  office of `c6` Lorimer Group. Its own files speak for "the Millbrook office", not for the
+  company.
 
 ## What a place of care is
 
@@ -345,7 +361,8 @@ build budget.
   word, every pool entry reachable. Shared helpers: `src/test/worldContent.ts`,
   `src/test/deviceBoxes.ts`.
 - **Leads out of a town network have their own properties** (`relations.test.ts`): every
-  public address a Millbrook box names is its own or a relation's, every private one is on
+  public address a Millbrook box, a branch or its head office names is its own or a
+  relation's, every private one is on
   the network whose facts the file states, and both ends of each relation agree. The
   whole-world tests read the same leads through `leadsKeptOn(box)`, and a one-person network
   keeps no correspondence: there is nobody for its person to write to.

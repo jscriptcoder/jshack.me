@@ -116,6 +116,7 @@ describe('the web findit searches', () => {
     const businesses = DECLARED_NETWORKS.filter(
       (network) =>
         network.town === 'Millbrook' &&
+        network.parent === undefined &&
         network.unlisted !== true &&
         ['cafe', 'retail', 'corporate'].includes(network.category),
     );

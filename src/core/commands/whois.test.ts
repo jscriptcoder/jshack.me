@@ -137,6 +137,32 @@ describe('whois', () => {
     });
   });
 
+  it("names a corporation's branch after the company that holds its line, in the branch's town", async () => {
+    // A real registry names the company holding the line, not the village office.
+    const branch = DECLARED_NETWORKS.find(
+      (network) => network.town === 'Millbrook' && network.parent !== undefined,
+    );
+    if (branch === undefined) throw new Error('Millbrook declares no branch');
+    const parent = DECLARED_NETWORKS.find((network) => network.key === branch.parent);
+    const address = addressOf(branch.key);
+
+    const { lines, exitCode } = await run(address);
+
+    expect({ lines, exitCode }).toEqual({
+      lines: [
+        '% Harrow Valley registry',
+        '',
+        `inetnum:        ${address} - ${address}`,
+        `netname:        ${branch.essid}`,
+        `org-name:       ${parent?.site?.name}`,
+        'city:           Millbrook',
+        'region:         Harrow Valley',
+      ],
+      exitCode: 0,
+    });
+    expect(parent?.site?.name).toBe('Lorimer Group');
+  });
+
   it('names no town or region for a corporation, which stands in none', async () => {
     const address = addressOf('ACME-CORP');
 

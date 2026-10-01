@@ -446,10 +446,12 @@ describe("a gateway's admin web server", () => {
 });
 
 describe('how much a gateway holds', () => {
-  it('holds five to ten files of its own on the access point, and eight to fifteen elsewhere', () => {
+  it('holds five to twelve files of its own on the access point, and eight to fifteen elsewhere', () => {
+    // A head office's access point keeps two more, its shortcut to its branches: one
+    // config and one known_hosts, however many branches there are.
     for (const gateway of everyGateway()) {
       const count = contentFilesOf(gateway).length;
-      const [fewest, most] = isAccessPoint(gateway) ? [5, 10] : [8, 15];
+      const [fewest, most] = isAccessPoint(gateway) ? [5, 12] : [8, 15];
       expect(count, gateway.name).toBeGreaterThanOrEqual(fewest);
       expect(count, gateway.name).toBeLessThanOrEqual(most);
     }

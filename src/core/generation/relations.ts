@@ -12,6 +12,10 @@
  * moves nobody else's. The side it comes FROM finds it by asking every network of its
  * town, and so reads the very same value: the shortcut on the contractor's desk and the
  * door it opens can never disagree.
+ *
+ * A corporation's branch in a town is its company's, not its town's: its IT is the head
+ * office's, so no business of the town leads to it and it leads to none. The head office's
+ * gateway keeps the one lead there.
  */
 
 import {
@@ -41,10 +45,10 @@ type Lead = {
   readonly address: string;
 };
 
-/** A lead that logs in at the target: a contractor's shortcut on a desk, or a file
- *  server's nightly offsite copy. */
+/** A lead that logs in at the target: a contractor's shortcut on a desk, a file
+ *  server's nightly offsite copy, or a head office's shortcut to its branch. */
 export type Login = Lead & {
-  readonly kind: 'contractor' | 'backup';
+  readonly kind: 'contractor' | 'backup' | 'branch';
   /** The port that opens onto the box the lead reaches there. */
   readonly port: number;
   /** The box that port reaches: one behind the target's gateway, or the gateway. */
@@ -209,6 +213,31 @@ const drawnTo = (target: DeclaredNetwork, keepers: readonly Keeper[]): readonly 
   return [...logins, ...supplierTo(target, address, keepers)];
 };
 
+/** The lead to `branch` from the corporation it is an office of, kept on that
+ *  corporation's gateway. */
+const branchLead = (branch: DeclaredNetwork, parent: string): Login => {
+  const address = publicAddress(branch.key);
+  const [gateway] = generateHomeLan(parent).hosts;
+  if (address === undefined || gateway === undefined) {
+    throw new Error(`${parent} cannot lead to its branch ${branch.key}`);
+  }
+  return {
+    kind: 'branch',
+    source: parent,
+    sourceHost: gateway,
+    target: branch.key,
+    address,
+    ...endpointOf(branch.key).endpoint,
+  };
+};
+
+/** The leads `key`'s gateway keeps to the branches of its corporation: one to each, and
+ *  none for a network that has no branch. Read without walking any town. */
+export const branchLeadsFrom = (key: string): readonly Login[] =>
+  DECLARED_NETWORKS.filter((network) => network.parent === key).map((branch) =>
+    branchLead(branch, key),
+  );
+
 /** The town whose networks lead to and from the one under `key`. Leads are drawn among
  *  the networks of a town beyond Ridgemont, so a Ridgemont network has none, and neither
  *  has one that stands in no town. */
@@ -220,20 +249,29 @@ const leadingTown = (key: string): string | undefined => {
 /** Every lead that goes to `key`, in the order it was drawn. */
 export const relationsTo = (key: string): readonly Relation[] => {
   const target = declaredNetwork(key);
+  if (target?.parent !== undefined) return [branchLead(target, target.parent)];
   const town = leadingTown(key);
   if (target === undefined || town === undefined) return [];
   return drawnTo(target, keepersIn(town));
 };
 
-/** Every lead kept on `key`'s boxes, read from the networks of its town it leads to. A
- *  network with no desk or file server to keep one on keeps none, and is not asked. */
-export const relationsFrom = (key: string): readonly Relation[] => {
+/** Every lead `key` keeps to a network of its own town, read from the networks it leads
+ *  to. A network with no desk or file server to keep one on keeps none, and is not asked. */
+const townLeadsFrom = (key: string): readonly Relation[] => {
   const town = leadingTown(key);
   if (town === undefined) return [];
   const keepers = keepersIn(town);
   const own = keepers.find((keeper) => keeper.source === key);
   if (own === undefined || (own.desks.length === 0 && own.fileServers.length === 0)) return [];
-  return DECLARED_NETWORKS.filter((network) => network.town === town).flatMap((network) =>
-    drawnTo(network, keepers).filter((relation) => relation.source === key),
-  );
+  // A branch is its company's, and only its company leads to it.
+  return DECLARED_NETWORKS.filter(
+    (network) => network.town === town && network.parent === undefined,
+  ).flatMap((network) => drawnTo(network, keepers).filter((relation) => relation.source === key));
 };
+
+/** Every lead kept on `key`'s boxes: to its corporation's branches, and to the networks
+ *  of its town. */
+export const relationsFrom = (key: string): readonly Relation[] => [
+  ...branchLeadsFrom(key),
+  ...townLeadsFrom(key),
+];
