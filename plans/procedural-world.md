@@ -13,7 +13,7 @@ v0.288.0). Slice 4 grilled and planned 2026-09-29 as slices 4a–4c; 4a complete
 Slice 5c (the whole town in the content sweep) complete 2026-09-30 (#584, v0.294.0); 6a
 complete 2026-10-01 (#585, v0.295.0); 6b complete 2026-10-01 (#586, v0.296.0). Slice 6
 complete. Slice 7 grilled 2026-10-01 as slices 7a–7b; 7a complete 2026-10-01 (#587,
-v0.297.0); 7b not yet planned. Slices 8 onward not yet planned.
+v0.297.0); 7b planned 2026-10-01. Slices 8 onward not yet planned.
 Amends the §9 backlog item "Procedural world expansion — GRILLED & RESOLVED 2026-07-29" in
 `docs/conventions-and-gotchas.md`; where the two disagree, this file wins.
 
@@ -1963,7 +1963,7 @@ owner approves the commit. Bumps the minor version to 0.296.0.
 
 Grilled 2026-10-01 (decision 19a, "Slice 7's shape"). Two PRs, in order: 7a the
 corporations, 7b the branches. 7a planned 2026-10-01; 7b is planned after 7a merges.
-**7a complete** 2026-10-01 (#587, v0.297.0).
+**7a complete** 2026-10-01 (#587, v0.297.0). 7b planned 2026-10-01.
 
 ### Slice 7a: the world holds 20–40 corporations that stand in no town
 
@@ -2132,6 +2132,122 @@ reporter). The grammar is authored data: its evidence is 7a-2's tests.
 **PR-ready when**: 7a-1 to 7a-9 hold, `vitest run`, typecheck, lint and format pass, and the
 owner approves the commit. Bumps the minor version to 0.297.0.
 **Slice complete when**: its PR merges; 7b is planned next.
+
+### Slice 7b: a corporation's head office leads to its branch in Millbrook
+
+**Value**: a player who breaks into a corporation's head office, found on findit, finds the
+way to its office in a village that no search reaches: an ssh shortcut on the head office's
+gateway. Millbrook gains its first branch, and slice 8's towns draw theirs the same way.
+**Path**: Millbrook draws its branches on `town-branches-r0/t1` (count and parents) → each
+is a `corporate` network keyed after the town's practices, with its parent's kind, its
+profile on `network-profile-<key>` and its forwards on `gw-forwards-<key>` → its address is
+Millbrook's next → the relation `branch` leads to it from its parent → the parent's gateway
+keeps the lead in `/root/.ssh/` → `whois` names the parent. A player sees it in a file on the
+head office's gateway, in `whois`, and at the door the lead opens.
+**Class**: behaviour change.
+**Delivery**: independent PR against `main`, branch `feat/procedural-world-branches`.
+**Status**: planned 2026-10-01.
+**Required implementation skills**: `tdd`, `testing`, `refactoring`; `mutation-testing` at
+PR-readiness.
+**Reduction program**: `N/A`.
+
+**Facts measured while planning** (2026-10-01, against `main` at `1b61488b`, by a throwaway
+prototype of the draw and the relation, reverted):
+
+- Millbrook draws **one** branch: `r0/t1/n17` `LORIMER-GROUP-MILLBROOK`, logistics, `deep`,
+  at `87.98.122.105`, whose parent is `c6` Lorimer Group (`flat`). The branch forwards only
+  `:8080` to a web server and no ssh, so the lead logs in at its gateway's `:22` as `root`,
+  as a home with no ssh forward is reached.
+- The longest branch ESSID Millbrook can draw is **32** characters, the limit exactly
+  (`BLUEBELL-INTERNATIONAL-MILLBROOK`): a town name longer than nine letters could overflow.
+- **25 tests fail over the prototype, every one test-side**: helpers and goldens that read a
+  `corporate` network of Millbrook as a business, or the corporations as everything after
+  Millbrook's last network, and the goldens that grow by the branch's row. No whole-world
+  content property fails, and AC-4's reach test passes with no new rule: `c6` is listed.
+- `whois` on the branch prints `Millbrook Broadband`, a home's answer, until it is taught a
+  branch.
+- 7a's "no file on a corporation's boxes names a town" test matches a capitalised
+  `Millbrook` only, so the `Host lorimer-group-millbrook` block would pass it unseen.
+- A gateway that asked `relationsFrom` for every lead would walk the whole town's LANs on
+  every Millbrook gateway build; a gateway asks for its branch leads alone.
+
+**Decisions taken in planning** (owner-confirmed 2026-10-01):
+
+- **Branches are declared after the corporations**, last in `DECLARED_NETWORKS`: a branch's
+  ESSID needs its parent's, and the corporations' names are drawn after Millbrook's, so a
+  branch cannot stand in the town's own list. Its key and address still continue the
+  town's (`r0/t1/n17`, Millbrook's next address). Millbrook's networks are no longer one run
+  of the declaration, so the test helper that takes the corporations as everything after
+  Millbrook's last changes.
+- **A branch** declares `parent` (its corporation's key); it is `corporate` with its
+  parent's subtype, place "the Millbrook office", no site, a corporate-row profile (never
+  `lone`) and 1–2 seeded forwards. The count (1–2) and the parents (no corporation twice)
+  are drawn on `town-branches-r0/t1`.
+- **The relation `branch`**: its source is the parent, kept on the parent's gateway, and
+  rendered as a `Host` block in `/root/.ssh/config` and a line in `/root/.ssh/known_hosts`,
+  the host key on the contractor's `relation-host-key-` stream. A branch takes no part in
+  its town's relation draw, either way. The gateway's `.bash_history` is untouched.
+- **`whois`** on a branch names its parent's site, with `city: Millbrook` and
+  `region: Harrow Valley`, and no `domain:` line: the branch publishes nothing.
+- **7a's no-town rule narrows** (the weakest call, confirmed): a corporation's files name
+  no town but in the lead to its branch, and the check matches case-insensitively, so the
+  exemption is a rule rather than a capital letter. Rejected: a `Host` named for the parent
+  alone, which keeps 7a's rule whole but leaves the shortcut not saying where the office is.
+- **A branch's own content names no parent**: its people write "the Millbrook office"; only
+  its ESSID, LAN names and `whois` carry the company. Speaking for the company is later
+  work.
+- **Wire evidence**: `testMillbrook` scans the branch's address and finds its gateway with
+  `22/ssh`, the door the lead names. The join refusal is the existing out-of-town test's,
+  which takes the branch unasked.
+
+**Acceptance criteria** (owner-confirmed 2026-10-01):
+
+- [ ] **7b-1** Millbrook declares 1–2 branches, keyed after its practices (`r0/t1/n17`
+      first), each with a different parent among the drawn corporations: `corporate`, its
+      parent's subtype, ESSID `<PARENT-ESSID>-MILLBROOK` (at most 32 characters), place "the
+      Millbrook office", no site, a corporate-row profile and 1–2 forwards. Each answers at
+      Millbrook's next address; every declared address stays distinct.
+- [ ] **7b-2** The parent's gateway keeps the lead: `/root/.ssh/config` holds a
+      `Host <branch ESSID, lowercased>` block naming the branch's address, the port and the
+      account the lead logs in as, and `/root/.ssh/known_hosts` its line. The door is real:
+      the branch's ssh forward and that box's user, or else its gateway's `:22` as `root`.
+- [ ] **7b-3** Nothing else leads to a branch: it keeps no Millbrook lead and receives none,
+      Millbrook's relations (their goldens) do not move, and AC-4's reach test holds with
+      the branch reached from its parent.
+- [ ] **7b-4** `whois` on a branch's address names its parent's site, with `city: Millbrook`
+      and `region: Harrow Valley`.
+- [ ] **7b-5** Every whole-world content property holds over the branch. Rule 3's property
+      ("names no address of the world but its own and its relations'") extends to the
+      parent's boxes, and a corporation's files name no town but in its branch's lead
+      (matched case-insensitively).
+- [ ] **7b-6** Nothing else moved: a byte-diff against `main` differs only on the parent's
+      gateway, by its two `.ssh` files, and the new branch.
+- [ ] **7b-7** `testMillbrook.ts` reaches the branch's gateway live (`22/ssh` on its
+      address); `testFindit.ts` and `testJoinRefusal.ts` pass; `checkBudgets` passes.
+- [ ] **7b-8** `world-content-architecture.md` describes the branch and lists
+      `town-branches-` in its streams table; `discovery-architecture.md` describes the route
+      from findit to the head office to the branch.
+- [ ] **7b-9** The minor version is bumped to 0.298.0.
+
+Out of scope: the branch's content speaking for its company; branches of the landmark
+corporations (decision 19a: none); sizing the count by size class and a branch ESSID over 32
+characters in a longer-named town (slice 8).
+
+**RED**: the declaration of the branch (7b-1), then the relation from its parent and the
+town's graph left alone (7b-3), then the lead on the parent's gateway (7b-2), then `whois`
+(7b-4), then the whole-world properties with the narrowed no-town rule (7b-5).
+**GREEN**: the branch draw and its addresses in `world.ts`; the `branch` relation in
+`relations.ts`, read by the gateway for its branches alone; the `.ssh` files in the gateway's
+`/root`; the branch case in `whois`.
+**REFACTOR**: assess only; the shortcut block and `known_hosts` line are one derivation
+shared with the contractor's.
+**Server evidence**: no server code change. `testMillbrook.ts` gains the branch's scan.
+**PRE-PR MUTATION**: Stryker on the branch draw, the `branch` relation and its exclusion from
+the town's draw, the gateway's `.ssh` files and `whois`'s branch case (narrowed battery, json
+reporter).
+**PR-ready when**: 7b-1 to 7b-9 hold, `vitest run`, typecheck, lint and format pass, and the
+owner approves the commit.
+**Slice complete when**: its PR merges; slice 7 is complete and slice 8 is planned next.
 
 ## Acceptance Criteria
 
