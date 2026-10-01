@@ -13,8 +13,8 @@ v0.288.0). Slice 4 grilled and planned 2026-09-29 as slices 4a–4c; 4a complete
 Slice 5c (the whole town in the content sweep) complete 2026-09-30 (#584, v0.294.0); 6a
 complete 2026-10-01 (#585, v0.295.0); 6b complete 2026-10-01 (#586, v0.296.0). Slice 6
 complete. Slice 7 grilled 2026-10-01 as slices 7a–7b; 7a complete 2026-10-01 (#587,
-v0.297.0); 7b complete 2026-10-01 (#588, v0.298.0). Slice 7 complete. Slices 8 onward not
-yet planned.
+v0.297.0); 7b complete 2026-10-01 (#588, v0.298.0). Slice 7 complete. Slice 8 grilled
+2026-10-01 as slices 8a–8d (decision 19b). Slice 9 not yet planned.
 Amends the §9 backlog item "Procedural world expansion — GRILLED & RESOLVED 2026-07-29" in
 `docs/conventions-and-gotchas.md`; where the two disagree, this file wins.
 
@@ -70,8 +70,10 @@ relations, forwards, institution sets. (Added by find-gaps 2026-09-28.)
    latency by distance and the coordinates it needs are deferred to the map epic (find-gaps
    2026-09-28): `ping` is LAN-only today, and coordinates nothing reads are untestable.
 3. **Regions → towns → networks.** Every level is an append-only index, and a procedural
-   network's key is shaped `r<i>/t<j>/n<k>`. A region has a name, its own map, a character that
-   weights its towns' size class and category mix, and a reserved first octet. The whole world
+   network's key is shaped `r<i>/t<j>/n<k>`. A region has a name, its own map and a reserved
+   first octet. (Its character, weighting its towns' size class and category mix, was dropped
+   by slice 8's grill: with one region nothing could read it; a town row authors its size
+   class instead, 19b.) The whole world
    is one implicit fictional country, with no country level. Ridgemont is a town in region #0,
    the only region at launch. Adding a region or town changes no existing key, address, name or
    journal. The owner requires **no public-IP collisions, by construction** (decision 8).
@@ -97,12 +99,14 @@ relations, forwards, institution sets. (Added by find-gaps 2026-09-28.)
    (2026-07-29's call, now town-scoped).
 6. **The world is finite and declared**, grown by appending towns to a region or a region to the
    world. The findit index, the reachability test, the map and the IP scheme each need to list
-   every network. Launch extent: region #0 only, about 8–12 towns, each drawing a size class
-   from its region's character (village ~10–25 networks, town ~30–80, city ~100–300; Ridgemont
-   is a city), about 600–1,200 networks in all, plus 20–40 placeless corporations (19a).
-7. **Regions and towns are hand-authored rows; networks are procedural.** A town row gives name,
-   size class and a flavour line (map coordinates join it with the map epic); a region row
-   gives name and character.
+   every network. Launch extent: region #0 only, about 8–12 towns, each of a size class its
+   row authors (village ~10–25 networks, town ~30–80, city ~100–300; Ridgemont is a city),
+   about 600–1,200 networks in all, plus 20–40 placeless corporations (19a). Slice 8 declares
+   eleven towns, about 490 networks before Ridgemont's filler (19b).
+7. **Regions and towns are hand-authored rows; networks are procedural.** A town row gives name
+   and size class (map coordinates join it with the map epic); a region row gives name and
+   first octet. (Slice 8's grill dropped the town's flavour line and the region's character:
+   nothing reads either before the map epic or a second region.)
    Authored because `pick` maps one draw onto a pool's current length, so growing a pool renames
    what it drew, and a renamed town would move every domain, address and map label in it.
    Adding a town or region is appending a row, which is how new places arrive "from time to
@@ -505,8 +509,12 @@ relations, forwards, institution sets. (Added by find-gaps 2026-09-28.)
     budget at a second or more, not measured. Slice 8 measures it and `checkBudgets` gains a
     cold index-build limit set from that measurement. Only a breach justifies deriving homepages
     without building whole boxes, or precomputing the index at build time.
+    Measured while grilling slice 8 (2026-10-01): a full build, nothing patched, takes about
+    160 ms over today's 76 pages and about 800 ms over the launch extent's 252, on every search,
+    since nothing is memoised. The split lands in 8d (19b).
 17. **World-wide tests sample the world instead of sweeping it**; `scripts/checkBudgets.ts` keeps
-    its landmark sweep and adds a sampled procedural one.
+    its landmark sweep and adds a sampled procedural one. The sample's shape was settled by
+    slice 8's grill (19b) and lands in 8c.
 18. **No go-live clock.** Adding a town is already a one-row deploy (decision 7); a second
     mechanism for the same need is not built.
 
@@ -526,7 +534,9 @@ relations, forwards, institution sets. (Added by find-gaps 2026-09-28.)
        Millbrook's cottage hospital, 6b the practices.
     7. Procedural corporations (decision 19a), as two PRs (grill 2026-10-01): 7a the
        corporations, 7b the branches.
-    8. The remaining towns, the findit index split and the sampled budgets.
+    8. The remaining towns, the findit index split and the sampled budgets, as four PRs (grill
+       2026-10-01, 19b): 8a a second village, 8b the town size class, 8c the city, 8d the
+       remaining rows and the index split.
     9. Ridgemont's WiFi filler and the injector turned down.
 
 19a. **Procedural corporations get their own slice**, after healthcare and before the remaining
@@ -607,6 +617,149 @@ relations, forwards, institution sets. (Added by find-gaps 2026-09-28.)
         keys moved. `world-content-architecture.md` lists the streams (`corporations`,
         `corporation-names`, `town-branches-`); `discovery-architecture.md` describes the
         headquarters-to-branch route. 7a bumps the minor version to 0.297.0, 7b to 0.298.0.
+
+19b. **The remaining towns** (slice 8), grilled 2026-10-01, owner-confirmed.
+    **Facts measured while grilling** (against `main` at `acf941fa`, by a throwaway prototype
+    declaring nine more towns, five villages, three towns and a city, then reverted; diff and
+    scripts kept outside the repo):
+
+    | | `main` | prototype |
+    |---|---|---|
+    | Declared networks | 103 | 492 (Kingsford, the city, 166) |
+    | findit pages | 76 | 252 |
+    | findit index build, every search | ~160 ms | ~800 ms |
+    | Machine ids in findit's one read | 181 (2.9 KB of URL) | 778 (12.3 KB) |
+    | ms per box outside Ridgemont | 0.8–1.1 | 1.4–1.8 village, 2.8–3.7 town, 6.1 city |
+    | Full suite | 1m44s, 6,816 tests | 3m15s, 7,594 tests |
+
+    - **Box time grows with the town** because every box walks its town's whole relations
+      graph. Memoising `relationsFrom` and `relationsTo` per key brings every town to
+      0.75–0.98 ms per box; the first, cold lookup costs 35 ms in the city, 12 ms in a town
+      and 7 ms in a village.
+    - **findit stops reaching sites.** 75 of the 213 listed sites outside Ridgemont never make
+      the top ten for "<town> <kind>", Millbrook's own café for "Millbrook café" among them:
+      no business or practice page names its town (only institutions and the hospital do).
+      A page naming its town brings the misses to 46; ranking a page that matches every word
+      above one matching fewer brings them to 32. The rest are crude query words (a
+      "Bakehouse" never says "bakery") and a city's ten-plus coffee bars, which no top ten
+      can hold.
+    - **25 assertions fail over the prototype**, about half of them content properties only
+      the scale reaches: a phone holding 43 files; a `lone` network keeping a mail spool; a
+      `flat` office with no desk and share (carried since 5b); gateway content repeating
+      across gateways (937 distinct of 948); duplicate files on one network's web servers;
+      an `rsync@` account in a crontab; a database password in an `.env`; reply threading;
+      home and desk notes that miss their place. The rest are test-side: Millbrook-only
+      goldens, ESSIDs checked unique across the world rather than per town, one directory,
+      one branch.
+    - **Names run short.** The 14 hand-written homes cannot fill a town's 12–24 or a city's
+      40–80. Coffee bars draw 23 of their 52 possible names and logistics 20 of 56, under a
+      world-unique domain check whose redraw never ends once a name space is spent. One
+      branch ESSID is 33 characters, `SILVERBIRCH-HOLDINGS-CASTLEBRIDGE`.
+    - The 26 test files that sweep every network outside Ridgemont (`TOWN_KEYS`) double the
+      suite; the heaviest three go from about 75 s to about 185 s each.
+
+    **Slice 8's shape**:
+    - **The launch region: nine authored rows after Millbrook, one city.** Five villages
+      (Ashby, Fenwick, Thornbury, Hollowmere, Ely), three towns (Oakhurst, Wexcombe, and one
+      more whose name keeps every branch ESSID in 32 characters, Castlebridge did not) and
+      a city (Kingsford): eleven towns in Harrow Valley with Ridgemont and Millbrook, about
+      490 networks before Ridgemont's filler (slice 9). A row is a name and a size class;
+      the region's character and the town's flavour line are dropped. The city lands now so
+      every per-town cost is met here rather than in slice 9. Rejected: villages and towns
+      only (about 330 networks; the city class unbuilt and slice 9 meeting its costs first),
+      and a size class drawn from the region's character (a weighting nobody can observe
+      with one region).
+    - **Four PRs, by size class, each cost landing with the PR that measures it:**
+      - 8a: a second village, Ashby (`r0/t2`), generated from its row; the test
+        assumptions that there is one town, and the paths only a second town reaches;
+        findit's town-named pages and all-words ranking.
+      - 8b: the town size class, Oakhurst (`t3`): its counts, a courthouse and the hospital
+        draw, the home grammar and the grown word lists, the relations cache.
+      - 8c: the city, Kingsford (`t4`): the sampled sweeps, and `checkBudgets`' sampled
+        procedural sweep.
+      - 8d: the remaining rows (`t5`–`t10`, AC-1), findit's index split and the cold
+        index-build limit (AC-9).
+
+      Rejected: two PRs with the engineering first (no breach to prove it against today's
+      103 networks, and every content failure at scale in one review), and one PR.
+    - **findit names a business's town and ranks pages matching every word first.** Every
+      procedural business and practice page names its town, through a `{town}` slot the
+      landmarks fill so their bytes do not move (AC-7); a page matching every word of a query
+      ranks above one matching fewer; ten results stay. The promise: a site is found by its
+      name, and a village's or a town's by town and kind; a city's many cafés need a sharper
+      query. `MAX_RESULTS`' "about thirty places" is corrected. Lands in 8a, the first PR
+      with two towns competing for Millbrook's results (the grill offered 8c; moved in the
+      bulk calls). Rejected: paging (a new surface; a second page of near-identical cafés
+      adds little) and the town-named pages alone (75 to 46 misses, against 32).
+    - **Names grow once, for every town.** Homes draw from a grammar (a family, a house
+      name, a flat, an ISP default), its words seeded by the 14 current names; the surname,
+      street and filler lists grow to two or three times their size. Millbrook's homes and
+      businesses and the 28 corporations are renamed once, before launch, as 5b renamed
+      Millbrook's businesses: keys and addresses stay, goldens are re-pinned, a byte-diff
+      shows nothing else moved. A test pins every kind's name space well above what the
+      world draws. Lands in 8b. Rejected: new lists for new towns only (two naming
+      mechanisms, Millbrook an exception again) and keeping the lists with a cap (names
+      repeat across a city; slice 9's filler may reach the cap).
+    - **The sweeps take a fixed covering sample.** The whole-world content tests keep the
+      landmarks and the uncatalogued keys whole, and from the towns take all of Millbrook,
+      the corporations, and in every other town one network of each (category, subtype,
+      profile) it holds. The sample is fixed, so a red run reproduces. The same tests sweep
+      every declared network when an environment flag is set, and each slice's PR gate runs
+      that full sweep once and records it. `checkBudgets` times the sample. Lands in 8c.
+      Rejected: a rotating sample (a failure may not reproduce; a PR goes red for what it
+      did not cause) and sweeping everything (3m15s now, more after slice 9).
+    - **8's remaining calls** (taken in bulk):
+      - Rows are appended in landing order: Ashby `t2` (8a), Oakhurst `t3` (8b), Kingsford
+        `t4` (8c), then the four villages and two towns `t5`–`t10` (8d).
+      - Institutions are named by rule from the town's name. Every size keeps a council
+        (`{Town} Town Council`, `{town}.gov`, `TOWN-HALL-WIFI`), a police force
+        (`{Town} Police Department`, `{town}pd.gov`, `{TOWN}-PD`) and a library
+        (`{Town} Public Library`, `{town}library.org`, `LIBRARY-PUBLIC`). Millbrook's three
+        spell exactly that, so its row moves onto the rule unchanged; its cottage hospital
+        stays hand-declared. A town or a city also keeps a courthouse (`{Town} County
+        Court`, `{town}courts.gov`, `COURTHOUSE-WIFI`). A city always keeps a hospital
+        (`{Town} General Hospital`), a town draws 0–1 on `town-hospital-<town key>`, a
+        village none. No university and no schools: education is a later category.
+      - Counts by size class (the prototype's; decision 6's ranges hold):
+
+        | | businesses | homes | practices | branches | networks |
+        |---|---|---|---|---|---|
+        | village | 3–6 | 4–8 | 1–2 | 1–2 | ~15–20 |
+        | town | 12–24 | 12–24 | 2–4 | 2–3 | ~38–55 |
+        | city | 40–80 | 40–80 | 5–8 | 3–5 | ~166 |
+
+        A new town orders its networks institutions, businesses, homes, practices, branches.
+      - **The weakest call, confirmed:** a branch's ESSID stays `<PARENT>-<TOWN>`, and a test
+        pins every declared ESSID at 32 characters at most; the town names and the grown
+        word lists are chosen to pass it. A later row or word can fail it and force a rename
+        at authoring time, never in play. Rejected: shortening the parent's part when it
+        overflows (a carve-out).
+      - Leads stay within a town, but for slice 7's branch leads; the headquarters and the
+        corporations are unchanged.
+      - The relations cache memoises `relationsFrom` and `relationsTo` per key, the measured
+        remedy for a slow box (6.1 ms to 0.78 ms in the city, 35 ms cold). Lands in 8b,
+        whose town first breaks the 2 ms budget (2.8–3.7 ms measured).
+      - findit's index split (decision 16) lands in 8d: a publisher with no journal rows is
+        listed from a memoised index built from generation, only machines with rows are
+        rebuilt, and a player network's gateway with no rows is skipped (it serves no
+        `:80`). 8d's RED first proves live against local Supabase whether one read naming
+        778 machines (a 12.3 KB URL) holds, and splits the read only if it fails.
+        `checkBudgets` gains the cold index-build limit set from 8d's measurement (AC-9).
+      - Content failures at scale are fixed as each PR meets them, one owner-confirmed rule
+        each, as slice 5 did; none is decided now. Each PR's RED runs the full sweep over
+        its new town; the prototype's list above is where each starts.
+      - 8a reshapes the tests that assume one town: ESSIDs unique within a town, a
+        directory kept by every council, findit's institution-ranking tests, the branch
+        tests that assume one branch, gateway counts. Test-side only.
+      - A new live wire-check, `testTowns.ts`, covers every declared town: its council
+        fetched by domain (AC-2), `whois` on it, one of its sites found on findit by "<town>
+        <kind>", a join to it refused. It grows with each PR; `testMillbrook`, `testFindit`
+        and `testJoinRefusal` keep running.
+      - AC-2 closes in 8a and AC-1 in 8d. AC-9 is split: the sampled sweep's timing in 8c,
+        the cold index limit in 8d. `world-content-architecture.md` and
+        `discovery-architecture.md` follow each PR.
+      - 8a bumps the minor version to 0.299.0, 8b to 0.300.0, 8c to 0.301.0, 8d to 0.302.0.
+        Ridgemont is untouched (slice 9).
 
 ## Slice plans
 
