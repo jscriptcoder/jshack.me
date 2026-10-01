@@ -11,8 +11,8 @@ v0.288.0). Slice 4 grilled and planned 2026-09-29 as slices 4a–4c; 4a complete
 (#581, v0.291.0). Slice 4 complete. Slice 5 grilled 2026-09-30 as slices 5a–5b; 5a complete
 2026-09-30 (#582, v0.292.0); 5b complete 2026-09-30 (#583, v0.293.0). Slice 5 complete. Slice 6 grilled 2026-09-30 as slices 6a–6b;
 Slice 5c (the whole town in the content sweep) complete 2026-09-30 (#584, v0.294.0); 6a
-complete 2026-10-01 (#585, v0.295.0); 6b planned 2026-10-01. Slices 7 onward not yet
-planned.
+complete 2026-10-01 (#585, v0.295.0); 6b complete 2026-10-01 (#586, v0.296.0). Slice 6
+complete. Slices 7 onward not yet planned.
 Amends the §9 backlog item "Procedural world expansion — GRILLED & RESOLVED 2026-07-29" in
 `docs/conventions-and-gotchas.md`; where the two disagree, this file wins.
 
@@ -1569,6 +1569,7 @@ directory.
 
 Grilled 2026-09-30 (decision 9, "Slice 6's shape"). Two PRs, in order: 6a the category and
 Millbrook's cottage hospital, 6b the practices. 6b planned 2026-10-01, after 6a merged.
+**Complete** 2026-10-01: 6a (#585, v0.295.0), 6b (#586, v0.296.0).
 
 ### Slice 6a: Millbrook has a cottage hospital, and a hospital's boxes read like one
 
@@ -1746,10 +1747,36 @@ it, `whois` names it. A player sees it in findit, in `whois`, on the contractor 
 and in every file on its boxes.
 **Class**: behaviour change.
 **Delivery**: independent PR against `main`, branch `feat/procedural-world-practices`.
-**Status**: planned 2026-10-01.
+**Status**: **complete** 2026-10-01 (#586, `662633d8`, v0.296.0); 6b-1 to 6b-8 hold.
 **Required implementation skills**: `tdd`, `testing`, `refactoring`; `mutation-testing` at
 PR-readiness.
 **Reduction program**: `N/A`.
+
+**As built** (2026-10-01):
+
+- Millbrook's practice is **Oakwood Dental** (`OAKWOOD-DENTAL`, `oakwooddental.com`,
+  `r0/t1/n16`, `flat`, `87.98.24.218`), as the prototype measured but for its name. Its
+  gateway forwards its site (`80 → .34:80`) and ssh to its phone (`2222 → .235:22`), and the
+  contractor desk's lead logs in there (`lschmidt@iphone-235:2222`).
+- The business name draw is generalised (`namedOf` in `world.ts`, taking a stream) and
+  reused for the practices; `NamedSubtype` (business or practice) keys `NAME_TEMPLATES`, and
+  `NetworkSubtype` adds `'hospital'` to it.
+- `SITE_WORDS.clinic` became "GP appointments, vaccinations and blood tests": planning's
+  "repeat prescriptions" is the pharmacy's own word.
+- Re-pinned once, deliberately: the declaration, the profiles, the unlisted pick, the
+  relations graph, the invoices on `files-16` and the gateway forwards. The findit "police"
+  test is back to its pre-6a form (both police sites listed). Byte-diff against `main`:
+  every landmark and findit box identical; inside Millbrook only the files 6b-5 names moved
+  (Abernethy's Books also dropped its robots-only `preview/`, by 6a's rule).
+- Evidence: `vitest run` 6,724 green, typecheck and lint clean. `testMillbrook` 10/10 and
+  `testFindit` 18/18 live; `checkBudgets` 248,740 B gzipped and 1.697 ms per box (a loaded
+  run failed on `main` too, 2.754 ms, while Docker unpacked new Supabase images).
+- Stryker (narrowed battery, json reporter): 23 killed, 32 survived, 1 no coverage. By hand,
+  15 survivors throw at module load and fail every file (killed); 18 are equivalent in a
+  one-town world: 7 in the "no kind twice" rule (one practice drawn), 10 in the name-clash
+  checks (no clash drawn), and `site ?? []` (every institution publishes).
+- **Carried to slice 8**: a second practice, the "no kind twice" rule and a declared clinic
+  are unreachable while Millbrook is the only town; slice 8's towns reach them.
 
 **Facts measured while planning** (2026-10-01, against `main` at `38dd1c8a`, by a throwaway
 prototype of the draw, reverted):
@@ -1774,7 +1801,7 @@ prototype of the draw, reverted):
   templates with them directly (`world.test.ts`), with no need for a declared network of
   each kind. The clinic's words and grammar are proven the same way.
 
-**Decisions taken in planning** (the grill's, made exact; to confirm with the criteria):
+**Decisions taken in planning** (the grill's, made exact; owner-confirmed 2026-10-01):
 
 - **Two streams, as businesses keep theirs apart**: `town-practices-<town key>` draws the
   count (1–2 in a village) and each practice's kind; `town-practice-names-<town key>` draws
@@ -1788,47 +1815,50 @@ prototype of the draw, reverted):
   Dental Care', '{filler} Dental', '{street} Dental Surgery']`, from the same `NAME_WORDS`
   and frozen at launch like the businesses'. `PRACTICE_SUBTYPES` sits beside
   `BUSINESS_SUBTYPES`; `NetworkSubtype` widens to take it.
-- **Words**: `SITE_WORDS.clinic` `{ care: 'GP appointments, vaccinations and repeat
-  prescriptions' }`, `SITE_WORDS.dentist` `{ care: 'check-ups, fillings and the hygienist' }`.
+- **Words**: `SITE_WORDS.clinic` `{ care: 'GP appointments, vaccinations and blood
+  tests' }` (planning wrote "repeat prescriptions", the pharmacy's word; changed in
+  implementation), `SITE_WORDS.dentist` `{ care: 'check-ups, fillings and the hygienist' }`.
 - **Unreachable in a one-town world, carried to slice 8**: the second practice and the "no
   kind twice while the other is left" rule (Millbrook draws one), and a declared clinic. Their
   mutants are equivalent for Millbrook, as 5b's were; slice 8's sampled towns reach them.
 
-**Acceptance criteria** (to confirm with the owner before any code):
+**Acceptance criteria** (owner-confirmed 2026-10-01):
 
-- [ ] **6b-1** A town draws 1–2 practices on `town-practices-<town key>`, each a `healthcare`
+- [x] **6b-1** A town draws 1–2 practices on `town-practices-<town key>`, each a `healthcare`
       network with subtype `clinic` or `dentist`, no kind twice while the other is left,
       appended after the institutions declared later. Millbrook's is a dentist at
       `r0/t1/n16`; every key, address, LAN and password before it is unchanged, and no
       landmark declares a practice.
-- [ ] **6b-2** A practice's name comes from its subtype's grammar on
+- [x] **6b-2** A practice's name comes from its subtype's grammar on
       `town-practice-names-<town key>`, spelt into its ESSID and `.com` domain as a business's
       is (ESSID at most 32 characters). No network in the world shares its name, ESSID or
       domain; a draw that would is redrawn. Every template of both grammars fills to a name
       that spells cleanly.
-- [ ] **6b-3** A practice is a business in every rule but its count: it always publishes, it
+- [x] **6b-3** A practice is a business in every rule but its count: it always publishes, it
       is in its town's unlisted draw, it is a lead's target as a business is (an unlisted
       practice gets a supplier), the council's directory lists it no more than a shop, its
-      profile is drawn from healthcare's row (never `lone`), and it forwards one thing.
-- [ ] **6b-4** A practice's site says what it is: its findit description and front pages fill
+      profile is drawn from healthcare's row (never `lone`), and it forwards its site and
+      one thing more, as every healthcare network does. (Planning wrote "forwards one
+      thing"; corrected 2026-10-01: the site's forward stands beside the one drawn.)
+- [x] **6b-4** A practice's site says what it is: its findit description and front pages fill
       `{care}` with its subtype's words, a clinic's and a dentist's each carry their own words
       and none of the other's or the hospital's (no dentist mentions wards), and findit lists
       Millbrook's dentist, when listed, for its own words. Its team page is `clinicians.html`
       and its database `appointments`, as every healthcare network's.
-- [ ] **6b-5** Nothing outside Millbrook moved: a byte-diff of every landmark and findit box
+- [x] **6b-5** Nothing outside Millbrook moved: a byte-diff of every landmark and findit box
       against `main` is empty, and the AC-7 fingerprint test passes untouched. Inside
       Millbrook only the unlisted pick (police listed, Abernethy's Books unlisted), the
       `robots.txt` and robots-only directories that follow it, the new supplier invoice and
       its backup copy, the share's upload log, and the contractor desk's ssh config and known
       hosts move, plus the new `n16`; their pins are re-pinned once, deliberately.
-- [ ] **6b-6** Slice 4's and 5's guarantees hold over the grown Millbrook (AC-4, every home
+- [x] **6b-6** Slice 4's and 5's guarantees hold over the grown Millbrook (AC-4, every home
       1–3 leads, every home that forwards ssh a backup, every unlisted business or practice a
       supplier, the town's office with its desk and working share), and every whole-world
       content property holds over `n16` through the town sweep. If one fails, work stops and
       the owner gets the failure with one rule that fixes it.
-- [ ] **6b-7** `testMillbrook.ts` and `testFindit.ts` pass live against the grown town, and
+- [x] **6b-7** `testMillbrook.ts` and `testFindit.ts` pass live against the grown town, and
       `checkBudgets` passes.
-- [ ] **6b-8** `world-content-architecture.md` describes the practices, their grammars and
+- [x] **6b-8** `world-content-architecture.md` describes the practices, their grammars and
       words, and its streams table lists `town-practices-` and `town-practice-names-`;
       `discovery-architecture.md` follows the re-pins (unlisted pick, invoices, the
       contractor desk's reach).
