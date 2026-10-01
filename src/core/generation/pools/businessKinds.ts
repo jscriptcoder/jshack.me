@@ -30,6 +30,10 @@ export type BusinessCategory = keyof typeof BUSINESS_SUBTYPES;
 /** One kind of shop, café or office. */
 export type BusinessSubtype = (typeof BUSINESS_SUBTYPES)[BusinessCategory][number];
 
+/** What kind of place a network is within its category: a business's kind, or what a
+ *  place of care is. */
+export type NetworkSubtype = BusinessSubtype | 'hospital';
+
 /** How likely a business is to be each category. */
 export const BUSINESS_CATEGORY_WEIGHTS: Readonly<Record<BusinessCategory, number>> = {
   cafe: 30,

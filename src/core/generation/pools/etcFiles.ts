@@ -63,6 +63,12 @@ export const MOTD_TEMPLATES: Readonly<Record<NetworkCategory, readonly string[]>
     'Welcome to {hostname}.\n\n{place} — the store office reminds you:\n  * cash-up figures go in before you leave\n  * price changes are loaded on Monday mornings\n  * customer details never leave the store office\n',
     '{place} | {hostname}\n\nStock count this weekend. The stock system is read-only while the count runs.\n',
   ],
+  healthcare: [
+    '{hostname} — {place}\n\nThis system holds patient information.\nAccess is for authorised staff only, and every record opened is logged against your login.\n',
+    '*** {place} ***\n{hostname}\n\nLock the screen whenever you leave the desk, even for a minute.\nThe waiting room can read a screen from further away than you think.\n',
+    'Welcome to {hostname}.\n\n{place} — information governance reminds you:\n  * look up only the patients you are caring for\n  * never read a record out at the front desk\n  * report a lost smartcard the same day\n',
+    '{place} | {hostname}\n\nThe appointment system is read-only overnight while the day lists print.\nSave your work before the evening clinic ends.\n',
+  ],
   iot: [
     '{hostname}\n{place}\n\nDevice management console. Changes here apply to every connected device.\n',
     'Welcome to {hostname}.\n\nThis controller belongs to {place}.\nDo not power it down during a firmware update.\n',

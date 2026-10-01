@@ -161,6 +161,18 @@ export const STORE_SPECS: Readonly<Record<ArchetypeKey, StoreSpec>> = {
     routes: ['login', 'cases', 'search'],
     webhooks: ['slack', 'mailchimp'],
   },
+  appointments: {
+    cached: ['patients', 'clinicians', 'appointments', 'users'],
+    queues: [
+      { name: 'reminders', kind: 'appointment.reminder', table: 'appointments' },
+      { name: 'letters', kind: 'appointment.letter', table: 'appointments' },
+    ],
+    locks: ['day_lists', 'reminder_run'],
+    counters: ['appointments_booked_today', 'patients_registered_week', 'letters_sent_today'],
+    flags: ['online_booking', 'text_reminders', 'self_check_in'],
+    routes: ['login', 'appointments', 'search'],
+    webhooks: ['twilio', 'slack'],
+  },
   shop: {
     cached: ['products', 'loyalty_members', 'users'],
     queues: [

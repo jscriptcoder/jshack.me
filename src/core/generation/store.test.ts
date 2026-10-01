@@ -11,7 +11,6 @@ import {
 } from './databaseApp.js';
 import { STORE_SPECS } from './pools/storeApps.js';
 import { createPrng } from './prng.js';
-import { crackableEssidPool } from './generateWifi.js';
 import { generateApplication, type Application } from './generateDatabase.js';
 import { generateHomeLan, isOnHomeLan } from './generateHomeLan.js';
 import { roleOfHostname } from './pools/hostnames.js';
@@ -256,7 +255,7 @@ const sampleCases = (): readonly StoreCase[] =>
       const prefix =
         archetype === 'cms' ? 'portal' : archetype === 'api' ? 'api' : archetype === 'mail' ? 'mail' : 'db';
       const essid =
-        crackableEssidPool.find((candidate) => networkArchetype(candidate) === archetype) ??
+        ALL_ESSIDS.find((candidate) => networkArchetype(candidate) === archetype) ??
         'BEAN-THERE-WIFI';
       const host = { ip: `10.40.0.${index + 1}`, hostname: `${prefix}-${index + 1}`, kind: 'machine' as const };
       const people = ['mrodriguez', 'jchen', 'agarcia', 'hkim', 'tnguyen'].slice(0, 1 + (index % 5));

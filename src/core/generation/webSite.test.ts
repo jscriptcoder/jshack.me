@@ -633,6 +633,19 @@ describe('a web server leaves breadcrumbs to what it did not link', () => {
     expect(wrong).toEqual([]);
   });
 
+  it('keeps no directory only its robots file could name, where that file shuts crawlers out', () => {
+    // Its robots file names nothing but the whole site, so such a directory would be
+    // named nowhere and no player could ever find it.
+    const shut = servingBoxes(isWebserver).filter(shutsOut);
+    expect(shut.length).toBeGreaterThan(0);
+    const unreachable = shut.flatMap((built) =>
+      [...webRootOf(built.tree).keys()]
+        .filter((file) => ROBOTS_ONLY_DIRECTORIES.some((name) => file.startsWith(`${name}/`)))
+        .map((file) => `${built.box.host.hostname} /${file}`),
+    );
+    expect(unreachable).toEqual([]);
+  });
+
   it('names a path off the default list in a seeded share of robots files', () => {
     const robots = servingBoxes(isWebserver).filter(({ tree }) => webRootOf(tree).has('robots.txt'));
     const offList = robots.filter((built) =>
@@ -770,18 +783,23 @@ describe('how a site is written out', () => {
               ? ['people.html']
               : category === 'government'
                 ? ['staff.html']
-                : [];
-      const listed = files.filter((file) => ['team.html', 'people.html', 'staff.html'].includes(file));
+                : category === 'healthcare'
+                  ? ['clinicians.html']
+                  : [];
+      const listed = files.filter((file) =>
+        ['team.html', 'people.html', 'staff.html', 'clinicians.html'].includes(file),
+      );
       if (JSON.stringify(listed) !== JSON.stringify(expected)) {
         return [`${box.host.hostname} (${category}) lists people in ${listed.join() || 'nothing'}`];
       }
       // The heading is what a reader sees, and each kind of place has its own word for
       // it: an office keeps a Team, a department its People, a council its Staff
-      // directory.
+      // directory, a place of care its clinicians.
       const headings: Readonly<Record<string, string>> = {
         'team.html': 'Team',
         'people.html': 'People',
         'staff.html': 'Staff directory',
+        'clinicians.html': 'Our clinicians',
       };
       return listed.flatMap((file) =>
         (served(tree, `/${file}`) ?? '').includes(`<h1>${headings[file]}</h1>`)

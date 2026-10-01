@@ -875,9 +875,25 @@ describe('the AP gateway of a network in another town', () => {
       : hostServices(key, host).map(({ spec, port }) => ({ host, service: spec.service, port }));
   };
 
-  it("keeps a publisher's site forward first, then draws one or two more for an office or a council, and at most one for a shop, a library, a café or a home", () => {
-    const most = { corporate: 2, government: 2, retail: 1, public: 1, cafe: 1, residential: 1 };
-    const least = { corporate: 1, government: 1, retail: 0, public: 0, cafe: 0, residential: 0 };
+  it("keeps a publisher's site forward first, then draws one or two more for an office or a council, exactly one for a hospital, and at most one for a shop, a library, a café or a home", () => {
+    const most = {
+      corporate: 2,
+      government: 2,
+      healthcare: 1,
+      retail: 1,
+      public: 1,
+      cafe: 1,
+      residential: 1,
+    };
+    const least = {
+      corporate: 1,
+      government: 1,
+      healthcare: 1,
+      retail: 0,
+      public: 0,
+      cafe: 0,
+      residential: 0,
+    };
 
     const counts = millbrook.map((network) => {
       const category = network.category as keyof typeof most;
@@ -992,6 +1008,7 @@ describe('the AP gateway of a network in another town', () => {
       'ROSE-COTTAGE': [],
       'PEAR-TREE-HOUSE': ['2222 → .13:8022'],
       'OKONKWO-FAMILY': [],
+      'COTTAGE-HOSPITAL': ['80 → .17:8080', '2121 → .83:2121'],
     });
   });
 });

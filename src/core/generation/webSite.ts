@@ -232,7 +232,9 @@ const planFor = (options: {
         ? [team('people.html', 'People')]
         : persona.category === 'government'
           ? [team('staff.html', 'Staff directory')]
-          : [];
+          : persona.category === 'healthcare'
+            ? [team('clinicians.html', 'Our clinicians')]
+            : [];
   return {
     front: prng.pick(FRONT_PAGES[persona.category]),
     fixed: directory === undefined ? fixed : [...fixed, directoryPage(directory)],
@@ -483,8 +485,8 @@ export const buildWebSite = ({
   const site = headed(published?.name ?? persona.place);
   const description =
     published === undefined ? null : (SITE_DESCRIPTIONS[persona.category] ?? '{site}');
-  // A shop, café or office says what it sells or does in its own kind's words; one no
-  // town drew a kind for says it as its category always has.
+  // A shop, café, office or hospital says what it sells, does or cares for in its own
+  // kind's words; one no town drew a kind for says it as its category always has.
   const subtype = declaredNetwork(essid)?.subtype;
   const slots = {
     ...(subtype === undefined ? CATEGORY_WORDS[persona.category] : SITE_WORDS[subtype]),
@@ -582,15 +584,11 @@ export const buildWebSite = ({
               ]),
         ];
   // A site its town keeps off every search asks all crawlers to stay away from the whole
-  // of it, in place of whatever it drew. The draws are made all the same, so nothing
-  // after them moves.
+  // of it, in place of whatever it drew, and keeps no directory only its robots file
+  // would have named: that file names nothing else, so nobody could find one. The draws
+  // are made all the same, so nothing after them moves.
   const unlisted = published !== undefined && declaredNetwork(essid)?.unlisted === true;
-  const crawlerRules = unlisted
-    ? [
-        ['robots.txt', SHUT_OUT_ROBOTS] as const,
-        ...robots.filter(([file]) => file !== 'robots.txt'),
-      ]
-    : robots;
+  const crawlerRules = unlisted ? [['robots.txt', SHUT_OUT_ROBOTS] as const] : robots;
   const origin = ownUrl.slice(0, -1);
   const sitemap =
     prng.next() < SITEMAP_SHARE

@@ -7,7 +7,7 @@
 //   - A fetch of the council's address returns the council's own front page, which names
 //     its own town and never Ridgemont.
 //   - findit's live index lists the town's institutions, so a search for the town's name
-//     finds its council, its police and its library.
+//     finds every one its directory lists, save those the town keeps off search.
 //   - A scan of a town network's address reaches its gateway, whose ssh answers.
 //   - The council's front page links the town directory, which links every institution in
 //     the town, and following its link to the police reaches the police's own front page.
@@ -29,7 +29,12 @@ import { generateIdentity } from '../src/core/identity/identity.js';
 import { computeApGatewayId } from '../src/core/identity/router.js';
 import { machineIdForLanHost } from '../src/core/generation/lanTopology.js';
 import { siteAddress } from '../src/core/generation/publisher.js';
-import { DECLARED_NETWORKS, networkAt, publicAddress } from '../src/core/generation/world.js';
+import {
+  DECLARED_NETWORKS,
+  declaredNetwork,
+  networkAt,
+  publicAddress,
+} from '../src/core/generation/world.js';
 import { seededForwards } from '../src/core/generation/seededForwards.js';
 import { generateHomeLan } from '../src/core/generation/generateHomeLan.js';
 import { hostServices, npcUsername } from '../src/core/generation/remoteHostFs.js';
@@ -105,6 +110,11 @@ if (
   console.error('Millbrook has no council or police on the internet — the world is unusable.');
   process.exit(2);
 }
+// The institutions the town's directory lists, read from the declaration, and which of
+// them the town keeps off every search.
+const TOWN_SITES = declaredNetwork(COUNCIL)?.directory ?? [];
+const isUnlisted = (domain: string): boolean =>
+  DECLARED_NETWORKS.some((network) => network.site?.domain === domain && network.unlisted === true);
 const TOWN_MACHINES = [
   computeApGatewayId(COUNCIL),
   machineIdForLanHost(SERVER, COUNCIL),
@@ -143,13 +153,14 @@ const searched = await post(
   signRequest(visitor, 'resolveHttpFetch', { target: FINDIT_IP, port: 80, path: '/?q=millbrook' }),
 );
 const resultsPage = contentOf(searched.body);
-const listed = ['millbrook.gov', 'millbrookpd.gov', 'millbrooklibrary.org'].filter((domain) =>
+const listed = TOWN_SITES.map((site) => site.domain).filter((domain) =>
   resultsPage.includes(domain),
 );
+const expected = TOWN_SITES.map((site) => site.domain).filter((domain) => !isUnlisted(domain));
 check(
-  'a findit search for millbrook lists its council, police and library',
-  searched.status === 200 && listed.length === 3,
-  `status=${searched.status} listed=${listed.join(',')}`,
+  'a findit search for millbrook lists every institution of the town not kept off search',
+  searched.status === 200 && expected.length > 0 && listed.join(' ') === expected.join(' '),
+  `status=${searched.status} listed=${listed.join(',')} expected=${expected.join(',')}`,
 );
 
 // === 4. A scan of the council's address reaches its gateway, whose ssh answers. ===
@@ -175,8 +186,8 @@ check(
   'the council front page links its town directory, which links every institution in the town',
   homepage.includes('<a href="/directory.html">Town directory</a>') &&
     directoryFetch.status === 200 &&
-    linked.join(' ') ===
-      'http://millbrook.gov/ http://millbrookpd.gov/ http://millbrooklibrary.org/',
+    TOWN_SITES.length > 0 &&
+    linked.join(' ') === TOWN_SITES.map((site) => `http://${site.domain}/`).join(' '),
   `status=${directoryFetch.status} error=${errorOf(directoryFetch.body)} links=${linked.join(',')}`,
 );
 const followed = await post(

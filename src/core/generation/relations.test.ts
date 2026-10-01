@@ -176,8 +176,8 @@ describe("a Millbrook network's relations", () => {
       'WESTBROOK-HAULAGE laptop-56 -contractor-> LIBRARY-PUBLIC root@dist-rtr:22',
       'WESTBROOK-HAULAGE laptop-56 -contractor-> WHITLOCKS-CAFE root@gw-main:22',
       'WESTBROOK-HAULAGE laptop-56 -contractor-> FRESHWAY-COFFEE root@core-rtr:22',
-      'WESTBROOK-HAULAGE files-16 -supplier-> FRESHWAY-COFFEE',
       'WESTBROOK-HAULAGE laptop-56 -contractor-> ABERNETHY-AND-SONS-HARDWARE root@firewall01:22',
+      'WESTBROOK-HAULAGE files-16 -supplier-> ABERNETHY-AND-SONS-HARDWARE',
       'WESTBROOK-HAULAGE laptop-56 -contractor-> VARLEYS-BAKERY root@edge-rtr:22',
       'WESTBROOK-HAULAGE laptop-56 -contractor-> KOWALSKI-WIFI root@pfsense01:22',
       'WESTBROOK-HAULAGE laptop-56 -contractor-> THE-HARGREAVES root@core-rtr:22',
@@ -185,6 +185,7 @@ describe("a Millbrook network's relations", () => {
       'WESTBROOK-HAULAGE laptop-56 -contractor-> ROSE-COTTAGE root@switch-core:22',
       'WESTBROOK-HAULAGE files-16 -backup-> PEAR-TREE-HOUSE mrodriguez@laptop-13:2222',
       'WESTBROOK-HAULAGE laptop-56 -contractor-> OKONKWO-FAMILY root@firewall01:22',
+      'WESTBROOK-HAULAGE laptop-56 -contractor-> COTTAGE-HOSPITAL root@core-rtr:22',
     ]);
   });
 });
@@ -469,12 +470,12 @@ describe("an unlisted business's supplier lead", () => {
     if (relation === undefined) throw new Error('Millbrook has no supplier');
     expect([...invoicesOf(relation)]).toEqual([
       [
-        'freshway-coffee-7123.txt',
+        'abernethy-and-sons-hardware-7123.txt',
         [
           'INVOICE 7123',
           '',
-          'From: FreshWay Coffee',
-          '      freshwaycoffee.com',
+          'From: Abernethy and Sons Hardware',
+          '      abernethyandsonshardware.com',
           'To:   Westbrook Haulage',
           '',
           'Date: 2026-07-04',
@@ -490,7 +491,7 @@ describe("an unlisted business's supplier lead", () => {
     const log = fileOn(relation.source, relation.sourceHost, '/var/log/vsftpd.log.1') ?? '';
     expect(log.split('\n')).toContain(
       'Sat Jul  4 16:08:15 2026 [pid 65126] [nasadmin] OK UPLOAD: Client "192.168.10.57", ' +
-        '"/srv/share/invoices/freshway-coffee-7123.txt", 206 bytes',
+        '"/srv/share/invoices/abernethy-and-sons-hardware-7123.txt", 228 bytes',
     );
   });
 

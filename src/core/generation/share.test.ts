@@ -286,6 +286,7 @@ const FOLDERS_BY_CATEGORY: Readonly<Record<NetworkCategory, readonly string[]>> 
   iot: ['datasheets', 'qa', 'certification', 'manuals'],
   government: ['records', 'committees', 'licensing', 'budgets', 'correspondence'],
   retail: ['rotas', 'stock', 'promotions', 'cash-office', 'health-and-safety'],
+  healthcare: ['admissions', 'radiology', 'pharmacy', 'estates', 'rotas'],
 };
 
 /** Where an office files what its suppliers bill it, beside its own departments. Only a
