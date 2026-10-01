@@ -833,13 +833,17 @@ describe('what a share holds', () => {
     });
   });
 
-  it('never holds the same file on two boxes of one network', () => {
+  it("never holds the same file on two boxes of one network, but for a department's README", () => {
+    // A department's README states one rule of the whole organisation, which a real one
+    // copies to every share the department keeps. Every other file is somebody's work.
     ALL_ESSIDS.forEach((essid) => {
       const servers = fileServerBoxes().filter((box) => box.essid === essid);
       const seenOn = new Map<string, string>();
       servers.forEach((box) => {
-        const files = uniqueShareFiles(buildRemoteHostFs(box.essid, box.host));
-        new Set(files.values()).forEach((content) => {
+        const files = [...uniqueShareFiles(buildRemoteHostFs(box.essid, box.host))].flatMap(
+          ([path, content]) => (path.endsWith('/README.md') ? [] : [content]),
+        );
+        new Set(files).forEach((content) => {
           const other = seenOn.get(content);
           expect(other, `${essid}: ${box.host.hostname} repeats ${other}`).toBeUndefined();
           seenOn.set(content, box.host.hostname);

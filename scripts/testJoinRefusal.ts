@@ -5,6 +5,7 @@
 // Net-new under test (the locally-untypechecked api/ runtime):
 //   - A signed join to a network in another town is refused with 403 network_not_joinable,
 //     and leaves no LAN lease and no occupant row behind.
+//   - So is a join to a corporation the world draws, which stands in no town at all.
 //   - With `JSHACK_ADMIT_LAB_NETWORKS=1` in `.env.development.local`, a join to a network the
 //     world does not declare still succeeds and records its occupant, which is what every
 //     lab-network wire-check relies on.
@@ -75,8 +76,12 @@ const rowsFor = async (essid: string) => {
   };
 };
 
-const OUT_OF_TOWN = DECLARED_NETWORKS.find((network) => network.town !== RIDGEMONT);
-if (OUT_OF_TOWN === undefined) {
+const OUT_OF_TOWN = DECLARED_NETWORKS.find(
+  (network) => network.town !== undefined && network.town !== RIDGEMONT,
+);
+// A corporation the world draws stands in no town at all.
+const PLACELESS = DECLARED_NETWORKS.find((network) => network.town === undefined);
+if (OUT_OF_TOWN === undefined || PLACELESS === undefined) {
   console.error('The world declares no network outside Ridgemont — nothing to refuse.');
   process.exit(2);
 }
@@ -84,7 +89,7 @@ if (OUT_OF_TOWN === undefined) {
 const LAB_NETWORK = 'JOIN-REFUSAL-LAB';
 
 const cleanup = async () => {
-  for (const essid of [OUT_OF_TOWN.key, LAB_NETWORK]) {
+  for (const essid of [OUT_OF_TOWN.key, PLACELESS.key, LAB_NETWORK]) {
     await sr.from('home_network_occupants').delete().eq('essid', essid);
     await sr.from('network_lan_leases').delete().eq('essid', essid);
   }
@@ -107,7 +112,21 @@ check(
   `leases=${leftBehind.leases} occupants=${leftBehind.occupants}`,
 );
 
-// === 2. With the local flag set, a lab network still joins and records its occupant. ===
+// === 2. A join to a corporation, which stands in no town, is refused the same way. ===
+const refusedPlaceless = await post(joinEnvelope(player, PLACELESS.key));
+const placelessLeft = await rowsFor(PLACELESS.key);
+check(
+  `a join to ${PLACELESS.key} (${PLACELESS.place}, in no town) is refused with 403 network_not_joinable`,
+  refusedPlaceless.status === 403 && errorOf(refusedPlaceless.body) === 'network_not_joinable',
+  `status=${refusedPlaceless.status} error=${errorOf(refusedPlaceless.body)}`,
+);
+check(
+  'the refused join leaves no LAN lease or occupant row',
+  placelessLeft.leases === 0 && placelessLeft.occupants === 0,
+  `leases=${placelessLeft.leases} occupants=${placelessLeft.occupants}`,
+);
+
+// === 3. With the local flag set, a lab network still joins and records its occupant. ===
 const admitted = await post(joinEnvelope(player, LAB_NETWORK));
 const labRows = await rowsFor(LAB_NETWORK);
 check(

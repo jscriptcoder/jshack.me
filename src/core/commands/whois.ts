@@ -47,15 +47,18 @@ const recordAt = (address: string): RegistryRecord | undefined => {
   if (key === FINDIT_NETWORK) return FINDIT_RECORD;
   const network = declaredNetwork(key ?? '');
   if (network === undefined) return undefined;
+  const { town, region } = network;
   return {
     netname: network.essid,
     // A network that publishes nothing is somebody's line from the town's ISP, which is
     // all a real registry says about a home or a small shop.
-    orgName: network.site?.name ?? `${network.town} Broadband`,
+    orgName: network.site?.name ?? `${town} Broadband`,
     ...(network.site === undefined ? {} : { domain: network.site.domain }),
     // The corporations answer in the placeless block, so no town or region stands
     // behind them.
-    ...(isPlaceless(address) ? {} : { place: { town: network.town, region: network.region } }),
+    ...(isPlaceless(address) || town === undefined || region === undefined
+      ? {}
+      : { place: { town, region } }),
   };
 };
 

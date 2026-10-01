@@ -209,22 +209,31 @@ const drawnTo = (target: DeclaredNetwork, keepers: readonly Keeper[]): readonly 
   return [...logins, ...supplierTo(target, address, keepers)];
 };
 
+/** The town whose networks lead to and from the one under `key`. Leads are drawn among
+ *  the networks of a town beyond Ridgemont, so a Ridgemont network has none, and neither
+ *  has one that stands in no town. */
+const leadingTown = (key: string): string | undefined => {
+  const town = declaredNetwork(key)?.town;
+  return town === RIDGEMONT ? undefined : town;
+};
+
 /** Every lead that goes to `key`, in the order it was drawn. */
 export const relationsTo = (key: string): readonly Relation[] => {
   const target = declaredNetwork(key);
-  if (target === undefined || target.town === RIDGEMONT) return [];
-  return drawnTo(target, keepersIn(target.town));
+  const town = leadingTown(key);
+  if (target === undefined || town === undefined) return [];
+  return drawnTo(target, keepersIn(town));
 };
 
 /** Every lead kept on `key`'s boxes, read from the networks of its town it leads to. A
  *  network with no desk or file server to keep one on keeps none, and is not asked. */
 export const relationsFrom = (key: string): readonly Relation[] => {
-  const source = declaredNetwork(key);
-  if (source === undefined || source.town === RIDGEMONT) return [];
-  const keepers = keepersIn(source.town);
+  const town = leadingTown(key);
+  if (town === undefined) return [];
+  const keepers = keepersIn(town);
   const own = keepers.find((keeper) => keeper.source === key);
   if (own === undefined || (own.desks.length === 0 && own.fileServers.length === 0)) return [];
-  return DECLARED_NETWORKS.filter((network) => network.town === source.town).flatMap((network) =>
+  return DECLARED_NETWORKS.filter((network) => network.town === town).flatMap((network) =>
     drawnTo(network, keepers).filter((relation) => relation.source === key),
   );
 };

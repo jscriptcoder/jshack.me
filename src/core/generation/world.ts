@@ -13,6 +13,7 @@ import { ESSID_CATALOG, type NetworkCategory, type PublishedSite } from './pools
 import {
   BUSINESS_CATEGORY_WEIGHTS,
   BUSINESS_SUBTYPES,
+  CORPORATION_NAME_TEMPLATES,
   NAME_TEMPLATES,
   NAME_WORDS,
   PRACTICE_SUBTYPES,
@@ -20,10 +21,9 @@ import {
   type BusinessSubtype,
   type NamedSubtype,
   type NetworkSubtype,
-  type PracticeSubtype,
 } from './pools/businessKinds.js';
 import { TOWN_HOMES, type TownHome } from './pools/townHomes.js';
-import { createPrng } from './prng.js';
+import { createPrng, type Prng } from './prng.js';
 import { FINDIT_NETWORK } from './finditNetwork.js';
 
 /** How much stands behind a network's gateway: one machine, a few, or today's inner
@@ -41,10 +41,10 @@ export type DeclaredNetwork = {
   readonly place: string;
   /** The website it publishes to the whole world, if any. */
   readonly site?: PublishedSite;
-  /** The town it stands in. */
-  readonly town: string;
+  /** The town it stands in. A corporation the world draws stands in none. */
+  readonly town?: string;
   /** The region its town stands in. */
-  readonly region: string;
+  readonly region?: string;
   /** The sites of its town's institutions, when it is the network that keeps the town's
    *  directory. */
   readonly directory?: readonly PublishedSite[];
@@ -175,6 +175,13 @@ const kindsOf = (town: Town, count: number): readonly BusinessKind[] => {
   }, []);
 };
 
+/** `count` of `kinds`, drawn on `prng`, no kind twice while another is left. */
+const distinctKinds = <Kind>(prng: Prng, kinds: readonly Kind[], count: number): readonly Kind[] =>
+  Array.from({ length: count }).reduce<readonly Kind[]>((drawn) => {
+    const left = kinds.filter((kind) => !drawn.includes(kind));
+    return [...drawn, prng.pick(left.length > 0 ? left : kinds)];
+  }, []);
+
 /** The fewest and the most practices a village keeps beside its businesses. */
 const VILLAGE_PRACTICES_MIN = 1;
 const VILLAGE_PRACTICES_MAX = 2;
@@ -184,12 +191,10 @@ const VILLAGE_PRACTICES_MAX = 2;
 const practiceKindsOf = (town: Town): readonly NamedKind[] => {
   const prng = createPrng(`town-practices-${townKey(town)}`);
   const count = prng.nextInt(VILLAGE_PRACTICES_MIN, VILLAGE_PRACTICES_MAX);
-  return Array.from({ length: count })
-    .reduce<readonly PracticeSubtype[]>((drawn) => {
-      const left = PRACTICE_SUBTYPES.filter((subtype) => !drawn.includes(subtype));
-      return [...drawn, prng.pick(left.length > 0 ? left : PRACTICE_SUBTYPES)];
-    }, [])
-    .map((subtype) => ({ category: 'healthcare', subtype }));
+  return distinctKinds(prng, PRACTICE_SUBTYPES, count).map((subtype) => ({
+    category: 'healthcare',
+    subtype,
+  }));
 };
 
 /** The fewest and the most homes a village keeps. */
@@ -233,13 +238,33 @@ const profileOf = (key: string, category: NetworkCategory): NetworkProfile => {
 
 const townKey = (town: Town): string => `r${town.region}/t${town.index}`;
 
-/** Each of `kinds` under a name from its kind's templates, drawn on `stream`. A name
- *  whose wifi or domain another network already holds is drawn again: two networks under
- *  one domain would answer as one site. */
+/** A business or a practice is named from its kind's templates. */
+const kindTemplates = (kind: NamedKind): readonly string[] => NAME_TEMPLATES[kind.subtype];
+
+/** `template` with each slot filled from its word list, drawn on `prng`. No word fills two
+ *  slots: a partnership of one family would read as a typing slip. */
+const filledName = (template: string, prng: Prng): string => {
+  const slots = [...template.matchAll(/\{(\w+)\}/g)].map(
+    ([, slot]) => slot as keyof typeof NAME_WORDS,
+  );
+  const words = slots.reduce<readonly string[]>(
+    (drawn, slot) => [
+      ...drawn,
+      prng.pick(NAME_WORDS[slot].filter((word) => !drawn.includes(word))),
+    ],
+    [],
+  );
+  return words.reduce((name, word, index) => name.replace(`{${slots[index]}}`, word), template);
+};
+
+/** Each of `kinds` under a name from `templatesOf` it, drawn on `stream`. A name whose
+ *  wifi or domain another network already holds is drawn again: two networks under one
+ *  domain would answer as one site. */
 const namedOf = (
   stream: string,
   kinds: readonly NamedKind[],
   neighbours: readonly Institution[],
+  templatesOf: (kind: NamedKind) => readonly string[],
 ): readonly Institution[] => {
   const prng = createPrng(stream);
   const held = [...ESSID_CATALOG, ...neighbours];
@@ -249,9 +274,7 @@ const namedOf = (
     ...held.flatMap((network) => network.site?.domain ?? []),
   ]);
   const draw = (kind: NamedKind): string => {
-    const name = prng
-      .pick(NAME_TEMPLATES[kind.subtype])
-      .replace(/\{(\w+)\}/, (_, slot: keyof typeof NAME_WORDS) => prng.pick(NAME_WORDS[slot]));
+    const name = filledName(prng.pick(templatesOf(kind)), prng);
     const { essid, domain } = businessSpelling(name);
     if (essids.has(essid) || domains.has(domain)) return draw(kind);
     essids.add(essid);
@@ -290,18 +313,19 @@ const networksOf = (
     homesPrng.nextInt(VILLAGE_HOMES_MIN, VILLAGE_HOMES_MAX),
   );
   const directory = [...institutions, ...later].flatMap((institution) => institution.site ?? []);
-  const businesses = namedOf(`town-business-names-${townKey(town)}`, kindsOf(town, count), [
-    ...institutions,
-    ...homes.map(home),
-    ...later,
-  ]);
+  const businesses = namedOf(
+    `town-business-names-${townKey(town)}`,
+    kindsOf(town, count),
+    [...institutions, ...homes.map(home), ...later],
+    kindTemplates,
+  );
   // A practice's name is drawn after every other, so it avoids them all and moves none.
-  const practices = namedOf(`town-practice-names-${townKey(town)}`, practiceKindsOf(town), [
-    ...institutions,
-    ...businesses,
-    ...homes.map(home),
-    ...later,
-  ]);
+  const practices = namedOf(
+    `town-practice-names-${townKey(town)}`,
+    practiceKindsOf(town),
+    [...institutions, ...businesses, ...homes.map(home), ...later],
+    kindTemplates,
+  );
   const networks = [...institutions, ...businesses, ...homes.map(home), ...later, ...practices];
   const unlisted = unlistedOf(town, networks);
   return networks.map((institution: Institution, index) => {
@@ -325,6 +349,34 @@ const MILLBROOK_NETWORKS = networksOf(
   MILLBROOK_LATER_INSTITUTIONS,
 );
 
+/** The fewest and the most corporations the world holds beyond the landmarks. */
+const CORPORATIONS_MIN = 20;
+const CORPORATIONS_MAX = 40;
+
+/** How many corporations the world holds, and the kind of each, on a stream of the
+ *  world's own. No two are the same kind while another is left. */
+const corporationKinds = (): readonly NamedKind[] => {
+  const prng = createPrng('corporations');
+  const count = prng.nextInt(CORPORATIONS_MIN, CORPORATIONS_MAX);
+  return distinctKinds(prng, BUSINESS_SUBTYPES.corporate, count).map((subtype) => ({
+    category: 'corporate',
+    subtype,
+  }));
+};
+
+/** The corporations: head offices that stand in no town, declared after every town so
+ *  none of their keys moves. Their names are drawn after every other, so they avoid them
+ *  all and move none. */
+const CORPORATIONS: readonly DeclaredNetwork[] = namedOf(
+  'corporation-names',
+  corporationKinds(),
+  MILLBROOK_NETWORKS,
+  () => CORPORATION_NAME_TEMPLATES,
+).map((corporation, index) => {
+  const key = `c${index}`;
+  return { ...corporation, key, profile: profileOf(key, corporation.category) };
+});
+
 /** Ridgemont's networks are the catalog's, each known by the name it broadcasts. */
 const LANDMARKS: readonly DeclaredNetwork[] = ESSID_CATALOG.map((entry) => ({
   ...entry,
@@ -333,8 +385,13 @@ const LANDMARKS: readonly DeclaredNetwork[] = ESSID_CATALOG.map((entry) => ({
   region: regionOf(RIDGEMONT_TOWN),
 }));
 
-/** Every network the world declares, Ridgemont's first. */
-export const DECLARED_NETWORKS: readonly DeclaredNetwork[] = [...LANDMARKS, ...MILLBROOK_NETWORKS];
+/** Every network the world declares: Ridgemont's first, then each town's, then the
+ *  corporations. */
+export const DECLARED_NETWORKS: readonly DeclaredNetwork[] = [
+  ...LANDMARKS,
+  ...MILLBROOK_NETWORKS,
+  ...CORPORATIONS,
+];
 
 const DECLARED_BY_KEY: ReadonlyMap<string, DeclaredNetwork> = new Map(
   DECLARED_NETWORKS.map((network) => [network.key, network]),
@@ -387,18 +444,18 @@ const placelessAddress = (index: number): string => {
   return `${PLACELESS_FIRST_OCTET}.${second}.${hostOctets(slot % NETWORKS_PER_TOWN)}`;
 };
 
+const LANDMARK_CORPORATIONS = LANDMARKS.filter((network) => network.category === 'corporate');
+
 /** A corporation stands in no town, so a landmark corporation answers in the placeless
  *  block, after findit, in the catalog's order. Every other landmark answers in
  *  Ridgemont's block, placed by its position in the catalog. */
-const landmarkAddresses = (): readonly (readonly [string, string])[] => {
-  const corporations = LANDMARKS.filter((network) => network.category === 'corporate');
-  return LANDMARKS.map((network, index) => [
+const landmarkAddresses = (): readonly (readonly [string, string])[] =>
+  LANDMARKS.map((network, index) => [
     network.key,
     network.category === 'corporate'
-      ? placelessAddress(corporations.indexOf(network) + 1)
+      ? placelessAddress(LANDMARK_CORPORATIONS.indexOf(network) + 1)
       : addressOf(RIDGEMONT_TOWN, index),
   ]);
-};
 
 const ADDRESS_BY_KEY: ReadonlyMap<string, string> = new Map([
   [FINDIT_NETWORK, placelessAddress(0)],
@@ -406,6 +463,11 @@ const ADDRESS_BY_KEY: ReadonlyMap<string, string> = new Map([
   ...MILLBROOK_NETWORKS.map((network, index): [string, string] => [
     network.key,
     addressOf(MILLBROOK, index),
+  ]),
+  // The drawn corporations answer after findit and every landmark corporation.
+  ...CORPORATIONS.map((network, index): [string, string] => [
+    network.key,
+    placelessAddress(1 + LANDMARK_CORPORATIONS.length + index),
   ]),
 ]);
 

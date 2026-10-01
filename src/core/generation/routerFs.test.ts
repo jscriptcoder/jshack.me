@@ -911,6 +911,16 @@ describe('the AP gateway of a network in another town', () => {
     expect(counts).toEqual(millbrook.map(({ key }) => ({ key, siteFirst: true, inRange: true })));
   });
 
+  it('keeps the site forward of a corporation, which stands in no town, first, then one or two more as any office does', () => {
+    const corporations = DECLARED_NETWORKS.filter((network) => network.town === undefined);
+    expect(corporations).not.toEqual([]);
+    for (const { key } of corporations) {
+      expect(forwardsOf(key)[0]?.publicPort, key).toBe(80);
+      expect(seededOf(key).length, key).toBeGreaterThanOrEqual(1);
+      expect(seededOf(key).length, key).toBeLessThanOrEqual(2);
+    }
+  });
+
   it('forwards only a service a machine on its own LAN really runs, and never the site again', () => {
     const misrouted = millbrook.flatMap((network) =>
       seededOf(network.key).filter((forward) => {

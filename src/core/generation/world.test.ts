@@ -23,6 +23,7 @@ import { resolveLanName } from '../network/resolveName.js';
 import { crackableEssidPool } from './generateWifi.js';
 import { TOWN_HOMES } from './pools/townHomes.js';
 import {
+  CORPORATION_NAME_TEMPLATES,
   NAME_TEMPLATES,
   NAME_WORDS,
   type BusinessSubtype,
@@ -42,7 +43,8 @@ import { MOTD_TEMPLATES } from './pools/etcFiles.js';
 import { PLACE_DOWNLOADS } from './pools/phoneFiles.js';
 import { buildRemoteHostFs } from './remoteHostFs.js';
 import { buildDeepHostFs } from './deepHostFs.js';
-import { deepBoxes, filesUnder, lanBoxes } from '../../test/worldContent.js';
+import { deepBoxes, filesUnder, gatewaysOn, lanBoxes } from '../../test/worldContent.js';
+import { networkPersona } from './persona.js';
 import type { NetworkCategory } from './pools/essidCatalog.js';
 import { fillSlots } from './npcHome.js';
 import { relationsTo } from './relations.js';
@@ -675,7 +677,8 @@ describe("Millbrook's kinds of business", () => {
 
   it('gives no kind to a council, a library, a home or a Ridgemont network', () => {
     const kinded = [...businesses(), ...hospitals(), ...practices()];
-    for (const network of DECLARED_NETWORKS.filter((each) => !kinded.includes(each))) {
+    const towns = [...landmarks(), ...millbrook()];
+    for (const network of towns.filter((each) => !kinded.includes(each))) {
       expect(network.subtype, network.essid).toBeUndefined();
     }
   });
@@ -937,6 +940,206 @@ describe("Millbrook's unlisted site", () => {
       expect(homepageAt(network.site?.domain ?? '')).toContain(
         `<title>${network.site?.name}</title>`,
       );
+    }
+  });
+});
+
+/** The corporations: every network the world declares after Millbrook's last. */
+const corporations = (): readonly DeclaredNetwork[] => {
+  const last = millbrook().at(-1);
+  if (last === undefined) throw new Error('Millbrook declares no network');
+  return DECLARED_NETWORKS.slice(DECLARED_NETWORKS.indexOf(last) + 1);
+};
+
+/**
+ * Beyond Acme and Initech the world holds a few dozen more companies, drawn rather than
+ * written. Each is one head office that stands in no town: it answers in the placeless
+ * block as the landmark corporations do, and findit is the first way in.
+ */
+describe('the corporations', () => {
+  it('declares 20 to 40 offices after every network of Millbrook, keyed c0, c1 and on', () => {
+    expect(corporations().length).toBeGreaterThanOrEqual(20);
+    expect(corporations().length).toBeLessThanOrEqual(40);
+    expect(corporations().map((network) => network.key)).toEqual(
+      corporations().map((_, index) => `c${index}`),
+    );
+    for (const network of corporations()) {
+      expect(network.category, network.key).toBe('corporate');
+      expect(BUSINESS_SUBTYPES.corporate, network.key).toContain(network.subtype);
+    }
+  });
+
+  it('keeps two corporations from being the same kind while another kind is left', () => {
+    const kinds = corporations().map((network) => network.subtype);
+    const corporateKinds = BUSINESS_SUBTYPES.corporate ?? [];
+    expect(new Set(kinds.slice(0, corporateKinds.length)).size).toBe(corporateKinds.length);
+  });
+
+  it('answers each in the placeless block, after findit and the twenty landmark corporations', () => {
+    // findit is the block's first network and the landmark corporations its next twenty,
+    // so the first drawn corporation is its twenty-second.
+    expect(
+      corporations()
+        .slice(0, 2)
+        .map((network) => [network.key, publicAddress(network.key)]),
+    ).toEqual([
+      ['c0', '193.71.60.53'],
+      ['c1', '193.86.172.200'],
+    ]);
+    for (const network of corporations()) {
+      expect(publicAddress(network.key), network.key).toMatch(/^193\.\d{1,3}\.\d{1,3}\.\d{1,3}$/);
+    }
+  });
+
+  it('is pinned (golden): locks the corporations stream, its count and kinds, and each name, size and address', () => {
+    // A key, a name or an address that moved would strand every journal, bookmark and note
+    // a player holds about the corporation, so the declaration only ever grows.
+    expect(
+      corporations().map(
+        (network) =>
+          `${network.key} ${network.subtype} ${network.profile} ${network.place} ${publicAddress(network.key)}`,
+      ),
+    ).toEqual([
+      'c0 insurance flat Keystone Holdings 193.71.60.53',
+      'c1 it-services deep Bluebell International 193.86.172.200',
+      'c2 consulting deep Compass International 193.102.29.94',
+      'c3 accounting deep Quayle & Bellamy 193.117.141.241',
+      'c4 logistics flat Summit Holdings 193.132.254.135',
+      'c5 insurance deep Garrow Group 193.148.111.29',
+      'c6 logistics flat Lorimer Group 193.163.223.176',
+      'c7 consulting deep Thackeray Group 193.179.80.70',
+      'c8 it-services deep Silverbirch Holdings 193.194.192.217',
+      'c9 it-services flat Delaney & Sutcliffe 193.210.49.111',
+      'c10 consulting deep Merriweather & Delaney 193.225.162.5',
+      'c11 insurance deep Anchor Holdings 193.241.18.152',
+      'c12 accounting deep Copper International 193.2.131.46',
+      'c13 consulting flat Bellamy Group 193.17.243.193',
+      'c14 logistics flat Thackeray & Sutcliffe 193.33.100.87',
+      'c15 consulting deep Sunrise Holdings 193.48.212.234',
+      'c16 logistics deep Meadow International 193.64.69.128',
+      'c17 consulting deep Oakwood Holdings 193.79.182.22',
+      'c18 insurance flat Ashworth Group 193.95.38.169',
+      'c19 logistics flat Quayle & Whitlock 193.110.151.63',
+      'c20 accounting deep Pinnacle International 193.126.7.210',
+      'c21 logistics flat Sutcliffe Group 193.141.120.104',
+      'c22 logistics deep Radley & Oakley 193.156.232.251',
+      'c23 consulting flat Compass Holdings 193.172.89.145',
+      'c24 accounting flat Willow Holdings 193.187.202.39',
+      'c25 logistics flat Bluebell Holdings 193.203.58.186',
+      'c26 it-services deep Bellamy & Garrow 193.218.171.80',
+      'c27 logistics deep Varley & Ellison 193.234.27.227',
+    ]);
+  });
+
+  it('always publishes, is always listed, and never stands on one machine', () => {
+    for (const network of corporations()) {
+      expect(network.site, network.key).toBeDefined();
+      expect(network.unlisted, network.key).toBeUndefined();
+      expect(['flat', 'deep'], network.key).toContain(network.profile);
+    }
+  });
+
+  it('stands in no town and no region, and its people name none as theirs', () => {
+    for (const network of corporations()) {
+      expect(network.town, network.key).toBeUndefined();
+      expect(network.region, network.key).toBeUndefined();
+      expect(networkPersona(network.key).town, network.key).toBeUndefined();
+    }
+  });
+
+  it('names no town and no region in any file on its gateways or its boxes, nor leaves a slot for one', () => {
+    const keys = corporations().map((network) => network.key);
+    const trees = [
+      ...gatewaysOn(keys).map((gateway) => ({ name: gateway.name, tree: gateway.tree })),
+      ...lanBoxes(keys).map((box) => ({
+        name: `${box.essid} ${box.host.hostname}`,
+        tree: buildRemoteHostFs(box.essid, box.host),
+      })),
+      ...deepBoxes(keys).map((box) => ({
+        name: `${box.essid} ${box.host.hostname}`,
+        tree: buildDeepHostFs(box.essid, box.host),
+      })),
+    ];
+    expect(trees.length).toBeGreaterThan(keys.length * 2);
+    const named = trees.flatMap(({ name, tree }) =>
+      [...filesUnder(tree)].flatMap(([path, content]) =>
+        /Ridgemont|Millbrook|Harrow Valley|\{town\}|\{region\}/.test(content)
+          ? [`${name} /${path}`]
+          : [],
+      ),
+    );
+    expect(named).toEqual([]);
+  });
+});
+
+/** Every way `template` can be filled: each slot with each word of its list, and no word
+ *  twice in one name. */
+const fillingsOf = (template: string, used: readonly string[] = []): readonly string[] => {
+  const slot = template.match(/\{(\w+)\}/)?.[1] as keyof typeof NAME_WORDS | undefined;
+  if (slot === undefined) return [template];
+  return NAME_WORDS[slot]
+    .filter((word) => !used.includes(word))
+    .flatMap((word) => fillingsOf(template.replace(`{${slot}}`, word), [...used, word]));
+};
+
+/** Every name the corporations' grammar can spell. */
+const corporationNames = (): readonly string[] =>
+  CORPORATION_NAME_TEMPLATES.flatMap((template) => fillingsOf(template));
+
+describe("the corporations' names", () => {
+  it('names every corporation from a grammar of its own, every slot filled and no surname twice', () => {
+    for (const network of corporations()) {
+      expect(corporationNames(), network.key).toContain(network.place);
+    }
+    // A partnership of one family would read as a typing slip.
+    expect(corporationNames()).not.toContain('Thackeray & Thackeray');
+    expect(corporationNames()).toContain('Quayle & Thackeray');
+  });
+
+  it('never names a corporation the way a village business is named', () => {
+    const villageNames = Object.values(NAME_TEMPLATES)
+      .flat()
+      .flatMap((template) => fillingsOf(template));
+    for (const name of corporationNames()) {
+      expect(villageNames, name).not.toContain(name);
+    }
+  });
+
+  it('publishes under its name, spelt into its wifi and its domain as a business is', () => {
+    for (const network of corporations()) {
+      expect(network.site?.name, network.key).toBe(network.place);
+      expect(businessSpelling(network.place), network.key).toEqual({
+        essid: network.essid,
+        domain: network.site?.domain,
+      });
+    }
+  });
+
+  it('names no corporation the way any other network in the world is named', () => {
+    for (const corporation of corporations()) {
+      const others = DECLARED_NETWORKS.filter((network) => network !== corporation);
+      const names = others.flatMap((network) => [network.place, network.site?.name ?? '']);
+      expect(
+        names.map((name) => name.toLowerCase()),
+        corporation.key,
+      ).not.toContain(corporation.place.toLowerCase());
+      expect(
+        others.map((network) => network.essid),
+        corporation.key,
+      ).not.toContain(corporation.essid);
+      expect(
+        [FINDIT_DOMAIN, ...others.map((network) => network.site?.domain)],
+        corporation.key,
+      ).not.toContain(corporation.site?.domain);
+    }
+  });
+
+  it('can spell every name its grammar gives as a wifi a scan will show', () => {
+    for (const name of corporationNames()) {
+      const { essid, domain } = businessSpelling(name);
+      expect(essid, name).toMatch(/^[A-Z0-9]+(-[A-Z0-9]+)*$/);
+      expect(essid.length, name).toBeLessThanOrEqual(32);
+      expect(domain, name).toMatch(/^[a-z0-9]+\.com$/);
     }
   });
 });

@@ -200,6 +200,38 @@ const fileOn = (key: string, host: LanHost, path: string): string | undefined =>
   return read.ok ? read.content : undefined;
 };
 
+describe('the leads a Millbrook network keeps', () => {
+  /** A lead as the line that tells it apart from every other. */
+  const leadLine = (relation: Relation): string =>
+    `${relation.kind} ${relation.source} ${relation.sourceHost.ip} -> ${relation.target}`;
+
+  it('reads back every lead from the network it starts on, and from no other', () => {
+    const kept = millbrook.flatMap((network) =>
+      relationsFrom(network.key).map((relation) => ({ keeper: network.key, relation })),
+    );
+    for (const { keeper, relation } of kept) {
+      expect(relation.source, leadLine(relation)).toBe(keeper);
+    }
+    expect(kept.map(({ relation }) => leadLine(relation)).sort()).toEqual(
+      allRelations().map(leadLine).sort(),
+    );
+  });
+});
+
+describe("a corporation's relations", () => {
+  // Leads are drawn among the networks of one town. A corporation stands in none, so no
+  // contractor looks after it and it backs nothing up to anybody's home.
+  const corporations = DECLARED_NETWORKS.filter((network) => network.town === undefined);
+
+  it('keeps no lead to any network, and is the target of none', () => {
+    expect(corporations).not.toEqual([]);
+    for (const { key } of corporations) {
+      expect(relationsTo(key), key).toEqual([]);
+      expect(relationsFrom(key), key).toEqual([]);
+    }
+  });
+});
+
 describe("an IT contractor's shortcuts", () => {
   const contractors = () => allLogins().filter((relation) => relation.kind === 'contractor');
 
