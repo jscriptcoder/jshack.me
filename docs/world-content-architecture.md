@@ -120,6 +120,8 @@ gateways on their own seed key or machine id.
 | `town-businesses-<town key>` | how many businesses a town keeps |
 | `town-business-kinds-<town key>` | each business's category and kind, no kind twice while its category has another |
 | `town-business-names-<town key>` | each business's name, from its kind's templates |
+| `town-practices-<town key>` | how many practices a town keeps beside its businesses, and whether each is a clinic or a dentist |
+| `town-practice-names-<town key>` | each practice's name, from its kind's templates, clear of every name drawn before it |
 | `town-homes-<town key>` | how many homes a town keeps, and which |
 | `relations-<key>` | the leads that go to a network: how many, from whom, of which kind, from which box |
 | `relation-host-key-<key>-<ip>` | the host key every desk that has met a client box records for it |
@@ -183,9 +185,21 @@ estates, rotas) and unnamed places. Millbrook's is **the cottage hospital** (`CO
 in `world.ts`) so no earlier key or address moves, but listed on the directory with the other
 institutions. It is `flat` or `deep`, never `lone`.
 
+A town also keeps 1–2 **practices**, a clinic or a dentist each (`PRACTICE_SUBTYPES` in
+`pools/businessKinds.ts`), no kind twice while the other is left. They are counted apart from
+the businesses, on streams of their own, and appended after the institutions declared later,
+so no earlier key moves. A practice is a business in every rule but its count: it always
+publishes under a name from its kind's templates (`{street} Medical Centre`, `{surname} Dental
+Care`), spelt into its wifi and `.com` domain as a business's is, it is in its town's unlisted
+draw, it receives leads as a business does (an unlisted practice gets a supplier), and the
+council's directory no more lists it than a shop. Its name is drawn after every other network's,
+so it avoids them all and moves none. Millbrook keeps one, **Oakwood Dental** (`r0/t1/n16`,
+`oakwooddental.com`, `flat`).
+
 - **Its site** fills a `{care}` slot: the hospital (`SITE_WORDS.hospital`) with wards, visiting
-  hours and outpatient clinics, any other place of care (`CATEGORY_WORDS.healthcare`) with
-  appointments, check-ups and advice. Its team page is `clinicians.html`, "Our clinicians".
+  hours and outpatient clinics, a clinic with GP appointments, vaccinations and blood tests, a
+  dentist with check-ups, fillings and the hygienist, and a place of care with no kind
+  (`CATEGORY_WORDS.healthcare`) with appointments, check-ups and advice. Its team page is `clinicians.html`, "Our clinicians".
 - **Its database** is the `appointments` archetype: patients (`PT-` numbers, a name, a date of
   birth kept as text, since the schema has no DATE type and a row's first DATETIME dates it),
   clinicians, appointments, and sometimes rooms and a waiting list. Nothing clinical: no table

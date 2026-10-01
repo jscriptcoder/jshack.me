@@ -26,7 +26,9 @@ import {
   NAME_TEMPLATES,
   NAME_WORDS,
   type BusinessSubtype,
+  type NamedSubtype,
   type NetworkSubtype,
+  type PracticeSubtype,
 } from './pools/businessKinds.js';
 import {
   API_ENDPOINTS,
@@ -180,6 +182,7 @@ describe('Millbrook', () => {
         'millbrookhospital.org',
         '87.98.183.78',
       ],
+      ['r0/t1/n16', 'OAKWOOD-DENTAL', 'Oakwood Dental', 'oakwooddental.com', '87.98.24.218'],
     ]);
   });
 
@@ -429,12 +432,12 @@ describe("Millbrook's homes", () => {
 });
 
 describe("Millbrook's cottage hospital", () => {
-  it('stands after every home, so declaring it moved no earlier key', () => {
+  it('stands after every home and before the practices, so declaring it moved no earlier key', () => {
     const networks = millbrook();
     expect(hospitals()).toHaveLength(1);
     const [hospital] = hospitals();
     expect(hospital).toMatchObject({
-      key: `r0/t1/n${networks.length - 1}`,
+      key: `r0/t1/n${networks.length - 1 - practices().length}`,
       essid: 'COTTAGE-HOSPITAL',
       category: 'healthcare',
       subtype: 'hospital',
@@ -550,6 +553,7 @@ describe("Millbrook's network sizes", () => {
       'KOWALSKI-WIFI',
       'THE-HARGREAVES',
       'PEAR-TREE-HOUSE',
+      'OAKWOOD-DENTAL',
     ]);
   });
 });
@@ -602,7 +606,29 @@ const kindOf = (business: DeclaredNetwork): BusinessSubtype => {
 
 /** Millbrook's hospitals. */
 const hospitals = (): readonly DeclaredNetwork[] =>
-  millbrook().filter((network) => network.category === 'healthcare');
+  millbrook().filter((network) => network.subtype === 'hospital');
+
+/** The kinds of practice a town draws beside its shops. */
+const PRACTICE_KINDS: readonly PracticeSubtype[] = ['clinic', 'dentist'];
+
+/** A word only one kind of practice uses of itself. */
+const PRACTICE_WORDS: Readonly<Record<PracticeSubtype, string>> = {
+  clinic: 'vaccinations',
+  dentist: 'fillings',
+};
+
+/** The kind of practice `practice` is. */
+const practiceKindOf = (practice: DeclaredNetwork): PracticeSubtype => {
+  const kind = PRACTICE_KINDS.find((each) => each === practice.subtype);
+  if (kind === undefined) throw new Error(`${practice.essid} is no kind of practice`);
+  return kind;
+};
+
+/** Millbrook's practices: its places of care that are no hospital. */
+const practices = (): readonly DeclaredNetwork[] =>
+  millbrook().filter(
+    (network) => network.category === 'healthcare' && network.subtype !== 'hospital',
+  );
 
 /** Millbrook's businesses: its shops, cafés and offices. */
 const businesses = (): readonly DeclaredNetwork[] =>
@@ -648,7 +674,7 @@ describe("Millbrook's kinds of business", () => {
   });
 
   it('gives no kind to a council, a library, a home or a Ridgemont network', () => {
-    const kinded = [...businesses(), ...hospitals()];
+    const kinded = [...businesses(), ...hospitals(), ...practices()];
     for (const network of DECLARED_NETWORKS.filter((each) => !kinded.includes(each))) {
       expect(network.subtype, network.essid).toBeUndefined();
     }
@@ -704,6 +730,20 @@ describe('what a place of care says of itself', () => {
     }
   });
 
+  it("says a clinic's or a dentist's own care on every page it draws, and never a hospital's or the other's", () => {
+    for (const kind of PRACTICE_KINDS) {
+      const pages = pagesIn(SITE_WORDS[kind]);
+      expect(pages.join('\n'), kind).not.toMatch(/\{\w+\}/);
+      for (const page of pages) {
+        expect(page, kind).toContain(PRACTICE_WORDS[kind]);
+        expect(page, kind).not.toMatch(/wards|visiting hours|outpatient/);
+        for (const other of PRACTICE_KINDS.filter((each) => each !== kind)) {
+          expect(page, `${kind} ${other}`).not.toContain(PRACTICE_WORDS[other]);
+        }
+      }
+    }
+  });
+
   it('says neither where it is no hospital, and still fills every slot', () => {
     const pages = pagesIn(CATEGORY_WORDS.healthcare ?? {});
     expect(pages.join('\n')).not.toMatch(/\{\w+\}/);
@@ -715,7 +755,7 @@ describe('what a place of care says of itself', () => {
 
 /** Every name a kind's templates can spell: each template's one slot filled with each
  *  word of its list. */
-const namesFor = (subtype: BusinessSubtype): readonly string[] =>
+const namesFor = (subtype: NamedSubtype): readonly string[] =>
   NAME_TEMPLATES[subtype].flatMap((template) => {
     const slot = template.match(/\{(\w+)\}/)?.[1] as keyof typeof NAME_WORDS;
     return NAME_WORDS[slot].map((word) => template.replace(`{${slot}}`, word));
@@ -776,6 +816,84 @@ describe("Millbrook's business names", () => {
   });
 });
 
+describe("Millbrook's practices", () => {
+  it('keeps 1 or 2 clinics or dentists, declared after the hospital so no earlier key moves', () => {
+    const networks = millbrook();
+    const [hospital] = hospitals();
+    expect(practices().length).toBeGreaterThanOrEqual(1);
+    expect(practices().length).toBeLessThanOrEqual(2);
+    for (const practice of practices()) {
+      expect(PRACTICE_KINDS, practice.essid).toContain(practice.subtype);
+      expect(networks.indexOf(practice), practice.essid).toBeGreaterThan(
+        networks.indexOf(hospital ?? practice),
+      );
+    }
+    expect(networks.slice(-practices().length)).toEqual(practices());
+  });
+
+  it('keeps two practices from being the same kind while the other is left', () => {
+    const drawn = practices().map((practice) => practice.subtype);
+    expect(new Set(drawn).size).toBe(Math.min(drawn.length, PRACTICE_KINDS.length));
+  });
+
+  it('is pinned (golden): locks the town-practices- stream, its count and its kinds', () => {
+    expect(practices().map((practice) => `${practice.key} ${practice.subtype}`)).toEqual([
+      'r0/t1/n16 dentist',
+    ]);
+  });
+
+  it('puts every practice on the internet under its own name, as a business is', () => {
+    for (const practice of practices()) {
+      expect(practice.site?.name, practice.essid).toBe(practice.place);
+      expect(businessSpelling(practice.place)).toEqual({
+        essid: practice.essid,
+        domain: practice.site?.domain,
+      });
+      expect(homepageAt(practice.site?.domain ?? '')).toContain(
+        `<title>${practice.site?.name}</title>`,
+      );
+    }
+  });
+
+  it('names every practice the way its kind of practice is named', () => {
+    for (const practice of practices()) {
+      expect(namesFor(practiceKindOf(practice)), practice.essid).toContain(practice.place);
+    }
+  });
+
+  it('names no practice the way any other network in the world is named', () => {
+    for (const practice of practices()) {
+      const others = DECLARED_NETWORKS.filter((network) => network !== practice).flatMap(
+        (network) => [network.place, network.site?.name ?? network.place],
+      );
+      expect(
+        others.map((name) => name.toLowerCase()),
+        practice.essid,
+      ).not.toContain(practice.place.toLowerCase());
+    }
+  });
+
+  it('can spell every name its kinds are given as a wifi a scan will show', () => {
+    for (const kind of PRACTICE_KINDS) {
+      const names = namesFor(kind);
+      expect(names.length, kind).toBeGreaterThan(0);
+      for (const name of names) {
+        const { essid, domain } = businessSpelling(name);
+        expect(essid, name).toMatch(/^[A-Z0-9]+(-[A-Z0-9]+)*$/);
+        expect(essid.length, name).toBeLessThanOrEqual(32);
+        expect(domain, name).toMatch(/^[a-z0-9]+\.com$/);
+      }
+    }
+  });
+
+  it('describes every practice to a search by the words of its kind', () => {
+    for (const practice of practices()) {
+      const description = descriptionOf(homepageAt(practice.site?.domain ?? ''));
+      expect(description, practice.essid).toContain(PRACTICE_WORDS[practiceKindOf(practice)]);
+    }
+  });
+});
+
 /** The share of a town's publishers that ask crawlers to stay away. */
 const UNLISTED_SHARE = 0.15;
 
@@ -803,7 +921,7 @@ describe("Millbrook's unlisted site", () => {
       millbrook()
         .filter((network) => network.unlisted === true)
         .map((network) => network.essid),
-    ).toEqual(['MILLBROOK-PD', 'ABERNETHY-AND-SONS-HARDWARE']);
+    ).toEqual(['ABERNETHY-AND-SONS-HARDWARE', 'ABERNETHYS-BOOKS']);
   });
 
   it('asks every crawler to stay away from the whole site, and says nothing else', () => {

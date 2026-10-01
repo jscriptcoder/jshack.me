@@ -239,8 +239,8 @@ target's forwarded ssh when its gateway keeps one, else the gateway's own sshd o
 - **The IT contractor.** An office with a desk keeps a shortcut to every client in the
   desk owner's `~/.ssh/config` (`Host <client wifi, lowercased>`, its address, the
   account, a `Port` off `22`) and the matching `known_hosts` line. Millbrook's is
-  Westbrook Haulage's `laptop-56`, which reaches eight other publishers (the cottage
-  hospital among them) and five homes.
+  Westbrook Haulage's `laptop-56`, which reaches nine other publishers (the cottage
+  hospital and Oakwood Dental among them) and five homes.
   Every town keeps an office with a desk and a working share, so every town has a place
   its leads start from (`world-content-architecture.md`, "What a business is").
 - **The offsite backup.** A business with a file server copies `/srv` every night to a
@@ -254,8 +254,9 @@ target's forwarded ssh when its gateway keeps one, else the gateway's own sshd o
   `/srv/share/invoices/<supplier wifi, lowercased>-<number>.txt`, naming it by site name
   and domain, with its arrival in the share's `vsftpd.log.1`
   (`generation/supplierInvoices.ts`). Drawn on `relation-supplier-<key>`, after the
-  target's other leads, so they kept their draws. Millbrook's is Abernethy and Sons
-  Hardware's, on Westbrook Haulage's `files-16`, its total in whole euros.
+  target's other leads, so they kept their draws. Millbrook keeps two, Abernethy and Sons
+  Hardware's and Abernethy's Books', both on Westbrook Haulage's `files-16`, their totals in
+  whole euros.
 
 Following one takes the shipped verbs: `cat` the shortcut or the crontab on a box the
 player is on, `whois` the address, `nmap` it for the forwarded port, `ssh -p` in as the
@@ -268,7 +269,7 @@ test over the whole declaration holds it (`world.test.ts`, "the reach of the wor
 
 About 15% of a town's publishers keep their site off every search:
 `max(1, round(15%))`, picked on `town-unlisted-<town key>` and flagged `unlisted` on the
-declaration (Millbrook unlists its police and Abernethy and Sons Hardware). The council is never picked: its directory
+declaration (Millbrook unlists Abernethy and Sons Hardware and Abernethy's Books). The council is never picked: its directory
 is how the town's unlisted institutions are found, so it must be found first. An unlisted
 site's `robots.txt` reads `User-agent: *` / `Disallow: /` and nothing else, in place of
 whatever it drew, and it keeps no directory only that file would have named, which nobody
@@ -277,7 +278,7 @@ change: its live crawl already honours `robots.txt`, so the site answers `curl` 
 domain or address and is never listed, whatever the search.
 
 A player finds one the other ways: an unlisted institution stays on its town's directory,
-and an unlisted business is always the target of a supplier lead (above). Rewriting the
+and an unlisted business or practice is always the target of a supplier lead (above). Rewriting the
 `robots.txt` lists it like any other site.
 
 ### New categories
@@ -295,7 +296,9 @@ now draws from more crackable networks and an uncatalogued network from more kin
 `healthcare` followed (procedural world slice 6): the `appointments` application and
 Millbrook's cottage hospital. Appending it re-rolled findit's own box, which draws its
 persona as an uncatalogued network would, so findit's persona is now fixed
-(`FINDIT_PLACE`: the workshop it always was).
+(`FINDIT_PLACE`: the workshop it always was). A town's practices came next, a clinic or
+a dentist each, counted beside its businesses; Millbrook's Oakwood Dental moved the unlisted
+pick, so its police is listed again.
 
 ## Two lessons worth keeping
 

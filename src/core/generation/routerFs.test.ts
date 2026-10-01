@@ -1009,6 +1009,7 @@ describe('the AP gateway of a network in another town', () => {
       'PEAR-TREE-HOUSE': ['2222 → .13:8022'],
       'OKONKWO-FAMILY': [],
       'COTTAGE-HOSPITAL': ['80 → .17:8080', '2121 → .83:2121'],
+      'OAKWOOD-DENTAL': ['80 → .34:80', '2222 → .235:22'],
     });
   });
 });

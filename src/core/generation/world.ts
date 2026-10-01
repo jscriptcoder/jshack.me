@@ -15,9 +15,12 @@ import {
   BUSINESS_SUBTYPES,
   NAME_TEMPLATES,
   NAME_WORDS,
+  PRACTICE_SUBTYPES,
   type BusinessCategory,
   type BusinessSubtype,
+  type NamedSubtype,
   type NetworkSubtype,
+  type PracticeSubtype,
 } from './pools/businessKinds.js';
 import { TOWN_HOMES, type TownHome } from './pools/townHomes.js';
 import { createPrng } from './prng.js';
@@ -50,8 +53,8 @@ export type DeclaredNetwork = {
   /** How much stands behind its gateway. A landmark declares none: it keeps the shape it
    *  was authored with, which is `deep`. */
   readonly profile?: NetworkProfile;
-  /** What kind of shop, café, office or place of care it is. Only a business a town
-   *  draws, and a hospital, has one. */
+  /** What kind of shop, café, office or place of care it is. Only a business or a
+   *  practice a town draws, and a hospital, has one. */
   readonly subtype?: NetworkSubtype;
 };
 
@@ -130,6 +133,9 @@ const VILLAGE_BUSINESSES_MAX = 6;
 /** A business: what kind it is, and the name over its door. */
 type BusinessKind = { readonly category: BusinessCategory; readonly subtype: BusinessSubtype };
 
+/** A place a town names from its kind's grammar: a business or a practice. */
+type NamedKind = { readonly category: NetworkCategory; readonly subtype: NamedSubtype };
+
 /** The wifi and the domain a business's name is spelt as: its letters and digits, with
  *  no accent and no apostrophe, as the sign over the door reads to somebody typing it. */
 export const businessSpelling = (name: string): { essid: string; domain: string } => {
@@ -140,8 +146,9 @@ export const businessSpelling = (name: string): { essid: string; domain: string 
   };
 };
 
-/** A business under the name over its door: its wifi and its domain are spelt from it. */
-const business = ({ category, subtype }: BusinessKind, name: string): Institution => {
+/** A business or a practice under the name over its door: its wifi and its domain are
+ *  spelt from it. */
+const business = ({ category, subtype }: NamedKind, name: string): Institution => {
   const { essid, domain } = businessSpelling(name);
   return { essid, category, subtype, place: name, site: { domain, name } };
 };
@@ -166,6 +173,23 @@ const kindsOf = (town: Town, count: number): readonly BusinessKind[] => {
     const left = subtypes.filter((subtype) => !drawn.some((kind) => kind.subtype === subtype));
     return [...drawn, { category, subtype: prng.pick(left.length > 0 ? left : subtypes) }];
   }, []);
+};
+
+/** The fewest and the most practices a village keeps beside its businesses. */
+const VILLAGE_PRACTICES_MIN = 1;
+const VILLAGE_PRACTICES_MAX = 2;
+
+/** How many practices `town` keeps, and the kind of each, on a stream of the town's own.
+ *  No two are the same kind while another is left. */
+const practiceKindsOf = (town: Town): readonly NamedKind[] => {
+  const prng = createPrng(`town-practices-${townKey(town)}`);
+  const count = prng.nextInt(VILLAGE_PRACTICES_MIN, VILLAGE_PRACTICES_MAX);
+  return Array.from({ length: count })
+    .reduce<readonly PracticeSubtype[]>((drawn) => {
+      const left = PRACTICE_SUBTYPES.filter((subtype) => !drawn.includes(subtype));
+      return [...drawn, prng.pick(left.length > 0 ? left : PRACTICE_SUBTYPES)];
+    }, [])
+    .map((subtype) => ({ category: 'healthcare', subtype }));
 };
 
 /** The fewest and the most homes a village keeps. */
@@ -209,22 +233,22 @@ const profileOf = (key: string, category: NetworkCategory): NetworkProfile => {
 
 const townKey = (town: Town): string => `r${town.region}/t${town.index}`;
 
-/** Each of `town`'s businesses under a name from its kind's templates, drawn on a stream
- *  of the town's own. A name whose wifi or domain another network already holds is drawn
- *  again: two networks under one domain would answer as one site. */
-const businessesOf = (
-  town: Town,
-  kinds: readonly BusinessKind[],
+/** Each of `kinds` under a name from its kind's templates, drawn on `stream`. A name
+ *  whose wifi or domain another network already holds is drawn again: two networks under
+ *  one domain would answer as one site. */
+const namedOf = (
+  stream: string,
+  kinds: readonly NamedKind[],
   neighbours: readonly Institution[],
 ): readonly Institution[] => {
-  const prng = createPrng(`town-business-names-${townKey(town)}`);
+  const prng = createPrng(stream);
   const held = [...ESSID_CATALOG, ...neighbours];
   const essids = new Set(held.map((network) => network.essid));
   const domains = new Set([
     FINDIT_NETWORK,
     ...held.flatMap((network) => network.site?.domain ?? []),
   ]);
-  const draw = (kind: BusinessKind): string => {
+  const draw = (kind: NamedKind): string => {
     const name = prng
       .pick(NAME_TEMPLATES[kind.subtype])
       .replace(/\{(\w+)\}/, (_, slot: keyof typeof NAME_WORDS) => prng.pick(NAME_WORDS[slot]));
@@ -250,9 +274,9 @@ const unlistedOf = (town: Town, networks: readonly Institution[]): readonly Inst
 };
 
 /** Every network in `town`: its institutions first, then the businesses and then the
- *  homes it draws, each on a stream of its own, then the institutions declared later,
- *  each keyed by its place in the town. Whatever arrived later comes after what was there,
- *  so declaring it moved no earlier key or address. */
+ *  homes it draws, each on a stream of its own, then the institutions declared later, then
+ *  the practices it draws, each keyed by its place in the town. Whatever arrived later
+ *  comes after what was there, so declaring it moved no earlier key or address. */
 const networksOf = (
   town: Town,
   institutions: readonly Institution[],
@@ -266,12 +290,19 @@ const networksOf = (
     homesPrng.nextInt(VILLAGE_HOMES_MIN, VILLAGE_HOMES_MAX),
   );
   const directory = [...institutions, ...later].flatMap((institution) => institution.site ?? []);
-  const networks = [
+  const businesses = namedOf(`town-business-names-${townKey(town)}`, kindsOf(town, count), [
     ...institutions,
-    ...businessesOf(town, kindsOf(town, count), [...institutions, ...homes.map(home), ...later]),
     ...homes.map(home),
     ...later,
-  ];
+  ]);
+  // A practice's name is drawn after every other, so it avoids them all and moves none.
+  const practices = namedOf(`town-practice-names-${townKey(town)}`, practiceKindsOf(town), [
+    ...institutions,
+    ...businesses,
+    ...homes.map(home),
+    ...later,
+  ]);
+  const networks = [...institutions, ...businesses, ...homes.map(home), ...later, ...practices];
   const unlisted = unlistedOf(town, networks);
   return networks.map((institution: Institution, index) => {
     const { keepsDirectory, ...network } = institution;

@@ -186,6 +186,8 @@ export const SITE_WORDS: Readonly<Record<NetworkSubtype, KindWords>> = {
     work: 'keeps the books and runs the payroll of businesses across the region',
   },
   hospital: { care: 'wards, visiting hours and outpatient clinics' },
+  clinic: { care: 'GP appointments, vaccinations and blood tests' },
+  dentist: { care: 'check-ups, fillings and the hygienist' },
 };
 
 /** The words a shop, café, office or place of care with no kind says of itself: what its
