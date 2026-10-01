@@ -12,8 +12,8 @@ v0.288.0). Slice 4 grilled and planned 2026-09-29 as slices 4a–4c; 4a complete
 2026-09-30 (#582, v0.292.0); 5b complete 2026-09-30 (#583, v0.293.0). Slice 5 complete. Slice 6 grilled 2026-09-30 as slices 6a–6b;
 Slice 5c (the whole town in the content sweep) complete 2026-09-30 (#584, v0.294.0); 6a
 complete 2026-10-01 (#585, v0.295.0); 6b complete 2026-10-01 (#586, v0.296.0). Slice 6
-complete. Slice 7 grilled 2026-10-01 as slices 7a–7b; 7a planned 2026-10-01. Slices 8 onward not
-yet planned.
+complete. Slice 7 grilled 2026-10-01 as slices 7a–7b; 7a complete 2026-10-01 (#587,
+v0.297.0); 7b not yet planned. Slices 8 onward not yet planned.
 Amends the §9 backlog item "Procedural world expansion — GRILLED & RESOLVED 2026-07-29" in
 `docs/conventions-and-gotchas.md`; where the two disagree, this file wins.
 
@@ -1963,6 +1963,7 @@ owner approves the commit. Bumps the minor version to 0.296.0.
 
 Grilled 2026-10-01 (decision 19a, "Slice 7's shape"). Two PRs, in order: 7a the
 corporations, 7b the branches. 7a planned 2026-10-01; 7b is planned after 7a merges.
+**7a complete** 2026-10-01 (#587, v0.297.0).
 
 ### Slice 7a: the world holds 20–40 corporations that stand in no town
 
@@ -1978,10 +1979,43 @@ its site, `whois` names it, the server refuses a join to it. A player sees it in
 `whois`, and in every file on its boxes.
 **Class**: behaviour change.
 **Delivery**: independent PR against `main`, branch `feat/procedural-world-corporations`.
-**Status**: planned 2026-10-01.
+**Status**: **complete** 2026-10-01 (#587, `8c763868`, v0.297.0); 7a-1 to 7a-9 hold, 7a-4 as
+amended below.
 **Required implementation skills**: `tdd`, `testing`, `refactoring`; `mutation-testing` at
 PR-readiness.
 **Reduction program**: `N/A`.
+
+**As built** (2026-10-01):
+
+- The world holds **28** corporations, `c0`–`c27`: 13 `flat`, 15 `deep`, from `c0` Keystone
+  Holdings (insurance, `193.71.60.53`) to `c27` Varley & Ellison (logistics, `193.234.27.227`).
+  A golden test pins each key, kind, profile, name and address.
+- The name draw (`filledName` in `world.ts`) fills every slot of a template with no word
+  twice, for every template; a business's one slot draws as before, so Millbrook's names did
+  not move. "Thackeray & Thackeray" is gone; `namedOf` takes the templates as a parameter.
+  `distinctKinds` holds "no kind twice while another is left" for the practices and the
+  corporations alike.
+- `DeclaredNetwork.town` and `region` are optional: `whois`, the persona and the site slots
+  handle a network in no town at compile time. Relations ask `leadingTown`, which has none
+  for Ridgemont or for a network in no town. A `flat` office draws 3–5 machines
+  (`FLAT_OFFICE_COUNT_MIN`, by `isOffice`).
+- **7a-4 amended**: findit shows at most ten results (`MAX_RESULTS`), so a kind's word cannot
+  list every corporation of the kind: `freight` already fills its page with the nine
+  logistics corporations and Westbrook Haulage. The test holds instead that every
+  corporation is indexed, described in its kind's words, and first for its own name.
+- Evidence: `vitest run` 6,797 green, typecheck and lint clean. Byte-diff against `main`:
+  1,144 fingerprints (every landmark, findit and Millbrook box, address, persona, forward,
+  relation and findit page) identical. `testJoinRefusal` 5/5, `testFindit` 19/19 and
+  `testMillbrook` 10/10 live; `checkBudgets` 249,062 B gzipped and 0.920 ms per box.
+- Stryker (narrowed battery, json reporter): 129 killed, 54 survived. By hand, 33 survivors
+  throw at module load (killed); a new test, that every lead is read back from the network
+  it starts on, kills 2 (it found nothing held `relationsFrom` to its own leads). 19 are
+  equivalent: compiler-only no-town checks in `whois`, the persona and `relationsTo`;
+  `relationsFrom`'s filter while Westbrook Haulage keeps every Millbrook lead; and the
+  name-clash redraw with no clash drawn.
+- **Carried to slice 8**: findit's ten-result page, which a kind's search now fills; the
+  name-clash redraw and `relationsFrom`'s filter, which a second town or a second keeper
+  reaches.
 
 **Facts measured while planning** (2026-10-01, against `main` at `53fac56d`, by a throwaway
 prototype of the draw, reverted):
@@ -2042,35 +2076,37 @@ prototype of the draw, reverted):
 
 **Acceptance criteria** (owner-confirmed 2026-10-01):
 
-- [ ] **7a-1** The world declares 20–40 corporations, keyed `c0`, `c1`, …, after Millbrook's
+- [x] **7a-1** The world declares 20–40 corporations, keyed `c0`, `c1`, …, after Millbrook's
       networks: each `corporate`, its subtype one of consulting, logistics, insurance, IT
       services and accounting, no subtype twice while another is left. Each answers in the
       `193` block at position 21 + n, after findit and the 20 landmark corporations; every
       declared address stays distinct.
-- [ ] **7a-2** A corporation's name comes from its grammar on `corporation-names`, every slot
+- [x] **7a-2** A corporation's name comes from its grammar on `corporation-names`, every slot
       filled and no surname twice in one name, spelt into its ESSID and `.com` domain as a
       business's is (ESSID at most 32 characters). No network in the world shares its name,
       ESSID or domain; a draw that would is redrawn. Every template fills to a name that
       spells cleanly.
-- [ ] **7a-3** A corporation stands in no town: it declares no town or region, `whois` on its
+- [x] **7a-3** A corporation stands in no town: it declares no town or region, `whois` on its
       address or domain prints its site's name and no `city:` or `region:`, no file on its
       boxes names a town, and a join to it is refused with `403 network_not_joinable`
       (`testJoinRefusal.ts`, live).
-- [ ] **7a-4** A corporation always publishes and is always listed: findit lists every one,
-      and finds each for its kind's own words. Its profile is drawn from the corporate row
+- [x] **7a-4** A corporation always publishes and is always listed: findit lists every one,
+      first for its own name and described in its kind's own words (amended 2026-10-01:
+      a search shows ten results, so a kind's word cannot list them all). Its profile is
+      drawn from the corporate row
       (never `lone`), and it forwards its site and 1–2 things more, as every office does.
-- [ ] **7a-5** A corporation keeps no lead and is the target of none: Millbrook's relations
+- [x] **7a-5** A corporation keeps no lead and is the target of none: Millbrook's relations
       graph is unchanged, and AC-4's whole-world reachability holds with the corporations in
       the declaration.
-- [ ] **7a-6** Every whole-world content property holds over every corporation, through the
+- [x] **7a-6** Every whole-world content property holds over every corporation, through the
       town sweep, with the rules confirmed above: a `flat` office keeps 3–5 machines, and
       two boxes of one network may share a department's `README.md` or a site's
       `robots.txt`, and no other free-text file.
-- [ ] **7a-7** Nothing else moved: a byte-diff of every landmark, findit and Millbrook box
+- [x] **7a-7** Nothing else moved: a byte-diff of every landmark, findit and Millbrook box
       against `main` is empty, and the AC-7 fingerprint test passes untouched.
-- [ ] **7a-8** `testFindit.ts` lists a corporation live, `testJoinRefusal.ts` refuses one,
+- [x] **7a-8** `testFindit.ts` lists a corporation live, `testJoinRefusal.ts` refuses one,
       `testMillbrook.ts` passes, and `checkBudgets` passes.
-- [ ] **7a-9** `world-content-architecture.md` describes the corporations, their grammar,
+- [x] **7a-9** `world-content-architecture.md` describes the corporations, their grammar,
       the `flat` office rule and the widened variety exemption, and its streams table lists
       `corporations` and
       `corporation-names`; `discovery-architecture.md` lists them among findit's sites and
