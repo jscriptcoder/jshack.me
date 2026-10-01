@@ -1,11 +1,12 @@
 /**
  * The kinds of business a town keeps beyond its institutions: somewhere for coffee, a few
- * shops, and an office or two. A kind is cheap variety inside a category. It chooses how
- * the business is named and the words its site describes itself with, and nothing else:
- * every other file on its network is its category's.
+ * shops, and an office or two, and the clinics and dentists beside them. A kind is cheap
+ * variety inside a category. It chooses how the place is named and the words its site
+ * describes itself with, and nothing else: every other file on its network is its
+ * category's.
  *
- * A town draws each business's kind by position, so reordering a list, or adding a kind
- * anywhere but the end, changes the businesses of every town already declared.
+ * A town draws each kind by position, so reordering a list, or adding a kind anywhere but
+ * the end, changes the businesses and practices of every town already declared.
  */
 
 /** The kinds each category of business comes in. */
@@ -30,9 +31,19 @@ export type BusinessCategory = keyof typeof BUSINESS_SUBTYPES;
 /** One kind of shop, café or office. */
 export type BusinessSubtype = (typeof BUSINESS_SUBTYPES)[BusinessCategory][number];
 
-/** What kind of place a network is within its category: a business's kind, or what a
- *  place of care is. */
-export type NetworkSubtype = BusinessSubtype | 'hospital';
+/** The kinds of practice a town keeps beside its shops: places of care too small to be a
+ *  hospital, counted apart from the businesses. */
+export const PRACTICE_SUBTYPES = ['clinic', 'dentist'] as const;
+
+/** One kind of practice. */
+export type PracticeSubtype = (typeof PRACTICE_SUBTYPES)[number];
+
+/** A kind of place a town names from a grammar: a business's or a practice's. */
+export type NamedSubtype = BusinessSubtype | PracticeSubtype;
+
+/** What kind of place a network is within its category: a business's or a practice's
+ *  kind, or what a hospital is. */
+export type NetworkSubtype = NamedSubtype | 'hospital';
 
 /** How likely a business is to be each category. */
 export const BUSINESS_CATEGORY_WEIGHTS: Readonly<Record<BusinessCategory, number>> = {
@@ -47,7 +58,7 @@ export const BUSINESS_CATEGORY_WEIGHTS: Readonly<Record<BusinessCategory, number
  * grow at the end, and they freeze at launch: after that a name that moved would strand
  * every note a player holds about the business.
  */
-export const NAME_TEMPLATES: Readonly<Record<BusinessSubtype, readonly string[]>> = {
+export const NAME_TEMPLATES: Readonly<Record<NamedSubtype, readonly string[]>> = {
   grocer: [
     '{filler} Market',
     '{street} Grocers',
@@ -70,6 +81,18 @@ export const NAME_TEMPLATES: Readonly<Record<BusinessSubtype, readonly string[]>
   insurance: ['{filler} Insurance', '{surname} Insurance Brokers', '{street} Mutual'],
   'it-services': ['{filler} IT Solutions', '{filler} Systems', '{surname} Computing'],
   accounting: ['{filler} Accounting', '{surname} Accountants', '{street} Tax and Accounts'],
+  clinic: [
+    '{street} Medical Centre',
+    '{filler} Health Centre',
+    '{surname} Family Practice',
+    '{street} Surgery',
+  ],
+  dentist: [
+    '{street} Dental Practice',
+    '{surname} Dental Care',
+    '{filler} Dental',
+    '{street} Dental Surgery',
+  ],
 };
 
 /** The words a name template's slots are filled from. Fictional throughout. */

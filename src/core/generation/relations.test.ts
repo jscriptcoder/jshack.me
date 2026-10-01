@@ -178,6 +178,7 @@ describe("a Millbrook network's relations", () => {
       'WESTBROOK-HAULAGE laptop-56 -contractor-> FRESHWAY-COFFEE root@core-rtr:22',
       'WESTBROOK-HAULAGE laptop-56 -contractor-> ABERNETHY-AND-SONS-HARDWARE root@firewall01:22',
       'WESTBROOK-HAULAGE files-16 -supplier-> ABERNETHY-AND-SONS-HARDWARE',
+      'WESTBROOK-HAULAGE files-16 -supplier-> ABERNETHYS-BOOKS',
       'WESTBROOK-HAULAGE laptop-56 -contractor-> VARLEYS-BAKERY root@edge-rtr:22',
       'WESTBROOK-HAULAGE laptop-56 -contractor-> KOWALSKI-WIFI root@pfsense01:22',
       'WESTBROOK-HAULAGE laptop-56 -contractor-> THE-HARGREAVES root@core-rtr:22',
@@ -186,6 +187,7 @@ describe("a Millbrook network's relations", () => {
       'WESTBROOK-HAULAGE files-16 -backup-> PEAR-TREE-HOUSE mrodriguez@laptop-13:2222',
       'WESTBROOK-HAULAGE laptop-56 -contractor-> OKONKWO-FAMILY root@firewall01:22',
       'WESTBROOK-HAULAGE laptop-56 -contractor-> COTTAGE-HOSPITAL root@core-rtr:22',
+      'WESTBROOK-HAULAGE laptop-56 -contractor-> OAKWOOD-DENTAL lschmidt@iphone-235:2222',
     ]);
   });
 });
@@ -483,6 +485,23 @@ describe("an unlisted business's supplier lead", () => {
           '',
           'Goods supplied, as ordered    2217 €',
           'TOTAL DUE                     2217 €',
+          '',
+        ].join('\n'),
+      ],
+      [
+        'abernethys-books-3453.txt',
+        [
+          'INVOICE 3453',
+          '',
+          "From: Abernethy's Books",
+          '      abernethysbooks.com',
+          'To:   Westbrook Haulage',
+          '',
+          'Date: 2026-06-28',
+          'Payment due within 30 days.',
+          '',
+          'Goods supplied, as ordered    1615 €',
+          'TOTAL DUE                     1615 €',
           '',
         ].join('\n'),
       ],
