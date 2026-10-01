@@ -7,8 +7,9 @@
  * rather than a second copy of it: whoever collects the pages hands them here, and a
  * page edited a moment ago is weighed exactly as it now reads.
  *
- * Where a word appears is the whole of the ranking. A site NAMED for what you asked is
- * a better answer than one that merely mentions it, so a title counts for more than a
+ * A page that says every word asked answers better than one that says fewer. Among pages
+ * that say as many, where a word appears decides: a site NAMED for what you asked is a
+ * better answer than one that merely mentions it, so a title counts for more than a
  * description and a description for more than the body — and a page's author decides
  * all three by writing them, which is the only search optimisation this world has.
  */
@@ -23,8 +24,8 @@ export type IndexedPage = {
   readonly text: string;
 };
 
-/** One page of results, as many as a reader wants at once. There are about thirty
- *  places on this web, so nothing is ever pushed out of reach by the limit. */
+/** One page of results, as many as a reader wants at once. A place a broad query pushes
+ *  off the page is still found by a narrower one: its town and its kind, or its name. */
 export const MAX_RESULTS = 10;
 
 /** What a word is worth where it appears. A name is the strongest claim a page makes
@@ -40,6 +41,14 @@ const termsOf = (query: string): readonly string[] =>
     .toLowerCase()
     .split(/\s+/)
     .filter((term) => term !== '');
+
+/** How many of `terms` a page says anywhere. A page that answers every word of a query
+ *  answers it better than one that says fewer, however prominently it says them: "Millbrook
+ *  café" asks for a café in Millbrook, not for every café there is. */
+const answeredOf = (page: IndexedPage, terms: readonly string[]): number => {
+  const places = [page.title, page.description, page.text].map((place) => place.toLowerCase());
+  return terms.filter((term) => places.some((place) => place.includes(term))).length;
+};
 
 /**
  * What one page is worth against `terms`. Each term counts once per PLACE it appears,
@@ -75,12 +84,13 @@ export const rankPages = (
   const terms = termsOf(query);
   if (terms.length === 0) return [];
   return pages
-    .map((page) => ({ page, score: scoreOf(page, terms) }))
+    .map((page) => ({ page, answered: answeredOf(page, terms), score: scoreOf(page, terms) }))
     .filter(({ score }) => score > 0)
-    .sort((left, right) =>
-      left.score === right.score
-        ? left.page.address.localeCompare(right.page.address)
-        : right.score - left.score,
+    .sort(
+      (left, right) =>
+        right.answered - left.answered ||
+        right.score - left.score ||
+        left.page.address.localeCompare(right.page.address),
     )
     .slice(0, MAX_RESULTS)
     .map(({ page }) => page);

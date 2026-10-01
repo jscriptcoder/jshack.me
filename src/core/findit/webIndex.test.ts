@@ -97,6 +97,69 @@ describe('the web findit searches', () => {
     );
   });
 
+  it('describes every place in a town beyond Ridgemont as standing in that town', async () => {
+    // A search for a town and a kind of place has nothing else to go on: a café's name
+    // says nothing of where it stands.
+    const web = await indexWith();
+    const places = DECLARED_NETWORKS.filter(
+      (network) =>
+        network.town !== undefined &&
+        network.town !== 'Ridgemont' &&
+        network.site !== undefined &&
+        network.unlisted !== true,
+    );
+    expect(places.length).toBeGreaterThan(0);
+    for (const place of places) {
+      const page = web.find((each) => each.address === place.site?.domain);
+      expect(page?.description, place.key).toContain(place.town);
+    }
+  });
+
+  it("lists every place of a town beyond Ridgemont for the town's name and a word of its kind", async () => {
+    /** A word each kind of place says of itself in its description. */
+    const kindWords: Readonly<Record<string, string>> = {
+      'the town hall': 'council',
+      'the police station': 'police',
+      'the public library': 'library',
+      hospital: 'wards',
+      clinic: 'vaccinations',
+      dentist: 'fillings',
+      grocer: 'groceries',
+      bakery: 'pastries',
+      pharmacy: 'prescriptions',
+      bookshop: 'books',
+      electronics: 'cables',
+      hardware: 'screws',
+      pawn: 'jewellery',
+      florist: 'wreaths',
+      cafe: 'light lunches',
+      'tea-room': 'scones',
+      'coffee-bar': 'cold brew',
+      consulting: 'audits',
+      logistics: 'freight',
+      insurance: 'insurance',
+      'it-services': 'managed IT',
+      accounting: 'payroll',
+    };
+    const web = await indexWith();
+    const places = DECLARED_NETWORKS.filter(
+      (network) =>
+        (network.town === 'Millbrook' || network.town === 'Ashby') &&
+        network.site !== undefined &&
+        network.unlisted !== true,
+    );
+    const missed = places.flatMap((place) => {
+      const query = `${place.town} ${kindWords[place.subtype ?? place.place]}`;
+      const found = rankPages(web, query).map((page) => page.address);
+      return found.includes(place.site?.domain ?? '') ? [] : [`${query}: ${place.site?.domain}`];
+    });
+    expect(places.length).toBeGreaterThan(15);
+    expect(missed).toEqual([]);
+    expect(rankPages(web, 'Millbrook café').map((page) => page.address)).toContain(
+      'whitlockscafe.com',
+    );
+  });
+
   it('puts the hospital first for the wards only a hospital says it keeps', async () => {
     const web = await indexWith();
     expect(rankPages(web, 'wards')[0]?.address).toBe('millbrookhospital.org');

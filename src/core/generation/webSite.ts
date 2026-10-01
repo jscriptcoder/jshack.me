@@ -27,8 +27,10 @@ import { hostServices, npcUsername } from './remoteHostFs.js';
 import { roleOfHostname } from './pools/hostnames.js';
 import { lanZoneName } from '../network/resolveName.js';
 import { isSiteServer } from './siteServer.js';
+import { chainLinks } from './lanTopology.js';
+import { generateDeepLayer } from './generateDeepLayer.js';
 import { publisherSite } from './publisher.js';
-import { declaredNetwork } from './world.js';
+import { declaredNetwork, RIDGEMONT } from './world.js';
 import type { PublishedSite } from './pools/essidCatalog.js';
 import {
   API_COMMON_ENDPOINTS,
@@ -183,6 +185,23 @@ const apiReference = (intro: string, documents: readonly ApiEndpoint[]): string 
     `<pre>\nGET /${API_STATUS_ENDPOINT.file}\n${API_STATUS_ENDPOINT.body}\n</pre>`,
   ].join('\n');
 
+/** The box `essid` runs its API on: the first named for one that a player reaches, on
+ *  its LAN before down its chain, and never the box its institution publishes from. A
+ *  network runs one API, so another box named for one keeps a site as any web server does:
+ *  two would answer every endpoint with the same document. */
+const apiServerOf = (essid: string): LanHost | undefined =>
+  [
+    ...generateHomeLan(essid).hosts,
+    ...chainLinks(essid).map(
+      (link) => generateDeepLayer(essid, { machineId: link.machineId, kind: link.host.kind }).host,
+    ),
+  ].find(
+    (candidate) =>
+      candidate.kind === 'machine' &&
+      candidate.hostname.startsWith('api-') &&
+      !isSiteServer(essid, candidate),
+  );
+
 const planFor = (options: {
   readonly prng: Prng;
   readonly essid: string;
@@ -215,7 +234,8 @@ const planFor = (options: {
       documents: [],
     };
   }
-  if (!publishing && host.hostname.startsWith('api-')) {
+  const api = publishing || !host.hostname.startsWith('api-') ? undefined : apiServerOf(essid);
+  if (api?.ip === host.ip && api.hostname === host.hostname) {
     const own = API_ENDPOINTS[persona.category];
     const documents = [...API_COMMON_ENDPOINTS, ...prng.pickN(own, prng.nextInt(1, own.length))];
     return {
@@ -493,6 +513,11 @@ export const buildWebSite = ({
     site,
     place: persona.place,
     ...(persona.town === undefined ? {} : { town: persona.town }),
+    // Ridgemont's sites read as they were written, and a corporation stands in no town.
+    locality:
+      persona.town === undefined || persona.town === RIDGEMONT || site.includes(persona.town)
+        ? ''
+        : `, ${persona.town}`,
     domain: persona.domain,
     hostname: host.hostname,
   };

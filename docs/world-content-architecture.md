@@ -153,6 +153,31 @@ always holds the web server its site answers from. Every reader of the shape (sc
 reach, the inner-gateway lookups, the DNS zone, snmp, the gateway's own files) asks the LAN,
 never the profile, so a network with no inner gateway has none anywhere.
 
+## The towns
+
+Ridgemont's networks are the catalog's; every other town is a row the world declares and
+generates (`world.ts`). Millbrook (`r0/t1`) and Ashby (`r0/t2`) are both villages of Harrow
+Valley. A town's index is part of every key and address inside it, so rows are only ever
+appended: Ashby is declared after the corporations, its names drawn clear of Millbrook's and
+theirs, and declaring it moved nothing of either.
+
+- **Its institutions** come from one rule on the town's name (`institutionsOf`): the council
+  (`{Town} Town Council`, `{town}.gov`, `TOWN-HALL-WIFI`, which keeps the town's directory),
+  the police (`{Town} Police Department`, `{town}pd.gov`, `{TOWN}-PD`) and the library
+  (`{Town} Public Library`, `{town}library.org`, `LIBRARY-PUBLIC`). Millbrook's cottage
+  hospital is its own, declared after its homes.
+- **The rest is drawn** on the town's own streams, keyed `r<region>/t<town>`: its
+  businesses, then its homes, then its practices, then the corporations' branches there, each
+  keyed as the town's next network and answering in the town's own block (`87.98.x.y` for
+  Millbrook, `87.195.x.y` for Ashby).
+- **Names.** No domain repeats anywhere in the world, and no wifi repeats within a town: a
+  scan shows one town's wifi at a time, so two towns' town halls both broadcast
+  `TOWN-HALL-WIFI`, and until the home grammar arrives two villages may share a home's name.
+  Every wifi is at most 32 characters.
+- **A town keeps an office a search lists.** The leads to its homes start on an office's
+  desk, so the unlisted draw is drawn again when it would leave the town no listed office
+  (`unlistedOf`), and a lead only ever starts on a listed publisher (`relations.ts`).
+
 ## What a business is
 
 A town's businesses (`world.ts`) each draw a category, cafe 30, retail 40 or corporate 30,
@@ -284,7 +309,10 @@ lines because the live log does not log lookups.
 **Webservers** (`webSite.ts`, `pools/webSites.ts`) serve three layers under `/var/www/html`:
 4–12 linked public pages shaped by prefix and persona (`portal-` lists real neighbours by `.lan`
 name; `api-` serves JSON) — except on an institution's site server, which always serves the
-public site whatever its prefix, so a published homepage never maps a LAN or documents an API;
+public site whatever its prefix, so a published homepage never maps a LAN or documents an API.
+A network runs one API, on the first `api-` box a player reaches there (its LAN, then down its
+chain); another box named for one keeps a site as any web server does, since two would answer
+every endpoint with the same document;
 breadcrumbs (`robots.txt`, `sitemap.xml`, one HTML comment) whose every
 path is served; and 1–4 unlinked paths drawn from the shipped dirlist so a default `gobuster`
 pays. `dump.sql` is schema-only and always present on a mysql webserver. The web tools resolve

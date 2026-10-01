@@ -190,11 +190,16 @@ results — the index is always a VIEW over the publishers' pages, never a file 
 - **The crawl writes nothing** — no `access.log` line on a crawled box, which also avoids
   leaking findit's search traffic to every listed player.
 
-Scoring (`findit/search.ts`) reads only `/index.html` — title (3) > meta description (2) >
-visible body text (1), summed across whitespace-split lower-cased terms, positive scores
-only, at most ten, ties by domain. Generated homepages carry a `<meta name="description">`
-derived from the catalog place and category, so "admissions" finds the university and
-"parking" finds the airport. Everything read is on the page, so a player shapes their own
+Scoring (`findit/search.ts`) reads only `/index.html`. A page that says more of the
+query's whitespace-split lower-cased terms ranks first, so "Millbrook café" asks for a café
+in Millbrook rather than every café; among pages that say as many, title (3) > meta
+description (2) > visible body text (1), summed per term; positive scores only, at most
+ten, ties by domain. Generated homepages carry a `<meta name="description">` derived from
+the catalog place and category, so "admissions" finds the university and "parking" finds
+the airport. A place in a town beyond Ridgemont whose name does not say its town says it
+after its name (`Whitlock's Café, Millbrook: …`, the `{locality}` slot of
+`SITE_DESCRIPTIONS`), so a search for a town and a kind of place finds that town's place;
+Ridgemont's sites and the corporations read as they were written. Everything read is on the page, so a player shapes their own
 listing by editing their own `index.html` — **SEO as play**, and players can outrank
 institutions by stuffing titles, intended.
 
@@ -232,7 +237,8 @@ What leads there is a **relation** (`generation/relations.ts`): a lead kept on a
 publisher's box to a door on another network of the same town. Each is drawn on the side
 it leads TO, on `relations-<key>` (a home 1–3, a publisher 0–2), and the side it comes
 FROM reads the same value by asking its town, so the lead and the door cannot disagree.
-Only a listed publisher of the same town keeps one. The door is the box behind the
+Only a listed publisher of the same town keeps one: a lead starts where a player can find
+it. The door is the box behind the
 target's forwarded ssh when its gateway keeps one, else the gateway's own sshd on `22` as
 `root`. Two kinds log in there, and a third leads to an unlisted business (below):
 
@@ -245,7 +251,8 @@ target's forwarded ssh when its gateway keeps one, else the gateway's own sshd o
   its leads start from (`world-content-architecture.md`, "What a business is").
 - **The offsite backup.** A business with a file server copies `/srv` every night to a
   home, never to another business, and a home that lets ssh in from outside always
-  receives one. The file server's `/etc/crontab` runs
+  receives one. No job runs on a box whose own account is the one it logs in as, which
+  the crontab would give away. The file server's `/etc/crontab` runs
   `rsync -az /srv/ <account>@<address>:backups/<source>/ -e 'ssh -p <port>'`, its
   `syslog.1` and `auth.log.1` show the run, and the box at the other end keeps the share
   file for file under `~/backups/<source>/` (`generation/offsiteBackups.ts`).
@@ -270,7 +277,10 @@ test over the whole declaration holds it (`world.test.ts`, "the reach of the wor
 About 15% of a town's publishers keep their site off every search:
 `max(1, round(15%))`, picked on `town-unlisted-<town key>` and flagged `unlisted` on the
 declaration (Millbrook unlists Abernethy and Sons Hardware and Abernethy's Books). The council is never picked: its directory
-is how the town's unlisted institutions are found, so it must be found first. An unlisted
+is how the town's unlisted institutions are found, so it must be found first. Nor is a
+town's last listed office: its leads start there, so a draw that would unlist every office
+is drawn again (Ashby's would have unlisted Brightline Consulting; it unlists its police and
+Garrow Family Practice instead). An unlisted
 site's `robots.txt` reads `User-agent: *` / `Disallow: /` and nothing else, in place of
 whatever it drew, and it keeps no directory only that file would have named, which nobody
 could then find (the draws are still made, so nothing after them moves). findit needs no

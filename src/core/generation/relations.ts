@@ -182,14 +182,20 @@ const drawnTo = (target: DeclaredNetwork, keepers: readonly Keeper[]): readonly 
   const isHome = target.site === undefined;
   const { endpoint, forwarded } = endpointOf(target.key);
   const takesBackups = isHome && forwarded;
+  // A lead starts where a player can find it: on a publisher a search lists.
   const candidates = keepers
-    .filter((keeper) => keeper.source !== target.key)
-    .flatMap(({ source, desks, fileServers }): readonly Candidate[] => [
-      ...(desks.length > 0 ? [{ kind: 'contractor' as const, source, hosts: desks }] : []),
-      ...(takesBackups && fileServers.length > 0
-        ? [{ kind: 'backup' as const, source, hosts: fileServers }]
-        : []),
-    ]);
+    .filter((keeper) => keeper.source !== target.key && !keeper.unlisted)
+    .flatMap(({ source, desks, fileServers }): readonly Candidate[] => {
+      // A job that logs in as the account of the box it runs on would hand that account to
+      // anybody who reads the crontab.
+      const backingUp = fileServers.filter((host) => npcUsername(source, host) !== endpoint.user);
+      return [
+        ...(desks.length > 0 ? [{ kind: 'contractor' as const, source, hosts: desks }] : []),
+        ...(takesBackups && backingUp.length > 0
+          ? [{ kind: 'backup' as const, source, hosts: backingUp }]
+          : []),
+      ];
+    });
 
   const prng = createPrng(`relations-${target.key}`);
   const range = isHome ? HOME_RELATIONS : PUBLISHER_RELATIONS;

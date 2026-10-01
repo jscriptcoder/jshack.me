@@ -83,6 +83,7 @@ type Town = { readonly region: number; readonly index: number; readonly name: st
 
 const RIDGEMONT_TOWN: Town = { region: 0, index: 0, name: RIDGEMONT };
 const MILLBROOK: Town = { region: 0, index: 1, name: 'Millbrook' };
+const ASHBY: Town = { region: 0, index: 2, name: 'Ashby' };
 
 /** The name of the region `town` stands in. */
 const regionOf = (town: Town): string => REGIONS[town.region].name;
@@ -93,28 +94,31 @@ type Institution = Omit<DeclaredNetwork, 'key' | 'town' | 'region' | 'directory'
   readonly keepsDirectory?: true;
 };
 
-/** Millbrook's council, police and library. A village has one of each, named for it. */
-const MILLBROOK_INSTITUTIONS: readonly Institution[] = [
-  {
-    essid: 'TOWN-HALL-WIFI',
-    category: 'government',
-    place: 'the town hall',
-    site: { domain: 'millbrook.gov', name: 'Millbrook Town Council' },
-    keepsDirectory: true,
-  },
-  {
-    essid: 'MILLBROOK-PD',
-    category: 'government',
-    place: 'the police station',
-    site: { domain: 'millbrookpd.gov', name: 'Millbrook Police Department' },
-  },
-  {
-    essid: 'LIBRARY-PUBLIC',
-    category: 'public',
-    place: 'the public library',
-    site: { domain: 'millbrooklibrary.org', name: 'Millbrook Public Library' },
-  },
-];
+/** A town's council, police and library. Every town has one of each, named for it. */
+const institutionsOf = (town: Town): readonly Institution[] => {
+  const lower = town.name.toLowerCase();
+  return [
+    {
+      essid: 'TOWN-HALL-WIFI',
+      category: 'government',
+      place: 'the town hall',
+      site: { domain: `${lower}.gov`, name: `${town.name} Town Council` },
+      keepsDirectory: true,
+    },
+    {
+      essid: `${town.name.toUpperCase()}-PD`,
+      category: 'government',
+      place: 'the police station',
+      site: { domain: `${lower}pd.gov`, name: `${town.name} Police Department` },
+    },
+    {
+      essid: 'LIBRARY-PUBLIC',
+      category: 'public',
+      place: 'the public library',
+      site: { domain: `${lower}library.org`, name: `${town.name} Public Library` },
+    },
+  ];
+};
 
 /** Millbrook's institutions declared after its homes: the town already had its keys when
  *  they arrived, so they stand last and move none of them. */
@@ -288,25 +292,37 @@ const namedOf = (
 
 /** The publishers of a town whose sites no search lists: 15% of them, at least one, drawn
  *  on a stream of the town's own. The council is never among them: its directory is how
- *  the town's unlisted institutions are found, so it must be found first. */
+ *  the town's unlisted institutions are found, so it must be found first. Nor is every
+ *  office: the leads to the town's homes start on an office's desk, so a draw that would
+ *  leave the town no office a search lists is drawn again. */
 const unlistedOf = (town: Town, networks: readonly Institution[]): readonly Institution[] => {
   const publishers = networks.filter((network) => network.site !== undefined);
   const count = Math.max(1, Math.round(publishers.length * UNLISTED_SHARE));
-  return createPrng(`town-unlisted-${townKey(town)}`).pickN(
-    publishers.filter((network) => network.keepsDirectory !== true),
-    count,
-  );
+  const offices = publishers.filter((network) => network.category === 'corporate');
+  const prng = createPrng(`town-unlisted-${townKey(town)}`);
+  const draw = (): readonly Institution[] => {
+    const drawn = prng.pickN(
+      publishers.filter((network) => network.keepsDirectory !== true),
+      count,
+    );
+    return offices.every((office) => drawn.includes(office)) ? draw() : drawn;
+  };
+  return draw();
 };
 
 /** Every network in `town`: its institutions first, then the businesses and then the
  *  homes it draws, each on a stream of its own, then the institutions declared later, then
  *  the practices it draws, each keyed by its place in the town. Whatever arrived later
- *  comes after what was there, so declaring it moved no earlier key or address. */
+ *  comes after what was there, so declaring it moved no earlier key or address. The names
+ *  it draws avoid those of every network declared `before` it elsewhere in the world. */
 const networksOf = (
   town: Town,
-  institutions: readonly Institution[],
-  later: readonly Institution[],
+  {
+    later,
+    before,
+  }: { readonly later: readonly Institution[]; readonly before: readonly Institution[] },
 ): readonly DeclaredNetwork[] => {
+  const institutions = institutionsOf(town);
   const prng = createPrng(`town-businesses-${townKey(town)}`);
   const count = prng.nextInt(VILLAGE_BUSINESSES_MIN, VILLAGE_BUSINESSES_MAX);
   const homesPrng = createPrng(`town-homes-${townKey(town)}`);
@@ -318,14 +334,14 @@ const networksOf = (
   const businesses = namedOf(
     `town-business-names-${townKey(town)}`,
     kindsOf(town, count),
-    [...institutions, ...homes.map(home), ...later],
+    [...institutions, ...homes.map(home), ...later, ...before],
     kindTemplates,
   );
   // A practice's name is drawn after every other, so it avoids them all and moves none.
   const practices = namedOf(
     `town-practice-names-${townKey(town)}`,
     practiceKindsOf(town),
-    [...institutions, ...businesses, ...homes.map(home), ...later],
+    [...institutions, ...businesses, ...homes.map(home), ...later, ...before],
     kindTemplates,
   );
   const networks = [...institutions, ...businesses, ...homes.map(home), ...later, ...practices];
@@ -345,11 +361,10 @@ const networksOf = (
   });
 };
 
-const MILLBROOK_NETWORKS = networksOf(
-  MILLBROOK,
-  MILLBROOK_INSTITUTIONS,
-  MILLBROOK_LATER_INSTITUTIONS,
-);
+const MILLBROOK_NETWORKS = networksOf(MILLBROOK, {
+  later: MILLBROOK_LATER_INSTITUTIONS,
+  before: [],
+});
 
 /** The fewest and the most corporations the world holds beyond the landmarks. */
 const CORPORATIONS_MIN = 20;
@@ -412,6 +427,14 @@ const branchesOf = (town: Town, count: number): readonly DeclaredNetwork[] => {
  *  still keyed as the town's next networks. */
 const MILLBROOK_BRANCHES = branchesOf(MILLBROOK, MILLBROOK_NETWORKS.length);
 
+/** Ashby: drawn after the corporations, so its names avoid theirs and Millbrook's and move
+ *  none of them. */
+const ASHBY_NETWORKS = networksOf(ASHBY, {
+  later: [],
+  before: [...MILLBROOK_NETWORKS, ...CORPORATIONS],
+});
+const ASHBY_BRANCHES = branchesOf(ASHBY, ASHBY_NETWORKS.length);
+
 /** Ridgemont's networks are the catalog's, each known by the name it broadcasts. */
 const LANDMARKS: readonly DeclaredNetwork[] = ESSID_CATALOG.map((entry) => ({
   ...entry,
@@ -427,6 +450,8 @@ export const DECLARED_NETWORKS: readonly DeclaredNetwork[] = [
   ...MILLBROOK_NETWORKS,
   ...CORPORATIONS,
   ...MILLBROOK_BRANCHES,
+  ...ASHBY_NETWORKS,
+  ...ASHBY_BRANCHES,
 ];
 
 const DECLARED_BY_KEY: ReadonlyMap<string, DeclaredNetwork> = new Map(
@@ -493,23 +518,25 @@ const landmarkAddresses = (): readonly (readonly [string, string])[] =>
       : addressOf(RIDGEMONT_TOWN, index),
   ]);
 
+/** Where each of `networks` in `town` answers, placed by its position in the town. A
+ *  branch is keyed after every network the town held before it, so it answers after them
+ *  too. */
+const townAddresses = (
+  town: Town,
+  networks: readonly DeclaredNetwork[],
+): readonly (readonly [string, string])[] =>
+  networks.map((network, index) => [network.key, addressOf(town, index)]);
+
 const ADDRESS_BY_KEY: ReadonlyMap<string, string> = new Map([
   [FINDIT_NETWORK, placelessAddress(0)],
   ...landmarkAddresses(),
-  ...MILLBROOK_NETWORKS.map((network, index): [string, string] => [
-    network.key,
-    addressOf(MILLBROOK, index),
-  ]),
+  ...townAddresses(MILLBROOK, [...MILLBROOK_NETWORKS, ...MILLBROOK_BRANCHES]),
   // The drawn corporations answer after findit and every landmark corporation.
   ...CORPORATIONS.map((network, index): [string, string] => [
     network.key,
     placelessAddress(1 + LANDMARK_CORPORATIONS.length + index),
   ]),
-  // A branch answers in its town's block, after every network the town held before it.
-  ...MILLBROOK_BRANCHES.map((network, index): [string, string] => [
-    network.key,
-    addressOf(MILLBROOK, MILLBROOK_NETWORKS.length + index),
-  ]),
+  ...townAddresses(ASHBY, [...ASHBY_NETWORKS, ...ASHBY_BRANCHES]),
 ]);
 
 const KEY_BY_ADDRESS: ReadonlyMap<string, string> = new Map(

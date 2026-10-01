@@ -69,10 +69,25 @@ const hasPrefix =
 /** Whether `box` is the one its institution publishes its public website from. */
 const servesPublicSite = (box: Box): boolean => siteServer(box.essid)?.ip === box.host.ip;
 
+/** The boxes a player reaches on a network: its LAN, then each box down its chain. */
+const reachedOn = (essid: string): readonly LanHost[] => [
+  ...generateHomeLan(essid).hosts,
+  ...deepBoxes([essid]).map(({ host }) => host),
+];
+
 /** A `portal-` box keeps its network's intranet, and an `api-` box its API reference —
- *  unless it is the box its institution publishes from. */
+ *  unless it is the box its institution publishes from. A network runs one API, on the
+ *  first `api-` box a player reaches there. */
 const isIntranet = (box: Box): boolean => hasPrefix('portal')(box.host) && !servesPublicSite(box);
-const isApi = (box: Box): boolean => hasPrefix('api')(box.host) && !servesPublicSite(box);
+const isApi = (box: Box): boolean => {
+  const first = reachedOn(box.essid).find(
+    (host) =>
+      host.kind === 'machine' &&
+      hasPrefix('api')(host) &&
+      !servesPublicSite({ essid: box.essid, host }),
+  );
+  return first?.ip === box.host.ip && first.hostname === box.host.hostname;
+};
 
 /** Every box serving its network's intranet, and every box serving an API reference. */
 const intranets = (essids?: readonly string[]): readonly Built[] =>
@@ -281,6 +296,16 @@ describe('a web server serves a site', () => {
 });
 
 describe('a site belongs to its kind of server', () => {
+  it('runs one API on a network, however many of its boxes are named for one', () => {
+    // Two API servers on one network would answer every endpoint with the same document.
+    const apis = servingBoxes(hasPrefix('api')).filter(({ tree }) =>
+      webRootOf(tree).has('api/v1/status'),
+    );
+    const networks = apis.map(({ box }) => box.essid);
+    expect(networks).toContain('r0/t2/n0');
+    expect(networks.filter((essid, index) => networks.indexOf(essid) !== index)).toEqual([]);
+  });
+
   it('links the other web hosts on its LAN from an intranet portal, by the name the LAN gives them', () => {
     const portals = intranets().filter(({ box }) => isOnLan(box));
     const withNeighbours = portals.filter(({ box }) =>

@@ -41,6 +41,19 @@ describe('rankPages', () => {
     expect(domainsOf(rankPages(pages, 'coffee cake'))).toEqual(['both.com', 'half.com']);
   });
 
+  it('puts a page answering every word above one answering fewer, however prominently it says them', () => {
+    const pages = [
+      indexedPage({ address: 'named.com', title: 'Coffee', description: 'Coffee', text: 'Coffee' }),
+      indexedPage({ address: 'both.com', title: 'Nothing', description: 'Nothing', text: 'Millbrook coffee' }),
+      indexedPage({ address: 'mentions.com', title: 'Nothing', description: 'Nothing', text: 'coffee' }),
+    ];
+    expect(domainsOf(rankPages(pages, 'millbrook coffee'))).toEqual([
+      'both.com',
+      'named.com',
+      'mentions.com',
+    ]);
+  });
+
   it('finds a word inside a longer one, and ignores the case either was written in', () => {
     const pages = [indexedPage({ address: 'ridgemont.edu', title: 'Ridgemont University' })];
     expect(domainsOf(rankPages(pages, 'UNIVERS'))).toEqual(['ridgemont.edu']);

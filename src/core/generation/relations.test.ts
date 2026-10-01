@@ -32,27 +32,31 @@ import type { LanHost } from './generateHomeLan.js';
  * client of at least one business, and every lead names a door that really opens.
  */
 
-/** The networks Millbrook draws of its own. A corporation's branch there is its
- *  company's, and only its company leads to it. */
-const millbrook = DECLARED_NETWORKS.filter(
-  (network) => network.town === 'Millbrook' && network.parent === undefined,
+/** Whether `network` stands in a town the world draws: one beyond Ridgemont. */
+const isDrawnTown = (network: { readonly town?: string }): boolean =>
+  network.town !== undefined && network.town !== RIDGEMONT;
+
+/** The networks the towns beyond Ridgemont draw of their own. A corporation's branch
+ *  there is its company's, and only its company leads to it. */
+const townNetworks = DECLARED_NETWORKS.filter(
+  (network) => isDrawnTown(network) && network.parent === undefined,
 );
 
-/** The offices the corporations keep in Millbrook. */
+/** The offices the corporations keep in the towns. */
 const branches = DECLARED_NETWORKS.filter(
-  (network) => network.town === 'Millbrook' && network.parent !== undefined,
+  (network) => isDrawnTown(network) && network.parent !== undefined,
 );
 
-/** Every relation in Millbrook, each once, from the side it is drawn on. */
+/** Every relation in the towns, each once, from the side it is drawn on. */
 const allRelations = (): readonly Relation[] =>
-  millbrook.flatMap((network) => relationsTo(network.key));
+  townNetworks.flatMap((network) => relationsTo(network.key));
 
 /** Every lead to `key` that logs in there, leaving out a supplier's invoice. */
 const loginsTo = (key: string): readonly Login[] =>
   relationsTo(key).filter((relation): relation is Login => relation.kind !== 'supplier');
 
-/** Every lead in Millbrook that logs in where it leads. */
-const allLogins = (): readonly Login[] => millbrook.flatMap((network) => loginsTo(network.key));
+/** Every lead in the towns that logs in where it leads. */
+const allLogins = (): readonly Login[] => townNetworks.flatMap((network) => loginsTo(network.key));
 
 /** The ssh a gateway forwards to a box behind it, if it forwards one. */
 const sshForwardOf = (key: string) =>
@@ -68,9 +72,9 @@ const sshForwardOf = (key: string) =>
     );
   });
 
-describe("a Millbrook network's relations", () => {
+describe("a town network's relations", () => {
   it('logs in at every home from one to three businesses, and at a business from at most two', () => {
-    const counts = millbrook.map((network) => ({
+    const counts = townNetworks.map((network) => ({
       key: network.key,
       inRange:
         network.category === 'residential'
@@ -78,15 +82,17 @@ describe("a Millbrook network's relations", () => {
           : loginsTo(network.key).length <= 2,
     }));
 
-    expect(counts).toEqual(millbrook.map(({ key }) => ({ key, inRange: true })));
+    expect(counts).toEqual(townNetworks.map(({ key }) => ({ key, inRange: true })));
   });
 
   it('comes only from a site of the same town that publishes, never from the network it leads to', () => {
-    const publishers = millbrook
+    const publishers = townNetworks
       .filter((network) => network.site !== undefined)
       .map((network) => network.key);
+    const townOf = (key: string) => townNetworks.find((network) => network.key === key)?.town;
     for (const relation of allRelations()) {
       expect(publishers, relation.source).toContain(relation.source);
+      expect(townOf(relation.source), relation.source).toBe(townOf(relation.target));
       expect(relation.source).not.toBe(relation.target);
     }
   });
@@ -95,7 +101,7 @@ describe("a Millbrook network's relations", () => {
     const contractors = allLogins().filter((relation) => relation.kind === 'contractor');
     expect(contractors.length).toBeGreaterThan(0);
     for (const relation of contractors) {
-      const source = millbrook.find((network) => network.key === relation.source);
+      const source = townNetworks.find((network) => network.key === relation.source);
       expect(source?.category).toBe('corporate');
       expect(generateHomeLan(relation.source).hosts).toContainEqual(relation.sourceHost);
       expect(isDeskMachine(relation.sourceHost), relation.sourceHost.hostname).toBe(true);
@@ -117,10 +123,10 @@ describe("a Millbrook network's relations", () => {
 
   it('backs a business up to a home alone, and to every home that lets ssh in from outside', () => {
     for (const relation of allLogins().filter((each) => each.kind === 'backup')) {
-      const target = millbrook.find((network) => network.key === relation.target);
+      const target = townNetworks.find((network) => network.key === relation.target);
       expect(target?.category, relation.target).toBe('residential');
     }
-    const reachableHomes = millbrook.filter(
+    const reachableHomes = townNetworks.filter(
       (network) => network.category === 'residential' && sshForwardOf(network.key) !== undefined,
     );
     expect(reachableHomes.length).toBeGreaterThan(0);
@@ -152,7 +158,7 @@ describe("a Millbrook network's relations", () => {
   });
 
   it('is the same relation from either side', () => {
-    const fromSources = millbrook.flatMap((network) => relationsFrom(network.key));
+    const fromSources = townNetworks.flatMap((network) => relationsFrom(network.key));
     expect([...fromSources].sort(byEnds)).toEqual([...allRelations()].sort(byEnds));
   });
 
@@ -169,7 +175,7 @@ describe("a Millbrook network's relations", () => {
   });
 
   it('is pinned (golden): locks the relations- stream, its counts and its picks', () => {
-    const essidOf = (key: string) => millbrook.find((network) => network.key === key)?.essid;
+    const essidOf = (key: string) => townNetworks.find((network) => network.key === key)?.essid;
     const graph = allRelations().map(
       (relation) =>
         `${essidOf(relation.source)} ${relation.sourceHost.hostname} -${relation.kind}-> ` +
@@ -197,6 +203,19 @@ describe("a Millbrook network's relations", () => {
       'WESTBROOK-HAULAGE laptop-56 -contractor-> OKONKWO-FAMILY root@firewall01:22',
       'WESTBROOK-HAULAGE laptop-56 -contractor-> COTTAGE-HOSPITAL root@core-rtr:22',
       'WESTBROOK-HAULAGE laptop-56 -contractor-> OAKWOOD-DENTAL lschmidt@iphone-235:2222',
+      'BRIGHTLINE-CONSULTING laptop-12 -contractor-> TOWN-HALL-WIFI root@net-gateway:22',
+      'BRIGHTLINE-CONSULTING laptop-12 -contractor-> ASHBY-PD root@mikrotik01:22',
+      'BRIGHTLINE-CONSULTING laptop-12 -contractor-> LIBRARY-PUBLIC root@gw-main:22',
+      'BRIGHTLINE-CONSULTING laptop-12 -contractor-> GREENLEAF-BAKEHOUSE root@wan-rtr:22',
+      'BRIGHTLINE-CONSULTING laptop-12 -contractor-> BARN-CONVERSION root@fw-dmz:22',
+      'LORIMER-DENTAL-CARE backup-132 -backup-> THE-OLD-RECTORY rsync@vault-49:2222',
+      'BRIGHTLINE-CONSULTING laptop-12 -contractor-> THE-OLD-RECTORY rsync@vault-49:2222',
+      'BRIGHTLINE-CONSULTING laptop-12 -contractor-> OKONKWO-FAMILY root@dist-rtr:22',
+      'BRIGHTLINE-CONSULTING laptop-12 -contractor-> WILLOW-VIEW root@switch-core:22',
+      'BRIGHTLINE-CONSULTING laptop-12 -contractor-> GARDEN-FLAT root@core-rtr:22',
+      'BRIGHTLINE-CONSULTING laptop-12 -contractor-> ROSE-COTTAGE root@wan-rtr:22',
+      'BRIGHTLINE-CONSULTING files-6 -supplier-> GARROW-FAMILY-PRACTICE',
+      'BRIGHTLINE-CONSULTING laptop-12 -contractor-> LORIMER-DENTAL-CARE root@opnsense:22',
     ]);
   });
 });
@@ -209,13 +228,13 @@ const fileOn = (key: string, host: LanHost, path: string): string | undefined =>
   return read.ok ? read.content : undefined;
 };
 
-describe('the leads a Millbrook network keeps', () => {
+describe('the leads a town network keeps', () => {
   /** A lead as the line that tells it apart from every other. */
   const leadLine = (relation: Relation): string =>
     `${relation.kind} ${relation.source} ${relation.sourceHost.ip} -> ${relation.target}`;
 
   it('reads back every lead from the network it starts on, and from no other', () => {
-    const kept = millbrook.flatMap((network) =>
+    const kept = townNetworks.flatMap((network) =>
       relationsFrom(network.key).map((relation) => ({ keeper: network.key, relation })),
     );
     for (const { keeper, relation } of kept) {
@@ -309,7 +328,7 @@ describe("a branch's relations", () => {
 
   it('is the target of no lead its town keeps', () => {
     const keys = branches.map((branch) => branch.key);
-    const leads = millbrook.flatMap((network) =>
+    const leads = townNetworks.flatMap((network) =>
       relationsFrom(network.key).map((relation) => [network.key, relation.target] as const),
     );
     expect(leads.filter(([, target]) => keys.includes(target))).toEqual([]);
@@ -324,7 +343,11 @@ describe("a branch's relations", () => {
             `${branch.essid} ${relation.user}@${relation.targetHost.hostname}:${relation.port}`,
         ),
       ),
-    ).toEqual(['c6 edge-rtr -branch-> LORIMER-GROUP-MILLBROOK root@core-rtr:22']);
+    ).toEqual([
+      'c6 edge-rtr -branch-> LORIMER-GROUP-MILLBROOK root@core-rtr:22',
+      'c17 edge-rtr -branch-> OAKWOOD-HOLDINGS-ASHBY webops@nginx-136:2222',
+      'c22 dist-rtr -branch-> RADLEY-OAKLEY-ASHBY root@opnsense:22',
+    ]);
   });
 });
 
@@ -339,7 +362,7 @@ describe("an IT contractor's shortcuts", () => {
     expect(contractors().length).toBeGreaterThan(0);
     for (const relation of contractors()) {
       const config = fileOn(relation.source, relation.sourceHost, `${sshDirOf(relation)}/config`);
-      const name = millbrook.find((network) => network.key === relation.target)?.essid;
+      const name = townNetworks.find((network) => network.key === relation.target)?.essid;
       const portLine = relation.port === 22 ? '' : `    Port ${relation.port}\n`;
       // One block a host, each running up to the blank line before the next `Host`.
       const blocks = (config ?? '').split(/\n(?=Host )/);
@@ -467,7 +490,7 @@ describe("a business's offsite backup", () => {
 
   /** The job the source's crontab runs, as it would be typed. */
   const commandOf = (relation: Login) => {
-    const name = millbrook.find((network) => network.key === relation.source)?.essid;
+    const name = townNetworks.find((network) => network.key === relation.source)?.essid;
     return (
       `rsync -az /srv/ ${relation.user}@${relation.address}:backups/${name?.toLowerCase()}/ ` +
       `-e 'ssh -p ${relation.port}'`
@@ -485,12 +508,31 @@ describe("a business's offsite backup", () => {
     }
   });
 
+  it('never runs on a box whose own account is the one it logs in as, which the job would give away', () => {
+    expect(backups().length).toBeGreaterThan(1);
+    for (const relation of backups()) {
+      expect(npcUsername(relation.source, relation.sourceHost), relation.source).not.toBe(
+        relation.user,
+      );
+    }
+  });
+
   it('shows in the rotated syslog as run on the last day, and leaves root no mail', () => {
     for (const relation of backups()) {
+      const job = (fileOn(relation.source, relation.sourceHost, '/etc/crontab') ?? '')
+        .split('\n')
+        .find((line) => line.endsWith(commandOf(relation)));
+      const [minute, hour] = (job ?? '').split(/\s/).map(Number);
+      const ranAt = `Jul 11 ${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00`;
       const syslog = fileOn(relation.source, relation.sourceHost, '/var/log/syslog.1') ?? '';
-      expect(syslog.split('\n'), relation.source).toContain(
-        `Jul 11 01:11:00 files-16 CRON[94770]: (root) CMD (${commandOf(relation)})`,
-      );
+      const runs = syslog
+        .split('\n')
+        .filter((line) => line.endsWith(`(root) CMD (${commandOf(relation)})`));
+      expect(runs, relation.source).toEqual([
+        expect.stringMatching(
+          new RegExp(`^${ranAt} ${relation.sourceHost.hostname} CRON\\[\\d+\\]: `),
+        ),
+      ]);
       const mail = fileOn(relation.source, relation.sourceHost, '/var/mail/root') ?? '';
       expect(mail, relation.source).not.toContain('rsync');
     }
@@ -498,7 +540,7 @@ describe("a business's offsite backup", () => {
 
   it("leaves a copy of the file server's share in the home account's backups, file for file", () => {
     for (const relation of backups()) {
-      const name = millbrook.find((network) => network.key === relation.source)?.essid;
+      const name = townNetworks.find((network) => network.key === relation.source)?.essid;
       const share = filesUnder(relation.source, relation.sourceHost, '/srv');
       const copy = filesUnder(
         relation.target,
@@ -512,7 +554,7 @@ describe("a business's offsite backup", () => {
 
   it('keeps the copy where the account it came in as can read it', () => {
     for (const relation of backups()) {
-      const name = millbrook.find((network) => network.key === relation.source)?.essid;
+      const name = townNetworks.find((network) => network.key === relation.source)?.essid;
       const fs = createFsView(resolveLanHostIdentity(relation.targetHost, relation.target).baseFs, {
         userType: 'root',
       });
@@ -535,7 +577,7 @@ describe("a business's offsite backup", () => {
 
   it('runs on no box of the town but a file server that backs its share up', () => {
     const sources = backups().map((relation) => `${relation.source} ${relation.sourceHost.ip}`);
-    for (const network of millbrook) {
+    for (const network of townNetworks) {
       for (const host of generateHomeLan(network.key).hosts.filter(
         (candidate) => candidate.kind === 'machine',
       )) {
@@ -555,7 +597,7 @@ describe("a business's offsite backup", () => {
 
   it('keeps copies on no box of the town but the one a backup logs in to', () => {
     const targets = backups().map((relation) => `${relation.target} ${relation.targetHost.ip}`);
-    for (const network of millbrook) {
+    for (const network of townNetworks) {
       for (const host of generateHomeLan(network.key).hosts.filter(
         (candidate) => candidate.kind === 'machine',
       )) {
@@ -570,7 +612,7 @@ describe("a business's offsite backup", () => {
               `${relation.target} ${relation.targetHost.ip}` === `${network.key} ${host.ip}`,
           )
           .map((relation) =>
-            millbrook.find((each) => each.key === relation.source)?.essid.toLowerCase(),
+            townNetworks.find((each) => each.key === relation.source)?.essid.toLowerCase(),
           );
         expect(folders, `${network.essid} ${host.hostname}`).toEqual(
           targets.includes(`${network.key} ${host.ip}`) ? expected : null,
@@ -603,8 +645,8 @@ describe("an unlisted business's supplier lead", () => {
   /** Whether `key`'s site is on its town's directory, which is how an unlisted
    *  institution is found. */
   const onDirectory = (key: string) => {
-    const domain = millbrook.find((network) => network.key === key)?.site?.domain;
-    return millbrook.some((network) =>
+    const domain = townNetworks.find((network) => network.key === key)?.site?.domain;
+    return townNetworks.some((network) =>
       (network.directory ?? []).some((site) => site.domain === domain),
     );
   };
@@ -614,7 +656,7 @@ describe("an unlisted business's supplier lead", () => {
     filesUnder(relation.source, relation.sourceHost, '/srv/share/invoices/');
 
   it('leads to every unlisted business, and to nothing else', () => {
-    const unlistedBusinesses = millbrook.filter(
+    const unlistedBusinesses = townNetworks.filter(
       (network) => network.unlisted === true && !onDirectory(network.key),
     );
     expect(unlistedBusinesses.length).toBeGreaterThan(0);
@@ -632,7 +674,7 @@ describe("an unlisted business's supplier lead", () => {
   it('is kept by a listed publisher, on a file server that keeps a working share', () => {
     expect(supplies().length).toBeGreaterThan(0);
     for (const relation of supplies()) {
-      const source = millbrook.find((network) => network.key === relation.source);
+      const source = townNetworks.find((network) => network.key === relation.source);
       expect(source?.site, relation.source).toBeDefined();
       expect(source?.unlisted, relation.source).toBeUndefined();
       expect(generateHomeLan(relation.source).hosts).toContainEqual(relation.sourceHost);
@@ -644,7 +686,7 @@ describe("an unlisted business's supplier lead", () => {
 
   it("leaves its invoice on the customer's share, naming the supplier by its site and domain", () => {
     for (const relation of supplies()) {
-      const site = millbrook.find((network) => network.key === relation.target)?.site;
+      const site = townNetworks.find((network) => network.key === relation.target)?.site;
       const invoices = [...invoicesOf(relation).values()].filter(
         (content) => content.includes(site?.domain ?? '') && content.includes(site?.name ?? ''),
       );
@@ -701,7 +743,7 @@ describe("an unlisted business's supplier lead", () => {
 
   it('keeps no invoice from the supplier on any other box of the town', () => {
     const kept = supplies().map((relation) => `${relation.source} ${relation.sourceHost.ip}`);
-    for (const network of millbrook) {
+    for (const network of townNetworks) {
       for (const host of generateHomeLan(network.key).hosts.filter(
         (candidate) => candidate.kind === 'machine',
       )) {
@@ -723,10 +765,10 @@ describe("an unlisted business's supplier lead", () => {
   });
 });
 
-describe('what a Millbrook box names beyond its own network', () => {
+describe('what a town box names beyond its own network', () => {
   // A branch's head office keeps a lead into the town, so its boxes are held to the same.
   const keys = [
-    ...millbrook.map((network) => network.key),
+    ...townNetworks.map((network) => network.key),
     ...branches.flatMap((branch) => [branch.key, branch.parent ?? '']),
   ];
 
@@ -756,7 +798,7 @@ describe('what a Millbrook box names beyond its own network', () => {
     return walkTree(createFsView(tree, { userType: 'root' }), asAbsPath('/'), (path, node) => {
       if (node.kind !== 'file') return [];
       const copy = copies.find((relation) => {
-        const folder = millbrook.find((network) => network.key === relation.source)?.essid;
+        const folder = townNetworks.find((network) => network.key === relation.source)?.essid;
         return path.startsWith(`/home/${relation.user}/backups/${folder?.toLowerCase()}/`);
       });
       return [{ path, content: node.content ?? '', network: copy?.source ?? essid }];

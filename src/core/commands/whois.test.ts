@@ -137,31 +137,37 @@ describe('whois', () => {
     });
   });
 
-  it("names a corporation's branch after the company that holds its line, in the branch's town", async () => {
-    // A real registry names the company holding the line, not the village office.
-    const branch = DECLARED_NETWORKS.find(
-      (network) => network.town === 'Millbrook' && network.parent !== undefined,
-    );
-    if (branch === undefined) throw new Error('Millbrook declares no branch');
-    const parent = DECLARED_NETWORKS.find((network) => network.key === branch.parent);
-    const address = addressOf(branch.key);
+  it.each([
+    ['Millbrook', 'Lorimer Group'],
+    ['Ashby', 'Oakwood Holdings'],
+  ])(
+    "names a corporation's branch in %s after the company that holds its line, in the branch's town",
+    async (town, company) => {
+      // A real registry names the company holding the line, not the village office.
+      const branch = DECLARED_NETWORKS.find(
+        (network) => network.town === town && network.parent !== undefined,
+      );
+      if (branch === undefined) throw new Error(`${town} declares no branch`);
+      const parent = DECLARED_NETWORKS.find((network) => network.key === branch.parent);
+      const address = addressOf(branch.key);
 
-    const { lines, exitCode } = await run(address);
+      const { lines, exitCode } = await run(address);
 
-    expect({ lines, exitCode }).toEqual({
-      lines: [
-        '% Harrow Valley registry',
-        '',
-        `inetnum:        ${address} - ${address}`,
-        `netname:        ${branch.essid}`,
-        `org-name:       ${parent?.site?.name}`,
-        'city:           Millbrook',
-        'region:         Harrow Valley',
-      ],
-      exitCode: 0,
-    });
-    expect(parent?.site?.name).toBe('Lorimer Group');
-  });
+      expect({ lines, exitCode }).toEqual({
+        lines: [
+          '% Harrow Valley registry',
+          '',
+          `inetnum:        ${address} - ${address}`,
+          `netname:        ${branch.essid}`,
+          `org-name:       ${parent?.site?.name}`,
+          `city:           ${town}`,
+          'region:         Harrow Valley',
+        ],
+        exitCode: 0,
+      });
+      expect(parent?.site?.name).toBe(company);
+    },
+  );
 
   it('names no town or region for a corporation, which stands in none', async () => {
     const address = addressOf('ACME-CORP');
@@ -199,29 +205,36 @@ describe('whois', () => {
     });
   });
 
-  it('names a network in another town by the wifi it broadcasts, never by its key', async () => {
-    const townHall = DECLARED_NETWORKS.find(
-      (network) => network.town === 'Millbrook' && network.essid === 'TOWN-HALL-WIFI',
-    );
-    if (townHall === undefined) throw new Error("Millbrook's town hall is not declared");
-    const address = addressOf(townHall.key);
+  it.each([
+    ['Millbrook', 'millbrook.gov'],
+    ['Ashby', 'ashby.gov'],
+  ])(
+    'names the town hall of %s by the wifi it broadcasts, never by its key',
+    async (town, domain) => {
+      // Every town's town hall broadcasts the same wifi, so only its key tells them apart.
+      const townHall = DECLARED_NETWORKS.find(
+        (network) => network.town === town && network.essid === 'TOWN-HALL-WIFI',
+      );
+      if (townHall === undefined) throw new Error(`${town}'s town hall is not declared`);
+      const address = addressOf(townHall.key);
 
-    const { lines, exitCode } = await run(address);
+      const { lines, exitCode } = await run(address);
 
-    expect({ lines, exitCode }).toEqual({
-      lines: [
-        '% Harrow Valley registry',
-        '',
-        `inetnum:        ${address} - ${address}`,
-        'netname:        TOWN-HALL-WIFI',
-        'org-name:       Millbrook Town Council',
-        'domain:         millbrook.gov',
-        'city:           Millbrook',
-        'region:         Harrow Valley',
-      ],
-      exitCode: 0,
-    });
-  });
+      expect({ lines, exitCode }).toEqual({
+        lines: [
+          '% Harrow Valley registry',
+          '',
+          `inetnum:        ${address} - ${address}`,
+          'netname:        TOWN-HALL-WIFI',
+          `org-name:       ${town} Town Council`,
+          `domain:         ${domain}`,
+          `city:           ${town}`,
+          'region:         Harrow Valley',
+        ],
+        exitCode: 0,
+      });
+    },
+  );
 
   it('names every network the world declares at its own address, and where it stands', async () => {
     const answers = await Promise.all(

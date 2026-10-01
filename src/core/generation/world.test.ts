@@ -360,9 +360,10 @@ describe("Millbrook's town directory", () => {
     }
   });
 
-  it("is kept by the town's council alone", () => {
+  it("is kept by a town's council alone", () => {
+    const councils = ['millbrook.gov', 'ashby.gov'];
     const others = DECLARED_NETWORKS.flatMap((network) =>
-      network.site === undefined || network.site.domain === 'millbrook.gov'
+      network.site === undefined || councils.includes(network.site.domain)
         ? []
         : [network.site.domain],
     );
@@ -398,7 +399,7 @@ describe("Millbrook's homes", () => {
   });
 
   it('names every home under a wifi and a place of its own', () => {
-    const essids = DECLARED_NETWORKS.map((network) => network.essid);
+    const essids = millbrook().map((network) => network.essid);
     expect(new Set(essids).size).toBe(essids.length);
     for (const home of homes()) {
       expect(home.essid).toMatch(/^[A-Z0-9]+(-[A-Z0-9]+)*$/);
@@ -698,7 +699,9 @@ describe('what a business says of its kind', () => {
     [
       SITE_DESCRIPTIONS[category as NetworkCategory] ?? '',
       ...FRONT_PAGES[category as NetworkCategory],
-    ].map((template) => fillSlots(template, { ...SITE_WORDS[subtype], site: 'X', town: 'Y' }));
+    ].map((template) =>
+      fillSlots(template, { ...SITE_WORDS[subtype], site: 'X', town: 'Y', locality: ', Y' }),
+    );
 
   it('fills every slot, and says nothing another kind of its category says of itself', () => {
     for (const [category, subtypes] of Object.entries(BUSINESS_SUBTYPES)) {
@@ -729,7 +732,7 @@ describe('what a place of care says of itself', () => {
   /** Its search description and each front page its site may draw, in `words`. */
   const pagesIn = (words: Readonly<Record<string, string>>): readonly string[] =>
     [SITE_DESCRIPTIONS.healthcare ?? '', ...FRONT_PAGES.healthcare].map((template) =>
-      fillSlots(template, { ...words, site: 'X', town: 'Y' }),
+      fillSlots(template, { ...words, site: 'X', town: 'Y', locality: ', Y' }),
     );
 
   it("says a hospital's wards, visiting hours and clinics on every page it draws", () => {
@@ -789,9 +792,11 @@ describe("Millbrook's business names", () => {
         others.map((name) => name.toLowerCase()),
         business.essid,
       ).not.toContain(business.place.toLowerCase());
+      expect(
+        DECLARED_NETWORKS.filter((network) => network !== business).map((network) => network.essid),
+        business.essid,
+      ).not.toContain(business.essid);
     }
-    const essids = DECLARED_NETWORKS.map((network) => network.essid);
-    expect(new Set(essids).size).toBe(essids.length);
   });
 
   it('spells the wifi and the domain from the name, without its accents or apostrophes', () => {
@@ -1223,6 +1228,140 @@ describe("Millbrook's branches", () => {
   });
 });
 
+/** Every network the world declares in Ashby. */
+const ashby = (): readonly DeclaredNetwork[] =>
+  DECLARED_NETWORKS.filter((network) => network.town === 'Ashby');
+
+/**
+ * Ashby is the second town the world draws, a village like Millbrook. Its institutions are
+ * named for it by the rule Millbrook's are, and the rest of it is drawn as Millbrook's is.
+ */
+describe('Ashby', () => {
+  it("declares the region's third town, its council, police and library named for it", () => {
+    expect(
+      ashby()
+        .slice(0, 3)
+        .map((network) => [
+          network.key,
+          network.essid,
+          network.category,
+          network.place,
+          network.site,
+          network.region,
+          network.directory !== undefined,
+        ]),
+    ).toEqual([
+      [
+        'r0/t2/n0',
+        'TOWN-HALL-WIFI',
+        'government',
+        'the town hall',
+        { domain: 'ashby.gov', name: 'Ashby Town Council' },
+        'Harrow Valley',
+        true,
+      ],
+      [
+        'r0/t2/n1',
+        'ASHBY-PD',
+        'government',
+        'the police station',
+        { domain: 'ashbypd.gov', name: 'Ashby Police Department' },
+        'Harrow Valley',
+        false,
+      ],
+      [
+        'r0/t2/n2',
+        'LIBRARY-PUBLIC',
+        'public',
+        'the public library',
+        { domain: 'ashbylibrary.org', name: 'Ashby Public Library' },
+        'Harrow Valley',
+        false,
+      ],
+    ]);
+  });
+
+  it('draws its businesses, then its homes, then its practices, then the branches it keeps, each keyed after the last', () => {
+    const order = ashby().map((network) =>
+      network.parent !== undefined
+        ? 'branch'
+        : network.category === 'residential'
+          ? 'home'
+          : network.subtype !== undefined && isBusinessKind(network.subtype)
+            ? 'business'
+            : network.category === 'healthcare'
+              ? 'practice'
+              : 'institution',
+    );
+    const runs = order.filter((kind, index) => kind !== order[index - 1]);
+    expect(runs).toEqual(['institution', 'business', 'home', 'practice', 'branch']);
+    expect(ashby().map((network) => network.key)).toEqual(
+      ashby().map((_, index) => `r0/t2/n${index}`),
+    );
+  });
+
+  it('is pinned (golden): locks every network it draws under its key, name, domain, address, size and kind', () => {
+    // A key, a name or an address that moved would strand every journal, bookmark and note
+    // a player holds about the network, so the town only ever grows.
+    expect(
+      ashby().map((network) =>
+        [
+          network.key,
+          network.essid,
+          network.place,
+          network.site?.domain ?? '-',
+          publicAddress(network.key),
+          network.profile,
+          network.subtype ?? '-',
+          network.unlisted === true ? 'unlisted' : (network.parent ?? '-'),
+        ].join(' | '),
+      ),
+    ).toEqual([
+      'r0/t2/n0 | TOWN-HALL-WIFI | the town hall | ashby.gov | 87.195.0.2 | deep | - | -',
+      'r0/t2/n1 | ASHBY-PD | the police station | ashbypd.gov | 87.195.97.142 | deep | - | unlisted',
+      'r0/t2/n2 | LIBRARY-PUBLIC | the public library | ashbylibrary.org | 87.195.195.29 | deep | - | -',
+      'r0/t2/n3 | GREENLEAF-BAKEHOUSE | Greenleaf Bakehouse | greenleafbakehouse.com | 87.195.36.169 | deep | bakery | -',
+      'r0/t2/n4 | GREENLEAF-PHARMACY | Greenleaf Pharmacy | greenleafpharmacy.com | 87.195.134.56 | flat | pharmacy | -',
+      'r0/t2/n5 | LANTERN-TOOLS | Lantern Tools | lanterntools.com | 87.195.231.196 | flat | hardware | -',
+      'r0/t2/n6 | BRIGHTLINE-CONSULTING | Brightline Consulting | brightlineconsulting.com | 87.195.73.83 | flat | consulting | -',
+      'r0/t2/n7 | BRIDGE-STREET-CAFE | Bridge Street Café | bridgestreetcafe.com | 87.195.170.223 | lone | cafe | -',
+      'r0/t2/n8 | BARN-CONVERSION | the barn conversion | - | 87.195.12.110 | flat | - | -',
+      'r0/t2/n9 | THE-OLD-RECTORY | the Old Rectory | - | 87.195.109.250 | lone | - | -',
+      'r0/t2/n10 | OKONKWO-FAMILY | the Okonkwo family home | - | 87.195.207.137 | lone | - | -',
+      'r0/t2/n11 | WILLOW-VIEW | Willow View | - | 87.195.49.24 | flat | - | -',
+      'r0/t2/n12 | GARDEN-FLAT | the garden flat | - | 87.195.146.164 | lone | - | -',
+      'r0/t2/n13 | ROSE-COTTAGE | Rose Cottage | - | 87.195.244.51 | flat | - | -',
+      'r0/t2/n14 | GARROW-FAMILY-PRACTICE | Garrow Family Practice | garrowfamilypractice.com | 87.195.85.191 | flat | clinic | unlisted',
+      'r0/t2/n15 | LORIMER-DENTAL-CARE | Lorimer Dental Care | lorimerdentalcare.com | 87.195.183.78 | flat | dentist | -',
+      'r0/t2/n16 | OAKWOOD-HOLDINGS-ASHBY | the Ashby office | - | 87.195.24.218 | flat | consulting | c17',
+      'r0/t2/n17 | RADLEY-OAKLEY-ASHBY | the Ashby office | - | 87.195.122.105 | deep | logistics | c22',
+    ]);
+  });
+
+  it("keeps a directory on the council's site linking each of its institutions and nothing of Millbrook's", () => {
+    const page = pageAt('ashby.gov', 'directory.html') ?? '';
+    expect(page).toContain('<p>The public bodies of Ashby,');
+    expect(outboundLinksIn(page)).toEqual([
+      ['http://ashby.gov/', 'Ashby Town Council'],
+      ['http://ashbypd.gov/', 'Ashby Police Department'],
+      ['http://ashbylibrary.org/', 'Ashby Public Library'],
+    ]);
+    for (const network of millbrook()) {
+      expect(page, network.key).not.toContain(network.place);
+      if (network.site !== undefined) expect(page, network.key).not.toContain(network.site.domain);
+    }
+  });
+
+  it("answers every network in the town's own block of the region, and finds it there again", () => {
+    expect(ashby().length).toBeGreaterThan(0);
+    for (const network of ashby()) {
+      const address = publicAddress(network.key) ?? '';
+      expect(address, network.key).toMatch(/^87\.195\.\d{1,3}\.\d{1,3}$/);
+      expect(networkAt(address), network.key).toBe(network.key);
+    }
+  });
+});
+
 /**
  * Nothing in the world is out of reach. A network is found on findit, by standing in
  * Ridgemont, on its town's directory, or by a lead kept on a network found one of those
@@ -1260,6 +1399,37 @@ describe('the reach of the world', () => {
 
     expect(homes().length).toBeGreaterThan(0);
     expect(unreached).toEqual([]);
+  });
+
+  it('keeps every town an office a search lists, and starts every lead on a publisher a search lists', () => {
+    // The leads to a town's homes start on an office's desk. An office no search lists is
+    // found only through a lead itself, so the homes behind it would be two steps from
+    // anything a player can find.
+    const towns = new Set(
+      DECLARED_NETWORKS.flatMap((network) =>
+        network.town === undefined || network.town === RIDGEMONT ? [] : [network.town],
+      ),
+    );
+    expect(towns.size).toBeGreaterThan(1);
+    for (const town of towns) {
+      const listedOffices = DECLARED_NETWORKS.filter(
+        (network) =>
+          network.town === town &&
+          network.category === 'corporate' &&
+          network.site !== undefined &&
+          network.unlisted !== true,
+      );
+      expect(listedOffices.length, town).toBeGreaterThan(0);
+    }
+    const unlistedSources = DECLARED_NETWORKS.flatMap((network) =>
+      relationsTo(network.key).flatMap((relation) => {
+        const source = DECLARED_NETWORKS.find((each) => each.key === relation.source);
+        return source?.site !== undefined && source.unlisted !== true
+          ? []
+          : [`${relation.kind} ${relation.source} -> ${network.key}`];
+      }),
+    );
+    expect(unlistedSources).toEqual([]);
   });
 });
 
@@ -1357,6 +1527,23 @@ describe('the addresses of the world', () => {
     expect(publicAddress('LEASE-TEST-NET')).toBeUndefined();
     expect(networkAt('45.12.34.56')).toBeUndefined();
     expect(networkAt('ridgemont.edu')).toBeUndefined();
+  });
+});
+
+describe('the names of the world', () => {
+  it('gives no two networks of one town the same wifi, and no network a wifi longer than 32 characters', () => {
+    // A scan shows one town's wifi at a time, so only a town's own networks must differ.
+    const towns = new Set(DECLARED_NETWORKS.map((network) => network.town));
+    expect(towns.size).toBeGreaterThan(2);
+    for (const town of towns) {
+      const essids = DECLARED_NETWORKS.filter((network) => network.town === town).map(
+        (network) => network.essid,
+      );
+      expect(new Set(essids).size, town).toBe(essids.length);
+    }
+    for (const network of DECLARED_NETWORKS) {
+      expect(network.essid.length, network.key).toBeLessThanOrEqual(32);
+    }
   });
 });
 
