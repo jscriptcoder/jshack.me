@@ -136,9 +136,14 @@ const countOf = (town: DrawnTown, kind: keyof SizeCounts, prng: Prng): number =>
 
 const RIDGEMONT_TOWN: Town = { region: 0, index: 0, name: RIDGEMONT };
 const MILLBROOK: DrawnTown = { region: 0, index: 1, name: 'Millbrook', size: 'village' };
-const ASHBY: DrawnTown = { region: 0, index: 2, name: 'Ashby', size: 'village' };
-const OAKHURST: DrawnTown = { region: 0, index: 3, name: 'Oakhurst', size: 'town' };
-const KINGSFORD: DrawnTown = { region: 0, index: 4, name: 'Kingsford', size: 'city' };
+
+/** The towns drawn after Millbrook and the corporations, in the order they were declared.
+ *  A town is only ever appended: each draws its names avoiding every town before it. */
+const TOWN_ROWS: readonly DrawnTown[] = [
+  { region: 0, index: 2, name: 'Ashby', size: 'village' },
+  { region: 0, index: 3, name: 'Oakhurst', size: 'town' },
+  { region: 0, index: 4, name: 'Kingsford', size: 'city' },
+];
 
 /** The name of the region `town` stands in. */
 const regionOf = (town: Town): string => REGIONS[town.region].name;
@@ -567,43 +572,26 @@ const branchesOf = (town: DrawnTown, count: number): readonly DeclaredNetwork[] 
  *  still keyed as the town's next networks. */
 const MILLBROOK_BRANCHES = branchesOf(MILLBROOK, MILLBROOK_NETWORKS.length);
 
-/** Ashby: drawn after the corporations, so its names avoid theirs and Millbrook's and move
- *  none of them. */
-const ASHBY_NETWORKS = networksOf(ASHBY, {
-  later: [],
-  before: [...MILLBROOK_NETWORKS, ...CORPORATIONS],
-});
-const ASHBY_BRANCHES = branchesOf(ASHBY, ASHBY_NETWORKS.length);
+/** A town after Millbrook and every network it declares, its branches last. */
+type DeclaredTown = { readonly town: DrawnTown; readonly networks: readonly DeclaredNetwork[] };
 
-/** Oakhurst, the first town: drawn after Ashby, so its names avoid every network declared
- *  before it and move none of them. */
-const OAKHURST_NETWORKS = networksOf(OAKHURST, {
-  later: [],
-  before: [
-    ...MILLBROOK_NETWORKS,
-    ...CORPORATIONS,
-    ...MILLBROOK_BRANCHES,
-    ...ASHBY_NETWORKS,
-    ...ASHBY_BRANCHES,
-  ],
-});
-const OAKHURST_BRANCHES = branchesOf(OAKHURST, OAKHURST_NETWORKS.length);
-
-/** Kingsford, the first city: drawn after Oakhurst, so its names avoid every network
- *  declared before it and move none of them. */
-const KINGSFORD_NETWORKS = networksOf(KINGSFORD, {
-  later: [],
-  before: [
-    ...MILLBROOK_NETWORKS,
-    ...CORPORATIONS,
-    ...MILLBROOK_BRANCHES,
-    ...ASHBY_NETWORKS,
-    ...ASHBY_BRANCHES,
-    ...OAKHURST_NETWORKS,
-    ...OAKHURST_BRANCHES,
-  ],
-});
-const KINGSFORD_BRANCHES = branchesOf(KINGSFORD, KINGSFORD_NETWORKS.length);
+/** The towns of `TOWN_ROWS`, each drawn after every network declared before it, so its
+ *  names avoid theirs and move none of them. */
+const DRAWN_TOWNS: readonly DeclaredTown[] = TOWN_ROWS.reduce<readonly DeclaredTown[]>(
+  (declared, town) => {
+    const networks = networksOf(town, {
+      later: [],
+      before: [
+        ...MILLBROOK_NETWORKS,
+        ...CORPORATIONS,
+        ...MILLBROOK_BRANCHES,
+        ...declared.flatMap((drawn) => drawn.networks),
+      ],
+    });
+    return [...declared, { town, networks: [...networks, ...branchesOf(town, networks.length)] }];
+  },
+  [],
+);
 
 /** Ridgemont's networks are the catalog's, each known by the name it broadcasts. */
 const LANDMARKS: readonly DeclaredNetwork[] = ESSID_CATALOG.map((entry) => ({
@@ -621,12 +609,7 @@ export const DECLARED_NETWORKS: readonly DeclaredNetwork[] = [
   ...MILLBROOK_NETWORKS,
   ...CORPORATIONS,
   ...MILLBROOK_BRANCHES,
-  ...ASHBY_NETWORKS,
-  ...ASHBY_BRANCHES,
-  ...OAKHURST_NETWORKS,
-  ...OAKHURST_BRANCHES,
-  ...KINGSFORD_NETWORKS,
-  ...KINGSFORD_BRANCHES,
+  ...DRAWN_TOWNS.flatMap((drawn) => drawn.networks),
 ];
 
 const DECLARED_BY_KEY: ReadonlyMap<string, DeclaredNetwork> = new Map(
@@ -711,9 +694,7 @@ const ADDRESS_BY_KEY: ReadonlyMap<string, string> = new Map([
     network.key,
     placelessAddress(1 + LANDMARK_CORPORATIONS.length + index),
   ]),
-  ...townAddresses(ASHBY, [...ASHBY_NETWORKS, ...ASHBY_BRANCHES]),
-  ...townAddresses(OAKHURST, [...OAKHURST_NETWORKS, ...OAKHURST_BRANCHES]),
-  ...townAddresses(KINGSFORD, [...KINGSFORD_NETWORKS, ...KINGSFORD_BRANCHES]),
+  ...DRAWN_TOWNS.flatMap((drawn) => townAddresses(drawn.town, drawn.networks)),
 ]);
 
 const KEY_BY_ADDRESS: ReadonlyMap<string, string> = new Map(
