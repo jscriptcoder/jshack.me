@@ -20,7 +20,7 @@ v0.297.0); 7b complete 2026-10-01 (#588, v0.298.0). Slice 7 complete. Slice 8 gr
 v0.301.0); 8d complete 2026-10-02 (#592, v0.302.0); 8e split 2026-10-02 into the rows (8e)
 and findit (8f) (decision 19f); 8e complete 2026-10-02 (#593, v0.303.0); 8f complete
 2026-10-02 (#594, v0.304.0). Slice 8 complete. Slice 9 grilled 2026-10-02 as slices 9a–9b
-(decision 19g); not yet planned.
+(decision 19g); 9a planned 2026-10-02.
 Amends the §9 backlog item "Procedural world expansion — GRILLED & RESOLVED 2026-07-29" in
 `docs/conventions-and-gotchas.md`; where the two disagree, this file wins.
 
@@ -3745,6 +3745,158 @@ owner approves the commit.
   closed.
 
 
+
+### Slice 9: Ridgemont's filler and the injector
+
+Grilled 2026-10-02 (decision 19g). Two PRs, in order, each cut from `main` after the one before
+it merges: 9a Ridgemont's filler, declared and on the WiFi; 9b the injector turned down. 9b is
+planned after 9a merges, and is the plan's last PR.
+
+### Slice 9a: Ridgemont fills with the shops, homes and practices of a city, and a player can join them
+
+**Value**: A player standing in Ridgemont scans a city, not a catalog: 178 networks, the 57
+landmarks among 121 shops, cafés, offices, homes, practices, a hospital and three corporate
+branches. A filler network shows the name it broadcasts in every scan, crack and connect, and
+joins by that name. Its listed sites are on findit, `whois` answers Ridgemont for each, and
+its homes are found the way every town's are, by a lead on an office's desk.
+**Path**: Ridgemont's `city` row (`r0/t0`) → the networks a city draws on Ridgemont's own
+streams, but for the institutions a landmark holds (council, police, courthouse, library),
+keyed after the catalog (`r0/t0/n57` on) and declared after Stonebury → their addresses in
+Ridgemont's block after the landmarks' → their relations, forwards and site text, as every
+town's (the landmarks excepted) → findit's index, `whois` and a fetch by domain → the scan's
+pool, Ridgemont's 178 keys → `airodump-ng`, `aircrack-ng`, `nmcli` and the HUD showing each
+key's broadcast name → `nmcli connect <ESSID>` joining by the key → `registerNetwork`, which
+admits any Ridgemont key.
+**Class**: pure refactor first (the landmark checks), then behaviour change.
+**Delivery**: independent PR against `main`, branch `feat/procedural-world-ridgemont-filler`.
+**Status**: planned 2026-10-02.
+**Required implementation skills**: `refactoring` and `testing` for the landmark checks; `tdd`,
+`testing`, `refactoring` for the filler and the scan; `mutation-testing` at PR-readiness.
+**Reduction program**: `N/A`.
+
+**Facts measured while planning** (against `main` at `a11c3360`, by a throwaway prototype
+declaring the filler, switching the seven landmark checks and widening the scan's pool, then
+reverted; the diff kept outside the repo):
+- **The filler**: 121 networks, `r0/t0/n57`–`n177`, 612 declared in all, every address
+  distinct. `GENERAL-HOSPITAL` (`n57`, `ridgemonthospital.org`, deep); 65 businesses (7
+  insurers, 7 IT firms, 4 accountants, 3 consultancies, 3 hauliers; 31 shops of eight kinds;
+  10 cafés, tea rooms and coffee bars); 44 homes; 8 practices (5 dentists, 3 clinics); the
+  branches `CROWTHER-GOODWIN-RIDGEMONT` (`n175`, `c7`), `PRESCOTT-NORCROSS-RIDGEMONT` (`n176`,
+  `c24`) and `OAKLEY-BARROW-RIDGEMONT` (`n177`, `c26`). Profiles: 35 lone, 64 flat, 22 deep.
+  74 publish a site, 11 unlisted. The longest ESSID is 29 characters
+  (`UNION-STREET-TAX-AND-ACCOUNTS`).
+- **Names**: Ridgemont's 178 ESSIDs are distinct, and none is a noise network's. Twenty filler
+  ESSIDs are also another town's (`GENERAL-HOSPITAL` and 19 homes such as `OKONKWO-WIFI` or
+  `GARDEN-FLAT`), which decision 4 allows: a scan shows one town.
+- **What moves** (a dump of every declared network's address, persona, forwards, relations,
+  gateways, LAN and deep boxes, and findit's pages): the filler, and `c7`, `c24` and `c26`,
+  whose gateways gain the lead to their new branch. No landmark, no other town and no other
+  corporation moves. findit's pages grow from 249 to 312.
+- **The suite**: 13 failures, the same sampled and full. Sampled 904 s of file time (911 s at
+  8e); full (`WORLD_SWEEP=full`) 1209 s (1147 s at 8e's green). The sample adds only the
+  filler's shapes, since `worldContent` sweeps the landmarks from the catalog.
+  - Twelve are test-side: tests whose set or pin was "the scan's pool" or "Ridgemont" and meant
+    the landmarks (the till test counting four shops, the landmark snapshot, "no landmark at
+    all" and "no kind for a Ridgemont network", the placeless-block corporations, "leads
+    nowhere from or to Ridgemont", the empty homes of non-desks, which offsite copies fill in
+    every town); the scan's pinned rolls; the joinable set (57 to 178); and the branch golden
+    and the "no branch" gateway, which `c7`, `c24` and `c26` leave.
+  - **One is a draw**: a place of care's desk must show a line of work only a place of care
+    keeps. `LANDMARK-DENTAL`'s (`n170`) `desktop-144` draws its 3–7 lines from the healthcare
+    pool and none of the six it keeps alone (`lp clinic-list.txt`, `cp rota.csv …`), which a
+    draw does about one time in five; no desk on `main` happens to.
+- **Budgets**: the landmarks 0.92 ms a box, the filler 0.80 ms over 615 boxes, every town under
+  1 ms; findit's generated web 535 ms from nothing over 357 publishers (1,000 ms); the bundle
+  251,882 B, unchanged.
+- **The scan path**: `nmcli connect` finds the typed name among the scan's `essid`s and joins
+  `network.essid`, which becomes `association.essid`; about 25 commands, the persisted
+  connection and `bssidFromEssid` read that as the network's key, as every generator does
+  (`essidSlug` already looks a key's broadcast name up in the world). A name is shown only by
+  `airodump-ng`'s rows, `aircrack-ng`'s lines, `nmcli`'s messages and the HUD.
+- `crackableEssidPool` is read by 20 test files, two factories and 16 wire-checks to find a
+  network; with the landmarks first in the pool, each `.find` lands where it did.
+
+**Calls taken while planning** (decision 19g left the wiring to planning):
+- **A network is known by its key everywhere; only what a player reads is its broadcast name.**
+  The scan's entries, the association, the join, the BSSID, the password and the persisted
+  connection hold the key, as today (a landmark's key being its ESSID); `world.ts` gains the
+  lookup `essidOf(key)` (`essidSlug` reads it too), and the four places a name is shown read
+  it. `nmcli connect` matches the typed name against each entry's `essidOf`. Rejected: a
+  `key` field beside `essid` on the scan and the association, which renames 25 readers for a
+  difference only the filler has.
+- **`world.ts` exports `isLandmark(key)`** and the seven checks that meant a landmark say so;
+  the join refusal keeps its town check. Tests whose claim is the catalog read the catalog.
+- **The place-of-care desk test is reshaped** (flagged): a desk's history draws its work from
+  its place's pool, which the test now proves for every line it can, and the lines only a
+  place of care keeps are shown across the healthcare desks together, which proves the pool is
+  read. Accepted: one desk in five reads its place's work in lines an office also types; its
+  notes are a place of care's either way. Rejected: forcing an own line into every history,
+  which moves every healthcare desk in the world.
+
+**Acceptance criteria** (proposed 2026-10-02, decision 19g):
+
+- [ ] **9a-1** Ridgemont is a `city` row and declares 121 networks after its 57 landmarks,
+      keyed `r0/t0/n57`–`r0/t0/n177`: the hospital `GENERAL-HOSPITAL`
+      (`ridgemonthospital.org`), 65 businesses, 44 homes, 8 practices and the branches of
+      `c7`, `c24` and `c26`, in that order. No council, police, courthouse or library is
+      generated. They are declared after Stonebury, and their names avoid every network
+      declared before them.
+- [ ] **9a-2** Each filler network answers in Ridgemont's block at its own position after the
+      landmarks', and every one of the world's 612 addresses is distinct. Ridgemont's 178
+      ESSIDs are distinct, and none is a noise network's.
+- [ ] **9a-3** The filler is generated as any town's networks: its offices and file servers keep
+      the leads to its homes and its unlisted businesses, its gateways forward services beyond
+      their site, and its sites name Ridgemont. No landmark keeps or receives a lead, forwards
+      more than its site, or reads differently (AC-7): a dump against `main` shows only the
+      filler and the gateways and relations of `c7`, `c24` and `c26` moved.
+- [ ] **9a-4** findit lists the filler's 63 listed sites and never its 11 unlisted ones (AC-6),
+      `whois` answers each filler address and domain with `city: Ridgemont` and `region: Harrow
+      Valley`, and a fetch by domain answers. Every declared network is still reached (AC-4).
+- [ ] **9a-5** A scan draws its 2–3 crackable networks from Ridgemont's 178, the landmarks first
+      in catalog order and the filler in key order, and its 3–5 noise as before; the injector is
+      unchanged (9b).
+- [ ] **9a-6** A filler network reads as its broadcast name everywhere a player reads one: its
+      `airodump-ng` row, `aircrack-ng`'s lines, `nmcli`'s connect, status and disconnect
+      messages and the HUD. No output names its key. `nmcli connect <ESSID> <password>`
+      joins it, cracking to the password its key derives, under the BSSID its key derives; a
+      reload restores the connection. A landmark reads and joins exactly as before.
+- [ ] **9a-7** The server admits a join to a filler network (`200` with its `local_ip`, the
+      occupancy row under its key) and still refuses another town's network or an undeclared
+      key (AC-5), shown live by `testJoinRefusal`.
+- [ ] **9a-8** The content sweeps read the landmarks whole and the filler by the sample, as every
+      town's; `checkBudgets` times the landmarks and the filler as two sets, each under 2 ms a
+      box, and findit's cold build under 1,000 ms; the bundle stays under its ceiling.
+- [ ] **9a-9** `testTowns` adds Ridgemont's filler (the hospital by domain, a site by town and
+      kind, `whois`); `testFindit`, `testMillbrook` and `testJoinRefusal` pass live.
+      `world-content-architecture.md` and `discovery-architecture.md` describe Ridgemont's
+      filler and the landmarks as the exception. The minor version is bumped to 0.305.0.
+
+Out of scope: the injector (9b); a directory on Ridgemont's council (a landmark, AC-7); any town
+but Ridgemont in the scan; naming a hidden network.
+
+**PURE REFACTOR FIRST**: `isLandmark` and the seven checks. On `main` every Ridgemont network is
+a landmark, so it is behaviour-preserving, shown by a dump identical to `main`'s and the suite
+green. Its own commit.
+**RED**: a `world.test.ts` test of 9a-1 and 9a-2 (Ridgemont's count, kinds, keys, branches,
+addresses and names), failing on `main`; then 9a-3's leads, forwards and locality on the
+filler and 9a-4's findit, `whois` and reach, all falling out of the declaration (each shown
+failing by reverting it); then 9a-5 in `generateWifi.test.ts`; then 9a-6 in the command tests
+(`airodumpNg`, `aircrackNg`, `nmcli`) and the HUD's, against a scan holding a filler network.
+**GREEN**: the declaration in `world.ts`; the pool in `generateWifi.ts`; `essidOf` read where a
+name is shown and matched.
+**REFACTOR**: assess.
+**Test-side** (in the RED commits they belong to): the twelve above, each to its stated set,
+and the place-of-care desk test as called.
+**Budget**: `checkBudgets` names the two Ridgemont sets; its printed lines are 9a-8's evidence.
+**Server evidence**: `registerNetwork` does not change; `testJoinRefusal` joins a filler
+network live, and `testTowns`, `testFindit` and `testMillbrook` run against `vercel dev`.
+**PRE-PR MUTATION**: Stryker on `world.ts`, `relations.ts`, `seededForwards.ts`, `webSite.ts`,
+`generateWifi.ts`, `nmcli.ts`, `airodumpNg.ts` and `aircrackNg.ts`, each against its own test
+files (json reporter). `isLandmark` in each check is killed by the filler's leads, forwards
+and locality; the name lookup by 9a-6's no-key assertions.
+**PR-ready when**: 9a-1 to 9a-9 hold, `vitest run` and one `WORLD_SWEEP=full` run, typecheck,
+lint and format pass, and the owner approves the commit.
+**Slice complete when**: its PR merges; AC-10 closes, and 9b is planned next.
 
 ## Acceptance Criteria
 
