@@ -15,6 +15,7 @@ import { asAbsPath } from '../types.js';
 import type { Directory } from '../filesystem/types.js';
 import {
   ALL_ESSIDS,
+  WORLD_ESSIDS,
   falsehoodIn,
   filesUnder,
   lanBoxes,
@@ -352,15 +353,22 @@ describe('a home keeps to the world’s rules', () => {
 });
 
 describe('no two homes are the same', () => {
-  it('gives no two personal computers on one network the same history, identity or note', () => {
+  it('gives no two personal computers on one network the same history or identity', () => {
     ALL_ESSIDS.forEach((essid) => {
       const homes = deskBoxes([essid]).map(homeFilesOf);
       ['.bash_history', '.gitconfig'].forEach((name) => {
         const bodies = homes.map((files) => files.get(name));
         expect(new Set(bodies).size).toBe(bodies.length);
       });
-      const notes = homes.flatMap(notesOf);
-      expect(new Set(notes).size).toBe(notes.length);
+    });
+  });
+
+  it('gives no two people on one network the same note, anywhere in the world', () => {
+    // The whole world, not the sample: two people draw one note only by a coincidence
+    // that one network in hundreds meets, and the sample need not hold it.
+    WORLD_ESSIDS.forEach((essid) => {
+      const notes = deskBoxes([essid]).map(homeFilesOf).flatMap(notesOf);
+      expect(new Set(notes).size, essid).toBe(notes.length);
     });
   });
 

@@ -601,7 +601,9 @@ describe('a web server keeps paths nobody linked', () => {
         ...(url === own ? [] : [`${built.box.host.hostname} APP_URL ${url} is not ${own}`]),
         ...env
           .split('\n')
-          .filter((line) => /PASS|DB_/i.test(line))
+          // A key that names a password or a database, whatever its value says: a site's
+          // own name can spell "pass" ("Compass") in its address.
+          .filter((line) => /^[^=]*(PASS|DB_)/i.test(line))
           .map((line) => `${built.box.host.hostname} ${line}`),
       ];
     });

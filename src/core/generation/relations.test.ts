@@ -452,6 +452,16 @@ describe("a branch's relations", () => {
       'c11 core-rtr -branch-> FAIRBANKS-GROUP-KINGSFORD root@border-gw:22',
       'c7 fw-dmz -branch-> CROWTHER-GOODWIN-KINGSFORD root@vpn-gw:22',
       'c1 firewall01 -branch-> MADDOX-LINDLEY-KINGSFORD rjohnson@workstation-171:2222',
+      'c1 firewall01 -branch-> MADDOX-LINDLEY-FENWICK root@wan-rtr:22',
+      'c17 edge-rtr -branch-> TALBOT-GROUP-THORNBURY root@fw-dmz:22',
+      'c9 gw-main -branch-> CALLOWAY-GROUP-THORNBURY root@firewall01:22',
+      'c23 dist-rtr -branch-> DUNMORE-GROUP-HOLLOWMERE webdeploy@api-243:2222',
+      'c3 edge-rtr -branch-> ABERNETHY-GROUP-HOLLOWMERE root@gw-main:22',
+      'c5 switch-core -branch-> JESSOP-GROUP-ELY root@edge-rtr:22',
+      'c8 fw-dmz -branch-> SILVERBIRCH-HOLDINGS-WEXCOMBE jchen@desktop-190:2222',
+      'c15 wan-rtr -branch-> MILLSTONE-HOLDINGS-WEXCOMBE root@edge-rtr:22',
+      'c3 edge-rtr -branch-> ABERNETHY-GROUP-STONEBURY root@net-gateway:22',
+      'c20 fw-dmz -branch-> HALLORAN-GROUP-STONEBURY root@net-gateway:22',
     ]);
   });
 });

@@ -20,6 +20,7 @@
 import type { Directory, FileNode } from '../filesystem/types.js';
 import { dir, file, HOME_DIR, HOME_FILE } from './baseFs.js';
 import { generateHomeLan, isOnHomeLan, type LanHost } from './generateHomeLan.js';
+import { lanHostOctet } from './lanTopology.js';
 import { hostServices, npcUsername } from './remoteHostFs.js';
 import { inhabitant, networkPersona } from './persona.js';
 import { lanZoneName } from '../network/resolveName.js';
@@ -119,6 +120,39 @@ const buildNotes = (options: {
   );
 };
 
+/** The stream a desk's home is drawn on. Its notes are its first draw. */
+const homeStream = (essid: string, host: LanHost): Prng =>
+  createPrng(`home-content-${essid}-${host.ip}`);
+
+const firstNameOf = (fullName: string): string => fullName.split(' ')[0] ?? fullName;
+
+/** Every note the desks at lower addresses on `host`'s LAN keep. Two people on one network
+ *  never keep the same note, so a desk keeps none of these. Each desk's notes are the first
+ *  draw on its own stream, so they are read without building anything else of its home. A
+ *  box below the LAN stands alone on its layer, so nothing is kept below it. */
+const notesKeptBelow = (essid: string, host: LanHost): ReadonlySet<string> => {
+  if (!isOnHomeLan(essid, host)) return new Set();
+  const persona = networkPersona(essid);
+  const below = generateHomeLan(essid).hosts.filter(
+    (neighbour) =>
+      neighbour.kind === 'machine' &&
+      isDeskMachine(neighbour) &&
+      lanHostOctet(neighbour) < lanHostOctet(host),
+  );
+  return new Set(
+    below.flatMap((desk) => [
+      ...buildNotes({
+        prng: homeStream(essid, desk),
+        category: persona.category,
+        place: persona.place,
+        first: firstNameOf(
+          inhabitant({ essid, host: desk, username: npcUsername(essid, desk) }).fullName,
+        ),
+      }).values(),
+    ]),
+  );
+};
+
 /** Every truthful command a history could hold against a neighbour MACHINE: a command
  *  for each way the box really answers, crossed with each way its name can be written
  *  (its address, its bare hostname, its fully qualified `.lan` name). `ssh` appears only
@@ -206,10 +240,15 @@ export const buildNpcHome = (options: {
 
   const persona = networkPersona(essid);
   const person = inhabitant({ essid, host, username });
-  const first = person.fullName.split(' ')[0] ?? person.fullName;
-  const prng = createPrng(`home-content-${essid}-${host.ip}`);
+  const first = firstNameOf(person.fullName);
+  const prng = homeStream(essid, host);
 
-  const notes = buildNotes({ prng, category: persona.category, place: persona.place, first });
+  const keptBelow = notesKeptBelow(essid, host);
+  const notes = new Map(
+    [...buildNotes({ prng, category: persona.category, place: persona.place, first })].filter(
+      ([, body]) => !keptBelow.has(body),
+    ),
+  );
   const onLan = isOnHomeLan(essid, host);
   const history = buildHistory({
     prng,
