@@ -16,7 +16,8 @@ complete. Slice 7 grilled 2026-10-01 as slices 7a–7b; 7a complete 2026-10-01 (
 v0.297.0); 7b complete 2026-10-01 (#588, v0.298.0). Slice 7 complete. Slice 8 grilled
 2026-10-01 as slices 8a–8d (decision 19b); 8a complete 2026-10-02 (#589, v0.299.0); 8b split
 2026-10-02 into the names (8b) and the town (8c), the city and the rows moving to 8d and 8e
-(decision 19c); 8b complete 2026-10-02 (#590, v0.300.0). Slice 9 not yet planned.
+(decision 19c); 8b complete 2026-10-02 (#590, v0.300.0); 8c grilled 2026-10-02 (decision 19d).
+Slice 9 not yet planned.
 Amends the §9 backlog item "Procedural world expansion — GRILLED & RESOLVED 2026-07-29" in
 `docs/conventions-and-gotchas.md`; where the two disagree, this file wins.
 
@@ -854,6 +855,96 @@ relations, forwards, institution sets. (Added by find-gaps 2026-09-28.)
     - Carried to 8c: Oakhurst's measurements, the three real failures and the eleven
       test-side ones above. 8c's own rules (each content rule, the courthouse, the hospital,
       the memo) are settled when 8c is planned, 19b's calls standing.
+
+19d. **8c: Oakhurst, the town size class** (grilled 2026-10-02, owner-confirmed in bulk).
+    **Facts measured while grilling** (against `main` at `ec25c6fd`, the names 8b shipped, by a
+    throwaway prototype declaring Oakhurst as a town after Ashby, then reverted; the diff kept
+    outside the repo):
+    - Oakhurst (`r0/t3`, `87.38.x.y`) draws **47** networks again: council, police, library,
+      courthouse and a hospital (the 0–1 draw gave one); 18 businesses, 20 homes, a clinic and
+      a dentist; branches of `c23` and `c18`. Unlisted: police, library, Millstone Market,
+      Varley Chemists. All 168 declared addresses distinct; the longest ESSID 26 characters; no
+      word names two of its places. Still no corporation keeps branches in two towns.
+    - **2.51 ms a box** in Oakhurst (Millbrook 1.19, Ashby 1.80, the corporations 0.93); the
+      relations memo brings it to **0.82** and every town under 1 ms. `checkBudgets` times
+      Ridgemont's boxes alone, so no gate sees the breach.
+    - The suite's file times sum to 744 s against 658 s (+13%); the heaviest file 92 s against
+      81 s.
+    - **13 assertions fail.** The phone, the courthouse inbox and the eleventh invoice of 19c
+      are back on other networks; the `.env` test's "Com**pass**" and the backup copies'
+      unsorted list no longer fail, their names gone with 8b.
+      - **Two phones keep backups.** A home's outside ssh forward can land on an iPhone,
+        which rolls sshd like any box; a home whose forward runs ssh takes a business's
+        nightly copy there. Primrose Cottage's `iphone-148` takes three offices' shares (127
+        files, a fourth folder) and The Old Forge's `iphone-136` one. No village forwards to a
+        phone. Three Oakhurst homes keep two or three firms' copies each, none on a phone.
+      - **An eleventh file in a department.** Acorn Roasters' share keeps an invoices
+        department of its own, drawn full at ten, and is sent Millstone Market's invoice. It
+        is the only share in the world whose supplier invoice lands in a department of its
+        own; the others file into a folder made for it.
+      - **A courthouse desk's inbox is all replies** (`laptop-226`: three "Re:"). It is not
+        new: 26 people on 25 networks, Ridgemont's landmarks among them, are sent nothing but
+        replies, being the ones who start their threads. The desk test is the one that looks.
+      - **Test-side**: the "court" ranking (`oakhurstcourts.gov` now ties
+        `ridgemontcourts.gov`), the directory and word-rule tests naming the earlier towns, a
+        router count, two relation goldens, the supplier test reading a café's own invoices
+        department as a supplier's, a desk whose `.ssh` holds only contractor leads, and a
+        branch held to keeping a web server, which publishes nothing.
+    - **8b's survivors**: Oakhurst draws no numbered flat and no router suffix under `1000`,
+      so 8 of the 11 stay unreached; the other three are read at the gate.
+    - The courthouse runs the `cases` application a `government` network draws, and the
+      hospital the `appointments` one, as Millbrook's cottage hospital does.
+
+    **8c's calls** (owner-confirmed in bulk):
+    - **Size classes are one table** of the four count ranges, village (businesses 3–6,
+      homes 4–8, practices 1–2, branches 1–2) and town (12–24, 12–24, 2–4, 2–3). A town row
+      is a name and a class; Millbrook and Ashby are village rows and draw what they draw
+      today.
+    - **Oakhurst** is `r0/t3`, a town, declared after Ashby, its names avoiding every network
+      before it, its networks ordered institutions, businesses, homes, practices, branches.
+    - **A town's institutions** are the council, police and library, a courthouse (`{Town}
+      County Court`, `{town}courts.gov`, `COURTHOUSE-WIFI`, "the courthouse") and a hospital
+      drawn 0–1 on `town-hospital-<key>` (`{Town} General Hospital`, `{town}hospital.org`,
+      `GENERAL-HOSPITAL`, "the hospital", subtype `hospital`). The council's directory links
+      both.
+    - **A business's offsite copy lands on a computer, never a phone**: a home whose ssh
+      forward reaches a phone takes no backup and keeps its contractor leads. It moves two
+      Oakhurst homes' leads and nothing in a village. One home may keep several firms'
+      copies. Rejected: no home forwarding ssh to a phone (moves `seededForwards` everywhere,
+      and contractor leads to a phone break nothing), and one backup a home (a phone keeping
+      one still breaks the phone's rules).
+    - **No share department holds more than ten files, a supplier's invoice included**: a
+      share that is sent invoices draws its invoices department with room for them. It moves
+      Acorn Roasters' share alone.
+    - **The all-replies inbox is test-side** (the weakest call, flagged): 19c counted it real,
+      but a mailbox of replies is what a person who starts every thread keeps, 25 networks
+      already hold one, and a rule would move Ridgemont's mail. The test's claim is that an
+      opener carries no `In-Reply-To`, so it checks the world's openers, not one per desk.
+    - **The test-side failures are reshaped**, never loosened past what each claims: "court"
+      finds a county court first and "ridgemont court" Ridgemont's; the directory and
+      word-rule tests read every declared town; the router count reads the world; the
+      relation goldens pin per town; the supplier test finds the supplier's invoice by name;
+      a desk's `.ssh` may hold contractor leads alone; a branch, publishing nothing, is held
+      to no web server.
+    - **The relations memo lands**: `relationsFrom` and `relationsTo` are memoised per key
+      (the world they read is fixed at load). **`checkBudgets` times every procedural box**,
+      the towns' and the corporations', beside Ridgemont's under the same 2 ms, so the
+      breach it fixes is gated; 8d moves it to the sample.
+    - **The suite keeps sweeping every network**; the fixed sample still lands with the city
+      (8d).
+    - Evidence: declaring Oakhurst is the RED; each rule's test names a world-wide property
+      (no phone keeps `backups`, no department holds more than ten files); a dump against
+      `main` shows Ridgemont, Millbrook, Ashby and the corporations unmoved but for the
+      corporations gaining Oakhurst branches. The memo is a pure refactor, shown by the dump and
+      the timing.
+    - **8b's 11 survivors are re-run at 8c's gate**; whatever stays unreached is recorded with
+      its reason and carried to 8d, whose 40–80 homes reach it.
+    - `testTowns` adds Oakhurst: its council and its courthouse fetched by domain, a site found
+      by "Oakhurst <kind>", a join refused. `testMillbrook`, `testFindit` and
+      `testJoinRefusal` rerun live.
+    - `world-content-architecture.md` describes the size classes, the courthouse, the hospital
+      and both rules; `discovery-architecture.md` the court example; `conventions-and-gotchas.md`
+      §3 the memo as the measured cache. The minor version is bumped to 0.301.0.
 
 ## Slice plans
 
