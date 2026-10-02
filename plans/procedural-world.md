@@ -18,8 +18,8 @@ v0.297.0); 7b complete 2026-10-01 (#588, v0.298.0). Slice 7 complete. Slice 8 gr
 2026-10-02 into the names (8b) and the town (8c), the city and the rows moving to 8d and 8e
 (decision 19c); 8b complete 2026-10-02 (#590, v0.300.0); 8c complete 2026-10-02 (#591,
 v0.301.0); 8d complete 2026-10-02 (#592, v0.302.0); 8e split 2026-10-02 into the rows (8e)
-and findit (8f) (decision 19f); 8e complete 2026-10-02 (#593, v0.303.0). Slice 9 not yet
-planned.
+and findit (8f) (decision 19f); 8e complete 2026-10-02 (#593, v0.303.0); 8f planned
+2026-10-02. Slice 9 not yet planned.
 Amends the §9 backlog item "Procedural world expansion — GRILLED & RESOLVED 2026-07-29" in
 `docs/conventions-and-gotchas.md`; where the two disagree, this file wins.
 
@@ -3522,6 +3522,102 @@ commit.
 - **Budgets**: the bundle 251,882 B; every set 0.83–1.69 ms a box across loaded and idle
   runs, Ashby the highest. The suite: `WORLD_SWEEP=full` 7672 tests in 1147 s of file time,
   sampled 911 s (743 s at 8d, the machine's load not separated).
+
+### Slice 8f: findit answers from what it has already built, and "cafe" finds cafés
+
+**Value**: A player searching findit is answered without the server rebuilding every site it
+built for the last search. On a warm function instance a search costs its journal reads and the
+machines players touched, where every search on Vercel cost about 2 s. A page somebody
+rewrote, a site gone dark and a gateway repointed are still listed as they are served at the
+next search. A player who types "cafe" finds the cafés, as one who types "café" does.
+**Path**: a search at findit's address (`answerSearch` in `network/resolveHttpFetch.ts`) →
+`indexedWeb` (`findit/webIndex.ts`): the journal reads as today, 200 machines a read → each
+publisher with no row on its gateway or its site server listed from the generated web, built
+from generation on the instance's first search and kept; each publisher with a row rebuilt as
+today; each player network whose gateway has no row skipped, one with rows resolved as today →
+`rankPages` (`findit/search.ts`), accents folded on the query and the page alike → the results
+page.
+**Class**: pure refactor first (the memo, a cost change that answers alike), then behaviour
+change (accent folding).
+**Delivery**: independent PR against `main`, branch `feat/procedural-world-findit-memo`.
+**Status**: planned 2026-10-02.
+**Required implementation skills**: `refactoring` and `testing` for the memo; `tdd`, `testing`,
+`refactoring` for the folding; `mutation-testing` at PR-readiness.
+**Reduction program**: `N/A`.
+
+**Facts measured while planning** (against `main` at `418d9ad4`; the findit code is unchanged
+since 19f's prototype):
+- `indexedWeb` is called once a search by `answerSearch`, and by `webIndex.test.ts` and
+  `world.test.ts`; `testFindit` reads `publisherMachineIds`. No client code imports it, so the
+  memo lives only in a server function's instance.
+- With nothing patched no search calls `siteAt` (19f's prototype): an untouched publisher's
+  listing is built from generation alone, synchronously. Two first searches on one instance
+  can at worst both build it, alike.
+- The ranking lower-cases the query and each page and folds nothing else. The generated pages
+  spell the word both "cafe" and "café", capitalised or not.
+- `checkBudgets` times its box sets on developer machines only (`VERCEL=1` skips them), after a
+  warm-up pass, the best of three; the cold limit joins them on the same terms. Its warm-up
+  also warms the relations memo, as the box sets' does.
+
+**Acceptance criteria** (owner-confirmed 2026-10-02, decision 19f):
+
+- [ ] **8f-1** A search of a world nobody has touched answers exactly as before the memo:
+      every listed publisher under its domain, read as generated, and every query the suite
+      asks ranked as before; a second search on the same instance answers the same.
+- [ ] **8f-2** A publisher touched after an earlier search is listed at the next one as a
+      visitor would be served it: its homepage rewritten (a row on its site server alone) as
+      it now reads; its site server bricked or its web server stopped, absent; its gateway
+      bricked (a row on its gateway alone), absent; its gateway repointed, whatever now
+      answers, fetched the ordinary way. Each test searches the untouched world first.
+- [ ] **8f-3** A publisher whose rows are gone, its box restored, is listed as generated again
+      at the next search: what is kept holds only what generation builds, never a page a
+      player wrote.
+- [ ] **8f-4** The journal reads are unchanged: 200 machines a read, each publisher's gateway
+      and site server and every other declared network's gateway named once; a read failing
+      yields no index. A player network whose gateway has no row is never fetched; one whose
+      gateway has rows is resolved as today.
+- [ ] **8f-5** "cafe" finds a page that says "Café", and "café" a page that says "cafe": accents
+      are folded on the query and the page alike, both in whether a page answers a word and
+      in what the word scores where it appears. A result is shown as its page writes it. For
+      every town, "<town> cafe" answers the same pages in the same order as "<town> café".
+- [ ] **8f-6** `checkBudgets` times building the generated web from nothing at the launch
+      extent (every publisher, no journal) against a **1,000 ms** ceiling, one warm-up pass
+      then the best of three, on developer machines only as the box sets are (AC-9). Every
+      box set stays under 2 ms a box and the bundle under its ceiling.
+- [ ] **8f-7** `testFindit` and `testTowns` pass live; a warm search's time is recorded
+      against the first.
+- [ ] **8f-8** `discovery-architecture.md` describes the memo (the generated web kept, what
+      players touched read live) and the folding; `conventions-and-gotchas.md` §3 the cold
+      limit; `webIndex.ts` and `answerSearch` no longer say nothing is kept. The minor version
+      is bumped to 0.304.0.
+
+Out of scope: a limit on a warm search (19f set only the cold one); folding beyond combining
+marks (`ß`, ligatures); a stored index shared across instances.
+
+**PURE REFACTOR FIRST**: the memo (8f-1 to 8f-4). Baseline: `vitest run` green on `main`.
+8f-2's and 8f-3's tests are written first, searching the untouched world before touching it;
+they pass on `main`, which keeps nothing, and fail against a memo that served a touched
+publisher or kept a page it rebuilt. Then the memo: `indexedWeb` lists each untouched
+publisher from the generated web, built once an instance; the generated web's builder is
+exported for `checkBudgets` to time from nothing. Suite green, and a search of the untouched
+world timed before and after. Its own commit.
+**RED**: 8f-5 in `search.test.ts` ("cafe" against a page titled "Café", "café" against
+"cafe", and a ranking where only a folded word makes a page answer every word); then the
+town-wide property in `webIndex.test.ts`.
+**GREEN**: fold the query's terms and each page's places once, in `search.ts`.
+**REFACTOR**: assess.
+**Budget**: 8f-6 in `scripts/checkBudgets.ts`; its evidence is the gate's printed line on a
+developer machine (no RED: it is a script, kept out of vitest so mutation runs are not timed).
+**Server evidence**: `answerSearch` itself does not change. `testFindit` and `testTowns` run
+live against `vercel dev`.
+**PRE-PR MUTATION**: Stryker on `webIndex.ts` and `search.ts` (battery `webIndex.test.ts` and
+`search.test.ts`, json reporter). The memo's own guard (built once, against every search) is
+equivalent by design, a kept answer and a fresh one being alike; its value is the timing. The
+touched check (a row on the gateway or the server) is killed by 8f-2's one-sided touches; the
+fold on each side by 8f-5's two directions.
+**PR-ready when**: 8f-1 to 8f-8 hold, `vitest run`, typecheck, lint and format pass, and the
+owner approves the commit.
+**Slice complete when**: its PR merges; AC-9 closes, and slice 9 is grilled next.
 
 
 ## Acceptance Criteria
