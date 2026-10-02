@@ -17,7 +17,8 @@ v0.297.0); 7b complete 2026-10-01 (#588, v0.298.0). Slice 7 complete. Slice 8 gr
 2026-10-01 as slices 8a–8d (decision 19b); 8a complete 2026-10-02 (#589, v0.299.0); 8b split
 2026-10-02 into the names (8b) and the town (8c), the city and the rows moving to 8d and 8e
 (decision 19c); 8b complete 2026-10-02 (#590, v0.300.0); 8c complete 2026-10-02 (#591,
-v0.301.0); 8d complete 2026-10-02 (#592, v0.302.0). Slice 9 not yet planned.
+v0.301.0); 8d complete 2026-10-02 (#592, v0.302.0); 8e split 2026-10-02 into the rows (8e)
+and findit (8f) (decision 19f). Slice 9 not yet planned.
 Amends the §9 backlog item "Procedural world expansion — GRILLED & RESOLVED 2026-07-29" in
 `docs/conventions-and-gotchas.md`; where the two disagree, this file wins.
 
@@ -537,9 +538,9 @@ relations, forwards, institution sets. (Added by find-gaps 2026-09-28.)
        Millbrook's cottage hospital, 6b the practices.
     7. Procedural corporations (decision 19a), as two PRs (grill 2026-10-01): 7a the
        corporations, 7b the branches.
-    8. The remaining towns, the findit index split and the sampled budgets, as five PRs (grill
-       2026-10-01, 19b; split 2026-10-02, 19c): 8a a second village, 8b the names, 8c the town
-       size class, 8d the city, 8e the remaining rows and the index split.
+    8. The remaining towns, the findit index split and the sampled budgets, as six PRs (grill
+       2026-10-01, 19b; split 2026-10-02, 19c and 19f): 8a a second village, 8b the names, 8c
+       the town size class, 8d the city, 8e the remaining rows, 8f findit's memoised index.
     9. Ridgemont's WiFi filler and the injector turned down.
 
 19a. **Procedural corporations get their own slice**, after healthcare and before the remaining
@@ -1046,6 +1047,88 @@ relations, forwards, institution sets. (Added by find-gaps 2026-09-28.)
       search came back empty in the wire-checks. 19b's own fallback ("splits the read only if
       it fails") was taken one PR early; the memoised index and the cold-build limit stay in
       8e.
+
+19f. **8e: the remaining rows; 8f: findit's memoised index** (grilled 2026-10-02,
+    owner-confirmed in bulk).
+    **Facts measured while grilling** (against `main` at `9446a858`, by a throwaway prototype
+    declaring the six rows after Kingsford, the sixth town named Stonebury, then reverted; the
+    diff kept outside the repo):
+    - The rows draw **157** networks: Fenwick (`t5`, `87.232`) 15, Thornbury (`t6`, `87.75`)
+      20, Hollowmere (`t7`, `87.172`) 17 and Ely (`t8`, `87.15`) 16, villages; Wexcombe (`t9`,
+      `87.112`) 38 and Stonebury (`t10`, `87.209`) 51, towns. **491** declared networks, all
+      at distinct addresses; the longest ESSID 29 characters; 283 sited.
+    - **Wexcombe's hospital draw keeps none**, and Stonebury's keeps one. Ely draws
+      `BT-HUB-0A0C` and `NETGEAR-0E06`, router suffixes under `1000`. Four corporations keep
+      branches in two towns: `c1` (Kingsford, Fenwick), `c3` (Hollowmere, Stonebury), `c17`
+      (Ashby, Thornbury) and `c23` (Oakhurst, Hollowmere).
+    - **Build time**: every set 0.72–1.02 ms a box (idle machine).
+    - **The full sweep**: 7634 tests in 1085 s of file time, against 857 s at 8d. **3 fail.**
+      - **Two desks keep one note.** Two people at Hollowmere's School Lane Haulage
+        (`r0/t7/n8`) keep the same `contacts.txt`. Its only slot a person fills is
+        `{colleague}`, one of 20, so two people drawing the template share it one time in 20;
+        ten of the 120 note templates vary by one slot or none beside `{place}`.
+      - **"Compass" again**: the `.env` test's `/PASS/i` matches The Compass Teapot's
+        `APP_URL=http://web-14.the-compass-teapot.lan:8000/` (`r0/t7/n6`). Test-side.
+      - **The branch golden** lacks the rows' branches. Test-side.
+    - **findit, nothing patched**: 249 pages from 566 publisher machines; every search builds
+      them in **520–570 ms**, warm and idle, the first also paying about 1 s of module load.
+      Vercel ran boxes 3.6 times slower than a developer machine (3.1 ms against 0.85), so a
+      search there costs about 2 s, every time. No unpatched non-publisher's gateway serves
+      `:80`, so the ordinary fetch is never called.
+    - **"cafe" finds nothing**; "Fenwick café" lists the cafés of other towns.
+
+    **The calls** (owner-confirmed in bulk):
+    - **Two PRs.** 8e the six rows (AC-1, 0.303.0); 8f findit's memoised index, the cold
+      index-build limit and accent folding (AC-9, 0.304.0). The breach decision 16 waited for
+      is measured, about 2 s a search on Vercel, and one PR would mix a byte-diff of 157
+      networks with a change to how every search is served. Rejected: one PR, and findit
+      first (its cold limit is set at the launch extent, which only the rows declare).
+    - **The sixth row is Stonebury**, a town: nine letters, every branch ESSID in 32
+      characters, and the word rule held in the prototype. Rejected: Greyhaven and Redmarsh,
+      unmeasured.
+    - **Row order is 19b's listing**: Fenwick `t5`, Thornbury `t6`, Hollowmere `t7`, Ely `t8`
+      (villages), Wexcombe `t9`, Stonebury `t10` (towns). Eleven towns in Harrow Valley with
+      Ridgemont, Millbrook, Ashby, Oakhurst and Kingsford; AC-1 closes.
+    - **The towns are declared by one fold from Ashby on**, each town's names avoiding every
+      network declared before it; Millbrook, the corporations and Millbrook's branches stay
+      hand-placed before it. It lands first, as a pure refactor shown by an unchanged dump.
+      Rejected: ten hand-chained `before` lists.
+    - **No two people on one network keep the same note** (the weakest call, flagged): a
+      desk drops a note a desk at a lower address on its network already keeps. Dropping
+      draws nothing, so only School Lane Haulage's desk moves; no landmark keeps a duplicate,
+      so AC-7 holds. A desk's notes are the first draw on its own `home-content-` stream, so
+      its neighbours' are read without building their boxes. Accepted: every desk now reads
+      its neighbours' notes, and a desk may keep fewer than two. Rejected: wider templates
+      (move landmark notes, breaking AC-7), and calling it test-side (two identical notes read
+      as generated, unlike two routers of one make).
+    - **The `.env` test is reshaped**: it reads each line's key, not its value, for `PASS` and
+      `DB_`. **The branch golden** adds the rows' branches; the join between two `Host`
+      blocks on one gateway is reached at last.
+    - **Goldens pin each new town**; Wexcombe's keeping no hospital and Ely's router suffixes
+      reach the carried survivors, re-run at 8e's gate.
+    - **8e's evidence**: declaring the rows is the RED; a dump against `main` shows only the
+      rows and the relations and gateways of the corporations gaining their branches moved;
+      one green `WORLD_SWEEP=full` recorded; `checkBudgets` under 2 ms a box in every set.
+      `testTowns` adds the six towns (council by domain, courthouse and hospital where kept, a
+      site by town and kind, a join refused); `testMillbrook`, `testFindit` and
+      `testJoinRefusal` rerun live. `world-content-architecture.md` describes the rows and
+      the note rule.
+    - **8f, the memoised index**, as 19b laid out: built lazily from generation on a function
+      instance's first search; the journal reads stay as they are, 200 machines a read,
+      since they are what say which machines are patched; only machines with rows are
+      rebuilt, and a player network's gateway with no rows is skipped. A warm search then
+      costs its reads and what players touched.
+    - **8f, the cold limit**: `checkBudgets` times building that index from nothing at the
+      launch extent, one warm-up pass then the best of three as the box sets are timed,
+      against a **1,000 ms** ceiling (520–570 ms measured idle; about 800 ms on 8d's slower
+      machine). It runs on developer machines only, as the box timing does. Accepted: an
+      instance's first search on Vercel takes about 2 s.
+    - **8f, "cafe" finds cafés**: the search folds accents on the query and the page alike, so
+      "cafe" finds "Café" and "café" a "cafe".
+    - **8f's evidence**: a test proves a patched publisher is still rebuilt (defaced, dark or
+      stopped) while an unpatched one is served from the memo; `testFindit` runs live;
+      `discovery-architecture.md` describes the memo and the folding,
+      `conventions-and-gotchas.md` §3 the cold limit.
 
 ## Slice plans
 
@@ -2728,9 +2811,10 @@ owner approves the commit.
 
 ### Slice 8: the remaining towns
 
-Grilled 2026-10-01 (decision 19b), 8b split 2026-10-02 (decision 19c). Five PRs, in order,
-each cut from `main` after the one before it merges: 8a a second village, 8b the names, 8c the
-town size class, 8d the city, 8e the remaining rows and findit's index split. 8a complete
+Grilled 2026-10-01 (decision 19b), 8b split 2026-10-02 (decision 19c), 8e split 2026-10-02
+(decision 19f). Six PRs, in order, each cut from `main` after the one before it merges: 8a a
+second village, 8b the names, 8c the town size class, 8d the city, 8e the remaining rows, 8f
+findit's memoised index. 8a complete
 2026-10-02 (#589), 8b complete 2026-10-02 (#590), 8c complete 2026-10-02 (#591), 8d complete
 2026-10-02 (#592); each later PR is planned after the one before it merges, from what that one
 measured.
