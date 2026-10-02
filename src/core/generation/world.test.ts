@@ -101,6 +101,16 @@ const servedFiles = (key: string): readonly (readonly [string, string])[] => {
   );
 };
 
+/** Every network the world declares in a town it draws: every one but Ridgemont's and
+ *  the corporations'. */
+const drawnTownNetworks = (): readonly DeclaredNetwork[] =>
+  DECLARED_NETWORKS.filter((network) => network.town !== undefined && network.town !== RIDGEMONT);
+
+/** Every town the world draws, in the order it declares them. */
+const drawnTowns = (): readonly string[] => [
+  ...new Set(drawnTownNetworks().flatMap((network) => network.town ?? [])),
+];
+
 /** Every network the world declares in Millbrook. */
 const millbrook = (): readonly DeclaredNetwork[] =>
   DECLARED_NETWORKS.filter((network) => network.town === 'Millbrook');
@@ -361,7 +371,10 @@ describe("Millbrook's town directory", () => {
   });
 
   it("is kept by a town's council alone", () => {
-    const councils = ['millbrook.gov', 'ashby.gov'];
+    const councils = drawnTownNetworks()
+      .filter((network) => network.place === 'the town hall')
+      .flatMap((network) => network.site?.domain ?? []);
+    expect(councils).toEqual(drawnTowns().map((town) => `${town.toLowerCase()}.gov`));
     const others = DECLARED_NETWORKS.flatMap((network) =>
       network.site === undefined || councils.includes(network.site.domain)
         ? []
@@ -1360,6 +1373,24 @@ describe("Millbrook's branches", () => {
 const ashby = (): readonly DeclaredNetwork[] =>
   DECLARED_NETWORKS.filter((network) => network.town === 'Ashby');
 
+/** What a town declares `network` as: one of its institutions, a business, a home, a
+ *  practice, or a corporation's branch. A hospital is an institution. */
+type DrawnAs = 'institution' | 'business' | 'home' | 'practice' | 'branch';
+const drawnAs = (network: DeclaredNetwork): DrawnAs =>
+  network.parent !== undefined
+    ? 'branch'
+    : network.category === 'residential'
+      ? 'home'
+      : network.subtype !== undefined && isBusinessKind(network.subtype)
+        ? 'business'
+        : network.category === 'healthcare' && network.subtype !== 'hospital'
+          ? 'practice'
+          : 'institution';
+
+/** The kinds `networks` are declared as, each run of one kind told once, in order. */
+const runsOf = (networks: readonly DeclaredNetwork[]): readonly DrawnAs[] =>
+  networks.map(drawnAs).filter((kind, index, kinds) => kind !== kinds[index - 1]);
+
 /**
  * Ashby is the second town the world draws, a village like Millbrook. Its institutions are
  * named for it by the rule Millbrook's are, and the rest of it is drawn as Millbrook's is.
@@ -1410,19 +1441,7 @@ describe('Ashby', () => {
   });
 
   it('draws its businesses, then its homes, then its practices, then the branches it keeps, each keyed after the last', () => {
-    const order = ashby().map((network) =>
-      network.parent !== undefined
-        ? 'branch'
-        : network.category === 'residential'
-          ? 'home'
-          : network.subtype !== undefined && isBusinessKind(network.subtype)
-            ? 'business'
-            : network.category === 'healthcare'
-              ? 'practice'
-              : 'institution',
-    );
-    const runs = order.filter((kind, index) => kind !== order[index - 1]);
-    expect(runs).toEqual(['institution', 'business', 'home', 'practice', 'branch']);
+    expect(runsOf(ashby())).toEqual(['institution', 'business', 'home', 'practice', 'branch']);
     expect(ashby().map((network) => network.key)).toEqual(
       ashby().map((_, index) => `r0/t2/n${index}`),
     );
@@ -1486,6 +1505,210 @@ describe('Ashby', () => {
       const address = publicAddress(network.key) ?? '';
       expect(address, network.key).toMatch(/^87\.195\.\d{1,3}\.\d{1,3}$/);
       expect(networkAt(address), network.key).toBe(network.key);
+    }
+  });
+});
+
+/** Every network the world declares in Oakhurst. */
+const oakhurst = (): readonly DeclaredNetwork[] =>
+  DECLARED_NETWORKS.filter((network) => network.town === 'Oakhurst');
+
+/** How many of `networks` are declared as `kind`. */
+const countDrawnAs = (networks: readonly DeclaredNetwork[], kind: DrawnAs): number =>
+  networks.filter((network) => drawnAs(network) === kind).length;
+
+/**
+ * Oakhurst is the world's first town: a place bigger than a village, with a courthouse of
+ * its own and, as it happens, a hospital. Everything else in it is drawn as a village's is,
+ * only more of it.
+ */
+describe('Oakhurst', () => {
+  it("declares the region's fourth town, its council, police, library, courthouse and hospital named for it", () => {
+    expect(
+      oakhurst()
+        .slice(0, 5)
+        .map((network) => [
+          network.key,
+          network.essid,
+          network.category,
+          network.subtype ?? '-',
+          network.place,
+          network.site,
+          network.region,
+          network.directory !== undefined,
+        ]),
+    ).toEqual([
+      [
+        'r0/t3/n0',
+        'TOWN-HALL-WIFI',
+        'government',
+        '-',
+        'the town hall',
+        { domain: 'oakhurst.gov', name: 'Oakhurst Town Council' },
+        'Harrow Valley',
+        true,
+      ],
+      [
+        'r0/t3/n1',
+        'OAKHURST-PD',
+        'government',
+        '-',
+        'the police station',
+        { domain: 'oakhurstpd.gov', name: 'Oakhurst Police Department' },
+        'Harrow Valley',
+        false,
+      ],
+      [
+        'r0/t3/n2',
+        'LIBRARY-PUBLIC',
+        'public',
+        '-',
+        'the public library',
+        { domain: 'oakhurstlibrary.org', name: 'Oakhurst Public Library' },
+        'Harrow Valley',
+        false,
+      ],
+      [
+        'r0/t3/n3',
+        'COURTHOUSE-WIFI',
+        'government',
+        '-',
+        'the courthouse',
+        { domain: 'oakhurstcourts.gov', name: 'Oakhurst County Court' },
+        'Harrow Valley',
+        false,
+      ],
+      [
+        'r0/t3/n4',
+        'GENERAL-HOSPITAL',
+        'healthcare',
+        'hospital',
+        'the hospital',
+        { domain: 'oakhursthospital.org', name: 'Oakhurst General Hospital' },
+        'Harrow Valley',
+        false,
+      ],
+    ]);
+  });
+
+  it('keeps 12 to 24 businesses, 12 to 24 homes, 2 to 4 practices and 2 or 3 branches, as a town does', () => {
+    const counts = (['business', 'home', 'practice', 'branch'] as const).map((kind) =>
+      countDrawnAs(oakhurst(), kind),
+    );
+    const [businessCount, homeCount, practiceCount, branchCount] = counts;
+    expect(businessCount).toBeGreaterThanOrEqual(12);
+    expect(businessCount).toBeLessThanOrEqual(24);
+    expect(homeCount).toBeGreaterThanOrEqual(12);
+    expect(homeCount).toBeLessThanOrEqual(24);
+    expect(practiceCount).toBeGreaterThanOrEqual(2);
+    expect(practiceCount).toBeLessThanOrEqual(4);
+    expect(branchCount).toBeGreaterThanOrEqual(2);
+    expect(branchCount).toBeLessThanOrEqual(3);
+  });
+
+  it('draws its businesses, then its homes, then its practices, then the branches it keeps, each keyed after the last', () => {
+    expect(runsOf(oakhurst())).toEqual(['institution', 'business', 'home', 'practice', 'branch']);
+    expect(oakhurst().map((network) => network.key)).toEqual(
+      oakhurst().map((_, index) => `r0/t3/n${index}`),
+    );
+  });
+
+  it('is pinned (golden): locks every network it draws under its key, name, domain, address, size and kind', () => {
+    // A key, a name or an address that moved would strand every journal, bookmark and note
+    // a player holds about the network, so the town only ever grows.
+    expect(
+      oakhurst().map((network) =>
+        [
+          network.key,
+          network.essid,
+          network.place,
+          network.site?.domain ?? '-',
+          publicAddress(network.key),
+          network.profile,
+          network.subtype ?? '-',
+          network.unlisted === true ? 'unlisted' : (network.parent ?? '-'),
+        ].join(' | '),
+      ),
+    ).toEqual([
+      'r0/t3/n0 | TOWN-HALL-WIFI | the town hall | oakhurst.gov | 87.38.0.2 | deep | - | -',
+      'r0/t3/n1 | OAKHURST-PD | the police station | oakhurstpd.gov | 87.38.97.142 | deep | - | unlisted',
+      'r0/t3/n2 | LIBRARY-PUBLIC | the public library | oakhurstlibrary.org | 87.38.195.29 | deep | - | unlisted',
+      'r0/t3/n3 | COURTHOUSE-WIFI | the courthouse | oakhurstcourts.gov | 87.38.36.169 | deep | - | -',
+      'r0/t3/n4 | GENERAL-HOSPITAL | the hospital | oakhursthospital.org | 87.38.134.56 | deep | hospital | -',
+      'r0/t3/n5 | IRONSIDE-COFFEE | Ironside Coffee | ironsidecoffee.com | 87.38.231.196 | lone | coffee-bar | -',
+      'r0/t3/n6 | HALLMARK-INSURANCE | Hallmark Insurance | hallmarkinsurance.com | 87.38.73.83 | flat | insurance | -',
+      "r0/t3/n7 | NORCROSSS-TEA-ROOM | Norcross's Tea Room | norcrossstearoom.com | 87.38.170.223 | flat | tea-room | -",
+      'r0/t3/n8 | PEBBLE-CAFE | Pebble Café | pebblecafe.com | 87.38.12.110 | flat | cafe | -',
+      'r0/t3/n9 | HEARTH-IT-SOLUTIONS | Hearth IT Solutions | hearthitsolutions.com | 87.38.109.250 | deep | it-services | -',
+      'r0/t3/n10 | GRANITE-BOOKS | Granite Books | granitebooks.com | 87.38.207.137 | lone | bookshop | -',
+      "r0/t3/n11 | ELLISONS-TEA-ROOM | Ellison's Tea Room | ellisonstearoom.com | 87.38.49.24 | lone | tea-room | -",
+      "r0/t3/n12 | EASTONS-PAWNBROKERS | Easton's Pawnbrokers | eastonspawnbrokers.com | 87.38.146.164 | lone | pawn | -",
+      'r0/t3/n13 | STARLING-TOOLS | Starling Tools | starlingtools.com | 87.38.244.51 | flat | hardware | -',
+      'r0/t3/n14 | MILLSTONE-MARKET | Millstone Market | millstonemarket.com | 87.38.85.191 | lone | grocer | unlisted',
+      'r0/t3/n15 | HOLLIS-ACCOUNTANTS | Hollis Accountants | hollisaccountants.com | 87.38.183.78 | deep | accounting | -',
+      'r0/t3/n16 | FLETCHER-ELECTRICAL | Fletcher Electrical | fletcherelectrical.com | 87.38.24.218 | lone | electronics | -',
+      'r0/t3/n17 | CORNERSTONE-TEA-ROOMS | Cornerstone Tea Rooms | cornerstonetearooms.com | 87.38.122.105 | flat | tea-room | -',
+      'r0/t3/n18 | VARLEY-CHEMISTS | Varley Chemists | varleychemists.com | 87.38.219.245 | lone | pharmacy | unlisted',
+      'r0/t3/n19 | WESTGATE-BLOOMS | Westgate Blooms | westgateblooms.com | 87.38.61.132 | lone | florist | -',
+      "r0/t3/n20 | ORMSBYS-BAKERY | Ormsby's Bakery | ormsbysbakery.com | 87.38.159.19 | lone | bakery | -",
+      'r0/t3/n21 | SCHOOL-LANE-BLOOMS | School Lane Blooms | schoollaneblooms.com | 87.38.0.159 | deep | florist | -',
+      'r0/t3/n22 | ACORN-ROASTERS | Acorn Roasters | acornroasters.com | 87.38.98.46 | flat | coffee-bar | -',
+      'r0/t3/n23 | TOP-FLAT | the top flat | - | 87.38.195.186 | lone | - | -',
+      "r0/t3/n24 | THE-JANKOWSKIS | the Jankowskis' house | - | 87.38.37.73 | flat | - | -",
+      'r0/t3/n25 | PRIMROSE-COTTAGE | Primrose Cottage | - | 87.38.134.213 | flat | - | -',
+      "r0/t3/n26 | THE-HADDADS | the Haddads' house | - | 87.38.232.100 | lone | - | -",
+      'r0/t3/n27 | THE-OLD-FORGE | the Old Forge | - | 87.38.73.240 | lone | - | -',
+      "r0/t3/n28 | OSEI-WIFI | the Oseis' house | - | 87.38.171.127 | flat | - | -",
+      "r0/t3/n29 | SANDOVAL-WIFI | the Sandovals' house | - | 87.38.13.14 | flat | - | -",
+      'r0/t3/n30 | ADEYEMI-FAMILY | the Adeyemi family home | - | 87.38.110.154 | flat | - | -',
+      'r0/t3/n31 | WISTERIA-HOUSE | Wisteria House | - | 87.38.208.41 | lone | - | -',
+      'r0/t3/n32 | NETGEAR-5FA9 | the house with the red door | - | 87.38.49.181 | lone | - | -',
+      'r0/t3/n33 | TP-LINK-F43C | the house with the conservatory | - | 87.38.147.68 | lone | - | -',
+      "r0/t3/n34 | MOREAU-WIFI | the Moreaus' house | - | 87.38.244.208 | lone | - | -",
+      'r0/t3/n35 | THE-OLD-DAIRY | the Old Dairy | - | 87.38.86.95 | lone | - | -',
+      "r0/t3/n36 | THE-QUIGLEYS | the Quigleys' house | - | 87.38.183.235 | lone | - | -",
+      'r0/t3/n37 | THE-GRANARY | the Granary | - | 87.38.25.122 | lone | - | -',
+      "r0/t3/n38 | ROSSI-WIFI | the Rossis' house | - | 87.38.123.9 | flat | - | -",
+      'r0/t3/n39 | THE-COACH-HOUSE | the Coach House | - | 87.38.220.149 | flat | - | -',
+      "r0/t3/n40 | THE-OKONKWOS | the Okonkwos' house | - | 87.38.62.36 | flat | - | -",
+      'r0/t3/n41 | THE-OLD-RECTORY | the Old Rectory | - | 87.38.159.176 | flat | - | -',
+      "r0/t3/n42 | KOWALSKI-WIFI | the Kowalskis' house | - | 87.38.1.63 | lone | - | -",
+      'r0/t3/n43 | LANDMARK-HEALTH-CENTRE | Landmark Health Centre | landmarkhealthcentre.com | 87.38.98.203 | flat | clinic | -',
+      'r0/t3/n44 | OAKLEY-DENTAL-CARE | Oakley Dental Care | oakleydentalcare.com | 87.38.196.90 | deep | dentist | -',
+      'r0/t3/n45 | DUNMORE-GROUP-OAKHURST | the Oakhurst office | - | 87.38.37.230 | deep | consulting | c23',
+      'r0/t3/n46 | SHERIDAN-MORTIMER-OAKHURST | the Oakhurst office | - | 87.38.135.117 | deep | insurance | c18',
+    ]);
+  });
+
+  it("keeps a directory on the council's site linking each of its institutions, the courthouse and the hospital among them", () => {
+    const page = pageAt('oakhurst.gov', 'directory.html') ?? '';
+    expect(page).toContain('<p>The public bodies of Oakhurst,');
+    expect(outboundLinksIn(page)).toEqual([
+      ['http://oakhurst.gov/', 'Oakhurst Town Council'],
+      ['http://oakhurstpd.gov/', 'Oakhurst Police Department'],
+      ['http://oakhurstlibrary.org/', 'Oakhurst Public Library'],
+      ['http://oakhurstcourts.gov/', 'Oakhurst County Court'],
+      ['http://oakhursthospital.org/', 'Oakhurst General Hospital'],
+    ]);
+  });
+
+  it("answers every network in the town's own block of the region, and finds it there again", () => {
+    expect(oakhurst().length).toBeGreaterThan(0);
+    for (const network of oakhurst()) {
+      const address = publicAddress(network.key) ?? '';
+      expect(address, network.key).toMatch(/^87\.38\.\d{1,3}\.\d{1,3}$/);
+      expect(networkAt(address), network.key).toBe(network.key);
+    }
+  });
+});
+
+describe('a village', () => {
+  it('keeps neither a courthouse nor a general hospital, only the institutions it was declared with', () => {
+    for (const village of [millbrook(), ashby()]) {
+      expect(village.length).toBeGreaterThan(0);
+      const essids = village.map((network) => network.essid);
+      expect(essids).not.toContain('COURTHOUSE-WIFI');
+      expect(essids).not.toContain('GENERAL-HOSPITAL');
     }
   });
 });
@@ -1705,8 +1928,8 @@ describe('the words places are named with', () => {
 
   it('names no two places a town draws with one word: its businesses, its practices and its homes', () => {
     // A branch carries its company's name, and is drawn by no town's grammar.
-    const towns = [...new Set(townHomes().flatMap((home) => home.town ?? []))];
-    expect(towns).toEqual(['Millbrook', 'Ashby']);
+    const towns = drawnTowns();
+    expect(towns.length).toBeGreaterThan(2);
     for (const town of towns) {
       const drawn = DECLARED_NETWORKS.filter(
         (network) => network.town === town && network.parent === undefined,

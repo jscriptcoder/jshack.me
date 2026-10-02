@@ -779,22 +779,30 @@ describe('the route a message took to get here', () => {
 
   it('marks a reply as answering the message above it, and an opener as answering nothing', () => {
     let answered = 0;
+    let opened = 0;
+    // Somebody who starts every thread they are in is sent nothing but replies, so an
+    // opener is looked for across the world rather than in every mailbox.
     for (const box of desks()) {
       const username = npcUsername(box.essid, box.host);
       const messages = parseMbox(readMailbox(box, username));
       for (const message of messages) {
         const answers = message.headers.get('In-Reply-To');
-        if (answers === undefined) continue;
+        const label = `${box.host.hostname} ${message.headers.get('Subject')}`;
+        if (!(message.headers.get('Subject') ?? '').startsWith('Re: ')) {
+          // An opener answers nothing at all, so the header is absent rather than empty.
+          expect(message.headers.has('In-Reply-To'), label).toBe(false);
+          opened += 1;
+          continue;
+        }
         // Whatever it answers is a real message id, stamped the way every other id in
         // the world is stamped.
-        expect(answers).toMatch(/^<[0-9]{14}[.][0-9A-F]{6}@[a-z0-9.-]+>$/);
+        expect(answers, label).toMatch(/^<[0-9]{14}[.][0-9A-F]{6}@[a-z0-9.-]+>$/);
         expect(answers).not.toBe(message.headers.get('Message-ID'));
         answered += 1;
       }
-      // An opener answers nothing at all, so the header is absent rather than empty.
-      expect(messages.some((message) => !message.headers.has('In-Reply-To'))).toBe(true);
     }
     expect(answered).toBeGreaterThan(0);
+    expect(opened).toBeGreaterThan(0);
   });
 });
 

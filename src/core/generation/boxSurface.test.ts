@@ -521,7 +521,10 @@ describe('who a box remembers meeting', () => {
         const user = createFsView(tree, { userType: 'user' });
         const config = user.read(asAbsPath(`${home}/.ssh/config`));
         const knownHosts = user.read(asAbsPath(`${home}/.ssh/known_hosts`));
-        if (sshNeighboursOf(box).length === 0) {
+        const leads = leadsKeptOn(box).map((lead) => `@${lead.address}`);
+        // A desk with no neighbour to ssh to may still keep a contractor's shortcuts.
+        const hasNeighbours = sshNeighboursOf(box).length > 0;
+        if (!hasNeighbours && leads.length === 0) {
           expect(user.stat(asAbsPath(`${home}/.ssh`))).toBeNull();
           return;
         }
@@ -535,12 +538,11 @@ describe('who a box remembers meeting', () => {
             expect(knownHostFalsehood(box, entry), `${box.host.hostname}: ${entry}`).toBeNull();
           });
         const commands = sshCommandsIn(config.content);
-        const leads = leadsKeptOn(box).map((lead) => `@${lead.address}`);
         const toNeighbours = commands.filter(
           (line) => !leads.some((address) => line.endsWith(address)),
         );
-        expect(toNeighbours.length).toBeGreaterThanOrEqual(1);
-        expect(toNeighbours.length).toBeLessThanOrEqual(2);
+        expect(toNeighbours.length).toBeGreaterThanOrEqual(hasNeighbours ? 1 : 0);
+        expect(toNeighbours.length).toBeLessThanOrEqual(hasNeighbours ? 2 : 0);
         // Every lead kept on the desk is a shortcut in its config.
         expect(commands.length - toNeighbours.length).toBe(leads.length);
         commands.forEach((line) => {

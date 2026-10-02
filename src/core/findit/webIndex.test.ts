@@ -77,7 +77,10 @@ describe('the web findit searches', () => {
     const web = await indexWith();
     const police = rankPages(web, 'police').map((page) => page.address);
     expect(police.slice(0, 2)).toEqual(['millbrookpd.gov', 'ridgemontpd.gov']);
-    expect(rankPages(web, 'court')[0]?.address).toBe('ridgemontcourts.gov');
+    // More than one town keeps a court, so a search names the town to find its own.
+    expect(rankPages(web, 'court')[0]?.address).toMatch(/^[a-z]+courts\.gov$/);
+    expect(rankPages(web, 'ridgemont court')[0]?.address).toBe('ridgemontcourts.gov');
+    expect(rankPages(web, 'oakhurst court')[0]?.address).toBe('oakhurstcourts.gov');
   });
 
   it('puts a shop first for its own name, and for the groceries only a shop says it sells', async () => {
@@ -115,12 +118,13 @@ describe('the web findit searches', () => {
     }
   });
 
-  it("lists every place of a town beyond Ridgemont for the town's name and a word of its kind", async () => {
+  it("lists every place of a town beyond Ridgemont in the top ten for the town's name and a word of its kind", async () => {
     /** A word each kind of place says of itself in its description. */
     const kindWords: Readonly<Record<string, string>> = {
       'the town hall': 'council',
       'the police station': 'police',
       'the public library': 'library',
+      'the courthouse': 'court',
       hospital: 'wards',
       clinic: 'vaccinations',
       dentist: 'fillings',
@@ -144,16 +148,19 @@ describe('the web findit searches', () => {
     const web = await indexWith();
     const places = DECLARED_NETWORKS.filter(
       (network) =>
-        (network.town === 'Millbrook' || network.town === 'Ashby') &&
+        network.town !== undefined &&
+        network.town !== 'Ridgemont' &&
         network.site !== undefined &&
         network.unlisted !== true,
     );
     const missed = places.flatMap((place) => {
       const query = `${place.town} ${kindWords[place.subtype ?? place.place]}`;
-      const found = rankPages(web, query).map((page) => page.address);
+      const found = rankPages(web, query)
+        .slice(0, 10)
+        .map((page) => page.address);
       return found.includes(place.site?.domain ?? '') ? [] : [`${query}: ${place.site?.domain}`];
     });
-    expect(places.length).toBeGreaterThan(15);
+    expect(places.map((place) => place.town)).toContain('Oakhurst');
     expect(missed).toEqual([]);
     expect(rankPages(web, 'Millbrook café').map((page) => page.address)).toContain(
       'yatesscafe.com',

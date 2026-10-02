@@ -99,13 +99,17 @@ export const buildServerShare = (options: {
   readonly account: string;
   readonly people: readonly MailPerson[];
 }): Share => {
-  const share = buildShare(options);
   const { essid, host, account, people } = options;
   const supplies = relationsFrom(essid).filter(
     (relation): relation is Supply =>
       relation.kind === 'supplier' && relation.sourceHost.ip === host.ip,
   );
-  if (supplies.length === 0) return share;
+  if (supplies.length === 0) return buildShare(options);
+  // An office that keeps an invoices department of its own draws it with room for these.
+  const share = buildShare({
+    ...options,
+    sentLater: { folder: INVOICE_FOLDER, files: supplies.length },
+  });
 
   const prng = createPrng(`relation-invoice-${essid}-${host.ip}`);
   const customer = declaredNetwork(essid)?.site?.name ?? essid;

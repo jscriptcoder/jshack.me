@@ -23,6 +23,7 @@ import { createFsView } from '../filesystem/fsView.js';
 import { asAbsPath } from '../types.js';
 import { walkTree } from '../filesystem/walkTree.js';
 import type { LanHost } from './generateHomeLan.js';
+import { deviceModel } from './phoneHome.js';
 
 /**
  * Nothing on the internet leads to a home: it publishes nothing and no search finds it.
@@ -121,14 +122,17 @@ describe("a town network's relations", () => {
     }
   });
 
-  it('backs a business up to a home alone, and to every home that lets ssh in from outside', () => {
+  it('backs a business up to a home alone, and to every home that lets ssh in from outside to a computer', () => {
     for (const relation of allLogins().filter((each) => each.kind === 'backup')) {
       const target = townNetworks.find((network) => network.key === relation.target);
       expect(target?.category, relation.target).toBe('residential');
     }
-    const reachableHomes = townNetworks.filter(
-      (network) => network.category === 'residential' && sshForwardOf(network.key) !== undefined,
-    );
+    const reachableHomes = townNetworks.filter((network) => {
+      const host = sshForwardedHost(network.key);
+      return (
+        network.category === 'residential' && host !== undefined && !isDevice(network.key, host)
+      );
+    });
     expect(reachableHomes.length).toBeGreaterThan(0);
     for (const home of reachableHomes) {
       expect(
@@ -174,18 +178,24 @@ describe("a town network's relations", () => {
     }
   });
 
-  it('is pinned (golden): locks the relations- stream, its counts and its picks', () => {
-    const essidOf = (key: string) => townNetworks.find((network) => network.key === key)?.essid;
-    const graph = allRelations().map(
-      (relation) =>
-        `${essidOf(relation.source)} ${relation.sourceHost.hostname} -${relation.kind}-> ` +
-        `${essidOf(relation.target)}` +
-        (relation.kind === 'supplier'
-          ? ''
-          : ` ${relation.user}@${relation.targetHost.hostname}:${relation.port}`),
-    );
+  it('is pinned (golden): locks the relations- stream, its counts and its picks, town by town', () => {
+    /** Every relation drawn in `town`, as its source, its kind and the door it opens. */
+    const graphIn = (town: string) => {
+      const networks = townNetworks.filter((network) => network.town === town);
+      const essidOf = (key: string) => networks.find((network) => network.key === key)?.essid;
+      return networks
+        .flatMap((network) => relationsTo(network.key))
+        .map(
+          (relation) =>
+            `${essidOf(relation.source)} ${relation.sourceHost.hostname} -${relation.kind}-> ` +
+            `${essidOf(relation.target)}` +
+            (relation.kind === 'supplier'
+              ? ''
+              : ` ${relation.user}@${relation.targetHost.hostname}:${relation.port}`),
+        );
+    };
 
-    expect(graph).toEqual([
+    expect(graphIn('Millbrook')).toEqual([
       'BROAD-STREET-HAULAGE laptop-56 -contractor-> TOWN-HALL-WIFI hkim@android-57:2222',
       'BROAD-STREET-HAULAGE laptop-56 -contractor-> MILLBROOK-PD root@net-gateway:22',
       'BROAD-STREET-HAULAGE laptop-56 -contractor-> LIBRARY-PUBLIC root@dist-rtr:22',
@@ -203,6 +213,8 @@ describe("a town network's relations", () => {
       'BROAD-STREET-HAULAGE laptop-56 -contractor-> THE-COACH-HOUSE root@firewall01:22',
       'BROAD-STREET-HAULAGE laptop-56 -contractor-> COTTAGE-HOSPITAL root@core-rtr:22',
       'BROAD-STREET-HAULAGE laptop-56 -contractor-> GATEWAY-DENTAL lschmidt@iphone-235:2222',
+    ]);
+    expect(graphIn('Ashby')).toEqual([
       'MEADOW-CONSULTING laptop-12 -contractor-> TOWN-HALL-WIFI root@net-gateway:22',
       'MEADOW-CONSULTING laptop-12 -contractor-> ASHBY-PD root@mikrotik01:22',
       'MEADOW-CONSULTING laptop-12 -contractor-> LIBRARY-PUBLIC root@gw-main:22',
@@ -217,8 +229,95 @@ describe("a town network's relations", () => {
       'MEADOW-CONSULTING files-6 -supplier-> WHITLOCK-FAMILY-PRACTICE',
       'MEADOW-CONSULTING laptop-12 -contractor-> HALLORAN-DENTAL-CARE root@opnsense:22',
     ]);
+    expect(graphIn('Oakhurst')).toEqual([
+      'HOLLIS-ACCOUNTANTS desktop-88 -contractor-> TOWN-HALL-WIFI root@switch-core:22',
+      'HALLMARK-INSURANCE laptop-172 -contractor-> TOWN-HALL-WIFI root@switch-core:22',
+      'HOLLIS-ACCOUNTANTS desktop-88 -contractor-> OAKHURST-PD root@router01:22',
+      'HOLLIS-ACCOUNTANTS laptop-188 -contractor-> COURTHOUSE-WIFI root@core-rtr:22',
+      'HEARTH-IT-SOLUTIONS laptop-117 -contractor-> COURTHOUSE-WIFI root@core-rtr:22',
+      'HOLLIS-ACCOUNTANTS laptop-188 -contractor-> GENERAL-HOSPITAL root@gw-main:22',
+      'HEARTH-IT-SOLUTIONS laptop-117 -contractor-> IRONSIDE-COFFEE root@switch-core:22',
+      'HOLLIS-ACCOUNTANTS desktop-88 -contractor-> IRONSIDE-COFFEE root@switch-core:22',
+      'HALLMARK-INSURANCE laptop-172 -contractor-> NORCROSSS-TEA-ROOM devops@api-109:2222',
+      'HEARTH-IT-SOLUTIONS laptop-117 -contractor-> NORCROSSS-TEA-ROOM devops@api-109:2222',
+      'HALLMARK-INSURANCE laptop-172 -contractor-> PEBBLE-CAFE root@vpn-gw:22',
+      'HOLLIS-ACCOUNTANTS desktop-88 -contractor-> PEBBLE-CAFE root@vpn-gw:22',
+      'HALLMARK-INSURANCE laptop-172 -contractor-> HEARTH-IT-SOLUTIONS root@gw-main:22',
+      'HOLLIS-ACCOUNTANTS laptop-188 -contractor-> HEARTH-IT-SOLUTIONS root@gw-main:22',
+      'HOLLIS-ACCOUNTANTS laptop-188 -contractor-> GRANITE-BOOKS root@mikrotik01:22',
+      'HEARTH-IT-SOLUTIONS laptop-117 -contractor-> EASTONS-PAWNBROKERS root@pfsense01:22',
+      'HOLLIS-ACCOUNTANTS laptop-188 -contractor-> EASTONS-PAWNBROKERS root@pfsense01:22',
+      'HOLLIS-ACCOUNTANTS laptop-188 -contractor-> STARLING-TOOLS root@fw-dmz:22',
+      'HALLMARK-INSURANCE laptop-172 -contractor-> STARLING-TOOLS root@fw-dmz:22',
+      'HALLMARK-INSURANCE laptop-172 -contractor-> MILLSTONE-MARKET root@border-gw:22',
+      'HOLLIS-ACCOUNTANTS desktop-88 -contractor-> MILLSTONE-MARKET root@border-gw:22',
+      'ACORN-ROASTERS files-227 -supplier-> MILLSTONE-MARKET',
+      'HEARTH-IT-SOLUTIONS laptop-117 -contractor-> HOLLIS-ACCOUNTANTS developer@desktop-88:2222',
+      'HEARTH-IT-SOLUTIONS laptop-117 -contractor-> FLETCHER-ELECTRICAL root@wan-rtr:22',
+      'HOLLIS-ACCOUNTANTS desktop-88 -contractor-> CORNERSTONE-TEA-ROOMS root@dist-rtr:22',
+      'HEARTH-IT-SOLUTIONS laptop-117 -contractor-> CORNERSTONE-TEA-ROOMS root@dist-rtr:22',
+      'HALLMARK-INSURANCE share-158 -supplier-> VARLEY-CHEMISTS',
+      'HOLLIS-ACCOUNTANTS laptop-188 -contractor-> ORMSBYS-BAKERY root@pfsense01:22',
+      'HOLLIS-ACCOUNTANTS laptop-188 -contractor-> SCHOOL-LANE-BLOOMS root@dist-rtr:22',
+      'HALLMARK-INSURANCE laptop-172 -contractor-> SCHOOL-LANE-BLOOMS root@dist-rtr:22',
+      'HOLLIS-ACCOUNTANTS desktop-88 -contractor-> ACORN-ROASTERS analyst@android-148:2222',
+      'HEARTH-IT-SOLUTIONS laptop-117 -contractor-> ACORN-ROASTERS analyst@android-148:2222',
+      'HALLMARK-INSURANCE laptop-172 -contractor-> TOP-FLAT root@net-gateway:22',
+      'HEARTH-IT-SOLUTIONS laptop-117 -contractor-> TOP-FLAT root@net-gateway:22',
+      'HEARTH-IT-SOLUTIONS share-161 -backup-> THE-JANKOWSKIS apache@portal-54:2222',
+      'HALLMARK-INSURANCE laptop-172 -contractor-> THE-JANKOWSKIS apache@portal-54:2222',
+      'HALLMARK-INSURANCE laptop-172 -contractor-> PRIMROSE-COTTAGE developer@iphone-148:2222',
+      'HEARTH-IT-SOLUTIONS laptop-117 -contractor-> PRIMROSE-COTTAGE developer@iphone-148:2222',
+      'HOLLIS-ACCOUNTANTS laptop-188 -contractor-> PRIMROSE-COTTAGE developer@iphone-148:2222',
+      'HALLMARK-INSURANCE laptop-172 -contractor-> THE-HADDADS root@border-gw:22',
+      'HEARTH-IT-SOLUTIONS laptop-117 -contractor-> THE-HADDADS root@border-gw:22',
+      'HOLLIS-ACCOUNTANTS desktop-88 -contractor-> THE-OLD-FORGE jchen@iphone-136:2222',
+      'HEARTH-IT-SOLUTIONS laptop-117 -contractor-> OSEI-WIFI root@vpn-gw:22',
+      'HOLLIS-ACCOUNTANTS desktop-88 -contractor-> OSEI-WIFI root@vpn-gw:22',
+      'HALLMARK-INSURANCE laptop-172 -contractor-> OSEI-WIFI root@vpn-gw:22',
+      'HALLMARK-INSURANCE laptop-172 -contractor-> SANDOVAL-WIFI root@mikrotik01:22',
+      'HEARTH-IT-SOLUTIONS laptop-117 -contractor-> ADEYEMI-FAMILY root@vpn-gw:22',
+      'HOLLIS-ACCOUNTANTS desktop-88 -contractor-> ADEYEMI-FAMILY root@vpn-gw:22',
+      'HALLMARK-INSURANCE laptop-172 -contractor-> ADEYEMI-FAMILY root@vpn-gw:22',
+      'HEARTH-IT-SOLUTIONS laptop-117 -contractor-> WISTERIA-HOUSE root@fw-dmz:22',
+      'HEARTH-IT-SOLUTIONS laptop-117 -contractor-> NETGEAR-5FA9 root@border-gw:22',
+      'HALLMARK-INSURANCE laptop-172 -contractor-> NETGEAR-5FA9 root@border-gw:22',
+      'HOLLIS-ACCOUNTANTS desktop-88 -contractor-> NETGEAR-5FA9 root@border-gw:22',
+      'HOLLIS-ACCOUNTANTS laptop-188 -contractor-> TP-LINK-F43C root@net-gateway:22',
+      'HEARTH-IT-SOLUTIONS laptop-117 -contractor-> TP-LINK-F43C root@net-gateway:22',
+      'HALLMARK-INSURANCE laptop-172 -contractor-> MOREAU-WIFI root@opnsense:22',
+      'HOLLIS-ACCOUNTANTS laptop-188 -contractor-> MOREAU-WIFI root@opnsense:22',
+      'HALLMARK-INSURANCE laptop-172 -contractor-> THE-OLD-DAIRY root@pfsense01:22',
+      'HALLMARK-INSURANCE laptop-172 -contractor-> THE-QUIGLEYS root@vpn-gw:22',
+      'HOLLIS-ACCOUNTANTS desktop-88 -contractor-> THE-GRANARY root@vpn-gw:22',
+      'HALLMARK-INSURANCE laptop-172 -contractor-> THE-GRANARY root@vpn-gw:22',
+      'HEARTH-IT-SOLUTIONS laptop-117 -contractor-> THE-GRANARY root@vpn-gw:22',
+      'LANDMARK-HEALTH-CENTRE backup-234 -backup-> ROSSI-WIFI webadmin@portal-177:2222',
+      'OAKLEY-DENTAL-CARE nas-108 -backup-> ROSSI-WIFI webadmin@portal-177:2222',
+      'HEARTH-IT-SOLUTIONS laptop-117 -contractor-> THE-COACH-HOUSE root@mikrotik01:22',
+      'HALLMARK-INSURANCE laptop-172 -contractor-> THE-COACH-HOUSE root@mikrotik01:22',
+      'HOLLIS-ACCOUNTANTS laptop-188 -contractor-> THE-COACH-HOUSE root@mikrotik01:22',
+      'ACORN-ROASTERS files-227 -backup-> THE-OKONKWOS bpatel@laptop-82:2222',
+      'HALLMARK-INSURANCE laptop-172 -contractor-> THE-OKONKWOS bpatel@laptop-82:2222',
+      'HEARTH-IT-SOLUTIONS share-161 -backup-> THE-OKONKWOS bpatel@laptop-82:2222',
+      'HALLMARK-INSURANCE laptop-172 -contractor-> THE-OLD-RECTORY root@net-gateway:22',
+      'HOLLIS-ACCOUNTANTS laptop-188 -contractor-> THE-OLD-RECTORY root@net-gateway:22',
+      'HOLLIS-ACCOUNTANTS desktop-88 -contractor-> KOWALSKI-WIFI root@net-gateway:22',
+      'HALLMARK-INSURANCE laptop-172 -contractor-> KOWALSKI-WIFI root@net-gateway:22',
+      'HEARTH-IT-SOLUTIONS laptop-117 -contractor-> KOWALSKI-WIFI root@net-gateway:22',
+      'HEARTH-IT-SOLUTIONS laptop-117 -contractor-> OAKLEY-DENTAL-CARE root@opnsense:22',
+    ]);
   });
 });
+
+/** The box `key`'s gateway forwards ssh to, if it forwards ssh to one. */
+const sshForwardedHost = (key: string): LanHost | undefined => {
+  const forward = sshForwardOf(key);
+  return generateHomeLan(key).hosts.find((host) => host.ip === forward?.internalIp);
+};
+
+/** Whether `host` on `key`'s LAN is somebody's phone or tablet rather than a computer. */
+const isDevice = (key: string, host: LanHost): boolean => deviceModel(key, host) !== undefined;
 
 /** The file at `path` on `host` of `key`, read as root, or `undefined` where there is none. */
 const fileOn = (key: string, host: LanHost, path: string): string | undefined => {
@@ -347,6 +446,8 @@ describe("a branch's relations", () => {
       'c6 edge-rtr -branch-> SUMMIT-HOLDINGS-MILLBROOK root@core-rtr:22',
       'c17 edge-rtr -branch-> TALBOT-GROUP-ASHBY webops@nginx-136:2222',
       'c22 dist-rtr -branch-> SKYLARK-HOLDINGS-ASHBY root@opnsense:22',
+      'c23 dist-rtr -branch-> DUNMORE-GROUP-OAKHURST root@router01:22',
+      'c18 vpn-gw -branch-> SHERIDAN-MORTIMER-OAKHURST mrodriguez@workstation-92:2222',
     ]);
   });
 });
@@ -621,6 +722,31 @@ describe("a business's offsite backup", () => {
     }
   });
 
+  it("keeps no copy on a phone or a tablet: a home that forwards ssh to one takes no backup, and keeps its contractors' leads", () => {
+    // A phone keeps what a phone keeps; a business's nightly copy needs a computer's disk.
+    expect(
+      backups()
+        .filter((relation) => isDevice(relation.target, relation.targetHost))
+        .map(
+          (relation) => `${relation.source} -> ${relation.target} ${relation.targetHost.hostname}`,
+        ),
+    ).toEqual([]);
+    const homesForwardingToDevices = townNetworks.filter((network) => {
+      const host = sshForwardedHost(network.key);
+      return (
+        network.category === 'residential' && host !== undefined && isDevice(network.key, host)
+      );
+    });
+    expect(homesForwardingToDevices.length).toBeGreaterThan(0);
+    for (const home of homesForwardingToDevices) {
+      expect(relationsTo(home.key).length, home.essid).toBeGreaterThan(0);
+      expect(
+        relationsTo(home.key).filter((relation) => relation.kind !== 'contractor'),
+        home.essid,
+      ).toEqual([]);
+    }
+  });
+
   it('keeps no copy on any other box of the home', () => {
     for (const relation of backups()) {
       const others = generateHomeLan(relation.target).hosts.filter(
@@ -742,13 +868,22 @@ describe("an unlisted business's supplier lead", () => {
   });
 
   it('keeps no invoice from the supplier on any other box of the town', () => {
+    // A share may keep invoices of its own; a supplier's is the one that names it.
     const kept = supplies().map((relation) => `${relation.source} ${relation.sourceHost.ip}`);
+    const suppliers = supplies().flatMap(
+      (relation) => townNetworks.find((network) => network.key === relation.target)?.site ?? [],
+    );
+    expect(suppliers.length).toBeGreaterThan(0);
     for (const network of townNetworks) {
       for (const host of generateHomeLan(network.key).hosts.filter(
         (candidate) => candidate.kind === 'machine',
       )) {
-        const invoices = filesUnder(network.key, host, '/srv/share/invoices/');
-        expect(invoices.size > 0, `${network.essid} ${host.hostname}`).toBe(
+        const fromSuppliers = [
+          ...filesUnder(network.key, host, '/srv/share/invoices/').values(),
+        ].filter((content) =>
+          suppliers.some((site) => content.includes(`From: ${site.name}\n      ${site.domain}`)),
+        );
+        expect(fromSuppliers.length > 0, `${network.essid} ${host.hostname}`).toBe(
           kept.includes(`${network.key} ${host.ip}`),
         );
       }

@@ -118,15 +118,16 @@ gateways on their own seed key or machine id.
 | `gw-admin-`, `gw-history-`, `gw-history-logs-`, `gw-history-backups-`, `gw-history-ui-` (by machine id) | a gateway's admin, history, rotations, backups, admin UI |
 | `network-profile-<key>` | how much stands behind a network's gateway beyond Ridgemont: `lone`, `flat` or `deep`, weighed by its category |
 | `gw-forwards-<key>` | the services a gateway beyond Ridgemont forwards beside its site: which, and on which public port (a home forwards ssh first when a machine there runs it) |
-| `town-businesses-<town key>` | how many businesses a town keeps |
+| `town-businesses-<town key>` | how many businesses a town keeps (a village 3–6, a town 12–24) |
+| `town-hospital-<town key>` | whether a town bigger than a village keeps a general hospital |
 | `town-business-kinds-<town key>` | each business's category and kind, no kind twice while its category has another |
 | `town-business-names-<town key>` | each business's name, from its kind's templates |
-| `town-practices-<town key>` | how many practices a town keeps beside its businesses, and whether each is a clinic or a dentist |
+| `town-practices-<town key>` | how many practices a town keeps beside its businesses (a village 1–2, a town 2–4), and whether each is a clinic or a dentist |
 | `town-practice-names-<town key>` | each practice's name, from its kind's templates, clear of every name drawn before it |
 | `corporations` | how many corporations the world draws beyond the landmarks, and each one's kind, no kind twice while another is left |
 | `corporation-names` | each corporation's name, from the corporations' own grammar, clear of every name drawn before it |
-| `town-branches-<town key>` | how many branches of the corporations a town keeps (a village 1–2), and each one's corporation, none twice |
-| `town-homes-<town key>` | how many homes a town keeps, then each one's form, template and words, clear of every wifi and word its homes already hold |
+| `town-branches-<town key>` | how many branches of the corporations a town keeps (a village 1–2, a town 2–3), and each one's corporation, none twice |
+| `town-homes-<town key>` | how many homes a town keeps (a village 4–8, a town 12–24), then each one's form, template and words, clear of every wifi and word its homes already hold |
 | `relations-<key>` | the leads that go to a network: how many, from whom, of which kind, from which box |
 | `relation-host-key-<key>-<ip>` | the host key every desk or head office that has met a client or branch box records for it |
 | `relation-cron-`, `relation-cron-log-` | an offsite backup job's time of night; its `syslog.1`/`auth.log.1` lines |
@@ -156,20 +157,38 @@ never the profile, so a network with no inner gateway has none anywhere.
 ## The towns
 
 Ridgemont's networks are the catalog's; every other town is a row the world declares and
-generates (`world.ts`). Millbrook (`r0/t1`) and Ashby (`r0/t2`) are both villages of Harrow
-Valley. A town's index is part of every key and address inside it, so rows are only ever
-appended: Ashby is declared after the corporations, its names drawn clear of Millbrook's and
-theirs, and declaring it moved nothing of either.
+generates (`world.ts`). Millbrook (`r0/t1`) and Ashby (`r0/t2`) are villages of Harrow Valley,
+and Oakhurst (`r0/t3`) is its first town. A town's index is part of every key and address
+inside it, so rows are only ever appended: Ashby is declared after the corporations and
+Oakhurst after Ashby, each one's names drawn clear of every network declared before it, and
+declaring it moved nothing of theirs but the gateways of the corporations that keep a branch
+there.
+
+A row is a name and a **size class**, and the class is one table (`SIZE_CLASSES`) of how many
+of each kind of place the town draws beyond its institutions:
+
+| Size | Businesses | Homes | Practices | Branches |
+|---|---|---|---|---|
+| village | 3–6 | 4–8 | 1–2 | 1–2 |
+| town | 12–24 | 12–24 | 2–4 | 2–3 |
+
+Oakhurst draws 47 networks: five institutions, 18 businesses, 20 homes, a clinic and a
+dentist, and branches of Dunmore Group and Sheridan & Mortimer.
 
 - **Its institutions** come from one rule on the town's name (`institutionsOf`): the council
   (`{Town} Town Council`, `{town}.gov`, `TOWN-HALL-WIFI`, which keeps the town's directory),
   the police (`{Town} Police Department`, `{town}pd.gov`, `{TOWN}-PD`) and the library
-  (`{Town} Public Library`, `{town}library.org`, `LIBRARY-PUBLIC`). Millbrook's cottage
-  hospital is its own, declared after its homes.
+  (`{Town} Public Library`, `{town}library.org`, `LIBRARY-PUBLIC`). A town bigger than a
+  village also keeps a **courthouse** (`{Town} County Court`, `{town}courts.gov`,
+  `COURTHOUSE-WIFI`, "the courthouse"), and draws a **general hospital** or none on
+  `town-hospital-<town key>` (`{Town} General Hospital`, `{town}hospital.org`,
+  `GENERAL-HOSPITAL`, "the hospital", kind `hospital`). Both stand after the library and are
+  on the council's directory; a village keeps neither. Oakhurst keeps both. Millbrook's
+  cottage hospital is its own, declared after its homes.
 - **The rest is drawn** on the town's own streams, keyed `r<region>/t<town>`: its
   businesses, then its homes, then its practices, then the corporations' branches there, each
   keyed as the town's next network and answering in the town's own block (`87.98.x.y` for
-  Millbrook, `87.195.x.y` for Ashby).
+  Millbrook, `87.195.x.y` for Ashby, `87.38.x.y` for Oakhurst).
 - **Names.** No domain repeats anywhere in the world, and no wifi repeats within a town: a
   scan shows one town's wifi at a time, so two towns' town halls both broadcast
   `TOWN-HALL-WIFI`, and two villages may each keep a Rose Cottage. Every wifi is at most 32
@@ -221,7 +240,7 @@ homes and Ridgemont's networks have no kind.
 
 ## What a home is
 
-A town keeps 4–8 homes (a village), drawn on `town-homes-<town key>`: the count first, then
+A village keeps 4–8 homes and a town 12–24, drawn on `town-homes-<town key>`: the count first, then
 each home's name from the homes' own grammar (`pools/homeNames.ts`), named the way people
 name their own. A home publishes nothing (see `discovery-architecture.md`, "Leads"). Each
 draws a form by weight, then one of the form's templates, then its words:
@@ -263,7 +282,7 @@ branches.
   always did), and no two corporations share a word. It is drawn after every other name,
   clear of them all, and spelt into its wifi and `.com` domain as a business's is (`Quayle &
   Bellamy` is `QUAYLE-BELLAMY`, `quaylebellamy.com`).
-- **Its branches**: a town draws 1–2 offices of the corporations (a village; on
+- **Its branches**: a village draws 1–2 offices of the corporations and a town 2–3 (on
   `town-branches-<town key>`, no corporation twice), keyed as the town's next networks after
   its practices but declared last of all, after the corporations whose names they carry.
   A branch declares its `parent`; it is `corporate` with its parent's kind, its wifi
@@ -285,9 +304,10 @@ history, personal mail, phone downloads, share departments (admissions, radiolog
 estates, rotas) and unnamed places. Millbrook's is **the cottage hospital** (`COTTAGE-HOSPITAL`,
 `millbrookhospital.org`), an institution declared after the town's homes (`MILLBROOK_LATER_INSTITUTIONS`
 in `world.ts`) so no earlier key or address moves, but listed on the directory with the other
-institutions. It is `flat` or `deep`, never `lone`.
+institutions. It is `flat` or `deep`, never `lone`. A town's general hospital (above) is
+one too, Oakhurst's `r0/t3/n4`, standing among its institutions.
 
-A town also keeps 1–2 **practices**, a clinic or a dentist each (`PRACTICE_SUBTYPES` in
+A village also keeps 1–2 **practices** and a town 2–4, a clinic or a dentist each (`PRACTICE_SUBTYPES` in
 `pools/businessKinds.ts`), no kind twice while the other is left. They are counted apart from
 the businesses, on streams of their own, and appended after the institutions declared later,
 so no earlier key moves. A practice is a business in every rule but its count: it always
@@ -375,6 +395,9 @@ roster mail and the share read.
 **File servers** (`share.ts`, `documentFormats.ts`, `pools/shareFiles.ts`): `/srv` holds the
 category's departments — a working share, or dated nightly snapshots on backup prefixes — as PDF,
 JPEG and office stubs whose metadata `strings` reads (office files never give up their author).
+No department holds more than ten files, a supplier's invoice included: a working share that is
+sent invoices draws its own `invoices` department, when it keeps one, with room for them
+(`buildServerShare` in `supplierInvoices.ts`).
 Noise is Latin-1 so `strings` ignores it and JSON writes it as itself. `vsftpd.log.1` records every
 arrival from its author's machine to the character; `fstab` mounts the data disk at `/srv`;
 `vsftpd.userlist` is an allow list.

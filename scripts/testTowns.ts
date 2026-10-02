@@ -3,8 +3,9 @@
 // `vercel dev` + supabase, once for each town beyond Ridgemont.
 //
 // Net-new under test (the locally-untypechecked api/ runtime):
-//   - Each town's council answers a fetch by its domain with its own front page, at an
-//     address in its town's own block of the region.
+//   - Each town's council, and the courthouse of a town that keeps one, answers a fetch
+//     by its domain with its own front page, at an address in its town's own block of the
+//     region.
 //   - findit's live index finds a place of each town by the town's name and a word its
 //     kind of place says of itself, which is how a player finds a shop in a town whose
 //     name they know.
@@ -150,7 +151,18 @@ for (const town of TOWNS) {
     console.error(`${town} has no council or no listed place on the internet.`);
     process.exit(2);
   }
-  const machines = [computeApGatewayId(council.key), machineIdForLanHost(server, council.key)];
+  // A town bigger than a village keeps a courthouse, fetched by its domain as the council is.
+  const courthouse = DECLARED_NETWORKS.find(
+    (network) => network.town === town && network.place === 'the courthouse',
+  );
+  const fetchedNetworks = [council, ...(courthouse === undefined ? [] : [courthouse])];
+  const machines = fetchedNetworks.flatMap((network) => {
+    const siteBox = siteServer(network.key);
+    return [
+      computeApGatewayId(network.key),
+      ...(siteBox === undefined ? [] : [machineIdForLanHost(siteBox, network.key)]),
+    ];
+  });
   const cleanup = async () => {
     await sr.from('patches').delete().in('machine_id', machines).eq('path', ACCESS_LOG_PATH);
     await sr.from('home_network_occupants').delete().eq('essid', council.key);
@@ -158,24 +170,32 @@ for (const town of TOWNS) {
   };
   await cleanup();
 
-  // === 1. The council answers by its domain, in its town's own block. ===
-  const fetched = await post(
-    signRequest(visitor, 'resolveHttpFetch', { target: councilIp, port: 80, path: '/' }),
-  );
+  // === 1. The council, and any courthouse, answer by their domains, in the town's block. ===
   const sameBlock = DECLARED_NETWORKS.filter((network) => network.town === town).every(
     (network) =>
       network.site === undefined ||
       siteAddress(network.site.domain)?.split('.').slice(0, 2).join('.') ===
         councilIp.split('.').slice(0, 2).join('.'),
   );
-  check(
-    `curl http://${councilSite.domain}/ returns ${councilSite.name}'s own front page`,
-    fetched.status === 200 &&
-      contentOf(fetched.body).includes(`<title>${councilSite.name}</title>`) &&
-      /^87\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(councilIp) &&
-      sameBlock,
-    `address=${councilIp} status=${fetched.status} error=${errorOf(fetched.body)}`,
-  );
+  for (const network of fetchedNetworks) {
+    const site = network.site;
+    const address = site === undefined ? undefined : siteAddress(site.domain);
+    if (site === undefined || address === undefined) {
+      console.error(`${network.key} publishes no site on the internet.`);
+      process.exit(2);
+    }
+    const fetched = await post(
+      signRequest(visitor, 'resolveHttpFetch', { target: address, port: 80, path: '/' }),
+    );
+    check(
+      `curl http://${site.domain}/ returns ${site.name}'s own front page`,
+      fetched.status === 200 &&
+        contentOf(fetched.body).includes(`<title>${site.name}</title>`) &&
+        /^87\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(address) &&
+        sameBlock,
+      `address=${address} status=${fetched.status} error=${errorOf(fetched.body)}`,
+    );
+  }
 
   // === 2. findit finds one of the town's places by the town's name and its kind. ===
   const query = `${town} ${KIND_WORDS[place.subtype ?? '']}`;
