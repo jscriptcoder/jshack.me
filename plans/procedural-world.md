@@ -17,7 +17,7 @@ v0.297.0); 7b complete 2026-10-01 (#588, v0.298.0). Slice 7 complete. Slice 8 gr
 2026-10-01 as slices 8a–8d (decision 19b); 8a complete 2026-10-02 (#589, v0.299.0); 8b split
 2026-10-02 into the names (8b) and the town (8c), the city and the rows moving to 8d and 8e
 (decision 19c); 8b complete 2026-10-02 (#590, v0.300.0); 8c complete 2026-10-02 (#591,
-v0.301.0); 8d grilled and planned 2026-10-02 (decision 19e). Slice 9 not yet planned.
+v0.301.0); 8d complete 2026-10-02 (#592, v0.302.0). Slice 9 not yet planned.
 Amends the §9 backlog item "Procedural world expansion — GRILLED & RESOLVED 2026-07-29" in
 `docs/conventions-and-gotchas.md`; where the two disagree, this file wins.
 
@@ -1037,6 +1037,15 @@ relations, forwards, institution sets. (Added by find-gaps 2026-09-28.)
       the best-of-three timing; `discovery-architecture.md` the police example. The minor
       version is bumped to 0.302.0.
     - **Carried to 8e**: "cafe" finding no café is fixed with 8e's findit work, not here.
+    **Amended while building 8d** (owner, 2026-10-02):
+    - **A city draws its hospital as a town does.** Kingsford's `town-hospital-r0/t4` draw
+      keeps one, so "always, reading no draw" could not be told apart from the town's rule and
+      no test could demand it. A later city whose draw keeps none shows in its own golden.
+    - **findit's journal read is split in 8d, not 8e.** With Kingsford the one read named 529
+      machines in a 12.6 KB URL, and local Supabase refused it ("URI too long"), so every
+      search came back empty in the wire-checks. 19b's own fallback ("splits the read only if
+      it fails") was taken one PR early; the memoised index and the cold-build limit stay in
+      8e.
 
 ## Slice plans
 
@@ -2722,9 +2731,9 @@ owner approves the commit.
 Grilled 2026-10-01 (decision 19b), 8b split 2026-10-02 (decision 19c). Five PRs, in order,
 each cut from `main` after the one before it merges: 8a a second village, 8b the names, 8c the
 town size class, 8d the city, 8e the remaining rows and findit's index split. 8a complete
-2026-10-02 (#589), 8b complete 2026-10-02 (#590), 8c complete 2026-10-02 (#591), 8d planned
-2026-10-02 (decision 19e); each later PR is planned after the one before it merges, from what
-that one measured.
+2026-10-02 (#589), 8b complete 2026-10-02 (#590), 8c complete 2026-10-02 (#591), 8d complete
+2026-10-02 (#592); each later PR is planned after the one before it merges, from what that one
+measured.
 
 ### Slice 8a: a second village, Ashby, and findit finds a town's places by its name
 
@@ -3194,7 +3203,8 @@ join. Beside it, `ALL_ESSIDS` reading the sample unless `WORLD_SWEEP=full`, and
 `checkBudgets` reading the best of three timed passes.
 **Class**: behaviour change.
 **Delivery**: independent PR against `main`, branch `feat/procedural-world-city`.
-**Status**: planned 2026-10-02.
+**Status**: **complete** 2026-10-02 (#592, `e1fe2322`, v0.302.0); 8d-1 to 8d-10 hold, 8d-3 as
+amended below.
 **Required implementation skills**: `tdd`, `testing`, `refactoring`; `mutation-testing` at
 PR-readiness.
 **Reduction program**: `N/A`.
@@ -3204,20 +3214,21 @@ code is unchanged at `a8ca0cff`).
 
 **Acceptance criteria** (owner-confirmed 2026-10-02, decision 19e):
 
-- [ ] **8d-1** The size-class table gains the city: 40–80 businesses, 40–80 homes, 5–8
+- [x] **8d-1** The size-class table gains the city: 40–80 businesses, 40–80 homes, 5–8
       practices and 3–5 branches. Every village and town row draws exactly what it draws
       today.
-- [ ] **8d-2** The world declares Kingsford, `r0/t4`, Harrow Valley, a city, after Oakhurst:
+- [x] **8d-2** The world declares Kingsford, `r0/t4`, Harrow Valley, a city, after Oakhurst:
       its networks ordered institutions, businesses, homes, practices, branches, answering in
       `87.135.x.y`, its names avoiding every network declared before it. Every declared
       address stays distinct, no ESSID repeats within a town, every ESSID is at most 32
       characters, and no word names two of its places.
-- [ ] **8d-3** A city keeps the courthouse and always keeps the hospital (`{Town} General
-      Hospital`, `{town}hospital.org`, `GENERAL-HOSPITAL`), reading no `town-hospital-` draw;
-      a town still draws 0–1 and a village keeps neither. Its council's directory links both.
-- [ ] **8d-4** A network one person has to themselves keeps no mail: no box on it, its mail
+- [x] **8d-3** A city keeps the courthouse and draws its hospital (`{Town} General Hospital`,
+      `{town}hospital.org`, `GENERAL-HOSPITAL`) on `town-hospital-<key>` as a town does;
+      Kingsford keeps one; a village keeps neither. Its council's directory links both.
+      (Amended 2026-10-02, owner: "always, reading no draw" was unobservable, decision 19e.)
+- [x] **8d-4** A network one person has to themselves keeps no mail: no box on it, its mail
       server included, keeps a spool for anyone, an empty one included.
-- [ ] **8d-5** Every whole-world content property holds over every declared network under
+- [x] **8d-5** Every whole-world content property holds over every declared network under
       `WORLD_SWEEP=full`, the test-side failures reshaped to what each claims: an access
       point's front page differs from another's wherever the vendor, the hostname or the LAN
       address does; a supplier's invoice is logged exactly when the share logs the files
@@ -3226,22 +3237,22 @@ code is unchanged at `a8ca0cff`).
       test compares sorted lists. Every Kingsford network is reached, and every listed
       Kingsford site is in the top ten for its town and a word its description uses for its
       kind.
-- [ ] **8d-6** By default the content sweeps read the fixed sample: the landmarks, the
+- [x] **8d-6** By default the content sweeps read the fixed sample: the landmarks, the
       uncatalogued keys, all of Millbrook and the corporations, and in every other town the
       first network in key order of each shape it holds (category, subtype, profile, whether
       a branch, whether unlisted). A test pins that every shape of every town is in it and
       that it holds no network twice. `WORLD_SWEEP=full` sweeps every declared network;
       `relations`, `webIndex` and `world` read the whole world either way. The PR records one
       green full sweep.
-- [ ] **8d-7** `checkBudgets` times every box, a set at a time, Kingsford's set among them,
+- [x] **8d-7** `checkBudgets` times every box, a set at a time, Kingsford's set among them,
       each set's figure the best of three timed passes, and passes at 2 ms a box.
-- [ ] **8d-8** Nothing else moved: a dump against `main` differs only by Kingsford's
+- [x] **8d-8** Nothing else moved: a dump against `main` differs only by Kingsford's
       networks and the relations and gateways of `c1`, `c7`, `c11` and `c21`, which gain its
       branches.
-- [ ] **8d-9** `testTowns` fetches Kingsford's council and hospital by their domains, finds
+- [x] **8d-9** `testTowns` fetches Kingsford's council and hospital by their domains, finds
       a Kingsford site by town and kind, and has a join refused; `testMillbrook`,
       `testFindit` and `testJoinRefusal` pass live.
-- [ ] **8d-10** `world-content-architecture.md` describes the city, the hospital rule and the
+- [x] **8d-10** `world-content-architecture.md` describes the city, the hospital rule and the
       mail rule; `conventions-and-gotchas.md` the sample, `WORLD_SWEEP=full`, the gate's full
       sweep and the best-of-three timing; `discovery-architecture.md` the police example. The
       minor version is bumped to 0.302.0.
@@ -3271,6 +3282,44 @@ sample is test code: its evidence is its own test and the full sweep. One full s
 (sampled) and the full sweep, typecheck, lint and format pass, and the owner approves the
 commit.
 **Slice complete when**: its PR merges; 8e is planned next.
+(Done 2026-10-02: #592 merged; 8e is next.)
+
+**As built** (2026-10-02):
+
+- **Kingsford** is a `city` row in `SIZE_CLASSES` and drew exactly the prototype's 166
+  networks; a golden pins every one. It reads the hospital draw as a town does (amended).
+- **The mail rule** is one early return in `mailEntries`: a mail server on the LAN whose
+  network keeps no correspondence keeps what a box nobody reads mail on keeps (`cronOnly`),
+  so no mailbox, no `/etc/aliases` and no `mail.log.1`; the empty `mail.log` stays with the
+  role. Dropping the aliases went past 19e: kept, they would point at mailboxes the box no
+  longer keeps. The tests share one `carriesMail` (`src/test/worldContent.ts`); deep mail
+  servers are unchanged.
+- **findit reads its journals 200 machines at a time** (`MACHINES_PER_READ` in
+  `webIndex.ts`), every read concurrent, any failed read still no index (amended).
+- **The sample** is `townKeysSwept` in `src/test/worldContent.ts`, read through
+  `import.meta.env.WORLD_SWEEP` (Vitest hands the run's environment there), so the module
+  no longer loads outside Vitest; no script imports it. `WORLD_ESSIDS` is the whole world
+  for a test one rare network can break: the lone-network mail test reads it, because the
+  sample holds none of the 82 lone networks with a mail server.
+- **Dump against `main`**: outside Kingsford only `c1`, `c7`, `c11` and `c21`'s relations
+  and gateways moved; `main`'s 105 findit pages unchanged.
+- **Mutation**: `world.ts` whole (424 mutants, battery `world.test.ts`): 25 true survivors
+  after hand-applying all 185 reported, every one carried from 8c and none on 8d's lines.
+  Kingsford killed 13 of 8c's 38: the numbered flat's floor and door (7), the practice
+  avoiding its town's business words (2), and four of the redraws. The mail rule's lines
+  (39): one real survivor, the whole rule removed, which the sample could not see; the
+  lone-network test now reads the whole world and kills it. Six equivalent or on a line
+  older than 8d. The read split (17): one equivalent survivor (`data ?? []` filled with a
+  row naming no machine).
+- **Carried to 8e**: the hospital draw's three (never, always, the stream's name), which
+  need a town whose draw keeps none, and the router suffix's leading zeros (2), with 8c's
+  classified rest (equivalent, the unreachable throw guard, the held-name redraw).
+- **Wire-checks**: `testFindit` 19/19, `testTowns` 16/16 (each town's council, courthouse
+  and hospital fetched by domain), `testMillbrook` 12/12, `testJoinRefusal` 5/5 live, after
+  the read split; before it every findit search failed.
+- **Budgets**: the bundle 251,768 B; Kingsford 1.27 ms a box, Ashby the closest at 1.97 on
+  the best of three. The suite: sampled 7320 tests in 743 s of file time, `WORLD_SWEEP=full`
+  857 s, against `main`'s 785 s measured the same day.
 
 ## Acceptance Criteria
 
