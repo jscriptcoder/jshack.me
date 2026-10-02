@@ -363,7 +363,7 @@ const searchedFor = (requestPath: string): string | null => {
  * findit's answer to a search — the one address in this world that replies from a
  * FUNCTION rather than from a file.
  *
- * The index is built here, at the moment of the search, out of what every publisher is
+ * The index is read here, at the moment of the search, out of what every publisher is
  * serving right now; see `indexedWeb`. It is never a file on findit, which is why
  * rooting findit defaces its front door without poisoning anybody's results.
  */
