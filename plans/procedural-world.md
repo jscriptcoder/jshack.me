@@ -17,7 +17,7 @@ v0.297.0); 7b complete 2026-10-01 (#588, v0.298.0). Slice 7 complete. Slice 8 gr
 2026-10-01 as slices 8a–8d (decision 19b); 8a complete 2026-10-02 (#589, v0.299.0); 8b split
 2026-10-02 into the names (8b) and the town (8c), the city and the rows moving to 8d and 8e
 (decision 19c); 8b complete 2026-10-02 (#590, v0.300.0); 8c complete 2026-10-02 (#591,
-v0.301.0). Slice 9 not yet planned.
+v0.301.0); 8d grilled 2026-10-02 (decision 19e). Slice 9 not yet planned.
 Amends the §9 backlog item "Procedural world expansion — GRILLED & RESOLVED 2026-07-29" in
 `docs/conventions-and-gotchas.md`; where the two disagree, this file wins.
 
@@ -945,6 +945,98 @@ relations, forwards, institution sets. (Added by find-gaps 2026-09-28.)
     - `world-content-architecture.md` describes the size classes, the courthouse, the hospital
       and both rules; `discovery-architecture.md` the court example; `conventions-and-gotchas.md`
       §3 the memo as the measured cache. The minor version is bumped to 0.301.0.
+
+19e. **8d: Kingsford, the city** (grilled 2026-10-02, owner-confirmed in bulk).
+    **Facts measured while grilling** (against `main` at `241eb297`, by a throwaway prototype
+    declaring Kingsford as a city after Oakhurst, then reverted; the diff kept outside the
+    repo):
+    - Kingsford (`r0/t4`, `87.135.x.y`) draws **166** networks, the 19b prototype's figure:
+      council, police, library, courthouse and hospital; 71 businesses, 80 homes, 6 practices;
+      branches of `c21`, `c11`, `c7` and `c1`. 12 unlisted. All 334 declared addresses
+      distinct; the longest ESSID 28 characters. Still no corporation keeps branches in two
+      towns.
+    - **The word rule holds at a city**: Kingsford's businesses are redrawn 24 times and its
+      practices 3, with no sign of running short.
+    - **Build time**: Kingsford 1.4–1.5 ms a box, as cheap as any set. The machine is slower
+      than at 8c: on `main` the sets read 1.3–1.9 ms, and Ashby's 121 boxes 1.62–2.16 ms with
+      nothing in Ashby changed, failing the 2 ms ceiling twice.
+    - **findit**: every search builds its index from 175 pages in about **700 ms**, against
+      `main`'s 350 ms over 105 (idle machine).
+    - **The suite**: file times sum to 1175 s against 607 s; the 26 files that sweep the
+      world take 879 s of it.
+    - **8b's carried survivors**: Kingsford draws nine numbered flats (`FLAT-1A`–`FLAT-9C`),
+      so the floor and door (7) are reached; no router suffix under `1000`; a city does not
+      read the hospital draw.
+    - **The sample's size**: one network of each (category, subtype, profile) a town holds
+      is Ashby 12, Oakhurst 26, Kingsford 38; with branch and unlisted in the key 14, 27 and
+      52. With Millbrook and the corporations whole, 137 of 277 procedural networks. It would
+      have caught none of the failures below: each is one network, or a coincidence.
+    - **7 assertions fail.**
+      - **A lone home keeps an empty spool.** `TP-LINK-5C3A` has one person, and its mail
+        server `imap-3` keeps `/var/mail/listadm`, empty, where the test holds that a network
+        one person has to themselves keeps no correspondence, not even as a spool.
+      - **Four pairs of access points show one front page**: each pair shares a vendor, a
+        hostname and a LAN `/24` (`r0/t4/n65` and `n139` at `192.168.66.1`, `n97` and `n120`,
+        `r0/t1/n16` and `r0/t4/n49`, `r0/t3/n14` and `r0/t4/n59`). The page holds those three
+        and nothing else.
+      - **Two shares whose ftp daemon is stopped hold a supplier's invoice and no transfer
+        log** (Southgate Tax and Accounts' `share-189`, Nesbitt Insurance Brokers'
+        `share-121`); neither logs any file's arrival.
+      - **Test-side**: "police" finds `kingsfordpd.gov` first; "wards" finds
+        `kingsfordhospital.org` first; the branch golden; the backup test sorts the folders a
+        box keeps and not the list it expects (19c's "unsorted list").
+    - **"cafe" finds no café**: an unaccented query matches no "Café", in `main` too ("Millbrook
+      cafe" finds the institutions, "Millbrook café" the cafés).
+
+    **8d's calls** (owner-confirmed in bulk):
+    - **findit's index split stays in 8e.** 700 ms a search is under the 800 ms decision 16
+      accepted before the split, and the game is not launched. Rejected: the split first, as a
+      PR of its own (no breach at 105 pages to prove it against, 19b's reason).
+    - **The city joins the size table** (businesses 40–80, homes 40–80, practices 5–8,
+      branches 3–5). **Kingsford** is `r0/t4`, a city, declared after Oakhurst, its names
+      avoiding every network before it, its networks ordered institutions, businesses, homes,
+      practices, branches.
+    - **A city always keeps a hospital** and reads no `town-hospital-` draw; it keeps the
+      courthouse. The council's directory links both.
+    - **The sweeps take the fixed sample**: it replaces `TOWN_KEYS` in `ALL_ESSIDS`, so it
+      reaches the content sweeps alone. It keeps the landmarks, the uncatalogued keys, all of
+      Millbrook and the corporations, and in every other town the first network in key order
+      of each shape it holds, a shape being category, subtype, profile, whether a branch and
+      whether unlisted. `relations`, `webIndex` and `world` keep reading the whole world: they
+      are its cross-network rules. `WORLD_SWEEP=full` sweeps every declared network; each PR's
+      gate runs it once and records it. Rejected: 19b's three-part key (a branch and an
+      unlisted business swept only where one comes first).
+    - **`checkBudgets` keeps timing every box**, a set at a time, and reads the **best of
+      three** timed passes. It reverses 19d's "8d moves it to the sample": the whole check takes
+      about 13 s, a smaller set times noisier, and noise only ever adds time.
+    - **A network one person has to themselves keeps no mail, not even an empty spool on its
+      mail server.** It moves `TP-LINK-5C3A` alone.
+    - **Identical access-point front pages are test-side** (the weakest call, flagged): two
+      routers of one make, one hostname and one subnet show one status page, as real ones do.
+      The test claims the front page differs wherever the vendor, the hostname or the LAN
+      address does, which a page drawn from one template still fails. Rejected: a row naming
+      the network (an SSID or a WAN address) on every access point's page (moves Ridgemont,
+      and a WAN address is a carve-out for networks with none).
+    - **A share whose ftp daemon is stopped is test-side**: it logs no file's arrival, so the
+      test claims an invoice's arrival is logged exactly when the share logs the files beside
+      it.
+    - **The test-side failures are reshaped**, never loosened past what each claims: "police"
+      finds a police department first and "<town> police" its own; "wards" finds a hospital
+      first; the branch golden adds Kingsford's branches; the backup test sorts what it
+      expects.
+    - Evidence: declaring Kingsford is the RED; each real rule's test names a world-wide
+      property; a dump against `main` shows Ridgemont, Millbrook, Ashby, Oakhurst and the
+      corporations unmoved but for `c1`, `c7`, `c11` and `c21` gaining Kingsford branches.
+    - **The 13 carried survivors are re-run at 8d's gate**; the router suffix's leading zeros
+      and the hospital draw's three are expected to stay unreached and carry to 8e's towns.
+    - `testTowns` adds Kingsford: its council and hospital fetched by domain, a site found by
+      "Kingsford <kind>", a join refused. `testMillbrook`, `testFindit` and `testJoinRefusal`
+      rerun live.
+    - `world-content-architecture.md` describes the city, the hospital rule and the mail rule;
+      `conventions-and-gotchas.md` the sample, `WORLD_SWEEP=full`, the gate's full sweep and
+      the best-of-three timing; `discovery-architecture.md` the police example. The minor
+      version is bumped to 0.302.0.
+    - **Carried to 8e**: "cafe" finding no café is fixed with 8e's findit work, not here.
 
 ## Slice plans
 
