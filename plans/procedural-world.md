@@ -19,7 +19,8 @@ v0.297.0); 7b complete 2026-10-01 (#588, v0.298.0). Slice 7 complete. Slice 8 gr
 (decision 19c); 8b complete 2026-10-02 (#590, v0.300.0); 8c complete 2026-10-02 (#591,
 v0.301.0); 8d complete 2026-10-02 (#592, v0.302.0); 8e split 2026-10-02 into the rows (8e)
 and findit (8f) (decision 19f); 8e complete 2026-10-02 (#593, v0.303.0); 8f complete
-2026-10-02 (#594, v0.304.0). Slice 8 complete. Slice 9 not yet planned.
+2026-10-02 (#594, v0.304.0). Slice 8 complete. Slice 9 grilled 2026-10-02 as slices 9a–9b
+(decision 19g); not yet planned.
 Amends the §9 backlog item "Procedural world expansion — GRILLED & RESOLVED 2026-07-29" in
 `docs/conventions-and-gotchas.md`; where the two disagree, this file wins.
 
@@ -102,6 +103,8 @@ relations, forwards, institution sets. (Added by find-gaps 2026-09-28.)
    the internet and the hacker-scene easter eggs should be rare. No landmark weighting. The
    occupied-network injector drops to a few percent of scans, one at a time, same town only
    (2026-07-29's call, now town-scoped).
+   (Sized by slice 9's grill, 19g: Ridgemont is a `city` row, and its own streams draw 121
+   filler networks, 178 with the landmarks. The "~150–300" above predates the size classes.)
 6. **The world is finite and declared**, grown by appending towns to a region or a region to the
    world. The findit index, the reachability test, the map and the IP scheme each need to list
    every network. Launch extent: region #0 only, about 8–12 towns, each of a size class its
@@ -542,7 +545,8 @@ relations, forwards, institution sets. (Added by find-gaps 2026-09-28.)
     8. The remaining towns, the findit index split and the sampled budgets, as six PRs (grill
        2026-10-01, 19b; split 2026-10-02, 19c and 19f): 8a a second village, 8b the names, 8c
        the town size class, 8d the city, 8e the remaining rows, 8f findit's memoised index.
-    9. Ridgemont's WiFi filler and the injector turned down.
+    9. Ridgemont's WiFi filler and the injector turned down, as two PRs (grill 2026-10-02,
+       19g): 9a the filler, declared and on the WiFi; 9b the injector.
 
 19a. **Procedural corporations get their own slice**, after healthcare and before the remaining
     towns, so those towns are generated with branches in place. 20–40 placeless corporations in
@@ -1130,6 +1134,88 @@ relations, forwards, institution sets. (Added by find-gaps 2026-09-28.)
       stopped) while an unpatched one is served from the memo; `testFindit` runs live;
       `discovery-architecture.md` describes the memo and the folding,
       `conventions-and-gotchas.md` §3 the cold limit.
+
+19g. **9a: Ridgemont's filler, declared and on the WiFi; 9b: the injector turned down**
+    (grilled 2026-10-02; decision 1 confirmed singly, the rest owner-confirmed in bulk).
+    **Facts found while grilling** (against `main` at `9f209aae`):
+    - Ridgemont has no row: its 57 networks are the catalog, keyed by their ESSIDs, and
+      nothing in it is generated. Its landmarks fill four institution slots: the council
+      (`CITY-HALL-WIFI`), the police (`RIDGEMONT-PD`), the courthouse (`COURTHOUSE-GUEST`)
+      and the library (`LIBRARY-PATRON`); it also keeps a university.
+    - Drawn as a city on its own streams (`r0/t0`), Ridgemont keeps a hospital (the coin
+      flip lands 1), 65 businesses, 44 homes, 8 practices and 3 branches: **121** filler
+      networks, **178** with the landmarks.
+    - The scan draws 2–3 crackable networks from `crackableEssidPool` (the 57 landmarks) and
+      3–5 noise, then injects 0 to `min(n, 3)` occupied networks into every scan. The join
+      sends the scan's `essid` as the network key, which has held only because a landmark's
+      key is its ESSID: a filler network is the first joinable one whose key (`r0/t0/n57`)
+      differs from the name it broadcasts.
+    - Seven places check `town === RIDGEMONT` where they mean "a hand-authored landmark":
+      the leads (`relations.ts:255`), the seeded forwards (`seededForwards.ts:68`), a site's
+      locality (`webSite.ts:518`), the procedural sweep (`src/test/worldContent.ts`), the
+      budget sets (`checkBudgets.ts`) and two wire-checks (`testJoinRefusal`, `testTowns`).
+      The join refusal (`registerNetwork.ts:102`) means the town.
+    - The reachability property counts every Ridgemont network as found ("by standing in
+      Ridgemont"), which holds for the filler only once the scan offers it.
+    - The home templates cannot spell a landmark's or a noise network's ESSID (`FLAT-3B`
+      against `APT-3B-WIFI`, `LINKSYS-0A0C` against `linksys`).
+    - The server's occupied-network read is name-only and lists every occupied network;
+      only `testSameLanOccupiedEssids` drives it, and nothing reads which scan injected what.
+
+    **The calls**:
+    - **Ridgemont is a `city` row** (confirmed singly). Its filler is drawn from the city's
+      ranges unchanged: 121 networks. Rejected: a class of its own, or counts of its own, to
+      reach the old "~150–300", which would make it denser than Kingsford for nothing a
+      player could see.
+    - **Only the institutions no landmark fills are generated.** The council, police,
+      courthouse and library are the landmarks'; the hospital draw keeps
+      `GENERAL-HOSPITAL` (`ridgemonthospital.org`). The university does not stand in for a
+      hospital: the code draws only a hospital, so no exception is needed.
+    - **The filler is keyed `r0/t0/n57` on**, in a town's order (the hospital, the
+      businesses, the homes, the practices, the branches last), and each answers in
+      Ridgemont's block at its own position, after the landmarks' 57. It is declared after
+      Stonebury, so its names avoid every earlier network and move none of them. **The
+      catalog closes at 57**: a hand-written Ridgemont network declared later goes after the
+      filler, as Millbrook's hospital did.
+    - **The filler is an ordinary town; the landmarks are the exception.** Each check above
+      that means "landmark" says so, so the filler gains the leads among its own networks,
+      the seeded forwards and ", Ridgemont" on its sites, while no landmark gains a lead, a
+      forward or a word (AC-7). The join refusal keeps its town check, so every filler
+      network is joinable.
+    - **15% of the filler's publishers are unlisted**, as in every town. Ridgemont's council
+      is a landmark and keeps no directory (AC-7), so an unlisted filler site is found by
+      standing in Ridgemont, as the reachability property already says.
+    - **No naming rule is added**: a test proves Ridgemont's 178 ESSIDs are distinct and none
+      is a noise network's.
+    - **The scan draws from all 178**, landmarks first in catalog order, then the filler in
+      key order; still 2–3 crackable and 3–5 noise. Accepted: every player's scans roll
+      differently (`pickN` maps onto the pool's length; nothing stored reads a past scan),
+      and landmarks are about a third of what a scan offers, as decision 5 accepted.
+    - **A filler network is shown and typed by its broadcast name and joined by its key.**
+      `airodump-ng`, `nmcli` and the HUD show the ESSID and `nmcli connect` takes it; the
+      join, the BSSID, the password and everything stored take the key (decision 4). A
+      landmark, whose key is its ESSID, is unchanged. The wiring is planning's.
+    - **The injector fires on about 5% of scans** (flagged weak: the number is a guess, "a
+      few percent" made concrete). It adds exactly one network, drawn from the occupied
+      networks in the scan's own pool that the scan does not already show, so it is
+      same-town by construction and an occupied lab network is never injected. A scan with
+      nothing to inject takes no draw. The server's read is unchanged. Accepted: staging the
+      two-player shared-LAN journey takes about 16 rescans rather than a coin flip;
+      `e2e-shared-network-verification.md` says so.
+    - **Every sweep and budget takes the filler** (flagged weak: the cost is unmeasured).
+      The 26 test files sweeping every generated network (`TOWN_KEYS`) grow by about a
+      quarter, measured at planning; `checkBudgets` keeps the landmarks as Ridgemont's set
+      and samples the filler with the procedural sets (2 ms a box); findit's cold build
+      gains about 70 publishers against the 1,000 ms limit (424 ms at 8f).
+    - **Two PRs** (flagged weak: 9a is large). **9a** the filler, declared and on the WiFi
+      (AC-10); **9b** the injector (AC-11); each bumps the minor version. 9a cannot split
+      further: without the scan the unlisted filler is unreachable, and the key-and-name
+      wiring alone has no behaviour a test can see.
+    - **Two ACs are added**: AC-10 and AC-11 below.
+    - **9b is the plan's last PR.** Its close-out moves the as-built into
+      `world-content-architecture.md`, `discovery-architecture.md`, handbook chapter 6,
+      `e2e-shared-network-verification.md` and the §9 backlog in
+      `conventions-and-gotchas.md`, and retires this plan, as **Done** says.
 
 ## Slice plans
 
@@ -3684,6 +3770,10 @@ owner approves the commit.
 - [x] **AC-9** `checkBudgets` passes: gzipped main chunk ≤ 284,975 B, and both the landmark sweep
       and the sampled procedural sweep average ≤ 2 ms per box, and the cold findit index build at
       the launch extent stays within the limit slice 8 measures and sets.
+- [ ] **AC-10** A Ridgemont scan draws from all 178 of its networks, and a filler network cracks
+      and joins by the name it broadcasts while the server records it under its key.
+- [ ] **AC-11** An occupied network surfaces in about 5% of scans, one at a time, and only from
+      the player's own town.
 
 **Done** means every slice is merged, every AC holds, the as-built docs
 (`world-content-architecture.md`, `discovery-architecture.md`, handbook chapter 6) describe the
