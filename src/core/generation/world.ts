@@ -607,6 +607,12 @@ const LANDMARKS: readonly DeclaredNetwork[] = ESSID_CATALOG.map((entry) => ({
   region: regionOf(RIDGEMONT_TOWN),
 }));
 
+const LANDMARK_KEYS: ReadonlySet<string> = new Set(LANDMARKS.map((network) => network.key));
+
+/** Whether the network under `key` is one of Ridgemont's landmarks, written by hand rather
+ *  than drawn, so the world draws it no lead, forward or locality. */
+export const isLandmark = (key: string): boolean => LANDMARK_KEYS.has(key);
+
 /** Every network the world declares: Ridgemont's first, then Millbrook's, the
  *  corporations and Millbrook's branches, then each later town's networks and its branches,
  *  in the order the towns were declared. */

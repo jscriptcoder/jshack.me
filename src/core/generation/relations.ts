@@ -21,8 +21,8 @@
 import {
   declaredNetwork,
   DECLARED_NETWORKS,
+  isLandmark,
   publicAddress,
-  RIDGEMONT,
   type DeclaredNetwork,
 } from './world.js';
 import { generateHomeLan, type LanHost } from './generateHomeLan.js';
@@ -248,12 +248,10 @@ export const branchLeadsFrom = (key: string): readonly Login[] =>
   );
 
 /** The town whose networks lead to and from the one under `key`. Leads are drawn among
- *  the networks of a town beyond Ridgemont, so a Ridgemont network has none, and neither
- *  has one that stands in no town. */
-const leadingTown = (key: string): string | undefined => {
-  const town = declaredNetwork(key)?.town;
-  return town === RIDGEMONT ? undefined : town;
-};
+ *  the networks a town draws, so a landmark has none, and neither has one that stands in no
+ *  town. */
+const leadingTown = (key: string): string | undefined =>
+  isLandmark(key) ? undefined : declaredNetwork(key)?.town;
 
 /** `read`, answering each key from what it answered the first time. A network's leads
  *  are drawn from the world, which is fixed when the module loads, so a key's answer never

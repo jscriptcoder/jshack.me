@@ -6,7 +6,7 @@
 
 import { hostServices, npcUsername } from '../core/generation/remoteHostFs.js';
 import { crackableEssidPool } from '../core/generation/generateWifi.js';
-import { DECLARED_NETWORKS, RIDGEMONT, type DeclaredNetwork } from '../core/generation/world.js';
+import { DECLARED_NETWORKS, isLandmark, type DeclaredNetwork } from '../core/generation/world.js';
 import { relationsFrom, type Login } from '../core/generation/relations.js';
 import { generateHomeLan, isOnHomeLan, type LanHost } from '../core/generation/generateHomeLan.js';
 import { peopleOn } from '../core/generation/networkMail.js';
@@ -34,10 +34,10 @@ export const UNCATALOGUED_ESSIDS = [
   'Practice-Staff',
   'Patient-Staff',
 ];
-/** Every network the world draws beyond Ridgemont. */
-const DRAWN = DECLARED_NETWORKS.filter((network) => network.town !== RIDGEMONT);
+/** Every network the world draws rather than Ridgemont's landmarks. */
+const DRAWN = DECLARED_NETWORKS.filter((network) => !isLandmark(network.key));
 
-/** Every network a town beyond Ridgemont declares, by the key its machines are built from. */
+/** Every network the world draws, by the key its machines are built from. */
 export const TOWN_KEYS = DRAWN.map((network) => network.key);
 
 /** The networks the world drew first, which every sweep reads whole: Millbrook, and the
