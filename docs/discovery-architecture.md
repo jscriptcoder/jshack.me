@@ -174,8 +174,10 @@ results — the index is always a VIEW over the publishers' pages, never a file 
 
 **The index is live and computed per search**, never stored:
 
-- Every publisher's homepage is read as served NOW (patches included), in ONE batched
-  patch query over ~64 machines (gateways + site servers). A rewritten `index.html`
+- Every publisher's homepage is read as served NOW (patches included), in batched patch
+  queries over its gateways and site servers, 200 machines a query: a query names its
+  machines in its request's address, and with Kingsford one naming all 529 (12.6 KB) was
+  refused as "URI too long", leaving every search empty. A rewritten `index.html`
   changes its own listing at the next search; a dark publisher (bricked, stopped,
   filtered) is absent.
 - **Players are crawled, not submitted.** Every page on a public `:80` is listed — player
@@ -194,8 +196,9 @@ Scoring (`findit/search.ts`) reads only `/index.html`. A page that says more of 
 query's whitespace-split lower-cased terms ranks first, so "Millbrook café" asks for a café
 in Millbrook rather than every café; among pages that say as many, title (3) > meta
 description (2) > visible body text (1), summed per term; positive scores only, at most
-ten, ties by domain. Two towns keep a county court, so "court" lists both, Oakhurst's first
-on the tie, and "ridgemont court" asks for Ridgemont's. Generated homepages carry a
+ten, ties by domain. Several towns keep a county court, so "court" lists them all, and
+"ridgemont court" asks for Ridgemont's; three keep a listed police department, so "police"
+lists all three before anything else, and "kingsford police" asks for Kingsford's. Generated homepages carry a
 `<meta name="description">` derived from
 the catalog place and category, so "admissions" finds the university and "parking" finds
 the airport. A place in a town beyond Ridgemont whose name does not say its town says it

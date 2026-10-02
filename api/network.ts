@@ -360,8 +360,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       now: () => Date.now(),
       ...accessLogWriterVia({ supabase, label: 'http-fetch' }),
       findHomeNetworkByOwnerKey: findHomeNetworkByOwnerKeyVia({ supabase, label: 'http-fetch' }),
-      // Only findit's search reaches this: every publisher's gateway and web server in
-      // ONE read, so building a live index costs a single round trip rather than one per
+      // Only findit's search reaches this: a batch of publishers' gateways and web servers
+      // in one read, so building a live index costs a few round trips rather than one per
       // site. Ordered exactly as the per-machine read orders a journal, because the two
       // replay the same rows and must replay them the same way.
       findPatchesForMachines: async (machineIds: readonly string[]) => {

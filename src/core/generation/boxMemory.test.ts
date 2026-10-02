@@ -12,6 +12,7 @@ import type { Directory, FileEntry, FileNode } from '../filesystem/types.js';
 import { WORLD_EPOCH } from '../cve/worldClock.js';
 import {
   ALL_ESSIDS,
+  carriesMail,
   deepBoxes,
   filesUnder,
   gatewaysOn,
@@ -278,21 +279,24 @@ describe('what a box remembers of its last day', () => {
     });
   });
 
-  it('keeps a mail log exactly on the boxes that carry their network’s mail', () => {
+  it('keeps a mail log on every mail server, and a day of deliveries exactly where the mail is carried', () => {
+    // The empty log is the one postfix opens, which the role sets up whether or not a
+    // network keeps any mail; what was delivered is there only where somebody wrote.
     let carriers = 0;
     everyBox().forEach(({ box, tree }) => {
       const logs = logsOf(tree);
-      const carries = roleOfHostname(box.host.hostname) === 'mailserver';
-      expect(logs.has('mail.log')).toBe(carries);
-      expect(logs.has('mail.log.1')).toBe(carries);
-      if (carries) carriers += 1;
+      expect(logs.has('mail.log'), box.host.hostname).toBe(
+        roleOfHostname(box.host.hostname) === 'mailserver',
+      );
+      expect(logs.has('mail.log.1'), box.host.hostname).toBe(carriesMail(box));
+      if (carriesMail(box)) carriers += 1;
     });
     expect(carriers).toBeGreaterThan(0);
   });
 
   it('keeps the mail log at the spool’s tier, since its lines name the same people', () => {
     everyBox()
-      .filter(({ box }) => roleOfHostname(box.host.hostname) === 'mailserver')
+      .filter(({ box }) => carriesMail(box))
       .forEach(({ tree }) => {
         const directory = varLogOf(tree);
         // Every other log on the box is world-readable: once a player is on it, what the

@@ -88,7 +88,7 @@ export const RIDGEMONT = 'Ridgemont';
 type Town = { readonly region: number; readonly index: number; readonly name: string };
 
 /** How big a town the world draws is. */
-type SizeClass = 'village' | 'town';
+type SizeClass = 'village' | 'town' | 'city';
 
 /** The fewest and the most of something a town keeps. */
 type Range = { readonly min: number; readonly max: number };
@@ -117,6 +117,12 @@ const SIZE_CLASSES: Readonly<Record<SizeClass, SizeCounts>> = {
     practices: { min: 2, max: 4 },
     branches: { min: 2, max: 3 },
   },
+  city: {
+    businesses: { min: 40, max: 80 },
+    homes: { min: 40, max: 80 },
+    practices: { min: 5, max: 8 },
+    branches: { min: 3, max: 5 },
+  },
 };
 
 /** A town the world draws: its place, its name, and its size. */
@@ -132,6 +138,7 @@ const RIDGEMONT_TOWN: Town = { region: 0, index: 0, name: RIDGEMONT };
 const MILLBROOK: DrawnTown = { region: 0, index: 1, name: 'Millbrook', size: 'village' };
 const ASHBY: DrawnTown = { region: 0, index: 2, name: 'Ashby', size: 'village' };
 const OAKHURST: DrawnTown = { region: 0, index: 3, name: 'Oakhurst', size: 'town' };
+const KINGSFORD: DrawnTown = { region: 0, index: 4, name: 'Kingsford', size: 'city' };
 
 /** The name of the region `town` stands in. */
 const regionOf = (town: Town): string => REGIONS[town.region].name;
@@ -582,6 +589,22 @@ const OAKHURST_NETWORKS = networksOf(OAKHURST, {
 });
 const OAKHURST_BRANCHES = branchesOf(OAKHURST, OAKHURST_NETWORKS.length);
 
+/** Kingsford, the first city: drawn after Oakhurst, so its names avoid every network
+ *  declared before it and move none of them. */
+const KINGSFORD_NETWORKS = networksOf(KINGSFORD, {
+  later: [],
+  before: [
+    ...MILLBROOK_NETWORKS,
+    ...CORPORATIONS,
+    ...MILLBROOK_BRANCHES,
+    ...ASHBY_NETWORKS,
+    ...ASHBY_BRANCHES,
+    ...OAKHURST_NETWORKS,
+    ...OAKHURST_BRANCHES,
+  ],
+});
+const KINGSFORD_BRANCHES = branchesOf(KINGSFORD, KINGSFORD_NETWORKS.length);
+
 /** Ridgemont's networks are the catalog's, each known by the name it broadcasts. */
 const LANDMARKS: readonly DeclaredNetwork[] = ESSID_CATALOG.map((entry) => ({
   ...entry,
@@ -602,6 +625,8 @@ export const DECLARED_NETWORKS: readonly DeclaredNetwork[] = [
   ...ASHBY_BRANCHES,
   ...OAKHURST_NETWORKS,
   ...OAKHURST_BRANCHES,
+  ...KINGSFORD_NETWORKS,
+  ...KINGSFORD_BRANCHES,
 ];
 
 const DECLARED_BY_KEY: ReadonlyMap<string, DeclaredNetwork> = new Map(
@@ -688,6 +713,7 @@ const ADDRESS_BY_KEY: ReadonlyMap<string, string> = new Map([
   ]),
   ...townAddresses(ASHBY, [...ASHBY_NETWORKS, ...ASHBY_BRANCHES]),
   ...townAddresses(OAKHURST, [...OAKHURST_NETWORKS, ...OAKHURST_BRANCHES]),
+  ...townAddresses(KINGSFORD, [...KINGSFORD_NETWORKS, ...KINGSFORD_BRANCHES]),
 ]);
 
 const KEY_BY_ADDRESS: ReadonlyMap<string, string> = new Map(

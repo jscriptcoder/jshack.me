@@ -46,6 +46,9 @@ const BUNDLE_CEILING_BYTES = 284_975;
  *  the check while a content change that makes boxes ten times dearer still does. */
 const BUILD_CEILING_MS_PER_BOX = 2;
 
+/** How many times each set's boxes are timed, the quickest pass counting. */
+const TIMED_PASSES = 3;
+
 const DIST_DIR = join(import.meta.dirname, '..', 'dist');
 
 type Verdict = { readonly passed: boolean; readonly line: string };
@@ -127,9 +130,14 @@ const checkBuildTime = (name: string, keys: readonly string[]): Verdict => {
   const boxBuilds = keys.flatMap(boxBuildsOf);
   // The first pass pays for JIT compilation, which no player's session pays per box.
   boxBuilds.forEach((build) => build());
-  const startedAt = performance.now();
-  boxBuilds.forEach((build) => build());
-  const msPerBox = (performance.now() - startedAt) / boxBuilds.length;
+  // The best of the timed passes: a loaded machine only ever adds time, so the quickest is
+  // the closest to what the boxes cost, and a small set no longer fails on one slow pass.
+  const passMs = Array.from({ length: TIMED_PASSES }, () => {
+    const startedAt = performance.now();
+    boxBuilds.forEach((build) => build());
+    return performance.now() - startedAt;
+  });
+  const msPerBox = Math.min(...passMs) / boxBuilds.length;
   return {
     passed: msPerBox <= BUILD_CEILING_MS_PER_BOX,
     line: `build time, ${name}: ${msPerBox.toFixed(3)} ms per box over ${boxBuilds.length} boxes on ${keys.length} networks (ceiling ${BUILD_CEILING_MS_PER_BOX} ms)`,

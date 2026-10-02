@@ -16,6 +16,8 @@ import { CRON_OUTPUT } from './pools/cronMail.js';
 import { ALL_GENERATED_PASSWORDS } from './passwordPools.js';
 import {
   ALL_ESSIDS,
+  WORLD_ESSIDS,
+  carriesMail,
   deepBoxes,
   lanBoxes,
   softwareVersionsIn,
@@ -55,13 +57,20 @@ const CORRESPONDING = ALL_ESSIDS.filter((essid) => peopleOn(essid).length > 1);
 
 describe('a network correspondence', () => {
   it('is kept by nobody on a network one person has to themselves, not even as a spool', () => {
-    const alone = ALL_ESSIDS.filter((essid) => !CORRESPONDING.includes(essid));
+    // The whole world, not the sample: a network somebody has to themselves with a mail
+    // server on it is one in a city, and every such network is a single box to build.
+    const alone = WORLD_ESSIDS.filter((essid) => peopleOn(essid).length <= 1);
     expect(alone.length).toBeGreaterThan(0);
     for (const essid of alone) {
       expect(`${essid}: ${networkMail(essid).threads.length}`).toBe(`${essid}: 0`);
       for (const box of lanBoxes([essid])) {
         const spool = mailboxOn(box, npcUsername(essid, box.host));
         expect(`${box.host.hostname}: ${spool.ok}`).toBe(`${box.host.hostname}: false`);
+        // Nor does its mail server answer for an address: there is no mailbox to point it at.
+        const aliases = createFsView(treeOf(box), { userType: 'root' }).read(
+          asAbsPath('/etc/aliases'),
+        );
+        expect(`${box.host.hostname}: ${aliases.ok}`).toBe(`${box.host.hostname}: false`);
       }
     }
   });
@@ -334,8 +343,9 @@ describe('a desk mailbox', () => {
   });
 });
 
-const mailServers = (): readonly Box[] =>
-  lanBoxes(ALL_ESSIDS).filter(({ host }) => roleOfHostname(host.hostname) === 'mailserver');
+/** The machines on a LAN that carry its mail. One on a network somebody has to themselves
+ *  carries none, which `a network correspondence` holds it to. */
+const mailServers = (): readonly Box[] => lanBoxes(ALL_ESSIDS).filter(carriesMail);
 
 /** What the box's own application holds, whether or not mysqld serves it. */
 const applicationOf = (box: Box) =>

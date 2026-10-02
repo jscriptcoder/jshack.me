@@ -3,9 +3,9 @@
 // `vercel dev` + supabase, once for each town beyond Ridgemont.
 //
 // Net-new under test (the locally-untypechecked api/ runtime):
-//   - Each town's council, and the courthouse of a town that keeps one, answers a fetch
-//     by its domain with its own front page, at an address in its town's own block of the
-//     region.
+//   - Each town's council, and the courthouse and general hospital of a town that keeps
+//     them, answers a fetch by its domain with its own front page, at an address in its
+//     town's own block of the region.
 //   - findit's live index finds a place of each town by the town's name and a word its
 //     kind of place says of itself, which is how a player finds a shop in a town whose
 //     name they know.
@@ -151,11 +151,16 @@ for (const town of TOWNS) {
     console.error(`${town} has no council or no listed place on the internet.`);
     process.exit(2);
   }
-  // A town bigger than a village keeps a courthouse, fetched by its domain as the council is.
-  const courthouse = DECLARED_NETWORKS.find(
-    (network) => network.town === town && network.place === 'the courthouse',
-  );
-  const fetchedNetworks = [council, ...(courthouse === undefined ? [] : [courthouse])];
+  // A town bigger than a village keeps a courthouse, and may keep a general hospital (a
+  // city always does); each is fetched by its domain as the council is.
+  const fetchedNetworks = [
+    council,
+    ...DECLARED_NETWORKS.filter(
+      (network) =>
+        network.town === town &&
+        (network.place === 'the courthouse' || network.place === 'the hospital'),
+    ),
+  ];
   const machines = fetchedNetworks.flatMap((network) => {
     const siteBox = siteServer(network.key);
     return [
@@ -170,7 +175,7 @@ for (const town of TOWNS) {
   };
   await cleanup();
 
-  // === 1. The council, and any courthouse, answer by their domains, in the town's block. ===
+  // === 1. The council, courthouse and hospital answer by their domains, in the town's block. ===
   const sameBlock = DECLARED_NETWORKS.filter((network) => network.town === town).every(
     (network) =>
       network.site === undefined ||

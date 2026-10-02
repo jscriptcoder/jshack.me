@@ -280,9 +280,24 @@ describe("a gateway's admin pages", () => {
     }
   });
 
-  it('differs from gateway to gateway', () => {
-    const fronts = everyGateway().map((gateway) => pagesOf(gateway).get('index.html'));
-    expect(new Set(fronts).size).toBe(fronts.length);
+  it('differs from gateway to gateway, but for two access points of one make, one name and one subnet', () => {
+    // Two such routers show one status page, as two real ones would: it says what make the
+    // router is, what it is called and where it answers, and nothing else tells them apart.
+    const byFront = new Map<string | undefined, Gateway[]>();
+    for (const gateway of everyGateway()) {
+      const front = pagesOf(gateway).get('index.html');
+      byFront.set(front, [...(byFront.get(front) ?? []), gateway]);
+    }
+    expect(byFront.size).toBeGreaterThan(1);
+    for (const sharing of byFront.values()) {
+      if (sharing.length === 1) continue;
+      const names = sharing.map((gateway) => gateway.name).join(', ');
+      expect(sharing.every(isAccessPoint), names).toBe(true);
+      const tells = sharing.map(
+        (gateway) => `${vendorOf(gateway)} ${gateway.host.hostname} ${gateway.host.ip}`,
+      );
+      expect(new Set(tells).size, names).toBe(1);
+    }
   });
 });
 

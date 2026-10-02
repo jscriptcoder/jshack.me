@@ -21,6 +21,7 @@ import { WORLD_EPOCH } from '../cve/worldClock.js';
 import { listenerPidfileName } from '../services/pidfile.js';
 import {
   ALL_ESSIDS,
+  carriesMail,
   deepBoxes,
   falsehoodIn,
   filesUnder,
@@ -797,9 +798,7 @@ describe('no two admins kept house the same way', () => {
 
 /** Every box that carries a network's mail, on the LAN and below it. */
 const mailCarriers = (): readonly Box[] =>
-  [...lanBoxes(ALL_ESSIDS), ...deepBoxes(ALL_ESSIDS)].filter(
-    ({ host }) => roleOfHostname(host.hostname) === 'mailserver',
-  );
+  [...lanBoxes(ALL_ESSIDS), ...deepBoxes(ALL_ESSIDS)].filter(carriesMail);
 
 const treeOf = ({ essid, host }: Box): Directory =>
   generateHomeLan(essid).hosts.some((candidate) => candidate.ip === host.ip)
@@ -829,8 +828,7 @@ describe('the addresses a mail server answers for that are not mailboxes', () =>
     const carriers = mailCarriers();
     expect(carriers.length).toBeGreaterThan(0);
     [...lanBoxes(ALL_ESSIDS), ...deepBoxes(ALL_ESSIDS)].forEach((box) => {
-      const carries = roleOfHostname(box.host.hostname) === 'mailserver';
-      expect(existsOn(treeOf(box), '/etc/aliases')).toBe(carries);
+      expect(existsOn(treeOf(box), '/etc/aliases'), box.host.hostname).toBe(carriesMail(box));
     });
   });
 
