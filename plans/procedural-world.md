@@ -16,7 +16,7 @@ complete. Slice 7 grilled 2026-10-01 as slices 7a–7b; 7a complete 2026-10-01 (
 v0.297.0); 7b complete 2026-10-01 (#588, v0.298.0). Slice 7 complete. Slice 8 grilled
 2026-10-01 as slices 8a–8d (decision 19b); 8a complete 2026-10-02 (#589, v0.299.0); 8b split
 2026-10-02 into the names (8b) and the town (8c), the city and the rows moving to 8d and 8e
-(decision 19c). Slice 9 not yet planned.
+(decision 19c); 8b planned 2026-10-02. Slice 9 not yet planned.
 Amends the §9 backlog item "Procedural world expansion — GRILLED & RESOLVED 2026-07-29" in
 `docs/conventions-and-gotchas.md`; where the two disagree, this file wins.
 
@@ -2538,7 +2538,8 @@ owner approves the commit.
 
 Grilled 2026-10-01 (decision 19b), 8b split 2026-10-02 (decision 19c). Five PRs, in order,
 each cut from `main` after the one before it merges: 8a a second village, 8b the names, 8c the
-town size class, 8d the city, 8e the remaining rows and findit's index split. 8a complete 2026-10-02 (#589); each later PR is planned after
+town size class, 8d the city, 8e the remaining rows and findit's index split. 8b planned
+2026-10-02. 8a complete 2026-10-02 (#589); each later PR is planned after
 the one before it merges, from what that one measured.
 
 ### Slice 8a: a second village, Ashby, and findit finds a town's places by its name
@@ -2711,6 +2712,125 @@ full sweep is recorded, and the owner approves the commit.
   identically on `main` (both in the backlog), `testExploitOwnLan` finds no usable target on
   game day 81, and `testSameLanOccupancy` failed 6/7 in the sweep and passes 7/7 alone.
 - **Budgets**: 1.723 ms a box (ceiling 2 ms), the bundle 249,825 B (ceiling 284,975 B).
+
+### Slice 8b: every procedural place is named from grammars that a town or a city cannot exhaust
+
+**Value**: the names stop being the bottleneck before the town and the city arrive. A home is
+named the way people name their own (after the family, the house, the flat or nothing at
+all), every kind of place can form far more names than the launch world draws, no name ever
+outgrows its wifi, and no town reads as written from one short list. Millbrook, Ashby and the
+corporations take their final names while nothing else about them moves.
+**Path**: a town's home count (`town-homes-<key>`, drawn first as today) → each home's form
+and words from the home grammar → its ESSID and its place → the businesses', practices' and
+corporations' names from the tripled lists through `namedOf`, whose redraw now also refuses a
+word the town already holds → every box, page, mail, note and `whois` answer that quotes a
+name.
+**Class**: behaviour change (names only: every structure is preserved, 8b-5).
+**Delivery**: independent PR against `main`, branch `feat/procedural-world-names`.
+**Status**: planned 2026-10-02.
+**Required implementation skills**: `tdd`, `testing`, `refactoring`; `mutation-testing` at
+PR-readiness.
+**Reduction program**: `N/A`.
+
+**Facts measured while planning** (2026-10-02, against `main` at `27862cc5`, by a throwaway
+prototype tripling the business lists with filler words and naming homes by a stand-in
+grammar, then reverted):
+
+- **The rename moves nothing but names.** A dump of all 64 procedural networks with every
+  spelling of each network's name masked (its ESSID lower-cased, unhyphenated and
+  underscored, and its place) is identical to `main`: every box's paths, modes and owners,
+  its hostname, account and services, every relation and forward, every kind, profile,
+  unlisted pick, key and address. Boxes are keyed by network key, not by name.
+- **18 assertions fail, every one a pin on a name**: the Millbrook, Ashby, corporations,
+  branches, kinds, sizes and unlisted goldens in `world.test.ts`; four relation goldens (the
+  town's, the branch's, the head office's shortcut, the supplier's invoice); the AP
+  gateways' forwards golden in `routerFs.test.ts`; `whois`'s two branch org names; findit's
+  "Millbrook café" lists `whitlockscafe.com`; `resolvePublicTarget` and `resolvePublicScan`
+  look up "Westbrook Haulage" by name; and the home-LAN golden finds its network by ESSID,
+  so a renamed ESSID reads the LAN of key `''`. The wire-checks spell no name: they read the
+  world.
+- **The fit rule meets `{filler} International`.** A branch's ESSID is its parent's and
+  `-HOLLOWMERE` at most, so a corporation's ESSID has 21 characters; "International" leaves a
+  filler 7. Eight of today's twenty fillers are longer (Greenleaf, FreshWay, Keystone,
+  Pinnacle, Brightline, Silverbirch, Bluebell, Evergreen). Without that template,
+  `{filler} Holdings` binds a filler at 12 letters and `{surname} & {surname}` a surname at
+  10; every current word fits but Merriweather (12).
+- **Today's name spaces**: every business and practice kind forms 52 to 84 names, the
+  corporations 616; the 14 hand-written homes are one list for every town. At triple size
+  the least is the coffee bar's 156 (filler, street, filler).
+
+**Planning calls** (owner-confirmed 2026-10-02, with the criteria):
+
+- **`{filler} International` is dropped** from the corporations' templates, so a filler may
+  run to 12 letters and a surname to 10; Merriweather leaves. The corporations keep three
+  templates and many hundreds of names. Rejected: keeping it and holding every filler to 7
+  letters (eight good words lost, every new one squeezed).
+- **A word is what fills a slot**: a surname, a street, a filler, a house's plant, a home's
+  surname, an ISP default's description. A template's own text (Café, Holdings, Cottage,
+  Lodge) is not, so a house name's building is template text: one town may hold Rose
+  Cottage and Ivy Cottage, never Ivy Cottage and Ivy Lodge. The descriptions are words, so
+  they grow to about 24 for the city.
+- **The home words and the business words share none**, pinned by a test.
+- **The fit test reads every declared town**, and the words are chosen so Hollowmere (ten
+  letters, 8e) fits too; the code names no row the world has not declared.
+
+**Acceptance criteria** (owner-confirmed 2026-10-02):
+
+- [ ] **8b-1** A town names its homes by the grammar: family (35), house name (30), flat (15)
+      and ISP default (20), drawn on `town-homes-<key>` after the count, which does not move.
+      A family's ESSID is `THE-{SURNAME}S`, `{SURNAME}-FAMILY` or `{SURNAME}-WIFI` (a surname
+      ending in "s" takes no more), a house's its name, a flat's `FLAT-{1–9}{A–D}` or
+      `{GARDEN|TOP|BASEMENT}-FLAT`, an ISP default's `{NETGEAR|LINKSYS|TP-LINK|BT-HUB}-{four
+      hex digits}`. Every place reads after "at" ("bills at the Hargreaves' house", "at
+      flat 2A", "at the house on the corner"). No ESSID repeats within a town.
+- [ ] **8b-2** The businesses' surnames, streets and fillers triple (72, 36, 60); homes keep
+      surnames of their own (30 or more, seeded by Hargreaves, Okonkwo, Kowalski, Nguyen),
+      plants and descriptions (about 24). No word is in both the homes' and the businesses'
+      lists.
+- [ ] **8b-3** Every kind of business and practice, the corporations and the homes can each
+      form 150 names or more. Every name any template can form spells an ESSID of 32
+      characters at most, and a corporation's with `-{TOWN}` after it for every declared town.
+- [ ] **8b-4** No word names two places a town draws (its businesses, practices and homes):
+      a name sharing a word with one already drawn is drawn again, as a held ESSID or domain
+      is. A branch carries its parent's name and is outside the rule.
+- [ ] **8b-5** Millbrook's and Ashby's businesses, practices and homes and the corporations
+      are renamed, their branches' ESSIDs following; the institutions and Millbrook's
+      hospital are not. With names masked, a dump against `main` shows every key, address,
+      kind, profile, unlisted pick, relation, forward, host, account, service and path
+      unchanged. The goldens are re-pinned to the new names.
+- [ ] **8b-6** 8a-5 holds over the new names: for every listed site in Millbrook and Ashby, a
+      search for its town and a word its description uses for its kind lists it in the top
+      ten, and "Millbrook café" lists Millbrook's café. Every whole-world content property
+      holds.
+- [ ] **8b-7** `testMillbrook`, `testTowns`, `testFindit` and `testJoinRefusal` pass live;
+      `checkBudgets` passes.
+- [ ] **8b-8** `world-content-architecture.md` describes the home grammar, the lists, the fit
+      rule and the town's word rule; `discovery-architecture.md` re-pins its examples
+      (Whitlock's Café, Westbrook Haulage). The minor version is bumped to 0.300.0.
+
+Out of scope: Oakhurst, the size classes and their counts, the courthouse and the hospital
+draw, the relations cache and the three content rules 19c carried (8c); the city and the
+sampled sweeps (8d); the remaining rows and findit's index split (8e).
+
+**RED**: the home grammar (8b-1, the hand-written list's test giving way to the grammar's),
+then the lists and their disjointness (8b-2), then the name spaces and the fit over every
+formable name (8b-3, which fails on `{filler} International` and Merriweather first), then
+the town's word rule (8b-4, which fails on today's Ashby: Greenleaf Bakehouse beside
+Greenleaf Pharmacy). The 18 name pins are re-pinned where each is met, each failing only on
+a name; a lookup by name (`resolvePublicTarget`, `resolvePublicScan`, the home-LAN golden)
+finds its network by key instead.
+**GREEN**: the home grammar and its words in a pool replacing `townHomes.ts`; the tripled
+lists, Merriweather and `{filler} International` out; the word check in `namedOf`'s redraw,
+the homes' draw sharing it.
+**REFACTOR**: assess; `namedOf` and the homes' draw share one held-names set per town.
+**Server evidence**: no server code change. `testMillbrook`, `testTowns`, `testFindit` and
+`testJoinRefusal` rerun live against `vercel dev`.
+**PRE-PR MUTATION**: Stryker on the home grammar, the word rule and the redraw, and the
+lists the name-space and fit tests read (narrowed battery, json reporter).
+**PR-ready when**: 8b-1 to 8b-8 hold, the masked dump matches `main`, `vitest run`,
+typecheck, lint and format pass, the full sweep is recorded, and the owner approves the
+commit.
+**Slice complete when**: its PR merges; 8c is planned next.
 
 ## Acceptance Criteria
 
