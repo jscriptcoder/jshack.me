@@ -156,7 +156,7 @@ describe('the web findit searches', () => {
     expect(places.length).toBeGreaterThan(15);
     expect(missed).toEqual([]);
     expect(rankPages(web, 'Millbrook café').map((page) => page.address)).toContain(
-      'whitlockscafe.com',
+      'yatesscafe.com',
     );
   });
 

@@ -301,8 +301,9 @@ describe('handleResolvePublicScan', () => {
   });
 
   it("shows, at a Millbrook office's address, every service its gateway forwards beside its own doors", async () => {
-    const office = DECLARED_NETWORKS.find((network) => network.essid === 'WESTBROOK-HAULAGE');
-    if (office === undefined) throw new Error('Millbrook declares no Westbrook Haulage');
+    // Millbrook's logistics office, whose gateway forwards a port to a printer behind it.
+    const office = DECLARED_NETWORKS.find((network) => network.key === 'r0/t1/n8');
+    if (office === undefined) throw new Error('Millbrook declares no network r0/t1/n8');
     const { deps } = makeDeps({
       lookup: async () => ({
         data: { router_machine_id: computeApGatewayId(office.key), essid: office.key },

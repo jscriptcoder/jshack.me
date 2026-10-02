@@ -21,7 +21,7 @@ import { generateHomeLan } from './generateHomeLan.js';
 import { buildApGatewayBaseFs } from './routerFs.js';
 import { resolveLanName } from '../network/resolveName.js';
 import { crackableEssidPool } from './generateWifi.js';
-import { TOWN_HOMES } from './pools/townHomes.js';
+import { HOME_TEMPLATES, HOME_WORDS, type HomeForm } from './pools/homeNames.js';
 import {
   CORPORATION_NAME_TEMPLATES,
   NAME_TEMPLATES,
@@ -158,30 +158,30 @@ describe('Millbrook', () => {
       ['r0/t1/n0', 'TOWN-HALL-WIFI', 'the town hall', 'millbrook.gov', '87.98.0.2'],
       ['r0/t1/n1', 'MILLBROOK-PD', 'the police station', 'millbrookpd.gov', '87.98.97.142'],
       ['r0/t1/n2', 'LIBRARY-PUBLIC', 'the public library', 'millbrooklibrary.org', '87.98.195.29'],
-      ['r0/t1/n3', 'WHITLOCKS-CAFE', "Whitlock's Café", 'whitlockscafe.com', '87.98.36.169'],
-      ['r0/t1/n4', 'FRESHWAY-COFFEE', 'FreshWay Coffee', 'freshwaycoffee.com', '87.98.134.56'],
+      ['r0/t1/n3', 'YATESS-CAFE', "Yates's Café", 'yatesscafe.com', '87.98.36.169'],
+      ['r0/t1/n4', 'SILVERBIRCH-COFFEE', 'Silverbirch Coffee', 'silverbirchcoffee.com', '87.98.134.56'],
       [
         'r0/t1/n5',
-        'ABERNETHY-AND-SONS-HARDWARE',
-        'Abernethy and Sons Hardware',
-        'abernethyandsonshardware.com',
+        'KENDRICK-AND-SONS-HARDWARE',
+        'Kendrick and Sons Hardware',
+        'kendrickandsonshardware.com',
         '87.98.231.196',
       ],
-      ['r0/t1/n6', 'ABERNETHYS-BOOKS', "Abernethy's Books", 'abernethysbooks.com', '87.98.73.83'],
-      ['r0/t1/n7', 'VARLEYS-BAKERY', "Varley's Bakery", 'varleysbakery.com', '87.98.170.223'],
+      ['r0/t1/n6', 'LINDLEYS-BOOKS', "Lindley's Books", 'lindleysbooks.com', '87.98.73.83'],
+      ['r0/t1/n7', 'WARRINGTONS-BAKERY', "Warrington's Bakery", 'warringtonsbakery.com', '87.98.170.223'],
       [
         'r0/t1/n8',
-        'WESTBROOK-HAULAGE',
-        'Westbrook Haulage',
-        'westbrookhaulage.com',
+        'BROAD-STREET-HAULAGE',
+        'Broad Street Haulage',
+        'broadstreethaulage.com',
         '87.98.12.110',
       ],
-      ['r0/t1/n9', 'KOWALSKI-WIFI', "the Kowalskis' house", undefined, '87.98.109.250'],
-      ['r0/t1/n10', 'THE-HARGREAVES', "the Hargreaves' house", undefined, '87.98.207.137'],
-      ['r0/t1/n11', 'GARDEN-FLAT', 'the garden flat', undefined, '87.98.49.24'],
-      ['r0/t1/n12', 'ROSE-COTTAGE', 'Rose Cottage', undefined, '87.98.146.164'],
-      ['r0/t1/n13', 'PEAR-TREE-HOUSE', 'Pear Tree House', undefined, '87.98.244.51'],
-      ['r0/t1/n14', 'OKONKWO-FAMILY', 'the Okonkwo family home', undefined, '87.98.85.191'],
+      ['r0/t1/n9', 'BARN-CONVERSION', 'the barn conversion', undefined, '87.98.109.250'],
+      ['r0/t1/n10', 'BEECH-LODGE', 'Beech Lodge', undefined, '87.98.207.137'],
+      ['r0/t1/n11', 'FITZGERALD-WIFI', "the Fitzgeralds' house", undefined, '87.98.49.24'],
+      ['r0/t1/n12', 'ROSE-VIEW', 'Rose View', undefined, '87.98.146.164'],
+      ['r0/t1/n13', 'HEATHER-HOUSE', 'Heather House', undefined, '87.98.244.51'],
+      ['r0/t1/n14', 'THE-COACH-HOUSE', 'the Coach House', undefined, '87.98.85.191'],
       [
         'r0/t1/n15',
         'COTTAGE-HOSPITAL',
@@ -189,8 +189,8 @@ describe('Millbrook', () => {
         'millbrookhospital.org',
         '87.98.183.78',
       ],
-      ['r0/t1/n16', 'OAKWOOD-DENTAL', 'Oakwood Dental', 'oakwooddental.com', '87.98.24.218'],
-      ['r0/t1/n17', 'LORIMER-GROUP-MILLBROOK', 'the Millbrook office', undefined, '87.98.122.105'],
+      ['r0/t1/n16', 'GATEWAY-DENTAL', 'Gateway Dental', 'gatewaydental.com', '87.98.24.218'],
+      ['r0/t1/n17', 'SUMMIT-HOLDINGS-MILLBROOK', 'the Millbrook office', undefined, '87.98.122.105'],
     ]);
   });
 
@@ -422,21 +422,104 @@ describe("Millbrook's homes", () => {
     }
   });
 
-  it('draws every home from a pool of distinct wifi names, each with a place of its own', () => {
-    const essids = TOWN_HOMES.map(([essid]) => essid);
-    expect(essids.length).toBeGreaterThanOrEqual(VILLAGE_HOMES_MOST);
-    expect(new Set(essids).size).toBe(essids.length);
-    for (const [essid, place] of TOWN_HOMES) {
-      expect(essid).toMatch(/^[A-Z0-9]+(-[A-Z0-9]+)*$/);
-      expect(crackableEssidPool, essid).not.toContain(essid);
-      expect(place.trim(), essid).not.toBe('');
-    }
-  });
-
   it('broadcasts no home to a wifi scan in Ridgemont', () => {
     for (const home of homes()) {
       expect(crackableEssidPool, home.key).not.toContain(home.essid);
     }
+  });
+});
+
+/** A flat's number: its floor, 1 to 9, and its door, A to D. */
+const FLAT_NUMBERS: readonly string[] = Array.from({ length: 9 }, (_, floor) =>
+  ['A', 'B', 'C', 'D'].map((door) => `${floor + 1}${door}`),
+).flat();
+
+/** A family named in the plural: a surname already ending in "s" takes no more. */
+const familyOf = (surname: string): string => (surname.endsWith('s') ? surname : `${surname}s`);
+
+/** A home a template can name: its wifi as a pattern, since a router's default name runs
+ *  on any four hex digits, its place, and the word of the homes' lists it uses, if any. */
+type FormedHome = { readonly essid: RegExp; readonly place: string; readonly word?: string };
+
+/** Every home `form`'s templates can name: each slot filled with each word of its list,
+ *  and a flat with each number. */
+const formedHomes = (form: HomeForm): readonly FormedHome[] =>
+  HOME_TEMPLATES[form].flatMap(([essid, place]) => {
+    const template = `${essid} ${place}`;
+    const slot = /\{(surname|plant|description)s?\}/.exec(template)?.[1] as
+      | keyof typeof HOME_WORDS
+      | undefined;
+    const words: readonly (string | undefined)[] =
+      slot === undefined ? [undefined] : HOME_WORDS[slot];
+    const numbers: readonly (string | undefined)[] = template.includes('{flat}')
+      ? FLAT_NUMBERS
+      : [undefined];
+    return words.flatMap((word) =>
+      numbers.map((number) => {
+        const filled = (text: string): string =>
+          text
+            .replace('{surnames}', familyOf(word ?? ''))
+            .replace(`{${slot}}`, word ?? '')
+            .replace('{flat}', number ?? '')
+            .replace('{hex}', 'HEXDIGITS');
+        const spelt = businessSpelling(filled(essid)).essid.replace('HEXDIGITS', '[0-9A-F]{4}');
+        return {
+          essid: new RegExp(`^${spelt}$`),
+          place: filled(place),
+          ...(word === undefined ? {} : { word }),
+        };
+      }),
+    );
+  });
+
+/** Every home the homes' grammar can name, of every form. */
+const everyFormedHome = (): readonly FormedHome[] =>
+  (Object.keys(HOME_TEMPLATES) as HomeForm[]).flatMap(formedHomes);
+
+/** The homes of every town the world draws: every one but Ridgemont's. */
+const townHomes = (): readonly DeclaredNetwork[] =>
+  DECLARED_NETWORKS.filter(
+    (network) => network.category === 'residential' && network.town !== RIDGEMONT,
+  );
+
+/** The home the grammar names as `home` is named. */
+const formedAs = (home: DeclaredNetwork): FormedHome | undefined =>
+  everyFormedHome().find(
+    (formed) => formed.place === home.place && formed.essid.test(home.essid),
+  );
+
+/**
+ * A town names its homes the way people name their own: after the family, after the house,
+ * by the flat's number, or not at all, under the name the router came with. Every form
+ * fills its slots from lists of the homes' own, so a town can draw far more homes than any
+ * one list could hold.
+ */
+describe("a town's homes", () => {
+  it('names every home after its family, its house, its flat, or the router it came with', () => {
+    expect(townHomes().length).toBeGreaterThan(VILLAGE_HOMES_MOST);
+    for (const home of townHomes()) {
+      expect(formedAs(home), `${home.essid} ${home.place}`).toBeDefined();
+    }
+  });
+
+  it('can name a home of every form, each under a place read after "at"', () => {
+    for (const form of Object.keys(HOME_TEMPLATES) as HomeForm[]) {
+      expect(formedHomes(form).length, form).toBeGreaterThan(0);
+      for (const { place } of formedHomes(form)) {
+        // "bills at the Hargreaves' house", "at flat 2A", "at Rose Cottage"
+        expect(place, form).toMatch(/^(the [a-zA-Z]|flat \d[A-D]$|[A-Z][a-z])/);
+      }
+    }
+  });
+
+  it('spells every home it can name as a wifi a scan will show', () => {
+    const essids = everyFormedHome().map((home) =>
+      home.essid.source.slice(1, -1).replace('[0-9A-F]{4}', 'FFFF'),
+    );
+    expect(
+      essids.filter((essid) => essid.length > 32 || !/^[A-Z0-9]+(-[A-Z0-9]+)*$/.test(essid)),
+    ).toEqual([]);
+    expect(essids.filter((essid) => crackableEssidPool.includes(essid))).toEqual([]);
   });
 });
 
@@ -544,26 +627,26 @@ describe("Millbrook's network sizes", () => {
     expect(drew('deep')).toEqual([
       'TOWN-HALL-WIFI',
       'MILLBROOK-PD',
-      'WESTBROOK-HAULAGE',
+      'BROAD-STREET-HAULAGE',
       'COTTAGE-HOSPITAL',
-      'LORIMER-GROUP-MILLBROOK',
+      'SUMMIT-HOLDINGS-MILLBROOK',
     ]);
     expect(drew('lone')).toEqual([
-      'FRESHWAY-COFFEE',
-      'ABERNETHY-AND-SONS-HARDWARE',
-      'VARLEYS-BAKERY',
-      'GARDEN-FLAT',
-      'ROSE-COTTAGE',
-      'OKONKWO-FAMILY',
+      'SILVERBIRCH-COFFEE',
+      'KENDRICK-AND-SONS-HARDWARE',
+      'WARRINGTONS-BAKERY',
+      'FITZGERALD-WIFI',
+      'ROSE-VIEW',
+      'THE-COACH-HOUSE',
     ]);
     expect(drew('flat')).toEqual([
       'LIBRARY-PUBLIC',
-      'WHITLOCKS-CAFE',
-      'ABERNETHYS-BOOKS',
-      'KOWALSKI-WIFI',
-      'THE-HARGREAVES',
-      'PEAR-TREE-HOUSE',
-      'OAKWOOD-DENTAL',
+      'YATESS-CAFE',
+      'LINDLEYS-BOOKS',
+      'BARN-CONVERSION',
+      'BEECH-LODGE',
+      'HEATHER-HOUSE',
+      'GATEWAY-DENTAL',
     ]);
   });
 });
@@ -663,12 +746,12 @@ describe("Millbrook's kinds of business", () => {
 
   it('is pinned (golden): locks the town-business-kinds- stream and its weights', () => {
     expect(businesses().map((business) => `${business.essid} ${business.subtype}`)).toEqual([
-      'WHITLOCKS-CAFE cafe',
-      'FRESHWAY-COFFEE coffee-bar',
-      'ABERNETHY-AND-SONS-HARDWARE hardware',
-      'ABERNETHYS-BOOKS bookshop',
-      'VARLEYS-BAKERY bakery',
-      'WESTBROOK-HAULAGE logistics',
+      'YATESS-CAFE cafe',
+      'SILVERBIRCH-COFFEE coffee-bar',
+      'KENDRICK-AND-SONS-HARDWARE hardware',
+      'LINDLEYS-BOOKS bookshop',
+      'WARRINGTONS-BAKERY bakery',
+      'BROAD-STREET-HAULAGE logistics',
     ]);
   });
 
@@ -936,7 +1019,7 @@ describe("Millbrook's unlisted site", () => {
       millbrook()
         .filter((network) => network.unlisted === true)
         .map((network) => network.essid),
-    ).toEqual(['ABERNETHY-AND-SONS-HARDWARE', 'ABERNETHYS-BOOKS']);
+    ).toEqual(['KENDRICK-AND-SONS-HARDWARE', 'LINDLEYS-BOOKS']);
   });
 
   it('asks every crawler to stay away from the whole site, and says nothing else', () => {
@@ -1009,34 +1092,34 @@ describe('the corporations', () => {
           `${network.key} ${network.subtype} ${network.profile} ${network.place} ${publicAddress(network.key)}`,
       ),
     ).toEqual([
-      'c0 insurance flat Keystone Holdings 193.71.60.53',
-      'c1 it-services deep Bluebell International 193.86.172.200',
-      'c2 consulting deep Compass International 193.102.29.94',
-      'c3 accounting deep Quayle & Bellamy 193.117.141.241',
-      'c4 logistics flat Summit Holdings 193.132.254.135',
-      'c5 insurance deep Garrow Group 193.148.111.29',
-      'c6 logistics flat Lorimer Group 193.163.223.176',
-      'c7 consulting deep Thackeray Group 193.179.80.70',
+      'c0 insurance flat Lantern Holdings 193.71.60.53',
+      'c1 it-services deep Maddox & Lindley 193.86.172.200',
+      'c2 consulting deep Jarrow & Quinlan 193.102.29.94',
+      'c3 accounting deep Abernethy Group 193.117.141.241',
+      'c4 logistics flat Copper Holdings 193.132.254.135',
+      'c5 insurance deep Jessop Group 193.148.111.29',
+      'c6 logistics flat Summit Holdings 193.163.223.176',
+      'c7 consulting deep Crowther & Goodwin 193.179.80.70',
       'c8 it-services deep Silverbirch Holdings 193.194.192.217',
-      'c9 it-services flat Delaney & Sutcliffe 193.210.49.111',
-      'c10 consulting deep Merriweather & Delaney 193.225.162.5',
-      'c11 insurance deep Anchor Holdings 193.241.18.152',
-      'c12 accounting deep Copper International 193.2.131.46',
-      'c13 consulting flat Bellamy Group 193.17.243.193',
-      'c14 logistics flat Thackeray & Sutcliffe 193.33.100.87',
-      'c15 consulting deep Sunrise Holdings 193.48.212.234',
-      'c16 logistics deep Meadow International 193.64.69.128',
-      'c17 consulting deep Oakwood Holdings 193.79.182.22',
-      'c18 insurance flat Ashworth Group 193.95.38.169',
-      'c19 logistics flat Quayle & Whitlock 193.110.151.63',
-      'c20 accounting deep Pinnacle International 193.126.7.210',
-      'c21 logistics flat Sutcliffe Group 193.141.120.104',
-      'c22 logistics deep Radley & Oakley 193.156.232.251',
-      'c23 consulting flat Compass Holdings 193.172.89.145',
-      'c24 accounting flat Willow Holdings 193.187.202.39',
-      'c25 logistics flat Bluebell Holdings 193.203.58.186',
-      'c26 it-services deep Bellamy & Garrow 193.218.171.80',
-      'c27 logistics deep Varley & Ellison 193.234.27.227',
+      'c9 it-services flat Calloway Group 193.210.49.111',
+      'c10 consulting deep Cartwright & Ashworth 193.225.162.5',
+      'c11 insurance deep Fairbanks Group 193.241.18.152',
+      'c12 accounting deep Redwood Holdings 193.2.131.46',
+      'c13 consulting flat Hartley & Gilchrist 193.17.243.193',
+      'c14 logistics flat Acorn Holdings 193.33.100.87',
+      'c15 consulting deep Millstone Holdings 193.48.212.234',
+      'c16 logistics deep Winslow & Sutcliffe 193.64.69.128',
+      'c17 consulting deep Talbot Group 193.79.182.22',
+      'c18 insurance flat Sheridan & Mortimer 193.95.38.169',
+      'c19 logistics flat Whitaker & Brannigan 193.110.151.63',
+      'c20 accounting deep Halloran Group 193.126.7.210',
+      'c21 logistics flat Kestrel Holdings 193.141.120.104',
+      'c22 logistics deep Skylark Holdings 193.156.232.251',
+      'c23 consulting flat Dunmore Group 193.172.89.145',
+      'c24 accounting flat Prescott & Norcross 193.187.202.39',
+      'c25 logistics flat Harvest Holdings 193.203.58.186',
+      'c26 it-services deep Oakley & Barrow 193.218.171.80',
+      'c27 logistics deep Varley & Stanhope 193.234.27.227',
     ]);
   });
 
@@ -1092,14 +1175,46 @@ describe('the corporations', () => {
   });
 });
 
-/** Every way `template` can be filled: each slot with each word of its list, and no word
- *  twice in one name. */
-const fillingsOf = (template: string, used: readonly string[] = []): readonly string[] => {
+/** Every way `template` can be filled, with the words that fill it: each slot with each
+ *  word of its list, and no word twice in one name. */
+const wordedFillingsOf = (
+  template: string,
+  used: readonly string[] = [],
+): readonly (readonly [name: string, words: readonly string[]])[] => {
   const slot = template.match(/\{(\w+)\}/)?.[1] as keyof typeof NAME_WORDS | undefined;
-  if (slot === undefined) return [template];
+  if (slot === undefined) return [[template, used]];
   return NAME_WORDS[slot]
     .filter((word) => !used.includes(word))
-    .flatMap((word) => fillingsOf(template.replace(`{${slot}}`, word), [...used, word]));
+    .flatMap((word) => wordedFillingsOf(template.replace(`{${slot}}`, word), [...used, word]));
+};
+
+/** Every way `template` can be filled. */
+const fillingsOf = (template: string): readonly string[] =>
+  wordedFillingsOf(template).map(([name]) => name);
+
+/** The words from the lists `network`'s name is made of: a business's or a practice's
+ *  from its kind's templates, a corporation's from theirs, a home's from its form's. */
+const wordsOf = (network: DeclaredNetwork): readonly string[] => {
+  if (network.category === 'residential') {
+    const word = formedAs(network)?.word;
+    return word === undefined ? [] : [word];
+  }
+  const subtype = network.subtype;
+  if (subtype === undefined || subtype === 'hospital') return [];
+  const templates = /^c\d+$/.test(network.key)
+    ? CORPORATION_NAME_TEMPLATES
+    : NAME_TEMPLATES[subtype];
+  const filling = templates
+    .flatMap((template) => wordedFillingsOf(template))
+    .find(([name]) => name === network.place);
+  if (filling === undefined) throw new Error(`${network.key} is named by no template`);
+  return filling[1];
+};
+
+/** Every word used twice among the names of `networks`. */
+const repeatedWords = (networks: readonly DeclaredNetwork[]): readonly string[] => {
+  const words = networks.flatMap(wordsOf);
+  return words.filter((word, index) => words.indexOf(word) !== index);
 };
 
 /** Every name the corporations' grammar can spell. */
@@ -1161,6 +1276,19 @@ describe("the corporations' names", () => {
       expect(essid.length, name).toBeLessThanOrEqual(32);
       expect(domain, name).toMatch(/^[a-z0-9]+\.com$/);
     }
+  });
+
+  it("fits every name its grammar gives in the wifi of a branch, after any declared town's name", () => {
+    // A branch broadcasts its company's wifi and its town's name, so a long name in a long
+    // town would otherwise outgrow the 32 characters a wifi can hold.
+    const towns = [...new Set(DECLARED_NETWORKS.flatMap((network) => network.town ?? []))];
+    expect(towns).toContain('Millbrook');
+    const tooLong = corporationNames().flatMap((name) =>
+      towns
+        .map((town) => `${businessSpelling(name).essid}-${town.toUpperCase()}`)
+        .filter((essid) => essid.length > 32),
+    );
+    expect(tooLong).toEqual([]);
   });
 });
 
@@ -1224,7 +1352,7 @@ describe("Millbrook's branches", () => {
         (network) =>
           `${network.key} ${network.parent} ${network.essid} ${network.subtype} ${network.profile} ${publicAddress(network.key)}`,
       ),
-    ).toEqual(['r0/t1/n17 c6 LORIMER-GROUP-MILLBROOK logistics deep 87.98.122.105']);
+    ).toEqual(['r0/t1/n17 c6 SUMMIT-HOLDINGS-MILLBROOK logistics deep 87.98.122.105']);
   });
 });
 
@@ -1320,21 +1448,21 @@ describe('Ashby', () => {
       'r0/t2/n0 | TOWN-HALL-WIFI | the town hall | ashby.gov | 87.195.0.2 | deep | - | -',
       'r0/t2/n1 | ASHBY-PD | the police station | ashbypd.gov | 87.195.97.142 | deep | - | unlisted',
       'r0/t2/n2 | LIBRARY-PUBLIC | the public library | ashbylibrary.org | 87.195.195.29 | deep | - | -',
-      'r0/t2/n3 | GREENLEAF-BAKEHOUSE | Greenleaf Bakehouse | greenleafbakehouse.com | 87.195.36.169 | deep | bakery | -',
-      'r0/t2/n4 | GREENLEAF-PHARMACY | Greenleaf Pharmacy | greenleafpharmacy.com | 87.195.134.56 | flat | pharmacy | -',
-      'r0/t2/n5 | LANTERN-TOOLS | Lantern Tools | lanterntools.com | 87.195.231.196 | flat | hardware | -',
-      'r0/t2/n6 | BRIGHTLINE-CONSULTING | Brightline Consulting | brightlineconsulting.com | 87.195.73.83 | flat | consulting | -',
-      'r0/t2/n7 | BRIDGE-STREET-CAFE | Bridge Street Café | bridgestreetcafe.com | 87.195.170.223 | lone | cafe | -',
-      'r0/t2/n8 | BARN-CONVERSION | the barn conversion | - | 87.195.12.110 | flat | - | -',
-      'r0/t2/n9 | THE-OLD-RECTORY | the Old Rectory | - | 87.195.109.250 | lone | - | -',
-      'r0/t2/n10 | OKONKWO-FAMILY | the Okonkwo family home | - | 87.195.207.137 | lone | - | -',
-      'r0/t2/n11 | WILLOW-VIEW | Willow View | - | 87.195.49.24 | flat | - | -',
-      'r0/t2/n12 | GARDEN-FLAT | the garden flat | - | 87.195.146.164 | lone | - | -',
-      'r0/t2/n13 | ROSE-COTTAGE | Rose Cottage | - | 87.195.244.51 | flat | - | -',
-      'r0/t2/n14 | GARROW-FAMILY-PRACTICE | Garrow Family Practice | garrowfamilypractice.com | 87.195.85.191 | flat | clinic | unlisted',
-      'r0/t2/n15 | LORIMER-DENTAL-CARE | Lorimer Dental Care | lorimerdentalcare.com | 87.195.183.78 | flat | dentist | -',
-      'r0/t2/n16 | OAKWOOD-HOLDINGS-ASHBY | the Ashby office | - | 87.195.24.218 | flat | consulting | c17',
-      'r0/t2/n17 | RADLEY-OAKLEY-ASHBY | the Ashby office | - | 87.195.122.105 | deep | logistics | c22',
+      'r0/t2/n3 | BRIGHTLINE-BAKEHOUSE | Brightline Bakehouse | brightlinebakehouse.com | 87.195.36.169 | deep | bakery | -',
+      'r0/t2/n4 | GOLDEN-PHARMACY | Golden Pharmacy | goldenpharmacy.com | 87.195.134.56 | flat | pharmacy | -',
+      'r0/t2/n5 | PEBBLE-TOOLS | Pebble Tools | pebbletools.com | 87.195.231.196 | flat | hardware | -',
+      'r0/t2/n6 | MEADOW-CONSULTING | Meadow Consulting | meadowconsulting.com | 87.195.73.83 | flat | consulting | -',
+      'r0/t2/n7 | CHAPEL-LANE-CAFE | Chapel Lane Café | chapellanecafe.com | 87.195.170.223 | lone | cafe | -',
+      'r0/t2/n8 | LINKSYS-A2BE | the end terrace | - | 87.195.12.110 | flat | - | -',
+      'r0/t2/n9 | CLOVER-HOUSE | Clover House | - | 87.195.109.250 | lone | - | -',
+      'r0/t2/n10 | THE-GRANARY | the Granary | - | 87.195.207.137 | lone | - | -',
+      'r0/t2/n11 | TOP-FLAT | the top flat | - | 87.195.49.24 | flat | - | -',
+      'r0/t2/n12 | KOWALSKI-FAMILY | the Kowalski family home | - | 87.195.146.164 | lone | - | -',
+      "r0/t2/n13 | THE-HARGREAVES | the Hargreaves' house | - | 87.195.244.51 | flat | - | -",
+      'r0/t2/n14 | WHITLOCK-FAMILY-PRACTICE | Whitlock Family Practice | whitlockfamilypractice.com | 87.195.85.191 | flat | clinic | unlisted',
+      'r0/t2/n15 | HALLORAN-DENTAL-CARE | Halloran Dental Care | hallorandentalcare.com | 87.195.183.78 | flat | dentist | -',
+      'r0/t2/n16 | TALBOT-GROUP-ASHBY | the Ashby office | - | 87.195.24.218 | flat | consulting | c17',
+      'r0/t2/n17 | SKYLARK-HOLDINGS-ASHBY | the Ashby office | - | 87.195.122.105 | deep | logistics | c22',
     ]);
   });
 
@@ -1544,6 +1672,53 @@ describe('the names of the world', () => {
     for (const network of DECLARED_NETWORKS) {
       expect(network.essid.length, network.key).toBeLessThanOrEqual(32);
     }
+  });
+});
+
+/**
+ * Names are drawn from word lists, and a town, a city and the corporations draw many. The
+ * lists are long enough that no kind of place runs out of names, and a home and a business
+ * never share a word, so no home reads as the family behind a shop.
+ */
+describe('the words places are named with', () => {
+  it('gives businesses 72 surnames, 36 streets and 60 fillers, and homes surnames, plants and descriptions of their own', () => {
+    expect(NAME_WORDS.surname).toHaveLength(72);
+    expect(NAME_WORDS.street).toHaveLength(36);
+    expect(NAME_WORDS.filler).toHaveLength(60);
+    expect(HOME_WORDS.surname.length).toBeGreaterThanOrEqual(30);
+    expect(HOME_WORDS.plant.length).toBeGreaterThanOrEqual(20);
+    expect(HOME_WORDS.description.length).toBeGreaterThanOrEqual(20);
+    const words = [...Object.values(NAME_WORDS), ...Object.values(HOME_WORDS)]
+      .flat()
+      .map((word) => word.toLowerCase());
+    expect(words.filter((word, index) => words.indexOf(word) !== index)).toEqual([]);
+  });
+
+  it('can form 150 names or more for every kind of business and practice, for the corporations and for the homes', () => {
+    for (const subtype of Object.keys(NAME_TEMPLATES) as NamedSubtype[]) {
+      const names = NAME_TEMPLATES[subtype].flatMap((template) => fillingsOf(template));
+      expect(names.length, subtype).toBeGreaterThanOrEqual(150);
+    }
+    expect(corporationNames().length).toBeGreaterThanOrEqual(150);
+    expect(everyFormedHome().length).toBeGreaterThanOrEqual(150);
+  });
+
+  it('names no two places a town draws with one word: its businesses, its practices and its homes', () => {
+    // A branch carries its company's name, and is drawn by no town's grammar.
+    const towns = [...new Set(townHomes().flatMap((home) => home.town ?? []))];
+    expect(towns).toEqual(['Millbrook', 'Ashby']);
+    for (const town of towns) {
+      const drawn = DECLARED_NETWORKS.filter(
+        (network) => network.town === town && network.parent === undefined,
+      );
+      expect(drawn.flatMap(wordsOf).length, town).toBeGreaterThan(0);
+      expect(repeatedWords(drawn), town).toEqual([]);
+    }
+  });
+
+  it('names no two corporations with one word', () => {
+    expect(corporations().flatMap(wordsOf).length).toBeGreaterThan(corporations().length);
+    expect(repeatedWords(corporations())).toEqual([]);
   });
 });
 
