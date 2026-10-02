@@ -33,15 +33,19 @@ export type SitePage = {
 /** How an institution that publishes to the world describes itself in its homepage's
  *  `<meta name="description">` — the line a search engine shows under its title, and
  *  the words beyond its name that a search can find it by. Only the kinds of place that
- *  publish a site have one. */
+ *  publish a site have one. `{locality}` is where the place stands, after its name, when
+ *  its name does not already say: a search for a town and a kind of place has nothing
+ *  else to go on. */
 export const SITE_DESCRIPTIONS: Readonly<Partial<Record<NetworkCategory, string>>> = {
-  corporate: '{site}: {service}, careers and news from the company.',
-  cafe: '{site}: {goods}, opening hours and free wifi for customers.',
-  university: '{site}: admissions, courses, research and campus life.',
-  public: '{site}: opening hours, services and visitor information for the people of {town}.',
-  government: '{site}: public services, opening hours, forms to download and how to contact the office.',
-  retail: '{site}: {goods}, weekly offers, opening hours, delivery and the loyalty card.',
-  healthcare: '{site}: {care}, opening times and how to reach us.',
+  corporate: '{site}{locality}: {service}, careers and news from the company.',
+  cafe: '{site}{locality}: {goods}, opening hours and free wifi for customers.',
+  university: '{site}{locality}: admissions, courses, research and campus life.',
+  public:
+    '{site}{locality}: opening hours, services and visitor information for the people of {town}.',
+  government:
+    '{site}{locality}: public services, opening hours, forms to download and how to contact the office.',
+  retail: '{site}{locality}: {goods}, weekly offers, opening hours, delivery and the loyalty card.',
+  healthcare: '{site}{locality}: {care}, opening times and how to reach us.',
 };
 
 /** What a site says on its front page, by kind of place. One is drawn per box. */
