@@ -18,7 +18,7 @@ v0.297.0); 7b complete 2026-10-01 (#588, v0.298.0). Slice 7 complete. Slice 8 gr
 2026-10-02 into the names (8b) and the town (8c), the city and the rows moving to 8d and 8e
 (decision 19c); 8b complete 2026-10-02 (#590, v0.300.0); 8c complete 2026-10-02 (#591,
 v0.301.0); 8d complete 2026-10-02 (#592, v0.302.0); 8e split 2026-10-02 into the rows (8e)
-and findit (8f) (decision 19f). Slice 9 not yet planned.
+and findit (8f) (decision 19f); 8e planned 2026-10-02. Slice 9 not yet planned.
 Amends the §9 backlog item "Procedural world expansion — GRILLED & RESOLVED 2026-07-29" in
 `docs/conventions-and-gotchas.md`; where the two disagree, this file wins.
 
@@ -3404,6 +3404,94 @@ commit.
 - **Budgets**: the bundle 251,768 B; Kingsford 1.27 ms a box, Ashby the closest at 1.97 on
   the best of three. The suite: sampled 7320 tests in 743 s of file time, `WORLD_SWEEP=full`
   857 s, against `main`'s 785 s measured the same day.
+
+### Slice 8e: the region's last six towns, and no two people on one network keep one note
+
+**Value**: Harrow Valley is whole. Any player can fetch the council of Fenwick, Thornbury,
+Hollowmere, Ely, Wexcombe or Stonebury by its domain, walk its directory, find its places by
+town and kind, and follow a corporation's lead from its head office into a branch in one of
+them; eleven towns, 491 networks, every box reading as what it is. Two people on one network
+never keep the same note.
+**Path**: six town rows (`r0/t5`–`r0/t10`, four villages and two towns), declared by one fold
+over the rows after Millbrook → each town's institutions (a courthouse and the hospital draw
+for a town) → its businesses, homes, practices and branches drawn on the streams every town
+draws on, its names avoiding every network before it → its addresses in its own block → its
+relations drawn within the town, its branches' leads from their head offices → each desk's
+notes (none a desk below it on the network keeps) → its sites in findit's index → `whois`, a
+fetch by domain, and a refused join.
+**Class**: behaviour change, after a pure-refactor first commit (the fold).
+**Delivery**: independent PR against `main`, branch `feat/procedural-world-rows`.
+**Status**: planned 2026-10-02.
+**Required implementation skills**: `refactoring` and `testing` for the fold; `tdd`,
+`testing`, `refactoring` for the rows and the note rule; `mutation-testing` at PR-readiness.
+**Reduction program**: `N/A`.
+
+**Facts measured while planning**: those of decision 19f (against `main` at `9446a858`; the
+code is unchanged at `f49cc7b2`). From the prototype's dump: Fenwick branches `c1`, Thornbury
+`c17` and `c9`, Hollowmere `c23` and `c3`, Ely `c5`, Wexcombe `c8` and `c15`, Stonebury `c3`
+and `c20`; the one shared note is inside Hollowmere, so the note rule moves nothing declared
+today. `testTowns` reads its towns from the declaration, so it grows with the rows unedited.
+
+**Acceptance criteria** (owner-confirmed 2026-10-02, decision 19f):
+
+- [ ] **8e-1** The towns from Ashby on are declared by one fold over their rows, each town's
+      names avoiding every network declared before it (Millbrook, the corporations,
+      Millbrook's branches and every earlier town's networks and branches). It moves nothing:
+      the world's dump is byte-identical to `main`'s, Ashby's names included, though Ashby
+      now also avoids Millbrook's branches.
+- [ ] **8e-2** The world declares Fenwick `r0/t5`, Thornbury `r0/t6`, Hollowmere `r0/t7` and
+      Ely `r0/t8`, villages, and Wexcombe `r0/t9` and Stonebury `r0/t10`, towns, in Harrow
+      Valley after Kingsford: each town's networks ordered institutions, businesses, homes,
+      practices, branches, answering in its own block. Region #0 holds eleven towns (AC-1);
+      every declared address stays distinct, no ESSID repeats within a town, every ESSID is
+      at most 32 characters, and no word names two places of one town.
+- [ ] **8e-3** Wexcombe keeps a courthouse and no hospital, Stonebury a courthouse and a
+      hospital, each village neither; every council's directory links its town's
+      institutions, listed or not.
+- [ ] **8e-4** No two people on one network keep the same note: a desk keeps no note a desk
+      at a lower address on its network keeps, and draws nothing in its place. The test reads
+      the whole world, since one rare network breaks it and the sample may hold none.
+- [ ] **8e-5** Every whole-world content property holds over every declared network under
+      `WORLD_SWEEP=full`, the test-side failures reshaped to what each claims: an `.env`
+      holds no line whose key names a password or a database; the branch golden pins the
+      rows' branches. Every network of the six towns is reached, and every listed site of
+      theirs is in the top ten for its town and a word its description uses for its kind.
+- [ ] **8e-6** A golden pins each new town's networks (key, ESSID, category, subtype,
+      profile, unlisted, address), as Kingsford's does: Wexcombe's hospital draw keeping none
+      and Ely's `BT-HUB-0A0C` and `NETGEAR-0E06` among them.
+- [ ] **8e-7** `checkBudgets` passes: every set, the six new towns among them, at most 2 ms
+      a box on the best of three, and the bundle under its ceiling.
+- [ ] **8e-8** Nothing else moved: a dump against `main` differs only by the six towns'
+      networks and the relations and gateways of `c1`, `c3`, `c5`, `c8`, `c9`, `c15`, `c17`,
+      `c20` and `c23`, which gain their branches.
+- [ ] **8e-9** `testTowns` fetches each new town's council by its domain, and its courthouse
+      and hospital where it keeps them, finds one of its sites by town and kind, and has a
+      join refused; `testMillbrook`, `testFindit` and `testJoinRefusal` pass live.
+- [ ] **8e-10** `world-content-architecture.md` describes the eleven towns and the note
+      rule. The minor version is bumped to 0.303.0.
+
+Out of scope: findit's memoised index, the cold index-build limit and accent folding (8f);
+wider note templates (rejected, decision 19f).
+
+**PURE REFACTOR FIRST**: the fold (8e-1). Baseline: `vitest run` green and the world dumped on
+`main`; after the fold the dump is byte-identical and the suite green. Its own commit.
+**RED**: the six rows (8e-2) and their institutions (8e-3), which turn the three assertions of
+19f red under the whole-world sweep. The real failure gets its property first (8e-4: the note
+test reading the whole world); the test-side ones are reshaped where each is met (8e-5); the
+town goldens (8e-6) are written from the prototype's figures before the rows exist.
+**GREEN**: the six rows in `world.ts`; the note rule in `npcHome.ts`, a desk reading the notes
+of the desks below it from their first draw on their own `home-content-` streams.
+**REFACTOR**: assess.
+**Server evidence**: no server code change. `testTowns.ts` runs live against `vercel dev`
+with the six towns; `testMillbrook`, `testFindit` and `testJoinRefusal` rerun.
+**PRE-PR MUTATION**: Stryker on the fold and the note rule (narrowed battery, json reporter);
+the carried survivors re-run: the hospital draw's three and the router suffix's leading zeros
+(2), now reached, with 8c's classified rest. One full sweep under `WORLD_SWEEP=full`,
+recorded.
+**PR-ready when**: 8e-1 to 8e-10 hold, the dump differs only as 8e-8 allows, `vitest run`
+(sampled) and the full sweep, typecheck, lint and format pass, and the owner approves the
+commit.
+**Slice complete when**: its PR merges; 8f is planned next.
 
 ## Acceptance Criteria
 
