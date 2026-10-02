@@ -18,7 +18,8 @@ v0.297.0); 7b complete 2026-10-01 (#588, v0.298.0). Slice 7 complete. Slice 8 gr
 2026-10-02 into the names (8b) and the town (8c), the city and the rows moving to 8d and 8e
 (decision 19c); 8b complete 2026-10-02 (#590, v0.300.0); 8c complete 2026-10-02 (#591,
 v0.301.0); 8d complete 2026-10-02 (#592, v0.302.0); 8e split 2026-10-02 into the rows (8e)
-and findit (8f) (decision 19f); 8e planned 2026-10-02. Slice 9 not yet planned.
+and findit (8f) (decision 19f); 8e complete 2026-10-02 (#593, v0.303.0). Slice 9 not yet
+planned.
 Amends the §9 backlog item "Procedural world expansion — GRILLED & RESOLVED 2026-07-29" in
 `docs/conventions-and-gotchas.md`; where the two disagree, this file wins.
 
@@ -2816,8 +2817,8 @@ Grilled 2026-10-01 (decision 19b), 8b split 2026-10-02 (decision 19c), 8e split 
 second village, 8b the names, 8c the town size class, 8d the city, 8e the remaining rows, 8f
 findit's memoised index. 8a complete
 2026-10-02 (#589), 8b complete 2026-10-02 (#590), 8c complete 2026-10-02 (#591), 8d complete
-2026-10-02 (#592); each later PR is planned after the one before it merges, from what that one
-measured.
+2026-10-02 (#592), 8e complete 2026-10-02 (#593); each later PR is planned after the one before
+it merges, from what that one measured.
 
 ### Slice 8a: a second village, Ashby, and findit finds a town's places by its name
 
@@ -3421,7 +3422,7 @@ notes (none a desk below it on the network keeps) → its sites in findit's inde
 fetch by domain, and a refused join.
 **Class**: behaviour change, after a pure-refactor first commit (the fold).
 **Delivery**: independent PR against `main`, branch `feat/procedural-world-rows`.
-**Status**: planned 2026-10-02.
+**Status**: **complete** 2026-10-02 (#593, `1bc621d0`, v0.303.0); 8e-1 to 8e-10 hold.
 **Required implementation skills**: `refactoring` and `testing` for the fold; `tdd`,
 `testing`, `refactoring` for the rows and the note rule; `mutation-testing` at PR-readiness.
 **Reduction program**: `N/A`.
@@ -3434,40 +3435,40 @@ today. `testTowns` reads its towns from the declaration, so it grows with the ro
 
 **Acceptance criteria** (owner-confirmed 2026-10-02, decision 19f):
 
-- [ ] **8e-1** The towns from Ashby on are declared by one fold over their rows, each town's
+- [x] **8e-1** The towns from Ashby on are declared by one fold over their rows, each town's
       names avoiding every network declared before it (Millbrook, the corporations,
       Millbrook's branches and every earlier town's networks and branches). It moves nothing:
       the world's dump is byte-identical to `main`'s, Ashby's names included, though Ashby
       now also avoids Millbrook's branches.
-- [ ] **8e-2** The world declares Fenwick `r0/t5`, Thornbury `r0/t6`, Hollowmere `r0/t7` and
+- [x] **8e-2** The world declares Fenwick `r0/t5`, Thornbury `r0/t6`, Hollowmere `r0/t7` and
       Ely `r0/t8`, villages, and Wexcombe `r0/t9` and Stonebury `r0/t10`, towns, in Harrow
       Valley after Kingsford: each town's networks ordered institutions, businesses, homes,
       practices, branches, answering in its own block. Region #0 holds eleven towns (AC-1);
       every declared address stays distinct, no ESSID repeats within a town, every ESSID is
       at most 32 characters, and no word names two places of one town.
-- [ ] **8e-3** Wexcombe keeps a courthouse and no hospital, Stonebury a courthouse and a
+- [x] **8e-3** Wexcombe keeps a courthouse and no hospital, Stonebury a courthouse and a
       hospital, each village neither; every council's directory links its town's
       institutions, listed or not.
-- [ ] **8e-4** No two people on one network keep the same note: a desk keeps no note a desk
+- [x] **8e-4** No two people on one network keep the same note: a desk keeps no note a desk
       at a lower address on its network keeps, and draws nothing in its place. The test reads
       the whole world, since one rare network breaks it and the sample may hold none.
-- [ ] **8e-5** Every whole-world content property holds over every declared network under
+- [x] **8e-5** Every whole-world content property holds over every declared network under
       `WORLD_SWEEP=full`, the test-side failures reshaped to what each claims: an `.env`
       holds no line whose key names a password or a database; the branch golden pins the
       rows' branches. Every network of the six towns is reached, and every listed site of
       theirs is in the top ten for its town and a word its description uses for its kind.
-- [ ] **8e-6** A golden pins each new town's networks (key, ESSID, category, subtype,
+- [x] **8e-6** A golden pins each new town's networks (key, ESSID, category, subtype,
       profile, unlisted, address), as Kingsford's does: Wexcombe's hospital draw keeping none
       and Ely's `BT-HUB-0A0C` and `NETGEAR-0E06` among them.
-- [ ] **8e-7** `checkBudgets` passes: every set, the six new towns among them, at most 2 ms
+- [x] **8e-7** `checkBudgets` passes: every set, the six new towns among them, at most 2 ms
       a box on the best of three, and the bundle under its ceiling.
-- [ ] **8e-8** Nothing else moved: a dump against `main` differs only by the six towns'
+- [x] **8e-8** Nothing else moved: a dump against `main` differs only by the six towns'
       networks and the relations and gateways of `c1`, `c3`, `c5`, `c8`, `c9`, `c15`, `c17`,
       `c20` and `c23`, which gain their branches.
-- [ ] **8e-9** `testTowns` fetches each new town's council by its domain, and its courthouse
+- [x] **8e-9** `testTowns` fetches each new town's council by its domain, and its courthouse
       and hospital where it keeps them, finds one of its sites by town and kind, and has a
       join refused; `testMillbrook`, `testFindit` and `testJoinRefusal` pass live.
-- [ ] **8e-10** `world-content-architecture.md` describes the eleven towns and the note
+- [x] **8e-10** `world-content-architecture.md` describes the eleven towns and the note
       rule. The minor version is bumped to 0.303.0.
 
 Out of scope: findit's memoised index, the cold index-build limit and accent folding (8f);
@@ -3492,10 +3493,40 @@ recorded.
 (sampled) and the full sweep, typecheck, lint and format pass, and the owner approves the
 commit.
 **Slice complete when**: its PR merges; 8f is planned next.
+(Done 2026-10-02: #593 merged; 8f is next.)
+
+**As built** (2026-10-02):
+
+- **The fold** is `TOWN_ROWS` and `DRAWN_TOWNS` in `world.ts`, its own commit (`f582cdf9`):
+  the world's dump byte-identical to `main`'s, Ashby now also avoiding Millbrook's branches.
+  Adding a town is one row.
+- **The six rows** drew exactly the prototype's 157 networks; a table-driven describe pins
+  each town (institutions by rule, counts by size, order and keys, a 157-line golden, the
+  directory, the block) and the region's eleven towns (AC-1).
+- **The note rule** is `notesKeptBelow` in `npcHome.ts`: a desk drops a note any desk at a
+  lower address on its LAN draws, read from each desk's first draw on its `home-content-`
+  stream; a box below the LAN keeps everything it draws. It moves only School Lane Haulage's
+  `r0/t7/n8` desk. Interleaved `checkBudgets` runs show no measurable cost.
+- **Dump against `main`**: outside the six towns only the relations and gateways of `c1`,
+  `c3`, `c5`, `c8`, `c9`, `c15`, `c17`, `c20` and `c23` moved; none of `main`'s findit pages.
+- **Mutation**: the note rule 32 mutants, 28 killed by `npcHome.test.ts`, 2 more by the
+  landmark snapshot (each moves a `WAYSTAR-WIFI` desk's notes), 2 equivalent over the declared
+  world (the deep-desk guard and the machine check; neither changes any of 2226 boxes).
+  `world.ts` whole (442 mutants, battery `world.test.ts`): 19 true survivors after
+  hand-applying all 194 reported, against 8d's 25, none on 8e's lines. The carried hospital
+  draw's three are killed (Wexcombe keeps none), and the router suffix's fill (Ely's
+  `BT-HUB-0A0C`); its `toUpperCase` survivor is equivalent, `businessSpelling` upper-casing
+  the ESSID after it. The 18 left are 8c's classified rest.
+- **Wire-checks**: `testFindit` 19/19, `testTowns` 37/37, `testMillbrook` 12/12,
+  `testJoinRefusal` 5/5 live.
+- **Budgets**: the bundle 251,882 B; every set 0.83–1.69 ms a box across loaded and idle
+  runs, Ashby the highest. The suite: `WORLD_SWEEP=full` 7672 tests in 1147 s of file time,
+  sampled 911 s (743 s at 8d, the machine's load not separated).
+
 
 ## Acceptance Criteria
 
-- [ ] **AC-1** With the launch extent declared, region #0 holds 8–12 towns, and a test over the
+- [x] **AC-1** With the launch extent declared, region #0 holds 8–12 towns, and a test over the
       whole declared world proves every network has a distinct public IP.
 - [ ] **AC-2** Any player can fetch a procedural town's council site by its domain. Its directory
       page links every institution in that town, listed or not.
