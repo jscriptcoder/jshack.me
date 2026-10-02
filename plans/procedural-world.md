@@ -14,7 +14,7 @@ Slice 5c (the whole town in the content sweep) complete 2026-09-30 (#584, v0.294
 complete 2026-10-01 (#585, v0.295.0); 6b complete 2026-10-01 (#586, v0.296.0). Slice 6
 complete. Slice 7 grilled 2026-10-01 as slices 7a–7b; 7a complete 2026-10-01 (#587,
 v0.297.0); 7b complete 2026-10-01 (#588, v0.298.0). Slice 7 complete. Slice 8 grilled
-2026-10-01 as slices 8a–8d (decision 19b); 8a planned 2026-10-01. Slice 9 not yet
+2026-10-01 as slices 8a–8d (decision 19b); 8a complete 2026-10-02 (#589, v0.299.0). Slice 9 not yet
 planned.
 Amends the §9 backlog item "Procedural world expansion — GRILLED & RESOLVED 2026-07-29" in
 `docs/conventions-and-gotchas.md`; where the two disagree, this file wins.
@@ -2445,8 +2445,8 @@ owner approves the commit.
 
 Grilled 2026-10-01 (decision 19b). Four PRs, in order, each cut from `main` after the one
 before it merges: 8a a second village, 8b the town size class, 8c the city, 8d the remaining
-rows and findit's index split. 8a planned 2026-10-01; each later PR is planned after the one
-before it merges, from what that one measured.
+rows and findit's index split. 8a complete 2026-10-02 (#589); each later PR is planned after
+the one before it merges, from what that one measured.
 
 ### Slice 8a: a second village, Ashby, and findit finds a town's places by its name
 
@@ -2461,7 +2461,8 @@ findit's index, each description naming its town → a search ranking pages that
 word first → `whois`, a fetch by domain, and a refused join.
 **Class**: behaviour change.
 **Delivery**: independent PR against `main`, branch `feat/procedural-world-second-village`.
-**Status**: planned 2026-10-01.
+**Status**: **complete** 2026-10-02 (#589, `c9379bc1`, v0.299.0); 8a-1 to 8a-10 hold, 8a-9 as
+amended below.
 **Required implementation skills**: `tdd`, `testing`, `refactoring`; `mutation-testing` at
 PR-readiness.
 **Reduction program**: `N/A`.
@@ -2520,6 +2521,11 @@ prototype declaring Ashby alone after the corporations, reverted):
   Millbrook's hospital's two API servers pass where Ashby's three do not, then brings back
   one rule. Ruled out now: an API document naming its host on every network, which rewrites
   the 16 landmarks' API servers (AC-7).
+  **Found in RED**: no network but Ashby's council kept two API servers. Millbrook's
+  hospital keeps one; the "two" counted the box it publishes from. So the rule is **a
+  network runs one API**, on the first `api-` box a player reaches there (its LAN, then down
+  its chain); another box named for one keeps a site as any web server does. It moves no
+  landmark.
 - **A box keeps no backup job to an account of its own name.** The backup draw skips a
   source box whose account is the target's. Rejected: exempting a relation's far account in
   the test (the job still tells a player the local account).
@@ -2527,7 +2533,7 @@ prototype declaring Ashby alone after the corporations, reverted):
 
 **Acceptance criteria** (owner-confirmed 2026-10-01):
 
-- [ ] **8a-1** The world declares Ashby, its second generated town: `r0/t2`, Harrow Valley,
+- [x] **8a-1** The world declares Ashby, its second generated town: `r0/t2`, Harrow Valley,
       a village. Its council, police and library are named by rule from the town's name
       (`{Town} Town Council`, `{town}.gov`, `TOWN-HALL-WIFI`; `{Town} Police Department`,
       `{town}pd.gov`, `{TOWN}-PD`; `{Town} Public Library`, `{town}library.org`,
@@ -2535,34 +2541,34 @@ prototype declaring Ashby alone after the corporations, reverted):
       Ashby draws its businesses, homes, practices and branches as Millbrook does, keyed
       after its institutions in that order, and answers in `87.195.x.y`; every declared
       address stays distinct.
-- [ ] **8a-2** A name another network holds is drawn again: no domain repeats in the world,
+- [x] **8a-2** A name another network holds is drawn again: no domain repeats in the world,
       and no ESSID repeats within a town. Every declared ESSID is at most 32 characters.
-- [ ] **8a-3** Any player can fetch `ashby.gov` by its domain, and its directory page links
+- [x] **8a-3** Any player can fetch `ashby.gov` by its domain, and its directory page links
       every Ashby institution, listed or not, and nothing of Millbrook's (AC-2). Millbrook's
       directory links nothing of Ashby's.
-- [ ] **8a-4** Every Ashby network is reached (AC-4's test over the whole declaration): a
+- [x] **8a-4** Every Ashby network is reached (AC-4's test over the whole declaration): a
       town keeps at least one listed office, and every lead starts on a listed publisher.
       Ashby's branches are led to from their parents alone.
-- [ ] **8a-5** Every procedural publisher standing in a town beyond Ridgemont names its town
+- [x] **8a-5** Every procedural publisher standing in a town beyond Ridgemont names its town
       in the description findit indexes; no landmark's page moves (AC-7) and no
       corporation's does. findit ranks a page matching every word of a query above one
       matching fewer, and ties as before. For every listed site in Millbrook and Ashby, a
       search for its town and a word its description uses for its kind lists it in the top
       ten; "Millbrook café" lists Whitlock's Café.
-- [ ] **8a-6** Every whole-world content property holds over Ashby: no two API servers on a
+- [x] **8a-6** Every whole-world content property holds over Ashby: no two API servers on a
       network serve the same document, and no box's crontab names an account of its own
       name.
-- [ ] **8a-7** `whois` on an Ashby address names its organisation with `city: Ashby` (a
+- [x] **8a-7** `whois` on an Ashby address names its organisation with `city: Ashby` (a
       branch's, its parent's), and a join to an Ashby network is refused, as 1c refuses any
       town beyond Ridgemont.
-- [ ] **8a-8** Nothing else moved: a byte-diff against `main` differs only by Ashby's
+- [x] **8a-8** Nothing else moved: a byte-diff against `main` differs only by Ashby's
       networks, the descriptions of Millbrook's businesses and practices and their indexed
       pages, and the gateways of the corporations that gain an Ashby branch.
-- [ ] **8a-9** A new live wire-check, `scripts/testTowns.ts`, fetches each generated town's
+- [x] **8a-9** A new live wire-check, `scripts/testTowns.ts`, fetches each generated town's
       council by its domain, asks `whois` about it, finds one of its sites on findit by town
       and kind, and has a join to it refused; `testMillbrook`, `testFindit` and
       `testJoinRefusal` pass; `checkBudgets` passes.
-- [ ] **8a-10** `world-content-architecture.md` describes the town rows, the institutions'
+- [x] **8a-10** `world-content-architecture.md` describes the town rows, the institutions'
       rule and the listed-office rule; `discovery-architecture.md` describes findit's town
       words and its ranking. The minor version is bumped to 0.299.0.
 
@@ -2589,6 +2595,29 @@ and the backup skip (narrowed battery, json reporter).
 **PR-ready when**: 8a-1 to 8a-10 hold, `vitest run`, typecheck, lint and format pass, the
 full sweep is recorded, and the owner approves the commit.
 **Slice complete when**: its PR merges; 8b is planned next.
+(Done 2026-10-02: #589 merged; 8b is next.)
+
+**As built** (2026-10-02):
+
+- **8a-9 amended**: `testTowns.ts` does not ask `whois`. It answers from the world's
+  declaration and asks nobody on the network, so there is no wire to check; `whois.test.ts`
+  holds Ashby's town hall and branch. The script fetches each council, finds a place by town
+  and kind, and has a join refused (6/6 live).
+- **Ashby's unlisted draw** first unlisted its one office, Brightline Consulting; the
+  listed-office redraw unlists its police and Garrow Family Practice instead. The source
+  filter had no RED until the own-account backup skip moved The Old Rectory's backup onto
+  the unlisted police; then it did.
+- **Relation tests** now cover every generated town, not Millbrook alone.
+- **Mutation**: the search, relation and site changes 88 killed and 7 survived (the two
+  `{locality}` survivors die in `landmarks.test.ts`; five equivalent). `world.ts` 45 killed
+  and 20 survived, most of them module-load throws that turn the suites red by hand. Four
+  are equivalent in this world and become observable in 8b's larger towns: the redraw's
+  `every` against `some` (each town keeps one office), and emptying the names a draw
+  avoids (no draw has clashed yet).
+- **Sweep**: 77 of 81 pass. `testCrossPlayerConnectionTrace` and `testExploitDeepChain` fail
+  identically on `main` (both in the backlog), `testExploitOwnLan` finds no usable target on
+  game day 81, and `testSameLanOccupancy` failed 6/7 in the sweep and passes 7/7 alone.
+- **Budgets**: 1.723 ms a box (ceiling 2 ms), the bundle 249,825 B (ceiling 284,975 B).
 
 ## Acceptance Criteria
 
