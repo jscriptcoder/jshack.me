@@ -126,7 +126,7 @@ gateways on their own seed key or machine id.
 | `corporations` | how many corporations the world draws beyond the landmarks, and each one's kind, no kind twice while another is left |
 | `corporation-names` | each corporation's name, from the corporations' own grammar, clear of every name drawn before it |
 | `town-branches-<town key>` | how many branches of the corporations a town keeps (a village 1–2), and each one's corporation, none twice |
-| `town-homes-<town key>` | how many homes a town keeps, and which |
+| `town-homes-<town key>` | how many homes a town keeps, then each one's form, template and words, clear of every wifi and word its homes already hold |
 | `relations-<key>` | the leads that go to a network: how many, from whom, of which kind, from which box |
 | `relation-host-key-<key>-<ip>` | the host key every desk or head office that has met a client or branch box records for it |
 | `relation-cron-`, `relation-cron-log-` | an offsite backup job's time of night; its `syslog.1`/`auth.log.1` lines |
@@ -172,8 +172,16 @@ theirs, and declaring it moved nothing of either.
   Millbrook, `87.195.x.y` for Ashby).
 - **Names.** No domain repeats anywhere in the world, and no wifi repeats within a town: a
   scan shows one town's wifi at a time, so two towns' town halls both broadcast
-  `TOWN-HALL-WIFI`, and until the home grammar arrives two villages may share a home's name.
-  Every wifi is at most 32 characters.
+  `TOWN-HALL-WIFI`, and two villages may each keep a Rose Cottage. Every wifi is at most 32
+  characters.
+- **No word names two places a town draws.** A word is what fills a slot of a name: a
+  surname, a street or a filler of a business's or a practice's, a surname, a plant or a
+  description of a home's. Among a town's businesses, practices and homes, a name using a
+  word the town already holds is drawn again, as one whose wifi or domain is held is, so no
+  town reads as written from one short list. A template's own text is no word: one town may
+  keep Rose Cottage and Ivy Cottage. A branch carries its company's name and is drawn by no
+  town's grammar, so it is outside the rule. The corporations, drawn as one list, hold it
+  among themselves.
 - **A town keeps an office a search lists.** The leads to its homes start on an office's
   desk, so the unlisted draw is drawn again when it would leave the town no listed office
   (`unlistedOf`), and a lead only ever starts on a listed publisher (`relations.ts`).
@@ -188,11 +196,17 @@ an accountant. No kind repeats in a town while its category has another left. In
 homes and Ridgemont's networks have no kind.
 
 - **Its name** comes from its kind's templates (`{surname}'s Bakery`, `{street} Hardware`,
-  `{filler} Market`), each with one slot filled from a surname, street or filler list. A
-  name whose wifi or domain another network already holds is drawn again. The wifi and the
-  domain are spelt from the name without its accents or apostrophes (`Whitlock's Café` is
-  `WHITLOCKS-CAFE`, `whitlockscafe.com`). The templates and lists only grow at the end,
-  and freeze at launch.
+  `{filler} Market`), each with one slot filled from the 72 surnames, 36 streets or 60
+  fillers of `NAME_WORDS`, so every kind can form 150 names or more (the least, the coffee
+  bar, 156). A name whose wifi, domain or word another network already holds is drawn again.
+  The wifi and the domain are spelt from the name without its accents or apostrophes
+  (`Whitlock's Café` is `WHITLOCKS-CAFE`, `whitlockscafe.com`). The templates and lists only
+  grow at the end, and freeze at launch.
+- **Every name fits its wifi**, not only the names drawn: a test spells every name each
+  template can form, a corporation's with each declared town's name after it as its
+  branch's wifi, and holds them all to 32 characters. The words are chosen so a town named
+  in ten letters fits too: no surname runs past 10 letters, nor a filler past 12, so a later
+  town never forces a rename.
 - **Its site** says what it sells or does. Its category's search description and front
   pages carry slots (`{goods}`, `{service}`, and a shop's `{daily}` and `{range}`, an
   office's `{work}`) that its kind fills (`SITE_WORDS` in `pools/webSites.ts`). A shop,
@@ -204,6 +218,26 @@ homes and Ridgemont's networks have no kind.
   A town's office names every workstation a desk and every file server a working share, and
   when none of its machines drew one, the lowest free machines (never the one serving its
   site) become a file server and a desk.
+
+## What a home is
+
+A town keeps 4–8 homes (a village), drawn on `town-homes-<town key>`: the count first, then
+each home's name from the homes' own grammar (`pools/homeNames.ts`), named the way people
+name their own. A home publishes nothing (see `discovery-architecture.md`, "Leads"). Each
+draws a form by weight, then one of the form's templates, then its words:
+
+| Form | Weight | Wifi | Place |
+|---|---|---|---|
+| family | 35 | `THE-{SURNAME}S`, `{SURNAME}-FAMILY`, `{SURNAME}-WIFI` | "the {Surname}s' house", "the {Surname} family home" |
+| house | 30 | `{PLANT}-{COTTAGE/HOUSE/VIEW/LODGE}`, or one that stands alone (`THE-OLD-RECTORY`) | its name: "Rose Cottage", "the Old Rectory" |
+| flat | 15 | `FLAT-{1–9}{A–D}`, `{GARDEN/TOP/BASEMENT}-FLAT` | "flat 2A", "the garden flat" |
+| router default | 20 | `{NETGEAR/LINKSYS/TP-LINK/BT-HUB}-{four hex digits}` | a description: "the house on the corner" |
+
+A surname ending in "s" takes no more (`THE-HARGREAVES`, "the Hargreaves' house"). Every
+place reads after "at" ("bills at Rose Cottage"). The homes' surnames, plants and
+descriptions are lists of their own, sharing no word with a business's, so no home reads as
+the family behind a shop of its town. No two homes of a town share a wifi or a word, and no
+form names a wifi Ridgemont broadcasts.
 
 ## What a corporation is
 
@@ -223,11 +257,12 @@ branches.
 
 - **Its name** comes from a grammar of its own (`CORPORATION_NAME_TEMPLATES` in
   `pools/businessKinds.ts`): `{surname} Group`, `{filler} Holdings`, `{surname} & {surname}`,
-  `{filler} International`, filled from the businesses' word lists. Every slot is filled and
-  no word fills two slots of one name (the name draw does this for every template, and a
-  business's one slot draws as it always did). It is drawn after every other name, clear of
-  them all, and spelt into its wifi and `.com` domain as a business's is (`Quayle & Bellamy`
-  is `QUAYLE-BELLAMY`, `quaylebellamy.com`).
+  filled from the businesses' word lists (`{filler} International` would have held a filler
+  to 7 letters in a branch's wifi). Every slot is filled and no word fills two slots of one
+  name (the name draw does this for every template, and a business's one slot draws as it
+  always did), and no two corporations share a word. It is drawn after every other name,
+  clear of them all, and spelt into its wifi and `.com` domain as a business's is (`Quayle &
+  Bellamy` is `QUAYLE-BELLAMY`, `quaylebellamy.com`).
 - **Its branches**: a town draws 1–2 offices of the corporations (a village; on
   `town-branches-<town key>`, no corporation twice), keyed as the town's next networks after
   its practices but declared last of all, after the corporations whose names they carry.
@@ -238,8 +273,8 @@ branches.
   `.ssh/config` and `known_hosts` (`buildBranchSshDirectory` in `sshContent.ts`), so a head
   office's access point holds up to 12 files of its own where any other holds 10, and its
   files name no town but in that shortcut. `whois` names the branch's line after its parent's
-  site, in the branch's town. Millbrook keeps one, `r0/t1/n17` `LORIMER-GROUP-MILLBROOK`, an
-  office of `c6` Lorimer Group. Its own files speak for "the Millbrook office", not for the
+  site, in the branch's town. Millbrook keeps one, `r0/t1/n17` `SUMMIT-HOLDINGS-MILLBROOK`, an
+  office of `c6` Summit Holdings. Its own files speak for "the Millbrook office", not for the
   company.
 
 ## What a place of care is
@@ -260,8 +295,8 @@ publishes under a name from its kind's templates (`{street} Medical Centre`, `{s
 Care`), spelt into its wifi and `.com` domain as a business's is, it is in its town's unlisted
 draw, it receives leads as a business does (an unlisted practice gets a supplier), and the
 council's directory no more lists it than a shop. Its name is drawn after every other network's,
-so it avoids them all and moves none. Millbrook keeps one, **Oakwood Dental** (`r0/t1/n16`,
-`oakwooddental.com`, `flat`).
+so it avoids them all and moves none. Millbrook keeps one, **Gateway Dental** (`r0/t1/n16`,
+`gatewaydental.com`, `flat`).
 
 - **Its site** fills a `{care}` slot: the hospital (`SITE_WORDS.hospital`) with wards, visiting
   hours and outpatient clinics, a clinic with GP appointments, vaccinations and blood tests, a

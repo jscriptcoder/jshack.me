@@ -186,36 +186,36 @@ describe("a town network's relations", () => {
     );
 
     expect(graph).toEqual([
-      'WESTBROOK-HAULAGE laptop-56 -contractor-> TOWN-HALL-WIFI hkim@android-57:2222',
-      'WESTBROOK-HAULAGE laptop-56 -contractor-> MILLBROOK-PD root@net-gateway:22',
-      'WESTBROOK-HAULAGE laptop-56 -contractor-> LIBRARY-PUBLIC root@dist-rtr:22',
-      'WESTBROOK-HAULAGE laptop-56 -contractor-> WHITLOCKS-CAFE root@gw-main:22',
-      'WESTBROOK-HAULAGE laptop-56 -contractor-> FRESHWAY-COFFEE root@core-rtr:22',
-      'WESTBROOK-HAULAGE laptop-56 -contractor-> ABERNETHY-AND-SONS-HARDWARE root@firewall01:22',
-      'WESTBROOK-HAULAGE files-16 -supplier-> ABERNETHY-AND-SONS-HARDWARE',
-      'WESTBROOK-HAULAGE files-16 -supplier-> ABERNETHYS-BOOKS',
-      'WESTBROOK-HAULAGE laptop-56 -contractor-> VARLEYS-BAKERY root@edge-rtr:22',
-      'WESTBROOK-HAULAGE laptop-56 -contractor-> KOWALSKI-WIFI root@pfsense01:22',
-      'WESTBROOK-HAULAGE laptop-56 -contractor-> THE-HARGREAVES root@core-rtr:22',
-      'WESTBROOK-HAULAGE laptop-56 -contractor-> GARDEN-FLAT root@mikrotik01:22',
-      'WESTBROOK-HAULAGE laptop-56 -contractor-> ROSE-COTTAGE root@switch-core:22',
-      'WESTBROOK-HAULAGE files-16 -backup-> PEAR-TREE-HOUSE mrodriguez@laptop-13:2222',
-      'WESTBROOK-HAULAGE laptop-56 -contractor-> OKONKWO-FAMILY root@firewall01:22',
-      'WESTBROOK-HAULAGE laptop-56 -contractor-> COTTAGE-HOSPITAL root@core-rtr:22',
-      'WESTBROOK-HAULAGE laptop-56 -contractor-> OAKWOOD-DENTAL lschmidt@iphone-235:2222',
-      'BRIGHTLINE-CONSULTING laptop-12 -contractor-> TOWN-HALL-WIFI root@net-gateway:22',
-      'BRIGHTLINE-CONSULTING laptop-12 -contractor-> ASHBY-PD root@mikrotik01:22',
-      'BRIGHTLINE-CONSULTING laptop-12 -contractor-> LIBRARY-PUBLIC root@gw-main:22',
-      'BRIGHTLINE-CONSULTING laptop-12 -contractor-> GREENLEAF-BAKEHOUSE root@wan-rtr:22',
-      'BRIGHTLINE-CONSULTING laptop-12 -contractor-> BARN-CONVERSION root@fw-dmz:22',
-      'LORIMER-DENTAL-CARE backup-132 -backup-> THE-OLD-RECTORY rsync@vault-49:2222',
-      'BRIGHTLINE-CONSULTING laptop-12 -contractor-> THE-OLD-RECTORY rsync@vault-49:2222',
-      'BRIGHTLINE-CONSULTING laptop-12 -contractor-> OKONKWO-FAMILY root@dist-rtr:22',
-      'BRIGHTLINE-CONSULTING laptop-12 -contractor-> WILLOW-VIEW root@switch-core:22',
-      'BRIGHTLINE-CONSULTING laptop-12 -contractor-> GARDEN-FLAT root@core-rtr:22',
-      'BRIGHTLINE-CONSULTING laptop-12 -contractor-> ROSE-COTTAGE root@wan-rtr:22',
-      'BRIGHTLINE-CONSULTING files-6 -supplier-> GARROW-FAMILY-PRACTICE',
-      'BRIGHTLINE-CONSULTING laptop-12 -contractor-> LORIMER-DENTAL-CARE root@opnsense:22',
+      'BROAD-STREET-HAULAGE laptop-56 -contractor-> TOWN-HALL-WIFI hkim@android-57:2222',
+      'BROAD-STREET-HAULAGE laptop-56 -contractor-> MILLBROOK-PD root@net-gateway:22',
+      'BROAD-STREET-HAULAGE laptop-56 -contractor-> LIBRARY-PUBLIC root@dist-rtr:22',
+      'BROAD-STREET-HAULAGE laptop-56 -contractor-> YATESS-CAFE root@gw-main:22',
+      'BROAD-STREET-HAULAGE laptop-56 -contractor-> SILVERBIRCH-COFFEE root@core-rtr:22',
+      'BROAD-STREET-HAULAGE laptop-56 -contractor-> KENDRICK-AND-SONS-HARDWARE root@firewall01:22',
+      'BROAD-STREET-HAULAGE files-16 -supplier-> KENDRICK-AND-SONS-HARDWARE',
+      'BROAD-STREET-HAULAGE files-16 -supplier-> LINDLEYS-BOOKS',
+      'BROAD-STREET-HAULAGE laptop-56 -contractor-> WARRINGTONS-BAKERY root@edge-rtr:22',
+      'BROAD-STREET-HAULAGE laptop-56 -contractor-> BARN-CONVERSION root@pfsense01:22',
+      'BROAD-STREET-HAULAGE laptop-56 -contractor-> BEECH-LODGE root@core-rtr:22',
+      'BROAD-STREET-HAULAGE laptop-56 -contractor-> FITZGERALD-WIFI root@mikrotik01:22',
+      'BROAD-STREET-HAULAGE laptop-56 -contractor-> ROSE-VIEW root@switch-core:22',
+      'BROAD-STREET-HAULAGE files-16 -backup-> HEATHER-HOUSE mrodriguez@laptop-13:2222',
+      'BROAD-STREET-HAULAGE laptop-56 -contractor-> THE-COACH-HOUSE root@firewall01:22',
+      'BROAD-STREET-HAULAGE laptop-56 -contractor-> COTTAGE-HOSPITAL root@core-rtr:22',
+      'BROAD-STREET-HAULAGE laptop-56 -contractor-> GATEWAY-DENTAL lschmidt@iphone-235:2222',
+      'MEADOW-CONSULTING laptop-12 -contractor-> TOWN-HALL-WIFI root@net-gateway:22',
+      'MEADOW-CONSULTING laptop-12 -contractor-> ASHBY-PD root@mikrotik01:22',
+      'MEADOW-CONSULTING laptop-12 -contractor-> LIBRARY-PUBLIC root@gw-main:22',
+      'MEADOW-CONSULTING laptop-12 -contractor-> BRIGHTLINE-BAKEHOUSE root@wan-rtr:22',
+      'MEADOW-CONSULTING laptop-12 -contractor-> LINKSYS-A2BE root@fw-dmz:22',
+      'HALLORAN-DENTAL-CARE backup-132 -backup-> CLOVER-HOUSE rsync@vault-49:2222',
+      'MEADOW-CONSULTING laptop-12 -contractor-> CLOVER-HOUSE rsync@vault-49:2222',
+      'MEADOW-CONSULTING laptop-12 -contractor-> THE-GRANARY root@dist-rtr:22',
+      'MEADOW-CONSULTING laptop-12 -contractor-> TOP-FLAT root@switch-core:22',
+      'MEADOW-CONSULTING laptop-12 -contractor-> KOWALSKI-FAMILY root@core-rtr:22',
+      'MEADOW-CONSULTING laptop-12 -contractor-> THE-HARGREAVES root@wan-rtr:22',
+      'MEADOW-CONSULTING files-6 -supplier-> WHITLOCK-FAMILY-PRACTICE',
+      'MEADOW-CONSULTING laptop-12 -contractor-> HALLORAN-DENTAL-CARE root@opnsense:22',
     ]);
   });
 });
@@ -344,9 +344,9 @@ describe("a branch's relations", () => {
         ),
       ),
     ).toEqual([
-      'c6 edge-rtr -branch-> LORIMER-GROUP-MILLBROOK root@core-rtr:22',
-      'c17 edge-rtr -branch-> OAKWOOD-HOLDINGS-ASHBY webops@nginx-136:2222',
-      'c22 dist-rtr -branch-> RADLEY-OAKLEY-ASHBY root@opnsense:22',
+      'c6 edge-rtr -branch-> SUMMIT-HOLDINGS-MILLBROOK root@core-rtr:22',
+      'c17 edge-rtr -branch-> TALBOT-GROUP-ASHBY webops@nginx-136:2222',
+      'c22 dist-rtr -branch-> SKYLARK-HOLDINGS-ASHBY root@opnsense:22',
     ]);
   });
 });
@@ -450,9 +450,9 @@ describe("a head office's shortcut to its branch", () => {
 
   it("is pinned (golden): locks the head office's ssh config and the key its branch shows", () => {
     const lorimer = leads().find((relation) => relation.source === 'c6');
-    if (lorimer === undefined) throw new Error('Lorimer Group keeps no lead to its branch');
+    if (lorimer === undefined) throw new Error('Summit Holdings keeps no lead to its branch');
     expect(fileOn('c6', lorimer.sourceHost, '/root/.ssh/config')).toBe(
-      'Host lorimer-group-millbrook\n    HostName 87.98.122.105\n    User root\n',
+      'Host summit-holdings-millbrook\n    HostName 87.98.122.105\n    User root\n',
     );
     expect(fileOn('c6', lorimer.sourceHost, '/root/.ssh/known_hosts')).toBe(
       '87.98.122.105 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI0v/0zJ9HpP0+wf7BLpnBQe4GYIxALpSRXOXQ7uZ68pZ\n',
@@ -699,13 +699,13 @@ describe("an unlisted business's supplier lead", () => {
     if (relation === undefined) throw new Error('Millbrook has no supplier');
     expect([...invoicesOf(relation)]).toEqual([
       [
-        'abernethy-and-sons-hardware-7123.txt',
+        'kendrick-and-sons-hardware-7123.txt',
         [
           'INVOICE 7123',
           '',
-          'From: Abernethy and Sons Hardware',
-          '      abernethyandsonshardware.com',
-          'To:   Westbrook Haulage',
+          'From: Kendrick and Sons Hardware',
+          '      kendrickandsonshardware.com',
+          'To:   Broad Street Haulage',
           '',
           'Date: 2026-07-04',
           'Payment due within 30 days.',
@@ -716,13 +716,13 @@ describe("an unlisted business's supplier lead", () => {
         ].join('\n'),
       ],
       [
-        'abernethys-books-3453.txt',
+        'lindleys-books-3453.txt',
         [
           'INVOICE 3453',
           '',
-          "From: Abernethy's Books",
-          '      abernethysbooks.com',
-          'To:   Westbrook Haulage',
+          "From: Lindley's Books",
+          '      lindleysbooks.com',
+          'To:   Broad Street Haulage',
           '',
           'Date: 2026-06-28',
           'Payment due within 30 days.',
@@ -737,7 +737,7 @@ describe("an unlisted business's supplier lead", () => {
     const log = fileOn(relation.source, relation.sourceHost, '/var/log/vsftpd.log.1') ?? '';
     expect(log.split('\n')).toContain(
       'Sat Jul  4 16:08:15 2026 [pid 65126] [nasadmin] OK UPLOAD: Client "192.168.10.57", ' +
-        '"/srv/share/invoices/abernethy-and-sons-hardware-7123.txt", 228 bytes',
+        '"/srv/share/invoices/kendrick-and-sons-hardware-7123.txt", 229 bytes',
     );
   });
 

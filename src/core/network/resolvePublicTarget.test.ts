@@ -38,12 +38,13 @@ const untouchedWorld: ResolvePublicTargetDeps = {
 
 describe('resolvePublicTarget', () => {
   it("reaches, through a port a Millbrook office's gateway forwards, the box behind it rather than the gateway", async () => {
-    const office = DECLARED_NETWORKS.find((network) => network.essid === 'WESTBROOK-HAULAGE');
-    if (office === undefined) throw new Error('Millbrook declares no Westbrook Haulage');
+    // Millbrook's logistics office, whose gateway forwards a port to a printer behind it.
+    const office = DECLARED_NETWORKS.find((network) => network.key === 'r0/t1/n8');
+    if (office === undefined) throw new Error('Millbrook declares no network r0/t1/n8');
     const printer = generateHomeLan(office.key).hosts.find(
       (host) => host.hostname === 'printer-57',
     );
-    if (printer === undefined) throw new Error('Westbrook Haulage keeps no printer-57');
+    if (printer === undefined) throw new Error('the office keeps no printer-57');
 
     const result = await resolvePublicTarget(untouchedWorld, {
       publicIp: publicAddress(office.key) ?? '',

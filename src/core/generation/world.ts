@@ -22,7 +22,12 @@ import {
   type NamedSubtype,
   type NetworkSubtype,
 } from './pools/businessKinds.js';
-import { TOWN_HOMES, type TownHome } from './pools/townHomes.js';
+import {
+  HOME_FORM_WEIGHTS,
+  HOME_TEMPLATES,
+  HOME_WORDS,
+  type HomeTemplate,
+} from './pools/homeNames.js';
 import { createPrng, type Prng } from './prng.js';
 import { FINDIT_NETWORK } from './finditNetwork.js';
 
@@ -136,6 +141,11 @@ const MILLBROOK_LATER_INSTITUTIONS: readonly Institution[] = [
 const VILLAGE_BUSINESSES_MIN = 3;
 const VILLAGE_BUSINESSES_MAX = 6;
 
+/** Each of `weights`' keys as many times as its weight, in their order: a list a draw
+ *  picks from by weight. */
+const byWeight = <Key extends string>(weights: Readonly<Record<Key, number>>): readonly Key[] =>
+  (Object.keys(weights) as Key[]).flatMap((key) => Array.from({ length: weights[key] }, () => key));
+
 /** A business: what kind it is, and the name over its door. */
 type BusinessKind = { readonly category: BusinessCategory; readonly subtype: BusinessSubtype };
 
@@ -168,9 +178,7 @@ const business = ({ category, subtype }: NamedKind, name: string): Institution =
  *  so nothing drawn after it moves. */
 const kindsOf = (town: Town, count: number): readonly BusinessKind[] => {
   const prng = createPrng(`town-business-kinds-${townKey(town)}`);
-  const weighted = (Object.keys(BUSINESS_CATEGORY_WEIGHTS) as BusinessCategory[]).flatMap(
-    (category) => Array.from({ length: BUSINESS_CATEGORY_WEIGHTS[category] }, () => category),
-  );
+  const weighted = byWeight(BUSINESS_CATEGORY_WEIGHTS);
   return Array.from({ length: count }).reduce<readonly BusinessKind[]>((drawn, _, index) => {
     const drew = prng.pick(weighted);
     const lacksOffice = index === count - 1 && !drawn.some((kind) => kind.category === 'corporate');
@@ -207,12 +215,65 @@ const practiceKindsOf = (town: Town): readonly NamedKind[] => {
 const VILLAGE_HOMES_MIN = 4;
 const VILLAGE_HOMES_MAX = 8;
 
-/** A home, which publishes nothing. */
-const home = ([essid, place]: TownHome): Institution => ({
-  essid,
-  category: 'residential',
-  place,
-});
+/** A family named in the plural: a surname already ending in "s" takes no more. */
+const familyOf = (surname: string): string => (surname.endsWith('s') ? surname : `${surname}s`);
+
+/** The doors on each floor of a block of flats. */
+const FLAT_DOORS: readonly string[] = ['A', 'B', 'C', 'D'];
+const FLAT_FLOORS_MAX = 9;
+
+/** The largest of the four hex digits a router's default name ends in. */
+const ROUTER_SUFFIX_MAX = 0xffff;
+
+/** A home named from `template`, each of its slots filled on `prng`. A home publishes
+ *  nothing. */
+const homeNamed = ([essid, place]: HomeTemplate, prng: Prng): Named => {
+  const template = `${essid} ${place}`;
+  const slot = /\{(surname|plant|description)s?\}/.exec(template)?.[1] as
+    | keyof typeof HOME_WORDS
+    | undefined;
+  const word = slot === undefined ? '' : prng.pick(HOME_WORDS[slot]);
+  const flat = template.includes('{flat}')
+    ? `${prng.nextInt(1, FLAT_FLOORS_MAX)}${prng.pick(FLAT_DOORS)}`
+    : '';
+  const suffix = template.includes('{hex}')
+    ? prng.nextInt(0, ROUTER_SUFFIX_MAX).toString(16).toUpperCase().padStart(4, '0')
+    : '';
+  const filled = (text: string): string =>
+    text
+      .replace('{surnames}', familyOf(word))
+      .replace(`{${slot}}`, word)
+      .replace('{flat}', flat)
+      .replace('{hex}', suffix);
+  return {
+    network: {
+      essid: businessSpelling(filled(essid)).essid,
+      category: 'residential',
+      place: filled(place),
+    },
+    words: slot === undefined ? [] : [word],
+  };
+};
+
+/** How many homes `town` keeps, and the name of each, on a stream of the town's own: the
+ *  count first, then each home's form, template and words. No two share a wifi or a word. */
+const homesOf = (town: Town): readonly Named[] => {
+  const prng = createPrng(`town-homes-${townKey(town)}`);
+  const count = prng.nextInt(VILLAGE_HOMES_MIN, VILLAGE_HOMES_MAX);
+  const forms = byWeight(HOME_FORM_WEIGHTS);
+  return Array.from({ length: count }).reduce<readonly Named[]>((drawn) => {
+    const draw = (): Named => {
+      const named = homeNamed(prng.pick(HOME_TEMPLATES[prng.pick(forms)]), prng);
+      const taken = drawn.some(
+        (home) =>
+          home.network.essid === named.network.essid ||
+          home.words.some((word) => named.words.includes(word)),
+      );
+      return taken ? draw() : named;
+    };
+    return [...drawn, draw()];
+  }, []);
+};
 
 /** The share of a town's publishers whose site asks every crawler to stay away. */
 const UNLISTED_SHARE = 0.15;
@@ -236,10 +297,7 @@ const PROFILE_WEIGHTS: Readonly<
 const profileOf = (key: string, category: NetworkCategory): NetworkProfile => {
   const weights = PROFILE_WEIGHTS[category];
   if (weights === undefined) throw new Error(`no town draws a ${category} network yet`);
-  const weighted = (['lone', 'flat', 'deep'] as const).flatMap((profile) =>
-    Array.from({ length: weights[profile] }, () => profile),
-  );
-  return createPrng(`network-profile-${key}`).pick(weighted);
+  return createPrng(`network-profile-${key}`).pick(byWeight(weights));
 };
 
 const townKey = (town: Town): string => `r${town.region}/t${town.index}`;
@@ -247,9 +305,16 @@ const townKey = (town: Town): string => `r${town.region}/t${town.index}`;
 /** A business or a practice is named from its kind's templates. */
 const kindTemplates = (kind: NamedKind): readonly string[] => NAME_TEMPLATES[kind.subtype];
 
-/** `template` with each slot filled from its word list, drawn on `prng`. No word fills two
- *  slots: a partnership of one family would read as a typing slip. */
-const filledName = (template: string, prng: Prng): string => {
+/** A place a grammar named, and the words from the lists its name is made of. */
+type Named = { readonly network: Institution; readonly words: readonly string[] };
+
+/** `template` with each slot filled from its word list, drawn on `prng`, and the words
+ *  that fill it. No word fills two slots: a partnership of one family would read as a
+ *  typing slip. */
+const filledName = (
+  template: string,
+  prng: Prng,
+): { readonly name: string; readonly words: readonly string[] } => {
   const slots = [...template.matchAll(/\{(\w+)\}/g)].map(
     ([, slot]) => slot as keyof typeof NAME_WORDS,
   );
@@ -260,18 +325,27 @@ const filledName = (template: string, prng: Prng): string => {
     ],
     [],
   );
-  return words.reduce((name, word, index) => name.replace(`{${slots[index]}}`, word), template);
+  const name = words.reduce(
+    (filled, word, index) => filled.replace(`{${slots[index]}}`, word),
+    template,
+  );
+  return { name, words };
 };
 
 /** Each of `kinds` under a name from `templatesOf` it, drawn on `stream`. A name whose
  *  wifi or domain another network already holds is drawn again: two networks under one
- *  domain would answer as one site. */
+ *  domain would answer as one site. So is one using a word already held, among `words`
+ *  or the names drawn before it: a town of two Greenleafs reads as written from one short
+ *  list. */
 const namedOf = (
   stream: string,
   kinds: readonly NamedKind[],
-  neighbours: readonly Institution[],
+  {
+    neighbours,
+    words,
+  }: { readonly neighbours: readonly Institution[]; readonly words: readonly string[] },
   templatesOf: (kind: NamedKind) => readonly string[],
-): readonly Institution[] => {
+): readonly Named[] => {
   const prng = createPrng(stream);
   const held = [...ESSID_CATALOG, ...neighbours];
   const essids = new Set(held.map((network) => network.essid));
@@ -279,16 +353,24 @@ const namedOf = (
     FINDIT_NETWORK,
     ...held.flatMap((network) => network.site?.domain ?? []),
   ]);
-  const draw = (kind: NamedKind): string => {
-    const name = filledName(prng.pick(templatesOf(kind)), prng);
-    const { essid, domain } = businessSpelling(name);
-    if (essids.has(essid) || domains.has(domain)) return draw(kind);
+  const heldWords = new Set(words);
+  const draw = (kind: NamedKind): Named => {
+    const filled = filledName(prng.pick(templatesOf(kind)), prng);
+    const { essid, domain } = businessSpelling(filled.name);
+    const taken =
+      essids.has(essid) || domains.has(domain) || filled.words.some((word) => heldWords.has(word));
+    if (taken) return draw(kind);
     essids.add(essid);
     domains.add(domain);
-    return name;
+    filled.words.forEach((word) => heldWords.add(word));
+    return { network: business(kind, filled.name), words: filled.words };
   };
-  return kinds.map((kind) => business(kind, draw(kind)));
+  return kinds.map((kind) => draw(kind));
 };
+
+/** The networks `named` names. */
+const networksNamed = (named: readonly Named[]): readonly Institution[] =>
+  named.map(({ network }) => network);
 
 /** The publishers of a town whose sites no search lists: 15% of them, at least one, drawn
  *  on a stream of the town's own. The council is never among them: its directory is how
@@ -325,26 +407,32 @@ const networksOf = (
   const institutions = institutionsOf(town);
   const prng = createPrng(`town-businesses-${townKey(town)}`);
   const count = prng.nextInt(VILLAGE_BUSINESSES_MIN, VILLAGE_BUSINESSES_MAX);
-  const homesPrng = createPrng(`town-homes-${townKey(town)}`);
-  const homes = homesPrng.pickN(
-    TOWN_HOMES,
-    homesPrng.nextInt(VILLAGE_HOMES_MIN, VILLAGE_HOMES_MAX),
-  );
+  const namedHomes = homesOf(town);
+  const homes = networksNamed(namedHomes);
   const directory = [...institutions, ...later].flatMap((institution) => institution.site ?? []);
-  const businesses = namedOf(
+  const namedBusinesses = namedOf(
     `town-business-names-${townKey(town)}`,
     kindsOf(town, count),
-    [...institutions, ...homes.map(home), ...later, ...before],
+    {
+      neighbours: [...institutions, ...homes, ...later, ...before],
+      words: namedHomes.flatMap(({ words }) => words),
+    },
     kindTemplates,
   );
+  const businesses = networksNamed(namedBusinesses);
   // A practice's name is drawn after every other, so it avoids them all and moves none.
-  const practices = namedOf(
-    `town-practice-names-${townKey(town)}`,
-    practiceKindsOf(town),
-    [...institutions, ...businesses, ...homes.map(home), ...later, ...before],
-    kindTemplates,
+  const practices = networksNamed(
+    namedOf(
+      `town-practice-names-${townKey(town)}`,
+      practiceKindsOf(town),
+      {
+        neighbours: [...institutions, ...businesses, ...homes, ...later, ...before],
+        words: [...namedHomes, ...namedBusinesses].flatMap(({ words }) => words),
+      },
+      kindTemplates,
+    ),
   );
-  const networks = [...institutions, ...businesses, ...homes.map(home), ...later, ...practices];
+  const networks = [...institutions, ...businesses, ...homes, ...later, ...practices];
   const unlisted = unlistedOf(town, networks);
   return networks.map((institution: Institution, index) => {
     const { keepsDirectory, ...network } = institution;
@@ -384,11 +472,13 @@ const corporationKinds = (): readonly NamedKind[] => {
 /** The corporations: head offices that stand in no town, declared after every town so
  *  none of their keys moves. Their names are drawn after every other, so they avoid them
  *  all and move none. */
-const CORPORATIONS: readonly DeclaredNetwork[] = namedOf(
-  'corporation-names',
-  corporationKinds(),
-  MILLBROOK_NETWORKS,
-  () => CORPORATION_NAME_TEMPLATES,
+const CORPORATIONS: readonly DeclaredNetwork[] = networksNamed(
+  namedOf(
+    'corporation-names',
+    corporationKinds(),
+    { neighbours: MILLBROOK_NETWORKS, words: [] },
+    () => CORPORATION_NAME_TEMPLATES,
+  ),
 ).map((corporation, index) => {
   const key = `c${index}`;
   return { ...corporation, key, profile: profileOf(key, corporation.category) };

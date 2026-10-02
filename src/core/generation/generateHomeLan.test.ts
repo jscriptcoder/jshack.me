@@ -486,12 +486,10 @@ describe('generateHomeLan for a network sized by its profile', () => {
   });
 
   it('is pinned (golden): locks the home-lan- stream for every deep network in the town', () => {
-    const hostnamesOf = (essid: string): readonly string[] =>
-      generateHomeLan(
-        DECLARED_NETWORKS.find((network) => network.essid === essid)?.key ?? '',
-      ).hosts.map((host) => host.hostname);
+    const hostnamesOf = (key: string): readonly string[] =>
+      generateHomeLan(key).hosts.map((host) => host.hostname);
     expect(sized('deep').filter((network) => network.town === 'Millbrook')).toHaveLength(5);
-    expect(hostnamesOf('TOWN-HALL-WIFI')).toEqual([
+    expect(hostnamesOf('r0/t1/n0')).toEqual([
       'firewall01',
       'android-57',
       'portal-58',
@@ -501,7 +499,7 @@ describe('generateHomeLan for a network sized by its profile', () => {
       'mysql-167',
       'laptop-177',
     ]);
-    expect(hostnamesOf('MILLBROOK-PD')).toEqual([
+    expect(hostnamesOf('r0/t1/n1')).toEqual([
       'net-gateway',
       'www-9',
       'mikrotik01',
@@ -510,7 +508,7 @@ describe('generateHomeLan for a network sized by its profile', () => {
       'cam-65',
       'sensor-218',
     ]);
-    expect(hostnamesOf('WESTBROOK-HAULAGE')).toEqual([
+    expect(hostnamesOf('r0/t1/n8')).toEqual([
       'pfsense01',
       'files-16',
       'laptop-56',
@@ -520,7 +518,7 @@ describe('generateHomeLan for a network sized by its profile', () => {
       'ns-133',
       'nginx-188',
     ]);
-    expect(hostnamesOf('COTTAGE-HOSPITAL')).toEqual([
+    expect(hostnamesOf('r0/t1/n15')).toEqual([
       'core-rtr',
       'api-17',
       'iphone-32',
@@ -528,7 +526,7 @@ describe('generateHomeLan for a network sized by its profile', () => {
       'mikrotik01',
       'opnsense',
     ]);
-    expect(hostnamesOf('LORIMER-GROUP-MILLBROOK')).toEqual([
+    expect(hostnamesOf('r0/t1/n17')).toEqual([
       'core-rtr',
       'nginx-69',
       'nas-102',

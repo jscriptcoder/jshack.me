@@ -197,7 +197,7 @@ description (2) > visible body text (1), summed per term; positive scores only, 
 ten, ties by domain. Generated homepages carry a `<meta name="description">` derived from
 the catalog place and category, so "admissions" finds the university and "parking" finds
 the airport. A place in a town beyond Ridgemont whose name does not say its town says it
-after its name (`Whitlock's Café, Millbrook: …`, the `{locality}` slot of
+after its name (`Yates's Café, Millbrook: …`, the `{locality}` slot of
 `SITE_DESCRIPTIONS`), so a search for a town and a kind of place finds that town's place;
 Ridgemont's sites and the corporations read as they were written. Everything read is on the page, so a player shapes their own
 listing by editing their own `index.html` — **SEO as play**, and players can outrank
@@ -245,8 +245,8 @@ target's forwarded ssh when its gateway keeps one, else the gateway's own sshd o
 - **The IT contractor.** An office with a desk keeps a shortcut to every client in the
   desk owner's `~/.ssh/config` (`Host <client wifi, lowercased>`, its address, the
   account, a `Port` off `22`) and the matching `known_hosts` line. Millbrook's is
-  Westbrook Haulage's `laptop-56`, which reaches nine other publishers (the cottage
-  hospital and Oakwood Dental among them) and five homes.
+  Broad Street Haulage's `laptop-56`, which reaches nine other publishers (the cottage
+  hospital and Gateway Dental among them) and five homes.
   Every town keeps an office with a desk and a working share, so every town has a place
   its leads start from (`world-content-architecture.md`, "What a business is").
 - **The offsite backup.** A business with a file server copies `/srv` every night to a
@@ -261,8 +261,8 @@ target's forwarded ssh when its gateway keeps one, else the gateway's own sshd o
   `/srv/share/invoices/<supplier wifi, lowercased>-<number>.txt`, naming it by site name
   and domain, with its arrival in the share's `vsftpd.log.1`
   (`generation/supplierInvoices.ts`). Drawn on `relation-supplier-<key>`, after the
-  target's other leads, so they kept their draws. Millbrook keeps two, Abernethy and Sons
-  Hardware's and Abernethy's Books', both on Westbrook Haulage's `files-16`, their totals in
+  target's other leads, so they kept their draws. Millbrook keeps two, Kendrick and Sons
+  Hardware's and Lindley's Books', both on Broad Street Haulage's `files-16`, their totals in
   whole euros.
 
 Following one takes the shipped verbs: `cat` the shortcut or the crontab on a box the
@@ -276,11 +276,11 @@ test over the whole declaration holds it (`world.test.ts`, "the reach of the wor
 
 About 15% of a town's publishers keep their site off every search:
 `max(1, round(15%))`, picked on `town-unlisted-<town key>` and flagged `unlisted` on the
-declaration (Millbrook unlists Abernethy and Sons Hardware and Abernethy's Books). The council is never picked: its directory
+declaration (Millbrook unlists Kendrick and Sons Hardware and Lindley's Books). The council is never picked: its directory
 is how the town's unlisted institutions are found, so it must be found first. Nor is a
 town's last listed office: its leads start there, so a draw that would unlist every office
-is drawn again (Ashby's would have unlisted Brightline Consulting; it unlists its police and
-Garrow Family Practice instead). An unlisted
+is drawn again (Ashby's would have unlisted Meadow Consulting; it unlists its police and
+Whitlock Family Practice instead). An unlisted
 site's `robots.txt` reads `User-agent: *` / `Disallow: /` and nothing else, in place of
 whatever it drew, and it keeps no directory only that file would have named, which nobody
 could then find (the draws are still made, so nothing after them moves). findit needs no
@@ -299,12 +299,12 @@ that order after findit, so `whois` names each by its site and prints no `city:`
 `region:`. A drawn corporation stands in no town at all, receives no lead, and a join to it is
 refused: it always publishes and is always listed, and findit is the one way in. A search shows at most ten results, so it is a corporation's name that always puts it
 first, not its kind's word: `freight` already fills its page with nine logistics firms and
-Westbrook Haulage.
+Broad Street Haulage.
 
 ### Branches: from the head office to the village
 
-A town keeps offices of the corporations (Millbrook one, `LORIMER-GROUP-MILLBROOK`, an
-office of Lorimer Group). A branch publishes nothing and no business of its town leads to
+A town keeps offices of the corporations (Millbrook one, `SUMMIT-HOLDINGS-MILLBROOK`, an
+office of Summit Holdings). A branch publishes nothing and no business of its town leads to
 it; its IT is the head office's. The way there crosses towns: find the corporation on
 findit, get onto its gateway, and read root's `~/.ssh/config`, whose
 `Host <branch wifi, lowercased>` block names the branch's address, the account and a `Port`
@@ -330,7 +330,7 @@ now draws from more crackable networks and an uncatalogued network from more kin
 Millbrook's cottage hospital. Appending it re-rolled findit's own box, which draws its
 persona as an uncatalogued network would, so findit's persona is now fixed
 (`FINDIT_PLACE`: the workshop it always was). A town's practices came next, a clinic or
-a dentist each, counted beside its businesses; Millbrook's Oakwood Dental moved the unlisted
+a dentist each, counted beside its businesses; Millbrook's dentist moved the unlisted
 pick, so its police is listed again.
 
 ## Two lessons worth keeping

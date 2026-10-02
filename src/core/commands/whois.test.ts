@@ -138,8 +138,8 @@ describe('whois', () => {
   });
 
   it.each([
-    ['Millbrook', 'Lorimer Group'],
-    ['Ashby', 'Oakwood Holdings'],
+    ['Millbrook', 'Summit Holdings'],
+    ['Ashby', 'Talbot Group'],
   ])(
     "names a corporation's branch in %s after the company that holds its line, in the branch's town",
     async (town, company) => {
