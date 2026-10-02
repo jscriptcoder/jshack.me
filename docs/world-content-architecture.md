@@ -157,12 +157,14 @@ never the profile, so a network with no inner gateway has none anywhere.
 ## The towns
 
 Ridgemont's networks are the catalog's; every other town is a row the world declares and
-generates (`world.ts`). Millbrook (`r0/t1`) and Ashby (`r0/t2`) are villages of Harrow Valley,
-Oakhurst (`r0/t3`) is its first town and Kingsford (`r0/t4`) its first city. A town's index is
-part of every key and address inside it, so rows are only ever appended: Ashby is declared after
-the corporations, Oakhurst after Ashby and Kingsford after Oakhurst, each one's names drawn clear
-of every network declared before it, and declaring it moved nothing of theirs but the gateways
-of the corporations that keep a branch there.
+generates (`world.ts`). Harrow Valley holds eleven towns: Ridgemont; the villages Millbrook
+(`r0/t1`), Ashby (`r0/t2`), Fenwick (`r0/t5`), Thornbury (`r0/t6`), Hollowmere (`r0/t7`) and
+Ely (`r0/t8`); the towns Oakhurst (`r0/t3`), Wexcombe (`r0/t9`) and Stonebury (`r0/t10`); and
+the city of Kingsford (`r0/t4`). A town's index is part of every key and address inside it, so
+rows are only ever appended. Millbrook is declared before the corporations; every later town is
+a row of `TOWN_ROWS`, declared by one fold in row order, each one's names drawn clear of every
+network declared before it, so declaring it moved nothing of theirs but the gateways of the
+corporations that keep a branch there.
 
 A row is a name and a **size class**, and the class is one table (`SIZE_CLASSES`) of how many
 of each kind of place the town draws beyond its institutions:
@@ -175,7 +177,8 @@ of each kind of place the town draws beyond its institutions:
 
 Oakhurst draws 47 networks: five institutions, 18 businesses, 20 homes, a clinic and a
 dentist, and branches of Dunmore Group and Sheridan & Mortimer. Kingsford draws 166: five
-institutions, 71 businesses, 80 homes, six practices and four corporations' branches.
+institutions, 71 businesses, 80 homes, six practices and four corporations' branches. The later
+villages draw 15 to 20 networks each, Wexcombe 38 and Stonebury 51; the world declares 491.
 
 - **Its institutions** come from one rule on the town's name (`institutionsOf`): the council
   (`{Town} Town Council`, `{town}.gov`, `TOWN-HALL-WIFI`, which keeps the town's directory),
@@ -186,13 +189,15 @@ institutions, 71 businesses, 80 homes, six practices and four corporations' bran
   `town-hospital-<town key>` (`{Town} General Hospital`, `{town}hospital.org`,
   `GENERAL-HOSPITAL`, "the hospital", kind `hospital`). Both stand after the library and are
   on the council's directory; a village keeps neither. A city draws its hospital as a town
-  does, there being no city whose draw keeps none to tell the two apart. Oakhurst and
-  Kingsford keep both. Millbrook's
+  does, there being no city whose draw keeps none to tell the two apart. Oakhurst, Kingsford
+  and Stonebury keep both; Wexcombe's draw keeps no hospital. Millbrook's
   cottage hospital is its own, declared after its homes.
 - **The rest is drawn** on the town's own streams, keyed `r<region>/t<town>`: its
   businesses, then its homes, then its practices, then the corporations' branches there, each
   keyed as the town's next network and answering in the town's own block (`87.98.x.y` for
-  Millbrook, `87.195.x.y` for Ashby, `87.38.x.y` for Oakhurst, `87.135.x.y` for Kingsford).
+  Millbrook, `87.195.x.y` for Ashby, `87.38.x.y` for Oakhurst, `87.135.x.y` for Kingsford,
+  and so on, one second octet a town). A corporation may keep branches in several towns: its
+  headquarters' gateway then keeps a lead to each.
 - **Names.** No domain repeats anywhere in the world, and no wifi repeats within a town: a
   scan shows one town's wifi at a time, so two towns' town halls both broadcast
   `TOWN-HALL-WIFI`, and two villages may each keep a Rose Cottage. Every wifi is at most 32
@@ -348,7 +353,11 @@ them. Gateways assemble in `buildGatewayBaseFs`.
 name only themselves and `127.0.0.1`.
 
 **Desks** (`desktop|laptop|workstation`, `npcHome.ts`): dotfiles, `.bash_history` whose network
-lines name real neighbours in v2 syntax, `.gitconfig`, 2–5 notes.
+lines name real neighbours in v2 syntax, `.gitconfig`, 2–5 notes drawn. **No two people on one
+network keep the same note**: a desk drops any note a desk at a lower address on its LAN keeps,
+drawing nothing in its place, so it may keep fewer than two. A desk's notes are the first draw
+on its `home-content-` stream, so its neighbours' are read without building their homes; a
+deep-layer desk stands alone on its layer.
 
 **Phones and tablets** (`phoneHome.ts`): a maker-shaped layout (Android `DCIM/Camera/`,
 `Download/`…; Apple `DCIM/100APPLE/`, `Downloads/`) keyed on `make === 'Apple'`; 6–16 JPEG stubs

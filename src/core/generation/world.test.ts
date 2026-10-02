@@ -2009,9 +2009,371 @@ describe('Kingsford', () => {
   });
 });
 
+/** The towns the region declares after Kingsford: where each stands, how big it is, and
+ *  the institutions a town bigger than a village keeps beyond the council, police and
+ *  library. */
+const LAST_TOWNS = [
+  { name: 'Fenwick', row: 5, size: 'village', block: '87.232', beyond: [] },
+  { name: 'Thornbury', row: 6, size: 'village', block: '87.75', beyond: [] },
+  { name: 'Hollowmere', row: 7, size: 'village', block: '87.172', beyond: [] },
+  { name: 'Ely', row: 8, size: 'village', block: '87.15', beyond: [] },
+  { name: 'Wexcombe', row: 9, size: 'town', block: '87.112', beyond: ['courthouse'] },
+  {
+    name: 'Stonebury',
+    row: 10,
+    size: 'town',
+    block: '87.209',
+    beyond: ['courthouse', 'hospital'],
+  },
+] as const;
+
+/** The fewest and the most of each kind a village and a town keep. */
+const SIZE_RANGES = {
+  village: { business: [3, 6], home: [4, 8], practice: [1, 2], branch: [1, 2] },
+  town: { business: [12, 24], home: [12, 24], practice: [2, 4], branch: [2, 3] },
+} as const;
+
+/** Every network the world declares in `town`. */
+const townNamed = (town: string): readonly DeclaredNetwork[] =>
+  DECLARED_NETWORKS.filter((network) => network.town === town);
+
+type InstitutionKind = 'council' | 'police' | 'library' | 'courthouse' | 'hospital';
+
+/** What a town's institution is named, by the rule every town's are. */
+const institutionNamed = (town: string, kind: InstitutionKind) => {
+  const lower = town.toLowerCase();
+  return {
+    council: { essid: 'TOWN-HALL-WIFI', domain: `${lower}.gov`, name: `${town} Town Council` },
+    police: {
+      essid: `${town.toUpperCase()}-PD`,
+      domain: `${lower}pd.gov`,
+      name: `${town} Police Department`,
+    },
+    library: {
+      essid: 'LIBRARY-PUBLIC',
+      domain: `${lower}library.org`,
+      name: `${town} Public Library`,
+    },
+    courthouse: {
+      essid: 'COURTHOUSE-WIFI',
+      domain: `${lower}courts.gov`,
+      name: `${town} County Court`,
+    },
+    hospital: {
+      essid: 'GENERAL-HOSPITAL',
+      domain: `${lower}hospital.org`,
+      name: `${town} General Hospital`,
+    },
+  }[kind];
+};
+
+/** Each later town's networks, pinned as Kingsford's are. */
+type LastTownName = (typeof LAST_TOWNS)[number]['name'];
+
+const LAST_TOWN_GOLDENS: Readonly<Record<LastTownName, readonly string[]>> = {
+  Fenwick: [
+    'r0/t5/n0 | TOWN-HALL-WIFI | the town hall | fenwick.gov | 87.232.0.2 | deep | - | -',
+    'r0/t5/n1 | FENWICK-PD | the police station | fenwickpd.gov | 87.232.97.142 | flat | - | -',
+    'r0/t5/n2 | LIBRARY-PUBLIC | the public library | fenwicklibrary.org | 87.232.195.29 | flat | - | -',
+    'r0/t5/n3 | PEBBLE-SYSTEMS | Pebble Systems | pebblesystems.com | 87.232.36.169 | deep | it-services | -',
+    'r0/t5/n4 | PARAGON-ROASTERS | Paragon Roasters | paragonroasters.com | 87.232.134.56 | lone | coffee-bar | -',
+    'r0/t5/n5 | THE-GRANITE-TEAPOT | The Granite Teapot | thegraniteteapot.com | 87.232.231.196 | lone | tea-room | -',
+    'r0/t5/n6 | RIVERSTONE-CAFE | Riverstone Café | riverstonecafe.com | 87.232.73.83 | flat | cafe | unlisted',
+    'r0/t5/n7 | THE-FOUNDRY-TEAPOT | The Foundry Teapot | thefoundryteapot.com | 87.232.170.223 | lone | tea-room | -',
+    'r0/t5/n8 | NETGEAR-CDC4 | the end terrace | - | 87.232.12.110 | flat | - | -',
+    'r0/t5/n9 | BASEMENT-FLAT | the basement flat | - | 87.232.109.250 | flat | - | -',
+    'r0/t5/n10 | FLAT-5A | flat 5A | - | 87.232.207.137 | lone | - | -',
+    'r0/t5/n11 | THE-COACH-HOUSE | the Coach House | - | 87.232.49.24 | lone | - | -',
+    "r0/t5/n12 | OKONKWO-WIFI | the Okonkwos' house | - | 87.232.146.164 | lone | - | -",
+    'r0/t5/n13 | JESSOP-DENTAL-CARE | Jessop Dental Care | jessopdentalcare.com | 87.232.244.51 | flat | dentist | -',
+    'r0/t5/n14 | MADDOX-LINDLEY-FENWICK | the Fenwick office | - | 87.232.85.191 | deep | it-services | c1',
+  ],
+  Thornbury: [
+    'r0/t6/n0 | TOWN-HALL-WIFI | the town hall | thornbury.gov | 87.75.0.2 | deep | - | -',
+    'r0/t6/n1 | THORNBURY-PD | the police station | thornburypd.gov | 87.75.97.142 | flat | - | -',
+    'r0/t6/n2 | LIBRARY-PUBLIC | the public library | thornburylibrary.org | 87.75.195.29 | lone | - | unlisted',
+    'r0/t6/n3 | EASTFIELD-ESPRESSO | Eastfield Espresso | eastfieldespresso.com | 87.75.36.169 | flat | coffee-bar | unlisted',
+    'r0/t6/n4 | IRONSIDE-ADVISORY | Ironside Advisory | ironsideadvisory.com | 87.75.134.56 | deep | consulting | -',
+    'r0/t6/n5 | FIELDSTONE-CAFE | Fieldstone Café | fieldstonecafe.com | 87.75.231.196 | flat | cafe | -',
+    'r0/t6/n6 | YATES-COMPUTING | Yates Computing | yatescomputing.com | 87.75.73.83 | deep | it-services | -',
+    'r0/t6/n7 | JARROW-CHEMISTS | Jarrow Chemists | jarrowchemists.com | 87.75.170.223 | flat | pharmacy | -',
+    "r0/t6/n8 | FITZGERALD-WIFI | the Fitzgeralds' house | - | 87.75.12.110 | lone | - | -",
+    'r0/t6/n9 | BARN-CONVERSION | the barn conversion | - | 87.75.109.250 | flat | - | -',
+    "r0/t6/n10 | THE-BRENNANS | the Brennans' house | - | 87.75.207.137 | lone | - | -",
+    'r0/t6/n11 | NETGEAR-1E16 | the house with the long drive | - | 87.75.49.24 | lone | - | -',
+    "r0/t6/n12 | ADEYEMI-WIFI | the Adeyemis' house | - | 87.75.146.164 | flat | - | -",
+    'r0/t6/n13 | TOP-FLAT | the top flat | - | 87.75.244.51 | flat | - | -',
+    'r0/t6/n14 | TP-LINK-418C | the house on the corner | - | 87.75.85.191 | flat | - | -',
+    "r0/t6/n15 | MAHONEY-WIFI | the Mahoneys' house | - | 87.75.183.78 | flat | - | -",
+    'r0/t6/n16 | MAIN-STREET-MEDICAL-CENTRE | Main Street Medical Centre | mainstreetmedicalcentre.com | 87.75.24.218 | deep | clinic | -',
+    'r0/t6/n17 | HARBOUR-ROAD-DENTAL-PRACTICE | Harbour Road Dental Practice | harbourroaddentalpractice.com | 87.75.122.105 | deep | dentist | -',
+    'r0/t6/n18 | TALBOT-GROUP-THORNBURY | the Thornbury office | - | 87.75.219.245 | deep | consulting | c17',
+    'r0/t6/n19 | CALLOWAY-GROUP-THORNBURY | the Thornbury office | - | 87.75.61.132 | deep | it-services | c9',
+  ],
+  Hollowmere: [
+    'r0/t7/n0 | TOWN-HALL-WIFI | the town hall | hollowmere.gov | 87.172.0.2 | deep | - | -',
+    'r0/t7/n1 | HOLLOWMERE-PD | the police station | hollowmerepd.gov | 87.172.97.142 | flat | - | -',
+    'r0/t7/n2 | LIBRARY-PUBLIC | the public library | hollowmerelibrary.org | 87.172.195.29 | flat | - | -',
+    'r0/t7/n3 | EASTON-INSURANCE-BROKERS | Easton Insurance Brokers | eastoninsurancebrokers.com | 87.172.36.169 | flat | insurance | -',
+    'r0/t7/n4 | STONEBRIDGE-BAKEHOUSE | Stonebridge Bakehouse | stonebridgebakehouse.com | 87.172.134.56 | flat | bakery | -',
+    'r0/t7/n5 | QUARRY-COFFEE | Quarry Coffee | quarrycoffee.com | 87.172.231.196 | lone | coffee-bar | -',
+    'r0/t7/n6 | THE-COMPASS-TEAPOT | The Compass Teapot | thecompassteapot.com | 87.172.73.83 | flat | tea-room | -',
+    'r0/t7/n7 | EASTFIELD-CAFE | Eastfield Café | eastfieldcafe.com | 87.172.170.223 | flat | cafe | unlisted',
+    'r0/t7/n8 | SCHOOL-LANE-HAULAGE | School Lane Haulage | schoollanehaulage.com | 87.172.12.110 | deep | logistics | unlisted',
+    'r0/t7/n9 | WILLOW-HOUSE | Willow House | - | 87.172.109.250 | lone | - | -',
+    'r0/t7/n10 | BT-HUB-C366 | the bungalow | - | 87.172.207.137 | flat | - | -',
+    'r0/t7/n11 | BT-HUB-AD85 | the house at the end of the lane | - | 87.172.49.24 | flat | - | -',
+    "r0/t7/n12 | TAKAHASHI-WIFI | the Takahashis' house | - | 87.172.146.164 | flat | - | -",
+    'r0/t7/n13 | FORGE-LANE-MEDICAL-CENTRE | Forge Lane Medical Centre | forgelanemedicalcentre.com | 87.172.244.51 | deep | clinic | -',
+    'r0/t7/n14 | WHITLOCK-DENTAL-CARE | Whitlock Dental Care | whitlockdentalcare.com | 87.172.85.191 | deep | dentist | -',
+    'r0/t7/n15 | DUNMORE-GROUP-HOLLOWMERE | the Hollowmere office | - | 87.172.183.78 | flat | consulting | c23',
+    'r0/t7/n16 | ABERNETHY-GROUP-HOLLOWMERE | the Hollowmere office | - | 87.172.24.218 | deep | accounting | c3',
+  ],
+  Ely: [
+    'r0/t8/n0 | TOWN-HALL-WIFI | the town hall | ely.gov | 87.15.0.2 | deep | - | -',
+    'r0/t8/n1 | ELY-PD | the police station | elypd.gov | 87.15.97.142 | flat | - | -',
+    'r0/t8/n2 | LIBRARY-PUBLIC | the public library | elylibrary.org | 87.15.195.29 | flat | - | -',
+    'r0/t8/n3 | CRESCENT-PANTRY | Crescent Pantry | crescentpantry.com | 87.15.36.169 | flat | grocer | -',
+    'r0/t8/n4 | SOUTHGATE-BOOKSHOP | Southgate Bookshop | southgatebookshop.com | 87.15.134.56 | deep | bookshop | -',
+    'r0/t8/n5 | GARROW-ACCOUNTANTS | Garrow Accountants | garrowaccountants.com | 87.15.231.196 | deep | accounting | -',
+    "r0/t8/n6 | TAKAHASHI-WIFI | the Takahashis' house | - | 87.15.73.83 | flat | - | -",
+    "r0/t8/n7 | THE-FRASERS | the Frasers' house | - | 87.15.170.223 | flat | - | -",
+    'r0/t8/n8 | BT-HUB-0A0C | the house with the solar panels | - | 87.15.12.110 | lone | - | -',
+    'r0/t8/n9 | THE-OLD-RECTORY | the Old Rectory | - | 87.15.109.250 | lone | - | -',
+    "r0/t8/n10 | NOVAK-WIFI | the Novaks' house | - | 87.15.207.137 | flat | - | -",
+    'r0/t8/n11 | NETGEAR-0E06 | the cottage by the green | - | 87.15.49.24 | flat | - | -',
+    'r0/t8/n12 | THE-OLD-DAIRY | the Old Dairy | - | 87.15.146.164 | flat | - | -',
+    'r0/t8/n13 | FLAT-1B | flat 1B | - | 87.15.244.51 | lone | - | -',
+    'r0/t8/n14 | VICTORIA-ROAD-DENTAL-SURGERY | Victoria Road Dental Surgery | victoriaroaddentalsurgery.com | 87.15.85.191 | deep | dentist | unlisted',
+    'r0/t8/n15 | JESSOP-GROUP-ELY | the Ely office | - | 87.15.183.78 | flat | insurance | c5',
+  ],
+  Wexcombe: [
+    'r0/t9/n0 | TOWN-HALL-WIFI | the town hall | wexcombe.gov | 87.112.0.2 | deep | - | -',
+    'r0/t9/n1 | WEXCOMBE-PD | the police station | wexcombepd.gov | 87.112.97.142 | flat | - | -',
+    'r0/t9/n2 | LIBRARY-PUBLIC | the public library | wexcombelibrary.org | 87.112.195.29 | flat | - | -',
+    'r0/t9/n3 | COURTHOUSE-WIFI | the courthouse | wexcombecourts.gov | 87.112.36.169 | deep | - | -',
+    'r0/t9/n4 | BROAD-STREET-GROCERS | Broad Street Grocers | broadstreetgrocers.com | 87.112.134.56 | flat | grocer | -',
+    'r0/t9/n5 | VICKERS-AND-SONS-HARDWARE | Vickers and Sons Hardware | vickersandsonshardware.com | 87.112.231.196 | lone | hardware | -',
+    'r0/t9/n6 | CANAL-STREET-ESPRESSO | Canal Street Espresso | canalstreetespresso.com | 87.112.73.83 | flat | coffee-bar | -',
+    'r0/t9/n7 | BEACON-LOGISTICS | Beacon Logistics | beaconlogistics.com | 87.112.170.223 | deep | logistics | -',
+    'r0/t9/n8 | DUNMORE-CHEMISTS | Dunmore Chemists | dunmorechemists.com | 87.112.12.110 | flat | pharmacy | -',
+    'r0/t9/n9 | EMBER-CASH-EXCHANGE | Ember Cash Exchange | embercashexchange.com | 87.112.109.250 | flat | pawn | -',
+    'r0/t9/n10 | FENWICK-AND-PARTNERS | Fenwick and Partners | fenwickandpartners.com | 87.112.207.137 | flat | consulting | -',
+    'r0/t9/n11 | THE-STERLING-TEAPOT | The Sterling Teapot | thesterlingteapot.com | 87.112.49.24 | lone | tea-room | -',
+    'r0/t9/n12 | TOWER-HILL-BOOKSHOP | Tower Hill Bookshop | towerhillbookshop.com | 87.112.146.164 | lone | bookshop | unlisted',
+    'r0/t9/n13 | MADDOX-COMPUTING | Maddox Computing | maddoxcomputing.com | 87.112.244.51 | deep | it-services | unlisted',
+    'r0/t9/n14 | GARROW-INSURANCE-BROKERS | Garrow Insurance Brokers | garrowinsurancebrokers.com | 87.112.85.191 | deep | insurance | unlisted',
+    'r0/t9/n15 | UNION-STREET-PHONE-REPAIR | Union Street Phone Repair | unionstreetphonerepair.com | 87.112.183.78 | deep | electronics | -',
+    'r0/t9/n16 | THE-FRESHWAY-KETTLE | The FreshWay Kettle | thefreshwaykettle.com | 87.112.24.218 | flat | cafe | -',
+    "r0/t9/n17 | ASHWORTHS-BAKERY | Ashworth's Bakery | ashworthsbakery.com | 87.112.122.105 | flat | bakery | -",
+    'r0/t9/n18 | EVERGREEN-COFFEE | Evergreen Coffee | evergreencoffee.com | 87.112.219.245 | flat | coffee-bar | -',
+    'r0/t9/n19 | THE-SKYLARK-TEAPOT | The Skylark Teapot | theskylarkteapot.com | 87.112.61.132 | lone | tea-room | -',
+    'r0/t9/n20 | EASTFIELD-BLOOMS | Eastfield Blooms | eastfieldblooms.com | 87.112.159.19 | flat | florist | -',
+    'r0/t9/n21 | BARN-CONVERSION | the barn conversion | - | 87.112.0.159 | flat | - | -',
+    'r0/t9/n22 | TP-LINK-5C08 | the house at the end of the lane | - | 87.112.98.46 | flat | - | -',
+    'r0/t9/n23 | BT-HUB-A22C | the house by the level crossing | - | 87.112.195.186 | flat | - | -',
+    'r0/t9/n24 | JANKOWSKI-FAMILY | the Jankowski family home | - | 87.112.37.73 | lone | - | -',
+    "r0/t9/n25 | THE-LINDQVISTS | the Lindqvists' house | - | 87.112.134.213 | flat | - | -",
+    "r0/t9/n26 | THE-MURPHYS | the Murphys' house | - | 87.112.232.100 | lone | - | -",
+    'r0/t9/n27 | DOHERTY-FAMILY | the Doherty family home | - | 87.112.73.240 | lone | - | -',
+    'r0/t9/n28 | THE-OLD-FORGE | the Old Forge | - | 87.112.171.127 | flat | - | -',
+    'r0/t9/n29 | THE-OLD-RECTORY | the Old Rectory | - | 87.112.13.14 | lone | - | -',
+    'r0/t9/n30 | BASEMENT-FLAT | the basement flat | - | 87.112.110.154 | flat | - | -',
+    'r0/t9/n31 | TOP-FLAT | the top flat | - | 87.112.208.41 | flat | - | -',
+    'r0/t9/n32 | THE-GRANARY | the Granary | - | 87.112.49.181 | flat | - | -',
+    'r0/t9/n33 | SUMMIT-HEALTH-CENTRE | Summit Health Centre | summithealthcentre.com | 87.112.147.68 | deep | clinic | unlisted',
+    'r0/t9/n34 | RIVERSIDE-DENTAL-SURGERY | Riverside Dental Surgery | riversidedentalsurgery.com | 87.112.244.208 | deep | dentist | -',
+    'r0/t9/n35 | LIGHTHOUSE-DENTAL | Lighthouse Dental | lighthousedental.com | 87.112.86.95 | flat | dentist | -',
+    'r0/t9/n36 | SILVERBIRCH-HOLDINGS-WEXCOMBE | the Wexcombe office | - | 87.112.183.235 | deep | it-services | c8',
+    'r0/t9/n37 | MILLSTONE-HOLDINGS-WEXCOMBE | the Wexcombe office | - | 87.112.25.122 | deep | consulting | c15',
+  ],
+  Stonebury: [
+    'r0/t10/n0 | TOWN-HALL-WIFI | the town hall | stonebury.gov | 87.209.0.2 | flat | - | -',
+    'r0/t10/n1 | STONEBURY-PD | the police station | stoneburypd.gov | 87.209.97.142 | deep | - | -',
+    'r0/t10/n2 | LIBRARY-PUBLIC | the public library | stoneburylibrary.org | 87.209.195.29 | flat | - | unlisted',
+    'r0/t10/n3 | COURTHOUSE-WIFI | the courthouse | stoneburycourts.gov | 87.209.36.169 | flat | - | -',
+    'r0/t10/n4 | GENERAL-HOSPITAL | the hospital | stoneburyhospital.org | 87.209.134.56 | deep | hospital | -',
+    'r0/t10/n5 | HARBOUR-ROAD-HARDWARE | Harbour Road Hardware | harbourroadhardware.com | 87.209.231.196 | flat | hardware | -',
+    'r0/t10/n6 | MILLSTONE-PHARMACY | Millstone Pharmacy | millstonepharmacy.com | 87.209.73.83 | deep | pharmacy | -',
+    'r0/t10/n7 | LIGHTHOUSE-COFFEE | Lighthouse Coffee | lighthousecoffee.com | 87.209.170.223 | flat | coffee-bar | -',
+    'r0/t10/n8 | GATEWAY-SYSTEMS | Gateway Systems | gatewaysystems.com | 87.209.12.110 | deep | it-services | -',
+    'r0/t10/n9 | BARROW-FREIGHT | Barrow Freight | barrowfreight.com | 87.209.109.250 | flat | logistics | -',
+    'r0/t10/n10 | MERLIN-TEA-ROOMS | Merlin Tea Rooms | merlintearooms.com | 87.209.207.137 | flat | tea-room | -',
+    "r0/t10/n11 | SHERIDANS-BAKERY | Sheridan's Bakery | sheridansbakery.com | 87.209.49.24 | flat | bakery | -",
+    'r0/t10/n12 | THE-LODESTAR-KETTLE | The Lodestar Kettle | thelodestarkettle.com | 87.209.146.164 | lone | cafe | -',
+    "r0/t10/n13 | IVERSONS-CAFE | Iverson's Café | iversonscafe.com | 87.209.244.51 | lone | cafe | unlisted",
+    "r0/t10/n14 | ELLISONS-FLORIST | Ellison's Florist | ellisonsflorist.com | 87.209.85.191 | lone | florist | -",
+    'r0/t10/n15 | KEYSTONE-ACCOUNTING | Keystone Accounting | keystoneaccounting.com | 87.209.183.78 | flat | accounting | -',
+    'r0/t10/n16 | DUNMORE-ELECTRICAL | Dunmore Electrical | dunmoreelectrical.com | 87.209.24.218 | lone | electronics | -',
+    'r0/t10/n17 | GRANITE-TEA-ROOMS | Granite Tea Rooms | granitetearooms.com | 87.209.122.105 | lone | tea-room | -',
+    'r0/t10/n18 | FORGE-LANE-PAWN | Forge Lane Pawn | forgelanepawn.com | 87.209.219.245 | lone | pawn | -',
+    'r0/t10/n19 | VANGUARD-CAFE | Vanguard Café | vanguardcafe.com | 87.209.61.132 | lone | cafe | unlisted',
+    'r0/t10/n20 | HARVEST-PANTRY | Harvest Pantry | harvestpantry.com | 87.209.159.19 | flat | grocer | -',
+    "r0/t10/n21 | BELLAMYS-CAFE | Bellamy's Café | bellamyscafe.com | 87.209.0.159 | flat | cafe | -",
+    'r0/t10/n22 | QUARRY-ADVISORY | Quarry Advisory | quarryadvisory.com | 87.209.98.46 | flat | consulting | -',
+    'r0/t10/n23 | THE-EMBER-KETTLE | The Ember Kettle | theemberkettle.com | 87.209.195.186 | lone | cafe | -',
+    "r0/t10/n24 | THE-OSEIS | the Oseis' house | - | 87.209.37.73 | lone | - | -",
+    'r0/t10/n25 | THE-OLD-FORGE | the Old Forge | - | 87.209.134.213 | flat | - | -',
+    "r0/t10/n26 | THE-JANKOWSKIS | the Jankowskis' house | - | 87.209.232.100 | flat | - | -",
+    "r0/t10/n27 | THE-ROSSIS | the Rossis' house | - | 87.209.73.240 | lone | - | -",
+    'r0/t10/n28 | MURPHY-FAMILY | the Murphy family home | - | 87.209.171.127 | flat | - | -',
+    'r0/t10/n29 | LINDQVIST-FAMILY | the Lindqvist family home | - | 87.209.13.14 | flat | - | -',
+    'r0/t10/n30 | CHERRY-TREE-LODGE | Cherry Tree Lodge | - | 87.209.110.154 | flat | - | -',
+    'r0/t10/n31 | HOLLY-VIEW | Holly View | - | 87.209.208.41 | flat | - | -',
+    'r0/t10/n32 | BASEMENT-FLAT | the basement flat | - | 87.209.49.181 | flat | - | -',
+    'r0/t10/n33 | NETGEAR-C72B | the house opposite the pub | - | 87.209.147.68 | flat | - | -',
+    'r0/t10/n34 | BARN-CONVERSION | the barn conversion | - | 87.209.244.208 | lone | - | -',
+    'r0/t10/n35 | THE-OLD-DAIRY | the Old Dairy | - | 87.209.86.95 | flat | - | -',
+    'r0/t10/n36 | FLAT-3B | flat 3B | - | 87.209.183.235 | lone | - | -',
+    'r0/t10/n37 | LINKSYS-1D41 | the house with the red door | - | 87.209.25.122 | flat | - | -',
+    'r0/t10/n38 | THE-OLD-RECTORY | the Old Rectory | - | 87.209.123.9 | flat | - | -',
+    "r0/t10/n39 | THE-BIANCHIS | the Bianchis' house | - | 87.209.220.149 | lone | - | -",
+    'r0/t10/n40 | BT-HUB-57F7 | the semi with the blue door | - | 87.209.62.36 | lone | - | -',
+    'r0/t10/n41 | LINKSYS-98D4 | the cottage up the hill | - | 87.209.159.176 | lone | - | -',
+    'r0/t10/n42 | LAUREL-VIEW | Laurel View | - | 87.209.1.63 | flat | - | -',
+    'r0/t10/n43 | PRIMROSE-VIEW | Primrose View | - | 87.209.98.203 | lone | - | -',
+    "r0/t10/n44 | THE-NOVAKS | the Novaks' house | - | 87.209.196.90 | flat | - | -",
+    'r0/t10/n45 | TOP-FLAT | the top flat | - | 87.209.37.230 | lone | - | -',
+    'r0/t10/n46 | CHURCH-ROAD-DENTAL-PRACTICE | Church Road Dental Practice | churchroaddentalpractice.com | 87.209.135.117 | flat | dentist | unlisted',
+    'r0/t10/n47 | WESTGATE-MEDICAL-CENTRE | Westgate Medical Centre | westgatemedicalcentre.com | 87.209.233.4 | deep | clinic | -',
+    'r0/t10/n48 | SCHOOL-LANE-SURGERY | School Lane Surgery | schoollanesurgery.com | 87.209.74.144 | flat | clinic | -',
+    'r0/t10/n49 | ABERNETHY-GROUP-STONEBURY | the Stonebury office | - | 87.209.172.31 | flat | accounting | c3',
+    'r0/t10/n50 | HALLORAN-GROUP-STONEBURY | the Stonebury office | - | 87.209.13.171 | flat | accounting | c20',
+  ],
+};
+
+/**
+ * The region's last six towns: four villages and two towns, each drawn as every town of
+ * its size is. Harrow Valley then holds the eleven towns it launches with.
+ */
+describe("the region's last six towns", () => {
+  it('leave Harrow Valley holding eleven towns, Ridgemont among them', () => {
+    const towns = new Set(
+      DECLARED_NETWORKS.filter((network) => network.region === 'Harrow Valley').flatMap(
+        (network) => network.town ?? [],
+      ),
+    );
+    expect([...towns]).toEqual([
+      'Ridgemont',
+      'Millbrook',
+      'Ashby',
+      'Oakhurst',
+      'Kingsford',
+      ...LAST_TOWNS.map((town) => town.name),
+    ]);
+  });
+
+  it.each(LAST_TOWNS)(
+    'declares $name with its council, police and library named for it, and what a $size keeps beyond them',
+    ({ name, row, beyond }) => {
+      const kinds = ['council', 'police', 'library', ...beyond] as const;
+      expect(
+        townNamed(name)
+          .slice(0, kinds.length)
+          .map((network) => [
+            network.key,
+            network.essid,
+            network.site,
+            network.region,
+            network.directory !== undefined,
+          ]),
+      ).toEqual([
+        ...kinds.map((kind, index) => {
+          const { essid, domain, name: siteName } = institutionNamed(name, kind);
+          return [
+            `r0/t${row}/n${index}`,
+            essid,
+            { domain, name: siteName },
+            'Harrow Valley',
+            kind === 'council',
+          ];
+        }),
+      ]);
+    },
+  );
+
+  it.each(LAST_TOWNS)(
+    'keeps in $name the businesses, homes, practices and branches a $size keeps',
+    ({ name, size }) => {
+      for (const kind of ['business', 'home', 'practice', 'branch'] as const) {
+        const [fewest, most] = SIZE_RANGES[size][kind];
+        const count = countDrawnAs(townNamed(name), kind);
+        expect(count, kind).toBeGreaterThanOrEqual(fewest);
+        expect(count, kind).toBeLessThanOrEqual(most);
+      }
+    },
+  );
+
+  it.each(LAST_TOWNS)(
+    'draws in $name its businesses, then its homes, then its practices, then its branches, each keyed after the last',
+    ({ name, row }) => {
+      expect(runsOf(townNamed(name))).toEqual([
+        'institution',
+        'business',
+        'home',
+        'practice',
+        'branch',
+      ]);
+      expect(townNamed(name).map((network) => network.key)).toEqual(
+        townNamed(name).map((_, index) => `r0/t${row}/n${index}`),
+      );
+    },
+  );
+
+  it.each(LAST_TOWNS)(
+    'pins $name (golden): locks every network it draws under its key, name, domain, address, size and kind',
+    ({ name }) => {
+      // A key, a name or an address that moved would strand every journal, bookmark and
+      // note a player holds about the network, so a town only ever grows.
+      expect(
+        townNamed(name).map((network) =>
+          [
+            network.key,
+            network.essid,
+            network.place,
+            network.site?.domain ?? '-',
+            publicAddress(network.key),
+            network.profile,
+            network.subtype ?? '-',
+            network.unlisted === true ? 'unlisted' : (network.parent ?? '-'),
+          ].join(' | '),
+        ),
+      ).toEqual(LAST_TOWN_GOLDENS[name]);
+    },
+  );
+
+  it.each(LAST_TOWNS)(
+    'keeps a directory on the council site of $name, linking each of its institutions',
+    ({ name, beyond }) => {
+      const page = pageAt(`${name.toLowerCase()}.gov`, 'directory.html') ?? '';
+      expect(page).toContain(`<p>The public bodies of ${name},`);
+      expect(outboundLinksIn(page)).toEqual(
+        (['council', 'police', 'library', ...beyond] as const).map((kind) => {
+          const { domain, name: siteName } = institutionNamed(name, kind);
+          return [`http://${domain}/`, siteName];
+        }),
+      );
+    },
+  );
+
+  it.each(LAST_TOWNS)(
+    "answers every network of $name in the town's own block of the region, and finds it there again",
+    ({ name, block }) => {
+      expect(townNamed(name).length).toBeGreaterThan(0);
+      for (const network of townNamed(name)) {
+        const address = publicAddress(network.key) ?? '';
+        expect(address.startsWith(`${block}.`), network.key).toBe(true);
+        expect(networkAt(address), network.key).toBe(network.key);
+      }
+    },
+  );
+});
+
 describe('a village', () => {
   it('keeps neither a courthouse nor a general hospital, only the institutions it was declared with', () => {
-    for (const village of [millbrook(), ashby()]) {
+    const villages = LAST_TOWNS.filter((town) => town.size === 'village');
+    expect(villages.length).toBeGreaterThan(0);
+    for (const village of [millbrook(), ashby(), ...villages.map((town) => townNamed(town.name))]) {
       expect(village.length).toBeGreaterThan(0);
       const essids = village.map((network) => network.essid);
       expect(essids).not.toContain('COURTHOUSE-WIFI');

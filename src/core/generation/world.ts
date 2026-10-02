@@ -143,6 +143,12 @@ const TOWN_ROWS: readonly DrawnTown[] = [
   { region: 0, index: 2, name: 'Ashby', size: 'village' },
   { region: 0, index: 3, name: 'Oakhurst', size: 'town' },
   { region: 0, index: 4, name: 'Kingsford', size: 'city' },
+  { region: 0, index: 5, name: 'Fenwick', size: 'village' },
+  { region: 0, index: 6, name: 'Thornbury', size: 'village' },
+  { region: 0, index: 7, name: 'Hollowmere', size: 'village' },
+  { region: 0, index: 8, name: 'Ely', size: 'village' },
+  { region: 0, index: 9, name: 'Wexcombe', size: 'town' },
+  { region: 0, index: 10, name: 'Stonebury', size: 'town' },
 ];
 
 /** The name of the region `town` stands in. */
