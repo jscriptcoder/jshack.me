@@ -6,9 +6,11 @@
 
 import { hostServices, npcUsername } from '../core/generation/remoteHostFs.js';
 import { crackableEssidPool } from '../core/generation/generateWifi.js';
-import { DECLARED_NETWORKS, RIDGEMONT } from '../core/generation/world.js';
+import { DECLARED_NETWORKS, RIDGEMONT, type DeclaredNetwork } from '../core/generation/world.js';
 import { relationsFrom, type Login } from '../core/generation/relations.js';
-import { generateHomeLan, type LanHost } from '../core/generation/generateHomeLan.js';
+import { generateHomeLan, isOnHomeLan, type LanHost } from '../core/generation/generateHomeLan.js';
+import { peopleOn } from '../core/generation/networkMail.js';
+import { roleOfHostname } from '../core/generation/pools/hostnames.js';
 import { generateDeepLayer } from '../core/generation/generateDeepLayer.js';
 import { chainLinks, machineIdForLanHost } from '../core/generation/lanTopology.js';
 import { buildApGatewayBaseFs } from '../core/generation/routerFs.js';
@@ -32,11 +34,61 @@ export const UNCATALOGUED_ESSIDS = [
   'Practice-Staff',
   'Patient-Staff',
 ];
+/** Every network the world draws beyond Ridgemont. */
+const DRAWN = DECLARED_NETWORKS.filter((network) => network.town !== RIDGEMONT);
+
 /** Every network a town beyond Ridgemont declares, by the key its machines are built from. */
-export const TOWN_KEYS = DECLARED_NETWORKS.filter((network) => network.town !== RIDGEMONT).map(
-  (network) => network.key,
-);
-export const ALL_ESSIDS = [...crackableEssidPool, ...UNCATALOGUED_ESSIDS, ...TOWN_KEYS];
+export const TOWN_KEYS = DRAWN.map((network) => network.key);
+
+/** The networks the world drew first, which every sweep reads whole: Millbrook, and the
+ *  corporations, which stand in no town. */
+const isSweptWhole = (network: DeclaredNetwork): boolean =>
+  network.town === 'Millbrook' || network.town === undefined;
+
+/** What makes two networks of a town read alike to a content sweep: what they are, how
+ *  deep they run, and whether they are a corporation's branch or a business no search
+ *  lists, both of which are reached by leads no other network is. */
+const shapeOf = (network: DeclaredNetwork): string =>
+  [
+    network.town,
+    network.category,
+    network.subtype,
+    network.profile,
+    network.parent !== undefined,
+    network.unlisted === true,
+  ].join('|');
+
+/**
+ * The drawn networks a content sweep reads: every one when `sweep` is `full`, and
+ * otherwise a fixed sample of them, the first network of each shape every town holds
+ * beside the networks swept whole. A town adds dozens of networks that read alike, and
+ * sweeping them all would make every test pay for every town the world grows by. The
+ * sample is fixed, so a red run reproduces; each pull request's gate sweeps the whole.
+ */
+export const townKeysSwept = (sweep: string | undefined): readonly string[] =>
+  sweep === 'full'
+    ? TOWN_KEYS
+    : DRAWN.filter(
+        (network, index) =>
+          isSweptWhole(network) ||
+          DRAWN.findIndex((other) => shapeOf(other) === shapeOf(network)) === index,
+      ).map((network) => network.key);
+
+/** Every network the world holds, sampled or not: for a test whose claim one rare network
+ *  can break, cheap enough to read in full. */
+export const WORLD_ESSIDS = [...crackableEssidPool, ...UNCATALOGUED_ESSIDS, ...TOWN_KEYS];
+
+/** `WORLD_SWEEP` as the run was started with, which Vitest hands the tests on
+ *  `import.meta.env`. */
+const WORLD_SWEEP: unknown = import.meta.env.WORLD_SWEEP;
+
+/** Every network a whole-world content test reads. `WORLD_SWEEP=full` reads every
+ *  declared network rather than the sample. */
+export const ALL_ESSIDS = [
+  ...crackableEssidPool,
+  ...UNCATALOGUED_ESSIDS,
+  ...townKeysSwept(typeof WORLD_SWEEP === 'string' ? WORLD_SWEEP : undefined),
+];
 
 /** Every generated machine on these networks' home LANs. */
 export const lanBoxes = (essids: readonly string[]): readonly Box[] =>
@@ -45,6 +97,13 @@ export const lanBoxes = (essids: readonly string[]): readonly Box[] =>
       .hosts.filter((host) => host.kind === 'machine')
       .map((host) => ({ essid, host })),
   );
+
+/** Whether `box` carries its network's mail: a mail server, but for one on a network
+ *  somebody has to themselves, where nobody writes and there is no mail to carry. Below
+ *  the LAN a box's people are its own logins, so the network's do not decide it. */
+export const carriesMail = ({ essid, host }: Box): boolean =>
+  roleOfHostname(host.hostname) === 'mailserver' &&
+  (!isOnHomeLan(essid, host) || peopleOn(essid).length > 1);
 
 /** Every deep-layer NPC on these networks, with the gateway it hangs off. */
 export const deepBoxes = (essids: readonly string[]) =>

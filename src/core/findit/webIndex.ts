@@ -13,9 +13,9 @@
  * only because it is deliberate — a fresh gateway forwards nothing — and because a site
  * that would rather not be listed can say so in its `robots.txt`.
  *
- * The cost is paid in as few reads as the answer allows: ONE read of every publisher's
- * gateway and web server together with the gateway of every other network the world
- * declares. The institutions are resolved in memory from that. A network whose gateway
+ * The cost is paid in as few reads as the answer allows: every publisher's gateway and
+ * web server together with the gateway of every other network the world declares, a
+ * couple of hundred machines a read. The institutions are resolved in memory from that. A network whose gateway
  * answers nothing on `:80` — nearly all of them — costs no more;
  * one that does answer, and an institution whose gateway was repointed somewhere this
  * index cannot rebuild, is fetched the ordinary way, alone.
@@ -49,7 +49,7 @@ export type ServedSite = { readonly homepage: string; readonly robotsTxt: string
 
 export type WebIndexDeps = {
   /** Every named machine's journal in one read, in the order a per-machine read
-   *  returns them. */
+   *  returns them. The index asks for its machines a batch at a time. */
   readonly findPatchesForMachines: (
     machineIds: readonly string[],
   ) => Promise<{ readonly data: readonly MachinePatchRow[] | null; readonly error: unknown }>;
@@ -57,6 +57,12 @@ export type WebIndexDeps = {
    *  cannot rebuild from the generated world. Null when nothing answers. */
   readonly siteAt: (publicIp: string) => Promise<ServedSite | null>;
 };
+
+/** How many machines one journal read names. A read names them in its request's address,
+ *  and the database's gateway refuses an address past about 8 KB: one naming 281 machines
+ *  in 6.7 KB was answered and one naming 529 in 12.6 KB was not. 200 keeps a read near
+ *  5 KB, so the index costs a few round trips rather than one per site. */
+const MACHINES_PER_READ = 200;
 
 /** An institution that publishes, with the two machines a visit to it passes through. */
 type Publisher = {
@@ -194,12 +200,20 @@ const listing = (site: ServedSite | null, address: string): readonly IndexedPage
  * admitting the search found nothing.
  */
 export const indexedWeb = async (deps: WebIndexDeps): Promise<readonly IndexedPage[]> => {
-  const patches = await deps.findPatchesForMachines([
+  const machineIds = [
     ...publisherMachineIds(),
     ...PLAYER_NETWORKS.map((network) => computeApGatewayId(network.essid)),
-  ]);
-  if (patches.error) return [];
-  const journals = rowsByMachine(patches.data ?? []);
+  ];
+  // Each machine is named in one read alone, so its journal arrives whole and in order.
+  const reads = await Promise.all(
+    Array.from({ length: Math.ceil(machineIds.length / MACHINES_PER_READ) }, (_, index) =>
+      deps.findPatchesForMachines(
+        machineIds.slice(index * MACHINES_PER_READ, (index + 1) * MACHINES_PER_READ),
+      ),
+    ),
+  );
+  if (reads.some((read) => read.error)) return [];
+  const journals = rowsByMachine(reads.flatMap((read) => read.data ?? []));
 
   const pages = await Promise.all([
     ...PUBLISHERS.map(async (publisher) =>

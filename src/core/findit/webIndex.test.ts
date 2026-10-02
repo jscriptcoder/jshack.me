@@ -75,8 +75,16 @@ describe('the web findit searches', () => {
 
   it('puts the institution a search names first: the police for police, the court for court', async () => {
     const web = await indexWith();
+    // More than one town keeps a listed police department, so all of them come before
+    // anything else, and a search names the town to find its own first.
+    const departments = web
+      .map((page) => page.address)
+      .filter((address) => /pd\.gov$/.test(address));
     const police = rankPages(web, 'police').map((page) => page.address);
-    expect(police.slice(0, 2)).toEqual(['millbrookpd.gov', 'ridgemontpd.gov']);
+    expect(departments.length).toBeGreaterThan(1);
+    expect([...police.slice(0, departments.length)].sort()).toEqual([...departments].sort());
+    expect(rankPages(web, 'ridgemont police')[0]?.address).toBe('ridgemontpd.gov');
+    expect(rankPages(web, 'kingsford police')[0]?.address).toBe('kingsfordpd.gov');
     // More than one town keeps a court, so a search names the town to find its own.
     expect(rankPages(web, 'court')[0]?.address).toMatch(/^[a-z]+courts\.gov$/);
     expect(rankPages(web, 'ridgemont court')[0]?.address).toBe('ridgemontcourts.gov');
@@ -169,7 +177,7 @@ describe('the web findit searches', () => {
 
   it('puts the hospital first for the wards only a hospital says it keeps', async () => {
     const web = await indexWith();
-    expect(rankPages(web, 'wards')[0]?.address).toBe('millbrookhospital.org');
+    expect(rankPages(web, 'wards')[0]?.address).toMatch(/^[a-z]+hospital\.org$/);
   });
 
   it('puts a listed dentist first for the fillings only a dentist says it does', async () => {
@@ -335,7 +343,11 @@ describe('the web findit searches', () => {
     expect(takenOver.find((page) => page.address === CAMPUS_DOMAIN)?.title).toBe('Gateway page');
   });
 
-  it('asks for every publisher in one go, rather than one machine at a time', async () => {
+  it('asks for the publishers a few hundred machines at a time, each machine once', async () => {
+    // One read names its machines in its request's address, and an address naming every
+    // publisher in a city's world is longer than the database's gateway accepts. The
+    // single read before the city named 281 machines in 6.7 KB and was answered; with the
+    // city, 529 in 12.6 KB were refused.
     const asked: string[][] = [];
     await indexedWeb({
       findPatchesForMachines: async (machineIds) => {
@@ -344,8 +356,62 @@ describe('the web findit searches', () => {
       },
       siteAt: async () => null,
     });
-    expect(asked).toHaveLength(1);
-    expect(asked[0]).toEqual(expect.arrayContaining([...publisherMachineIds()]));
+    const named = asked.flat();
+    expect(asked.length).toBeGreaterThan(1);
+    expect(asked.length).toBeLessThan(10);
+    expect(new Set(named).size).toBe(named.length);
+    expect(named).toEqual(expect.arrayContaining([...publisherMachineIds()]));
+    for (const machineIds of asked) {
+      const address = encodeURIComponent(machineIds.map((id) => `"${id}"`).join(','));
+      expect(address.length).toBeLessThanOrEqual(6_000);
+    }
+  });
+
+  it('serves a rewritten homepage whichever read its machine is asked for in', async () => {
+    const reads: string[][] = [];
+    const deps = depsWith([], {
+      findPatchesForMachines: async (machineIds) => {
+        reads.push([...machineIds]);
+        return { data: [], error: null };
+      },
+    });
+    await indexedWeb(deps);
+    const laterReads = reads.slice(1).flat();
+    const publisher = DECLARED_NETWORKS.find((network) => {
+      const server = siteServer(network.key);
+      return (
+        network.site !== undefined &&
+        network.unlisted !== true &&
+        server !== undefined &&
+        laterReads.includes(resolveLanHostIdentity(server, network.key).machineId)
+      );
+    });
+    const server = publisher === undefined ? undefined : siteServer(publisher.key);
+    if (publisher?.site === undefined || server === undefined) {
+      throw new Error('no read after the first names a listed web server');
+    }
+    const rewritten = patchRow({
+      machine_id: resolveLanHostIdentity(server, publisher.key).machineId,
+      content: '<html><head><title>Rewritten Late</title></head><body></body></html>',
+    });
+    const page = (await indexWith([rewritten])).find(
+      (each) => each.address === publisher.site?.domain,
+    );
+    expect(page?.title).toBe('Rewritten Late');
+  });
+
+  it('finds nothing at all when any of its reads fails', async () => {
+    let reads = 0;
+    const web = await indexedWeb({
+      findPatchesForMachines: async () => {
+        reads += 1;
+        return reads === 2
+          ? { data: null, error: new Error('down') }
+          : { data: [], error: null };
+      },
+      siteAt: async () => null,
+    });
+    expect(web).toEqual([]);
   });
 
   it('finds nothing at all when the journals cannot be read', async () => {
@@ -475,7 +541,7 @@ describe("a player's page on the public web", () => {
     expect(visited).toEqual([]);
   });
 
-  it("reads the players' gateways in the same single read as the publishers'", async () => {
+  it("reads the players' gateways in the same reads as the publishers'", async () => {
     const asked: string[][] = [];
     await indexedWeb(
       depsWith([], {
@@ -491,8 +557,7 @@ describe("a player's page on the public web", () => {
       (network) => network.site === undefined,
     ).map((network) => computeApGatewayId(network.key));
     expect(unpublishedGateways).toContain(computeApGatewayId(HOME));
-    expect(asked).toHaveLength(1);
-    expect([...(asked[0] ?? [])].sort()).toEqual(
+    expect(asked.flat().sort()).toEqual(
       [...publisherMachineIds(), ...unpublishedGateways].sort(),
     );
   });

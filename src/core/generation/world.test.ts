@@ -1702,6 +1702,313 @@ describe('Oakhurst', () => {
   });
 });
 
+/** Every network the world declares in Kingsford. */
+const kingsford = (): readonly DeclaredNetwork[] =>
+  DECLARED_NETWORKS.filter((network) => network.town === 'Kingsford');
+
+/**
+ * Kingsford is the world's first city: a courthouse and a hospital it always keeps, and
+ * everything else drawn as a town's is, only several times more of it.
+ */
+describe('Kingsford', () => {
+  it("declares the region's fifth town, its council, police, library, courthouse and hospital named for it", () => {
+    expect(
+      kingsford()
+        .slice(0, 5)
+        .map((network) => [
+          network.key,
+          network.essid,
+          network.category,
+          network.subtype ?? '-',
+          network.place,
+          network.site,
+          network.region,
+          network.directory !== undefined,
+        ]),
+    ).toEqual([
+      [
+        'r0/t4/n0',
+        'TOWN-HALL-WIFI',
+        'government',
+        '-',
+        'the town hall',
+        { domain: 'kingsford.gov', name: 'Kingsford Town Council' },
+        'Harrow Valley',
+        true,
+      ],
+      [
+        'r0/t4/n1',
+        'KINGSFORD-PD',
+        'government',
+        '-',
+        'the police station',
+        { domain: 'kingsfordpd.gov', name: 'Kingsford Police Department' },
+        'Harrow Valley',
+        false,
+      ],
+      [
+        'r0/t4/n2',
+        'LIBRARY-PUBLIC',
+        'public',
+        '-',
+        'the public library',
+        { domain: 'kingsfordlibrary.org', name: 'Kingsford Public Library' },
+        'Harrow Valley',
+        false,
+      ],
+      [
+        'r0/t4/n3',
+        'COURTHOUSE-WIFI',
+        'government',
+        '-',
+        'the courthouse',
+        { domain: 'kingsfordcourts.gov', name: 'Kingsford County Court' },
+        'Harrow Valley',
+        false,
+      ],
+      [
+        'r0/t4/n4',
+        'GENERAL-HOSPITAL',
+        'healthcare',
+        'hospital',
+        'the hospital',
+        { domain: 'kingsfordhospital.org', name: 'Kingsford General Hospital' },
+        'Harrow Valley',
+        false,
+      ],
+    ]);
+  });
+
+  it('keeps 40 to 80 businesses, 40 to 80 homes, 5 to 8 practices and 3 to 5 branches, as a city does', () => {
+    const counts = (['business', 'home', 'practice', 'branch'] as const).map((kind) =>
+      countDrawnAs(kingsford(), kind),
+    );
+    const [businessCount, homeCount, practiceCount, branchCount] = counts;
+    expect(businessCount).toBeGreaterThanOrEqual(40);
+    expect(businessCount).toBeLessThanOrEqual(80);
+    expect(homeCount).toBeGreaterThanOrEqual(40);
+    expect(homeCount).toBeLessThanOrEqual(80);
+    expect(practiceCount).toBeGreaterThanOrEqual(5);
+    expect(practiceCount).toBeLessThanOrEqual(8);
+    expect(branchCount).toBeGreaterThanOrEqual(3);
+    expect(branchCount).toBeLessThanOrEqual(5);
+  });
+
+  it('draws its businesses, then its homes, then its practices, then the branches it keeps, each keyed after the last', () => {
+    expect(runsOf(kingsford())).toEqual(['institution', 'business', 'home', 'practice', 'branch']);
+    expect(kingsford().map((network) => network.key)).toEqual(
+      kingsford().map((_, index) => `r0/t4/n${index}`),
+    );
+  });
+
+  it('is pinned (golden): locks every network it draws under its key, name, domain, address, size and kind', () => {
+    // A key, a name or an address that moved would strand every journal, bookmark and note
+    // a player holds about the network, so the city only ever grows.
+    expect(
+      kingsford().map((network) =>
+        [
+          network.key,
+          network.essid,
+          network.place,
+          network.site?.domain ?? '-',
+          publicAddress(network.key),
+          network.profile,
+          network.subtype ?? '-',
+          network.unlisted === true ? 'unlisted' : (network.parent ?? '-'),
+        ].join(' | '),
+      ),
+    ).toEqual([
+      'r0/t4/n0 | TOWN-HALL-WIFI | the town hall | kingsford.gov | 87.135.0.2 | deep | - | -',
+      'r0/t4/n1 | KINGSFORD-PD | the police station | kingsfordpd.gov | 87.135.97.142 | flat | - | -',
+      'r0/t4/n2 | LIBRARY-PUBLIC | the public library | kingsfordlibrary.org | 87.135.195.29 | flat | - | -',
+      'r0/t4/n3 | COURTHOUSE-WIFI | the courthouse | kingsfordcourts.gov | 87.135.36.169 | deep | - | -',
+      'r0/t4/n4 | GENERAL-HOSPITAL | the hospital | kingsfordhospital.org | 87.135.134.56 | deep | hospital | -',
+      'r0/t4/n5 | MILLSTONE-CASH-EXCHANGE | Millstone Cash Exchange | millstonecashexchange.com | 87.135.231.196 | flat | pawn | -',
+      'r0/t4/n6 | HERON-ROASTERS | Heron Roasters | heronroasters.com | 87.135.73.83 | lone | coffee-bar | -',
+      'r0/t4/n7 | STONEBRIDGE-LOGISTICS | Stonebridge Logistics | stonebridgelogistics.com | 87.135.170.223 | flat | logistics | -',
+      'r0/t4/n8 | NEW-ROAD-MUTUAL | New Road Mutual | newroadmutual.com | 87.135.12.110 | deep | insurance | unlisted',
+      "r0/t4/n9 | LORIMERS-FLORIST | Lorimer's Florist | lorimersflorist.com | 87.135.109.250 | flat | florist | -",
+      'r0/t4/n10 | BRIDGE-STREET-MINI-MART | Bridge Street Mini Mart | bridgestreetminimart.com | 87.135.207.137 | lone | grocer | -',
+      'r0/t4/n11 | FOUNDRY-ELECTRONICS | Foundry Electronics | foundryelectronics.com | 87.135.49.24 | lone | electronics | unlisted',
+      'r0/t4/n12 | CARTWRIGHT-AND-SONS-HARDWARE | Cartwright and Sons Hardware | cartwrightandsonshardware.com | 87.135.146.164 | lone | hardware | -',
+      'r0/t4/n13 | RIVERSTONE-ACCOUNTING | Riverstone Accounting | riverstoneaccounting.com | 87.135.244.51 | deep | accounting | -',
+      'r0/t4/n14 | BLUEBELL-SYSTEMS | Bluebell Systems | bluebellsystems.com | 87.135.85.191 | flat | it-services | -',
+      'r0/t4/n15 | NORTHSTAR-CONSULTING | Northstar Consulting | northstarconsulting.com | 87.135.183.78 | deep | consulting | -',
+      'r0/t4/n16 | CROWN-CONSULTING | Crown Consulting | crownconsulting.com | 87.135.24.218 | deep | consulting | -',
+      'r0/t4/n17 | RIVERSIDE-BAKERY | Riverside Bakery | riversidebakery.com | 87.135.122.105 | lone | bakery | -',
+      'r0/t4/n18 | PIONEER-TEA-ROOMS | Pioneer Tea Rooms | pioneertearooms.com | 87.135.219.245 | flat | tea-room | -',
+      'r0/t4/n19 | HARBOUR-ROAD-PHARMACY | Harbour Road Pharmacy | harbourroadpharmacy.com | 87.135.61.132 | flat | pharmacy | -',
+      'r0/t4/n20 | LANDMARK-CAFE | Landmark Café | landmarkcafe.com | 87.135.159.19 | lone | cafe | unlisted',
+      "r0/t4/n21 | YARDLEYS-BOOKS | Yardley's Books | yardleysbooks.com | 87.135.0.159 | lone | bookshop | -",
+      'r0/t4/n22 | BEACON-SYSTEMS | Beacon Systems | beaconsystems.com | 87.135.98.46 | flat | it-services | -',
+      'r0/t4/n23 | SILVERBIRCH-ELECTRONICS | Silverbirch Electronics | silverbirchelectronics.com | 87.135.195.186 | flat | electronics | -',
+      'r0/t4/n24 | TRIDENT-ELECTRONICS | Trident Electronics | tridentelectronics.com | 87.135.37.73 | flat | electronics | -',
+      'r0/t4/n25 | SUMMIT-COFFEE | Summit Coffee | summitcoffee.com | 87.135.134.213 | flat | coffee-bar | -',
+      'r0/t4/n26 | SWIFT-ROASTERS | Swift Roasters | swiftroasters.com | 87.135.232.100 | lone | coffee-bar | unlisted',
+      'r0/t4/n27 | LIGHTHOUSE-ROASTERS | Lighthouse Roasters | lighthouseroasters.com | 87.135.73.240 | lone | coffee-bar | -',
+      'r0/t4/n28 | HALLMARK-BAKEHOUSE | Hallmark Bakehouse | hallmarkbakehouse.com | 87.135.171.127 | lone | bakery | -',
+      'r0/t4/n29 | QUAYLE-COMPUTING | Quayle Computing | quaylecomputing.com | 87.135.13.14 | deep | it-services | -',
+      'r0/t4/n30 | WESTGATE-BOOKSHOP | Westgate Bookshop | westgatebookshop.com | 87.135.110.154 | lone | bookshop | unlisted',
+      'r0/t4/n31 | SOUTHGATE-TAX-AND-ACCOUNTS | Southgate Tax and Accounts | southgatetaxandaccounts.com | 87.135.208.41 | deep | accounting | -',
+      'r0/t4/n32 | THE-LODESTAR-TEAPOT | The Lodestar Teapot | thelodestarteapot.com | 87.135.49.181 | flat | tea-room | -',
+      'r0/t4/n33 | CHAPEL-LANE-MUTUAL | Chapel Lane Mutual | chapellanemutual.com | 87.135.147.68 | flat | insurance | -',
+      'r0/t4/n34 | ACORN-FLOWERS | Acorn Flowers | acornflowers.com | 87.135.244.208 | flat | florist | unlisted',
+      'r0/t4/n35 | EVERGREEN-MARKET | Evergreen Market | evergreenmarket.com | 87.135.86.95 | flat | grocer | unlisted',
+      'r0/t4/n36 | OLD-TOWN-TAX-AND-ACCOUNTS | Old Town Tax and Accounts | oldtowntaxandaccounts.com | 87.135.183.235 | flat | accounting | -',
+      'r0/t4/n37 | AINSLEY-AND-SONS-HARDWARE | Ainsley and Sons Hardware | ainsleyandsonshardware.com | 87.135.25.122 | flat | hardware | -',
+      'r0/t4/n38 | LINDLEY-ELECTRICAL | Lindley Electrical | lindleyelectrical.com | 87.135.123.9 | lone | electronics | -',
+      'r0/t4/n39 | CANAL-STREET-MINI-MART | Canal Street Mini Mart | canalstreetminimart.com | 87.135.220.149 | flat | grocer | -',
+      'r0/t4/n40 | MILL-LANE-BOOKSHOP | Mill Lane Bookshop | milllanebookshop.com | 87.135.62.36 | lone | bookshop | -',
+      'r0/t4/n41 | HIGH-STREET-GROCERS | High Street Grocers | highstreetgrocers.com | 87.135.159.176 | flat | grocer | -',
+      'r0/t4/n42 | ANCHOR-ROASTERS | Anchor Roasters | anchorroasters.com | 87.135.1.63 | lone | coffee-bar | -',
+      "r0/t4/n43 | EVERETTS-FLORIST | Everett's Florist | everettsflorist.com | 87.135.98.203 | flat | florist | -",
+      'r0/t4/n44 | FORE-STREET-HAULAGE | Fore Street Haulage | forestreethaulage.com | 87.135.196.90 | deep | logistics | unlisted',
+      'r0/t4/n45 | ZENITH-TEA-ROOMS | Zenith Tea Rooms | zenithtearooms.com | 87.135.37.230 | flat | tea-room | -',
+      'r0/t4/n46 | HARVEST-TEA-ROOMS | Harvest Tea Rooms | harvesttearooms.com | 87.135.135.117 | lone | tea-room | unlisted',
+      'r0/t4/n47 | MERLIN-BOOKS | Merlin Books | merlinbooks.com | 87.135.233.4 | flat | bookshop | -',
+      'r0/t4/n48 | FALCON-SYSTEMS | Falcon Systems | falconsystems.com | 87.135.74.144 | flat | it-services | -',
+      'r0/t4/n49 | BLUEWATER-PANTRY | Bluewater Pantry | bluewaterpantry.com | 87.135.172.31 | lone | grocer | -',
+      'r0/t4/n50 | HARTLEY-FREIGHT | Hartley Freight | hartleyfreight.com | 87.135.13.171 | deep | logistics | -',
+      'r0/t4/n51 | ALBERT-ROAD-BAKERY | Albert Road Bakery | albertroadbakery.com | 87.135.111.58 | lone | bakery | -',
+      "r0/t4/n52 | WAKEFIELDS-TEA-ROOM | Wakefield's Tea Room | wakefieldstearoom.com | 87.135.208.198 | flat | tea-room | -",
+      'r0/t4/n53 | CASTLE-STREET-CAFE | Castle Street Café | castlestreetcafe.com | 87.135.50.85 | flat | cafe | unlisted',
+      'r0/t4/n54 | MARLOWE-ACCOUNTANTS | Marlowe Accountants | marloweaccountants.com | 87.135.147.225 | deep | accounting | -',
+      "r0/t4/n55 | CALLOWAYS-TEA-ROOM | Calloway's Tea Room | callowaystearoom.com | 87.135.245.112 | flat | tea-room | -",
+      'r0/t4/n56 | GOODWIN-ACCOUNTANTS | Goodwin Accountants | goodwinaccountants.com | 87.135.86.252 | deep | accounting | unlisted',
+      'r0/t4/n57 | MEADOW-ADVISORY | Meadow Advisory | meadowadvisory.com | 87.135.184.139 | deep | consulting | -',
+      'r0/t4/n58 | ORMSBY-AND-SONS-HARDWARE | Ormsby and Sons Hardware | ormsbyandsonshardware.com | 87.135.26.26 | flat | hardware | -',
+      'r0/t4/n59 | BROAD-STREET-PHONE-REPAIR | Broad Street Phone Repair | broadstreetphonerepair.com | 87.135.123.166 | lone | electronics | -',
+      'r0/t4/n60 | THE-GOLDEN-TEAPOT | The Golden Teapot | thegoldenteapot.com | 87.135.221.53 | lone | tea-room | -',
+      'r0/t4/n61 | HALLORAN-FREIGHT | Halloran Freight | halloranfreight.com | 87.135.62.193 | deep | logistics | -',
+      'r0/t4/n62 | IRONSIDE-FLOWERS | Ironside Flowers | ironsideflowers.com | 87.135.160.80 | flat | florist | -',
+      "r0/t4/n63 | BLACKWOODS-FLORIST | Blackwood's Florist | blackwoodsflorist.com | 87.135.1.220 | flat | florist | -",
+      'r0/t4/n64 | BRIGHTLINE-ADVISORY | Brightline Advisory | brightlineadvisory.com | 87.135.99.107 | deep | consulting | -',
+      'r0/t4/n65 | MADDOX-ELECTRICAL | Maddox Electrical | maddoxelectrical.com | 87.135.196.247 | flat | electronics | -',
+      'r0/t4/n66 | SUNRISE-ADVISORY | Sunrise Advisory | sunriseadvisory.com | 87.135.38.134 | deep | consulting | -',
+      "r0/t4/n67 | THACKERAYS-TEA-ROOM | Thackeray's Tea Room | thackeraystearoom.com | 87.135.136.21 | flat | tea-room | -",
+      'r0/t4/n68 | KING-STREET-ESPRESSO | King Street Espresso | kingstreetespresso.com | 87.135.233.161 | flat | coffee-bar | -',
+      'r0/t4/n69 | THE-KEYSTONE-TEAPOT | The Keystone Teapot | thekeystoneteapot.com | 87.135.75.48 | flat | tea-room | -',
+      'r0/t4/n70 | THE-HORIZON-KETTLE | The Horizon Kettle | thehorizonkettle.com | 87.135.172.188 | lone | cafe | -',
+      'r0/t4/n71 | CROWTHER-COMPUTING | Crowther Computing | crowthercomputing.com | 87.135.14.75 | deep | it-services | unlisted',
+      'r0/t4/n72 | FRESHWAY-CAFE | FreshWay Café | freshwaycafe.com | 87.135.111.215 | lone | cafe | -',
+      'r0/t4/n73 | NESBITT-INSURANCE-BROKERS | Nesbitt Insurance Brokers | nesbittinsurancebrokers.com | 87.135.209.102 | deep | insurance | -',
+      'r0/t4/n74 | THE-PARADE-CAFE | The Parade Café | theparadecafe.com | 87.135.50.242 | lone | cafe | -',
+      'r0/t4/n75 | SCHOOL-LANE-ESPRESSO | School Lane Espresso | schoollaneespresso.com | 87.135.148.129 | flat | coffee-bar | -',
+      'r0/t4/n76 | GARDEN-FLAT | the garden flat | - | 87.135.246.16 | flat | - | -',
+      'r0/t4/n77 | THE-OLD-FORGE | the Old Forge | - | 87.135.87.156 | flat | - | -',
+      'r0/t4/n78 | FLAT-6C | flat 6C | - | 87.135.185.43 | flat | - | -',
+      "r0/t4/n79 | FITZGERALD-WIFI | the Fitzgeralds' house | - | 87.135.26.183 | lone | - | -",
+      'r0/t4/n80 | LILAC-LODGE | Lilac Lodge | - | 87.135.124.70 | lone | - | -',
+      'r0/t4/n81 | LINKSYS-4680 | the bungalow | - | 87.135.221.210 | flat | - | -',
+      'r0/t4/n82 | HONEYSUCKLE-COTTAGE | Honeysuckle Cottage | - | 87.135.63.97 | lone | - | -',
+      "r0/t4/n83 | THE-PETROVS | the Petrovs' house | - | 87.135.160.237 | flat | - | -",
+      'r0/t4/n84 | NETGEAR-CEA4 | the house with the red door | - | 87.135.2.124 | flat | - | -',
+      "r0/t4/n85 | THE-BRENNANS | the Brennans' house | - | 87.135.100.11 | lone | - | -",
+      "r0/t4/n86 | THE-MOREAUS | the Moreaus' house | - | 87.135.197.151 | flat | - | -",
+      "r0/t4/n87 | BIANCHI-WIFI | the Bianchis' house | - | 87.135.39.38 | lone | - | -",
+      'r0/t4/n88 | BASEMENT-FLAT | the basement flat | - | 87.135.136.178 | flat | - | -',
+      'r0/t4/n89 | THE-OLD-DAIRY | the Old Dairy | - | 87.135.234.65 | lone | - | -',
+      'r0/t4/n90 | OSEI-FAMILY | the Osei family home | - | 87.135.75.205 | flat | - | -',
+      'r0/t4/n91 | TP-LINK-5C3A | the converted chapel | - | 87.135.173.92 | lone | - | -',
+      "r0/t4/n92 | ACHEBE-WIFI | the Achebes' house | - | 87.135.14.232 | lone | - | -",
+      "r0/t4/n93 | THE-CASTILLOS | the Castillos' house | - | 87.135.112.119 | flat | - | -",
+      "r0/t4/n94 | MURPHY-WIFI | the Murphys' house | - | 87.135.210.6 | flat | - | -",
+      'r0/t4/n95 | LINKSYS-93D6 | the new build | - | 87.135.51.146 | lone | - | -',
+      'r0/t4/n96 | LAUREL-COTTAGE | Laurel Cottage | - | 87.135.149.33 | flat | - | -',
+      'r0/t4/n97 | TP-LINK-7D48 | the cottage up the hill | - | 87.135.246.173 | lone | - | -',
+      'r0/t4/n98 | JASMINE-COTTAGE | Jasmine Cottage | - | 87.135.88.60 | flat | - | -',
+      'r0/t4/n99 | FLAT-1B | flat 1B | - | 87.135.185.200 | flat | - | -',
+      'r0/t4/n100 | THE-GRANARY | the Granary | - | 87.135.27.87 | lone | - | -',
+      'r0/t4/n101 | PATEL-FAMILY | the Patel family home | - | 87.135.124.227 | flat | - | -',
+      "r0/t4/n102 | THE-USMANS | the Usmans' house | - | 87.135.222.114 | flat | - | -",
+      'r0/t4/n103 | HADDAD-FAMILY | the Haddad family home | - | 87.135.63.254 | flat | - | -',
+      "r0/t4/n104 | REILLY-WIFI | the Reillys' house | - | 87.135.161.141 | flat | - | -",
+      'r0/t4/n105 | JANKOWSKI-FAMILY | the Jankowski family home | - | 87.135.3.28 | flat | - | -',
+      'r0/t4/n106 | TP-LINK-B90D | the house by the bridge | - | 87.135.100.168 | flat | - | -',
+      'r0/t4/n107 | QUIGLEY-FAMILY | the Quigley family home | - | 87.135.198.55 | flat | - | -',
+      'r0/t4/n108 | TP-LINK-A97F | the townhouse | - | 87.135.39.195 | flat | - | -',
+      "r0/t4/n109 | HARGREAVES-WIFI | the Hargreaves' house | - | 87.135.137.82 | lone | - | -",
+      "r0/t4/n110 | THE-NGUYENS | the Nguyens' house | - | 87.135.234.222 | flat | - | -",
+      'r0/t4/n111 | BT-HUB-6161 | the house behind the hedge | - | 87.135.76.109 | flat | - | -',
+      'r0/t4/n112 | TP-LINK-D68F | the farmhouse | - | 87.135.173.249 | flat | - | -',
+      'r0/t4/n113 | SANDOVAL-FAMILY | the Sandoval family home | - | 87.135.15.136 | flat | - | -',
+      'r0/t4/n114 | APPLE-TREE-HOUSE | Apple Tree House | - | 87.135.113.23 | flat | - | -',
+      'r0/t4/n115 | DOHERTY-FAMILY | the Doherty family home | - | 87.135.210.163 | flat | - | -',
+      'r0/t4/n116 | DELGADO-FAMILY | the Delgado family home | - | 87.135.52.50 | lone | - | -',
+      'r0/t4/n117 | ELM-VIEW | Elm View | - | 87.135.149.190 | lone | - | -',
+      "r0/t4/n118 | LINDQVIST-WIFI | the Lindqvists' house | - | 87.135.247.77 | lone | - | -",
+      'r0/t4/n119 | BARN-CONVERSION | the barn conversion | - | 87.135.88.217 | flat | - | -',
+      'r0/t4/n120 | TP-LINK-9A9C | the house opposite the pub | - | 87.135.186.104 | lone | - | -',
+      'r0/t4/n121 | TOP-FLAT | the top flat | - | 87.135.27.244 | lone | - | -',
+      'r0/t4/n122 | FLAT-2C | flat 2C | - | 87.135.125.131 | flat | - | -',
+      'r0/t4/n123 | THE-OLD-RECTORY | the Old Rectory | - | 87.135.223.18 | lone | - | -',
+      'r0/t4/n124 | ROWAN-VIEW | Rowan View | - | 87.135.64.158 | flat | - | -',
+      'r0/t4/n125 | HAZEL-VIEW | Hazel View | - | 87.135.162.45 | flat | - | -',
+      'r0/t4/n126 | NETGEAR-1FE0 | the end terrace | - | 87.135.3.185 | lone | - | -',
+      'r0/t4/n127 | NETGEAR-7A1E | the house with the pond | - | 87.135.101.72 | flat | - | -',
+      'r0/t4/n128 | FLAT-9C | flat 9C | - | 87.135.198.212 | flat | - | -',
+      'r0/t4/n129 | CHERRY-TREE-LODGE | Cherry Tree Lodge | - | 87.135.40.99 | flat | - | -',
+      "r0/t4/n130 | THE-ZIELINSKIS | the Zielinskis' house | - | 87.135.137.239 | lone | - | -",
+      'r0/t4/n131 | BRAMBLE-HOUSE | Bramble House | - | 87.135.235.126 | lone | - | -',
+      'r0/t4/n132 | FLAT-1A | flat 1A | - | 87.135.77.13 | lone | - | -',
+      'r0/t4/n133 | NETGEAR-1D2B | the terraced house | - | 87.135.174.153 | lone | - | -',
+      'r0/t4/n134 | FLAT-3B | flat 3B | - | 87.135.16.40 | flat | - | -',
+      'r0/t4/n135 | MAHONEY-FAMILY | the Mahoney family home | - | 87.135.113.180 | flat | - | -',
+      "r0/t4/n136 | TAKAHASHI-WIFI | the Takahashis' house | - | 87.135.211.67 | flat | - | -",
+      "r0/t4/n137 | GALLAGHER-WIFI | the Gallaghers' house | - | 87.135.52.207 | lone | - | -",
+      "r0/t4/n138 | THE-KOWALSKIS | the Kowalskis' house | - | 87.135.150.94 | flat | - | -",
+      'r0/t4/n139 | HEATHER-LODGE | Heather Lodge | - | 87.135.247.234 | flat | - | -',
+      "r0/t4/n140 | THE-OKONKWOS | the Okonkwos' house | - | 87.135.89.121 | flat | - | -",
+      'r0/t4/n141 | MAGNOLIA-COTTAGE | Magnolia Cottage | - | 87.135.187.8 | flat | - | -',
+      'r0/t4/n142 | LINKSYS-4ACB | the house by the allotments | - | 87.135.28.148 | flat | - | -',
+      'r0/t4/n143 | THE-COACH-HOUSE | the Coach House | - | 87.135.126.35 | flat | - | -',
+      'r0/t4/n144 | PEAR-TREE-LODGE | Pear Tree Lodge | - | 87.135.223.175 | flat | - | -',
+      'r0/t4/n145 | FLAT-4B | flat 4B | - | 87.135.65.62 | lone | - | -',
+      'r0/t4/n146 | FLAT-8B | flat 8B | - | 87.135.162.202 | flat | - | -',
+      'r0/t4/n147 | LAVENDER-COTTAGE | Lavender Cottage | - | 87.135.4.89 | lone | - | -',
+      "r0/t4/n148 | NOVAK-WIFI | the Novaks' house | - | 87.135.101.229 | lone | - | -",
+      'r0/t4/n149 | FRASER-FAMILY | the Fraser family home | - | 87.135.199.116 | flat | - | -',
+      'r0/t4/n150 | FLAT-1D | flat 1D | - | 87.135.41.3 | lone | - | -',
+      'r0/t4/n151 | FOXGLOVE-LODGE | Foxglove Lodge | - | 87.135.138.143 | flat | - | -',
+      'r0/t4/n152 | WISTERIA-VIEW | Wisteria View | - | 87.135.236.30 | lone | - | -',
+      "r0/t4/n153 | THE-ERIKSENS | the Eriksens' house | - | 87.135.77.170 | flat | - | -",
+      'r0/t4/n154 | BT-HUB-59C5 | the cottage by the green | - | 87.135.175.57 | flat | - | -',
+      "r0/t4/n155 | THE-ADEYEMIS | the Adeyemis' house | - | 87.135.16.197 | lone | - | -",
+      'r0/t4/n156 | FIELDSTONE-DENTAL | Fieldstone Dental | fieldstonedental.com | 87.135.114.84 | flat | dentist | -',
+      'r0/t4/n157 | TOWER-HILL-SURGERY | Tower Hill Surgery | towerhillsurgery.com | 87.135.211.224 | flat | clinic | -',
+      'r0/t4/n158 | HEARTH-HEALTH-CENTRE | Hearth Health Centre | hearthhealthcentre.com | 87.135.53.111 | deep | clinic | -',
+      'r0/t4/n159 | PEMBROKE-FAMILY-PRACTICE | Pembroke Family Practice | pembrokefamilypractice.com | 87.135.150.251 | flat | clinic | -',
+      'r0/t4/n160 | QUINLAN-FAMILY-PRACTICE | Quinlan Family Practice | quinlanfamilypractice.com | 87.135.248.138 | deep | clinic | -',
+      'r0/t4/n161 | BRANNIGAN-DENTAL-CARE | Brannigan Dental Care | brannigandentalcare.com | 87.135.90.25 | deep | dentist | -',
+      'r0/t4/n162 | KESTREL-HOLDINGS-KINGSFORD | the Kingsford office | - | 87.135.187.165 | deep | logistics | c21',
+      'r0/t4/n163 | FAIRBANKS-GROUP-KINGSFORD | the Kingsford office | - | 87.135.29.52 | deep | insurance | c11',
+      'r0/t4/n164 | CROWTHER-GOODWIN-KINGSFORD | the Kingsford office | - | 87.135.126.192 | flat | consulting | c7',
+      'r0/t4/n165 | MADDOX-LINDLEY-KINGSFORD | the Kingsford office | - | 87.135.224.79 | flat | it-services | c1',
+    ]);
+  });
+
+  it("keeps a directory on the council's site linking each of its institutions, the courthouse and the hospital among them", () => {
+    const page = pageAt('kingsford.gov', 'directory.html') ?? '';
+    expect(page).toContain('<p>The public bodies of Kingsford,');
+    expect(outboundLinksIn(page)).toEqual([
+      ['http://kingsford.gov/', 'Kingsford Town Council'],
+      ['http://kingsfordpd.gov/', 'Kingsford Police Department'],
+      ['http://kingsfordlibrary.org/', 'Kingsford Public Library'],
+      ['http://kingsfordcourts.gov/', 'Kingsford County Court'],
+      ['http://kingsfordhospital.org/', 'Kingsford General Hospital'],
+    ]);
+  });
+
+  it("answers every network in the town's own block of the region, and finds it there again", () => {
+    expect(kingsford().length).toBeGreaterThan(0);
+    for (const network of kingsford()) {
+      const address = publicAddress(network.key) ?? '';
+      expect(address, network.key).toMatch(/^87\.135\.\d{1,3}\.\d{1,3}$/);
+      expect(networkAt(address), network.key).toBe(network.key);
+    }
+  });
+});
+
 describe('a village', () => {
   it('keeps neither a courthouse nor a general hospital, only the institutions it was declared with', () => {
     for (const village of [millbrook(), ashby()]) {

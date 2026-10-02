@@ -522,13 +522,13 @@ export const mailEntries = ({
   // reads mail there: a doorbell runs the same crontab a mail server does.
   const fromCron = cronMailbox({ essid, host, crontab });
   const rootMail = fromCron === null ? {} : { root: file(fromCron, MAIL_SPOOL_FILE) };
-  if (!carriesMail && !isDesk(host.hostname)) {
-    return {
-      entries: fromCron === null ? {} : { mail: dir(rootMail, TRAVERSABLE_DIR) },
-      deliveries: [],
-      aliases: null,
-    };
-  }
+  // What a box nobody reads mail on keeps: cron's mail to root, if it has any.
+  const cronOnly: BoxMailbox = {
+    entries: fromCron === null ? {} : { mail: dir(rootMail, TRAVERSABLE_DIR) },
+    deliveries: [],
+    aliases: null,
+  };
+  if (!carriesMail && !isDesk(host.hostname)) return cronOnly;
 
   // The correspondence is derived ONCE for the box. It is the same value for every
   // mailbox on it, and deriving it per mailbox doubled the world's build time.
@@ -545,6 +545,10 @@ export const mailEntries = ({
   // Where the mail came through: the network's mail server for a box on the LAN, and the
   // box itself for one below it, where these accounts are the only accounts there are.
   const relay = onLan ? relayOf(essid) : host;
+  // A network one person has to themselves keeps no correspondence, so the machine that
+  // would carry it carries none: no mailbox, not even an empty one, and no address to answer
+  // for. Either would claim somebody could have been written to.
+  if (carriesMail && onLan && mail.threads.length === 0) return cronOnly;
   if (application !== undefined && carriesMail) {
     const spool = spoolOf({ essid, host, application, mail, zone });
     return {

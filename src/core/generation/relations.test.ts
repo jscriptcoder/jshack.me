@@ -448,6 +448,10 @@ describe("a branch's relations", () => {
       'c22 dist-rtr -branch-> SKYLARK-HOLDINGS-ASHBY root@opnsense:22',
       'c23 dist-rtr -branch-> DUNMORE-GROUP-OAKHURST root@router01:22',
       'c18 vpn-gw -branch-> SHERIDAN-MORTIMER-OAKHURST mrodriguez@workstation-92:2222',
+      'c21 router01 -branch-> KESTREL-HOLDINGS-KINGSFORD root@router01:22',
+      'c11 core-rtr -branch-> FAIRBANKS-GROUP-KINGSFORD root@border-gw:22',
+      'c7 fw-dmz -branch-> CROWTHER-GOODWIN-KINGSFORD root@vpn-gw:22',
+      'c1 firewall01 -branch-> MADDOX-LINDLEY-KINGSFORD rjohnson@workstation-171:2222',
     ]);
   });
 });
@@ -714,7 +718,8 @@ describe("a business's offsite backup", () => {
           )
           .map((relation) =>
             townNetworks.find((each) => each.key === relation.source)?.essid.toLowerCase(),
-          );
+          )
+          .sort();
         expect(folders, `${network.essid} ${host.hostname}`).toEqual(
           targets.includes(`${network.key} ${host.ip}`) ? expected : null,
         );
@@ -891,12 +896,19 @@ describe("an unlisted business's supplier lead", () => {
   });
 
   it('records the invoice arriving on the share, like every other file there', () => {
-    for (const relation of supplies()) {
+    // A share whose ftp daemon is stopped logs no file's arrival, so it logs no invoice's.
+    const logging = supplies().filter((relation) => {
       const log = fileOn(relation.source, relation.sourceHost, '/var/log/vsftpd.log.1') ?? '';
+      const beside = [
+        ...filesUnder(relation.source, relation.sourceHost, '/srv/share/').keys(),
+      ].filter((path) => !path.startsWith('invoices/'));
+      const logsArrivals = beside.some((path) => log.includes(`/srv/share/${path}`));
       for (const name of invoicesOf(relation).keys()) {
-        expect(log, name).toContain(`/srv/share/invoices/${name}`);
+        expect(log.includes(`/srv/share/invoices/${name}`), name).toBe(logsArrivals);
       }
-    }
+      return logsArrivals;
+    });
+    expect(logging.length).toBeGreaterThan(0);
   });
 });
 

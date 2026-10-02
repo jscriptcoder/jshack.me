@@ -710,6 +710,17 @@ of this section, then the cross-player architecture doc if the work touches cros
   constraint correctness needs a **wire-check** (§6). Keep `api/` handlers thin; push logic
   into the typechecked `src/core/`.
 - **Format/lint gate = `npm run lint`** (ESLint).
+- **The whole-world content tests sweep a fixed sample; each PR's gate sweeps everything once.**
+  `ALL_ESSIDS` (`src/test/worldContent.ts`) holds every Ridgemont network and every key outside
+  the catalog, but of the drawn towns only Millbrook and the corporations whole and, from every
+  other town, the first network in key order of each shape it holds (category, subtype,
+  profile, whether a branch, whether unlisted). A town adds dozens of networks that read alike,
+  and sweeping them all doubled the suite when the city landed (607 s to 1175 s of file time).
+  The sample is fixed, so a red run reproduces. It catches none of what one network or a
+  coincidence breaks (the city's lone home with a mail server, its two access points of one
+  make, name and subnet), so **before opening a PR that touches generated content, run
+  `WORLD_SWEEP=full npx vitest run` once and record it**. `relations`, `webIndex` and `world`
+  read the whole world either way: they are its cross-network rules.
 - **Every relative import ends in `.js`, and lint enforces it.** `./x.js` resolves to `x.ts`.
   Vercel runs `api/` as plain Node ESM, which resolves a relative import only by its exact file
   name, so `./x` is `ERR_MODULE_NOT_FOUND` on every request. vite, vitest, tsx and `vercel dev` all
@@ -727,8 +738,9 @@ of this section, then the cross-player architecture doc if the work touches cros
   - **the gzipped main chunk exceeds 284,975 B**. That is the 134,975 B it weighed before world
     content, plus the 150 KB that content may add. The remedy is to trim pools; the allowance is
     fixed, not a number to raise.
-  - **building the boxes of any one set averages over 2 ms per box**, measured after a
-    warm-up pass. The sets are Ridgemont's catalog networks, each town the world draws, and the
+  - **building the boxes of any one set averages over 2 ms per box**, the best of three timed
+    passes after a warm-up pass (a loaded machine only ever adds time, so the quickest pass is
+    the closest to what the boxes cost). The sets are Ridgemont's catalog networks, each town the world draws, and the
     corporations, each timed on its own so a dear town cannot hide in the world's average. It was about 0.15 ms per box over 615 boxes before world content. Base trees
     are rebuilt on every lookup with no cache, so the remedy is a cache for the box builders,
     added for that measured reason and never before one. **Before reaching for the cache, look
@@ -736,7 +748,8 @@ of this section, then the cross-player architecture doc if the work touches cros
     found where their gateway stands (the home LAN plus the whole `chainLinks` walk, ~0.34 ms)
     and the gate read 1.93–2.31 ms; finding it once in `buildGatewayBaseFs` and handing it down
     read 1.53–1.67, no cache needed. The gate is noisy near the line (one run of the same tree
-    failed at 2.31 and the next passed at 1.93), so measure three runs before believing either.
+    failed at 2.31 and the next passed at 1.93; at v0.302.0 Ashby's 121 boxes read 1.62–2.16 on
+    one pass with nothing in Ashby changed), which is why it reads the best of three.
     **The one cache is the relations memo** (`memoised` in `relations.ts`, v0.301.0). Reading a
     network's leads walks every LAN of its town, so its cost grows with the town: Oakhurst's 47
     networks built at 2.53 ms a box. `relationsTo` and `relationsFrom` keep each key's answer, the

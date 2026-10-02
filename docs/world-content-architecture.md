@@ -118,7 +118,7 @@ gateways on their own seed key or machine id.
 | `gw-admin-`, `gw-history-`, `gw-history-logs-`, `gw-history-backups-`, `gw-history-ui-` (by machine id) | a gateway's admin, history, rotations, backups, admin UI |
 | `network-profile-<key>` | how much stands behind a network's gateway beyond Ridgemont: `lone`, `flat` or `deep`, weighed by its category |
 | `gw-forwards-<key>` | the services a gateway beyond Ridgemont forwards beside its site: which, and on which public port (a home forwards ssh first when a machine there runs it) |
-| `town-businesses-<town key>` | how many businesses a town keeps (a village 3–6, a town 12–24) |
+| `town-businesses-<town key>` | how many businesses a town keeps (a village 3–6, a town 12–24, a city 40–80) |
 | `town-hospital-<town key>` | whether a town bigger than a village keeps a general hospital |
 | `town-business-kinds-<town key>` | each business's category and kind, no kind twice while its category has another |
 | `town-business-names-<town key>` | each business's name, from its kind's templates |
@@ -158,11 +158,11 @@ never the profile, so a network with no inner gateway has none anywhere.
 
 Ridgemont's networks are the catalog's; every other town is a row the world declares and
 generates (`world.ts`). Millbrook (`r0/t1`) and Ashby (`r0/t2`) are villages of Harrow Valley,
-and Oakhurst (`r0/t3`) is its first town. A town's index is part of every key and address
-inside it, so rows are only ever appended: Ashby is declared after the corporations and
-Oakhurst after Ashby, each one's names drawn clear of every network declared before it, and
-declaring it moved nothing of theirs but the gateways of the corporations that keep a branch
-there.
+Oakhurst (`r0/t3`) is its first town and Kingsford (`r0/t4`) its first city. A town's index is
+part of every key and address inside it, so rows are only ever appended: Ashby is declared after
+the corporations, Oakhurst after Ashby and Kingsford after Oakhurst, each one's names drawn clear
+of every network declared before it, and declaring it moved nothing of theirs but the gateways
+of the corporations that keep a branch there.
 
 A row is a name and a **size class**, and the class is one table (`SIZE_CLASSES`) of how many
 of each kind of place the town draws beyond its institutions:
@@ -171,9 +171,11 @@ of each kind of place the town draws beyond its institutions:
 |---|---|---|---|---|
 | village | 3–6 | 4–8 | 1–2 | 1–2 |
 | town | 12–24 | 12–24 | 2–4 | 2–3 |
+| city | 40–80 | 40–80 | 5–8 | 3–5 |
 
 Oakhurst draws 47 networks: five institutions, 18 businesses, 20 homes, a clinic and a
-dentist, and branches of Dunmore Group and Sheridan & Mortimer.
+dentist, and branches of Dunmore Group and Sheridan & Mortimer. Kingsford draws 166: five
+institutions, 71 businesses, 80 homes, six practices and four corporations' branches.
 
 - **Its institutions** come from one rule on the town's name (`institutionsOf`): the council
   (`{Town} Town Council`, `{town}.gov`, `TOWN-HALL-WIFI`, which keeps the town's directory),
@@ -183,12 +185,14 @@ dentist, and branches of Dunmore Group and Sheridan & Mortimer.
   `COURTHOUSE-WIFI`, "the courthouse"), and draws a **general hospital** or none on
   `town-hospital-<town key>` (`{Town} General Hospital`, `{town}hospital.org`,
   `GENERAL-HOSPITAL`, "the hospital", kind `hospital`). Both stand after the library and are
-  on the council's directory; a village keeps neither. Oakhurst keeps both. Millbrook's
+  on the council's directory; a village keeps neither. A city draws its hospital as a town
+  does, there being no city whose draw keeps none to tell the two apart. Oakhurst and
+  Kingsford keep both. Millbrook's
   cottage hospital is its own, declared after its homes.
 - **The rest is drawn** on the town's own streams, keyed `r<region>/t<town>`: its
   businesses, then its homes, then its practices, then the corporations' branches there, each
   keyed as the town's next network and answering in the town's own block (`87.98.x.y` for
-  Millbrook, `87.195.x.y` for Ashby, `87.38.x.y` for Oakhurst).
+  Millbrook, `87.195.x.y` for Ashby, `87.38.x.y` for Oakhurst, `87.135.x.y` for Kingsford).
 - **Names.** No domain repeats anywhere in the world, and no wifi repeats within a town: a
   scan shows one town's wifi at a time, so two towns' town halls both broadcast
   `TOWN-HALL-WIFI`, and two villages may each keep a Rose Cottage. Every wifi is at most 32
@@ -389,7 +393,9 @@ another.
 correspondence per network, so a thread reads the same on the desk that sent it and the server
 that carried it. mbox, one file per mailbox, with real `>From ` quoting. Desks get
 `/var/mail/<user>`, mail servers the spool plus `mail.log.1` whose queue ids are the messages' own,
-and `/etc/aliases`; any box whose crontab prints gets `/var/mail/root`. `peopleKnownOn` is the one
+and `/etc/aliases`; any box whose crontab prints gets `/var/mail/root`. A network one person has
+to themselves keeps no correspondence, so its mail server carries none: no mailbox, not even an
+empty one, no `mail.log.1` and no `/etc/aliases`, only the empty `mail.log` its role opens. `peopleKnownOn` is the one
 roster mail and the share read.
 
 **File servers** (`share.ts`, `documentFormats.ts`, `pools/shareFiles.ts`): `/srv` holds the
