@@ -14,8 +14,9 @@ Slice 5c (the whole town in the content sweep) complete 2026-09-30 (#584, v0.294
 complete 2026-10-01 (#585, v0.295.0); 6b complete 2026-10-01 (#586, v0.296.0). Slice 6
 complete. Slice 7 grilled 2026-10-01 as slices 7a–7b; 7a complete 2026-10-01 (#587,
 v0.297.0); 7b complete 2026-10-01 (#588, v0.298.0). Slice 7 complete. Slice 8 grilled
-2026-10-01 as slices 8a–8d (decision 19b); 8a complete 2026-10-02 (#589, v0.299.0). Slice 9 not yet
-planned.
+2026-10-01 as slices 8a–8d (decision 19b); 8a complete 2026-10-02 (#589, v0.299.0); 8b split
+2026-10-02 into the names (8b) and the town (8c), the city and the rows moving to 8d and 8e
+(decision 19c). Slice 9 not yet planned.
 Amends the §9 backlog item "Procedural world expansion — GRILLED & RESOLVED 2026-07-29" in
 `docs/conventions-and-gotchas.md`; where the two disagree, this file wins.
 
@@ -535,9 +536,9 @@ relations, forwards, institution sets. (Added by find-gaps 2026-09-28.)
        Millbrook's cottage hospital, 6b the practices.
     7. Procedural corporations (decision 19a), as two PRs (grill 2026-10-01): 7a the
        corporations, 7b the branches.
-    8. The remaining towns, the findit index split and the sampled budgets, as four PRs (grill
-       2026-10-01, 19b): 8a a second village, 8b the town size class, 8c the city, 8d the
-       remaining rows and the index split.
+    8. The remaining towns, the findit index split and the sampled budgets, as five PRs (grill
+       2026-10-01, 19b; split 2026-10-02, 19c): 8a a second village, 8b the names, 8c the town
+       size class, 8d the city, 8e the remaining rows and the index split.
     9. Ridgemont's WiFi filler and the injector turned down.
 
 19a. **Procedural corporations get their own slice**, after healthcare and before the remaining
@@ -761,6 +762,98 @@ relations, forwards, institution sets. (Added by find-gaps 2026-09-28.)
         `discovery-architecture.md` follow each PR.
       - 8a bumps the minor version to 0.299.0, 8b to 0.300.0, 8c to 0.301.0, 8d to 0.302.0.
         Ridgemont is untouched (slice 9).
+
+19c. **8b splits: the names first, then the town** (grilled 2026-10-02, owner-confirmed). Where
+    19b's four PRs name 8b the town size class, 8c the city and 8d the remaining rows, read
+    8c, 8d and 8e. The rows keep their keys: Oakhurst `t3` lands in 8c, Kingsford `t4` in 8d,
+    `t5`–`t10` in 8e.
+    **Facts measured while grilling** (against `main` at `d4af4364`, by a throwaway prototype
+    declaring Oakhurst as a town after Ashby, with placeholder home names, then reverted; the
+    diff kept outside the repo):
+    - Oakhurst (`r0/t3`, `87.38.x.y`) draws **47** networks: council, police, library,
+      courthouse and a hospital (the 0–1 draw gave one); 18 businesses, 20 homes, 2 practices;
+      2 branches (of `c23` and `c18`). Unlisted: police, library, grocer, pharmacy. All 168
+      declared addresses distinct; the longest ESSID 27 characters. Still no corporation keeps
+      branches in two towns, so the join between two `Host` blocks on one gateway stays
+      unreached.
+    - **2.56 ms a box** in Oakhurst (Millbrook 1.21, Ashby 1.84); the relations memo brings it
+      to **0.85** (every town under 1 ms), the first lookup 1.7 ms. `checkBudgets` times
+      Ridgemont's boxes alone today.
+    - **Names do not run short yet**: every kind can form 52 or more names and the world draws
+      at most 3 of any. But one town repeats its words: Willow, Summit, Compass, Bluebell,
+      Carver and Ellison each name two of Oakhurst's places, and Willow a third, a home.
+    - **14 assertions fail, three real**: three offices back up nightly to one phone (Willow
+      View's `iphone-148`, reached by its forward on `:2222`), which then holds 127 files and
+      a fourth folder; a courthouse desk's mailbox holds three replies and no opener; a
+      supplier's invoice is filed into an invoices department already holding ten, making
+      eleven. **Eleven test-side**: the directory test knows only the earlier councils;
+      "court" now finds `oakhurstcourts.gov` first; a router count assuming few networks; two
+      relation goldens; the backup copies' test compares an unsorted list; a café share's own
+      invoices department read as a supplier's; a desk whose `.ssh` holds only contractor
+      leads; a branch keeping no web server, which no rule asks of it; and the `.env` test's
+      `/PASS/i` matching "Com**pass** Holdings", likely 19b's "database password" too.
+    - **Names reach content**: renaming moves the text of every Millbrook, Ashby and
+      corporation box, and the `.env` failure is a name tripping a content check. A town's
+      content is only measured honestly on the names that ship.
+
+    **The split**: 8b renames, with no new town, so its byte-diff shows names and the text
+    quoting them and nothing else; 8c then declares Oakhurst on the names that ship.
+    Rejected: one PR (one byte-diff mixing renamed text with a whole new town) and the town
+    first (Oakhurst on throwaway home names, its content checked on names about to move).
+
+    **The home grammar** (owner-confirmed): four forms, each with its own place.
+
+    | Form | Weight | ESSID | Place |
+    |---|---|---|---|
+    | family | 35 | `THE-{SURNAME}S`, `{SURNAME}-FAMILY`, `{SURNAME}-WIFI` | "the {Surname}s' house", "the {Surname} family home" |
+    | house name | 30 | `{HOUSE}` | the name ("Rose Cottage", "The Old Rectory") |
+    | flat | 15 | `FLAT-{1–9}{A–D}`, `{GARDEN/TOP/BASEMENT}-FLAT` | "flat 2A", "the garden flat" |
+    | ISP default | 20 | `{NETGEAR/LINKSYS/TP-LINK/BT-HUB}-{4 hex}` | a drawn description ("the house on the corner") |
+
+    Homes keep **surnames of their own**, seeded by Hargreaves, Okonkwo, Kowalski and Nguyen and
+    grown to 30 or more, so no home reads as the family behind a shop of its town. A house name
+    is `{plant} {building}` (Rose, Bramble, Pear Tree, Willow… by Cottage, House, View, Lodge)
+    or one that stands alone (The Old Rectory, The Barn Conversion, The Granary). A surname
+    ending in "s" takes none more (`THE-HARGREAVES`, "the Hargreaves' house"). Rejected: the
+    businesses' surnames (one list fewer, but a home would read as a shopkeeper's) and a
+    hand-written list grown to about 100 (no grammar, but a city repeats homes across towns).
+
+    **8b's remaining calls** (owner-confirmed in bulk):
+    - The 14 hand-written homes give way to the grammar, drawn on `town-homes-<key>`; the
+      count is drawn first, as today, so no town's home count moves. Every form's place reads
+      after "at" ("bills at Rose Cottage").
+    - A house name's plant words stay out of the businesses' filler list, so Willow View never
+      stands beside Willow Insurance.
+    - The businesses' lists triple: surnames 24 to 72, streets 12 to 36, fillers 20 to 60.
+      Every name drawn from them moves, as 19b accepted.
+    - A test pins every business, practice, corporation and home kind at **150 or more names**
+      it can form; at triple size the least is the coffee bar's 156, where the prototype world
+      drew 23.
+    - **Every name a template can form fits its ESSID**, not only the names drawn: a branch's
+      ESSID with the longest town name stays in 32 characters, and the words are chosen so
+      Hollowmere (ten letters, 8e) fits too. It hardens 19b's weakest call, so a later row can
+      never force a rename. Merriweather leaves the surnames (`MERRIWEATHER-ABERNETHY-HOLLOWMERE`
+      is 33).
+    - **No word names two places in one town** (the weakest call, flagged): among the
+      businesses, practices and homes a town draws, a name sharing a word with one already
+      drawn is drawn again, by the redraw that already refuses a held ESSID or domain. A
+      branch carries its parent's name and is not drawn, so it is outside the rule. Rejected:
+      "while another is left" (a carve-out). 8d's city prototype measures whether the tripled
+      lists hold it at 80 and more names.
+    - Renamed: Millbrook's and Ashby's businesses, practices and homes, and the 28
+      corporations, their branches' ESSIDs following. Keys, addresses, kinds, profiles, the
+      unlisted and relation draws, the institutions and Millbrook's hospital do not move.
+    - Evidence: a byte-diff against `main`, names normalised, shows nothing else moved, and
+      anything structural that does is read in RED; goldens are re-pinned; 8a-5 holds again
+      over the new names ("Millbrook café" lists the new café). `testMillbrook`, `testTowns`
+      and `testFindit` rerun live, updated where they spell a name. Stryker on the grammar,
+      the word rule, the name-space and the fit tests.
+    - `world-content-architecture.md` describes the grammar, the lists and the word rule;
+      `discovery-architecture.md` re-pins its examples (Whitlock's Café, Westbrook Haulage).
+    - Versions: 8b 0.300.0, 8c 0.301.0, 8d 0.302.0, 8e 0.303.0.
+    - Carried to 8c: Oakhurst's measurements, the three real failures and the eleven
+      test-side ones above. 8c's own rules (each content rule, the courthouse, the hospital,
+      the memo) are settled when 8c is planned, 19b's calls standing.
 
 ## Slice plans
 
@@ -2443,9 +2536,9 @@ owner approves the commit.
 
 ### Slice 8: the remaining towns
 
-Grilled 2026-10-01 (decision 19b). Four PRs, in order, each cut from `main` after the one
-before it merges: 8a a second village, 8b the town size class, 8c the city, 8d the remaining
-rows and findit's index split. 8a complete 2026-10-02 (#589); each later PR is planned after
+Grilled 2026-10-01 (decision 19b), 8b split 2026-10-02 (decision 19c). Five PRs, in order,
+each cut from `main` after the one before it merges: 8a a second village, 8b the names, 8c the
+town size class, 8d the city, 8e the remaining rows and findit's index split. 8a complete 2026-10-02 (#589); each later PR is planned after
 the one before it merges, from what that one measured.
 
 ### Slice 8a: a second village, Ashby, and findit finds a town's places by its name
