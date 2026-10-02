@@ -16,8 +16,8 @@ complete. Slice 7 grilled 2026-10-01 as slices 7a–7b; 7a complete 2026-10-01 (
 v0.297.0); 7b complete 2026-10-01 (#588, v0.298.0). Slice 7 complete. Slice 8 grilled
 2026-10-01 as slices 8a–8d (decision 19b); 8a complete 2026-10-02 (#589, v0.299.0); 8b split
 2026-10-02 into the names (8b) and the town (8c), the city and the rows moving to 8d and 8e
-(decision 19c); 8b complete 2026-10-02 (#590, v0.300.0); 8c grilled and planned 2026-10-02 (decision 19d).
-Slice 9 not yet planned.
+(decision 19c); 8b complete 2026-10-02 (#590, v0.300.0); 8c complete 2026-10-02 (#591,
+v0.301.0). Slice 9 not yet planned.
 Amends the §9 backlog item "Procedural world expansion — GRILLED & RESOLVED 2026-07-29" in
 `docs/conventions-and-gotchas.md`; where the two disagree, this file wins.
 
@@ -2630,8 +2630,8 @@ owner approves the commit.
 Grilled 2026-10-01 (decision 19b), 8b split 2026-10-02 (decision 19c). Five PRs, in order,
 each cut from `main` after the one before it merges: 8a a second village, 8b the names, 8c the
 town size class, 8d the city, 8e the remaining rows and findit's index split. 8a complete
-2026-10-02 (#589), 8b complete 2026-10-02 (#590), 8c planned 2026-10-02 (decision 19d); each
-later PR is planned after the one before it merges, from what that one measured.
+2026-10-02 (#589), 8b complete 2026-10-02 (#590), 8c complete 2026-10-02 (#591); each later
+PR is planned after the one before it merges, from what that one measured.
 
 ### Slice 8a: a second village, Ashby, and findit finds a town's places by its name
 
@@ -2972,7 +2972,7 @@ relations drawn within the town (a backup kept off phones), read once per key �
 and a refused join.
 **Class**: behaviour change.
 **Delivery**: independent PR against `main`, branch `feat/procedural-world-town`.
-**Status**: planned 2026-10-02.
+**Status**: **complete** 2026-10-02 (#591, `ab207a3e`, v0.301.0); 8c-1 to 8c-10 hold.
 **Required implementation skills**: `tdd`, `testing`, `refactoring`; `mutation-testing` at
 PR-readiness.
 **Reduction program**: `N/A`.
@@ -2981,27 +2981,27 @@ PR-readiness.
 
 **Acceptance criteria** (owner-confirmed 2026-10-02, decision 19d):
 
-- [ ] **8c-1** A town row is a name and a size class, and the class sets the four count
+- [x] **8c-1** A town row is a name and a size class, and the class sets the four count
       ranges: a village keeps 3–6 businesses, 4–8 homes, 1–2 practices and 1–2 branches, a
       town 12–24, 12–24, 2–4 and 2–3. Millbrook and Ashby are village rows and draw exactly
       what they draw today.
-- [ ] **8c-2** The world declares Oakhurst, `r0/t3`, Harrow Valley, a town, after Ashby: its
+- [x] **8c-2** The world declares Oakhurst, `r0/t3`, Harrow Valley, a town, after Ashby: its
       networks ordered institutions, businesses, homes, practices, branches, answering in
       `87.38.x.y`, its names avoiding every network declared before it. Every declared address
       stays distinct, no ESSID repeats within a town, every ESSID is at most 32 characters,
       and no word names two of its places.
-- [ ] **8c-3** A town keeps a courthouse (`{Town} County Court`, `{town}courts.gov`,
+- [x] **8c-3** A town keeps a courthouse (`{Town} County Court`, `{town}courts.gov`,
       `COURTHOUSE-WIFI`, "the courthouse") after its library, and draws 0–1 hospital on
       `town-hospital-<key>` (`{Town} General Hospital`, `{town}hospital.org`,
       `GENERAL-HOSPITAL`, "the hospital", subtype `hospital`); a village keeps neither. Its
       council's directory links both. Oakhurst keeps one hospital.
-- [ ] **8c-4** No business's offsite copy is kept on a phone: a home whose ssh forward
+- [x] **8c-4** No business's offsite copy is kept on a phone: a home whose ssh forward
       reaches a phone takes no backup, and keeps its contractor leads. No phone in the world
       keeps a `backups` folder, and every phone holds what a phone holds.
-- [ ] **8c-5** No department of a share holds more than ten files, a supplier's invoice
+- [x] **8c-5** No department of a share holds more than ten files, a supplier's invoice
       included: a share that is sent invoices draws its invoices department with room for
       them.
-- [ ] **8c-6** Every whole-world content property holds over Oakhurst, the test-side
+- [x] **8c-6** Every whole-world content property holds over Oakhurst, the test-side
       failures reshaped to what each claims: findit's "court" lists a county court first and
       "ridgemont court" Ridgemont's; every opener in the world carries no `In-Reply-To`; the
       directory, word-rule, router-count and relation tests read every declared town; the
@@ -3009,15 +3009,15 @@ PR-readiness.
       leads alone; a branch is held to no web server. Every Oakhurst network is reached, and
       for every listed Oakhurst site a search for its town and a word its description uses for
       its kind lists it in the top ten.
-- [ ] **8c-7** `relationsFrom` and `relationsTo` answer each key from a memo; `checkBudgets`
+- [x] **8c-7** `relationsFrom` and `relationsTo` answer each key from a memo; `checkBudgets`
       times every procedural box beside Ridgemont's, each set at 2 ms a box at most, and
       passes.
-- [ ] **8c-8** Nothing else moved: a dump against `main` differs only by Oakhurst's networks
+- [x] **8c-8** Nothing else moved: a dump against `main` differs only by Oakhurst's networks
       and the gateways of the corporations that gain an Oakhurst branch.
-- [ ] **8c-9** `testTowns` fetches Oakhurst's council and courthouse by their domains, finds
+- [x] **8c-9** `testTowns` fetches Oakhurst's council and courthouse by their domains, finds
       an Oakhurst site by town and kind, and has a join refused; `testMillbrook`, `testFindit`
       and `testJoinRefusal` pass live.
-- [ ] **8c-10** `world-content-architecture.md` describes the size classes, the courthouse,
+- [x] **8c-10** `world-content-architecture.md` describes the size classes, the courthouse,
       the hospital and both rules; `discovery-architecture.md` the court example;
       `conventions-and-gotchas.md` §3 the relations memo as the measured cache. The minor
       version is bumped to 0.301.0.
@@ -3045,6 +3045,45 @@ its reason and carried to 8d.
 **PR-ready when**: 8c-1 to 8c-10 hold, the dump differs only as 8c-8 allows, `vitest run`,
 typecheck, lint and format pass, and the owner approves the commit.
 **Slice complete when**: its PR merges; 8d is planned next.
+(Done 2026-10-02: #591 merged; 8d is next.)
+
+**As built** (2026-10-02):
+
+- **Size classes** are `SIZE_CLASSES` in `world.ts`, read through one `countOf(town, kind,
+  prng)`; a drawn town is `DrawnTown` (a `Town` with a `size`), so Ridgemont's row carries
+  none. Oakhurst drew exactly the prototype's 47 networks.
+- **The courthouse and the hospital** are built in `institutionsOf` for any town not a
+  village; the hospital's 0–1 draw is `town-hospital-<key>`.
+- **The phone rule covers tablets too**: a home takes no backup when its forward lands on a
+  box `deviceModel` names (a phone or a tablet). No tablet in the world was moved by it.
+- **The department's room** is `SentLater` (`{ folder, files }`), handed by
+  `buildServerShare` to `buildShare`; the drawn count is capped at ten less the room, so
+  only a share whose draw would overflow moves.
+- **`checkBudgets` times sets, not the world**: averaged over every procedural box the
+  breach read about 1.7 ms and passed, so Ridgemont, each town and the corporations are each
+  held to 2 ms. Before the memo Oakhurst failed at 2.532; after, every set 0.78–1.27.
+- **Reshapes beyond 19d's list**: the router count compares deep routers with the networks
+  that keep a chain (169 against 101), not with every network; findit's town-and-kind test
+  reads every town and the top ten, the courthouse searched as "court".
+- **Dump against `main`**: outside Oakhurst, only `c18`'s and `c23`'s relations and gateways
+  moved; the phone rule moved Oakhurst's two phones and the four offices backing up to them,
+  the room Acorn Roasters' share and the Okonkwos' copy of it; the memo left it identical.
+- **Mutation**: `world.ts` whole (412 mutants, battery `world.test.ts`): 38 true survivors
+  after hand-applying all 187 reported. 10 equivalent, 2 an unreachable throw guard, 12 the
+  held-name redraw no draw reaches, 14 unreached behaviour. Relations, share and invoices'
+  changed lines (104 mutants): 8 true survivors, all equivalent short-cuts but one invoice
+  check no customer with two working shares reaches. **The memo hides mutants under
+  Stryker**: seven reported survivors, the phone rule's among them, were the memo answering
+  from an earlier mutant (recorded in `conventions-and-gotchas.md`).
+- **Carried to 8d** (owner, 2026-10-02): of 8b's 11, Oakhurst killed one (two homes under one
+  wifi); the numbered flat's floor and door (7), the router suffix's leading zeros and a
+  practice avoiding its town's business words (2) stay unreached. With them, the hospital
+  draw's three (never, always, the stream's name), which need a second town that draws one
+  or none.
+- **Wire-checks**: `testTowns` 10/10 (Oakhurst's council and courthouse fetched by domain),
+  `testMillbrook` 12/12, `testFindit` 19/19, `testJoinRefusal` 5/5 live.
+- **Budgets**: the bundle 251,657 B (ceiling 284,975 B); 6976 tests, summed file time 607 s
+  against `main`'s 658 s.
 
 ## Acceptance Criteria
 
