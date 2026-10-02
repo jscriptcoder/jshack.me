@@ -5,8 +5,9 @@
  * Ridgemont is where everybody stands, and its networks are the hand-authored catalog.
  * Every other town is declared here as a row and generated from it, so the whole world is
  * a list anything can walk (findit's index, the reverse address lookup) and nothing about
- * it is stored. Rows are only ever appended: a town's index is part of every key and
- * address inside it, so reordering the rows would move them all.
+ * it is stored. A row is a name and a size, a village or a town, and the size sets how many
+ * of each kind of place it draws. Rows are only ever appended: a town's index is part of
+ * every key and address inside it, so reordering the rows would move them all.
  */
 
 import { ESSID_CATALOG, type NetworkCategory, type PublishedSite } from './pools/essidCatalog.js';
@@ -86,9 +87,51 @@ export const RIDGEMONT = 'Ridgemont';
 /** A town's place among its region's towns, and what it is called. */
 type Town = { readonly region: number; readonly index: number; readonly name: string };
 
+/** How big a town the world draws is. */
+type SizeClass = 'village' | 'town';
+
+/** The fewest and the most of something a town keeps. */
+type Range = { readonly min: number; readonly max: number };
+
+/** How many of each kind of place a town of a size keeps beyond its institutions: its
+ *  businesses, its homes, its practices and the corporations' branches. */
+type SizeCounts = {
+  readonly businesses: Range;
+  readonly homes: Range;
+  readonly practices: Range;
+  readonly branches: Range;
+};
+
+/** What each size of town keeps. A size is only ever added: a town's counts are drawn
+ *  from its ranges, so a range that moved would redraw every town of that size. */
+const SIZE_CLASSES: Readonly<Record<SizeClass, SizeCounts>> = {
+  village: {
+    businesses: { min: 3, max: 6 },
+    homes: { min: 4, max: 8 },
+    practices: { min: 1, max: 2 },
+    branches: { min: 1, max: 2 },
+  },
+  town: {
+    businesses: { min: 12, max: 24 },
+    homes: { min: 12, max: 24 },
+    practices: { min: 2, max: 4 },
+    branches: { min: 2, max: 3 },
+  },
+};
+
+/** A town the world draws: its place, its name, and its size. */
+type DrawnTown = Town & { readonly size: SizeClass };
+
+/** How many of `kind` `town` keeps, drawn on `prng` from its size's range. */
+const countOf = (town: DrawnTown, kind: keyof SizeCounts, prng: Prng): number => {
+  const { min, max } = SIZE_CLASSES[town.size][kind];
+  return prng.nextInt(min, max);
+};
+
 const RIDGEMONT_TOWN: Town = { region: 0, index: 0, name: RIDGEMONT };
-const MILLBROOK: Town = { region: 0, index: 1, name: 'Millbrook' };
-const ASHBY: Town = { region: 0, index: 2, name: 'Ashby' };
+const MILLBROOK: DrawnTown = { region: 0, index: 1, name: 'Millbrook', size: 'village' };
+const ASHBY: DrawnTown = { region: 0, index: 2, name: 'Ashby', size: 'village' };
+const OAKHURST: DrawnTown = { region: 0, index: 3, name: 'Oakhurst', size: 'town' };
 
 /** The name of the region `town` stands in. */
 const regionOf = (town: Town): string => REGIONS[town.region].name;
@@ -99,9 +142,27 @@ type Institution = Omit<DeclaredNetwork, 'key' | 'town' | 'region' | 'directory'
   readonly keepsDirectory?: true;
 };
 
-/** A town's council, police and library. Every town has one of each, named for it. */
-const institutionsOf = (town: Town): readonly Institution[] => {
+/** A town's council, police and library: every town has one of each, named for it. A
+ *  town bigger than a village also keeps a courthouse, and a hospital or none, drawn on a
+ *  stream of its own. */
+const institutionsOf = (town: DrawnTown): readonly Institution[] => {
   const lower = town.name.toLowerCase();
+  const courthouse: Institution = {
+    essid: 'COURTHOUSE-WIFI',
+    category: 'government',
+    place: 'the courthouse',
+    site: { domain: `${lower}courts.gov`, name: `${town.name} County Court` },
+  };
+  const hospital: Institution = {
+    essid: 'GENERAL-HOSPITAL',
+    category: 'healthcare',
+    subtype: 'hospital',
+    place: 'the hospital',
+    site: { domain: `${lower}hospital.org`, name: `${town.name} General Hospital` },
+  };
+  const hospitals = (): readonly Institution[] =>
+    createPrng(`town-hospital-${townKey(town)}`).nextInt(0, 1) === 1 ? [hospital] : [];
+  const beyondVillage = town.size === 'village' ? [] : [courthouse, ...hospitals()];
   return [
     {
       essid: 'TOWN-HALL-WIFI',
@@ -122,6 +183,7 @@ const institutionsOf = (town: Town): readonly Institution[] => {
       place: 'the public library',
       site: { domain: `${lower}library.org`, name: `${town.name} Public Library` },
     },
+    ...beyondVillage,
   ];
 };
 
@@ -136,10 +198,6 @@ const MILLBROOK_LATER_INSTITUTIONS: readonly Institution[] = [
     site: { domain: 'millbrookhospital.org', name: 'Millbrook Cottage Hospital' },
   },
 ];
-
-/** The fewest and the most businesses a village keeps beyond its institutions. */
-const VILLAGE_BUSINESSES_MIN = 3;
-const VILLAGE_BUSINESSES_MAX = 6;
 
 /** Each of `weights`' keys as many times as its weight, in their order: a list a draw
  *  picks from by weight. */
@@ -196,24 +254,16 @@ const distinctKinds = <Kind>(prng: Prng, kinds: readonly Kind[], count: number):
     return [...drawn, prng.pick(left.length > 0 ? left : kinds)];
   }, []);
 
-/** The fewest and the most practices a village keeps beside its businesses. */
-const VILLAGE_PRACTICES_MIN = 1;
-const VILLAGE_PRACTICES_MAX = 2;
-
 /** How many practices `town` keeps, and the kind of each, on a stream of the town's own.
  *  No two are the same kind while another is left. */
-const practiceKindsOf = (town: Town): readonly NamedKind[] => {
+const practiceKindsOf = (town: DrawnTown): readonly NamedKind[] => {
   const prng = createPrng(`town-practices-${townKey(town)}`);
-  const count = prng.nextInt(VILLAGE_PRACTICES_MIN, VILLAGE_PRACTICES_MAX);
+  const count = countOf(town, 'practices', prng);
   return distinctKinds(prng, PRACTICE_SUBTYPES, count).map((subtype) => ({
     category: 'healthcare',
     subtype,
   }));
 };
-
-/** The fewest and the most homes a village keeps. */
-const VILLAGE_HOMES_MIN = 4;
-const VILLAGE_HOMES_MAX = 8;
 
 /** A family named in the plural: a surname already ending in "s" takes no more. */
 const familyOf = (surname: string): string => (surname.endsWith('s') ? surname : `${surname}s`);
@@ -257,9 +307,9 @@ const homeNamed = ([essid, place]: HomeTemplate, prng: Prng): Named => {
 
 /** How many homes `town` keeps, and the name of each, on a stream of the town's own: the
  *  count first, then each home's form, template and words. No two share a wifi or a word. */
-const homesOf = (town: Town): readonly Named[] => {
+const homesOf = (town: DrawnTown): readonly Named[] => {
   const prng = createPrng(`town-homes-${townKey(town)}`);
-  const count = prng.nextInt(VILLAGE_HOMES_MIN, VILLAGE_HOMES_MAX);
+  const count = countOf(town, 'homes', prng);
   const forms = byWeight(HOME_FORM_WEIGHTS);
   return Array.from({ length: count }).reduce<readonly Named[]>((drawn) => {
     const draw = (): Named => {
@@ -398,7 +448,7 @@ const unlistedOf = (town: Town, networks: readonly Institution[]): readonly Inst
  *  comes after what was there, so declaring it moved no earlier key or address. The names
  *  it draws avoid those of every network declared `before` it elsewhere in the world. */
 const networksOf = (
-  town: Town,
+  town: DrawnTown,
   {
     later,
     before,
@@ -406,7 +456,7 @@ const networksOf = (
 ): readonly DeclaredNetwork[] => {
   const institutions = institutionsOf(town);
   const prng = createPrng(`town-businesses-${townKey(town)}`);
-  const count = prng.nextInt(VILLAGE_BUSINESSES_MIN, VILLAGE_BUSINESSES_MAX);
+  const count = countOf(town, 'businesses', prng);
   const namedHomes = homesOf(town);
   const homes = networksNamed(namedHomes);
   const directory = [...institutions, ...later].flatMap((institution) => institution.site ?? []);
@@ -484,19 +534,12 @@ const CORPORATIONS: readonly DeclaredNetwork[] = networksNamed(
   return { ...corporation, key, profile: profileOf(key, corporation.category) };
 });
 
-/** The fewest and the most branches of the corporations a village keeps. */
-const VILLAGE_BRANCHES_MIN = 1;
-const VILLAGE_BRANCHES_MAX = 2;
-
 /** The offices the corporations keep in `town`, on a stream of the town's own, keyed
  *  after the `count` networks the town already holds. No corporation keeps two offices in
  *  one town. A branch publishes nothing: its company's site is its public face. */
-const branchesOf = (town: Town, count: number): readonly DeclaredNetwork[] => {
+const branchesOf = (town: DrawnTown, count: number): readonly DeclaredNetwork[] => {
   const prng = createPrng(`town-branches-${townKey(town)}`);
-  const parents = prng.pickN(
-    CORPORATIONS,
-    prng.nextInt(VILLAGE_BRANCHES_MIN, VILLAGE_BRANCHES_MAX),
-  );
+  const parents = prng.pickN(CORPORATIONS, countOf(town, 'branches', prng));
   return parents.map((parent, index) => {
     const key = `${townKey(town)}/n${count + index}`;
     return {
@@ -525,6 +568,20 @@ const ASHBY_NETWORKS = networksOf(ASHBY, {
 });
 const ASHBY_BRANCHES = branchesOf(ASHBY, ASHBY_NETWORKS.length);
 
+/** Oakhurst, the first town: drawn after Ashby, so its names avoid every network declared
+ *  before it and move none of them. */
+const OAKHURST_NETWORKS = networksOf(OAKHURST, {
+  later: [],
+  before: [
+    ...MILLBROOK_NETWORKS,
+    ...CORPORATIONS,
+    ...MILLBROOK_BRANCHES,
+    ...ASHBY_NETWORKS,
+    ...ASHBY_BRANCHES,
+  ],
+});
+const OAKHURST_BRANCHES = branchesOf(OAKHURST, OAKHURST_NETWORKS.length);
+
 /** Ridgemont's networks are the catalog's, each known by the name it broadcasts. */
 const LANDMARKS: readonly DeclaredNetwork[] = ESSID_CATALOG.map((entry) => ({
   ...entry,
@@ -533,8 +590,9 @@ const LANDMARKS: readonly DeclaredNetwork[] = ESSID_CATALOG.map((entry) => ({
   region: regionOf(RIDGEMONT_TOWN),
 }));
 
-/** Every network the world declares: Ridgemont's first, then each town's, then the
- *  corporations, then the branches they keep in the towns. */
+/** Every network the world declares: Ridgemont's first, then Millbrook's, the
+ *  corporations and Millbrook's branches, then each later town's networks and its branches,
+ *  in the order the towns were declared. */
 export const DECLARED_NETWORKS: readonly DeclaredNetwork[] = [
   ...LANDMARKS,
   ...MILLBROOK_NETWORKS,
@@ -542,6 +600,8 @@ export const DECLARED_NETWORKS: readonly DeclaredNetwork[] = [
   ...MILLBROOK_BRANCHES,
   ...ASHBY_NETWORKS,
   ...ASHBY_BRANCHES,
+  ...OAKHURST_NETWORKS,
+  ...OAKHURST_BRANCHES,
 ];
 
 const DECLARED_BY_KEY: ReadonlyMap<string, DeclaredNetwork> = new Map(
@@ -627,6 +687,7 @@ const ADDRESS_BY_KEY: ReadonlyMap<string, string> = new Map([
     placelessAddress(1 + LANDMARK_CORPORATIONS.length + index),
   ]),
   ...townAddresses(ASHBY, [...ASHBY_NETWORKS, ...ASHBY_BRANCHES]),
+  ...townAddresses(OAKHURST, [...OAKHURST_NETWORKS, ...OAKHURST_BRANCHES]),
 ]);
 
 const KEY_BY_ADDRESS: ReadonlyMap<string, string> = new Map(

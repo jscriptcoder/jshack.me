@@ -727,8 +727,9 @@ of this section, then the cross-player architecture doc if the work touches cros
   - **the gzipped main chunk exceeds 284,975 B**. That is the 134,975 B it weighed before world
     content, plus the 150 KB that content may add. The remedy is to trim pools; the allowance is
     fixed, not a number to raise.
-  - **building every box on the 50 catalog networks averages over 2 ms per box**, measured after
-    a warm-up pass. It was about 0.15 ms per box over 615 boxes before world content. Base trees
+  - **building the boxes of any one set averages over 2 ms per box**, measured after a
+    warm-up pass. The sets are Ridgemont's catalog networks, each town the world draws, and the
+    corporations, each timed on its own so a dear town cannot hide in the world's average. It was about 0.15 ms per box over 615 boxes before world content. Base trees
     are rebuilt on every lookup with no cache, so the remedy is a cache for the box builders,
     added for that measured reason and never before one. **Before reaching for the cache, look
     for a lookup made twice inside one build.** At v0.263.0 four gateway content builders each
@@ -736,6 +737,10 @@ of this section, then the cross-player architecture doc if the work touches cros
     and the gate read 1.93–2.31 ms; finding it once in `buildGatewayBaseFs` and handing it down
     read 1.53–1.67, no cache needed. The gate is noisy near the line (one run of the same tree
     failed at 2.31 and the next passed at 1.93), so measure three runs before believing either.
+    **The one cache is the relations memo** (`memoised` in `relations.ts`, v0.301.0). Reading a
+    network's leads walks every LAN of its town, so its cost grows with the town: Oakhurst's 47
+    networks built at 2.53 ms a box. `relationsTo` and `relationsFrom` keep each key's answer, the
+    world they read being fixed at load, and every set reads 0.78–1.04 ms.
   It is a script, not a vitest test, because Stryker runs the whole suite under instrumentation
   and aborts its dry run on any failure. A wall-clock assertion there would break mutation runs.
   To check without a full build, run `npx tsx scripts/checkBudgets.ts` after `vite build`.
@@ -1043,6 +1048,12 @@ Provably-equivalent mutant classes — accept (don't chase) when they recur:
   to the mutant and never runs the ones that would kill it. Same rule as above, and it is
   now the cheapest check in the triage: hand-apply any survivor that looks like it should
   already be covered before writing a test for it.
+  **A memo hides every mutant behind it.** Stryker switches mutants inside one loaded
+  module, so the relations memo (`memoised` in `relations.ts`) answers with what it read
+  under an earlier mutant, and a mutant in anything `relationsTo` reads is scored Survived
+  though its tests never saw it. 8c's battery reported the phone rule's three mutants
+  survived; applied by hand in a fresh run, each took two to six tests red. Hand-apply every
+  survivor under a memo.
   **Third instance, D7 slice 4**: `storeIn`'s `datadir === undefined || datadir.kind !== 'file'`
   in `redis/datadir.ts` reported Survived; forced to `false` by hand it took the "a box with
   no store gains one on its first write" test red immediately. The pattern to distrust is now

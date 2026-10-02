@@ -129,7 +129,13 @@ const DAY_SECONDS = 24 * 60 * 60;
 describe('a router knows the segment it serves', () => {
   it('covers the access point and every inner and deep router in the world', () => {
     const deep = routers().filter((router) => router.subnet.startsWith('10.'));
-    expect(deep.length).toBeGreaterThan(ALL_ESSIDS.length);
+    // A home or a café keeps no chain at all; where a network keeps one, it often runs
+    // more than one router deep, so the routers outnumber the chains.
+    const chained = ALL_ESSIDS.filter((essid) =>
+      chainLinks(essid).some((link) => link.host.kind === 'router'),
+    );
+    expect(chained.length).toBeGreaterThan(0);
+    expect(deep.length).toBeGreaterThan(chained.length);
     expect(deep.some((router) => router.gateways.length === 0)).toBe(true);
     expect(deep.some((router) => router.gateways.length === 1)).toBe(true);
   });

@@ -6,7 +6,9 @@
  * - **bytes shipped** — the pools live in the client bundle, so the gzipped main chunk may
  *   grow by at most 150 KB over its size before world content began;
  * - **time to build a box** — base trees are rebuilt on every lookup, client and server,
- *   with no cache, so each box must stay cheap to regenerate.
+ *   with no cache, so each box must stay cheap to regenerate. Ridgemont's boxes, each town's
+ *   and the corporations' are timed as sets of their own: a town whose boxes grew dear
+ *   would hide inside an average taken over the whole world.
  *
  * A breach fails the build with the number that broke. The remedy for a slow box is a
  * cache introduced for that measured reason; the remedy for a heavy bundle is trimming
@@ -27,6 +29,7 @@ import { join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { gzipSync } from 'node:zlib';
 import { crackableEssidPool } from '../src/core/generation/generateWifi.js';
+import { DECLARED_NETWORKS, RIDGEMONT } from '../src/core/generation/world.js';
 import { generateHomeLan } from '../src/core/generation/generateHomeLan.js';
 import { generateDeepLayer } from '../src/core/generation/generateDeepLayer.js';
 import { chainLinks, lanHostOctet, machineIdForLanHost } from '../src/core/generation/lanTopology.js';
@@ -68,7 +71,7 @@ const checkBundle = (): Verdict => {
 /** One way to build one generated box's base tree, the same way the game resolves it. */
 type BoxBuild = () => unknown;
 
-/** Every box a catalog network generates. The AP gateway at `.1` is built directly because
+/** Every box a network generates. The AP gateway at `.1` is built directly because
  *  it belongs to the access point and so is deliberately absent from the machine-id
  *  lookup; every other box — LAN hosts, chain gateways, deep NPCs — goes through that
  *  lookup, which is the path a session pays on every read. */
@@ -102,8 +105,26 @@ const boxBuildsOf = (essid: string): readonly BoxBuild[] => {
   ];
 };
 
-const checkBuildTime = (): Verdict => {
-  const boxBuilds = crackableEssidPool.flatMap(boxBuildsOf);
+/** The networks whose boxes are timed together: Ridgemont's catalog, then every town the
+ *  world draws, then the corporations, which stand in none. */
+const timedSets = (): readonly { readonly name: string; readonly keys: readonly string[] }[] => {
+  const drawn = DECLARED_NETWORKS.filter((network) => network.town !== RIDGEMONT);
+  const towns = [...new Set(drawn.flatMap((network) => network.town ?? []))];
+  return [
+    { name: RIDGEMONT, keys: crackableEssidPool },
+    ...towns.map((town) => ({
+      name: town,
+      keys: drawn.filter((network) => network.town === town).map((network) => network.key),
+    })),
+    {
+      name: 'the corporations',
+      keys: drawn.filter((network) => network.town === undefined).map((network) => network.key),
+    },
+  ];
+};
+
+const checkBuildTime = (name: string, keys: readonly string[]): Verdict => {
+  const boxBuilds = keys.flatMap(boxBuildsOf);
   // The first pass pays for JIT compilation, which no player's session pays per box.
   boxBuilds.forEach((build) => build());
   const startedAt = performance.now();
@@ -111,7 +132,7 @@ const checkBuildTime = (): Verdict => {
   const msPerBox = (performance.now() - startedAt) / boxBuilds.length;
   return {
     passed: msPerBox <= BUILD_CEILING_MS_PER_BOX,
-    line: `build time: ${msPerBox.toFixed(3)} ms per box over ${boxBuilds.length} boxes on ${crackableEssidPool.length} networks (ceiling ${BUILD_CEILING_MS_PER_BOX} ms)`,
+    line: `build time, ${name}: ${msPerBox.toFixed(3)} ms per box over ${boxBuilds.length} boxes on ${keys.length} networks (ceiling ${BUILD_CEILING_MS_PER_BOX} ms)`,
   };
 };
 
@@ -120,7 +141,9 @@ const onVercel = process.env.VERCEL === '1';
 if (onVercel) {
   console.log('skip build time: timed on developer machines, not on the Vercel build machine');
 }
-const verdicts = onVercel ? [checkBundle()] : [checkBundle(), checkBuildTime()];
+const verdicts = onVercel
+  ? [checkBundle()]
+  : [checkBundle(), ...timedSets().map(({ name, keys }) => checkBuildTime(name, keys))];
 verdicts.forEach((verdict) => {
   console.log(`${verdict.passed ? 'ok  ' : 'FAIL'} ${verdict.line}`);
 });

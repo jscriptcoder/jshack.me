@@ -194,7 +194,9 @@ Scoring (`findit/search.ts`) reads only `/index.html`. A page that says more of 
 query's whitespace-split lower-cased terms ranks first, so "Millbrook café" asks for a café
 in Millbrook rather than every café; among pages that say as many, title (3) > meta
 description (2) > visible body text (1), summed per term; positive scores only, at most
-ten, ties by domain. Generated homepages carry a `<meta name="description">` derived from
+ten, ties by domain. Two towns keep a county court, so "court" lists both, Oakhurst's first
+on the tie, and "ridgemont court" asks for Ridgemont's. Generated homepages carry a
+`<meta name="description">` derived from
 the catalog place and category, so "admissions" finds the university and "parking" finds
 the airport. A place in a town beyond Ridgemont whose name does not say its town says it
 after its name (`Yates's Café, Millbrook: …`, the `{locality}` slot of
@@ -250,8 +252,10 @@ target's forwarded ssh when its gateway keeps one, else the gateway's own sshd o
   Every town keeps an office with a desk and a working share, so every town has a place
   its leads start from (`world-content-architecture.md`, "What a business is").
 - **The offsite backup.** A business with a file server copies `/srv` every night to a
-  home, never to another business, and a home that lets ssh in from outside always
-  receives one. No job runs on a box whose own account is the one it logs in as, which
+  home, never to another business, and a home that lets ssh in from outside to a computer
+  always receives one. A home whose ssh forward lands on a phone or a tablet takes no
+  backup and keeps its contractors' leads: a device keeps a device's storage, never a
+  business's copy. One home may keep several businesses' copies. No job runs on a box whose own account is the one it logs in as, which
   the crontab would give away. The file server's `/etc/crontab` runs
   `rsync -az /srv/ <account>@<address>:backups/<source>/ -e 'ssh -p <port>'`, its
   `syslog.1` and `auth.log.1` show the run, and the box at the other end keeps the share

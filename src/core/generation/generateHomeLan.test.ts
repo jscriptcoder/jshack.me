@@ -410,15 +410,18 @@ describe('generateHomeLan for an office', () => {
 
   it('keeps a desk and a working share beside the box that serves its site', () => {
     expect(offices()).not.toEqual([]);
-    for (const { key } of offices()) {
+    for (const { key, site } of offices()) {
       const machines = machinesOf(key);
       expect(machines.some(isDeskMachine), key).toBe(true);
       expect(machines.some(isWorkingShare), key).toBe(true);
+      // A branch publishes nothing, so nothing holds it to a web server.
+      if (site === undefined) continue;
       expect(
         machines.some((host) => roleOfHostname(host.hostname) === 'webserver'),
         key,
       ).toBe(true);
     }
+    expect(offices().some((office) => office.site === undefined)).toBe(true);
   });
 
   it('stands three to five machines behind a flat office, room for its site, its share and a desk', () => {

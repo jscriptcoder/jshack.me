@@ -32,6 +32,7 @@ import { isDeskMachine } from './npcHome.js';
 import { roleOfHostname } from './pools/hostnames.js';
 import { createPrng } from './prng.js';
 import { keepsSnapshots } from './share.js';
+import { deviceModel } from './phoneHome.js';
 
 /** A lead kept on one network's box to another network. */
 type Lead = {
@@ -178,10 +179,12 @@ const drawnTo = (target: DeclaredNetwork, keepers: readonly Keeper[]): readonly 
   if (address === undefined) return [];
 
   // A business keeps its offsite copy at somebody's home, never at another business; and
-  // a home that lets ssh in from outside does so for the copy it keeps.
+  // a home that lets ssh in from outside does so for the copy it keeps, unless what it lets
+  // ssh in to is a phone or a tablet, which keeps a device's storage and no business's copy.
   const isHome = target.site === undefined;
   const { endpoint, forwarded } = endpointOf(target.key);
-  const takesBackups = isHome && forwarded;
+  const takesBackups =
+    isHome && forwarded && deviceModel(target.key, endpoint.targetHost) === undefined;
   // A lead starts where a player can find it: on a publisher a search lists.
   const candidates = keepers
     .filter((keeper) => keeper.source !== target.key && !keeper.unlisted)
@@ -252,14 +255,29 @@ const leadingTown = (key: string): string | undefined => {
   return town === RIDGEMONT ? undefined : town;
 };
 
+/** `read`, answering each key from what it answered the first time. A network's leads
+ *  are drawn from the world, which is fixed when the module loads, so a key's answer never
+ *  changes; and reading them walks every LAN of its town, the dearest step of building a
+ *  box in a town of any size. */
+const memoised = (read: (key: string) => readonly Relation[]) => {
+  const answers = new Map<string, readonly Relation[]>();
+  return (key: string): readonly Relation[] => {
+    const known = answers.get(key);
+    if (known !== undefined) return known;
+    const answer = read(key);
+    answers.set(key, answer);
+    return answer;
+  };
+};
+
 /** Every lead that goes to `key`, in the order it was drawn. */
-export const relationsTo = (key: string): readonly Relation[] => {
+export const relationsTo = memoised((key) => {
   const target = declaredNetwork(key);
   if (target?.parent !== undefined) return [branchLead(target, target.parent)];
   const town = leadingTown(key);
   if (target === undefined || town === undefined) return [];
   return drawnTo(target, keepersIn(town));
-};
+});
 
 /** Every lead `key` keeps to a network of its own town, read from the networks it leads
  *  to. A network with no desk or file server to keep one on keeps none, and is not asked. */
@@ -277,7 +295,4 @@ const townLeadsFrom = (key: string): readonly Relation[] => {
 
 /** Every lead kept on `key`'s boxes: to its corporation's branches, and to the networks
  *  of its town. */
-export const relationsFrom = (key: string): readonly Relation[] => [
-  ...branchLeadsFrom(key),
-  ...townLeadsFrom(key),
-];
+export const relationsFrom = memoised((key) => [...branchLeadsFrom(key), ...townLeadsFrom(key)]);

@@ -1015,6 +1015,18 @@ describe('how a share changed over time', () => {
     expect(Math.max(...counts)).toBe(10);
     expect(Math.min(...counts)).toBeLessThan(10);
   });
+
+  it("holds at most ten files in any department, a supplier's invoice filed there included", () => {
+    const crowded = workingShareBoxes().flatMap((box) =>
+      [...directoryAt(buildRemoteHostFs(box.essid, box.host), ['srv', 'share']).entries].flatMap(
+        ([name, folder]) =>
+          folder.kind === 'directory' && folder.entries.size > 10
+            ? [`${box.essid} ${box.host.hostname} ${name}: ${folder.entries.size}`]
+            : [],
+      ),
+    );
+    expect(crowded).toEqual([]);
+  });
 });
 
 describe('what the photos and notes on a share say', () => {

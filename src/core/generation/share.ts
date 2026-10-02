@@ -222,6 +222,7 @@ const drawFiles = ({
   cast,
   boundaries,
   budget,
+  sentLater,
 }: {
   readonly essid: string;
   readonly prng: Prng;
@@ -229,6 +230,7 @@ const drawFiles = ({
   readonly boundaries: readonly number[];
   /** How many files the share may hold in all. */
   readonly budget: { readonly min: number; readonly max: number };
+  readonly sentLater?: SentLater;
 }): readonly ShareFile[] => {
   const departments = Object.entries(SHARE_FOLDERS[networkPersona(essid).category]);
   const chosen = prng.pickN(
@@ -241,11 +243,14 @@ const drawFiles = ({
     min: Math.max(FILES_PER_FOLDER.min, Math.ceil(budget.min / chosen.length)),
     max: Math.min(FILES_PER_FOLDER.max, Math.floor(budget.max / chosen.length)),
   };
-  const specs = chosen.flatMap(([folder, pool]) =>
-    prng
-      .pickN(pool, prng.nextInt(perFolder.min, perFolder.max))
-      .map((spec) => ({ folder, spec })),
-  );
+  const specs = chosen.flatMap(([folder, pool]) => {
+    const drawn = prng.nextInt(perFolder.min, perFolder.max);
+    // A department the office will file more into keeps room for them under the cap.
+    const room = folder === sentLater?.folder ? sentLater.files : 0;
+    return prng
+      .pickN(pool, Math.min(drawn, FILES_PER_FOLDER.max - room))
+      .map((spec) => ({ folder, spec }));
+  });
 
   // Every snapshot after the first holds at least one file the one before it did not:
   // a backup that never changed would be the same night kept twice.
@@ -372,6 +377,9 @@ export type Share = {
   readonly uploads: readonly ShareUpload[];
 };
 
+/** Files somebody will file into one department of a working share after it is drawn. */
+export type SentLater = { readonly folder: string; readonly files: number };
+
 /**
  * The `/srv` of a file server: dated snapshots on a backup box, the working tree on any
  * other, with the uploads that put each file there.
@@ -384,11 +392,13 @@ export const buildShare = ({
   host,
   account,
   people,
+  sentLater,
 }: {
   readonly essid: string;
   readonly host: LanHost;
   readonly account: string;
   readonly people: readonly MailPerson[];
+  readonly sentLater?: SentLater;
 }): Share => {
   const keepsBackups = keepsSnapshots(host);
   const prng = createPrng(`share-${essid}-${host.ip}`);
@@ -404,6 +414,7 @@ export const buildShare = ({
       cast,
       boundaries: [LAST_SECOND],
       budget: WORKING_SHARE_FILES,
+      ...(sentLater === undefined ? {} : { sentLater }),
     });
     // Saved straight onto the share, so each file arrived the moment it was saved.
     return {
