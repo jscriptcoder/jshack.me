@@ -16,7 +16,7 @@ complete. Slice 7 grilled 2026-10-01 as slices 7a–7b; 7a complete 2026-10-01 (
 v0.297.0); 7b complete 2026-10-01 (#588, v0.298.0). Slice 7 complete. Slice 8 grilled
 2026-10-01 as slices 8a–8d (decision 19b); 8a complete 2026-10-02 (#589, v0.299.0); 8b split
 2026-10-02 into the names (8b) and the town (8c), the city and the rows moving to 8d and 8e
-(decision 19c); 8b complete 2026-10-02 (#590, v0.300.0); 8c grilled 2026-10-02 (decision 19d).
+(decision 19c); 8b complete 2026-10-02 (#590, v0.300.0); 8c grilled and planned 2026-10-02 (decision 19d).
 Slice 9 not yet planned.
 Amends the §9 backlog item "Procedural world expansion — GRILLED & RESOLVED 2026-07-29" in
 `docs/conventions-and-gotchas.md`; where the two disagree, this file wins.
@@ -2630,8 +2630,8 @@ owner approves the commit.
 Grilled 2026-10-01 (decision 19b), 8b split 2026-10-02 (decision 19c). Five PRs, in order,
 each cut from `main` after the one before it merges: 8a a second village, 8b the names, 8c the
 town size class, 8d the city, 8e the remaining rows and findit's index split. 8a complete
-2026-10-02 (#589), 8b complete 2026-10-02 (#590); each later PR is planned after the one
-before it merges, from what that one measured.
+2026-10-02 (#589), 8b complete 2026-10-02 (#590), 8c planned 2026-10-02 (decision 19d); each
+later PR is planned after the one before it merges, from what that one measured.
 
 ### Slice 8a: a second village, Ashby, and findit finds a town's places by its name
 
@@ -2958,6 +2958,93 @@ commit.
   `testJoinRefusal` 5/5 live. The full sweep was not run: 8b changes no server code and no
   script spells a name.
 - **Budgets**: 1.001 ms a box (ceiling 2 ms), the bundle 251,303 B (ceiling 284,975 B).
+
+### Slice 8c: Oakhurst, the world's first town, stands beside the villages
+
+**Value**: the world holds its first place bigger than a village. Any player can fetch
+Oakhurst's council and its courthouse by their domains, find its shops by town and kind, and
+break from its offices into twenty homes, every box reading as what it is at a town's scale.
+**Path**: a town row (`r0/t3`, Oakhurst, class `town`) → the size-class table's ranges → its
+institutions with the courthouse and the drawn hospital → its businesses, homes, practices and
+branches drawn on the streams every town draws on → its addresses in `87.38.x.y` → its
+relations drawn within the town (a backup kept off phones), read once per key → its shares
+(a department holding ten at most) → its sites in findit's index → `whois`, a fetch by domain,
+and a refused join.
+**Class**: behaviour change.
+**Delivery**: independent PR against `main`, branch `feat/procedural-world-town`.
+**Status**: planned 2026-10-02.
+**Required implementation skills**: `tdd`, `testing`, `refactoring`; `mutation-testing` at
+PR-readiness.
+**Reduction program**: `N/A`.
+
+**Facts measured while planning**: those of decision 19d (against `main` at `ec25c6fd`).
+
+**Acceptance criteria** (owner-confirmed 2026-10-02, decision 19d):
+
+- [ ] **8c-1** A town row is a name and a size class, and the class sets the four count
+      ranges: a village keeps 3–6 businesses, 4–8 homes, 1–2 practices and 1–2 branches, a
+      town 12–24, 12–24, 2–4 and 2–3. Millbrook and Ashby are village rows and draw exactly
+      what they draw today.
+- [ ] **8c-2** The world declares Oakhurst, `r0/t3`, Harrow Valley, a town, after Ashby: its
+      networks ordered institutions, businesses, homes, practices, branches, answering in
+      `87.38.x.y`, its names avoiding every network declared before it. Every declared address
+      stays distinct, no ESSID repeats within a town, every ESSID is at most 32 characters,
+      and no word names two of its places.
+- [ ] **8c-3** A town keeps a courthouse (`{Town} County Court`, `{town}courts.gov`,
+      `COURTHOUSE-WIFI`, "the courthouse") after its library, and draws 0–1 hospital on
+      `town-hospital-<key>` (`{Town} General Hospital`, `{town}hospital.org`,
+      `GENERAL-HOSPITAL`, "the hospital", subtype `hospital`); a village keeps neither. Its
+      council's directory links both. Oakhurst keeps one hospital.
+- [ ] **8c-4** No business's offsite copy is kept on a phone: a home whose ssh forward
+      reaches a phone takes no backup, and keeps its contractor leads. No phone in the world
+      keeps a `backups` folder, and every phone holds what a phone holds.
+- [ ] **8c-5** No department of a share holds more than ten files, a supplier's invoice
+      included: a share that is sent invoices draws its invoices department with room for
+      them.
+- [ ] **8c-6** Every whole-world content property holds over Oakhurst, the test-side
+      failures reshaped to what each claims: findit's "court" lists a county court first and
+      "ridgemont court" Ridgemont's; every opener in the world carries no `In-Reply-To`; the
+      directory, word-rule, router-count and relation tests read every declared town; the
+      supplier test finds the supplier's invoice by name; a desk's `.ssh` may hold contractor
+      leads alone; a branch is held to no web server. Every Oakhurst network is reached, and
+      for every listed Oakhurst site a search for its town and a word its description uses for
+      its kind lists it in the top ten.
+- [ ] **8c-7** `relationsFrom` and `relationsTo` answer each key from a memo; `checkBudgets`
+      times every procedural box beside Ridgemont's, each set at 2 ms a box at most, and
+      passes.
+- [ ] **8c-8** Nothing else moved: a dump against `main` differs only by Oakhurst's networks
+      and the gateways of the corporations that gain an Oakhurst branch.
+- [ ] **8c-9** `testTowns` fetches Oakhurst's council and courthouse by their domains, finds
+      an Oakhurst site by town and kind, and has a join refused; `testMillbrook`, `testFindit`
+      and `testJoinRefusal` pass live.
+- [ ] **8c-10** `world-content-architecture.md` describes the size classes, the courthouse,
+      the hospital and both rules; `discovery-architecture.md` the court example;
+      `conventions-and-gotchas.md` §3 the relations memo as the measured cache. The minor
+      version is bumped to 0.301.0.
+
+Out of scope: the city and the sampled sweeps, `checkBudgets`' sample (8d); the remaining rows
+and findit's index split (8e); a rule for an inbox of replies (decision 19d).
+
+**RED**: the size-class table under Millbrook and Ashby (8c-1, a refactor where it moves
+nothing: the world's dump is unchanged), then Oakhurst's declaration (8c-2) and its institutions
+(8c-3), which turn the 13 assertions of 19d red. The two real failures each get a world-wide
+test first (8c-4: a phone keeping `backups`; 8c-5: a department of eleven); the test-side
+ones are reshaped where each is met (8c-6).
+**GREEN**: the size-class table and a town row's class in `world.ts`; Oakhurst's row; the
+courthouse and the hospital draw in a town's institutions; the phone skip in the backup draw
+(`relations.ts`); the invoices department's room in the share's draw (`share.ts` and
+`supplierInvoices.ts`).
+**REFACTOR**: assess; the relations memo (a pure refactor, its evidence the unchanged dump and
+the timing), and `checkBudgets` timing the procedural boxes.
+**Server evidence**: no server code change. `testTowns.ts` grows Oakhurst and runs live against
+`vercel dev`; `testMillbrook`, `testFindit` and `testJoinRefusal` rerun.
+**PRE-PR MUTATION**: Stryker on the size classes, the courthouse and the hospital draw, the
+phone skip, the department's room and the memo (narrowed battery, json reporter), every
+survivor applied by hand; 8b's 11 survivors re-run, whatever stays unreached recorded with
+its reason and carried to 8d.
+**PR-ready when**: 8c-1 to 8c-10 hold, the dump differs only as 8c-8 allows, `vitest run`,
+typecheck, lint and format pass, and the owner approves the commit.
+**Slice complete when**: its PR merges; 8d is planned next.
 
 ## Acceptance Criteria
 
