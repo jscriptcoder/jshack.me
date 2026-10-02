@@ -172,7 +172,8 @@ search down with it, exactly as it would a file. `/` serves findit's own
 `/var/www/html/index.html`, so a rooted findit can be defaced without poisoning anybody's
 results — the index is always a VIEW over the publishers' pages, never a file on findit.
 
-**The index is live and computed per search**, never stored:
+**The index is live: every search reads the journals**, and only what generation built is
+kept:
 
 - Every publisher's homepage is read as served NOW (patches included), in batched patch
   queries over its gateways and site servers, 200 machines a query: a query names its
@@ -180,6 +181,16 @@ results — the index is always a VIEW over the publishers' pages, never a file 
   refused as "URI too long", leaving every search empty. A rewritten `index.html`
   changes its own listing at the next search; a dark publisher (bricked, stopped,
   filtered) is absent.
+- **The generated web is kept per server instance.** A server's first search builds every
+  publisher's listing from generation alone (`buildGeneratedWeb`, 283 publishers in about
+  420 ms on a developer machine, about 2 s on Vercel) and keeps it. Every later search
+  lists a publisher whose gateway and site server have no journal row from it, and
+  rebuilds one whose machines have any, so the kept copy never stands in for a touched
+  site and never holds a page a player wrote; a box restored to generation reads as
+  generated again. A search of an untouched world drops from about 520 ms to its reads.
+  `checkBudgets` times the cold build against 1,000 ms (`conventions-and-gotchas.md` §3).
+  A player network whose gateway has no row is skipped outright: an untouched gateway
+  forwards nothing.
 - **Players are crawled, not submitted.** Every page on a public `:80` is listed — player
   or NPC — decided at query time through the same resolution a `curl` makes, so a player
   who leaves the wifi or stops nginx simply drops out. Being public is already deliberate
@@ -192,8 +203,10 @@ results — the index is always a VIEW over the publishers' pages, never a file 
 - **The crawl writes nothing** — no `access.log` line on a crawled box, which also avoids
   leaking findit's search traffic to every listed player.
 
-Scoring (`findit/search.ts`) reads only `/index.html`. A page that says more of the
-query's whitespace-split lower-cased terms ranks first, so "Millbrook café" asks for a café
+Scoring (`findit/search.ts`) reads only `/index.html`. Query and page are both
+lower-cased and stripped of accents (`NFD`, combining marks removed), so "cafe" finds a
+"Café" and "café" a "cafe"; a result still shows the page as written. A page that says more
+of the query's whitespace-split terms ranks first, so "Millbrook café" asks for a café
 in Millbrook rather than every café; among pages that say as many, title (3) > meta
 description (2) > visible body text (1), summed per term; positive scores only, at most
 ten, ties by domain. Several towns keep a county court, so "court" lists them all, and

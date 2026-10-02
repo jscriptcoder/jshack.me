@@ -175,6 +175,16 @@ describe('the web findit searches', () => {
     );
   });
 
+  it("finds every town's cafés for a cafe asked without its accent, as for one asked with it", async () => {
+    const web = await indexWith();
+    const towns = [...new Set(DECLARED_NETWORKS.flatMap((network) => network.town ?? []))];
+    for (const town of towns) {
+      const unaccented = rankPages(web, `${town} cafe`).map((page) => page.address);
+      expect(unaccented.length, town).toBeGreaterThan(0);
+      expect(unaccented, town).toEqual(rankPages(web, `${town} café`).map((page) => page.address));
+    }
+  });
+
   it('puts the hospital first for the wards only a hospital says it keeps', async () => {
     const web = await indexWith();
     expect(rankPages(web, 'wards')[0]?.address).toMatch(/^[a-z]+hospital\.org$/);

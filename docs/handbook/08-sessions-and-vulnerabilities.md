@@ -200,9 +200,11 @@ everyone).
 `findit.io` is a generated one-box network with a public address, reachable by name through the
 world's DNS (chapter 7). Its search is computed at request time on the server:
 
-- **The index is a view, not a copy.** `findit/webIndex.ts` builds it at the moment of the search
+- **The index is a view, not a copy.** `findit/webIndex.ts` reads it at the moment of the search
   from every homepage on a public port 80, replaying the same journals a fetch would. A page edited a
-  moment ago is found as edited; a bricked or stopped web server is simply absent.
+  moment ago is found as edited; a bricked or stopped web server is simply absent. Only what
+  generation built is kept, from a server's first search: a site nobody touched is listed from it.
+- `findit/search.ts` ignores case and accents on both sides, so "cafe" finds a café.
 - `findit/robots.ts` honours `robots.txt` the way a real crawler does (user-agent groups, the `/`
   rule), so opting out uses the web's own words.
 - `findit/readPage.ts` extracts text from markup without a DOM (the server has none), forgivingly.

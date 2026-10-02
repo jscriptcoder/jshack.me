@@ -34,21 +34,32 @@ const TITLE_SCORE = 3;
 const DESCRIPTION_SCORE = 2;
 const TEXT_SCORE = 1;
 
-/** The words of a query: whatever the searcher separated with spaces, lower-cased so a
- *  match never turns on how either side was typed. */
+/** Words as findit compares them: lower-cased and stripped of their accents, so a match
+ *  never turns on how either side was typed. A searcher with no "é" on their keyboard
+ *  asking for a "cafe" means the café. */
+const folded = (words: string): string =>
+  words.toLowerCase().normalize('NFD').replace(/\p{M}/gu, '');
+
+/** The words of a query: whatever the searcher separated with spaces. */
 const termsOf = (query: string): readonly string[] =>
-  query
-    .toLowerCase()
+  folded(query)
     .split(/\s+/)
     .filter((term) => term !== '');
+
+/** The three places a page says its words, each folded as findit compares them. */
+type Places = { readonly title: string; readonly description: string; readonly text: string };
+
+const placesOf = (page: IndexedPage): Places => ({
+  title: folded(page.title),
+  description: folded(page.description),
+  text: folded(page.text),
+});
 
 /** How many of `terms` a page says anywhere. A page that answers every word of a query
  *  answers it better than one that says fewer, however prominently it says them: "Millbrook
  *  café" asks for a café in Millbrook, not for every café there is. */
-const answeredOf = (page: IndexedPage, terms: readonly string[]): number => {
-  const places = [page.title, page.description, page.text].map((place) => place.toLowerCase());
-  return terms.filter((term) => places.some((place) => place.includes(term))).length;
-};
+const answeredOf = ({ title, description, text }: Places, terms: readonly string[]): number =>
+  terms.filter((term) => [title, description, text].some((place) => place.includes(term))).length;
 
 /**
  * What one page is worth against `terms`. Each term counts once per PLACE it appears,
@@ -56,11 +67,8 @@ const answeredOf = (page: IndexedPage, terms: readonly string[]): number => {
  * said anything more than a page that says it once, and counting repeats would make
  * padding the winning move.
  */
-const scoreOf = (page: IndexedPage, terms: readonly string[]): number => {
-  const title = page.title.toLowerCase();
-  const description = page.description.toLowerCase();
-  const text = page.text.toLowerCase();
-  return terms.reduce(
+const scoreOf = ({ title, description, text }: Places, terms: readonly string[]): number =>
+  terms.reduce(
     (total, term) =>
       total +
       (title.includes(term) ? TITLE_SCORE : 0) +
@@ -68,7 +76,6 @@ const scoreOf = (page: IndexedPage, terms: readonly string[]): number => {
       (text.includes(term) ? TEXT_SCORE : 0),
     0,
   );
-};
 
 /**
  * The pages that answer `query`, best first — at most one page of them.
@@ -84,7 +91,10 @@ export const rankPages = (
   const terms = termsOf(query);
   if (terms.length === 0) return [];
   return pages
-    .map((page) => ({ page, answered: answeredOf(page, terms), score: scoreOf(page, terms) }))
+    .map((page) => {
+      const places = placesOf(page);
+      return { page, answered: answeredOf(places, terms), score: scoreOf(places, terms) };
+    })
     .filter(({ score }) => score > 0)
     .sort(
       (left, right) =>

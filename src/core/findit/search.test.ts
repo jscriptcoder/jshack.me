@@ -107,4 +107,79 @@ describe('rankPages', () => {
     ];
     expect(domainsOf(rankPages(pages, 'coffee'))).toEqual(['named.com', 'repeats.com']);
   });
+
+  it('finds a word written with an accent when it is asked without one, weighed where it appears', () => {
+    const pages = [
+      indexedPage({
+        address: 'body.com',
+        title: 'Nothing',
+        description: 'Nothing',
+        text: 'A small café.',
+      }),
+      indexedPage({
+        address: 'named.com',
+        title: 'Café Rouge',
+        description: 'Nothing',
+        text: 'Nothing',
+      }),
+      indexedPage({
+        address: 'described.com',
+        title: 'Nothing',
+        description: 'The CAFÉ by the river.',
+        text: 'Nothing',
+      }),
+    ];
+    expect(domainsOf(rankPages(pages, 'cafe'))).toEqual(['named.com', 'described.com', 'body.com']);
+  });
+
+  it('finds a word written without an accent when it is asked with one, weighed where it appears', () => {
+    const pages = [
+      indexedPage({
+        address: 'body.com',
+        title: 'Nothing',
+        description: 'Nothing',
+        text: 'A small cafe.',
+      }),
+      indexedPage({
+        address: 'named.com',
+        title: 'Cafe Rouge',
+        description: 'Nothing',
+        text: 'Nothing',
+      }),
+      indexedPage({
+        address: 'described.com',
+        title: 'Nothing',
+        description: 'The CAFE by the river.',
+        text: 'Nothing',
+      }),
+    ];
+    expect(domainsOf(rankPages(pages, 'Café'))).toEqual(['named.com', 'described.com', 'body.com']);
+  });
+
+  it('counts a word answered however either side wrote its accents towards answering every word', () => {
+    const pages = [
+      indexedPage({
+        address: 'bakery.com',
+        title: 'Millbrook Bakery',
+        description: 'Millbrook',
+        text: 'Millbrook',
+      }),
+      indexedPage({
+        address: 'cafe.com',
+        title: 'Nothing',
+        description: 'Nothing',
+        text: 'The café in Millbrook.',
+      }),
+    ];
+    expect(domainsOf(rankPages(pages, 'millbrook cafe'))).toEqual(['cafe.com', 'bakery.com']);
+  });
+
+  it('shows a page found by a word it accents exactly as the page writes it', () => {
+    const page = indexedPage({
+      address: 'named.com',
+      title: 'Café Rouge',
+      description: 'Un café.',
+    });
+    expect(rankPages([page], 'cafe')).toEqual([page]);
+  });
 });
