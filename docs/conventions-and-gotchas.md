@@ -730,11 +730,11 @@ of this section, then the cross-player architecture doc if the work touches cros
   boundary. `scripts/encode.ts` writes `__encoded.ts` with the same `.js` import for the same
   reason.
 - **World budget gate = `npm run build`'s `postbuild` (`scripts/checkBudgets.ts`).** Vercel runs
-  `npm run build`, so a deploy or preview fails on a **bundle** breach. The **per-box timing** is
-  skipped there (`VERCEL=1`): Vercel's build machine ran it at 3.1 ms/box against 0.85 ms locally,
-  so it only means something on a developer machine. Run `npm run build` locally before opening
-  any PR that grows content. It fails the build when either cost of the generated world outgrows
-  its ceiling:
+  `npm run build`, so a deploy or preview fails on a **bundle** breach. The **timings** are
+  skipped there (`VERCEL=1`): Vercel's build machine ran boxes at 3.1 ms/box against 0.85 ms
+  locally, so they only mean something on a developer machine. Run `npm run build` locally before
+  opening any PR that grows content. It fails the build when any cost of the generated world
+  outgrows its ceiling:
   - **the gzipped main chunk exceeds 284,975 B**. That is the 134,975 B it weighed before world
     content, plus the 150 KB that content may add. The remedy is to trim pools; the allowance is
     fixed, not a number to raise.
@@ -754,6 +754,9 @@ of this section, then the cross-player architecture doc if the work touches cros
     network's leads walks every LAN of its town, so its cost grows with the town: Oakhurst's 47
     networks built at 2.53 ms a box. `relationsTo` and `relationsFrom` keep each key's answer, the
     world they read being fixed at load, and every set reads 0.78–1.04 ms.
+  - **building findit's generated web from nothing takes over 1,000 ms**, the best of three
+    timed passes after a warm-up pass. A server's first search builds every publisher's listing
+    and keeps it; 283 publishers took 424 ms at v0.304.0, and a Vercel instance pays about 2 s.
   It is a script, not a vitest test, because Stryker runs the whole suite under instrumentation
   and aborts its dry run on any failure. A wall-clock assertion there would break mutation runs.
   To check without a full build, run `npx tsx scripts/checkBudgets.ts` after `vite build`.

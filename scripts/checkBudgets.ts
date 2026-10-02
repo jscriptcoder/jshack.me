@@ -1,22 +1,25 @@
 /**
- * The two budgets a growing generated world must stay inside, checked after every build.
+ * The budgets a growing generated world must stay inside, checked after every build.
  *
- * Every generated machine gets believable content, drawn from large pools. Two costs grow
- * with that content and neither shows up as a failing test:
+ * Every generated machine gets believable content, drawn from large pools. Three costs grow
+ * with that content and none shows up as a failing test:
  * - **bytes shipped** — the pools live in the client bundle, so the gzipped main chunk may
  *   grow by at most 150 KB over its size before world content began;
  * - **time to build a box** — base trees are rebuilt on every lookup, client and server,
  *   with no cache, so each box must stay cheap to regenerate. Ridgemont's boxes, each town's
  *   and the corporations' are timed as sets of their own: a town whose boxes grew dear
- *   would hide inside an average taken over the whole world.
+ *   would hide inside an average taken over the whole world;
+ * - **time to build findit's generated web** — a server's first search builds every
+ *   publisher's homepage from generation before it can answer, and keeps it for every
+ *   later search. That first search grows with every site the world declares.
  *
  * A breach fails the build with the number that broke. The remedy for a slow box is a
  * cache introduced for that measured reason; the remedy for a heavy bundle is trimming
  * pools. See `docs/conventions-and-gotchas.md` §3.
  *
- * The timing budget is calibrated on a developer machine. Vercel's build machine runs the same
+ * The timing budgets are calibrated on a developer machine. Vercel's build machine runs the same
  * code several times slower (3.1 ms per box against 0.85 ms locally), so a Vercel build checks
- * only the bundle, which weighs the same everywhere, and the timing stays a local gate.
+ * only the bundle, which weighs the same everywhere, and the timings stay a local gate.
  *
  * This is a script and not a vitest test because mutation testing runs the whole suite
  * under instrumentation, several times slower, and aborts its dry run on any failure: a
@@ -29,6 +32,7 @@ import { join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { gzipSync } from 'node:zlib';
 import { crackableEssidPool } from '../src/core/generation/generateWifi.js';
+import { buildGeneratedWeb } from '../src/core/findit/webIndex.js';
 import { DECLARED_NETWORKS, RIDGEMONT } from '../src/core/generation/world.js';
 import { generateHomeLan } from '../src/core/generation/generateHomeLan.js';
 import { generateDeepLayer } from '../src/core/generation/generateDeepLayer.js';
@@ -48,6 +52,11 @@ const BUILD_CEILING_MS_PER_BOX = 2;
 
 /** How many times each set's boxes are timed, the quickest pass counting. */
 const TIMED_PASSES = 3;
+
+/** More than twice what the launch extent's 283 publishers took to build (424 ms), so a
+ *  loaded machine cannot fail the check while a world whose first search doubled does. A
+ *  Vercel instance pays several times this on its first search, about 2 s. */
+const GENERATED_WEB_CEILING_MS = 1_000;
 
 const DIST_DIR = join(import.meta.dirname, '..', 'dist');
 
@@ -144,14 +153,34 @@ const checkBuildTime = (name: string, keys: readonly string[]): Verdict => {
   };
 };
 
+const checkGeneratedWeb = (): Verdict => {
+  // The first pass pays for JIT compilation and the world's own memos, as the box sets'
+  // does; every pass after it builds every publisher's listing from nothing.
+  const sites = buildGeneratedWeb().size;
+  const passMs = Array.from({ length: TIMED_PASSES }, () => {
+    const startedAt = performance.now();
+    buildGeneratedWeb();
+    return performance.now() - startedAt;
+  });
+  const builtMs = Math.min(...passMs);
+  return {
+    passed: builtMs <= GENERATED_WEB_CEILING_MS,
+    line: `findit's generated web: ${builtMs.toFixed(0)} ms to build from nothing over ${sites} publishers (ceiling ${GENERATED_WEB_CEILING_MS} ms)`,
+  };
+};
+
 // Vercel sets VERCEL=1 during its builds.
 const onVercel = process.env.VERCEL === '1';
 if (onVercel) {
-  console.log('skip build time: timed on developer machines, not on the Vercel build machine');
+  console.log('skip build times: timed on developer machines, not on the Vercel build machine');
 }
 const verdicts = onVercel
   ? [checkBundle()]
-  : [checkBundle(), ...timedSets().map(({ name, keys }) => checkBuildTime(name, keys))];
+  : [
+      checkBundle(),
+      ...timedSets().map(({ name, keys }) => checkBuildTime(name, keys)),
+      checkGeneratedWeb(),
+    ];
 verdicts.forEach((verdict) => {
   console.log(`${verdict.passed ? 'ok  ' : 'FAIL'} ${verdict.line}`);
 });

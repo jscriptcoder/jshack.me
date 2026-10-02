@@ -175,6 +175,16 @@ describe('the web findit searches', () => {
     );
   });
 
+  it("finds every town's cafés for a cafe asked without its accent, as for one asked with it", async () => {
+    const web = await indexWith();
+    const towns = [...new Set(DECLARED_NETWORKS.flatMap((network) => network.town ?? []))];
+    for (const town of towns) {
+      const unaccented = rankPages(web, `${town} cafe`).map((page) => page.address);
+      expect(unaccented.length, town).toBeGreaterThan(0);
+      expect(unaccented, town).toEqual(rankPages(web, `${town} café`).map((page) => page.address));
+    }
+  });
+
   it('puts the hospital first for the wards only a hospital says it keeps', async () => {
     const web = await indexWith();
     expect(rankPages(web, 'wards')[0]?.address).toMatch(/^[a-z]+hospital\.org$/);
@@ -420,6 +430,86 @@ describe('the web findit searches', () => {
       siteAt: async () => null,
     });
     expect(web).toEqual([]);
+  });
+});
+
+/**
+ * A search on a server that has already answered one. What the world generated may be
+ * kept between searches, but a site somebody touched since must be read as it is served
+ * now, and a site whose touches are gone must read as generated again.
+ */
+describe('a search after an earlier one', () => {
+  /** The index, built after a search of the untouched world. */
+  const afterAnUntouchedSearch = async (
+    rows: readonly MachinePatchRow[],
+    overrides: Partial<WebIndexDeps> = {},
+  ) => {
+    await indexWith();
+    return indexedWeb(depsWith(rows, overrides));
+  };
+  const campusIn = (web: readonly { readonly address: string; readonly title: string }[]) =>
+    web.find((page) => page.address === CAMPUS_DOMAIN);
+
+  it('answers the untouched world exactly as the first did', async () => {
+    expect(await indexWith()).toEqual(await indexWith());
+  });
+
+  it('reads a homepage rewritten since as it now reads', async () => {
+    const web = await afterAnUntouchedSearch([
+      patchRow({
+        machine_id: campusServerId(),
+        content: '<html><head><title>Rewritten Since</title></head><body></body></html>',
+      }),
+    ]);
+    expect(campusIn(web)?.title).toBe('Rewritten Since');
+  });
+
+  it('cannot find a site whose web server was bricked since', async () => {
+    const web = await afterAnUntouchedSearch([
+      patchRow({ machine_id: campusServerId(), path: '/boot/vmlinuz', content: null }),
+    ]);
+    expect(campusIn(web)).toBeUndefined();
+  });
+
+  it('cannot find a site whose web server was stopped since', async () => {
+    const web = await afterAnUntouchedSearch([
+      patchRow({ machine_id: campusServerId(), path: '/var/run/nginx.pid', content: null }),
+    ]);
+    expect(campusIn(web)).toBeUndefined();
+  });
+
+  it('cannot find a site whose gateway was bricked since', async () => {
+    const web = await afterAnUntouchedSearch([
+      patchRow({ machine_id: computeApGatewayId(CAMPUS), path: '/boot/vmlinuz', content: null }),
+    ]);
+    expect(campusIn(web)).toBeUndefined();
+  });
+
+  it('lists whatever answers behind a gateway repointed since', async () => {
+    const web = await afterAnUntouchedSearch(
+      [
+        patchRow({
+          machine_id: computeApGatewayId(CAMPUS),
+          path: '/etc/iptables/rules.v4',
+          content: 'forward 80 to 192.168.200.250:80\n',
+        }),
+      ],
+      {
+        siteAt: async () =>
+          servedSite('<html><head><title>Somebody else</title></head><body></body></html>'),
+      },
+    );
+    expect(campusIn(web)?.title).toBe('Somebody else');
+  });
+
+  it('reads a site as generated again once its box is restored', async () => {
+    await indexWith([
+      patchRow({
+        machine_id: campusServerId(),
+        content: '<html><head><title>Rewritten Before</title></head><body></body></html>',
+      }),
+    ]);
+    expect(campusIn(await indexWith())?.title).toBe(publisherSite(CAMPUS)?.name);
   });
 });
 

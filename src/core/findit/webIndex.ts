@@ -3,11 +3,13 @@
  * each institution's under its domain, and anybody else's under the bare address it
  * answers at.
  *
- * The index is a VIEW, never a stored copy. It is built at the moment of the search out
- * of the same journals a `curl` of the same address would replay, so a page somebody
- * rewrote an instant ago is found as they rewrote it, and a site whose box is bricked
- * or whose web server was stopped is simply not there — findit cannot point at a page
- * nobody can fetch. Nothing has to be kept in step, because nothing is kept at all.
+ * The index is a VIEW of the live web. Every search reads the same journals a `curl` of
+ * the same address would replay, so a page somebody rewrote an instant ago is found as
+ * they rewrote it, and a site whose box is bricked or whose web server was stopped is
+ * simply not there — findit cannot point at a page nobody can fetch. The one thing kept
+ * is what the world generated, built on a server's first search: a publisher whose
+ * machines have no journal is listed from it, and one whose machines have any is rebuilt.
+ * Generation never changes while the server runs, so nothing kept can go stale.
  *
  * Nobody submits a page. Being on the public web is enough to be found, which is fair
  * only because it is deliberate — a fresh gateway forwards nothing — and because a site
@@ -15,9 +17,10 @@
  *
  * The cost is paid in as few reads as the answer allows: every publisher's gateway and
  * web server together with the gateway of every other network the world declares, a
- * couple of hundred machines a read. The institutions are resolved in memory from that. A network whose gateway
- * answers nothing on `:80` — nearly all of them — costs no more;
- * one that does answer, and an institution whose gateway was repointed somewhere this
+ * couple of hundred machines a read. A machine with no row costs nothing more: an
+ * untouched publisher is listed as generated, and any other untouched gateway answers
+ * nothing on `:80`. A touched publisher is rebuilt in memory from its rows; a touched
+ * gateway that answers, and an institution whose gateway was repointed somewhere this
  * index cannot rebuild, is fetched the ordinary way, alone.
  */
 
@@ -131,6 +134,29 @@ const webBehind = (gatewayFs: Directory): ServedMachine | null => {
   return served.kind === 'none' ? null : served;
 };
 
+/** A publisher whose web is served by a box this index never reads, and must be fetched. */
+const ELSEWHERE = 'elsewhere';
+
+/** What a visitor to one publisher's public `:80` would be served, rebuilt from its two
+ *  machines' journals: null when nothing would answer them, and `ELSEWHERE` when the
+ *  gateway sends them to a box other than the publisher's own site server. */
+const publisherSiteRebuilt = (
+  publisher: Publisher,
+  journals: ReadonlyMap<string, readonly OwnerPatchRow[]>,
+): ServedSite | null | typeof ELSEWHERE => {
+  const served = webBehind(
+    materializeApGatewayFs({ essid: publisher.essid }, journals.get(publisher.gatewayId) ?? null),
+  );
+  if (served === null) return null;
+  if (served.kind !== 'forward' || served.internalIp !== publisher.server.ip) return ELSEWHERE;
+
+  const { baseFs } = resolveLanHostIdentity(publisher.server, publisher.essid);
+  const serverFs = materializeMachineFs(baseFs, journals.get(publisher.serverId) ?? null);
+  if (!canBoot(serverFs).ok) return null;
+  if (!servesWebOn(serverFs, served.internalPort)) return null;
+  return siteOn(serverFs);
+};
+
 /** What a visitor to one publisher's public `:80` would be served, or null when nothing
  *  would answer them. */
 const publisherSiteServed = async (
@@ -138,25 +164,14 @@ const publisherSiteServed = async (
   publisher: Publisher,
   journals: ReadonlyMap<string, readonly OwnerPatchRow[]>,
 ): Promise<ServedSite | null> => {
-  const served = webBehind(
-    materializeApGatewayFs({ essid: publisher.essid }, journals.get(publisher.gatewayId) ?? null),
-  );
-  if (served === null) return null;
-
+  const rebuilt = publisherSiteRebuilt(publisher, journals);
+  if (rebuilt !== ELSEWHERE) return rebuilt;
   // Anything OTHER than the generated site server is a box this index never read — the
   // gateway itself, now serving its own page, or a forward somebody repointed at their
   // own machine. That one site is fetched the ordinary way rather than guessed at, so
   // whatever really answers is what gets listed.
-  if (served.kind !== 'forward' || served.internalIp !== publisher.server.ip) {
-    const address = publisherIp(publisher.essid);
-    return address === undefined ? null : deps.siteAt(address);
-  }
-
-  const { baseFs } = resolveLanHostIdentity(publisher.server, publisher.essid);
-  const serverFs = materializeMachineFs(baseFs, journals.get(publisher.serverId) ?? null);
-  if (!canBoot(serverFs).ok) return null;
-  if (!servesWebOn(serverFs, served.internalPort)) return null;
-  return siteOn(serverFs);
+  const address = publisherIp(publisher.essid);
+  return address === undefined ? null : deps.siteAt(address);
 };
 
 /** A network that could serve a player's page: every one the world declares but an
@@ -193,6 +208,42 @@ const listing = (site: ServedSite | null, address: string): readonly IndexedPage
 };
 
 /**
+ * Every publisher's listing as the world generated it, keyed by its network: what findit
+ * lists for a publisher nobody has touched. Built from nothing on every call; a search
+ * keeps the first one it builds.
+ */
+export const buildGeneratedWeb = (): ReadonlyMap<string, readonly IndexedPage[]> =>
+  new Map(
+    PUBLISHERS.flatMap((publisher) => {
+      const rebuilt = publisherSiteRebuilt(publisher, new Map());
+      return rebuilt === ELSEWHERE ? [] : [[publisher.essid, listing(rebuilt, publisher.domain)]];
+    }),
+  );
+
+/** The generated web, built on this instance's first search and kept for every later one.
+ *  It holds only what generation builds, which never changes while the server runs, so a
+ *  kept copy cannot go stale: whatever a player touched is read past it. */
+let keptGeneratedWeb: ReadonlyMap<string, readonly IndexedPage[]> | undefined;
+const generatedWeb = (): ReadonlyMap<string, readonly IndexedPage[]> => {
+  keptGeneratedWeb ??= buildGeneratedWeb();
+  return keptGeneratedWeb;
+};
+
+/** What findit lists for one publisher: as generated when neither machine a visit passes
+ *  through has a row, and rebuilt from their journals when either does. */
+const publisherListing = async (
+  deps: WebIndexDeps,
+  publisher: Publisher,
+  journals: ReadonlyMap<string, readonly OwnerPatchRow[]>,
+): Promise<readonly IndexedPage[]> => {
+  const touched = journals.has(publisher.gatewayId) || journals.has(publisher.serverId);
+  const generated = touched ? undefined : generatedWeb().get(publisher.essid);
+  return (
+    generated ?? listing(await publisherSiteServed(deps, publisher, journals), publisher.domain)
+  );
+};
+
+/**
  * Every page findit can answer with, read from the world as it stands.
  *
  * A read that fails yields NO index rather than a partial one: half a web would rank a
@@ -216,11 +267,10 @@ export const indexedWeb = async (deps: WebIndexDeps): Promise<readonly IndexedPa
   const journals = rowsByMachine(reads.flatMap((read) => read.data ?? []));
 
   const pages = await Promise.all([
-    ...PUBLISHERS.map(async (publisher) =>
-      listing(await publisherSiteServed(deps, publisher, journals), publisher.domain),
-    ),
-    ...PLAYER_NETWORKS.map(async (network) =>
-      listing(await playerSiteServed(deps, network, journals), network.address),
+    ...PUBLISHERS.map((publisher) => publisherListing(deps, publisher, journals)),
+    // A gateway nobody has touched forwards nothing, so only a touched one can serve a page.
+    ...PLAYER_NETWORKS.filter((network) => journals.has(computeApGatewayId(network.essid))).map(
+      async (network) => listing(await playerSiteServed(deps, network, journals), network.address),
     ),
   ]);
   return pages.flat();
