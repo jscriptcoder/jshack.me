@@ -1163,6 +1163,16 @@ describe('the neon HUD', () => {
     expect(bottomBar()).toHaveTextContent('ESSID ferro-cafe');
   });
 
+  it('names a network Ridgemont draws by the name it broadcasts, after a reload too', () => {
+    setTheme('neon');
+    rememberConnection('r0/t0/n57', '192.168.31.77');
+    startGame(SEED_CONFIG);
+    render(() => <Terminal />);
+
+    expect(bottomBar()).toHaveTextContent('ESSID GENERAL-HOSPITAL');
+    expect(bottomBar()).not.toHaveTextContent('r0/t0/n57');
+  });
+
   it('follows the player up to root when su succeeds', async () => {
     renderTerminalIn('neon');
 

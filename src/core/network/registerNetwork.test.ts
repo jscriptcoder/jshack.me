@@ -330,7 +330,7 @@ describe('handleRegisterNetwork: which networks a player may join', () => {
       }),
     );
 
-    expect(RIDGEMONT_KEYS).toHaveLength(57);
+    expect(RIDGEMONT_KEYS).toHaveLength(178);
     expect(joined).toEqual(
       RIDGEMONT_KEYS.map((key) => ({
         key,

@@ -23,7 +23,7 @@
  *
  * Each scan is a FRESH ROLL, not a once-per-identity fixture: the seed mixes in
  * a per-scan index, so re-scanning ("relocating") re-draws which subset of APs is
- * in range. On top of the base catalog draw it can INJECT currently-occupied
+ * in range. On top of the base draw from Ridgemont it can INJECT currently-occupied
  * ESSIDs (passed in by the caller, read name-only from the occupancy table) as
  * normal crackable APs — that is how a stranger stumbles onto another player's
  * live network and cracks it to the key that actually works. The injected sample
@@ -34,7 +34,7 @@
 import { bssidFromEssid, type WifiNetwork } from '../network/wifi.js';
 import { createPrng } from './prng.js';
 import { secrets } from '../secrets/__encoded.js';
-import { ESSID_CATALOG } from './pools/essidCatalog.js';
+import { DECLARED_NETWORKS, RIDGEMONT } from './world.js';
 
 const wifiPasswords: readonly string[] = JSON.parse(secrets.WIFI_PASSWORDS) as readonly string[];
 
@@ -45,9 +45,14 @@ const wifiPasswords: readonly string[] = JSON.parse(secrets.WIFI_PASSWORDS) as r
 const passwordForEssid = (essid: string): string =>
   createPrng(`wifi-pw-${essid}`).pick(wifiPasswords);
 
-// The crackable ESSIDs, in the catalog's order: the scan picks from this list by
-// position, so its order decides which networks every player is offered.
-export const crackableEssidPool: readonly string[] = ESSID_CATALOG.map((entry) => entry.essid);
+// Every network in Ridgemont, where everybody stands, by the key it is known by: the
+// landmarks in the catalog's order, then the networks the town draws. The scan picks from
+// this list by position, so its order decides which networks every player is offered. A
+// landmark's key is the name it broadcasts; a drawn network's is not, and is shown by its
+// name wherever a player reads it.
+export const crackableEssidPool: readonly string[] = DECLARED_NETWORKS.filter(
+  (network) => network.town === RIDGEMONT,
+).map((network) => network.key);
 
 // Noise ESSIDs — cosmetic only, never crackable. Real-world consumer brand
 // names, mobile hotspot defaults, joke / paranoia entries, big-chain free WiFi.

@@ -205,6 +205,33 @@ describe('airodump-ng', () => {
     ]);
   });
 
+  it('shows a network Ridgemont draws by the name it broadcasts, never the key it is known by', async () => {
+    const hospital: WifiNetwork = {
+      bssid: '5A:12:9C:3E:77:D1',
+      essid: 'r0/t0/n57',
+      power: -50,
+      channel: 4,
+      encryption: 'WPA2',
+      crackable: true,
+      password: 'hunter2pass',
+    };
+    const state = monitoring(buildColdStartConnectivity(PUBKEY));
+    const env = mockCommandEnv({
+      identity: mockIdentity({ publicKeyHex: PUBKEY }),
+      session: mockSession({ machineId: OWN_MACHINE, playerKey: PUBKEY }),
+      network: mockNetworkView({
+        interfaces: () => [...state.interfaces.values()],
+        isOnline: () => isOnline(state),
+        rescanWifi: () => [hospital],
+      }),
+    });
+
+    const { lines } = await drain(await airodumpNg.execute(env, [], NO_FLAGS));
+
+    expect(lines).toContain('5A:12:9C:3E:77:D1      -50     4  WPA2    GENERAL-HOSPITAL');
+    expect(lines.filter((line) => line.includes('r0/t0/n57'))).toEqual([]);
+  });
+
   it('prints a header row labelling the columns', async () => {
     const env = airdumpEnv(monitoring(buildColdStartConnectivity(PUBKEY)));
     const { lines } = await drain(await airodumpNg.execute(env, [], NO_FLAGS));

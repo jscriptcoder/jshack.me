@@ -8,7 +8,7 @@ import { generateDeepLayer } from './generateDeepLayer.js';
 import { chainLinks } from './lanTopology.js';
 import { inhabitant, networkPersona } from './persona.js';
 import { NOTE_TEMPLATES } from './pools/homeNotes.js';
-import { WORK_HISTORY } from './pools/homeHistory.js';
+import { PERSONAL_HISTORY, WORK_HISTORY } from './pools/homeHistory.js';
 import { createFsView } from '../filesystem/fsView.js';
 import { WORLD_EPOCH } from '../cve/worldClock.js';
 import { asAbsPath } from '../types.js';
@@ -17,6 +17,7 @@ import {
   ALL_ESSIDS,
   WORLD_ESSIDS,
   falsehoodIn,
+  LANDMARK_ESSIDS,
   filesUnder,
   lanBoxes,
   leadsKeptOn,
@@ -94,8 +95,9 @@ describe('an NPC desktop reads as somebody’s', () => {
     });
   });
 
-  it('leaves every box that is not a personal computer, a phone or a tablet with an empty home', () => {
-    lanBoxes(crackableEssidPool)
+  it('leaves every box of a landmark that is not a personal computer, a phone or a tablet with an empty home', () => {
+    // A drawn network's file server may keep a client's offsite copy in a home of its own.
+    lanBoxes(LANDMARK_ESSIDS)
       .filter(({ host }) => !isDesk(host) && !['android', 'iphone', 'tablet'].includes(prefixOf(host)))
       .forEach((box) => {
         expect(homeFilesOf(box).size).toBe(0);
@@ -146,25 +148,31 @@ describe('an NPC desktop reads as somebody’s', () => {
       (box) => networkPersona(box.essid).category === 'healthcare',
     );
     const ownNotes = NOTE_TEMPLATES.healthcare.map(({ file }) => `notes/${file}`);
-    // Lines only a place of care's history holds, so finding one proves the pool is read.
     const otherWork = Object.entries(WORK_HISTORY)
       .filter(([category]) => category !== 'healthcare')
       .flatMap(([, lines]) => lines);
+    // Lines only another kind of place types at work, which a place of care's desk never
+    // holds.
+    const strangeWork = otherWork.filter(
+      (line) => !WORK_HISTORY.healthcare.includes(line) && !PERSONAL_HISTORY.includes(line),
+    );
+    // Lines only a place of care types. A desk draws a few lines of its pool, and those can
+    // all be lines an office types too, so they are looked for across the desks together.
     const ownWork = WORK_HISTORY.healthcare.filter((line) => !otherWork.includes(line));
+    const histories = desks.map((box) => (homeFilesOf(box).get('.bash_history') ?? '').split('\n'));
 
     expect(desks.length).toBeGreaterThan(0);
-    desks.forEach((box) => {
-      const files = homeFilesOf(box);
-      const notes = [...files.keys()].filter((path) => path.startsWith('notes/'));
-      const history = (files.get('.bash_history') ?? '').split('\n');
+    desks.forEach((box, index) => {
+      const notes = [...homeFilesOf(box).keys()].filter((path) => path.startsWith('notes/'));
 
       expect(notes.length, box.host.hostname).toBeGreaterThan(0);
       notes.forEach((path) => expect(ownNotes, box.host.hostname).toContain(path));
       expect(
-        history.some((line) => ownWork.includes(line)),
+        histories[index]?.filter((line) => strangeWork.includes(line)),
         box.host.hostname,
-      ).toBe(true);
+      ).toEqual([]);
     });
+    expect(histories.flat().some((line) => ownWork.includes(line))).toBe(true);
   });
 
   it('is built the same way every time it is read', () => {

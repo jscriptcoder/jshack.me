@@ -344,6 +344,94 @@ describe('nmcli', () => {
     });
   });
 
+  /**
+   * A network Ridgemont draws is known by a key, as every town's is, and broadcasts a
+   * name of its own. A player types and reads only the name; the association, the join
+   * and the occupancy hold the key.
+   */
+  describe('a network Ridgemont draws', () => {
+    const KEY = 'r0/t0/n57';
+    const NAME = 'GENERAL-HOSPITAL';
+    const hospital = (): WifiNetwork => crackableNet({ essid: KEY, bssid: 'AA:BB:CC:DD:EE:57' });
+
+    it('joins it by the name it broadcasts, under its key', async () => {
+      const { env, get, joinCalls } = nmcliEnv(buildColdStartConnectivity(PUBKEY), {
+        wifiNetworks: [hospital()],
+        assignment: { localIp: '192.168.5.20', hostname: 'host-20' },
+      });
+
+      const { text, exitCode } = await drainAsync(
+        await nmcli.execute(env, ['connect', NAME, 'sunshine2024'], NO_FLAGS),
+      );
+
+      expect(wlan0Of(get()).association).toEqual({ essid: KEY, bssid: 'AA:BB:CC:DD:EE:57' });
+      expect(joinCalls).toEqual([KEY]);
+      expect(text).toContain(`Connecting to ${NAME}...`);
+      expect(text).toContain(`Connected to ${NAME} — assigned 192.168.5.20`);
+      expect(text).not.toContain(KEY);
+      expect(exitCode).toBe(0);
+    });
+
+    it('names it when the join issues no address', async () => {
+      const { env } = nmcliEnv(buildColdStartConnectivity(PUBKEY), {
+        wifiNetworks: [hospital()],
+        joinIssuesNoAddress: true,
+      });
+
+      const { text } = await drainAsync(
+        await nmcli.execute(env, ['connect', NAME, 'sunshine2024'], NO_FLAGS),
+      );
+
+      expect(text).toContain(`nmcli: could not get an address on ${NAME}`);
+      expect(text).not.toContain(KEY);
+    });
+
+    it('finds nothing under its key, which no scan shows a player', async () => {
+      const { env, joinCalls } = nmcliEnv(buildColdStartConnectivity(PUBKEY), {
+        wifiNetworks: [hospital()],
+      });
+
+      const { text, exitCode } = syncResult(
+        await nmcli.execute(env, ['connect', KEY, 'sunshine2024'], NO_FLAGS),
+      );
+
+      expect(text).toBe(`nmcli: network "${KEY}" not found`);
+      expect(exitCode).toBe(1);
+      expect(joinCalls).toEqual([]);
+    });
+
+    it('is a no-op when already connected to it, named by its name', async () => {
+      const { env, joinCalls } = nmcliEnv(
+        connectedTo(KEY, 'AA:BB:CC:DD:EE:57', '192.168.5.20'),
+        { wifiNetworks: [hospital()] },
+      );
+
+      const { text } = syncResult(
+        await nmcli.execute(env, ['connect', NAME, 'sunshine2024'], NO_FLAGS),
+      );
+
+      expect(text).toBe(`Already connected to ${NAME}`);
+      expect(joinCalls).toEqual([]);
+    });
+
+    it('reports it connected by its name', async () => {
+      const { env } = nmcliEnv(connectedTo(KEY, 'AA:BB:CC:DD:EE:57', '192.168.5.20'));
+
+      const { text } = syncResult(await nmcli.execute(env, ['status'], NO_FLAGS));
+
+      expect(text).toBe(`wlan0: connected to ${NAME} (192.168.5.20/24)`);
+    });
+
+    it('leaves it by its key, and says so by its name', async () => {
+      const { env, leaveCalls } = nmcliEnv(connectedTo(KEY, 'AA:BB:CC:DD:EE:57', '192.168.5.20'));
+
+      const { text } = syncResult(await nmcli.execute(env, ['disconnect'], NO_FLAGS));
+
+      expect(text).toBe(`Disconnected from ${NAME}`);
+      expect(leaveCalls).toEqual([KEY]);
+    });
+  });
+
   it('refuses to run off the player’s own workstation', async () => {
     const { env, joinCalls } = nmcliEnv(buildColdStartConnectivity(PUBKEY), {
       wifiNetworks: [crackableNet()],

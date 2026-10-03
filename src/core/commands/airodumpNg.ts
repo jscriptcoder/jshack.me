@@ -19,6 +19,7 @@
 import type { Command, CommandEnv, CommandResult, TerminalLine } from './types.js';
 import type { WifiNetwork } from '../network/wifi.js';
 import { isOwnWorkstation } from '../identity/workstation.js';
+import { essidOf } from '../generation/world.js';
 
 const error = (message: string): CommandResult => ({
   kind: 'sync',
@@ -54,7 +55,7 @@ const formatRow = (network: WifiNetwork): string =>
     padLeft(String(network.power), PWR_WIDTH),
     padLeft(String(network.channel), CH_WIDTH),
     padRight(network.encryption, ENC_WIDTH),
-    network.essid,
+    essidOf(network.essid),
   ].join('  ');
 
 /** Per-row pause so the table populates live rather than all at once. */

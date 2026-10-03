@@ -95,6 +95,27 @@ describe('whois', () => {
     });
   });
 
+  it("names a network Ridgemont draws beyond its landmarks as it names any town's, by its wifi and never its key", async () => {
+    const address = addressOf('r0/t0/n57');
+
+    const { lines, exitCode } = await run(address);
+
+    expect({ lines, exitCode }).toEqual({
+      lines: [
+        '% Harrow Valley registry',
+        '',
+        `inetnum:        ${address} - ${address}`,
+        'netname:        GENERAL-HOSPITAL',
+        'org-name:       Ridgemont General Hospital',
+        'domain:         ridgemonthospital.org',
+        'city:           Ridgemont',
+        'region:         Harrow Valley',
+      ],
+      exitCode: 0,
+    });
+    expect(await run('ridgemonthospital.org')).toEqual({ lines, exitCode });
+  });
+
   it("names the town's ISP as the organisation of a network that publishes no site, and no domain", async () => {
     const address = addressOf('CASA-DE-RAMIREZ');
 

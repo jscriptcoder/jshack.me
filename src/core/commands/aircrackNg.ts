@@ -20,6 +20,7 @@
 import type { Command, CommandEnv, CommandResult, TerminalLine } from './types.js';
 import type { WifiNetwork } from '../network/wifi.js';
 import { isOwnWorkstation } from '../identity/workstation.js';
+import { essidOf } from '../generation/world.js';
 
 const error = (message: string): CommandResult => ({
   kind: 'sync',
@@ -51,7 +52,7 @@ const failureReason = (network: WifiNetwork): string | null => {
 };
 
 async function* crack(env: CommandEnv, network: WifiNetwork): AsyncIterable<TerminalLine> {
-  yield text(`Opening capture file for ${network.essid} (${network.bssid})...`);
+  yield text(`Opening capture file for ${essidOf(network.essid)} (${network.bssid})...`);
   await env.sleep(STEP_DELAY_MS);
   yield text('Reading packets from capture file...');
   await env.sleep(STEP_DELAY_MS);

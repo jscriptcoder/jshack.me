@@ -196,6 +196,18 @@ describe('aircrack-ng', () => {
     ]);
   });
 
+  it('opens the capture of a network Ridgemont draws under the name it broadcasts, never its key', async () => {
+    const hospital: WifiNetwork = { ...CRACKABLE, bssid: 'EE:EE:EE:EE:EE:EE', essid: 'r0/t0/n57' };
+
+    const { lines } = await drain(
+      await aircrackNg.execute(monitoringEnv([hospital]), [hospital.bssid], NO_FLAGS),
+    );
+
+    expect(lines[0]).toBe('Opening capture file for GENERAL-HOSPITAL (EE:EE:EE:EE:EE:EE)...');
+    expect(lines).toContain(`                 KEY FOUND! [ ${CRACKABLE.password} ]`);
+    expect(lines.filter((line) => line.includes('r0/t0/n57'))).toEqual([]);
+  });
+
   it('fails on a WPA3 AP — handshake capture unsupported (exact output)', async () => {
     // Golden — pins the reason line plus the blank separator and the quit line,
     // and proves the crack animation never runs.

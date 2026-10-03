@@ -135,6 +135,8 @@ const countOf = (town: DrawnTown, kind: keyof SizeCounts, prng: Prng): number =>
 };
 
 const RIDGEMONT_TOWN: Town = { region: 0, index: 0, name: RIDGEMONT };
+/** Ridgemont as the world draws it beyond its landmarks: a city. */
+const RIDGEMONT_ROW: DrawnTown = { ...RIDGEMONT_TOWN, size: 'city' };
 const MILLBROOK: DrawnTown = { region: 0, index: 1, name: 'Millbrook', size: 'village' };
 
 /** The towns drawn after Millbrook and the corporations, in the order they were declared.
@@ -462,17 +464,25 @@ const unlistedOf = (town: Town, networks: readonly Institution[]): readonly Inst
 
 /** Every network in `town`: its institutions first, then the businesses and then the
  *  homes it draws, each on a stream of its own, then the institutions declared later, then
- *  the practices it draws, each keyed by its place in the town. Whatever arrived later
- *  comes after what was there, so declaring it moved no earlier key or address. The names
- *  it draws avoid those of every network declared `before` it elsewhere in the world. */
+ *  the practices it draws, each keyed by its place in the town, counted from `first`.
+ *  Whatever arrived later comes after what was there, so declaring it moved no earlier key
+ *  or address. The names it draws avoid those of every network declared `before` it
+ *  elsewhere in the world. It keeps only the institutions `kept` keeps. */
 const networksOf = (
   town: DrawnTown,
   {
     later,
     before,
-  }: { readonly later: readonly Institution[]; readonly before: readonly Institution[] },
+    first = 0,
+    kept = () => true,
+  }: {
+    readonly later: readonly Institution[];
+    readonly before: readonly Institution[];
+    readonly first?: number;
+    readonly kept?: (institution: Institution) => boolean;
+  },
 ): readonly DeclaredNetwork[] => {
-  const institutions = institutionsOf(town);
+  const institutions = institutionsOf(town).filter(kept);
   const prng = createPrng(`town-businesses-${townKey(town)}`);
   const count = countOf(town, 'businesses', prng);
   const namedHomes = homesOf(town);
@@ -504,7 +514,7 @@ const networksOf = (
   const unlisted = unlistedOf(town, networks);
   return networks.map((institution: Institution, index) => {
     const { keepsDirectory, ...network } = institution;
-    const key = `${townKey(town)}/n${index}`;
+    const key = `${townKey(town)}/n${first + index}`;
     return {
       ...network,
       key,
@@ -599,7 +609,25 @@ const DRAWN_TOWNS: readonly DeclaredTown[] = TOWN_ROWS.reduce<readonly DeclaredT
   [],
 );
 
-/** Ridgemont's networks are the catalog's, each known by the name it broadcasts. */
+/** Ridgemont's networks beyond its landmarks, drawn after every other town as a city's
+ *  are and keyed after the landmarks. Its council, police, library and courthouse are
+ *  landmarks, so of a city's institutions it draws only the hospital. */
+const RIDGEMONT_DRAWN: readonly DeclaredNetwork[] = (() => {
+  const networks = networksOf(RIDGEMONT_ROW, {
+    later: [],
+    before: [
+      ...MILLBROOK_NETWORKS,
+      ...CORPORATIONS,
+      ...MILLBROOK_BRANCHES,
+      ...DRAWN_TOWNS.flatMap((drawn) => drawn.networks),
+    ],
+    first: ESSID_CATALOG.length,
+    kept: (institution) => institution.subtype === 'hospital',
+  });
+  return [...networks, ...branchesOf(RIDGEMONT_ROW, ESSID_CATALOG.length + networks.length)];
+})();
+
+/** Ridgemont's landmarks are the catalog's, each known by the name it broadcasts. */
 const LANDMARKS: readonly DeclaredNetwork[] = ESSID_CATALOG.map((entry) => ({
   ...entry,
   key: entry.essid,
@@ -613,15 +641,16 @@ const LANDMARK_KEYS: ReadonlySet<string> = new Set(LANDMARKS.map((network) => ne
  *  than drawn, so the world draws it no lead, forward or locality. */
 export const isLandmark = (key: string): boolean => LANDMARK_KEYS.has(key);
 
-/** Every network the world declares: Ridgemont's first, then Millbrook's, the
+/** Every network the world declares: Ridgemont's landmarks first, then Millbrook's, the
  *  corporations and Millbrook's branches, then each later town's networks and its branches,
- *  in the order the towns were declared. */
+ *  in the order the towns were declared, then the networks Ridgemont draws. */
 export const DECLARED_NETWORKS: readonly DeclaredNetwork[] = [
   ...LANDMARKS,
   ...MILLBROOK_NETWORKS,
   ...CORPORATIONS,
   ...MILLBROOK_BRANCHES,
   ...DRAWN_TOWNS.flatMap((drawn) => drawn.networks),
+  ...RIDGEMONT_DRAWN,
 ];
 
 const DECLARED_BY_KEY: ReadonlyMap<string, DeclaredNetwork> = new Map(
@@ -631,6 +660,11 @@ const DECLARED_BY_KEY: ReadonlyMap<string, DeclaredNetwork> = new Map(
 /** The network the world declares under `key`, or `undefined` for one it does not. */
 export const declaredNetwork = (key: string): DeclaredNetwork | undefined =>
   DECLARED_BY_KEY.get(key);
+
+/** The name the network under `key` broadcasts, which is all a player ever reads of it. A
+ *  landmark's key is its name; a drawn network's is not. A network the world does not
+ *  declare, another player's or a router's factory one, is known by its name. */
+export const essidOf = (key: string): string => declaredNetwork(key)?.essid ?? key;
 
 /** How many towns a region's block holds: one per second octet, 1–254. */
 const TOWNS_PER_REGION = 254;
@@ -707,6 +741,11 @@ const ADDRESS_BY_KEY: ReadonlyMap<string, string> = new Map([
     placelessAddress(1 + LANDMARK_CORPORATIONS.length + index),
   ]),
   ...DRAWN_TOWNS.flatMap((drawn) => townAddresses(drawn.town, drawn.networks)),
+  // Ridgemont's drawn networks answer after its landmarks, at the places their keys hold.
+  ...RIDGEMONT_DRAWN.map((network, index): [string, string] => [
+    network.key,
+    addressOf(RIDGEMONT_TOWN, ESSID_CATALOG.length + index),
+  ]),
 ]);
 
 const KEY_BY_ADDRESS: ReadonlyMap<string, string> = new Map(

@@ -31,9 +31,8 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { gzipSync } from 'node:zlib';
-import { crackableEssidPool } from '../src/core/generation/generateWifi.js';
 import { buildGeneratedWeb } from '../src/core/findit/webIndex.js';
-import { DECLARED_NETWORKS, isLandmark, RIDGEMONT } from '../src/core/generation/world.js';
+import { DECLARED_NETWORKS, isLandmark } from '../src/core/generation/world.js';
 import { generateHomeLan } from '../src/core/generation/generateHomeLan.js';
 import { generateDeepLayer } from '../src/core/generation/generateDeepLayer.js';
 import { chainLinks, lanHostOctet, machineIdForLanHost } from '../src/core/generation/lanTopology.js';
@@ -117,13 +116,19 @@ const boxBuildsOf = (essid: string): readonly BoxBuild[] => {
   ];
 };
 
-/** The networks whose boxes are timed together: Ridgemont's catalog, then every town the
- *  world draws, then the corporations, which stand in none. */
+/** The networks whose boxes are timed together: Ridgemont's landmarks, then every town the
+ *  world draws, Ridgemont's drawn networks among them, then the corporations, which stand in
+ *  none. */
 const timedSets = (): readonly { readonly name: string; readonly keys: readonly string[] }[] => {
   const drawn = DECLARED_NETWORKS.filter((network) => !isLandmark(network.key));
   const towns = [...new Set(drawn.flatMap((network) => network.town ?? []))];
   return [
-    { name: RIDGEMONT, keys: crackableEssidPool },
+    {
+      name: 'the Ridgemont landmarks',
+      keys: DECLARED_NETWORKS.filter((network) => isLandmark(network.key)).map(
+        (network) => network.key,
+      ),
+    },
     ...towns.map((town) => ({
       name: town,
       keys: drawn.filter((network) => network.town === town).map((network) => network.key),

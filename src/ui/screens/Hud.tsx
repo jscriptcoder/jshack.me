@@ -20,8 +20,15 @@ import {
   promptHost,
   promptUsername,
 } from '../state.js';
+import { essidOf } from '../../core/generation/world.js';
 
 const CLOCK_TICK_MS = 1000;
+
+/** The name the network the player is on broadcasts, or a dash when on none. */
+const connectedEssid = (): string => {
+  const essid = connectedWireless()?.association.essid;
+  return essid === undefined ? '—' : essidOf(essid);
+};
 
 /** Local wall time on a 24-hour clock, `HH:MM:SS`. The locale is named rather than
  *  left to the browser's, which in the US would say `9:05:58 AM`. The world clock
@@ -74,7 +81,7 @@ const BottomBar = () => (
       WLAN0 <b class="hud-value">{connectedWireless()?.ipv4 ?? 'DOWN'}</b>
     </span>
     <span class="max-sm:hidden">
-      ESSID <b class="hud-value normal-case">{connectedWireless()?.association.essid ?? '—'}</b>
+      ESSID <b class="hud-value normal-case">{connectedEssid()}</b>
     </span>
     <span class="flex-1" />
     <span aria-hidden="true" class="hud-barcode max-sm:hidden" />

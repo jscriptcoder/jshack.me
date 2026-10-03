@@ -5,8 +5,8 @@
  */
 
 import { hostServices, npcUsername } from '../core/generation/remoteHostFs.js';
-import { crackableEssidPool } from '../core/generation/generateWifi.js';
 import { DECLARED_NETWORKS, isLandmark, type DeclaredNetwork } from '../core/generation/world.js';
+import { ESSID_CATALOG } from '../core/generation/pools/essidCatalog.js';
 import { relationsFrom, type Login } from '../core/generation/relations.js';
 import { generateHomeLan, isOnHomeLan, type LanHost } from '../core/generation/generateHomeLan.js';
 import { peopleOn } from '../core/generation/networkMail.js';
@@ -34,6 +34,9 @@ export const UNCATALOGUED_ESSIDS = [
   'Practice-Staff',
   'Patient-Staff',
 ];
+/** Ridgemont's landmarks, which every sweep reads whole: each is written by hand. */
+export const LANDMARK_ESSIDS = ESSID_CATALOG.map((entry) => entry.essid);
+
 /** Every network the world draws rather than Ridgemont's landmarks. */
 const DRAWN = DECLARED_NETWORKS.filter((network) => !isLandmark(network.key));
 
@@ -76,7 +79,7 @@ export const townKeysSwept = (sweep: string | undefined): readonly string[] =>
 
 /** Every network the world holds, sampled or not: for a test whose claim one rare network
  *  can break, cheap enough to read in full. */
-export const WORLD_ESSIDS = [...crackableEssidPool, ...UNCATALOGUED_ESSIDS, ...TOWN_KEYS];
+export const WORLD_ESSIDS = [...LANDMARK_ESSIDS, ...UNCATALOGUED_ESSIDS, ...TOWN_KEYS];
 
 /** `WORLD_SWEEP` as the run was started with, which Vitest hands the tests on
  *  `import.meta.env`. */
@@ -85,7 +88,7 @@ const WORLD_SWEEP: unknown = import.meta.env.WORLD_SWEEP;
 /** Every network a whole-world content test reads. `WORLD_SWEEP=full` reads every
  *  declared network rather than the sample. */
 export const ALL_ESSIDS = [
-  ...crackableEssidPool,
+  ...LANDMARK_ESSIDS,
   ...UNCATALOGUED_ESSIDS,
   ...townKeysSwept(typeof WORLD_SWEEP === 'string' ? WORLD_SWEEP : undefined),
 ];

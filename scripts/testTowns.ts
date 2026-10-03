@@ -11,6 +11,9 @@
 //     name they know.
 //   - A join to each town's council is refused with 403 network_not_joinable, and leaves
 //     no LAN lease and no occupant row behind.
+//   - Ridgemont's general hospital, which the town draws beyond its landmarks, answers a
+//     fetch by its domain in Ridgemont's block, and findit finds a place Ridgemont draws by
+//     the town's name and its kind. A join there is admitted; `testJoinRefusal` shows it.
 //
 // `whois` is not here: it asks nobody on the network, answering from the world's
 // declaration, so its unit tests are the whole of its evidence.
@@ -30,7 +33,7 @@ import { machineIdForLanHost } from '../src/core/generation/lanTopology.js';
 import { siteAddress } from '../src/core/generation/publisher.js';
 import { siteServer } from '../src/core/generation/siteServer.js';
 import { FINDIT_DOMAIN } from '../src/core/generation/findit.js';
-import { DECLARED_NETWORKS, RIDGEMONT } from '../src/core/generation/world.js';
+import { DECLARED_NETWORKS, isLandmark, RIDGEMONT } from '../src/core/generation/world.js';
 import { ACCESS_LOG_PATH } from '../src/core/logging/accessLog.js';
 
 const NETWORK = process.env.NETWORK_ENDPOINT ?? 'http://localhost:3100/api/network';
@@ -229,6 +232,62 @@ for (const town of TOWNS) {
 
   await cleanup();
 }
+
+// === Ridgemont's drawn networks: its hospital by its domain, and a place by its kind. ===
+const ridgemontDrawn = DECLARED_NETWORKS.filter(
+  (network) => network.town === RIDGEMONT && !isLandmark(network.key),
+);
+const hospital = ridgemontDrawn.find((network) => network.place === 'the hospital');
+const hospitalIp = hospital?.site === undefined ? undefined : siteAddress(hospital.site.domain);
+const hospitalBox = hospital === undefined ? undefined : siteServer(hospital.key);
+const ridgemontPlace = ridgemontDrawn.find(
+  (network) =>
+    network.site !== undefined &&
+    network.unlisted !== true &&
+    KIND_WORDS[network.subtype ?? ''] !== undefined,
+);
+if (
+  hospital?.site === undefined ||
+  hospitalIp === undefined ||
+  hospitalBox === undefined ||
+  ridgemontPlace?.site === undefined
+) {
+  console.error('Ridgemont draws no hospital or no listed place on the internet.');
+  process.exit(2);
+}
+const hospitalMachines = [
+  computeApGatewayId(hospital.key),
+  machineIdForLanHost(hospitalBox, hospital.key),
+];
+await sr.from('patches').delete().in('machine_id', hospitalMachines).eq('path', ACCESS_LOG_PATH);
+
+const fetchedHospital = await post(
+  signRequest(visitor, 'resolveHttpFetch', { target: hospitalIp, port: 80, path: '/' }),
+);
+check(
+  `curl http://${hospital.site.domain}/ returns ${hospital.site.name}'s own front page`,
+  fetchedHospital.status === 200 &&
+    contentOf(fetchedHospital.body).includes(`<title>${hospital.site.name}</title>`) &&
+    /^87\.1\.\d{1,3}\.\d{1,3}$/.test(hospitalIp),
+  `address=${hospitalIp} status=${fetchedHospital.status} error=${errorOf(fetchedHospital.body)}`,
+);
+
+const ridgemontQuery = `${RIDGEMONT} ${KIND_WORDS[ridgemontPlace.subtype ?? '']}`;
+const searchedRidgemont = await post(
+  signRequest(visitor, 'resolveHttpFetch', {
+    target: FINDIT_IP,
+    port: 80,
+    path: `/?q=${encodeURIComponent(ridgemontQuery)}`,
+  }),
+);
+check(
+  `a findit search for "${ridgemontQuery}" lists ${ridgemontPlace.site.domain}`,
+  searchedRidgemont.status === 200 &&
+    contentOf(searchedRidgemont.body).includes(`<a href="http://${ridgemontPlace.site.domain}/">`),
+  `status=${searchedRidgemont.status} error=${errorOf(searchedRidgemont.body)}`,
+);
+
+await sr.from('patches').delete().in('machine_id', hospitalMachines).eq('path', ACCESS_LOG_PATH);
 
 const passed = results.filter((result) => result.pass).length;
 console.log(`\n${passed}/${results.length} checks passed`);
