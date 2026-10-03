@@ -20,7 +20,7 @@ v0.297.0); 7b complete 2026-10-01 (#588, v0.298.0). Slice 7 complete. Slice 8 gr
 v0.301.0); 8d complete 2026-10-02 (#592, v0.302.0); 8e split 2026-10-02 into the rows (8e)
 and findit (8f) (decision 19f); 8e complete 2026-10-02 (#593, v0.303.0); 8f complete
 2026-10-02 (#594, v0.304.0). Slice 8 complete. Slice 9 grilled 2026-10-02 as slices 9a–9b
-(decision 19g); 9a planned 2026-10-02, complete 2026-10-03 (#595, v0.305.0); 9b planned 2026-10-03.
+(decision 19g); 9a planned 2026-10-02, complete 2026-10-03 (#595, v0.305.0); 9b planned 2026-10-03, complete 2026-10-03 (#596, v0.306.0). Slice 9 complete.
 Amends the §9 backlog item "Procedural world expansion — GRILLED & RESOLVED 2026-07-29" in
 `docs/conventions-and-gotchas.md`; where the two disagree, this file wins.
 
@@ -3913,7 +3913,7 @@ against 5%, and on a hit one of them → the roll stored, shown by its broadcast
 cracked and joined as any network.
 **Class**: behaviour change.
 **Delivery**: independent PR against `main`, branch `feat/procedural-world-injector`.
-**Status**: planned 2026-10-03.
+**Status**: **complete** 2026-10-03 (#596, `d2ae02c6`, v0.306.0); 9b-1 to 9b-5 hold.
 **Required implementation skills**: `tdd`, `testing`, `refactoring`; `mutation-testing` at
 PR-readiness.
 **Reduction program**: `N/A`.
@@ -3957,18 +3957,18 @@ with three Ridgemont keys occupied):
 
 **Acceptance criteria** (proposed 2026-10-03):
 
-- [ ] **9b-1** Over 2,000 scans that each have an occupied Ridgemont network to inject, between
+- [x] **9b-1** Over 2,000 scans that each have an occupied Ridgemont network to inject, between
       3% and 7% show one, and no scan shows more than one injected network.
-- [ ] **9b-2** Only a network in the scan's own pool is injected: an occupied name that is not
+- [x] **9b-2** Only a network in the scan's own pool is injected: an occupied name that is not
       one of Ridgemont's 178 keys (another town's network, a lab network, a name nobody
       declares) never surfaces, and a network the base draw already shows is never doubled.
-- [ ] **9b-3** A scan with nothing to inject (no occupants, or none in the pool that the draw
+- [x] **9b-3** A scan with nothing to inject (no occupants, or none in the pool that the draw
       does not show) is identical to the same scan with no occupants, and the order the occupied
       names arrive in never changes a scan.
-- [ ] **9b-4** An injected network is an ordinary crackable entry: WPA2, a strong signal, the
+- [x] **9b-4** An injected network is an ordinary crackable entry: WPA2, a strong signal, the
       BSSID and password its key derives. An injected filler network shows its broadcast name in
       `airodump-ng`, never its key.
-- [ ] **9b-5** `e2e-shared-network-verification.md` describes the injector as it is (about 5% of
+- [x] **9b-5** `e2e-shared-network-verification.md` describes the injector as it is (about 5% of
       scans, one network, Ridgemont's only; about 16 rescans to meet a network; 50 empty rescans
       before suspecting it), and `generateWifi.ts` says the same. The minor version is bumped to
       0.306.0.
@@ -4019,7 +4019,7 @@ owner approves the commit.
       the launch extent stays within the limit slice 8 measures and sets.
 - [x] **AC-10** A Ridgemont scan draws from all 178 of its networks, and a filler network cracks
       and joins by the name it broadcasts while the server records it under its key.
-- [ ] **AC-11** An occupied network surfaces in about 5% of scans, one at a time, and only from
+- [x] **AC-11** An occupied network surfaces in about 5% of scans, one at a time, and only from
       the player's own town.
 
 **Done** means every slice is merged, every AC holds, the as-built docs
