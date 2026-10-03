@@ -11,7 +11,7 @@
  * their gateways stay as they were.
  */
 
-import { declaredNetwork, RIDGEMONT } from './world.js';
+import { declaredNetwork, isLandmark } from './world.js';
 import { generateHomeLan } from './generateHomeLan.js';
 import { hostServices, siteForward } from './remoteHostFs.js';
 import { createPrng } from './prng.js';
@@ -65,7 +65,7 @@ const publicPortOf = (candidate: Candidate, taken: ReadonlySet<number>): number 
 /** The forwards `key`'s gateway keeps besides its site's, in the order it keeps them. */
 export const seededForwards = (key: string): readonly NatForward[] => {
   const network = declaredNetwork(key);
-  if (network === undefined || network.town === RIDGEMONT) return [];
+  if (network === undefined || isLandmark(key)) return [];
 
   const prng = createPrng(`gw-forwards-${key}`);
   const count = FORWARD_CHANCES[network.category].filter((chance) => prng.next() < chance).length;

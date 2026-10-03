@@ -23,6 +23,7 @@ import type { Command, CommandEnv, CommandResult, TerminalLine } from './types.j
 import type { WirelessInterface } from '../network/interfaces.js';
 import type { HomeNetworkAssignment } from '../network/homeNetwork.js';
 import { isOwnWorkstation } from '../identity/workstation.js';
+import { essidOf } from '../generation/world.js';
 
 const USAGE = [
   'nmcli: usage:',
@@ -56,7 +57,8 @@ async function* connectStream(
   bssid: string,
   joined: Promise<HomeNetworkAssignment | null>,
 ): AsyncIterable<TerminalLine> {
-  yield line(`Connecting to ${essid}...`);
+  const name = essidOf(essid);
+  yield line(`Connecting to ${name}...`);
   const assignment = await joined;
   // No lease, no connection. The address is the server's to grant — and no copy of
   // an earlier grant was remembered for this network — so there is nothing to put on
@@ -66,7 +68,7 @@ async function* connectStream(
   if (assignment === null) {
     yield {
       kind: 'error',
-      content: `nmcli: could not get an address on ${essid} — the network is unreachable`,
+      content: `nmcli: could not get an address on ${name} — the network is unreachable`,
     };
     return;
   }
@@ -75,7 +77,7 @@ async function* connectStream(
     association: { essid, bssid },
     ipv4: assignment.localIp,
   });
-  yield line(`Connected to ${essid} — assigned ${assignment.localIp}`);
+  yield line(`Connected to ${name} — assigned ${assignment.localIp}`);
 }
 
 const handleConnect = (
@@ -87,15 +89,22 @@ const handleConnect = (
   if (wlan0.monitorMode) {
     return error("nmcli: wlan0 is in monitor mode — run 'airmon-ng stop wlan0' first");
   }
-  // Reconnecting to the network you're already on is a no-op (no re-join).
-  if (essid !== undefined && wlan0.association?.essid === essid) {
+  // Reconnecting to the network you're already on is a no-op (no re-join). A player
+  // names a network by what it broadcasts; the association holds the key it is known by.
+  if (
+    essid !== undefined &&
+    wlan0.association !== null &&
+    essidOf(wlan0.association.essid) === essid
+  ) {
     return text([`Already connected to ${essid}`]);
   }
   if (essid === undefined || password === undefined) {
     return error('nmcli: usage: nmcli connect <ESSID> <password>');
   }
 
-  const network = env.network.wifiNetworks().find((candidate) => candidate.essid === essid);
+  const network = env.network
+    .wifiNetworks()
+    .find((candidate) => essidOf(candidate.essid) === essid);
   if (network === undefined) {
     return error(`nmcli: network "${essid}" not found`);
   }
@@ -124,7 +133,7 @@ const handleDisconnect = (env: CommandEnv, wlan0: WirelessInterface): CommandRes
   // vanish for other occupants (Story 7). Local disconnect proceeds regardless.
   env.homeNetwork.leave(essid);
   env.setInterface('wlan0', { ...wlan0, association: null, ipv4: null });
-  return text([`Disconnected from ${essid}`]);
+  return text([`Disconnected from ${essidOf(essid)}`]);
 };
 
 const handleStatus = (wlan0: WirelessInterface): CommandResult => {
@@ -133,7 +142,7 @@ const handleStatus = (wlan0: WirelessInterface): CommandResult => {
   }
   const ip = wlan0.ipv4;
   const suffix = ip === null ? '' : ` (${ip}/24)`;
-  return text([`wlan0: connected to ${wlan0.association.essid}${suffix}`]);
+  return text([`wlan0: connected to ${essidOf(wlan0.association.essid)}${suffix}`]);
 };
 
 const execute: Command['execute'] = async (env, args) => {

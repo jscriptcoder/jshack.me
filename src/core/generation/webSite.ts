@@ -30,7 +30,7 @@ import { isSiteServer } from './siteServer.js';
 import { chainLinks } from './lanTopology.js';
 import { generateDeepLayer } from './generateDeepLayer.js';
 import { publisherSite } from './publisher.js';
-import { declaredNetwork, RIDGEMONT } from './world.js';
+import { declaredNetwork, isLandmark } from './world.js';
 import type { PublishedSite } from './pools/essidCatalog.js';
 import {
   API_COMMON_ENDPOINTS,
@@ -513,9 +513,9 @@ export const buildWebSite = ({
     site,
     place: persona.place,
     ...(persona.town === undefined ? {} : { town: persona.town }),
-    // Ridgemont's sites read as they were written, and a corporation stands in no town.
+    // A landmark's site reads as it was written, and a corporation stands in no town.
     locality:
-      persona.town === undefined || persona.town === RIDGEMONT || site.includes(persona.town)
+      persona.town === undefined || isLandmark(essid) || site.includes(persona.town)
         ? ''
         : `, ${persona.town}`,
     domain: persona.domain,

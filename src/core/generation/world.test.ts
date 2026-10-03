@@ -10,6 +10,7 @@ import { asAbsPath } from '../types.js';
 import {
   businessSpelling,
   DECLARED_NETWORKS,
+  isLandmark,
   networkAt,
   PLACELESS_FIRST_OCTET,
   publicAddress,
@@ -20,7 +21,7 @@ import {
 import { generateHomeLan } from './generateHomeLan.js';
 import { buildApGatewayBaseFs } from './routerFs.js';
 import { resolveLanName } from '../network/resolveName.js';
-import { crackableEssidPool } from './generateWifi.js';
+import { crackableEssidPool, noiseEssidPool } from './generateWifi.js';
 import { HOME_TEMPLATES, HOME_WORDS, type HomeForm } from './pools/homeNames.js';
 import {
   CORPORATION_NAME_TEMPLATES,
@@ -620,7 +621,7 @@ describe("Millbrook's network sizes", () => {
     for (const network of millbrook()) {
       expect(['lone', 'flat', 'deep'], network.essid).toContain(network.profile);
     }
-    for (const network of DECLARED_NETWORKS.filter((each) => each.town === RIDGEMONT)) {
+    for (const network of landmarks()) {
       expect(network.profile, network.essid).toBeUndefined();
     }
   });
@@ -779,7 +780,7 @@ describe("Millbrook's kinds of business", () => {
     }
   });
 
-  it('gives no kind to a council, a library, a home or a Ridgemont network', () => {
+  it('gives no kind to a council, a library, a home or a landmark', () => {
     const kinded = [...businesses(), ...hospitals(), ...practices(), ...branches()];
     const towns = [...landmarks(), ...millbrook()];
     for (const network of towns.filter((each) => !kinded.includes(each))) {
@@ -2425,14 +2426,11 @@ describe('the reach of the world', () => {
     // The leads to a town's homes start on an office's desk. An office no search lists is
     // found only through a lead itself, so the homes behind it would be two steps from
     // anything a player can find.
-    const towns = new Set(
-      DECLARED_NETWORKS.flatMap((network) =>
-        network.town === undefined || network.town === RIDGEMONT ? [] : [network.town],
-      ),
-    );
-    expect(towns.size).toBeGreaterThan(1);
+    const drawn = DECLARED_NETWORKS.filter((network) => !isLandmark(network.key));
+    const towns = new Set(drawn.flatMap((network) => network.town ?? []));
+    expect(towns).toContain(RIDGEMONT);
     for (const town of towns) {
-      const listedOffices = DECLARED_NETWORKS.filter(
+      const listedOffices = drawn.filter(
         (network) =>
           network.town === town &&
           network.category === 'corporate' &&
@@ -2463,7 +2461,7 @@ describe('Ridgemont', () => {
 
 /** Every landmark: the catalog's networks, all of them standing in Ridgemont. */
 const landmarks = (): readonly DeclaredNetwork[] =>
-  DECLARED_NETWORKS.filter((network) => network.town === 'Ridgemont');
+  DECLARED_NETWORKS.filter((network) => isLandmark(network.key));
 
 /** An address's four octets, as numbers. */
 const octetsOf = (address: string | undefined): readonly number[] =>
@@ -2510,6 +2508,297 @@ describe("Ridgemont's addresses", () => {
     // A home network publishes nothing, yet its gateway is on the internet like anyone's.
     expect(publicAddress('FAMILY-WIFI-2G')).toMatch(/^87\.1\./);
     expect(networkAt(publicAddress('FAMILY-WIFI-2G') ?? '')).toBe('FAMILY-WIFI-2G');
+  });
+});
+
+/** Ridgemont's networks the world draws, as it draws a city's: every one but a landmark. */
+const ridgemontDrawn = (): readonly DeclaredNetwork[] =>
+  DECLARED_NETWORKS.filter((network) => network.town === RIDGEMONT && !isLandmark(network.key));
+
+/**
+ * Ridgemont is a city, and beyond its landmarks it holds what a city holds: shops, homes
+ * and practices drawn as any town's are. Its council, police, library and courthouse are
+ * landmarks already, so the only institution it draws is a hospital.
+ */
+describe("Ridgemont's drawn networks", () => {
+  it('draws its hospital, its businesses, its homes, its practices and its branches, keyed after the 57 landmarks', () => {
+    expect(runsOf(ridgemontDrawn())).toEqual([
+      'institution',
+      'business',
+      'home',
+      'practice',
+      'branch',
+    ]);
+    expect(ridgemontDrawn().map((network) => network.key)).toEqual(
+      Array.from({ length: 121 }, (_, index) => `r0/t0/n${57 + index}`),
+    );
+  });
+
+  it('keeps 65 businesses, 44 homes, 8 practices and 3 branches, as a city may', () => {
+    expect(
+      (['business', 'home', 'practice', 'branch'] as const).map((kind) =>
+        countDrawnAs(ridgemontDrawn(), kind),
+      ),
+    ).toEqual([65, 44, 8, 3]);
+  });
+
+  it('keeps a general hospital of its own, and none of the institutions its landmarks already are', () => {
+    expect(
+      ridgemontDrawn()
+        .filter((network) => drawnAs(network) === 'institution')
+        .map((network) => [
+          network.key,
+          network.essid,
+          network.place,
+          network.site,
+          network.profile,
+          network.region,
+        ]),
+    ).toEqual([
+      [
+        'r0/t0/n57',
+        'GENERAL-HOSPITAL',
+        'the hospital',
+        { domain: 'ridgemonthospital.org', name: 'Ridgemont General Hospital' },
+        'deep',
+        'Harrow Valley',
+      ],
+    ]);
+  });
+
+  it('keeps an office for three of the corporations, each under its company and the town', () => {
+    expect(
+      ridgemontDrawn()
+        .filter((network) => network.parent !== undefined)
+        .map((network) => [network.key, network.essid, network.place, network.parent]),
+    ).toEqual([
+      ['r0/t0/n175', 'CROWTHER-GOODWIN-RIDGEMONT', 'the Ridgemont office', 'c7'],
+      ['r0/t0/n176', 'PRESCOTT-NORCROSS-RIDGEMONT', 'the Ridgemont office', 'c24'],
+      ['r0/t0/n177', 'OAKLEY-BARROW-RIDGEMONT', 'the Ridgemont office', 'c26'],
+    ]);
+  });
+
+  it('is pinned (golden): locks every network it draws under its key, name, domain, address, size and kind', () => {
+    // A key, a name or an address that moved would strand every journal, bookmark and note
+    // a player holds about the network, so Ridgemont only ever grows.
+    expect(
+      ridgemontDrawn().map((network) =>
+        [
+          network.key,
+          network.essid,
+          network.place,
+          network.site?.domain ?? '-',
+          publicAddress(network.key),
+          network.profile,
+          network.subtype ?? '-',
+          network.unlisted === true ? 'unlisted' : (network.parent ?? '-'),
+        ].join(' | '),
+      ),
+    ).toEqual([
+      'r0/t0/n57 | GENERAL-HOSPITAL | the hospital | ridgemonthospital.org | 87.1.184.139 | deep | hospital | -',
+      'r0/t0/n58 | STARLING-CASH-EXCHANGE | Starling Cash Exchange | starlingcashexchange.com | 87.1.26.26 | flat | pawn | -',
+      'r0/t0/n59 | UNION-STREET-TAX-AND-ACCOUNTS | Union Street Tax and Accounts | unionstreettaxandaccounts.com | 87.1.123.166 | deep | accounting | -',
+      'r0/t0/n60 | WARRINGTON-INSURANCE-BROKERS | Warrington Insurance Brokers | warringtoninsurancebrokers.com | 87.1.221.53 | flat | insurance | unlisted',
+      'r0/t0/n61 | CHAPEL-LANE-PHONE-REPAIR | Chapel Lane Phone Repair | chapellanephonerepair.com | 87.1.62.193 | lone | electronics | -',
+      'r0/t0/n62 | CRESCENT-TEA-ROOMS | Crescent Tea Rooms | crescenttearooms.com | 87.1.160.80 | lone | tea-room | -',
+      'r0/t0/n63 | STATION-ROAD-HAULAGE | Station Road Haulage | stationroadhaulage.com | 87.1.1.220 | flat | logistics | -',
+      'r0/t0/n64 | REDWOOD-ADVISORY | Redwood Advisory | redwoodadvisory.com | 87.1.99.107 | flat | consulting | -',
+      'r0/t0/n65 | EASTFIELD-GROCERS | Eastfield Grocers | eastfieldgrocers.com | 87.1.196.247 | flat | grocer | -',
+      'r0/t0/n66 | PARAGON-SYSTEMS | Paragon Systems | paragonsystems.com | 87.1.38.134 | flat | it-services | -',
+      'r0/t0/n67 | THE-PARADE-MUTUAL | The Parade Mutual | theparademutual.com | 87.1.136.21 | deep | insurance | -',
+      'r0/t0/n68 | COPPER-SYSTEMS | Copper Systems | coppersystems.com | 87.1.233.161 | deep | it-services | -',
+      'r0/t0/n69 | STONEBRIDGE-CAFE | Stonebridge Café | stonebridgecafe.com | 87.1.75.48 | flat | cafe | -',
+      "r0/t0/n70 | WHITAKERS-BOOKS | Whitaker's Books | whitakersbooks.com | 87.1.172.188 | lone | bookshop | -",
+      'r0/t0/n71 | EMBER-TOOLS | Ember Tools | embertools.com | 87.1.14.75 | lone | hardware | -',
+      'r0/t0/n72 | DRIFTWOOD-ROASTERS | Driftwood Roasters | driftwoodroasters.com | 87.1.111.215 | flat | coffee-bar | -',
+      'r0/t0/n73 | FORGE-LANE-BLOOMS | Forge Lane Blooms | forgelaneblooms.com | 87.1.209.102 | lone | florist | -',
+      'r0/t0/n74 | NORTHSTAR-BAKEHOUSE | Northstar Bakehouse | northstarbakehouse.com | 87.1.50.242 | flat | bakery | -',
+      'r0/t0/n75 | CHURCH-ROAD-MUTUAL | Church Road Mutual | churchroadmutual.com | 87.1.148.129 | deep | insurance | -',
+      "r0/t0/n76 | LORIMERS-TEA-ROOM | Lorimer's Tea Room | lorimerstearoom.com | 87.1.246.16 | flat | tea-room | -",
+      'r0/t0/n77 | CROSS-STREET-PHARMACY | Cross Street Pharmacy | crossstreetpharmacy.com | 87.1.87.156 | flat | pharmacy | -',
+      'r0/t0/n78 | THE-MERLIN-KETTLE | The Merlin Kettle | themerlinkettle.com | 87.1.185.43 | lone | cafe | -',
+      'r0/t0/n79 | GOLDEN-IT-SOLUTIONS | Golden IT Solutions | goldenitsolutions.com | 87.1.26.183 | deep | it-services | unlisted',
+      "r0/t0/n80 | QUAYLES-BOOKS | Quayle's Books | quaylesbooks.com | 87.1.124.70 | lone | bookshop | unlisted",
+      'r0/t0/n81 | GATEWAY-CONSULTING | Gateway Consulting | gatewayconsulting.com | 87.1.221.210 | deep | consulting | unlisted',
+      'r0/t0/n82 | BRIGHTLINE-BOOKS | Brightline Books | brightlinebooks.com | 87.1.63.97 | lone | bookshop | -',
+      "r0/t0/n83 | MADDOXS-PAWNBROKERS | Maddox's Pawnbrokers | maddoxspawnbrokers.com | 87.1.160.237 | flat | pawn | -",
+      'r0/t0/n84 | MEADOW-TEA-ROOMS | Meadow Tea Rooms | meadowtearooms.com | 87.1.2.124 | lone | tea-room | -',
+      'r0/t0/n85 | SOUTHGATE-HAULAGE | Southgate Haulage | southgatehaulage.com | 87.1.100.11 | deep | logistics | -',
+      'r0/t0/n86 | LODESTAR-PHARMACY | Lodestar Pharmacy | lodestarpharmacy.com | 87.1.197.151 | lone | pharmacy | -',
+      'r0/t0/n87 | UPPER-GREEN-MUTUAL | Upper Green Mutual | uppergreenmutual.com | 87.1.39.38 | deep | insurance | -',
+      'r0/t0/n88 | GARROW-COMPUTING | Garrow Computing | garrowcomputing.com | 87.1.136.178 | flat | it-services | -',
+      'r0/t0/n89 | FLETCHER-COMPUTING | Fletcher Computing | fletchercomputing.com | 87.1.234.65 | deep | it-services | -',
+      'r0/t0/n90 | TOWER-HILL-HARDWARE | Tower Hill Hardware | towerhillhardware.com | 87.1.75.205 | flat | hardware | -',
+      'r0/t0/n91 | ACORN-ELECTRONICS | Acorn Electronics | acornelectronics.com | 87.1.173.92 | flat | electronics | -',
+      'r0/t0/n92 | NORCROSS-FREIGHT | Norcross Freight | norcrossfreight.com | 87.1.14.232 | flat | logistics | unlisted',
+      'r0/t0/n93 | NESBITT-ELECTRICAL | Nesbitt Electrical | nesbittelectrical.com | 87.1.112.119 | lone | electronics | -',
+      'r0/t0/n94 | QUARRY-PHARMACY | Quarry Pharmacy | quarrypharmacy.com | 87.1.210.6 | flat | pharmacy | unlisted',
+      'r0/t0/n95 | HORIZON-IT-SOLUTIONS | Horizon IT Solutions | horizonitsolutions.com | 87.1.51.146 | flat | it-services | -',
+      'r0/t0/n96 | EVERGREEN-ADVISORY | Evergreen Advisory | evergreenadvisory.com | 87.1.149.33 | deep | consulting | -',
+      'r0/t0/n97 | LOCKWOOD-ACCOUNTANTS | Lockwood Accountants | lockwoodaccountants.com | 87.1.246.173 | flat | accounting | unlisted',
+      'r0/t0/n98 | KESTREL-ROASTERS | Kestrel Roasters | kestrelroasters.com | 87.1.88.60 | flat | coffee-bar | -',
+      'r0/t0/n99 | VICTORIA-ROAD-GROCERS | Victoria Road Grocers | victoriaroadgrocers.com | 87.1.185.200 | flat | grocer | -',
+      "r0/t0/n100 | TENNANTS-FLORIST | Tennant's Florist | tennantsflorist.com | 87.1.27.87 | lone | florist | -",
+      'r0/t0/n101 | NEW-ROAD-PHONE-REPAIR | New Road Phone Repair | newroadphonerepair.com | 87.1.124.227 | lone | electronics | -',
+      "r0/t0/n102 | STANHOPES-FLORIST | Stanhope's Florist | stanhopesflorist.com | 87.1.222.114 | lone | florist | -",
+      'r0/t0/n103 | CANAL-STREET-BOOKSHOP | Canal Street Bookshop | canalstreetbookshop.com | 87.1.63.254 | lone | bookshop | -',
+      'r0/t0/n104 | PEMBROKE-ACCOUNTANTS | Pembroke Accountants | pembrokeaccountants.com | 87.1.161.141 | deep | accounting | -',
+      'r0/t0/n105 | STERLING-INSURANCE | Sterling Insurance | sterlinginsurance.com | 87.1.3.28 | deep | insurance | -',
+      'r0/t0/n106 | MILL-LANE-BAKERY | Mill Lane Bakery | milllanebakery.com | 87.1.100.168 | lone | bakery | unlisted',
+      'r0/t0/n107 | ABERNETHY-CHEMISTS | Abernethy Chemists | abernethychemists.com | 87.1.198.55 | flat | pharmacy | -',
+      "r0/t0/n108 | CARVERS-BAKERY | Carver's Bakery | carversbakery.com | 87.1.39.195 | flat | bakery | -",
+      'r0/t0/n109 | FRESHWAY-BOOKS | FreshWay Books | freshwaybooks.com | 87.1.137.82 | lone | bookshop | -',
+      'r0/t0/n110 | ABBEY-ROAD-MUTUAL | Abbey Road Mutual | abbeyroadmutual.com | 87.1.234.222 | deep | insurance | -',
+      'r0/t0/n111 | FORE-STREET-HARDWARE | Fore Street Hardware | forestreethardware.com | 87.1.76.109 | flat | hardware | -',
+      'r0/t0/n112 | WESTGATE-PAWN | Westgate Pawn | westgatepawn.com | 87.1.173.249 | lone | pawn | -',
+      'r0/t0/n113 | SHERIDAN-ELECTRICAL | Sheridan Electrical | sheridanelectrical.com | 87.1.15.136 | flat | electronics | -',
+      'r0/t0/n114 | KEYSTONE-COFFEE | Keystone Coffee | keystonecoffee.com | 87.1.113.23 | lone | coffee-bar | -',
+      'r0/t0/n115 | WESTBROOK-MUTUAL | Westbrook Mutual | westbrookmutual.com | 87.1.210.163 | flat | insurance | -',
+      'r0/t0/n116 | SWIFT-FOODS | Swift Foods | swiftfoods.com | 87.1.52.50 | lone | grocer | -',
+      'r0/t0/n117 | ANCHOR-TEA-ROOMS | Anchor Tea Rooms | anchortearooms.com | 87.1.149.190 | lone | tea-room | -',
+      'r0/t0/n118 | WAYFARER-IT-SOLUTIONS | Wayfarer IT Solutions | wayfareritsolutions.com | 87.1.247.77 | flat | it-services | -',
+      'r0/t0/n119 | FENWICK-ACCOUNTANTS | Fenwick Accountants | fenwickaccountants.com | 87.1.88.217 | deep | accounting | -',
+      'r0/t0/n120 | QUEEN-STREET-HARDWARE | Queen Street Hardware | queenstreethardware.com | 87.1.186.104 | deep | hardware | -',
+      'r0/t0/n121 | SUNRISE-CAFE | Sunrise Café | sunrisecafe.com | 87.1.27.244 | flat | cafe | -',
+      'r0/t0/n122 | CASTLE-STREET-HARDWARE | Castle Street Hardware | castlestreethardware.com | 87.1.125.131 | lone | hardware | -',
+      'r0/t0/n123 | THE-COACH-HOUSE | the Coach House | - | 87.1.223.18 | flat | - | -',
+      'r0/t0/n124 | PRIMROSE-HOUSE | Primrose House | - | 87.1.64.158 | lone | - | -',
+      'r0/t0/n125 | APPLE-TREE-LODGE | Apple Tree Lodge | - | 87.1.162.45 | lone | - | -',
+      "r0/t0/n126 | OKONKWO-WIFI | the Okonkwos' house | - | 87.1.3.185 | flat | - | -",
+      "r0/t0/n127 | ERIKSEN-WIFI | the Eriksens' house | - | 87.1.101.72 | flat | - | -",
+      'r0/t0/n128 | FLAT-7C | flat 7C | - | 87.1.198.212 | flat | - | -',
+      'r0/t0/n129 | THE-OLD-RECTORY | the Old Rectory | - | 87.1.40.99 | flat | - | -',
+      "r0/t0/n130 | DOHERTY-WIFI | the Dohertys' house | - | 87.1.137.239 | flat | - | -",
+      "r0/t0/n131 | QUIGLEY-WIFI | the Quigleys' house | - | 87.1.235.126 | lone | - | -",
+      "r0/t0/n132 | THE-JANKOWSKIS | the Jankowskis' house | - | 87.1.77.13 | lone | - | -",
+      'r0/t0/n133 | GARDEN-FLAT | the garden flat | - | 87.1.174.153 | flat | - | -',
+      "r0/t0/n134 | THE-MAHONEYS | the Mahoneys' house | - | 87.1.16.40 | lone | - | -",
+      'r0/t0/n135 | BASEMENT-FLAT | the basement flat | - | 87.1.113.180 | lone | - | -',
+      'r0/t0/n136 | HAZEL-HOUSE | Hazel House | - | 87.1.211.67 | flat | - | -',
+      'r0/t0/n137 | NETGEAR-E882 | the end terrace | - | 87.1.52.207 | flat | - | -',
+      'r0/t0/n138 | TOP-FLAT | the top flat | - | 87.1.150.94 | flat | - | -',
+      "r0/t0/n139 | THE-ROSSIS | the Rossis' house | - | 87.1.247.234 | flat | - | -",
+      "r0/t0/n140 | FITZGERALD-WIFI | the Fitzgeralds' house | - | 87.1.89.121 | lone | - | -",
+      'r0/t0/n141 | BARN-CONVERSION | the barn conversion | - | 87.1.187.8 | flat | - | -',
+      "r0/t0/n142 | HADDAD-WIFI | the Haddads' house | - | 87.1.28.148 | flat | - | -",
+      'r0/t0/n143 | BT-HUB-1401 | the new build | - | 87.1.126.35 | lone | - | -',
+      "r0/t0/n144 | BIANCHI-WIFI | the Bianchis' house | - | 87.1.223.175 | flat | - | -",
+      'r0/t0/n145 | HOLLY-HOUSE | Holly House | - | 87.1.65.62 | flat | - | -',
+      'r0/t0/n146 | THE-OLD-DAIRY | the Old Dairy | - | 87.1.162.202 | flat | - | -',
+      'r0/t0/n147 | LINKSYS-7CA1 | the townhouse | - | 87.1.4.89 | flat | - | -',
+      'r0/t0/n148 | ELM-HOUSE | Elm House | - | 87.1.101.229 | lone | - | -',
+      "r0/t0/n149 | NOVAK-WIFI | the Novaks' house | - | 87.1.199.116 | flat | - | -",
+      'r0/t0/n150 | HEATHER-COTTAGE | Heather Cottage | - | 87.1.41.3 | flat | - | -',
+      'r0/t0/n151 | PEAR-TREE-HOUSE | Pear Tree House | - | 87.1.138.143 | flat | - | -',
+      "r0/t0/n152 | USMAN-WIFI | the Usmans' house | - | 87.1.236.30 | flat | - | -",
+      "r0/t0/n153 | OSEI-WIFI | the Oseis' house | - | 87.1.77.170 | lone | - | -",
+      'r0/t0/n154 | MAGNOLIA-COTTAGE | Magnolia Cottage | - | 87.1.175.57 | flat | - | -',
+      'r0/t0/n155 | BEECH-LODGE | Beech Lodge | - | 87.1.16.197 | flat | - | -',
+      'r0/t0/n156 | NETGEAR-5624 | the house by the bridge | - | 87.1.114.84 | flat | - | -',
+      "r0/t0/n157 | ADEYEMI-WIFI | the Adeyemis' house | - | 87.1.211.224 | flat | - | -",
+      'r0/t0/n158 | ROWAN-VIEW | Rowan View | - | 87.1.53.111 | flat | - | -',
+      'r0/t0/n159 | LINKSYS-8939 | the house opposite the pub | - | 87.1.150.251 | lone | - | -',
+      'r0/t0/n160 | TP-LINK-3B20 | the cottage by the green | - | 87.1.248.138 | flat | - | -',
+      "r0/t0/n161 | THE-BRENNANS | the Brennans' house | - | 87.1.90.25 | lone | - | -",
+      "r0/t0/n162 | THE-REILLYS | the Reillys' house | - | 87.1.187.165 | flat | - | -",
+      'r0/t0/n163 | TP-LINK-F472 | the house by the allotments | - | 87.1.29.52 | flat | - | -',
+      'r0/t0/n164 | TP-LINK-48AD | the house with the long drive | - | 87.1.126.192 | lone | - | -',
+      "r0/t0/n165 | PATEL-WIFI | the Patels' house | - | 87.1.224.79 | flat | - | -",
+      'r0/t0/n166 | NETGEAR-8118 | the converted chapel | - | 87.1.65.219 | flat | - | -',
+      'r0/t0/n167 | CARTWRIGHT-DENTAL-CARE | Cartwright Dental Care | cartwrightdentalcare.com | 87.1.163.106 | flat | dentist | -',
+      'r0/t0/n168 | MARKET-SQUARE-MEDICAL-CENTRE | Market Square Medical Centre | marketsquaremedicalcentre.com | 87.1.4.246 | flat | clinic | -',
+      'r0/t0/n169 | MAIN-STREET-DENTAL-SURGERY | Main Street Dental Surgery | mainstreetdentalsurgery.com | 87.1.102.133 | flat | dentist | unlisted',
+      'r0/t0/n170 | LANDMARK-DENTAL | Landmark Dental | landmarkdental.com | 87.1.200.20 | deep | dentist | -',
+      'r0/t0/n171 | IRONSIDE-DENTAL | Ironside Dental | ironsidedental.com | 87.1.41.160 | deep | dentist | -',
+      'r0/t0/n172 | GILCHRIST-FAMILY-PRACTICE | Gilchrist Family Practice | gilchristfamilypractice.com | 87.1.139.47 | deep | clinic | -',
+      'r0/t0/n173 | OLD-TOWN-DENTAL-SURGERY | Old Town Dental Surgery | oldtowndentalsurgery.com | 87.1.236.187 | flat | dentist | unlisted',
+      'r0/t0/n174 | WATER-LANE-MEDICAL-CENTRE | Water Lane Medical Centre | waterlanemedicalcentre.com | 87.1.78.74 | deep | clinic | unlisted',
+      'r0/t0/n175 | CROWTHER-GOODWIN-RIDGEMONT | the Ridgemont office | - | 87.1.175.214 | deep | consulting | c7',
+      'r0/t0/n176 | PRESCOTT-NORCROSS-RIDGEMONT | the Ridgemont office | - | 87.1.17.101 | flat | accounting | c24',
+      'r0/t0/n177 | OAKLEY-BARROW-RIDGEMONT | the Ridgemont office | - | 87.1.114.241 | deep | it-services | c26',
+    ]);
+  });
+
+  it('is declared after every other network, so drawing it moved no earlier key', () => {
+    expect(ridgemontDrawn().length).toBeGreaterThan(0);
+    expect(DECLARED_NETWORKS.slice(-ridgemontDrawn().length)).toEqual(ridgemontDrawn());
+  });
+
+  it('names no business or practice under a wifi or a domain any other network holds', () => {
+    const named = ridgemontDrawn().filter(
+      (network) => drawnAs(network) === 'business' || drawnAs(network) === 'practice',
+    );
+    expect(named).toHaveLength(73);
+    for (const network of named) {
+      const others = DECLARED_NETWORKS.filter((other) => other !== network);
+      expect(
+        others.map((other) => other.essid),
+        network.key,
+      ).not.toContain(network.essid);
+      expect(
+        others.flatMap((other) => other.site?.domain ?? []),
+        network.key,
+      ).not.toContain(network.site?.domain);
+    }
+  });
+
+  it("answers every one in Ridgemont's block of the region, and finds it there again", () => {
+    expect(ridgemontDrawn().length).toBeGreaterThan(0);
+    for (const network of ridgemontDrawn()) {
+      const address = publicAddress(network.key) ?? '';
+      expect(address, network.key).toMatch(/^87\.1\.\d{1,3}\.\d{1,3}$/);
+      expect(networkAt(address), network.key).toBe(network.key);
+    }
+  });
+
+  it('forwards services beyond their sites from its gateways, as a town does, and none from a landmark', () => {
+    expect(
+      ridgemontDrawn().filter((network) => seededForwards(network.key).length > 0).length,
+    ).toBeGreaterThan(0);
+    for (const network of DECLARED_NETWORKS.filter((each) => isLandmark(each.key))) {
+      expect(seededForwards(network.key), network.key).toEqual([]);
+    }
+  });
+
+  it('says on the front page of every business and practice that it stands in Ridgemont', () => {
+    const named = ridgemontDrawn().filter(
+      (network) => drawnAs(network) === 'business' || drawnAs(network) === 'practice',
+    );
+    expect(named.length).toBeGreaterThan(0);
+    for (const network of named) {
+      expect(homepageAt(network.site?.domain ?? ''), network.key).toContain(', Ridgemont');
+    }
+  });
+
+  it('is found on findit by every site it publishes but the 11 it keeps unlisted', async () => {
+    const web = await indexedWeb({
+      findPatchesForMachines: async () => ({ data: [], error: null }),
+      siteAt: async () => null,
+    });
+    const searchable = new Set(web.map((page) => page.address));
+    const sited = ridgemontDrawn().filter((network) => network.site !== undefined);
+    const listed = sited.filter((network) => network.unlisted !== true);
+    const unlisted = sited.filter((network) => network.unlisted === true);
+    expect([listed.length, unlisted.length]).toEqual([63, 11]);
+    expect(
+      listed
+        .filter((network) => !searchable.has(network.site?.domain ?? ''))
+        .map((network) => network.key),
+    ).toEqual([]);
+    expect(
+      unlisted
+        .filter((network) => searchable.has(network.site?.domain ?? ''))
+        .map((network) => network.key),
+    ).toEqual([]);
+  });
+
+  it("broadcasts 178 wifis in Ridgemont, no two alike and none a noise network's", () => {
+    const essids = DECLARED_NETWORKS.filter((network) => network.town === RIDGEMONT).map(
+      (network) => network.essid,
+    );
+    expect(essids).toHaveLength(178);
+    expect(new Set(essids).size).toBe(178);
+    expect(essids.filter((essid) => noiseEssidPool.includes(essid))).toEqual([]);
   });
 });
 

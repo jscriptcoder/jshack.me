@@ -5,7 +5,8 @@ import {
   PLACELESS_FIRST_OCTET,
   publicAddress,
   REGION_FIRST_OCTETS,
-  RIDGEMONT,
+  isLandmark,
+  type DeclaredNetwork,
 } from './world.js';
 import { deepBoxes, gatewaysOn, lanBoxes } from '../../test/worldContent.js';
 import { buildDeepHostFs } from './deepHostFs.js';
@@ -33,12 +34,13 @@ import { deviceModel } from './phoneHome.js';
  * client of at least one business, and every lead names a door that really opens.
  */
 
-/** Whether `network` stands in a town the world draws: one beyond Ridgemont. */
-const isDrawnTown = (network: { readonly town?: string }): boolean =>
-  network.town !== undefined && network.town !== RIDGEMONT;
+/** Whether the world drew `network` in a town, rather than writing it as a landmark or
+ *  standing it in none. */
+const isDrawnTown = (network: DeclaredNetwork): boolean =>
+  network.town !== undefined && !isLandmark(network.key);
 
-/** The networks the towns beyond Ridgemont draw of their own. A corporation's branch
- *  there is its company's, and only its company leads to it. */
+/** The networks the towns draw of their own. A corporation's branch there is its
+ *  company's, and only its company leads to it. */
 const townNetworks = DECLARED_NETWORKS.filter(
   (network) => isDrawnTown(network) && network.parent === undefined,
 );
@@ -171,8 +173,10 @@ describe("a town network's relations", () => {
     expect(relationsFrom('Linksys-Kitchen')).toEqual([]);
   });
 
-  it('leads nowhere from or to Ridgemont', () => {
-    for (const network of DECLARED_NETWORKS.filter((each) => each.town === RIDGEMONT)) {
+  it('leads nowhere from or to a landmark', () => {
+    const landmarks = DECLARED_NETWORKS.filter((each) => isLandmark(each.key));
+    expect(landmarks).toHaveLength(57);
+    for (const network of landmarks) {
       expect(relationsTo(network.key), network.key).toEqual([]);
       expect(relationsFrom(network.key), network.key).toEqual([]);
     }
@@ -462,6 +466,9 @@ describe("a branch's relations", () => {
       'c15 wan-rtr -branch-> MILLSTONE-HOLDINGS-WEXCOMBE root@edge-rtr:22',
       'c3 edge-rtr -branch-> ABERNETHY-GROUP-STONEBURY root@net-gateway:22',
       'c20 fw-dmz -branch-> HALLORAN-GROUP-STONEBURY root@net-gateway:22',
+      'c7 fw-dmz -branch-> CROWTHER-GOODWIN-RIDGEMONT etl@mysql-236:2222',
+      'c24 gw-main -branch-> PRESCOTT-NORCROSS-RIDGEMONT root@firewall01:22',
+      'c26 switch-core -branch-> OAKLEY-BARROW-RIDGEMONT root@wan-rtr:22',
     ]);
   });
 });
@@ -577,7 +584,7 @@ describe("a head office's shortcut to its branch", () => {
   it('keeps no ssh shortcut on the gateway of a network with no branch', () => {
     const parents = branches.map((branch) => branch.parent);
     const others = DECLARED_NETWORKS.filter(
-      (network) => network.town !== RIDGEMONT && !parents.includes(network.key),
+      (network) => !isLandmark(network.key) && !parents.includes(network.key),
     );
     expect(others.length).toBeGreaterThan(0);
     for (const network of others) {
@@ -776,7 +783,7 @@ describe("a business's offsite backup", () => {
 });
 
 /**
- * A box beyond Ridgemont may name another network: that is how a lead reads. It names
+ * A box the world drew may name another network: that is how a lead reads. It names
  * one only where a relation of its own network leads, and nothing on a LAN it does not
  * stand on. A backup copy is its source's files, so it is read as its source's.
  */

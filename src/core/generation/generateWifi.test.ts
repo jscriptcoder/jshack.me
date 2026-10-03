@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { generateWifi } from './generateWifi.js';
-import { DECLARED_NETWORKS } from './world.js';
+import { crackableEssidPool, generateWifi } from './generateWifi.js';
+import { DECLARED_NETWORKS, isLandmark } from './world.js';
+import { ESSID_CATALOG } from './pools/essidCatalog.js';
 import { bssidFromEssid, type WifiNetwork } from '../network/wifi.js';
 import { secrets } from '../secrets/__encoded.js';
 
@@ -47,14 +48,40 @@ describe('generateWifi', () => {
   });
 
   it('offers an identity the same crackable networks it has always been offered', () => {
-    // The scan picks from the catalog by position, so this holds the catalog's order:
-    // reordering it would hand every player a different set of networks.
+    // The scan picks from Ridgemont's networks by position, so this holds their order:
+    // reordering them would hand every player a different set of networks.
     const offered = (seedPubkeyHex: string): readonly string[] =>
-      generateWifi({ seedPubkeyHex }).filter(isCrackable).map((network) => network.essid);
+      generateWifi({ seedPubkeyHex })
+        .filter(isCrackable)
+        .map((network) => network.essid);
 
-    expect(offered('id-0')).toEqual(['CS-DEPT-LAB', 'NIGHT-OWL-CAFE', 'UNIV-DORM-7']);
-    expect(offered('id-1')).toEqual(['WAYSTAR-WIFI', 'BUY-N-LARGE']);
-    expect(offered('id-2')).toEqual(['ROBOVAC-AP', 'APERTURE-WIFI']);
+    expect(offered('id-0')).toEqual(['r0/t0/n102', 'r0/t0/n73', 'r0/t0/n100']);
+    expect(offered('id-1')).toEqual(['WEYLAND-NET', 'r0/t0/n173']);
+    expect(offered('id-2')).toEqual(['r0/t0/n143', 'LIBRARY-PATRON']);
+  });
+
+  it("draws from every one of Ridgemont's 178 networks, the landmarks first in the catalog's order", () => {
+    const drawn = DECLARED_NETWORKS.filter(
+      (network) => network.town === 'Ridgemont' && !isLandmark(network.key),
+    );
+    expect(drawn).toHaveLength(121);
+    expect(crackableEssidPool).toEqual([
+      ...ESSID_CATALOG.map((entry) => entry.essid),
+      ...drawn.map((network) => network.key),
+    ]);
+  });
+
+  it('offers a network Ridgemont draws as it offers a landmark, under the key its password and BSSID derive from', () => {
+    const offered = Array.from({ length: 40 }, (_, scanIndex) =>
+      generateWifi({ seedPubkeyHex: SEED_A, scanIndex }).filter(isCrackable),
+    ).flat();
+    const drawn = offered.filter((network) => network.essid.startsWith('r0/t0/'));
+    expect(drawn.length).toBeGreaterThan(0);
+    for (const network of drawn) {
+      expect(network.bssid).toBe(bssidFromEssid(network.essid));
+      expect(POOL).toContain(network.password);
+      expect(network.encryption).toBe('WPA2');
+    }
   });
 
   it('offers only networks in the town the player stands in', () => {
@@ -137,7 +164,7 @@ describe('generateWifi', () => {
 
   it('shuffles crackable and noise together into a stable seeded order', () => {
     // Golden snapshot for SEED_A's first scan: locks the seeded selection +
-    // interleave. The crackable APs (ACME-CORP / CYBERDYNE-5G) sit at positions 3
+    // interleave. The crackable APs (GROUND-ZERO-COFFEE / UPSTAIRS-NEIGHBOR) sit at positions 3
     // and 6, interleaved with noise rather than grouped — proof the final shuffle
     // actually mixes the two populations.
     const order = generateWifi({ seedPubkeyHex: SEED_A }).map((network) => ({
@@ -148,10 +175,10 @@ describe('generateWifi', () => {
     expect(order).toEqual([
       { essid: '<hidden>', encryption: 'WPA2', crackable: false },
       { essid: '<hidden>', encryption: 'WPA2', crackable: false },
-      { essid: 'ACME-CORP', encryption: 'WPA2', crackable: true },
+      { essid: 'GROUND-ZERO-COFFEE', encryption: 'WPA2', crackable: true },
       { essid: 'SUBWAY_WIFI', encryption: 'WPA2', crackable: false },
       { essid: 'FREE_INTERNET', encryption: 'WPA3', crackable: false },
-      { essid: 'CYBERDYNE-5G', encryption: 'WPA2', crackable: true },
+      { essid: 'UPSTAIRS-NEIGHBOR', encryption: 'WPA2', crackable: true },
       { essid: 'ASUS_RT_AC68U', encryption: 'WPA3', crackable: false },
     ]);
   });

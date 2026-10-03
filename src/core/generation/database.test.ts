@@ -25,6 +25,7 @@ import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
 import {
   ALL_ESSIDS,
   deepBoxes,
+  LANDMARK_ESSIDS,
   lanBoxes,
   softwareVersionsIn,
   type Box,
@@ -401,7 +402,7 @@ describe('the application a database holds', () => {
   });
 
   it('keeps a till and its customers on a shop’s network: its products, sales, sale lines and loyalty members', () => {
-    const essids = crackableEssidPool.filter((essid) => networkPersona(essid).category === 'retail');
+    const essids = LANDMARK_ESSIDS.filter((essid) => networkPersona(essid).category === 'retail');
     const wrong = essids.flatMap((essid) => {
       const host = { ip: '10.40.0.9', hostname: 'db-9', kind: 'machine' as const };
       const { name, tables } = buildApplication({
