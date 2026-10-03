@@ -165,13 +165,17 @@ How the scan is built (`core/generation/generateWifi.ts`):
   page reload does not.
 - Base draw: **2–3** crackable networks from Ridgemont's 178 (`crackableEssidPool`, held by
   key and shown by the name each broadcasts).
-- Then the **occupied-ESSID injector**: ESSIDs *other players are currently on*, a
-  random subset of size `0..min(n, 3)`.
+- Then the **occupied-ESSID injector**: in about **one scan in twenty**, **one** network
+  *another player is currently on*, and only one of Ridgemont's that the base draw does not
+  already show. A network occupied anywhere else (a lab network, another town's) never
+  surfaces.
 
 So the two-player encounter works exactly as designed: **A joins first, which makes A's
 ESSID "occupied"; B then re-runs `airodump-ng` until the injector surfaces it.** With one
-occupied network that is a coin flip per scan — expect to run `airodump-ng` a handful of
-times. That is not a bug, it *is* the discovery mechanic, and it is worth watching work.
+occupied network, the base draw and the injector together show it in about 6% of scans —
+expect to run `airodump-ng` **about 16 times**, and nothing in 50 runs happens about one time
+in 26. That is not a bug, it *is* the discovery mechanic: meeting a stranger by chance is
+meant to be rare.
 
 **The crack is skippable.** `passwordForEssid(essid)` is ESSID-seeded and the password
 compare is the only gate — `nmcli connect` does not check that you ran `aircrack-ng`. For
@@ -242,7 +246,7 @@ It works for masked password prompts too. **`nmap` takes a range, not CIDR** —
 Mint B (§3). Run B's arc, but this time hunt for X:
 
 1. `airmon-ng start wlan0`
-2. `airodump-ng` — **repeat until X appears in B's list.** Each run re-rolls. If ~8 runs
+2. `airodump-ng` — **repeat until X appears in B's list.** Each run re-rolls. If ~50 runs
    produce nothing, confirm A is still an occupant (`nmcli status` as A) before
    suspecting the injector.
 3. `airmon-ng stop wlan0`
