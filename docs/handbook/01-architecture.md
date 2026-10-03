@@ -63,7 +63,8 @@ agree: they run the same code._
 ### 1. The world is computed, not stored
 
 Networks, machines, files, accounts, services and logs are generated on demand by pure functions from
-short seed strings, mostly the WiFi network's name (ESSID). Every player who joins a network gets
+short seed strings, mostly the network's key (for a hand-written landmark, its WiFi name; for a
+network a town draws, its place, such as `r0/t3/n7`). Every player who joins a network gets
 byte-identical machines, and the server regenerates exactly the same trees when it needs them.
 Nothing about the base world is in the database. See [chapter 6](./06-world-generation.md).
 

@@ -7,7 +7,16 @@ here refers to a real network or system.
 
 | Term                        | Meaning                                                                                                                                             |
 | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **ESSID**                   | A WiFi network's name. The key almost all shared world generation is seeded from.                                                                   |
+| **ESSID**                   | A WiFi network's broadcast name, which is all a player reads of it (`essidOf(key)`). A landmark's ESSID is also its key.                            |
+| **Network key**             | What a network is known by in every seed and stored row: a landmark's ESSID, `r<region>/t<town>/n<k>` for a drawn network, `c<n>` a corporation.    |
+| **Landmark**                | One of Ridgemont's 57 hand-written networks (`ESSID_CATALOG`). `isLandmark(key)`; the world draws it no lead, forward or locality.                  |
+| **Town row**                | A hand-authored town: a name and a size class (village, town, city). Everything inside it is drawn from it.                                         |
+| **Drawn network**           | A network a town's row generates: an institution, business, home, practice or branch.                                                               |
+| **Profile**                 | How much stands behind a drawn network's gateway: `lone` (one machine), `flat` (2–5) or `deep` (inner router, switch, hidden chain).                |
+| **Lead**                    | A reference on one network's box to another network (a contractor's ssh shortcut, a backup job, an invoice, a head office's branch shortcut).       |
+| **Unlisted**                | A publisher whose `robots.txt` keeps it off findit; it still answers by domain or address.                                                          |
+| **Branch**                  | A corporation's office in a town. It publishes nothing; only its head office's gateway leads to it.                                                 |
+| **Injector**                | The part of a WiFi scan that sometimes (5%) shows a Ridgemont network another player occupies.                                                      |
 | **BSSID**                   | An access point's hardware address, derived from the ESSID (first 6 bytes of its SHA-256).                                                          |
 | **Access point (AP)**       | A WiFi network a player can crack and join.                                                                                                         |
 | **AP gateway**              | The `.1` router of a network. Ownerless; its machine id is `ap-gw-<hash of the ESSID>`. It holds the network's port forwards.                       |
@@ -18,8 +27,8 @@ here refers to a real network or system.
 | **Workstation**             | A player's own machine. Machine id `<name>-<8 hex of sha256('ed25519:' + public key)>`.                                                             |
 | **Occupant / occupancy**    | A player connected to a WiFi network, recorded in `home_network_occupants`. Occupancy is what makes a player reachable on that LAN.                 |
 | **Lease**                   | A player's permanent LAN address on a network (`network_lan_leases`). Survives disconnects.                                                         |
-| **Public IP**               | A network's internet address. Allocated and stored for ordinary networks; derived (`193.x`) for publishers.                                         |
-| **Publisher**               | A catalog network that hosts a public web site with a domain name.                                                                                  |
+| **Public IP**               | A network's internet address, derived from its place in the world (`87.<town>.x.y`, or `193` for findit and the corporations). Never stored.        |
+| **Publisher**               | A declared network that hosts a public web site with a domain name.                                                                                 |
 | **findit.io**               | The in-game search engine, a one-machine network on the public web.                                                                                 |
 | **Forward**                 | A line `forward <public port> to <ip>:<port>` in a router's `/etc/iptables/rules.v4`.                                                               |
 | **Vantage**                 | Where a request is made from: own LAN, same-WiFi player, public internet, or down an inner gateway's chain. Decided by the server from the address. |
@@ -36,7 +45,9 @@ here refers to a real network or system.
 | **Pool**                | Authored static data drawn from by a stream (hostnames, usernames, page text, …).                                                                      |
 | **Role**                | A generated machine's purpose (workstation, IoT, web server, file server, database, mail server, DNS). Derived from its hostname prefix, never stored. |
 | **Persona**             | A network's category, place and domain, which content is written to match.                                                                             |
-| **Catalog**             | `ESSID_CATALOG`, the list of named networks.                                                                                                           |
+| **Catalog**             | `ESSID_CATALOG`, Ridgemont's 57 hand-written landmarks. Closed: a new hand-written network is declared after its town's drawn ones.                    |
+| **Declaration**         | `DECLARED_NETWORKS` in `world.ts`: every network the world holds, in an append-only order that fixes keys and addresses.                               |
+| **Sample sweep**        | The fixed subset of drawn networks the whole-world content tests read; `WORLD_SWEEP=full` reads them all.                                              |
 | **`WORLD_EPOCH`**       | The fixed date all generated history ends and the vulnerability clock starts. A development anchor until launch.                                       |
 | **Budget**              | The post-build limits on bundle size and per-machine generation time.                                                                                  |
 | **Encode**              | `npm run encode`, which obfuscates spoiler pools into the git-ignored `__encoded.ts`.                                                                  |
