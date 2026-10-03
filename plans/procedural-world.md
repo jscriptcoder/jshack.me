@@ -20,7 +20,7 @@ v0.297.0); 7b complete 2026-10-01 (#588, v0.298.0). Slice 7 complete. Slice 8 gr
 v0.301.0); 8d complete 2026-10-02 (#592, v0.302.0); 8e split 2026-10-02 into the rows (8e)
 and findit (8f) (decision 19f); 8e complete 2026-10-02 (#593, v0.303.0); 8f complete
 2026-10-02 (#594, v0.304.0). Slice 8 complete. Slice 9 grilled 2026-10-02 as slices 9a–9b
-(decision 19g); 9a planned 2026-10-02.
+(decision 19g); 9a planned 2026-10-02, complete 2026-10-03 (#595, v0.305.0).
 Amends the §9 backlog item "Procedural world expansion — GRILLED & RESOLVED 2026-07-29" in
 `docs/conventions-and-gotchas.md`; where the two disagree, this file wins.
 
@@ -3769,7 +3769,8 @@ key's broadcast name → `nmcli connect <ESSID>` joining by the key → `registe
 admits any Ridgemont key.
 **Class**: pure refactor first (the landmark checks), then behaviour change.
 **Delivery**: independent PR against `main`, branch `feat/procedural-world-ridgemont-filler`.
-**Status**: planned 2026-10-02.
+**Status**: **complete** 2026-10-03 (#595, `af8608d5`, v0.305.0); 9a-1 to 9a-9 hold. The
+`WORLD_SWEEP=full` run took 1,604 s of file time (8e: 1,147 s); the sampled run is unchanged.
 **Required implementation skills**: `refactoring` and `testing` for the landmark checks; `tdd`,
 `testing`, `refactoring` for the filler and the scan; `mutation-testing` at PR-readiness.
 **Reduction program**: `N/A`.
@@ -3835,38 +3836,38 @@ reverted; the diff kept outside the repo):
 
 **Acceptance criteria** (proposed 2026-10-02, decision 19g):
 
-- [ ] **9a-1** Ridgemont is a `city` row and declares 121 networks after its 57 landmarks,
+- [x] **9a-1** Ridgemont is a `city` row and declares 121 networks after its 57 landmarks,
       keyed `r0/t0/n57`–`r0/t0/n177`: the hospital `GENERAL-HOSPITAL`
       (`ridgemonthospital.org`), 65 businesses, 44 homes, 8 practices and the branches of
       `c7`, `c24` and `c26`, in that order. No council, police, courthouse or library is
       generated. They are declared after Stonebury, and their names avoid every network
       declared before them.
-- [ ] **9a-2** Each filler network answers in Ridgemont's block at its own position after the
+- [x] **9a-2** Each filler network answers in Ridgemont's block at its own position after the
       landmarks', and every one of the world's 612 addresses is distinct. Ridgemont's 178
       ESSIDs are distinct, and none is a noise network's.
-- [ ] **9a-3** The filler is generated as any town's networks: its offices and file servers keep
+- [x] **9a-3** The filler is generated as any town's networks: its offices and file servers keep
       the leads to its homes and its unlisted businesses, its gateways forward services beyond
       their site, and its sites name Ridgemont. No landmark keeps or receives a lead, forwards
       more than its site, or reads differently (AC-7): a dump against `main` shows only the
       filler and the gateways and relations of `c7`, `c24` and `c26` moved.
-- [ ] **9a-4** findit lists the filler's 63 listed sites and never its 11 unlisted ones (AC-6),
+- [x] **9a-4** findit lists the filler's 63 listed sites and never its 11 unlisted ones (AC-6),
       `whois` answers each filler address and domain with `city: Ridgemont` and `region: Harrow
       Valley`, and a fetch by domain answers. Every declared network is still reached (AC-4).
-- [ ] **9a-5** A scan draws its 2–3 crackable networks from Ridgemont's 178, the landmarks first
+- [x] **9a-5** A scan draws its 2–3 crackable networks from Ridgemont's 178, the landmarks first
       in catalog order and the filler in key order, and its 3–5 noise as before; the injector is
       unchanged (9b).
-- [ ] **9a-6** A filler network reads as its broadcast name everywhere a player reads one: its
+- [x] **9a-6** A filler network reads as its broadcast name everywhere a player reads one: its
       `airodump-ng` row, `aircrack-ng`'s lines, `nmcli`'s connect, status and disconnect
       messages and the HUD. No output names its key. `nmcli connect <ESSID> <password>`
       joins it, cracking to the password its key derives, under the BSSID its key derives; a
       reload restores the connection. A landmark reads and joins exactly as before.
-- [ ] **9a-7** The server admits a join to a filler network (`200` with its `local_ip`, the
+- [x] **9a-7** The server admits a join to a filler network (`200` with its `local_ip`, the
       occupancy row under its key) and still refuses another town's network or an undeclared
       key (AC-5), shown live by `testJoinRefusal`.
-- [ ] **9a-8** The content sweeps read the landmarks whole and the filler by the sample, as every
+- [x] **9a-8** The content sweeps read the landmarks whole and the filler by the sample, as every
       town's; `checkBudgets` times the landmarks and the filler as two sets, each under 2 ms a
       box, and findit's cold build under 1,000 ms; the bundle stays under its ceiling.
-- [ ] **9a-9** `testTowns` adds Ridgemont's filler (the hospital by domain, a site by town and
+- [x] **9a-9** `testTowns` adds Ridgemont's filler (the hospital by domain, a site by town and
       kind, `whois`); `testFindit`, `testMillbrook` and `testJoinRefusal` pass live.
       `world-content-architecture.md` and `discovery-architecture.md` describe Ridgemont's
       filler and the landmarks as the exception. The minor version is bumped to 0.305.0.
@@ -3922,7 +3923,7 @@ lint and format pass, and the owner approves the commit.
 - [x] **AC-9** `checkBudgets` passes: gzipped main chunk ≤ 284,975 B, and both the landmark sweep
       and the sampled procedural sweep average ≤ 2 ms per box, and the cold findit index build at
       the launch extent stays within the limit slice 8 measures and sets.
-- [ ] **AC-10** A Ridgemont scan draws from all 178 of its networks, and a filler network cracks
+- [x] **AC-10** A Ridgemont scan draws from all 178 of its networks, and a filler network cracks
       and joins by the name it broadcasts while the server records it under its key.
 - [ ] **AC-11** An occupied network surfaces in about 5% of scans, one at a time, and only from
       the player's own town.
