@@ -214,10 +214,10 @@ ten, ties by domain. Several towns keep a county court, so "court" lists them al
 lists all three before anything else, and "kingsford police" asks for Kingsford's. Generated homepages carry a
 `<meta name="description">` derived from
 the catalog place and category, so "admissions" finds the university and "parking" finds
-the airport. A place in a town beyond Ridgemont whose name does not say its town says it
+the airport. A place the world draws whose name does not say its town says it
 after its name (`Yates's Café, Millbrook: …`, the `{locality}` slot of
 `SITE_DESCRIPTIONS`), so a search for a town and a kind of place finds that town's place;
-Ridgemont's sites and the corporations read as they were written. Everything read is on the page, so a player shapes their own
+the landmarks and the corporations read as they were written. Everything read is on the page, so a player shapes their own
 listing by editing their own `index.html` — **SEO as play**, and players can outrank
 institutions by stuffing titles, intended.
 
@@ -245,10 +245,11 @@ journal alone would leave a standing root shell still root on the clean box.
 
 ### Leads: the only way to a home
 
-A town beyond Ridgemont keeps homes as well as publishers (Millbrook draws 4–8 on
-`town-homes-<town key>`, appended after its businesses so no earlier key or address
-moves). A home publishes nothing: no domain, no findit listing, no place on the town
-directory, no wifi a player can scan. `whois` on its address still answers, with
+Every town the world draws keeps homes as well as publishers, Ridgemont beyond its
+landmarks among them (Millbrook draws 4–8 on `town-homes-<town key>`, appended after its
+businesses so no earlier key or address moves). A home publishes nothing: no domain, no
+findit listing, no place on the town directory, and outside Ridgemont no wifi a player can
+scan. `whois` on its address still answers, with
 `<Town> Broadband` as its organisation, but nothing tells a player that address exists.
 
 What leads there is a **relation** (`generation/relations.ts`): a lead kept on a

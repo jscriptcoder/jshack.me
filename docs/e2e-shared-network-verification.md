@@ -163,7 +163,8 @@ How the scan is built (`core/generation/generateWifi.ts`):
 - Seed is `wifi-<playerPubkey>-<scanIndex>`. **Deterministic per player per scan**, and
   `airodump-ng` increments `scanIndex`, so **re-running `airodump-ng` re-rolls the list**. A
   page reload does not.
-- Base draw: **2–3** crackable ESSIDs from the 50-entry `crackableEssidPool`.
+- Base draw: **2–3** crackable networks from Ridgemont's 178 (`crackableEssidPool`, held by
+  key and shown by the name each broadcasts).
 - Then the **occupied-ESSID injector**: ESSIDs *other players are currently on*, a
   random subset of size `0..min(n, 3)`.
 

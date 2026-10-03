@@ -116,8 +116,8 @@ gateways on their own seed key or machine id.
 | `phone-content-`, `tablet-` | a phone or tablet's storage, a tablet's model |
 | `mac-<machineId>`, `gw-net-<seed key>` | one MAC per host, a gateway's leases or MAC table |
 | `gw-admin-`, `gw-history-`, `gw-history-logs-`, `gw-history-backups-`, `gw-history-ui-` (by machine id) | a gateway's admin, history, rotations, backups, admin UI |
-| `network-profile-<key>` | how much stands behind a network's gateway beyond Ridgemont: `lone`, `flat` or `deep`, weighed by its category |
-| `gw-forwards-<key>` | the services a gateway beyond Ridgemont forwards beside its site: which, and on which public port (a home forwards ssh first when a machine there runs it) |
+| `network-profile-<key>` | how much stands behind the gateway of a network the world draws: `lone`, `flat` or `deep`, weighed by its category |
+| `gw-forwards-<key>` | the services the gateway of a network the world draws forwards beside its site: which, and on which public port (a home forwards ssh first when a machine there runs it) |
 | `town-businesses-<town key>` | how many businesses a town keeps (a village 3–6, a town 12–24, a city 40–80) |
 | `town-hospital-<town key>` | whether a town bigger than a village keeps a general hospital |
 | `town-business-kinds-<town key>` | each business's category and kind, no kind twice while its category has another |
@@ -137,7 +137,7 @@ gateways on their own seed key or machine id.
 
 ## How big a network is
 
-A network beyond Ridgemont declares a **profile** (`world.ts`), and `generateHomeLan` builds
+A network the world draws declares a **profile** (`world.ts`), and `generateHomeLan` builds
 the LAN it allows:
 
 - `lone`: the `.1` gateway and one machine.
@@ -156,8 +156,9 @@ never the profile, so a network with no inner gateway has none anywhere.
 
 ## The towns
 
-Ridgemont's networks are the catalog's; every other town is a row the world declares and
-generates (`world.ts`). Harrow Valley holds eleven towns: Ridgemont; the villages Millbrook
+Every town is a row the world declares and generates (`world.ts`), and so is Ridgemont, a
+city, beyond its 57 **landmarks**: the catalog's networks, written by hand and keyed by the
+name each broadcasts. Harrow Valley holds eleven towns: Ridgemont (`r0/t0`); the villages Millbrook
 (`r0/t1`), Ashby (`r0/t2`), Fenwick (`r0/t5`), Thornbury (`r0/t6`), Hollowmere (`r0/t7`) and
 Ely (`r0/t8`); the towns Oakhurst (`r0/t3`), Wexcombe (`r0/t9`) and Stonebury (`r0/t10`); and
 the city of Kingsford (`r0/t4`). A town's index is part of every key and address inside it, so
@@ -165,6 +166,26 @@ rows are only ever appended. Millbrook is declared before the corporations; ever
 a row of `TOWN_ROWS`, declared by one fold in row order, each one's names drawn clear of every
 network declared before it, so declaring it moved nothing of theirs but the gateways of the
 corporations that keep a branch there.
+
+**Ridgemont beyond its landmarks** is drawn last, after Stonebury, as a city is: 121 networks
+keyed `r0/t0/n57`–`r0/t0/n177` after the landmarks, answering after them in Ridgemont's block.
+Its council, police, library and courthouse are landmarks already, so of a city's
+institutions it draws only the general hospital (`ridgemonthospital.org`); then 65
+businesses, 44 homes, 8 practices and the branches of three corporations. They are drawn as
+any town's networks: a profile, leads among them, forwards beyond a site, `, Ridgemont` after
+a place's name on its site, findit's listing but for the unlisted. The landmarks are the
+exception, and every rule that leaves them out asks `isLandmark(key)` rather than the town: a
+landmark declares no profile or kind, keeps and receives no lead, forwards nothing beyond its
+site, and its site reads as it was written.
+
+Everybody stands in Ridgemont, so a scan draws from all 178 of its networks
+(`crackableEssidPool` in `generateWifi.ts`: the landmarks in the catalog's order, then the
+drawn networks in key order), each held by its **key**: the scan entry, the association, the
+join, the BSSID, the cracked password and the remembered connection all carry it, as every
+generator does. A player only ever reads the name a network broadcasts (`essidOf(key)` in
+`world.ts`): `airodump-ng`'s rows, `aircrack-ng`'s capture line, `nmcli`'s messages and the
+HUD show it, and `nmcli connect` matches what was typed against it. A landmark's key is its
+name, so nothing changed for one.
 
 A row is a name and a **size class**, and the class is one table (`SIZE_CLASSES`) of how many
 of each kind of place the town draws beyond its institutions:
@@ -239,7 +260,7 @@ homes and Ridgemont's networks have no kind.
   pages carry slots (`{goods}`, `{service}`, and a shop's `{daily}` and `{range}`, an
   office's `{work}`) that its kind fills (`SITE_WORDS` in `pools/webSites.ts`). A shop,
   café or office with no kind fills them with the words its category always had
-  (`CATEGORY_WORDS`), so Ridgemont's sites read as they always did. Every other page, and
+  (`CATEGORY_WORDS`), so the landmarks' sites read as they always did. Every other page, and
   everything else on its boxes, is its category's.
 - **Every town keeps an office.** The leads to a town's homes and hidden sites start on an
   office's desk or its file share, so when a town draws no office its last business is one.
@@ -457,7 +478,7 @@ build budget.
 - **Property tests over the whole world**, not examples: `npcHome`, `boxSurface`, `boxMemory`,
   `webSite`, `database`, `store`, `mailbox`/`networkMail`, `share`, `device` (+ one per kind),
   `gatewayNetwork`/`gatewayHistory`, `phoneHome`. Each reads every catalog and uncatalogued
-  network and every network of a town beyond Ridgemont, LAN and deep, for: no dead reference, no version (`softwareVersionsIn`), no unfilled
+  network and every network the world draws, LAN and deep, for: no dead reference, no version (`softwareVersionsIn`), no unfilled
   slot, no account but root where one is forbidden, no date after the epoch, no password-pool
   word, every pool entry reachable. Shared helpers: `src/test/worldContent.ts`,
   `src/test/deviceBoxes.ts`.
