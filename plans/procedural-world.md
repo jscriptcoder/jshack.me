@@ -20,7 +20,7 @@ v0.297.0); 7b complete 2026-10-01 (#588, v0.298.0). Slice 7 complete. Slice 8 gr
 v0.301.0); 8d complete 2026-10-02 (#592, v0.302.0); 8e split 2026-10-02 into the rows (8e)
 and findit (8f) (decision 19f); 8e complete 2026-10-02 (#593, v0.303.0); 8f complete
 2026-10-02 (#594, v0.304.0). Slice 8 complete. Slice 9 grilled 2026-10-02 as slices 9a–9b
-(decision 19g); 9a planned 2026-10-02, complete 2026-10-03 (#595, v0.305.0).
+(decision 19g); 9a planned 2026-10-02, complete 2026-10-03 (#595, v0.305.0); 9b planned 2026-10-03.
 Amends the §9 backlog item "Procedural world expansion — GRILLED & RESOLVED 2026-07-29" in
 `docs/conventions-and-gotchas.md`; where the two disagree, this file wins.
 
@@ -3898,6 +3898,100 @@ and locality; the name lookup by 9a-6's no-key assertions.
 **PR-ready when**: 9a-1 to 9a-9 hold, `vitest run` and one `WORLD_SWEEP=full` run, typecheck,
 lint and format pass, and the owner approves the commit.
 **Slice complete when**: its PR merges; AC-10 closes, and 9b is planned next.
+
+### Slice 9b: another player's network surfaces in about one scan in twenty, one at a time, and only from Ridgemont
+
+**Value**: Landing on another player's network becomes rare, as the world's size promised. Today
+three scans in four show somebody's occupied network, about one and a half a scan; after 9b a
+player who scans Ridgemont meets one in about one scan in twenty, never two at once, and never
+a network outside the town they stand in. Two players who mean to meet still can: the second
+finds the first's network in about 16 rescans.
+**Path**: `airodump-ng` → `env.scan.resolveOccupiedEssids()` (the server's name-only read,
+unchanged) → `rescanWifi` → `generateWifi`: the base draw as today, then the occupied keys in
+the scan's own pool that the draw does not show; with none, no draw; with some, one roll
+against 5%, and on a hit one of them → the roll stored, shown by its broadcast name and
+cracked and joined as any network.
+**Class**: behaviour change.
+**Delivery**: independent PR against `main`, branch `feat/procedural-world-injector`.
+**Status**: planned 2026-10-03.
+**Required implementation skills**: `tdd`, `testing`, `refactoring`; `mutation-testing` at
+PR-readiness.
+**Reduction program**: `N/A`.
+
+**Facts measured while planning** (against `main` at `6ce869fa`, 20,000 scans over 50 players
+with three Ridgemont keys occupied):
+- **Today's injector** adds an occupied network to **74.8%** of scans, **1.49** a scan on
+  average (up to `INJECT_MAX = 3`), and accepts any name the server lists: a key from another
+  town, or a lab network a dev stack admits (`admitsUndeclaredNetworks`), surfaces as readily.
+- **The base draw** offers any one Ridgemont key in **1.36%** of scans (2–3 of 178). With the
+  injector at 5%, a network one other player occupies shows in about 6.3% of scans: about 16
+  rescans on average, and nothing in 50 rescans about one time in 26.
+- The injector draws only when it has something to inject, so a scan with no occupants is the
+  base roll; every pinned scan in `generateWifi.test.ts` (the offers, the shuffle, the golden)
+  passes no occupants and does not move.
+- Nothing reads which scan injected what: `airodump-ng` passes the server's list straight to
+  `rescanWifi`, and `airodumpNg.test.ts` mocks the roll. The server's read and
+  `testSameLanOccupiedEssids` are untouched.
+- The occupied names arrive in the order the database returns its rows, de-duplicated.
+
+**Calls taken while planning** (decision 19g fixed the behaviour):
+- **The candidates are the pool's keys that are occupied and not already shown, in the pool's
+  order.** Filtering the pool rather than the server's list keeps a scan independent of the
+  order rows come back in, and keeps every name the pool lacks out by construction.
+- **One roll, `prng.next() < INJECT_CHANCE` (0.05)**, taken after the base draw and only when a
+  candidate exists, then one `pick`. `INJECT_MAX` goes. Accepted: a scan with candidates moves
+  its channels, powers and noise against today's, as today's injector already does.
+- **The rate is proven over 2,000 scans with candidates: between 3% and 7% inject**, and none
+  injects two. The generator is seeded, so the count is fixed; the band says what the number
+  means rather than pinning it.
+- **The four injection tests are rewritten to the new rule**: the name outside the pool
+  inverts (it never surfaces), the bounded sample becomes "at most one", the never-doubled and
+  never-a-ghost tests stand. Added: the rate, order-independence, a scan with nothing to inject
+  equal to one with no occupants, and an injected filler network read by its broadcast name
+  with its key's BSSID and password.
+- **The plan's close-out is its own step after 9b merges**, not part of the PR: the as-built
+  moves into `world-content-architecture.md`, `discovery-architecture.md`, handbook chapter 6
+  and the §9 backlog of `conventions-and-gotchas.md` (which this plan amends and which still
+  describes the 50-network world), and this file is deleted, as a `docs(v2):` PR as the
+  legacy-parity epic's retirement was (#566).
+
+**Acceptance criteria** (proposed 2026-10-03):
+
+- [ ] **9b-1** Over 2,000 scans that each have an occupied Ridgemont network to inject, between
+      3% and 7% show one, and no scan shows more than one injected network.
+- [ ] **9b-2** Only a network in the scan's own pool is injected: an occupied name that is not
+      one of Ridgemont's 178 keys (another town's network, a lab network, a name nobody
+      declares) never surfaces, and a network the base draw already shows is never doubled.
+- [ ] **9b-3** A scan with nothing to inject (no occupants, or none in the pool that the draw
+      does not show) is identical to the same scan with no occupants, and the order the occupied
+      names arrive in never changes a scan.
+- [ ] **9b-4** An injected network is an ordinary crackable entry: WPA2, a strong signal, the
+      BSSID and password its key derives. An injected filler network shows its broadcast name in
+      `airodump-ng`, never its key.
+- [ ] **9b-5** `e2e-shared-network-verification.md` describes the injector as it is (about 5% of
+      scans, one network, Ridgemont's only; about 16 rescans to meet a network; 50 empty rescans
+      before suspecting it), and `generateWifi.ts` says the same. The minor version is bumped to
+      0.306.0.
+
+Out of scope: the server's read (unchanged); deliberate rendezvous (a later epic); the plan's
+close-out (above).
+
+**RED**: in `generateWifi.test.ts`, 9b-1's rate and 9b-2's pool rule, both failing on `main`
+(about 75% inject, and a name outside the pool surfaces); then 9b-3 and 9b-4 (9b-3's
+order-independence fails on `main`, which injects from the server's order).
+**GREEN**: the candidates and the roll in `generateWifi.ts`.
+**REFACTOR**: assess.
+**Server evidence**: `N/A`: no server or `api/` file changes, and the read the injector consumes
+is unchanged; `testSameLanOccupiedEssids` still describes it.
+**Browser evidence**: `N/A`: a two-player run meets the injector in about 16 rescans by chance,
+which proves nothing a seeded test does not; the shared-LAN doc carries the operational
+change.
+**PRE-PR MUTATION**: Stryker on `generateWifi.ts` against `generateWifi.test.ts` (json
+reporter). The chance's comparison is killed by the rate band; the pool filter by 9b-2; the
+emptiness guard by 9b-3.
+**PR-ready when**: 9b-1 to 9b-5 hold, `vitest run`, typecheck, lint and format pass, and the
+owner approves the commit.
+**Slice complete when**: its PR merges; AC-11 closes, and the plan's close-out follows.
 
 ## Acceptance Criteria
 
