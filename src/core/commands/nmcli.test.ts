@@ -401,10 +401,9 @@ describe('nmcli', () => {
     });
 
     it('is a no-op when already connected to it, named by its name', async () => {
-      const { env, joinCalls } = nmcliEnv(
-        connectedTo(KEY, 'AA:BB:CC:DD:EE:57', '192.168.5.20'),
-        { wifiNetworks: [hospital()] },
-      );
+      const { env, joinCalls } = nmcliEnv(connectedTo(KEY, 'AA:BB:CC:DD:EE:57', '192.168.5.20'), {
+        wifiNetworks: [hospital()],
+      });
 
       const { text } = syncResult(
         await nmcli.execute(env, ['connect', NAME, 'sunshine2024'], NO_FLAGS),
@@ -412,6 +411,21 @@ describe('nmcli', () => {
 
       expect(text).toBe(`Already connected to ${NAME}`);
       expect(joinCalls).toEqual([]);
+    });
+
+    it('joins it from another network the player is on', async () => {
+      const { env, get, joinCalls } = nmcliEnv(
+        connectedTo('BEAN-THERE-WIFI', 'AA:BB:CC:DD:EE:01', '192.168.5.20'),
+        { wifiNetworks: [crackableNet(), hospital()] },
+      );
+
+      const { text } = await drainAsync(
+        await nmcli.execute(env, ['connect', NAME, 'sunshine2024'], NO_FLAGS),
+      );
+
+      expect(joinCalls).toEqual([KEY]);
+      expect(wlan0Of(get()).association).toEqual({ essid: KEY, bssid: 'AA:BB:CC:DD:EE:57' });
+      expect(text).toContain(`Connected to ${NAME}`);
     });
 
     it('reports it connected by its name', async () => {

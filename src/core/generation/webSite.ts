@@ -513,13 +513,9 @@ export const buildWebSite = ({
     site,
     place: persona.place,
     ...(persona.town === undefined ? {} : { town: persona.town }),
-    // A landmark's site reads as it was written, a network the world does not declare
-    // stands where its visitor does, and a corporation stands in no town.
+    // A landmark's site reads as it was written, and a corporation stands in no town.
     locality:
-      persona.town === undefined ||
-      declaredNetwork(essid) === undefined ||
-      isLandmark(essid) ||
-      site.includes(persona.town)
+      persona.town === undefined || isLandmark(essid) || site.includes(persona.town)
         ? ''
         : `, ${persona.town}`,
     domain: persona.domain,
