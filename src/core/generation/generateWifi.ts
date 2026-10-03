@@ -23,12 +23,13 @@
  *
  * Each scan is a FRESH ROLL, not a once-per-identity fixture: the seed mixes in
  * a per-scan index, so re-scanning ("relocating") re-draws which subset of APs is
- * in range. On top of the base draw from Ridgemont it can INJECT currently-occupied
- * ESSIDs (passed in by the caller, read name-only from the occupancy table) as
- * normal crackable APs — that is how a stranger stumbles onto another player's
- * live network and cracks it to the key that actually works. The injected sample
- * is random and may be empty, so visibility stays chance-based, not guaranteed;
- * an occupied ESSID the base draw already produced is never doubled.
+ * in range. On top of the base draw from Ridgemont it can INJECT one network another
+ * player occupies (the caller passes the occupancy table's names), as a normal
+ * crackable AP — that is how a stranger stumbles onto another player's live network
+ * and cracks it to the key that actually works. It happens in about one scan in
+ * twenty, so landing on somebody's network stays rare in a world this size, and it
+ * draws only from Ridgemont's own networks the scan does not already show: the
+ * player stands in Ridgemont, so nothing else is in range.
  */
 
 import { bssidFromEssid, type WifiNetwork } from '../network/wifi.js';
@@ -116,9 +117,10 @@ type NoiseReason = 'wpa3' | 'weak-signal' | 'hidden';
 
 const noiseReasons: readonly NoiseReason[] = ['wpa3', 'weak-signal', 'hidden'];
 
-/** At most this many occupied ESSIDs surface in any single scan — keeps an
- *  injected list realistic and bounds the per-scan reveal. */
-const INJECT_MAX = 3;
+/** The share of scans that show another player's network, when one is in range. Rare
+ *  enough that stumbling onto somebody is an event, common enough that two players who
+ *  mean to meet do in about 16 rescans. */
+const INJECT_CHANCE = 0.05;
 
 export type GenerateWifiInput = {
   /** The player's identity pubkey — the per-identity half of the scan seed. */
@@ -126,8 +128,8 @@ export type GenerateWifiInput = {
   /** Which scan this is (0, 1, 2, …) — the per-scan half of the seed, so
    *  re-scanning re-rolls. Defaults to the first scan. */
   readonly scanIndex?: number;
-  /** ESSIDs other players currently occupy (name-only). A random subset is
-   *  injected as crackable APs so a stranger can discover a live network.
+  /** Networks other players currently occupy (name-only). Now and then one in range
+   *  is injected as a crackable AP so a stranger can discover a live network.
    *  Defaults to none (a plain own-LAN scan). */
   readonly occupiedEssids?: readonly string[];
 };
@@ -142,15 +144,16 @@ export const generateWifi = ({
   const crackableCount = prng.nextInt(2, 3);
   const pickedEssids = prng.pickN(crackableEssidPool, crackableCount);
 
-  // Inject a random subset of currently-occupied ESSIDs, deduped against the base
-  // draw so an already-shown network is never doubled. An empty injectable set
-  // takes NO prng draw, so a plain scan stays byte-identical to the base roll.
-  const injectableEssids = occupiedEssids.filter((essid) => !pickedEssids.includes(essid));
-  const injectCount =
-    injectableEssids.length === 0
-      ? 0
-      : prng.nextInt(0, Math.min(injectableEssids.length, INJECT_MAX));
-  const injectedEssids = prng.pickN(injectableEssids, injectCount);
+  // Another player's network is in range only if it is one of Ridgemont's and the scan
+  // does not already show it. Read in the pool's order, so the order the server lists
+  // occupants in never changes a scan. With none in range the scan takes NO prng draw,
+  // so it stays byte-identical to the base roll.
+  const occupied = new Set(occupiedEssids);
+  const injectableEssids = crackableEssidPool.filter(
+    (essid) => occupied.has(essid) && !pickedEssids.includes(essid),
+  );
+  const injectedEssids =
+    injectableEssids.length > 0 && prng.next() < INJECT_CHANCE ? [prng.pick(injectableEssids)] : [];
   const allCrackableEssids = [...pickedEssids, ...injectedEssids];
 
   const usedChannels = new Set<number>();

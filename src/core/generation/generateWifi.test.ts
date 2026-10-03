@@ -248,68 +248,117 @@ describe('generateWifi', () => {
     );
   });
 
-  it('can inject a currently-occupied ESSID (even outside the catalog) as a crackable AP', () => {
-    // Neither pool contains this name, so it can ONLY reach the scan via injection.
-    const occupied = 'PLAYER-A-LIVE-NET';
-    const sightings: Extract<WifiNetwork, { crackable: true }>[] = [];
-    for (let scanIndex = 0; scanIndex < 20; scanIndex++) {
-      const hit = generateWifi({ seedPubkeyHex: SEED_B, scanIndex, occupiedEssids: [occupied] }).find(
-        (network) => network.essid === occupied,
+  describe("another player's network", () => {
+    // A scan of a player standing in Ridgemont: many players, each scanning many times.
+    const scanOf = (
+      index: number,
+      occupiedEssids: readonly string[] = [],
+    ): readonly WifiNetwork[] =>
+      generateWifi({ seedPubkeyHex: `player-${index % 40}`, scanIndex: index, occupiedEssids });
+
+    /** The networks a scan shows only because somebody occupies them. */
+    const injectedInto = (
+      index: number,
+      occupiedEssids: readonly string[],
+    ): readonly WifiNetwork[] => {
+      const drawn = new Set(
+        scanOf(index)
+          .filter(isCrackable)
+          .map((network) => network.essid),
       );
-      if (hit !== undefined && hit.crackable) sightings.push(hit);
-    }
+      return scanOf(index, occupiedEssids).filter(
+        (network) => network.crackable && !drawn.has(network.essid),
+      );
+    };
 
-    // Injection actually surfaces it within a handful of "relocations".
-    expect(sightings.length).toBeGreaterThan(0);
-    for (const network of sightings) {
-      expect(network.bssid).toBe(bssidFromEssid(occupied));
-      expect(POOL).toContain(network.password);
-    }
-    // ESSID-seeded: every sighting cracks to the SAME password (the key that works
-    // for everyone), never a per-scan draw.
-    expect(new Set(sightings.map((network) => network.password)).size).toBe(1);
-  });
+    const SCANS = 2000;
+    const OCCUPIED_IN_RIDGEMONT = ['r0/t0/n100', 'CITY-HALL-WIFI', 'r0/t0/n60'];
 
-  it('surfaces at most a bounded sample of occupied ESSIDs in any single scan', () => {
-    // More occupied networks than a single scan should reveal. The per-scan cap
-    // keeps the injected list realistic — a player never sees EVERY live network
-    // at once, only a bounded handful per "relocation".
-    const PER_SCAN_CAP = 3;
-    const occupied = ['NET-A', 'NET-B', 'NET-C', 'NET-D', 'NET-E', 'NET-F'];
-    let mostSeenInOneScan = 0;
-    for (let scanIndex = 0; scanIndex < 40; scanIndex++) {
-      const roll = generateWifi({ seedPubkeyHex: SEED_B, scanIndex, occupiedEssids: occupied });
-      const seen = roll.filter((network) => occupied.includes(network.essid)).length;
-      mostSeenInOneScan = Math.max(mostSeenInOneScan, seen);
-    }
-    // It actually injects more than one (not trivially capped at zero/one)...
-    expect(mostSeenInOneScan).toBeGreaterThan(1);
-    // ...but never more than the cap, even with far more networks available.
-    expect(mostSeenInOneScan).toBeLessThanOrEqual(PER_SCAN_CAP);
-  });
+    it('surfaces in about one scan in twenty, and never two at once', () => {
+      const injections = Array.from({ length: SCANS }, (_, index) =>
+        injectedInto(index, OCCUPIED_IN_RIDGEMONT),
+      );
 
-  it('never surfaces an ESSID that is neither in the catalog nor currently occupied', () => {
-    const ghost = 'GHOST-NET-NEVER-OCCUPIED';
-    for (let scanIndex = 0; scanIndex < 20; scanIndex++) {
-      const roll = generateWifi({
-        seedPubkeyHex: SEED_B,
-        scanIndex,
-        occupiedEssids: ['A-DIFFERENT-OCCUPIED-NET'],
-      });
-      expect(roll.find((network) => network.essid === ghost)).toBeUndefined();
-    }
-  });
+      const share = injections.filter((injected) => injected.length > 0).length / SCANS;
+      expect(share).toBeGreaterThanOrEqual(0.03);
+      expect(share).toBeLessThanOrEqual(0.07);
+      expect(Math.max(...injections.map((injected) => injected.length))).toBe(1);
+    });
 
-  it('never doubles an occupied ESSID the base draw already produced', () => {
-    for (let scanIndex = 0; scanIndex < 20; scanIndex++) {
-      const base = generateWifi({ seedPubkeyHex: SEED_A, scanIndex });
-      const baseCrackable = base.filter(isCrackable).map((network) => network.essid);
-      // Feeding the base-drawn ESSIDs back as "occupied" must not duplicate any of
-      // them — they are deduped out of the injectable set.
-      const roll = generateWifi({ seedPubkeyHex: SEED_A, scanIndex, occupiedEssids: baseCrackable });
-      for (const essid of baseCrackable) {
-        expect(roll.filter((network) => network.essid === essid)).toHaveLength(1);
+    it('surfaces only from Ridgemont, the town the player stands in', () => {
+      const elsewhere = DECLARED_NETWORKS.find((network) => network.town === 'Millbrook');
+      if (elsewhere === undefined) throw new Error('Millbrook declares no network');
+      // Another town's network, a lab network a dev stack admits, and a name nobody declares.
+      const outside = [elsewhere.key, 'MYSQL-LAB-3', 'PLAYER-A-LIVE-NET'];
+      const inside = 'r0/t0/n100';
+
+      const surfaced = new Set(
+        Array.from({ length: SCANS }, (_, index) =>
+          injectedInto(index, [...outside, inside]).map((network) => network.essid),
+        ).flat(),
+      );
+
+      expect([...surfaced]).toEqual([inside]);
+    });
+
+    it('leaves a scan with nothing to inject exactly as it would be with nobody about', () => {
+      for (let index = 0; index < 200; index++) {
+        const alone = scanOf(index);
+        const shown = alone.filter(isCrackable).map((network) => network.essid);
+
+        expect(scanOf(index, ['MYSQL-LAB-3', 'PLAYER-A-LIVE-NET'])).toEqual(alone);
+        expect(scanOf(index, shown)).toEqual(alone);
       }
-    }
+    });
+
+    it('reads the same whatever order the occupied networks are listed in', () => {
+      const occupied = crackableEssidPool.slice(40, 80);
+      const reversed = [...occupied].reverse();
+
+      for (let index = 0; index < SCANS; index++) {
+        expect(scanOf(index, reversed)).toEqual(scanOf(index, occupied));
+      }
+    });
+
+    it('surfaces as any crackable network, under the BSSID and password of its key', () => {
+      const key = 'r0/t0/n100';
+      const sightings = Array.from({ length: SCANS }, (_, index) =>
+        injectedInto(index, [key]),
+      ).flat();
+      const drawn = Array.from({ length: SCANS }, (_, index) => scanOf(index))
+        .flat()
+        .find((network) => network.essid === key);
+      if (drawn === undefined || !drawn.crackable) throw new Error(`no scan draws ${key}`);
+
+      expect(sightings.length).toBeGreaterThan(0);
+      for (const network of sightings) {
+        expect(network).toEqual({
+          bssid: bssidFromEssid(key),
+          essid: key,
+          power: expect.any(Number),
+          channel: expect.any(Number),
+          encryption: 'WPA2',
+          crackable: true,
+          password: drawn.password,
+        });
+        expect(network.power).toBeGreaterThanOrEqual(-65);
+        expect(network.power).toBeLessThanOrEqual(-35);
+      }
+    });
+
+    it('never doubles a network the scan already shows', () => {
+      for (let scanIndex = 0; scanIndex < 20; scanIndex++) {
+        const base = generateWifi({ seedPubkeyHex: SEED_A, scanIndex });
+        const baseCrackable = base.filter(isCrackable).map((network) => network.essid);
+        const roll = generateWifi({
+          seedPubkeyHex: SEED_A,
+          scanIndex,
+          occupiedEssids: [...baseCrackable, ...OCCUPIED_IN_RIDGEMONT],
+        });
+        for (const essid of baseCrackable) {
+          expect(roll.filter((network) => network.essid === essid)).toHaveLength(1);
+        }
+      }
+    });
   });
 });
