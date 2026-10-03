@@ -9,7 +9,10 @@ on close-out; the questions it deliberately left open are in `conventions-and-go
 
 It sits on top of the generators this doc does not re-describe: role and service placement
 (`machineRole.ts`, `generateHomeLan.ts`), passwords and accounts (`host-fs-` stream), the dpkg
-manifest and the CVE axes (legacy-parity Phase 3). Content never changes any of those.
+manifest and the CVE axes (legacy-parity Phase 3). Content never changes any of those. The
+world these networks stand in (its regions, towns, keys, addresses, scan and joins) is
+[`procedural-world-architecture.md`](./procedural-world-architecture.md); this doc covers what
+each kind of place is and what its boxes hold.
 
 ## The rules
 
@@ -168,24 +171,14 @@ network declared before it, so declaring it moved nothing of theirs but the gate
 corporations that keep a branch there.
 
 **Ridgemont beyond its landmarks** is drawn last, after Stonebury, as a city is: 121 networks
-keyed `r0/t0/n57`–`r0/t0/n177` after the landmarks, answering after them in Ridgemont's block.
-Its council, police, library and courthouse are landmarks already, so of a city's
-institutions it draws only the general hospital (`ridgemonthospital.org`); then 65
-businesses, 44 homes, 8 practices and the branches of three corporations. They are drawn as
-any town's networks: a profile, leads among them, forwards beyond a site, `, Ridgemont` after
-a place's name on its site, findit's listing but for the unlisted. The landmarks are the
-exception, and every rule that leaves them out asks `isLandmark(key)` rather than the town: a
-landmark declares no profile or kind, keeps and receives no lead, forwards nothing beyond its
-site, and its site reads as it was written.
-
-Everybody stands in Ridgemont, so a scan draws from all 178 of its networks
-(`crackableEssidPool` in `generateWifi.ts`: the landmarks in the catalog's order, then the
-drawn networks in key order), each held by its **key**: the scan entry, the association, the
-join, the BSSID, the cracked password and the remembered connection all carry it, as every
-generator does. A player only ever reads the name a network broadcasts (`essidOf(key)` in
-`world.ts`): `airodump-ng`'s rows, `aircrack-ng`'s capture line, `nmcli`'s messages and the
-HUD show it, and `nmcli connect` matches what was typed against it. A landmark's key is its
-name, so nothing changed for one.
+keyed `r0/t0/n57`–`r0/t0/n177`. Its council, police, library and courthouse are landmarks
+already, so of a city's institutions it draws only the general hospital
+(`ridgemonthospital.org`); then 65 businesses, 44 homes, 8 practices and the branches of three
+corporations, each drawn as any town's. The landmarks are the exception, and every rule that
+leaves them out asks `isLandmark(key)`: a landmark declares no profile or kind, keeps and
+receives no lead, forwards nothing beyond its site, and its site reads as it was written. How
+a drawn network is keyed and named, where it answers and how the scan offers it are in
+`procedural-world-architecture.md`.
 
 A row is a name and a **size class**, and the class is one table (`SIZE_CLASSES`) of how many
 of each kind of place the town draws beyond its institutions:
@@ -459,8 +452,9 @@ build budget.
 ## Budgets and carry limits
 
 - **`scripts/checkBudgets.ts`** runs as `postbuild` and fails on either breach: gzipped main chunk
-  over **284,975 B** (the 134,975 B pre-epic baseline + 150 KB), or the catalog networks averaging
-  over **2 ms per box** through `generatedBaseFsForMachineId`. It is a script, not a vitest test,
+  over **284,975 B** (the 134,975 B pre-epic baseline + 150 KB), or any set of boxes averaging
+  over **2 ms per box** through `generatedBaseFsForMachineId` (the sets, and findit's cold
+  limit, are in `procedural-world-architecture.md`). It is a script, not a vitest test,
   because Stryker aborts its dry run on any failure. Vercel's build runs the bundle check
   only; the timing is a local gate, since Vercel's build machine is several times slower. At
   close-out: 221,518 B and ~0.86 ms/box. Base trees are NOT

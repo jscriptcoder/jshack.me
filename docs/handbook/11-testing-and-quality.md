@@ -74,6 +74,12 @@ the handler agrees with the fixture:
   store and recover a usable credential by hashing the generator's pool.
 - `src/test/worldContent.ts`: `lanBoxes`, `deepBoxes`, `gatewaysOn`, `filesUnder`, `serialise`, and
   `falsehoodIn` (says why a generated line would not work if a player replayed it).
+  `ALL_ESSIDS` is what the whole-world content tests sweep: every Ridgemont landmark and
+  uncatalogued key, but of the 612 declared networks only a **fixed sample** (Millbrook and the
+  corporations whole, and from every other town the first network of each shape it holds).
+  `WORLD_SWEEP=full npx vitest run` sweeps every declared network instead, about twice as long;
+  run it once before a PR that changes generated content, since the sample misses what one
+  network or a coincidence breaks.
 - `src/test/deviceBoxes.ts`: device populations and 120 synthetic networks for rare kinds.
 
 UI tests start from `startGame(SEED_CONFIG)` (`alice@workstation`, root password `hunter2`).

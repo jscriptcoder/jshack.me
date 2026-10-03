@@ -96,11 +96,14 @@ round trip per lookup and reopens the gateway-resolves rule); MX, CNAME and TXT 
 
 ### Publishers are ESSID networks, not a second kind
 
-There is no internet-only network kind. A subset of the 50 catalog networks — the
-institutional categories (university, corporate, café, public, government, retail) —
-each gets a seeded gateway forward (public `:80` → its own webserver), so "the
-university's website" is the university network's own webserver, now reachable from the
-internet. Residential, IoT and hacker networks never publish.
+There is no internet-only network kind. A publisher is a declared network that carries a
+site: an institution always, a business or a practice and a corporation's head office always,
+a home or a branch never, and among the landmarks the institutional categories (university,
+corporate, café, public, government, retail). Its gateway forwards public `:80` to its own
+webserver, so "the university's website" is the university network's own webserver, now
+reachable from the internet. Residential, IoT and hacker networks never publish. 357 of the
+world's 612 networks publish (v0.306.0); the world itself is
+[`procedural-world-architecture.md`](./procedural-world-architecture.md).
 
 The category decides who publishes, with no dice: a publishing network is GUARANTEED a
 webserver (the lowest-addressed sibling is overridden into one if none rolled), and its

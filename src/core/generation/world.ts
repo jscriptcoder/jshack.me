@@ -2,12 +2,13 @@
  * The world beyond one wifi scan: its regions, the towns in each, and the networks each
  * town holds.
  *
- * Ridgemont is where everybody stands, and its networks are the hand-authored catalog.
- * Every other town is declared here as a row and generated from it, so the whole world is
- * a list anything can walk (findit's index, the reverse address lookup) and nothing about
- * it is stored. A row is a name and a size, a village or a town, and the size sets how many
- * of each kind of place it draws. Rows are only ever appended: a town's index is part of
- * every key and address inside it, so reordering the rows would move them all.
+ * Ridgemont is where everybody stands: its landmarks are the hand-authored catalog, and
+ * beyond them it is drawn as a city. Every other town is declared here as a row and
+ * generated from it, so the whole world is a list anything can walk (findit's index, the
+ * reverse address lookup) and nothing about it is stored. A row is a name and a size, a
+ * village, a town or a city, and the size sets how many of each kind of place it draws.
+ * Rows are only ever appended: a town's index is part of every key and address inside it,
+ * so reordering the rows would move them all. See docs/procedural-world-architecture.md.
  */
 
 import { ESSID_CATALOG, type NetworkCategory, type PublishedSite } from './pools/essidCatalog.js';

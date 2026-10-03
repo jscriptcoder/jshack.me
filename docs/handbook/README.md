@@ -44,6 +44,7 @@ v0.278.0 (2026-09-27). When the handbook and the code disagree, the code is righ
 | Give commands a new capability     | [Ch. 4, "Give commands a new capability"](./04-client-runtime.md#give-commands-a-new-capability-a-new-commandenv-seam)                                                                                          |
 | Add content to generated machines  | [Ch. 6, "Add generated content"](./06-world-generation.md#add-generated-content-to-existing-boxes), then [`world-content-architecture.md`](../world-content-architecture.md)                                    |
 | Add a network service              | [Ch. 6, "Add a network service"](./06-world-generation.md#add-a-network-service) and [Ch. 7, "Add a new data door"](./07-network-filesystem-scanning.md#add-a-new-data-door-a-service-reached-over-the-network) |
+| Add a town to the world            | [Ch. 6, "Add a town"](./06-world-generation.md#add-a-town), then [`procedural-world-architecture.md`](../procedural-world-architecture.md)                                                                      |
 | Add a login door or session kind   | [Ch. 8](./08-sessions-and-vulnerabilities.md#add-a-new-login-door-a-new-session-kind)                                                                                                                           |
 | Add a vulnerable package or effect | [Ch. 8](./08-sessions-and-vulnerabilities.md#add-a-vulnerable-package-or-a-new-effect) and [`vulnerability-architecture.md`](../vulnerability-architecture.md)                                                  |
 | Add a server API action            | [Ch. 10, "Add an API action"](./10-server-and-database.md#add-an-api-action) and [Ch. 9](./09-persistence-and-multiplayer.md#add-a-signed-api-call)                                                             |
@@ -83,6 +84,7 @@ linked from the relevant chapters:
   deferred backlog (§9). Search it; it is not meant to be read end to end.
 - [`cross-player-architecture.md`](../cross-player-architecture.md),
   [`world-content-architecture.md`](../world-content-architecture.md),
+  [`procedural-world-architecture.md`](../procedural-world-architecture.md),
   [`discovery-architecture.md`](../discovery-architecture.md),
   [`vulnerability-architecture.md`](../vulnerability-architecture.md): as-built deep dives.
 - [`e2e-shared-network-verification.md`](../e2e-shared-network-verification.md): two-player browser

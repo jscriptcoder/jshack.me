@@ -43,6 +43,10 @@ disagree, the code wins; fix the doc.
   machine holds and the standing rules for adding to it: personas, true references, frozen
   history in `.1` rotations, one stream per concern, version-free content, and the budgets
   (the generated world content epic, shipped).
+- [procedural-world-architecture.md](./procedural-world-architecture.md) — the declared world
+  beyond one WiFi scan: Harrow Valley's eleven towns, network keys and names, addresses derived
+  from a network's place, the scan's pool and injector, joins, how every network is reached, and
+  how to add a town (the procedural world epic, shipped).
 - [discovery-architecture.md](./discovery-architecture.md) — names and the public web: the
   in-game DNS, publisher networks, and the findit.io search engine.
 - [vulnerability-architecture.md](./vulnerability-architecture.md) — the vulnerability system:

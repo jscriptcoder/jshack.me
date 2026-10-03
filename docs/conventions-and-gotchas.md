@@ -609,6 +609,16 @@ epic's plan file was retired on close-out and its open questions are in §9 unde
 deferred". Ship waited for it. X2 (`findit.io`) was un-deferred ahead of it and is COMPLETE (v0.276.0,
 #562). With it and Phase 3 done, **legacy parity is complete and the ship gate is met.**
 
+**Procedural world — DONE (2026-10-03, v0.306.0):** nine slices in 24 PRs (#572–#596). Beyond
+Ridgemont's 57 landmarks lies Harrow Valley: eleven towns of villages, towns and cities, 612
+declared networks in all, with institutions, shops, cafés, offices, homes, places of care and 28
+placeless corporations with branches. Every public address is derived from a network's place;
+`whois` names who holds one; findit lists the world's sites from a memoised index; leads on
+boxes reach homes, unlisted businesses and branches; a scan draws from Ridgemont's 178 networks
+and shows another player's in about one scan in twenty. As built:
+[`procedural-world-architecture.md`](./procedural-world-architecture.md). The plan was retired on
+close-out; its open items are in §9 under "Procedural world deferred".
+
 **Neon themes — DONE (2026-09-28, v0.283.0):** five slices (#567–#571). Three Cyberpunk-style
 palettes (`neon`, the default, `redline` and `synth`) with a text glow, a neon font, a glitching
 banner, a HUD frame whose bars report live state, and a blinking block cursor; `effects` switches
@@ -621,7 +631,8 @@ work is the **post-ship missions epic** (see §9 and `docs/mission-ideas/`) and 
 in §9. When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan
 and that is expected. For the shipped systems, start from the three as-built docs named at the top
-of this section, then the cross-player architecture doc if the work touches cross-player paths.
+of this section, then the cross-player architecture doc if the work touches cross-player paths, and
+`procedural-world-architecture.md` if it touches the world's towns, addresses or scan.
 
 ---
 
@@ -711,9 +722,10 @@ of this section, then the cross-player architecture doc if the work touches cros
   into the typechecked `src/core/`.
 - **Format/lint gate = `npm run lint`** (ESLint).
 - **The whole-world content tests sweep a fixed sample; each PR's gate sweeps everything once.**
-  `ALL_ESSIDS` (`src/test/worldContent.ts`) holds every Ridgemont network and every key outside
-  the catalog, but of the drawn towns only Millbrook and the corporations whole and, from every
-  other town, the first network in key order of each shape it holds (category, subtype,
+  `ALL_ESSIDS` (`src/test/worldContent.ts`) holds every Ridgemont landmark and every key outside
+  the catalog, but of the drawn networks only Millbrook and the corporations whole and, from every
+  other town (Ridgemont's drawn networks included), the first network in key order of each shape
+  it holds (category, subtype,
   profile, whether a branch, whether unlisted). A town adds dozens of networks that read alike,
   and sweeping them all doubled the suite when the city landed (607 s to 1175 s of file time).
   The sample is fixed, so a red run reproduces. It catches none of what one network or a
@@ -740,8 +752,8 @@ of this section, then the cross-player architecture doc if the work touches cros
     fixed, not a number to raise.
   - **building the boxes of any one set averages over 2 ms per box**, the best of three timed
     passes after a warm-up pass (a loaded machine only ever adds time, so the quickest pass is
-    the closest to what the boxes cost). The sets are Ridgemont's catalog networks, each town the world draws, and the
-    corporations, each timed on its own so a dear town cannot hide in the world's average. It was about 0.15 ms per box over 615 boxes before world content. Base trees
+    the closest to what the boxes cost). The sets are Ridgemont's landmarks, each town the world draws, the
+    corporations and Ridgemont's drawn networks, each timed on its own so a dear town cannot hide in the world's average. It was about 0.15 ms per box over 615 boxes before world content. Base trees
     are rebuilt on every lookup with no cache, so the remedy is a cache for the box builders,
     added for that measured reason and never before one. **Before reaching for the cache, look
     for a lookup made twice inside one build.** At v0.263.0 four gateway content builders each
@@ -3077,48 +3089,43 @@ blocks the live PvP loop; each was a scoped owner decision, not a gap.
   player who closes the tab stays an occupant until they disconnect); and **matchmaking** beyond
   the rendezvous note in the procedural-expansion item below.
 
-- **Procedural world expansion — GRILLED & RESOLVED 2026-07-29; RE-GRILLED 2026-09-28 in
-  [`plans/procedural-world.md`](../plans/procedural-world.md), which wins where the two
-  disagree** (the catalog stays as hand-authored landmarks rather than becoming templates; the
-  world is regions → towns → networks; every public IP is derived, and the allocator retired
-  2026-09-29).
-  Split deliberately out of shared-network reconciliation, which
-  depends on the ESSID being the seed and not on the world being big — and doing reconciliation
-  first was cheaper to VERIFY, since today's 50-entry pool plus `INJECT_MAX = 3` makes encounters
-  frequent enough to exercise the shared-LAN behaviour live. Expanding the world first would have
-  made encounters rare *before* the code handling them was proven.
-  - **The ESSID space becomes procedurally generated and LARGE.** Today `generateWifi` draws every
-    player's scan from one 50-entry `crackableEssidPool` — so the world contains exactly **50
-    networks total, shared by all players**. Combined with permanent bricks and the whole LAN as
-    shared world objects, that world is fully consumable: a late-joining player could find all 50
-    stripped and dark. Owner call: the world should be **much bigger than 50 and procedurally
-    generated**, with the chance of landing on another player's LAN **small**. The current 50
-    become naming TEMPLATES rather than fixed world objects. Realism argues the same way — a fixed
-    catalog of 50 is the least realistic element in the design, and against an effectively
-    unbounded AP space permanent destruction becomes *more* plausible, not less. It costs little
-    infrastructure: the DHCP lease table is allocated lazily, so it already covers
-    injected/dynamic/future-themed ESSIDs, and public addresses are derived, not stored.
-    Also the natural substrate for the deferred themed/mission networks. Periodic world reset was
-    considered and **rejected** (it destroys the persistence that makes PvP damage meaningful).
-  - **The deferred fixed-IP mission catalog rides on this.** Themed/mission networks — a
-    hand-authored network reachable at a known address — have no home while the world is a fixed
-    50-entry pool whose every address derives from the ESSID. Procedural generation plus the
-    already-lazy public-IP and DHCP allocators (both built to cover injected/dynamic/future-themed
-    ESSIDs) are the substrate they need, so the catalog stays deferred until this lands.
-  - **The occupied-ESSID injector is tuned DOWN hard.** `generateWifi` currently injects up to
-    `INJECT_MAX = 3` occupied ESSIDs into EVERY scan — built to manufacture encounters in a
-    50-ESSID world, and now pulling directly against "collisions should be small". Drop to a low
-    roll (a few percent of scans, one at a time). Deleting the injector outright was **rejected**:
-    it would make encounters not merely rare but impossible, leaving the fully-shared-LAN work with
-    no live consumer to keep it honest.
-  - **Deliberate rendezvous is the eventual shape** — you are *led* to an occupied network via
-    intel (a trace, a findit.io lookup) rather than stumbling onto it. Best fit for the realism
-    principle, but it depends on a discovery surface that does not exist yet; revisit when
-    findit.io lands.
+- **Procedural world expansion — DONE (2026-10-03, v0.306.0).** Grilled 2026-07-29, re-grilled
+  2026-09-28 and shipped as #572–#596. As-built, its standing rules and the calls not to re-open:
+  [`procedural-world-architecture.md`](./procedural-world-architecture.md). It was split
+  deliberately out of shared-network reconciliation, which was cheaper to verify while the world
+  was 50 networks and `INJECT_MAX = 3` made encounters frequent; expanding first would have made
+  encounters rare before the code handling them was proven. What it settled against this item's
+  first grill: the catalog stayed as 57 hand-written landmarks rather than becoming templates;
+  the world is one region of eleven towns and 612 declared networks; every public address is
+  derived from a network's place, and the allocator and its table are gone; the injector shows
+  one occupied Ridgemont network in about 5% of scans. Periodic world reset stays **rejected**
+  (it destroys the persistence that makes PvP damage meaningful), and deleting the injector
+  stays rejected (it would leave the shared-LAN work no live consumer).
+  **Procedural world deferred** (each needs its own grill):
+  - **The map**, with fog of war: Ridgemont lit, a town appearing once one of its networks is
+    touched. Needs the first per-player exploration record (where it is stored, what counts as
+    "found"). Brings the town rows' map coordinates and `ping` across networks, latency growing
+    with distance. The world map of regions waits for a second region.
+  - **Travel** between towns and regions. Joining another town's WiFi gives another public
+    address, since the address belongs to the network. Needs a server-authoritative player
+    location; until then the join refuses every network outside Ridgemont.
+  - **More ways in**: hidden ESSIDs joined by a name learnt elsewhere (`nmcli` would have to
+    accept a known name missing from the scan), and a hacker BBS posting leads.
+  - **The categories after healthcare**: education (schools, and universities in drawn towns),
+    finance, media, industrial, hospitality, one a slice, each filling every category pool.
+  - **Deliberate rendezvous** is the eventual shape of meeting another player: being *led* to an
+    occupied network by intel (a trace, `whois`, a findit lookup) rather than stumbling onto it.
+    The pieces exist (`whois` on a trace's address names the network); nothing ties them into a
+    route yet.
+  - **The fixed-IP mission catalog** now has its substrate: a hand-written network declared after
+    a town's drawn ones answers at a known derived address, as Millbrook's cottage hospital does.
+  - **The WiFi password is checked by the client only.** The server never verifies the cracked
+    password, so a modified client can join without `aircrack-ng`. It predates the epic and is
+    derivable server-side from the encoded pool.
+  - **Ridgemont's council keeps no town directory**: it is a landmark, whose content cannot move.
+    Giving it one is a decision of its own.
   - **Consequence to hold onto: the PUBLIC IP remains the primary cross-player attack surface**,
-    and the shared LAN is the rare special case. Reconciliation was still worth doing — it fixed
-    the `machine_id` aliasing bug, made the rare encounter correct, and built the themed/mission
-    substrate — but it is not the headline PvP path. `nmap <public IP>` is.
+    and the shared LAN is the rare special case. `nmap <public IP>` is the headline PvP path.
 - **The patch-error map is written seven times.** `{ no_session: 'Permission denied',
   permission_denied: 'Permission denied', network_error: 'I/O error', modified_since_open: … }`
   appears verbatim in `daemon.ts`, `ftpShell.ts`, `mkdir.ts`, `rm.ts`, `touch.ts`, `systemctl.ts`

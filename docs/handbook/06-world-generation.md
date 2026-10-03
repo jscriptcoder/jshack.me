@@ -8,23 +8,26 @@ before touching `src/core/generation/`, `src/core/services/`, `src/core/identity
 `src/core/secrets/`.
 
 The standing content rules (believability, true references, frozen history, no version strings) are
-in [`world-content-architecture.md`](../world-content-architecture.md). This chapter is the
-engineering view; read that one before adding content.
+in [`world-content-architecture.md`](../world-content-architecture.md), and the declared world of
+regions, towns, addresses and the scan in
+[`procedural-world-architecture.md`](../procedural-world-architecture.md). This chapter is the
+engineering view; read those before adding content or a town.
 
 ## The shape in one paragraph
 
-**The shared world is keyed by the WiFi network name (the ESSID), not by the player.** Given an ESSID,
-pure functions produce the network's LAN, its gateways, a chain of hidden deeper networks, and the
-complete filesystem of every machine on them. Every player who joins the same network sees
-byte-identical machines, which is what makes shared networks and cross-player play possible. The
-player's own key seeds only player-private things (their workstation, their WiFi scans, their
-network card addresses). Nothing is cached: every lookup regenerates the tree it needs, on the client
-and on the server alike, and player changes are a journal replayed on top (chapter 7).
+**The shared world is keyed by the network's key, not by the player.** A hand-written landmark's key
+is its WiFi name (the ESSID, `CITY-HALL-WIFI`); a network a town draws has a key of its own
+(`r0/t3/n7`). Given a key, pure functions produce the network's LAN, its gateways, a chain of hidden
+deeper networks, and the complete filesystem of every machine on them. Every player who joins the
+same network sees byte-identical machines, which is what makes shared networks and cross-player
+play possible. The player's own key seeds only player-private things (their workstation, their WiFi
+scans, their network card addresses). Nothing is cached: every lookup regenerates the tree it needs,
+on the client and on the server alike, and player changes are a journal replayed on top (chapter 7).
 
 ```mermaid
 flowchart TD
   K["player's public key"] -->|"wifi-&lt;key&gt;-&lt;scan&gt;"| W["generateWifi: networks in range"]
-  W -->|"player cracks and joins"| E["ESSID"]
+  W -->|"player cracks and joins"| E["network key"]
   E -->|"home-subnet-"| SUB["LAN subnet 192.168.N"]
   E -->|"home-lan-"| LAN["generateHomeLan: gateway, inner router, switch, 3–8 machines"]
   E -->|"role-&lt;essid&gt;-&lt;ip&gt;"| ROLE["machine role → hostname"]
@@ -52,7 +55,10 @@ _Everything left of the journal is a pure function of strings. Only the journal 
 | `identity/identity.ts`                                                                                                                                  | Ed25519 keypair creation, storage and signing (`@noble/ed25519`).                                          |
 | `identity/workstation.ts`, `identity/router.ts`, `generation/remoteHostId.ts`                                                                           | Machine id derivations (chapter 7 has the table).                                                          |
 | `gameConfig/gameConfig.ts`                                                                                                                              | The new-game choices (machine name, username, root password) and their validation.                         |
-| `generation/pools/essidCatalog.ts`                                                                                                                      | The catalog of named WiFi networks (57 as of v0.278.0), their categories, places and web sites.            |
+| `generation/world.ts`                                                                                                                                   | The declared world: regions, town rows, each network's key, name, kind, profile and address.               |
+| `generation/pools/essidCatalog.ts`                                                                                                                      | Ridgemont's 57 hand-written landmarks, their categories, places and web sites.                             |
+| `generation/pools/businessKinds.ts`, `pools/homeNames.ts`                                                                                               | The name grammars and word lists the towns draw their places from.                                         |
+| `generation/relations.ts`, `generation/seededForwards.ts`                                                                                               | Leads between a town's networks, and the services a drawn network's gateway forwards.                      |
 | `generation/generateWifi.ts`                                                                                                                            | Which networks a WiFi scan shows, and each network's WiFi password.                                        |
 | `generation/generateHomeLan.ts`, `generateDeepLayer.ts`, `lanTopology.ts`                                                                               | Network topology (filesystem-free).                                                                        |
 | `generation/machineRole.ts`, `pools/hostnames.ts`, `rolePlacement.ts`                                                                                   | Machine roles, hostnames, and per-role service rates.                                                      |
@@ -110,11 +116,35 @@ Examples of the namespaces in use:
 | One machine | `host-fs-<essid>-<ip>` (accounts), `svc-<service>-<essid>-<ip>`, `backdoor-`, `etc-config-`, `web-site-`, `mysql-db-`, `log-history-`, …                                 |
 | Machine id  | `mac-<id>`, `gw-history-<id>`, …                                                                                                                                         |
 
-## From ESSID to machines
+## The declared world
+
+Everything a player can reach is listed once, in `DECLARED_NETWORKS` (`generation/world.ts`): one
+region, Harrow Valley; eleven towns, each a hand-authored row of a name and a size class (village,
+town or city); and 612 networks, of which 57 are Ridgemont's hand-written landmarks and the rest are
+drawn from their town's row on streams keyed by the town (`town-businesses-r0/t3`, …). The list is
+built once when the module loads and walked by everything that must see the whole world: findit's
+index, `whois`, the reverse address lookup and the reachability test.
+
+- **Keys and names.** Seeds and stored rows take the key; what a player reads takes the broadcast
+  name, through `essidOf(key)`. Two towns' `TOWN-HALL-WIFI` are different networks with different
+  passwords and LANs.
+- **Addresses** are a network's position: `publicAddress(key)` and `networkAt(address)` in
+  `world.ts`. A town's networks answer in its block (`87.<town>.x.y`), findit and the corporations in
+  `193`. Nothing is drawn or stored.
+- **Profiles.** A drawn network declares how much stands behind its gateway (`lone`, `flat` or
+  `deep`), and `generateHomeLan` reads it; a landmark declares none and is `deep`.
+- **Append only.** Regions, town rows, a town's networks and the word lists only ever grow at the
+  end, because a position is part of every key and address after it.
+
+The full model, the scan's pool and the joins are in
+[`procedural-world-architecture.md`](../procedural-world-architecture.md).
+
+## From a key to machines
 
 ### The home LAN
 
-`generateHomeLan(essid)`:
+`generateHomeLan(key)`, for the `deep` profile every landmark has (a `lone` network is the gateway
+and one machine, a `flat` one the gateway and 2–5, with no inner gateway or deep chain):
 
 1. Subnet `192.168.<0–255>` from the `home-subnet-` stream.
 2. `.1` is the access-point gateway (a router) with a seeded hostname.
@@ -140,8 +170,10 @@ gateways.
 
 ### The whole world, measured
 
-Measured on 2026-09-27 at v0.278.0 over the 57 catalog networks: 470 home-LAN hosts, 55 deep
-gateways and 169 deep machines, **694 generated boxes** in total.
+Measured on 2026-09-27 at v0.278.0 over the 57 landmarks: 470 home-LAN hosts, 55 deep gateways and
+169 deep machines, **694 generated boxes**. At v0.306.0 the world declares 612 networks and **3,727 generated boxes**:
+the landmarks' 694, Ridgemont's drawn 615, Kingsford's 797, the corporations' 256, and 1,365 across
+the other nine towns. The build's budget report (`checkBudgets`) prints each set's count.
 
 ## What a generated machine contains
 
@@ -220,10 +252,15 @@ generation cost. `scripts/checkBudgets.ts` runs after every `npm run build` and 
 - **the gzipped main JavaScript chunk exceeds 284,975 bytes** (the pre-content 134,975 bytes plus a
   fixed 150 KB allowance for content pools). Checked on Vercel too. The fix is to trim pools; the
   allowance does not grow.
-- **building every box on every catalog network averages over 2 ms per box**, after a warm-up pass.
-  Skipped on Vercel (`VERCEL=1`), whose builders are several times slower. The measurement is noisy
-  near the line; measure three times. Before adding a cache, look for a lookup made twice inside one
-  build (that fixed it once before).
+- **building the boxes of any one set averages over 2 ms per box**, the best of three passes after a
+  warm-up. The sets are the Ridgemont landmarks, each drawn town, the corporations and Ridgemont's
+  drawn networks, each timed alone so a dear town cannot hide in the average. Before adding a cache,
+  look for a lookup made twice inside one build (that fixed it once before); the one cache that
+  exists, the relations memo, was added when a town's box time measured 2.5 ms.
+- **building findit's generated web from nothing takes over 1,000 ms** (542–915 ms at v0.306.0, by
+  how loaded the machine was), the cost of the first search on a fresh server instance.
+
+The timings are skipped on Vercel (`VERCEL=1`), whose builders are several times slower.
 
 It is a script, not a test, because Stryker runs the whole test suite under instrumentation and a
 wall-clock assertion would break mutation runs.
@@ -248,7 +285,8 @@ generated file in the world and every vulnerability; it is free before launch an
 1. **Determinism.** Every generator is a pure function of its inputs. The client and the server
    rebuild the same box independently and replay one journal over it; any divergence routes writes to
    a different machine than the one displayed.
-2. **ESSID-keyed, never viewer-keyed**, for everything shared.
+2. **Key-keyed, never viewer-keyed**, for everything shared. Only what a player reads takes the
+   broadcast name.
 3. **One stream per concern; never add a draw to an existing stream.**
 4. **Role is derived from the hostname**, never stored.
 5. **Namespaced machine ids**; `ed25519:` is reserved for player workstations.
@@ -258,7 +296,8 @@ generated file in the world and every vulnerability; it is free before launch an
    pool the shipped wordlist covers.
 8. **MD5 is deliberately weak.** Hashes are meant to be crackable, including with real external
    tools. Do not change it.
-9. **Catalog order is load-bearing**: scans pick networks by position.
+9. **Declaration order is load-bearing**: a network's position is in its key and its address, and
+   scans pick networks by position. Append; never insert.
 10. **Deploy client and server together.** Both regenerate; a client and server built from different
     generator versions disagree about every box.
 
@@ -299,11 +338,22 @@ generated file in the world and every vulnerability; it is free before launch an
 6. The new row gets its own stream, so existing boxes' other services do not move; boxes that newly
    run it will show new content.
 
-### Add a network to the catalog
+### Add a town
 
-Append to `ESSID_CATALOG` with a category, a place, and optionally a web site. Fictional or parody
-names only. A publisher gets a derived `193.x` public IP and a guaranteed web server. Changing the
-list length changes which networks every WiFi scan offers, and moves the `generateWifi` golden test.
+Append a row to `TOWN_ROWS` in `world.ts` with the next index, a name (ten letters or fewer keeps
+every branch's WiFi name within 32 characters) and a size class. Its networks are drawn, named,
+addressed and linked by the same code as every other town's. Prove that only the new town and the
+gateways of the corporations branching there moved, add it to `scripts/testTowns.ts`, and run
+`WORLD_SWEEP=full npx vitest run` and `npm run build`. The full checklist is in
+`procedural-world-architecture.md`, "Adding to the world".
+
+### Add a hand-written network
+
+The catalog is closed at 57: inserting a landmark would move every key and address after it. A new
+hand-written network is declared after what its town already draws, as Millbrook's cottage hospital
+is, with a category, a place and optionally a web site. Fictional or parody names only. A publisher
+gets a guaranteed web server, and its address follows from its position. Only a Ridgemont network
+can be offered by a scan or joined.
 
 ### Add a spoiler pool
 
@@ -313,6 +363,9 @@ Add it to `secrets/secrets.ts` as a JSON string, run `npm run encode`, and read 
 
 - **The player's key is not the world seed**, despite a few stale comments (`prng.ts`,
   `gameConfig.ts`). It seeds only the player-private items listed above.
+- **A network's key is not its name.** For a landmark they are equal, so code that passes an ESSID
+  where a key belongs works on every landmark and fails on every drawn network. Show `essidOf(key)`;
+  match what a player typed against it; seed and store the key.
 - **A public IP is derived, never stored.** It is the network's place in the world
   (`publicAddress`/`networkAt` in `world.ts`), so moving a network in the declaration moves its
   address. A network the world does not declare has none.
@@ -335,7 +388,8 @@ Add it to `secrets/secrets.ts` as a JSON string, run `npm run encode`, and read 
 About 40 test files in `src/core/generation/` (including `device/`). Golden tests pin algorithms end
 to end (`generateHomeLan.test.ts`, `generateDeepLayer.test.ts`, `generateWifi.test.ts`, `ip.test.ts`,
 `routerFs.test.ts`, `workstationFs.test.ts`, `identity/workstation.test.ts`). Whole-world property
-tests sweep every catalog network plus a few uncatalogued ones. `services/generatedBoxDoors.test.ts`
+tests sweep every landmark, a few uncatalogued networks and a fixed sample of the drawn towns
+(`WORLD_SWEEP=full` sweeps them all; chapter 11). `services/generatedBoxDoors.test.ts`
 runs real `systemctl` and `apt` commands against a generated box and replays the result. There is no
 direct `prng.test.ts`; the algorithm is pinned through the golden tests.
 
