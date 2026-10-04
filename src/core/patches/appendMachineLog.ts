@@ -2,8 +2,14 @@
  * appendMachineLog — the shared server-side primitive for landing one already-
  * formatted syslog line on a machine's log file as the SYSTEM, not the player.
  *
- * It is a read-modify-write expressed as a patch: read the current log content,
- * append `${line}\n`, upsert. It deliberately bypasses L1/L2 — a service (sshd
+ * It is a read-modify-write expressed as a patch: read the log as a READER sees it,
+ * append `${line}\n`, upsert. "As a reader sees it" is the latest of every writer's
+ * rows at the path, not the appender's own row: a root wipe (a truncate, or an `rm`
+ * tombstone) lands under the WIPER's key, so building on the appender's own older
+ * row would bring the wiped lines back with the next line recorded, and no wipe
+ * would ever stick.
+ *
+ * It deliberately bypasses L1/L2 — a service (sshd
  * today; nmap/ftp/nc/mysqld/redis next) records the login/scan it just handled,
  * so the write is the system's, not a player-tier action. Every such server
  * action reuses THIS function; only the formatter (the line) and the target
@@ -17,18 +23,22 @@
 
 import type { AbsPath } from '../types.js';
 import type { FilePermissions } from '../filesystem/types.js';
-import type { PatchRow } from './upsertPatch.js';
+import type { ListPathPatchesResult, PatchRow } from './upsertPatch.js';
+import { orderPatchesForReplay } from './orderPatchesForReplay.js';
 
 export type MachineLogReadQuery = {
-  readonly writer_key: string;
   readonly machine_id: string;
   readonly path: string;
 };
 
-export type MachineLogReadResult = {
-  readonly data: { readonly content: string | null } | null;
-  readonly error: unknown;
-};
+/** Every writer's row at the log's path on the machine. */
+export type MachineLogReadResult = ListPathPatchesResult;
+
+/** The log a reader sees, which every system append builds on: the latest of every
+ *  writer's rows at the path. A tombstone (`content: null`) reads as an empty log, so
+ *  the next line recreates the file holding only itself. */
+export const logAsReadersSeeIt = (rows: MachineLogReadResult['data']): string =>
+  orderPatchesForReplay(rows ?? []).at(-1)?.content ?? '';
 
 export type AppendMachineLogDeps = {
   readonly readLog: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
@@ -51,14 +61,10 @@ export const appendMachineLog = async (
   target: MachineLogTarget,
   line: string,
 ): Promise<void> => {
-  const existing = await deps.readLog({
-    writer_key: target.writerKey,
-    machine_id: target.machineId,
-    path: target.path,
-  });
+  const existing = await deps.readLog({ machine_id: target.machineId, path: target.path });
   if (existing.error) return;
 
-  const current = existing.data?.content ?? '';
+  const current = logAsReadersSeeIt(existing.data);
   await deps.upsertPatch({
     writer_key: target.writerKey,
     machine_id: target.machineId,

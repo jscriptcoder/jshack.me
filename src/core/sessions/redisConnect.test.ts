@@ -26,6 +26,7 @@ import type { OwnerPatchRow } from '../network/materializeMachineFs.js';
 import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog.js';
 import type { PatchRow } from '../patches/upsertPatch.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
+import { logRead } from '../../test/factories/logRows.js';
 
 /**
  * `handleRedisConnect` opens a key-value store, and it opens one for ANYBODY.
@@ -260,7 +261,7 @@ describe('the line the daemon leaves behind', () => {
     const host = storeHostOn(ESSID);
     const earlier = '1234:M 08 Aug 2026 09:14:02.000 * Client connected from 10.0.0.9';
     const { deps, upsertPatch } = makeDeps({
-      readRedisLog: async () => ({ data: { content: `${earlier}\n` }, error: null }),
+      readRedisLog: async () => logRead(`${earlier}\n`),
     });
 
     await handleRedisConnect(await signedConnect(identity, { target_ip: host.ip }), deps);

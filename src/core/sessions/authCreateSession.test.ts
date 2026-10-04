@@ -35,6 +35,7 @@ import type { OwnerPatchRow } from '../network/materializeMachineFs.js';
 import type { PatchRow } from '../patches/upsertPatch.js';
 import type { Directory } from '../filesystem/types.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
+import { logRead } from '../../test/factories/logRows.js';
 
 /**
  * `handleAuthCreateSession` is the server-side gate for an ssh session on a
@@ -566,7 +567,7 @@ describe('handleAuthCreateSession', () => {
     const id = generateIdentity();
     const host = targetHostFor();
     const { deps, upsertPatch } = makeDeps({
-      readAuthLog: async () => ({ data: { content: 'PRIOR LINE\n' }, error: null }),
+      readAuthLog: async () => logRead('PRIOR LINE\n'),
     });
 
     await handleAuthCreateSession(validEnvelope(id, host, 'root'), deps);
@@ -584,7 +585,6 @@ describe('handleAuthCreateSession', () => {
     await handleAuthCreateSession(validEnvelope(id, host, 'root'), deps);
 
     expect(readAuthLog.mock.calls[0]![0]).toEqual({
-      writer_key: id.publicKeyHex,
       machine_id: hostMachineId(host, ESSID),
       path: AUTH_LOG_PATH,
     });

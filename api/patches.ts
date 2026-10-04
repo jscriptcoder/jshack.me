@@ -9,8 +9,8 @@ import {
 } from '../src/core/patches/upsertPatch.js';
 import { handleListPatches, type ListPatchesQuery } from '../src/core/patches/listPatches.js';
 import { handleRemovePatch, type PatchTreeQuery } from '../src/core/patches/removePatch.js';
-import { handleAppendAuthLog, type AuthLogContentQuery } from '../src/core/patches/appendAuthLog.js';
-import { handleAppendKernLog, type KernLogContentQuery } from '../src/core/patches/appendKernLog.js';
+import { handleAppendAuthLog } from '../src/core/patches/appendAuthLog.js';
+import { handleAppendKernLog } from '../src/core/patches/appendKernLog.js';
 import { handleRecordFtpTransfer } from '../src/core/patches/recordFtpTransfer.js';
 import { handleRecordPackageDowngrade } from '../src/core/patches/recordPackageDowngrade.js';
 import { handleRecordZoneTransfer } from '../src/core/patches/recordZoneTransfer.js';
@@ -22,7 +22,6 @@ import {
 import type { LanLeaseRow } from '../src/core/network/lanAddress.js';
 import { handleNmapScanDeep } from '../src/core/scan/nmapScanDeep.js';
 import type { OwnerPatchRow } from '../src/core/network/materializeWorkstationFs.js';
-import type { MachineLogReadQuery } from '../src/core/patches/appendMachineLog.js';
 import type {
   ActiveSessionQuery,
   FindActiveSessionResult,
@@ -102,19 +101,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return { error };
   };
 
-  // One writer's row at one path on one machine — what every log appender reads
-  // before it writes, so the append is a read-modify-write the SERVER performs and
-  // the client never supplies content.
-  const readMachineLog = async ({ writer_key, machine_id, path }: MachineLogReadQuery) => {
+  // Every writer's rows at one path on one machine. A save that names the content it
+  // was written against is checked against what the machine now holds, and every log
+  // appender builds on it, so the append is a read-modify-write the SERVER performs
+  // on the log a reader sees. Path-scoped: the machine-wide L2 read below is skipped
+  // entirely for an own-workstation write. The sort keys come back with the rows —
+  // the handler picks the row a reader materializes.
+  const listPathPatches = async ({
+    machine_id,
+    path,
+  }: {
+    readonly machine_id: string;
+    readonly path: string;
+  }): Promise<ListPathPatchesResult> => {
     const { data, error } = await supabase
       .from('patches')
-      .select('content')
-      .eq('writer_key', writer_key)
+      .select('content, updated_at, writer_key')
       .eq('machine_id', machine_id)
-      .eq('path', path)
-      .maybeSingle();
-    if (error) console.error('[patches] machine-log read error:', error);
-    return { data, error };
+      .eq('path', path);
+    if (error) console.error('[patches] path-rows lookup error:', error);
+    return { data: data as readonly PathPatchRow[] | null, error };
   };
 
   // L1 lookup shared by upsert/list/remove: the caller's ACTIVE session on the
@@ -249,24 +255,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   if (actionOf(req.body) === 'appendAuthLog') {
-    // The server reads the current auth.log content (own-workstation, the owner's
-    // own writer_key row) so the append is a read-modify-write the SERVER performs
-    // — the client never supplies content or time.
-    const readAuthLog = async ({ writer_key, machine_id, path }: AuthLogContentQuery) => {
-      const { data, error } = await supabase
-        .from('patches')
-        .select('content')
-        .eq('writer_key', writer_key)
-        .eq('machine_id', machine_id)
-        .eq('path', path)
-        .maybeSingle();
-      if (error) console.error('[patches] auth-log read error:', error);
-      return { data, error };
-    };
+    // The server reads the current auth.log as a reader sees it (every writer's row,
+    // so an intruder's root wipe stays wiped) and appends: a read-modify-write the
+    // SERVER performs — the client never supplies content or time.
     const { status, body } = await handleAppendAuthLog(req.body, {
       nonceStore: noopNonceStore,
       now: () => Date.now(),
-      readAuthLog,
+      readAuthLog: listPathPatches,
       upsertPatch,
     });
     res.status(status).json(body);
@@ -274,25 +269,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   if (actionOf(req.body) === 'appendKernLog') {
-    // The server reads the current kern.log content (own-workstation, the owner's own
-    // writer_key row) so the append is a read-modify-write the SERVER performs — the client
-    // never supplies content or time. Same shape as the auth.log appender above, pointed at
-    // the box's `/var/log/kern.log` for a `--local` miss crash.
-    const readKernLog = async ({ writer_key, machine_id, path }: KernLogContentQuery) => {
-      const { data, error } = await supabase
-        .from('patches')
-        .select('content')
-        .eq('writer_key', writer_key)
-        .eq('machine_id', machine_id)
-        .eq('path', path)
-        .maybeSingle();
-      if (error) console.error('[patches] kern-log read error:', error);
-      return { data, error };
-    };
+    // The server reads the current kern.log as a reader sees it (every writer's row)
+    // and appends: a read-modify-write the SERVER performs — the client never supplies
+    // content or time. Same shape as the auth.log appender above, pointed at the box's
+    // `/var/log/kern.log` for a `--local` miss crash.
     const { status, body } = await handleAppendKernLog(req.body, {
       nonceStore: noopNonceStore,
       now: () => Date.now(),
-      readKernLog,
+      readKernLog: listPathPatches,
       upsertPatch,
     });
     res.status(status).json(body);
@@ -301,9 +285,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   if (actionOf(req.body) === 'recordFtpTransfer') {
     // A file crossing a box in either direction is itemised in THAT box's vsftpd.log,
-    // so the read is the machine's row for this writer — the same read-modify-write
-    // shape appendAuthLog performs, pointed at someone else's machine and gated on the
-    // session that got the player in there.
+    // the same read-modify-write appendAuthLog performs, pointed at someone else's
+    // machine and gated on the session that got the player in there.
     // Whose box it is decides both the row the line lands in and the address it names:
     // a generated host keeps the caller's own row and the address they reported, while
     // another player's box owns its log and is told where the visitor really came from.
@@ -328,7 +311,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       nonceStore: noopNonceStore,
       now: () => Date.now(),
       findActiveSession,
-      readLog: readMachineLog,
+      readLog: listPathPatches,
       upsertPatch,
       findOccupantWorkstationByMachineId,
       findHomeNetworkByOwnerKey,
@@ -370,7 +353,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       nonceStore: noopNonceStore,
       now: () => Date.now(),
       findActiveSession,
-      readLog: readMachineLog,
+      readLog: listPathPatches,
       upsertPatch,
       findOccupantWorkstationByMachineId,
       findHomeNetworkByOwnerKey,
@@ -386,19 +369,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // the handler resolves WHICH box that is (the caller's own workstation when they
     // fetched their own leased address, else a generated sibling), reads the pages
     // itself, and stamps time/status/size. The client names only what it asked for.
-    // Same read-modify-write `patches`-table shapes as the scan and auth.log appenders
-    // around it.
-    const readLog = async ({ writer_key, machine_id, path }: MachineLogReadQuery) => {
-      const { data, error } = await supabase
-        .from('patches')
-        .select('content')
-        .eq('writer_key', writer_key)
-        .eq('machine_id', machine_id)
-        .eq('path', path)
-        .maybeSingle();
-      if (error) console.error('[patches] access-log read error:', error);
-      return { data, error };
-    };
     // The caller's own occupancy row rebuilds their box; their lease says which
     // address is theirs, so a self-fetch is recognised from the target alone.
     const listOccupantsByEssid = async (essid: string) => {
@@ -432,7 +402,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { status, body } = await handleRecordLanFetch(req.body, {
       nonceStore: noopNonceStore,
       now: () => Date.now(),
-      readLog,
+      readLog: listPathPatches,
       upsertPatch,
       listOccupantsByEssid,
       listLeasesByEssid,
@@ -447,17 +417,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // (the handler resolves the hosts + stamps time/ports; the client never names
     // a path or content). Same read-modify-write `patches`-table shapes as the su
     // and ssh auth.log appenders above.
-    const readLog = async ({ writer_key, machine_id, path }: MachineLogReadQuery) => {
-      const { data, error } = await supabase
-        .from('patches')
-        .select('content')
-        .eq('writer_key', writer_key)
-        .eq('machine_id', machine_id)
-        .eq('path', path)
-        .maybeSingle();
-      if (error) console.error('[patches] kern-log read error:', error);
-      return { data, error };
-    };
     // Story 7: a same-LAN scan also traces REAL fellow occupants. The occupancy read
     // (auth fields included — server-internal) is the LAN-boundary gate + the per-occupant
     // trace target; the journal read (full OwnerPatchRow shape, server order) materializes
@@ -495,7 +454,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { status, body } = await handleNmapScan(req.body, {
       nonceStore: noopNonceStore,
       now: () => Date.now(),
-      readLog,
+      readLog: listPathPatches,
       upsertPatch,
       listOccupantsByEssid,
       listLeasesByEssid,
@@ -511,17 +470,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // client never names a path or content). Same `patches`-table read-modify-write as
     // `nmapScan` above; the journal read replays the vantage gateway so a switch's live
     // `acl.conf` filters the trace.
-    const readLog = async ({ writer_key, machine_id, path }: MachineLogReadQuery) => {
-      const { data, error } = await supabase
-        .from('patches')
-        .select('content')
-        .eq('writer_key', writer_key)
-        .eq('machine_id', machine_id)
-        .eq('path', path)
-        .maybeSingle();
-      if (error) console.error('[patches] deep-scan kern-log read error:', error);
-      return { data, error };
-    };
     const findPatches = async ({ machine_id }: { machine_id: string }) => {
       const { data, error } = await supabase
         .from('patches')
@@ -535,7 +483,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { status, body } = await handleNmapScanDeep(req.body, {
       nonceStore: noopNonceStore,
       now: () => Date.now(),
-      readLog,
+      readLog: listPathPatches,
       upsertPatch,
       findPatches,
     });
@@ -569,34 +517,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { status, body } = await handleRecordZoneTransfer(req.body, {
       nonceStore: noopNonceStore,
       now: () => Date.now(),
-      readLog: readMachineLog,
+      readLog: listPathPatches,
       upsertPatch,
       findHomeNetworkByOwnerKey,
     });
     res.status(status).json(body);
     return;
   }
-
-  // Every writer's rows for the ONE path being written, so a save that names the
-  // content it was written against can be checked against what the machine now
-  // holds. Path-scoped: the machine-wide L2 read above is skipped entirely for an
-  // own-workstation write, and this check applies to every machine alike. The sort
-  // keys come back with the rows — the handler picks the row a reader materializes.
-  const listPathPatches = async ({
-    machine_id,
-    path,
-  }: {
-    readonly machine_id: string;
-    readonly path: string;
-  }): Promise<ListPathPatchesResult> => {
-    const { data, error } = await supabase
-      .from('patches')
-      .select('content, updated_at, writer_key')
-      .eq('machine_id', machine_id)
-      .eq('path', path);
-    if (error) console.error('[patches] base-content lookup error:', error);
-    return { data: data as readonly PathPatchRow[] | null, error };
-  };
 
   const { status, body } = await handleUpsertPatch(req.body, {
     nonceStore: noopNonceStore,

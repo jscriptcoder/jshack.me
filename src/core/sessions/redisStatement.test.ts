@@ -36,6 +36,7 @@ import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appen
 import type { OwnerPatchRow } from '../network/materializeMachineFs.js';
 import type { PatchRow } from '../patches/upsertPatch.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
+import { logRead } from '../../test/factories/logRows.js';
 
 /**
  * `handleRedisStatement` answers one question against a box's REAL store — journal
@@ -502,7 +503,7 @@ describe('producing a locked store secret', () => {
     const host = lockedStoreHostOn(ESSID);
     const earlier = '4470:M 09 Aug 2026 11:00:00.000 * Client connected from 10.0.0.9';
     const { deps, upsertPatch } = makeDeps({
-      readRedisLog: async () => ({ data: { content: `${earlier}\n` }, error: null }),
+      readRedisLog: async () => logRead(`${earlier}\n`),
     });
 
     const response = await handleRedisStatement(
@@ -718,10 +719,7 @@ describe('changing a store through the door', () => {
     const identity = generateIdentity();
     const host = openStoreHostOn(ESSID);
     const { deps, upsertPatch } = makeDeps({
-      readRedisLog: vi.fn(async () => ({
-        data: { content: 'a line the box already held' },
-        error: null,
-      })),
+      readRedisLog: vi.fn(async () => logRead('a line the box already held')),
     });
 
     await handleRedisStatement(

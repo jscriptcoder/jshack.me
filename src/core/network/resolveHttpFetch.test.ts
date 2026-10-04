@@ -32,6 +32,7 @@ import { publicAddress } from '../generation/world.js';
 import { FINDIT_DOMAIN, FINDIT_NETWORK } from '../generation/findit.js';
 import { FINDIT_FRONT_PAGE } from '../findit/page.js';
 import type { MachinePatchRow } from '../findit/webIndex.js';
+import { logRead } from '../../test/factories/logRows.js';
 
 /**
  * `handleResolveHttpFetch` is the credential-free cross-player door: a fetch carries no
@@ -769,7 +770,7 @@ describe('the fetched machine records the hit', () => {
     const previous = '203.0.113.9 - - [29/Jul/2026:09:00:00 +0000] "GET / HTTP/1.1" 200 12\n';
     const { deps, upsertPatch } = makeDeps({
       patches: aliceServing(),
-      readLog: async () => ({ data: { content: previous }, error: null }),
+      readLog: async () => logRead(previous),
     });
 
     await handleResolveHttpFetch(envelope(), deps);
@@ -781,16 +782,12 @@ describe('the fetched machine records the hit', () => {
     );
   });
 
-  it('reads the existing log under the OWNER key too — or the append would fork the row', async () => {
+  it('reads the existing access log on the fetched machine before appending to it', async () => {
     const { deps, readLog } = makeDeps({ patches: aliceServing() });
 
     await handleResolveHttpFetch(envelope(), deps);
 
-    expect(readLog).toHaveBeenCalledWith({
-      writer_key: ALICE.publicKeyHex,
-      machine_id: ALICE_WS,
-      path: ACCESS_LOG_PATH,
-    });
+    expect(readLog).toHaveBeenCalledWith({ machine_id: ALICE_WS, path: ACCESS_LOG_PATH });
   });
 
   it('ignores a client-supplied source IP — a caller cannot frame another network', async () => {

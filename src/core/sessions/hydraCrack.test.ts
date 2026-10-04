@@ -59,6 +59,7 @@ import type {
   PatchRow,
 } from '../patches/upsertPatch.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
+import { logRead } from '../../test/factories/logRows.js';
 
 /**
  * `handleHydraCrack` decides what a player can crack, and it decides it
@@ -1057,7 +1058,7 @@ describe('the trace a hydra sweep leaves on its target', () => {
     const earlier = 'Aug  9 10:00:00 box sshd[100]: Accepted password for guest from 192.168.1.9\n';
     const { deps, upsertPatch } = makeDeps({
       wordlist: ['no-such-word'],
-      readAuthLog: async () => ({ data: { content: earlier }, error: null }),
+      readAuthLog: async () => logRead(earlier),
     });
 
     await handleHydraCrack(signedCrack(identity, { target_ip: host.ip }), deps);
@@ -1375,7 +1376,7 @@ describe('the trace a hydra sweep leaves on its target', () => {
         '2026-08-09T10:00:00.000000Z\t99 Connect\treadonly@10.0.0.9 on shop using TCP/IP\n';
       const { deps, upsertPatch } = makeDeps({
         wordlist: ['no-such-word'],
-        readAuthLog: async () => ({ data: { content: earlier }, error: null }),
+        readAuthLog: async () => logRead(earlier),
       });
 
       await handleHydraCrack(

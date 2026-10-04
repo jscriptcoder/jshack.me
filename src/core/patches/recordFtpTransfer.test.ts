@@ -19,6 +19,7 @@ import {
 } from '../logging/vsftpdLog.js';
 import { derivePid } from '../logging/syslog.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
+import { logRead } from '../../test/factories/logRows.js';
 
 /**
  * The download half of what makes ftp the LOUD door: a file that leaves a box is
@@ -204,7 +205,7 @@ describe('handleRecordFtpTransfer', () => {
     const id = generateIdentity();
     const envelope = signRequest(id, 'recordFtpTransfer', transfer);
     const { deps, upsertPatch } = makeDeps({
-      readLog: async () => ({ data: { content: 'AN EARLIER LOGIN\n' }, error: null }),
+      readLog: async () => logRead('AN EARLIER LOGIN\n'),
     });
 
     await handleRecordFtpTransfer(envelope, deps);

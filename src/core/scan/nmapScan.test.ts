@@ -21,6 +21,7 @@ import type { LanLeaseRow } from '../network/lanAddress.js';
 import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog.js';
 import type { PatchRow } from '../patches/upsertPatch.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
+import { logRead } from '../../test/factories/logRows.js';
 
 /**
  * `handleNmapScan` is the server-side scan action: it verifies the signed
@@ -270,7 +271,7 @@ describe('handleNmapScan', () => {
     const id = generateIdentity();
     const host = loggedHostsOf(id.publicKeyHex)[0]!;
     const { deps, upsertPatch } = makeDeps({
-      readLog: vi.fn(async () => ({ data: { content: 'PRIOR LINE\n' }, error: null })),
+      readLog: vi.fn(async () => logRead('PRIOR LINE\n')),
     });
 
     await handleNmapScan(envelope(id, host.ip), deps);

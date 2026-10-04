@@ -26,6 +26,7 @@ import { MYSQL_LOG_PATH } from '../logging/mysqlLog.js';
 import type { PatchRow } from '../patches/upsertPatch.js';
 import type { OwnerPatchRow } from '../network/materializeMachineFs.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
+import { logRead } from '../../test/factories/logRows.js';
 
 /**
  * `handleMysqlStatement` answers one statement against a box's real database.
@@ -84,10 +85,7 @@ const makeDeps = (
     error: null,
   }));
   const upsertPatch = vi.fn<MysqlStatementDeps['upsertPatch']>(async () => upsertResult);
-  const readMysqlLog = vi.fn<MysqlStatementDeps['readMysqlLog']>(async () => ({
-    data: { content: existingLog },
-    error: null,
-  }));
+  const readMysqlLog = vi.fn<MysqlStatementDeps['readMysqlLog']>(async () => logRead(existingLog));
   const deps: MysqlStatementDeps = {
     nonceStore: freshStore,
     findPatches,
@@ -256,10 +254,7 @@ const crossPlayerDeps = (
       error: null,
     })),
     upsertPatch,
-    readMysqlLog: vi.fn<MysqlStatementDeps['readMysqlLog']>(async () => ({
-      data: { content: null },
-      error: null,
-    })),
+    readMysqlLog: vi.fn<MysqlStatementDeps['readMysqlLog']>(async () => logRead(null)),
     now: () => STAMPED_AT,
     findNetworkByPublicIp: async () => ({
       data: { router_machine_id: AP_GATEWAY_ID, essid: TARGET_ESSID },
@@ -330,10 +325,7 @@ const deepDeps = (deepPatches: readonly OwnerPatchRow[] = []) => {
       error: null,
     })),
     upsertPatch,
-    readMysqlLog: vi.fn<MysqlStatementDeps['readMysqlLog']>(async () => ({
-      data: { content: null },
-      error: null,
-    })),
+    readMysqlLog: vi.fn<MysqlStatementDeps['readMysqlLog']>(async () => logRead(null)),
     now: () => STAMPED_AT,
     findNetworkByPublicIp: async () => ({ data: null, error: null }),
     listOccupantsByEssid: async () => ({ data: [], error: null }),
@@ -488,10 +480,7 @@ const sameLanDeps = (
       error: null,
     })),
     upsertPatch,
-    readMysqlLog: vi.fn<MysqlStatementDeps['readMysqlLog']>(async () => ({
-      data: { content: null },
-      error: null,
-    })),
+    readMysqlLog: vi.fn<MysqlStatementDeps['readMysqlLog']>(async () => logRead(null)),
     now: () => STAMPED_AT,
     findNetworkByPublicIp: async () => ({ data: null, error: null }),
     listOccupantsByEssid: async () => ({

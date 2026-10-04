@@ -21,6 +21,7 @@ import { asGameTime } from '../types.js';
 import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog.js';
 import type { PatchRow } from '../patches/upsertPatch.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
+import { logRead } from '../../test/factories/logRows.js';
 
 /**
  * `handleRecordLanFetch` is the server-side action behind an own-LAN `curl`: it
@@ -734,7 +735,7 @@ describe('handleRecordLanFetch', () => {
     const earlier = '10.0.0.9 - - [29/Jul/2026:11:00:00 +0000] "GET / HTTP/1.1" 200 12';
     const sourceIp = lanAddressFor(ESSID, freeOctet());
     const { deps, upsertPatch } = makeDeps({
-      readLog: async () => ({ data: { content: `${earlier}\n` }, error: null }),
+      readLog: async () => logRead(`${earlier}\n`),
     });
 
     await handleRecordLanFetch(

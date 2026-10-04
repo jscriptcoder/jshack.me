@@ -19,6 +19,7 @@ import { asGameTime } from '../types.js';
 import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog.js';
 import type { PatchRow } from '../patches/upsertPatch.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
+import { logRead } from '../../test/factories/logRows.js';
 
 /**
  * `handleAuthCreateSessionSameLan` is the same-WiFi LAN connect front door. A fellow
@@ -543,10 +544,9 @@ describe('handleAuthCreateSessionSameLan', () => {
 
     it('appends onto the existing auth.log content rather than clobbering it', async () => {
       const priorLine = expectedSshdLine('failure', 'guest', '192.168.50.9');
-      const { deps, upsertPatch } = makeDeps(undefined, undefined, undefined, async () => ({
-        data: { content: `${priorLine}\n` },
-        error: null,
-      }));
+      const { deps, upsertPatch } = makeDeps(undefined, undefined, undefined, async () =>
+        logRead(`${priorLine}\n`),
+      );
 
       await handleAuthCreateSessionSameLan(
         envelope(BOB, { username: 'guest', password: GUEST_PW }),

@@ -27,6 +27,7 @@ import type {
   MachineLogReadResult,
 } from '../patches/appendMachineLog.js';
 import type { PatchRow } from '../patches/upsertPatch.js';
+import { logRead } from '../../test/factories/logRows.js';
 
 /**
  * `handleAuthCreateSessionInnerGateway` is the server gate for `ssh user@<inner>:<fwd
@@ -190,7 +191,7 @@ const GHOST_ROW = `ghost:${md5(GHOST_PW)}:1001:1001:Ghost:/home/ghost:/bin/bash`
 const makeLogDeps = () => {
   const appended: PatchRow[] = [];
   const readAuthLog = vi.fn<(query: MachineLogReadQuery) => Promise<MachineLogReadResult>>(
-    async () => ({ data: { content: null }, error: null }),
+    async () => logRead(null),
   );
   const upsertPatch = vi.fn<(row: PatchRow) => Promise<{ error: unknown }>>(async (row) => {
     appended.push(row);

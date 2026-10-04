@@ -21,6 +21,7 @@ import { KERN_LOG_PATH, KERN_LOG_PERMISSIONS } from '../logging/kernLog.js';
 import type { Identity } from '../commands/types.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 import type { UserType } from '../types.js';
+import { logRead } from '../../test/factories/logRows.js';
 
 /**
  * `rebootMachine` is the eviction action: a reboot ends the sessions on the box
@@ -481,7 +482,7 @@ describe('the line a reboot leaves behind', () => {
     const { deps, upsertPatch } = makeDeps({
       findActiveSession: holding('root'),
       findOccupantWorkstationByMachineId: owned,
-      readLog: async () => ({ data: { content: existing }, error: null }),
+      readLog: async () => logRead(existing),
     });
 
     await handleRebootMachine(

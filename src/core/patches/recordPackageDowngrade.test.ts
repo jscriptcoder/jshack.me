@@ -17,6 +17,7 @@ import { generateIdentity } from '../identity/identity.js';
 import { computeWorkstationId } from '../identity/workstation.js';
 import { DPKG_LOG_OWNER, DPKG_LOG_PATH, DPKG_LOG_PERMISSIONS } from '../logging/dpkgLog.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
+import { logRead } from '../../test/factories/logRows.js';
 
 /**
  * The record a box keeps of being rolled BACKWARDS. Pinning a package to an older
@@ -179,7 +180,7 @@ describe('handleRecordPackageDowngrade', () => {
     const envelope = signRequest(id, 'recordPackageDowngrade', downgrade);
     const existing = '2026-08-01 09:00:00 downgrade nginx 1.25.3 1.24.0 Client "10.0.0.5"\n';
     const { deps, upsertPatch } = makeDeps({
-      readLog: async () => ({ data: { content: existing }, error: null }),
+      readLog: async () => logRead(existing),
     });
 
     await handleRecordPackageDowngrade(envelope, deps);
