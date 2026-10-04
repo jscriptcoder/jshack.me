@@ -21,8 +21,8 @@
 //     `launchVantage` (the hop below the active one), and the only place it can be
 //     proved end to end: a unit test can assert the rule, but only the live occupancy
 //     and session rows can show the server agreeing with it.
-//   - An unowned generated host keeps the CALLER's own row and the address they
-//     reported — the opposite of every branch above, so the rule is proved both ways.
+//   - An unowned generated host files under its NETWORK's key, at the address the caller
+//     reported — every occupant reaches the identical box, so no visitor owns its row.
 //
 // Usage (with supabase + vercel dev running):
 //   npx dotenv -e .env.development.local -- npx tsx scripts/testAptDowngradeTrace.ts
@@ -30,6 +30,7 @@
 // Exits 0 when all checks pass, 1 on failure, 2 on missing env / no usable host.
 
 import { createClient } from '@supabase/supabase-js';
+import { apGatewayLogWriterKey } from '../src/core/logging/apGatewayLogWriter.js';
 import { signRequest } from '../src/core/signedRequest/sign.js';
 import { generateIdentity } from '../src/core/identity/identity.js';
 import { computeWorkstationId } from '../src/core/identity/workstation.js';
@@ -90,7 +91,7 @@ const C_ESSID = 'DOORBELL-CAM-OPEN';
 const C_PUBLIC_IP = publicAddressOf(C_ESSID);
 const C_WS = computeWorkstationId('borrowed', bystander.publicKeyHex);
 
-// An ordinary generated sibling nobody owns — the branch where the caller's own row IS
+// An ordinary generated sibling nobody owns — the branch where the network's own row is
 // the record. Selected the way `testRemoteAptInstall` selects one: `kind: 'machine'` and
 // actually resolvable, since routers and switches are a different tree entirely.
 const lanHosts = generateHomeLan(A_ESSID).hosts;
@@ -321,7 +322,7 @@ check(
   `status ${borrowedVantage.status} ${errorOf(borrowedVantage.body) ?? '-'}, rows ${await rowCount(A_WS)}`,
 );
 
-// === 6. An unowned generated host keeps the CALLER's own row =======================
+// === 6. An unowned generated host files under its NETWORK's key =======================
 await seedSession(NPC_MACHINE, A_ESSID, 'ssh-npc-dpkg-wirecheck');
 const onNpc = await downgrade({ machine_id: NPC_MACHINE });
 check(
@@ -333,9 +334,9 @@ check(
 const npcRow = await logRow(NPC_MACHINE);
 const npcLine = npcRow === null ? '' : latestLine(npcRow.content);
 check(
-  "11. it lands in the CALLER's own row, at the address they reported",
+  "11. it lands in the NETWORK's row, at the address they reported",
   npcRow !== null &&
-    npcRow.writerKey === attacker.publicKeyHex &&
+    npcRow.writerKey === apGatewayLogWriterKey(A_ESSID) &&
     npcLine.includes(`Client "${CLAIMED_IP}"`),
   npcRow === null ? '(no dpkg.log row)' : `writer ${npcRow.writerKey.slice(0, 12)}…; ${npcLine}`,
 );

@@ -30,6 +30,7 @@ import {
   type Listener,
 } from '../services/pidfile.js';
 import { derivePid } from '../logging/syslog.js';
+import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
 import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog.js';
 import type { OwnerPatchRow } from '../network/materializeMachineFs.js';
 import type { PatchRow } from '../patches/upsertPatch.js';
@@ -531,16 +532,54 @@ describe('handleAuthCreateSession', () => {
     await handleAuthCreateSession(validEnvelope(id, host, 'root'), deps);
 
     // The line is system-written to the remote host's shared journal, keyed by
-    // the attacker's writer_key + the remote machine_id, under /var/log/auth.log
-    // with root-owner/root-write perms.
+    // the NETWORK's own key + the remote machine_id, under /var/log/auth.log
+    // with root-owner/root-write perms. Every occupant of the WiFi reaches this
+    // same box, so a row per caller would let each login erase the last.
     expect(upsertPatch.mock.calls[0]![0]).toEqual({
-      writer_key: id.publicKeyHex,
+      writer_key: apGatewayLogWriterKey(ESSID),
       machine_id: hostMachineId(host, ESSID),
       path: AUTH_LOG_PATH,
       content: `${expectedSshdLine(host, 'success', 'root')}\n`,
       owner: 'root',
       permissions: { read: ['root', 'user', 'guest'], write: ['root'], execute: ['root'] },
       node_type: 'file',
+    });
+  });
+
+  it('files a failed login under the network’s key too, never the caller’s own', async () => {
+    const id = generateIdentity();
+    const host = targetHostFor();
+    const envelope = signRequest(
+      id,
+      'authCreateSession',
+      basePayload({ target_ip: host.ip, username: 'root', password: 'not-the-password' }),
+    );
+    const { deps, upsertPatch } = makeDeps();
+
+    await handleAuthCreateSession(envelope, deps);
+
+    expect(upsertPatch.mock.calls[0]![0].writer_key).toBe(apGatewayLogWriterKey(ESSID));
+  });
+
+  it('files an own-router login under the key a login from outside the network uses', async () => {
+    const id = generateIdentity();
+    const router = routerHostFor();
+    const envelope = signRequest(
+      id,
+      'authCreateSession',
+      basePayload({
+        target_ip: router.ip,
+        username: 'root',
+        password: seedApGatewayAdminPw(ESSID),
+      }),
+    );
+    const { deps, upsertPatch } = makeDeps();
+
+    await handleAuthCreateSession(envelope, deps);
+
+    expect(upsertPatch.mock.calls[0]![0]).toMatchObject({
+      writer_key: apGatewayLogWriterKey(ESSID),
+      machine_id: computeApGatewayId(ESSID),
     });
   });
 

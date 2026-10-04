@@ -26,10 +26,11 @@
  * crafted request can never author a line claiming something was served that never
  * was, and a sweep cannot dress its misses up as hits.
  *
- * Writer key is the CALLER's in both cases, which is why this slice needs no
- * owner-vs-caller distinction: a generated host has no owner, so its log is per-viewer
- * (the fetcher is its only reader), and the player's own box is owned by the caller
- * anyway.
+ * The writer key follows the box, not the fetcher. The player's own workstation keeps
+ * their own key, since they own it. A generated host has no owner, and every occupant
+ * of the WiFi fetches from the identical box, so it takes the network's own key: one
+ * log that every visit accretes into, rather than a row per fetcher where the newest
+ * erases the rest.
  */
 
 import { z } from 'zod';
@@ -51,6 +52,7 @@ import {
 } from '../logging/accessLog.js';
 import { appendMachineLog, type MachineLogReadQuery, type MachineLogReadResult } from '../patches/appendMachineLog.js';
 import { asGameTime } from '../types.js';
+import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
 import type { Directory } from '../filesystem/types.js';
 import type { PatchRow } from '../patches/upsertPatch.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
@@ -110,10 +112,11 @@ const recordLanFetchSchema = z
   })
   .refine((payload) => !('player_key' in payload));
 
-/** Which machine answered, and the tree it answered from. */
+/** Which machine answered, the tree it answered from, and whose row its log lands in. */
 type FetchTarget = {
   readonly machineId: string;
   readonly fs: Directory;
+  readonly writerKey: string;
 };
 
 /** The caller's OWN workstation, when `target` is the address they hold on this LAN.
@@ -141,6 +144,7 @@ const ownWorkstationTarget = async (
   return {
     machineId: own.workstation_machine_id,
     fs: materializeWorkstationFs(own, patches.data),
+    writerKey: callerKey,
   };
 };
 
@@ -151,7 +155,14 @@ const generatedHostTarget = (essid: string, target: string): FetchTarget | null 
   const host = generateHomeLan(essid).hosts.find((candidate) => candidate.ip === target);
   if (host === undefined) return null;
   const identity = resolveLanHostIdentity(host, essid);
-  return { machineId: identity.machineId, fs: identity.baseFs };
+  // Nobody owns a generated host and every occupant of the WiFi fetches from the identical
+  // box, so its log files under the network's own key: a row per fetcher would let each
+  // visit erase the lines of the last.
+  return {
+    machineId: identity.machineId,
+    fs: identity.baseFs,
+    writerKey: apGatewayLogWriterKey(essid),
+  };
 };
 
 export const handleRecordLanFetch = async (
@@ -204,7 +215,7 @@ export const handleRecordLanFetch = async (
     await appendMachineLog(
       { readLog: deps.readLog, upsertPatch: deps.upsertPatch },
       {
-        writerKey: publicKey,
+        writerKey: target.writerKey,
         machineId: target.machineId,
         path: ACCESS_LOG_PATH,
         owner: ACCESS_LOG_OWNER,

@@ -12,6 +12,7 @@ import type {
   FindPublicIpByEssid,
 } from '../logging/crossPlayerSourceIp.js';
 import { md5 } from '../generation/md5.js';
+import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
 import { signRequest } from '../signedRequest/sign.js';
 import { generateIdentity } from '../identity/identity.js';
 import { computeWorkstationId } from '../identity/workstation.js';
@@ -133,7 +134,9 @@ describe('handleRecordPackageDowngrade', () => {
     // The whole row is asserted, not just the content: an entry written at the wrong
     // owner or permissions is invisible to the very reader it exists for.
     expect(upsertPatch.mock.calls[0]![0]).toEqual({
-      writer_key: id.publicKeyHex,
+      // The network's own key, off the session row: nobody owns a generated box, and
+      // every visitor to its network reaches the identical one.
+      writer_key: apGatewayLogWriterKey(activeSession().essid),
       machine_id: THEIR_BOX,
       path: DPKG_LOG_PATH,
       content: '2026-08-14 13:56:02 downgrade redis 7.9.7 7.2.5 Client "10.0.0.9"\n',
@@ -230,6 +233,24 @@ describe('handleRecordPackageDowngrade', () => {
     expect(result).toEqual({ status: 200, body: { ok: true } });
     expect(upsertPatch.mock.calls[0]![0].writer_key).toBe(id.publicKeyHex);
     expect(upsertPatch.mock.calls[0]![0].content).toContain(`Client "${ACTOR_HOME_IP}"`);
+  });
+
+  it('keeps the caller own key on their own workstation when they are on no WiFi', async () => {
+    const id = generateIdentity();
+    const ownBox = computeWorkstationId('skylab', id.publicKeyHex);
+    const envelope = signRequest(id, 'recordPackageDowngrade', {
+      ...downgrade,
+      machine_id: ownBox,
+    });
+    // No occupancy row, so nothing says whose box it is — but no session either, which
+    // only the caller's own workstation is reached by.
+    const { deps, upsertPatch } = makeDeps({
+      findOccupantWorkstationByMachineId: async () => ({ data: null, error: null }),
+    });
+
+    await handleRecordPackageDowngrade(envelope, deps);
+
+    expect(upsertPatch.mock.calls[0]![0].writer_key).toBe(id.publicKeyHex);
   });
 
   it('rejects a caller trying to sign either half of the identity the server stamps', async () => {

@@ -7,8 +7,8 @@
 //
 // Net-new under test (the locally-untypechecked api/ runtime):
 //   - `curl http://<a generated LAN host>` → ONE Apache-combined line on THAT host's
-//     access.log, keyed by the CALLER's writer_key (a generated host has no owner, so
-//     its log is per-viewer).
+//     access.log, keyed by the NETWORK's own key (a generated host has no owner, and every
+//     occupant of the WiFi fetches from the identical box).
 //   - `curl http://<own LAN IP>` → the line lands on the player's OWN workstation,
 //     readable straight away — the server resolves "that address is mine" from the
 //     lease, never from anything the client claimed.
@@ -26,6 +26,7 @@
 // Exits 0 when all checks pass, 1 on failure, 2 on missing env.
 
 import { createClient } from '@supabase/supabase-js';
+import { apGatewayLogWriterKey } from '../src/core/logging/apGatewayLogWriter.js';
 import { signRequest } from '../src/core/signedRequest/sign.js';
 import { generateIdentity } from '../src/core/identity/identity.js';
 import { computeWorkstationId } from '../src/core/identity/workstation.js';
@@ -69,8 +70,8 @@ const post = async (
 
 const ACCESS_LOG = '/var/log/access.log';
 
-/** Read a machine's access.log row keyed by the CALLER — on this path the writer is
- *  always the fetcher, both on a generated host and on their own box. */
+/** Read a machine's access.log row under one writer: the NETWORK on a generated host,
+ *  which every occupant shares, and the fetcher on their own box, which they own. */
 const readAccessLog = async (machineId: string, writerKey: string): Promise<string> => {
   const { data } = await sr
     .from('patches')
@@ -91,6 +92,8 @@ const player = generateIdentity();
 // Chosen because its generated LAN rolls BOTH serving and non-serving hosts (8 NPC
 // machines, 3 of them web) — the pair every check below needs.
 const ESSID = 'FETCH-LOG-WIFI';
+/** Whose row a generated host's access.log lands in — the network's, never a fetcher's. */
+const NETWORK_KEY = apGatewayLogWriterKey(ESSID);
 const WS_NAME = 'nebuchadnezzar';
 const WS = computeWorkstationId(WS_NAME, player.publicKeyHex);
 
@@ -175,9 +178,9 @@ const fetched = (
     ...over,
   });
 
-// === 1. A fetch of a generated LAN host lands on THAT host, keyed by the fetcher. ===
+// === 1. A fetch of a generated LAN host lands on THAT host, keyed by its network. ===
 const r1 = await post(PATCHES, await fetched(serving.ip, SERVING_PORT, ['/']));
-const host1 = await readAccessLog(SERVING_ID, player.publicKeyHex);
+const host1 = await readAccessLog(SERVING_ID, NETWORK_KEY);
 check('a fetch of a serving LAN host is accepted', r1.status === 200, `status=${r1.status}`);
 check(
   'the SERVING host records one Apache-combined line from the fetcher’s LAN IP',
@@ -195,14 +198,14 @@ check(
 );
 check(
   'the self-fetch did NOT also land on the generated host that fetch 1 touched',
-  lineCount(await readAccessLog(SERVING_ID, player.publicKeyHex)) === 1,
-  `servingHostLines=${lineCount(await readAccessLog(SERVING_ID, player.publicKeyHex))}`,
+  lineCount(await readAccessLog(SERVING_ID, NETWORK_KEY)) === 1,
+  `servingHostLines=${lineCount(await readAccessLog(SERVING_ID, NETWORK_KEY))}`,
 );
 
 // === 3. A 404 is recorded as readily as a 200, and a traversal VERBATIM. ===
 await post(PATCHES, await fetched(serving.ip, SERVING_PORT, ['/wp-admin/setup-config.php']));
 await post(PATCHES, await fetched(serving.ip, SERVING_PORT, ['/../../etc/passwd']));
-const host3 = await readAccessLog(SERVING_ID, player.publicKeyHex);
+const host3 = await readAccessLog(SERVING_ID, NETWORK_KEY);
 check(
   'a miss is recorded as "404 0", and the traversal is recorded exactly as it was asked for',
   host3.includes('"GET /wp-admin/setup-config.php HTTP/1.1" 404 0') &&
@@ -222,13 +225,13 @@ check(
   'a non-serving host and a port nothing listens on both leave no line',
   r4a.status === 200 &&
     r4b.status === 200 &&
-    (await readAccessLog(SILENT_ID, player.publicKeyHex)) === '' &&
-    lineCount(await readAccessLog(SERVING_ID, player.publicKeyHex)) === 3,
-  `silentLog=${JSON.stringify(await readAccessLog(SILENT_ID, player.publicKeyHex))}`,
+    (await readAccessLog(SILENT_ID, NETWORK_KEY)) === '' &&
+    lineCount(await readAccessLog(SERVING_ID, NETWORK_KEY)) === 3,
+  `silentLog=${JSON.stringify(await readAccessLog(SILENT_ID, NETWORK_KEY))}`,
 );
 
 // === 5. The client dictates nothing: machine, status and size are the server's. ===
-const before5 = lineCount(await readAccessLog(SERVING_ID, player.publicKeyHex));
+const before5 = lineCount(await readAccessLog(SERVING_ID, NETWORK_KEY));
 const r5 = await post(
   PATCHES,
   await fetched(serving.ip, SERVING_PORT, ['/'], {
@@ -237,8 +240,8 @@ const r5 = await post(
     size: 999999,
   }),
 );
-const host5 = await readAccessLog(SERVING_ID, player.publicKeyHex);
-const forged5 = await readAccessLog(FORGED_MACHINE, player.publicKeyHex);
+const host5 = await readAccessLog(SERVING_ID, NETWORK_KEY);
+const forged5 = await readAccessLog(FORGED_MACHINE, NETWORK_KEY);
 check(
   'a client-supplied machine_id, status and size are all ignored',
   r5.status === 200 &&
@@ -250,9 +253,9 @@ check(
 );
 
 // === 6. A path SWEEP lands as one append: a line per probe, in the order asked. ===
-const before6 = lineCount(await readAccessLog(SERVING_ID, player.publicKeyHex));
+const before6 = lineCount(await readAccessLog(SERVING_ID, NETWORK_KEY));
 const r6 = await post(PATCHES, await fetched(serving.ip, SERVING_PORT, ['/admin', '/', '/backup']));
-const host6 = await readAccessLog(SERVING_ID, player.publicKeyHex);
+const host6 = await readAccessLog(SERVING_ID, NETWORK_KEY);
 const swept = host6.trim().split('\n').slice(before6);
 check(
   'a sweep records every probe, hits and misses alike, in the order it asked',
@@ -270,12 +273,12 @@ check(
 );
 
 // === 7. A sweep that names no path at all is refused, and writes nothing. ===
-const before7 = lineCount(await readAccessLog(SERVING_ID, player.publicKeyHex));
+const before7 = lineCount(await readAccessLog(SERVING_ID, NETWORK_KEY));
 const r7 = await post(PATCHES, await fetched(serving.ip, SERVING_PORT, []));
 check(
   'an empty path list is refused rather than recorded as a visit',
   r7.status === 400 &&
-    lineCount(await readAccessLog(SERVING_ID, player.publicKeyHex)) === before7,
+    lineCount(await readAccessLog(SERVING_ID, NETWORK_KEY)) === before7,
   `status=${r7.status} body=${JSON.stringify(r7.body)}`,
 );
 
