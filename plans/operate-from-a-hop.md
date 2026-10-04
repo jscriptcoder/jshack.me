@@ -2,7 +2,7 @@
 
 **Status**: Grilled and gap-reviewed. Decisions confirmed by the owner 2026-10-04 (grill, then a
 `find-gaps` pass that added 4a, 4b, 7a, 11a, "Out of scope" and "Done when"); nine slices
-planned and approved the same day. Slice 1 done (#598, v0.307.0). Next: slice 2.
+planned and approved the same day. Slices 1–2 done (#598 v0.307.0, #599 v0.308.0). Next: slice 3.
 Resolves two §9 backlog items in `docs/conventions-and-gotchas.md`: "Pivot / operate-from-a-hop —
 source-IP masking only; ssh-from-a-pivot" and "Four tools cannot pivot: `ssh`, `nmap`, `curl`,
 `lynx`". Where they disagree with this file, this file wins.
@@ -219,6 +219,12 @@ writer_key)` row — the dep changes shape for all of them; `appendAuthLog` (own
 working since its writer and reader are the owner.
 
 ### Slice 2: Two players on one home network share one log per NPC box
+
+✅ Done in #599. As built: the hydra/ftp/mysql/redis/snmp/nmap own-LAN writers named in **Path**
+were already network-keyed; the ones that moved were the login, `curl`/`gobuster`
+(`recordLanFetch`), `dig axfr` (`recordZoneTransfer`), and the ftp-transfer and `apt` traces
+(`traceProvenance`, now keyed by the session's network, which also covers boxes reached through a
+forward).
 
 **Value**: a co-occupant's line on a shared NPC box is no longer erased by the other's next
 login; trace-back and wipes have one record to act on.
