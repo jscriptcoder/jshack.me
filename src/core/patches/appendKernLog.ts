@@ -31,22 +31,20 @@ import {
 import { derivePid } from '../logging/syslog.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 import type { PatchRow } from './upsertPatch.js';
-
-export type KernLogContentQuery = {
-  readonly writer_key: string;
-  readonly machine_id: string;
-  readonly path: string;
-};
+import {
+  logAsReadersSeeIt,
+  type MachineLogReadQuery,
+  type MachineLogReadResult,
+} from './appendMachineLog.js';
 
 export type AppendKernLogDeps = {
   readonly nonceStore: NonceStore;
   /** The server's wall clock, epoch-ms (UTC). Injected so the handler is pure
    *  and deterministic under test. */
   readonly now: () => number;
-  readonly readKernLog: (query: KernLogContentQuery) => Promise<{
-    readonly data: { readonly content: string | null } | null;
-    readonly error: unknown;
-  }>;
+  /** Every writer's copy of the log on the caller's machine — an intruder with root
+   *  may have wiped it, and the owner's next line must not bring the wiped lines back. */
+  readonly readKernLog: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
   readonly upsertPatch: (row: PatchRow) => Promise<{ readonly error: unknown }>;
 };
 
@@ -84,15 +82,11 @@ export const handleAppendKernLog = async (
     return { status: 403, body: { error: 'no_session' } };
   }
 
-  const existing = await deps.readKernLog({
-    writer_key: publicKey,
-    machine_id: payload.machine_id,
-    path: KERN_LOG_PATH,
-  });
+  const existing = await deps.readKernLog({ machine_id: payload.machine_id, path: KERN_LOG_PATH });
   if (existing.error) {
     return { status: 500, body: { error: 'read_failed' } };
   }
-  const current = existing.data?.content ?? '';
+  const current = logAsReadersSeeIt(existing.data);
 
   const stamp = deps.now();
   const line = formatSegfaultLine({

@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   handleAppendAuthLog,
   type AppendAuthLogDeps,
-  type AuthLogContentQuery,
 } from './appendAuthLog.js';
 import type { PatchRow } from './upsertPatch.js';
 import { signRequest } from '../signedRequest/sign.js';
@@ -11,6 +10,7 @@ import { computeWorkstationId } from '../identity/workstation.js';
 import { AUTH_LOG_OWNER, AUTH_LOG_PATH, AUTH_LOG_PERMISSIONS } from '../logging/authLog.js';
 import { derivePid } from '../logging/syslog.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
+import { logRead, logRow } from '../../test/factories/logRows.js';
 
 const freshStore: NonceStore = async () => ({ fresh: true });
 
@@ -22,11 +22,10 @@ const makeDeps = (over: Partial<AppendAuthLogDeps> = {}) => {
   const upsertPatch = vi.fn<(row: PatchRow) => Promise<{ error: unknown }>>(async () => ({
     error: null,
   }));
-  const readAuthLog = vi.fn<
-    (
-      query: AuthLogContentQuery,
-    ) => Promise<{ data: { content: string | null } | null; error: unknown }>
-  >(async () => ({ data: null, error: null }));
+  const readAuthLog = vi.fn<AppendAuthLogDeps['readAuthLog']>(async () => ({
+    data: [],
+    error: null,
+  }));
   const deps: AppendAuthLogDeps = {
     nonceStore: freshStore,
     now: () => STAMP,
@@ -66,7 +65,7 @@ describe('handleAppendAuthLog', () => {
     const id = generateIdentity();
     const envelope = signRequest(id, 'appendAuthLog', ownEvent(id.publicKeyHex));
     const { deps, upsertPatch } = makeDeps({
-      readAuthLog: async () => ({ data: { content: 'PRIOR LINE\n' }, error: null }),
+      readAuthLog: async () => logRead('PRIOR LINE\n'),
     });
 
     await handleAppendAuthLog(envelope, deps);
@@ -144,7 +143,7 @@ describe('handleAppendAuthLog', () => {
     expect(Object.keys(row)).not.toContain('is_new');
   });
 
-  it('reads the current content scoped to the verified writer_key + auth.log path', async () => {
+  it('reads every writer’s copy of auth.log on the caller’s machine', async () => {
     const id = generateIdentity();
     const envelope = signRequest(id, 'appendAuthLog', ownEvent(id.publicKeyHex));
     const { deps, readAuthLog } = makeDeps();
@@ -152,10 +151,27 @@ describe('handleAppendAuthLog', () => {
     await handleAppendAuthLog(envelope, deps);
 
     expect(readAuthLog).toHaveBeenCalledWith({
-      writer_key: id.publicKeyHex,
       machine_id: computeWorkstationId('skylab', id.publicKeyHex),
       path: AUTH_LOG_PATH,
     });
+  });
+
+  it('builds on an intruder’s root wipe of auth.log, so the wiped lines stay gone', async () => {
+    const id = generateIdentity();
+    const envelope = signRequest(id, 'appendAuthLog', ownEvent(id.publicKeyHex));
+    const ownCopy = logRow({ content: 'PRIOR LINE\n' });
+    const wipe = logRow({
+      content: '',
+      updated_at: '2026-06-07T10:00:00.000000+00:00',
+      writer_key: 'an-intruder',
+    });
+    const { deps, upsertPatch } = makeDeps({
+      readAuthLog: async () => ({ data: [wipe, ownCopy], error: null }),
+    });
+
+    await handleAppendAuthLog(envelope, deps);
+
+    expect(upsertPatch.mock.calls[0]![0].content).not.toContain('PRIOR LINE');
   });
 
   it('rejects an append to a machine that is not the caller’s workstation with 403 and never writes', async () => {
@@ -284,7 +300,7 @@ describe('handleAppendAuthLog — a no-auth session line', () => {
     const id = generateIdentity();
     const envelope = signRequest(id, 'appendAuthLog', sessionEvent(id.publicKeyHex));
     const { deps, upsertPatch } = makeDeps({
-      readAuthLog: async () => ({ data: { content: 'PRIOR\n' }, error: null }),
+      readAuthLog: async () => logRead('PRIOR\n'),
     });
 
     await handleAppendAuthLog(envelope, deps);

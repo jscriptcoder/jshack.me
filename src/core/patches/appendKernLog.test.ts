@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   handleAppendKernLog,
   type AppendKernLogDeps,
-  type KernLogContentQuery,
 } from './appendKernLog.js';
 import type { PatchRow } from './upsertPatch.js';
 import { signRequest } from '../signedRequest/sign.js';
@@ -11,6 +10,7 @@ import { computeWorkstationId } from '../identity/workstation.js';
 import { KERN_LOG_OWNER, KERN_LOG_PATH, KERN_LOG_PERMISSIONS } from '../logging/kernLog.js';
 import { derivePid } from '../logging/syslog.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
+import { logRead, logRow } from '../../test/factories/logRows.js';
 
 const freshStore: NonceStore = async () => ({ fresh: true });
 
@@ -22,11 +22,10 @@ const makeDeps = (over: Partial<AppendKernLogDeps> = {}) => {
   const upsertPatch = vi.fn<(row: PatchRow) => Promise<{ error: unknown }>>(async () => ({
     error: null,
   }));
-  const readKernLog = vi.fn<
-    (
-      query: KernLogContentQuery,
-    ) => Promise<{ data: { content: string | null } | null; error: unknown }>
-  >(async () => ({ data: null, error: null }));
+  const readKernLog = vi.fn<AppendKernLogDeps['readKernLog']>(async () => ({
+    data: [],
+    error: null,
+  }));
   const deps: AppendKernLogDeps = {
     nonceStore: freshStore,
     now: () => STAMP,
@@ -66,7 +65,7 @@ describe('handleAppendKernLog', () => {
     const id = generateIdentity();
     const envelope = signRequest(id, 'appendKernLog', ownEvent(id.publicKeyHex));
     const { deps, upsertPatch } = makeDeps({
-      readKernLog: async () => ({ data: { content: 'PRIOR LINE\n' }, error: null }),
+      readKernLog: async () => logRead('PRIOR LINE\n'),
     });
 
     await handleAppendKernLog(envelope, deps);
@@ -131,7 +130,7 @@ describe('handleAppendKernLog', () => {
     expect(Object.keys(row)).not.toContain('is_new');
   });
 
-  it('reads the current content scoped to the verified writer_key + kern.log path', async () => {
+  it('reads every writer’s copy of kern.log on the caller’s machine', async () => {
     const id = generateIdentity();
     const envelope = signRequest(id, 'appendKernLog', ownEvent(id.publicKeyHex));
     const { deps, readKernLog } = makeDeps();
@@ -139,10 +138,27 @@ describe('handleAppendKernLog', () => {
     await handleAppendKernLog(envelope, deps);
 
     expect(readKernLog).toHaveBeenCalledWith({
-      writer_key: id.publicKeyHex,
       machine_id: computeWorkstationId('skylab', id.publicKeyHex),
       path: KERN_LOG_PATH,
     });
+  });
+
+  it('builds on an intruder’s root wipe of kern.log, so the wiped lines stay gone', async () => {
+    const id = generateIdentity();
+    const envelope = signRequest(id, 'appendKernLog', ownEvent(id.publicKeyHex));
+    const ownCopy = logRow({ content: 'PRIOR LINE\n' });
+    const wipe = logRow({
+      content: '',
+      updated_at: '2026-06-07T10:00:00.000000+00:00',
+      writer_key: 'an-intruder',
+    });
+    const { deps, upsertPatch } = makeDeps({
+      readKernLog: async () => ({ data: [wipe, ownCopy], error: null }),
+    });
+
+    await handleAppendKernLog(envelope, deps);
+
+    expect(upsertPatch.mock.calls[0]![0].content).not.toContain('PRIOR LINE');
   });
 
   it('rejects an append to a machine that is not the caller’s workstation with 403 and never writes', async () => {

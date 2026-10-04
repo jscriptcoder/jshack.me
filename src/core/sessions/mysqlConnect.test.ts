@@ -36,6 +36,7 @@ import type { Directory } from '../filesystem/types.js';
 import type { OwnerPatchRow } from '../network/materializeMachineFs.js';
 import type { PatchRow } from '../patches/upsertPatch.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
+import { logRead } from '../../test/factories/logRows.js';
 
 /**
  * `handleMysqlConnect` decides whether a credential opens a box's database, and it
@@ -560,7 +561,7 @@ describe('handleMysqlConnect', () => {
     const host = mysqlHostOn(ESSID);
     const { username, password } = knownDatabaseCredential(host);
     const { deps, upsertPatch } = makeDeps({
-      readMysqlLog: async () => ({ data: { content: 'an earlier visit\n' }, error: null }),
+      readMysqlLog: async () => logRead('an earlier visit\n'),
     });
 
     await handleMysqlConnect(

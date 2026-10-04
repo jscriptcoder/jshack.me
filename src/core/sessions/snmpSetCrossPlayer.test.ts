@@ -149,13 +149,21 @@ const makeDeps = (
   patchesByMachine: Readonly<Record<string, readonly OwnerPatchRow[]>> = {},
   over: Partial<SnmpSetDeps> = {},
 ) => {
-  const stored = new Map<string, string | null>();
+  // Each write is stamped later than the one before, as the server's `updated_at` is.
+  const stored = new Map<string, PatchRow & { readonly updated_at: string }>();
+  let writes = 0;
   const upsertPatch = vi.fn<(row: PatchRow) => Promise<{ error: unknown }>>(async (row) => {
-    stored.set(rowKey(row), row.content);
+    writes += 1;
+    stored.set(rowKey(row), { ...row, updated_at: String(writes).padStart(6, '0') });
     return { error: null };
   });
   const readSnmpdLog = vi.fn<(query: MachineLogReadQuery) => Promise<MachineLogReadResult>>(
-    async (query) => ({ data: { content: stored.get(rowKey(query)) ?? null }, error: null }),
+    async (query) => ({
+      data: [...stored.values()].filter(
+        (row) => row.machine_id === query.machine_id && row.path === query.path,
+      ),
+      error: null,
+    }),
   );
   const deps: SnmpSetDeps = {
     nonceStore: freshStore,

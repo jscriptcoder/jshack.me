@@ -21,6 +21,7 @@ import type { OwnerPatchRow } from '../network/materializeMachineFs.js';
 import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog.js';
 import type { PatchRow } from '../patches/upsertPatch.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
+import { logRead } from '../../test/factories/logRows.js';
 
 /**
  * `handleNmapScanDeep` is the deep-layer counterpart of `handleNmapScan`: a pivot
@@ -328,7 +329,7 @@ describe('handleNmapScanDeep', () => {
     const expected = expectedDeepLayer(ESSID, vantage);
     const npc = expected.hosts.find((entry) => entry.host.kind === 'machine')!;
     const { deps, upsertPatch } = makeDeps({
-      readLog: vi.fn(async () => ({ data: { content: 'PRIOR LINE\n' }, error: null })),
+      readLog: vi.fn(async () => logRead('PRIOR LINE\n')),
     });
 
     await handleNmapScanDeep(envelope(ALICE, vantage, npc.host.ip), deps);

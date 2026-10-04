@@ -38,7 +38,6 @@ import {
   type OccupantWorkstation,
 } from '../src/core/network/resolveCrossPlayerFs.js';
 import type { UserType } from '../src/core/types.js';
-import type { MachineLogReadQuery } from '../src/core/patches/appendMachineLog.js';
 import type {
   ListPathPatchesResult,
   PatchRow,
@@ -124,20 +123,11 @@ const webTargetDepsVia = ({ supabase, label }: QuerySpec): WebTargetDeps => ({
   },
 });
 
-/** The target's own access log, read and written under the TARGET OWNER's key — the
- *  same key both sides use, or the read-modify-write would fork the file per visitor. */
+/** The target's own access log: read as a reader sees it (every writer's row at the
+ *  path), written under the TARGET OWNER's key — the same key every visitor's line lands
+ *  under, or the read-modify-write would fork the file per visitor. */
 const accessLogWriterVia = ({ supabase, label }: QuerySpec) => ({
-  readLog: async ({ writer_key, machine_id, path }: MachineLogReadQuery) => {
-    const { data, error } = await supabase
-      .from('patches')
-      .select('content')
-      .eq('writer_key', writer_key)
-      .eq('machine_id', machine_id)
-      .eq('path', path)
-      .maybeSingle();
-    logFailure(`${label} access-log read`, error);
-    return { data: data as { content: string | null } | null, error };
-  },
+  readLog: listPathPatchesVia({ supabase, label: `${label} access-log` }),
   upsertPatch: async (row: PatchRow) => {
     const { error } = await supabase
       .from('patches')
@@ -270,17 +260,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // router's shared record. readLog/upsertPatch are the same read-modify-write
     // `patches` shapes the ssh/su auth.log appenders use; the line is written under
     // the OWNER's writer_key so multi-scanner rows don't collide.
-    const readLog = async ({ writer_key, machine_id, path }: MachineLogReadQuery) => {
-      const { data, error } = await supabase
-        .from('patches')
-        .select('content')
-        .eq('writer_key', writer_key)
-        .eq('machine_id', machine_id)
-        .eq('path', path)
-        .maybeSingle();
-      if (error) console.error('[network] scan kern-log read error:', error);
-      return { data, error };
-    };
+    const readLog = listPathPatchesVia({ supabase, label: 'scan kern-log' });
     const upsertPatch = async (row: PatchRow) => {
       const { error } = await supabase
         .from('patches')
