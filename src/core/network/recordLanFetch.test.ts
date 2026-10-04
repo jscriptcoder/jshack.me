@@ -18,6 +18,7 @@ import {
   formatAccessLogLine,
 } from '../logging/accessLog.js';
 import { asGameTime } from '../types.js';
+import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
 import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog.js';
 import type { PatchRow } from '../patches/upsertPatch.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
@@ -272,7 +273,7 @@ describe('handleRecordLanFetch', () => {
     }
   });
 
-  it('records the fetch on the LAN host that served it, under the fetcher own key', async () => {
+  it('records the fetch on the LAN host that served it, under the network’s own key', async () => {
     const caller = generateIdentity();
     const host = servingHost();
     const port = httpPortOf(host)!;
@@ -284,11 +285,12 @@ describe('handleRecordLanFetch', () => {
       deps,
     );
 
-    // The row is keyed to the CALLER: a generated host has no owner, so its log is
-    // per-viewer — the fetcher is the only identity that will ever read this line.
+    // The row is keyed to the NETWORK: a generated host has no owner, and every occupant
+    // of the WiFi fetches from the identical box, so a row per fetcher would let each
+    // visit erase the lines of the last.
     const row = writtenLog(upsertPatch);
     expect(row.machine_id).toBe(resolveLanHostIdentity(host, ESSID).machineId);
-    expect(row.writer_key).toBe(caller.publicKeyHex);
+    expect(row.writer_key).toBe(apGatewayLogWriterKey(ESSID));
     expect(row.owner).toBe(ACCESS_LOG_OWNER);
     expect(row.permissions).toEqual(ACCESS_LOG_PERMISSIONS);
     expect(row.content).toBe(

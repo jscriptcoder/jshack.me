@@ -20,10 +20,10 @@
  * A target that is not a name server writes nothing: there is no daemon there to keep a
  * log. An ordinary lookup never reaches this action at all.
  *
- * The line lands under the CALLER's own key (not the box owner's), exactly as the
- * own-LAN scan trace does: a single player's repeated transfers accrete into one row
- * they read back after rooting the box. Cross-player accretion — two players into one
- * file — rides with same-wifi occupancy, and shares that path's shared-box behaviour.
+ * The line lands under the NETWORK's own key (`ap:<essid>`), never the caller's, exactly
+ * as the own-LAN scan trace does: nobody owns a name server and every occupant of the
+ * WiFi reaches the identical one, so a row per caller would let each transfer erase the
+ * lines of the last. Every transfer, whoever made it, accretes into one log.
  *
  * The append is the shared `appendMachineLog` primitive, as the system rather than the
  * player: `named` writes this file, and it is root-write-only so a visitor can never
@@ -50,6 +50,7 @@ import {
   zoneRecordsFor,
 } from '../generation/generateDnsZone.js';
 import { lanZoneName } from '../network/resolveName.js';
+import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
 import {
   appendMachineLog,
   type MachineLogReadQuery,
@@ -118,7 +119,7 @@ export const handleRecordZoneTransfer = async (
   await appendMachineLog(
     { readLog: deps.readLog, upsertPatch: deps.upsertPatch },
     {
-      writerKey: publicKey,
+      writerKey: apGatewayLogWriterKey(payload.essid),
       machineId,
       path: NAMED_LOG_PATH,
       owner: NAMED_LOG_OWNER,

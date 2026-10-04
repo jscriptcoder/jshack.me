@@ -126,6 +126,7 @@ export const handleRecordFtpTransfer = async (
     callerMachineId: payload.caller_machine_id,
     claimedIp: payload.source_ip ?? null,
     owner: owner.data,
+    boxEssid: access.session.essid,
   });
   if (!provenance.ok) {
     return { status: provenance.status, body: { error: provenance.error } };

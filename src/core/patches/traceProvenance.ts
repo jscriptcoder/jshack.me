@@ -11,10 +11,12 @@
  * defender reads half a visit while a second visitor quietly erases the first. Two copies
  * of that logic is two chances to get it wrong in one of them and never notice.
  *
- * On a generated host the caller's own row IS the record — nobody else writes there, and
- * the LAN address they report is what that box saw. On a box somebody OWNS both answers
- * change: the row belongs to the machine's owner, and the address comes from the verified
- * key, because it is the owner's only evidence of who reached them.
+ * On a generated host the row is the NETWORK's own key: nobody owns the box, and every
+ * occupant of its network reaches the identical one, so a row per visitor would let each
+ * line erase the last. The LAN address they report is what that box saw. On a box
+ * somebody OWNS both answers change: the row belongs to the machine's owner, and the
+ * address comes from the verified key, because it is the owner's only evidence of who
+ * reached them.
  *
  * Pivot-aware — an action run from a box the visitor merely holds a session on is traced
  * to THAT network, which is the one the target actually saw.
@@ -29,6 +31,7 @@ import {
   type FindPublicIpByEssid,
 } from '../logging/crossPlayerSourceIp.js';
 import type { OccupantWorkstation } from './remoteWritePermission.js';
+import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
 
 /** The three lookups the rule needs. Declared structurally rather than as one handler's
  *  deps type, so each endpoint passes its own full deps block unchanged. */
@@ -45,6 +48,9 @@ export type TraceVisit = {
   readonly claimedIp: string | null;
   /** `null` for a generated host nobody owns. */
   readonly owner: OccupantWorkstation | null;
+  /** The network the box is regenerated from, off the caller's session row on it — or
+   *  `null` with no session, which only the caller's own workstation is reached by. */
+  readonly boxEssid: string | null;
 };
 
 export type Provenance =
@@ -56,7 +62,10 @@ export const resolveTraceProvenance = async (
   visit: TraceVisit,
 ): Promise<Provenance> => {
   if (visit.owner === null) {
-    return { ok: true, writerKey: visit.actorKey, fromIp: visit.claimedIp ?? 'unknown' };
+    // An ownerless box with no session is the caller's own, outside any WiFi: theirs alone.
+    const writerKey =
+      visit.boxEssid === null ? visit.actorKey : apGatewayLogWriterKey(visit.boxEssid);
+    return { ok: true, writerKey, fromIp: visit.claimedIp ?? 'unknown' };
   }
   const standing = await standingVantage(
     visit.actorKey,

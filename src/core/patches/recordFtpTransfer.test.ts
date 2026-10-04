@@ -9,6 +9,7 @@ import type {
   FindPublicIpByEssid,
 } from '../logging/crossPlayerSourceIp.js';
 import { md5 } from '../generation/md5.js';
+import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
 import { signRequest } from '../signedRequest/sign.js';
 import { generateIdentity } from '../identity/identity.js';
 import { computeWorkstationId } from '../identity/workstation.js';
@@ -126,7 +127,9 @@ describe('handleRecordFtpTransfer', () => {
 
     expect(result).toEqual({ status: 200, body: { ok: true } });
     expect(upsertPatch.mock.calls[0]![0]).toEqual({
-      writer_key: id.publicKeyHex,
+      // The network's own key, off the session row: nobody owns a generated box, and
+      // every visitor to its network reaches the identical one.
+      writer_key: apGatewayLogWriterKey(activeSession().essid),
       machine_id: THEIR_BOX,
       path: VSFTPD_LOG_PATH,
       content: `Fri Aug 14 13:56:02 2026 [pid ${derivePid(STAMP)}] [guest] OK DOWNLOAD: Client "10.0.0.9", "/etc/passwd", 1243 bytes\n`,

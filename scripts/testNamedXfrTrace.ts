@@ -14,8 +14,9 @@
 //     key (`resolveCrossPlayerSourceIp`) — a client-supplied `source_ip` is ignored;
 //   - a target that is NOT a name server writes nothing (an ordinary `dig <name>` never
 //     reaches this action at all — that half is a client concern, proven in dig.test.ts);
-//   - one writer's repeated transfers ACCRETE into the single (machine_id, path, key)
-//     row, oldest-first, rather than replacing themselves.
+//   - repeated transfers ACCRETE into the single (machine_id, path, key) row, oldest-first,
+//     rather than replacing themselves — keyed to the name server's NETWORK, never the
+//     caller, since every occupant reaches the identical box.
 //
 // Fixtures are DERIVED from generation (the same pure functions the server calls), so a
 // re-roll of the world cannot leave the check asserting against a stale address.
@@ -26,6 +27,7 @@
 // Exits 0 when all checks pass, 1 on failure, 2 on missing env / no usable name server.
 
 import { createClient } from '@supabase/supabase-js';
+import { apGatewayLogWriterKey } from '../src/core/logging/apGatewayLogWriter.js';
 import { signRequest } from '../src/core/signedRequest/sign.js';
 import { generateIdentity } from '../src/core/identity/identity.js';
 import { computeWorkstationId } from '../src/core/identity/workstation.js';
@@ -105,31 +107,41 @@ const recordTransfer = (essid: string, serverIp: string, over: Record<string, un
   post(PATCHES, signRequest(alice, 'recordZoneTransfer', { essid, server_ip: serverIp, ...over }));
 
 /** The box's named.log as it holds it — read back through the journal keyed by the
- *  CALLER's writer_key, not trusted from the handler's own answer. */
-const readNamedLog = async (machineId: string): Promise<string> => {
+ *  name server's NETWORK, not trusted from the handler's own answer. */
+const readNamedLog = async (machineId: string, essid: string): Promise<string> => {
   const { data } = await sr
     .from('patches')
     .select('content')
     .eq('machine_id', machineId)
     .eq('path', NAMED_LOG_PATH)
-    .eq('writer_key', alice.publicKeyHex)
+    .eq('writer_key', apGatewayLogWriterKey(essid))
     .maybeSingle();
   return (data as { content?: string | null } | null)?.content ?? '';
 };
 
-/** Every named.log row this actor has authored anywhere — how the no-server case proves
- *  it wrote NOTHING, without needing a non-server box's machine id. */
+/** Every named.log row on the open network, or under the actor's own key, anywhere — how
+ *  the no-server case proves it wrote NOTHING, without needing a non-server box's id. */
 const namedLogRowCount = async (): Promise<number> => {
   const { count } = await sr
     .from('patches')
     .select('*', { count: 'exact', head: true })
-    .eq('writer_key', alice.publicKeyHex)
+    .in('writer_key', [apGatewayLogWriterKey(OPEN_ESSID), alice.publicKeyHex])
     .eq('path', NAMED_LOG_PATH);
   return count ?? 0;
 };
 
 const clear = async () => {
-  await sr.from('patches').delete().eq('writer_key', alice.publicKeyHex).eq('path', NAMED_LOG_PATH);
+  // The name servers are ESSID-seeded and every run reaches the same ones, so their logs
+  // are cleared at setup as well as teardown — a stale row would read as this run's.
+  await sr
+    .from('patches')
+    .delete()
+    .in('writer_key', [
+      apGatewayLogWriterKey(OPEN_ESSID),
+      apGatewayLogWriterKey(CLOSED_ESSID),
+      alice.publicKeyHex,
+    ])
+    .eq('path', NAMED_LOG_PATH);
   await sr.from('home_network_occupants').delete().eq('owner_key', alice.publicKeyHex);
 };
 
@@ -159,7 +171,7 @@ const main = async (): Promise<void> => {
   // === 2. An open name server: one AXFR line, sourced from the actor's HOME public IP,
   //        with the record count dig reported — and a forged client source_ip ignored. ===
   const opened = await recordTransfer(OPEN_ESSID, openServer, { source_ip: '10.6.6.6' });
-  const openLog = await readNamedLog(OPEN_ID);
+  const openLog = await readNamedLog(OPEN_ID, OPEN_ESSID);
   const openLine = openLog.trim().split('\n').filter(Boolean).at(-1) ?? '';
   check(
     'an open transfer lands one AXFR line naming the source, zone, and record count',
@@ -174,9 +186,9 @@ const main = async (): Promise<void> => {
     `line=${JSON.stringify(openLine)}`,
   );
 
-  // === 3. A single writer's repeated transfers accrete into the ONE row, oldest-first. ===
+  // === 3. Repeated transfers accrete into the ONE row, oldest-first. ===
   await recordTransfer(OPEN_ESSID, openServer);
-  const accreted = await readNamedLog(OPEN_ID);
+  const accreted = await readNamedLog(OPEN_ID, OPEN_ESSID);
   const axfrLines = accreted.split('\n').filter((line) => line.includes('AXFR ended'));
   check(
     'a repeated transfer accretes a second AXFR line into the same row, not replacing it',
@@ -187,7 +199,7 @@ const main = async (): Promise<void> => {
   // === 4. A closed name server refuses — the server recomputes the verdict, and the box
   //        still records the attempt, distinctly worded, naming the same source. ===
   const refused = await recordTransfer(CLOSED_ESSID, closedServer);
-  const closedLog = await readNamedLog(CLOSED_ID);
+  const closedLog = await readNamedLog(CLOSED_ID, CLOSED_ESSID);
   const closedLine = closedLog.trim().split('\n').filter(Boolean).at(-1) ?? '';
   check(
     'a refused transfer lands the denied line, naming the same source — no forged success',

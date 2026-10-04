@@ -32,6 +32,7 @@ import { listenerOn, type Listener } from '../services/pidfile.js';
 import { portsOpenToNetwork } from '../network/portsOpenToNetwork.js';
 import type { Directory } from '../filesystem/types.js';
 import { derivePid } from '../logging/syslog.js';
+import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
 import {
   appendMachineLog,
   type MachineLogReadQuery,
@@ -137,7 +138,11 @@ const authCreateSessionSchema = z
   .refine((payload) => !('player_key' in payload));
 
 type LoginAttempt = {
-  readonly publicKey: string;
+  /** The network the box is regenerated from. Every box on it belongs to the access point
+   *  or the generator rather than to a player, and every occupant of the WiFi reaches the
+   *  identical one, so its logs file under the network's own key: a row per caller would
+   *  let each login erase the lines of whoever logged in before. */
+  readonly essid: string;
   readonly machineId: string;
   readonly host: LanHost;
   readonly username: string;
@@ -174,7 +179,7 @@ const logLoginAttempt = async (
     await appendMachineLog(
       { readLog: deps.readAuthLog, upsertPatch: deps.upsertPatch },
       {
-        writerKey: attempt.publicKey,
+        writerKey: apGatewayLogWriterKey(attempt.essid),
         machineId: attempt.machineId,
         path: attempt.sweepLog.path,
         owner: attempt.sweepLog.owner,
@@ -331,7 +336,7 @@ export const handleAuthCreateSession = async (
   // both accepted and rejected logins. (A 404 above logs nothing — there is no
   // machine, or no daemon, to log on.)
   await logLoginAttempt(deps, {
-    publicKey,
+    essid: payload.essid,
     machineId,
     host,
     username: payload.username,

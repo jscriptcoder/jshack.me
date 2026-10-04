@@ -7,6 +7,7 @@ import type { NonceStore } from '../signedRequest/nonceStore.js';
 import { signRequest } from '../signedRequest/sign.js';
 import { generateIdentity } from '../identity/identity.js';
 import { asGameTime } from '../types.js';
+import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
 import { lanZoneName } from '../network/resolveName.js';
 import {
   allowsZoneTransfer,
@@ -89,8 +90,9 @@ describe('handleRecordZoneTransfer', () => {
 
     expect(result).toEqual({ status: 200, body: { ok: true } });
     expect(upsertPatch.mock.calls[0]![0]).toEqual({
-      // The caller's own key — the row a single player's transfers accrete into.
-      writer_key: identity.publicKeyHex,
+      // The network's own key, never the caller's: every occupant transfers from the
+      // identical box, so a row per caller would let each transfer erase the last.
+      writer_key: apGatewayLogWriterKey(GRAD_ESSID),
       // The box the log lands on is the name server dig aimed at, at any depth.
       machine_id: nameServerMachineIdAt(GRAD_ESSID, GRAD_NS_IP),
       path: NAMED_LOG_PATH,
