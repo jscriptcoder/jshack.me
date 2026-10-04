@@ -1,8 +1,8 @@
 # Plan: Operate from a hop
 
 **Status**: Grilled and gap-reviewed. Decisions confirmed by the owner 2026-10-04 (grill, then a
-`find-gaps` pass that added 4a, 4b, 7a, 11a, "Out of scope" and "Done when"); slices not yet
-planned.
+`find-gaps` pass that added 4a, 4b, 7a, 11a, "Out of scope" and "Done when"); nine slices
+planned and approved the same day. Next: slice 1.
 Resolves two §9 backlog items in `docs/conventions-and-gotchas.md`: "Pivot / operate-from-a-hop —
 source-IP masking only; ssh-from-a-pivot" and "Four tools cannot pivot: `ssh`, `nmap`, `curl`,
 `lynx`". Where they disagree with this file, this file wins.
@@ -160,9 +160,12 @@ an attacker who holds root on a hop can cut the trail there by wiping its logs.
 15. **No new defender verbs.** Trace-back is `auth.log` → `whois` → break into the hop → repeat.
     Player commands still leave no `.bash_history` on a hop; a forward trail is not part of this
     feature.
-16. **A handbook page, "where your traffic comes from".** The change alters every network command
-    inside a shell (`ssh 192.168.1.5` from a foreign box no longer reaches home), so players are
-    told rather than left to discover it.
+16. **Players are told in `man ssh`; developers in the handbook.** The change alters every network
+    command inside a shell (`ssh 192.168.1.5` from a foreign box no longer reaches home), so
+    `man ssh` gains a paragraph: a command run inside a remote shell travels from that box. The
+    developer handbook (`docs/handbook/`, which players never see) records the vantage as built
+    in `07-network-filesystem-scanning.md` at close-out. (Amended at slicing: the grill said "a
+    handbook page", but the only player-facing text is `man`.)
 
 ## Done when
 
@@ -182,10 +185,109 @@ an attacker who holds root on a hop can cut the trail there by wiping its logs.
 6. **The real client shows it**, single-player (two-player runs are unstageable against a
    fresh box): a browser run builds a two-hop chain, `ifconfig` shows the hop, `nmap` sweeps
    the hop's LAN, `exit` steps back one vantage.
-7. **The docs say it.** The handbook page (16) ships; `cross-player-architecture.md` §8 no
-   longer says v2 has no command-vantage switch; both §9 backlog items this plan resolves are
-   removed.
+7. **The docs say it.** `man ssh` carries the vantage paragraph (16); handbook chapter 7 records
+   the vantage as built; `cross-player-architecture.md` §8 no longer says v2 has no
+   command-vantage switch; both §9 backlog items this plan resolves are removed.
 
 ## Slices
 
-Not yet planned.
+Owner-approved 2026-10-04. Every slice is a **behavior change**, one independent PR against
+`main`, cut only after its predecessor lands (`/continue`). Slices 1 and 2 stand alone; 4–9 need
+3. Each loads `tdd`, `testing` and `refactoring` before code, confirms its acceptance criteria
+with the owner before RED, bumps the version, and runs the mutation gate once at PR readiness
+(json reporter, one file scope at a time — `conventions-and-gotchas.md` §4). Every slice that
+touches `api/` deps adds or updates a `scripts/test*.ts` wire-check and runs it live.
+
+The close-out (as-built docs, §9 cleanup, retiring this file) is a `docs(v2):` commit on `main`
+after slice 9, not a slice.
+
+### Slice 1: A root wipe of a log on a box you don't own sticks
+
+**Value**: an attacker with root on a hop can cut the trail there; the wipe a player sees is the
+wipe a defender sees.
+**Path**: a system append (`appendMachineLog`, every caller) → reads the log a READER
+materializes (every writer's row for the path, `orderPatchesForReplay`, last wins; a tombstone
+reads as empty) → appends → upserts under the log's own key.
+**Decisions**: 12, 13, 14. **Done-when**: 3 (the wire-check half).
+**RED**: `appendMachineLog` given a newer empty/tombstone row from another writer appends to
+empty, not to its own older row. Live: `scripts/testLogWipeSticks.ts` (committed in this PR) goes
+11/11.
+**Watch for**: every appender's `readLog` dep currently reads ONE `(machine_id, path,
+writer_key)` row — the dep changes shape for all of them; `appendAuthLog` (own-box su) keeps
+working since its writer and reader are the owner.
+
+### Slice 2: Two players on one home network share one log per NPC box
+
+**Value**: a co-occupant's line on a shared NPC box is no longer erased by the other's next
+login; trace-back and wipes have one record to act on.
+**Path**: own-LAN door handlers (`authCreateSession`, the own-LAN hydra/ftp/mysql/redis/snmp/nmap
+trace writers) → write under `apGatewayLogWriterKey(essid)` instead of the caller's key; player
+boxes keep the owner's key.
+**Decisions**: 7a.
+**RED**: a wire-check where two occupants of one lab ESSID each log in to the same generated
+host; the host's `auth.log` holds both lines.
+**Watch for**: §6's shared-machine rule — clean the host at setup, assert on the delta.
+
+### Slice 3: `ssh` from a hop walks sideways across the hop's LAN — the walking skeleton
+
+**Value**: a player with a shell on a box reaches that box's network, and is logged there under
+the box's address.
+**Path**: the client `Session` gains its network (`essid`, carried through `listSessions` and
+rehydration) → `ssh`'s own-LAN path takes essid and target resolution (`addressForTarget`) from
+the top session, home `wlan0` only when there is none → sends `caller_machine_id` →
+`authCreateSession` derives the vantage server-side (the session row's essid and machine, or the
+caller's home occupancy), **refuses a named network that is not the vantage's** (closes the
+crafted-essid gap: today any essid is trusted), and stamps the source address itself (decision
+7) instead of the client `source_ip` → `ifconfig` shows the hop's interface and LAN address →
+`man ssh` gains the vantage paragraph.
+**Decisions**: 1, 4, 4b, 5, 6, 7 (ssh), 8 (ssh names), 9, 16 (man). **Done-when**: 2.
+**RED**: from a session on a box on network N, `ssh` to an N-private address lands on N's host,
+whose `auth.log` names the hop's LAN address; from a foreign hop, a home-private address is
+`No route to host`; `ifconfig` on the hop prints the hop's address; a crafted request naming a
+network the caller is not standing on is refused. Wire-check for the server half.
+**Watch for**: the shared vantage resolver this slice builds is what 4–9 reuse — keep it one
+function on each side, not a per-tool copy.
+
+### Slice 4: `ssh` out of a network traces to the hop's network
+
+**Value**: the chain the feature exists for — a target's log names the last hop's network, and
+each hop's log names the one before.
+**Path**: `ssh`'s public and inner-gateway-forward paths send `caller_machine_id` from a hop →
+`authCreateSessionPublic` / `authCreateSessionInnerGateway` trace via `resolveVantageSourceIp`.
+**Decisions**: 1, 4a, 7. **Done-when**: 1, 3.
+**RED**: the chain wire-check (`home → P → Q → third gateway`, trace walk-back, then a root wipe
+on Q ends the trail at Q).
+
+### Slice 5: A chain breaks where a hop goes down
+
+**Value**: a reboot evicts an intruder from everything they reached through that box.
+**Path**: `rebootMachine` (and the dark/brick path) end the sessions on the box → every session
+whose `parent_session_id` chain runs through them ends with `upstream_lost` (server-only reason)
+→ the terminal drops to the deepest surviving hop printing `Connection to <host> closed by
+remote host.` per leg → rehydration ends an orphaned child the same way.
+**Decisions**: 11a. **Done-when**: 5.
+
+### Slice 6: `nmap` from a hop sweeps the hop's LAN and traces to the hop
+
+**Value**: reconnaissance from where the player stands.
+**Path**: `nmap` takes its vantage from the top session for both own-LAN and public scans →
+`resolvePublicScan` gains a caller machine and traces via `resolveVantageSourceIp` →
+`pivotVantageForMachineId` / the `nmapScanDeep` special path fold into the general vantage.
+**Decisions**: 2, 10. **Done-when**: 6 (the single-player browser run lands here: two-hop chain,
+`ifconfig`, `nmap` of the hop's LAN, `exit`).
+
+### Slice 7: The web tools run from a hop
+
+`curl`, `lynx`, `gobuster` — reachability and trace from the vantage; `curl` still needs no
+session from home (decision 6). **Decisions**: 2, 6.
+
+### Slice 8: The credential and service tools run from a hop
+
+`hydra`, `mysql`, `redis-cli`, `snmpwalk`, `snmpset`, `msfconsole`. ⚠ The largest tool slice;
+if it runs big, split `hydra`/`msfconsole` from the database and SNMP clients. **Decisions**: 2.
+
+### Slice 9: The remaining IP tools run from a hop
+
+`ftp`, `scp`, `nc`, `ping`, `dig`/`nslookup` (names resolve against the vantage), `apt` (a hop's
+network is online). Adds the test that enumerates every IP tool in decision 2 and proves each
+carries the shell's box. **Decisions**: 2, 3, 8. **Done-when**: 4.
