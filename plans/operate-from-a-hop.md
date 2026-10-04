@@ -2,7 +2,7 @@
 
 **Status**: Grilled and gap-reviewed. Decisions confirmed by the owner 2026-10-04 (grill, then a
 `find-gaps` pass that added 4a, 4b, 7a, 11a, "Out of scope" and "Done when"); nine slices
-planned and approved the same day. Next: slice 1.
+planned and approved the same day. Slice 1 done (#598, v0.307.0). Next: slice 2.
 Resolves two §9 backlog items in `docs/conventions-and-gotchas.md`: "Pivot / operate-from-a-hop —
 source-IP masking only; ssh-from-a-pivot" and "Four tools cannot pivot: `ssh`, `nmap`, `curl`,
 `lynx`". Where they disagree with this file, this file wins.
@@ -202,6 +202,8 @@ The close-out (as-built docs, §9 cleanup, retiring this file) is a `docs(v2):` 
 after slice 9, not a slice.
 
 ### Slice 1: A root wipe of a log on a box you don't own sticks
+
+✅ Done in #598.
 
 **Value**: an attacker with root on a hop can cut the trail there; the wipe a player sees is the
 wipe a defender sees.
