@@ -905,7 +905,7 @@ describe('ssh to a fellow occupant on the same LAN', () => {
 
     expect(result.exitCode).toBe(0);
     expect(result.lines).toEqual([]);
-    expect(resolveOccupants).toHaveBeenCalledWith(ESSID);
+    expect(resolveOccupants).toHaveBeenCalledWith(ESSID, 'bstation-cafef00d');
     expect(authenticateSameLan.mock.calls[0]![0]).toEqual({
       sessionId: 'ssh-guest-1700000000000',
       essid: ESSID,
@@ -915,6 +915,7 @@ describe('ssh to a fellow occupant on the same LAN', () => {
       port: 22,
       parentSessionId: 'shell-1',
       sourceIp: selfIp,
+      callerMachineId: 'bstation-cafef00d',
     });
     // Session lands on the OWNER's real workstation id (the occupant's machine id).
     expect(onPush.mock.calls[0]![0]).toEqual({
@@ -1370,6 +1371,11 @@ const sshHopEnv = (
     readonly authenticateInnerGateway?: (
       params: InnerGatewayAuthParams,
     ) => Promise<PublicAuthResult>;
+    readonly resolveOccupants?: (
+      essid: string,
+      callerMachineId?: string,
+    ) => Promise<readonly OccupantProjection[]>;
+    readonly authenticateSameLan?: (params: SameLanAuthParams) => Promise<PublicAuthResult>;
   } = {},
 ) =>
   mockCommandEnv({
@@ -1387,9 +1393,11 @@ const sshHopEnv = (
     scan: mockScanApi({
       resolvePublic: async () => ({ found: true, ports: [{ port: 22, service: 'ssh' }] }),
       resolveInnerGateway: async () => liveForward,
+      resolveOccupants: over.resolveOccupants ?? (async () => []),
     }),
     ssh: mockSshApi({
       authenticate: over.authenticate ?? (async () => ({ ok: true, userType: 'root' })),
+      ...(over.authenticateSameLan ? { authenticateSameLan: over.authenticateSameLan } : {}),
       authenticatePublic:
         over.authenticatePublic ??
         (async () => ({ ok: true, userType: 'root', machineId: A_MACHINE_ID, essid: A_ESSID })),
@@ -1560,6 +1568,46 @@ describe('ssh from a hop', () => {
       parentSessionId: 'ssh-hop-1',
       sourceIp: hop.ip,
       callerMachineId: hostMachineId(hop, HOP_ESSID),
+    });
+  });
+
+  it('logs into a player’s workstation on the hop’s LAN, asking from the hop', async () => {
+    const hop = sshHostOn(HOP_ESSID);
+    const resolveOccupants = vi.fn(async () => [occupantAt(OCCUPANT_IP)]);
+    const authenticateSameLan = vi.fn<(params: SameLanAuthParams) => Promise<PublicAuthResult>>(
+      async () => ({
+        ok: true,
+        userType: 'guest',
+        machineId: A_SAMELAN_MACHINE_ID,
+        essid: HOP_ESSID,
+      }),
+    );
+    const onPush = vi.fn<(session: Session) => void>();
+
+    const result = sync(
+      await ssh.execute(
+        sshHopEnv(hop, { resolveOccupants, authenticateSameLan, onPush }),
+        [`guest@${OCCUPANT_IP}`],
+        new Map(),
+      ),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(resolveOccupants).toHaveBeenCalledWith(HOP_ESSID, hostMachineId(hop, HOP_ESSID));
+    expect(authenticateSameLan.mock.calls[0]![0]).toEqual({
+      sessionId: 'ssh-guest-1700000000000',
+      essid: HOP_ESSID,
+      targetIp: OCCUPANT_IP,
+      username: 'guest',
+      password: 'hunter2',
+      port: 22,
+      parentSessionId: 'ssh-hop-1',
+      sourceIp: hop.ip,
+      callerMachineId: hostMachineId(hop, HOP_ESSID),
+    });
+    expect(onPush.mock.calls[0]![0]).toMatchObject({
+      machineId: A_SAMELAN_MACHINE_ID,
+      essid: HOP_ESSID,
     });
   });
 });

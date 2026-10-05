@@ -430,6 +430,20 @@ describe('authCreateServerSessionSameLan', () => {
     });
     // A LAN IP is resolved through the ESSID occupancy server-side — no own-machine scope.
     expect(verified.payload).not.toHaveProperty('machine_id');
+    expect(verified.payload).not.toHaveProperty('caller_machine_id');
+  });
+
+  it('names the box the login is run from, when there is one', async () => {
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse(200, { ok: true, userType: 'guest', machine_id: 'skylab-deadbeef' }),
+    );
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    await authCreateServerSessionSameLan(deps, { ...params, callerMachineId: 'hop-box-1' });
+
+    const verified = await verifyPayload(sentEnvelope(fetchSpy));
+    if (!verified.ok) throw new Error('expected a verified envelope');
+    expect(verified.payload).toMatchObject({ caller_machine_id: 'hop-box-1' });
   });
 
   it('maps a 401 to invalid_credentials', async () => {

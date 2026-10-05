@@ -521,6 +521,9 @@ export type SameLanAuthParams = {
   readonly port: number;
   readonly parentSessionId: string | null;
   readonly sourceIp: string | null;
+  /** The box the command is RUN from, which the server places on its network. `ssh`
+   *  always names it; a door that leaves it out is placed at the caller's own box. */
+  readonly callerMachineId?: string;
 };
 
 /** What `ssh` hands to `env.ssh.authenticateInnerGateway` to log into a hidden
@@ -1421,8 +1424,13 @@ export type ScanApi = {
   /** Fetch the current ESSID's OTHER occupants for a same-LAN scan (signed
    *  `resolveOccupants` endpoint). `nmap` merges the result over its generated LAN so
    *  a fellow player shows up as a real host. Additive: degrades to an empty list
-   *  (server down, or the viewer isn't an occupant) rather than failing the scan. */
-  readonly resolveOccupants: (essid: string) => Promise<readonly OccupantProjection[]>;
+   *  (server down, or the viewer isn't on that LAN) rather than failing the scan.
+   *  `callerMachineId` is the box the command runs from; without it the server reads
+   *  the viewer as standing at home. */
+  readonly resolveOccupants: (
+    essid: string,
+    callerMachineId?: string,
+  ) => Promise<readonly OccupantProjection[]>;
   /** Resolve ONE fellow occupant's real open ports server-side (signed
    *  `resolveOccupantScan` endpoint). Their box is built from THEIR identity and THEIR
    *  journal, so — unlike a generated sibling, whose filesystem keys on the host IP —

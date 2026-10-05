@@ -223,7 +223,7 @@ export const authCreateServerSessionPublic = async (
  *  persists the `kind:'ssh'` session on the owner's REAL machine id (returned as
  *  `machineId` for the prompt + hop chain). 401 → bad password/unknown user; 404 → the
  *  LAN IP is no occupant's box (or the box is dark / not serving sshd); 403 (caller not
- *  an occupant) collapses to network_error like any other non-ok. A 200 missing a valid
+ *  standing on that LAN) collapses to network_error like any other non-ok. A 200 missing a valid
  *  userType OR machine_id is malformed, never a login. */
 export const authCreateServerSessionSameLan = async (
   deps: SessionsClientDeps,
@@ -239,6 +239,7 @@ export const authCreateServerSessionSameLan = async (
       port: params.port,
       parent_session_id: params.parentSessionId,
       source_ip: params.sourceIp,
+      ...(params.callerMachineId === undefined ? {} : { caller_machine_id: params.callerMachineId }),
     });
     if (response.ok) {
       const body: unknown = await response.json();

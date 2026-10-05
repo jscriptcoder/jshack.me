@@ -233,6 +233,7 @@ const gatewayDeps = (
       data: standing.home === undefined ? { essid: ESSID, octet: 50 } : standing.home,
       error: null,
     }),
+    findWorkstationLease: async () => ({ data: null, error: null }),
   };
   return { deps, appended: log.appended };
 };

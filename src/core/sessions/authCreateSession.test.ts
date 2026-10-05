@@ -101,6 +101,7 @@ const makeDeps = (over: Partial<AuthCreateSessionDeps> = {}) => {
     findPatches,
     findActiveSession,
     findHomeVantage,
+    findWorkstationLease: async () => ({ data: null, error: null }),
     ...over,
   };
   return { deps, insertSession, upsertPatch, readAuthLog, findPatches, findActiveSession, findHomeVantage };

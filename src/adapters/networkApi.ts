@@ -125,18 +125,22 @@ export const leaveHomeNetwork = (deps: NetworkClientDeps, essid: string): void =
 
 /**
  * Fetch the current ESSID's other occupants for a same-LAN `nmap` (backs
- * `env.scan.resolveOccupants`). The server gates on the caller's own live occupancy
- * row and excludes the caller. Additive by design: it degrades to an EMPTY list on any
- * non-ok (incl. 403 not-an-occupant) / malformed / thrown response, so a server hiccup
- * — or a not-yet-occupant scan — simply shows the viewer's own LAN with no fellow
- * players, never a crash.
+ * `env.scan.resolveOccupants`). The server lists them only to a caller standing on the
+ * ESSID — at home, or on `callerMachineId` when named — and excludes the caller.
+ * Additive by design: it degrades to an EMPTY list on any non-ok (incl. a 403 for a
+ * caller not on that LAN) / malformed / thrown response, so a server hiccup simply
+ * shows the viewer's own LAN with no fellow players, never a crash.
  */
 export const resolveOccupants = async (
   deps: NetworkClientDeps,
   essid: string,
+  callerMachineId?: string,
 ): Promise<readonly OccupantProjection[]> => {
   try {
-    const response = await post(deps, 'resolveOccupants', { essid });
+    const response = await post(deps, 'resolveOccupants', {
+      essid,
+      ...(callerMachineId === undefined ? {} : { caller_machine_id: callerMachineId }),
+    });
     if (!response.ok) return [];
     const body: unknown = await response.json();
     const resolved = body as {

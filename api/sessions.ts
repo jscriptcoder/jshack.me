@@ -227,6 +227,39 @@ const findHomeVantageVia =
     return { data: { essid, octet }, error: null };
   };
 
+/** The lease held on `essid` by whoever's workstation `machineId` is, read through their
+ *  occupancy of that network — the address a box sees a caller arrive from when the
+ *  caller is in a shell on that player's workstation. Null when no occupant of `essid`
+ *  owns that box (an NPC box, or a player who has left), or they hold no lease. */
+const findWorkstationLeaseVia =
+  ({ supabase, label }: QuerySpec) =>
+  async (essid: string, machineId: string) => {
+    const occupant = await supabase
+      .from('home_network_occupants')
+      .select('owner_key')
+      .eq('essid', essid)
+      .eq('workstation_machine_id', machineId)
+      .maybeSingle();
+    if (occupant.error) {
+      logFailure(`${label} workstation occupant`, occupant.error);
+      return { data: null, error: occupant.error };
+    }
+    const ownerKey = (occupant.data as { owner_key: string } | null)?.owner_key ?? null;
+    if (ownerKey === null) return { data: null, error: null };
+
+    const lease = await supabase
+      .from('network_lan_leases')
+      .select('octet')
+      .eq('essid', essid)
+      .eq('owner_key', ownerKey)
+      .maybeSingle();
+    if (lease.error) {
+      logFailure(`${label} workstation lease`, lease.error);
+      return { data: null, error: lease.error };
+    }
+    return { data: (lease.data as { octet: number } | null)?.octet ?? null, error: null };
+  };
+
 /** Every occupant currently ON an ESSID, with the identity fields that rebuild each box
  *  and the hostname its trace line carries. This is the AUTH projection — it includes the
  *  root hash, is server-internal, and is never sent to a client (distinct from the lean
@@ -462,6 +495,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       // so the server names the network and the source address rather than trusting them.
       findActiveSession: findActiveSessionVia({ supabase, label: 'ssh vantage active-session' }),
       findHomeVantage: findHomeVantageVia({ supabase, label: 'ssh vantage' }),
+      findWorkstationLease: findWorkstationLeaseVia({ supabase, label: 'ssh vantage' }),
     });
     res.status(status).json(body);
     return;
@@ -570,14 +604,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   if (actionOf(req.body) === 'authCreateSessionSameLan') {
-    // Same-WiFi LAN ssh login: B reaches a fellow occupant A's workstation DIRECTLY
-    // over the shared LAN (no router/NAT). The handler reads the ESSID's occupancy
-    // (the LAN-boundary gate + LAN-IP match), materializes A's box, and validates the
-    // password server-side before the insert runs. The trace on A's workstation is
-    // written under A's owner key, source = B's server-derived LAN IP.
+    // Same-WiFi LAN ssh login: B reaches an occupant A's workstation DIRECTLY over the
+    // shared LAN (no router/NAT). The handler places B on the LAN (home, or a box B is
+    // in a shell on — the LAN-boundary gate), matches the LAN IP through the ESSID's
+    // occupancy, materializes A's box, and validates the password server-side before
+    // the insert runs. The trace on A's workstation is written under A's owner key,
+    // source = where B stands on the LAN, server-derived.
     const { status, body } = await handleAuthCreateSessionSameLan(req.body, {
       nonceStore: noopNonceStore,
       now: () => Date.now(),
+      findActiveSession: findActiveSessionVia({ supabase, label: 'same-lan active-session' }),
+      findHomeVantage: findHomeVantageVia({ supabase, label: 'same-lan vantage' }),
+      findWorkstationLease: findWorkstationLeaseVia({ supabase, label: 'same-lan vantage' }),
       listOccupantsByEssid: listOccupantsByEssidVia<OccupantConnectRow>({
         supabase,
         label: 'same-lan occupants lookup',
@@ -604,6 +642,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       now: () => Date.now(),
       findActiveSession: findActiveSessionVia({ supabase, label: 'inner-gateway active-session' }),
       findHomeVantage: findHomeVantageVia({ supabase, label: 'inner-gateway vantage' }),
+      findWorkstationLease: findWorkstationLeaseVia({ supabase, label: 'inner-gateway vantage' }),
       findPatches: findPatchesVia({ supabase, label: 'inner-gateway boot-state lookup' }),
       insertSession: insertSessionVia({
         supabase,

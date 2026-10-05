@@ -9,7 +9,7 @@
 //   - B (a live occupant of X) `ssh guest@<A's LAN IP>` with A's guest pw → 200, a
 //     `kind:'ssh'` session row lands on A's WORKSTATION machine id (not B's box).
 //   - A wrong password → 401 invalid_credentials, no session row.
-//   - A NON-occupant caller (no row for X) → 403 not_an_occupant, refused before auth.
+//   - A caller standing on no network → 403 caller_not_on_network, refused before auth.
 //   - A target LAN IP no occupant owns → 404 host_unreachable.
 //
 // Usage (with v2 supabase + vercel dev running on 3100):
@@ -163,14 +163,14 @@ check(
   `status=${s2.status} landed=${landed2}`,
 );
 
-// === 3. A NON-occupant caller (no row for X) → 403 not_an_occupant. ===
+// === 3. A caller standing on no network → 403 caller_not_on_network. ===
 const s3 = await post(
   SESSIONS,
   connect(carol, { session_id: 'samelan-c-1', username: 'guest', password: GUEST_PW }),
 );
 check(
-  'a non-occupant caller is 403 not_an_occupant (refused before any password check)',
-  s3.status === 403 && (s3.body as { error?: string }).error === 'not_an_occupant',
+  'a caller on no network is 403 caller_not_on_network (refused before any password check)',
+  s3.status === 403 && (s3.body as { error?: string }).error === 'caller_not_on_network',
   `status=${s3.status} error=${(s3.body as { error?: string }).error}`,
 );
 

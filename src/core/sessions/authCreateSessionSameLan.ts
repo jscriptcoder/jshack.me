@@ -4,10 +4,11 @@
  * DIRECTLY over the shared LAN — no router, no NAT, no forward (the contrast with
  * `authCreateSessionPublic`, which routes a public IP through A's router).
  *
- * Reachability is the OCCUPANCY table, not the AP's public IP: the server reads who is
- * live on the ESSID, requires the caller to be one of them (the LAN boundary — you
- * must be on the LAN to reach a box on it), then matches the target LAN IP to a FELLOW
- * occupant's row (self excluded — your own box is the own-LAN path). A's LAN IP is the
+ * Reachability is the OCCUPANCY table, not the AP's public IP. The caller must stand on
+ * the ESSID (the LAN boundary — you must be on the LAN to reach a box on it): at home on
+ * it, or in a shell on a box that is, as `resolveCallerVantage` places them. The server
+ * then matches the target LAN IP to an occupant's row (the caller's own excluded — your
+ * own box is the own-LAN path). A's LAN IP is the
  * LEASE A holds on the ESSID, read server-side, so a client can neither claim an address
  * nor frame another occupant — and, unlike the pure derivation this replaced, no two
  * occupants can ever answer to the same target.
@@ -44,6 +45,7 @@ import { asGameTime } from '../types.js';
 import type { PatchRow } from '../patches/upsertPatch.js';
 import { DOOR_KINDS, reachDoor, type AuthSessionRow, type HandlerResponse } from './authCreateSession.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
+import { resolveCallerVantage, type CallerVantageDeps } from './callerVantage.js';
 
 /** The occupancy fields a same-LAN connect needs: whose row it is (the LAN-boundary
  *  gate + self-exclusion + LAN-IP match), the workstation the session lands on, and the
@@ -59,7 +61,7 @@ export type OccupantConnectRow = {
   readonly workstation_root_hash: string;
 };
 
-export type AuthCreateSessionSameLanDeps = {
+export type AuthCreateSessionSameLanDeps = CallerVantageDeps & {
   readonly nonceStore: NonceStore;
   /** Every occupant of the ESSID (auth fields included — server-internal, never
    *  projected to a client): the gate reads it for the caller, the match for the
@@ -109,6 +111,8 @@ const authCreateSessionSameLanSchema = z
     kind: z.enum(DOOR_KINDS).default('ssh'),
     parent_session_id: z.string().min(1).nullable().optional(),
     source_ip: z.string().min(1).nullable().optional(),
+    // The box the login is run from. Absent means the caller's own workstation.
+    caller_machine_id: z.string().min(1).optional(),
   })
   .refine((payload) => !('player_key' in payload) && !('owner_key' in payload));
 
@@ -116,11 +120,10 @@ const authCreateSessionSameLanSchema = z
  *  primitive — on BOTH outcomes (sshd records accepted AND rejected logins). The
  *  keystone: `writerKey` is the TARGET OWNER's key — the system owns its logs, so every
  *  attacker's line accretes into ONE row instead of colliding under last-write-wins; the
- *  attacker's identity lives in the line's source IP. That source is B's LAN IP — the
- *  address B holds a LEASE on, read from the same lookup that resolved the target,
- *  unlike the public path whose source is B's server-resolved home public IP — never the
- *  forgeable payload `source_ip`. Best-effort: a logging failure must never break (or
- *  fabricate) the auth. */
+ *  attacker's identity lives in the line's source IP. That source is where B stands on
+ *  this LAN — B's own lease, or the address of the box B is in a shell on — unlike the
+ *  public path whose source is a network's public IP, and never the forgeable payload
+ *  `source_ip`. Best-effort: a logging failure must never break (or fabricate) the auth. */
 const logSameLanAuth = async (
   deps: AuthCreateSessionSameLanDeps,
   target: { readonly ownerKey: string; readonly machineId: string; readonly hostname: string },
@@ -168,33 +171,27 @@ export const handleAuthCreateSessionSameLan = async (
   }
   const { publicKey, payload } = verified;
 
+  // LAN boundary: only a caller standing on this LAN reaches a box on it — at home on
+  // it, or in a shell on a box that is. Where they stand is the server's reading, never
+  // the ESSID they sent, and it is also the address the trace names.
+  const vantage = await resolveCallerVantage(deps, publicKey, payload.caller_machine_id);
+  if (!vantage.ok) return { status: vantage.status, body: { error: vantage.error } };
+  if (vantage.essid !== payload.essid) return { status: 403, body: { error: 'wrong_network' } };
+  const fromIp = vantage.sourceIp ?? 'unknown';
+
   const occupants = await deps.listOccupantsByEssid(payload.essid);
   if (occupants.error) {
     return { status: 500, body: { error: 'occupants_lookup_failed' } };
   }
   const rows = occupants.data ?? [];
 
-  // LAN boundary: only a live occupant may reach a fellow occupant on the LAN.
-  if (!rows.some((row) => row.owner_key === publicKey)) {
-    return { status: 403, body: { error: 'not_an_occupant' } };
-  }
-
-  // ONE lease read serves both halves of the connect: which occupant answers to the
-  // target address, and what source address the trace carries. A failure is a clean
-  // 500 — an address that cannot be read is never derived as a fallback.
+  // Which occupant answers to the target address. A failure is a clean 500 — an
+  // address that cannot be read is never derived as a fallback.
   const leases = await deps.listLeasesByEssid(payload.essid);
   if (leases.error) {
     return { status: 500, body: { error: 'leases_lookup_failed' } };
   }
   const addresses = lanAddressesByOwner(payload.essid, leases.data ?? []);
-
-  // The caller's own address on this LAN — the source the trace is stamped with. Holding
-  // no lease means holding no address here, which is the same thing as not being on the
-  // LAN, so it fails the boundary rather than inventing a source to log.
-  const fromIp = addresses.get(publicKey);
-  if (fromIp === undefined) {
-    return { status: 403, body: { error: 'not_an_occupant' } };
-  }
 
   // Match the target LAN IP to a FELLOW occupant — self excluded: your own LAN IP is
   // the own-LAN path, not the cross-player front door. Matched on the LEASE, so a
@@ -273,8 +270,8 @@ export const handleAuthCreateSessionSameLan = async (
 
   // The box is resolved and reachable, so the attempt CAN be logged — sshd records both
   // accepted and rejected logins. (Every 404 above logs nothing — no reachable box to
-  // log on.) Written under A's owner key on A's workstation; the source is B's LAN IP,
-  // server-derived from the verified caller + ESSID.
+  // log on.) Written under A's owner key on A's workstation; the source is where B
+  // stands on the LAN, server-derived from the verified caller.
   await logSameLanAuth(
     deps,
     {

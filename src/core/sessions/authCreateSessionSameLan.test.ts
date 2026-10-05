@@ -5,12 +5,16 @@ import {
   type OccupantConnectRow,
 } from './authCreateSessionSameLan.js';
 import type { AuthSessionRow } from './authCreateSession.js';
+import type { CallerVantageDeps, HomeVantage } from './callerVantage.js';
+import { generateHomeLan } from '../generation/generateHomeLan.js';
+import { machineIdForLanHost } from '../generation/lanTopology.js';
+import { computeWorkstationId } from '../identity/workstation.js';
 import { md5 } from '../generation/md5.js';
 import { workstationGuestPassword } from '../generation/workstationFs.js';
 import { signRequest } from '../signedRequest/sign.js';
 import { generateIdentity } from '../identity/identity.js';
 import { assignHomeNetwork } from '../network/homeNetwork.js';
-import type { LanLeaseRow } from '../network/lanAddress.js';
+import { lanAddressFor, type LanLeaseRow } from '../network/lanAddress.js';
 import type { OwnerPatchRow } from '../network/materializeWorkstationFs.js';
 import { formatSshdAuthLine, AUTH_LOG_PERMISSIONS } from '../logging/authLog.js';
 import { derivePid } from '../logging/syslog.js';
@@ -24,8 +28,9 @@ import { logRead } from '../../test/factories/logRows.js';
 /**
  * `handleAuthCreateSessionSameLan` is the same-WiFi LAN connect front door. A fellow
  * occupant B's `ssh <user>@<A's LAN IP>` reaches A directly over the shared LAN — no
- * router, no NAT, no forward. The server reads the ESSID's occupancy, gates on B being
- * a live occupant, matches the target LAN IP to A's occupancy row, materializes A's
+ * router, no NAT, no forward. The server places B (at home, or on a box B holds a shell
+ * on), refuses B unless that puts B on the ESSID, matches the target LAN IP to A's
+ * occupancy row, materializes A's
  * REAL workstation (base + journal), refuses a dark or non-listening box, and validates
  * the typed password against A's own `/etc/passwd` before landing a session on A's
  * workstation id. Unknown user and wrong password collapse to one 401.
@@ -141,6 +146,23 @@ const bootTombstone: OwnerPatchRow = {
   writer_key: ALICE.publicKeyHex,
 };
 
+/** Where each player's own workstation stands, as the server reads it: Alice and Bob
+ *  live on the LAN at the octets they were offered; nobody else lives anywhere. */
+const HOMES: ReadonlyMap<string, HomeVantage> = new Map([
+  [ALICE.publicKeyHex, { essid: ESSID, octet: octetOf(A_LAN_IP) }],
+  [BOB.publicKeyHex, { essid: ESSID, octet: octetOf(B_LAN_IP) }],
+]);
+
+/** The reads that place a caller, defaulting to that world with no shell held anywhere. */
+const vantageDeps = (): CallerVantageDeps => ({
+  findActiveSession: vi.fn(async () => ({ data: null, error: null })),
+  findHomeVantage: vi.fn(async (ownerKey: string) => ({
+    data: HOMES.get(ownerKey) ?? null,
+    error: null,
+  })),
+  findWorkstationLease: vi.fn(async () => ({ data: null, error: null })),
+});
+
 type OccupantsResult = { data: readonly OccupantConnectRow[] | null; error: unknown };
 type LeasesResult = { data: readonly LanLeaseRow[] | null; error: unknown };
 type PatchesResult = { data: readonly OwnerPatchRow[] | null; error: unknown };
@@ -169,6 +191,7 @@ const makeDeps = (
   const readAuthLog = vi.fn<(query: MachineLogReadQuery) => Promise<MachineLogReadResult>>(readLog);
   const upsertPatch = vi.fn<(row: PatchRow) => Promise<{ error: unknown }>>(upsert);
   const deps: AuthCreateSessionSameLanDeps = {
+    ...vantageDeps(),
     nonceStore: freshStore,
     listOccupantsByEssid,
     listLeasesByEssid,
@@ -188,6 +211,30 @@ const makeDeps = (
     upsertPatch,
   };
 };
+
+/** The same deps with the caller placed elsewhere — see `livingAt` and `holdingShellOn`. */
+const standing = (
+  made: ReturnType<typeof makeDeps>,
+  placement: Partial<CallerVantageDeps>,
+): ReturnType<typeof makeDeps> => ({ ...made, deps: { ...made.deps, ...placement } });
+
+/** The caller's own workstation stands at `home` (null: on no network at all). */
+const livingAt = (home: HomeVantage | null): Partial<CallerVantageDeps> => ({
+  findHomeVantage: async () => ({ data: home, error: null }),
+});
+
+/** The caller holds a shell on a box on `essid`; when that box is a player's
+ *  workstation, its owner holds `ownerLease` there. */
+const holdingShellOn = (
+  essid: string,
+  ownerLease: number | null = null,
+): Partial<CallerVantageDeps> => ({
+  findActiveSession: async () => ({
+    data: { username: 'root', userType: 'root', essid },
+    error: null,
+  }),
+  findWorkstationLease: async () => ({ data: ownerLease, error: null }),
+});
 
 /** The sshd auth.log line the server is expected to stamp for a same-LAN attempt at
  *  `FIXED_NOW`, on A's workstation hostname. The source IP defaults to B's LAN IP —
@@ -243,7 +290,7 @@ describe('handleAuthCreateSessionSameLan', () => {
     });
   });
 
-  it('refuses a caller who is not a live occupant before any password check or journal read', async () => {
+  it('refuses a caller standing on no network before any password check or journal read', async () => {
     const stranger = generateIdentity();
     const { deps, findPatches, insertSession } = makeDeps();
 
@@ -253,7 +300,7 @@ describe('handleAuthCreateSessionSameLan', () => {
       deps,
     );
 
-    expect(result).toEqual({ status: 403, body: { error: 'not_an_occupant' } });
+    expect(result).toEqual({ status: 403, body: { error: 'caller_not_on_network' } });
     expect(findPatches).not.toHaveBeenCalled();
     expect(insertSession).not.toHaveBeenCalled();
   });
@@ -663,13 +710,9 @@ describe('handleAuthCreateSessionSameLan', () => {
     });
 
     it("stamps B's LEASED address as the auth.log source, not B's derived one", async () => {
-      const { deps, upsertPatch } = makeDeps(
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        redrawnLeases,
+      const { deps, upsertPatch } = standing(
+        makeDeps(undefined, undefined, undefined, undefined, undefined, redrawnLeases),
+        livingAt({ essid: ESSID, octet: B_REDRAWN_OCTET }),
       );
 
       await handleAuthCreateSessionSameLan(
@@ -686,17 +729,13 @@ describe('handleAuthCreateSessionSameLan', () => {
       });
     });
 
-    it('refuses a caller that holds occupancy but no lease — it has no address here', async () => {
-      const { deps, findPatches } = makeDeps(
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        async () => ({
+    it('logs a caller on the LAN who holds no lease as unknown rather than inventing an address', async () => {
+      const { deps, upsertPatch } = standing(
+        makeDeps(undefined, undefined, undefined, undefined, undefined, async () => ({
           data: [{ owner_key: ALICE.publicKeyHex, octet: A_REDRAWN_OCTET }],
           error: null,
-        }),
+        })),
+        livingAt({ essid: ESSID, octet: null }),
       );
 
       const result = await handleAuthCreateSessionSameLan(
@@ -708,20 +747,25 @@ describe('handleAuthCreateSessionSameLan', () => {
         deps,
       );
 
-      expect(result).toEqual({ status: 403, body: { error: 'not_an_occupant' } });
-      expect(findPatches).not.toHaveBeenCalled();
+      expect(result.status).toBe(200);
+      expect(upsertPatch.mock.calls[0]![0]).toMatchObject({
+        content: `${expectedSshdLine('success', 'guest', 'unknown')}\n`,
+      });
     });
 
     it('refuses a caller that still holds a lease but has left the LAN', async () => {
       // A lease outlives occupancy, so a disconnected player keeps its address. Being
       // ADDRESSED is not being PRESENT: reaching a box on the LAN needs a live row.
-      const { deps, findPatches } = makeDeps(
-        async () => ({ data: [A_ROW], error: null }),
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        redrawnLeases,
+      const { deps, findPatches } = standing(
+        makeDeps(
+          async () => ({ data: [A_ROW], error: null }),
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          redrawnLeases,
+        ),
+        livingAt(null),
       );
 
       const result = await handleAuthCreateSessionSameLan(
@@ -733,7 +777,7 @@ describe('handleAuthCreateSessionSameLan', () => {
         deps,
       );
 
-      expect(result).toEqual({ status: 403, body: { error: 'not_an_occupant' } });
+      expect(result).toEqual({ status: 403, body: { error: 'caller_not_on_network' } });
       expect(findPatches).not.toHaveBeenCalled();
     });
 
@@ -816,14 +860,98 @@ describe('a backdoor on the box at the next desk', () => {
   });
 
   it('still refuses a stranger who is not on the LAN at all', async () => {
-    const { deps, insertSession } = makeDeps(
-      async () => ({ data: [A_ROW], error: null }),
-      async () => ({ data: [mallorysListener], error: null }),
+    const { deps, insertSession } = standing(
+      makeDeps(
+        async () => ({ data: [A_ROW], error: null }),
+        async () => ({ data: [mallorysListener], error: null }),
+      ),
+      livingAt({ essid: 'SOME-OTHER-WIFI', octet: 40 }),
     );
 
     const result = await handleAuthCreateSessionSameLan(knock(), deps);
 
-    expect(result).toEqual({ status: 403, body: { error: 'not_an_occupant' } });
+    expect(result).toEqual({ status: 403, body: { error: 'wrong_network' } });
+    expect(insertSession).not.toHaveBeenCalled();
+  });
+});
+
+describe('logging in to the box at the next desk from a shell held on that LAN', () => {
+  // Carol lives on no network at all; the shell she holds on a box here is the only
+  // thing that puts her on this LAN.
+  const CAROL = generateIdentity();
+  const npcBox = generateHomeLan(ESSID).hosts.find((host) => host.kind === 'machine')!;
+  const NPC_BOX_ID = machineIdForLanHost(npcBox, ESSID);
+  const DAVE_WS_ID = computeWorkstationId('rig', 'd'.repeat(64));
+  const DAVE_OCTET = 77;
+
+  const fromCarol = (fields: Record<string, unknown>) =>
+    envelope(CAROL, { username: 'guest', password: GUEST_PW, ...fields });
+
+  it('lets her in, and the target’s log names the box she stands on', async () => {
+    const { deps, insertSession, upsertPatch } = standing(makeDeps(), holdingShellOn(ESSID));
+
+    const result = await handleAuthCreateSessionSameLan(
+      fromCarol({ caller_machine_id: NPC_BOX_ID }),
+      deps,
+    );
+
+    expect(result.status).toBe(200);
+    expect(insertSession.mock.calls[0]![0]).toMatchObject({
+      player_key: CAROL.publicKeyHex,
+      machine_id: A_WS_ID,
+      essid: ESSID,
+    });
+    expect(upsertPatch.mock.calls[0]![0]).toMatchObject({
+      content: `${expectedSshdLine('success', 'guest', npcBox.ip)}\n`,
+    });
+  });
+
+  it('names the lease of the player whose workstation she stands on', async () => {
+    const { deps, upsertPatch } = standing(makeDeps(), holdingShellOn(ESSID, DAVE_OCTET));
+
+    await handleAuthCreateSessionSameLan(fromCarol({ caller_machine_id: DAVE_WS_ID }), deps);
+
+    expect(upsertPatch.mock.calls[0]![0]).toMatchObject({
+      content: `${expectedSshdLine('success', 'guest', lanAddressFor(ESSID, DAVE_OCTET))}\n`,
+    });
+  });
+
+  it('refuses her when the box she stands on is on another network', async () => {
+    const { deps, findPatches, insertSession } = standing(
+      makeDeps(),
+      holdingShellOn('RIDGEMONT-OFFICE'),
+    );
+
+    const result = await handleAuthCreateSessionSameLan(
+      fromCarol({ caller_machine_id: NPC_BOX_ID }),
+      deps,
+    );
+
+    expect(result).toEqual({ status: 403, body: { error: 'wrong_network' } });
+    expect(findPatches).not.toHaveBeenCalled();
+    expect(insertSession).not.toHaveBeenCalled();
+  });
+
+  it('refuses her when she names a box she holds no shell on', async () => {
+    const { deps, insertSession } = makeDeps();
+
+    const result = await handleAuthCreateSessionSameLan(
+      fromCarol({ caller_machine_id: NPC_BOX_ID }),
+      deps,
+    );
+
+    expect(result).toEqual({ status: 403, body: { error: 'no_session' } });
+    expect(insertSession).not.toHaveBeenCalled();
+  });
+
+  it('reports a server error, not a placement, when where she stands cannot be read', async () => {
+    const { deps, insertSession } = standing(makeDeps(), {
+      findHomeVantage: async () => ({ data: null, error: new Error('db down') }),
+    });
+
+    const result = await handleAuthCreateSessionSameLan(fromCarol({}), deps);
+
+    expect(result).toEqual({ status: 500, body: { error: 'vantage_lookup_failed' } });
     expect(insertSession).not.toHaveBeenCalled();
   });
 });

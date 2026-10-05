@@ -7,7 +7,8 @@
 //     in addition to the AP's public IP — every occupant of a shared ESSID coexists.
 //   - B (a live occupant of X) `resolveOccupants X` gets A's workstation_machine_id +
 //     A's RE-DERIVED LAN IP, with B itself excluded.
-//   - A non-occupant (C) is refused (403 not_an_occupant) — the LAN boundary (D11).
+//   - A caller on no network (C) is refused (403 caller_not_on_network) — the LAN
+//     boundary (D11).
 //   - A payload that smuggles a client-supplied owner_key is rejected (schema refine).
 //
 // Usage (with v2 supabase + vercel dev running; point at 3101 if 3100 is a stale dev):
@@ -122,11 +123,12 @@ check(
   `status=${r3.status} occupants=${JSON.stringify(seen)}`,
 );
 
-// === 4. C (never joined X) is refused — the LAN boundary. ===
+// === 4. C (never joined any network) is refused — the LAN boundary. ===
 const r4 = await post(signRequest(carol, 'resolveOccupants', { essid: X_ESSID }));
 check(
-  'a non-occupant (C) is refused with 403 not_an_occupant',
-  r4.status === 403 && (r4.body as { error?: string } | null)?.error === 'not_an_occupant',
+  'a caller on no network (C) is refused with 403 caller_not_on_network',
+  r4.status === 403 &&
+    (r4.body as { error?: string } | null)?.error === 'caller_not_on_network',
   `status=${r4.status} body=${JSON.stringify(r4.body)}`,
 );
 

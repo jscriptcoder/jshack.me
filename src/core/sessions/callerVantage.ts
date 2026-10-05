@@ -11,18 +11,21 @@
  * Two places the caller can stand, and the function reads them in that order:
  *   - a box they NAME (`callerMachineId`): they must hold a live session there, so the
  *     network is that session row's `essid` and the address is the box's own place on its
- *     LAN. Naming a box they do not hold is the shared L1 refusal (403). Naming their own
+ *     LAN — for another player's workstation, the lease its owner holds on that network,
+ *     so a hop through their box is logged as them. Naming a box they do not hold is the
+ *     shared L1 refusal (403). Naming their own
  *     workstation is the own-box bypass, which carries no session row and so falls through
  *     to the home reading below — the same answer by the same route, not an exception.
  *   - NO box, or their own: their own workstation, so the network is whatever their key
  *     currently occupies and the address is the lease they hold on it.
  *
- * The address is null, not an error, where the LAN cannot place the box — another
- * player's workstation, a host behind a deeper gateway, or an identity holding no lease.
+ * The address is null, not an error, where the LAN cannot place the box — a host behind
+ * a deeper gateway, a player's workstation whose owner has left that network, or an
+ * identity holding no lease.
  * A caller genuinely on no network at all (no occupancy, no held box) has nowhere to
  * stand and is refused: the own-LAN doors have no network to regenerate for them.
  *
- * Pure/framework-agnostic (core/): both reads are injected.
+ * Pure/framework-agnostic (core/): every read is injected.
  */
 
 import { lanAddressForMachineId } from '../generation/lanTopology.js';
@@ -41,9 +44,18 @@ export type FindHomeVantage = (
   ownerKey: string,
 ) => Promise<{ readonly data: HomeVantage | null; readonly error: unknown }>;
 
+/** The lease octet held on `essid` by the player whose workstation is `machineId`, read
+ *  through their occupancy of that network. Null when no occupant of `essid` owns that
+ *  box, or its owner holds no lease there. */
+export type FindWorkstationLease = (
+  essid: string,
+  machineId: string,
+) => Promise<{ readonly data: number | null; readonly error: unknown }>;
+
 export type CallerVantageDeps = {
   readonly findActiveSession: FindActiveSession;
   readonly findHomeVantage: FindHomeVantage;
+  readonly findWorkstationLease: FindWorkstationLease;
 };
 
 export type CallerVantage =
@@ -61,14 +73,18 @@ export const resolveCallerVantage = async (
       return { ok: false, status: access.status, error: access.error };
     }
     // A real hop: the network is the session row's, and the address is the hop box's own
-    // place on that LAN — null for a box the LAN does not generate (a player's, a deep
-    // host's), which traces as `unknown`.
+    // place on that LAN. The LAN generates every NPC box's address; a player's box has
+    // the lease its owner holds there instead. A box that is neither (a deep host) traces
+    // as `unknown`.
     if (access.session !== null) {
-      return {
-        ok: true,
-        essid: access.session.essid,
-        sourceIp: lanAddressForMachineId(access.session.essid, callerMachineId),
-      };
+      const { essid } = access.session;
+      const generated = lanAddressForMachineId(essid, callerMachineId);
+      if (generated !== null) return { ok: true, essid, sourceIp: generated };
+      const lease = await deps.findWorkstationLease(essid, callerMachineId);
+      if (lease.error) {
+        return { ok: false, status: 500, error: 'vantage_lookup_failed' };
+      }
+      return { ok: true, essid, sourceIp: leasedAddress(essid, lease.data) };
     }
   }
 

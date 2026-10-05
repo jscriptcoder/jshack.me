@@ -12,9 +12,10 @@ import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 /**
  * `handleResolveOccupants` answers "who else is on ESSID X?" to a VERIFIED occupant
- * (Story 7, slice 7.2a). The LAN boundary (decision D11) means you must hold a live
- * occupancy row for the ESSID to enumerate it — a non-occupant is refused before any
- * list crosses the wire. The caller is always excluded from its own result, and each
+ * (Story 7, slice 7.2a). The LAN boundary (decision D11) means you must stand on the
+ * ESSID to enumerate it — at home on it, or in a shell on a box that is — and anyone
+ * else is refused before any list crosses the wire. The caller is always excluded from
+ * its own result, and each
  * returned occupant's LAN IP is the one that occupant HOLDS A LEASE ON — the AP's
  * `/24` is still ESSID-seeded, but the host octet is the server-allocated lease, so
  * two occupants the old pure derivation put at one address are now distinct.
@@ -70,10 +71,20 @@ const makeDeps = (rows: readonly OccupantListRow[], over: Partial<ResolveOccupan
   const listLeasesByEssid = vi.fn<
     (essid: string) => Promise<{ data: readonly LanLeaseRow[] | null; error: unknown }>
   >(async () => ({ data: derivedLeases(rows), error: null }));
+  // Where a caller stands, read the way the server reads it: an occupant in `rows` lives
+  // on this ESSID; anyone else lives nowhere and holds no shell, unless `over` says so.
   const deps: ResolveOccupantsDeps = {
     nonceStore: freshStore,
     listOccupantsByEssid,
     listLeasesByEssid,
+    findActiveSession: async () => ({ data: null, error: null }),
+    findHomeVantage: async (ownerKey) => ({
+      data: rows.some((row) => row.owner_key === ownerKey)
+        ? { essid: ESSID, octet: derivedOctet(ownerKey, ESSID) }
+        : null,
+      error: null,
+    }),
+    findWorkstationLease: async () => ({ data: null, error: null }),
     ...over,
   };
   return { deps, listOccupantsByEssid, listLeasesByEssid };
@@ -143,23 +154,25 @@ describe('handleResolveOccupants', () => {
     expect(result).toEqual({ status: 200, body: { ok: true, occupants: [] } });
   });
 
-  it('denies a caller who holds no occupancy row for the ESSID (LAN boundary)', async () => {
+  it('denies a caller at home on another network (LAN boundary)', async () => {
     const alice = generateIdentity();
     const bob = generateIdentity();
-    const { deps } = makeDeps([occupant(alice, 'skylab-aaaa')]);
+    const { deps } = makeDeps([occupant(alice, 'skylab-aaaa')], {
+      findHomeVantage: async () => ({ data: { essid: 'SOME-OTHER-WIFI', octet: 40 }, error: null }),
+    });
 
     const result = await handleResolveOccupants(envelope(bob), deps);
 
-    expect(result).toEqual({ status: 403, body: { error: 'not_an_occupant' } });
+    expect(result).toEqual({ status: 403, body: { error: 'wrong_network' } });
   });
 
-  it('denies when the ESSID has no occupants at all', async () => {
+  it('denies a caller standing on no network at all', async () => {
     const bob = generateIdentity();
     const { deps } = makeDeps([]);
 
     const result = await handleResolveOccupants(envelope(bob), deps);
 
-    expect(result).toEqual({ status: 403, body: { error: 'not_an_occupant' } });
+    expect(result).toEqual({ status: 403, body: { error: 'caller_not_on_network' } });
   });
 
   it('rejects a payload that smuggles a client-supplied owner_key without reading', async () => {
@@ -206,7 +219,7 @@ describe('handleResolveOccupants', () => {
 
   it('reports a server error when the occupant lookup fails', async () => {
     const bob = generateIdentity();
-    const { deps } = makeDeps([], {
+    const { deps } = makeDeps([occupant(bob, 'nebu-bbbb')], {
       listOccupantsByEssid: vi.fn(async () => ({ data: null, error: new Error('db down') })),
     });
 
@@ -299,5 +312,69 @@ describe('handleResolveOccupants', () => {
 
     expect(result.status).toBe(403);
     expect(listLeasesByEssid).not.toHaveBeenCalled();
+  });
+
+  describe('from a shell held on a box on the ESSID', () => {
+    const shellOn = (essid: string): Partial<ResolveOccupantsDeps> => ({
+      findActiveSession: async () => ({
+        data: { username: 'root', userType: 'root', essid },
+        error: null,
+      }),
+    });
+
+    it('lists every occupant to a caller who lives elsewhere', async () => {
+      const alice = generateIdentity();
+      const carol = generateIdentity();
+      const { deps } = makeDeps([occupant(alice, 'skylab-aaaa', 'alice-rig')], shellOn(ESSID));
+
+      const result = await handleResolveOccupants(
+        envelope(carol, { caller_machine_id: 'some-box-on-the-lan' }),
+        deps,
+      );
+
+      expect(result).toEqual({
+        status: 200,
+        body: {
+          ok: true,
+          occupants: [
+            {
+              workstation_machine_id: 'skylab-aaaa',
+              localIp: assignHomeNetwork(alice.publicKeyHex, ESSID).localIp,
+              machineName: 'alice-rig',
+            },
+          ],
+        },
+      });
+    });
+
+    it('denies a caller whose shell is on a box on another network', async () => {
+      const alice = generateIdentity();
+      const carol = generateIdentity();
+      const { deps, listOccupantsByEssid } = makeDeps(
+        [occupant(alice, 'skylab-aaaa')],
+        shellOn('RIDGEMONT-OFFICE'),
+      );
+
+      const result = await handleResolveOccupants(
+        envelope(carol, { caller_machine_id: 'some-box-elsewhere' }),
+        deps,
+      );
+
+      expect(result).toEqual({ status: 403, body: { error: 'wrong_network' } });
+      expect(listOccupantsByEssid).not.toHaveBeenCalled();
+    });
+
+    it('denies a caller naming a box they hold no shell on', async () => {
+      const alice = generateIdentity();
+      const carol = generateIdentity();
+      const { deps } = makeDeps([occupant(alice, 'skylab-aaaa')]);
+
+      const result = await handleResolveOccupants(
+        envelope(carol, { caller_machine_id: 'some-box-on-the-lan' }),
+        deps,
+      );
+
+      expect(result).toEqual({ status: 403, body: { error: 'no_session' } });
+    });
   });
 });

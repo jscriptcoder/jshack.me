@@ -164,6 +164,8 @@ const executeSameLanLogin = async (
     port,
     parentSessionId: env.session.id,
     sourceIp,
+    // The box the shell stands on: the server places the login on its network.
+    callerMachineId: env.session.machineId,
   });
   if (!result.ok) {
     if (result.error === 'invalid_credentials') return errorResult('Permission denied (password).');
@@ -278,9 +280,11 @@ const execute: Command['execute'] = async (env, args, flags) => {
   // Who else is on this LAN, read at most once and only when something needs it: a
   // name on this network needs it to resolve, and a private address needs it to tell a
   // real player's box from a generated one. One round trip answers both; an address or
-  // an institution's domain costs none.
+  // an institution's domain costs none. It is asked from the box the shell stands on, so
+  // a hop lists the hop's neighbours.
   let occupantsRead: ReturnType<typeof env.scan.resolveOccupants> | undefined;
-  const occupantsHere = () => (occupantsRead ??= env.scan.resolveOccupants(essid));
+  const occupantsHere = () =>
+    (occupantsRead ??= env.scan.resolveOccupants(essid, env.session.machineId));
 
   // A name becomes an address before anything routes on it, so every path below sees
   // the target it already knows how to reach — an institution's domain included, which
