@@ -13,6 +13,7 @@ import {
   mockNetworkView,
   mockNetworkViewFromConnectivity,
   mockRemoteApi,
+  mockSession,
 } from '../../test/factories/commandEnv.js';
 import { applyPatches, type Patch } from '../filesystem/applyPatches.js';
 import type { Directory } from '../filesystem/types.js';
@@ -21,13 +22,14 @@ import { formatPidfileContent } from '../services/pidfile.js';
 import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
 import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces.js';
 import { assignHomeNetwork } from '../network/homeNetwork.js';
+import { machineIdForLanHost } from '../generation/lanHostIdentity.js';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
 import { buildRemoteHostFs } from '../generation/remoteHostFs.js';
 import { publisherIp } from '../generation/publisher.js';
 import { readOpenPorts } from '../services/pidfile.js';
 import { createFsView } from '../filesystem/fsView.js';
 import { HTTP_DEFAULT_PORT } from '../network/http.js';
-import { asAbsPath, asPlayerKeyHex } from '../types.js';
+import { asAbsPath, asMachineId, asPlayerKeyHex } from '../types.js';
 
 /**
  * `lynx <url>` reads a page instead of its source. The fetch is `curl`'s — same
@@ -265,6 +267,8 @@ describe('lynx refuses in the terminal rather than opening on nothing', () => {
 describe('lynx across the network, at another player public IP', () => {
   const THEIR_PUBLIC_IP = '87.0.113.7';
   const THEIR_PAGE = '<h1>welcome to nebuchadnezzar</h1><p>Nothing to see.</p>';
+  // The box the fetch runs from — the player's own workstation at home.
+  const CALLER = mockSession().machineId;
 
   /** Run `lynx <url>` with the cross-network fetch stubbed, capturing what the client
    *  asked the server for. The request is the contract: there is no field an address
@@ -307,7 +311,12 @@ describe('lynx across the network, at another player public IP', () => {
     const { result, asked } = await browseAcross(served(THEIR_PAGE), 'http://ridgemont.edu/');
 
     expect(asked).toEqual([
-      { target: publisherIp('CAMPUS-GUEST-OPEN'), port: HTTP_DEFAULT_PORT, path: '/' },
+      {
+        target: publisherIp('CAMPUS-GUEST-OPEN'),
+        port: HTTP_DEFAULT_PORT,
+        path: '/',
+        callerMachineId: CALLER,
+      },
     ]);
     const { url, content } = opened(result);
     expect(url).toBe('http://ridgemont.edu/');
@@ -318,7 +327,12 @@ describe('lynx across the network, at another player public IP', () => {
     const { result, asked } = await browseAcross(served(THEIR_PAGE), 'ridgemont.edu');
 
     expect(asked).toEqual([
-      { target: publisherIp('CAMPUS-GUEST-OPEN'), port: HTTP_DEFAULT_PORT, path: '/' },
+      {
+        target: publisherIp('CAMPUS-GUEST-OPEN'),
+        port: HTTP_DEFAULT_PORT,
+        path: '/',
+        callerMachineId: CALLER,
+      },
     ]);
     expect(opened(result).url).toBe('http://ridgemont.edu/');
   });
@@ -329,13 +343,17 @@ describe('lynx across the network, at another player public IP', () => {
       `http://${THEIR_PUBLIC_IP}:8080/status.html`,
     );
 
-    expect(asked).toEqual([{ target: THEIR_PUBLIC_IP, port: 8080, path: '/status.html' }]);
+    expect(asked).toEqual([
+      { target: THEIR_PUBLIC_IP, port: 8080, path: '/status.html', callerMachineId: CALLER },
+    ]);
   });
 
   it('defaults to the web port and the document root when the url names neither', async () => {
     const { asked } = await browseAcross(served(THEIR_PAGE), `http://${THEIR_PUBLIC_IP}`);
 
-    expect(asked).toEqual([{ target: THEIR_PUBLIC_IP, port: HTTP_DEFAULT_PORT, path: '/' }]);
+    expect(asked).toEqual([
+      { target: THEIR_PUBLIC_IP, port: HTTP_DEFAULT_PORT, path: '/', callerMachineId: CALLER },
+    ]);
   });
 
   // Dark, bricked, unforwarded or nothing serving the web all read the same. Which
@@ -423,7 +441,7 @@ describe('lynx leaves the same trace on the box it read', () => {
         target: host.ip,
         port,
         paths: ['/index.html'],
-        sourceIp: assignHomeNetwork(PUBKEY, ESSID).localIp,
+        callerMachineId: mockSession().machineId,
       },
     ]);
   });
@@ -498,7 +516,7 @@ describe('lynx against the player own address', () => {
     }
   });
 
-  it('tells the box a loopback read came from loopback, against its leased address', async () => {
+  it('names a loopback read by the loopback address, so the box logs a local visit', async () => {
     const logged: AccessLogFetch[] = [];
     const env = mockCommandEnv({
       identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
@@ -518,10 +536,16 @@ describe('lynx against the player own address', () => {
 
     await lynx.execute(env, ['http://localhost'], new Map());
 
-    // The server finds the machine by the address it LEASED; `localhost` names no
-    // machine to anyone but this box.
+    // `localhost` is reported as the loopback address, which the server reads as the
+    // caller's own box and logs as a local visit. No source address travels.
     expect(logged).toEqual([
-      { essid: ESSID, target: OWN_IP, port: HTTP_DEFAULT_PORT, paths: ['/'], sourceIp: '127.0.0.1' },
+      {
+        essid: ESSID,
+        target: '127.0.0.1',
+        port: HTTP_DEFAULT_PORT,
+        paths: ['/'],
+        callerMachineId: mockSession().machineId,
+      },
     ]);
   });
 
@@ -546,5 +570,34 @@ describe('lynx against the player own address', () => {
 
     expect(text).toContain('Connection refused');
     expect(exitCode).toBe(1);
+  });
+});
+
+describe('lynx from a hop', () => {
+  it('opens a web host on the LAN the shell stands on, matching a home read, card offline', async () => {
+    // The target is a neighbour on BEAN-THERE-WIFI; the hop is a different box on the
+    // same LAN. The player's own card is offline, so a page here came from the shell's
+    // network — and it is the same page a read from home would open.
+    const { host, port } = webHostOnLan();
+    const hop = generateHomeLan(ESSID).hosts.find(
+      (candidate) => candidate.kind === 'machine' && candidate.ip !== host.ip,
+    )!;
+    const target = `http://${host.ip}:${port}/index.html`;
+
+    const atHome = opened(await run(target));
+    const hopEnv = mockCommandEnv({
+      identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
+      network: mockNetworkView(),
+      session: mockSession({
+        id: 'lynx-hop',
+        machineId: asMachineId(machineIdForLanHost(hop, ESSID)),
+        essid: ESSID,
+        userType: 'root',
+        kind: 'ssh',
+      }),
+    });
+
+    const onHop = opened(await lynx.execute(hopEnv, [target], new Map()));
+    expect(onHop.content).toBe(atHome.content);
   });
 });

@@ -14,6 +14,7 @@ import {
   mockNetworkView,
   mockNetworkViewFromConnectivity,
   mockRemoteApi,
+  mockSession,
 } from '../../test/factories/commandEnv.js';
 import { applyPatches, type Patch } from '../filesystem/applyPatches.js';
 import { defaultFilePermissions } from '../filesystem/defaultPermissions.js';
@@ -25,12 +26,17 @@ import { buildColdStartConnectivity, type ConnectivityState } from '../network/i
 import { assignHomeNetwork } from '../network/homeNetwork.js';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
 import { buildRemoteHostFs } from '../generation/remoteHostFs.js';
-import { baseFsForLanHost } from '../generation/lanHostIdentity.js';
+import { baseFsForLanHost, machineIdForLanHost } from '../generation/lanHostIdentity.js';
+import { buildDeepHostFs } from '../generation/deepHostFs.js';
 import { publisherIp } from '../generation/publisher.js';
 import { readOpenPorts } from '../services/pidfile.js';
 import { createFsView } from '../filesystem/fsView.js';
 import { HTTP_DEFAULT_PORT } from '../network/http.js';
-import { asAbsPath, asPlayerKeyHex } from '../types.js';
+import { asAbsPath, asMachineId, asPlayerKeyHex } from '../types.js';
+import { chainLinks } from '../generation/lanTopology.js';
+import { resolveDeepScanHosts } from '../scan/deepScanHosts.js';
+import { crackableEssidPool } from '../generation/generateWifi.js';
+import { buildDirectory } from '../../test/factories/filesystem.js';
 
 /**
  * `curl <url>` fetches over HTTP — the one door that opens without a credential.
@@ -210,8 +216,9 @@ describe('curl leaves a trace on the box it fetched', () => {
 
     const { reported } = await runReporting([`http://${host.ip}:${port}/index.html`]);
 
-    // The client names WHAT it fetched and where from. It never names the machine,
-    // the time, the status or the size — the server resolves those itself.
+    // The client names WHAT it fetched and the box it ran from. It never names the
+    // source address, the time, the status or the size — the server places the caller
+    // and resolves those itself.
     expect(reported).toEqual([
       {
         essid: ESSID,
@@ -220,7 +227,7 @@ describe('curl leaves a trace on the box it fetched', () => {
         // One fetch, one path: the seam carries a run of them because a sweep asks
         // many at once, and `curl` must never claim requests it did not make.
         paths: ['/index.html'],
-        sourceIp: assignHomeNetwork(PUBKEY, ESSID).localIp,
+        callerMachineId: mockSession().machineId,
       },
     ]);
   });
@@ -657,7 +664,7 @@ describe('curl against the player own address', () => {
     }
   });
 
-  it('reports a loopback fetch against the box own address, saying it came from loopback', async () => {
+  it('reports a loopback fetch by the loopback address, so the box logs a local visit', async () => {
     const reported: AccessLogFetch[] = [];
     const env = mockCommandEnv({
       identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
@@ -677,15 +684,16 @@ describe('curl against the player own address', () => {
 
     await drain(await curl.execute(env, ['http://localhost'], new Map()));
 
-    // The server finds the machine by the address it LEASED — `localhost` names no
-    // machine to anybody but us — while the line still records where it came from.
+    // `localhost` is reported as the loopback address, not the LAN one: the server reads
+    // that as the caller's own box and logs the visit as local. The caller still names
+    // the box it ran from, and no source address travels — the server derives it.
     expect(reported).toEqual([
       {
         essid: ESSID,
-        target: OWN_IP,
+        target: '127.0.0.1',
         port: HTTP_DEFAULT_PORT,
         paths: ['/'],
-        sourceIp: '127.0.0.1',
+        callerMachineId: mockSession().machineId,
       },
     ]);
   });
@@ -794,6 +802,9 @@ describe('curl against the player own address', () => {
 describe('curl across the network, at another player public IP', () => {
   const THEIR_PUBLIC_IP = '87.0.113.7';
   const THEIR_PAGE = '<h1>welcome to nebuchadnezzar</h1>';
+  // The box the fetch runs from — at home, the player's own workstation. Named so the
+  // server can trace the hit to where it came from.
+  const CALLER = mockSession().machineId;
 
   /** Run `curl <url>` with the cross-network fetch stubbed, capturing what the client
    *  asked the server for — the request is the contract, so a test can prove the client
@@ -837,21 +848,28 @@ describe('curl across the network, at another player public IP', () => {
     );
 
     expect(asked).toEqual([
-      { target: THEIR_PUBLIC_IP, port: 8080, path: '/status.html' },
+      { target: THEIR_PUBLIC_IP, port: 8080, path: '/status.html', callerMachineId: CALLER },
     ]);
   });
 
   it('defaults to the web port and the document root when the url names neither', async () => {
     const { asked } = await fetchAcross(served(THEIR_PAGE), `http://${THEIR_PUBLIC_IP}`);
 
-    expect(asked).toEqual([{ target: THEIR_PUBLIC_IP, port: HTTP_DEFAULT_PORT, path: '/' }]);
+    expect(asked).toEqual([
+      { target: THEIR_PUBLIC_IP, port: HTTP_DEFAULT_PORT, path: '/', callerMachineId: CALLER },
+    ]);
   });
 
   it("reaches an institution by its domain, asking the server for the address it names", async () => {
     const { drained, asked } = await fetchAcross(served(THEIR_PAGE), 'http://ridgemont.edu/');
 
     expect(asked).toEqual([
-      { target: publisherIp('CAMPUS-GUEST-OPEN'), port: HTTP_DEFAULT_PORT, path: '/' },
+      {
+        target: publisherIp('CAMPUS-GUEST-OPEN'),
+        port: HTTP_DEFAULT_PORT,
+        path: '/',
+        callerMachineId: CALLER,
+      },
     ]);
     expect(drained.text).toContain('welcome to nebuchadnezzar');
   });
@@ -860,7 +878,12 @@ describe('curl across the network, at another player public IP', () => {
     const { drained, asked } = await fetchAcross(served(THEIR_PAGE), 'ridgemont.edu/about.html');
 
     expect(asked).toEqual([
-      { target: publisherIp('CAMPUS-GUEST-OPEN'), port: HTTP_DEFAULT_PORT, path: '/about.html' },
+      {
+        target: publisherIp('CAMPUS-GUEST-OPEN'),
+        port: HTTP_DEFAULT_PORT,
+        path: '/about.html',
+        callerMachineId: CALLER,
+      },
     ]);
     expect(drained.text).toContain('welcome to nebuchadnezzar');
   });
@@ -927,5 +950,159 @@ describe('curl across the network, at another player public IP', () => {
     expect(exitCode).toBe(1);
     expect(text).toContain('network is unreachable');
     expect(asked).toEqual([]);
+  });
+});
+
+describe('curl from a hop', () => {
+  // A shell on a box on network N fetches from N — the network the shell stands on,
+  // not the player's own WiFi. The player's own card may be off, on another network,
+  // or home; none of that is where the request travels from.
+
+  /** A shell on `machineId`, standing on `essid`. The player's own WiFi is OFFLINE, so a
+   *  fetch that works proves it travelled from the shell's box and nowhere else. `fs` is
+   *  the live tree the shell stands on — its own box. */
+  const shellOn = (
+    essid: string,
+    machineId: string,
+    over: { readonly fs?: Directory; readonly onReport?: (fetched: AccessLogFetch) => void } = {},
+  ) =>
+    mockCommandEnv({
+      identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
+      network: mockNetworkView(),
+      session: mockSession({
+        id: 'curl-hop-1',
+        machineId: asMachineId(machineId),
+        essid,
+        userType: 'root',
+        kind: 'ssh',
+      }),
+      ...(over.fs === undefined ? {} : { fs: mockFsViewFromTree(over.fs) }),
+      log: {
+        appendAuthLog: async () => undefined,
+        appendKernLog: async () => undefined,
+        appendAccessLog: async (fetched) => {
+          over.onReport?.(fetched);
+        },
+      },
+    });
+
+  /** The first crackable network whose inner gateway fronts a layer with a web host:
+   *  the essid, that gateway's machine id (the hop), and the host + port behind it. */
+  const deepWebHost = (): {
+    readonly essid: string;
+    readonly gatewayMachineId: string;
+    readonly host: LanHost;
+    readonly port: number;
+  } => {
+    for (const essid of crackableEssidPool) {
+      for (const link of chainLinks(essid)) {
+        if (link.host.kind === 'switch') continue;
+        const layer = resolveDeepScanHosts(essid, link, buildDirectory({}));
+        const web = layer.hosts.find(
+          (candidate) =>
+            candidate.host.kind === 'machine' &&
+            candidate.ports.some((open) => open.service === 'http'),
+        );
+        if (web !== undefined) {
+          const port = web.ports.find((open) => open.service === 'http')!.port;
+          return { essid, gatewayMachineId: link.machineId, host: web.host, port };
+        }
+      }
+    }
+    throw new Error('expected a crackable network with a web host on a deep layer');
+  };
+
+  const deepServedPage = (essid: string, host: LanHost): string => {
+    const read = createFsView(buildDeepHostFs(essid, host), { userType: 'root' }).read(
+      asAbsPath('/var/www/html/index.html'),
+    );
+    if (!read.ok) throw new Error('expected a served deep page');
+    return read.content;
+  };
+
+  it('reaches a web host on the LAN the shell stands on, with the home card offline', async () => {
+    // The hop is one NPC box on BEAN-THERE-WIFI; the target is a different web host on
+    // the same LAN. At home, offline, curl reaches nothing — so a page here can only
+    // have come from the shell's network.
+    const { host: webHost, port } = webHostOnLan();
+    const hop = generateHomeLan(ESSID).hosts.find(
+      (candidate) => candidate.kind === 'machine' && candidate.ip !== webHost.ip,
+    )!;
+
+    const result = await drain(
+      await curl.execute(
+        shellOn(ESSID, machineIdForLanHost(hop, ESSID)),
+        [`http://${webHost.ip}:${port}/index.html`],
+        new Map(),
+      ),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.text).toBe(servedPage(webHost));
+  });
+
+  it('does not reach the player home LAN from a foreign hop', async () => {
+    // Standing on BEAN-THERE-WIFI: a private address on a DIFFERENT home LAN is off this
+    // network, so it resolves to nothing, exactly as any address this LAN does not hold.
+    const homeEssid = crackableEssidPool.find((candidate) => candidate !== ESSID)!;
+    const homeWebHost = generateHomeLan(homeEssid).hosts.find(
+      (candidate) =>
+        candidate.kind === 'machine' &&
+        readOpenPorts(buildRemoteHostFs(homeEssid, candidate)).some(
+          (port) => port.service === 'http',
+        ),
+    )!;
+    const hop = generateHomeLan(ESSID).hosts.find((candidate) => candidate.kind === 'machine')!;
+
+    const env = shellOn(ESSID, machineIdForLanHost(hop, ESSID));
+    const result = await drain(await curl.execute(env, [`http://${homeWebHost.ip}`], new Map()));
+
+    expect(result.text).toBe(`curl: (6) Could not resolve host: ${homeWebHost.ip}`);
+  });
+
+  it('reaches a web host on a deep layer the shell reaches', async () => {
+    // A shell on an inner gateway reaches the layer it fronts. A web host there answers
+    // by its deep-layer address, the same box nmap renders from that shell.
+    const deep = deepWebHost();
+
+    const result = await drain(
+      await curl.execute(
+        shellOn(deep.essid, deep.gatewayMachineId, { fs: buildDirectory({}) }),
+        [`http://${deep.host.ip}:${deep.port}`],
+        new Map(),
+      ),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.text).toBe(deepServedPage(deep.essid, deep.host));
+  });
+
+  it('reports the fetch under the box the shell stands on, not the player home', async () => {
+    const { host: webHost, port } = webHostOnLan();
+    const hop = generateHomeLan(ESSID).hosts.find(
+      (candidate) => candidate.kind === 'machine' && candidate.ip !== webHost.ip,
+    )!;
+    const reported: AccessLogFetch[] = [];
+
+    await drain(
+      await curl.execute(
+        shellOn(ESSID, machineIdForLanHost(hop, ESSID), {
+          onReport: (fetched) => reported.push(fetched),
+        }),
+        [`http://${webHost.ip}:${port}/index.html`],
+        new Map(),
+      ),
+    );
+
+    // The server derives the source address from the caller's box, so the client names
+    // the box it ran on and never a source IP.
+    expect(reported).toHaveLength(1);
+    expect(reported[0]).toMatchObject({
+      essid: ESSID,
+      target: webHost.ip,
+      port,
+      paths: ['/index.html'],
+      callerMachineId: machineIdForLanHost(hop, ESSID),
+    });
   });
 });

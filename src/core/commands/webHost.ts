@@ -21,27 +21,29 @@
 
 import type { CommandResult } from './types.js';
 import type { Directory } from '../filesystem/types.js';
+import type { OpenPort } from '../services/pidfile.js';
 import type { ParsedUrl } from '../network/http.js';
+import type { Vantage } from '../network/vantage.js';
 import { errorLine } from './streaming.js';
 import { generateHomeLan } from '../generation/generateHomeLan.js';
 import { baseFsForLanHost } from '../generation/lanHostIdentity.js';
+import { resolveDeepScanHosts } from '../scan/deepScanHosts.js';
 import { readOpenPorts } from '../services/pidfile.js';
 import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
 import { resolveLanName } from '../network/resolveName.js';
-import { LOOPBACK_IPV4, LOOPBACK_NAMES, type ConnectedWlan0 } from '../network/interfaces.js';
+import { LOOPBACK_IPV4, LOOPBACK_NAMES } from '../network/interfaces.js';
 
 /** A server that was reached, in the terms every caller needs. */
 export type ReachedHost = {
   /** The tree to read. */
   readonly fs: Directory;
-  /** The LAN it sits on — what the server keys a trace by, alongside the address. */
+  /** The network the reached box sits on — what the server keys a trace by. The one the
+   *  shell stands on, which at home is the player's own WiFi. */
   readonly essid: string;
   /** The RESOLVED address, never the typed name: the server finds the machine by the
-   *  address it leased, and `localhost` names no machine to anyone but us. */
+   *  address it leased, and `localhost` names no machine to anyone but us. A loopback
+   *  fetch reports the loopback address, so the box logs the visit as local. */
   readonly address: string;
-  /** Where the request appears to come from. A request that arrived over loopback says
-   *  so, as a real server's log does — the box is both ends of it. */
-  readonly sourceIp: string;
 };
 
 /** A finished result carrying lines — narrow enough that a caller with no terminal
@@ -73,43 +75,68 @@ export const connectError = ({
   readonly reason: string;
 }): ErrorResult => error(`${program}: (7) Failed to connect to ${host} port ${port}: ${reason}`);
 
-/**
- * The filesystem behind `target`, or null when nothing on the LAN answers to that
- * address.
- *
- * The player's own address resolves to their LIVE tree, NOT to a generated one:
- * their box is the only host on the network whose filesystem is real, so pointing
- * the host generator at their own IP would fabricate an NPC page for a box that may
- * publish nothing at all. Reading the live tree is also what makes an edit visible
- * — `nano` on the page changes what a fetch returns, and a directory just made with
- * `mkdir` is sweepable immediately, because it is the same tree.
- *
- * Any other address is read as the device it is — a gateway or a switch as its own
- * firmware, a machine as its generated tree — the same tree `nmap` and every other
- * door read, so a web tool never finds a server a scan showed closed.
- *
- * Everything downstream is identical for both: a generated host's tree and the
- * player's own are both just trees, so the port check, the web-root confinement,
- * and the read all stay in one place.
- */
-const targetFs = ({
-  root,
-  essid,
-  ownIp,
-  target,
-}: {
-  readonly root: Directory;
-  readonly essid: string;
-  readonly ownIp: string;
-  readonly target: string;
-}): Directory | null => {
-  if (target === ownIp) return root;
-  const host = generateHomeLan(essid).hosts.find((candidate) => candidate.ip === target);
-  return host === undefined ? null : baseFsForLanHost(host, essid);
+/** The reached box's tree and the ports it is serving — the two facts the port check
+ *  and the read need, found once wherever on the vantage the box turned out to be. */
+type LocatedHost = {
+  readonly fs: Directory;
+  /** The box's open ports AS THE SHELL REACHES THEM. On a deep layer that is after the
+   *  fronting gateway's ACL, so a web tool refuses exactly the port a scan showed shut. */
+  readonly ports: readonly OpenPort[];
 };
 
 /**
- * Resolve `url`'s host on the player's LAN and confirm something is listening there.
+ * The box at `address` among the networks the shell reaches, or null when none holds it.
+ *
+ * The shell's OWN box — reached by loopback or by its own address on the LAN it stands
+ * on — reads its LIVE tree, NOT a generated one: it is the one host whose filesystem is
+ * real, so pointing the generator at it would fabricate a page for a box that may
+ * publish nothing, and reading the live tree is what makes a `nano` edit or a fresh
+ * `mkdir` show up at once. Every other box is read as the device it is — a generated LAN
+ * host, or a host on a deep layer the shell reaches — the same tree `nmap` and every
+ * other door read, so a web tool never finds a server a scan showed closed, nor misses
+ * one it showed open.
+ */
+const locateHost = ({
+  root,
+  vantage,
+  isLoopback,
+  address,
+}: {
+  readonly root: Directory;
+  readonly vantage: Vantage;
+  readonly isLoopback: boolean;
+  readonly address: string;
+}): LocatedHost | null => {
+  if (isLoopback || (vantage.address !== null && address === vantage.address)) {
+    return { fs: root, ports: readOpenPorts(root) };
+  }
+  // Every network the shell reaches, nearest first: the LAN it stands on, then any deep
+  // layer behind a gateway it reaches. A gateway's ACL already shapes a layer's ports,
+  // so the deep arm trusts `resolveDeepScanHosts` rather than re-reading the raw tree.
+  for (const segment of vantage.reaches) {
+    if (segment.fronting === null) {
+      const host = generateHomeLan(vantage.essid).hosts.find(
+        (candidate) => candidate.ip === address,
+      );
+      if (host !== undefined) {
+        const fs = baseFsForLanHost(host, vantage.essid);
+        return { fs, ports: readOpenPorts(fs) };
+      }
+    } else {
+      const onLayer = resolveDeepScanHosts(vantage.essid, segment.fronting, root).hosts.find(
+        (candidate) => candidate.host.ip === address,
+      );
+      if (onLayer !== undefined) {
+        return { fs: onLayer.baseFs, ports: onLayer.ports };
+      }
+    }
+  }
+  return null;
+};
+
+/**
+ * Resolve `url`'s host on the network the shell stands on and confirm something is
+ * listening there.
  *
  * A host that exists but serves nothing refuses the connection rather than answering
  * emptily, so "unreachable" and "nothing there" stay distinguishable.
@@ -118,34 +145,34 @@ export const reachWebHost = ({
   root,
   program,
   url,
-  wlan0,
+  vantage,
 }: {
-  /** The tree the player's OWN box holds — the one address on the LAN whose
+  /** The tree the shell's OWN box holds — the one address on its network whose
    *  filesystem is real rather than generated. */
   readonly root: Directory;
   readonly program: string;
   readonly url: ParsedUrl;
-  readonly wlan0: ConnectedWlan0;
+  /** Where the shell stands: the network it is on, its address there, and the layers it
+   *  reaches. Every tool asks this one question, so none can reach a network the shell
+   *  is not standing on. */
+  readonly vantage: Vantage;
 }): Reach => {
-  const essid = wlan0.association.essid;
-  // The names a box answers to for ITSELF all resolve to the ONE address it was
-  // leased, before anything else looks at the target. That keeps the tree, the port
-  // check, and the trace the server writes talking about one machine under one name —
-  // `localhost` cannot end up disagreeing with the LAN address about the same box.
+  const essid = vantage.essid;
+  // The names a box answers to for ITSELF resolve to the loopback address, before
+  // anything else looks at the target — so the box the shell stands on serves the page,
+  // and its log records a local visit, whatever the shell's own LAN address is.
   //
   // A name the network gives one of its own hosts resolves here too, through the same
   // resolver `curl` uses, so an intranet page that links `www-04.<zone>` sends the
   // browser, a followed link and a sweep to the box a curl of that name reaches.
   const isLoopback = LOOPBACK_NAMES.includes(url.host);
-  const address = isLoopback
-    ? wlan0.ipv4
-    : (resolveLanName(essid, url.host)?.ip ?? url.host);
-  const fs = targetFs({ root, essid, ownIp: wlan0.ipv4, target: address });
-  if (fs === null) {
+  const address = isLoopback ? LOOPBACK_IPV4 : (resolveLanName(essid, url.host)?.ip ?? url.host);
+  const located = locateHost({ root, vantage, isLoopback, address });
+  if (located === null) {
     return { ok: false, failure: error(`${program}: (6) Could not resolve host: ${url.host}`) };
   }
 
-  const listening = readOpenPorts(fs).some(
+  const listening = located.ports.some(
     (entry) => entry.port === url.port && entry.service === SERVICE_CATALOG.http.service,
   );
   if (!listening) {
@@ -162,6 +189,6 @@ export const reachWebHost = ({
 
   return {
     ok: true,
-    host: { fs, essid, address, sourceIp: isLoopback ? LOOPBACK_IPV4 : wlan0.ipv4 },
+    host: { fs: located.fs, essid, address },
   };
 };

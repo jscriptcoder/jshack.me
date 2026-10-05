@@ -217,10 +217,11 @@ export const postKernLog = async (
   }
 };
 
-/** Fire the server-internal own-LAN fetch log: the server resolves WHICH box answered
- *  from the (verified pubkey, essid, target) — the caller's own workstation or a
- *  generated sibling — reads the page itself, and writes that box's
- *  `/var/log/access.log`. The client only names what it fetched. Best-effort +
+/** Fire the server-internal fetch log: the server places the caller from their live
+ *  session on `caller_machine_id`, resolves WHICH box answered — on the LAN the shell
+ *  stands on, on a deep layer it reaches, or the shell's own box — reads the page
+ *  itself, derives the source address, and writes that box's `/var/log/access.log`. The
+ *  client only names what it fetched and the box it ran from. Best-effort +
  *  fire-and-forget, like `recordScan`: a failure resolves silently so logging never
  *  breaks (or delays) the fetch. */
 export const recordLanFetch = async (
@@ -233,7 +234,9 @@ export const recordLanFetch = async (
       target: fetched.target,
       port: fetched.port,
       paths: fetched.paths,
-      source_ip: fetched.sourceIp,
+      ...(fetched.callerMachineId === undefined
+        ? {}
+        : { caller_machine_id: fetched.callerMachineId }),
     });
   } catch {
     // best-effort: a logging failure must not surface to the fetch.

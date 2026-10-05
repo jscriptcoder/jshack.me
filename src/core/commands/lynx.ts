@@ -24,7 +24,7 @@
 import type { Command, CommandResult } from './types.js';
 import { parseTypedUrl } from '../network/http.js';
 import { isPublicIp } from '../generation/ip.js';
-import { connectedWlan0 } from '../network/interfaces.js';
+import { vantageOf } from '../network/vantage.js';
 import { addressForTarget } from '../network/resolveName.js';
 import { fetchPageAcrossNetwork, fetchWebPage } from './webPage.js';
 
@@ -54,20 +54,23 @@ const execute: Command['execute'] = async (env, args) => {
   }
   const requested = typed.url;
 
-  const wlan0 = connectedWlan0(env.network);
-  if (wlan0 === null) {
+  // Where the shell stands: the hop on top of the stack and its network, or the
+  // player's own WiFi on their own box. The player's own card does not matter on a hop.
+  const vantage = vantageOf(env.session, env.network);
+  if (vantage === null) {
     return error(UNREACHABLE);
   }
 
   // A name becomes the address before anything routes on it, exactly as for `curl`:
-  // a host on this network by its name, an institution by its domain. The address bar
-  // keeps what the player typed, because that is what a browser shows.
+  // a host on the network the shell stands on by its name, an institution by its
+  // domain. The address bar keeps what the player typed, because that is what a browser
+  // shows.
   const url = {
     ...requested,
     host: await addressForTarget({
-      essid: wlan0.association.essid,
+      essid: vantage.essid,
       target: requested.host,
-      resolveOccupants: env.scan.resolveOccupants,
+      resolveOccupants: (scanned) => env.scan.resolveOccupants(scanned, env.session.machineId),
     }),
   };
 
@@ -78,13 +81,15 @@ const execute: Command['execute'] = async (env, args) => {
     ? await fetchPageAcrossNetwork({
         program: 'lynx',
         url,
+        callerMachineId: env.session.machineId,
         fetchPublic: (params) => env.remote.fetchPublic(params),
       })
     : fetchWebPage({
         root: env.fs.root(),
         program: 'lynx',
         url,
-        wlan0,
+        vantage,
+        callerMachineId: env.session.machineId,
         appendAccessLog: (fetched) => env.log.appendAccessLog(fetched),
       });
   if (page.kind === 'unreachable') {
@@ -115,14 +120,18 @@ export const lynx: Command = {
       'rather than as the markup `curl` prints, so comments ' +
       'and scripts are not shown. Links are numbered: use the arrow keys to select one and ' +
       'Enter to follow it, and Left Arrow or Backspace to go back. Press q or Escape to return ' +
-      'to the terminal. Reaches hosts on your own network, including your own address once you ' +
+      'to the terminal. Reaches hosts on the network you are on — your own at home, or the ' +
+      'network of a box you have a shell on — including your own address once you ' +
       'are running a web server, and any public IP that forwards its web port — by its address or ' +
       'by the domain an institution publishes it under, such as http://ridgemont.edu/. The ' +
       'http:// may be left off: lynx ridgemont.edu opens the same page. No login is ' +
       'needed: a web server publishes its document root to whoever asks.',
     arguments: [{ name: 'url', description: 'The page to read, e.g. http://192.168.1.5' }],
     examples: [
-      { command: 'lynx http://192.168.1.5', description: 'Read a page on a host on your network' },
+      {
+        command: 'lynx http://192.168.1.5',
+        description: 'Read a page on a host on the network you are on',
+      },
       {
         command: 'lynx http://localhost',
         description: 'Read the page your own web server is publishing',

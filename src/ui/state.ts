@@ -95,6 +95,7 @@ import {
   buildColdStartConnectivity,
   connectedWlan0,
   isOnline,
+  LOOPBACK_IPV4,
   type ConnectedWlan0,
   type ConnectivityState,
   type NetworkInterface,
@@ -102,6 +103,7 @@ import {
 } from '../core/network/interfaces.js';
 import { parseHttpUrl } from '../core/network/http.js';
 import { fetchPageAcrossNetwork, fetchWebPage } from '../core/commands/webPage.js';
+import { vantageOf } from '../core/network/vantage.js';
 import { isPublicIp } from '../core/generation/ip.js';
 import { addressForTarget } from '../core/network/resolveName.js';
 import type { FollowOutcome } from './screens/Lynx.js';
@@ -1423,15 +1425,18 @@ const log: LogApi = {
     await refetchPatches();
     syncChannel?.broadcast({ type: 'patches-changed', machineId: patchClientDeps.machineId });
   },
-  // The line lands on the box that SERVED the fetch, so only fetching the player's OWN
-  // address touches their journal — reconcile just that case, or an immediate
-  // `cat /var/log/access.log` would not show the visit they just paid themselves.
-  // Refetching after every fetch of a neighbour would re-pull an unchanged journal.
+  // The line lands on the box that SERVED the fetch, so only fetching the box the shell
+  // stands ON touches the journal the player can read — by its own address, or by
+  // loopback (which the fetch reports as `127.0.0.1`). Reconcile just that case, or an
+  // immediate `cat /var/log/access.log` would not show the visit they just paid
+  // themselves. Refetching after a fetch of a neighbour would re-pull an unchanged journal.
   appendAccessLog: async (fetched) => {
     const deps = patchClientDeps;
     if (deps === undefined) return;
     await recordLanFetch(deps, fetched);
-    if (localAddress() !== fetched.target) return;
+    const servedTheStandingBox =
+      fetched.target === LOOPBACK_IPV4 || fetched.target === localAddress();
+    if (!servedTheStandingBox) return;
     await refetchPatches();
     syncChannel?.broadcast({ type: 'patches-changed', machineId: deps.machineId });
   },
@@ -1499,10 +1504,18 @@ export const followLink = async (url: string): Promise<FollowOutcome> => {
   if (requested === null) {
     return { ok: false, alert: `lynx: (3) URL rejected: ${url}` };
   }
-  // The command builds its whole environment to run; a follow needs the three
-  // readers the fetch actually uses, all of which are already to hand here.
-  const wlan0 = connectedWireless();
-  if (wlan0 === null) {
+  // The command builds its whole environment to run; a follow travels from the same
+  // place the open page did — the box the browser was launched on, which is the session
+  // on top of the stack — so a link followed inside a hop's browser stays on the hop.
+  const session = activeSession();
+  const vantage =
+    session === undefined
+      ? null
+      : vantageOf(session, {
+          isOnline: linkOnline,
+          interfaces: () => [...connectivity().interfaces.values()],
+        });
+  if (session === undefined || vantage === null) {
     return { ok: false, alert: 'lynx: (7) Failed to connect — network is unreachable' };
   }
   // Resolved exactly as the `lynx` command resolves what was typed, so a link on a
@@ -1510,26 +1523,28 @@ export const followLink = async (url: string): Promise<FollowOutcome> => {
   const target = {
     ...requested,
     host: await addressForTarget({
-      essid: wlan0.association.essid,
+      essid: vantage.essid,
       target: requested.host,
-      resolveOccupants: resolveOccupantsFn,
+      resolveOccupants: (scanned) => resolveOccupantsFn(scanned, session.machineId),
     }),
   };
 
-  // A link off another player's page points at their public address, not into this
-  // player's LAN — so it goes back out the way the page itself came in. Resolving it
-  // locally would answer with a 404 off the wrong box entirely.
+  // A link off another player's page points at their public address, not into the
+  // network the shell stands on — so it goes back out the way the page itself came in.
+  // Resolving it locally would answer with a 404 off the wrong box entirely.
   const page = isPublicIp(target.host)
     ? await fetchPageAcrossNetwork({
         program: 'lynx',
         url: target,
+        callerMachineId: session.machineId,
         fetchPublic: fetchPublicPageFn,
       })
     : fetchWebPage({
         root: activeRoot(),
         program: 'lynx',
         url: target,
-        wlan0,
+        vantage,
+        callerMachineId: session.machineId,
         appendAccessLog: (fetched) => log.appendAccessLog(fetched),
       });
   if (page.kind === 'unreachable') {

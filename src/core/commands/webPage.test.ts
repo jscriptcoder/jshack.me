@@ -6,17 +6,15 @@ import type { Directory } from '../filesystem/types.js';
 import { buildWorkstationBaseFs } from '../generation/workstationFs.js';
 import { formatPidfileContent, readOpenPorts } from '../services/pidfile.js';
 import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
-import {
-  buildColdStartConnectivity,
-  connectedWlan0,
-  type ConnectedWlan0,
-} from '../network/interfaces.js';
 import { assignHomeNetwork } from '../network/homeNetwork.js';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
 import { buildRemoteHostFs } from '../generation/remoteHostFs.js';
 import { HTTP_DEFAULT_PORT, parseHttpUrl } from '../network/http.js';
 import { lanZoneName } from '../network/resolveName.js';
-import { mockNetworkViewFromConnectivity } from '../../test/factories/commandEnv.js';
+import { vantageOf, type Vantage } from '../network/vantage.js';
+import { asMachineId } from '../types.js';
+import { mockNetworkViewFromConnectivity, mockSession } from '../../test/factories/commandEnv.js';
+import { buildColdStartConnectivity } from '../network/interfaces.js';
 
 /**
  * One page, fetched — the request behind `lynx <url>` and behind every link
@@ -33,7 +31,9 @@ const PUBKEY = 'a'.repeat(64);
 const ESSID = 'BEAN-THERE-WIFI';
 const OWN_IP = assignHomeNetwork(PUBKEY, ESSID).localIp;
 
-const onlineWlan0 = (): ConnectedWlan0 => {
+/** The player at home on BEAN-THERE-WIFI — the vantage the browser stands at, derived
+ *  the way the command derives it, so the test reaches what a typed address would. */
+const homeVantage = (): Vantage => {
   const cold = buildColdStartConnectivity(PUBKEY);
   const wlan0 = cold.interfaces.get('wlan0');
   if (wlan0 === undefined || wlan0.kind !== 'wireless') throw new Error('no wlan0 in cold start');
@@ -42,14 +42,18 @@ const onlineWlan0 = (): ConnectedWlan0 => {
     association: { essid: ESSID, bssid: 'AA:BB:CC:DD:EE:FF' },
     ipv4: OWN_IP,
   };
-  const reachable = connectedWlan0(
+  const vantage = vantageOf(
+    mockSession({ essid: null }),
     mockNetworkViewFromConnectivity({
       interfaces: new Map(cold.interfaces).set('wlan0', connected),
     }),
   );
-  if (reachable === null) throw new Error('expected a connected wlan0');
-  return reachable;
+  if (vantage === null) throw new Error('expected a home vantage');
+  return vantage;
 };
+
+/** The box the browser runs on — its own workstation at home. */
+const CALLER = asMachineId('own-workstation');
 
 const ownBox = (...patches: readonly Patch[]): Directory =>
   applyPatches(
@@ -104,7 +108,8 @@ const fetchFrom = (tree: Directory, rawUrl: string) => {
     root: tree,
     program: 'lynx',
     url,
-    wlan0: onlineWlan0(),
+    vantage: homeVantage(),
+    callerMachineId: CALLER,
     appendAccessLog: async (fetched) => {
       logged.push(fetched);
     },
@@ -137,7 +142,13 @@ describe('fetching one page', () => {
     const { logged } = fetchFrom(tree, `http://${OWN_IP}/notes.html`);
 
     expect(logged).toEqual([
-      { essid: ESSID, target: OWN_IP, port: HTTP_DEFAULT_PORT, paths: ['/notes.html'], sourceIp: OWN_IP },
+      {
+        essid: ESSID,
+        target: OWN_IP,
+        port: HTTP_DEFAULT_PORT,
+        paths: ['/notes.html'],
+        callerMachineId: CALLER,
+      },
     ]);
   });
 

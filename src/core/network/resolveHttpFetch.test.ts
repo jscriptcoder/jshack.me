@@ -33,6 +33,8 @@ import { FINDIT_DOMAIN, FINDIT_NETWORK } from '../generation/findit.js';
 import { FINDIT_FRONT_PAGE } from '../findit/page.js';
 import type { MachinePatchRow } from '../findit/webIndex.js';
 import { logRead } from '../../test/factories/logRows.js';
+import { derivedPublicIpByEssid, type FindPublicIpByEssid } from '../logging/crossPlayerSourceIp.js';
+import type { FindActiveSession } from '../patches/authorizeMachineAccess.js';
 
 /**
  * `handleResolveHttpFetch` is the credential-free cross-player door: a fetch carries no
@@ -173,6 +175,8 @@ type FetchOverrides = {
   upsertPatch?: (row: PatchRow) => Promise<{ error: unknown }>;
   findHomeNetworkByOwnerKey?: (ownerKey: string) => Promise<HomeNetworkResult>;
   findPatchesForMachines?: (machineIds: readonly string[]) => Promise<WebPatchesResult>;
+  findActiveSession?: FindActiveSession;
+  findPublicIpByEssid?: FindPublicIpByEssid;
 };
 
 const makeDeps = (over: FetchOverrides = {}) => {
@@ -200,6 +204,14 @@ const makeDeps = (over: FetchOverrides = {}) => {
   const findPatchesForMachines = vi.fn<
     (machineIds: readonly string[]) => Promise<WebPatchesResult>
   >(over.findPatchesForMachines ?? (async () => ({ data: [], error: null })));
+  // Default: the fetcher stands at home, holding no shell — so the trace falls to their
+  // own home public IP. Hop tests override `findActiveSession` to seat them on a box.
+  const findActiveSession = vi.fn<FindActiveSession>(
+    over.findActiveSession ?? (async () => ({ data: null, error: null })),
+  );
+  const findPublicIpByEssid = vi.fn<FindPublicIpByEssid>(
+    over.findPublicIpByEssid ?? derivedPublicIpByEssid,
+  );
   const deps: ResolveHttpFetchDeps = {
     nonceStore: freshStore,
     findPatchesForMachines,
@@ -211,6 +223,8 @@ const makeDeps = (over: FetchOverrides = {}) => {
     readLog,
     upsertPatch,
     findHomeNetworkByOwnerKey,
+    findActiveSession,
+    findPublicIpByEssid,
   };
   return {
     deps,
@@ -222,6 +236,8 @@ const makeDeps = (over: FetchOverrides = {}) => {
     upsertPatch,
     findHomeNetworkByOwnerKey,
     findPatchesForMachines,
+    findActiveSession,
+    findPublicIpByEssid,
   };
 };
 
@@ -813,6 +829,45 @@ describe('the fetched machine records the hit', () => {
         content: `${accessLine({ sourceIp: 'unknown', size: ALICE_PAGE.length })}\n`,
       }),
     );
+  });
+
+  it('traces a fetch run from a hop to the hop network public IP, not the caller home', async () => {
+    // Bob fetches Alice's page from a box he holds on another network. The line names
+    // THAT network's public IP — the hop the traffic actually came from — read off the
+    // session row, never his own home.
+    const HOP_PUBLIC_IP = '203.0.113.200';
+    const { deps, upsertPatch } = makeDeps({
+      patches: aliceServing(),
+      findActiveSession: async () => ({
+        data: { username: 'root', userType: 'root', essid: 'HOP-NET' },
+        error: null,
+      }),
+      findPublicIpByEssid: async (essid) => ({
+        data: essid === 'HOP-NET' ? { public_ip: HOP_PUBLIC_IP } : null,
+        error: null,
+      }),
+    });
+
+    await handleResolveHttpFetch(envelope({ caller_machine_id: 'a-hop-box' }), deps);
+
+    expect(upsertPatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: `${accessLine({ sourceIp: HOP_PUBLIC_IP, size: ALICE_PAGE.length })}\n`,
+      }),
+    );
+  });
+
+  it('refuses a fetch naming a box the caller does not hold, logging nothing', async () => {
+    const { deps, upsertPatch } = makeDeps({
+      patches: aliceServing(),
+      findActiveSession: async () => ({ data: null, error: null }),
+    });
+
+    expect(await handleResolveHttpFetch(envelope({ caller_machine_id: 'not-mine' }), deps)).toEqual({
+      status: 403,
+      body: { error: 'no_session' },
+    });
+    expect(upsertPatch).not.toHaveBeenCalled();
   });
 
   it("logs the GATEWAY arm under the network's own key when the gateway serves its own page", async () => {
