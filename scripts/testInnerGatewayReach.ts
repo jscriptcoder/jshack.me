@@ -34,6 +34,7 @@ import { accountIn } from '../src/core/sessions/passwdAccount.js';
 import { md5 } from '../src/core/generation/md5.js';
 import { ALL_GENERATED_PASSWORDS } from '../src/core/generation/passwordPools.js';
 import { WORDLIST_PATH, formatWordlist } from '../src/core/wordlist/defaultWordlist.js';
+import { leaveNetwork, standOnNetwork } from './standVantage.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const PATCHES = process.env.PATCHES_ENDPOINT ?? 'http://localhost:3100/api/patches';
@@ -83,6 +84,9 @@ if (ESSID === undefined) {
   process.exit(2);
 }
 const alice = generateIdentity();
+// A second player, at home on a different network, who tries to name this one.
+const mallory = generateIdentity();
+const MALLORY_HOME = 'SOME-OTHER-WIFI';
 
 const innerGateway = generateHomeLan(ESSID).hosts.find(
   (host) => host.kind === 'router' && Number(host.ip.split('.')[3]) !== 1,
@@ -164,6 +168,10 @@ await sr.from('patches').delete().eq('machine_id', INNER_GW_ID);
 // passes without this run having written anything at all.
 await sr.from('patches').delete().eq('machine_id', DEEP_ID);
 await sr.from('sessions').delete().eq('player_key', alice.publicKeyHex);
+// The forward is on ESSID, and the gateway only admits a caller the server can place
+// there — Alice reaches it from home, so she stands on it.
+await standOnNetwork(sr, ESSID, alice, 40);
+await standOnNetwork(sr, MALLORY_HOME, mallory, 41);
 await sr.from('sessions').insert({
   session_id: `ssh-alice-inner-${INNER_GW_ID}`,
   player_key: alice.publicKeyHex,
@@ -199,6 +207,34 @@ check(
     userTypeOf(r1.body) === 'guest' &&
     landedRows === 1,
   `status=${r1.status} machine=${machineOf(r1.body)} userType=${userTypeOf(r1.body)} deepRows=${landedRows}`,
+);
+
+// 1a. WHERE THE CALLER STANDS — the forward is on ESSID, so the gateway admits a caller
+//     the server places there and nobody else. Alice in a shell on the inner gateway
+//     itself (the root session seeded above) is on ESSID; Mallory, at home on another
+//     network, cannot reach it by naming ESSID.
+const fromHop = await reach({ caller_machine_id: INNER_GW_ID });
+check(
+  'reach from a hop on the forward’s network (the gateway itself) → 200',
+  fromHop.status === 200 && machineOf(fromHop.body) === DEEP_ID,
+  `status=${fromHop.status} error=${errorOf(fromHop.body) ?? '-'}`,
+);
+const crafted = await post(
+  SESSIONS,
+  signRequest(mallory, 'authCreateSessionInnerGateway', {
+    session_id: 'reach-mallory-1',
+    essid: ESSID,
+    target: INNER_IP,
+    username: 'guest',
+    password: DEEP_GUEST_PW,
+    port: 2222,
+    parent_session_id: null,
+  }),
+);
+check(
+  'a caller at home on another network naming this one → 403 wrong_network',
+  crafted.status === 403 && errorOf(crafted.body) === 'wrong_network',
+  `status=${crafted.status} error=${errorOf(crafted.body) ?? '-'}`,
 );
 
 // 1b. REACH THE CHILD GATEWAY — ssh root@<inner>:2223 with the child gateway's OWN
@@ -385,6 +421,8 @@ check(
 await sr.from('patches').delete().eq('machine_id', INNER_GW_ID);
 await sr.from('patches').delete().eq('machine_id', DEEP_ID);
 await sr.from('sessions').delete().eq('player_key', alice.publicKeyHex);
+await leaveNetwork(sr, ESSID);
+await leaveNetwork(sr, MALLORY_HOME);
 
 const passed = results.filter((result) => result.pass).length;
 console.log(`\n${passed}/${results.length} checks passed`);

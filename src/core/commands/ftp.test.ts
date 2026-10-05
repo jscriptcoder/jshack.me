@@ -25,7 +25,7 @@ import { asAbsPath, asEpochMs, asMachineId, asPlayerKeyHex } from '../types.js';
 import type { AbsPath, UserType } from '../types.js';
 import type {
   CommandResult,
-  PublicDoorAuthParams,
+  PublicAuthParams,
   FtpTransfer,
   PublicAuthResult,
   RemoteAuthParams,
@@ -339,7 +339,7 @@ describe('ftp', () => {
       readonly ports?: readonly { readonly port: number; readonly service: string }[];
       readonly found?: boolean;
       readonly authenticatePublic?: (
-        params: PublicDoorAuthParams,
+        params: PublicAuthParams,
       ) => Promise<PublicAuthResult>;
       readonly onEnter?: (session: Session) => void;
     };
@@ -365,7 +365,7 @@ describe('ftp', () => {
 
     it('reaches the door behind a forward and holds the session on the box it opened', async () => {
       const entered = vi.fn();
-      const authenticatePublic = vi.fn<(params: PublicDoorAuthParams) => Promise<PublicAuthResult>>(
+      const authenticatePublic = vi.fn<(params: PublicAuthParams) => Promise<PublicAuthResult>>(
         async () => ({ ok: true, userType: 'guest', machineId: THEIR_BOX, essid: THEIR_ESSID }),
       );
       const env = publicEnv({ onEnter: entered, authenticatePublic });
@@ -395,7 +395,7 @@ describe('ftp', () => {
     });
 
     it('names the box the player is standing on, so the target learns where the visit came from', async () => {
-      const authenticatePublic = vi.fn<(params: PublicDoorAuthParams) => Promise<PublicAuthResult>>(
+      const authenticatePublic = vi.fn<(params: PublicAuthParams) => Promise<PublicAuthResult>>(
         async () => ({ ok: true, userType: 'guest', machineId: THEIR_BOX, essid: THEIR_ESSID }),
       );
 
@@ -411,7 +411,7 @@ describe('ftp', () => {
     });
 
     it('knocks on the ftp port when the player names none', async () => {
-      const authenticatePublic = vi.fn<(params: PublicDoorAuthParams) => Promise<PublicAuthResult>>(
+      const authenticatePublic = vi.fn<(params: PublicAuthParams) => Promise<PublicAuthResult>>(
         async () => ({ ok: true, userType: 'guest', machineId: THEIR_BOX, essid: THEIR_ESSID }),
       );
 
@@ -426,7 +426,7 @@ describe('ftp', () => {
     });
 
     it('falls back to the ftp port when -p carries nothing usable', async () => {
-      const authenticatePublic = vi.fn<(params: PublicDoorAuthParams) => Promise<PublicAuthResult>>(
+      const authenticatePublic = vi.fn<(params: PublicAuthParams) => Promise<PublicAuthResult>>(
         async () => ({ ok: true, userType: 'guest', machineId: THEIR_BOX, essid: THEIR_ESSID }),
       );
       const ports = [{ port: 21, service: 'ftp' }];
@@ -459,7 +459,7 @@ describe('ftp', () => {
     });
 
     it('knocks only on the port the player named, even when their box publishes others', async () => {
-      const authenticatePublic = vi.fn<(params: PublicDoorAuthParams) => Promise<PublicAuthResult>>(
+      const authenticatePublic = vi.fn<(params: PublicAuthParams) => Promise<PublicAuthResult>>(
         async () => ({ ok: true, userType: 'guest', machineId: THEIR_BOX, essid: THEIR_ESSID }),
       );
       const env = publicEnv({
@@ -477,7 +477,7 @@ describe('ftp', () => {
     });
 
     it('refuses a port their box answers nothing on, even though it serves ftp elsewhere', async () => {
-      const authenticatePublic = vi.fn<(params: PublicDoorAuthParams) => Promise<PublicAuthResult>>();
+      const authenticatePublic = vi.fn<(params: PublicAuthParams) => Promise<PublicAuthResult>>();
       const env = publicEnv({ authenticatePublic, ports: [{ port: 21, service: 'ftp' }] });
 
       const result = await ftp.execute(env, [THEIR_PUBLIC_IP, 'guest'], new Map([['-p', '2121']]));
@@ -490,7 +490,7 @@ describe('ftp', () => {
 
     it('holds nothing when the player aborts at a cross-network password prompt', async () => {
       const entered = vi.fn();
-      const authenticatePublic = vi.fn<(params: PublicDoorAuthParams) => Promise<PublicAuthResult>>();
+      const authenticatePublic = vi.fn<(params: PublicAuthParams) => Promise<PublicAuthResult>>();
       const base = publicEnv({ onEnter: entered, authenticatePublic });
       const env = mockCommandEnv({
         ...base,
@@ -509,7 +509,7 @@ describe('ftp', () => {
     });
 
     it('refuses when the port the player named is answered by something other than ftp', async () => {
-      const authenticatePublic = vi.fn<(params: PublicDoorAuthParams) => Promise<PublicAuthResult>>();
+      const authenticatePublic = vi.fn<(params: PublicAuthParams) => Promise<PublicAuthResult>>();
       const env = publicEnv({ authenticatePublic, ports: [{ port: 2121, service: 'ssh' }] });
 
       const result = await ftp.execute(env, [THEIR_PUBLIC_IP, 'guest'], new Map([['-p', '2121']]));
@@ -521,7 +521,7 @@ describe('ftp', () => {
     });
 
     it('reports no route to a public address the world answers for nobody', async () => {
-      const authenticatePublic = vi.fn<(params: PublicDoorAuthParams) => Promise<PublicAuthResult>>();
+      const authenticatePublic = vi.fn<(params: PublicAuthParams) => Promise<PublicAuthResult>>();
       const env = publicEnv({ authenticatePublic, found: false });
 
       const result = await ftp.execute(env, [THEIR_PUBLIC_IP, 'guest'], new Map([['-p', '2121']]));

@@ -272,6 +272,7 @@ describe('authCreateServerSessionPublic', () => {
     port: 2222,
     parentSessionId: 'su-root-1',
     sourceIp: '192.168.50.23',
+    callerMachineId: 'lock-5-ed4c4a78',
   };
 
   it('POSTs a signed authCreateSessionPublic envelope and returns the userType + owner machine id', async () => {
@@ -304,6 +305,7 @@ describe('authCreateServerSessionPublic', () => {
       port: 2222,
       parent_session_id: 'su-root-1',
       source_ip: '192.168.50.23',
+      caller_machine_id: 'lock-5-ed4c4a78',
     });
     // The target is a public IP resolved server-side — no own-machine scope is sent.
     expect(verified.payload).not.toHaveProperty('machine_id');
@@ -505,6 +507,7 @@ describe('authCreateServerSessionInnerGateway', () => {
     port: 2222,
     parentSessionId: 'shell-1',
     sourceIp: '192.168.29.50',
+    callerMachineId: 'lock-5-ed4c4a78',
   };
 
   it('POSTs a signed authCreateSessionInnerGateway envelope and returns the userType + deep host id', async () => {
@@ -533,10 +536,25 @@ describe('authCreateServerSessionInnerGateway', () => {
       port: 2222,
       parent_session_id: 'shell-1',
       source_ip: '192.168.29.50',
+      caller_machine_id: 'lock-5-ed4c4a78',
     });
     // The gateway + deep host are regenerated server-side from the verified key — no
     // own-machine scope on the envelope.
     expect(verified.payload).not.toHaveProperty('machine_id');
+  });
+
+  it('names no box when the caller gives none, leaving the server to place them at home', async () => {
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse(200, { ok: true, userType: 'guest', machine_id: 'iot-cam-deadbeef' }),
+    );
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+    const { callerMachineId: _standingNowhere, ...fromHome } = params;
+
+    await authCreateServerSessionInnerGateway(deps, fromHome);
+
+    const verified = await verifyPayload(sentEnvelope(fetchSpy));
+    if (!verified.ok) throw new Error('expected a verified envelope');
+    expect(verified.payload).not.toHaveProperty('caller_machine_id');
   });
 
   it('maps a 401 to invalid_credentials', async () => {

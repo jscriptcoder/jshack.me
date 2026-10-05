@@ -27,7 +27,7 @@ import type {
   PatchApi,
   PatchResult,
   PublicAuthResult,
-  PublicDoorAuthParams,
+  PublicAuthParams,
   RemoteAuthParams,
   RemoteAuthResult,
   ScpReadResult,
@@ -997,7 +997,7 @@ describe('scp', () => {
     type PublicOver = EnvOver & {
       readonly ports?: readonly { readonly port: number; readonly service: string }[];
       readonly found?: boolean;
-      readonly authenticatePublic?: (params: PublicDoorAuthParams) => Promise<PublicAuthResult>;
+      readonly authenticatePublic?: (params: PublicAuthParams) => Promise<PublicAuthResult>;
     };
 
     const publicEnv = (over: PublicOver = {}) => {
@@ -1034,7 +1034,7 @@ describe('scp', () => {
     it('carries a file onto the box behind the forward, on the machine the server names', async () => {
       const write = vi.fn<NonNullable<EnvOver['write']>>(async () => ({ ok: true }));
       const authenticatePublic = vi.fn<
-        (params: PublicDoorAuthParams) => Promise<PublicAuthResult>
+        (params: PublicAuthParams) => Promise<PublicAuthResult>
       >(async () => ({ ok: true, userType: 'root', machineId: THEIR_BOX, essid: THEIR_ESSID }));
       const env = publicEnv({ write, authenticatePublic });
 
@@ -1084,7 +1084,7 @@ describe('scp', () => {
 
     it('names the box the transfer is being run from, so the target learns where it came from', async () => {
       const authenticatePublic = vi.fn<
-        (params: PublicDoorAuthParams) => Promise<PublicAuthResult>
+        (params: PublicAuthParams) => Promise<PublicAuthResult>
       >(async () => ({ ok: true, userType: 'root', machineId: THEIR_BOX, essid: THEIR_ESSID }));
 
       await drain(
@@ -1099,7 +1099,7 @@ describe('scp', () => {
     it('refuses a forward answered by another daemon without asking for a password', async () => {
       const prompt = vi.fn<NonNullable<EnvOver['prompt']>>(async () => 'hunter2');
       const authenticatePublic = vi.fn<
-        (params: PublicDoorAuthParams) => Promise<PublicAuthResult>
+        (params: PublicAuthParams) => Promise<PublicAuthResult>
       >(async () => ({ ok: true, userType: 'root', machineId: THEIR_BOX, essid: THEIR_ESSID }));
       const env = publicEnv({
         prompt,
@@ -1121,7 +1121,7 @@ describe('scp', () => {
 
     it('opens on the forward that answers ssh, even when their box publishes others', async () => {
       const authenticatePublic = vi.fn<
-        (params: PublicDoorAuthParams) => Promise<PublicAuthResult>
+        (params: PublicAuthParams) => Promise<PublicAuthResult>
       >(async () => ({ ok: true, userType: 'root', machineId: THEIR_BOX, essid: THEIR_ESSID }));
       const env = publicEnv({
         authenticatePublic,
@@ -1169,7 +1169,7 @@ describe('scp', () => {
 
     it('knocks on the ssh port when the player names none', async () => {
       const authenticatePublic = vi.fn<
-        (params: PublicDoorAuthParams) => Promise<PublicAuthResult>
+        (params: PublicAuthParams) => Promise<PublicAuthResult>
       >(async () => ({ ok: true, userType: 'root', machineId: THEIR_BOX, essid: THEIR_ESSID }));
       const env = publicEnv({ authenticatePublic, ports: [{ port: 22, service: 'ssh' }] });
 
@@ -1186,7 +1186,7 @@ describe('scp', () => {
       ['a negative', '-22'],
     ])('falls back to the ssh port when -p carries %s', async (_case, value) => {
       const authenticatePublic = vi.fn<
-        (params: PublicDoorAuthParams) => Promise<PublicAuthResult>
+        (params: PublicAuthParams) => Promise<PublicAuthResult>
       >(async () => ({ ok: true, userType: 'root', machineId: THEIR_BOX, essid: THEIR_ESSID }));
       const env = publicEnv({ authenticatePublic, ports: [{ port: 22, service: 'ssh' }] });
 
@@ -1234,7 +1234,7 @@ describe('scp', () => {
     it('validates the local half first, so a typo never reaches a stranger log', async () => {
       const prompt = vi.fn<NonNullable<EnvOver['prompt']>>(async () => 'hunter2');
       const authenticatePublic = vi.fn<
-        (params: PublicDoorAuthParams) => Promise<PublicAuthResult>
+        (params: PublicAuthParams) => Promise<PublicAuthResult>
       >(async () => ({ ok: true, userType: 'root', machineId: THEIR_BOX, essid: THEIR_ESSID }));
       const env = publicEnv({ prompt, authenticatePublic });
 

@@ -18,7 +18,9 @@
  * The chain is regenerated from the ESSID and the shared journal, never from the
  * caller's key — every occupant of an ESSID walks the same gateway to the same deep
  * boxes. It needs no cross-player lookup, which is a different claim from the layer
- * being private, and only the first one is true.
+ * being private, and only the first one is true. What it does need is the caller to be
+ * standing on that ESSID — at home on it, or in a shell on a box on it — so the network
+ * a request names is checked against the one the server places the caller on.
  *
  * Unknown-user and wrong-password collapse to one 401; a child-journal fetch failure
  * mid-walk is a 500, kept distinct from a port that simply leads nowhere.
@@ -49,8 +51,9 @@ import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
 import { DOOR_KINDS, type AuthSessionRow, type HandlerResponse } from './authCreateSession.js';
 import { listenerOn, readOpenPorts } from '../services/pidfile.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
+import { resolveCallerVantage, type CallerVantageDeps } from './callerVantage.js';
 
-export type AuthCreateSessionInnerGatewayDeps = {
+export type AuthCreateSessionInnerGatewayDeps = CallerVantageDeps & {
   readonly nonceStore: NonceStore;
   /** The inner gateway's FULL patch journal (scoped to its `machine_id`, server
    *  order) so the gate can replay it over the seeded gateway base — both to ask
@@ -90,6 +93,8 @@ const authCreateSessionInnerGatewaySchema = z
     kind: z.enum(DOOR_KINDS).default('ssh'),
     parent_session_id: z.string().min(1).nullable().optional(),
     source_ip: z.string().min(1).nullable().optional(),
+    // The box the shell is standing on; absent, the caller's own workstation.
+    caller_machine_id: z.string().min(1).optional(),
   })
   .refine((payload) => !('player_key' in payload));
 
@@ -150,6 +155,16 @@ export const handleAuthCreateSessionInnerGateway = async (
     return { status: STATUS_BY_VERIFY_REASON[verified.reason], body: { error: verified.reason } };
   }
   const { publicKey, payload } = verified;
+
+  // The forward is on one network, and the caller has to be standing on it. Without
+  // this any player could name any network and walk its deeper layers from anywhere.
+  const vantage = await resolveCallerVantage(deps, publicKey, payload.caller_machine_id);
+  if (!vantage.ok) {
+    return { status: vantage.status, body: { error: vantage.error } };
+  }
+  if (vantage.essid !== payload.essid) {
+    return { status: 403, body: { error: 'wrong_network' } };
+  }
 
   // Where the destination port leads — the shared walk, which also decides that the
   // target is a genuine inner gateway, that its journal read succeeded, and that nothing

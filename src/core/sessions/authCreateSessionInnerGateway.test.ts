@@ -28,6 +28,8 @@ import type {
 } from '../patches/appendMachineLog.js';
 import type { PatchRow } from '../patches/upsertPatch.js';
 import { logRead } from '../../test/factories/logRows.js';
+import type { HomeVantage } from './callerVantage.js';
+import type { ActiveSession } from '../patches/authorizeMachineAccess.js';
 
 /**
  * `handleAuthCreateSessionInnerGateway` is the server gate for `ssh user@<inner>:<fwd
@@ -200,11 +202,23 @@ const makeLogDeps = () => {
   return { now: () => Date.parse('2026-06-17T00:00:02.000Z'), readAuthLog, upsertPatch, appended };
 };
 
+/** Where the caller stands: the session they hold on a box they name, and the network
+ *  their own workstation is on. By default they are at home on the forward's network
+ *  and hold no session anywhere. */
+type Standing = {
+  readonly session?: ActiveSession | null;
+  readonly home?: HomeVantage | null;
+};
+
+/** A caller at home on `essid`, holding no session anywhere. */
+const atHomeOn = (essid: string): Standing => ({ home: { essid, octet: 50 } });
+
 /** Assemble the handler deps around a findPatches/insertSession pair plus the capturing
  *  log appender. */
 const gatewayDeps = (
   findPatches: AuthCreateSessionInnerGatewayDeps['findPatches'],
   insertSession: AuthCreateSessionInnerGatewayDeps['insertSession'],
+  standing: Standing = {},
 ) => {
   const log = makeLogDeps();
   const deps: AuthCreateSessionInnerGatewayDeps = {
@@ -214,6 +228,11 @@ const gatewayDeps = (
     now: log.now,
     readAuthLog: log.readAuthLog,
     upsertPatch: log.upsertPatch,
+    findActiveSession: async () => ({ data: standing.session ?? null, error: null }),
+    findHomeVantage: async () => ({
+      data: standing.home === undefined ? { essid: ESSID, octet: 50 } : standing.home,
+      error: null,
+    }),
   };
   return { deps, appended: log.appended };
 };
@@ -224,10 +243,11 @@ const makeDeps = (
     error: null,
   }),
   insert: (row: AuthSessionRow) => Promise<{ error: unknown }> = async () => ({ error: null }),
+  standing: Standing = {},
 ) => {
   const findPatches = vi.fn<(query: { machine_id: string }) => Promise<PatchesResult>>(patches);
   const insertSession = vi.fn<(row: AuthSessionRow) => Promise<{ error: unknown }>>(insert);
-  const { deps, appended } = gatewayDeps(findPatches, insertSession);
+  const { deps, appended } = gatewayDeps(findPatches, insertSession, standing);
   return { deps, findPatches, insertSession, appended };
 };
 
@@ -496,7 +516,7 @@ describe('handleAuthCreateSessionInnerGateway — a depth-1 network (the inner r
     const insertSession = vi.fn<(row: AuthSessionRow) => Promise<{ error: unknown }>>(async () => ({
       error: null,
     }));
-    const { deps } = gatewayDeps(findPatches, insertSession);
+    const { deps } = gatewayDeps(findPatches, insertSession, atHomeOn(SHALLOW_ESSID));
 
     const result = await handleAuthCreateSessionInnerGateway(
       signRequest(PLAYER, 'authCreateSessionInnerGateway', {
@@ -574,7 +594,7 @@ describe('handleAuthCreateSessionInnerGateway — reach a deep SWITCH child gate
     const insertSession = vi.fn<(row: AuthSessionRow) => Promise<{ error: unknown }>>(async () => ({
       error: null,
     }));
-    const { deps } = gatewayDeps(findPatches, insertSession);
+    const { deps } = gatewayDeps(findPatches, insertSession, atHomeOn(SW_ESSID));
     return { deps, insertSession };
   };
 
@@ -673,7 +693,7 @@ describe('handleAuthCreateSessionInnerGateway — chained reach down a deeper ch
     const insertSession = vi.fn<(row: AuthSessionRow) => Promise<{ error: unknown }>>(async () => ({
       error: null,
     }));
-    const { deps } = gatewayDeps(findPatches, insertSession);
+    const { deps } = gatewayDeps(findPatches, insertSession, atHomeOn(ESSID3));
     return { deps, findPatches, insertSession };
   };
 
@@ -748,7 +768,7 @@ describe('handleAuthCreateSessionInnerGateway — chained reach down a deeper ch
     const insertSession = vi.fn<(row: AuthSessionRow) => Promise<{ error: unknown }>>(async () => ({
       error: null,
     }));
-    const { deps } = gatewayDeps(findPatches, insertSession);
+    const { deps } = gatewayDeps(findPatches, insertSession, atHomeOn(ESSID3));
 
     const result = await handleAuthCreateSessionInnerGateway(chainEnvelope({}), deps);
 
@@ -923,6 +943,103 @@ describe('handleAuthCreateSessionInnerGateway — guards', () => {
 
     expect(result.status).toBe(400);
     expect(findPatches).not.toHaveBeenCalled();
+  });
+});
+
+describe('handleAuthCreateSessionInnerGateway — where the caller stands', () => {
+  // A box on the forward's own LAN, standing in for a hop the caller holds a shell on.
+  const HOP_ID = hostMachineId(SIBLING, ESSID);
+  const OTHER_ESSID = 'SOMEWHERE-ELSE';
+  const hopOn = (essid: string): ActiveSession => ({ username: 'root', userType: 'root', essid });
+
+  it('admits a caller standing in a shell on a box on the forward’s network', async () => {
+    const { deps, insertSession } = makeDeps(undefined, undefined, {
+      session: hopOn(ESSID),
+      home: { essid: OTHER_ESSID, octet: 50 },
+    });
+
+    const result = await handleAuthCreateSessionInnerGateway(
+      envelope({ caller_machine_id: HOP_ID }),
+      deps,
+    );
+
+    expect(result).toEqual({
+      status: 200,
+      body: { ok: true, userType: DEEP_GUEST.userType, machine_id: DEEP_ID },
+    });
+    expect(insertSession).toHaveBeenCalledWith(expect.objectContaining({ essid: ESSID }));
+  });
+
+  it('still shows the deep box only the gateway’s address when the caller comes from a hop', async () => {
+    const { deps, appended } = makeDeps(undefined, undefined, { session: hopOn(ESSID) });
+
+    await handleAuthCreateSessionInnerGateway(envelope({ caller_machine_id: HOP_ID }), deps);
+
+    expect(appended.map((row) => row.content ?? '').join('')).toContain(
+      `Accepted password for guest from ${DEEP.subnet}.1`,
+    );
+  });
+
+  it('refuses a hop on another network, whatever network the request names', async () => {
+    const { deps, findPatches, insertSession, appended } = makeDeps(undefined, undefined, {
+      session: hopOn(OTHER_ESSID),
+    });
+
+    const result = await handleAuthCreateSessionInnerGateway(
+      envelope({ caller_machine_id: HOP_ID }),
+      deps,
+    );
+
+    expect(result).toEqual({ status: 403, body: { error: 'wrong_network' } });
+    expect(findPatches).not.toHaveBeenCalled();
+    expect(insertSession).not.toHaveBeenCalled();
+    expect(appended).toHaveLength(0);
+  });
+
+  it('refuses a caller at home on another network', async () => {
+    const { deps, findPatches } = makeDeps(undefined, undefined, {
+      home: { essid: OTHER_ESSID, octet: 50 },
+    });
+
+    const result = await handleAuthCreateSessionInnerGateway(envelope({}), deps);
+
+    expect(result).toEqual({ status: 403, body: { error: 'wrong_network' } });
+    expect(findPatches).not.toHaveBeenCalled();
+  });
+
+  it('refuses a named box the caller holds no live session on', async () => {
+    const { deps, findPatches } = makeDeps(undefined, undefined, { session: null });
+
+    const result = await handleAuthCreateSessionInnerGateway(
+      envelope({ caller_machine_id: HOP_ID }),
+      deps,
+    );
+
+    expect(result).toEqual({ status: 403, body: { error: 'no_session' } });
+    expect(findPatches).not.toHaveBeenCalled();
+  });
+
+  it('refuses a caller standing on no network at all', async () => {
+    const { deps, findPatches } = makeDeps(undefined, undefined, { home: null });
+
+    const result = await handleAuthCreateSessionInnerGateway(envelope({}), deps);
+
+    expect(result).toEqual({ status: 403, body: { error: 'caller_not_on_network' } });
+    expect(findPatches).not.toHaveBeenCalled();
+  });
+
+  it('refuses a backdoor knock from another network the same way', async () => {
+    const { deps, insertSession } = makeDeps(undefined, undefined, {
+      home: { essid: OTHER_ESSID, octet: 50 },
+    });
+
+    const result = await handleAuthCreateSessionInnerGateway(
+      envelope({ kind: 'nc', username: undefined, password: undefined }),
+      deps,
+    );
+
+    expect(result).toEqual({ status: 403, body: { error: 'wrong_network' } });
+    expect(insertSession).not.toHaveBeenCalled();
   });
 });
 

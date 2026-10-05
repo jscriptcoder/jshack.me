@@ -21,11 +21,10 @@
 import { createSignal } from 'solid-js';
 import { asAbsPath, type AbsPath, type MachineId, type UserType } from '../core/types.js';
 import type {
-  PublicDoorAuthParams,
+  PublicAuthParams,
   Identity,
   LogApi,
   PatchApi,
-  PublicAuthParams,
   InnerGatewayAuthParams,
   PublicAuthResult,
   PatchResult,
@@ -684,7 +683,7 @@ const sshAuthenticatePublic = (params: PublicAuthParams): Promise<PublicAuthResu
  *  — the same endpoint `ssh` reaches, asked for an `ftp`-kind row against whatever the
  *  named port forwards to. Degrades to a network error before `startGame` wires the
  *  sessions client. */
-const ftpAuthenticatePublic = (params: PublicDoorAuthParams): Promise<PublicAuthResult> =>
+const ftpAuthenticatePublic = (params: PublicAuthParams): Promise<PublicAuthResult> =>
   sessionsClientDeps === undefined
     ? Promise.resolve({ ok: false, error: 'network_error' })
     : authCreateServerSessionPublic(sessionsClientDeps, params, 'ftp');
@@ -927,7 +926,7 @@ const scpAuthenticate = (params: RemoteAuthParams): Promise<RemoteAuthResult> =>
  *  `env.scp.authenticatePublic`) — the same endpoint the other two doors reach,
  *  asked for an `scp`-kind row against whatever the forwarded port answers with.
  *  Degrades to a network error before `startGame` wires the sessions client. */
-const scpAuthenticatePublic = (params: PublicDoorAuthParams): Promise<PublicAuthResult> =>
+const scpAuthenticatePublic = (params: PublicAuthParams): Promise<PublicAuthResult> =>
   sessionsClientDeps === undefined
     ? Promise.resolve({ ok: false, error: 'network_error' })
     : authCreateServerSessionPublic(sessionsClientDeps, params, 'scp');
