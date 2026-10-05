@@ -9,8 +9,9 @@
  *
  * Auth model: the own-workstation gate does NOT apply — an ssh target is foreign
  * by design, so the passwd check IS the authorization boundary. Resolving the
- * target on the caller's own regenerated LAN also proves `target_ip` is a real
- * reachable host (not an arbitrary address). Unknown-user and wrong-password
+ * target on a network the caller reaches (the regenerated LAN, or a deep layer the
+ * box they stand on reaches) also proves `target_ip` is a real reachable host (not
+ * an arbitrary address). Unknown-user and wrong-password
  * collapse to ONE 401 so the response never reveals which accounts exist (real
  * ssh / legacy parity).
  *
@@ -23,7 +24,9 @@ import { z } from 'zod';
 import { verifySignedRequest } from '../signedRequest/verify.js';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
-import { resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
+import { chainGatewayBaseFs, resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
+import { segmentsReachedFrom } from '../generation/lanTopology.js';
+import { deniedPortsFor, resolveDeepScanHosts } from '../scan/deepScanHosts.js';
 import { materializeMachineFs, type OwnerPatchRow } from '../network/materializeMachineFs.js';
 import { canBoot } from '../boot/bootFiles.js';
 import { md5 } from '../generation/md5.js';
@@ -220,12 +223,14 @@ export const reachDoor = (
   kind: DoorKind,
   fs: Directory,
   reachedPort: number | undefined,
+  deniedPorts: ReadonlySet<number> = new Set(),
 ): ReachedDoor | null => {
   // What the box answers to the NETWORK. A port its owner filtered is not a door,
   // whichever kind of door it would have been — a filter honoured for the daemon but
   // not for a planted listener would let whatever an attacker left running there step
-  // straight over the owner's own rule.
-  const openToNetwork = portsOpenToNetwork(fs);
+  // straight over the owner's own rule. Nor is a port the switch in front of the box
+  // denies: nothing sent to it ever arrives.
+  const openToNetwork = portsOpenToNetwork(fs).filter((open) => !deniedPorts.has(open.port));
 
   if (kind === 'nc') {
     const reachable = openToNetwork.some((open) => open.port === reachedPort);
@@ -237,6 +242,85 @@ export const reachDoor = (
     (open) => open.service === spec.service && (reachedPort === undefined || open.port === reachedPort),
   );
   return serving ? { kind: 'passwd', spec } : null;
+};
+
+/** The box a login lands on: the host, the machine id both sides agree on, its seeded
+ *  tree, the address it sees the caller at, and the ports the switch fronting its layer
+ *  lets nothing through to. */
+type LoginTarget = {
+  readonly host: LanHost;
+  readonly machineId: string;
+  readonly baseFs: Directory;
+  readonly fromIp: string | null;
+  readonly deniedPorts: ReadonlySet<number>;
+};
+
+type LoginTargetResult =
+  | { readonly ok: true; readonly target: LoginTarget }
+  | { readonly ok: false; readonly status: number; readonly error: string };
+
+/** Find the target on a network the caller reaches: the LAN, or a deep layer reached
+ *  from the box they name. A host on the LAN is seen from wherever the caller stands on
+ *  it; one on a layer is seen from the address the caller's box holds on that layer. */
+const resolveLoginTarget = async (
+  deps: AuthCreateSessionDeps,
+  request: {
+    readonly essid: string;
+    readonly targetIp: string;
+    readonly callerMachineId: string | undefined;
+    readonly lanSourceIp: string | null;
+  },
+): Promise<LoginTargetResult> => {
+  const { essid, targetIp } = request;
+  const lanHost = generateHomeLan(essid).hosts.find((candidate) => candidate.ip === targetIp);
+  if (lanHost !== undefined) {
+    const { machineId, baseFs } = resolveLanHostIdentity(lanHost, essid);
+    return {
+      ok: true,
+      target: {
+        host: lanHost,
+        machineId,
+        baseFs,
+        fromIp: request.lanSourceIp,
+        deniedPorts: new Set(),
+      },
+    };
+  }
+
+  const reached =
+    request.callerMachineId === undefined
+      ? null
+      : segmentsReachedFrom(essid, request.callerMachineId);
+  for (const segment of reached ?? []) {
+    if (segment.fronting === null) continue;
+    const fronting = segment.fronting;
+    const seededFronting = chainGatewayBaseFs(essid, fronting);
+    const onLayer = resolveDeepScanHosts(essid, fronting, seededFronting).hosts.find(
+      (entry) => entry.host.ip === targetIp,
+    );
+    if (onLayer === undefined) continue;
+    // Only a switch filters its layer, and what it filters is whatever its live
+    // journal says now, not what it was seeded with.
+    let frontingFs = seededFronting;
+    if (fronting.host.kind === 'switch') {
+      const patches = await deps.findPatches({ machine_id: fronting.machineId });
+      if (patches.error) {
+        return { ok: false, status: 500, error: 'patches_lookup_failed' };
+      }
+      frontingFs = materializeMachineFs(seededFronting, patches.data);
+    }
+    return {
+      ok: true,
+      target: {
+        host: onLayer.host,
+        machineId: onLayer.machineId,
+        baseFs: onLayer.baseFs,
+        fromIp: segment.address,
+        deniedPorts: deniedPortsFor(fronting, frontingFs),
+      },
+    };
+  }
+  return { ok: false, status: 404, error: 'host_unreachable' };
 };
 
 export const handleAuthCreateSession = async (
@@ -264,21 +348,21 @@ export const handleAuthCreateSession = async (
     return { status: 403, body: { error: 'wrong_network' } };
   }
 
-  // Resolve the target on the LAN the caller STANDS on: gives the host needed to
-  // rebuild its FS, and proves target_ip is a real reachable host there.
-  const host = generateHomeLan(payload.essid).hosts.find(
-    (candidate) => candidate.ip === payload.target_ip,
-  );
-  if (host === undefined) {
-    return { status: 404, body: { error: 'host_unreachable' } };
+  // Resolve the target on a network the caller reaches — the LAN, or a deep layer the
+  // box they stand on reaches: gives the host needed to rebuild its FS, proves target_ip
+  // is a real reachable host there, and says the address the box sees the caller at.
+  // The machine id is the one the client resolves too, so the session lands on the box
+  // both agree on.
+  const resolved = await resolveLoginTarget(deps, {
+    essid: payload.essid,
+    targetIp: payload.target_ip,
+    callerMachineId: payload.caller_machine_id,
+    lanSourceIp: vantage.sourceIp,
+  });
+  if (!resolved.ok) {
+    return { status: resolved.status, body: { error: resolved.error } };
   }
-
-  // Validate the credential against the host's real /etc/passwd. Unknown user and
-  // bad password are indistinguishable in the response. The shared resolver maps the
-  // host to its machine id + seeded FS: the edge router (`.1`), an inner gateway, or
-  // a coordinate-seeded sibling — the same mapping the client uses, so the session
-  // lands on the box both agree on.
-  const { machineId, baseFs } = resolveLanHostIdentity(host, payload.essid);
+  const { host, machineId, baseFs, fromIp, deniedPorts } = resolved.target;
 
   // Replay the host's journal over its seeded base so the gate reads the box's REAL
   // state rather than the pristine regeneration. A read failure is a 500: never a
@@ -308,9 +392,9 @@ export const handleAuthCreateSession = async (
       machine_id: machineId,
       credentials,
       parent_session_id: payload.parent_session_id ?? null,
-      // The address the box actually saw, derived server-side — null when the LAN
-      // cannot place the caller (a player box, a deep host, or no lease).
-      source_ip: vantage.sourceIp,
+      // The address the box actually saw, derived server-side — null when nothing
+      // places the caller (a player box whose owner has left, or no lease).
+      source_ip: fromIp,
       kind: payload.kind,
       essid: payload.essid,
     });
@@ -325,7 +409,7 @@ export const handleAuthCreateSession = async (
   // does (`ROUTER_SSH_PROBABILITY` is 1), so the exemption protected nothing and only
   // left a gap a crafted request could walk through. An honest client never noticed
   // either way: `ssh` compares the target's pidfile port before it prompts.
-  const reached = reachDoor(payload.kind, hostFs, payload.port);
+  const reached = reachDoor(payload.kind, hostFs, payload.port, deniedPorts);
   if (reached === null) {
     return { status: 404, body: { error: 'service_not_running' } };
   }
@@ -361,7 +445,7 @@ export const handleAuthCreateSession = async (
     machineId,
     host,
     username: payload.username,
-    fromIp: vantage.sourceIp ?? 'unknown',
+    fromIp: fromIp ?? 'unknown',
     outcome: passwordOk ? 'success' : 'failure',
     sweepLog: spec.sweepLog,
   });

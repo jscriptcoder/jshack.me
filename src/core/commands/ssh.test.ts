@@ -3,6 +3,7 @@ import { publisherIp } from '../generation/publisher.js';
 import { ssh } from './ssh.js';
 import {
   mockCommandEnv,
+  mockFsViewFromTree,
   mockIdentity,
   mockNetworkView,
   mockNetworkViewFromConnectivity,
@@ -13,6 +14,10 @@ import {
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
 import { buildRemoteHostFs } from '../generation/remoteHostFs.js';
 import { hostMachineId } from '../generation/remoteHostId.js';
+import { generateDeepLayer } from '../generation/generateDeepLayer.js';
+import { chainLinks, type ChainLink } from '../generation/lanTopology.js';
+import { resolveDeepScanHosts } from '../scan/deepScanHosts.js';
+import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
 import { computeInnerGatewayId, computeApGatewayId } from '../identity/router.js';
 import { parsePidfilePort } from '../services/pidfile.js';
 import { bindFlags } from '../shell/bindFlags.js';
@@ -1609,5 +1614,222 @@ describe('ssh from a hop', () => {
       machineId: A_SAMELAN_MACHINE_ID,
       essid: HOP_ESSID,
     });
+  });
+});
+
+/**
+ * A box on a deep layer stands on that layer, so its neighbours there are reached by
+ * address the way a LAN hop reaches its LAN — no forward needed. A gateway reaches the
+ * layer it fronts, and every box reaches the layers above it. The login goes through the
+ * ordinary login call; the server works out which layer the target is on from the box
+ * the shell stands on.
+ */
+describe('ssh from a box on a deep layer', () => {
+  // Three gateways deep: an inner router on the LAN, a deep router behind it, and a
+  // second deep router behind that — plus a switch on the LAN fronting a layer of its own.
+  const links = chainLinks(ESSID);
+  const [inner, middle] = links;
+  const lanSwitch = links.find((link) => link.host.kind === 'switch');
+  if (inner === undefined || middle === undefined || lanSwitch === undefined) {
+    throw new Error(`${ESSID} has no such chain`);
+  }
+  const layerOf = (link: ChainLink) =>
+    generateDeepLayer(
+      ESSID,
+      { machineId: link.machineId, kind: link.host.kind },
+      { hangsChild: link.hangsChild },
+    );
+  const INNER_LAYER = layerOf(inner);
+  const MIDDLE_LAYER = layerOf(middle);
+  const SWITCH_LAYER = layerOf(lanSwitch);
+  const INNER_LAYER_HOST_ID = hostMachineId(INNER_LAYER.host, ESSID);
+  const MIDDLE_LAYER_HOST_ID = hostMachineId(MIDDLE_LAYER.host, ESSID);
+
+  type ShellOver = EnvOver & { readonly fs?: Directory };
+
+  const shellOn = (machineId: string, over: ShellOver = {}) =>
+    mockCommandEnv({
+      identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
+      network: mockNetworkViewFromConnectivity(onlineConnectivity(ESSID)),
+      session: mockSession({
+        id: 'ssh-deep-1',
+        machineId: asMachineId(machineId),
+        userType: 'root',
+        kind: 'ssh',
+        essid: ESSID,
+      }),
+      now: () => asEpochMs(NOW),
+      prompt: over.prompt ?? (async () => 'hunter2'),
+      ssh: mockSshApi({
+        authenticate: over.authenticate ?? (async () => ({ ok: true, userType: 'root' })),
+      }),
+      pushSession: over.onPush ?? (() => undefined),
+      setCwd: over.onCwd ?? (() => undefined),
+      ...(over.fs === undefined ? {} : { fs: mockFsViewFromTree(over.fs) }),
+    });
+
+  const loginFrom = async (
+    machineId: string,
+    target: string,
+    over: ShellOver = {},
+    flags: ReadonlyMap<string, string | true> = new Map(),
+  ) => sync(await ssh.execute(shellOn(machineId, over), [`root@${target}`], flags));
+
+  it('reaches a host on the layer a gateway fronts, landing on that host', async () => {
+    const authenticate = vi.fn<(params: RemoteAuthParams) => Promise<RemoteAuthResult>>(
+      async () => ({ ok: true, userType: 'root' }),
+    );
+    const onPush = vi.fn<(session: Session) => void>();
+
+    const result = await loginFrom(inner.machineId, INNER_LAYER.host.ip, {
+      authenticate,
+      onPush,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(authenticate.mock.calls[0]![0]).toEqual({
+      sessionId: 'ssh-root-1700000000000',
+      essid: ESSID,
+      targetIp: INNER_LAYER.host.ip,
+      username: 'root',
+      password: 'hunter2',
+      parentSessionId: 'ssh-deep-1',
+      callerMachineId: inner.machineId,
+    });
+    expect(onPush.mock.calls[0]![0]).toEqual({
+      id: 'ssh-root-1700000000000',
+      playerKey: PUBKEY,
+      machineId: INNER_LAYER_HOST_ID,
+      username: 'root',
+      userType: 'root',
+      kind: 'ssh',
+      createdAt: NOW,
+      essid: ESSID,
+    });
+  });
+
+  it('reaches the gateway beside a deep host on its own layer, landing on that gateway', async () => {
+    const onPush = vi.fn<(session: Session) => void>();
+
+    const result = await loginFrom(INNER_LAYER_HOST_ID, middle.host.ip, { onPush });
+
+    expect(result.exitCode).toBe(0);
+    expect(onPush.mock.calls[0]![0]).toMatchObject({ machineId: middle.machineId, essid: ESSID });
+  });
+
+  it('reaches a host on the layer above, out through the gateway it sits behind', async () => {
+    const onPush = vi.fn<(session: Session) => void>();
+
+    const result = await loginFrom(MIDDLE_LAYER_HOST_ID, INNER_LAYER.host.ip, { onPush });
+
+    expect(result.exitCode).toBe(0);
+    expect(onPush.mock.calls[0]![0]).toMatchObject({ machineId: INNER_LAYER_HOST_ID });
+  });
+
+  it('finds no host at a layer’s .1 — the gateway is reached at its address above', async () => {
+    const prompt = vi.fn(async () => 'hunter2');
+
+    const result = await loginFrom(INNER_LAYER_HOST_ID, `${INNER_LAYER.subnet}.1`, { prompt });
+
+    expect(result.lines.map((line) => line.content)).toEqual([
+      `ssh: connect to host ${INNER_LAYER.subnet}.1 port 22: No route to host`,
+    ]);
+    expect(result.exitCode).toBe(255);
+    expect(prompt).not.toHaveBeenCalled();
+  });
+
+  it('cannot reach a layer below the one a gateway fronts without a forward', async () => {
+    const prompt = vi.fn(async () => 'hunter2');
+
+    const result = await loginFrom(inner.machineId, MIDDLE_LAYER.host.ip, { prompt });
+
+    expect(result.lines[0]?.content).toBe(
+      `ssh: connect to host ${MIDDLE_LAYER.host.ip} port 22: No route to host`,
+    );
+    expect(prompt).not.toHaveBeenCalled();
+  });
+
+  it('cannot reach a deep layer from the player’s own box', async () => {
+    const prompt = vi.fn(async () => 'hunter2');
+
+    const result = sync(
+      await ssh.execute(sshEnv({ prompt }), [`root@${INNER_LAYER.host.ip}`], new Map()),
+    );
+
+    expect(result.lines[0]?.content).toBe(
+      `ssh: connect to host ${INNER_LAYER.host.ip} port 22: No route to host`,
+    );
+    expect(prompt).not.toHaveBeenCalled();
+  });
+
+  it('refuses a port the layer host does not serve, without prompting', async () => {
+    const prompt = vi.fn(async () => 'hunter2');
+
+    const result = await loginFrom(
+      INNER_LAYER_HOST_ID,
+      middle.host.ip,
+      { prompt },
+      new Map([['-p', '2222']]),
+    );
+
+    expect(result.lines[0]?.content).toBe(
+      `ssh: connect to host ${middle.host.ip} port 2222: Connection refused`,
+    );
+    expect(prompt).not.toHaveBeenCalled();
+  });
+
+  it('refuses a port the layer host serves something other than ssh on', async () => {
+    const prompt = vi.fn(async () => 'hunter2');
+    const mysql = resolveDeepScanHosts(ESSID, inner, buildDirectory({}))
+      .hosts.find((entry) => entry.host.ip === INNER_LAYER.host.ip)
+      ?.ports.find((open) => open.service !== 'ssh');
+    if (mysql === undefined) throw new Error('the layer serves nothing but ssh');
+
+    const result = await loginFrom(
+      inner.machineId,
+      INNER_LAYER.host.ip,
+      { prompt },
+      new Map([['-p', String(mysql.port)]]),
+    );
+
+    expect(result.lines[0]?.content).toBe(
+      `ssh: connect to host ${INNER_LAYER.host.ip} port ${mysql.port}: Connection refused`,
+    );
+    expect(prompt).not.toHaveBeenCalled();
+  });
+
+  it('refuses a port the switch fronting the layer denies, and lets it through once reopened', async () => {
+    const switchFs = (...denied: readonly number[]): Directory =>
+      buildDirectory({
+        etc: buildDirectory({
+          switch: buildDirectory({
+            'acl.conf': buildFile(denied.map((port) => `deny ${port}`).join('\n')),
+          }),
+        }),
+      });
+
+    const denied = await loginFrom(lanSwitch.machineId, SWITCH_LAYER.host.ip, {
+      fs: switchFs(22),
+    });
+    const reopened = await loginFrom(lanSwitch.machineId, SWITCH_LAYER.host.ip, {
+      fs: switchFs(),
+    });
+
+    expect(denied.lines[0]?.content).toBe(
+      `ssh: connect to host ${SWITCH_LAYER.host.ip} port 22: Connection refused`,
+    );
+    expect(reopened.exitCode).toBe(0);
+  });
+
+  it('pushes no session when the layer host refuses the password', async () => {
+    const onPush = vi.fn<(session: Session) => void>();
+
+    const result = await loginFrom(inner.machineId, INNER_LAYER.host.ip, {
+      authenticate: async () => ({ ok: false, error: 'invalid_credentials' }),
+      onPush,
+    });
+
+    expect(result.lines[0]?.content).toBe('Permission denied (password).');
+    expect(onPush).not.toHaveBeenCalled();
   });
 });

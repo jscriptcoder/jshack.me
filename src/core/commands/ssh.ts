@@ -21,6 +21,7 @@ import { isInnerGateway, resolveLanHostIdentity } from '../generation/lanHostIde
 import { isPublicIp } from '../generation/ip.js';
 import { addressForTarget } from '../network/resolveName.js';
 import { vantageOf } from '../network/vantage.js';
+import { resolveDeepScanHosts } from '../scan/deepScanHosts.js';
 import { parsePidfilePort } from '../services/pidfile.js';
 import type { Command, CommandEnv, CommandResult, Session } from './types.js';
 import type { Directory } from '../filesystem/types.js';
@@ -259,6 +260,60 @@ const executeForwardLogin = async (
   return { kind: 'sync', lines: [], exitCode: 0 };
 };
 
+/** Login to a box the network generates — on its LAN, or on a deep layer the shell
+ *  reaches. Reachability is already settled locally; the server works out from the box
+ *  the shell stands on which network the target is on and the address it arrives from,
+ *  rather than taking either on the client's word. */
+const executeNetworkLogin = async (
+  env: CommandEnv,
+  target: { readonly user: string; readonly host: string },
+  port: number,
+  essid: string,
+  machineId: string,
+): Promise<CommandResult> => {
+  let password: string;
+  try {
+    password = await env.prompt({
+      message: `${target.user}@${target.host}'s password: `,
+      masked: true,
+    });
+  } catch {
+    return { kind: 'sync', lines: [], exitCode: 130 };
+  }
+
+  const sessionId = `ssh-${target.user}-${env.now()}`;
+  const result = await env.ssh.authenticate({
+    sessionId,
+    essid,
+    targetIp: target.host,
+    username: target.user,
+    password,
+    parentSessionId: env.session.id,
+    callerMachineId: env.session.machineId,
+  });
+  if (!result.ok) {
+    if (result.error === 'invalid_credentials') return errorResult('Permission denied (password).');
+    if (result.error === 'host_unreachable') {
+      return connectError(target.host, port, 'Connection refused');
+    }
+    return connectError(target.host, port, 'Network error');
+  }
+
+  const session: Session = {
+    id: sessionId,
+    playerKey: env.session.playerKey,
+    machineId: asMachineId(machineId),
+    username: target.user,
+    userType: result.userType,
+    kind: 'ssh',
+    createdAt: env.now(),
+    essid,
+  };
+  env.pushSession(session);
+  env.setCwd(homeDirectory({ username: target.user, userType: result.userType }));
+  return { kind: 'sync', lines: [], exitCode: 0 };
+};
+
 const execute: Command['execute'] = async (env, args, flags) => {
   const rawTarget = args[0];
   if (rawTarget === undefined) return errorResult(USAGE);
@@ -306,6 +361,21 @@ const execute: Command['execute'] = async (env, args, flags) => {
     return executePublicLogin(env, target, port, sourceIp);
   }
 
+  // A box on a deep layer the shell reaches — the one a deep box stands on, the one a
+  // gateway fronts, or one above — is reached there directly, no forward needed. Its
+  // ports are the ones `nmap` shows from this shell, so the two never disagree about
+  // what answers.
+  for (const segment of vantage.reaches) {
+    if (segment.fronting === null) continue;
+    const layer = resolveDeepScanHosts(essid, segment.fronting, env.fs.root());
+    const onLayer = layer.hosts.find((entry) => entry.host.ip === target.host);
+    if (onLayer === undefined) continue;
+    if (!onLayer.ports.some((open) => open.port === port && open.service === 'ssh')) {
+      return connectError(target.host, port, 'Connection refused');
+    }
+    return executeNetworkLogin(env, target, port, essid, onLayer.machineId);
+  }
+
   // A private IP that belongs to a FELLOW OCCUPANT of this ESSID is reached directly
   // over the shared LAN. Checked BEFORE the generated-LAN path so a real occupant wins
   // an octet collision with a generated NPC — the same precedence the nmap merge uses.
@@ -342,51 +412,7 @@ const execute: Command['execute'] = async (env, args, flags) => {
   if (runningPort !== port) {
     return connectError(target.host, port, 'Connection refused');
   }
-
-  let password: string;
-  try {
-    password = await env.prompt({
-      message: `${target.user}@${target.host}'s password: `,
-      masked: true,
-    });
-  } catch {
-    return { kind: 'sync', lines: [], exitCode: 130 };
-  }
-
-  const sessionId = `ssh-${target.user}-${env.now()}`;
-  const result = await env.ssh.authenticate({
-    sessionId,
-    essid,
-    targetIp: target.host,
-    username: target.user,
-    password,
-    parentSessionId: env.session.id,
-    // The box the shell is standing on. The server works out from it which network the
-    // login comes from and the address it arrives from, rather than taking either on
-    // the client's word.
-    callerMachineId: env.session.machineId,
-  });
-  if (!result.ok) {
-    if (result.error === 'invalid_credentials') return errorResult('Permission denied (password).');
-    if (result.error === 'host_unreachable') {
-      return connectError(target.host, port, 'Connection refused');
-    }
-    return connectError(target.host, port, 'Network error');
-  }
-
-  const session: Session = {
-    id: sessionId,
-    playerKey: env.session.playerKey,
-    machineId: asMachineId(machineId),
-    username: target.user,
-    userType: result.userType,
-    kind: 'ssh',
-    createdAt: env.now(),
-    essid,
-  };
-  env.pushSession(session);
-  env.setCwd(homeDirectory({ username: target.user, userType: result.userType }));
-  return { kind: 'sync', lines: [], exitCode: 0 };
+  return executeNetworkLogin(env, target, port, essid, machineId);
 };
 
 export const ssh: Command = {
