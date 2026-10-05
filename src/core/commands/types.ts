@@ -311,6 +311,10 @@ export type PublicFetchParams = {
   readonly target: string;
   readonly port: number;
   readonly path: string;
+  /** The box the fetch ran from. The server reads the network off its session row to
+   *  trace the hit to the hop rather than the caller's home, and refuses a box the caller
+   *  does not hold. Absent names the caller's own workstation (a fetch from home). */
+  readonly callerMachineId: MachineId;
 };
 
 /** `host_unreachable` is a connect-level refusal with every cause collapsed (no such
@@ -391,19 +395,21 @@ export type KernLogEvent = {
   readonly hostname: string;
 };
 
-/** The own-LAN request (or run of them) handed to `log.appendAccessLog` so the box
- *  that served it records what it was asked for. Carries no machine id, no timestamp,
- *  no status and no size: the SERVER resolves which box answered — the caller's own
- *  workstation or a generated sibling — and reads the pages itself, so a crafted
- *  request can never author a line claiming something was served that never was.
+/** The request (or run of them) handed to `log.appendAccessLog` so the box that served
+ *  it records what it was asked for. Carries no timestamp, no status and no size: the
+ *  SERVER resolves which box answered — on the LAN the shell stands on, on a deep layer
+ *  it reaches, or the shell's own box — and reads the pages itself, so a crafted request
+ *  can never author a line claiming something was served that never was.
  *
- *  `sourceIp` IS the client's, unlike the cross-player path where the server derives
- *  it. On this path the row is one only the caller can ever read (a generated host's
- *  log is per-viewer) or one they already control at root (their own box), so there is
- *  nothing a forged address could buy. */
+ *  No source IP travels here either. The server derives it from where it places the
+ *  caller — the address the shell's box is seen at on the reached network — exactly as
+ *  the scan and login traces do, so the own-LAN path no longer trusts a client address.
+ *  A loopback fetch is named by sending `target` as the loopback address; the server
+ *  reads that as the caller's own box and logs the visit as local. */
 export type AccessLogFetch = {
   readonly essid: string;
-  /** The LAN address fetched — the server resolves which machine holds it. */
+  /** The address fetched — the server resolves which machine holds it, on the LAN or on
+   *  a reachable deep layer. The loopback address names the shell's own box. */
   readonly target: string;
   readonly port: number;
   /** The url paths AS WRITTEN, in the order asked; the server confines each to the
@@ -412,7 +418,10 @@ export type AccessLogFetch = {
    *  misses around a hit is what a defender reads and forty signed requests to write
    *  it would be a different kind of expensive. */
   readonly paths: readonly string[];
-  readonly sourceIp: string;
+  /** The box the request ran from (`undefined` at home on the player's own workstation).
+   *  The server places the caller from this — their live session on it — and refuses a
+   *  box they do not hold, so the address a line records is never a client's claim. */
+  readonly callerMachineId: MachineId | undefined;
 };
 
 export type LogApi = {

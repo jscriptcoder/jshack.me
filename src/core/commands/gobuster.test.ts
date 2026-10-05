@@ -31,6 +31,7 @@ import { assignHomeNetwork } from '../network/homeNetwork.js';
 import { HTTP_DEFAULT_PORT } from '../network/http.js';
 import { lanZoneName } from '../network/resolveName.js';
 import { asAbsPath, asMachineId, asPlayerKeyHex } from '../types.js';
+import { machineIdForLanHost } from '../generation/lanHostIdentity.js';
 
 /**
  * `gobuster <url>` walks a list of paths against a web server and reports the ones
@@ -530,7 +531,7 @@ describe('gobuster is loud on the box it sweeps', () => {
         target: OWN_IP,
         port: HTTP_DEFAULT_PORT,
         paths: ['/index.html', '/admin', '/backup'],
-        sourceIp: OWN_IP,
+        callerMachineId: mockSession().machineId,
       },
     ]);
   });
@@ -579,21 +580,21 @@ describe('gobuster is loud on the box it sweeps', () => {
     }
   });
 
-  it('reports a loopback sweep as having arrived over loopback', async () => {
+  it('reports a loopback sweep by the loopback address, so the box logs a local visit', async () => {
     const tree = ownBox(WEB_SERVER_RUNNING, installedList('index.html'));
 
     const { reported } = await sweepReporting(tree, 'http://localhost');
 
-    // The box is both ends of it and its own log says so, exactly as it does when a
-    // player `curl`s their own server. The TARGET is the resolved address, though —
-    // `localhost` names no machine to the server that has to find it.
+    // `localhost` is reported as the loopback address, exactly as a `curl` of the box's
+    // own server is. The server reads that as the caller's own box and logs a local
+    // visit; no source address travels — the server derives it.
     expect(reported).toEqual([
       {
         essid: ESSID,
-        target: OWN_IP,
+        target: '127.0.0.1',
         port: HTTP_DEFAULT_PORT,
         paths: ['/index.html'],
-        sourceIp: '127.0.0.1',
+        callerMachineId: mockSession().machineId,
       },
     ]);
   });
@@ -778,5 +779,49 @@ describe('gobuster sweeps a server on another network', () => {
     // this client holds, and the far side is never asked.
     expect(asked).toEqual([]);
     expect(drained.text).toContain('/hidden/');
+  });
+});
+
+describe('gobuster from a hop', () => {
+  it('sweeps a web host on the LAN the shell stands on, reporting the box it ran from', async () => {
+    // The wordlist comes off the box the player STANDS on (the hop), and the sweep
+    // reaches a neighbour on that box's network — with the player's own card offline.
+    const { host, port } = webHostOnLan();
+    const hop = generateHomeLan(ESSID).hosts.find(
+      (candidate) => candidate.kind === 'machine' && candidate.ip !== host.ip,
+    )!;
+    const reported: AccessLogFetch[] = [];
+    const env = mockCommandEnv({
+      identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
+      network: mockNetworkView(),
+      fs: mockFsViewFromTree(ownBox(installedList('index.html', 'admin')), {
+        userType: 'user',
+        cwd: () => asAbsPath('/'),
+      }),
+      session: mockSession({
+        id: 'gob-hop',
+        machineId: asMachineId(machineIdForLanHost(hop, ESSID)),
+        essid: ESSID,
+        userType: 'root',
+        kind: 'ssh',
+      }),
+      log: {
+        appendAuthLog: async () => undefined,
+        appendKernLog: async () => undefined,
+        appendAccessLog: async (fetched) => {
+          reported.push(fetched);
+        },
+      },
+    });
+
+    const drained = await drain(await gobuster.execute(env, [`http://${host.ip}:${port}`], new Map()));
+
+    expect(drained.exitCode).toBe(0);
+    expect(reported).toHaveLength(1);
+    expect(reported[0]).toMatchObject({
+      essid: ESSID,
+      target: host.ip,
+      callerMachineId: machineIdForLanHost(hop, ESSID),
+    });
   });
 });

@@ -407,6 +407,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       now: () => Date.now(),
       ...accessLogWriterVia({ supabase, label: 'http-fetch' }),
       findHomeNetworkByOwnerKey: findHomeNetworkByOwnerKeyVia({ supabase, label: 'http-fetch' }),
+      // A fetch launched from a box the caller only holds a session on is traced to THAT
+      // network — the hop that was actually used, not the attacker's home.
+      findPublicIpByEssid: derivedPublicIpByEssid,
+      findActiveSession: findActiveSessionVia({ supabase, label: 'http-fetch' }),
       // Only findit's search reaches this: a batch of publishers' gateways and web servers
       // in one read, so building a live index costs a few round trips rather than one per
       // site. Ordered exactly as the per-machine read orders a journal, because the two

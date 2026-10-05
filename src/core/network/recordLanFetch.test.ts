@@ -4,7 +4,16 @@ import { signRequest } from '../signedRequest/sign.js';
 import { generateIdentity } from '../identity/identity.js';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
 import { buildRemoteHostFs } from '../generation/remoteHostFs.js';
-import { resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
+import {
+  chainGatewayBaseFs,
+  machineIdForLanHost,
+  resolveLanHostIdentity,
+} from '../generation/lanHostIdentity.js';
+import { chainLinks, type ChainLink } from '../generation/lanTopology.js';
+import { generateDeepLayer } from '../generation/generateDeepLayer.js';
+import { resolveDeepScanHosts } from '../scan/deepScanHosts.js';
+import { crackableEssidPool } from '../generation/generateWifi.js';
+import { hostMachineId } from '../generation/remoteHostId.js';
 import { materializeWorkstationFs, type OwnerPatchRow } from './materializeWorkstationFs.js';
 import { lanAddressFor, type LanLeaseRow } from './lanAddress.js';
 import { readOpenPorts } from '../services/pidfile.js';
@@ -76,10 +85,28 @@ const makeDeps = (over: Partial<RecordLanFetchDeps> = {}) => {
     listOccupantsByEssid,
     listLeasesByEssid,
     findPatches,
+    // Default: the caller stands at home on this ESSID at its lease, holding no shell —
+    // so the server derives the source address from here, and a crafted `source_ip` on
+    // the wire is ignored. Hop tests override `findActiveSession`.
+    findActiveSession: async () => ({ data: null, error: null }),
+    findHomeVantage: async () => ({ data: { essid: ESSID, octet: SOURCE_OCTET }, error: null }),
+    findWorkstationLease: async () => ({ data: null, error: null }),
     ...over,
   };
   return { deps, upsertPatch, readLog, listOccupantsByEssid, listLeasesByEssid, findPatches };
 };
+
+// The octet the caller holds at home, and the address a line it leaves records — the
+// source the server derives, now that the client no longer sends one.
+const SOURCE_OCTET = ((): number => {
+  const taken = new Set(generateHomeLan(ESSID).hosts.map((host) => Number(host.ip.split('.')[3])));
+  const free = Array.from({ length: 253 }, (_unused, index) => index + 2).find(
+    (octet) => !taken.has(octet),
+  );
+  if (free === undefined) throw new Error('expected a free octet for the caller lease');
+  return free;
+})();
+const HOME_SOURCE = lanAddressFor(ESSID, SOURCE_OCTET);
 
 const httpPortOf = (host: LanHost): number | null => {
   const open = readOpenPorts(buildRemoteHostFs(ESSID, host)).find(
@@ -201,7 +228,6 @@ const envelope = (
     target: fetched.target,
     port: fetched.port,
     paths: fetched.paths,
-    source_ip: lanAddressFor(ESSID, freeOctet()),
     ...over,
   });
 
@@ -277,11 +303,12 @@ describe('handleRecordLanFetch', () => {
     const caller = generateIdentity();
     const host = servingHost();
     const port = httpPortOf(host)!;
-    const sourceIp = lanAddressFor(ESSID, freeOctet());
+    // The source the server derives for a caller at home — the client sends none.
+    const sourceIp = HOME_SOURCE;
     const { deps, upsertPatch } = makeDeps();
 
     await handleRecordLanFetch(
-      await envelope(caller, { target: host.ip, port, paths: ['/'] }, { source_ip: sourceIp }),
+      await envelope(caller, { target: host.ip, port, paths: ['/'] }),
       deps,
     );
 
@@ -307,7 +334,7 @@ describe('handleRecordLanFetch', () => {
   it('records a self-fetch on the caller own workstation, where they can read it at once', async () => {
     const caller = generateIdentity();
     const stranger = generateIdentity();
-    const octet = freeOctet();
+    const octet = SOURCE_OCTET;
     const occupant = ownOccupant(caller);
     const started = nginxUp(caller);
     const ownIp = lanAddressFor(ESSID, octet);
@@ -337,7 +364,7 @@ describe('handleRecordLanFetch', () => {
     });
 
     await handleRecordLanFetch(
-      await envelope(caller, { target: ownIp, port: 80, paths: ['/'] }, { source_ip: ownIp }),
+      await envelope(caller, { target: ownIp, port: 80, paths: ['/'] }),
       deps,
     );
 
@@ -421,15 +448,11 @@ describe('handleRecordLanFetch', () => {
     const caller = generateIdentity();
     const host = servingHost();
     const port = httpPortOf(host)!;
-    const sourceIp = lanAddressFor(ESSID, freeOctet());
+    const sourceIp = HOME_SOURCE;
     const { deps, upsertPatch } = makeDeps();
 
     await handleRecordLanFetch(
-      await envelope(
-        caller,
-        { target: host.ip, port, paths: ['/admin', '/', '/backup'] },
-        { source_ip: sourceIp },
-      ),
+      await envelope(caller, { target: host.ip, port, paths: ['/admin', '/', '/backup'] }),
       deps,
     );
 
@@ -473,15 +496,11 @@ describe('handleRecordLanFetch', () => {
     const caller = generateIdentity();
     const host = servingHost();
     const port = httpPortOf(host)!;
-    const sourceIp = lanAddressFor(ESSID, freeOctet());
+    const sourceIp = HOME_SOURCE;
     const { deps, upsertPatch } = makeDeps();
 
     await handleRecordLanFetch(
-      await envelope(
-        caller,
-        { target: host.ip, port, paths: ['/wp-admin/setup-config.php'] },
-        { source_ip: sourceIp },
-      ),
+      await envelope(caller, { target: host.ip, port, paths: ['/wp-admin/setup-config.php'] }),
       deps,
     );
 
@@ -735,13 +754,13 @@ describe('handleRecordLanFetch', () => {
     const host = servingHost();
     const port = httpPortOf(host)!;
     const earlier = '10.0.0.9 - - [29/Jul/2026:11:00:00 +0000] "GET / HTTP/1.1" 200 12';
-    const sourceIp = lanAddressFor(ESSID, freeOctet());
+    const sourceIp = HOME_SOURCE;
     const { deps, upsertPatch } = makeDeps({
       readLog: async () => logRead(`${earlier}\n`),
     });
 
     await handleRecordLanFetch(
-      await envelope(caller, { target: host.ip, port, paths: ['/'] }, { source_ip: sourceIp }),
+      await envelope(caller, { target: host.ip, port, paths: ['/'] }),
       deps,
     );
 
@@ -755,14 +774,19 @@ describe('handleRecordLanFetch', () => {
     expect(writtenLog(upsertPatch).content).toBe(`${earlier}\n${added}\n`);
   });
 
-  it('records a source it was not told as `unknown` rather than leaving the field blank', async () => {
+  it('records a caller it cannot place at an address as `unknown` rather than blank', async () => {
+    // The caller occupies the network but holds no lease on it, so the server has no
+    // address to put them at. The line is still written — the visit happened — with the
+    // source left as `unknown`, never blank.
     const caller = generateIdentity();
     const host = servingHost();
     const port = httpPortOf(host)!;
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, upsertPatch } = makeDeps({
+      findHomeVantage: async () => ({ data: { essid: ESSID, octet: null }, error: null }),
+    });
 
     await handleRecordLanFetch(
-      await envelope(caller, { target: host.ip, port, paths: ['/'] }, { source_ip: null }),
+      await envelope(caller, { target: host.ip, port, paths: ['/'] }),
       deps,
     );
 
@@ -821,5 +845,316 @@ describe('handleRecordLanFetch', () => {
     );
 
     expect(result).toEqual({ status: 200, body: { ok: true } });
+  });
+});
+
+describe('handleRecordLanFetch — a caller standing on a hop', () => {
+  // Deps for a caller whose only place is the shell they hold on `essid`; they occupy
+  // no network at home, so the vantage comes entirely from the session row.
+  const shellOn = (essid: string): Partial<RecordLanFetchDeps> => ({
+    findActiveSession: async () => ({
+      data: { username: 'root', userType: 'root', essid },
+      error: null,
+    }),
+    findHomeVantage: async () => ({ data: null, error: null }),
+  });
+
+  const hopEnvelope = (
+    id: ReturnType<typeof generateIdentity>,
+    essid: string,
+    fetched: { readonly target: string; readonly port: number; readonly paths: readonly string[] },
+    callerMachineId: string,
+  ) =>
+    signRequest(id, 'recordLanFetch', {
+      essid,
+      target: fetched.target,
+      port: fetched.port,
+      paths: fetched.paths,
+      caller_machine_id: callerMachineId,
+    });
+
+  /** The first crackable network whose inner ROUTER fronts a layer with a web host: the
+   *  essid, that gateway (the hop), the fronted layer's subnet, and the host + port. */
+  const deepWebTarget = (): {
+    readonly essid: string;
+    readonly gateway: ChainLink;
+    readonly subnet: string;
+    readonly host: LanHost;
+    readonly machineId: string;
+    readonly port: number;
+  } => {
+    for (const essid of crackableEssidPool) {
+      for (const gateway of chainLinks(essid)) {
+        if (gateway.host.kind !== 'router') continue;
+        const layer = generateDeepLayer(
+          essid,
+          { machineId: gateway.machineId, kind: gateway.host.kind },
+          { hangsChild: gateway.hangsChild },
+        );
+        const web = resolveDeepScanHosts(essid, gateway, chainGatewayBaseFs(essid, gateway)).hosts.find(
+          (entry) => entry.host.kind === 'machine' && entry.ports.some((p) => p.service === 'http'),
+        );
+        if (web !== undefined) {
+          const port = web.ports.find((p) => p.service === 'http')!.port;
+          return {
+            essid,
+            gateway,
+            subnet: layer.subnet,
+            host: web.host,
+            machineId: hostMachineId(web.host, essid),
+            port,
+          };
+        }
+      }
+    }
+    throw new Error('expected a crackable network with a web host on a router-fronted layer');
+  };
+
+  it('refuses a caller standing on another network, and writes nothing', async () => {
+    const caller = generateIdentity();
+    const host = servingHost();
+    const port = httpPortOf(host)!;
+    const { deps, upsertPatch } = makeDeps(shellOn('SOME-OTHER-WIFI'));
+
+    const result = await handleRecordLanFetch(
+      hopEnvelope(caller, ESSID, { target: host.ip, port, paths: ['/'] }, 'a-box-on-another-net'),
+      deps,
+    );
+
+    expect(result).toEqual({ status: 403, body: { error: 'wrong_network' } });
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
+  it('refuses a caller who holds no shell on the box they name, and writes nothing', async () => {
+    const caller = generateIdentity();
+    const host = servingHost();
+    const port = httpPortOf(host)!;
+    const { deps, upsertPatch } = makeDeps({
+      findActiveSession: async () => ({ data: null, error: null }),
+      findHomeVantage: async () => ({ data: null, error: null }),
+    });
+
+    const result = await handleRecordLanFetch(
+      hopEnvelope(caller, ESSID, { target: host.ip, port, paths: ['/'] }, 'a-box-i-do-not-hold'),
+      deps,
+    );
+
+    expect(result).toEqual({ status: 403, body: { error: 'no_session' } });
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
+  it('records a fetch of a web host on a deep layer, under the address the box is seen at there', async () => {
+    const caller = generateIdentity();
+    const deep = deepWebTarget();
+    const { deps, upsertPatch } = makeDeps(shellOn(deep.essid));
+
+    await handleRecordLanFetch(
+      hopEnvelope(
+        caller,
+        deep.essid,
+        { target: deep.host.ip, port: deep.port, paths: ['/'] },
+        deep.gateway.machineId,
+      ),
+      deps,
+    );
+
+    const row = writtenLog(upsertPatch);
+    expect(row.machine_id).toBe(deep.machineId);
+    expect(row.writer_key).toBe(apGatewayLogWriterKey(deep.essid));
+    // A gateway fronting a layer is seen there at the layer's `.1`.
+    expect(row.content).toContain(`${deep.subnet}.1 - - [`);
+    expect(row.content).toContain('" 200 ');
+  });
+
+  it('surfaces a 500 when a fronting switch’s journal cannot be read, and writes nothing', async () => {
+    const caller = generateIdentity();
+    // A network whose inner gateway is a SWITCH: the layer's ACL lives on its journal,
+    // and a read failure there cannot be waved through as an open port.
+    const essid = crackableEssidPool.find((candidate) =>
+      chainLinks(candidate).some((link) => link.host.kind === 'switch'),
+    )!;
+    const theSwitch = chainLinks(essid).find((link) => link.host.kind === 'switch')!;
+    const layer = generateDeepLayer(
+      essid,
+      { machineId: theSwitch.machineId, kind: theSwitch.host.kind },
+      { hangsChild: theSwitch.hangsChild },
+    );
+    const findPatches = vi.fn(async () => ({ data: null, error: new Error('db down') }));
+    const { deps, upsertPatch } = makeDeps({ ...shellOn(essid), findPatches });
+
+    const result = await handleRecordLanFetch(
+      hopEnvelope(
+        caller,
+        essid,
+        { target: layer.host.ip, port: 80, paths: ['/'] },
+        theSwitch.machineId,
+      ),
+      deps,
+    );
+
+    expect(result).toEqual({ status: 500, body: { error: 'patches_lookup_failed' } });
+    expect(findPatches).toHaveBeenCalledWith({ machine_id: theSwitch.machineId });
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
+  it('records a loopback fetch on the hop box itself, as a local visit', async () => {
+    const caller = generateIdentity();
+    const host = servingHost();
+    const hopMachineId = machineIdForLanHost(host, ESSID);
+    const { deps, upsertPatch } = makeDeps(shellOn(ESSID));
+
+    await handleRecordLanFetch(
+      hopEnvelope(caller, ESSID, { target: '127.0.0.1', port: httpPortOf(host)!, paths: ['/'] }, hopMachineId),
+      deps,
+    );
+
+    const row = writtenLog(upsertPatch);
+    // The hop box is a generated NPC, so its log accretes under the network's key, and
+    // the line says the visit came over loopback.
+    expect(row.machine_id).toBe(resolveLanHostIdentity(host, ESSID).machineId);
+    expect(row.writer_key).toBe(apGatewayLogWriterKey(ESSID));
+    expect(row.content).toContain('127.0.0.1 - - [');
+  });
+});
+
+describe('handleRecordLanFetch — a deep layer fronted by a switch', () => {
+  const shellOn = (essid: string): Partial<RecordLanFetchDeps> => ({
+    findActiveSession: async () => ({
+      data: { username: 'root', userType: 'root', essid },
+      error: null,
+    }),
+    findHomeVantage: async () => ({ data: null, error: null }),
+  });
+
+  const hopEnvelope = (
+    id: ReturnType<typeof generateIdentity>,
+    essid: string,
+    target: string,
+    port: number,
+    callerMachineId: string,
+  ) => signRequest(id, 'recordLanFetch', { essid, target, port, paths: ['/'], caller_machine_id: callerMachineId });
+
+  const aclPatch = (content: string): OwnerPatchRow => ({
+    path: '/etc/switch/acl.conf',
+    content,
+    owner: 'root',
+    permissions: null,
+    node_type: 'file',
+    updated_at: '2026-06-19T00:00:00.000Z',
+    writer_key: 'a'.repeat(64),
+  });
+
+  /** The first crackable network whose inner SWITCH fronts a layer with a web host. */
+  const switchWeb = (): {
+    readonly essid: string;
+    readonly switchMachineId: string;
+    readonly subnet: string;
+    readonly hostId: string;
+    readonly ip: string;
+    readonly port: number;
+  } => {
+    for (const essid of crackableEssidPool) {
+      for (const gateway of chainLinks(essid)) {
+        if (gateway.host.kind !== 'switch') continue;
+        const layer = generateDeepLayer(
+          essid,
+          { machineId: gateway.machineId, kind: gateway.host.kind },
+          { hangsChild: gateway.hangsChild },
+        );
+        const web = resolveDeepScanHosts(essid, gateway, chainGatewayBaseFs(essid, gateway)).hosts.find(
+          (entry) => entry.host.kind === 'machine' && entry.ports.some((p) => p.service === 'http'),
+        );
+        if (web !== undefined) {
+          return {
+            essid,
+            switchMachineId: gateway.machineId,
+            subnet: layer.subnet,
+            hostId: hostMachineId(web.host, essid),
+            ip: web.host.ip,
+            port: web.ports.find((p) => p.service === 'http')!.port,
+          };
+        }
+      }
+    }
+    throw new Error('expected a crackable network with a web host behind a switch');
+  };
+
+  /** The first crackable network whose inner ROUTER fronts a web host — the arm that
+   *  reads no journal, so a test can prove the switch read is skipped for it. */
+  const routerWeb = (): {
+    readonly essid: string;
+    readonly gatewayMachineId: string;
+    readonly hostId: string;
+    readonly ip: string;
+    readonly port: number;
+  } => {
+    for (const essid of crackableEssidPool) {
+      for (const gateway of chainLinks(essid)) {
+        if (gateway.host.kind !== 'router') continue;
+        const web = resolveDeepScanHosts(essid, gateway, chainGatewayBaseFs(essid, gateway)).hosts.find(
+          (entry) => entry.host.kind === 'machine' && entry.ports.some((p) => p.service === 'http'),
+        );
+        if (web !== undefined) {
+          return {
+            essid,
+            gatewayMachineId: gateway.machineId,
+            hostId: hostMachineId(web.host, essid),
+            ip: web.host.ip,
+            port: web.ports.find((p) => p.service === 'http')!.port,
+          };
+        }
+      }
+    }
+    throw new Error('expected a crackable network with a web host behind a router');
+  };
+
+  it('reads the switch’s live ACL and records the fetch when the web port is allowed', async () => {
+    const caller = generateIdentity();
+    const target = switchWeb();
+    // An ACL that denies some OTHER port leaves the web port open.
+    const findPatches = vi.fn(async () => ({ data: [aclPatch('deny 9999')], error: null }));
+    const { deps, upsertPatch } = makeDeps({ ...shellOn(target.essid), findPatches });
+
+    await handleRecordLanFetch(
+      hopEnvelope(caller, target.essid, target.ip, target.port, target.switchMachineId),
+      deps,
+    );
+
+    expect(findPatches).toHaveBeenCalledWith({ machine_id: target.switchMachineId });
+    const row = writtenLog(upsertPatch);
+    expect(row.machine_id).toBe(target.hostId);
+    expect(row.content).toContain(`${target.subnet}.1 - - [`);
+  });
+
+  it('leaves no line when the switch’s ACL denies the web port', async () => {
+    const caller = generateIdentity();
+    const target = switchWeb();
+    const { deps, upsertPatch } = makeDeps({
+      ...shellOn(target.essid),
+      findPatches: vi.fn(async () => ({ data: [aclPatch(`deny ${target.port}`)], error: null })),
+    });
+
+    const result = await handleRecordLanFetch(
+      hopEnvelope(caller, target.essid, target.ip, target.port, target.switchMachineId),
+      deps,
+    );
+
+    expect(result).toEqual({ status: 200, body: { ok: true } });
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
+  it('reads no journal for a router-fronted layer, which filters nothing', async () => {
+    const caller = generateIdentity();
+    const target = routerWeb();
+    const findPatches = vi.fn(async () => ({ data: [], error: null }));
+    const { deps, upsertPatch } = makeDeps({ ...shellOn(target.essid), findPatches });
+
+    await handleRecordLanFetch(
+      hopEnvelope(caller, target.essid, target.ip, target.port, target.gatewayMachineId),
+      deps,
+    );
+
+    expect(findPatches).not.toHaveBeenCalled();
+    expect(writtenLog(upsertPatch).machine_id).toBe(target.hostId);
   });
 });

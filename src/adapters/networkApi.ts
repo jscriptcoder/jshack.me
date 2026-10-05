@@ -213,7 +213,12 @@ export const fetchPublicPage = async (
   params: PublicFetchParams,
 ): Promise<PublicFetchResult> => {
   try {
-    const response = await post(deps, 'resolveHttpFetch', { ...params });
+    const response = await post(deps, 'resolveHttpFetch', {
+      target: params.target,
+      port: params.port,
+      path: params.path,
+      caller_machine_id: params.callerMachineId,
+    });
     const body: unknown = await response.json();
     if (!response.ok) {
       const failed = body as { readonly error?: string };

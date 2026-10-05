@@ -27,12 +27,13 @@
 
 import type { Command, CommandEnv, CommandResult, TerminalLine } from './types.js';
 import type { Directory } from '../filesystem/types.js';
+import type { MachineId } from '../types.js';
 import { streamedResult, text } from './streaming.js';
 import { parseHttpUrl } from '../network/http.js';
 import { sweepWord, type ProbedPath } from '../network/webSweep.js';
 import { DIRLIST_PATH, parseDirlist } from '../network/defaultDirlist.js';
 import { isPublicIp } from '../generation/ip.js';
-import { connectedWlan0 } from '../network/interfaces.js';
+import { vantageOf } from '../network/vantage.js';
 import { connectError, reachWebHost } from './webHost.js';
 
 const error = (message: string): CommandResult => ({
@@ -63,15 +64,16 @@ const PATH_COLUMN = 20;
 const FOUND = 200;
 
 /** Where a sweep is pointed, in the terms both ends need: the url AS TYPED for the
- *  header, the tree to probe, and the resolved address the target's own log is keyed
- *  by — `localhost` names no machine to the server that has to find it. */
+ *  header, the tree to probe, the resolved address the target's own log is keyed by
+ *  (`localhost` names no machine to the server that has to find it), and the box the
+ *  sweep ran from, which the server places the caller by. */
 type SweepTarget = {
   readonly url: string;
   readonly fs: Directory;
   readonly essid: string;
   readonly address: string;
   readonly port: number;
-  readonly sourceIp: string;
+  readonly callerMachineId: MachineId;
 };
 
 /** Tell the box what it was just asked for — every probe, in the order tried, as ONE
@@ -86,7 +88,7 @@ const reportSweep = (env: CommandEnv, target: SweepTarget, paths: readonly strin
         target: target.address,
         port: target.port,
         paths,
-        sourceIp: target.sourceIp,
+        callerMachineId: target.callerMachineId,
       })
       .catch(() => undefined);
   } catch {
@@ -163,8 +165,10 @@ const execute: Command['execute'] = async (env, args) => {
     return error(`gobuster: (3) URL rejected: ${raw}`);
   }
 
-  const wlan0 = connectedWlan0(env.network);
-  if (wlan0 === null) {
+  // Where the shell stands: the hop on top of the stack and its network, or the
+  // player's own WiFi on their own box. The player's own card does not matter on a hop.
+  const vantage = vantageOf(env.session, env.network);
+  if (vantage === null) {
     return error(UNREACHABLE);
   }
 
@@ -198,11 +202,11 @@ const execute: Command['execute'] = async (env, args) => {
     );
   }
 
-  const reached = reachWebHost({ root: env.fs.root(), program: 'gobuster', url, wlan0 });
+  const reached = reachWebHost({ root: env.fs.root(), program: 'gobuster', url, vantage });
   if (!reached.ok) {
     return reached.failure;
   }
-  const { fs: hostFs, essid, address, sourceIp } = reached.host;
+  const { fs: hostFs, essid, address } = reached.host;
 
   const dirlist = env.fs.read(DIRLIST_PATH);
   if (!dirlist.ok) {
@@ -218,7 +222,7 @@ const execute: Command['execute'] = async (env, args) => {
         essid,
         address,
         port: url.port,
-        sourceIp,
+        callerMachineId: env.session.machineId,
       },
       parseDirlist(dirlist.content),
     ),
@@ -241,7 +245,9 @@ export const gobuster: Command = {
       'tell you. Tries every path in the list (/usr/share/wordlists/dirlist.txt) against the ' +
       'target and prints each one that returns something. A path that is not in your list will ' +
       'never be found, however plainly it is sitting there — grow the list by editing it with ' +
-      'nano as you see paths referenced elsewhere. Every probe, hit or miss, is recorded in the ' +
+      'nano as you see paths referenced elsewhere. Reaches hosts on the network you are on — ' +
+      'your own at home, or the network of a box you have a shell on, whose own wordlist it ' +
+      'reads. Every probe, hit or miss, is recorded in the ' +
       "target's own access log, so a sweep is not a quiet thing to do.",
     arguments: [
       { name: 'url', description: 'The URL to sweep, e.g. http://192.168.1.5', required: true },
@@ -249,7 +255,7 @@ export const gobuster: Command = {
     examples: [
       {
         command: 'gobuster http://192.168.1.5',
-        description: 'Sweep a host on your network for unlinked paths',
+        description: 'Sweep a host on the network you are on for unlinked paths',
       },
       {
         command: 'gobuster http://localhost',

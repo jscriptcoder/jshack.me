@@ -53,9 +53,11 @@ import {
   formatAccessLogLine,
 } from '../logging/accessLog.js';
 import {
-  resolveCrossPlayerSourceIp,
+  resolveVantageSourceIp,
   type FindHomeNetworkByOwnerKey,
+  type FindPublicIpByEssid,
 } from '../logging/crossPlayerSourceIp.js';
+import { standingVantage, type FindActiveSession } from '../patches/authorizeMachineAccess.js';
 import {
   appendMachineLog,
   type MachineLogReadQuery,
@@ -121,9 +123,14 @@ export type ResolveHttpFetchDeps = WebTargetDeps & {
   readonly now: () => number;
   readonly readLog: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
   readonly upsertPatch: (row: PatchRow) => Promise<{ readonly error: unknown }>;
-  /** The requester's own home network — the source IP the line records, derived from
-   *  their VERIFIED key rather than anything they sent. */
+  /** The requester's own home network — the source IP the line records when they fetch
+   *  from home, derived from their VERIFIED key rather than anything they sent. */
   readonly findHomeNetworkByOwnerKey: FindHomeNetworkByOwnerKey;
+  /** One network's public IP from its ESSID — the origin of a fetch launched from a box
+   *  the caller is standing on but does not own. */
+  readonly findPublicIpByEssid: FindPublicIpByEssid;
+  /** Whether the caller really holds the box they name as the one they fetched from. */
+  readonly findActiveSession: FindActiveSession;
   /** Every publisher's journal in ONE read, for findit's index. Only a search reaches
    *  it, so an ordinary fetch pays nothing for it. */
   readonly findPatchesForMachines: (
@@ -144,6 +151,10 @@ const resolveHttpFetchSchema = z
     /** The URL path as written by the client, NOT a filesystem path. Resolved
      *  server-side — see the module doc. */
     path: z.string().min(1),
+    /** The box the caller fetched FROM, when they stand on a hop. Absent at home. The
+     *  server reads the network off its session row to trace the hit to where it came
+     *  from, and refuses a box the caller does not hold. */
+    caller_machine_id: z.string().min(1).optional(),
   })
   .refine((payload) => !('player_key' in payload));
 
@@ -266,11 +277,14 @@ const logFetch = async (
   deps: ResolveHttpFetchDeps,
   target: FetchTarget,
   actorKey: string,
+  standingEssid: string | null,
   hit: { readonly path: string; readonly status: number; readonly size: number },
 ): Promise<void> => {
   const line = formatAccessLogLine({
     time: asGameTime(deps.now()),
-    sourceIp: await resolveCrossPlayerSourceIp(deps.findHomeNetworkByOwnerKey, actorKey),
+    // The box the caller fetched from decides the origin: a hop traces to that network's
+    // public IP, home to the caller's own — derived server-side either way.
+    sourceIp: await resolveVantageSourceIp(deps, { actorKey, standingEssid }),
     path: hit.path,
     status: hit.status,
     size: hit.size,
@@ -397,6 +411,19 @@ export const handleResolveHttpFetch = async (
   }
   const { publicKey, payload } = verified;
 
+  // Where the caller fetched FROM: a box they hold a session on traces the hit to that
+  // network, home to their own. A box they name but do not hold is refused, so a trace
+  // can never be addressed from a network the caller merely claims. No box named means
+  // home — the credential-free door still opens there with no session (decision 6).
+  const standing = await standingVantage(
+    publicKey,
+    payload.caller_machine_id,
+    deps.findActiveSession,
+  );
+  if (!standing.ok) {
+    return { status: standing.status, body: { error: standing.error } };
+  }
+
   const target = await resolveWebTarget(deps, {
     target: payload.target,
     port: payload.port ?? HTTP_DEFAULT_PORT,
@@ -412,7 +439,7 @@ export const handleResolveHttpFetch = async (
   const query = target.essid === FINDIT_NETWORK ? searchedFor(payload.path) : null;
   if (query !== null) {
     const results = await answerSearch(deps, query);
-    await logFetch(deps, target, publicKey, {
+    await logFetch(deps, target, publicKey, standing.standingEssid, {
       path: payload.path,
       status: 200,
       size: results.length,
@@ -434,7 +461,7 @@ export const handleResolveHttpFetch = async (
   // The machine answered, so the machine records it — a 404 is a served response, and the
   // one a defender most needs to see. Only the unreachable cases above leave no trace,
   // where there was no machine to do the recording.
-  await logFetch(deps, target, publicKey, {
+  await logFetch(deps, target, publicKey, standing.standingEssid, {
     path: payload.path,
     status: content === null ? 404 : 200,
     size: content === null ? 0 : content.length,

@@ -692,16 +692,28 @@ describe('resolveCrossPlayerFs', () => {
 });
 
 describe('fetchPublicPage', () => {
-  const PARAMS = { target: '203.0.113.7', port: 80, path: '/status.html' };
+  const PARAMS = {
+    target: '203.0.113.7',
+    port: 80,
+    path: '/status.html',
+    callerMachineId: asMachineId(HOP_BOX),
+  };
 
-  it('signs a resolveHttpFetch request and returns the page the server served', async () => {
+  it('signs a resolveHttpFetch request, naming the hop it ran from, and returns the page', async () => {
     const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true, content: '<h1>hi</h1>' }));
     const deps = makeDeps(fetchSpy as unknown as typeof fetch);
 
     expect(await fetchPublicPage(deps, PARAMS)).toEqual({ ok: true, content: '<h1>hi</h1>' });
     const verified = await verifyPayload(sentEnvelope(fetchSpy));
     if (!verified.ok) throw new Error('expected verified envelope');
-    expect(verified.payload).toMatchObject({ action: 'resolveHttpFetch', ...PARAMS });
+    // The client box travels as `caller_machine_id`, not the camelCase field name.
+    expect(verified.payload).toMatchObject({
+      action: 'resolveHttpFetch',
+      target: PARAMS.target,
+      port: PARAMS.port,
+      path: PARAMS.path,
+      caller_machine_id: HOP_BOX,
+    });
   });
 
   it('passes an empty page through as a page, not as a failure', async () => {

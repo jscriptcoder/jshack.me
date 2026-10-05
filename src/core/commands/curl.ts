@@ -28,7 +28,7 @@ import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
 import { parseTypedUrl, resolveWebPath } from '../network/http.js';
 import { isPublicIp } from '../generation/ip.js';
 import { addressForTarget } from '../network/resolveName.js';
-import { connectedWlan0 } from '../network/interfaces.js';
+import { vantageOf } from '../network/vantage.js';
 import { reachWebHost } from './webHost.js';
 import { fetchPageAcrossNetwork } from './webPage.js';
 
@@ -88,21 +88,24 @@ const execute: Command['execute'] = async (env, args, flags) => {
   }
   const requested = typed.url;
 
-  const wlan0 = connectedWlan0(env.network);
-  if (wlan0 === null) {
+  // Where the shell stands: the hop on top of the stack and its network, or the
+  // player's own WiFi on their own box. At home with no connected, addressed card there
+  // is nowhere to reach from; on a hop the player's own card does not matter at all.
+  const vantage = vantageOf(env.session, env.network);
+  if (vantage === null) {
     return error(UNREACHABLE);
   }
 
   // A name becomes the address before anything routes on it, so every path below
-  // sees the target it already knows how to reach. A name nothing answers to is left
-  // exactly as typed, and falls through to the same unknown-target path an unknown
-  // address takes.
+  // sees the target it already knows how to reach. Names resolve on the network the
+  // shell stands on. A name nothing answers to is left exactly as typed, and falls
+  // through to the same unknown-target path an unknown address takes.
   const url = {
     ...requested,
     host: await addressForTarget({
-      essid: wlan0.association.essid,
+      essid: vantage.essid,
       target: requested.host,
-      resolveOccupants: env.scan.resolveOccupants,
+      resolveOccupants: (scanned) => env.scan.resolveOccupants(scanned, env.session.machineId),
     }),
   };
 
@@ -113,6 +116,7 @@ const execute: Command['execute'] = async (env, args, flags) => {
     const page = await fetchPageAcrossNetwork({
       program: 'curl',
       url,
+      callerMachineId: env.session.machineId,
       fetchPublic: (params) => env.remote.fetchPublic(params),
     });
     if (page.kind === 'unreachable') {
@@ -124,11 +128,11 @@ const execute: Command['execute'] = async (env, args, flags) => {
     return respond(page.content, flags.has('-i'));
   }
 
-  const reached = reachWebHost({ root: env.fs.root(), program: 'curl', url, wlan0 });
+  const reached = reachWebHost({ root: env.fs.root(), program: 'curl', url, vantage });
   if (!reached.ok) {
     return reached.failure;
   }
-  const { fs: hostFs, essid, address, sourceIp } = reached.host;
+  const { fs: hostFs, essid, address } = reached.host;
 
   // Something answered, so the box that answered records the hit — the server resolves
   // which machine that is and writes its /var/log/access.log itself. Above this line
@@ -147,7 +151,10 @@ const execute: Command['execute'] = async (env, args, flags) => {
         // asks many at once; a fetch that named several would be claiming requests it
         // never made.
         paths: [url.path],
-        sourceIp,
+        // The box the fetch ran from. The server places the caller there and derives
+        // the source address itself, so this names where it came from without claiming
+        // the address.
+        callerMachineId: env.session.machineId,
       })
       .catch(() => undefined);
   } catch {
@@ -185,7 +192,7 @@ export const curl: Command = {
   manual: {
     synopsis: 'curl [-i] <url>',
     description:
-      'Fetch a URL over HTTP and print what the server returns. Reaches hosts on your own network, e.g. "curl http://192.168.1.5", including your own address once you are running a web server, and any public IP that forwards its web port, by its address or by the domain an institution publishes it under, e.g. "curl http://ridgemont.edu/". The "http://" may be left off, as with real curl: "curl ridgemont.edu" fetches the same page. No login is needed: a web server publishes its document root to whoever asks, and nothing else on the target is readable this way. Requires a network connection.',
+      'Fetch a URL over HTTP and print what the server returns. Reaches hosts on the network you are on — your own at home, or the network of a box you have a shell on — e.g. "curl http://192.168.1.5", including your own address once you are running a web server, and any public IP that forwards its web port, by its address or by the domain an institution publishes it under, e.g. "curl http://ridgemont.edu/". The "http://" may be left off, as with real curl: "curl ridgemont.edu" fetches the same page. No login is needed: a web server publishes its document root to whoever asks, and nothing else on the target is readable this way. Requires a network connection.',
     arguments: [
       {
         name: 'url',

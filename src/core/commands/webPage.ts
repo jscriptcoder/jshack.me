@@ -26,7 +26,8 @@
 
 import type { AccessLogFetch, RemoteApi } from './types.js';
 import type { Directory } from '../filesystem/types.js';
-import type { ConnectedWlan0 } from '../network/interfaces.js';
+import type { MachineId } from '../types.js';
+import type { Vantage } from '../network/vantage.js';
 import type { ParsedUrl } from '../network/http.js';
 import { createFsView } from '../filesystem/fsView.js';
 import { resolveWebPath } from '../network/http.js';
@@ -57,31 +58,35 @@ const recordVisit = ({
   }
 };
 
-/** The page `url` names on the player's own LAN, and the trace reading it leaves. */
+/** The page `url` names on the network the shell stands on, and the trace reading it
+ *  leaves. The vantage decides what is reachable and where from; `callerMachineId` is
+ *  the box it ran on, which the server places the caller by. */
 export const fetchWebPage = ({
   root,
   program,
   url,
-  wlan0,
+  vantage,
+  callerMachineId,
   appendAccessLog,
 }: {
   readonly root: Directory;
   readonly program: string;
   readonly url: ParsedUrl;
-  readonly wlan0: ConnectedWlan0;
+  readonly vantage: Vantage;
+  readonly callerMachineId: MachineId;
   readonly appendAccessLog: (fetched: AccessLogFetch) => Promise<void>;
 }): PageResult => {
-  const reached = reachWebHost({ root, program, url, wlan0 });
+  const reached = reachWebHost({ root, program, url, vantage });
   if (!reached.ok) {
     return { kind: 'unreachable', failure: reached.failure };
   }
-  const { fs, essid, address, sourceIp } = reached.host;
+  const { fs, essid, address } = reached.host;
 
   // Logged before the read, so a miss is recorded as readily as a hit: the box was
   // asked either way, and what a defender needs to see is that it was asked.
   recordVisit({
     appendAccessLog,
-    fetched: { essid, target: address, port: url.port, paths: [url.path], sourceIp },
+    fetched: { essid, target: address, port: url.port, paths: [url.path], callerMachineId },
   });
 
   const filePath = resolveWebPath(url.path);
@@ -115,13 +120,20 @@ export const fetchWebPage = ({
 export const fetchPageAcrossNetwork = async ({
   program,
   url,
+  callerMachineId,
   fetchPublic,
 }: {
   readonly program: string;
   readonly url: ParsedUrl;
+  readonly callerMachineId: MachineId;
   readonly fetchPublic: RemoteApi['fetchPublic'];
 }): Promise<PageResult> => {
-  const fetched = await fetchPublic({ target: url.host, port: url.port, path: url.path });
+  const fetched = await fetchPublic({
+    target: url.host,
+    port: url.port,
+    path: url.path,
+    callerMachineId,
+  });
   if (fetched.ok) {
     return { kind: 'page', content: fetched.content };
   }
