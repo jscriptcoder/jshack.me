@@ -2,7 +2,8 @@
 
 **Status**: Grilled and gap-reviewed. Decisions confirmed by the owner 2026-10-04 (grill, then a
 `find-gaps` pass that added 4a, 4b, 7a, 11a, "Out of scope" and "Done when"); nine slices
-planned and approved the same day. Slices 1–2 done (#598 v0.307.0, #599 v0.308.0). Next: slice 3.
+planned and approved the same day. Slices 1–4 done (#598 v0.307.0, #599 v0.308.0, #600
+v0.309.0, #601 v0.310.0). Next: slice 4b.
 Resolves two §9 backlog items in `docs/conventions-and-gotchas.md`: "Pivot / operate-from-a-hop —
 source-IP masking only; ssh-from-a-pivot" and "Four tools cannot pivot: `ssh`, `nmap`, `curl`,
 `lynx`". Where they disagree with this file, this file wins.
@@ -268,21 +269,43 @@ function on each side, not a per-tool copy.
 
 ### Slice 4: `ssh` out of a network traces to the hop's network
 
+✅ Done in #601. As built: the public door already took a caller box (`ftp`, `scp`); `ssh` now
+sends one too, and `PublicAuthParams` absorbed `PublicDoorAuthParams`. The inner-gateway door
+places the caller with `resolveCallerVantage` and refuses a network they are not on (403
+`wrong_network`), `nc` knocks included; its deep line still names the gateway's `.1`. The public
+door keeps its own resolver (`standingVantage`), which logs a caller on no network as `unknown`
+instead of refusing them. The planned "router writes no line" worry was wrong: the gateway's line
+lands under `ap:<essid>`, and `testCrossPlayerConnectionTrace.ts` was reading the owner's key (now
+7/7). Chain check: `scripts/testHopChain.ts` 12/12. The player-box half of the planned path moved
+to slice 4b.
+
 **Value**: the chain the feature exists for — a target's log names the last hop's network, and
 each hop's log names the one before.
 **Path**: `ssh`'s public and inner-gateway-forward paths send `caller_machine_id` from a hop →
 `authCreateSessionPublic` / `authCreateSessionInnerGateway` trace via `resolveVantageSourceIp`,
-standing on the network `resolveCallerVantage` places the hop on → from a hop, other players'
-boxes on the hop's LAN are reachable: the occupant lookup and the same-WiFi login take the
-vantage's network, not the caller's WiFi → a hop on a player's workstation traces with that
-box's lease on its network, not `unknown`.
+standing on the network `resolveCallerVantage` places the hop on.
 **Decisions**: 1, 4a, 7. **Done-when**: 1, 3.
 **RED**: the chain wire-check (`home → P → Q → third gateway`, trace walk-back, then a root wipe
 on Q ends the trail at Q).
-**Watch for**: `scripts/testCrossPlayerConnectionTrace.ts` already fails 3 of 7 checks on `main`:
-a public login to an edge-gateway router writes no `auth.log` line, while a login forwarded to a
-workstation does. The chain walk-back needs a line at every hop, so fix this or route around it
-on purpose.
+
+### Slice 4b: From a hop, other players' boxes on its LAN are reachable
+
+**Value**: a player standing on a box on network N reaches the players' workstations on N, as an
+occupant of N would; a hop on a player's workstation is logged under that player's own LAN
+address (4a).
+**Path**: `resolveOccupants` and `authCreateSessionSameLan` take `caller_machine_id` and place
+the caller with `resolveCallerVantage` instead of requiring their own occupancy of the named
+ESSID, refusing a network they are not standing on → the same-LAN trace's source is the
+vantage's address, not the caller's lease → `resolveCallerVantage` gives a hop on a player's
+workstation that player's lease on its network instead of `null` → `ssh` sends its box on the
+same-LAN path.
+**Decisions**: 1, 4, 4a, 7. **Done-when**: 2 (player boxes).
+**RED**: from a hop on N, `ssh` to an occupant's LAN address on N lands on their workstation,
+whose `auth.log` names the hop's LAN address; a sideways login from a hop on a player's
+workstation names that player's lease. Wire-check for the server half.
+**Watch for**: `resolveOccupants` also feeds `nmap`'s occupant merge; slice 6 picks up the caller
+box there. The client knows no lease for a player-box hop, so its `ifconfig` stays
+address-less; this slice changes only what the server logs.
 
 ### Slice 5: A chain breaks where a hop goes down
 
