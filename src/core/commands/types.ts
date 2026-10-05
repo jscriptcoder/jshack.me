@@ -782,6 +782,14 @@ export type RebootApi = {
   readonly evict: (machineId: MachineId) => Promise<RebootEvictResult>;
 };
 
+/** How a terminal learns that a hop BENEATH the box it stands on went down. The
+ *  server ends every session stacked above a lost hop, but the box under the
+ *  player's feet never rebooted, so nothing on it can tell them; only the rows can.
+ *  `null` is a server that could not be asked, which tells the player nothing. */
+export type ChainApi = {
+  readonly openSessionIds: () => Promise<ReadonlySet<string> | null>;
+};
+
 /** What `mysql` hands the connect action. No `sessionId` and no `parentSessionId`,
  *  alone among the doors: a database connection mints NO session row, so there is
  *  nothing to name it and nothing to hang it from. The credential travels with every
@@ -1497,6 +1505,7 @@ export type CommandEnv = {
   readonly apt: AptApi;
   readonly su: SuApi;
   readonly reboot: RebootApi;
+  readonly chain: ChainApi;
   readonly scan: ScanApi;
   readonly hydra: HydraApi;
   readonly exploit: ExploitApi;

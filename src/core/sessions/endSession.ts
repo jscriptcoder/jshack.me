@@ -19,19 +19,20 @@ import type { NonceStore } from '../signedRequest/nonceStore.js';
 /** Why a session stopped. `user_exit` is the player closing it themselves —
  *  `exit` from a hop, `quit` from an ftp prompt. `abandoned` is a boot finding no
  *  owner for an active parallel session and closing it on the lost terminal's
- *  behalf. `rebooted` is the box going down under the session, which is the only
- *  one of the three the player did not choose — and the only one a defender reads
- *  as evidence their machine threw someone off. A closed enum rather than free
- *  text: the client picks the value, so the column must not become somewhere a
- *  client can write whatever it likes. */
-export const END_REASONS = ['user_exit', 'abandoned', 'rebooted'] as const;
+ *  behalf. `rebooted` is the box going down under the session — the one a defender
+ *  reads as evidence their machine threw someone off — and `upstream_lost` is a
+ *  session further up the chain, ended because a hop beneath it went down. Neither
+ *  of those two is the player's choice. A closed enum rather than free text: the
+ *  client picks the value, so the column must not become somewhere a client can
+ *  write whatever it likes. */
+export const END_REASONS = ['user_exit', 'abandoned', 'rebooted', 'upstream_lost'] as const;
 export type EndReason = (typeof END_REASONS)[number];
 
 /** The subset a CALLER may name. `endSession` is the only action that reads a
- *  reason off the wire, and `rebooted` is not one of them: a box going down under
- *  a session is something the server witnessed, and a caller able to claim it
- *  could dress a voluntary exit up as an eviction in the one record that says
- *  whether a player left or was thrown off. */
+ *  reason off the wire, and neither eviction is one of them: a box going down under
+ *  a session, or under a hop beneath it, is something the server witnessed, and a
+ *  caller able to claim it could dress a voluntary exit up as an eviction in the one
+ *  record that says whether a player left or was thrown off. */
 const CLIENT_END_REASONS = ['user_exit', 'abandoned'] as const;
 
 export type EndSessionParams = {

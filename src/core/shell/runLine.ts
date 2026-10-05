@@ -54,6 +54,7 @@ import { resolveWriteTarget, type WriteTarget } from '../filesystem/writeTarget.
 import { resolveAbsPath } from '../filesystem/path.js';
 import { stubName } from '../generation/binaries.js';
 import { mayExecute } from '../commands/availability.js';
+import { parseWorkstationId } from '../identity/workstation.js';
 
 const syncError = (content: string, exitCode: number): CommandResult => ({
   kind: 'sync',
@@ -135,6 +136,29 @@ const wentDown = (hostname: string): string => `Connection to ${hostname} closed
  *  reboot closed, and every write it attempts is refused at the server. */
 const bootIdMoved = (session: Session, fs: FsView): boolean =>
   session.bootId !== undefined && session.bootId !== readBootId(fs.root());
+
+/** The name a closed leg is announced by: the box's own name, which is the half of
+ *  its id a player ever sees, or the whole id for a host that has no other name. */
+const hostOf = (session: Session): string =>
+  parseWorkstationId(session.machineId)?.name ?? session.machineId;
+
+/** The legs of this terminal's chain the server has ended, newest first — every
+ *  pushed session from the lowest one no longer open up to the top, because a leg
+ *  standing on a lost one stands on nothing, whatever its own row says yet. Empty
+ *  when the chain holds, or when the server could not be asked: the rows are the
+ *  authority and this is only how the player is told.
+ *
+ *  Asked only two hops deep or more. One hop deep, the hop stands on the player's
+ *  own login, which no reboot can end, so the only way that leg goes is its own box
+ *  rebooting — which the boot id already says without a request. */
+const lostLegs = async (env: CommandEnv): Promise<readonly Session[]> => {
+  if (env.hopChain.length < 2) return [];
+  const open = await env.chain.openSessionIds();
+  if (open === null) return [];
+  const pushed = [...env.hopChain.slice(1), env.session];
+  const lowestLost = pushed.findIndex((session) => !open.has(session.id));
+  return lowestLost === -1 ? [] : pushed.slice(lowestLost).reverse();
+};
 
 type Resolved =
   | { readonly ok: true; readonly command: Command }
@@ -392,6 +416,21 @@ export const runCommandLine = async (
   commands: ReadonlyMap<string, Command>,
   pathCommands: ReadonlyMap<string, Command> = commands,
 ): Promise<CommandResult> => {
+  // First, because it can reach furthest: a hop beneath this box went down, and every
+  // leg stacked on it ended with it. A `su` opened no connection, so it closes
+  // without a line of its own.
+  const lost = await lostLegs(env);
+  if (lost.length > 0) {
+    lost.forEach(() => env.popSession());
+    return {
+      kind: 'sync',
+      lines: lost
+        .filter((session) => session.kind !== 'su')
+        .map((session) => ({ kind: 'error', content: wentDown(hostOf(session)) })),
+      exitCode: 1,
+    };
+  }
+
   // Before the line is even parsed: a submitted line is a write to the socket, and
   // this is how a terminal learns the socket died — by writing to it. Nothing the
   // player typed reaches the box, so a typo answers `connection closed` rather than

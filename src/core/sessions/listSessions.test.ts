@@ -9,6 +9,7 @@ import { signRequest } from '../signedRequest/sign.js';
 import { generateIdentity } from '../identity/identity.js';
 import { computeWorkstationId } from '../identity/workstation.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
+import { sessionRow, sessionTable } from '../../test/factories/sessionTable.js';
 
 const freshStore: NonceStore = async () => ({ fresh: true });
 
@@ -30,7 +31,13 @@ const makeDeps = (over: Partial<ListSessionsDeps> = {}) => {
       query: ListSessionsQuery,
     ) => Promise<{ data: readonly SessionSummary[] | null; error: unknown }>
   >(async () => ({ data: [], error: null }));
-  const deps: ListSessionsDeps = { nonceStore: freshStore, listSessions, ...over };
+  const deps: ListSessionsDeps = {
+    nonceStore: freshStore,
+    listSessions,
+    findEndedSessions: async () => ({ data: [], error: null }),
+    endSessionsAbove: async () => ({ data: [], error: null }),
+    ...over,
+  };
   return { deps, listSessions };
 };
 
@@ -112,6 +119,108 @@ describe('handleListSessions', () => {
     const envelope = signRequest(id, 'listSessions', {});
     const { deps } = makeDeps({
       listSessions: async () => ({ data: null, error: { message: 'db down' } }),
+    });
+
+    const result = await handleListSessions(envelope, deps);
+
+    expect(result).toEqual({ status: 500, body: { error: 'read_failed' } });
+  });
+});
+
+/**
+ * A reload rebuilds the hop chain from this list, so a session whose parent has
+ * ended must not come back: it would stand the player on a box reached through a
+ * hop that is gone. The server ends it here, with the reason only it may write.
+ */
+describe('a chain whose lower leg has ended', () => {
+  it('ends a session whose parent has ended, and all above it, listing neither', async () => {
+    const id = generateIdentity();
+    const bob = id.publicKeyHex;
+    const elevation = sessionRow({ session_id: 'su-own', player_key: bob, kind: 'su' });
+    const table = sessionTable([
+      sessionRow({ session_id: 'hop-p', player_key: bob, ended: 'rebooted' }),
+      sessionRow({ session_id: 'hop-q', player_key: bob, parent_session_id: 'hop-p' }),
+      sessionRow({ session_id: 'hop-r', player_key: bob, parent_session_id: 'hop-q' }),
+      elevation,
+    ]);
+    const envelope = signRequest(id, 'listSessions', {});
+    const { deps } = makeDeps(table);
+
+    const result = await handleListSessions(envelope, deps);
+
+    const { player_key: _player, ...listed } = elevation;
+    expect(result).toEqual({ status: 200, body: { sessions: [listed] } });
+    expect(table.reasonOf('hop-q')).toBe('upstream_lost');
+    expect(table.reasonOf('hop-r')).toBe('upstream_lost');
+  });
+
+  // Every first hop names the base login, which has no row. Another player's ended
+  // row carrying that name is no parent of this player's.
+  it("keeps a first hop whose parent's name another player's ended row carries", async () => {
+    const id = generateIdentity();
+    const firstHop = sessionRow({ session_id: 'hop-p', player_key: id.publicKeyHex });
+    const table = sessionTable([
+      sessionRow({
+        session_id: 'seed-session',
+        player_key: 'mallory-key',
+        parent_session_id: null,
+        ended: 'rebooted',
+      }),
+      firstHop,
+    ]);
+    const envelope = signRequest(id, 'listSessions', {});
+    const { deps } = makeDeps(table);
+
+    const result = await handleListSessions(envelope, deps);
+
+    const { player_key: _player, ...listed } = firstHop;
+    expect(result).toEqual({ status: 200, body: { sessions: [listed] } });
+    expect(table.reasonOf('hop-p')).toBeUndefined();
+  });
+
+  it('asks nothing further of rows that name no parent', async () => {
+    const id = generateIdentity();
+    const rows = [aRow({ parent_session_id: null })];
+    const envelope = signRequest(id, 'listSessions', {});
+    const findEndedSessions = vi.fn<ListSessionsDeps['findEndedSessions']>(async () => ({
+      data: [],
+      error: null,
+    }));
+    const { deps } = makeDeps({
+      listSessions: async () => ({ data: rows, error: null }),
+      findEndedSessions,
+    });
+
+    const result = await handleListSessions(envelope, deps);
+
+    expect(result).toEqual({ status: 200, body: { sessions: rows } });
+    expect(findEndedSessions).not.toHaveBeenCalled();
+  });
+
+  it('returns 500 rather than a chain it could not check', async () => {
+    const id = generateIdentity();
+    const envelope = signRequest(id, 'listSessions', {});
+    const { deps } = makeDeps({
+      listSessions: async () => ({ data: [aRow()], error: null }),
+      findEndedSessions: async () => ({ data: null, error: { message: 'db down' } }),
+    });
+
+    const result = await handleListSessions(envelope, deps);
+
+    expect(result).toEqual({ status: 500, body: { error: 'read_failed' } });
+  });
+
+  it('returns 500 rather than a chain it could not mend', async () => {
+    const id = generateIdentity();
+    const table = sessionTable([
+      sessionRow({ session_id: 'hop-p', player_key: id.publicKeyHex, ended: 'rebooted' }),
+      sessionRow({ session_id: 'hop-q', player_key: id.publicKeyHex, parent_session_id: 'hop-p' }),
+    ]);
+    const envelope = signRequest(id, 'listSessions', {});
+    const { deps } = makeDeps({
+      listSessions: table.listSessions,
+      findEndedSessions: table.findEndedSessions,
+      endSessionsAbove: async () => ({ data: null, error: { message: 'db down' } }),
     });
 
     const result = await handleListSessions(envelope, deps);

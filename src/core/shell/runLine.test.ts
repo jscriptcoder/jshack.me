@@ -38,7 +38,7 @@ import {
 } from '../../test/factories/commandEnv.js';
 import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
 import { formatListenerContent } from '../services/pidfile.js';
-import { asAbsPath } from '../types.js';
+import { asAbsPath, asMachineId } from '../types.js';
 
 /** A `user`-tier session in /home/alice with two files she owns (and can read). */
 const aliceEnv = () =>
@@ -1503,5 +1503,140 @@ describe('the text readers at the prompt', () => {
       lines: [{ kind: 'error', content: error }],
       exitCode: 2,
     });
+  });
+});
+
+/**
+ * A chain breaks where a hop goes down. When a box beneath the one the player is
+ * standing on reboots, the server ends every session stacked above it — but the box
+ * they are on never went down, so nothing on it can tell them. Two hops deep or
+ * more, each line first asks the server which of this terminal's sessions are open.
+ */
+describe('a chain broken beneath the box the player is standing on', () => {
+  const NOTES = buildDirectory({
+    home: buildDirectory({
+      alice: buildDirectory(
+        { 'notes.txt': buildFile('hello world\n', { owner: 'alice' }) },
+        { owner: 'alice' },
+      ),
+    }),
+  });
+
+  const base = mockSession({ id: 'seed-session', kind: 'su', machineId: asMachineId('skylab') });
+  const leg = (id: string, host: string, over: Parameters<typeof mockSession>[0] = {}) =>
+    mockSession({ id, kind: 'ssh', machineId: asMachineId(`${host}-cafef00d`), ...over });
+
+  /** A terminal whose stack is `chain`, bottom first, standing on the last of it. */
+  const standingAtTopOf = (
+    chain: readonly ReturnType<typeof mockSession>[],
+    openSessionIds: () => Promise<ReadonlySet<string> | null>,
+  ) => {
+    const popSession = vi.fn();
+    const askServer = vi.fn(openSessionIds);
+    const env = mockCommandEnv({
+      session: chain.at(-1)!,
+      hopChain: [base, ...chain.slice(0, -1)],
+      popSession,
+      chain: { openSessionIds: askServer },
+      fs: mockFsViewFromTree(NOTES, { userType: 'root', cwd: asAbsPath('/home/alice') }),
+    });
+    return { env, popSession, askServer };
+  };
+
+  it('drops to the deepest surviving hop, closing each lost leg newest first', async () => {
+    const chain = [leg('hop-a', 'web-01'), leg('hop-b', 'db-07'), leg('hop-c', 'mail-02')];
+    const { env, popSession } = standingAtTopOf(chain, async () => new Set(['hop-a']));
+
+    const result = expectSync(await runCommandLine(env, 'cat notes.txt', commands));
+
+    expect(result.lines).toEqual([
+      errorLine('Connection to mail-02 closed by remote host.'),
+      errorLine('Connection to db-07 closed by remote host.'),
+    ]);
+    expect(result.exitCode).toBe(1);
+    expect(popSession).toHaveBeenCalledTimes(2);
+  });
+
+  // A chain is broken from its lowest lost leg up: a leg above it may still have an
+  // open row (the cascade had not reached it yet), but it stands on nothing.
+  it('drops every leg above the lowest one lost, even one still open', async () => {
+    const chain = [leg('hop-a', 'web-01'), leg('hop-b', 'db-07'), leg('hop-c', 'mail-02')];
+    const { env, popSession } = standingAtTopOf(chain, async () => new Set(['hop-a', 'hop-c']));
+
+    const result = expectSync(await runCommandLine(env, 'cat notes.txt', commands));
+
+    expect(result.lines).toHaveLength(2);
+    expect(popSession).toHaveBeenCalledTimes(2);
+  });
+
+  it('drops both legs of a two-hop chain when its first hop goes down', async () => {
+    const chain = [leg('hop-a', 'web-01'), leg('hop-b', 'db-07')];
+    const { env, popSession } = standingAtTopOf(chain, async () => new Set());
+
+    const result = expectSync(await runCommandLine(env, 'cat notes.txt', commands));
+
+    expect(result.lines).toEqual([
+      errorLine('Connection to db-07 closed by remote host.'),
+      errorLine('Connection to web-01 closed by remote host.'),
+    ]);
+    expect(popSession).toHaveBeenCalledTimes(2);
+  });
+
+  it('names a host that has no name of its own by its whole id', async () => {
+    const chain = [leg('hop-a', 'web-01'), mockSession({ id: 'hop-b', kind: 'ssh' })];
+    const { env } = standingAtTopOf(chain, async () => new Set(['hop-a']));
+
+    const result = expectSync(await runCommandLine(env, 'cat notes.txt', commands));
+
+    expect(result.lines).toEqual([errorLine('Connection to localhost closed by remote host.')]);
+  });
+
+  // `su` changes the user, not the box, so it opened no connection to close.
+  it('drops a lost elevation without a line of its own', async () => {
+    const chain = [
+      leg('hop-a', 'web-01'),
+      leg('hop-b', 'db-07'),
+      leg('su-b', 'db-07', { kind: 'su' }),
+    ];
+    const { env, popSession } = standingAtTopOf(chain, async () => new Set(['hop-a']));
+
+    const result = expectSync(await runCommandLine(env, 'cat notes.txt', commands));
+
+    expect(result.lines).toEqual([errorLine('Connection to db-07 closed by remote host.')]);
+    expect(popSession).toHaveBeenCalledTimes(2);
+  });
+
+  it('runs the line when every leg is still open', async () => {
+    const chain = [leg('hop-a', 'web-01'), leg('hop-b', 'db-07')];
+    const { env, popSession } = standingAtTopOf(chain, async () => new Set(['hop-a', 'hop-b']));
+
+    const result = expectSync(await runCommandLine(env, 'cat notes.txt', commands));
+
+    expect(contentOf(result.lines)).toContain('hello world');
+    expect(popSession).not.toHaveBeenCalled();
+  });
+
+  // The rows are the authority; this is only how the player is told. A server that
+  // could not be asked has told them nothing.
+  it('runs the line when the server could not be asked', async () => {
+    const chain = [leg('hop-a', 'web-01'), leg('hop-b', 'db-07')];
+    const { env, popSession } = standingAtTopOf(chain, async () => null);
+
+    const result = expectSync(await runCommandLine(env, 'cat notes.txt', commands));
+
+    expect(contentOf(result.lines)).toContain('hello world');
+    expect(popSession).not.toHaveBeenCalled();
+  });
+
+  // One hop deep, the hop's parent is the player's own login, which no reboot can
+  // end — the box they stand on rebooting is the only way that leg goes, and the
+  // boot id already says so without a request.
+  it('asks nothing one hop deep', async () => {
+    const { env, askServer } = standingAtTopOf([leg('hop-a', 'web-01')], async () => new Set());
+
+    const result = expectSync(await runCommandLine(env, 'cat notes.txt', commands));
+
+    expect(contentOf(result.lines)).toContain('hello world');
+    expect(askServer).not.toHaveBeenCalled();
   });
 });

@@ -623,6 +623,112 @@ describe('patch journal across a machine change', () => {
 });
 
 /**
+ * A chain breaks where a hop goes down. Two hops deep, the box the player stands on
+ * never rebooted, so nothing on it can tell them that the hop beneath it did; the
+ * server has ended both legs, and the terminal asks it before each line.
+ */
+describe('a chain broken beneath the hop the player stands on', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const ESSID = 'ferro-cafe';
+  const LAN = generateHomeLan(ESSID);
+  const [FIRST_HOST, SECOND_HOST] = LAN.hosts.filter((host) => host.kind === 'machine');
+  if (FIRST_HOST === undefined || SECOND_HOST === undefined) {
+    throw new Error(`two ordinary hosts expected on ${ESSID}`);
+  }
+
+  const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
+
+  const hopRow = (sessionId: string, parentId: string, host: typeof FIRST_HOST, at: string) => ({
+    session_id: sessionId,
+    machine_id: machineIdForLanHost(host, ESSID),
+    credentials: { username: 'root', userType: 'root' },
+    parent_session_id: parentId,
+    source_ip: null,
+    kind: 'ssh',
+    created_at: at,
+    essid: ESSID,
+  });
+
+  /** Reload onto a two-hop chain; `breakTheChain` is the reboot of the first hop,
+   *  seen from here: the server now holds neither leg open. */
+  const startTwoHopsDeep = async () => {
+    vi.resetModules();
+    const store = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => store.set(key, value),
+      removeItem: (key: string) => store.delete(key),
+    };
+    storage.setItem(CONNECTED_ESSID_KEY, ESSID);
+    lanLeaseCacheIn(storage).remember(ESSID, `${LAN.subnet}.77`);
+    vi.stubGlobal('localStorage', storage);
+
+    const chain = [
+      hopRow('hop-a', 'seed-session', FIRST_HOST, '2026-01-01T00:00:00.000Z'),
+      hopRow('hop-b', 'hop-a', SECOND_HOST, '2026-01-01T00:01:00.000Z'),
+    ];
+    let open = chain;
+    const json = (body: unknown) => ({ ok: true, status: 200, json: async () => body });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: { body?: string }) => {
+        const fields = JSON.parse(JSON.parse(init?.body ?? '{}').payload) as Record<
+          string,
+          unknown
+        >;
+        if (fields.action === 'listSessions') return json({ sessions: open });
+        return json({ patches: [] });
+      }),
+    );
+
+    const state = await import('./state.js');
+    state.startGame({ machineName: 'box', username: 'tester', rootPassword: 'pw' });
+    await vi.waitFor(() => expect(state.promptHost()).toBe(SECOND_HOST.hostname));
+    await settle();
+    return {
+      state,
+      breakTheChain: () => {
+        open = [];
+      },
+    };
+  };
+
+  const typeLine = async (state: typeof import('./state.js'), line: string): Promise<string> => {
+    const before = state.scrollback().length;
+    state.setInput(line);
+    await state.runInput();
+    return state
+      .scrollback()
+      .slice(before)
+      .map((entry) => entry.content)
+      .join('\n');
+  };
+
+  it('drops the player back home, closing each leg, when the first hop goes down', async () => {
+    const { state, breakTheChain } = await startTwoHopsDeep();
+
+    breakTheChain();
+    const printed = await typeLine(state, 'ls');
+
+    expect(printed).toContain(
+      [
+        `Connection to ${SECOND_HOST.hostname} closed by remote host.`,
+        `Connection to ${FIRST_HOST.hostname} closed by remote host.`,
+      ].join('\n'),
+    );
+    expect(state.promptHost()).toBe('box');
+  });
+
+  it('keeps the player where they stand while the chain holds', async () => {
+    const { state } = await startTwoHopsDeep();
+
+    expect(await typeLine(state, 'ls')).not.toContain('closed by remote host');
+    expect(state.promptHost()).toBe(SECOND_HOST.hostname);
+  });
+});
+
+/**
  * A refresh loses the terminal that owned an ftp session, but the server row
  * outlives it: `sessions` has no TTL, so nothing would ever close it. An active
  * row is a standing write grant on somebody else's box, and replaying it as a hop

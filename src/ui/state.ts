@@ -159,6 +159,7 @@ import {
   endServerSession,
   rebootServerMachine,
   listServerSessions,
+  openServerSessionIds,
   type SessionsClientDeps,
 } from '../adapters/sessionsApi.js';
 import {
@@ -759,6 +760,13 @@ const rebootEvict = async (machineId: MachineId): Promise<RebootEvictResult> => 
   }
   return result;
 };
+
+/** Which of this terminal's sessions the server still holds open (backs
+ *  `env.chain.openSessionIds`). `null` before `startGame` wires the sessions client. */
+const chainOpenSessionIds = (): Promise<ReadonlySet<string> | null> =>
+  sessionsClientDeps === undefined
+    ? Promise.resolve(null)
+    : openServerSessionIds(sessionsClientDeps);
 
 /** Crack credentials on an own-LAN host server-side (backs `env.hydra.crack`).
  *  Degrades to a network error before `startGame` wires the sessions client. */
@@ -1901,6 +1909,7 @@ const executeLine = async (line: string): Promise<void> => {
     onNcConnectInnerGateway: ncConnectInnerGateway,
     onSuElevate: suElevate,
     onRebootEvict: rebootEvict,
+    onChainOpenSessionIds: chainOpenSessionIds,
     onMysqlConnect: mysqlConnect,
     onMysqlStatement: mysqlStatement,
     onMysqlEnter: enterMysqlSession,
