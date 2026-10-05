@@ -70,6 +70,7 @@ import { parseWorkstationId } from '../identity/workstation.js';
 import { asGameTime } from '../types.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 import type { EndReason } from './endSession.js';
+import { endChainsAbove, type EndedSession, type EndSessionsAbove } from './upstreamLost.js';
 
 /** No `player_key`: the update is scoped to the MACHINE and nothing else, which is
  *  what lets one reboot reach a row the caller has never seen. */
@@ -90,9 +91,11 @@ export type RebootMachineDeps = {
    *  box is not theirs. Shared with the patch endpoints so one shell's writes and
    *  its reboot agree about where the player is standing. */
   readonly findActiveSession: FindActiveSession;
+  /** Answers with the rows it closed, which are where the chains above them start. */
   readonly endMachineSessions: (
     params: EndMachineSessionsParams,
-  ) => Promise<{ readonly error: unknown }>;
+  ) => Promise<{ readonly data: readonly EndedSession[] | null; readonly error: unknown }>;
+  readonly endSessionsAbove: EndSessionsAbove;
   /** Land the new boot id on the machine's own tree. Separate from the row close
    *  because they answer different readers: the rows are what the server enforces,
    *  the marker is what a terminal already standing on the box can see. */
@@ -187,7 +190,7 @@ export const handleRebootMachine = async (
     return { status: 403, body: { error: 'not_root' } };
   }
 
-  const { error } = await deps.endMachineSessions({
+  const { data: endedOnBox, error } = await deps.endMachineSessions({
     machine_id: payload.machine_id,
     reason: 'rebooted',
   });
@@ -242,6 +245,14 @@ export const handleRebootMachine = async (
   // command exists to prevent: a defender walks away believing they are clear while
   // an intruder keeps typing into a shell that no longer has a row behind it.
   if (marker.error) {
+    return { status: 500, body: { error: 'update_failed' } };
+  }
+
+  // After the marker, so the players standing on the box are told before anything
+  // further up can fail. A chain left half-broken here is mended by the next
+  // listing of it, which ends a session whose parent has ended.
+  const chains = await endChainsAbove(deps.endSessionsAbove, endedOnBox ?? []);
+  if (!chains.ok) {
     return { status: 500, body: { error: 'update_failed' } };
   }
 

@@ -12,6 +12,7 @@ import {
   endServerSession,
   rebootServerMachine,
   listServerSessions,
+  openServerSessionIds,
   ncConnectServerInnerGateway,
   ncConnectServerPublic,
   ncConnectServerSameLan,
@@ -1779,6 +1780,68 @@ describe('listServerSessions', () => {
   });
 });
 
+
+/**
+ * Which of this terminal's sessions the server still holds open — asked on each
+ * line two hops deep, because a hop beneath the player's box can go down without
+ * the box they stand on knowing. Unlike the reload's read, a failure is NOT an
+ * empty answer: an empty answer drops every leg, and a read that did not happen
+ * must drop none.
+ */
+describe('openServerSessionIds', () => {
+  const summary = (sessionId: string) => ({
+    session_id: sessionId,
+    machine_id: 'web-04-cafef00d',
+    credentials: { username: 'root', userType: 'root' },
+    parent_session_id: 'seed-session',
+    source_ip: null,
+    kind: 'ssh',
+    created_at: '2026-06-07T14:33:01.000Z',
+    essid: 'RIDGEMONT-OFFICE',
+  });
+
+  it('answers with the ids of the open sessions', async () => {
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse(200, { sessions: [summary('hop-a'), summary('hop-b')] }),
+    );
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await openServerSessionIds(deps)).toEqual(new Set(['hop-a', 'hop-b']));
+    const verified = await verifyPayload(sentEnvelope(fetchSpy));
+    if (!verified.ok) throw new Error('expected a verified envelope');
+    expect(verified.payload).toMatchObject({ action: 'listSessions' });
+  });
+
+  it('answers an empty set when nothing is open', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(200, { sessions: [] }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await openServerSessionIds(deps)).toEqual(new Set());
+  });
+
+  it('answers null on a refused read', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(500, { sessions: [] }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await openServerSessionIds(deps)).toBeNull();
+  });
+
+  it('answers null when the body carries no sessions', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(200, {}));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await openServerSessionIds(deps)).toBeNull();
+  });
+
+  it('answers null offline', async () => {
+    const fetchSpy = vi.fn(async () => {
+      throw new Error('offline');
+    });
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await openServerSessionIds(deps)).toBeNull();
+  });
+});
 
 /**
  * The database door's client half.

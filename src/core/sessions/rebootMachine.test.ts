@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from 'vitest';
 import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
 import {
   handleRebootMachine,
-  type EndMachineSessionsParams,
   type RebootMachineDeps,
   type WriteBootIdParams,
 } from './rebootMachine.js';
@@ -22,6 +21,7 @@ import type { Identity } from '../commands/types.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 import type { UserType } from '../types.js';
 import { logRead } from '../../test/factories/logRows.js';
+import { sessionRow, sessionTable } from '../../test/factories/sessionTable.js';
 
 /**
  * `rebootMachine` is the eviction action: a reboot ends the sessions on the box
@@ -90,9 +90,9 @@ const ownedByNobody: FindOccupantWorkstationByMachineId = async () => ({
 });
 
 const makeDeps = (over: Partial<RebootMachineDeps> = {}) => {
-  const endMachineSessions = vi.fn<
-    (params: EndMachineSessionsParams) => Promise<{ error: unknown }>
-  >(over.endMachineSessions ?? (async () => ({ error: null })));
+  const endMachineSessions = vi.fn<RebootMachineDeps['endMachineSessions']>(
+    over.endMachineSessions ?? (async () => ({ data: [], error: null })),
+  );
   const writeBootId = vi.fn<(params: WriteBootIdParams) => Promise<{ error: unknown }>>(
     over.writeBootId ?? (async () => ({ error: null })),
   );
@@ -112,6 +112,7 @@ const makeDeps = (over: Partial<RebootMachineDeps> = {}) => {
     newBootId: over.newBootId ?? (() => 'boot-fixed'),
     findActiveSession,
     endMachineSessions,
+    endSessionsAbove: over.endSessionsAbove ?? (async () => ({ data: [], error: null })),
     writeBootId,
     // The trace half: whose row the line is filed under, which address it names,
     // and the clock it is stamped with — all server-side, none of it the caller's
@@ -221,7 +222,7 @@ describe('handleRebootMachine', () => {
     const identity = generateIdentity();
     const envelope = signRequest(identity, 'rebootMachine', { machine_id: ownBoxOf(identity) });
     const { deps } = makeDeps({
-      endMachineSessions: async () => ({ error: { message: 'db down' } }),
+      endMachineSessions: async () => ({ data: null, error: { message: 'db down' } }),
     });
 
     const result = await handleRebootMachine(envelope, deps);
@@ -280,7 +281,7 @@ describe('handleRebootMachine', () => {
     const { deps } = makeDeps({
       endMachineSessions: async () => {
         order.push('rows');
-        return { error: null };
+        return { data: [], error: null };
       },
       writeBootId: async () => {
         order.push('marker');
@@ -297,7 +298,7 @@ describe('handleRebootMachine', () => {
     const identity = generateIdentity();
     const envelope = signRequest(identity, 'rebootMachine', { machine_id: ownBoxOf(identity) });
     const { deps, writeBootId } = makeDeps({
-      endMachineSessions: async () => ({ error: { message: 'db down' } }),
+      endMachineSessions: async () => ({ data: null, error: { message: 'db down' } }),
     });
 
     const result = await handleRebootMachine(envelope, deps);
@@ -631,5 +632,109 @@ describe('the line a reboot leaves behind', () => {
     expect(result).toEqual({ status: 200, body: { ok: true } });
     expect(endMachineSessions).toHaveBeenCalled();
     expect(upsertPatch).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * A box going down takes with it every leg the player built THROUGH it. The
+ * sessions further up the chain sit on boxes that never rebooted, so nothing about
+ * those boxes can end them — only the chain can, and the server walks it here.
+ */
+describe('a reboot breaks every chain that ran through the box', () => {
+  it('ends every session opened through the box, at any depth, as upstream_lost', async () => {
+    const identity = generateIdentity();
+    const ownBox = ownBoxOf(identity);
+    const table = sessionTable([
+      sessionRow({ session_id: 'hop-p', machine_id: ownBox }),
+      sessionRow({ session_id: 'hop-q', machine_id: 'q-box', parent_session_id: 'hop-p' }),
+      sessionRow({ session_id: 'hop-r', machine_id: 'r-gateway', parent_session_id: 'hop-q' }),
+      sessionRow({
+        session_id: 'ftp-r',
+        machine_id: 'r-gateway',
+        parent_session_id: 'hop-r',
+        kind: 'ftp',
+      }),
+      // A chain of Bob's own that never passed through the box.
+      sessionRow({ session_id: 'hop-elsewhere', machine_id: 'q-box' }),
+    ]);
+    const envelope = signRequest(identity, 'rebootMachine', { machine_id: ownBox });
+    const { deps } = makeDeps(table);
+
+    const result = await handleRebootMachine(envelope, deps);
+
+    expect(result).toEqual({ status: 200, body: { ok: true } });
+    expect(table.reasonOf('hop-p')).toBe('rebooted');
+    expect(table.reasonOf('hop-q')).toBe('upstream_lost');
+    expect(table.reasonOf('hop-r')).toBe('upstream_lost');
+    expect(table.reasonOf('ftp-r')).toBe('upstream_lost');
+    expect(table.reasonOf('hop-elsewhere')).toBeUndefined();
+  });
+
+  // Every player's first hop names the same parent — the base login, which has no
+  // row — and a session id is whatever the client minted. A crafted row carrying
+  // that name, closed by a reboot, must not reach anybody's chain but its owner's.
+  it("leaves another player's sessions alone, even ones naming the same parent", async () => {
+    const identity = generateIdentity();
+    const ownBox = ownBoxOf(identity);
+    const table = sessionTable([
+      sessionRow({
+        session_id: 'seed-session',
+        player_key: 'mallory-key',
+        machine_id: ownBox,
+        parent_session_id: null,
+      }),
+      sessionRow({ session_id: 'mallory-q', player_key: 'mallory-key', machine_id: 'q-box' }),
+      sessionRow({ session_id: 'bob-q', player_key: 'bob-key', machine_id: 'q-box' }),
+    ]);
+    const envelope = signRequest(identity, 'rebootMachine', { machine_id: ownBox });
+    const { deps } = makeDeps(table);
+
+    await handleRebootMachine(envelope, deps);
+
+    expect(table.reasonOf('seed-session')).toBe('rebooted');
+    expect(table.reasonOf('mallory-q')).toBe('upstream_lost');
+    expect(table.reasonOf('bob-q')).toBeUndefined();
+  });
+
+  // A parent is a client's claim, so a row naming somebody else's session is no rung
+  // of that chain — the same rule the listing's sweep keeps, which asks only after the
+  // caller's own ended sessions.
+  it("leaves a row that names another player's session as its parent", async () => {
+    const identity = generateIdentity();
+    const ownBox = ownBoxOf(identity);
+    const table = sessionTable([
+      sessionRow({ session_id: 'carol-p', player_key: 'carol-key', machine_id: ownBox }),
+      sessionRow({ session_id: 'bob-p', player_key: 'bob-key', machine_id: ownBox }),
+      sessionRow({
+        session_id: 'bob-on-carol',
+        player_key: 'bob-key',
+        machine_id: 'q-box',
+        parent_session_id: 'carol-p',
+      }),
+    ]);
+    const envelope = signRequest(identity, 'rebootMachine', { machine_id: ownBox });
+    const { deps } = makeDeps(table);
+
+    await handleRebootMachine(envelope, deps);
+
+    expect(table.reasonOf('bob-on-carol')).toBeUndefined();
+  });
+
+  // The rows on the box are already closed, so the players standing on it are told
+  // first; a chain left half-broken is then mended by the next listing of it.
+  it('marks the box before it reports a cascade that failed', async () => {
+    const identity = generateIdentity();
+    const ownBox = ownBoxOf(identity);
+    const table = sessionTable([sessionRow({ session_id: 'hop-p', machine_id: ownBox })]);
+    const envelope = signRequest(identity, 'rebootMachine', { machine_id: ownBox });
+    const { deps, writeBootId } = makeDeps({
+      endMachineSessions: table.endMachineSessions,
+      endSessionsAbove: async () => ({ data: null, error: { message: 'db down' } }),
+    });
+
+    const result = await handleRebootMachine(envelope, deps);
+
+    expect(result).toEqual({ status: 500, body: { error: 'update_failed' } });
+    expect(writeBootId).toHaveBeenCalled();
   });
 });

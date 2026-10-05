@@ -49,6 +49,11 @@ import {
   type EndMachineSessionsParams,
   type WriteBootIdParams,
 } from '../src/core/sessions/rebootMachine.js';
+import type {
+  EndedSession,
+  EndSessionsAboveParams,
+  FindEndedSessionsQuery,
+} from '../src/core/sessions/upstreamLost.js';
 import {
   BOOT_ID_OWNER,
   BOOT_ID_PATH,
@@ -260,6 +265,40 @@ const findWorkstationLeaseVia =
     return { data: (lease.data as { octet: number } | null)?.octet ?? null, error: null };
   };
 
+/** One rung of a broken chain: close this player's open rows standing on any of
+ *  `parent_ids`, answering with the ids it closed so the next rung can start there.
+ *  Scoped to the player because every first hop names the same parent and a session
+ *  id is whatever its client minted. */
+const endSessionsAboveVia =
+  ({ supabase, label }: QuerySpec) =>
+  async ({ player_key, parent_ids, reason }: EndSessionsAboveParams) => {
+    const { data, error } = await supabase
+      .from('sessions')
+      .update({ ended_at: new Date().toISOString(), end_reason: reason })
+      .eq('player_key', player_key)
+      .in('parent_session_id', [...parent_ids])
+      .is('ended_at', null)
+      .select('session_id');
+    logFailure(label, error);
+    const rows = data as readonly { session_id: string }[] | null;
+    return { data: rows?.map((row) => row.session_id) ?? null, error };
+  };
+
+/** Which of `session_ids` name a row of this player's that has ended. */
+const findEndedSessionsVia =
+  ({ supabase, label }: QuerySpec) =>
+  async ({ player_key, session_ids }: FindEndedSessionsQuery) => {
+    const { data, error } = await supabase
+      .from('sessions')
+      .select('session_id')
+      .eq('player_key', player_key)
+      .in('session_id', [...session_ids])
+      .not('ended_at', 'is', null);
+    logFailure(label, error);
+    const rows = data as readonly { session_id: string }[] | null;
+    return { data: rows?.map((row) => row.session_id) ?? null, error };
+  };
+
 /** Every occupant currently ON an ESSID, with the identity fields that rebuild each box
  *  and the hostname its trace line carries. This is the AUTH projection — it includes the
  *  root hash, is server-internal, and is never sent to a client (distinct from the lean
@@ -377,6 +416,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { status, body } = await handleListSessions(req.body, {
       nonceStore: noopNonceStore,
       listSessions,
+      findEndedSessions: findEndedSessionsVia({ supabase, label: 'list ended parents' }),
+      endSessionsAbove: endSessionsAboveVia({ supabase, label: 'list orphan cascade' }),
     });
     res.status(status).json(body);
     return;
@@ -414,13 +455,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // it from being a weapon anyone can point anywhere is the handler's own
     // authority check, which runs before this is ever called.
     const endMachineSessions = async ({ machine_id, reason }: EndMachineSessionsParams) => {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('sessions')
         .update({ ended_at: new Date().toISOString(), end_reason: reason })
         .eq('machine_id', machine_id)
-        .is('ended_at', null);
+        .is('ended_at', null)
+        .select('session_id, player_key');
       logFailure('reboot', error);
-      return { error };
+      return { data: data as readonly EndedSession[] | null, error };
     };
     // The marker the box comes back carrying, and the only thing that can reach a
     // shell already standing on it. Written under the CALLER's writer key, which is
@@ -459,6 +501,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       // read at the tier the target granted. Same query the patch endpoints use.
       findActiveSession: findActiveSessionVia({ supabase, label: 'reboot active-session' }),
       endMachineSessions,
+      endSessionsAbove: endSessionsAboveVia({ supabase, label: 'reboot cascade' }),
       writeBootId,
       // The trace the defender comes back to. Every lookup behind it is server-side:
       // whose log this is, which address ordered the reboot, and the clock it is

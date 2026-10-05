@@ -66,6 +66,20 @@ describe('handleEndSession', () => {
     expect(endSession).not.toHaveBeenCalled();
   });
 
+  it('refuses a caller claiming a hop beneath their session went down', async () => {
+    const id = generateIdentity();
+    const envelope = signRequest(id, 'endSession', {
+      session_id: 'ssh-root-1700000000000',
+      reason: 'upstream_lost',
+    });
+    const { deps, endSession } = makeDeps();
+
+    const result = await handleEndSession(envelope, deps);
+
+    expect(result).toEqual({ status: 400, body: { error: 'payload_invalid' } });
+    expect(endSession).not.toHaveBeenCalled();
+  });
+
   it('refuses a reason outside the known set rather than storing free text', async () => {
     const id = generateIdentity();
     const envelope = signRequest(id, 'endSession', {

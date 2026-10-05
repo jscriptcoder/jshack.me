@@ -4,11 +4,13 @@
  * hop chain (su elevations on the own box + ssh hops onto remote hosts) — so
  * the chain can be rebuilt on boot.
  *
- * Thin by design: verify the signed envelope → server-stamp `player_key` from
- * the VERIFIED pubkey → return what the scoped query gives back. player_key
- * scoping IS the boundary: you can only ever read your own sessions, whatever
- * machines they hopped onto, so there is no machine filter and no
- * own-workstation gate. Two concerns live OUTSIDE this handler on purpose:
+ * Verify the signed envelope → server-stamp `player_key` from the VERIFIED
+ * pubkey → return what the scoped query gives back, less any session whose
+ * parent has ended. Those are ended here (`upstream_lost`) rather than listed: a
+ * reload would otherwise stand the player on a box reached through a hop that is
+ * gone. player_key scoping IS the boundary: you can only ever read your own
+ * sessions, whatever machines they hopped onto, so there is no machine filter and
+ * no own-workstation gate. Two concerns live OUTSIDE this handler on purpose:
  *   - the `ended_at IS NULL` active filter is in the SQL glue (api/sessions),
  *   - ordering by `created_at` is done defensively in the `sessionRehydrate`
  *     rebuild, so correctness never depends on the server's row order.
@@ -20,6 +22,7 @@ import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 import type { UserType } from '../types.js';
 import type { SessionKind } from '../commands/types.js';
+import { endChainsAbove, type EndSessionsAbove, type FindEndedSessions } from './upstreamLost.js';
 
 export type SessionSummary = {
   readonly session_id: string;
@@ -44,6 +47,8 @@ export type ListSessionsDeps = {
   readonly listSessions: (
     query: ListSessionsQuery,
   ) => Promise<{ readonly data: readonly SessionSummary[] | null; readonly error: unknown }>;
+  readonly findEndedSessions: FindEndedSessions;
+  readonly endSessionsAbove: EndSessionsAbove;
 };
 
 export type HandlerResponse = {
@@ -73,6 +78,31 @@ export const handleListSessions = async (
   if (error) {
     return { status: 500, body: { error: 'read_failed' } };
   }
+  const rows = data ?? [];
 
-  return { status: 200, body: { sessions: data ?? [] } };
+  // A parent is the base login, which has no row, an open session, or one that has
+  // ended — and only the last orphans its child.
+  const parents = [
+    ...new Set(
+      rows.flatMap((row) => (row.parent_session_id === null ? [] : [row.parent_session_id])),
+    ),
+  ];
+  if (parents.length === 0) return { status: 200, body: { sessions: rows } };
+
+  const ended = await deps.findEndedSessions({ player_key: publicKey, session_ids: parents });
+  if (ended.error) {
+    return { status: 500, body: { error: 'read_failed' } };
+  }
+  const chains = await endChainsAbove(
+    deps.endSessionsAbove,
+    (ended.data ?? []).map((sessionId) => ({ session_id: sessionId, player_key: publicKey })),
+  );
+  if (!chains.ok) {
+    return { status: 500, body: { error: 'read_failed' } };
+  }
+
+  return {
+    status: 200,
+    body: { sessions: rows.filter((row) => !chains.closed.has(row.session_id)) },
+  };
 };

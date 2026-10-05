@@ -36,6 +36,7 @@ import type {
   ExploitApi,
   SuApi,
   RebootApi,
+  ChainApi,
   AptApi,
   TerminalLine,
 } from '../core/commands/types.js';
@@ -233,6 +234,9 @@ export type BuildCommandEnvArgs = {
 
   /** Backs `env.reboot.evict` — the signed act that ends the machine's sessions. */
   readonly onRebootEvict?: RebootApi['evict'];
+  /** Backs `env.chain.openSessionIds` — which of this terminal's sessions the server
+   *  still holds open. */
+  readonly onChainOpenSessionIds?: ChainApi['openSessionIds'];
   /** The scan-logging seam — backs `env.scan.record`. The UI wires it to the
    *  `recordScan` adapter (signed `nmapScan` round-trip). Optional here for terse
    *  test setups; the UI always passes the real one. */
@@ -490,6 +494,11 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
     // quietly reported success would tell the player their box came up empty
     // while whoever was on it is still there.
     evict: args.onRebootEvict ?? notWired('reboot.evict'),
+  },
+  chain: {
+    // Quiet when unwired: a server that could not be asked tells the player nothing,
+    // and the line runs as it always has. The rows stay the authority either way.
+    openSessionIds: args.onChainOpenSessionIds ?? (async () => null),
   },
   hydra: {
     crack: args.onHydraCrack ?? notWired('hydra.crack'),

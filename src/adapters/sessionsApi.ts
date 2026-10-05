@@ -644,6 +644,23 @@ export const listServerSessions = async (deps: SessionsClientDeps): Promise<read
   }
 };
 
+/** Which of the caller's sessions the server still holds open. Unlike the reload's
+ *  read above, a failure answers `null`, never an empty set: an empty answer drops
+ *  every leg of the chain, and a read that did not happen must drop none. */
+export const openServerSessionIds = async (
+  deps: SessionsClientDeps,
+): Promise<ReadonlySet<string> | null> => {
+  try {
+    const response = await post(deps, 'listSessions', {});
+    if (!response.ok) return null;
+    const body: unknown = await response.json();
+    const rows = (body as { sessions?: readonly SessionSummary[] } | null)?.sessions;
+    return rows === undefined ? null : new Set(rows.map((row) => row.session_id));
+  } catch {
+    return null;
+  }
+};
+
 /**
  * Open a database on a LAN host — the signed `mysqlConnect` round-trip behind
  * `env.mysql.connect`.

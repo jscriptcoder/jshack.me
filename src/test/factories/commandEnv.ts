@@ -332,6 +332,9 @@ export const mockCommandEnv = (overrides: Partial<CommandEnv> = {}): CommandEnv 
   apt: mockAptApi(),
   su: mockSuApi(),
   reboot: mockRebootApi(),
+  // A server that could not be asked, so a test standing two hops deep runs its
+  // line as it always did unless it says otherwise.
+  chain: { openSessionIds: async () => null },
   hydra: mockHydraApi(),
   exploit: mockExploitApi(),
   scan: mockScanApi(),
