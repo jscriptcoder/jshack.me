@@ -2,8 +2,8 @@
 
 **Status**: Grilled and gap-reviewed. Decisions confirmed by the owner 2026-10-04 (grill, then a
 `find-gaps` pass that added 4a, 4b, 7a, 11a, "Out of scope" and "Done when"); nine slices
-planned and approved the same day. Slices 1–4 done (#598 v0.307.0, #599 v0.308.0, #600
-v0.309.0, #601 v0.310.0). Next: slice 4b.
+planned and approved the same day. Slices 1–4b done (#598 v0.307.0, #599 v0.308.0, #600
+v0.309.0, #601 v0.310.0, #602 v0.311.0). Next: slice 5.
 Resolves two §9 backlog items in `docs/conventions-and-gotchas.md`: "Pivot / operate-from-a-hop —
 source-IP masking only; ssh-from-a-pivot" and "Four tools cannot pivot: `ssh`, `nmap`, `curl`,
 `lynx`". Where they disagree with this file, this file wins.
@@ -290,6 +290,16 @@ on Q ends the trail at Q).
 
 ### Slice 4b: From a hop, other players' boxes on its LAN are reachable
 
+✅ Done in #602. As built: `resolveCallerVantage` reads a player-box hop's address through a new
+`findWorkstationLease` dep (`unknown` when its owner has left the network, 500 when the read
+fails). The same-LAN login and the occupant list refuse with `wrong_network`,
+`caller_not_on_network` and `no_session` instead of `not_an_occupant`. A caller on the network
+with no lease is now logged as `unknown` instead of refused, as own-LAN logins are since slice 3.
+`api/network.ts` carries its own copies of the home and lease reads. Only `ssh` sends its box;
+the other tools get theirs in slices 6–9. Four doors now repeat "place the caller, refuse another
+network"; fold them into `resolveCallerVantage` when a fifth arrives. Wire-check:
+`scripts/testHopPlayerBoxes.ts` 8/8.
+
 **Value**: a player standing on a box on network N reaches the players' workstations on N, as an
 occupant of N would; a hop on a player's workstation is logged under that player's own LAN
 address (4a).
@@ -325,6 +335,9 @@ remote host.` per leg → rehydration ends an orphaned child the same way.
 hop on a deeper layer traces with its address on that layer, not `unknown`.
 **Decisions**: 2, 10. **Done-when**: 6 (the single-player browser run lands here: two-hop chain,
 `ifconfig`, `nmap` of the hop's LAN, `exit`).
+**Watch for**: `resolveOccupantScan` (an occupant's open ports) still gates on the caller's own
+occupancy (`not_an_occupant`), and `nmap` still lists occupants from home; both take the
+caller's box here.
 
 ### Slice 7: The web tools run from a hop
 
