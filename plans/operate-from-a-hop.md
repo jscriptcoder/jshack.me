@@ -2,8 +2,9 @@
 
 **Status**: Grilled and gap-reviewed. Decisions confirmed by the owner 2026-10-04 (grill, then a
 `find-gaps` pass that added 4a, 4b, 7a, 11a, "Out of scope" and "Done when"); nine slices
-planned and approved the same day. Slices 1–5 and 6a done (#598 v0.307.0, #599 v0.308.0, #600
-v0.309.0, #601 v0.310.0, #602 v0.311.0, #603 v0.312.0, #604 v0.313.0). Next: slice 6b.
+planned and approved the same day. Slices 1–5, 6a and 6b done (#598 v0.307.0, #599 v0.308.0,
+#600 v0.309.0, #601 v0.310.0, #602 v0.311.0, #603 v0.312.0, #604 v0.313.0, #605 v0.314.0).
+Next: slice 6c.
 Resolves two §9 backlog items in `docs/conventions-and-gotchas.md`: "Pivot / operate-from-a-hop —
 source-IP masking only; ssh-from-a-pivot" and "Four tools cannot pivot: `ssh`, `nmap`, `curl`,
 `lynx`". Where they disagree with this file, this file wins.
@@ -362,18 +363,32 @@ then `ifconfig`, `nmap` of the hop's LAN, and `exit`. Wire-check: `scripts/testH
 
 ### Slice 6b: A hop on a deeper layer scans and traces from that layer
 
-**Value**: the deep-layer pivot obeys the same rule as every other hop.
-**Path**:
-1. `vantageOf` / `resolveCallerVantage` learn which segment a box stands on: the home LAN, or the
-   deep `/24` behind a chain gateway.
-2. A hop on a deep host scans that layer and traces with its own address there, not `unknown`.
-3. A hop on a chain gateway also reaches the layer below it.
-4. `pivotVantageForMachineId` and the `nmapScanDeep` special path fold into that general vantage.
-5. The deep scan log requires a session on the gateway it names; today it accepts any gateway a
-   client names.
+✅ Done in #605. As built: one rule, `segmentsReachedFrom` in `lanTopology.ts`, lists every
+network a box reaches, and both `vantageOf` (as `reaches`) and `resolveCallerVantage` read it:
+- a deep host stands on its layer at its own address;
+- a chain gateway stands on the network above it, and on the layer it fronts at that layer's `.1`;
+- every network above is reached out through each gateway on the way up, and the box is seen
+  there as that gateway — so a deep box's LAN scans and logins trace to the inner gateway, not
+  `unknown`.
 
-**Decisions**: 10. **Watch for**: a deep host's session row carries the home network's ESSID, so
-the segment has to come from the machine id, not the ESSID.
+`nmap` scans whichever reached layer the target is on. A deep gateway now also reaches the layer
+it sits on. Every scan is recorded by the one `nmapScan` action; the server works out the layer and
+the address from the scanning box's live session. No shell is 403 `no_session`; a target on no
+network the box reaches is 403 `wrong_network` (a foreign LAN target included, which used to be
+200 with nothing logged). `nmapScanDeep`, `recordDeep` and `pivotVantageForMachineId` are gone. A
+deep box's `ifconfig` shows its layer address. A layer sweep does not list the fronting gateway's
+`.1`, from any box on the layer. Wire-check: `scripts/testDeepScanTrace.ts`, rewritten, 10/10.
+
+### Slice 6c: From a box on a deep layer, its neighbours there are reachable by address
+
+Added at 6b's acceptance (scope call A). **Value**: decision 1 holds on a deep layer too. A shell
+on a deep box reaches its layer-mates the way a LAN hop reaches its LAN, not only through a
+forward. **Path**: `ssh` routes a target on a layer the shell reaches (`vantageOf(...).reaches`)
+to that layer's host; the server's reach gate accepts a login from a box that reaches the layer,
+and logs it under the caller's address there (`segmentsReachedFrom`). Slices 7–9 apply the same
+routing to their tools. **Decisions**: 1, 7. **Watch for**: this makes a forward optional once a
+player roots a chain gateway — decision 1's accepted consequence, now on deep layers; and whether
+`ssh` to a layer's `.1` lands on the gateway fronting it.
 
 ### Slice 7: The web tools run from a hop
 
