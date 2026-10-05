@@ -31,6 +31,8 @@ import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
 import { accountsIn } from '../src/core/sessions/passwdAccount.js';
 import { md5 } from '../src/core/generation/md5.js';
 import { AUTH_LOG_PATH } from '../src/core/logging/authLog.js';
+import { lanAddressFor } from '../src/core/network/lanAddress.js';
+import { leaveNetwork, standOnNetwork } from './standVantage.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const url = process.env.SUPABASE_URL;
@@ -72,8 +74,12 @@ const ESSID = 'SHARED-LOGIN-WIFI';
 const alice = generateIdentity();
 const bob = generateIdentity();
 
-const ALICE_IP = '192.168.1.60';
-const BOB_IP = '192.168.1.61';
+// The server derives each login's source address from the lease the player holds, so the
+// addresses are the ones those leases name on this ESSID's own /24 — not literals.
+const ALICE_OCTET = 60;
+const BOB_OCTET = 61;
+const ALICE_IP = lanAddressFor(ESSID, ALICE_OCTET);
+const BOB_IP = lanAddressFor(ESSID, BOB_OCTET);
 
 /** An ordinary generated sibling running ssh. `kind === 'machine'` is load-bearing: a
  *  router or switch above `.1` is an INNER GATEWAY, which logs in through a different
@@ -131,6 +137,7 @@ const linesIn = (content: string): readonly string[] =>
   content.split('\n').filter((line) => line.length > 0);
 
 const cleanUp = async () => {
+  await leaveNetwork(sr, ESSID);
   await sr.from('patches').delete().eq('machine_id', targetMachine).eq('path', AUTH_LOG_PATH);
   await sr.from('sessions').delete().eq('player_key', alice.publicKeyHex);
   await sr.from('sessions').delete().eq('player_key', bob.publicKeyHex);
@@ -143,6 +150,10 @@ const main = async () => {
   // identical across runs, so a crashed earlier run leaves rows this run would read as
   // its own.
   await cleanUp();
+  // Both players are at home on this lab network: the server places their logins — and
+  // derives the address each is seen from — off these leases.
+  await standOnNetwork(sr, ESSID, alice, ALICE_OCTET);
+  await standOnNetwork(sr, ESSID, bob, BOB_OCTET);
 
   const before = await authLogRows();
   check(

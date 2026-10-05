@@ -493,6 +493,7 @@ async function* renderExploitResult(
     userType: result.userType,
     kind: result.kind,
     createdAt: env.now(),
+    essid: result.essid,
   });
   env.setCwd(homeDirectory({ username: result.username, userType: result.userType }));
   return 0;
@@ -606,6 +607,8 @@ async function* fireLocalShell(
     userType: outcome.tier,
     kind,
     createdAt: env.now(),
+    // The same box, so the same network: elevating moves the user, never the shell.
+    essid: env.session.essid,
   });
   env.setCwd(homeDirectory({ username: account.username, userType: outcome.tier }));
   // The session now stands, so the box records it opening — the one trace a shell success

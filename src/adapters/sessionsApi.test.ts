@@ -12,6 +12,9 @@ import {
   endServerSession,
   rebootServerMachine,
   listServerSessions,
+  ncConnectServerInnerGateway,
+  ncConnectServerPublic,
+  ncConnectServerSameLan,
   runExploit,
   postExploitLocalElevate,
   type SessionsClientDeps,
@@ -49,6 +52,7 @@ const sessionFor = (deps: SessionsClientDeps, over: Partial<Session> = {}): Sess
   userType: 'root',
   kind: 'su',
   createdAt: asEpochMs(0),
+  essid: null,
   ...over,
 });
 
@@ -154,7 +158,7 @@ describe('authCreateServerSession', () => {
     username: 'root',
     password: 'hunter2',
     parentSessionId: 'su-root-1',
-    sourceIp: '192.168.50.23',
+    callerMachineId: 'web-04-cafef00d',
   };
 
   it('POSTs a signed authCreateSession envelope and returns the server-derived userType', async () => {
@@ -174,8 +178,22 @@ describe('authCreateServerSession', () => {
       username: 'root',
       password: 'hunter2',
       parent_session_id: 'su-root-1',
-      source_ip: '192.168.50.23',
+      caller_machine_id: 'web-04-cafef00d',
     });
+    // Where the login comes from is the server's to derive from the box named.
+    expect(verified.payload).not.toHaveProperty('source_ip');
+  });
+
+  it('names no box when the shell is on the player’s own workstation', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true, userType: 'root' }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+    const { callerMachineId: _standingNowhere, ...fromHome } = params;
+
+    await authCreateServerSession(deps, fromHome);
+
+    const verified = await verifyPayload(sentEnvelope(fetchSpy));
+    if (!verified.ok) throw new Error('expected a verified envelope');
+    expect(verified.payload).not.toHaveProperty('caller_machine_id');
   });
 
   it('passes through a non-root userType (user)', async () => {
@@ -258,13 +276,23 @@ describe('authCreateServerSessionPublic', () => {
 
   it('POSTs a signed authCreateSessionPublic envelope and returns the userType + owner machine id', async () => {
     const fetchSpy = vi.fn(async () =>
-      jsonResponse(200, { ok: true, userType: 'guest', machine_id: 'skylab-deadbeef' }),
+      jsonResponse(200, {
+        ok: true,
+        userType: 'guest',
+        machine_id: 'skylab-deadbeef',
+        essid: 'SKYLAB-HOME',
+      }),
     );
     const deps = makeDeps(fetchSpy as unknown as typeof fetch);
 
     const result = await authCreateServerSessionPublic(deps, params);
 
-    expect(result).toEqual({ ok: true, userType: 'guest', machineId: 'skylab-deadbeef' });
+    expect(result).toEqual({
+      ok: true,
+      userType: 'guest',
+      machineId: 'skylab-deadbeef',
+      essid: 'SKYLAB-HOME',
+    });
     const verified = await verifyPayload(sentEnvelope(fetchSpy));
     if (!verified.ok) throw new Error('expected a verified envelope');
     expect(verified.payload).toMatchObject({
@@ -333,6 +361,18 @@ describe('authCreateServerSessionPublic', () => {
     });
   });
 
+  it('maps a 200 that names no network to network_error (a shell must know where it stands)', async () => {
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse(200, { ok: true, userType: 'guest', machine_id: 'skylab-deadbeef' }),
+    );
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await authCreateServerSessionPublic(deps, params)).toEqual({
+      ok: false,
+      error: 'network_error',
+    });
+  });
+
   it('maps a thrown fetch (offline) to network_error', async () => {
     const fetchSpy = vi.fn(async () => {
       throw new Error('offline');
@@ -366,7 +406,13 @@ describe('authCreateServerSessionSameLan', () => {
 
     const result = await authCreateServerSessionSameLan(deps, params);
 
-    expect(result).toEqual({ ok: true, userType: 'guest', machineId: 'skylab-deadbeef' });
+    // The box is on the very network the login was made across.
+    expect(result).toEqual({
+      ok: true,
+      userType: 'guest',
+      machineId: 'skylab-deadbeef',
+      essid: 'SHARED-LAN-WIFI',
+    });
     const verified = await verifyPayload(sentEnvelope(fetchSpy));
     if (!verified.ok) throw new Error('expected a verified envelope');
     expect(verified.payload).toMatchObject({
@@ -469,7 +515,12 @@ describe('authCreateServerSessionInnerGateway', () => {
 
     const result = await authCreateServerSessionInnerGateway(deps, params);
 
-    expect(result).toEqual({ ok: true, userType: 'guest', machineId: 'iot-cam-deadbeef' });
+    expect(result).toEqual({
+      ok: true,
+      userType: 'guest',
+      machineId: 'iot-cam-deadbeef',
+      essid: 'BEAN-THERE-WIFI',
+    });
     const verified = await verifyPayload(sentEnvelope(fetchSpy));
     if (!verified.ok) throw new Error('expected a verified envelope');
     expect(verified.payload).toMatchObject({
@@ -578,6 +629,7 @@ describe('runExploit', () => {
         userType: 'root',
         kind: 'exploit',
         machine_id: 'darkstar-12345678',
+        essid: 'BEAN-THERE-WIFI',
       }),
     );
     const deps = makeDeps(fetchSpy as unknown as typeof fetch);
@@ -594,6 +646,7 @@ describe('runExploit', () => {
       // Renamed on the way in: the wire spells it as every other door does, and the shell
       // that lands is stood on the box the SERVER named rather than one derived here.
       machineId: 'darkstar-12345678',
+      essid: 'BEAN-THERE-WIFI',
     });
     const verified = await verifyPayload(sentEnvelope(fetchSpy));
     if (!verified.ok) throw new Error('expected a verified envelope');
@@ -625,6 +678,7 @@ describe('runExploit', () => {
         userType: 'guest',
         kind: 'exploit_limited',
         machine_id: 'vault-87654321',
+        essid: 'BEAN-THERE-WIFI',
       }),
     );
     const deps = makeDeps(fetchSpy as unknown as typeof fetch);
@@ -746,6 +800,7 @@ describe('runExploit', () => {
         // refusal would stand on two faults at once, and the day the enum stopped catching
         // this one the test would go on passing on the other.
         machine_id: 'darkstar-12345678',
+        essid: 'BEAN-THERE-WIFI',
       }),
     );
     const deps = makeDeps(fetchSpy as unknown as typeof fetch);
@@ -765,6 +820,7 @@ describe('runExploit', () => {
         // As above: the KIND is the only thing wrong here, so the refusal cannot be
         // standing on a second fault that would outlive a regression in the first.
         machine_id: 'darkstar-12345678',
+        essid: 'BEAN-THERE-WIFI',
       }),
     );
     const deps = makeDeps(fetchSpy as unknown as typeof fetch);
@@ -785,6 +841,27 @@ describe('runExploit', () => {
         username: 'root',
         userType: 'root',
         kind: 'exploit',
+        essid: 'BEAN-THERE-WIFI',
+      }),
+    );
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await runExploit(deps, params)).toEqual({ ok: false, error: 'network_error' });
+  });
+
+  it('refuses a grant that never says which network the box is on', async () => {
+    // A shell is a place to stand, and every network command typed into it travels from
+    // that box's network. A public gateway's is not the caller's own, and only the server
+    // knows which it is.
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse(200, {
+        ok: true,
+        cve: 'CVE-2026-0184',
+        severity: 'critical',
+        username: 'root',
+        userType: 'root',
+        kind: 'exploit',
+        machine_id: 'darkstar-12345678',
       }),
     );
     const deps = makeDeps(fetchSpy as unknown as typeof fetch);
@@ -1160,6 +1237,7 @@ describe('postExploitLocalElevate', () => {
         userType: 'root',
         kind: 'exploit',
         machine_id: 'alice-workstation-1234',
+        essid: 'BEAN-THERE-WIFI',
       }),
     );
     const deps = makeDeps(fetchSpy as unknown as typeof fetch);
@@ -1174,6 +1252,7 @@ describe('postExploitLocalElevate', () => {
       userType: 'root',
       kind: 'exploit',
       machineId: 'alice-workstation-1234',
+      essid: 'BEAN-THERE-WIFI',
     });
     const verified = await verifyPayload(sentEnvelope(fetchSpy));
     if (!verified.ok) throw new Error('expected a verified envelope');
@@ -1205,6 +1284,7 @@ describe('postExploitLocalElevate', () => {
         userType: 'guest',
         kind: 'exploit_limited',
         machine_id: 'alice-workstation-1234',
+        essid: 'BEAN-THERE-WIFI',
       }),
     );
     const deps = makeDeps(fetchSpy as unknown as typeof fetch);
@@ -1514,6 +1594,62 @@ describe('rebootServerMachine', () => {
   });
 });
 
+describe('the backdoor doors', () => {
+  const opened = { ok: true, username: 'mallory', userType: 'user', machine_id: 'alice-ws-0b0b0b0b' };
+  const shared = { sessionId: 'nc-4444-1', port: 4444, parentSessionId: 'shell-1', sourceIp: null };
+
+  it('stands a public knock on the network the server says the box is on', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(200, { ...opened, essid: 'ALICE-HOME' }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    const result = await ncConnectServerPublic(deps, {
+      ...shared,
+      target: '203.0.113.7',
+      callerMachineId: 'web-04-cafef00d',
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      username: 'mallory',
+      userType: 'user',
+      machineId: 'alice-ws-0b0b0b0b',
+      essid: 'ALICE-HOME',
+    });
+  });
+
+  it('refuses a public knock whose answer names no network', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(200, opened));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    const result = await ncConnectServerPublic(deps, {
+      ...shared,
+      target: '203.0.113.7',
+      callerMachineId: 'web-04-cafef00d',
+    });
+
+    expect(result).toEqual({ ok: false, error: 'network_error' });
+  });
+
+  it('stands a knock across a LAN on the network it was made across', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(200, opened));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    const sameLan = await ncConnectServerSameLan(deps, {
+      ...shared,
+      essid: 'SHARED-LAN-WIFI',
+      targetIp: '192.168.29.42',
+    });
+    const forwarded = await ncConnectServerInnerGateway(deps, {
+      ...shared,
+      essid: 'BEAN-THERE-WIFI',
+      target: '192.168.29.25',
+    });
+
+    expect(sameLan).toMatchObject({ ok: true, essid: 'SHARED-LAN-WIFI' });
+    expect(forwarded).toMatchObject({ ok: true, essid: 'BEAN-THERE-WIFI' });
+  });
+});
+
 describe('listServerSessions', () => {
   it('POSTs a signed listSessions envelope (no machine scope) and maps rows to Sessions', async () => {
     const summary = {
@@ -1524,8 +1660,19 @@ describe('listServerSessions', () => {
       source_ip: null,
       kind: 'su',
       created_at: '2026-06-07T14:32:01.000Z',
+      essid: null,
     };
-    const fetchSpy = vi.fn(async () => jsonResponse(200, { sessions: [summary] }));
+    const hop = {
+      session_id: 'ssh-root-1700000000001',
+      machine_id: 'web-04-cafef00d',
+      credentials: { username: 'root', userType: 'root' },
+      parent_session_id: 'su-root-1700000000000',
+      source_ip: null,
+      kind: 'ssh',
+      created_at: '2026-06-07T14:33:01.000Z',
+      essid: 'RIDGEMONT-OFFICE',
+    };
+    const fetchSpy = vi.fn(async () => jsonResponse(200, { sessions: [summary, hop] }));
     const deps = makeDeps(fetchSpy as unknown as typeof fetch);
 
     const sessions = await listServerSessions(deps);
@@ -1546,6 +1693,18 @@ describe('listServerSessions', () => {
         userType: 'root',
         kind: 'su',
         createdAt: Date.parse('2026-06-07T14:32:01.000Z'),
+        essid: null,
+      },
+      {
+        id: 'ssh-root-1700000000001',
+        playerKey: deps.identity.publicKeyHex,
+        machineId: 'web-04-cafef00d',
+        username: 'root',
+        userType: 'root',
+        kind: 'ssh',
+        createdAt: Date.parse('2026-06-07T14:33:01.000Z'),
+        // A reload stands the shell back on the hop's network, not the player's home.
+        essid: 'RIDGEMONT-OFFICE',
       },
     ]);
   });

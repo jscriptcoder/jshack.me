@@ -39,6 +39,7 @@ import {
   type MachineLogReadResult,
 } from '../patches/appendMachineLog.js';
 import { accountIn } from './passwdAccount.js';
+import { resolveCallerVantage, type CallerVantageDeps } from './callerVantage.js';
 import { asGameTime, type UserType } from '../types.js';
 import type { PatchRow } from '../patches/upsertPatch.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
@@ -86,7 +87,7 @@ export type AuthSessionRow = {
   readonly essid: string;
 };
 
-export type AuthCreateSessionDeps = {
+export type AuthCreateSessionDeps = CallerVantageDeps & {
   readonly nonceStore: NonceStore;
   /** The server's wall clock, epoch-ms (UTC) — stamps the auth.log line. */
   readonly now: () => number;
@@ -127,6 +128,11 @@ const authCreateSessionSchema = z
     username: z.string().min(1).optional(),
     password: z.string().optional(),
     parent_session_id: z.string().min(1).nullable().optional(),
+    // The box the shell is standing on — the server reads WHERE the caller is from it,
+    // and derives the source address itself. Absent means the caller's own workstation.
+    caller_machine_id: z.string().min(1).optional(),
+    // Still accepted so an older caller does not 400, but never read: the server stamps
+    // the source address from the caller's own lease or hop, never from a claim.
     source_ip: z.string().min(1).nullable().optional(),
     // Absent means ssh, so every shipped caller keeps working untouched.
     kind: z.enum(DOOR_KINDS).default('ssh'),
@@ -245,8 +251,21 @@ export const handleAuthCreateSession = async (
   }
   const { publicKey, payload } = verified;
 
-  // Resolve the target on the caller's OWN regenerated LAN: gives the host needed
-  // to rebuild its FS, and proves target_ip is a real reachable host.
+  // Where the caller is STANDING, derived from the session they hold on the box they
+  // name (or their own occupancy when they name none) — never from a claim. The target
+  // is reached from there, so a login naming a network the caller is not on is refused
+  // before anything is regenerated or logged: it would otherwise let a crafted request
+  // write an attack up as some network it never touched.
+  const vantage = await resolveCallerVantage(deps, publicKey, payload.caller_machine_id);
+  if (!vantage.ok) {
+    return { status: vantage.status, body: { error: vantage.error } };
+  }
+  if (vantage.essid !== payload.essid) {
+    return { status: 403, body: { error: 'wrong_network' } };
+  }
+
+  // Resolve the target on the LAN the caller STANDS on: gives the host needed to
+  // rebuild its FS, and proves target_ip is a real reachable host there.
   const host = generateHomeLan(payload.essid).hosts.find(
     (candidate) => candidate.ip === payload.target_ip,
   );
@@ -289,7 +308,9 @@ export const handleAuthCreateSession = async (
       machine_id: machineId,
       credentials,
       parent_session_id: payload.parent_session_id ?? null,
-      source_ip: payload.source_ip ?? null,
+      // The address the box actually saw, derived server-side — null when the LAN
+      // cannot place the caller (a player box, a deep host, or no lease).
+      source_ip: vantage.sourceIp,
       kind: payload.kind,
       essid: payload.essid,
     });
@@ -340,7 +361,7 @@ export const handleAuthCreateSession = async (
     machineId,
     host,
     username: payload.username,
-    fromIp: payload.source_ip ?? 'unknown',
+    fromIp: vantage.sourceIp ?? 'unknown',
     outcome: passwordOk ? 'success' : 'failure',
     sweepLog: spec.sweepLog,
   });

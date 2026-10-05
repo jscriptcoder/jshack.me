@@ -50,6 +50,7 @@ import type {
 
 const PUBKEY = 'a'.repeat(64);
 const ESSID = 'BEAN-THERE-WIFI';
+const THEIR_ESSID = 'SKYLAB-HOME';
 const NOW = 1700000000000;
 const SOURCE = '/root/passwords.txt';
 const WORDS = 'hunter2\nletmein\ncorrectbatteryhorse\n';
@@ -233,6 +234,7 @@ describe('scp', () => {
     expect(write).toHaveBeenCalledTimes(1);
     expect(write.mock.calls[0]![0]).toMatchObject({
       machineId: hostMachineId(sshHost, ESSID),
+      essid: ESSID,
     });
   });
 
@@ -586,9 +588,9 @@ describe('scp', () => {
 
     await drain(await scp.execute(env, upload(sshHost), new Map()));
 
-    // The defender's only lead on a silent door. Reported here because on the
-    // player's own LAN it is the one address the target could have seen.
-    expect(authenticate.mock.calls[0]![0].sourceIp).toBe(assignHomeNetwork(PUBKEY, ESSID).localIp);
+    // The defender's only lead on a silent door, so it is the server's to derive from
+    // the player's own lease — never a claim this side makes.
+    expect(authenticate.mock.calls[0]![0]).not.toHaveProperty('sourceIp');
   });
 
   it('names the account and host it is asking a password for', async () => {
@@ -1012,7 +1014,7 @@ describe('scp', () => {
           ...base.scp,
           authenticatePublic:
             over.authenticatePublic ??
-            (async () => ({ ok: true, userType: 'root', machineId: THEIR_BOX })),
+            (async () => ({ ok: true, userType: 'root', machineId: THEIR_BOX, essid: THEIR_ESSID })),
         }),
       });
     };
@@ -1033,7 +1035,7 @@ describe('scp', () => {
       const write = vi.fn<NonNullable<EnvOver['write']>>(async () => ({ ok: true }));
       const authenticatePublic = vi.fn<
         (params: PublicDoorAuthParams) => Promise<PublicAuthResult>
-      >(async () => ({ ok: true, userType: 'root', machineId: THEIR_BOX }));
+      >(async () => ({ ok: true, userType: 'root', machineId: THEIR_BOX, essid: THEIR_ESSID }));
       const env = publicEnv({ write, authenticatePublic });
 
       const { lines, exitCode } = await drain(
@@ -1048,7 +1050,11 @@ describe('scp', () => {
       });
       // The client cannot know which box a stranger's port reaches, so the write is
       // stamped with the id that came back rather than one resolved here.
-      expect(write.mock.calls[0]![0]).toMatchObject({ machineId: THEIR_BOX, kind: 'scp' });
+      expect(write.mock.calls[0]![0]).toMatchObject({
+        machineId: THEIR_BOX,
+        kind: 'scp',
+        essid: THEIR_ESSID,
+      });
       expect(write.mock.calls[0]![1]).toBe(REMOTE_DEST);
       expect(write.mock.calls[0]![2]).toBe(WORDS);
       expect(lines).toEqual([
@@ -1079,7 +1085,7 @@ describe('scp', () => {
     it('names the box the transfer is being run from, so the target learns where it came from', async () => {
       const authenticatePublic = vi.fn<
         (params: PublicDoorAuthParams) => Promise<PublicAuthResult>
-      >(async () => ({ ok: true, userType: 'root', machineId: THEIR_BOX }));
+      >(async () => ({ ok: true, userType: 'root', machineId: THEIR_BOX, essid: THEIR_ESSID }));
 
       await drain(
         await scp.execute(publicEnv({ authenticatePublic }), carryAcross(), forwarded),
@@ -1094,7 +1100,7 @@ describe('scp', () => {
       const prompt = vi.fn<NonNullable<EnvOver['prompt']>>(async () => 'hunter2');
       const authenticatePublic = vi.fn<
         (params: PublicDoorAuthParams) => Promise<PublicAuthResult>
-      >(async () => ({ ok: true, userType: 'root', machineId: THEIR_BOX }));
+      >(async () => ({ ok: true, userType: 'root', machineId: THEIR_BOX, essid: THEIR_ESSID }));
       const env = publicEnv({
         prompt,
         authenticatePublic,
@@ -1116,7 +1122,7 @@ describe('scp', () => {
     it('opens on the forward that answers ssh, even when their box publishes others', async () => {
       const authenticatePublic = vi.fn<
         (params: PublicDoorAuthParams) => Promise<PublicAuthResult>
-      >(async () => ({ ok: true, userType: 'root', machineId: THEIR_BOX }));
+      >(async () => ({ ok: true, userType: 'root', machineId: THEIR_BOX, essid: THEIR_ESSID }));
       const env = publicEnv({
         authenticatePublic,
         ports: [
@@ -1164,7 +1170,7 @@ describe('scp', () => {
     it('knocks on the ssh port when the player names none', async () => {
       const authenticatePublic = vi.fn<
         (params: PublicDoorAuthParams) => Promise<PublicAuthResult>
-      >(async () => ({ ok: true, userType: 'root', machineId: THEIR_BOX }));
+      >(async () => ({ ok: true, userType: 'root', machineId: THEIR_BOX, essid: THEIR_ESSID }));
       const env = publicEnv({ authenticatePublic, ports: [{ port: 22, service: 'ssh' }] });
 
       await drain(await scp.execute(env, carryAcross(), new Map()));
@@ -1181,7 +1187,7 @@ describe('scp', () => {
     ])('falls back to the ssh port when -p carries %s', async (_case, value) => {
       const authenticatePublic = vi.fn<
         (params: PublicDoorAuthParams) => Promise<PublicAuthResult>
-      >(async () => ({ ok: true, userType: 'root', machineId: THEIR_BOX }));
+      >(async () => ({ ok: true, userType: 'root', machineId: THEIR_BOX, essid: THEIR_ESSID }));
       const env = publicEnv({ authenticatePublic, ports: [{ port: 22, service: 'ssh' }] });
 
       await drain(await scp.execute(env, carryAcross(), new Map([['-p', value]])));
@@ -1229,7 +1235,7 @@ describe('scp', () => {
       const prompt = vi.fn<NonNullable<EnvOver['prompt']>>(async () => 'hunter2');
       const authenticatePublic = vi.fn<
         (params: PublicDoorAuthParams) => Promise<PublicAuthResult>
-      >(async () => ({ ok: true, userType: 'root', machineId: THEIR_BOX }));
+      >(async () => ({ ok: true, userType: 'root', machineId: THEIR_BOX, essid: THEIR_ESSID }));
       const env = publicEnv({ prompt, authenticatePublic });
 
       const { lines, exitCode } = await drain(

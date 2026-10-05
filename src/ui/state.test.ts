@@ -772,7 +772,7 @@ describe('a transfer across the network', () => {
           return {
             ok: true,
             status: 200,
-            json: async () => ({ ok: true, userType: 'root', machine_id: THEIR_BOX }),
+            json: async () => ({ ok: true, userType: 'root', machine_id: THEIR_BOX, essid: ESSID }),
           };
         }
         // The stranger's box, materialized by the only party that can: the server.
@@ -943,7 +943,7 @@ describe('the ftp sub-shell', () => {
           return {
             ok: true,
             status: 200,
-            json: async () => ({ ok: true, userType: 'guest', machine_id: FTP_MACHINE_ID }),
+            json: async () => ({ ok: true, userType: 'guest', machine_id: FTP_MACHINE_ID, essid: ESSID }),
           };
         }
         // A write aimed at a TARGET is kept, the way the server keeps it: a journal
@@ -1455,7 +1455,7 @@ describe('an ftp session on a box across the network', () => {
         // server only says whether the credential opened it.
         if (fields.action === 'authCreateSession') return json({ ok: true, userType: 'guest' });
         if (fields.action === 'authCreateSessionPublic') {
-          return json({ ok: true, username: 'guest', userType: 'guest', machine_id: THEIR_BOX });
+          return json({ ok: true, username: 'guest', userType: 'guest', machine_id: THEIR_BOX, essid: THEIR_ESSID });
         }
         // The stranger's box, materialized by the only party that can: seeded base with
         // the journal replayed over it, which is what the endpoint actually returns.
@@ -2636,7 +2636,7 @@ describe('a backdoor on a box across the network', () => {
         // netcat knocks instead of grabbing a banner.
         if (fields.action === 'resolvePublicScan') return json({ found: true, ports: [] });
         if (fields.action === 'authCreateSessionPublic') {
-          return json({ ok: true, username: 'mallory', userType: 'root', machine_id: THEIR_BOX });
+          return json({ ok: true, username: 'mallory', userType: 'root', machine_id: THEIR_BOX, essid: THEIR_ESSID });
         }
         // The stranger's box, materialized by the only party that can.
         if (fields.action === 'resolveCrossPlayerFs') {

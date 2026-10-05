@@ -53,6 +53,8 @@ type SuEnvOpts = {
   readonly typed?: string;
   /** The tier of the session running `su` (the caller). Defaults to user. */
   readonly callerType?: UserType;
+  /** The network of the box `su` runs on — null for the player's own workstation. */
+  readonly essid?: string | null;
 };
 
 /** Build an env around a realistic `/etc/passwd` (root with a password, the
@@ -87,6 +89,7 @@ const suEnv = (opts: SuEnvOpts = {}) => {
       playerKey: PUBKEY,
       username: userName,
       userType: callerType,
+      essid: opts.essid ?? null,
     }),
     fs: mockFsViewFromTree(tree, { userType: callerType, cwd: () => asAbsPath('/') }),
     now: () => asEpochMs(123),
@@ -139,6 +142,18 @@ describe('su', () => {
     // output array is genuinely empty (not just that its joined text is blank).
     expect(text).toBe('');
     expect(lineCount).toBe(0);
+  });
+
+  it('stays on the network of the box it runs on — the user changes, not the box', async () => {
+    const { env, pushed } = suEnv({
+      rootPassword: 'hunter2',
+      typed: 'hunter2',
+      essid: 'RIDGEMONT-OFFICE',
+    });
+
+    await su.execute(env, [], NO_FLAGS);
+
+    expect(pushed[0]).toMatchObject({ machineId: MACHINE, essid: 'RIDGEMONT-OFFICE' });
   });
 
   it('requests the password through a MASKED prompt', async () => {
@@ -356,6 +371,7 @@ describe('su', () => {
           username: 'guest',
           userType: 'guest',
           kind: 'ssh',
+          essid: 'SKYLAB-HOME',
         }),
         network: mockNetworkView({ interfaces: () => [onlineWlan0(ESSID)], isOnline: () => true }),
         now: () => asEpochMs(123),
@@ -412,6 +428,8 @@ describe('su', () => {
         kind: 'su',
         machineId: FOREIGN_MACHINE,
         playerKey: PUBKEY,
+        // Still on the owner's network, where the ssh beneath it stood.
+        essid: 'SKYLAB-HOME',
       });
       expect(cwds).toEqual(['/root']);
       expect(exitCode).toBe(0);

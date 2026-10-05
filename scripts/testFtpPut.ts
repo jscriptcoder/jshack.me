@@ -36,6 +36,7 @@ import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
 import { ALL_GENERATED_PASSWORDS } from '../src/core/generation/passwordPools.js';
 import { accountsIn } from '../src/core/sessions/passwdAccount.js';
 import { md5 } from '../src/core/generation/md5.js';
+import { leaveNetwork, standOnNetwork } from './standVantage.js';
 import type { UserType } from '../src/core/types.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
@@ -163,12 +164,15 @@ const contentAt = async (path: string): Promise<string | null> => {
 };
 
 const clear = async () => {
+  await leaveNetwork(sr, ESSID);
   await sr.from('sessions').delete().eq('player_key', player.publicKeyHex);
   await sr.from('patches').delete().eq('machine_id', targetMachine);
 };
 
 const main = async (): Promise<void> => {
   await clear();
+  // Seat the player on the lab network so the server can place their login.
+  await standOnNetwork(sr, ESSID, player, 50);
 
   // --- the baseline: no session, nothing lands ---
   const uninvited = await put(OPEN, asGuest.username);

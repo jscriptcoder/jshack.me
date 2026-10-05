@@ -31,6 +31,8 @@ import {
 } from '../services/pidfile.js';
 import { derivePid } from '../logging/syslog.js';
 import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
+import { lanAddressFor } from '../network/lanAddress.js';
+import { machineIdForLanHost } from '../generation/lanTopology.js';
 import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog.js';
 import type { OwnerPatchRow } from '../network/materializeMachineFs.js';
 import type { PatchRow } from '../patches/upsertPatch.js';
@@ -54,6 +56,13 @@ const ESSID = 'BEAN-THERE-WIFI';
 // 2026-06-07 14:32:01 UTC — the server clock the auth.log line is stamped with.
 const FIXED_NOW = Date.UTC(2026, 5, 7, 14, 32, 1);
 
+// The caller's lease octet on ESSID, and the address the server DERIVES from it — the one
+// a login is logged and stored under, in place of anything the client claims. The whole
+// suite stands the caller on their own home LAN (ESSID) by default; the hop tests name a
+// box instead.
+const HOME_OCTET = 50;
+const DERIVED_IP = lanAddressFor(ESSID, HOME_OCTET);
+
 const makeDeps = (over: Partial<AuthCreateSessionDeps> = {}) => {
   const insertSession = vi.fn<(row: AuthSessionRow) => Promise<{ error: unknown }>>(async () => ({
     error: null,
@@ -73,6 +82,16 @@ const makeDeps = (over: Partial<AuthCreateSessionDeps> = {}) => {
       error: unknown;
     }>
   >(async () => ({ data: [], error: null }));
+  // By default the caller stands on their own home LAN (ESSID), holding a lease at
+  // HOME_OCTET — so the server derives DERIVED_IP for every login with no box named.
+  const findActiveSession = vi.fn<AuthCreateSessionDeps['findActiveSession']>(async () => ({
+    data: null,
+    error: null,
+  }));
+  const findHomeVantage = vi.fn<AuthCreateSessionDeps['findHomeVantage']>(async () => ({
+    data: { essid: ESSID, octet: HOME_OCTET },
+    error: null,
+  }));
   const deps: AuthCreateSessionDeps = {
     nonceStore: freshStore,
     now: () => FIXED_NOW,
@@ -80,9 +99,11 @@ const makeDeps = (over: Partial<AuthCreateSessionDeps> = {}) => {
     readAuthLog,
     upsertPatch,
     findPatches,
+    findActiveSession,
+    findHomeVantage,
     ...over,
   };
-  return { deps, insertSession, upsertPatch, readAuthLog, findPatches };
+  return { deps, insertSession, upsertPatch, readAuthLog, findPatches, findActiveSession, findHomeVantage };
 };
 
 /** The sshd auth.log line the server is expected to stamp for an attempt at
@@ -91,7 +112,7 @@ const expectedSshdLine = (
   host: LanHost,
   outcome: 'success' | 'failure',
   user: string,
-  fromIp = '192.168.1.50',
+  fromIp = DERIVED_IP,
 ): string =>
   formatSshdAuthLine({
     outcome,
@@ -206,7 +227,7 @@ const hostServing = (service: string, serves: boolean): LanHost => {
 /** The vsftpd CONNECT line that precedes every login attempt at `FIXED_NOW`. */
 const expectedConnectLine = (): string =>
   formatVsftpdConnectLine({
-    fromIp: '192.168.1.50',
+    fromIp: DERIVED_IP,
     time: asGameTime(FIXED_NOW),
     pid: derivePid(FIXED_NOW),
   });
@@ -216,7 +237,7 @@ const expectedVsftpdLine = (outcome: 'success' | 'failure', user: string): strin
   formatVsftpdLoginLine({
     outcome,
     user,
-    fromIp: '192.168.1.50',
+    fromIp: DERIVED_IP,
     hostname: '',
     time: asGameTime(FIXED_NOW),
     pid: derivePid(FIXED_NOW),
@@ -239,7 +260,8 @@ describe('handleAuthCreateSession', () => {
       machine_id: hostMachineId(host, ESSID),
       credentials: { username: 'root', userType: 'root' },
       parent_session_id: 'su-root-1',
-      source_ip: '192.168.1.50',
+      // SERVER-derived from the caller's lease, never the client's claim.
+      source_ip: DERIVED_IP,
       kind: 'ssh',
       // essid is the regeneration key the server needs later (L1/L2); target_ip is
       // NOT stored — it is recoverable from (essid, machine_id) via hostForMachineId.
@@ -317,7 +339,7 @@ describe('handleAuthCreateSession', () => {
     expect(insertSession).not.toHaveBeenCalled();
   });
 
-  it('defaults parent_session_id and source_ip to null when omitted', async () => {
+  it('defaults parent_session_id to null when omitted, and still stores the derived source', async () => {
     const id = generateIdentity();
     const host = targetHostFor();
     const fs = buildRemoteHostFs(ESSID, host);
@@ -336,7 +358,21 @@ describe('handleAuthCreateSession', () => {
 
     const row = insertSession.mock.calls[0]![0];
     expect(row.parent_session_id).toBeNull();
-    expect(row.source_ip).toBeNull();
+    // The source address is the server's to derive, so it stands whether or not the
+    // client sent one — the omitted field changes nothing.
+    expect(row.source_ip).toBe(DERIVED_IP);
+  });
+
+  it('stores a null source for a caller the LAN cannot place (no lease)', async () => {
+    const id = generateIdentity();
+    const host = targetHostFor();
+    const { deps, insertSession } = makeDeps({
+      findHomeVantage: async () => ({ data: { essid: ESSID, octet: null }, error: null }),
+    });
+
+    await handleAuthCreateSession(validEnvelope(id, host, 'root'), deps);
+
+    expect(insertSession.mock.calls[0]![0].source_ip).toBeNull();
   });
 
   it('rejects a payload missing a required field with 400 payload_invalid and never inserts', async () => {
@@ -629,30 +665,127 @@ describe('handleAuthCreateSession', () => {
     });
   });
 
-  it('carries the caller source_ip into the auth.log line', async () => {
+  it('stamps the server-derived address into the auth.log line, ignoring a client claim', async () => {
     const id = generateIdentity();
     const host = targetHostFor();
     const { deps, upsertPatch } = makeDeps();
 
+    // The client claims some other address; a defender's log must name the one the box
+    // actually saw, which is the server's to derive.
     await handleAuthCreateSession(validEnvelope(id, host, 'root', { source_ip: '10.9.8.7' }), deps);
 
-    expect(upsertPatch.mock.calls[0]![0].content).toContain('from 10.9.8.7');
+    const line = upsertPatch.mock.calls[0]![0].content;
+    expect(line).toContain(`from ${DERIVED_IP}`);
+    expect(line).not.toContain('10.9.8.7');
   });
 
-  it('logs "from unknown" when no source_ip is supplied', async () => {
+  it('logs "from unknown" when the LAN cannot place the caller (no lease)', async () => {
     const id = generateIdentity();
     const host = targetHostFor();
-    const fs = buildRemoteHostFs(ESSID, host);
-    const { source_ip: _drop, ...noSource } = basePayload({
-      target_ip: host.ip,
-      username: 'root',
-      password: passwordFor(fs, 'root'),
+    const { deps, upsertPatch } = makeDeps({
+      findHomeVantage: async () => ({ data: { essid: ESSID, octet: null }, error: null }),
     });
-    const { deps, upsertPatch } = makeDeps();
 
-    await handleAuthCreateSession(signRequest(id, 'authCreateSession', noSource), deps);
+    await handleAuthCreateSession(validEnvelope(id, host, 'root'), deps);
 
     expect(upsertPatch.mock.calls[0]![0].content).toContain('from unknown');
+  });
+
+  describe('the network the login reaches is the one the caller stands on', () => {
+    // A box on the caller's own LAN (ESSID) — the shell stands on a DIFFERENT network
+    // (HOP_ESSID), and names it as where it is operating from.
+    const HOP_ESSID = 'RIDGEMONT-OFFICE';
+    const hopBox = () => {
+      const host = generateHomeLan(HOP_ESSID).hosts.find((candidate) => candidate.kind === 'machine');
+      if (host === undefined) throw new Error('no hop machine');
+      return host;
+    };
+
+    it('refuses a login naming a network the caller is not standing on, logging nothing', async () => {
+      // The caller stands at home (ESSID) but names someone else's network as the target's.
+      const id = generateIdentity();
+      const host = targetHostFor();
+      const { deps, insertSession, upsertPatch } = makeDeps();
+
+      const result = await handleAuthCreateSession(
+        validEnvelope(id, host, 'root', { essid: 'SOMEONE-ELSES-WIFI' }),
+        deps,
+      );
+
+      expect(result).toEqual({ status: 403, body: { error: 'wrong_network' } });
+      expect(insertSession).not.toHaveBeenCalled();
+      expect(upsertPatch).not.toHaveBeenCalled();
+    });
+
+    it('derives the source from the HOP the caller holds, not from their home lease', async () => {
+      // The caller holds a session on a box on HOP_ESSID and logs sideways into another
+      // host on that LAN. The trace names the hop's own address, not the home lease.
+      const hop = hopBox();
+      const id = generateIdentity();
+      const target = generateHomeLan(HOP_ESSID).hosts.find(
+        (candidate) =>
+          candidate.kind === 'machine' &&
+          candidate.ip !== hop.ip &&
+          readOpenPorts(buildRemoteHostFs(HOP_ESSID, candidate)).some(
+            (open) => open.service === 'ssh',
+          ),
+      );
+      if (target === undefined) throw new Error('no second ssh host on the hop LAN');
+      const callerMachineId = machineIdForLanHost(hop, HOP_ESSID);
+      const { deps, insertSession, upsertPatch } = makeDeps({
+        findActiveSession: async () => ({
+          data: { username: 'root', userType: 'root', essid: HOP_ESSID },
+          error: null,
+        }),
+      });
+
+      const result = await handleAuthCreateSession(
+        signRequest(
+          id,
+          'authCreateSession',
+          basePayload({
+            essid: HOP_ESSID,
+            target_ip: target.ip,
+            username: 'root',
+            password: passwordFor(buildRemoteHostFs(HOP_ESSID, target), 'root'),
+            caller_machine_id: callerMachineId,
+          }),
+        ),
+        deps,
+      );
+
+      expect(result.status).toBe(200);
+      expect(insertSession.mock.calls[0]![0].source_ip).toBe(hop.ip);
+      expect(upsertPatch.mock.calls[0]![0].content).toContain(`from ${hop.ip}`);
+    });
+
+    it('refuses when the caller names a box they hold no live session on', async () => {
+      const hop = hopBox();
+      const id = generateIdentity();
+      const { deps, insertSession } = makeDeps({
+        findActiveSession: async () => ({ data: null, error: null }),
+      });
+
+      const result = await handleAuthCreateSession(
+        signRequest(
+          id,
+          'authCreateSession',
+          basePayload({
+            essid: HOP_ESSID,
+            target_ip: hop.ip,
+            username: 'root',
+            password: 'whatever',
+            caller_machine_id: machineIdForLanHost(hop, HOP_ESSID),
+          }),
+        ),
+        deps,
+      );
+
+      // Named-box-with-no-session is the shared L1 refusal, distinct from a crafted
+      // network — the error, not just the status, is what tells them apart.
+      expect(result).toEqual({ status: 403, body: { error: 'no_session' } });
+      expect(insertSession).not.toHaveBeenCalled();
+    });
   });
 
   it('does not append a line when the auth.log read fails (read-modify-write bails)', async () => {
@@ -1060,7 +1193,10 @@ describe('a door with no credential behind it', () => {
     // through it that nothing else covers.
     const id = generateIdentity();
     const { essid, host, listener } = worldsOwnBackdoor();
-    const { deps, insertSession } = makeDeps();
+    // Stand the caller on the carrier's own network — that is the LAN the backdoor is on.
+    const { deps, insertSession } = makeDeps({
+      findHomeVantage: async () => ({ data: { essid, octet: HOME_OCTET }, error: null }),
+    });
 
     const result = await handleAuthCreateSession(
       knock(id, host, { essid, port: listener.port }),

@@ -30,6 +30,9 @@ export type SessionSummary = {
   readonly kind: SessionKind;
   /** ISO-8601 timestamp the DB stamped at insert. */
   readonly created_at: string;
+  /** The network the box belongs to, so a reload stands the shell back on it. Null for a
+   *  session on the player's own workstation, which has no network of its own. */
+  readonly essid: string | null;
 };
 
 export type ListSessionsQuery = {

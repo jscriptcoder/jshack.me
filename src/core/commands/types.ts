@@ -61,6 +61,11 @@ export type Session = {
   readonly userType: UserType;
   readonly kind: SessionKind;
   readonly createdAt: EpochMs;
+  /** The network the box this session stands on belongs to, which is where every
+   *  network command typed into it travels from. `null` is the player's own
+   *  workstation: it has no network of its own, only whichever one their WiFi card
+   *  is associated with at the time. */
+  readonly essid: string | null;
   /** The port whose LISTENER admitted this session — a backdoor's only, because a
    *  backdoor is the only door that has to keep asking whether it is still there.
    *  Every other kind spends its port reaching the box and never needs it again,
@@ -443,8 +448,10 @@ export type RemoteAuthParams = {
   readonly password: string;
   /** The session beneath this hop (the box you ssh FROM), or null at the base. */
   readonly parentSessionId: string | null;
-  /** The IP the connection originates from (the player's wlan0 IP), or null. */
-  readonly sourceIp: string | null;
+  /** The box the shell is standing on, from which the server derives both the network
+   *  the login comes from and the address it arrives from. Absent, the server takes the
+   *  caller's own workstation on whichever network they occupy. */
+  readonly callerMachineId?: string;
 };
 
 /** The outcome of a server-side ssh authentication. On success the userType is
@@ -491,7 +498,14 @@ export type PublicDoorAuthParams = PublicAuthParams & {
  *  OWNER's REAL workstation id (the session target; its name drives the prompt
  *  hostname) and `userType` is server-derived. Errors mirror `RemoteAuthResult`. */
 export type PublicAuthResult =
-  | { readonly ok: true; readonly userType: UserType; readonly machineId: string }
+  | {
+      readonly ok: true;
+      readonly userType: UserType;
+      readonly machineId: string;
+      /** The network the box the session landed on belongs to — where a shell on it
+       *  stands. */
+      readonly essid: string;
+    }
   | {
       readonly ok: false;
       readonly error: 'invalid_credentials' | 'host_unreachable' | 'network_error';
@@ -693,6 +707,8 @@ export type NcPublicResult =
       readonly username: string;
       readonly userType: UserType;
       readonly machineId: string;
+      /** The network the box behind the door belongs to. */
+      readonly essid: string;
     }
   | { readonly ok: false; readonly error: 'host_unreachable' | 'network_error' };
 
@@ -1142,6 +1158,9 @@ export type ExploitRunResult =
        *  generator never filled — has no id this side can derive, and deriving one anyway
        *  would name the seeded sibling that would have stood there instead. */
       readonly machineId: string;
+      /** The network that box belongs to — where the shell stands. A public gateway's is
+       *  not the caller's own, so this too is the server's answer. */
+      readonly essid: string;
     }
   /** A read effect is not a foothold: it hands back a file read at the tier the
    *  severity granted, and stands the player nowhere. `read` carries the outcome —

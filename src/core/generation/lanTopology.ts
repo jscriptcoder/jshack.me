@@ -51,6 +51,15 @@ export const machineIdForLanHost = (host: LanHost, essid: string): string => {
   return hostMachineId(host, essid);
 };
 
+/** The address a box holds on its network's own LAN, recovered from the machine_id a
+ *  session carries, or null for a box the network does not stand on that LAN — a
+ *  player's workstation, whose address is a lease, or a host behind a deeper gateway.
+ *  The one answer the shell and the server both give to "where on the LAN is this
+ *  hop", so the address a player reads off `ifconfig` is the one a log names. */
+export const lanAddressForMachineId = (essid: string, machineId: string): string | null =>
+  generateHomeLan(essid).hosts.find((host) => machineIdForLanHost(host, essid) === machineId)
+    ?.ip ?? null;
+
 /** One gateway in a network's chain: which machine_id keys it, the host it is (its
  *  address, hostname and device kind), which gateway it hangs behind — null for a
  *  Layer-1 inner gateway, which hangs off the home LAN itself — and whether the layer

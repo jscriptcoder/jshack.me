@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { asPlayerKeyHex } from '../types.js';
+import { asMachineId, asPlayerKeyHex } from '../types.js';
+import { generateHomeLan } from '../generation/generateHomeLan.js';
+import { machineIdForLanHost } from '../generation/lanTopology.js';
+import { computeWorkstationId } from '../identity/workstation.js';
 import {
   buildColdStartConnectivity,
   type ConnectivityState,
@@ -10,6 +13,7 @@ import {
   mockCommandEnv,
   mockFsViewFromTree,
   mockNetworkViewFromConnectivity,
+  mockSession,
 } from '../../test/factories/commandEnv.js';
 import { commandRegistry } from './registry.js';
 import { ifconfig } from './ifconfig.js';
@@ -153,5 +157,81 @@ describe('ifconfig', () => {
     expect(text).toContain('wlan0: flags=<UP,BROADCAST,RUNNING,MULTICAST>');
     expect(text).toContain('inet 192.168.1.37  netmask 255.255.255.0');
     expect(text).toContain('gateway 192.168.1.1');
+  });
+});
+
+/**
+ * On a hop, `ifconfig` is the player's readout of where they stand: the hop's own wired
+ * interface and its address on the hop's LAN. The radio stays with the player's body, so
+ * their `wlan0` is not on a box they are only logged into.
+ */
+describe('ifconfig on a hop', () => {
+  const HOP_ESSID = 'RIDGEMONT-OFFICE';
+  const hosts = generateHomeLan(HOP_ESSID).hosts.filter((host) => host.kind === 'machine');
+  const hop = hosts[0]!;
+  const otherHop = hosts[1]!;
+
+  const onHop = async (
+    machineId: string,
+    args: readonly string[] = [],
+  ): Promise<{ readonly text: string; readonly exitCode: number }> => {
+    const env = mockCommandEnv({
+      network: mockNetworkViewFromConnectivity(associatedWlan0(buildColdStartConnectivity(PUBKEY))),
+      session: mockSession({ machineId: asMachineId(machineId), essid: HOP_ESSID, kind: 'ssh' }),
+    });
+    const result = await ifconfig.execute(env, args, NO_FLAGS);
+    if (result.kind !== 'sync') throw new Error('sync expected');
+    return {
+      text: result.lines.map((line) => line.content).join('\n'),
+      exitCode: result.exitCode,
+    };
+  };
+
+  it('shows the hop’s own wired interface at its address on the hop’s LAN', async () => {
+    const { text, exitCode } = await onHop(machineIdForLanHost(hop, HOP_ESSID));
+    const subnet = hop.ip.split('.').slice(0, 3).join('.');
+
+    expect(text).toContain('lo: flags=<UP,LOOPBACK,RUNNING>');
+    expect(text).toContain('eth0: flags=<UP,BROADCAST,RUNNING,MULTICAST>');
+    expect(text).toContain(`inet ${hop.ip}  netmask 255.255.255.0`);
+    expect(text).toContain(`gateway ${subnet}.1`);
+    expect(exitCode).toBe(0);
+  });
+
+  it('never shows the player’s own wlan0 or the address they were leased at home', async () => {
+    const { text } = await onHop(machineIdForLanHost(hop, HOP_ESSID));
+
+    expect(text).not.toContain('wlan0');
+    expect(text).not.toContain('192.168.1.37');
+  });
+
+  it('has no wlan0 to name on a hop', async () => {
+    const { text, exitCode } = await onHop(machineIdForLanHost(hop, HOP_ESSID), ['wlan0']);
+
+    expect(text).toBe("ifconfig: interface 'wlan0' not found");
+    expect(exitCode).toBe(1);
+  });
+
+  it('gives each hop a hardware address of its own, the same on every look', async () => {
+    const etherOf = (text: string) => text.split('\n').find((line) => line.includes('ether'));
+    const first = etherOf((await onHop(machineIdForLanHost(hop, HOP_ESSID))).text);
+    const again = etherOf((await onHop(machineIdForLanHost(hop, HOP_ESSID))).text);
+    const other = etherOf((await onHop(machineIdForLanHost(otherHop, HOP_ESSID))).text);
+    const home = buildColdStartConnectivity(PUBKEY).interfaces.get('eth0');
+
+    expect(first).toMatch(/ether 02(:[0-9a-f]{2}){5}$/);
+    expect(again).toBe(first);
+    expect(other).not.toBe(first);
+    expect(first).not.toContain(home?.kind === 'ethernet' ? home.mac : 'unreachable');
+  });
+
+  it('shows the interface up with no address on a hop whose place on the LAN is unknown', async () => {
+    const someoneElsesBox = computeWorkstationId('rig', 'c'.repeat(64));
+
+    const { text } = await onHop(someoneElsesBox);
+
+    expect(text).toContain('eth0: flags=<UP,BROADCAST,MULTICAST>');
+    expect(text).not.toContain('inet 192');
+    expect(text).not.toContain('gateway');
   });
 });

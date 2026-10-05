@@ -117,6 +117,8 @@ const sessionFor = (env: CommandEnv, target: TargetUser): Session => ({
   userType: target.userType,
   kind: 'su',
   createdAt: env.now(),
+  // The user changes, not the box: an su stands exactly where the shell beneath it did.
+  essid: env.session.essid,
 });
 
 /**
@@ -160,6 +162,7 @@ const elevateCrossPlayer = async (env: CommandEnv, targetName: string): Promise<
     userType: result.userType,
     kind: 'su',
     createdAt: env.now(),
+    essid: env.session.essid,
   });
   env.setCwd(homeDirectory({ username: targetName, userType: result.userType }));
   return { kind: 'sync', lines: [], exitCode: 0 };

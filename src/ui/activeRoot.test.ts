@@ -42,6 +42,7 @@ const session = (machineId: string, kind: Session['kind'] = 'su'): Session => ({
   userType: 'root',
   kind,
   createdAt: asEpochMs(0),
+  essid: null,
 });
 
 const args = (over: Partial<Parameters<typeof resolveActiveRoot>[0]>) => ({

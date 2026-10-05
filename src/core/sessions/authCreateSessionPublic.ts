@@ -218,7 +218,9 @@ export const handleAuthCreateSessionPublic = async (
     }
     return {
       status: 200,
-      body: { ok: true, username: user, userType, machine_id: target.machineId },
+      // The network goes back with the box: a shell on it stands there, and the client
+      // has no other way to learn which network a public address belongs to.
+      body: { ok: true, username: user, userType, machine_id: target.machineId, essid: target.essid },
     };
   }
 
@@ -269,6 +271,11 @@ export const handleAuthCreateSessionPublic = async (
 
   return {
     status: 200,
-    body: { ok: true, userType: account.userType, machine_id: target.machineId },
+    body: {
+      ok: true,
+      userType: account.userType,
+      machine_id: target.machineId,
+      essid: target.essid,
+    },
   };
 };

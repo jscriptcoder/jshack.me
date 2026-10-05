@@ -20,6 +20,7 @@ const aRow = (over: Partial<SessionSummary> = {}): SessionSummary => ({
   source_ip: null,
   kind: 'su',
   created_at: '2026-06-07T14:32:01.000Z',
+  essid: null,
   ...over,
 });
 

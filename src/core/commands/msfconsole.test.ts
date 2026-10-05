@@ -150,6 +150,7 @@ const GRANTED_FULL: ExploitRunResult = {
   userType: 'root',
   kind: 'exploit',
   machineId: TARGET_MACHINE_ID,
+  essid: ESSID,
 };
 
 /** The weaker of the two grants — a room to search rather than a door to pivot onward
@@ -163,6 +164,7 @@ const GRANTED_LIMITED: ExploitRunResult = {
   userType: 'guest',
   kind: 'exploit_limited',
   machineId: TARGET_MACHINE_ID,
+  essid: ESSID,
 };
 
 /** What the attacker's own box holds for a write's local half to name. */
@@ -338,6 +340,7 @@ describe('msfconsole', () => {
     expect(pushed).toEqual([
       expect.objectContaining({
         machineId: TARGET_MACHINE_ID,
+        essid: ESSID,
         username: 'root',
         userType: 'root',
         kind: 'exploit',
@@ -356,6 +359,7 @@ describe('msfconsole', () => {
         userType: 'guest',
         kind: 'exploit_limited',
         machineId: TARGET_MACHINE_ID,
+        essid: ESSID,
       },
     });
 
@@ -1274,7 +1278,7 @@ describe('msfconsole', () => {
 
   it('fires at a box behind somebody’s forward, which no client can generate a host for', async () => {
     const { env, run, pushed } = exploitEnv({
-      result: { ...GRANTED_FULL, machineId: FORWARDED_MACHINE_ID },
+      result: { ...GRANTED_FULL, machineId: FORWARDED_MACHINE_ID, essid: 'SKYLAB-HOME' },
     });
 
     const { text } = await drain(
@@ -1289,7 +1293,11 @@ describe('msfconsole', () => {
     expect(text).toContain(`[+] Full shell as root@${PUBLIC_IP}`);
     // The box the SERVER resolved behind the forward. Nothing on this side could have
     // produced this id from the address typed, which is the whole of why it has to travel.
-    expect(pushed).toEqual([expect.objectContaining({ machineId: FORWARDED_MACHINE_ID })]);
+    // And it stands on the network the server says that box is on, which is not the
+    // caller's own.
+    expect(pushed).toEqual([
+      expect.objectContaining({ machineId: FORWARDED_MACHINE_ID, essid: 'SKYLAB-HOME' }),
+    ]);
   });
 
   it('fires at a fellow occupant standing where the generator put nobody', async () => {
@@ -1643,6 +1651,8 @@ const localBoxEnv = (opts: {
   /** The kind of shell the player is standing in. A PTY-less one (`nc`, `exploit_limited`)
    *  can only pass its lack of a terminal onward. Defaults to a TTY shell. */
   readonly sessionKind?: SessionKind;
+  /** The network of the box the tool runs on — null, the default, for the player's own. */
+  readonly essid?: string | null;
   /** A box with no wireless association. `--local` is local, so it must still fire — the
    *  network only decides whether the box is another player's, which own-box short-circuits. */
   readonly offline?: boolean;
@@ -1687,6 +1697,7 @@ const localBoxEnv = (opts: {
       username: 'alice',
       userType: 'user',
       kind: opts.sessionKind ?? 'su',
+      essid: opts.essid ?? null,
     }),
     hostname: 'rig',
     now: () => atGameDay(opts.gameDay),
@@ -1772,6 +1783,20 @@ const crossPlayerLocalEnv = (opts: {
 };
 
 describe('msfconsole --local', () => {
+  it('opens the shell on the network of the box it ran on — elevating moves the user, not the box', async () => {
+    const release = rootShellReleaseFor('su', 'libpam');
+    const { env, pushed } = localBoxEnv({
+      library: 'libpam',
+      version: release.version,
+      gameDay: release.publishedAt,
+      essid: 'RIDGEMONT-OFFICE',
+    });
+
+    await drain(await msfconsole.execute(env, ['su'], localFlags));
+
+    expect(pushed).toEqual([expect.objectContaining({ essid: 'RIDGEMONT-OFFICE' })]);
+  });
+
   it('escalates to a full shell with no password when a linked library CVE is live', async () => {
     const release = rootShellReleaseFor('su', 'libpam');
     const { env, pushed, cwds } = localBoxEnv({
@@ -2632,6 +2657,7 @@ describe('msfconsole --local', () => {
         userType: 'root',
         kind: 'exploit',
         machineId: FOREIGN_MACHINE_ID,
+        essid: ESSID,
       },
     });
 
