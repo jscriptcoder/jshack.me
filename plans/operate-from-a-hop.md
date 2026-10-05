@@ -238,6 +238,16 @@ host; the host's `auth.log` holds both lines.
 
 ### Slice 3: `ssh` from a hop walks sideways across the hop's LAN — the walking skeleton
 
+✅ Done in #600. As built: the vantage is one resolver on each side: `vantageOf` on the client
+and `resolveCallerVantage` on the server. A hop's address comes from `lanAddressForMachineId`,
+which only knows boxes generated on a network's top LAN (its hosts, router and inner gateways). A
+hop on a player's workstation or on a deeper layer stays on its network, but its log line reads
+`unknown` and its `eth0` has no address. A caller who names no box and occupies no network gets
+403 `caller_not_on_network`, so wire-checks must seat their callers (`scripts/standVantage.ts`).
+From a foreign hop, other players' boxes on the hop's LAN are still unreachable, because the
+occupant lookup and the same-WiFi login both need the caller's own WiFi. Both gaps move to slice
+4 (player boxes) and slice 6 (deeper layers).
+
 **Value**: a player with a shell on a box reaches that box's network, and is logged there under
 the box's address.
 **Path**: the client `Session` gains its network (`essid`, carried through `listSessions` and
@@ -261,10 +271,17 @@ function on each side, not a per-tool copy.
 **Value**: the chain the feature exists for — a target's log names the last hop's network, and
 each hop's log names the one before.
 **Path**: `ssh`'s public and inner-gateway-forward paths send `caller_machine_id` from a hop →
-`authCreateSessionPublic` / `authCreateSessionInnerGateway` trace via `resolveVantageSourceIp`.
+`authCreateSessionPublic` / `authCreateSessionInnerGateway` trace via `resolveCallerVantage` →
+from a hop, other players' boxes on the hop's LAN are reachable: the occupant lookup and the
+same-WiFi login take the vantage's network, not the caller's WiFi → a hop on a player's
+workstation traces with that box's lease on its network, not `unknown`.
 **Decisions**: 1, 4a, 7. **Done-when**: 1, 3.
 **RED**: the chain wire-check (`home → P → Q → third gateway`, trace walk-back, then a root wipe
 on Q ends the trail at Q).
+**Watch for**: `scripts/testCrossPlayerConnectionTrace.ts` already fails 3 of 7 checks on `main`:
+a public login to an edge-gateway router writes no `auth.log` line, while a login forwarded to a
+workstation does. The chain walk-back needs a line at every hop, so fix this or route around it
+on purpose.
 
 ### Slice 5: A chain breaks where a hop goes down
 
@@ -279,8 +296,9 @@ remote host.` per leg → rehydration ends an orphaned child the same way.
 
 **Value**: reconnaissance from where the player stands.
 **Path**: `nmap` takes its vantage from the top session for both own-LAN and public scans →
-`resolvePublicScan` gains a caller machine and traces via `resolveVantageSourceIp` →
-`pivotVantageForMachineId` / the `nmapScanDeep` special path fold into the general vantage.
+`resolvePublicScan` gains a caller machine and traces via `resolveCallerVantage` →
+`pivotVantageForMachineId` / the `nmapScanDeep` special path fold into the general vantage → a
+hop on a deeper layer traces with its address on that layer, not `unknown`.
 **Decisions**: 2, 10. **Done-when**: 6 (the single-player browser run lands here: two-hop chain,
 `ifconfig`, `nmap` of the hop's LAN, `exit`).
 
