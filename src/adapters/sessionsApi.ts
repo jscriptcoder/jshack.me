@@ -154,7 +154,9 @@ export const authCreateServerSession = async (
       username: params.username,
       password: params.password,
       parent_session_id: params.parentSessionId,
-      source_ip: params.sourceIp,
+      // No address goes out: the server derives where the login came from, off the box
+      // the shell is standing on when one is named and the caller's own lease otherwise.
+      ...(params.callerMachineId === undefined ? {} : { caller_machine_id: params.callerMachineId }),
       kind,
     });
     if (response.ok) {
@@ -202,8 +204,11 @@ export const authCreateServerSessionPublic = async (
       const body: unknown = await response.json();
       const userType = (body as { userType?: unknown } | null)?.userType;
       const machineId = (body as { machine_id?: unknown } | null)?.machine_id;
-      return isUserType(userType) && typeof machineId === 'string'
-        ? { ok: true, userType, machineId }
+      // Required too: a public address says nothing here about which network its box is
+      // on, and a shell that does not know where it stands would route from home.
+      const essid = (body as { essid?: unknown } | null)?.essid;
+      return isUserType(userType) && typeof machineId === 'string' && typeof essid === 'string'
+        ? { ok: true, userType, machineId, essid }
         : { ok: false, error: 'network_error' };
     }
     if (response.status === 401) return { ok: false, error: 'invalid_credentials' };
@@ -241,8 +246,9 @@ export const authCreateServerSessionSameLan = async (
       const body: unknown = await response.json();
       const userType = (body as { userType?: unknown } | null)?.userType;
       const machineId = (body as { machine_id?: unknown } | null)?.machine_id;
+      // The box is on the very network the login was made across.
       return isUserType(userType) && typeof machineId === 'string'
-        ? { ok: true, userType, machineId }
+        ? { ok: true, userType, machineId, essid: params.essid }
         : { ok: false, error: 'network_error' };
     }
     if (response.status === 401) return { ok: false, error: 'invalid_credentials' };
@@ -268,6 +274,9 @@ const exploitGrantSchema = z
     // would be stood on blind. Off the generated LAN there is nothing to fall back to, so
     // a body without it is malformed rather than merely thin.
     machine_id: z.string().min(1),
+    // Required for the same reason: a shell is a place to stand, and a public gateway's
+    // network is not the caller's own.
+    essid: z.string().min(1),
   })
   .transform((body) => ({
     ok: body.ok,
@@ -277,6 +286,7 @@ const exploitGrantSchema = z
     userType: body.userType,
     kind: body.kind,
     machineId: body.machine_id,
+    essid: body.essid,
   }));
 
 /** What an effect that opens no shell answers with: the file it read or the directory it
@@ -524,8 +534,9 @@ export const authCreateServerSessionInnerGateway = async (
       const body: unknown = await response.json();
       const userType = (body as { userType?: unknown } | null)?.userType;
       const machineId = (body as { machine_id?: unknown } | null)?.machine_id;
+      // The box is on the very network the login was made across.
       return isUserType(userType) && typeof machineId === 'string'
-        ? { ok: true, userType, machineId }
+        ? { ok: true, userType, machineId, essid: params.essid }
         : { ok: false, error: 'network_error' };
     }
     if (response.status === 401) return { ok: false, error: 'invalid_credentials' };
@@ -616,6 +627,7 @@ const summaryToSession = (deps: SessionsClientDeps, row: SessionSummary): Sessio
   userType: row.credentials.userType,
   kind: row.kind,
   createdAt: asEpochMs(Date.parse(row.created_at)),
+  essid: row.essid,
 });
 
 /** Read the caller's own active sessions. Returns `[]` on any failure so boot
@@ -1077,7 +1089,7 @@ export const ncConnectServer = async (
       target_ip: params.targetIp,
       port: params.port,
       parent_session_id: params.parentSessionId,
-      source_ip: params.sourceIp,
+      ...(params.callerMachineId === undefined ? {} : { caller_machine_id: params.callerMachineId }),
       kind: 'nc',
     });
     if (!response.ok) return doorFailure(response.status);
@@ -1095,6 +1107,9 @@ const ncConnectVia = async (
   deps: SessionsClientDeps,
   action: string,
   payload: Record<string, unknown>,
+  /** The network the knock was made across, or null when only the server can say which
+   *  one the box is on — a public address names none. */
+  across: string | null,
 ): Promise<NcPublicResult> => {
   try {
     const response = await post(deps, action, { ...payload, kind: 'nc' });
@@ -1102,8 +1117,9 @@ const ncConnectVia = async (
     const body: unknown = await response.json();
     const opened = openedDoor(body);
     const machineId = (body as { machine_id?: unknown } | null)?.machine_id;
-    return opened !== null && typeof machineId === 'string'
-      ? { ok: true, ...opened, machineId }
+    const essid = across ?? (body as { essid?: unknown } | null)?.essid;
+    return opened !== null && typeof machineId === 'string' && typeof essid === 'string'
+      ? { ok: true, ...opened, machineId, essid }
       : { ok: false, error: 'network_error' };
   } catch {
     return { ok: false, error: 'network_error' };
@@ -1121,7 +1137,7 @@ export const ncConnectServerPublic = (
     parent_session_id: params.parentSessionId,
     source_ip: params.sourceIp,
     caller_machine_id: params.callerMachineId,
-  });
+  }, null);
 
 export const ncConnectServerSameLan = (
   deps: SessionsClientDeps,
@@ -1134,7 +1150,7 @@ export const ncConnectServerSameLan = (
     port: params.port,
     parent_session_id: params.parentSessionId,
     source_ip: params.sourceIp,
-  });
+  }, params.essid);
 
 export const ncConnectServerInnerGateway = (
   deps: SessionsClientDeps,
@@ -1147,4 +1163,4 @@ export const ncConnectServerInnerGateway = (
     port: params.port,
     parent_session_id: params.parentSessionId,
     source_ip: params.sourceIp,
-  });
+  }, params.essid);

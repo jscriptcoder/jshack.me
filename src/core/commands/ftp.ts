@@ -90,9 +90,8 @@ const accepted = (env: CommandEnv, target: string, session: Session): CommandRes
   };
 };
 
-/** The address the client reports for itself. Truthful on the player's own LAN, where
- *  it is the only address the target could have seen; on a public target the server
- *  derives it instead, and this is kept only for the session row. */
+/** The address the client reports for itself on a public login. The server derives the
+ *  address it traces, so this is kept only for the session row. */
 const localAddress = (env: CommandEnv): string | null =>
   env.network.interfaces().find((iface) => iface.kind === 'wireless')?.ipv4 ?? null;
 
@@ -124,7 +123,6 @@ const lanLogin = async (
     username: credential.username,
     password: credential.password,
     parentSessionId: env.session.id,
-    sourceIp: localAddress(env),
   });
   if (!result.ok) return refusal(target, result.error);
 
@@ -136,6 +134,7 @@ const lanLogin = async (
     userType: result.userType,
     kind: 'ftp',
     createdAt: env.now(),
+    essid,
   });
 };
 
@@ -184,6 +183,7 @@ const publicLogin = async (
     userType: result.userType,
     kind: 'ftp',
     createdAt: env.now(),
+    essid: result.essid,
   });
 };
 

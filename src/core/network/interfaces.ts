@@ -176,6 +176,27 @@ export const buildColdStartConnectivity = (seedPubkeyHex: string): ConnectivityS
   };
 };
 
+/**
+ * The interfaces of a box the player is only logged into: loopback, and the wired NIC it
+ * stands on its LAN through, at `address` (null when where it stands is not known here,
+ * so the link is up with nothing on it). No `wlan0` — the radio stays with the player's
+ * own body. The MAC is seeded by the box rather than the player, so every visitor reads
+ * the same card on it.
+ */
+export const hopInterfaces = (
+  machineId: string,
+  address: Ipv4 | null,
+): readonly NetworkInterface[] => [
+  { kind: 'loopback', name: 'lo', up: true, ipv4: LOOPBACK_IPV4 },
+  {
+    kind: 'ethernet',
+    name: 'eth0',
+    mac: seededMac(createPrng(`nic-${machineId}`)),
+    up: true,
+    ipv4: address,
+  },
+];
+
 /** Online = any NON-loopback interface has been assigned an IPv4 address.
  *  Loopback's 127.0.0.1 never counts. */
 export const isOnline = (state: ConnectivityState): boolean =>

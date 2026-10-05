@@ -65,6 +65,7 @@ export const mockSession = (overrides: Partial<Session> = {}): Session => ({
   userType: 'user',
   kind: 'su',
   createdAt: asEpochMs(0),
+  essid: null,
   ...overrides,
 });
 

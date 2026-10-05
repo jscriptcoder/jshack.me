@@ -14,6 +14,7 @@ const session = (over: Partial<Session> = {}): Session => ({
   userType: 'user',
   kind: 'su',
   createdAt: asEpochMs(0),
+  essid: null,
   ...over,
 });
 

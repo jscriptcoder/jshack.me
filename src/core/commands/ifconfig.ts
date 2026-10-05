@@ -2,7 +2,9 @@
  * ifconfig — display the current machine's network interfaces.
  *
  * Reads `env.network.interfaces()` (the connectivity model) and renders the
- * familiar net-tools layout. No argument shows only interfaces that are UP
+ * familiar net-tools layout. In a shell on another box it reads that box's own
+ * interfaces instead — its wired NIC at its address on its LAN — because that is
+ * where every network command typed there travels from. No argument shows only interfaces that are UP
  * (so a freshly booted player sees `lo` + an address-less `wlan0`, proof
  * they're offline); `-a` adds down interfaces (`eth0`); a named argument shows
  * exactly one, up or down.
@@ -13,7 +15,8 @@
  */
 
 import type { Command, TerminalLine } from './types.js';
-import type { NetworkInterface } from '../network/interfaces.js';
+import { hopInterfaces, type NetworkInterface } from '../network/interfaces.js';
+import { vantageOf } from '../network/vantage.js';
 
 const INDENT = '        ';
 
@@ -60,7 +63,13 @@ const toLines = (interfaces: readonly NetworkInterface[]): readonly TerminalLine
   ]);
 
 const execute: Command['execute'] = async (env, args, flags) => {
-  const interfaces = env.network.interfaces();
+  // A shell on another box reads THAT box's interfaces: it is the readout of where a
+  // network command typed here travels from. The player's own card stays with them.
+  const vantage = vantageOf(env.session, env.network);
+  const interfaces =
+    vantage?.kind === 'hop'
+      ? hopInterfaces(env.session.machineId, vantage.address)
+      : env.network.interfaces();
   const requested = args[0];
 
   if (requested !== undefined) {

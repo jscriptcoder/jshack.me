@@ -190,6 +190,43 @@ const findHomeNetworkByOwnerKeyVia =
     return derivedPublicIpByEssid(essid);
   };
 
+/** Where the caller's OWN workstation stands: the network it currently occupies and the
+ *  lease octet it holds there, both read by the verified owner key. The own-LAN login
+ *  doors derive their vantage from this when the caller names no hop. One player may
+ *  carry rows for several APs; the most-recently-updated is their current network ("one
+ *  network at a time"). A `null` result means they occupy no network; a null octet means
+ *  they occupy one but hold no lease, so the box they reach sees them as `unknown`. */
+const findHomeVantageVia =
+  ({ supabase, label }: QuerySpec) =>
+  async (ownerKey: string) => {
+    const occupancy = await supabase
+      .from('home_network_occupants')
+      .select('essid')
+      .eq('owner_key', ownerKey)
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (occupancy.error) {
+      logFailure(`${label} occupancy`, occupancy.error);
+      return { data: null, error: occupancy.error };
+    }
+    const essid = (occupancy.data as { essid: string } | null)?.essid ?? null;
+    if (essid === null) return { data: null, error: null };
+
+    const lease = await supabase
+      .from('network_lan_leases')
+      .select('octet')
+      .eq('essid', essid)
+      .eq('owner_key', ownerKey)
+      .maybeSingle();
+    if (lease.error) {
+      logFailure(`${label} lease`, lease.error);
+      return { data: null, error: lease.error };
+    }
+    const octet = (lease.data as { octet: number } | null)?.octet ?? null;
+    return { data: { essid, octet }, error: null };
+  };
+
 /** Every occupant currently ON an ESSID, with the identity fields that rebuild each box
  *  and the hostname its trace line carries. This is the AUTH projection — it includes the
  *  root hash, is server-internal, and is never sent to a client (distinct from the lean
@@ -296,7 +333,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const { data, error } = await supabase
         .from('sessions')
         .select(
-          'session_id, machine_id, credentials, parent_session_id, source_ip, kind, created_at',
+          'session_id, machine_id, credentials, parent_session_id, source_ip, kind, created_at, essid',
         )
         .eq('player_key', player_key)
         .is('ended_at', null)
@@ -421,6 +458,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       findPatches: findPatchesVia({ supabase, label: 'own-lan boot-state lookup' }),
       readAuthLog: listPathPatchesVia({ supabase, label: 'ssh auth-log read' }),
       upsertPatch: upsertPatchVia({ supabase, label: 'ssh auth-log upsert' }),
+      // Where the caller stands — read off the hop they hold, or their own occupancy —
+      // so the server names the network and the source address rather than trusting them.
+      findActiveSession: findActiveSessionVia({ supabase, label: 'ssh vantage active-session' }),
+      findHomeVantage: findHomeVantageVia({ supabase, label: 'ssh vantage' }),
     });
     res.status(status).json(body);
     return;

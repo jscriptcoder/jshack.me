@@ -42,6 +42,7 @@ import {
   PIDFILE_PERMISSIONS,
 } from '../src/core/services/pidfile.js';
 import { AUTH_LOG_PATH } from '../src/core/logging/authLog.js';
+import { leaveNetwork, standOnNetwork } from './standVantage.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const url = process.env.SUPABASE_URL;
@@ -150,6 +151,10 @@ const authLogRows = async (): Promise<number> => {
 // crashed run would otherwise leave rows this one reads as its own.
 await sr.from('patches').delete().eq('machine_id', NPC_MACHINE);
 await sr.from('sessions').delete().eq('player_key', intruder.publicKeyHex);
+// The backdoor sits on a box on the intruder's OWN LAN, so the server must be able to
+// place them here before the knock routes.
+await leaveNetwork(sr, ESSID);
+await standOnNetwork(sr, ESSID, intruder, 50);
 
 // --- 1. A knock at a planted listener opens as whoever planted it ---------------
 

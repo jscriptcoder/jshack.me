@@ -48,4 +48,6 @@ export const seedSession = (identity: Identity, config: GameConfig): Session => 
   userType: 'user',
   kind: 'su',
   createdAt: asEpochMs(0),
+  // The player's own workstation, which stands on whichever network their card is on.
+  essid: null,
 });

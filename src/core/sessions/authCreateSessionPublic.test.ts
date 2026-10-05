@@ -306,7 +306,14 @@ describe('handleAuthCreateSessionPublic', () => {
     );
 
     expect(result.status).toBe(200);
-    expect(result.body).toMatchObject({ ok: true, userType: 'root', machine_id: AP_GATEWAY_ID });
+    expect(result.body).toMatchObject({
+      ok: true,
+      userType: 'root',
+      machine_id: AP_GATEWAY_ID,
+      // The network the box belongs to, which is where a shell on it stands — the client
+      // has no other way to learn it.
+      essid: ESSID,
+    });
     expect(findNetworkByPublicIp).toHaveBeenCalledWith(TARGET);
     // The journal is read off the GATEWAY machine, not any occupant's.
     expect(findPatches).toHaveBeenCalledWith({ machine_id: AP_GATEWAY_ID });
@@ -990,7 +997,7 @@ describe('handleAuthCreateSessionPublic', () => {
 
       expect(result).toEqual({
         status: 200,
-        body: { ok: true, userType: 'root', machine_id: AP_GATEWAY_ID },
+        body: { ok: true, userType: 'root', machine_id: AP_GATEWAY_ID, essid: ESSID },
       });
       expect(insertSession).toHaveBeenCalledTimes(1);
     });
@@ -1210,6 +1217,7 @@ describe('a backdoor reached across the network', () => {
     const result = await handleAuthCreateSessionPublic(knock(), deps);
 
     expect(result.status).toBe(200);
+    expect(result.body).toMatchObject({ machine_id: ALICE_WS, essid: ESSID });
     expect(insertSession).toHaveBeenCalledWith(
       expect.objectContaining({
         machine_id: ALICE_WS,

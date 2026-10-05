@@ -285,7 +285,7 @@ describe('ssh', () => {
       username: 'root',
       password: 'hunter2',
       parentSessionId: 'su-root-1',
-      sourceIp: selfIp,
+      callerMachineId: 'skylab-deadbeef',
     });
     // Pushed the SERVER-derived session onto the hop chain.
     expect(onPush).toHaveBeenCalledTimes(1);
@@ -297,6 +297,7 @@ describe('ssh', () => {
       userType: 'root',
       kind: 'ssh',
       createdAt: NOW,
+      essid: ESSID,
     });
     // Landed in root's home.
     expect(onCwd).toHaveBeenCalledWith('/root');
@@ -518,6 +519,7 @@ describe('ssh', () => {
  */
 const PUBLIC_IP = '87.0.113.7';
 const A_MACHINE_ID = 'skylab-deadbeef';
+const A_ESSID = 'SKYLAB-HOME';
 
 type PublicEnvOver = {
   readonly resolvePublic?: (target: string) => Promise<PublicScanResolution>;
@@ -546,7 +548,7 @@ const sshPublicEnv = (over: PublicEnvOver = {}) =>
     ssh: mockSshApi({
       authenticatePublic:
         over.authenticatePublic ??
-        (async () => ({ ok: true, userType: 'guest', machineId: A_MACHINE_ID })),
+        (async () => ({ ok: true, userType: 'guest', machineId: A_MACHINE_ID, essid: A_ESSID })),
     }),
     pushSession: over.onPush ?? (() => undefined),
     setCwd: over.onCwd ?? (() => undefined),
@@ -555,7 +557,7 @@ const sshPublicEnv = (over: PublicEnvOver = {}) =>
 describe('ssh to a public IP (cross-player)', () => {
   it('resolves the public IP, authenticates cross-player, and pushes a session on the owner real machine id', async () => {
     const authenticatePublic = vi.fn<(params: PublicAuthParams) => Promise<PublicAuthResult>>(
-      async () => ({ ok: true, userType: 'guest', machineId: A_MACHINE_ID }),
+      async () => ({ ok: true, userType: 'guest', machineId: A_MACHINE_ID, essid: A_ESSID }),
     );
     const onPush = vi.fn<(session: Session) => void>();
     const onCwd = vi.fn<(path: string) => void>();
@@ -588,6 +590,7 @@ describe('ssh to a public IP (cross-player)', () => {
       userType: 'guest',
       kind: 'ssh',
       createdAt: NOW,
+      essid: A_ESSID,
     });
     expect(onCwd).toHaveBeenCalledWith('/home/guest');
   });
@@ -599,7 +602,7 @@ describe('ssh to a public IP (cross-player)', () => {
       ports: [{ port: 22, service: 'ssh' }],
     }));
     const authenticatePublic = vi.fn<(params: PublicAuthParams) => Promise<PublicAuthResult>>(
-      async () => ({ ok: true, userType: 'guest', machineId: A_MACHINE_ID }),
+      async () => ({ ok: true, userType: 'guest', machineId: A_MACHINE_ID, essid: A_ESSID }),
     );
 
     const result = sync(
@@ -620,7 +623,7 @@ describe('ssh to a public IP (cross-player)', () => {
     // command must hand the SERVER port 2222 (not silently 22) — that's how the
     // server routes the login to the right machine behind the NAT.
     const authenticatePublic = vi.fn<(params: PublicAuthParams) => Promise<PublicAuthResult>>(
-      async () => ({ ok: true, userType: 'guest', machineId: A_MACHINE_ID }),
+      async () => ({ ok: true, userType: 'guest', machineId: A_MACHINE_ID, essid: A_ESSID }),
     );
     const bound = bindFlags([`guest@${PUBLIC_IP}`, '-p', '2222'], ssh.flags ?? {});
     expect(bound.ok).toBe(true);
@@ -707,7 +710,7 @@ describe('ssh to a public IP (cross-player)', () => {
 
   it('connects to ssh even when the owner box also exposes other (non-ssh) ports', async () => {
     const authenticatePublic = vi.fn<(params: PublicAuthParams) => Promise<PublicAuthResult>>(
-      async () => ({ ok: true, userType: 'guest', machineId: A_MACHINE_ID }),
+      async () => ({ ok: true, userType: 'guest', machineId: A_MACHINE_ID, essid: A_ESSID }),
     );
     const result = sync(
       await ssh.execute(
@@ -733,7 +736,7 @@ describe('ssh to a public IP (cross-player)', () => {
 
   it('honours -p against the resolved ports (ssh on :2222 connects with -p 2222)', async () => {
     const authenticatePublic = vi.fn<(params: PublicAuthParams) => Promise<PublicAuthResult>>(
-      async () => ({ ok: true, userType: 'guest', machineId: A_MACHINE_ID }),
+      async () => ({ ok: true, userType: 'guest', machineId: A_MACHINE_ID, essid: A_ESSID }),
     );
     const bound = bindFlags([`guest@${PUBLIC_IP}`, '-p', '2222'], ssh.flags ?? {});
     if (!bound.ok) throw new Error(bound.error);
@@ -875,7 +878,7 @@ const sshSameLanEnv = (over: SameLanEnvOver = {}) =>
       ...(over.authenticate ? { authenticate: over.authenticate } : {}),
       authenticateSameLan:
         over.authenticateSameLan ??
-        (async () => ({ ok: true, userType: 'guest', machineId: A_SAMELAN_MACHINE_ID })),
+        (async () => ({ ok: true, userType: 'guest', machineId: A_SAMELAN_MACHINE_ID, essid: ESSID })),
     }),
     pushSession: over.onPush ?? (() => undefined),
     setCwd: over.onCwd ?? (() => undefined),
@@ -885,7 +888,7 @@ describe('ssh to a fellow occupant on the same LAN', () => {
   it('resolves the ESSID occupants, authenticates same-LAN, and pushes a session on the owner real machine id', async () => {
     const resolveOccupants = vi.fn(async () => [occupantAt(OCCUPANT_IP)]);
     const authenticateSameLan = vi.fn<(params: SameLanAuthParams) => Promise<PublicAuthResult>>(
-      async () => ({ ok: true, userType: 'guest', machineId: A_SAMELAN_MACHINE_ID }),
+      async () => ({ ok: true, userType: 'guest', machineId: A_SAMELAN_MACHINE_ID, essid: ESSID }),
     );
     const onPush = vi.fn<(session: Session) => void>();
     const onCwd = vi.fn<(path: string) => void>();
@@ -920,6 +923,7 @@ describe('ssh to a fellow occupant on the same LAN', () => {
       userType: 'guest',
       kind: 'ssh',
       createdAt: NOW,
+      essid: ESSID,
     });
     expect(onCwd).toHaveBeenCalledWith('/home/guest');
   });
@@ -929,7 +933,7 @@ describe('ssh to a fellow occupant on the same LAN', () => {
     // checked against the same list — one read serves both.
     const resolveOccupants = vi.fn(async () => [occupantAt(OCCUPANT_IP)]);
     const authenticateSameLan = vi.fn<(params: SameLanAuthParams) => Promise<PublicAuthResult>>(
-      async () => ({ ok: true, userType: 'guest', machineId: A_SAMELAN_MACHINE_ID }),
+      async () => ({ ok: true, userType: 'guest', machineId: A_SAMELAN_MACHINE_ID, essid: ESSID }),
     );
 
     const result = sync(
@@ -947,7 +951,7 @@ describe('ssh to a fellow occupant on the same LAN', () => {
 
   it('carries the destination port to same-LAN auth', async () => {
     const authenticateSameLan = vi.fn<(params: SameLanAuthParams) => Promise<PublicAuthResult>>(
-      async () => ({ ok: true, userType: 'guest', machineId: A_SAMELAN_MACHINE_ID }),
+      async () => ({ ok: true, userType: 'guest', machineId: A_SAMELAN_MACHINE_ID, essid: ESSID }),
     );
     const bound = bindFlags([`guest@${OCCUPANT_IP}`, '-p', '2222'], ssh.flags ?? {});
     expect(bound.ok).toBe(true);
@@ -964,7 +968,7 @@ describe('ssh to a fellow occupant on the same LAN', () => {
     // is left throwing (mock default) so taking the own-LAN branch would blow up.
     const npcIp = pickHosts().sshHost.ip;
     const authenticateSameLan = vi.fn<(params: SameLanAuthParams) => Promise<PublicAuthResult>>(
-      async () => ({ ok: true, userType: 'guest', machineId: A_SAMELAN_MACHINE_ID }),
+      async () => ({ ok: true, userType: 'guest', machineId: A_SAMELAN_MACHINE_ID, essid: ESSID }),
     );
     const onPush = vi.fn<(session: Session) => void>();
 
@@ -997,7 +1001,7 @@ describe('ssh to a fellow occupant on the same LAN', () => {
       userType: 'root',
     }));
     const authenticateSameLan = vi.fn<(params: SameLanAuthParams) => Promise<PublicAuthResult>>(
-      async () => ({ ok: true, userType: 'guest', machineId: A_SAMELAN_MACHINE_ID }),
+      async () => ({ ok: true, userType: 'guest', machineId: A_SAMELAN_MACHINE_ID, essid: ESSID }),
     );
     const onPush = vi.fn<(session: Session) => void>();
 
@@ -1083,7 +1087,7 @@ describe('ssh to a fellow occupant on the same LAN', () => {
 
   it('exits 130 and pushes no session when the same-LAN password prompt is cancelled', async () => {
     const authenticateSameLan = vi.fn<(params: SameLanAuthParams) => Promise<PublicAuthResult>>(
-      async () => ({ ok: true, userType: 'guest', machineId: A_SAMELAN_MACHINE_ID }),
+      async () => ({ ok: true, userType: 'guest', machineId: A_SAMELAN_MACHINE_ID, essid: ESSID }),
     );
     const onPush = vi.fn<(session: Session) => void>();
     const result = sync(
@@ -1153,7 +1157,7 @@ const sshForwardEnv = (over: ForwardEnvOver = {}) =>
       authenticate: over.authenticate ?? (async () => ({ ok: true, userType: 'root' })),
       authenticateInnerGateway:
         over.authenticateInnerGateway ??
-        (async () => ({ ok: true, userType: 'guest', machineId: DEEP_MACHINE_ID })),
+        (async () => ({ ok: true, userType: 'guest', machineId: DEEP_MACHINE_ID, essid: ESSID })),
     }),
     pushSession: over.onPush ?? (() => undefined),
     setCwd: over.onCwd ?? (() => undefined),
@@ -1163,7 +1167,7 @@ describe('ssh through an inner-gateway NAT forward (deep layer)', () => {
   it('routes a forwarded port to the deep host and lands the session on the deep host id', async () => {
     const authenticateInnerGateway = vi.fn<
       (params: InnerGatewayAuthParams) => Promise<PublicAuthResult>
-    >(async () => ({ ok: true, userType: 'guest', machineId: DEEP_MACHINE_ID }));
+    >(async () => ({ ok: true, userType: 'guest', machineId: DEEP_MACHINE_ID, essid: ESSID }));
     const onPush = vi.fn<(session: Session) => void>();
     const onCwd = vi.fn<(path: string) => void>();
 
@@ -1196,6 +1200,7 @@ describe('ssh through an inner-gateway NAT forward (deep layer)', () => {
       userType: 'guest',
       kind: 'ssh',
       createdAt: NOW,
+      essid: ESSID,
     });
     expect(onCwd).toHaveBeenCalledWith('/home/guest');
   });
@@ -1207,7 +1212,7 @@ describe('ssh through an inner-gateway NAT forward (deep layer)', () => {
     }));
     const authenticateInnerGateway = vi.fn<
       (params: InnerGatewayAuthParams) => Promise<PublicAuthResult>
-    >(async () => ({ ok: true, userType: 'guest', machineId: DEEP_MACHINE_ID }));
+    >(async () => ({ ok: true, userType: 'guest', machineId: DEEP_MACHINE_ID, essid: ESSID }));
 
     const result = sync(
       await ssh.execute(
@@ -1226,7 +1231,7 @@ describe('ssh through an inner-gateway NAT forward (deep layer)', () => {
     const prompt = vi.fn(async () => 'guestpw');
     const authenticateInnerGateway = vi.fn<
       (params: InnerGatewayAuthParams) => Promise<PublicAuthResult>
-    >(async () => ({ ok: true, userType: 'guest', machineId: DEEP_MACHINE_ID }));
+    >(async () => ({ ok: true, userType: 'guest', machineId: DEEP_MACHINE_ID, essid: ESSID }));
 
     const result = sync(
       await ssh.execute(
@@ -1335,5 +1340,141 @@ describe('ssh through an inner-gateway NAT forward (deep layer)', () => {
     expect(result.exitCode).toBe(255);
     expect(result.lines[0]?.content).toContain('Network error');
     expect(onPush).not.toHaveBeenCalled();
+  });
+});
+
+const HOP_ESSID = 'RIDGEMONT-OFFICE';
+
+/** A host on `essid`'s LAN running sshd on :22, other than any in `exclude`. */
+const sshHostOn = (essid: string, exclude: readonly string[] = []): LanHost => {
+  const host = generateHomeLan(essid).hosts.find(
+    (candidate) =>
+      candidate.kind === 'machine' &&
+      !exclude.includes(candidate.ip) &&
+      sshdPort(buildRemoteHostFs(essid, candidate)) === 22,
+  );
+  if (host === undefined) throw new Error(`${essid} has no ssh host`);
+  return host;
+};
+
+/** The player stands in a shell on `hop`, a box on HOP_ESSID's LAN, while their own
+ *  WiFi card stays on their home network. */
+const sshHopEnv = (
+  hop: LanHost,
+  over: EnvOver & { readonly kind?: Session['kind'] } = {},
+) =>
+  mockCommandEnv({
+    identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
+    network: mockNetworkViewFromConnectivity(onlineConnectivity(ESSID)),
+    session: mockSession({
+      id: 'ssh-hop-1',
+      machineId: asMachineId(hostMachineId(hop, HOP_ESSID)),
+      userType: 'root',
+      kind: over.kind ?? 'ssh',
+      essid: HOP_ESSID,
+    }),
+    now: () => asEpochMs(NOW),
+    prompt: over.prompt ?? (async () => 'hunter2'),
+    ssh: mockSshApi({
+      authenticate: over.authenticate ?? (async () => ({ ok: true, userType: 'root' })),
+    }),
+    pushSession: over.onPush ?? (() => undefined),
+    setCwd: over.onCwd ?? (() => undefined),
+  });
+
+describe('man ssh', () => {
+  it('tells the player a command run in a remote shell travels from that box', async () => {
+    const description = ssh.manual?.description ?? '';
+    expect(description).toContain('travels from that box');
+    // And that home is no longer specially reachable from a foreign shell.
+    expect(description).toContain('home network');
+  });
+});
+
+describe('ssh from a hop', () => {
+  it('walks sideways onto a host on the hop’s own LAN, naming the hop as where it came from', async () => {
+    const hop = sshHostOn(HOP_ESSID);
+    const target = sshHostOn(HOP_ESSID, [hop.ip]);
+    const authenticate = vi.fn<(params: RemoteAuthParams) => Promise<RemoteAuthResult>>(
+      async () => ({ ok: true, userType: 'root' }),
+    );
+    const onPush = vi.fn<(session: Session) => void>();
+
+    const result = sync(
+      await ssh.execute(sshHopEnv(hop, { authenticate, onPush }), [`root@${target.ip}`], new Map()),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(authenticate.mock.calls[0]![0]).toEqual({
+      sessionId: 'ssh-root-1700000000000',
+      essid: HOP_ESSID,
+      targetIp: target.ip,
+      username: 'root',
+      password: 'hunter2',
+      parentSessionId: 'ssh-hop-1',
+      callerMachineId: hostMachineId(hop, HOP_ESSID),
+    });
+    expect(onPush.mock.calls[0]![0]).toEqual({
+      id: 'ssh-root-1700000000000',
+      playerKey: PUBKEY,
+      machineId: hostMachineId(target, HOP_ESSID),
+      username: 'root',
+      userType: 'root',
+      kind: 'ssh',
+      createdAt: NOW,
+      essid: HOP_ESSID,
+    });
+  });
+
+  it('stays on the hop’s LAN after an su on it — the user changed, not the box', async () => {
+    const hop = sshHostOn(HOP_ESSID);
+    const target = sshHostOn(HOP_ESSID, [hop.ip]);
+    const authenticate = vi.fn<(params: RemoteAuthParams) => Promise<RemoteAuthResult>>(
+      async () => ({ ok: true, userType: 'root' }),
+    );
+
+    const result = sync(
+      await ssh.execute(
+        sshHopEnv(hop, { authenticate, kind: 'su' }),
+        [`root@${target.ip}`],
+        new Map(),
+      ),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(authenticate.mock.calls[0]![0]).toMatchObject({ essid: HOP_ESSID, targetIp: target.ip });
+  });
+
+  it('resolves a name against the hop’s network, not the player’s home', async () => {
+    const hop = sshHostOn(HOP_ESSID);
+    const target = sshHostOn(HOP_ESSID, [hop.ip]);
+    const authenticate = vi.fn<(params: RemoteAuthParams) => Promise<RemoteAuthResult>>(
+      async () => ({ ok: true, userType: 'root' }),
+    );
+
+    const result = sync(
+      await ssh.execute(sshHopEnv(hop, { authenticate }), [`root@${target.hostname}`], new Map()),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(authenticate.mock.calls[0]![0]).toMatchObject({ targetIp: target.ip });
+  });
+
+  it('cannot reach the player’s home LAN from a hop on another network — without prompting', async () => {
+    const hop = sshHostOn(HOP_ESSID);
+    const hopLan = generateHomeLan(HOP_ESSID).hosts.map((host) => host.ip);
+    const home = generateHomeLan(ESSID).hosts.find(
+      (host) => host.kind === 'machine' && !hopLan.includes(host.ip),
+    );
+    if (home === undefined) throw new Error('every home address is also on the hop LAN');
+    const prompt = vi.fn(async () => 'hunter2');
+
+    const result = sync(await ssh.execute(sshHopEnv(hop, { prompt }), [`root@${home.ip}`], new Map()));
+
+    expect(result.lines.map((line) => line.content)).toEqual([
+      `ssh: connect to host ${home.ip} port 22: No route to host`,
+    ]);
+    expect(result.exitCode).toBe(255);
+    expect(prompt).not.toHaveBeenCalled();
   });
 });

@@ -294,10 +294,9 @@ const reachLan = (
           username: remote.user,
           password,
           parentSessionId: env.session.id,
-          sourceIp: localAddress(env),
         });
         return authenticated.ok
-          ? { ok: true, userType: authenticated.userType, machineId }
+          ? { ok: true, userType: authenticated.userType, machineId, essid }
           : authenticated;
       },
     },
@@ -421,6 +420,7 @@ const connectAndTransfer = async (params: {
         userType: authenticated.userType,
         kind: 'scp',
         createdAt: env.now(),
+        essid: authenticated.essid,
       };
 
       // The remote half of the command line means what a login would have meant by

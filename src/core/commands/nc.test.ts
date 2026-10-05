@@ -35,6 +35,7 @@ import type { CommandEnv, CommandResult, NcApi, PatchResult } from './types.js';
 
 const PUBKEY = 'a'.repeat(64);
 const ESSID = 'BEAN-THERE-WIFI';
+const REMOTE_ESSID = 'SKYLAB-HOME';
 const NO_FLAGS = new Map<string, string | true>();
 
 /** wlan0 associated + addressed on `essid`, holding the address the join would
@@ -646,9 +647,13 @@ describe('nc when a listener answers instead of a service', () => {
    *  door was knocked on — the two halves of "reachability decides the gate". */
   const withDoors = (overrides: Partial<NcApi> = {}) => {
     const connect = vi.fn(async () => ({ ...OPENED }));
-    const connectPublic = vi.fn(async () => ({ ...OPENED, machineId: 'ws-remote' }));
-    const connectSameLan = vi.fn(async () => ({ ...OPENED, machineId: 'ws-neighbour' }));
-    const connectInnerGateway = vi.fn(async () => ({ ...OPENED, machineId: 'gw-inner' }));
+    const connectPublic = vi.fn(async () => ({
+      ...OPENED,
+      machineId: 'ws-remote',
+      essid: REMOTE_ESSID,
+    }));
+    const connectSameLan = vi.fn(async () => ({ ...OPENED, machineId: 'ws-neighbour', essid: ESSID }));
+    const connectInnerGateway = vi.fn(async () => ({ ...OPENED, machineId: 'gw-inner', essid: ESSID }));
     const pushSession = vi.fn();
     const setCwd = vi.fn();
     const env = onlineEnv({
@@ -697,7 +702,23 @@ describe('nc when a listener answers instead of a service', () => {
     expect(pushSession).toHaveBeenCalledWith(
       expect.objectContaining({
         machineId: resolveLanHostIdentity(host, ESSID).machineId,
+        // On the LAN it was reached across.
+        essid: ESSID,
       }),
+    );
+  });
+
+  it('stands a shell behind a public address on the network the server says it is on', async () => {
+    const { env, pushSession } = withDoors();
+    const strangerEnv = {
+      ...env,
+      scan: mockScanApi({ resolvePublic: async () => ({ found: true, ports: [] }) }),
+    };
+
+    await nc.execute(strangerEnv, ['87.0.113.7', '4444'], NO_FLAGS);
+
+    expect(pushSession).toHaveBeenCalledWith(
+      expect.objectContaining({ machineId: 'ws-remote', essid: REMOTE_ESSID }),
     );
   });
 
@@ -804,6 +825,7 @@ describe('what nc actually sends when it knocks', () => {
     const connectSameLan = vi.fn<NcApi['connectSameLan']>(async () => ({
       ...opened,
       machineId: 'ws-neighbour',
+      essid: ESSID,
     }));
     const env = onlineEnv({
       nc: mockNcApi({ connectSameLan }),
@@ -839,6 +861,7 @@ describe('what nc actually sends when it knocks', () => {
     const connectInnerGateway = vi.fn<NcApi['connectInnerGateway']>(async () => ({
       ...opened,
       machineId: 'gw-inner',
+      essid: ESSID,
     }));
     const env = onlineEnv({
       nc: mockNcApi({ connectInnerGateway }),
@@ -858,7 +881,11 @@ describe('what nc actually sends when it knocks', () => {
   });
 
   it('tells a cross-network door where the knock is being made FROM', async () => {
-    const connectPublic = vi.fn<NcApi['connectPublic']>(async () => ({ ...opened, machineId: 'ws-remote' }));
+    const connectPublic = vi.fn<NcApi['connectPublic']>(async () => ({
+      ...opened,
+      machineId: 'ws-remote',
+      essid: REMOTE_ESSID,
+    }));
     const env = onlineEnv({
       nc: mockNcApi({ connectPublic }),
       scan: mockScanApi({ resolvePublic: async () => ({ found: true, ports: [] }) }),

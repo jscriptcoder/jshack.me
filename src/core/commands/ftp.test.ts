@@ -44,6 +44,7 @@ import type {
 
 const PUBKEY = 'a'.repeat(64);
 const ESSID = 'BEAN-THERE-WIFI';
+const THEIR_ESSID = 'SKYLAB-HOME';
 const NOW = 1700000000000;
 
 const onlineConnectivity = (essid: string): ConnectivityState => {
@@ -140,6 +141,7 @@ describe('ftp', () => {
       username: 'alice',
       userType: 'guest',
       kind: 'ftp',
+      essid: ESSID,
     });
     // Parallel, not pushed: the hop chain and the cwd are exactly as they were.
     expect(pushed).not.toHaveBeenCalled();
@@ -218,9 +220,9 @@ describe('ftp', () => {
 
     await ftp.execute(ftpEnv({ authenticate }), [ftpHost.ip], new Map());
 
-    // The defender's log line is evidence. It has to name the machine that really
-    // knocked — the player's own wlan0 address here, not a null the server fills in.
-    expect(authenticate.mock.calls[0]![0].sourceIp).toBe(assignHomeNetwork(PUBKEY, ESSID).localIp);
+    // The defender's log line is evidence, so the address it names is the server's to
+    // derive from the player's own lease — never a claim this side makes.
+    expect(authenticate.mock.calls[0]![0]).not.toHaveProperty('sourceIp');
     // The id the session is minted with is what `quit` later ends server-side, so an
     // empty one would leave the row open forever.
     expect(authenticate.mock.calls[0]![0].sessionId).toMatch(/^ftp-alice-\d+$/);
@@ -356,7 +358,7 @@ describe('ftp', () => {
           ...base.ftp,
           authenticatePublic:
             over.authenticatePublic ??
-            (async () => ({ ok: true, userType: 'guest', machineId: THEIR_BOX })),
+            (async () => ({ ok: true, userType: 'guest', machineId: THEIR_BOX, essid: THEIR_ESSID })),
         }),
       });
     };
@@ -364,7 +366,7 @@ describe('ftp', () => {
     it('reaches the door behind a forward and holds the session on the box it opened', async () => {
       const entered = vi.fn();
       const authenticatePublic = vi.fn<(params: PublicDoorAuthParams) => Promise<PublicAuthResult>>(
-        async () => ({ ok: true, userType: 'guest', machineId: THEIR_BOX }),
+        async () => ({ ok: true, userType: 'guest', machineId: THEIR_BOX, essid: THEIR_ESSID }),
       );
       const env = publicEnv({ onEnter: entered, authenticatePublic });
 
@@ -387,12 +389,14 @@ describe('ftp', () => {
         machineId: THEIR_BOX,
         userType: 'guest',
         kind: 'ftp',
+        // On the network the server says that box is on, not the caller's own.
+        essid: THEIR_ESSID,
       });
     });
 
     it('names the box the player is standing on, so the target learns where the visit came from', async () => {
       const authenticatePublic = vi.fn<(params: PublicDoorAuthParams) => Promise<PublicAuthResult>>(
-        async () => ({ ok: true, userType: 'guest', machineId: THEIR_BOX }),
+        async () => ({ ok: true, userType: 'guest', machineId: THEIR_BOX, essid: THEIR_ESSID }),
       );
 
       await ftp.execute(
@@ -408,7 +412,7 @@ describe('ftp', () => {
 
     it('knocks on the ftp port when the player names none', async () => {
       const authenticatePublic = vi.fn<(params: PublicDoorAuthParams) => Promise<PublicAuthResult>>(
-        async () => ({ ok: true, userType: 'guest', machineId: THEIR_BOX }),
+        async () => ({ ok: true, userType: 'guest', machineId: THEIR_BOX, essid: THEIR_ESSID }),
       );
 
       await ftp.execute(
@@ -423,7 +427,7 @@ describe('ftp', () => {
 
     it('falls back to the ftp port when -p carries nothing usable', async () => {
       const authenticatePublic = vi.fn<(params: PublicDoorAuthParams) => Promise<PublicAuthResult>>(
-        async () => ({ ok: true, userType: 'guest', machineId: THEIR_BOX }),
+        async () => ({ ok: true, userType: 'guest', machineId: THEIR_BOX, essid: THEIR_ESSID }),
       );
       const ports = [{ port: 21, service: 'ftp' }];
 
@@ -456,7 +460,7 @@ describe('ftp', () => {
 
     it('knocks only on the port the player named, even when their box publishes others', async () => {
       const authenticatePublic = vi.fn<(params: PublicDoorAuthParams) => Promise<PublicAuthResult>>(
-        async () => ({ ok: true, userType: 'guest', machineId: THEIR_BOX }),
+        async () => ({ ok: true, userType: 'guest', machineId: THEIR_BOX, essid: THEIR_ESSID }),
       );
       const env = publicEnv({
         authenticatePublic,

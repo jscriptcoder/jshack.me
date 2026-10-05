@@ -42,6 +42,7 @@ import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
 import { ALL_GENERATED_PASSWORDS } from '../src/core/generation/passwordPools.js';
 import { accountsIn } from '../src/core/sessions/passwdAccount.js';
 import { md5 } from '../src/core/generation/md5.js';
+import { leaveNetwork, standOnNetwork } from './standVantage.js';
 import { AUTH_LOG_PATH } from '../src/core/logging/authLog.js';
 import { VSFTPD_LOG_PATH } from '../src/core/logging/vsftpdLog.js';
 import { publicAddressOf } from './publicAddressOf.js';
@@ -201,6 +202,7 @@ const clean = async () => {
   for (const id of [targetMachine, doorlessMachine, A_GATEWAY, A_WS, B_WS]) {
     await sr.from('patches').delete().eq('machine_id', id);
   }
+  await leaveNetwork(sr, ESSID);
   for (const essid of [A_ESSID, B_ESSID]) {
     await sr.from('home_network_occupants').delete().eq('essid', essid);
     await sr.from('network_lan_leases').delete().eq('essid', essid);
@@ -248,6 +250,8 @@ const servedTree = async (): Promise<{ status: number; body: string }> => {
 
 const main = async (): Promise<void> => {
   await clean();
+  // The own-LAN scp login is from home, so the server places the player off this lease.
+  await standOnNetwork(sr, ESSID, player, 24);
 
   // --- 1-5. The own-LAN door, and the log it rides. ---
   const refused = await lanLogin({

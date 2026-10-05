@@ -20,6 +20,7 @@ import { generateHomeLan } from '../generation/generateHomeLan.js';
 import { isInnerGateway, resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
 import { isPublicIp } from '../generation/ip.js';
 import { addressForTarget } from '../network/resolveName.js';
+import { vantageOf } from '../network/vantage.js';
 import { parsePidfilePort } from '../services/pidfile.js';
 import type { Command, CommandEnv, CommandResult, Session } from './types.js';
 import type { Directory } from '../filesystem/types.js';
@@ -121,6 +122,7 @@ const executePublicLogin = async (
     userType: result.userType,
     kind: 'ssh',
     createdAt: env.now(),
+    essid: result.essid,
   };
   env.pushSession(session);
   env.setCwd(homeDirectory({ username: target.user, userType: result.userType }));
@@ -176,6 +178,7 @@ const executeSameLanLogin = async (
     userType: result.userType,
     kind: 'ssh',
     createdAt: env.now(),
+    essid: result.essid,
   };
   env.pushSession(session);
   env.setCwd(homeDirectory({ username: target.user, userType: result.userType }));
@@ -241,6 +244,7 @@ const executeForwardLogin = async (
     userType: result.userType,
     kind: 'ssh',
     createdAt: env.now(),
+    essid: result.essid,
   };
   env.pushSession(session);
   env.setCwd(homeDirectory({ username: target.user, userType: result.userType }));
@@ -254,17 +258,16 @@ const execute: Command['execute'] = async (env, args, flags) => {
   if (requested === null) return errorResult(USAGE);
   const port = parsePort(flags.get('-p'));
 
-  const wlan0 = env.network.interfaces().find((iface) => iface.name === 'wlan0');
-  if (
-    !env.network.isOnline() ||
-    wlan0 === undefined ||
-    wlan0.kind !== 'wireless' ||
-    wlan0.association === null
-  ) {
+  // Where the shell stands: the hop on top of the stack, or the player's own WiFi on
+  // their own box. Every address below is reached FROM there, so a private address
+  // names a host on the hop's LAN, and the player's home LAN is out of reach from a
+  // hop on any other network.
+  const vantage = vantageOf(env.session, env.network);
+  if (vantage === null) {
     return connectError(requested.host, port, 'Network is unreachable');
   }
-  const essid = wlan0.association.essid;
-  const sourceIp = wlan0.ipv4;
+  const essid = vantage.essid;
+  const sourceIp = vantage.address;
 
   // Who else is on this LAN, read at most once and only when something needs it: a
   // name on this network needs it to resolve, and a private address needs it to tell a
@@ -348,7 +351,10 @@ const execute: Command['execute'] = async (env, args, flags) => {
     username: target.user,
     password,
     parentSessionId: env.session.id,
-    sourceIp,
+    // The box the shell is standing on. The server works out from it which network the
+    // login comes from and the address it arrives from, rather than taking either on
+    // the client's word.
+    callerMachineId: env.session.machineId,
   });
   if (!result.ok) {
     if (result.error === 'invalid_credentials') return errorResult('Permission denied (password).');
@@ -366,6 +372,7 @@ const execute: Command['execute'] = async (env, args, flags) => {
     userType: result.userType,
     kind: 'ssh',
     createdAt: env.now(),
+    essid,
   };
   env.pushSession(session);
   env.setCwd(homeDirectory({ username: target.user, userType: result.userType }));
@@ -389,7 +396,11 @@ export const ssh: Command = {
       'Open a login session on a remote host on your network. Connects to the host, ' +
       'prompts for the account password, and on success drops you into that machine ' +
       'with the account’s privileges and home directory. Use "-p" to connect to an ssh ' +
-      'service on a non-standard port (default 22). Use "exit" to drop back to your own machine.',
+      'service on a non-standard port (default 22). Use "exit" to drop back to your own ' +
+      'machine. A command run inside a remote shell travels from that box, not from yours: it ' +
+      'reaches the network that box is on, and the machines it reaches log the box’s ' +
+      'address. From a box on another network, your own home network is reached only ' +
+      'by its public address, like anyone else’s.',
     arguments: [
       {
         name: 'user@host',
