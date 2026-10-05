@@ -32,7 +32,10 @@ import {
 import { derivePid } from '../logging/syslog.js';
 import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
 import { lanAddressFor } from '../network/lanAddress.js';
-import { machineIdForLanHost } from '../generation/lanTopology.js';
+import { chainLinks, machineIdForLanHost, type ChainLink } from '../generation/lanTopology.js';
+import { generateDeepLayer } from '../generation/generateDeepLayer.js';
+import { buildDeepHostFs } from '../generation/deepHostFs.js';
+import { resolveDeepGatewayIdentity } from '../generation/lanHostIdentity.js';
 import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog.js';
 import type { OwnerPatchRow } from '../network/materializeMachineFs.js';
 import type { PatchRow } from '../patches/upsertPatch.js';
@@ -1438,5 +1441,284 @@ describe('a host that filters the port its ssh answers on', () => {
     const result = await handleAuthCreateSession(validEnvelope(identity, host, 'root'), deps);
 
     expect(result.status).toBe(200);
+  });
+});
+
+/**
+ * A box on a deep layer stands on that layer, and a gateway stands on the layer it
+ * fronts, so a shell on either reaches the boxes there by address — no forward needed.
+ * Every layer above is reached too, out through the gateways on the way up. The server
+ * works the layer out from the box the caller names, and logs the login under the
+ * address that box is seen at there: its own on its layer, the layer's `.1` from the
+ * gateway fronting it, the gateway's from below. Whoever does not reach the layer finds
+ * no host at all, and nothing is written.
+ */
+describe('handleAuthCreateSession — a box on a deep layer the caller reaches', () => {
+  // Three gateways deep: an inner router on the LAN, a deep router behind it, and a
+  // second deep router behind that — plus a switch on the LAN fronting a layer of its own.
+  const links = chainLinks(ESSID);
+  const [inner, middle] = links;
+  const lanSwitch = links.find((link) => link.host.kind === 'switch');
+  if (inner === undefined || middle === undefined || lanSwitch === undefined) {
+    throw new Error(`${ESSID} has no such chain`);
+  }
+  const layerOf = (link: ChainLink) =>
+    generateDeepLayer(
+      ESSID,
+      { machineId: link.machineId, kind: link.host.kind },
+      { hangsChild: link.hangsChild },
+    );
+  const INNER_LAYER = layerOf(inner);
+  const MIDDLE_LAYER = layerOf(middle);
+  const SWITCH_LAYER = layerOf(lanSwitch);
+  const INNER_LAYER_HOST_ID = hostMachineId(INNER_LAYER.host, ESSID);
+  const MIDDLE_LAYER_HOST_ID = hostMachineId(MIDDLE_LAYER.host, ESSID);
+  const LAYER_DOT_ONE = `${INNER_LAYER.subnet}.1`;
+
+  /** A caller whose only place is the shell they hold; they occupy no network. */
+  const shellHeld = (): Partial<AuthCreateSessionDeps> => ({
+    findActiveSession: async () => ({
+      data: { username: 'root', userType: 'root', essid: ESSID },
+      error: null,
+    }),
+    findHomeVantage: async () => ({ data: null, error: null }),
+  });
+
+  const loginTo = (
+    target: LanHost,
+    targetFs: Directory,
+    callerMachineId: string | undefined,
+    password = passwordFor(targetFs, 'root'),
+  ) =>
+    signRequest(
+      generateIdentity(),
+      'authCreateSession',
+      basePayload({
+        target_ip: target.ip,
+        username: 'root',
+        password,
+        ...(callerMachineId === undefined ? {} : { caller_machine_id: callerMachineId }),
+      }),
+    );
+
+  const npcFs = (layer: { readonly host: LanHost }) => buildDeepHostFs(ESSID, layer.host);
+  const middleFs = resolveDeepGatewayIdentity(
+    ESSID,
+    inner.machineId,
+    middle.host.ip,
+    middle.host.kind,
+  ).baseFs;
+
+  it('lands on a host on the layer a gateway fronts, logged from that layer’s .1', async () => {
+    const { deps, insertSession, upsertPatch } = makeDeps(shellHeld());
+
+    const result = await handleAuthCreateSession(
+      loginTo(INNER_LAYER.host, npcFs(INNER_LAYER), inner.machineId),
+      deps,
+    );
+
+    expect(result).toEqual({ status: 200, body: { ok: true, userType: 'root' } });
+    expect(insertSession.mock.calls[0]![0]).toMatchObject({
+      machine_id: INNER_LAYER_HOST_ID,
+      source_ip: LAYER_DOT_ONE,
+      essid: ESSID,
+    });
+    expect(upsertPatch.mock.calls[0]![0]).toMatchObject({
+      machine_id: INNER_LAYER_HOST_ID,
+      path: AUTH_LOG_PATH,
+      writer_key: apGatewayLogWriterKey(ESSID),
+      content: `${expectedSshdLine(INNER_LAYER.host, 'success', 'root', LAYER_DOT_ONE)}\n`,
+    });
+  });
+
+  it('lands on the gateway beside a deep host, logged from the host’s own address', async () => {
+    const { deps, insertSession, upsertPatch } = makeDeps(shellHeld());
+
+    const result = await handleAuthCreateSession(
+      loginTo(middle.host, middleFs, INNER_LAYER_HOST_ID),
+      deps,
+    );
+
+    expect(result.status).toBe(200);
+    expect(insertSession.mock.calls[0]![0]).toMatchObject({
+      machine_id: middle.machineId,
+      source_ip: INNER_LAYER.host.ip,
+    });
+    expect(upsertPatch.mock.calls[0]![0].content).toContain(`from ${INNER_LAYER.host.ip}`);
+  });
+
+  it('reaches the layer above from a box two layers down, logged as the gateway between', async () => {
+    const { deps, insertSession, upsertPatch } = makeDeps(shellHeld());
+
+    const result = await handleAuthCreateSession(
+      loginTo(INNER_LAYER.host, npcFs(INNER_LAYER), MIDDLE_LAYER_HOST_ID),
+      deps,
+    );
+
+    expect(result.status).toBe(200);
+    expect(insertSession.mock.calls[0]![0].machine_id).toBe(INNER_LAYER_HOST_ID);
+    expect(upsertPatch.mock.calls[0]![0].content).toContain(`from ${middle.host.ip}`);
+  });
+
+  it('logs a refused password on the layer host and opens no session', async () => {
+    const { deps, insertSession, upsertPatch } = makeDeps(shellHeld());
+
+    const result = await handleAuthCreateSession(
+      loginTo(INNER_LAYER.host, npcFs(INNER_LAYER), inner.machineId, 'not-the-password'),
+      deps,
+    );
+
+    expect(result).toEqual({ status: 401, body: { error: 'invalid_credentials' } });
+    expect(insertSession).not.toHaveBeenCalled();
+    expect(upsertPatch.mock.calls[0]![0].content).toBe(
+      `${expectedSshdLine(INNER_LAYER.host, 'failure', 'root', LAYER_DOT_ONE)}\n`,
+    );
+  });
+
+  it('finds a bricked layer host dark, logging nothing', async () => {
+    const tombstone: OwnerPatchRow = {
+      path: '/boot/vmlinuz',
+      content: null,
+      owner: 'root',
+      permissions: null,
+      node_type: null,
+      updated_at: '2026-07-26T00:00:00.000Z',
+      writer_key: apGatewayLogWriterKey(ESSID),
+    };
+    const { deps, insertSession, upsertPatch } = makeDeps({
+      ...shellHeld(),
+      findPatches: async ({ machine_id }) => ({
+        data: machine_id === INNER_LAYER_HOST_ID ? [tombstone] : [],
+        error: null,
+      }),
+    });
+
+    const result = await handleAuthCreateSession(
+      loginTo(INNER_LAYER.host, npcFs(INNER_LAYER), inner.machineId),
+      deps,
+    );
+
+    expect(result).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+    expect(insertSession).not.toHaveBeenCalled();
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
+  it('reads only the target’s journal on a layer a router fronts — a router filters nothing', async () => {
+    const { deps, findPatches } = makeDeps(shellHeld());
+
+    await handleAuthCreateSession(
+      loginTo(INNER_LAYER.host, npcFs(INNER_LAYER), inner.machineId),
+      deps,
+    );
+
+    expect(findPatches.mock.calls).toEqual([[{ machine_id: INNER_LAYER_HOST_ID }]]);
+  });
+
+  it('fails the login when the layer host’s journal cannot be read', async () => {
+    const { deps, insertSession } = makeDeps({
+      ...shellHeld(),
+      findPatches: async () => ({ data: null, error: new Error('db down') }),
+    });
+
+    const result = await handleAuthCreateSession(
+      loginTo(INNER_LAYER.host, npcFs(INNER_LAYER), inner.machineId),
+      deps,
+    );
+
+    expect(result).toEqual({ status: 500, body: { error: 'patches_lookup_failed' } });
+    expect(insertSession).not.toHaveBeenCalled();
+  });
+
+  describe('a switch fronting the layer', () => {
+    const aclPatch = (content: string): OwnerPatchRow => ({
+      path: '/etc/switch/acl.conf',
+      content,
+      owner: 'root',
+      permissions: null,
+      node_type: 'file',
+      updated_at: '2026-06-19T00:00:00.000Z',
+      writer_key: 'a'.repeat(64),
+    });
+    const onSwitch = (rules: string) =>
+      makeDeps({
+        ...shellHeld(),
+        findPatches: async ({ machine_id }) => ({
+          data: machine_id === lanSwitch.machineId ? [aclPatch(rules)] : [],
+          error: null,
+        }),
+      });
+
+    it('refuses a port the switch denies on its layer, and lets it through once reopened', async () => {
+      const denied = onSwitch('deny 22');
+      const reopened = onSwitch('deny 9999');
+
+      const refused = await handleAuthCreateSession(
+        loginTo(SWITCH_LAYER.host, npcFs(SWITCH_LAYER), lanSwitch.machineId),
+        denied.deps,
+      );
+      const admitted = await handleAuthCreateSession(
+        loginTo(SWITCH_LAYER.host, npcFs(SWITCH_LAYER), lanSwitch.machineId),
+        reopened.deps,
+      );
+
+      expect(refused).toEqual({ status: 404, body: { error: 'service_not_running' } });
+      expect(denied.upsertPatch).not.toHaveBeenCalled();
+      expect(admitted.status).toBe(200);
+    });
+
+    it('fails the login when the switch’s journal cannot be read', async () => {
+      const { deps, insertSession } = makeDeps({
+        ...shellHeld(),
+        findPatches: async ({ machine_id }) =>
+          machine_id === lanSwitch.machineId
+            ? { data: null, error: new Error('db down') }
+            : { data: [], error: null },
+      });
+
+      const result = await handleAuthCreateSession(
+        loginTo(SWITCH_LAYER.host, npcFs(SWITCH_LAYER), lanSwitch.machineId),
+        deps,
+      );
+
+      expect(result).toEqual({ status: 500, body: { error: 'patches_lookup_failed' } });
+      expect(insertSession).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('who finds no host there', () => {
+    const unreached = async (
+      target: LanHost,
+      targetFs: Directory,
+      callerMachineId: string | undefined,
+      over: Partial<AuthCreateSessionDeps> = shellHeld(),
+    ) => {
+      const { deps, insertSession, upsertPatch, findPatches } = makeDeps(over);
+      const result = await handleAuthCreateSession(
+        loginTo(target, targetFs, callerMachineId),
+        deps,
+      );
+      expect(result).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+      expect(insertSession).not.toHaveBeenCalled();
+      expect(upsertPatch).not.toHaveBeenCalled();
+      expect(findPatches).not.toHaveBeenCalled();
+    };
+
+    it('a caller at home on the LAN', async () => {
+      await unreached(INNER_LAYER.host, npcFs(INNER_LAYER), undefined, {});
+    });
+
+    it('a shell on a box on the LAN', async () => {
+      const lanBox = machineIdForLanHost(targetHostFor(), ESSID);
+      await unreached(INNER_LAYER.host, npcFs(INNER_LAYER), lanBox);
+    });
+
+    it('a gateway, for the layer below the one it fronts', async () => {
+      await unreached(MIDDLE_LAYER.host, npcFs(MIDDLE_LAYER), inner.machineId);
+    });
+
+    it('anyone, at a layer’s .1', async () => {
+      const dotOne = { ...INNER_LAYER.host, ip: LAYER_DOT_ONE };
+      await unreached(dotOne, npcFs(INNER_LAYER), INNER_LAYER_HOST_ID);
+    });
   });
 });

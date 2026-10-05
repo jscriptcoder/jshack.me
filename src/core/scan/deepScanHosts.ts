@@ -29,10 +29,12 @@ import type { Directory } from '../filesystem/types.js';
 import type { LanHost } from '../generation/generateHomeLan.js';
 
 /** One host on a pivot-scanned deep layer: the host descriptor, the machine_id its
- *  trace + reach land on, and its open ports after the vantage ACL filter. */
+ *  trace + reach land on, its seeded tree, and its open ports after the vantage ACL
+ *  filter. */
 export type DeepScanHost = {
   readonly host: LanHost;
   readonly machineId: string;
+  readonly baseFs: Directory;
   readonly ports: readonly OpenPort[];
 };
 
@@ -46,7 +48,7 @@ export type DeepScanResolution = {
 /** The ports the fronting gateway's ACL blocks on its layer: a switch filters via its
  *  live `/etc/switch/acl.conf`; a router forwards rather than filters, so it denies
  *  nothing. One discriminant, shared by client and server. */
-const deniedPortsFor = (fronting: ChainLink, frontingFs: Directory): ReadonlySet<number> =>
+export const deniedPortsFor = (fronting: ChainLink, frontingFs: Directory): ReadonlySet<number> =>
   fronting.host.kind === 'switch'
     ? new Set(parseAclDenies(readAclConf(frontingFs)))
     : new Set<number>();
@@ -75,7 +77,7 @@ export const resolveDeepScanHosts = (
     const ports = readOpenPorts(identity.baseFs, { gameDay }).filter(
       (openPort) => !deniedPorts.has(openPort.port),
     );
-    return { host, machineId: identity.machineId, ports };
+    return { host, machineId: identity.machineId, baseFs: identity.baseFs, ports };
   });
   return { subnet: deep.subnet, hosts };
 };

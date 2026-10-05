@@ -300,6 +300,10 @@ It tries four vantages in order:
    did to a deep box is what the next reach finds.
 4. **A generated host on the caller's own LAN** → found by regenerating the LAN; rebuilt from its
    base tree and journal.
+5. **A host on a deep layer the caller's box reaches** (`segmentsReachedFrom`: the layer a deep box
+   stands on, the one a gateway fronts, and every layer above) → found among that layer's hosts,
+   with no forward. It is logged under the address the box is seen at there, and a port the switch
+   fronting the layer denies is no door. A layer's `.1` is no host.
 
 Then:
 

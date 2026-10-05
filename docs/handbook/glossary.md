@@ -21,7 +21,7 @@ here refers to a real network or system.
 | **Access point (AP)**       | A WiFi network a player can crack and join.                                                                                                         |
 | **AP gateway**              | The `.1` router of a network. Ownerless; its machine id is `ap-gw-<hash of the ESSID>`. It holds the network's port forwards.                       |
 | **Inner gateway**           | A router or switch on a home LAN (not `.1`) that fronts a hidden deep layer.                                                                        |
-| **Deep layer / chain**      | Hidden `10.x.y.0/24` networks behind inner gateways, 1–3 levels deep, reached only through forwards or a pivot scan.                                |
+| **Deep layer / chain**      | Hidden `10.x.y.0/24` networks behind inner gateways, 1–3 levels deep, reached through forwards, or directly from a shell on a box in the chain.     |
 | **Terminal machine**        | The one generated machine in a deep layer.                                                                                                          |
 | **NPC / generated machine** | Any machine the generator builds (not a player's workstation).                                                                                      |
 | **Workstation**             | A player's own machine. Machine id `<name>-<8 hex of sha256('ed25519:' + public key)>`.                                                             |
