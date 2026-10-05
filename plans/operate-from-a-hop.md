@@ -2,8 +2,8 @@
 
 **Status**: Grilled and gap-reviewed. Decisions confirmed by the owner 2026-10-04 (grill, then a
 `find-gaps` pass that added 4a, 4b, 7a, 11a, "Out of scope" and "Done when"); nine slices
-planned and approved the same day. Slices 1–4b done (#598 v0.307.0, #599 v0.308.0, #600
-v0.309.0, #601 v0.310.0, #602 v0.311.0). Next: slice 5.
+planned and approved the same day. Slices 1–5 done (#598 v0.307.0, #599 v0.308.0, #600
+v0.309.0, #601 v0.310.0, #602 v0.311.0, #603 v0.312.0). Next: slice 6.
 Resolves two §9 backlog items in `docs/conventions-and-gotchas.md`: "Pivot / operate-from-a-hop —
 source-IP masking only; ssh-from-a-pivot" and "Four tools cannot pivot: `ssh`, `nmap`, `curl`,
 `lynx`". Where they disagree with this file, this file wins.
@@ -199,8 +199,9 @@ with the owner before RED, bumps the version, and runs the mutation gate once at
 (json reporter, one file scope at a time — `conventions-and-gotchas.md` §4). Every slice that
 touches `api/` deps adds or updates a `scripts/test*.ts` wire-check and runs it live.
 
-The close-out (as-built docs, §9 cleanup, retiring this file) is a `docs(v2):` commit on `main`
-after slice 9, not a slice.
+The close-out (as-built docs, §9 cleanup — including the "OPEN DESIGN QUESTION: an established
+session is never re-validated against its route" item, which 11a answers — retiring this file) is
+a `docs(v2):` commit on `main` after slice 9, not a slice.
 
 ### Slice 1: A root wipe of a log on a box you don't own sticks
 
@@ -318,6 +319,17 @@ box there. The client knows no lease for a player-box hop, so its `ifconfig` sta
 address-less; this slice changes only what the server logs.
 
 ### Slice 5: A chain breaks where a hop goes down
+
+✅ Done in #603. As built: `rebootMachine` ends the chains above the box after writing the
+boot-id marker (`endChainsAbove` in `upstreamLost.ts`). It stays inside each player's own chain,
+because every first hop names `seed-session` and session ids are chosen by the client. A failed
+cascade returns 500, after the marker. `listSessions` ends any open session whose parent has
+ended, so a reload never rebuilds onto a lost hop and a failed cascade is repaired on the next
+listing. The terminal asks the server before each line only at two or more hops deep, costing one
+extra request per line there; one hop deep keeps the boot-id check. A `su` leg drops without a
+line. Only a reboot triggers the cascade: bricking acts through the reboot that follows it, and
+`nmcli disconnect` ends nothing, because decision 11a says a leg is never re-checked.
+Wire-check: `scripts/testChainBreaks.ts` 9/9.
 
 **Value**: a reboot evicts an intruder from everything they reached through that box.
 **Path**: `rebootMachine` (and the dark/brick path) end the sessions on the box → every session
