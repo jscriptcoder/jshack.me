@@ -2,8 +2,8 @@
 
 **Status**: Grilled and gap-reviewed. Decisions confirmed by the owner 2026-10-04 (grill, then a
 `find-gaps` pass that added 4a, 4b, 7a, 11a, "Out of scope" and "Done when"); nine slices
-planned and approved the same day. Slices 1–5 done (#598 v0.307.0, #599 v0.308.0, #600
-v0.309.0, #601 v0.310.0, #602 v0.311.0, #603 v0.312.0). Next: slice 6.
+planned and approved the same day. Slices 1–5 and 6a done (#598 v0.307.0, #599 v0.308.0, #600
+v0.309.0, #601 v0.310.0, #602 v0.311.0, #603 v0.312.0, #604 v0.313.0). Next: slice 6b.
 Resolves two §9 backlog items in `docs/conventions-and-gotchas.md`: "Pivot / operate-from-a-hop —
 source-IP masking only; ssh-from-a-pivot" and "Four tools cannot pivot: `ssh`, `nmap`, `curl`,
 `lynx`". Where they disagree with this file, this file wins.
@@ -338,18 +338,42 @@ whose `parent_session_id` chain runs through them ends with `upstream_lost` (ser
 remote host.` per leg → rehydration ends an orphaned child the same way.
 **Decisions**: 11a. **Done-when**: 5.
 
-### Slice 6: `nmap` from a hop sweeps the hop's LAN and traces to the hop
+### Slice 6a: `nmap` from a hop sweeps the hop's LAN and traces to the hop
 
-**Value**: reconnaissance from where the player stands.
-**Path**: `nmap` takes its vantage from the top session for both own-LAN and public scans →
-`resolvePublicScan` gains a caller machine and traces via `resolveVantageSourceIp` →
-`pivotVantageForMachineId` / the `nmapScanDeep` special path fold into the general vantage → a
-hop on a deeper layer traces with its address on that layer, not `unknown`.
-**Decisions**: 2, 10. **Done-when**: 6 (the single-player browser run lands here: two-hop chain,
-`ifconfig`, `nmap` of the hop's LAN, `exit`).
-**Watch for**: `resolveOccupantScan` (an occupant's open ports) still gates on the caller's own
-occupancy (`not_an_occupant`), and `nmap` still lists occupants from home; both take the
-caller's box here.
+✅ Done in #604. As built: `nmap` takes its network from `vantageOf`. On a hop it sweeps that
+box's network, whatever the player's own WiFi is doing. The home subnet is out of range there, and
+the player's own box is not listed, matching `ssh`. Every scan request names the box it runs from
+(`caller_machine_id`). The client no longer sends a `source_ip`: the server places the caller from
+the session row.
+
+One rule, `resolveCallerVantageOn` in `callerVantage.ts`, gates the scan log, the occupant,
+same-LAN and inner-gateway lookups, and the occupant list:
+- a network the caller does not stand on gets 403 `wrong_network`, which retires
+  `not_an_occupant`;
+- a box they hold no shell on gets 403 `no_session`.
+
+A sweep from a hop is logged on that network's boxes, players' included, under the hop's LAN
+address. A public scan from a hop is logged under the hop network's public address. `ssh`, `ftp`,
+`nc` and `scp` also name their box on public probes, so a forward login from a hop passes the new
+gate. The out-of-range message and `man nmap` say "the network you are on".
+
+Done-when 6 landed here, as a browser run: home → BREW-AND-CODE gateway → NAKATOMI-PLAZA gateway,
+then `ifconfig`, `nmap` of the hop's LAN, and `exit`. Wire-check: `scripts/testHopNmap.ts` 10/10.
+
+### Slice 6b: A hop on a deeper layer scans and traces from that layer
+
+**Value**: the deep-layer pivot obeys the same rule as every other hop.
+**Path**:
+1. `vantageOf` / `resolveCallerVantage` learn which segment a box stands on: the home LAN, or the
+   deep `/24` behind a chain gateway.
+2. A hop on a deep host scans that layer and traces with its own address there, not `unknown`.
+3. A hop on a chain gateway also reaches the layer below it.
+4. `pivotVantageForMachineId` and the `nmapScanDeep` special path fold into that general vantage.
+5. The deep scan log requires a session on the gateway it names; today it accepts any gateway a
+   client names.
+
+**Decisions**: 10. **Watch for**: a deep host's session row carries the home network's ESSID, so
+the segment has to come from the machine id, not the ESSID.
 
 ### Slice 7: The web tools run from a hop
 
