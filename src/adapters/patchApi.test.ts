@@ -382,14 +382,14 @@ describe('postKernLog', () => {
 });
 
 describe('recordScan', () => {
-  it('signs an nmapScan request carrying the essid, target, and source ip', async () => {
+  it('signs an nmapScan request carrying the essid, target, and the box it runs on', async () => {
     const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true, hostsLogged: 2 }));
     const deps = makeDeps(fetchSpy as unknown as typeof fetch);
 
     await recordScan(deps, {
       essid: 'BEAN-THERE-WIFI',
       target: '192.168.1.1-254',
-      sourceIp: '192.168.1.50',
+      callerMachineId: 'hop-box-1',
     });
 
     const verified = await verifyPayload(sentEnvelope(fetchSpy));
@@ -398,8 +398,10 @@ describe('recordScan', () => {
       action: 'nmapScan',
       essid: 'BEAN-THERE-WIFI',
       target: '192.168.1.1-254',
-      source_ip: '192.168.1.50',
+      caller_machine_id: 'hop-box-1',
     });
+    // Where the scan came from is the server's to work out, never the client's to say.
+    expect(verified.payload).not.toHaveProperty('source_ip');
   });
 
   it('swallows a thrown fetch — best-effort logging never throws', async () => {
@@ -410,7 +412,7 @@ describe('recordScan', () => {
     );
 
     await expect(
-      recordScan(deps, { essid: 'E', target: '192.168.1.1', sourceIp: null }),
+      recordScan(deps, { essid: 'E', target: '192.168.1.1', callerMachineId: 'hop-box-1' }),
     ).resolves.toBeUndefined();
   });
 });

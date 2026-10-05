@@ -38,8 +38,9 @@ import { portsOpenToNetwork } from '../network/portsOpenToNetwork.js';
 import type { OwnerPatchRow } from '../network/materializeWorkstationFs.js';
 import type { NatOccupantRow } from './resolvePublicScan.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
+import { resolveCallerVantageOn, type CallerVantageDeps } from '../sessions/callerVantage.js';
 
-export type ResolveOccupantScanDeps = {
+export type ResolveOccupantScanDeps = CallerVantageDeps & {
   readonly nonceStore: NonceStore;
   /** The day the world stands on, computed once from the server's own clock at the
    *  endpoint. Absent for a caller asking only what is open — the scan then reports
@@ -79,6 +80,7 @@ const resolveOccupantScanSchema = z
     action: z.literal('resolveOccupantScan'),
     essid: z.string().min(1),
     target: z.string().min(1),
+    caller_machine_id: z.string().min(1).optional(),
   })
   .refine((payload) => !('player_key' in payload));
 
@@ -96,17 +98,21 @@ export const handleResolveOccupantScan = async (
   }
   const { publicKey, payload } = verified;
 
+  // LAN boundary first, so no address and no service list reaches a caller who is not
+  // standing on this network — at home on it, or in a shell on a box that is.
+  const vantage = await resolveCallerVantageOn(
+    deps,
+    publicKey,
+    payload.caller_machine_id,
+    payload.essid,
+  );
+  if (!vantage.ok) return { status: vantage.status, body: { error: vantage.error } };
+
   const occupants = await deps.listOccupantsByEssid(payload.essid);
   if (occupants.error) {
     return { status: 500, body: { error: 'occupants_lookup_failed' } };
   }
   const rows = occupants.data ?? [];
-
-  // LAN boundary first, so no address and no service list reaches a caller who is not
-  // standing on this network.
-  if (!rows.some((row) => row.owner_key === publicKey)) {
-    return { status: 403, body: { error: 'not_an_occupant' } };
-  }
 
   const leases = await deps.listLeasesByEssid(payload.essid);
   if (leases.error) {

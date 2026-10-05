@@ -451,6 +451,62 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (error) console.error('[patches] scan lan-lease list error:', error);
       return { data: data as readonly LanLeaseRow[] | null, error };
     };
+    // Where the scanner stands at home: the network their workstation occupies (the most
+    // recently updated row — one network at a time) and the lease octet held there.
+    const findHomeVantage = async (ownerKey: string) => {
+      const occupancy = await supabase
+        .from('home_network_occupants')
+        .select('essid')
+        .eq('owner_key', ownerKey)
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (occupancy.error) {
+        console.error('[patches] scan vantage occupancy error:', occupancy.error);
+        return { data: null, error: occupancy.error };
+      }
+      const essid = (occupancy.data as { essid: string } | null)?.essid ?? null;
+      if (essid === null) return { data: null, error: null };
+      const lease = await supabase
+        .from('network_lan_leases')
+        .select('octet')
+        .eq('essid', essid)
+        .eq('owner_key', ownerKey)
+        .maybeSingle();
+      if (lease.error) {
+        console.error('[patches] scan vantage lease error:', lease.error);
+        return { data: null, error: lease.error };
+      }
+      const octet = (lease.data as { octet: number } | null)?.octet ?? null;
+      return { data: { essid, octet }, error: null };
+    };
+    // The lease held on `essid` by whoever's workstation `machineId` is — where a scanner
+    // in a shell on that player's box stands.
+    const findWorkstationLease = async (essid: string, machineId: string) => {
+      const occupant = await supabase
+        .from('home_network_occupants')
+        .select('owner_key')
+        .eq('essid', essid)
+        .eq('workstation_machine_id', machineId)
+        .maybeSingle();
+      if (occupant.error) {
+        console.error('[patches] scan vantage workstation error:', occupant.error);
+        return { data: null, error: occupant.error };
+      }
+      const ownerKey = (occupant.data as { owner_key: string } | null)?.owner_key ?? null;
+      if (ownerKey === null) return { data: null, error: null };
+      const lease = await supabase
+        .from('network_lan_leases')
+        .select('octet')
+        .eq('essid', essid)
+        .eq('owner_key', ownerKey)
+        .maybeSingle();
+      if (lease.error) {
+        console.error('[patches] scan vantage workstation lease error:', lease.error);
+        return { data: null, error: lease.error };
+      }
+      return { data: (lease.data as { octet: number } | null)?.octet ?? null, error: null };
+    };
     const { status, body } = await handleNmapScan(req.body, {
       nonceStore: noopNonceStore,
       now: () => Date.now(),
@@ -459,6 +515,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       listOccupantsByEssid,
       listLeasesByEssid,
       findPatches,
+      findActiveSession,
+      findHomeVantage,
+      findWorkstationLease,
     });
     res.status(status).json(body);
     return;

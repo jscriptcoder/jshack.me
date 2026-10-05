@@ -468,7 +468,7 @@ describe('authCreateServerSessionSameLan', () => {
   });
 
   it('maps a 403 (non-occupant) to network_error', async () => {
-    const fetchSpy = vi.fn(async () => jsonResponse(403, { error: 'not_an_occupant' }));
+    const fetchSpy = vi.fn(async () => jsonResponse(403, { error: 'wrong_network' }));
     const deps = makeDeps(fetchSpy as unknown as typeof fetch);
 
     expect(await authCreateServerSessionSameLan(deps, params)).toEqual({

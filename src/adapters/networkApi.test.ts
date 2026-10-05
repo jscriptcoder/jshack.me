@@ -5,6 +5,7 @@ import {
   joinHomeNetwork,
   leaveHomeNetwork,
   resolveCrossPlayerFs,
+  resolveOccupant,
   resolveOccupants,
   resolveInnerGateway,
   resolveSameLan,
@@ -33,6 +34,8 @@ import { asMachineId } from '../core/types.js';
 
 const ENDPOINT = 'http://test.local/api/network';
 const ESSID = 'BEAN-THERE-WIFI';
+/** The box the shell runs the scan on, named on every scan request. */
+const HOP_BOX = 'hop-box-1';
 
 const jsonResponse = (status: number, body: unknown): Response =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
@@ -258,12 +261,16 @@ describe('resolvePublic', () => {
     const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true, found: true }));
     const deps = makeDeps(fetchSpy as unknown as typeof fetch);
 
-    const result = await resolvePublic(deps, '203.0.113.7');
+    const result = await resolvePublic(deps, '203.0.113.7', HOP_BOX);
 
     expect(result).toEqual({ found: true, ports: [] });
     const verified = await verifyPayload(sentEnvelope(fetchSpy));
     if (!verified.ok) throw new Error('expected verified envelope');
-    expect(verified.payload).toMatchObject({ action: 'resolvePublicScan', target: '203.0.113.7' });
+    expect(verified.payload).toMatchObject({
+      action: 'resolvePublicScan',
+      target: '203.0.113.7',
+      caller_machine_id: HOP_BOX,
+    });
   });
 
   it("parses the open ports the server resolved from the owner's record", async () => {
@@ -277,7 +284,7 @@ describe('resolvePublic', () => {
       ) as unknown as typeof fetch,
     );
 
-    expect(await resolvePublic(deps, '203.0.113.7')).toEqual({ found: true, ports });
+    expect(await resolvePublic(deps, '203.0.113.7', HOP_BOX)).toEqual({ found: true, ports });
   });
 
   it('reports the host not found when the server resolves nothing at that IP', async () => {
@@ -287,7 +294,7 @@ describe('resolvePublic', () => {
       ) as unknown as typeof fetch,
     );
 
-    expect(await resolvePublic(deps, '203.0.113.7')).toEqual({ found: false, ports: [] });
+    expect(await resolvePublic(deps, '203.0.113.7', HOP_BOX)).toEqual({ found: false, ports: [] });
   });
 
   it('treats a non-ok response as host down even when its body claims found', async () => {
@@ -299,13 +306,13 @@ describe('resolvePublic', () => {
       ) as unknown as typeof fetch,
     );
 
-    expect(await resolvePublic(deps, '203.0.113.7')).toEqual({ found: false, ports: [] });
+    expect(await resolvePublic(deps, '203.0.113.7', HOP_BOX)).toEqual({ found: false, ports: [] });
   });
 
   it('treats a null / malformed JSON body as host down', async () => {
     const deps = makeDeps(vi.fn(async () => jsonResponse(200, null)) as unknown as typeof fetch);
 
-    expect(await resolvePublic(deps, '203.0.113.7')).toEqual({ found: false, ports: [] });
+    expect(await resolvePublic(deps, '203.0.113.7', HOP_BOX)).toEqual({ found: false, ports: [] });
   });
 
   it('treats a thrown fetch (offline) as host down', async () => {
@@ -315,7 +322,7 @@ describe('resolvePublic', () => {
       }) as unknown as typeof fetch,
     );
 
-    expect(await resolvePublic(deps, '203.0.113.7')).toEqual({ found: false, ports: [] });
+    expect(await resolvePublic(deps, '203.0.113.7', HOP_BOX)).toEqual({ found: false, ports: [] });
   });
 });
 
@@ -328,7 +335,7 @@ describe('resolveInnerGateway', () => {
     const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true, found: true, ports }));
     const deps = makeDeps(fetchSpy as unknown as typeof fetch);
 
-    const result = await resolveInnerGateway(deps, ESSID, '192.168.1.37');
+    const result = await resolveInnerGateway(deps, ESSID, '192.168.1.37', HOP_BOX);
 
     expect(result).toEqual({ found: true, ports });
     const verified = await verifyPayload(sentEnvelope(fetchSpy));
@@ -337,6 +344,7 @@ describe('resolveInnerGateway', () => {
       action: 'resolveInnerGatewayScan',
       essid: ESSID,
       target: '192.168.1.37',
+      caller_machine_id: HOP_BOX,
     });
   });
 
@@ -345,7 +353,7 @@ describe('resolveInnerGateway', () => {
       vi.fn(async () => jsonResponse(200, { ok: true, found: true })) as unknown as typeof fetch,
     );
 
-    expect(await resolveInnerGateway(deps, ESSID, '192.168.1.37')).toEqual({
+    expect(await resolveInnerGateway(deps, ESSID, '192.168.1.37', HOP_BOX)).toEqual({
       found: true,
       ports: [],
     });
@@ -358,7 +366,7 @@ describe('resolveInnerGateway', () => {
       ) as unknown as typeof fetch,
     );
 
-    expect(await resolveInnerGateway(deps, ESSID, '192.168.1.37')).toEqual({
+    expect(await resolveInnerGateway(deps, ESSID, '192.168.1.37', HOP_BOX)).toEqual({
       found: false,
       ports: [],
     });
@@ -371,7 +379,7 @@ describe('resolveInnerGateway', () => {
       ) as unknown as typeof fetch,
     );
 
-    expect(await resolveInnerGateway(deps, ESSID, '192.168.1.37')).toEqual({
+    expect(await resolveInnerGateway(deps, ESSID, '192.168.1.37', HOP_BOX)).toEqual({
       found: false,
       ports: [],
     });
@@ -384,10 +392,38 @@ describe('resolveInnerGateway', () => {
       }) as unknown as typeof fetch,
     );
 
-    expect(await resolveInnerGateway(deps, ESSID, '192.168.1.37')).toEqual({
+    expect(await resolveInnerGateway(deps, ESSID, '192.168.1.37', HOP_BOX)).toEqual({
       found: false,
       ports: [],
     });
+  });
+});
+
+describe('resolveOccupant', () => {
+  it('signs a resolveOccupantScan request naming the box it runs on and parses the ports', async () => {
+    const ports = [{ port: 22, service: 'ssh' }];
+    const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true, found: true, ports }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    const result = await resolveOccupant(deps, ESSID, '192.168.1.37', HOP_BOX);
+
+    expect(result).toEqual({ found: true, ports });
+    const verified = await verifyPayload(sentEnvelope(fetchSpy));
+    if (!verified.ok) throw new Error('expected verified envelope');
+    expect(verified.payload).toMatchObject({
+      action: 'resolveOccupantScan',
+      essid: ESSID,
+      target: '192.168.1.37',
+      caller_machine_id: HOP_BOX,
+    });
+  });
+
+  it('answers null, not host-down, when the server refuses', async () => {
+    const deps = makeDeps(
+      vi.fn(async () => jsonResponse(403, { error: 'wrong_network' })) as unknown as typeof fetch,
+    );
+
+    expect(await resolveOccupant(deps, ESSID, '192.168.1.37', HOP_BOX)).toBeNull();
   });
 });
 
@@ -397,7 +433,7 @@ describe('resolveSameLan', () => {
     const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true, found: true, ports }));
     const deps = makeDeps(fetchSpy as unknown as typeof fetch);
 
-    const result = await resolveSameLan(deps, ESSID, '192.168.1.37');
+    const result = await resolveSameLan(deps, ESSID, '192.168.1.37', HOP_BOX);
 
     expect(result).toEqual({ found: true, ports });
     const verified = await verifyPayload(sentEnvelope(fetchSpy));
@@ -406,6 +442,7 @@ describe('resolveSameLan', () => {
       action: 'resolveSameLanScan',
       essid: ESSID,
       target: '192.168.1.37',
+      caller_machine_id: HOP_BOX,
     });
   });
 
@@ -416,7 +453,7 @@ describe('resolveSameLan', () => {
       ) as unknown as typeof fetch,
     );
 
-    expect(await resolveSameLan(deps, ESSID, '192.168.1.37')).toEqual({
+    expect(await resolveSameLan(deps, ESSID, '192.168.1.37', HOP_BOX)).toEqual({
       found: false,
       ports: [],
     });
@@ -431,7 +468,7 @@ describe('resolveSameLan', () => {
     // this box on the LAN, so reporting our own failed round trip as "down" would say a
     // live neighbour is gone; `null` says we could not ask, and the scan lists the host
     // with no port table.
-    expect(await resolveSameLan(deps, ESSID, '192.168.1.37')).toBeNull();
+    expect(await resolveSameLan(deps, ESSID, '192.168.1.37', HOP_BOX)).toBeNull();
   });
 
   it('answers null when the fetch throws (offline)', async () => {
@@ -441,7 +478,7 @@ describe('resolveSameLan', () => {
       }) as unknown as typeof fetch,
     );
 
-    expect(await resolveSameLan(deps, ESSID, '192.168.1.37')).toBeNull();
+    expect(await resolveSameLan(deps, ESSID, '192.168.1.37', HOP_BOX)).toBeNull();
   });
 });
 
@@ -477,7 +514,7 @@ describe('resolveOccupants', () => {
   it('degrades to an empty list when the caller is not an occupant (403)', async () => {
     const deps = makeDeps(
       vi.fn(async () =>
-        jsonResponse(403, { error: 'not_an_occupant' }),
+        jsonResponse(403, { error: 'wrong_network' }),
       ) as unknown as typeof fetch,
     );
 

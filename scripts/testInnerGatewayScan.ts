@@ -17,6 +17,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign.js';
+import { standOnNetwork } from './standVantage.js';
 import { generateIdentity } from '../src/core/identity/identity.js';
 import { computeInnerGatewayId } from '../src/core/identity/router.js';
 import { generateHomeLan } from '../src/core/generation/generateHomeLan.js';
@@ -64,9 +65,11 @@ const portsOf = (body: unknown): readonly number[] =>
 const foundOf = (body: unknown): boolean => (body as { found?: boolean } | null)?.found === true;
 
 // --- The acting player scans the network's inner gateway. Both the gateway and the layer
-//     behind it belong to the access point, so alice brings only a signature. ---
+//     behind it belong to the access point; alice only has to stand on its LAN. ---
 const alice = generateIdentity();
 const ESSID = 'ABSTERGO-NET';
+// A box on a LAN answers only a caller standing on that LAN.
+await standOnNetwork(sr, ESSID, alice, 251);
 
 const innerGateway = generateHomeLan(ESSID).hosts.find(
   (host) => host.kind === 'router' && Number(host.ip.split('.')[3]) !== 1,

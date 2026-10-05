@@ -2,8 +2,9 @@
  * handleResolvePublicScan — server-side resolution of a cross-player public-IP scan.
  *
  * `nmap <public IP>` from one identity resolves against the ACCESS POINT that bears
- * that address: the caller's signed envelope is verified (and not otherwise consulted —
- * any authenticated player may scan any public IP, exactly like the real internet), the
+ * that address: the caller's signed envelope is verified (and consulted only for where
+ * the scan runs from — any authenticated player may scan any public IP, from wherever they
+ * stand, exactly like the real internet), the
  * public IP is looked up to its ESSID, and the ESSID's shared GATEWAY answers. The
  * gateway is a distinct seeded box that runs its own `sshd:22`; every occupant's
  * workstation is dark behind NAT until a forward opts it in.
@@ -36,8 +37,9 @@ import {
   KERN_LOG_PERMISSIONS,
 } from '../logging/kernLog.js';
 import {
-  resolveCrossPlayerSourceIp,
+  resolveVantageSourceIp,
   type FindHomeNetworkByOwnerKey,
+  type FindPublicIpByEssid,
 } from '../logging/crossPlayerSourceIp.js';
 import {
   appendMachineLog,
@@ -49,6 +51,7 @@ import type { PatchRow } from '../patches/upsertPatch.js';
 import type { Directory } from '../filesystem/types.js';
 import type { OpenPort } from '../services/pidfile.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
+import { standingVantage, type FindActiveSession } from '../patches/authorizeMachineAccess.js';
 
 /** One occupant a NAT forward can reach: its machine id (the journal scope), the
  *  `owner_key` (with the essid, finds its LAN lease) and the identity needed to
@@ -105,6 +108,11 @@ export type ResolvePublicScanDeps = {
    *  key — the truthful source IP of the scan, server-derived so a client cannot
    *  forge it or frame another network. `null` (no home network) → source unknown. */
   readonly findHomeNetworkByOwnerKey: FindHomeNetworkByOwnerKey;
+  /** The public address of the network the scanner's shell stands on, when it stands on
+   *  one: a scan from a hop leaves the internet through that network's gateway. */
+  readonly findPublicIpByEssid: FindPublicIpByEssid;
+  /** The scanner's live session on the box they name, which is where the scan runs from. */
+  readonly findActiveSession: FindActiveSession;
   /** The day the world stands on, computed once from the server's own clock at the
    *  endpoint. Absent for a caller asking only what is open — the scan then reports
    *  ports and versions with no vulnerability against them. */
@@ -122,6 +130,7 @@ const resolvePublicScanSchema = z
   .looseObject({
     action: z.literal('resolvePublicScan'),
     target: z.string().min(1),
+    caller_machine_id: z.string().min(1).optional(),
   })
   .refine((payload) => !('player_key' in payload));
 
@@ -247,6 +256,17 @@ export const handleResolvePublicScan = async (
     return { status: STATUS_BY_VERIFY_REASON[verified.reason], body: { error: verified.reason } };
   }
 
+  // Where the scan runs from, established rather than believed: a box the scanner names
+  // must be one they hold a shell on. Naming none is their own workstation.
+  const vantage = await standingVantage(
+    verified.publicKey,
+    verified.payload.caller_machine_id,
+    deps.findActiveSession,
+  );
+  if (!vantage.ok) {
+    return { status: vantage.status, body: { error: vantage.error } };
+  }
+
   const { data, error } = await deps.findNetworkByPublicIp(verified.payload.target);
   if (error) {
     return { status: 500, body: { error: 'network_lookup_failed' } };
@@ -292,12 +312,12 @@ export const handleResolvePublicScan = async (
 
   // Host-up: leave a truthful kern.log trace on the gateway's shared record, in the
   // network's own row — there even on an AP nobody has ever joined. The source IP is the
-  // scanner's own home public IP, server-derived from their verified key — never the
-  // payload's.
-  const sourceIp = await resolveCrossPlayerSourceIp(
-    deps.findHomeNetworkByOwnerKey,
-    verified.publicKey,
-  );
+  // public address of the network the scan left from — the hop's, or the scanner's home —
+  // server-derived, never the payload's.
+  const sourceIp = await resolveVantageSourceIp(deps, {
+    actorKey: verified.publicKey,
+    standingEssid: vantage.standingEssid,
+  });
   await logCrossPlayerScan(deps, data, apGatewayLogWriterKey(data.essid), ports, sourceIp);
 
   return { status: 200, body: { ok: true, found: true, ports } };

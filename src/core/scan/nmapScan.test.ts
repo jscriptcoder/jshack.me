@@ -43,7 +43,10 @@ const freshStore: NonceStore = async () => ({ fresh: true });
 const ESSID = 'BEAN-THERE-WIFI';
 // 2026-06-07 14:32:01 UTC — the server clock the kern.log line is stamped with.
 const FIXED_NOW = Date.UTC(2026, 5, 7, 14, 32, 1);
-const SOURCE_IP = '192.168.1.50';
+// The lease the scanner holds on the network at home — the address every own-LAN trace
+// names, read by the server from the scanner's key rather than taken from the client.
+const SOURCE_OCTET = 50;
+const SOURCE_IP = `${generateHomeLan(ESSID).subnet}.${SOURCE_OCTET}`;
 
 type OccupantsResult = { data: readonly ScanOccupant[] | null; error: unknown };
 type PatchesResult = { data: readonly OwnerPatchRow[] | null; error: unknown };
@@ -82,6 +85,10 @@ const makeDeps = (over: Partial<NmapScanDeps> = {}) => {
     listOccupantsByEssid,
     listLeasesByEssid,
     findPatches,
+    // Default: the scanner stands at home on this ESSID on its lease, holding no shell.
+    findActiveSession: async () => ({ data: null, error: null }),
+    findHomeVantage: async () => ({ data: { essid: ESSID, octet: SOURCE_OCTET }, error: null }),
+    findWorkstationLease: async () => ({ data: null, error: null }),
     ...over,
   };
   return { deps, upsertPatch, readLog, listOccupantsByEssid, listLeasesByEssid, findPatches };
@@ -179,7 +186,7 @@ const envelope = (
   id: ReturnType<typeof generateIdentity>,
   target: string,
   over: Record<string, unknown> = {},
-) => signRequest(id, 'nmapScan', { essid: ESSID, target, source_ip: SOURCE_IP, ...over });
+) => signRequest(id, 'nmapScan', { essid: ESSID, target, ...over });
 
 describe('whose row an own-LAN scan trace accretes under', () => {
   it("files a generated box under the network's own key, not the scanner", async () => {
@@ -350,7 +357,7 @@ describe('handleNmapScan', () => {
     const { deps, upsertPatch } = makeDeps();
 
     const result = await handleNmapScan(
-      signRequest(id, 'nmapScan', { essid: ESSID, source_ip: SOURCE_IP }),
+      signRequest(id, 'nmapScan', { essid: ESSID }),
       deps,
     );
 
@@ -389,18 +396,66 @@ describe('handleNmapScan', () => {
     expect(upsertPatch).not.toHaveBeenCalled();
   });
 
-  it('records the source ip as "unknown" when the envelope omits it', async () => {
+  it('records the source as "unknown" when the scanner holds no lease on the network', async () => {
+    const id = generateIdentity();
+    const host = loggedHostsOf(id.publicKeyHex)[0]!;
+    const { deps, upsertPatch } = makeDeps({
+      findHomeVantage: async () => ({ data: { essid: ESSID, octet: null }, error: null }),
+    });
+
+    const result = await handleNmapScan(envelope(id, host.ip), deps);
+
+    expect(result.body).toEqual({ ok: true, hostsLogged: 1 });
+    expect(upsertPatch.mock.calls[0]![0].content).toContain('Port scan from unknown —');
+  });
+
+  it('records the address the server places the scanner at, not one the client claims', async () => {
     const id = generateIdentity();
     const host = loggedHostsOf(id.publicKeyHex)[0]!;
     const { deps, upsertPatch } = makeDeps();
 
-    const result = await handleNmapScan(
-      signRequest(id, 'nmapScan', { essid: ESSID, target: host.ip }),
-      deps,
-    );
+    await handleNmapScan(envelope(id, host.ip, { source_ip: '203.0.113.222' }), deps);
 
-    expect(result.body).toEqual({ ok: true, hostsLogged: 1 });
-    expect(upsertPatch.mock.calls[0]![0].content).toContain('Port scan from unknown —');
+    expect(upsertPatch.mock.calls[0]![0].content).toBe(`${expectedKernLine(host)}\n`);
+  });
+
+  it('logs nothing for a network the scanner is not standing on', async () => {
+    const id = generateIdentity();
+    const host = loggedHostsOf(id.publicKeyHex)[0]!;
+    const { deps, upsertPatch } = makeDeps({
+      findHomeVantage: async () => ({ data: { essid: 'SOME-OTHER-WIFI', octet: 40 }, error: null }),
+    });
+
+    const result = await handleNmapScan(envelope(id, host.ip), deps);
+
+    expect(result).toEqual({ status: 403, body: { error: 'wrong_network' } });
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
+  it('logs nothing for a scanner who is on no network at all', async () => {
+    const id = generateIdentity();
+    const host = loggedHostsOf(id.publicKeyHex)[0]!;
+    const { deps, upsertPatch } = makeDeps({
+      findHomeVantage: async () => ({ data: null, error: null }),
+    });
+
+    const result = await handleNmapScan(envelope(id, host.ip), deps);
+
+    expect(result).toEqual({ status: 403, body: { error: 'caller_not_on_network' } });
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
+  it('returns 500 rather than a trace it could not place', async () => {
+    const id = generateIdentity();
+    const host = loggedHostsOf(id.publicKeyHex)[0]!;
+    const { deps, upsertPatch } = makeDeps({
+      findHomeVantage: async () => ({ data: null, error: new Error('db down') }),
+    });
+
+    const result = await handleNmapScan(envelope(id, host.ip), deps);
+
+    expect(result).toEqual({ status: 500, body: { error: 'vantage_lookup_failed' } });
+    expect(upsertPatch).not.toHaveBeenCalled();
   });
 });
 
@@ -613,17 +668,31 @@ describe('handleNmapScan — same-LAN scan traces a fellow occupant', () => {
       alice: octetOf(selfIpOf(alice.publicKeyHex)),
       bob: octetOf(selfIpOf(bob.publicKeyHex)),
     };
+    const leaseRows = over.leases?.({ alice, bob }) ?? [
+      { owner_key: alice.publicKeyHex, octet: leasedOctets.alice },
+      { owner_key: bob.publicKeyHex, octet: leasedOctets.bob },
+    ];
     // The lease reader deps actually get — returned below so a test can retarget it.
     const listLeasesByEssid =
       over.listLeasesByEssid ??
       vi.fn(async () => ({
-        data: over.leases?.({ alice, bob }) ?? [
-          { owner_key: alice.publicKeyHex, octet: leasedOctets.alice },
-          { owner_key: bob.publicKeyHex, octet: leasedOctets.bob },
-        ],
+        data: leaseRows,
         error: over.leaseReadFails === true ? new Error('db down') : null,
       }));
+    // Where the server places a scanner at home: on this ESSID while it occupies it, on
+    // the octet it leased — or nowhere, for a stranger or a player who left.
+    const findHomeVantage: NmapScanDeps['findHomeVantage'] = async (ownerKey) => ({
+      data:
+        ownerKey === bob.publicKeyHex && over.callerOffLan !== true
+          ? {
+              essid: ESSID,
+              octet: leaseRows.find((lease) => lease.owner_key === ownerKey)?.octet ?? null,
+            }
+          : null,
+      error: null,
+    });
     const { deps, upsertPatch } = makeDeps({
+      findHomeVantage,
       listOccupantsByEssid:
         over.listOccupantsByEssid ??
         vi.fn(async () => ({
@@ -701,12 +770,13 @@ describe('handleNmapScan — same-LAN scan traces a fellow occupant', () => {
     expect(content).not.toContain('203.0.113.222');
   });
 
-  it('does not trace a fellow occupant when the caller is not a live occupant of the ESSID', async () => {
+  it('refuses a caller who is not on the ESSID, tracing nobody', async () => {
     const ctx = setup({ caller: 'stranger' });
 
-    await handleNmapScan(envelope(ctx.caller, ctx.aLan), ctx.deps);
+    const result = await handleNmapScan(envelope(ctx.caller, ctx.aLan), ctx.deps);
 
-    expect(traceOn(ctx.upsertPatch, ctx.aWs)).toBeUndefined();
+    expect(result).toEqual({ status: 403, body: { error: 'caller_not_on_network' } });
+    expect(ctx.upsertPatch).not.toHaveBeenCalled();
   });
 
   it("excludes the caller's own occupancy row (self is the own-LAN path, not an occupant trace)", async () => {
@@ -829,9 +899,10 @@ describe('handleNmapScan — same-LAN scan traces a fellow occupant', () => {
     // ADDRESSED is not being PRESENT: only a live occupant may scan the LAN.
     const ctx = setup({ callerOffLan: true });
 
-    await handleNmapScan(envelope(ctx.bob, ctx.aLan), ctx.deps);
+    const result = await handleNmapScan(envelope(ctx.bob, ctx.aLan), ctx.deps);
 
-    expect(traceOn(ctx.upsertPatch, ctx.aWs)).toBeUndefined();
+    expect(result).toEqual({ status: 403, body: { error: 'caller_not_on_network' } });
+    expect(ctx.upsertPatch).not.toHaveBeenCalled();
   });
 
   it('skips occupant tracing without failing the scan when the lease lookup errors', async () => {
@@ -842,5 +913,89 @@ describe('handleNmapScan — same-LAN scan traces a fellow occupant', () => {
 
     expect(result.status).toBe(200);
     expect(traceOn(ctx.upsertPatch, ctx.aWs)).toBeUndefined();
+  });
+});
+
+/**
+ * A shell on a box is a place to stand: a scan typed into it sweeps that box's network
+ * and every trace it leaves names that box's own address there. Both come off the
+ * session row the server holds, so a caller who stands on a network without occupying
+ * it scans it all the same, and one who names a box they hold no shell on scans nothing.
+ */
+describe('handleNmapScan — from a shell held on a box', () => {
+  const hopFixture = () => {
+    const stranger = generateIdentity();
+    const hop = generateHomeLan(ESSID).hosts.find((host) => host.kind === 'machine')!;
+    const hopMachineId = resolveLanHostIdentity(hop, ESSID).machineId;
+    const shellOn = (essid: string): Partial<NmapScanDeps> => ({
+      findActiveSession: async () => ({
+        data: { username: 'root', userType: 'root', essid },
+        error: null,
+      }),
+      // The caller lives on no network of their own; only the shell places them.
+      findHomeVantage: async () => ({ data: null, error: null }),
+    });
+    const hopEnvelope = (target: string) =>
+      envelope(stranger, target, { caller_machine_id: hopMachineId });
+    return { stranger, hop, hopMachineId, shellOn, hopEnvelope };
+  };
+
+  it("names the hop's own LAN address on every host the sweep touches", async () => {
+    const { hop, shellOn, hopEnvelope } = hopFixture();
+    const { deps, upsertPatch } = makeDeps(shellOn(ESSID));
+
+    const result = await handleNmapScan(hopEnvelope(`${subnetOf()}.1-254`), deps);
+
+    expect(result.status).toBe(200);
+    expect(upsertPatch).toHaveBeenCalled();
+    for (const [row] of upsertPatch.mock.calls) {
+      expect(row.content).toContain(`Port scan from ${hop.ip} —`);
+    }
+  });
+
+  it("traces a fellow occupant from the hop's address, though the caller occupies nothing", async () => {
+    const { hop, shellOn, hopEnvelope } = hopFixture();
+    const alice = generateIdentity();
+    const aWs = `workstation-${alice.publicKeyHex.slice(0, 8)}`;
+    const occAlice = occupantRow(alice, aWs, 'skylab');
+    const aOctet = hop.ip.endsWith('.200') ? 201 : 200;
+    const aLan = `${subnetOf()}.${aOctet}`;
+    const { deps, upsertPatch } = makeDeps({
+      ...shellOn(ESSID),
+      listOccupantsByEssid: async () => ({ data: [occAlice], error: null }),
+      listLeasesByEssid: async () => ({
+        data: [{ owner_key: alice.publicKeyHex, octet: aOctet }],
+        error: null,
+      }),
+      findPatches: async () => ({ data: [wsSshdUp], error: null }),
+    });
+
+    await handleNmapScan(hopEnvelope(aLan), deps);
+
+    expect(traceOn(upsertPatch, aWs)?.content).toBe(
+      `${expectedOccupantLine(occAlice, [wsSshdUp], hop.ip)}\n`,
+    );
+  });
+
+  it('refuses a sweep of a network other than the one the hop stands on', async () => {
+    const { shellOn, hopEnvelope } = hopFixture();
+    const { deps, upsertPatch } = makeDeps(shellOn('RIDGEMONT-OFFICE'));
+
+    const result = await handleNmapScan(hopEnvelope(`${subnetOf()}.1-254`), deps);
+
+    expect(result).toEqual({ status: 403, body: { error: 'wrong_network' } });
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
+  it('refuses a caller naming a box they hold no shell on', async () => {
+    const { hopEnvelope } = hopFixture();
+    const { deps, upsertPatch } = makeDeps({
+      findHomeVantage: async () => ({ data: null, error: null }),
+    });
+
+    const result = await handleNmapScan(hopEnvelope(`${subnetOf()}.1-254`), deps);
+
+    expect(result).toEqual({ status: 403, body: { error: 'no_session' } });
+    expect(upsertPatch).not.toHaveBeenCalled();
   });
 });

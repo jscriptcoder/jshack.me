@@ -387,6 +387,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       readLog,
       upsertPatch,
       findHomeNetworkByOwnerKey,
+      findPublicIpByEssid: derivedPublicIpByEssid,
+      findActiveSession: findActiveSessionVia({ supabase, label: 'public scan' }),
     });
     res.status(status).json(body);
     return;
@@ -467,6 +469,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       nonceStore: noopNonceStore,
       gameDay: gameDayAt(asEpochMs(Date.now())),
       findPatches,
+      findActiveSession: findActiveSessionVia({ supabase, label: 'inner-gw scan active-session' }),
+      findHomeVantage: findHomeVantageVia({ supabase, label: 'inner-gw scan vantage' }),
+      findWorkstationLease: findWorkstationLeaseVia({ supabase, label: 'inner-gw scan vantage' }),
     });
     res.status(status).json(body);
     return;
@@ -493,6 +498,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       nonceStore: noopNonceStore,
       gameDay: gameDayAt(asEpochMs(Date.now())),
       findPatches,
+      findActiveSession: findActiveSessionVia({ supabase, label: 'same-lan scan active-session' }),
+      findHomeVantage: findHomeVantageVia({ supabase, label: 'same-lan scan vantage' }),
+      findWorkstationLease: findWorkstationLeaseVia({ supabase, label: 'same-lan scan vantage' }),
     });
     res.status(status).json(body);
     return;
@@ -668,6 +676,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       listOccupantsByEssid,
       listLeasesByEssid,
       findPatches,
+      findActiveSession: findActiveSessionVia({ supabase, label: 'occupant scan active-session' }),
+      findHomeVantage: findHomeVantageVia({ supabase, label: 'occupant scan vantage' }),
+      findWorkstationLease: findWorkstationLeaseVia({ supabase, label: 'occupant scan vantage' }),
     });
     res.status(status).json(body);
     return;

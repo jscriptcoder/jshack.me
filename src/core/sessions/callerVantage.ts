@@ -101,3 +101,22 @@ export const resolveCallerVantage = async (
     sourceIp: leasedAddress(home.data.essid, home.data.octet),
   };
 };
+
+/**
+ * The LAN boundary every own-LAN read and trace draws: a caller learns about a network
+ * only by standing on it. Their vantage, as `resolveCallerVantage` places them, when it
+ * is on `essid`; otherwise the same refusal whichever door they knocked on, so no door
+ * can answer for a network the caller merely names.
+ */
+export const resolveCallerVantageOn = async (
+  deps: CallerVantageDeps,
+  callerKey: string,
+  callerMachineId: string | undefined,
+  essid: string,
+): Promise<CallerVantage> => {
+  const vantage = await resolveCallerVantage(deps, callerKey, callerMachineId);
+  if (vantage.ok && vantage.essid !== essid) {
+    return { ok: false, status: 403, error: 'wrong_network' };
+  }
+  return vantage;
+};

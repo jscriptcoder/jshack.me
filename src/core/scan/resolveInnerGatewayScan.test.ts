@@ -143,6 +143,18 @@ const bootTombstone: OwnerPatchRow = {
 
 type PatchesResult = { data: readonly OwnerPatchRow[] | null; error: unknown };
 
+/** The caller stands at home on `essid`, holding no shell — the ordinary scanner. */
+const atHomeOn = (
+  essid: string,
+): Pick<
+  ResolveInnerGatewayScanDeps,
+  'findActiveSession' | 'findHomeVantage' | 'findWorkstationLease'
+> => ({
+  findActiveSession: async () => ({ data: null, error: null }),
+  findHomeVantage: async () => ({ data: { essid, octet: 50 }, error: null }),
+  findWorkstationLease: async () => ({ data: null, error: null }),
+});
+
 const makeDeps = (
   patches: (query: { machine_id: string }) => Promise<PatchesResult> = async () => ({
     data: [],
@@ -150,7 +162,11 @@ const makeDeps = (
   }),
 ) => {
   const findPatches = vi.fn<(query: { machine_id: string }) => Promise<PatchesResult>>(patches);
-  const deps: ResolveInnerGatewayScanDeps = { nonceStore: freshStore, findPatches };
+  const deps: ResolveInnerGatewayScanDeps = {
+    nonceStore: freshStore,
+    findPatches,
+    ...atHomeOn(ESSID),
+  };
   return { deps, findPatches };
 };
 
@@ -161,7 +177,11 @@ const perIdDeps = (journals: Record<string, readonly OwnerPatchRow[]>) => {
     data: journals[query.machine_id] ?? [],
     error: null,
   }));
-  const deps: ResolveInnerGatewayScanDeps = { nonceStore: freshStore, findPatches };
+  const deps: ResolveInnerGatewayScanDeps = {
+    nonceStore: freshStore,
+    findPatches,
+    ...atHomeOn(ESSID),
+  };
   return { deps, findPatches };
 };
 
@@ -298,7 +318,11 @@ describe('handleResolveInnerGatewayScan', () => {
           ? { data: null, error: { message: 'boom' } }
           : { data: [forwardPatch], error: null },
     );
-    const deps: ResolveInnerGatewayScanDeps = { nonceStore: freshStore, findPatches };
+    const deps: ResolveInnerGatewayScanDeps = {
+      nonceStore: freshStore,
+      findPatches,
+      ...atHomeOn(ESSID),
+    };
 
     const result = await handleResolveInnerGatewayScan(envelope(INNER.ip), deps);
 
@@ -538,7 +562,7 @@ describe('handleResolveInnerGatewayScan — chained forward down a deeper chain'
   const scanInner3 = (deps: ResolveInnerGatewayScanDeps) =>
     handleResolveInnerGatewayScan(
       signRequest(PLAYER, 'resolveInnerGatewayScan', { essid: ESSID3, target: INNER3.ip }),
-      deps,
+      { ...deps, ...atHomeOn(ESSID3) },
     );
 
   it('reports a server error when a journal fails BELOW the child, never a dark chained port', async () => {
@@ -610,7 +634,11 @@ describe('handleResolveInnerGatewayScan — chained forward down a deeper chain'
         ? { data: null, error: new Error('db down') }
         : { data: [innerForward], error: null },
     );
-    const deps: ResolveInnerGatewayScanDeps = { nonceStore: freshStore, findPatches };
+    const deps: ResolveInnerGatewayScanDeps = {
+      nonceStore: freshStore,
+      findPatches,
+      ...atHomeOn(ESSID),
+    };
 
     const result = await scanInner3(deps);
 
@@ -626,7 +654,11 @@ describe('handleResolveInnerGatewayScan — chained forward down a deeper chain'
       if (query.machine_id === L2CHILD_ID) return { data: [l2ToL3], error: null };
       return { data: null, error: new Error('db down') };
     });
-    const deps: ResolveInnerGatewayScanDeps = { nonceStore: freshStore, findPatches };
+    const deps: ResolveInnerGatewayScanDeps = {
+      nonceStore: freshStore,
+      findPatches,
+      ...atHomeOn(ESSID),
+    };
 
     const result = await scanInner3(deps);
 
@@ -694,7 +726,11 @@ describe('handleResolveInnerGatewayScan — the seeded depth + forward set bound
         ? { data: null, error: new Error('db down') }
         : { data: [npcForward], error: null },
     );
-    const deps: ResolveInnerGatewayScanDeps = { nonceStore: freshStore, findPatches };
+    const deps: ResolveInnerGatewayScanDeps = {
+      nonceStore: freshStore,
+      findPatches,
+      ...atHomeOn(ESSID),
+    };
 
     const result = await handleResolveInnerGatewayScan(envelope(INNER.ip), deps);
 
@@ -746,16 +782,70 @@ describe('handleResolveInnerGatewayScan — a depth-1 network (no child gateway 
       data: [forwardToWouldBeChild],
       error: null,
     }));
-    const deps: ResolveInnerGatewayScanDeps = { nonceStore: freshStore, findPatches };
+    const deps: ResolveInnerGatewayScanDeps = {
+      nonceStore: freshStore,
+      findPatches,
+      ...atHomeOn(ESSID),
+    };
 
     const result = await handleResolveInnerGatewayScan(
       signRequest(PLAYER, 'resolveInnerGatewayScan', { essid: SHALLOW_ESSID, target: SHALLOW_INNER.ip }),
-      deps,
+      { ...deps, ...atHomeOn(SHALLOW_ESSID) },
     );
 
     expect(result).toEqual({
       status: 200,
       body: { ok: true, found: true, ports: [SSH_22, SNMP_161] },
     });
+  });
+});
+
+/**
+ * A gateway's forwards are learned by standing on its LAN — at home on it, or in a shell
+ * on a box that is. A caller who merely names the network learns nothing.
+ */
+describe('handleResolveInnerGatewayScan — who may ask', () => {
+  const shellOn = (essid: string): Partial<ResolveInnerGatewayScanDeps> => ({
+    findActiveSession: async () => ({
+      data: { username: 'root', userType: 'root', essid },
+      error: null,
+    }),
+    findHomeVantage: async () => ({ data: null, error: null }),
+  });
+  const fromHop = () => envelope(INNER.ip, { caller_machine_id: 'some-box-on-the-lan' });
+
+  it('answers a caller whose shell stands on a box on this LAN', async () => {
+    const { deps } = makeDeps();
+
+    const result = await handleResolveInnerGatewayScan(fromHop(), { ...deps, ...shellOn(ESSID) });
+
+    expect(result).toEqual({
+      status: 200,
+      body: { ok: true, found: true, ports: [SSH_22, SNMP_161] },
+    });
+  });
+
+  it('refuses a caller whose shell stands on another network, reading no journal', async () => {
+    const { deps, findPatches } = makeDeps();
+
+    const result = await handleResolveInnerGatewayScan(fromHop(), {
+      ...deps,
+      ...shellOn('RIDGEMONT-OFFICE'),
+    });
+
+    expect(result).toEqual({ status: 403, body: { error: 'wrong_network' } });
+    expect(findPatches).not.toHaveBeenCalled();
+  });
+
+  it('refuses a caller at home on another network, reading no journal', async () => {
+    const { deps, findPatches } = makeDeps();
+
+    const result = await handleResolveInnerGatewayScan(envelope(INNER.ip), {
+      ...deps,
+      ...atHomeOn('SOME-OTHER-WIFI'),
+    });
+
+    expect(result).toEqual({ status: 403, body: { error: 'wrong_network' } });
+    expect(findPatches).not.toHaveBeenCalled();
   });
 });

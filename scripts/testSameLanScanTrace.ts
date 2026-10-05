@@ -164,13 +164,13 @@ check(
   `before=${before3} after=${lineCount(log3)}`,
 );
 
-// === 4. A NON-occupant caller traces nobody (LAN-boundary gate). ===
+// === 4. A NON-occupant caller is refused and traces nobody (LAN-boundary gate). ===
 const before4 = await readKernLog(A_WS, alice.publicKeyHex);
 const s4 = await post(PATCHES, scan(carol, A_LAN));
 const after4 = await readKernLog(A_WS, alice.publicKeyHex);
 check(
-  'a non-occupant caller traces nobody — A’s kern.log is unchanged',
-  s4.status === 200 && before4 === after4,
+  'a non-occupant caller is refused and traces nobody — A’s kern.log is unchanged',
+  s4.status === 403 && before4 === after4,
   `status=${s4.status} logUnchanged=${before4 === after4}`,
 );
 

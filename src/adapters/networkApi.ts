@@ -179,9 +179,13 @@ export const resolveOccupiedEssids = async (
 export const resolvePublic = async (
   deps: NetworkClientDeps,
   target: string,
+  callerMachineId: string,
 ): Promise<PublicScanResolution> => {
   try {
-    const response = await post(deps, 'resolvePublicScan', { target });
+    const response = await post(deps, 'resolvePublicScan', {
+      target,
+      caller_machine_id: callerMachineId,
+    });
     if (!response.ok) return { found: false, ports: [] };
     // A null / malformed body throws on the property access and is caught below
     // (→ host down), so no optional-chaining guard is needed here.
@@ -294,9 +298,14 @@ export const resolveInnerGateway = async (
   deps: NetworkClientDeps,
   essid: string,
   target: string,
+  callerMachineId: string,
 ): Promise<PublicScanResolution> => {
   try {
-    const response = await post(deps, 'resolveInnerGatewayScan', { essid, target });
+    const response = await post(deps, 'resolveInnerGatewayScan', {
+      essid,
+      target,
+      caller_machine_id: callerMachineId,
+    });
     if (!response.ok) return { found: false, ports: [] };
     const body: unknown = await response.json();
     const resolved = body as Partial<PublicScanResolution>;
@@ -335,9 +344,14 @@ export const resolveSameLan = async (
   deps: NetworkClientDeps,
   essid: string,
   target: string,
+  callerMachineId: string,
 ): Promise<PublicScanResolution | null> => {
   try {
-    const response = await post(deps, 'resolveSameLanScan', { essid, target });
+    const response = await post(deps, 'resolveSameLanScan', {
+      essid,
+      target,
+      caller_machine_id: callerMachineId,
+    });
     if (!response.ok) return null;
     const body: unknown = await response.json();
     const resolved = body as Partial<PublicScanResolution>;
@@ -351,9 +365,14 @@ export const resolveOccupant = async (
   deps: NetworkClientDeps,
   essid: string,
   target: string,
+  callerMachineId: string,
 ): Promise<PublicScanResolution | null> => {
   try {
-    const response = await post(deps, 'resolveOccupantScan', { essid, target });
+    const response = await post(deps, 'resolveOccupantScan', {
+      essid,
+      target,
+      caller_machine_id: callerMachineId,
+    });
     if (!response.ok) return null;
     const body: unknown = await response.json();
     const resolved = body as Partial<PublicScanResolution>;

@@ -29,8 +29,9 @@ import { materializeMachineFs, type OwnerPatchRow } from '../network/materialize
 import { canBoot } from '../boot/bootFiles.js';
 import { scanResult } from './scanResult.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
+import { resolveCallerVantageOn, type CallerVantageDeps } from '../sessions/callerVantage.js';
 
-export type ResolveSameLanScanDeps = {
+export type ResolveSameLanScanDeps = CallerVantageDeps & {
   readonly nonceStore: NonceStore;
   /** The day the world stands on, computed once from the server's own clock at the
    *  endpoint. Absent for a caller asking only what is open — the scan then reports
@@ -56,6 +57,7 @@ const resolveSameLanScanSchema = z
     action: z.literal('resolveSameLanScan'),
     essid: z.string().min(1),
     target: z.string().min(1),
+    caller_machine_id: z.string().min(1).optional(),
   })
   .refine((payload) => !('player_key' in payload));
 
@@ -71,10 +73,17 @@ export const handleResolveSameLanScan = async (
   if (!verified.ok) {
     return { status: STATUS_BY_VERIFY_REASON[verified.reason], body: { error: verified.reason } };
   }
-  // The verified signature is the whole of what the caller's identity decides here, as
-  // it is for the inner gateway beside it: these boxes are seeded from the ESSID and
-  // shared by every occupant, so everyone scanning this address is scanning one box.
-  const { payload } = verified;
+  // The caller's identity decides only whether they stand on this LAN, as it does for
+  // the inner gateway beside it: these boxes are seeded from the ESSID and shared by
+  // everyone on it, so everyone scanning this address is scanning one box.
+  const { publicKey, payload } = verified;
+  const vantage = await resolveCallerVantageOn(
+    deps,
+    publicKey,
+    payload.caller_machine_id,
+    payload.essid,
+  );
+  if (!vantage.ok) return { status: vantage.status, body: { error: vantage.error } };
 
   const host = generateHomeLan(payload.essid).hosts.find(
     (candidate) => candidate.ip === payload.target,

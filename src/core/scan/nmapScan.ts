@@ -1,8 +1,10 @@
 /**
  * handleNmapScan — the server-side scan action (scan-logging Slice 3a). It is the
- * handler nmap gains a round-trip to: it verifies the signed envelope, REGENERATES
- * the caller's own LAN from the verified pubkey + essid (v2's pure generation, no
- * stored projection), resolves the scanned hosts, and — server-internal — appends
+ * handler nmap gains a round-trip to: it verifies the signed envelope, places the
+ * caller on the network they stand on (`resolveCallerVantage`: at home, or in a shell
+ * on the box they name) and refuses any other, REGENERATES that LAN from the essid
+ * (v2's pure generation, no stored projection), resolves the scanned hosts, and —
+ * server-internal — appends
  * ONE aggregate `/var/log/kern.log` line to EACH of them via the shared
  * `appendMachineLog` primitive (the same seam ssh's auth.log uses).
  *
@@ -55,6 +57,7 @@ import {
 import { asGameTime } from '../types.js';
 import type { PatchRow } from '../patches/upsertPatch.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
+import { resolveCallerVantageOn, type CallerVantageDeps } from '../sessions/callerVantage.js';
 
 /** The occupancy fields a same-LAN scan trace needs: whose row it is (the LAN-boundary
  *  gate + self-exclusion + LAN-IP match), the workstation the trace lands on + its
@@ -69,7 +72,7 @@ export type ScanOccupant = {
   readonly workstation_root_hash: string;
 };
 
-export type NmapScanDeps = {
+export type NmapScanDeps = CallerVantageDeps & {
   readonly nonceStore: NonceStore;
   /** The server's wall clock, epoch-ms (UTC) — stamps the kern.log line. */
   readonly now: () => number;
@@ -78,9 +81,8 @@ export type NmapScanDeps = {
   readonly readLog: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
   /** Write a patch (here: the appended kern.log line on the scanned host). */
   readonly upsertPatch: (row: PatchRow) => Promise<{ readonly error: unknown }>;
-  /** Every occupant of the ESSID (auth fields included — server-internal): the
-   *  LAN-boundary gate reads it for the caller, and the trace for each fellow occupant
-   *  whose LAN IP the scan touches. */
+  /** Every occupant of the ESSID (auth fields included — server-internal): the trace
+   *  reads it for each fellow occupant whose LAN IP the scan touches. */
   readonly listOccupantsByEssid: (
     essid: string,
   ) => Promise<{ readonly data: readonly ScanOccupant[] | null; readonly error: unknown }>;
@@ -109,7 +111,7 @@ const nmapScanSchema = z
     action: z.literal('nmapScan'),
     essid: z.string().min(1),
     target: z.string().min(1),
-    source_ip: z.string().min(1).nullable().optional(),
+    caller_machine_id: z.string().min(1).optional(),
   })
   .refine((payload) => !('player_key' in payload));
 
@@ -203,34 +205,32 @@ const traceOneOccupant = async (
 
 /** Trace every REAL fellow occupant the scan touches. Where `logHostScan` records the
  *  caller's OWN regenerated NPC siblings, this reads the ESSID occupancy and writes on
- *  the actual boxes of other players: gated on the caller being a live occupant (the LAN
- *  boundary — you must be on the LAN to scan it), self excluded (own box is the own-LAN
- *  path), and only for occupants whose LAN IP the scan target covers. Best-effort: an
- *  occupancy read failure simply skips the cross-player traces. */
+ *  the actual boxes of other players: self excluded (own box is the own-LAN path), and
+ *  only for occupants whose LAN IP the scan target covers. The caller has already been
+ *  placed on this LAN. A scanner with no address there leaves no trace rather than one
+ *  from an invented source. Best-effort: an occupancy read failure simply skips the
+ *  cross-player traces. */
 const traceOccupants = async (
   deps: NmapScanDeps,
   args: {
     readonly scannerKey: string;
     readonly essid: string;
     readonly target: ScanTarget | null;
+    readonly sourceIp: string | null;
     readonly time: number;
   },
 ): Promise<void> => {
-  if (args.target === null) return;
+  if (args.target === null || args.sourceIp === null) return;
   const occupants = await deps.listOccupantsByEssid(args.essid);
   if (occupants.error) return;
   const rows = occupants.data ?? [];
-  // LAN boundary: only a live occupant of the ESSID may trace fellow occupants.
-  if (!rows.some((row) => row.owner_key === args.scannerKey)) return;
 
-  // Both the addresses the range is matched against and the source the traces carry
-  // come from the leases. Best-effort like the occupancy read above: a lease failure
-  // simply leaves no cross-player traces rather than stamping a guessed address.
+  // The addresses the range is matched against come from the leases. Best-effort like
+  // the occupancy read above: a lease failure simply leaves no cross-player traces
+  // rather than matching a guessed address.
   const leases = await deps.listLeasesByEssid(args.essid);
   if (leases.error) return;
   const addresses = lanAddressesByOwner(args.essid, leases.data ?? []);
-  const sourceIp = addresses.get(args.scannerKey);
-  if (sourceIp === undefined) return;
 
   for (const occupant of rows) {
     if (occupant.owner_key === args.scannerKey) continue;
@@ -238,7 +238,7 @@ const traceOccupants = async (
     const lanIp = addresses.get(occupant.owner_key);
     if (lanIp === undefined) continue;
     if (!octetInScanTarget(Number(lanIp.split('.')[3]), args.target)) continue;
-    await traceOneOccupant(deps, occupant, sourceIp, args.time);
+    await traceOneOccupant(deps, occupant, args.sourceIp, args.time);
   }
 };
 
@@ -252,6 +252,17 @@ export const handleNmapScan = async (
   }
   const { publicKey, payload } = verified;
 
+  // LAN boundary: a scan sweeps only the network the caller stands on — at home on it,
+  // or in a shell on a box that is — and is logged from where the server places them
+  // there, never from an address or a network the client claims.
+  const vantage = await resolveCallerVantageOn(
+    deps,
+    publicKey,
+    payload.caller_machine_id,
+    payload.essid,
+  );
+  if (!vantage.ok) return { status: vantage.status, body: { error: vantage.error } };
+
   // Resolve the scanned hosts on the caller's OWN regenerated LAN. An invalid or
   // foreign target selects nothing (the command rejects these before calling; a
   // forged one simply finds no real hosts to record). The caller's own workstation
@@ -263,7 +274,7 @@ export const handleNmapScan = async (
 
   const context: ScanContext = {
     essid: payload.essid,
-    sourceIp: payload.source_ip ?? 'unknown',
+    sourceIp: vantage.sourceIp ?? 'unknown',
     time: deps.now(),
     writerKey: apGatewayLogWriterKey(payload.essid),
   };
@@ -272,14 +283,14 @@ export const handleNmapScan = async (
   }
 
   // A same-LAN scan also leaves a trace on REAL fellow occupants the target covers —
-  // owner-keyed on their box, with the scanner's own LEASED LAN address as the source
-  // (resolved there, from the same read that resolves the occupants). Additive to the
+  // owner-keyed on their box, from the same address the sweep above names. Additive to the
   // own-LAN sweep above; `hostsLogged` reports the caller's own-LAN count (the
   // cross-player traces are a server-side side effect the client ignores).
   await traceOccupants(deps, {
     scannerKey: publicKey,
     essid: payload.essid,
     target: parsed.ok ? parsed.target : null,
+    sourceIp: vantage.sourceIp,
     time: context.time,
   });
 

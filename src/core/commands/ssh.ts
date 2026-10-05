@@ -78,7 +78,7 @@ const executePublicLogin = async (
   port: number,
   sourceIp: string | null,
 ): Promise<CommandResult> => {
-  const resolution = await env.scan.resolvePublic(target.host);
+  const resolution = await env.scan.resolvePublic(target.host, env.session.machineId);
   if (!resolution.found) {
     return connectError(target.host, port, 'No route to host');
   }
@@ -204,7 +204,7 @@ const executeForwardLogin = async (
   sourceIp: string | null,
   essid: string,
 ): Promise<CommandResult> => {
-  const resolution = await env.scan.resolveInnerGateway(essid, target.host);
+  const resolution = await env.scan.resolveInnerGateway(essid, target.host, env.session.machineId);
   if (!resolution.found) {
     return connectError(target.host, port, 'No route to host');
   }
