@@ -28,6 +28,8 @@ const makeDeps = (over: {
   readonly sessionError?: unknown;
   readonly home?: HomeVantage | null;
   readonly homeError?: unknown;
+  readonly workstationLease?: number | null;
+  readonly workstationLeaseError?: unknown;
 }): CallerVantageDeps => {
   const findActiveSession: FindActiveSession = vi.fn(async () => ({
     data: over.session ?? null,
@@ -37,7 +39,11 @@ const makeDeps = (over: {
     data: over.home === undefined ? { essid: HOME_ESSID, octet: HOME_OCTET } : over.home,
     error: over.homeError ?? null,
   }));
-  return { findActiveSession, findHomeVantage };
+  const findWorkstationLease = vi.fn(async () => ({
+    data: over.workstationLease ?? null,
+    error: over.workstationLeaseError ?? null,
+  }));
+  return { findActiveSession, findHomeVantage, findWorkstationLease };
 };
 
 describe('resolveCallerVantage', () => {
@@ -62,15 +68,44 @@ describe('resolveCallerVantage', () => {
     expect(vantage).toEqual({ ok: true, essid: HOP_ESSID, sourceIp: hop.address });
   });
 
-  it('traces a hop the LAN cannot place — a player’s own box — as unknown, still on its network', async () => {
+  it('stands a caller on another player’s box at the lease that player holds on its network', async () => {
     const someoneElsesBox = computeWorkstationId('rig', 'c'.repeat(64));
     const deps = makeDeps({
       session: { username: 'guest', userType: 'guest', essid: HOP_ESSID },
+      workstationLease: 77,
+    });
+
+    const vantage = await resolveCallerVantage(deps, CALLER, someoneElsesBox);
+
+    expect(vantage).toEqual({
+      ok: true,
+      essid: HOP_ESSID,
+      sourceIp: lanAddressFor(HOP_ESSID, 77),
+    });
+  });
+
+  it('traces a player’s box whose owner holds no lease there as unknown, still on its network', async () => {
+    const someoneElsesBox = computeWorkstationId('rig', 'c'.repeat(64));
+    const deps = makeDeps({
+      session: { username: 'guest', userType: 'guest', essid: HOP_ESSID },
+      workstationLease: null,
     });
 
     const vantage = await resolveCallerVantage(deps, CALLER, someoneElsesBox);
 
     expect(vantage).toEqual({ ok: true, essid: HOP_ESSID, sourceIp: null });
+  });
+
+  it('surfaces a 500 rather than an unknown source when the hop’s lease read fails', async () => {
+    const someoneElsesBox = computeWorkstationId('rig', 'c'.repeat(64));
+    const deps = makeDeps({
+      session: { username: 'guest', userType: 'guest', essid: HOP_ESSID },
+      workstationLeaseError: new Error('db down'),
+    });
+
+    const vantage = await resolveCallerVantage(deps, CALLER, someoneElsesBox);
+
+    expect(vantage).toEqual({ ok: false, status: 500, error: 'vantage_lookup_failed' });
   });
 
   it('falls through to home when the caller names their OWN workstation (the own-box bypass)', async () => {

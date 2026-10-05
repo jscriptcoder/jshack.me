@@ -184,6 +184,71 @@ const findActiveSessionVia =
     };
   };
 
+/** Where the caller's OWN workstation stands: the network it currently occupies (the
+ *  most recently updated row — one network at a time) and the lease octet it holds
+ *  there. Null when it occupies no network; a null octet when it holds no lease. */
+const findHomeVantageVia =
+  ({ supabase, label }: QuerySpec) =>
+  async (ownerKey: string) => {
+    const occupancy = await supabase
+      .from('home_network_occupants')
+      .select('essid')
+      .eq('owner_key', ownerKey)
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (occupancy.error) {
+      logFailure(`${label} occupancy`, occupancy.error);
+      return { data: null, error: occupancy.error };
+    }
+    const essid = (occupancy.data as { essid: string } | null)?.essid ?? null;
+    if (essid === null) return { data: null, error: null };
+
+    const lease = await supabase
+      .from('network_lan_leases')
+      .select('octet')
+      .eq('essid', essid)
+      .eq('owner_key', ownerKey)
+      .maybeSingle();
+    if (lease.error) {
+      logFailure(`${label} lease`, lease.error);
+      return { data: null, error: lease.error };
+    }
+    const octet = (lease.data as { octet: number } | null)?.octet ?? null;
+    return { data: { essid, octet }, error: null };
+  };
+
+/** The lease held on `essid` by whoever's workstation `machineId` is — where a caller
+ *  in a shell on that player's box stands. Null when no occupant of `essid` owns it. */
+const findWorkstationLeaseVia =
+  ({ supabase, label }: QuerySpec) =>
+  async (essid: string, machineId: string) => {
+    const occupant = await supabase
+      .from('home_network_occupants')
+      .select('owner_key')
+      .eq('essid', essid)
+      .eq('workstation_machine_id', machineId)
+      .maybeSingle();
+    if (occupant.error) {
+      logFailure(`${label} workstation occupant`, occupant.error);
+      return { data: null, error: occupant.error };
+    }
+    const ownerKey = (occupant.data as { owner_key: string } | null)?.owner_key ?? null;
+    if (ownerKey === null) return { data: null, error: null };
+
+    const lease = await supabase
+      .from('network_lan_leases')
+      .select('octet')
+      .eq('essid', essid)
+      .eq('owner_key', ownerKey)
+      .maybeSingle();
+    if (lease.error) {
+      logFailure(`${label} workstation lease`, lease.error);
+      return { data: null, error: lease.error };
+    }
+    return { data: (lease.data as { octet: number } | null)?.octet ?? null, error: null };
+  };
+
 /** Every writer's rows at one path on one machine — a file belongs to the box, not to
  *  whoever wrote it last. */
 const listPathPatchesVia =
@@ -520,9 +585,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   if (actionOf(req.body) === 'resolveOccupants') {
-    // Same-LAN occupant enumeration (Story 7): a verified occupant of the ESSID asks
-    // who else is on its LAN. Gated server-side on the caller's own live occupancy row
-    // (decision D11 — you must be ON the LAN to enumerate it). The composite PK's
+    // Same-LAN occupant enumeration (Story 7): a caller standing on the ESSID — at home
+    // on it, or in a shell on a box that is — asks who is on its LAN (decision D11 — you
+    // must be ON the LAN to enumerate it). The composite PK's
     // leading `essid` column serves this `... WHERE essid = $1` read.
     const listOccupantsByEssid = async (essid: string) => {
       const { data, error } = await supabase
@@ -543,6 +608,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     };
     const { status, body } = await handleResolveOccupants(req.body, {
       nonceStore: noopNonceStore,
+      findActiveSession: findActiveSessionVia({ supabase, label: 'occupants active-session' }),
+      findHomeVantage: findHomeVantageVia({ supabase, label: 'occupants vantage' }),
+      findWorkstationLease: findWorkstationLeaseVia({ supabase, label: 'occupants vantage' }),
       listOccupantsByEssid,
       listLeasesByEssid,
     });

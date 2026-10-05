@@ -7,9 +7,10 @@
  * state the rest of Story 7 renders (the `nmap` merge, the same-LAN front door).
  *
  * LAN boundary (decision D11): real WiFi means you must be ON the LAN to enumerate
- * it. The caller must hold a live occupancy row for the ESSID (checked against the
- * verified pubkey, never a client claim) — a non-occupant is refused before any list
- * crosses the wire, blocking global occupant enumeration / cross-LAN framing.
+ * it. The caller must stand on the ESSID — at home on it, or in a shell on a box that
+ * is — as `resolveCallerVantage` places them from the verified pubkey, never a client
+ * claim. Anyone else is refused before any list crosses the wire, blocking global
+ * occupant enumeration / cross-LAN framing.
  *
  * The caller is always excluded from its own result. Each occupant's LAN IP comes from
  * the LEASE that occupant holds on the ESSID, read once per request. This used to be
@@ -27,6 +28,7 @@ import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
 import { lanAddressesByOwner, type LanLeaseRow } from './lanAddress.js';
 import type { Ipv4 } from './interfaces.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
+import { resolveCallerVantage, type CallerVantageDeps } from '../sessions/callerVantage.js';
 
 /** The narrow occupancy projection the gate + merge need: whose row it is (for the
  *  LAN-boundary check + self-exclusion + lease lookup), the workstation the
@@ -48,7 +50,7 @@ export type OccupantProjection = {
   readonly machineName: string;
 };
 
-export type ResolveOccupantsDeps = {
+export type ResolveOccupantsDeps = CallerVantageDeps & {
   readonly nonceStore: NonceStore;
   readonly listOccupantsByEssid: (
     essid: string,
@@ -71,6 +73,8 @@ const resolveOccupantsSchema = z
   .looseObject({
     action: z.literal('resolveOccupants'),
     essid: z.string().min(1),
+    // The box the read is run from. Absent means the caller's own workstation.
+    caller_machine_id: z.string().min(1).optional(),
   })
   .refine((payload) => !('owner_key' in payload) && !('player_key' in payload));
 
@@ -86,16 +90,18 @@ export const handleResolveOccupants = async (
   }
   const { publicKey, payload } = verified;
 
+  // LAN boundary: only a caller standing on the LAN may enumerate it — at home on it,
+  // or in a shell on a box that is. Where they stand is the server's reading, never the
+  // ESSID they sent.
+  const vantage = await resolveCallerVantage(deps, publicKey, payload.caller_machine_id);
+  if (!vantage.ok) return { status: vantage.status, body: { error: vantage.error } };
+  if (vantage.essid !== payload.essid) return { status: 403, body: { error: 'wrong_network' } };
+
   const occupants = await deps.listOccupantsByEssid(payload.essid);
   if (occupants.error) {
     return { status: 500, body: { error: 'occupants_lookup_failed' } };
   }
   const rows = occupants.data ?? [];
-
-  // LAN boundary: only a live occupant may enumerate the LAN.
-  if (!rows.some((row) => row.owner_key === publicKey)) {
-    return { status: 403, body: { error: 'not_an_occupant' } };
-  }
 
   // ONE lease read for the whole ESSID, behind the LAN boundary so no address reaches
   // a non-occupant. A failure is a clean 500: an address that cannot be looked up is

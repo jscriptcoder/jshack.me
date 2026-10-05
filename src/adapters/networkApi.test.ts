@@ -460,6 +460,18 @@ describe('resolveOccupants', () => {
     const verified = await verifyPayload(sentEnvelope(fetchSpy));
     if (!verified.ok) throw new Error('expected verified envelope');
     expect(verified.payload).toMatchObject({ action: 'resolveOccupants', essid: ESSID });
+    expect(verified.payload).not.toHaveProperty('caller_machine_id');
+  });
+
+  it('names the box the read is run from, when there is one', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true, occupants: OCCUPANTS }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    await resolveOccupants(deps, ESSID, 'hop-box-1');
+
+    const verified = await verifyPayload(sentEnvelope(fetchSpy));
+    if (!verified.ok) throw new Error('expected verified envelope');
+    expect(verified.payload).toMatchObject({ essid: ESSID, caller_machine_id: 'hop-box-1' });
   });
 
   it('degrades to an empty list when the caller is not an occupant (403)', async () => {

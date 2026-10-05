@@ -1066,10 +1066,13 @@ const resolveOccupantFn = (essid: string, target: string): Promise<PublicScanRes
 /** Resolve the current ESSID's other occupants (backs `env.scan.resolveOccupants`).
  *  Additive — an empty list (here, before the network client is wired) just means an
  *  own-LAN scan with no fellow players, never a failure. */
-const resolveOccupantsFn = (essid: string): Promise<readonly OccupantProjection[]> =>
+const resolveOccupantsFn = (
+  essid: string,
+  callerMachineId?: string,
+): Promise<readonly OccupantProjection[]> =>
   networkClientDeps === undefined
     ? Promise.resolve([])
-    : resolveOccupants(networkClientDeps, essid);
+    : resolveOccupants(networkClientDeps, essid, callerMachineId);
 
 /** Fetch the ESSID names anyone currently occupies (backs `env.scan.resolveOccupiedEssids`).
  *  Additive — an empty list (before the network client is wired, or the server is down)
