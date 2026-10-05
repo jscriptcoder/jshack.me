@@ -6,13 +6,13 @@
 //
 // Net-new under test (the locally-untypechecked api/ runtime):
 //   - B `ssh root@<A.publicIp>` (correct admin pw) → ONE `Accepted password for root
-//     from <B's home public IP>` line lands on A's ROUTER auth.log, keyed by A's
-//     OWNER writer_key, naming A's seeded router hostname.
+//     from <B's home public IP>` line lands on A's ROUTER auth.log, keyed by the
+//     network's own writer key (nobody owns the gateway), naming its seeded hostname.
 //   - A wrong password → `Failed password …` line still lands (sshd logs both); 401.
 //   - The source IP is SERVER-DERIVED from B's verified key (B's home network's public IP),
 //     NOT the client `source_ip` — a forged `source_ip` in the payload is ignored.
-//   - Keystone: a SECOND attacker (C) accretes its own line into the SAME owner-keyed
-//     row instead of collapsing it under the last-write-wins fold.
+//   - Keystone: a SECOND attacker (C) accretes its own line into the SAME row instead
+//     of collapsing it under the last-write-wins fold.
 //   - A NAT-forwarded `ssh guest@<A.publicIp> -p 2222` → the line lands on the
 //     WORKSTATION record, naming the workstation's machine name.
 //   - host_unreachable (unregistered public IP) writes nothing.
@@ -35,6 +35,7 @@ import { seedApGatewayAdminPw } from '../src/core/generation/routerFs.js';
 import { seedApGatewayHostname } from '../src/core/generation/gatewayHostname.js';
 import { workstationGuestPassword } from '../src/core/generation/workstationFs.js';
 import { publicAddressOf } from './publicAddressOf.js';
+import { apGatewayLogWriterKey } from '../src/core/logging/apGatewayLogWriter.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const url = process.env.SUPABASE_URL;
@@ -68,8 +69,8 @@ const post = async (
 
 const AUTH_LOG = '/var/log/auth.log';
 
-/** Read a machine's auth.log row keyed by the OWNER's writer_key — the single
- *  canonical row the system writes its login lines to. */
+/** Read a machine's auth.log row under the key the system writes its login lines with —
+ *  the owner's on their workstation, the network's own on the ownerless gateway. */
 const readAuthLog = async (machineId: string, ownerKey: string): Promise<string> => {
   const { data } = await sr
     .from('patches')
@@ -94,6 +95,7 @@ const C_ESSID = 'CASA-DE-RAMIREZ';
 const A_WS_NAME = 'skylab';
 const A_WS = computeWorkstationId(A_WS_NAME, alice.publicKeyHex);
 const A_ROUTER = computeApGatewayId(A_ESSID);
+const A_ROUTER_LOG_KEY = apGatewayLogWriterKey(A_ESSID);
 const A_PUBLIC_IP = publicAddressOf(A_ESSID);
 // A's workstation answers at the address A LEASES on its ESSID, so the NAT forward
 // below must name that address — a forward aimed anywhere else reaches no host.
@@ -186,7 +188,7 @@ const s1 = await post(
   SESSIONS,
   sshLogin(bob, { session_id: 'ssh-b-r-1', username: 'root', password: ADMIN_PW }),
 );
-const log1 = await readAuthLog(A_ROUTER, alice.publicKeyHex);
+const log1 = await readAuthLog(A_ROUTER, A_ROUTER_LOG_KEY);
 check(
   'B ssh root@<A.publicIp> authenticates on the router (:22)',
   s1.status === 200,
@@ -204,7 +206,7 @@ const s2 = await post(
   SESSIONS,
   sshLogin(bob, { session_id: 'ssh-b-r-2', username: 'root', password: 'not-the-admin-pw' }),
 );
-const log2 = await readAuthLog(A_ROUTER, alice.publicKeyHex);
+const log2 = await readAuthLog(A_ROUTER, A_ROUTER_LOG_KEY);
 check(
   'a wrong password is 401 yet records "Failed password for root from <B’s home IP>"',
   s2.status === 401 && log2.includes(`Failed password for root from ${B_PUBLIC_IP}`),
@@ -221,21 +223,21 @@ const s3 = await post(
     source_ip: '10.6.6.6',
   }),
 );
-const log3 = await readAuthLog(A_ROUTER, alice.publicKeyHex);
+const log3 = await readAuthLog(A_ROUTER, A_ROUTER_LOG_KEY);
 check(
   'a client-supplied source_ip is ignored — lines carry B’s home public IP, not the forged one',
   s3.status === 200 && log3.includes(`from ${B_PUBLIC_IP}`) && !log3.includes('10.6.6.6'),
   `status=${s3.status} forgedPresent=${log3.includes('10.6.6.6')}`,
 );
 
-// === 4. Keystone: a SECOND attacker (C) accretes into the SAME owner-keyed row. ===
+// === 4. Keystone: a SECOND attacker (C) accretes into the SAME network-keyed row. ===
 const s4 = await post(
   SESSIONS,
   sshLogin(carol, { session_id: 'ssh-c-r-1', username: 'root', password: ADMIN_PW }),
 );
-const log4 = await readAuthLog(A_ROUTER, alice.publicKeyHex);
+const log4 = await readAuthLog(A_ROUTER, A_ROUTER_LOG_KEY);
 check(
-  'both B’s and C’s logins coexist in the one owner-keyed router row (no last-write-wins collapse)',
+  'both B’s and C’s logins coexist in the one network-keyed router row (no last-write-wins collapse)',
   s4.status === 200 &&
     log4.includes(`from ${B_PUBLIC_IP}`) &&
     log4.includes(`from ${C_PUBLIC_IP}`),
@@ -257,7 +259,7 @@ check(
 );
 
 // === 6. host_unreachable (unregistered public IP) writes nothing. ===
-const before = await readAuthLog(A_ROUTER, alice.publicKeyHex);
+const before = await readAuthLog(A_ROUTER, A_ROUTER_LOG_KEY);
 const s6 = await post(
   SESSIONS,
   signRequest(bob, 'authCreateSessionPublic', {
@@ -267,7 +269,7 @@ const s6 = await post(
     password: ADMIN_PW,
   }),
 );
-const after = await readAuthLog(A_ROUTER, alice.publicKeyHex);
+const after = await readAuthLog(A_ROUTER, A_ROUTER_LOG_KEY);
 check(
   'logging in to an unregistered IP is 404 host_unreachable and writes no trace',
   s6.status === 404 && before === after,

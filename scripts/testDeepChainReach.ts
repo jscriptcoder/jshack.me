@@ -28,6 +28,7 @@ import { seedDeepGatewayAdminPw } from '../src/core/generation/routerFs.js';
 import { generateHomeLan } from '../src/core/generation/generateHomeLan.js';
 import { crackableEssidPool } from '../src/core/generation/generateWifi.js';
 import { generateDeepLayer, seedNetworkDepth } from '../src/core/generation/generateDeepLayer.js';
+import { leaveNetwork, standOnNetwork } from './standVantage.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const PATCHES = process.env.PATCHES_ENDPOINT ?? 'http://localhost:3100/api/patches';
@@ -205,6 +206,9 @@ await sr.from('patches').delete().eq('machine_id', INNER_GW_ID);
 await sr.from('patches').delete().eq('machine_id', L2CHILD_ID);
 await sr.from('patches').delete().eq('machine_id', L3CHILD_ID);
 await sr.from('sessions').delete().eq('player_key', alice.publicKeyHex);
+// The forward is on ESSID, and the gateway only admits a caller the server can place
+// there — Alice reaches it from home, so she stands on it.
+await standOnNetwork(sr, ESSID, alice, 40);
 await sr.from('sessions').insert([
   {
     session_id: `ssh-alice-inner-${INNER_GW_ID}`,
@@ -298,6 +302,7 @@ await sr.from('patches').delete().eq('machine_id', INNER_GW_ID);
 await sr.from('patches').delete().eq('machine_id', L2CHILD_ID);
 await sr.from('patches').delete().eq('machine_id', L3CHILD_ID);
 await sr.from('sessions').delete().eq('player_key', alice.publicKeyHex);
+await leaveNetwork(sr, ESSID);
 
 const passed = results.filter((result) => result.pass).length;
 console.log(`\n${passed}/${results.length} checks passed`);

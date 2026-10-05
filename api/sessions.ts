@@ -593,16 +593,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   if (actionOf(req.body) === 'authCreateSessionInnerGateway') {
-    // ssh THROUGH a NAT forward on the player's OWN inner gateway onto a deep Layer-2
-    // host. The handler regenerates the gateway from the verified key + essid, replays
-    // its journal (to read the forward + boot state), and routes the forwarded port to
-    // the deep NPC — validating the password against ITS /etc/passwd before the insert.
-    // Own-keyed + private: no network lookup, no occupancy. The trace accretes under the
-    // CALLER's own key, matching the other two deep writers (see the shared-row note in
-    // docs/conventions-and-gotchas.md §9 — these boxes are ESSID-shared, not per-viewer).
+    // ssh THROUGH a NAT forward on an inner gateway onto a deep Layer-2 host. The
+    // handler places the caller first — at home, or in a shell on a box they name — and
+    // refuses a network they are not standing on. It then regenerates the gateway from
+    // the essid, replays its journal (to read the forward + boot state), and routes the
+    // forwarded port to the deep NPC, validating the password against ITS /etc/passwd.
+    // The trace accretes under the network's own key: these boxes are ESSID-shared.
     const { status, body } = await handleAuthCreateSessionInnerGateway(req.body, {
       nonceStore: noopNonceStore,
       now: () => Date.now(),
+      findActiveSession: findActiveSessionVia({ supabase, label: 'inner-gateway active-session' }),
+      findHomeVantage: findHomeVantageVia({ supabase, label: 'inner-gateway vantage' }),
       findPatches: findPatchesVia({ supabase, label: 'inner-gateway boot-state lookup' }),
       insertSession: insertSessionVia({
         supabase,

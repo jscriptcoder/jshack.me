@@ -43,11 +43,10 @@ import type {
   RedisStatementParams,
   RedisStatementResult,
   NcSameLanParams,
-  PublicDoorAuthParams,
+  PublicAuthParams,
   Identity,
   InnerGatewayAuthParams,
   PatchResult,
-  PublicAuthParams,
   PublicAuthResult,
   RemoteAuthParams,
   RemoteAuthResult,
@@ -182,7 +181,7 @@ export const authCreateServerSession = async (
  *  id). */
 export const authCreateServerSessionPublic = async (
   deps: SessionsClientDeps,
-  params: PublicAuthParams | PublicDoorAuthParams,
+  params: PublicAuthParams,
   kind: DoorKind = 'ssh',
 ): Promise<PublicAuthResult> => {
   try {
@@ -195,10 +194,9 @@ export const authCreateServerSessionPublic = async (
       parent_session_id: params.parentSessionId,
       source_ip: params.sourceIp,
       kind,
-      // Only a door that knows where it is being run from names one. `ssh` does not, so
-      // its trace keeps carrying the address the caller owns — unchanged, and the
-      // pivot-aware half of that is tracked as its own slice.
-      ...('callerMachineId' in params ? { caller_machine_id: params.callerMachineId } : {}),
+      // The box the login is run from: the target logs it as coming from that box's
+      // network.
+      caller_machine_id: params.callerMachineId,
     });
     if (response.ok) {
       const body: unknown = await response.json();
@@ -529,6 +527,7 @@ export const authCreateServerSessionInnerGateway = async (
       port: params.port,
       parent_session_id: params.parentSessionId,
       source_ip: params.sourceIp,
+      ...(params.callerMachineId === undefined ? {} : { caller_machine_id: params.callerMachineId }),
     });
     if (response.ok) {
       const body: unknown = await response.json();

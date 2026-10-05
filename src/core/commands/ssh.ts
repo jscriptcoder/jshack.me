@@ -105,6 +105,9 @@ const executePublicLogin = async (
     port,
     parentSessionId: env.session.id,
     sourceIp,
+    // The box the shell is standing on: the target logs the login as coming from that
+    // box's network, so a login out of a hop names the hop's network, not the player's.
+    callerMachineId: env.session.machineId,
   });
   if (!result.ok) {
     if (result.error === 'invalid_credentials') return errorResult('Permission denied (password).');
@@ -227,6 +230,9 @@ const executeForwardLogin = async (
     port,
     parentSessionId: env.session.id,
     sourceIp,
+    // The forward is on the network the shell stands on; the server checks that rather
+    // than taking the network's name on the client's word.
+    callerMachineId: env.session.machineId,
   });
   if (!result.ok) {
     if (result.error === 'invalid_credentials') return errorResult('Permission denied (password).');

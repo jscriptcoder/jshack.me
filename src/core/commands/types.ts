@@ -465,10 +465,10 @@ export type RemoteAuthResult =
       readonly error: 'invalid_credentials' | 'host_unreachable' | 'network_error';
     };
 
-/** What `ssh` hands to `env.ssh.authenticatePublic` to log into ANOTHER player's
- *  workstation by its PUBLIC IP (Story 2). The server resolves the public IP, rebuilds
- *  the owner's box, and validates against its real `/etc/passwd`. Unlike the LAN
- *  path there is no `essid` — the target is resolved server-side from the public IP. */
+/** What a door (`ssh`, `ftp`, `scp`) hands its cross-network login by a PUBLIC IP. The
+ *  server resolves the public IP, rebuilds the box behind it, and validates against its
+ *  real `/etc/passwd`. Unlike the LAN path there is no `essid` — the target is resolved
+ *  server-side from the public IP. */
 export type PublicAuthParams = {
   readonly sessionId: string;
   /** The target PUBLIC IP (resolved server-side to its AP). */
@@ -480,17 +480,11 @@ export type PublicAuthParams = {
   readonly port: number;
   readonly parentSessionId: string | null;
   readonly sourceIp: string | null;
-};
-
-/** What a DOOR hands its cross-player login — the ssh shape plus the box the command
- *  is being RUN from. That box is what the target actually saw, so naming it is what
- *  lets the server trace the visit to the network the visitor is standing on rather
- *  than the one they happen to own. It is a claim the server then checks: a caller
- *  holding no session there is refused rather than believed.
- *
- *  Shared by `ftp` and `scp` because both are reached FROM somewhere, unlike `ssh`,
- *  which names no caller machine — a hop's own address is the one it owns. */
-export type PublicDoorAuthParams = PublicAuthParams & {
+  /** The box the command is RUN from. That box is what the target actually saw, so
+   *  naming it lets the server log the visit as coming from the network the visitor is
+   *  standing on rather than the one they own — a login out of a hop names the hop's
+   *  network. It is a claim the server checks: a caller holding no session there is
+   *  refused rather than believed. */
   readonly callerMachineId: string;
 };
 
@@ -550,6 +544,10 @@ export type InnerGatewayAuthParams = {
   readonly port: number;
   readonly parentSessionId: string | null;
   readonly sourceIp: string | null;
+  /** The box the shell is standing on, from which the server works out which network
+   *  the login comes from — and refuses one that names a network the caller is not
+   *  on. Absent, the server takes the caller's own workstation. */
+  readonly callerMachineId?: string;
 };
 
 /** The remote-login seam — backed by the signed `authCreateSession` (own-LAN),
@@ -568,7 +566,7 @@ export type FtpApi = {
   /** Log into ANOTHER player's box by its public IP, through the port its owner
    *  forwarded. Shares `PublicAuthResult` with `ssh`'s: the machine id comes back from
    *  the server, because which box a stranger's forward reaches is not derivable here. */
-  readonly authenticatePublic: (params: PublicDoorAuthParams) => Promise<PublicAuthResult>;
+  readonly authenticatePublic: (params: PublicAuthParams) => Promise<PublicAuthResult>;
   /** Hold this session and put the terminal at the `ftp>` prompt. */
   readonly enter: (session: Session) => void;
   /** Drop it and hand the terminal back to the shell that never moved. */
@@ -615,7 +613,7 @@ export type ScpApi = {
    *  sits behind the port a stranger forwarded is not derivable here — the server
    *  resolves it and names it back, which is why this returns a machine id and the
    *  own-LAN login does not. */
-  readonly authenticatePublic: (params: PublicDoorAuthParams) => Promise<PublicAuthResult>;
+  readonly authenticatePublic: (params: PublicAuthParams) => Promise<PublicAuthResult>;
   /** Write to the machine the session was opened on, at the tier the credential
    *  bought. Session-PARAMETERIZED rather than pre-bound, because the session it
    *  writes through was created moments ago by the same command. The gate is the
@@ -690,7 +688,7 @@ export type NcConnectParams = Omit<RemoteAuthParams, 'username' | 'password'> & 
    *  happens to listen, a backdoor IS its port — nothing else identifies it. */
   readonly port: number;
 };
-export type NcPublicParams = Omit<PublicDoorAuthParams, 'username' | 'password'>;
+export type NcPublicParams = Omit<PublicAuthParams, 'username' | 'password'>;
 export type NcSameLanParams = Omit<SameLanAuthParams, 'username' | 'password'>;
 export type NcInnerGatewayParams = Omit<InnerGatewayAuthParams, 'username' | 'password'>;
 

@@ -23,8 +23,8 @@ import type { Directory } from '../filesystem/types.js';
 import type {
   CommandResult,
   InnerGatewayAuthParams,
-  PublicAuthParams,
   PublicAuthResult,
+  PublicAuthParams,
   PublicScanResolution,
   RemoteAuthParams,
   RemoteAuthResult,
@@ -580,6 +580,8 @@ describe('ssh to a public IP (cross-player)', () => {
       port: 22,
       parentSessionId: 'su-root-1',
       sourceIp: selfIp,
+      // The player's own box: the server places them at home, exactly as before.
+      callerMachineId: 'bstation-cafef00d',
     });
     // Session lands on the OWNER's real workstation id — its name drives the prompt.
     expect(onPush.mock.calls[0]![0]).toEqual({
@@ -1190,6 +1192,7 @@ describe('ssh through an inner-gateway NAT forward (deep layer)', () => {
       port: 2222,
       parentSessionId: 'su-root-1',
       sourceIp: selfIp,
+      callerMachineId: 'skylab-deadbeef',
     });
     // The hop lands on the DEEP host id the server returned — not the gateway's.
     expect(onPush.mock.calls[0]![0]).toEqual({
@@ -1361,7 +1364,13 @@ const sshHostOn = (essid: string, exclude: readonly string[] = []): LanHost => {
  *  WiFi card stays on their home network. */
 const sshHopEnv = (
   hop: LanHost,
-  over: EnvOver & { readonly kind?: Session['kind'] } = {},
+  over: EnvOver & {
+    readonly kind?: Session['kind'];
+    readonly authenticatePublic?: (params: PublicAuthParams) => Promise<PublicAuthResult>;
+    readonly authenticateInnerGateway?: (
+      params: InnerGatewayAuthParams,
+    ) => Promise<PublicAuthResult>;
+  } = {},
 ) =>
   mockCommandEnv({
     identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
@@ -1375,8 +1384,23 @@ const sshHopEnv = (
     }),
     now: () => asEpochMs(NOW),
     prompt: over.prompt ?? (async () => 'hunter2'),
+    scan: mockScanApi({
+      resolvePublic: async () => ({ found: true, ports: [{ port: 22, service: 'ssh' }] }),
+      resolveInnerGateway: async () => liveForward,
+    }),
     ssh: mockSshApi({
       authenticate: over.authenticate ?? (async () => ({ ok: true, userType: 'root' })),
+      authenticatePublic:
+        over.authenticatePublic ??
+        (async () => ({ ok: true, userType: 'root', machineId: A_MACHINE_ID, essid: A_ESSID })),
+      authenticateInnerGateway:
+        over.authenticateInnerGateway ??
+        (async () => ({
+          ok: true,
+          userType: 'guest',
+          machineId: DEEP_MACHINE_ID,
+          essid: HOP_ESSID,
+        })),
     }),
     pushSession: over.onPush ?? (() => undefined),
     setCwd: over.onCwd ?? (() => undefined),
@@ -1476,5 +1500,66 @@ describe('ssh from a hop', () => {
     ]);
     expect(result.exitCode).toBe(255);
     expect(prompt).not.toHaveBeenCalled();
+  });
+
+  it('leaves the network by a public address from the hop, naming the hop as where it came from', async () => {
+    const hop = sshHostOn(HOP_ESSID);
+    const authenticatePublic = vi.fn<(params: PublicAuthParams) => Promise<PublicAuthResult>>(
+      async () => ({ ok: true, userType: 'root', machineId: A_MACHINE_ID, essid: A_ESSID }),
+    );
+    const onPush = vi.fn<(session: Session) => void>();
+
+    const result = sync(
+      await ssh.execute(
+        sshHopEnv(hop, { authenticatePublic, onPush }),
+        [`root@${PUBLIC_IP}`],
+        new Map(),
+      ),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(authenticatePublic.mock.calls[0]![0]).toEqual({
+      sessionId: 'ssh-root-1700000000000',
+      target: PUBLIC_IP,
+      username: 'root',
+      password: 'hunter2',
+      port: 22,
+      parentSessionId: 'ssh-hop-1',
+      sourceIp: hop.ip,
+      callerMachineId: hostMachineId(hop, HOP_ESSID),
+    });
+    expect(onPush.mock.calls[0]![0]).toMatchObject({ machineId: A_MACHINE_ID, essid: A_ESSID });
+  });
+
+  it('reaches through a forward on the hop network’s inner gateway, from the hop', async () => {
+    const hop = sshHostOn(HOP_ESSID);
+    const inner = generateHomeLan(HOP_ESSID).hosts.find(
+      (host) => host.kind === 'router' && Number(host.ip.split('.')[3]) !== 1,
+    );
+    if (inner === undefined) throw new Error(`${HOP_ESSID} has no inner gateway`);
+    const authenticateInnerGateway = vi.fn<
+      (params: InnerGatewayAuthParams) => Promise<PublicAuthResult>
+    >(async () => ({ ok: true, userType: 'guest', machineId: DEEP_MACHINE_ID, essid: HOP_ESSID }));
+
+    const result = sync(
+      await ssh.execute(
+        sshHopEnv(hop, { authenticateInnerGateway }),
+        [`guest@${inner.ip}`],
+        new Map([['-p', '2222']]),
+      ),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(authenticateInnerGateway.mock.calls[0]![0]).toEqual({
+      sessionId: 'ssh-guest-1700000000000',
+      essid: HOP_ESSID,
+      target: inner.ip,
+      username: 'guest',
+      password: 'hunter2',
+      port: 2222,
+      parentSessionId: 'ssh-hop-1',
+      sourceIp: hop.ip,
+      callerMachineId: hostMachineId(hop, HOP_ESSID),
+    });
   });
 });
