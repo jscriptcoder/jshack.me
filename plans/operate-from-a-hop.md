@@ -2,9 +2,9 @@
 
 **Status**: Grilled and gap-reviewed. Decisions confirmed by the owner 2026-10-04 (grill, then a
 `find-gaps` pass that added 4a, 4b, 7a, 11a, "Out of scope" and "Done when"); nine slices
-planned and approved the same day. Slices 1–5, 6a and 6b done (#598 v0.307.0, #599 v0.308.0,
-#600 v0.309.0, #601 v0.310.0, #602 v0.311.0, #603 v0.312.0, #604 v0.313.0, #605 v0.314.0).
-Next: slice 6c.
+planned and approved the same day. Slices 1–5 and 6a–6c done (#598 v0.307.0, #599 v0.308.0,
+#600 v0.309.0, #601 v0.310.0, #602 v0.311.0, #603 v0.312.0, #604 v0.313.0, #605 v0.314.0,
+#606 v0.315.0). Next: slice 7.
 Resolves two §9 backlog items in `docs/conventions-and-gotchas.md`: "Pivot / operate-from-a-hop —
 source-IP masking only; ssh-from-a-pivot" and "Four tools cannot pivot: `ssh`, `nmap`, `curl`,
 `lynx`". Where they disagree with this file, this file wins.
@@ -380,6 +380,24 @@ deep box's `ifconfig` shows its layer address. A layer sweep does not list the f
 `.1`, from any box on the layer. Wire-check: `scripts/testDeepScanTrace.ts`, rewritten, 10/10.
 
 ### Slice 6c: From a box on a deep layer, its neighbours there are reachable by address
+
+✅ Done in #606. As built:
+- `ssh` reaches the hosts on any layer in the shell's `vantageOf(...).reaches`. The ports it trusts
+  come from the same lookup `nmap` uses to render a layer (`resolveDeepScanHosts`), so a port is a
+  door exactly when `nmap` from that shell lists it as ssh.
+- The server half is the own-LAN `authCreateSession`, widened rather than given a new action. A
+  target off the LAN is looked up among the deep layers the caller's box reaches
+  (`segmentsReachedFrom`), and the login is logged and stored under the address the box holds
+  there.
+- A switch fronting the layer applies its live ACL through `reachDoor`; a router's journal is never
+  read.
+- A layer's `.1` is no host, matching the sweep. Each gateway is still reachable at its address on
+  the layer above.
+- Not reachable: walking a deep gateway's own forwards from inside the chain, and `.lan` names for
+  deep boxes.
+- `ftp`, `scp` and `nc` share the handler, so slices 8–9 only need the client half.
+
+Wire-check: `scripts/testDeepLayerSsh.ts` 10/10.
 
 Added at 6b's acceptance (scope call A). **Value**: decision 1 holds on a deep layer too. A shell
 on a deep box reaches its layer-mates the way a LAN hop reaches its LAN, not only through a
