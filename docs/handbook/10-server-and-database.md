@@ -99,7 +99,7 @@ false}})`, per request. The service role bypasses row-level security.
 | `recordPackageDowngrade`         | Trace a package downgrade in `dpkg.log`.                                    | SIG + L1           |
 | `recordZoneTransfer`             | Trace a DNS zone transfer in `named.log`.                                   | SIG                |
 | `recordLanFetch`                 | Trace a LAN web fetch in `access.log`.                                      | SIG                |
-| `nmapScan`, `nmapScanDeep`       | Trace a LAN or deep scan: one `kern.log` line per scanned host.             | SIG                |
+| `nmapScan`                       | Trace a LAN or deep scan: one `kern.log` line per scanned host.             | SIG                |
 
 ### `POST /api/sessions`
 

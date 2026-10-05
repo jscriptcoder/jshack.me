@@ -8,7 +8,14 @@ import { buildRemoteHostFs } from '../generation/remoteHostFs.js';
 import { buildApGatewayBaseFs } from '../generation/routerFs.js';
 import { seedApGatewayHostname } from '../generation/gatewayHostname.js';
 import { hostMachineId } from '../generation/remoteHostId.js';
-import { resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
+import {
+  resolveDeepGatewayIdentity,
+  resolveLanHostIdentity,
+} from '../generation/lanHostIdentity.js';
+import { chainLinks, type ChainLink } from '../generation/lanTopology.js';
+import { generateDeepLayer } from '../generation/generateDeepLayer.js';
+import { buildDeepHostFs } from '../generation/deepHostFs.js';
+import { crackableEssidPool } from '../generation/generateWifi.js';
 import { computeInnerGatewayId, computeApGatewayId } from '../identity/router.js';
 import { assignHomeNetwork } from '../network/homeNetwork.js';
 import { materializeWorkstationFs, type OwnerPatchRow } from '../network/materializeWorkstationFs.js';
@@ -314,13 +321,13 @@ describe('handleNmapScan', () => {
     expect(upsertPatch).not.toHaveBeenCalled();
   });
 
-  it('writes nothing for a target on a foreign subnet', async () => {
+  it('refuses a target on a network the scanner does not reach, writing nothing', async () => {
     const id = generateIdentity();
     const { deps, upsertPatch } = makeDeps();
 
     const result = await handleNmapScan(envelope(id, '10.0.0.1-254'), deps);
 
-    expect(result.body).toEqual({ ok: true, hostsLogged: 0 });
+    expect(result).toEqual({ status: 403, body: { error: 'wrong_network' } });
     expect(upsertPatch).not.toHaveBeenCalled();
   });
 
@@ -813,7 +820,7 @@ describe('handleNmapScan — same-LAN scan traces a fellow occupant', () => {
 
     const result = await handleNmapScan(envelope(ctx.bob, '10.0.0.5'), ctx.deps);
 
-    expect(result.status).toBe(200);
+    expect(result.status).toBe(403);
     expect(traceOn(ctx.upsertPatch, ctx.aWs)).toBeUndefined();
   });
 
@@ -997,5 +1004,320 @@ describe('handleNmapScan — from a shell held on a box', () => {
 
     expect(result).toEqual({ status: 403, body: { error: 'no_session' } });
     expect(upsertPatch).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * A deep layer is swept by the same action as the LAN. Which layer the target is on
+ * decides which hosts are logged; where the caller stands decides the address each line
+ * names — the box's own address on its layer, a gateway's `.1` on the layer it fronts,
+ * or, on a layer above, the gateway the scan left through.
+ */
+describe('handleNmapScan — on a deep layer', () => {
+  // Three gateways deep: an inner router on the LAN, a deep router behind it, and a
+  // second deep router behind that.
+  const [inner, middle] = chainLinks(ESSID);
+  const innerSwitch = chainLinks(ESSID).find(
+    (link) => link.host.kind === 'switch' && link.parentMachineId === null,
+  );
+
+  const layerOf = (link: ChainLink | undefined, essid = ESSID) => {
+    if (link === undefined) throw new Error(`${essid} has no such gateway`);
+    return generateDeepLayer(
+      essid,
+      { machineId: link.machineId, kind: link.host.kind },
+      { hangsChild: link.hangsChild },
+    );
+  };
+
+  type DeepHost = { host: LanHost; machineId: string; ports: readonly number[] };
+
+  /** The hosts on the layer `link` fronts, each with the ports it shows past `denied`. */
+  const hostsOnLayerOf = (
+    link: ChainLink | undefined,
+    essid = ESSID,
+    denied: ReadonlySet<number> = new Set(),
+  ): readonly DeepHost[] => {
+    const layer = layerOf(link, essid);
+    const onLayer = layer.childGateway === null ? [layer.host] : [layer.host, layer.childGateway];
+    return onLayer.map((host) => {
+      const identity =
+        host.kind === 'machine'
+          ? { machineId: hostMachineId(host, essid), baseFs: buildDeepHostFs(essid, host) }
+          : resolveDeepGatewayIdentity(essid, link?.machineId ?? '', host.ip, host.kind);
+      const ports = readOpenPorts(identity.baseFs)
+        .map((open) => open.port)
+        .filter((port) => !denied.has(port));
+      return { host, machineId: identity.machineId, ports };
+    });
+  };
+
+  const npcOn = (link: ChainLink | undefined): DeepHost => {
+    const npc = hostsOnLayerOf(link).find((entry) => entry.host.kind === 'machine');
+    if (npc === undefined) throw new Error('the layer has no host');
+    return npc;
+  };
+
+  const deepLine = (sourceIp: string, entry: DeepHost): string =>
+    `${formatNmapScanAggregate({
+      time: asGameTime(FIXED_NOW),
+      hostname: entry.host.hostname,
+      sourceIp,
+      probedPorts: entry.ports,
+    })}\n`;
+
+  /** A caller whose only place is the shell they hold; they occupy no network. */
+  const shellOn = (essid = ESSID): Partial<NmapScanDeps> => ({
+    findActiveSession: async () => ({
+      data: { username: 'root', userType: 'root', essid },
+      error: null,
+    }),
+    findHomeVantage: async () => ({ data: null, error: null }),
+  });
+  const scanFrom = (machineId: string | undefined, target: string, essid = ESSID) =>
+    signRequest(generateIdentity(), 'nmapScan', {
+      essid,
+      target,
+      caller_machine_id: machineId ?? '',
+    });
+
+  it('logs every host on the layer an inner gateway fronts, from that layer’s .1', async () => {
+    const layer = layerOf(inner);
+    const hosts = hostsOnLayerOf(inner);
+    const { deps, upsertPatch } = makeDeps(shellOn());
+
+    const result = await handleNmapScan(
+      scanFrom(inner?.machineId, `${layer.subnet}.1-254`),
+      deps,
+    );
+
+    expect(result).toEqual({ status: 200, body: { ok: true, hostsLogged: hosts.length } });
+    expect(upsertPatch).toHaveBeenCalledTimes(hosts.length);
+    for (const entry of hosts) {
+      expect(traceOn(upsertPatch, entry.machineId)).toEqual({
+        writer_key: apGatewayLogWriterKey(ESSID),
+        machine_id: entry.machineId,
+        path: '/var/log/kern.log',
+        content: deepLine(`${layer.subnet}.1`, entry),
+        owner: KERN_LOG_OWNER,
+        permissions: KERN_LOG_PERMISSIONS,
+        node_type: 'file',
+      });
+    }
+  });
+
+  it('logs a sweep from a deep host under its own address on its layer', async () => {
+    const layer = layerOf(inner);
+    const hosts = hostsOnLayerOf(inner);
+    const { deps, upsertPatch } = makeDeps(shellOn());
+
+    await handleNmapScan(
+      scanFrom(hostMachineId(layer.host, ESSID), `${layer.subnet}.1-254`),
+      deps,
+    );
+
+    expect(upsertPatch).toHaveBeenCalledTimes(hosts.length);
+    for (const entry of hosts) {
+      expect(traceOn(upsertPatch, entry.machineId)?.content).toBe(deepLine(layer.host.ip, entry));
+    }
+  });
+
+  it('logs a deep gateway’s sweep of the layer it sits on under its own address there', async () => {
+    const npc = npcOn(inner);
+    const { deps, upsertPatch } = makeDeps(shellOn());
+
+    await handleNmapScan(scanFrom(middle?.machineId, npc.host.ip), deps);
+
+    expect(upsertPatch).toHaveBeenCalledTimes(1);
+    expect(upsertPatch.mock.calls[0]?.[0].content).toBe(deepLine(middle?.host.ip ?? '', npc));
+  });
+
+  it('logs a deep gateway’s sweep of the layer it fronts from that layer’s .1', async () => {
+    const layer = layerOf(middle);
+    const npc = npcOn(middle);
+    const { deps, upsertPatch } = makeDeps(shellOn());
+
+    await handleNmapScan(scanFrom(middle?.machineId, npc.host.ip), deps);
+
+    expect(upsertPatch.mock.calls[0]?.[0].content).toBe(deepLine(`${layer.subnet}.1`, npc));
+  });
+
+  it('logs a sweep of a layer above under the gateway the scan left through', async () => {
+    const below = layerOf(middle);
+    const npc = npcOn(inner);
+    const { deps, upsertPatch } = makeDeps(shellOn());
+
+    await handleNmapScan(scanFrom(hostMachineId(below.host, ESSID), npc.host.ip), deps);
+
+    expect(upsertPatch.mock.calls[0]?.[0].content).toBe(deepLine(middle?.host.ip ?? '', npc));
+  });
+
+  it('logs a deep host’s sweep of the LAN under the inner gateway’s LAN address', async () => {
+    const layer = layerOf(inner);
+    const { deps, upsertPatch } = makeDeps(shellOn());
+
+    await handleNmapScan(
+      scanFrom(hostMachineId(layer.host, ESSID), `${subnetOf()}.1-254`),
+      deps,
+    );
+
+    expect(upsertPatch).toHaveBeenCalled();
+    for (const [row] of upsertPatch.mock.calls) {
+      expect(row.content).toContain(`Port scan from ${inner?.host.ip} —`);
+    }
+  });
+
+  it('appends to what the host’s log already holds', async () => {
+    const layer = layerOf(inner);
+    const npc = npcOn(inner);
+    const { deps, upsertPatch } = makeDeps({
+      ...shellOn(),
+      readLog: vi.fn(async () => logRead('PRIOR LINE\n')),
+    });
+
+    await handleNmapScan(scanFrom(inner?.machineId, npc.host.ip), deps);
+
+    expect(upsertPatch.mock.calls[0]?.[0].content).toBe(
+      `PRIOR LINE\n${deepLine(`${layer.subnet}.1`, npc)}`,
+    );
+  });
+
+  it('still answers when a log write fails', async () => {
+    const layer = layerOf(inner);
+    const { deps } = makeDeps({
+      ...shellOn(),
+      upsertPatch: vi.fn(async () => {
+        throw new Error('db down');
+      }),
+    });
+
+    const result = await handleNmapScan(
+      scanFrom(inner?.machineId, `${layer.subnet}.1-254`),
+      deps,
+    );
+
+    expect(result).toEqual({
+      status: 200,
+      body: { ok: true, hostsLogged: hostsOnLayerOf(inner).length },
+    });
+  });
+
+  it('logs a child switch on its own switch box, not as the generic host at its address', async () => {
+    const essid = crackableEssidPool.find(
+      (candidate) => layerOf(chainLinks(candidate)[0], candidate).childGateway?.kind === 'switch',
+    );
+    if (essid === undefined) throw new Error('no network fronts a child switch');
+    const [door] = chainLinks(essid);
+    const child = hostsOnLayerOf(door, essid).find((entry) => entry.host.kind === 'switch');
+    if (child === undefined) throw new Error('the door fronts no switch');
+    expect(child.machineId).not.toBe(hostMachineId(child.host, essid));
+    const { deps, upsertPatch } = makeDeps(shellOn(essid));
+
+    await handleNmapScan(scanFrom(door?.machineId, child.host.ip, essid), deps);
+
+    expect(upsertPatch).toHaveBeenCalledTimes(1);
+    expect(upsertPatch.mock.calls[0]?.[0].machine_id).toBe(child.machineId);
+  });
+
+  describe('a switch’s port denies', () => {
+    const aclPatch = (content: string): OwnerPatchRow => ({
+      path: '/etc/switch/acl.conf',
+      content,
+      owner: 'root',
+      permissions: null,
+      node_type: 'file',
+      updated_at: '2026-06-19T00:00:00.000Z',
+      writer_key: 'a'.repeat(64),
+    });
+
+    it('drop a denied port from the log, and stop once the deny is gone', async () => {
+      const npc = npcOn(innerSwitch);
+      expect(npc.ports).toContain(22);
+
+      const denied = makeDeps({
+        ...shellOn(),
+        findPatches: vi.fn(async () => ({ data: [aclPatch('deny 22')], error: null })),
+      });
+      await handleNmapScan(scanFrom(innerSwitch?.machineId, npc.host.ip), denied.deps);
+      expect(traceOn(denied.upsertPatch, npc.machineId)?.content).not.toContain(
+        'probed ports 22',
+      );
+
+      const opened = makeDeps({
+        ...shellOn(),
+        findPatches: vi.fn(async () => ({ data: [aclPatch('deny 9999')], error: null })),
+      });
+      await handleNmapScan(scanFrom(innerSwitch?.machineId, npc.host.ip), opened.deps);
+      expect(traceOn(opened.upsertPatch, npc.machineId)?.content).toContain('probed ports 22');
+    });
+
+    it('surface a 500 when the switch’s journal cannot be read', async () => {
+      const npc = npcOn(innerSwitch);
+      const findPatches = vi.fn(async () => ({ data: null, error: new Error('db down') }));
+      const { deps, upsertPatch } = makeDeps({ ...shellOn(), findPatches });
+
+      const result = await handleNmapScan(scanFrom(innerSwitch?.machineId, npc.host.ip), deps);
+
+      expect(result).toEqual({ status: 500, body: { error: 'patches_lookup_failed' } });
+      expect(findPatches).toHaveBeenCalledWith({ machine_id: innerSwitch?.machineId });
+      expect(upsertPatch).not.toHaveBeenCalled();
+    });
+
+    it('are not read for a router, which filters nothing', async () => {
+      const layer = layerOf(inner);
+      const findPatches = vi.fn(async () => ({ data: null, error: new Error('db down') }));
+      const { deps } = makeDeps({ ...shellOn(), findPatches });
+
+      const result = await handleNmapScan(
+        scanFrom(inner?.machineId, `${layer.subnet}.1-254`),
+        deps,
+      );
+
+      expect(result.status).toBe(200);
+      expect(findPatches).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('who may ask', () => {
+    it('refuses a gateway the caller holds no shell on, logging nothing', async () => {
+      const layer = layerOf(inner);
+      const { deps, upsertPatch } = makeDeps({
+        findHomeVantage: async () => ({ data: null, error: null }),
+      });
+
+      const result = await handleNmapScan(
+        scanFrom(inner?.machineId, `${layer.subnet}.1-254`),
+        deps,
+      );
+
+      expect(result).toEqual({ status: 403, body: { error: 'no_session' } });
+      expect(upsertPatch).not.toHaveBeenCalled();
+    });
+
+    it('refuses a layer further down than the one the box fronts', async () => {
+      const below = layerOf(middle);
+      const { deps, upsertPatch } = makeDeps(shellOn());
+
+      const result = await handleNmapScan(
+        scanFrom(inner?.machineId, `${below.subnet}.1-254`),
+        deps,
+      );
+
+      expect(result).toEqual({ status: 403, body: { error: 'wrong_network' } });
+      expect(upsertPatch).not.toHaveBeenCalled();
+    });
+
+    it('refuses a deep layer to a caller at home on their own box', async () => {
+      const layer = layerOf(inner);
+      const { deps, upsertPatch } = makeDeps();
+
+      const result = await handleNmapScan(
+        envelope(generateIdentity(), `${layer.subnet}.1-254`),
+        deps,
+      );
+
+      expect(result).toEqual({ status: 403, body: { error: 'wrong_network' } });
+      expect(upsertPatch).not.toHaveBeenCalled();
+    });
   });
 });

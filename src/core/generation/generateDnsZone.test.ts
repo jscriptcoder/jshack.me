@@ -276,11 +276,7 @@ const NO_VANTAGE_TREE = buildDirectory();
 
 const scannedHostsOn = (essid: string): readonly LanHost[] =>
   chainLinks(essid).flatMap((link) =>
-    resolveDeepScanHosts(
-      essid,
-      { machineId: link.machineId, kind: link.host.kind, hangsChild: link.hangsChild },
-      NO_VANTAGE_TREE,
-    ).hosts.map(({ host }) => host),
+    resolveDeepScanHosts(essid, link, NO_VANTAGE_TREE).hosts.map(({ host }) => host),
   );
 
 /**

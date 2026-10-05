@@ -20,7 +20,6 @@ import {
   type FetchOccupant,
 } from '../src/core/network/recordLanFetch.js';
 import type { LanLeaseRow } from '../src/core/network/lanAddress.js';
-import { handleNmapScanDeep } from '../src/core/scan/nmapScanDeep.js';
 import type { OwnerPatchRow } from '../src/core/network/materializeWorkstationFs.js';
 import type {
   ActiveSessionQuery,
@@ -438,7 +437,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         .eq('machine_id', machine_id)
         .order('updated_at', { ascending: true })
         .order('writer_key', { ascending: true });
-      if (error) console.error('[patches] scan occupant journal lookup error:', error);
+      if (error) console.error('[patches] scan journal lookup error:', error);
       return { data: data as readonly OwnerPatchRow[] | null, error };
     };
     // Every lease on the ESSID in ONE read: which occupants the scanned range covers,
@@ -518,33 +517,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       findActiveSession,
       findHomeVantage,
       findWorkstationLease,
-    });
-    res.status(status).json(body);
-    return;
-  }
-
-  if (actionOf(req.body) === 'nmapScanDeep') {
-    // A deep PIVOT scan records ONE kern.log line per touched deep host, server-
-    // internal (the handler re-derives the vantage + regenerates its deep layer; the
-    // client never names a path or content). Same `patches`-table read-modify-write as
-    // `nmapScan` above; the journal read replays the vantage gateway so a switch's live
-    // `acl.conf` filters the trace.
-    const findPatches = async ({ machine_id }: { machine_id: string }) => {
-      const { data, error } = await supabase
-        .from('patches')
-        .select('path, content, owner, permissions, node_type, updated_at, writer_key')
-        .eq('machine_id', machine_id)
-        .order('updated_at', { ascending: true })
-        .order('writer_key', { ascending: true });
-      if (error) console.error('[patches] deep-scan vantage journal lookup error:', error);
-      return { data: data as readonly OwnerPatchRow[] | null, error };
-    };
-    const { status, body } = await handleNmapScanDeep(req.body, {
-      nonceStore: noopNonceStore,
-      now: () => Date.now(),
-      readLog: listPathPatches,
-      upsertPatch,
-      findPatches,
     });
     res.status(status).json(body);
     return;

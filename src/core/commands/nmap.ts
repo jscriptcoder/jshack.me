@@ -34,11 +34,8 @@ import { readOpenPorts, type OpenPort } from '../services/pidfile.js';
 import { gameDayAt } from '../cve/worldClock.js';
 import { serviceByName } from '../services/serviceCatalog.js';
 import { resolveDeepScanHosts } from '../scan/deepScanHosts.js';
-import {
-  isInnerGateway,
-  pivotVantageForMachineId,
-  type PivotVantage,
-} from '../generation/lanHostIdentity.js';
+import { isInnerGateway } from '../generation/lanHostIdentity.js';
+import type { ChainLink } from '../generation/lanTopology.js';
 import { vantageOf } from '../network/vantage.js';
 import { addressForTarget } from '../network/resolveName.js';
 
@@ -290,34 +287,34 @@ const lanHostResolver = (
   return () => env.scan.resolveSameLan(essid, host.ip, caller);
 };
 
-/** Scan the deep `/24` BEHIND the gateway the active shell is standing on — the
- *  reachability pivot. Returns the scan when the target falls inside the deep subnet,
- *  or null when it doesn't (a home/foreign target falls through to the home path, so
- *  the upstream segment stays visible from the gateway too). The deep hosts + their
- *  post-ACL ports resolve CLIENT-side through the SHARED `resolveDeepScanHosts` — the
- *  same resolution the server trace uses, so the scan display and its kern.log trace
- *  can never drift. A fire-and-forget `recordDeep` leaves that trace on each touched
- *  deep host. */
-const resolveDeepPivotScan = (
+/** Scan a deep layer the shell reaches: the layer it stands on, the one it fronts when it
+ *  stands on a gateway, or one above it. Returns null when the target is not on the
+ *  layer `fronting` fronts. The hosts and their ports resolve CLIENT-side through the
+ *  SHARED `resolveDeepScanHosts` — the same resolution the server trace uses, so the
+ *  scan display and its kern.log trace can never drift. A switch fronting the layer
+ *  drops what its live `acl.conf` denies, read off the shell's own tree: a switch
+ *  forwards nothing, so the only box that can scan a switch's layer is the switch. A
+ *  router filters nothing and its tree is never read. */
+const resolveLayerScan = (
   env: CommandEnv,
   essid: string,
   rawTarget: string,
-  vantage: PivotVantage,
+  fronting: ChainLink,
   withVersion: boolean,
   gameDay: number,
 ): CommandResult | null => {
-  const resolution = resolveDeepScanHosts(essid, vantage, env.fs.root(), gameDay);
+  const resolution = resolveDeepScanHosts(essid, fronting, env.fs.root(), gameDay);
   const parsed = parseScanTarget(rawTarget, resolution.subnet);
   if (!parsed.ok) {
     return null;
   }
-  // Leave a deep-layer trace: record the pivot scan server-side (the server resolves
-  // the touched deep hosts and writes each one's kern.log itself). Fire-and-forget so
-  // the round-trip never delays the client-resolved scan, and a failure — or an
-  // unwired seam — never breaks it.
+  // Leave a trace the way every scan does: the server works out from the box named
+  // which layer this is and the address it is swept from. Fire-and-forget so the
+  // round-trip never delays the client-resolved scan, and a failure — or an unwired
+  // seam — never breaks it.
   try {
     void env.scan
-      .recordDeep({ essid, target: rawTarget, vantageMachineId: vantage.machineId })
+      .record({ essid, target: rawTarget, callerMachineId: env.session.machineId })
       .catch(() => undefined);
   } catch {
     // best-effort: logging must not surface to the scan.
@@ -389,17 +386,20 @@ const execute: Command['execute'] = async (env, args, flags) => {
     };
   }
 
-  // Reachability pivot: when the active shell sits on a gateway that fronts a deep
-  // layer — an inner gateway on the home LAN, or a deep child gateway one hop down —
-  // that gateway's downstream deep `/24` is directly scannable from here. A deep-subnet
-  // target routes to the pivot scan; anything else falls through to the home path below
-  // — so the upstream segment stays visible from the gateway too.
-  const pivotVantage = pivotVantageForMachineId(essid, env.session.machineId);
-  if (pivotVantage !== null) {
-    const pivotScan = resolveDeepPivotScan(env, essid, target, pivotVantage, withVersion, gameDay);
-    if (pivotScan !== null) {
-      return pivotScan;
-    }
+  // A deep layer the shell reaches — the one a deep box stands on, the one a gateway
+  // fronts, or one above — is scanned there. Anything else falls through to the LAN,
+  // which every box reaches, directly or out through its gateways.
+  for (const segment of vantage.reaches) {
+    if (segment.fronting === null) continue;
+    const layerScan = resolveLayerScan(
+      env,
+      essid,
+      target,
+      segment.fronting,
+      withVersion,
+      gameDay,
+    );
+    if (layerScan !== null) return layerScan;
   }
 
   // The generator supplies the AP's shared NPC filler only. At home, the player's own
@@ -416,7 +416,9 @@ const execute: Command['execute'] = async (env, args, flags) => {
     selfIp === null ? generated : withSelfHost(generated, selfIp, env.workstationName);
   const parsed = parseScanTarget(target, baseLan.subnet);
   if (!parsed.ok) {
-    return error(parsed.reason === 'usage' ? USAGE : outOfRange(target, baseLan.subnet));
+    // Out of range names the network the shell stands on, a deep layer included.
+    const standsOn = vantage.reaches[0]?.subnet ?? baseLan.subnet;
+    return error(parsed.reason === 'usage' ? USAGE : outOfRange(target, standsOn));
   }
 
   // Merge the ESSID's other live occupants over the generated NPC siblings, so a real
