@@ -322,9 +322,11 @@ describe('buildCommandEnv', () => {
       },
     });
 
-    await env.scan.record({ essid: 'E', target: '192.168.1.1-254', sourceIp: '192.168.1.50' });
+    await env.scan.record({ essid: 'E', target: '192.168.1.1-254', callerMachineId: 'hop-box-1' });
 
-    expect(recorded).toEqual([{ essid: 'E', target: '192.168.1.1-254', sourceIp: '192.168.1.50' }]);
+    expect(recorded).toEqual([
+      { essid: 'E', target: '192.168.1.1-254', callerMachineId: 'hop-box-1' },
+    ]);
   });
 
   it('routes scan.resolveOccupants through the injected onScanResolveOccupants seam', async () => {

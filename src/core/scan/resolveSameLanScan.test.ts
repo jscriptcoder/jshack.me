@@ -220,12 +220,31 @@ const siblingDeny = (port: number): OwnerPatchRow =>
 
 type PatchesResult = { data: readonly OwnerPatchRow[] | null; error: unknown };
 
-const makeDeps = (journal: readonly OwnerPatchRow[] = []) => {
+/** The caller stands at home on this ESSID, holding no shell — the ordinary scanner. */
+const atHomeHere: Pick<
+  ResolveSameLanScanDeps,
+  'findActiveSession' | 'findHomeVantage' | 'findWorkstationLease'
+> = {
+  findActiveSession: async () => ({ data: null, error: null }),
+  findHomeVantage: async () => ({ data: { essid: ESSID, octet: 50 }, error: null }),
+  findWorkstationLease: async () => ({ data: null, error: null }),
+};
+
+const makeDeps = (
+  journal: readonly OwnerPatchRow[] = [],
+  over: Partial<ResolveSameLanScanDeps> = {},
+) => {
   const findPatches = vi.fn<(query: { machine_id: string }) => Promise<PatchesResult>>(async () => ({
     data: journal,
     error: null,
   }));
-  const deps: ResolveSameLanScanDeps = { nonceStore: freshStore, gameDay: GAME_DAY, findPatches };
+  const deps: ResolveSameLanScanDeps = {
+    nonceStore: freshStore,
+    gameDay: GAME_DAY,
+    findPatches,
+    ...atHomeHere,
+    ...over,
+  };
   return { deps, findPatches };
 };
 
@@ -289,7 +308,7 @@ describe('handleResolveSameLanScan', () => {
     const findPatches = vi.fn<(query: { machine_id: string }) => Promise<PatchesResult>>(
       async () => ({ data: null, error: { message: 'connection reset' } }),
     );
-    const deps: ResolveSameLanScanDeps = { nonceStore: freshStore, gameDay: GAME_DAY, findPatches };
+    const { deps } = makeDeps([], { findPatches });
 
     const result = await handleResolveSameLanScan(envelope(SIBLING.ip), deps);
 
@@ -476,5 +495,49 @@ describe('handleResolveSameLanScan — a filter on a sibling', () => {
     // the gateway is not the only place a scan can advertise a door the reach refuses.
     expect(portsOf(open.body).map((entry) => entry.port)).toContain(filtered);
     expect(portsOf(result.body).map((entry) => entry.port)).not.toContain(filtered);
+  });
+});
+
+/**
+ * What a box on a LAN answers is learned by standing on that LAN — at home on it, or in a
+ * shell on a box that is. A caller who merely names the network learns nothing.
+ */
+describe('handleResolveSameLanScan — who may ask', () => {
+  const shellOn = (essid: string): Partial<ResolveSameLanScanDeps> => ({
+    findActiveSession: async () => ({
+      data: { username: 'root', userType: 'root', essid },
+      error: null,
+    }),
+    findHomeVantage: async () => ({ data: null, error: null }),
+  });
+  const fromHop = () => envelope(SIBLING.ip, { caller_machine_id: 'some-box-on-the-lan' });
+
+  it('answers a caller whose shell stands on a box on this LAN', async () => {
+    const { deps } = makeDeps([], shellOn(ESSID));
+
+    const result = await handleResolveSameLanScan(fromHop(), deps);
+
+    expect(result.status).toBe(200);
+    expect(portsOf(result.body)).toContainEqual(VULNERABLE.exposed);
+  });
+
+  it('refuses a caller whose shell stands on another network, reading no journal', async () => {
+    const { deps, findPatches } = makeDeps([], shellOn('RIDGEMONT-OFFICE'));
+
+    const result = await handleResolveSameLanScan(fromHop(), deps);
+
+    expect(result).toEqual({ status: 403, body: { error: 'wrong_network' } });
+    expect(findPatches).not.toHaveBeenCalled();
+  });
+
+  it('refuses a caller at home on another network, reading no journal', async () => {
+    const { deps, findPatches } = makeDeps([], {
+      findHomeVantage: async () => ({ data: { essid: 'SOME-OTHER-WIFI', octet: 9 }, error: null }),
+    });
+
+    const result = await handleResolveSameLanScan(envelope(SIBLING.ip), deps);
+
+    expect(result).toEqual({ status: 403, body: { error: 'wrong_network' } });
+    expect(findPatches).not.toHaveBeenCalled();
   });
 });

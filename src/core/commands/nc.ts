@@ -106,7 +106,7 @@ type Target =
 
 const resolveTarget = async (env: CommandEnv, host: string, essid: string): Promise<Target> => {
   if (isPublicIp(host)) {
-    const resolution = await env.scan.resolvePublic(host);
+    const resolution = await env.scan.resolvePublic(host, env.session.machineId);
     return resolution.found ? { kind: 'public', ports: resolution.ports } : { kind: 'nowhere' };
   }
 

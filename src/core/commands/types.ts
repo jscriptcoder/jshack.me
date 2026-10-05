@@ -1341,15 +1341,15 @@ export type ExploitApi = {
 };
 
 /** What `nmap` hands to the scan action so the server can record the scan on each
- *  host it touched. The server regenerates the LAN + hosts from the verified
- *  pubkey + essid and writes `/var/log/kern.log` itself — the client never names a
- *  path or content. */
+ *  host it touched. The server regenerates the LAN + hosts from the essid, places the
+ *  caller on it from `callerMachineId`, and writes `/var/log/kern.log` itself — the
+ *  client never names a path, a content or the address the scan came from. */
 export type ScanRecordParams = {
   readonly essid: string;
   /** The raw nmap target — a single IP (`x.y.z.w`) or a range (`x.y.z.A-B`). */
   readonly target: string;
-  /** The IP the scan originates from (the player's wlan0 LAN IP), or null. */
-  readonly sourceIp: string | null;
+  /** The box the scan runs on: the server reads where it stands from that session. */
+  readonly callerMachineId: string;
 };
 
 /** What `nmap` hands the DEEP scan action so the server can record a pivot scan on
@@ -1402,7 +1402,13 @@ export type ScanApi = {
    *  `/var/log/named.log` line on the name server, readable once the player roots it.
    *  Best-effort like `record`: a logging failure never surfaces to the transfer. */
   readonly recordZoneTransfer: (params: ZoneTransferRecordParams) => Promise<void>;
-  readonly resolvePublic: (target: string) => Promise<PublicScanResolution>;
+  /** `callerMachineId` on this and every resolver below is the box the scan runs on:
+   *  the server answers only for a network that box stands on, and a public scan is
+   *  traced to that network. */
+  readonly resolvePublic: (
+    target: string,
+    callerMachineId: string,
+  ) => Promise<PublicScanResolution>;
   /** Resolve the player's OWN-LAN `nmap` of an inner gateway server-side (signed
    *  `resolveInnerGatewayScan` endpoint): its own sshd PLUS any LIVE NAT forward to
    *  the deep layer behind it, read from the gateway's journal at the upstream
@@ -1411,6 +1417,7 @@ export type ScanApi = {
   readonly resolveInnerGateway: (
     essid: string,
     target: string,
+    callerMachineId: string,
   ) => Promise<PublicScanResolution>;
   /** Resolve ONE box the ACCESS POINT owns on the player's own LAN server-side — an NPC
    *  sibling, or the `.1` gateway every occupant of the ESSID shares (signed
@@ -1428,6 +1435,7 @@ export type ScanApi = {
   readonly resolveSameLan: (
     essid: string,
     target: string,
+    callerMachineId: string,
   ) => Promise<PublicScanResolution | null>;
   /** Fetch the current ESSID's OTHER occupants for a same-LAN scan (signed
    *  `resolveOccupants` endpoint). `nmap` merges the result over its generated LAN so
@@ -1454,6 +1462,7 @@ export type ScanApi = {
   readonly resolveOccupant: (
     essid: string,
     target: string,
+    callerMachineId: string,
   ) => Promise<PublicScanResolution | null>;
   /** Fetch the ESSID NAMES anyone currently occupies (signed `resolveOccupiedEssids`
    *  endpoint) — global and name-only, so `airodump-ng` can inject live networks into the

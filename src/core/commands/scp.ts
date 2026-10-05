@@ -315,7 +315,10 @@ const reachPublic = async (
   portFlag: string | true | undefined,
 ): Promise<Reached> => {
   const port = parsePort(portFlag) ?? SSH_PORT;
-  const resolution = await env.scan.resolvePublic(remote.host);
+  const resolution = await env.scan.resolvePublic(
+    remote.host,
+    env.session.machineId,
+  );
   if (!resolution.found) {
     return { ok: false, line: `scp: connect to host ${remote.host} port ${port}: No route to host` };
   }

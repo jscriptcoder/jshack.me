@@ -21,6 +21,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign.js';
+import { standOnNetwork } from './standVantage.js';
 import { generateIdentity } from '../src/core/identity/identity.js';
 import { generateHomeLan, type LanHost } from '../src/core/generation/generateHomeLan.js';
 import { crackableEssidPool } from '../src/core/generation/generateWifi.js';
@@ -178,6 +179,8 @@ if (GATEWAY_PORT === undefined) {
 }
 
 const alice = generateIdentity();
+// A box on a LAN answers only a caller standing on that LAN.
+await standOnNetwork(sr, ESSID, alice, 251);
 
 const scanAt = (target: string) =>
   post(NETWORK, signRequest(alice, 'resolveSameLanScan', { essid: ESSID, target }));

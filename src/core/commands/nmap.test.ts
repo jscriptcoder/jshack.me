@@ -689,7 +689,7 @@ describe('nmap — scan logging (3a)', () => {
       scan: mockScanApi({ record }),
     });
 
-  it('records a range scan with the essid, raw target, and LAN source IP', async () => {
+  it('records a range scan with the essid, raw target, and the box it ran on', async () => {
     const record = vi.fn(async () => undefined);
     const target = `${subnet}.1-254`;
 
@@ -698,7 +698,7 @@ describe('nmap — scan logging (3a)', () => {
     expect(record).toHaveBeenCalledWith({
       essid: ESSID,
       target,
-      sourceIp: assignHomeNetwork(PUBKEY, ESSID).localIp,
+      callerMachineId: mockSession().machineId,
     });
   });
 
@@ -711,7 +711,7 @@ describe('nmap — scan logging (3a)', () => {
     expect(record).toHaveBeenCalledWith({
       essid: ESSID,
       target,
-      sourceIp: assignHomeNetwork(PUBKEY, ESSID).localIp,
+      callerMachineId: mockSession().machineId,
     });
   });
 
@@ -767,7 +767,7 @@ describe('nmap — cross-player public-IP scan (slice 1a)', () => {
     );
 
     expect(exitCode).toBe(0);
-    expect(resolvePublic).toHaveBeenCalledWith(PUBLIC_IP);
+    expect(resolvePublic).toHaveBeenCalledWith(PUBLIC_IP, mockSession().machineId);
     // Exact output (the public-IP scan is fully deterministic — no host list), so
     // the report lines AND their blank-line spacing are both pinned.
     expect(text).toBe(
@@ -799,7 +799,7 @@ describe('nmap — cross-player public-IP scan (slice 1a)', () => {
     );
 
     expect(exitCode).toBe(0);
-    expect(resolvePublic).toHaveBeenCalledWith(siteIp);
+    expect(resolvePublic).toHaveBeenCalledWith(siteIp, mockSession().machineId);
     expect(text).toContain(`Nmap scan report for ${siteIp}`);
     expect(text).toContain('22/tcp   open  ssh');
     expect(text).toContain('80/tcp   open  http');
@@ -972,7 +972,7 @@ describe('nmap — same-LAN occupant merge', () => {
     expect(text).toContain('192.168.29.188');
     expect(text).toContain(`${baseLan.hosts.length + 1} hosts up`);
     // The fetch is keyed on the player's currently-associated ESSID.
-    expect(resolveOccupants).toHaveBeenCalledWith(ESSID);
+    expect(resolveOccupants).toHaveBeenCalledWith(ESSID, mockSession().machineId);
   });
 
   it('drops the generated NPC on an octet collision with a machine — the occupant wins', async () => {
@@ -1084,7 +1084,7 @@ describe('nmap — same-LAN occupant merge', () => {
       ),
     );
 
-    expect(resolveOccupant).toHaveBeenCalledWith(ESSID, ip);
+    expect(resolveOccupant).toHaveBeenCalledWith(ESSID, ip, mockSession().machineId);
     expect(text).toContain(`Nmap scan report for alice-rig (${ip})`);
     expect(text).toContain('6379/tcp');
     expect(text).not.toContain('22/tcp');
@@ -1194,7 +1194,7 @@ describe('nmap — same-LAN occupant merge', () => {
     // sibling underneath is the box at that address again — a different box, asked
     // about through a different door.
     expect(resolveOccupant).not.toHaveBeenCalled();
-    expect(resolveSameLan).toHaveBeenCalledWith(ESSID, ip);
+    expect(resolveSameLan).toHaveBeenCalledWith(ESSID, ip, mockSession().machineId);
     expect(text).toContain('22/tcp');
   });
 
@@ -1225,7 +1225,7 @@ describe('nmap — same-LAN occupant merge', () => {
     // an occupant is rebuilt from a PLAYER's identity and journal, a sibling from the
     // access point's seed and the journal written onto it.
     expect(resolveOccupant).not.toHaveBeenCalled();
-    expect(resolveSameLan).toHaveBeenCalledWith(ESSID, sshNpcIp());
+    expect(resolveSameLan).toHaveBeenCalledWith(ESSID, sshNpcIp(), mockSession().machineId);
     expect(text).toContain('22/tcp');
   });
 
@@ -1345,7 +1345,7 @@ describe('nmap — own-LAN inner-gateway scan (5b.1b-i)', () => {
     );
 
     expect(exitCode).toBe(0);
-    expect(resolveInnerGateway).toHaveBeenCalledWith(ESSID, INNER.ip);
+    expect(resolveInnerGateway).toHaveBeenCalledWith(ESSID, INNER.ip, mockSession().machineId);
     // Exact output (the inner-gateway scan is a deterministic server round-trip — no
     // host list), so the report lines, the port table, AND their spacing are pinned.
     expect(text).toBe(
@@ -1385,7 +1385,7 @@ describe('nmap — own-LAN inner-gateway scan (5b.1b-i)', () => {
     );
 
     expect(exitCode).toBe(0);
-    expect(resolveInnerGateway).toHaveBeenCalledWith(ESSID, SWITCH.ip);
+    expect(resolveInnerGateway).toHaveBeenCalledWith(ESSID, SWITCH.ip, mockSession().machineId);
     expect(text).toContain(`Nmap scan report for ${SWITCH.hostname} (${SWITCH.ip})`);
     expect(text).toContain('22/tcp   open  ssh');
   });
@@ -1427,7 +1427,7 @@ describe('nmap — own-LAN inner-gateway scan (5b.1b-i)', () => {
     // upstream resolver would answer it at the vantage where a NAT forward is visible —
     // handing an occupant the public exposure of every neighbour behind their own AP.
     expect(resolveInnerGateway).not.toHaveBeenCalled();
-    expect(resolveSameLan).toHaveBeenCalledWith(ESSID, `${lan.subnet}.1`);
+    expect(resolveSameLan).toHaveBeenCalledWith(ESSID, `${lan.subnet}.1`, mockSession().machineId);
     expect(text).toContain('22/tcp   open  ssh');
   });
 
@@ -1455,7 +1455,7 @@ describe('nmap — own-LAN inner-gateway scan (5b.1b-i)', () => {
     expect(record).toHaveBeenCalledWith({
       essid: ESSID,
       target: INNER.ip,
-      sourceIp: assignHomeNetwork(PUBKEY, ESSID).localIp,
+      callerMachineId: mockSession().machineId,
     });
   });
 });
@@ -2563,7 +2563,7 @@ describe('nmap — the boxes the access point owns resolve server-side', () => {
       await nmap.execute(envWithScan({ resolveSameLan }), [target], new Map()),
     );
 
-    expect(resolveSameLan).toHaveBeenCalledWith(ESSID, target);
+    expect(resolveSameLan).toHaveBeenCalledWith(ESSID, target, mockSession().machineId);
     expect(text).toContain('4444/tcp open  unknown');
     expect(text).toContain('Host is up.');
   });
@@ -2632,7 +2632,7 @@ describe('nmap — the boxes the access point owns resolve server-side', () => {
       await nmap.execute(envWithScan({ resolveSameLan }), [gatewayIp()], new Map()),
     );
 
-    expect(resolveSameLan).toHaveBeenCalledWith(ESSID, gatewayIp());
+    expect(resolveSameLan).toHaveBeenCalledWith(ESSID, gatewayIp(), mockSession().machineId);
     expect(text).toContain('4444/tcp open  unknown');
   });
 
@@ -2657,5 +2657,153 @@ describe('nmap — the boxes the access point owns resolve server-side', () => {
     );
 
     expect(text).toContain('Host seems down.');
+  });
+});
+
+/**
+ * A shell on a box is a place to stand. A scan typed into it sweeps that box's network,
+ * whatever the player's own WiFi card is doing, and every request it makes names the box
+ * so the server answers for that network and traces the scan to it.
+ */
+describe('nmap — from a shell on a hop', () => {
+  const HOME = 'BEAN-THERE-WIFI';
+  const HOP_NET = 'RIDGEMONT-OFFICE';
+  const hopLan = generateHomeLan(HOP_NET);
+  const homeLan = generateHomeLan(HOME);
+  if (hopLan.subnet === homeLan.subnet) throw new Error('fixture needs two different subnets');
+  const hopHost = hopLan.hosts.find((host) => host.kind === 'machine');
+  if (hopHost === undefined) throw new Error('expected an ordinary host on the hop LAN');
+  const HOP_MACHINE = asMachineId(machineIdForLanHost(hopHost, HOP_NET));
+
+  const hopEnv = (
+    scan: Partial<ScanApi> = {},
+    network = mockNetworkViewFromConnectivity(onlineConnectivity(HOME)),
+  ) =>
+    mockCommandEnv({
+      identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
+      network,
+      workstationName: OWN_NAME,
+      session: mockSession({ machineId: HOP_MACHINE, essid: HOP_NET, kind: 'ssh' }),
+      scan: mockScanApi({
+        resolveSameLan: async (scanned, target) => seededHostScan(scanned, target),
+        ...scan,
+      }),
+    });
+
+  it("sweeps the hop's LAN, not the player's home LAN", async () => {
+    const { text } = await drain(
+      await nmap.execute(hopEnv(), [`${hopLan.subnet}.1-254`], new Map()),
+    );
+
+    for (const host of hopLan.hosts) expect(text).toContain(host.ip);
+    expect(text).not.toContain(homeLan.subnet);
+    expect(text).toContain(`Nmap done — ${hopLan.hosts.length} hosts up`);
+  });
+
+  it("does not list the player's own box, which is not on the hop's LAN", async () => {
+    const { text } = await drain(
+      await nmap.execute(hopEnv(), [`${hopLan.subnet}.1-254`], new Map()),
+    );
+
+    expect(text).not.toContain(OWN_NAME);
+  });
+
+  it("refuses the home subnet as out of range, naming the hop's network", async () => {
+    const result = await nmap.execute(hopEnv(), [`${homeLan.subnet}.1-254`], new Map());
+    if (result.kind !== 'sync') throw new Error('expected sync result');
+
+    expect(result.exitCode).toBe(1);
+    expect(result.lines.map((line) => line.content)).toEqual([
+      `nmap: ${homeLan.subnet}.1-254: out of range — you can only scan the network you are on (${hopLan.subnet}.0/24)`,
+    ]);
+  });
+
+  it("scans from the hop though the player's own card is on no network", async () => {
+    const offline = mockNetworkView({ isOnline: () => false, interfaces: () => [] });
+
+    const { text } = await drain(
+      await nmap.execute(hopEnv({}, offline), [`${hopLan.subnet}.1-254`], new Map()),
+    );
+
+    expect(text).toContain(`Nmap done — ${hopLan.hosts.length} hosts up`);
+  });
+
+  it('records the scan against the hop network, naming the hop', async () => {
+    const record = vi.fn(async () => undefined);
+    const target = `${hopLan.subnet}.1-254`;
+
+    await drain(await nmap.execute(hopEnv({ record }), [target], new Map()));
+
+    expect(record).toHaveBeenCalledWith({ essid: HOP_NET, target, callerMachineId: HOP_MACHINE });
+  });
+
+  it("asks for the hop network's players from the hop", async () => {
+    const resolveOccupants = vi.fn(async () => []);
+
+    await drain(
+      await nmap.execute(hopEnv({ resolveOccupants }), [`${hopLan.subnet}.1-254`], new Map()),
+    );
+
+    expect(resolveOccupants).toHaveBeenCalledWith(HOP_NET, HOP_MACHINE);
+  });
+
+  it("reads the hop's own address the way the server reads any box on its LAN", async () => {
+    const resolveSameLan = vi.fn<ScanApi['resolveSameLan']>(async (scanned, target) =>
+      seededHostScan(scanned, target),
+    );
+
+    await drain(await nmap.execute(hopEnv({ resolveSameLan }), [hopHost.ip], new Map()));
+
+    expect(resolveSameLan).toHaveBeenCalledWith(HOP_NET, hopHost.ip, HOP_MACHINE);
+  });
+
+  it("probes a fellow player's box on the hop network from the hop", async () => {
+    const neighbourIp = `${hopLan.subnet}.250`;
+    const resolveOccupant = vi.fn<ScanApi['resolveOccupant']>(async () => ({
+      found: true,
+      ports: [],
+    }));
+    const env = hopEnv({
+      resolveOccupants: async () => [
+        { workstation_machine_id: 'ws-neighbour', localIp: neighbourIp, machineName: 'nbr' },
+      ],
+      resolveOccupant,
+    });
+
+    await drain(await nmap.execute(env, [neighbourIp], new Map()));
+
+    expect(resolveOccupant).toHaveBeenCalledWith(HOP_NET, neighbourIp, HOP_MACHINE);
+  });
+
+  it('asks the server about an inner gateway on the hop network from the hop', async () => {
+    const inner = hopLan.hosts.find(
+      (host) => (host.kind === 'router' || host.kind === 'switch') && !host.ip.endsWith('.1'),
+    );
+    const resolveInnerGateway = vi.fn<ScanApi['resolveInnerGateway']>(async () => ({
+      found: true,
+      ports: [],
+    }));
+    if (inner === undefined) return;
+
+    await drain(await nmap.execute(hopEnv({ resolveInnerGateway }), [inner.ip], new Map()));
+
+    expect(resolveInnerGateway).toHaveBeenCalledWith(HOP_NET, inner.ip, HOP_MACHINE);
+  });
+
+  it('tells the player, in the manual, that a scan runs from the box the shell is on', () => {
+    expect(nmap.manual?.description).toContain('the network you are on');
+    expect(nmap.manual?.description).toContain('a shell on another box');
+    expect(nmap.manual?.description).not.toContain('your own network');
+  });
+
+  it('scans a public address from the hop, naming the hop', async () => {
+    const resolvePublic = vi.fn<ScanApi['resolvePublic']>(async () => ({
+      found: false,
+      ports: [],
+    }));
+
+    await drain(await nmap.execute(hopEnv({ resolvePublic }), ['87.0.113.7'], new Map()));
+
+    expect(resolvePublic).toHaveBeenCalledWith('87.0.113.7', HOP_MACHINE);
   });
 });

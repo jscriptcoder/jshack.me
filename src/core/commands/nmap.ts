@@ -9,8 +9,11 @@
  * The tool itself is NOT preinstalled: the registry's binary gate reports
  * `command not found` with an `apt install nmap` hint until `/usr/bin/nmap` exists.
  *
- * Only the player's own subnet is scannable — a target on a different subnet is
- * out of range (foreign-subnet scanning is deferred to the multi-layer story).
+ * The LAN it scans is the one the shell stands on (`vantageOf`): the player's own
+ * WiFi on their own box, or the network of the box a remote shell is on, whatever the
+ * player's own card is doing. A target on any other subnet is out of range, and every
+ * request to the server names the box the shell is on, so the server answers for that
+ * network and traces the scan to it.
  *
  * The streamed-row pacing reuses the abort-aware `env.sleep` seam (airodump-ng
  * family) so the scan feels live and cancels on Ctrl-C.
@@ -36,7 +39,7 @@ import {
   pivotVantageForMachineId,
   type PivotVantage,
 } from '../generation/lanHostIdentity.js';
-import { connectedWlan0 } from '../network/interfaces.js';
+import { vantageOf } from '../network/vantage.js';
 import { addressForTarget } from '../network/resolveName.js';
 
 const error = (message: string): CommandResult => ({
@@ -57,9 +60,9 @@ const VERSION_FLAG = '-sV';
 
 const USAGE = 'nmap: usage: nmap [-sV] <target> (e.g. 192.168.1.5 or 192.168.1.1-254)';
 
-/** A target on a subnet other than the player's own LAN. */
+/** A target on a subnet other than the LAN the shell stands on. */
 const outOfRange = (target: string, subnet: string): string =>
-  `nmap: ${target}: out of range — you can only scan your own network (${subnet}.0/24)`;
+  `nmap: ${target}: out of range — you can only scan the network you are on (${subnet}.0/24)`;
 
 const padRight = (value: string, length: number): string =>
   value.length >= length ? value : value + ' '.repeat(length - value.length);
@@ -230,7 +233,12 @@ const scanPublic = (
   target: string,
   withVersion: boolean,
 ): AsyncIterable<TerminalLine> =>
-  scanResolvedHost(target, target, () => env.scan.resolvePublic(target), withVersion);
+  scanResolvedHost(
+    target,
+    target,
+    () => env.scan.resolvePublic(target, env.session.machineId),
+    withVersion,
+  );
 
 /** A host on the player's own LAN, reported the way every LAN host is — its name beside
  *  its address, unlike a public IP, which names an access point and has no name to give.
@@ -261,19 +269,25 @@ const scanLanHost = (
  *   SHIPPED, and everything anyone has since done to it is on that machine's journal.
  *
  * Only the player's own box is left for the client to read, which is what makes "the
- * own-box path never leaves the machine" true by construction rather than by a rule.
+ * own-box path never leaves the machine" true by construction rather than by a rule. On
+ * a hop there is no such box (`selfIp` is null): the hop itself is a box on its network
+ * like any other, read the way the server reads it.
+ *
+ * Every request names the box the shell stands on, so the server answers only for the
+ * network that box is on.
  */
 const lanHostResolver = (
   env: CommandEnv,
   essid: string,
   host: LanHost,
-  selfIp: string,
+  selfIp: string | null,
   occupantIps: ReadonlySet<string>,
 ): (() => Promise<PublicScanResolution | null>) | null => {
+  const caller = env.session.machineId;
   if (host.ip === selfIp) return null;
-  if (occupantIps.has(host.ip)) return () => env.scan.resolveOccupant(essid, host.ip);
-  if (isInnerGateway(host)) return () => env.scan.resolveInnerGateway(essid, host.ip);
-  return () => env.scan.resolveSameLan(essid, host.ip);
+  if (occupantIps.has(host.ip)) return () => env.scan.resolveOccupant(essid, host.ip, caller);
+  if (isInnerGateway(host)) return () => env.scan.resolveInnerGateway(essid, host.ip, caller);
+  return () => env.scan.resolveSameLan(essid, host.ip, caller);
 };
 
 /** Scan the deep `/24` BEHIND the gateway the active shell is standing on — the
@@ -338,14 +352,19 @@ const execute: Command['execute'] = async (env, args, flags) => {
   if (rawTarget === undefined) {
     return error(USAGE);
   }
-  // No address means no LAN to scan: the player's own address is a server-issued
-  // lease now, so an associated-but-unaddressed interface is not on the network.
-  const wlan0 = connectedWlan0(env.network);
-  if (wlan0 === null) {
+  // Where the shell stands: the hop on top of the stack, or the player's own WiFi on
+  // their own box. At home, no address means no LAN to scan: the player's own address
+  // is a server-issued lease, so an associated-but-unaddressed interface is not on the
+  // network. On a hop, the player's own card does not matter at all.
+  const vantage = vantageOf(env.session, env.network);
+  if (vantage === null) {
     return error(UNREACHABLE);
   }
 
-  const essid = wlan0.association.essid;
+  const essid = vantage.essid;
+  // Asked from the box the shell stands on, so a hop lists the hop's neighbours.
+  const occupantsHere = (scanned: string) =>
+    env.scan.resolveOccupants(scanned, env.session.machineId);
 
   // A name becomes the address before anything routes on it, so every path below
   // sees the target it already knows how to reach — an institution's domain included,
@@ -355,7 +374,7 @@ const execute: Command['execute'] = async (env, args, flags) => {
   const target = await addressForTarget({
     essid,
     target: rawTarget,
-    resolveOccupants: env.scan.resolveOccupants,
+    resolveOccupants: occupantsHere,
   });
 
   // A public IP is another player's network — resolve it server-side against the
@@ -383,13 +402,18 @@ const execute: Command['execute'] = async (env, args, flags) => {
     }
   }
 
-  // The generator supplies the AP's shared NPC filler only. The player's own host is
-  // placed at the address `wlan0` actually holds — the LEASE the join issued — which
-  // is the one part of this LAN that belongs to the viewer rather than to the network.
-  // It is named the way every OTHER occupant of this LAN already sees it: the
+  // The generator supplies the AP's shared NPC filler only. At home, the player's own
+  // host is placed at the address `wlan0` actually holds — the LEASE the join issued —
+  // which is the one part of this LAN that belongs to the viewer rather than to the
+  // network. It is named the way every OTHER occupant of this LAN already sees it: the
   // workstation name the registry holds. A per-ESSID derivation would give one machine
-  // two names — a cover only its owner is behind, which nobody else is fooled by.
-  const baseLan = withSelfHost(generateHomeLan(essid), wlan0.ipv4, env.workstationName);
+  // two names — a cover only its owner is behind, which nobody else is fooled by. On a
+  // hop the player's own box is not added: the hop's network is the one being swept,
+  // and `ssh` reaches no such host from there either.
+  const selfIp = vantage.kind === 'home' ? vantage.address : null;
+  const generated = generateHomeLan(essid);
+  const baseLan =
+    selfIp === null ? generated : withSelfHost(generated, selfIp, env.workstationName);
   const parsed = parseScanTarget(target, baseLan.subnet);
   if (!parsed.ok) {
     return error(parsed.reason === 'usage' ? USAGE : outOfRange(target, baseLan.subnet));
@@ -397,10 +421,10 @@ const execute: Command['execute'] = async (env, args, flags) => {
 
   // Merge the ESSID's other live occupants over the generated NPC siblings, so a real
   // player on this LAN shows up as a host. The server already excludes the caller and
-  // gates on the caller's own occupancy; the seam degrades to [] (server down / not an
-  // occupant), leaving the own-LAN view untouched. On an octet collision the occupant
-  // wins.
-  const occupants = await env.scan.resolveOccupants(essid);
+  // answers only for the network the shell stands on; the seam degrades to [] (server
+  // down / refused), leaving the generated view untouched. On an octet collision the
+  // occupant wins.
+  const occupants = await occupantsHere(essid);
   const lan = mergeLanOccupants(baseLan, occupants);
   const occupantIps = new Set(occupants.map((occupant) => occupant.localIp));
   const hosts = hostsInScanTarget(lan, parsed.target);
@@ -410,7 +434,9 @@ const execute: Command['execute'] = async (env, args, flags) => {
   // real round-trip runs alongside the streamed display rather than delaying it,
   // and so a logging failure — or an unwired seam — never breaks the scan.
   try {
-    void env.scan.record({ essid, target, sourceIp: wlan0.ipv4 }).catch(() => undefined);
+    void env.scan
+      .record({ essid, target, callerMachineId: env.session.machineId })
+      .catch(() => undefined);
   } catch {
     // best-effort: logging must not surface to the scan.
   }
@@ -424,7 +450,7 @@ const execute: Command['execute'] = async (env, args, flags) => {
   const resolveSingle =
     single === undefined
       ? null
-      : lanHostResolver(env, essid, single, wlan0.ipv4, occupantIps);
+      : lanHostResolver(env, essid, single, selfIp, occupantIps);
   if (single !== undefined && resolveSingle !== null) {
     return {
       kind: 'async',
@@ -456,7 +482,7 @@ export const nmap: Command = {
   manual: {
     synopsis: 'nmap [-sV] <target>',
     description:
-      'Network exploration tool. Discovers hosts on your network, listing the ones that are up with their IP, hostname, and kind. Scan a single host (e.g. "192.168.1.5") or a range of hosts (e.g. "192.168.1.1-254"). With -sV, a single-host scan also names the software and version behind each open port, read from the target\u2019s package manifest, and reports any known vulnerability published against that version — its CVE number and how severe it is. A blank CVE column means no vulnerability is known against what that port is running today. Only your own network is reachable. Requires a network connection; install with "apt install nmap".',
+      'Network exploration tool. Discovers hosts on the network you are on, listing the ones that are up with their IP, hostname, and kind. Scan a single host (e.g. "192.168.1.5") or a range of hosts (e.g. "192.168.1.1-254"). With -sV, a single-host scan also names the software and version behind each open port, read from the target\u2019s package manifest, and reports any known vulnerability published against that version — its CVE number and how severe it is. A blank CVE column means no vulnerability is known against what that port is running today. Only the network you are on is reachable — from a shell on another box, the network that box is on. Requires a network connection; install with "apt install nmap".',
     arguments: [
       {
         name: '-sV',

@@ -158,7 +158,12 @@ type ScanOverrides = {
   readLog?: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
   upsertPatch?: (row: PatchRow) => Promise<{ error: unknown }>;
   findHomeNetworkByOwnerKey?: (ownerKey: string) => Promise<OwnerKeyResult>;
+  findActiveSession?: ResolvePublicScanDeps['findActiveSession'];
+  findPublicIpByEssid?: ResolvePublicScanDeps['findPublicIpByEssid'];
 };
+
+/** The public address of whatever network a scanner's hop stands on. */
+const HOP_PUBLIC_IP = '198.51.100.77';
 
 const makeDeps = (over: ScanOverrides = {}) => {
   const findNetworkByPublicIp = vi.fn<(publicIp: string) => Promise<LookupResult>>(
@@ -193,6 +198,11 @@ const makeDeps = (over: ScanOverrides = {}) => {
     readLog,
     upsertPatch,
     findHomeNetworkByOwnerKey,
+    // Default: the scanner holds no shell anywhere.
+    findActiveSession: over.findActiveSession ?? (async () => ({ data: null, error: null })),
+    findPublicIpByEssid:
+      over.findPublicIpByEssid ??
+      (async () => ({ data: { public_ip: HOP_PUBLIC_IP }, error: null })),
   };
   return {
     deps,
@@ -804,6 +814,44 @@ describe('handleResolvePublicScan', () => {
 
       expect(result.body.found).toBe(true);
       expect(upsertPatch.mock.calls[0]![0].content).toBe(`${expectedKernLine('unknown', [22, 161])}\n`);
+    });
+
+    it("names the hop's network, not the scanner's home, when the scan runs from a shell", async () => {
+      const scanner = generateIdentity();
+      const findPublicIpByEssid = vi.fn<ResolvePublicScanDeps['findPublicIpByEssid']>(
+        async () => ({ data: { public_ip: HOP_PUBLIC_IP }, error: null }),
+      );
+      const { deps, upsertPatch } = makeDeps({
+        findActiveSession: async () => ({
+          data: { username: 'root', userType: 'root', essid: 'RIDGEMONT-OFFICE' },
+          error: null,
+        }),
+        findPublicIpByEssid,
+      });
+
+      await handleResolvePublicScan(
+        envelope(scanner, TARGET, { caller_machine_id: 'a-box-at-ridgemont' }),
+        deps,
+      );
+
+      expect(findPublicIpByEssid).toHaveBeenCalledWith('RIDGEMONT-OFFICE');
+      expect(upsertPatch.mock.calls[0]![0].content).toBe(
+        `${expectedKernLine(HOP_PUBLIC_IP, [22, 161])}\n`,
+      );
+    });
+
+    it('refuses a scan from a box the scanner holds no shell on, looking nothing up', async () => {
+      const scanner = generateIdentity();
+      const { deps, findNetworkByPublicIp, upsertPatch } = makeDeps();
+
+      const result = await handleResolvePublicScan(
+        envelope(scanner, TARGET, { caller_machine_id: 'a-box-at-ridgemont' }),
+        deps,
+      );
+
+      expect(result).toEqual({ status: 403, body: { error: 'no_session' } });
+      expect(findNetworkByPublicIp).not.toHaveBeenCalled();
+      expect(upsertPatch).not.toHaveBeenCalled();
     });
 
     it("keeps the trace on an AP nobody has ever leased an address on, in the network's own row", async () => {

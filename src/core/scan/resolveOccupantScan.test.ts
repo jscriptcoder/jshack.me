@@ -79,6 +79,10 @@ const makeDeps = (over: Partial<ResolveOccupantScanDeps> = {}) => {
       data: [{ owner_key: NEIGHBOUR.publicKeyHex, octet: NEIGHBOUR_OCTET }] as readonly LanLeaseRow[],
       error: null,
     }),
+    // Default: the caller lives on no network and holds no shell — a stranger.
+    findActiveSession: async () => ({ data: null, error: null }),
+    findHomeVantage: async () => ({ data: null, error: null }),
+    findWorkstationLease: async () => ({ data: null, error: null }),
     ...over,
   };
   return { deps, findPatches };
@@ -97,6 +101,10 @@ const asOccupant = (callerKey: string, over: Partial<ResolveOccupantScanDeps> = 
         { owner_key: NEIGHBOUR.publicKeyHex, octet: NEIGHBOUR_OCTET },
         { owner_key: callerKey, octet: CALLER_OCTET },
       ] as readonly LanLeaseRow[],
+      error: null,
+    }),
+    findHomeVantage: async (ownerKey) => ({
+      data: ownerKey === callerKey ? { essid: ESSID, octet: CALLER_OCTET } : null,
       error: null,
     }),
     ...over,
@@ -210,7 +218,19 @@ describe('scanning a fellow occupant', () => {
 
     // The same boundary the occupant list itself draws. Without it, one signed request
     // per address would enumerate the running services of every player in the game.
-    expect(response).toEqual({ status: 403, body: { error: 'not_an_occupant' } });
+    expect(response).toEqual({ status: 403, body: { error: 'caller_not_on_network' } });
+    expect(findPatches).not.toHaveBeenCalled();
+  });
+
+  it('refuses a caller who is on another WiFi', async () => {
+    const identity = generateIdentity();
+    const { deps, findPatches } = makeDeps({
+      findHomeVantage: async () => ({ data: { essid: 'SOME-OTHER-WIFI', octet: 9 }, error: null }),
+    });
+
+    const response = await scan(identity, deps);
+
+    expect(response).toEqual({ status: 403, body: { error: 'wrong_network' } });
     expect(findPatches).not.toHaveBeenCalled();
   });
 
@@ -291,8 +311,8 @@ describe('scanning a fellow occupant', () => {
     const response = await scan(identity, deps);
 
     // The shape of "no rows" rather than a state the game reaches: the store answers an
-    // empty read with `[]`. Without the fallback the boundary check throws instead.
-    expect(response).toEqual({ status: 403, body: { error: 'not_an_occupant' } });
+    // empty read with `[]`. Without the fallback the occupant search throws instead.
+    expect(response).toEqual({ status: 200, body: { ok: true, found: false, ports: [] } });
   });
 
   it('reads a lease answer that carries no rows as nobody being addressed', async () => {
@@ -361,5 +381,60 @@ describe("a neighbour's own filter, seen from the LAN", () => {
     const response = await scan(caller, deps);
 
     expect(response.body).toMatchObject({ found: true, ports: [] });
+  });
+});
+
+/**
+ * A shell on a box on the WiFi stands on it as surely as the player's own card does:
+ * the neighbours it can probe are that network's, whether or not the player occupies it.
+ */
+describe('scanning a fellow occupant from a shell held on a box', () => {
+  const shellOn = (essid: string): Partial<ResolveOccupantScanDeps> => ({
+    findActiveSession: async () => ({
+      data: { username: 'root', userType: 'root', essid },
+      error: null,
+    }),
+  });
+  const scanFromHop = async (deps: ResolveOccupantScanDeps) =>
+    handleResolveOccupantScan(
+      await signRequest(generateIdentity(), 'resolveOccupantScan', {
+        essid: ESSID,
+        target: NEIGHBOUR_IP,
+        caller_machine_id: 'some-box-on-the-lan',
+      }),
+      deps,
+    );
+
+  it("reports the neighbour's ports to a caller who lives elsewhere", async () => {
+    const { deps } = makeDeps(shellOn(ESSID));
+
+    const response = await scanFromHop(deps);
+
+    expect(response).toEqual({
+      status: 200,
+      body: {
+        ok: true,
+        found: true,
+        ports: [{ port: SERVICE_CATALOG.redis.defaultPort, service: 'redis' }],
+      },
+    });
+  });
+
+  it('refuses a caller whose shell is on a box on another network', async () => {
+    const { deps, findPatches } = makeDeps(shellOn('RIDGEMONT-OFFICE'));
+
+    const response = await scanFromHop(deps);
+
+    expect(response).toEqual({ status: 403, body: { error: 'wrong_network' } });
+    expect(findPatches).not.toHaveBeenCalled();
+  });
+
+  it('refuses a caller naming a box they hold no shell on', async () => {
+    const { deps, findPatches } = makeDeps();
+
+    const response = await scanFromHop(deps);
+
+    expect(response).toEqual({ status: 403, body: { error: 'no_session' } });
+    expect(findPatches).not.toHaveBeenCalled();
   });
 });

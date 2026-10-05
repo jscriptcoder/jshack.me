@@ -616,7 +616,7 @@ describe('ssh to a public IP (cross-player)', () => {
     );
 
     expect(result.exitCode).toBe(0);
-    expect(resolvePublic).toHaveBeenCalledWith(siteIp);
+    expect(resolvePublic).toHaveBeenCalledWith(siteIp, 'bstation-cafef00d');
     expect(authenticatePublic.mock.calls[0]![0]).toMatchObject({ target: siteIp, username: 'guest' });
   });
 
@@ -649,7 +649,7 @@ describe('ssh to a public IP (cross-player)', () => {
       ports: [{ port: 22, service: 'ssh' }],
     }));
     await ssh.execute(sshPublicEnv({ resolvePublic }), [`guest@${PUBLIC_IP}`], new Map());
-    expect(resolvePublic).toHaveBeenCalledWith(PUBLIC_IP);
+    expect(resolvePublic).toHaveBeenCalledWith(PUBLIC_IP, 'bstation-cafef00d');
   });
 
   it('reports No route to host for an unregistered public IP — without prompting', async () => {

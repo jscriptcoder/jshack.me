@@ -340,7 +340,7 @@ const stranger = generateIdentity();
 const strangerScan = await postTo(NETWORK, await scanEnvelope(stranger));
 check(
   '4. a stranger to the WiFi is refused the neighbour’s port list',
-  strangerScan.status === 403 && errorOf(strangerScan.body) === 'not_an_occupant',
+  strangerScan.status === 403 && errorOf(strangerScan.body) === 'caller_not_on_network',
   `${strangerScan.status} ${errorOf(strangerScan.body)}`,
 );
 

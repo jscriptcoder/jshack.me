@@ -147,7 +147,7 @@ const publicLogin = async (
   port: number,
   named: string | undefined,
 ): Promise<CommandResult> => {
-  const resolution = await env.scan.resolvePublic(target);
+  const resolution = await env.scan.resolvePublic(target, env.session.machineId);
   if (!resolution.found) return errorResult('ftp: connect: No route to host');
   // The port has to be answered by THIS daemon: a forward names one internal port, so
   // a stranger's :2121 reaching their sshd is not a door this command can open, and a

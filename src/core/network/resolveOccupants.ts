@@ -28,7 +28,7 @@ import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
 import { lanAddressesByOwner, type LanLeaseRow } from './lanAddress.js';
 import type { Ipv4 } from './interfaces.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
-import { resolveCallerVantage, type CallerVantageDeps } from '../sessions/callerVantage.js';
+import { resolveCallerVantageOn, type CallerVantageDeps } from '../sessions/callerVantage.js';
 
 /** The narrow occupancy projection the gate + merge need: whose row it is (for the
  *  LAN-boundary check + self-exclusion + lease lookup), the workstation the
@@ -93,9 +93,13 @@ export const handleResolveOccupants = async (
   // LAN boundary: only a caller standing on the LAN may enumerate it — at home on it,
   // or in a shell on a box that is. Where they stand is the server's reading, never the
   // ESSID they sent.
-  const vantage = await resolveCallerVantage(deps, publicKey, payload.caller_machine_id);
+  const vantage = await resolveCallerVantageOn(
+    deps,
+    publicKey,
+    payload.caller_machine_id,
+    payload.essid,
+  );
   if (!vantage.ok) return { status: vantage.status, body: { error: vantage.error } };
-  if (vantage.essid !== payload.essid) return { status: 403, body: { error: 'wrong_network' } };
 
   const occupants = await deps.listOccupantsByEssid(payload.essid);
   if (occupants.error) {

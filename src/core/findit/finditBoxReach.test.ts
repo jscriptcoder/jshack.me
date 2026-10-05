@@ -38,6 +38,8 @@ const scanDeps = {
   readLog: async () => ({ data: null, error: null }),
   upsertPatch: async () => ({ error: null }),
   findHomeNetworkByOwnerKey: async () => ({ data: { public_ip: '203.0.113.9' }, error: null }),
+  findPublicIpByEssid: async () => ({ data: null, error: null }),
+  findActiveSession: async () => ({ data: null, error: null }),
 };
 
 describe('reaching the box findit runs on', () => {

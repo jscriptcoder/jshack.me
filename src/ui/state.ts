@@ -33,7 +33,7 @@ import type {
   PublicFetchResult,
   PublicSweepParams,
   PublicSweepResult,
-  PublicScanResolution,
+  ScanApi,
   DeepScanRecordParams,
   ZoneTransferRecordParams,
   RemoteAuthParams,
@@ -1026,10 +1026,10 @@ const recordZoneTransferFn = (params: ZoneTransferRecordParams): Promise<void> =
 
 /** Resolve an `nmap <public IP>` cross-player (backs `env.scan.resolvePublic`).
  *  Host-down until `startGame` wires the network client — degrade rather than crash. */
-const resolvePublicFn = (target: string): Promise<PublicScanResolution> =>
+const resolvePublicFn: ScanApi['resolvePublic'] = (target, callerMachineId) =>
   networkClientDeps === undefined
     ? Promise.resolve({ found: false, ports: [] })
-    : resolvePublic(networkClientDeps, target);
+    : resolvePublic(networkClientDeps, target, callerMachineId);
 
 /** Fetch a page from behind another player's public IP (backs `env.remote.fetchPublic`).
  *  Before `startGame` wires the network client there is nothing to ask, so the failure is
@@ -1050,26 +1050,26 @@ const sweepPublicPathsFn = (params: PublicSweepParams): Promise<PublicSweepResul
 /** Resolve an own-LAN `nmap <inner gateway IP>` server-side (backs
  *  `env.scan.resolveInnerGateway`). Host-down until `startGame` wires the network
  *  client — degrade rather than crash, like the public-IP scan. */
-const resolveInnerGatewayFn = (essid: string, target: string): Promise<PublicScanResolution> =>
+const resolveInnerGatewayFn: ScanApi['resolveInnerGateway'] = (essid, target, callerMachineId) =>
   networkClientDeps === undefined
     ? Promise.resolve({ found: false, ports: [] })
-    : resolveInnerGateway(networkClientDeps, essid, target);
+    : resolveInnerGateway(networkClientDeps, essid, target, callerMachineId);
 
 /** Resolve one NPC sibling's real open ports (backs `env.scan.resolveSameLan`). `null`
  *  before the network client is wired, as the occupant resolver is: the host is listed
  *  with no port table rather than reported down, because we failed to ask. */
-const resolveSameLanFn = (essid: string, target: string): Promise<PublicScanResolution | null> =>
+const resolveSameLanFn: ScanApi['resolveSameLan'] = (essid, target, callerMachineId) =>
   networkClientDeps === undefined
     ? Promise.resolve(null)
-    : resolveSameLan(networkClientDeps, essid, target);
+    : resolveSameLan(networkClientDeps, essid, target, callerMachineId);
 
 /** Resolve one fellow occupant's real open ports (backs `env.scan.resolveOccupant`).
  *  `null` before the network client is wired: the occupant is listed with no port table
  *  rather than reported down, because we failed to ask rather than learned an answer. */
-const resolveOccupantFn = (essid: string, target: string): Promise<PublicScanResolution | null> =>
+const resolveOccupantFn: ScanApi['resolveOccupant'] = (essid, target, callerMachineId) =>
   networkClientDeps === undefined
     ? Promise.resolve(null)
-    : resolveOccupant(networkClientDeps, essid, target);
+    : resolveOccupant(networkClientDeps, essid, target, callerMachineId);
 
 /** Resolve the current ESSID's other occupants (backs `env.scan.resolveOccupants`).
  *  Additive — an empty list (here, before the network client is wired) just means an

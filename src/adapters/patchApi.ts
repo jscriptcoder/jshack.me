@@ -325,8 +325,9 @@ export const recordPackageDowngrade = async (
 };
 
 /** Fire the server-internal scan log: the server resolves the scanned hosts from
- *  the (verified pubkey, essid, target) and writes each one's `/var/log/kern.log`
- *  itself — the client only names what it scanned. Best-effort + fire-and-forget:
+ *  the (verified pubkey, essid, target), places the scanner from the box it names, and
+ *  writes each one's `/var/log/kern.log` itself — the client only names what it scanned
+ *  and where from. Best-effort + fire-and-forget:
  *  a failure resolves silently so logging never breaks (or delays) the scan. */
 export const recordScan = async (
   deps: PatchClientDeps,
@@ -336,7 +337,7 @@ export const recordScan = async (
     await post(deps, 'nmapScan', {
       essid: params.essid,
       target: params.target,
-      source_ip: params.sourceIp,
+      caller_machine_id: params.callerMachineId,
     });
   } catch {
     // best-effort: a logging failure must not surface to the scan.

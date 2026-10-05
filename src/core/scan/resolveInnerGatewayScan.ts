@@ -40,8 +40,9 @@ import { portsOpenToNetwork } from '../network/portsOpenToNetwork.js';
 import { scanResult } from './scanResult.js';
 import type { Directory } from '../filesystem/types.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
+import { resolveCallerVantageOn, type CallerVantageDeps } from '../sessions/callerVantage.js';
 
-export type ResolveInnerGatewayScanDeps = {
+export type ResolveInnerGatewayScanDeps = CallerVantageDeps & {
   readonly nonceStore: NonceStore;
   /** The day the world stands on, computed once from the server's own clock at the
    *  endpoint. Absent for a caller asking only what is open — the scan then reports
@@ -68,6 +69,7 @@ const resolveInnerGatewayScanSchema = z
     action: z.literal('resolveInnerGatewayScan'),
     essid: z.string().min(1),
     target: z.string().min(1),
+    caller_machine_id: z.string().min(1).optional(),
   })
   .refine((payload) => !('player_key' in payload));
 
@@ -189,10 +191,17 @@ export const handleResolveInnerGatewayScan = async (
   if (!verified.ok) {
     return { status: STATUS_BY_VERIFY_REASON[verified.reason], body: { error: verified.reason } };
   }
-  // The verified signature is the whole of what the caller's identity decides here: the
-  // gateway and the chain behind it belong to the access point, so every occupant scanning
-  // this address is scanning one box.
-  const { payload } = verified;
+  // The caller's identity decides only whether they stand on this LAN: the gateway and
+  // the chain behind it belong to the access point, so everyone on it scanning this
+  // address is scanning one box.
+  const { publicKey, payload } = verified;
+  const vantage = await resolveCallerVantageOn(
+    deps,
+    publicKey,
+    payload.caller_machine_id,
+    payload.essid,
+  );
+  if (!vantage.ok) return { status: vantage.status, body: { error: vantage.error } };
 
   const gateway = innerGatewayAt(payload.essid, payload.target);
   if (gateway === null) {
