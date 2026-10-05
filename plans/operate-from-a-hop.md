@@ -271,10 +271,11 @@ function on each side, not a per-tool copy.
 **Value**: the chain the feature exists for — a target's log names the last hop's network, and
 each hop's log names the one before.
 **Path**: `ssh`'s public and inner-gateway-forward paths send `caller_machine_id` from a hop →
-`authCreateSessionPublic` / `authCreateSessionInnerGateway` trace via `resolveCallerVantage` →
-from a hop, other players' boxes on the hop's LAN are reachable: the occupant lookup and the
-same-WiFi login take the vantage's network, not the caller's WiFi → a hop on a player's
-workstation traces with that box's lease on its network, not `unknown`.
+`authCreateSessionPublic` / `authCreateSessionInnerGateway` trace via `resolveVantageSourceIp`,
+standing on the network `resolveCallerVantage` places the hop on → from a hop, other players'
+boxes on the hop's LAN are reachable: the occupant lookup and the same-WiFi login take the
+vantage's network, not the caller's WiFi → a hop on a player's workstation traces with that
+box's lease on its network, not `unknown`.
 **Decisions**: 1, 4a, 7. **Done-when**: 1, 3.
 **RED**: the chain wire-check (`home → P → Q → third gateway`, trace walk-back, then a root wipe
 on Q ends the trail at Q).
@@ -296,7 +297,7 @@ remote host.` per leg → rehydration ends an orphaned child the same way.
 
 **Value**: reconnaissance from where the player stands.
 **Path**: `nmap` takes its vantage from the top session for both own-LAN and public scans →
-`resolvePublicScan` gains a caller machine and traces via `resolveCallerVantage` →
+`resolvePublicScan` gains a caller machine and traces via `resolveVantageSourceIp` →
 `pivotVantageForMachineId` / the `nmapScanDeep` special path fold into the general vantage → a
 hop on a deeper layer traces with its address on that layer, not `unknown`.
 **Decisions**: 2, 10. **Done-when**: 6 (the single-player browser run lands here: two-hop chain,
