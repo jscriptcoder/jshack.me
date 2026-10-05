@@ -19,16 +19,17 @@
  *   - NO box, or their own: their own workstation, so the network is whatever their key
  *     currently occupies and the address is the lease they hold on it.
  *
- * The address is null, not an error, where the LAN cannot place the box — a host behind
- * a deeper gateway, a player's workstation whose owner has left that network, or an
- * identity holding no lease.
+ * The address is null, not an error, where the LAN cannot place the box — a player's
+ * workstation whose owner has left that network, or an identity holding no lease. A
+ * host behind a deeper gateway is placed at the inner gateway it reaches the LAN
+ * through.
  * A caller genuinely on no network at all (no occupancy, no held box) has nowhere to
  * stand and is refused: the own-LAN doors have no network to regenerate for them.
  *
  * Pure/framework-agnostic (core/): every read is injected.
  */
 
-import { lanAddressForMachineId } from '../generation/lanTopology.js';
+import { segmentsReachedFrom } from '../generation/lanTopology.js';
 import { leasedAddress } from '../network/lanAddress.js';
 import {
   authorizeMachineAccess,
@@ -72,14 +73,18 @@ export const resolveCallerVantage = async (
     if (!access.ok) {
       return { ok: false, status: access.status, error: access.error };
     }
-    // A real hop: the network is the session row's, and the address is the hop box's own
-    // place on that LAN. The LAN generates every NPC box's address; a player's box has
-    // the lease its owner holds there instead. A box that is neither (a deep host) traces
-    // as `unknown`.
+    // A real hop: the network is the session row's, and the address is the one the hop
+    // box is seen at on that network's LAN. The network generates every NPC box's place:
+    // its own address on the LAN, or — behind a deeper gateway — the inner gateway's,
+    // which hides it on the way out. A player's box has the lease its owner holds there
+    // instead.
     if (access.session !== null) {
       const { essid } = access.session;
-      const generated = lanAddressForMachineId(essid, callerMachineId);
-      if (generated !== null) return { ok: true, essid, sourceIp: generated };
+      const reached = segmentsReachedFrom(essid, callerMachineId);
+      if (reached !== null) {
+        const onLan = reached.find((segment) => segment.fronting === null);
+        return { ok: true, essid, sourceIp: onLan?.address ?? null };
+      }
       const lease = await deps.findWorkstationLease(essid, callerMachineId);
       if (lease.error) {
         return { ok: false, status: 500, error: 'vantage_lookup_failed' };

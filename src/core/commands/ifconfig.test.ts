@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { asMachineId, asPlayerKeyHex } from '../types.js';
 import { generateHomeLan } from '../generation/generateHomeLan.js';
-import { machineIdForLanHost } from '../generation/lanTopology.js';
+import { generateDeepLayer } from '../generation/generateDeepLayer.js';
+import { hostMachineId } from '../generation/remoteHostId.js';
+import { chainLinks, machineIdForLanHost } from '../generation/lanTopology.js';
 import { computeWorkstationId } from '../identity/workstation.js';
 import {
   buildColdStartConnectivity,
@@ -174,10 +176,11 @@ describe('ifconfig on a hop', () => {
   const onHop = async (
     machineId: string,
     args: readonly string[] = [],
+    essid = HOP_ESSID,
   ): Promise<{ readonly text: string; readonly exitCode: number }> => {
     const env = mockCommandEnv({
       network: mockNetworkViewFromConnectivity(associatedWlan0(buildColdStartConnectivity(PUBKEY))),
-      session: mockSession({ machineId: asMachineId(machineId), essid: HOP_ESSID, kind: 'ssh' }),
+      session: mockSession({ machineId: asMachineId(machineId), essid, kind: 'ssh' }),
     });
     const result = await ifconfig.execute(env, args, NO_FLAGS);
     if (result.kind !== 'sync') throw new Error('sync expected');
@@ -233,5 +236,21 @@ describe('ifconfig on a hop', () => {
     expect(text).toContain('eth0: flags=<UP,BROADCAST,MULTICAST>');
     expect(text).not.toContain('inet 192');
     expect(text).not.toContain('gateway');
+  });
+
+  it('shows a deep host at its address on its own layer, behind the gateway fronting it', async () => {
+    const DEEP_ESSID = 'BEAN-THERE-WIFI';
+    const [inner] = chainLinks(DEEP_ESSID);
+    if (inner === undefined) throw new Error(`${DEEP_ESSID} has no inner gateway`);
+    const layer = generateDeepLayer(
+      DEEP_ESSID,
+      { machineId: inner.machineId, kind: inner.host.kind },
+      { hangsChild: inner.hangsChild },
+    );
+
+    const { text } = await onHop(hostMachineId(layer.host, DEEP_ESSID), [], DEEP_ESSID);
+
+    expect(text).toContain(`inet ${layer.host.ip}  netmask 255.255.255.0`);
+    expect(text).toContain(`gateway ${layer.subnet}.1`);
   });
 });

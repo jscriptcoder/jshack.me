@@ -139,3 +139,65 @@ export const chainLinks = (essid: string): readonly ChainLink[] => {
       ),
     );
 };
+
+/** A network a box reaches: its `/24` prefix, the gateway fronting it (null for the
+ *  network's own LAN), and the address the box is seen at there. */
+export type ReachedSegment = {
+  readonly subnet: string;
+  readonly fronting: ChainLink | null;
+  readonly address: string | null;
+};
+
+/**
+ * Every network a box the network generates reaches, the one it stands on first, or
+ * null for a box it does not generate (a player's workstation, whose place is a lease).
+ *
+ * A box stands on one network: the LAN, or the deep layer it sits on. A chain gateway
+ * also stands on the layer it fronts, as that layer's `.1`. Every network above is
+ * reached out through each gateway on the way up, and is seen there as that gateway:
+ * crossing a gateway hides whatever is behind it behind its own address. Nothing below
+ * is reached except the layer a gateway fronts — getting further down takes a forward.
+ *
+ * The one answer the shell routes a scan on and the server traces it from, so the
+ * address a log names is the one the scan travelled from.
+ */
+export const segmentsReachedFrom = (
+  essid: string,
+  machineId: string,
+): readonly ReachedSegment[] | null => {
+  const lan = generateHomeLan(essid);
+  const links = chainLinks(essid);
+  // Only a layer's subnet and its machine are read here, and neither depends on whether
+  // the layer hangs a child, so that option is left at its default.
+  const layerFrontedBy = (link: ChainLink) =>
+    generateDeepLayer(essid, { machineId: link.machineId, kind: link.host.kind });
+  // The network `address` stands on behind `fronting`, then every network above it as
+  // the gateway that leads down to it.
+  const upFrom = (fronting: ChainLink | null, address: string): readonly ReachedSegment[] => {
+    if (fronting === null) return [{ subnet: lan.subnet, fronting: null, address }];
+    const above = links.find((link) => link.machineId === fronting.parentMachineId) ?? null;
+    return [
+      { subnet: layerFrontedBy(fronting).subnet, fronting, address },
+      ...upFrom(above, fronting.host.ip),
+    ];
+  };
+
+  const gateway = links.find((link) => link.machineId === machineId);
+  if (gateway !== undefined) {
+    const parent = links.find((link) => link.machineId === gateway.parentMachineId) ?? null;
+    const upward = upFrom(parent, gateway.host.ip);
+    const fronted = layerFrontedBy(gateway).subnet;
+    return [
+      ...upward.slice(0, 1),
+      { subnet: fronted, fronting: gateway, address: `${fronted}.1` },
+      ...upward.slice(1),
+    ];
+  }
+  const lanHost = lan.hosts.find((host) => machineIdForLanHost(host, essid) === machineId);
+  if (lanHost !== undefined) return upFrom(null, lanHost.ip);
+  for (const link of links) {
+    const layer = layerFrontedBy(link);
+    if (hostMachineId(layer.host, essid) === machineId) return upFrom(link, layer.host.ip);
+  }
+  return null;
+};

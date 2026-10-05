@@ -284,7 +284,6 @@ export const mockScanApi = (overrides: Partial<ScanApi> = {}): ScanApi => ({
   record: async () => undefined,
   // Fire-and-forget like `record`: a deep pivot resolves client-side, so this no-ops
   // by default; pivot tests override it to capture the recorded deep scan.
-  recordDeep: async () => undefined,
   // Fire-and-forget like `record`: a zone transfer resolves client-side, so this no-ops
   // by default; a dig-axfr test overrides it to capture the recorded transfer.
   recordZoneTransfer: async () => undefined,

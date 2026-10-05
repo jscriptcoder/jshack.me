@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import { resolveCallerVantage, type CallerVantageDeps, type HomeVantage } from './callerVantage.js';
 import { generateHomeLan } from '../generation/generateHomeLan.js';
-import { machineIdForLanHost } from '../generation/lanTopology.js';
+import { generateDeepLayer } from '../generation/generateDeepLayer.js';
+import { hostMachineId } from '../generation/remoteHostId.js';
+import { chainLinks, machineIdForLanHost } from '../generation/lanTopology.js';
 import { lanAddressFor } from '../network/lanAddress.js';
 import { computeWorkstationId } from '../identity/workstation.js';
 import type { ActiveSession, FindActiveSession } from '../patches/authorizeMachineAccess.js';
@@ -66,6 +68,31 @@ describe('resolveCallerVantage', () => {
     const vantage = await resolveCallerVantage(deps, CALLER, hop.machineId);
 
     expect(vantage).toEqual({ ok: true, essid: HOP_ESSID, sourceIp: hop.address });
+  });
+
+  it('places a host on a deep layer on the LAN as the inner gateway it reaches the LAN through', async () => {
+    const [inner] = chainLinks(HOME_ESSID);
+    if (inner === undefined) throw new Error(`${HOME_ESSID} has no inner gateway`);
+    const layer = generateDeepLayer(
+      HOME_ESSID,
+      { machineId: inner.machineId, kind: inner.host.kind },
+      { hangsChild: inner.hangsChild },
+    );
+    const deps = makeDeps({ session: { username: 'root', userType: 'root', essid: HOME_ESSID } });
+
+    const vantage = await resolveCallerVantage(deps, CALLER, hostMachineId(layer.host, HOME_ESSID));
+
+    expect(vantage).toEqual({ ok: true, essid: HOME_ESSID, sourceIp: inner.host.ip });
+  });
+
+  it('places a gateway two layers down on the LAN as the inner gateway at the top', async () => {
+    const [inner, middle] = chainLinks(HOME_ESSID);
+    if (inner === undefined || middle === undefined) throw new Error('chain too short');
+    const deps = makeDeps({ session: { username: 'root', userType: 'root', essid: HOME_ESSID } });
+
+    const vantage = await resolveCallerVantage(deps, CALLER, middle.machineId);
+
+    expect(vantage).toEqual({ ok: true, essid: HOME_ESSID, sourceIp: inner.host.ip });
   });
 
   it('stands a caller on another player’s box at the lease that player holds on its network', async () => {

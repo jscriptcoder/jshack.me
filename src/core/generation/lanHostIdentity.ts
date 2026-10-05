@@ -151,70 +151,17 @@ export const lanBaseFsForMachineId = (essid: string, machineId: string): Directo
   return host === undefined ? null : baseFsForLanHost(host, essid);
 };
 
-/** The gateway behind which a pivot scan resolves the deep layer the active shell can
- *  reach: which machine_id keys that layer, the gateway's `kind` (a switch ACL-filters
- *  its downstream, a router forwards), and whether the layer it fronts hangs a child
- *  (the chain continues) or is terminal (the depth bound). */
-export type PivotVantage = {
-  readonly machineId: string;
-  readonly kind: LanHostKind;
-  readonly hangsChild: boolean;
-};
-
-
-/** Resolve the active session's machine_id to the pivot vantage it stands on, or null
- *  when the shell is on the edge `.1`, an ordinary host, or the player's own
- *  workstation. A vantage is any gateway in the home's deep chain — an L1 inner gateway
- *  (router or switch) on the home LAN, or any deep child gateway reached down the chain.
- *  Each L1 inner gateway's chain is walked down to its seeded depth, and the matched
- *  vantage carries whether the layer it fronts hangs a child — so on a depth-1 network the
- *  inner gateway fronts a terminal layer, while a deeper one keeps fronting child-bearing
- *  layers until the depth bound. The machine_id-keyed counterpart of `innerGatewayAt` (a
- *  session carries an id, not an address); a pivot scan reads the vantage to resolve the
- *  downstream segment. */
-export const pivotVantageForMachineId = (
-  essid: string,
-  machineId: string,
-): PivotVantage | null => {
-  const match = chainGatewayVantageForMachineId(essid, machineId);
-  return match === null ? null : { machineId: match.machineId, kind: match.kind, hangsChild: match.hangsChild };
-};
-
-/** A pivot vantage PLUS the gateway's seeded base FS — everything the deep scan trace
- *  needs from one chain walk: the vantage to regenerate the layer, and the base tree
- *  to replay a switch's journal for its `acl.conf`. */
-export type ChainGatewayVantage = PivotVantage & { readonly baseFs: Directory };
-
 /** One chain gateway's seeded base FS. A Layer-1 inner gateway builds from the home
  *  LAN it stands on; a deep child builds from the parent it hangs behind, which is
  *  what keeps two children at the same octet under different gateways apart.
  *
  *  Built per link ON DEMAND rather than during the walk, so resolving one gateway out
- *  of a chain does not generate a filesystem for every other gateway in it. */
-const chainGatewayBaseFs = (essid: string, link: ChainLink): Directory =>
+ *  of a chain does not generate a filesystem for every other gateway in it. A scan of
+ *  the layer a gateway fronts reads it for a switch's `acl.conf`. */
+export const chainGatewayBaseFs = (essid: string, link: ChainLink): Directory =>
   link.parentMachineId === null
     ? baseFsForLanHost(link.host, essid)
     : resolveDeepGatewayIdentity(essid, link.parentMachineId, link.host.ip, link.host.kind).baseFs;
-
-/** The full chain gateway (vantage + base FS) whose machine_id matches — an L1 inner
- *  gateway or a deep child gateway below it — or null when none matches. The single
- *  walk both `pivotVantageForMachineId` and `chainGatewayBaseFsForMachineId` project
- *  from, so a caller that needs BOTH (the deep scan trace) resolves them together and
- *  can't land in a half-resolved state. */
-export const chainGatewayVantageForMachineId = (
-  essid: string,
-  machineId: string,
-): ChainGatewayVantage | null => {
-  const link = chainLinks(essid).find((candidate) => candidate.machineId === machineId);
-  return link === undefined
-    ? null
-    : {
-        machineId,
-        kind: link.host.kind,
-        hangsChild: link.hangsChild,
-        baseFs: chainGatewayBaseFs(essid, link),
-      };
-};
 
 /** The seeded base FS of a gateway in the network's deep chain whose machine_id matches —
  *  an L1 inner gateway or a deep child gateway below it. The L2 write path resolves a deep
@@ -226,8 +173,8 @@ export const chainGatewayBaseFsForMachineId = (
   essid: string,
   machineId: string,
 ): Directory | null => {
-  const match = chainGatewayVantageForMachineId(essid, machineId);
-  return match === null ? null : match.baseFs;
+  const link = chainLinks(essid).find((candidate) => candidate.machineId === machineId);
+  return link === undefined ? null : chainGatewayBaseFs(essid, link);
 };
 
 /** The seeded base FS of a DEEP NPC in the network's chain whose coordinate machine_id

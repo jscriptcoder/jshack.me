@@ -60,7 +60,7 @@ journal.
 | `sessions/serviceHost.ts`                                             | `reachBox` / `reachServiceHost`: **the** reachability algorithm (it lives in `sessions/`).    |
 | `scan/scanResult.ts`                                                  | The one function that decides what ports a gateway shows from a given vantage.                |
 | `scan/resolve*Scan.ts`, `deepScanHosts.ts`                            | `nmap` against each kind of target.                                                           |
-| `scan/nmapScan.ts`, `nmapScanDeep.ts`                                 | Server handlers that write the `kern.log` trace a scan leaves.                                |
+| `scan/nmapScan.ts`                                                    | Server handler that writes the `kern.log` trace a scan leaves, on the LAN or a deep layer.    |
 | `snmp/*.ts`                                                           | SNMP config files, community strings, the walk renderer, and the `snmpset` grammar.           |
 
 Topology generators live in `src/core/generation/` and are covered in chapter 6
@@ -342,9 +342,10 @@ Use the access point's key for anything new.
 
 1. It requires a connected `wlan0` and resolves names with `addressForTarget`.
 2. **Public IP** → `resolvePublicScan` on the server.
-3. **Standing on a chain gateway, target on the deep subnet** → a pivot scan computed on the client
-   from the gateway's live tree (`resolveDeepScanHosts`), plus a fire-and-forget `recordDeep` so the
-   scanned boxes log it.
+3. **Target on a deep layer the shell reaches** (`vantageOf(...).reaches`: the layer a deep box
+   stands on, the one a gateway fronts, or one above) → a layer scan computed on the client
+   (`resolveDeepScanHosts`, a switch's live tree when the shell stands on it), plus the same
+   fire-and-forget `record` the LAN uses so the scanned boxes log it.
 4. **Own LAN** → the generated host list plus the server's occupant list (a player wins an octet
    collision), plus a fire-and-forget `record` trace. A range lists hosts only. A single host is
    resolved as: yourself (read locally), a fellow occupant (`resolveOccupantScan`), an inner gateway

@@ -36,10 +36,11 @@ Shipped so far (each milestone is in git history + its as-built doc/plan):
   chain leaf that forwards nothing but ACL-filters its own downstream via `acl.conf`).
   **Deep-layer traces** log source = the fronting gateway's `<deep subnet>.1`: a deep ssh
   reach appends an `auth.log` line on the landed box (`Accepted`/`Failed password … from
-  <.1>`); a pivot `nmap` fires a fire-and-forget `nmapScanDeep` (on `/api/patches`) that
-  appends `kern.log` per touched deep host through the shared `core/scan/deepScanHosts`
-  resolver (client render + server trace can't drift; a switch vantage records post-ACL
-  ports). ⚠️ Two claims here were **superseded by shared-network reconciliation** (below):
+  <.1>`); a deep-layer `nmap` is recorded by the same `nmapScan` action as a LAN one (on
+  `/api/patches`), which appends `kern.log` per touched deep host through the shared
+  `core/scan/deepScanHosts` resolver (client render + server trace can't drift; a switch
+  fronting the layer records post-ACL ports) from the scanner's address on that layer.
+  ⚠️ Two claims here were **superseded by shared-network reconciliation** (below):
   the **octet reservation** in `mergeLanOccupants` is gone (Slice 4), and depth is no longer
   per-player — chains are **ESSID-shared** (Slice 5), so the "cross-player depth deferred"
   note no longer applies. A fixed-IP mission catalog is still deferred, as is pivot
@@ -3399,7 +3400,7 @@ blocks the live PvP loop; each was a scoped owner decision, not a gap.
   reached occupant's key, or the AP's stable key when the box is ownerless) so every attacker's
   lines accrete into ONE row. **Affected THREE paths**, all writing `writerKey: publicKey` onto
   ESSID-shared deep boxes: the deep ssh reach (`authCreateSessionInnerGateway`), the deep sweep
-  (`hydraCrackInnerGateway`), and the deep scan's `kern.log` (`nmapScanDeep`). D2.4 slice 5
+  (`hydraCrackInnerGateway`), and the deep scan's `kern.log` (then `nmapScanDeep`). D2.4 slice 5
   deliberately made hydra match the other two rather than diverge — hydra and `ssh` disagreeing
   about one box is the worse failure. A deep NPC is ownerless, so the fix is the
   `apGatewayLogWriterKey` shape: a stable key derived from the box, applied to all three writes in

@@ -8,6 +8,10 @@
  * ONE aggregate `/var/log/kern.log` line to EACH of them via the shared
  * `appendMachineLog` primitive (the same seam ssh's auth.log uses).
  *
+ * A target on a deep layer the caller's box reaches (`segmentsReachedFrom`) is swept
+ * there instead, each line naming the address the box is seen at on that layer; a target
+ * on no network the caller reaches is refused like another network.
+ *
  * Per-host, never per probe: a real scan touches every reachable host and each
  * firewall records the probe independently. The line lists that host's own open
  * ports (from its `/var/run/*.pid` files); a service-less host still records a
@@ -28,7 +32,10 @@ import { z } from 'zod';
 import { verifySignedRequest } from '../signedRequest/verify.js';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
-import { resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
+import { chainGatewayBaseFs, resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
+import { segmentsReachedFrom, type ChainLink } from '../generation/lanTopology.js';
+import { materializeMachineFs } from '../network/materializeMachineFs.js';
+import { resolveDeepScanHosts, type DeepScanHost } from './deepScanHosts.js';
 import { lanAddressesByOwner, type LanLeaseRow } from '../network/lanAddress.js';
 import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
 import {
@@ -242,6 +249,74 @@ const traceOccupants = async (
   }
 };
 
+/** Stamp one touched deep host's kern.log with the aggregate scan line. Best-effort, like
+ *  the LAN sweep: a write failure never breaks the scan. */
+const logDeepHostScan = async (
+  deps: NmapScanDeps,
+  context: ScanContext,
+  entry: DeepScanHost,
+): Promise<void> => {
+  const line = formatNmapScanAggregate({
+    time: asGameTime(context.time),
+    hostname: entry.host.hostname,
+    sourceIp: context.sourceIp,
+    probedPorts: entry.ports.map((port) => port.port),
+  });
+  try {
+    await appendMachineLog(
+      { readLog: deps.readLog, upsertPatch: deps.upsertPatch },
+      {
+        writerKey: context.writerKey,
+        machineId: entry.machineId,
+        path: KERN_LOG_PATH,
+        owner: KERN_LOG_OWNER,
+        permissions: KERN_LOG_PERMISSIONS,
+      },
+      line,
+    );
+  } catch {
+    // best-effort: the scan stands regardless of a logging failure.
+  }
+};
+
+/** Sweep a deep layer the caller reaches, logging each host the target covers under the
+ *  address the caller is seen at on that layer. A switch fronting the layer drops the
+ *  ports its live `acl.conf` denies, read off its journal; a router filters nothing, so
+ *  its journal is never read. */
+const traceLayer = async (
+  deps: NmapScanDeps,
+  args: {
+    readonly essid: string;
+    readonly target: ScanTarget;
+    /** The gateway fronting the layer swept. */
+    readonly fronting: ChainLink;
+    /** The address the caller is seen at on that layer. */
+    readonly address: string | null;
+  },
+): Promise<HandlerResponse> => {
+  const { fronting } = args;
+  let frontingFs = chainGatewayBaseFs(args.essid, fronting);
+  if (fronting.host.kind === 'switch') {
+    const patches = await deps.findPatches({ machine_id: fronting.machineId });
+    if (patches.error) return { status: 500, body: { error: 'patches_lookup_failed' } };
+    frontingFs = materializeMachineFs(frontingFs, patches.data);
+  }
+  const resolution = resolveDeepScanHosts(args.essid, fronting, frontingFs);
+  const touched = resolution.hosts.filter((entry) =>
+    octetInScanTarget(Number(entry.host.ip.split('.')[3]), args.target),
+  );
+  const context: ScanContext = {
+    essid: args.essid,
+    sourceIp: args.address ?? 'unknown',
+    time: deps.now(),
+    writerKey: apGatewayLogWriterKey(args.essid),
+  };
+  for (const entry of touched) {
+    await logDeepHostScan(deps, context, entry);
+  }
+  return { status: 200, body: { ok: true, hostsLogged: touched.length } };
+};
+
 export const handleNmapScan = async (
   body: unknown,
   deps: NmapScanDeps,
@@ -263,13 +338,36 @@ export const handleNmapScan = async (
   );
   if (!vantage.ok) return { status: vantage.status, body: { error: vantage.error } };
 
-  // Resolve the scanned hosts on the caller's OWN regenerated LAN. An invalid or
-  // foreign target selects nothing (the command rejects these before calling; a
-  // forged one simply finds no real hosts to record). The caller's own workstation
+  // A target on a deep layer the box reaches is swept there. Only a box the network
+  // generates stands on or above a layer; a player's own workstation reaches the LAN
+  // alone.
+  const reached =
+    payload.caller_machine_id === undefined
+      ? null
+      : segmentsReachedFrom(payload.essid, payload.caller_machine_id);
+  for (const segment of reached ?? []) {
+    const { fronting } = segment;
+    const onLayer = parseScanTarget(payload.target, segment.subnet);
+    if (fronting !== null && onLayer.ok) {
+      return traceLayer(deps, {
+        essid: payload.essid,
+        target: onLayer.target,
+        fronting,
+        address: segment.address,
+      });
+    }
+  }
+
+  // Otherwise the target is on the LAN, or on no network the caller reaches at all —
+  // which is the same refusal as naming another network. A malformed target selects
+  // nothing (the command rejects these before calling). The caller's own workstation
   // needs no exclusion here: the generator places NPC filler only — the player is
   // added client-side at its leased address — so it was never in this list.
   const lan = generateHomeLan(payload.essid);
   const parsed = parseScanTarget(payload.target, lan.subnet);
+  if (!parsed.ok && parsed.reason === 'foreign') {
+    return { status: 403, body: { error: 'wrong_network' } };
+  }
   const hosts = parsed.ok ? hostsInScanTarget(lan, parsed.target) : [];
 
   const context: ScanContext = {

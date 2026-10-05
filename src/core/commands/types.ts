@@ -1352,19 +1352,6 @@ export type ScanRecordParams = {
   readonly callerMachineId: string;
 };
 
-/** What `nmap` hands the DEEP scan action so the server can record a pivot scan on
- *  each touched deep host. The server re-derives the vantage gateway from the
- *  verified pubkey + `vantageMachineId`, regenerates its deep layer, and writes
- *  `/var/log/kern.log` itself — the client never names a path, source IP, or
- *  content (the source is the gateway's downstream `.1`, server-derived). */
-export type DeepScanRecordParams = {
-  readonly essid: string;
-  /** The raw nmap target — a single IP (`x.y.z.w`) or a range (`x.y.z.A-B`). */
-  readonly target: string;
-  /** The machine_id of the gateway the active shell stands on (the pivot vantage). */
-  readonly vantageMachineId: string;
-};
-
 /** What `dig @<server> axfr` hands the transfer-trace action so the server can record
  *  it on the name server. The client names only the network and the server IP — the
  *  server recomputes the verdict from generation and derives the source IP from the
@@ -1391,12 +1378,6 @@ export type PublicScanResolution = {
  *  adapter-free. */
 export type ScanApi = {
   readonly record: (params: ScanRecordParams) => Promise<void>;
-  /** Fire-and-forget logger for a deep PIVOT scan (signed `nmapScanDeep` endpoint):
-   *  the deep hosts resolve CLIENT-side (deterministic, no round-trip), and this
-   *  records the scan as a `/var/log/kern.log` line on each touched deep host —
-   *  readable once the player breaks into it. Best-effort like `record`: a logging
-   *  failure never surfaces to the scan. */
-  readonly recordDeep: (params: DeepScanRecordParams) => Promise<void>;
   /** Fire-and-forget logger for a zone transfer (signed `recordZoneTransfer` endpoint):
    *  the transfer resolves CLIENT-side, and this records it — or its refusal — as a
    *  `/var/log/named.log` line on the name server, readable once the player roots it.

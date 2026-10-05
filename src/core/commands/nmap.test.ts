@@ -23,6 +23,8 @@ import { bindFlags } from '../shell/bindFlags.js';
 import { seedApGatewayHostname } from '../generation/gatewayHostname.js';
 import { baseFsForLanHost, machineIdForLanHost } from '../generation/lanHostIdentity.js';
 import { generateDeepLayer, seedNetworkDepth } from '../generation/generateDeepLayer.js';
+import { chainLinks, type ChainLink } from '../generation/lanTopology.js';
+import { hostMachineId } from '../generation/remoteHostId.js';
 import { crackableEssidPool } from '../generation/generateWifi.js';
 import { computeDeepGatewayId } from '../identity/router.js';
 import type { Directory } from '../filesystem/types.js';
@@ -1501,7 +1503,8 @@ describe('nmap — own router (.1) sameLAN scan (5.1.4)', () => {
  * downstream deep `/24` becomes scannable directly — no NAT forward needed,
  * because you are standing on the segment. The vantage is the active session's
  * machine: nmap scans the deep layer only when that session sits on an inner
- * gateway; from home (or any non-gateway box) the deep `/24` stays out of range.
+ * gateway; from home, or from a box on the LAN that fronts nothing, it stays out of
+ * range.
  * The deep hosts are deterministic NPCs, so this resolves CLIENT-side — no server
  * round-trip, unlike the upstream inner-gateway forward-scan above.
  */
@@ -1539,18 +1542,14 @@ describe('nmap — reachability-pivot from an inner gateway (5b.2)', () => {
     machineId: string,
     opts: {
       readonly record?: ScanApi['record'];
-      readonly recordDeep?: ScanApi['recordDeep'];
       readonly fs?: Directory;
     } = {},
   ) =>
     mockCommandEnv({
       identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
       network: mockNetworkViewFromConnectivity(onlineConnectivity(ESSID)),
-      session: mockSession({ machineId: asMachineId(machineId) }),
-      scan: mockScanApi({
-        ...(opts.record ? { record: opts.record } : {}),
-        ...(opts.recordDeep ? { recordDeep: opts.recordDeep } : {}),
-      }),
+      session: mockSession({ machineId: asMachineId(machineId), essid: ESSID, kind: 'ssh' }),
+      scan: mockScanApi(opts.record ? { record: opts.record } : {}),
       ...(opts.fs ? { fs: mockFsViewFromTree(opts.fs) } : {}),
     });
 
@@ -1758,43 +1757,26 @@ describe('nmap — reachability-pivot from an inner gateway (5b.2)', () => {
     expect(opened.text).toContain('22/tcp   open  ssh');
   });
 
-  it('fires a fire-and-forget deep-scan trace keyed by the vantage machine_id when the pivot resolves', async () => {
-    const recordDeep = vi.fn(async () => undefined);
+  it('records the scan of the layer it fronts once, naming the gateway it runs from', async () => {
     const record = vi.fn(async () => undefined);
 
-    await drain(
-      await nmap.execute(vantageEnv(idOf(INNER), { record, recordDeep }), [DEEP.host.ip], new Map()),
-    );
+    await drain(await nmap.execute(vantageEnv(idOf(INNER), { record }), [DEEP.host.ip], new Map()));
 
-    // The deep pivot records via the deep endpoint (keyed by the vantage the shell
-    // stands on), never the own-LAN `record`.
-    expect(recordDeep).toHaveBeenCalledWith({
+    expect(record).toHaveBeenCalledTimes(1);
+    expect(record).toHaveBeenCalledWith({
       essid: ESSID,
       target: DEEP.host.ip,
-      vantageMachineId: idOf(INNER),
+      callerMachineId: idOf(INNER),
     });
-    expect(record).not.toHaveBeenCalled();
   });
 
-  it('does not fire a deep-scan trace when the target falls through to the home path', async () => {
-    const recordDeep = vi.fn(async () => undefined);
-
-    // A home-/24 target from the gateway vantage is not a deep-subnet address, so the
-    // pivot branch declines and the home path handles it — no deep trace.
-    await drain(
-      await nmap.execute(vantageEnv(idOf(INNER), { recordDeep }), [`${lan.subnet}.1-30`], new Map()),
-    );
-
-    expect(recordDeep).not.toHaveBeenCalled();
-  });
-
-  it('still renders the pivot scan when the deep-scan trace rejects (best-effort)', async () => {
-    const recordDeep = vi.fn(async () => {
+  it('still renders the scan of the layer it fronts when the record rejects (best-effort)', async () => {
+    const record = vi.fn(async () => {
       throw new Error('endpoint down');
     });
 
     const { text, exitCode } = await drain(
-      await nmap.execute(vantageEnv(idOf(INNER), { recordDeep }), [DEEP.host.ip], new Map()),
+      await nmap.execute(vantageEnv(idOf(INNER), { record }), [DEEP.host.ip], new Map()),
     );
 
     expect(exitCode).toBe(0);
@@ -1845,7 +1827,7 @@ describe('nmap — chain pivot to L3 from a deep child gateway', () => {
     mockCommandEnv({
       identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
       network: mockNetworkViewFromConnectivity(onlineConnectivity(ESSID)),
-      session: mockSession({ machineId: asMachineId(machineId) }),
+      session: mockSession({ machineId: asMachineId(machineId), essid: ESSID, kind: 'ssh' }),
     });
 
   it('lists the L3 terminal NPC — and nothing deeper — when the shell is on the L2 child gateway', async () => {
@@ -1937,7 +1919,7 @@ describe('nmap — variable network depth', () => {
     mockCommandEnv({
       identity: mockIdentity({ publicKeyHex: asPlayerKeyHex('a'.repeat(64)) }),
       network: mockNetworkViewFromConnectivity(onlineConnectivity(essid)),
-      session: mockSession({ machineId: asMachineId(machineId) }),
+      session: mockSession({ machineId: asMachineId(machineId), essid: essid, kind: 'ssh' }),
     });
 
   it('depth-1 network: the inner router fronts a TERMINAL layer — pivot-scan lists only the NPC, no child gateway', async () => {
@@ -2049,7 +2031,7 @@ describe('nmap — pivot from a deep SWITCH child gateway, ACL-filtered', () => 
     mockCommandEnv({
       identity: mockIdentity({ publicKeyHex: asPlayerKeyHex('a'.repeat(64)) }),
       network: mockNetworkViewFromConnectivity(onlineConnectivity(ESSID)),
-      session: mockSession({ machineId: asMachineId(machineId) }),
+      session: mockSession({ machineId: asMachineId(machineId), essid: ESSID, kind: 'ssh' }),
       ...(fs ? { fs: mockFsViewFromTree(fs) } : {}),
     });
 
@@ -2805,5 +2787,91 @@ describe('nmap — from a shell on a hop', () => {
     await drain(await nmap.execute(hopEnv({ resolvePublic }), ['87.0.113.7'], new Map()));
 
     expect(resolvePublic).toHaveBeenCalledWith('87.0.113.7', HOP_MACHINE);
+  });
+});
+
+/**
+ * A box on a deep layer stands on that layer: its neighbours there are scannable, and
+ * so is every network above it, out through the gateway it hangs behind. A gateway on a
+ * deep layer reaches the layer it sits on as well as the one it fronts. Every scan is
+ * recorded the one way, naming the box it runs from; the server works out the rest.
+ */
+describe('nmap — from a box on a deep layer', () => {
+  const ESSID = 'BEAN-THERE-WIFI';
+  const lan = generateHomeLan(ESSID);
+  // Three gateways deep: an inner router on the LAN, a deep router behind it, and a
+  // second deep router behind that.
+  const [inner, middle] = chainLinks(ESSID);
+  if (inner === undefined || middle === undefined) throw new Error('chain too short');
+  const layerOf = (link: ChainLink) =>
+    generateDeepLayer(
+      ESSID,
+      { machineId: link.machineId, kind: link.host.kind },
+      { hangsChild: link.hangsChild },
+    );
+  const LAYER = layerOf(inner);
+  const DEEP_HOST_ID = hostMachineId(LAYER.host, ESSID);
+
+  const shellOn = (machineId: string, record?: ScanApi['record']) =>
+    mockCommandEnv({
+      identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
+      network: mockNetworkViewFromConnectivity(onlineConnectivity(ESSID)),
+      session: mockSession({ machineId: asMachineId(machineId), essid: ESSID, kind: 'ssh' }),
+      scan: mockScanApi(record === undefined ? {} : { record }),
+    });
+
+  it('lists the deep host’s neighbours on its own layer', async () => {
+    const { text, exitCode } = await drain(
+      await nmap.execute(shellOn(DEEP_HOST_ID), [`${LAYER.subnet}.1-254`], new Map()),
+    );
+
+    expect(exitCode).toBe(0);
+    expect(text).toContain(LAYER.host.ip);
+    expect(text).toContain(middle.host.ip);
+    expect(text).toContain('Nmap done — 2 hosts up');
+  });
+
+  it('scans a host on the layer a deep gateway sits on', async () => {
+    const { text, exitCode } = await drain(
+      await nmap.execute(shellOn(middle.machineId), [LAYER.host.ip], new Map()),
+    );
+
+    expect(exitCode).toBe(0);
+    expect(text).toContain(`Nmap scan report for ${LAYER.host.hostname} (${LAYER.host.ip})`);
+    expect(text).toContain('22/tcp   open  ssh');
+  });
+
+  it('still sweeps the LAN above from a deep host', async () => {
+    const { text, exitCode } = await drain(
+      await nmap.execute(shellOn(DEEP_HOST_ID), [`${lan.subnet}.1-254`], new Map()),
+    );
+
+    expect(exitCode).toBe(0);
+    expect(text).toContain(`${lan.subnet}.1`);
+    expect(text).toContain(inner.host.ip);
+  });
+
+  it('names the deep host’s own layer when a target is out of range', async () => {
+    const result = await nmap.execute(shellOn(DEEP_HOST_ID), ['172.16.0.5'], new Map());
+    if (result.kind !== 'sync') throw new Error('expected sync result');
+
+    expect(result.exitCode).toBe(1);
+    expect(result.lines[0]?.content).toBe(
+      `nmap: 172.16.0.5: out of range — you can only scan the network you are on (${LAYER.subnet}.0/24)`,
+    );
+  });
+
+  it('records a scan of its layer naming the box it runs from', async () => {
+    const record = vi.fn(async () => undefined);
+
+    await drain(
+      await nmap.execute(shellOn(DEEP_HOST_ID, record), [`${LAYER.subnet}.1-254`], new Map()),
+    );
+
+    expect(record).toHaveBeenCalledWith({
+      essid: ESSID,
+      target: `${LAYER.subnet}.1-254`,
+      callerMachineId: DEEP_HOST_ID,
+    });
   });
 });

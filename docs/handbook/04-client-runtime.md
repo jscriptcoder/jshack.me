@@ -275,7 +275,7 @@ build a small env; `state.ts` always supplies all of them. When a seam is not wi
 
 - **Loud** (throws `buildCommandEnv: <name> is not wired…`) for anything whose silent success would
   lie: logins, cracks, exploits, remote writes, database runs, `output.*`, `resetGame`, theme. The
-  scan traces (`scan.record`, `recordDeep`, `recordZoneTransfer`) are loud too.
+  scan traces (`scan.record`, `recordZoneTransfer`) are loud too.
 - **Quiet** (no-op or empty result) where silence is provably harmless: entering and leaving
   sub-shells, `ftp.recordTransfer`, `apt.recordDowngrade`, `scp.end`, `homeNetwork.leave`, and
   additive reads that default to `[]` or `null`. `homeNetwork.join` returns `null` because the

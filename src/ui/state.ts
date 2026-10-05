@@ -34,7 +34,6 @@ import type {
   PublicSweepParams,
   PublicSweepResult,
   ScanApi,
-  DeepScanRecordParams,
   ZoneTransferRecordParams,
   RemoteAuthParams,
   RemoteAuthResult,
@@ -123,7 +122,6 @@ import {
   readOwnPatches,
   postAuthLog,
   postKernLog,
-  recordDeepScan,
   recordFtpTransfer,
   recordLanFetch,
   recordPackageDowngrade,
@@ -1013,11 +1011,6 @@ const endScpSession = (sessionId: string): void => {
   if (sessionsClientDeps === undefined) return;
   void endServerSession(sessionsClientDeps, sessionId);
 };
-
-/** Record a deep PIVOT scan server-side (backs `env.scan.recordDeep`). Best-effort
- *  and a no-op until `startGame` wires the patch client; the scan stands regardless. */
-const recordDeepScanFn = (params: DeepScanRecordParams): Promise<void> =>
-  patchClientDeps === undefined ? Promise.resolve() : recordDeepScan(patchClientDeps, params);
 
 /** Record a zone transfer server-side (backs `env.scan.recordZoneTransfer`). Best-effort
  *  and a no-op until `startGame` wires the patch client; the transfer stands regardless. */
@@ -1926,7 +1919,6 @@ const executeLine = async (line: string): Promise<void> => {
     onExploitRun: exploitRun,
     onExploitElevateLocal: exploitElevateLocal,
     onScanRecord: recordScanFn,
-    onScanRecordDeep: recordDeepScanFn,
     onScanRecordZoneTransfer: recordZoneTransferFn,
     onScanResolvePublic: resolvePublicFn,
     onScanResolveInnerGateway: resolveInnerGatewayFn,

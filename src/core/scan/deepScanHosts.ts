@@ -1,28 +1,27 @@
 /**
- * resolveDeepScanHosts — the single map from a pivot vantage to the deep `/24`
- * behind it: which hosts sit on the layer, each host's storage machine_id + seeded
- * base FS, and its open ports AFTER the vantage's ACL filter. The CLIENT pivot scan
- * (`nmap`'s render) and the SERVER scan trace (`handleNmapScanDeep`) both resolve
- * the layer through HERE, so the ports a scan displays and the ports its kern.log
- * trace records can never drift.
+ * resolveDeepScanHosts — the single map from the gateway fronting a deep layer to the
+ * hosts on it: each host's storage machine_id + seeded base FS, and its open ports
+ * AFTER the fronting gateway's ACL filter. The CLIENT scan (`nmap`'s render) and the
+ * SERVER scan trace (`handleNmapScan`) both resolve a layer through HERE, so the ports
+ * a scan displays and the ports its kern.log trace records can never drift.
  *
  * A layer carries the terminal NPC always, plus the CHILD GATEWAY when a router
- * vantage hangs one (a switch forwards nothing, so it fronts no child). An NPC reads
- * its forced-sshd tree (`buildDeepHostFs`); a child gateway — router OR switch —
+ * fronting it hangs one (a switch forwards nothing, so it fronts no child). An NPC
+ * reads its forced-sshd tree (`buildDeepHostFs`); a child gateway — router OR switch —
  * reads its own gateway base FS via `resolveDeepGatewayIdentity` (so a switch child
- * is an `acl.conf` box, never aliased onto the generic NPC tree). When the vantage
- * itself is a SWITCH, its `/etc/switch/acl.conf` filters the whole downstream view:
- * a denied port is dropped from every host's reported ports. The fronting gateway's
- * downstream interface is `${subnet}.1` — the source IP a deep trace records.
+ * is an `acl.conf` box, never aliased onto the generic NPC tree). When the fronting
+ * gateway is a SWITCH, its `/etc/switch/acl.conf` filters the whole layer: a denied
+ * port is dropped from every host's reported ports.
  *
- * Pure + framework-agnostic (core/): the vantage filesystem is supplied by the
- * caller — the client's live journal-replayed tree, or the server's materialized
- * journal — so this layer never reads the world itself.
+ * Pure + framework-agnostic (core/): the fronting gateway's filesystem is supplied by
+ * the caller — the client's live tree, or the server's materialized journal — so this
+ * layer never reads the world itself.
  */
 
 import { generateDeepLayer, hostsOnLayer } from '../generation/generateDeepLayer.js';
 import { buildDeepHostFs } from '../generation/deepHostFs.js';
-import { resolveDeepGatewayIdentity, type PivotVantage } from '../generation/lanHostIdentity.js';
+import { resolveDeepGatewayIdentity } from '../generation/lanHostIdentity.js';
+import type { ChainLink } from '../generation/lanTopology.js';
 import { hostMachineId } from '../generation/remoteHostId.js';
 import { parseAclDenies, readAclConf } from '../network/switchAcl.js';
 import { readOpenPorts, type OpenPort } from '../services/pidfile.js';
@@ -37,34 +36,33 @@ export type DeepScanHost = {
   readonly ports: readonly OpenPort[];
 };
 
-/** The deep `/24` behind a pivot vantage: its prefix, the `.1` source IP a trace
- *  records, and the touched hosts (terminal NPC + optional child gateway). */
+/** A deep layer: its `/24` prefix and its hosts (terminal NPC + optional child
+ *  gateway). */
 export type DeepScanResolution = {
   readonly subnet: string;
-  readonly sourceIp: string;
   readonly hosts: readonly DeepScanHost[];
 };
 
-/** The ports a vantage's ACL blocks on its downstream segment: a switch filters via
- *  its live `/etc/switch/acl.conf`; a router forwards rather than filters, so it
- *  denies nothing. One discriminant, shared by client and server. */
-const deniedPortsFor = (vantage: PivotVantage, vantageFs: Directory): ReadonlySet<number> =>
-  vantage.kind === 'switch'
-    ? new Set(parseAclDenies(readAclConf(vantageFs)))
+/** The ports the fronting gateway's ACL blocks on its layer: a switch filters via its
+ *  live `/etc/switch/acl.conf`; a router forwards rather than filters, so it denies
+ *  nothing. One discriminant, shared by client and server. */
+const deniedPortsFor = (fronting: ChainLink, frontingFs: Directory): ReadonlySet<number> =>
+  fronting.host.kind === 'switch'
+    ? new Set(parseAclDenies(readAclConf(frontingFs)))
     : new Set<number>();
 
 export const resolveDeepScanHosts = (
   essid: string,
-  vantage: PivotVantage,
-  vantageFs: Directory,
+  fronting: ChainLink,
+  frontingFs: Directory,
   gameDay?: number | undefined,
 ): DeepScanResolution => {
   const deep = generateDeepLayer(
     essid,
-    { machineId: vantage.machineId, kind: vantage.kind },
-    { hangsChild: vantage.hangsChild },
+    { machineId: fronting.machineId, kind: fronting.host.kind },
+    { hangsChild: fronting.hangsChild },
   );
-  const deniedPorts = deniedPortsFor(vantage, vantageFs);
+  const deniedPorts = deniedPortsFor(fronting, frontingFs);
   const layerHosts = hostsOnLayer(deep);
   const hosts = layerHosts.map((host) => {
     // The terminal NPC is a coordinate-keyed box with sshd forced up; a child gateway
@@ -73,11 +71,11 @@ export const resolveDeepScanHosts = (
     const identity =
       host.kind === 'machine'
         ? { machineId: hostMachineId(host, essid), baseFs: buildDeepHostFs(essid, host) }
-        : resolveDeepGatewayIdentity(essid, vantage.machineId, host.ip, host.kind);
+        : resolveDeepGatewayIdentity(essid, fronting.machineId, host.ip, host.kind);
     const ports = readOpenPorts(identity.baseFs, { gameDay }).filter(
       (openPort) => !deniedPorts.has(openPort.port),
     );
     return { host, machineId: identity.machineId, ports };
   });
-  return { subnet: deep.subnet, sourceIp: `${deep.subnet}.1`, hosts };
+  return { subnet: deep.subnet, hosts };
 };
