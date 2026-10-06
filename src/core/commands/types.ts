@@ -813,11 +813,10 @@ export type MysqlConnectParams = {
   readonly port: number;
   readonly username: string;
   readonly password: string;
-  /** The address the target's `/var/log/mysql.log` records the connection from.
-   *  Never null, unlike the other doors' — the caller has already resolved a
-   *  connected `wlan0` to get here, and an association without an address is not on
-   *  the network at all. */
-  readonly sourceIp: string;
+  /** The box the shell stands on. The server places the caller by it and derives the
+   *  address the target's `/var/log/mysql.log` records, so a crafted request cannot
+   *  write a login up from an address the traffic never used. */
+  readonly callerMachineId: MachineId;
 };
 
 /** The outcome of a database login: opened, or refused.
@@ -896,9 +895,9 @@ export type RedisConnectParams = {
    *  addresses the hidden layer BEHIND it, which is the only way a deep box can be
    *  named at all. */
   readonly port: number;
-  /** The address the target's `/var/log/redis.log` records the arrival from. Never
-   *  null: the caller has already resolved a connected `wlan0` to get here. */
-  readonly sourceIp: string;
+  /** The box the shell stands on. The server places the caller by it and derives the
+   *  address the target's `/var/log/redis.log` records the arrival from. */
+  readonly callerMachineId: MachineId;
 };
 
 /** The outcome of opening a store: opened, or nothing there to open.
@@ -975,9 +974,9 @@ export type SnmpWalkParams = {
    *  own 161 — the device standing at the address itself. */
   readonly port?: number;
   readonly community: string;
-  /** The address the target's `/var/log/snmpd.log` records the walk from. Never null:
-   *  the caller has already resolved a connected `wlan0` to get here. */
-  readonly sourceIp: string;
+  /** The box the shell stands on. The server places the caller by it and derives the
+   *  address the target's `/var/log/snmpd.log` records the walk from. */
+  readonly callerMachineId: MachineId;
 };
 
 /** The outcome of a walk: what the device is, what it does, or nothing.
@@ -1016,8 +1015,9 @@ export type SnmpSetParams = {
   readonly port?: number;
   readonly community: string;
   readonly assignment: string;
-  /** The address the target's `/var/log/snmpd.log` records the write from. */
-  readonly sourceIp: string;
+  /** The box the shell stands on. The server places the caller by it and derives the
+   *  address the target's `/var/log/snmpd.log` records the write from. */
+  readonly callerMachineId: MachineId;
 };
 
 /** The outcome of a set: the state the port is now in, the agent's refusal, or silence.

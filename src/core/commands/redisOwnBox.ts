@@ -111,7 +111,7 @@ export const connectOwnStore = async (
     env,
     view,
     formatRedisConnectLine({
-      fromIp: params.sourceIp,
+      fromIp: params.targetIp,
       time: asGameTime(stamp),
       pid: derivePid(stamp),
     }),
@@ -170,7 +170,7 @@ export const runOwnStatement = async (
       SERVICE_CATALOG.redis.sweepLog.formatAttempt({
         outcome: attempt,
         user: '',
-        fromIp: params.sourceIp,
+        fromIp: params.targetIp,
         hostname: env.hostname,
         time: asGameTime(stamp),
         pid: derivePid(stamp),
@@ -187,7 +187,7 @@ export const runOwnStatement = async (
       view,
       formatRedisMutationLine({
         detail: logged,
-        fromIp: params.sourceIp,
+        fromIp: params.targetIp,
         time: asGameTime(stamp),
         pid: derivePid(stamp),
       }),

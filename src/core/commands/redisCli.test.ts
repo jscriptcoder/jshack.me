@@ -21,7 +21,7 @@ import { ownStore } from '../redis/ownStore.js';
 import { DATADIR_OWNER, DATADIR_PATH } from '../redis/datadir.js';
 import { DATADIR_FILE } from '../generation/baseFs.js';
 import { REDIS_LOG_PATH, REDIS_LOG_PERMISSIONS } from '../logging/redisLog.js';
-import { asAbsPath, asPlayerKeyHex, type AbsPath } from '../types.js';
+import { asAbsPath, asMachineId, asPlayerKeyHex, type AbsPath } from '../types.js';
 import type { Directory } from '../filesystem/types.js';
 import type { FsView } from './types.js';
 import { bindFlags } from '../shell/bindFlags.js';
@@ -44,9 +44,6 @@ import type { CommandEnv, CommandResult, RedisApi } from './types.js';
 
 const PUBKEY = 'a'.repeat(64);
 const ESSID = 'BEAN-THERE-WIFI';
-/** The player's OWN address on this LAN — what the target's daemon records the
- *  arrival from, and so what the connection carries. Never the target's. */
-const OWN_IP = assignHomeNetwork(PUBKEY, ESSID).localIp;
 
 const onlineConnectivity = (essid: string): ConnectivityState => {
   const cold = buildColdStartConnectivity(PUBKEY);
@@ -172,7 +169,7 @@ describe('opening a store on the LAN', () => {
       essid: ESSID,
       targetIp: storeHost.ip,
       port: 6379,
-      sourceIp: OWN_IP,
+      callerMachineId: asMachineId('localhost'),
     });
   });
 
@@ -572,11 +569,10 @@ describe('the player own box, once it runs a store', () => {
 
     await run(env, ['localhost']);
 
-    // All three names mean the one address the box was leased, and every statement
-    // after this re-resolves one machine rather than three.
-    expect(enter).toHaveBeenCalledWith(
-      expect.objectContaining({ targetIp: OWN_IP, sourceIp: '127.0.0.1' }),
-    );
+    // The own box is held under the address it was reached BY — loopback — which the
+    // client-side path records as the source, since it reads its own filesystem rather
+    // than routing on the address.
+    expect(enter).toHaveBeenCalledWith(expect.objectContaining({ targetIp: '127.0.0.1' }));
   });
 });
 

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { runMysqlLine } from './mysqlShell.js';
+import { asMachineId } from '../types.js';
 import { mockCommandEnv, mockMysqlApi } from '../../test/factories/commandEnv.js';
 import type { CommandResult, MysqlApi, MysqlStatementResult } from './types.js';
 
@@ -21,7 +22,7 @@ const CONNECTION = {
   port: 3306,
   username: 'app_rw',
   password: 'hunter-two',
-  sourceIp: '192.168.1.50',
+  callerMachineId: asMachineId('workstation-caller'),
 } as const;
 
 const answered = (output: readonly string[], failed = false): MysqlStatementResult => ({

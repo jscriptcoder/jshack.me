@@ -1863,7 +1863,7 @@ describe('the database door', () => {
     port: 3306,
     username: 'app_rw',
     password: 'hunter-two',
-    sourceIp: '192.168.1.50',
+    callerMachineId: asMachineId('workstation-caller'),
     ...over,
   });
 
@@ -1926,14 +1926,17 @@ describe('the database door', () => {
     });
   });
 
-  it('falls back to the address it sent from when the refusal names none', async () => {
+  it('reports an unknown address when the refusal names none', async () => {
+    // The client no longer sends a source address — the server derives it — so a 401
+    // that carries no `from` leaves the client nothing to name but `unknown`, rather
+    // than inventing one the traffic never used.
     const fetchSpy = vi.fn(async () => jsonResponse(401, { error: 'invalid_credentials' }));
     const deps = makeDeps(fetchSpy as unknown as typeof fetch);
 
     expect(await connectDatabase(deps, connectParams())).toEqual({
       ok: false,
       reason: 'denied',
-      fromIp: '192.168.1.50',
+      fromIp: 'unknown',
     });
   });
 

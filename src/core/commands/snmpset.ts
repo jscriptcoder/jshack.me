@@ -23,7 +23,7 @@
  * a working one without walking the device again.
  */
 
-import { connectedWlan0 } from '../network/interfaces.js';
+import { vantageOf } from '../network/vantage.js';
 import { renderSetEcho, renderSetRefusal } from '../snmp/set.js';
 import { parseAgentAddress } from '../snmp/agentAddress.js';
 import { errorLine, text } from './streaming.js';
@@ -46,15 +46,17 @@ const execute: Command['execute'] = async (env, args) => {
   // good are the agent's to say, and it is the only thing that may say them.
   if (!assignment.includes('=')) return errorResult(USAGE);
 
-  const wlan0 = connectedWlan0(env.network);
-  if (wlan0 === null) return errorResult(`snmpset: ${target}: Network is unreachable`);
+  // Where the shell stands — a set follows the shell, like the walk before it.
+  const vantage = vantageOf(env.session, env.network);
+  if (vantage === null) return errorResult(`snmpset: ${target}: Network is unreachable`);
 
   const applied = await env.snmp.set({
-    essid: wlan0.association.essid,
+    essid: vantage.essid,
     ...parseAgentAddress(target),
     community,
     assignment,
-    sourceIp: wlan0.ipv4,
+    // The box the set ran from; the server derives the source address from it.
+    callerMachineId: env.session.machineId,
   });
 
   if (!applied.ok) {
@@ -75,7 +77,9 @@ export const snmpset: Command = {
   manual: {
     synopsis: 'snmpset <host>[:<port>] <community> <oid>=<value>',
     description:
-      'Change one setting on a network device over SNMP. This needs a READ-WRITE ' +
+      'Change one setting on a network device over SNMP, on the network you are on — ' +
+      'your own at home, or the network of a box you have a shell on. This needs a ' +
+      'READ-WRITE ' +
       'community string — the free "public" one only reads — and one of those has to ' +
       'be recovered with "hydra <host> snmp". Walk the device first: a read-write walk ' +
       'prints its port table, and every line of that table is an OID you can set here. ' +

@@ -23,7 +23,7 @@
  * the client to arrive at a message the server was going to send anyway.
  */
 
-import { connectedWlan0 } from '../network/interfaces.js';
+import { vantageOf } from '../network/vantage.js';
 import { renderIdentityWalk, renderReadWriteWalk } from '../snmp/walk.js';
 import { parseAgentAddress } from '../snmp/agentAddress.js';
 import { errorLine, text } from './streaming.js';
@@ -47,18 +47,22 @@ const execute: Command['execute'] = async (env, args) => {
   const [target, community] = args;
   if (target === undefined) return errorResult(USAGE);
 
-  const wlan0 = connectedWlan0(env.network);
-  if (wlan0 === null) return errorResult(`snmpwalk: ${target}: Network is unreachable`);
+  // Where the shell stands — the hop on top of the stack and its network, or the
+  // player's own WiFi on their own box. The radio stays with the body; a walk follows
+  // the shell.
+  const vantage = vantageOf(env.session, env.network);
+  if (vantage === null) return errorResult(`snmpwalk: ${target}: Network is unreachable`);
 
   const asked = community ?? DEFAULT_COMMUNITY;
   // The typed string keeps its port for every line printed below — a tool echoes the
   // argument it was given, and a header that quietly dropped the port would describe a
   // different request than the one made.
   const walked = await env.snmp.walk({
-    essid: wlan0.association.essid,
+    essid: vantage.essid,
     ...parseAgentAddress(target),
     community: asked,
-    sourceIp: wlan0.ipv4,
+    // The box the walk ran from; the server derives the source address from it.
+    callerMachineId: env.session.machineId,
   });
 
   // The real tool's own words for an agent that said nothing back. It is the truth for
@@ -92,7 +96,9 @@ export const snmpwalk: Command = {
   manual: {
     synopsis: 'snmpwalk <host> [community]',
     description:
-      'Ask a network device — a router or a switch — what it is, over SNMP. No login ' +
+      'Ask a network device — a router or a switch — what it is, over SNMP. Reaches ' +
+      'devices on the network you are on — your own at home, or the network of a box ' +
+      'you have a shell on. No login ' +
       'and no account: an agent answers to a COMMUNITY STRING, which belongs to the ' +
       'device rather than to a person. Every agent answers to "public", which is what ' +
       'this uses when you name none, and "public" returns identity only: the name, the ' +

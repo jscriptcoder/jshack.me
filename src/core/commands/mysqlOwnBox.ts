@@ -149,13 +149,13 @@ export const connectOwnDatabase = async (
   const credential = credentialIn(fs, params.username);
   const opened = credential !== null && md5(params.password) === credential.passwordHash;
 
-  await recordAttempt(env, { view, username: params.username, fromIp: params.sourceIp, opened });
+  await recordAttempt(env, { view, username: params.username, fromIp: params.targetIp, opened });
 
   // Denied names the address the daemon saw, which on your own box is the address you
   // reached it by — the same string the line above it just recorded.
   return opened
     ? { ok: true, hostname: env.hostname }
-    : { ok: false, reason: 'denied', fromIp: params.sourceIp };
+    : { ok: false, reason: 'denied', fromIp: params.targetIp };
 };
 
 /**
@@ -205,7 +205,7 @@ export const runOwnStatement = async (
     // the tier is the datadir's answer about this account, and an account edited down
     // a tier is edited down on the next statement.
     userType: credential.userType,
-    sourceIp: params.sourceIp,
+    sourceIp: params.targetIp,
   });
 
   if (changed !== undefined) {
