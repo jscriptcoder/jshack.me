@@ -4,8 +4,9 @@
 `find-gaps` pass that added 4a, 4b, 7a, 11a, "Out of scope" and "Done when"); nine slices
 planned and approved the same day. Slices 1–5, 6a–6c, 7, 8a, 8b and 8c done (#598 v0.307.0,
 #599 v0.308.0, #600 v0.309.0, #601 v0.310.0, #602 v0.311.0, #603 v0.312.0, #604 v0.313.0,
-#605 v0.314.0, #606 v0.315.0, #607 v0.316.0, #608 v0.317.0, #610 v0.318.0, #611 v0.319.0).
-Next: slice 9a (the port tools; slice 9 split in three, 2026-10-06).
+#605 v0.314.0, #606 v0.315.0, #607 v0.316.0, #608 v0.317.0, #610 v0.318.0, #611 v0.319.0,
+#612 v0.320.0). Slice 9 split in three (2026-10-06), then 9a split again into ftp+scp (#612) and
+`nc` (9a-ii). Next: slice 9a-ii (`nc` from a hop).
 Resolves two §9 backlog items in `docs/conventions-and-gotchas.md`: "Pivot / operate-from-a-hop —
 source-IP masking only; ssh-from-a-pivot" and "Four tools cannot pivot: `ssh`, `nmap`, `curl`,
 `lynx`". Where they disagree with this file, this file wins.
@@ -598,6 +599,37 @@ Agreed acceptance (owner, 2026-10-06):
 10. Wire-check `scripts/testHopPortTools.ts` — a LAN hop; a deep layer incl. a switch-denied port;
     `wrong_network` and `no_session`; loopback on a hop; a public target from the hop vs from home.
     Existing ftp/scp/nc wire-checks reseated onto the caller-placement contract.
+
+✅ **ftp and scp done in #612 (v0.320.0). `nc` splits out to 9a-ii.** Owner split 9a again at build
+(2026-10-06): ftp+scp (identical arm set, shared server change) shipped together; `nc` follows as a
+separate PR. As built:
+- `ftp` and `scp` route through `vantageOf(...)` on every arm — own-LAN, public, direct deep-layer
+  (`resolveDeepScanHosts`, a denied/unserved port refused like a shut one), and fellow occupant —
+  each sending `caller_machine_id`; the client `sourceIp` is gone, and `scp`'s own-LAN login (which
+  sent no caller box at all, tracing home) is fixed. New client seams `authenticateSameLan` on both
+  doors; `authCreateSessionSameLan`'s password branch, which hardcoded `kind:'ssh'`, now records the
+  door's own kind (criterion 7). Man pages carry the vantage line.
+- **No inner-gateway NAT-forward arm** (criterion 2, narrowed): the world forwards only ssh into
+  deep layers (`relations`, `forwardsIntoDeepLayer`), so there is no top-LAN→deep ftp/scp path —
+  they reach deep layers by standing on a deep box. The speculative `authenticateInnerGateway`
+  plumbing was removed rather than shipped unreachable.
+- **`localhost`→own-daemon deferred to 9a-ii** (criterion 3, narrowed): it lives in the data-doors'
+  endpoint, not the ssh-login endpoint ftp/scp use, and `ssh` does not special-case it — it is
+  `nc`'s motivating case, so it ships with `nc`.
+- Wire-check `scripts/testHopPortTools.ts` 8/8 live (ftp→vsftpd log, scp→auth.log, both named the
+  hop's address; `wrong_network`/`no_session` refused). The occupant and public arms reuse the
+  endpoints ssh's own wire-checks cover, and an occupant login is unstageable against a fresh box
+  that runs no ftp, so neither is re-proven there. Mutation: ftp.ts/scp.ts changed regions and the
+  same-LAN kind fix all killed; one equivalent survivor (scp deep-arm `service===ssh` — no deep host
+  serves a matched port with a non-ssh service).
+
+#### Slice 9a-ii: `nc` runs from a hop
+
+`nc`'s four backdoor arms already exist, but it routes from the home card (`connectedWlan0`); the
+switch to `vantageOf(...)`, the one direct-deep arm it lacks, and `localhost`→the hop's own listener
+(the data-doors' server-side loopback, retiring `nc`'s own-box refusal on a hop) carried over from
+9a. **Decisions**: 2. Wire-check extends `scripts/testHopPortTools.ts` with the `nc` and loopback
+rows.
 
 #### Slice 9b: Ping and name lookups run from a hop
 
