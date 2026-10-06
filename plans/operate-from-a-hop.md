@@ -5,7 +5,7 @@
 planned and approved the same day. Slices 1–5, 6a–6c, 7, 8a, 8b and 8c done (#598 v0.307.0,
 #599 v0.308.0, #600 v0.309.0, #601 v0.310.0, #602 v0.311.0, #603 v0.312.0, #604 v0.313.0,
 #605 v0.314.0, #606 v0.315.0, #607 v0.316.0, #608 v0.317.0, #610 v0.318.0, #611 v0.319.0).
-Next: slice 9 (the remaining IP tools).
+Next: slice 9a (the port tools; slice 9 split in three, 2026-10-06).
 Resolves two §9 backlog items in `docs/conventions-and-gotchas.md`: "Pivot / operate-from-a-hop —
 source-IP masking only; ssh-from-a-pivot" and "Four tools cannot pivot: `ssh`, `nmap`, `curl`,
 `lynx`". Where they disagree with this file, this file wins.
@@ -545,3 +545,53 @@ anything is reached. `--local` is unchanged. The minted shell stacking on the ho
 `ftp`, `scp`, `nc`, `ping`, `dig`/`nslookup` (names resolve against the vantage), `apt` (a hop's
 network is online). Adds the test that enumerates every IP tool in decision 2 and proves each
 carries the shell's box. **Decisions**: 2, 3, 8. **Done-when**: 4.
+
+Split in three before acceptance (owner, 2026-10-06), on how each tool reaches the network, read
+from the code: three tools log in through `ssh`'s own gates, three answer without a login, and
+`apt` only asks whether it is online. Each is one PR against `main`, cut after its predecessor
+lands; each still confirms its acceptance criteria with the owner before RED.
+
+#### Slice 9a: The port tools run from a hop
+
+`ftp`, `scp`, `nc` — all three log in through the same server gates `ssh` does (`ftp`/`scp` call
+`authCreateSession`/`authCreateSessionPublic` for an `ftp`/`scp`-kind row; `nc`'s four `connect*`
+take `ssh`'s four auth params minus the credential), and those gates already place the caller
+server-side since slices 3–6c. What is left is the client: each still reads its network from home
+`wlan0` (`ftp.ts`/`scp.ts` `essid` + `isOnline`, `nc.ts` `connectedWlan0`), resolves names
+against it, and derives a home-LAN target with `generateHomeLan`. `ftp` and `scp` have only an
+own-LAN and a public arm, so a fellow occupant's box and a deep-layer box are unreachable to them
+even at home; `ftp`/`scp` still send a client `sourceIp`.
+**Path**: route each the way `ssh` does — `vantageOf(...)`, names through `addressForTarget` on the
+vantage's network, and `ssh`'s arms (own LAN, same-LAN occupant, inner gateway / deep layer,
+public), every one sending `caller_machine_id`; the client `sourceIp` goes. The `ftp>` prompt and
+a one-shot `scp` are never a vantage (4b); the session they open names the box it was opened from.
+The ftp-transfer trace (`recordTransfer`, `traceProvenance`) is already keyed by the session's
+network (slice 2).
+**Watch for**: `nc localhost` refuses as the player's own box today (`OWN_BOX`); on a hop it is the
+hop's own daemon, as `localhost` became for the data doors (8a). Wire-check
+`scripts/testHopPortTools.ts`.
+
+#### Slice 9b: Ping and name lookups run from a hop
+
+`ping`, `dig`, `nslookup` — no login; each answers client-side from home `wlan0`
+(`connectedWlan0`): `ping` reaches only the home LAN plus the player's own address, and
+`dig`/`nslookup` ask `${home subnet}.1`. **Path**: `vantageOf(...)` for all three — `ping` replies
+from what the vantage reaches (its segments, the box itself), `dig`/`nslookup` ask the vantage
+network's resolver and resolve `.lan` names there (decision 8). `dig axfr`'s zone-transfer trace is
+the one server change: `handleRecordZoneTransfer` names the caller's HOME public address
+(`resolveCrossPlayerSourceIp`) even for an own-LAN transfer, so it moves onto
+`resolveCallerVantageOn` + `caller_machine_id` with a server-derived source (decision 7), the way
+`recordLanFetch` did in slice 7. Wire-check for the axfr trace.
+**Watch for**: `ping` to a public address is not answered today (its header defers it to a
+cross-player slice) — keep that out of scope unless the owner adds it at acceptance.
+
+#### Slice 9c: `apt` runs from a hop, and no IP tool is left at home
+
+`apt list`/`install`/`upgrade` gate on `env.network.isOnline()` — the home card — so on a hop with
+the home card off they refuse offline. **Path**: online is "the vantage is on a network"
+(`vantageOf(...) !== null`); the install/downgrade traces already key by the session's network.
+Then the Done-when 4 test: one test enumerates every IP tool in decision 2 and proves each, run in a
+remote shell with the home card off, travels from that shell's box — so a tool added later without
+it fails. **To confirm at acceptance**: `ping`, `dig`/`nslookup` (non-axfr) and `apt` make no
+server call, so for them "carries the shell's box" can only mean "answers from the hop's network",
+not "sends `callerMachineId`".
