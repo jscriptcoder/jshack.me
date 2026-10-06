@@ -2,9 +2,9 @@
 
 **Status**: Grilled and gap-reviewed. Decisions confirmed by the owner 2026-10-04 (grill, then a
 `find-gaps` pass that added 4a, 4b, 7a, 11a, "Out of scope" and "Done when"); nine slices
-planned and approved the same day. Slices 1–5 and 6a–6c done (#598 v0.307.0, #599 v0.308.0,
+planned and approved the same day. Slices 1–5, 6a–6c and 7 done (#598 v0.307.0, #599 v0.308.0,
 #600 v0.309.0, #601 v0.310.0, #602 v0.311.0, #603 v0.312.0, #604 v0.313.0, #605 v0.314.0,
-#606 v0.315.0). Next: slice 7.
+#606 v0.315.0, #607 v0.316.0). Next: slice 8.
 Resolves two §9 backlog items in `docs/conventions-and-gotchas.md`: "Pivot / operate-from-a-hop —
 source-IP masking only; ssh-from-a-pivot" and "Four tools cannot pivot: `ssh`, `nmap`, `curl`,
 `lynx`". Where they disagree with this file, this file wins.
@@ -409,6 +409,24 @@ player roots a chain gateway — decision 1's accepted consequence, now on deep 
 `ssh` to a layer's `.1` lands on the gateway fronting it.
 
 ### Slice 7: The web tools run from a hop
+
+✅ Done in #607. As built:
+- `curl`, `lynx` and `gobuster` reach hosts from `vantageOf(...)`: the hop's LAN, every deep layer
+  it reaches (ports after the fronting switch's live ACL, via `resolveDeepScanHosts`), and the box
+  itself over `localhost` or its own address. A home-LAN address from a foreign hop is `Could not
+  resolve host`; a denied or non-http layer port is `Connection refused`; a layer's `.1` is no host.
+  Names resolve on the network the shell stands on.
+- The own-LAN access log (`recordLanFetch`) is placed server-side from the caller's box, like
+  `nmapScan`: 403 `wrong_network` off the caller's networks, 403 `no_session` without a shell
+  there. The client `source_ip` is gone. A deep-layer fetch logs on the deep box under
+  `ap:<essid>` from the layer address; a fetch the ACL denies logs nothing. `localhost` goes over
+  as `127.0.0.1` and logs as such on the caller's own box.
+- A public `curl`/`lynx` from a hop sends the caller's box; `resolveHttpFetch` refuses
+  `no_session` without a shell there and traces to that network's public IP. With no box it is
+  unchanged, so `curl` from home still needs no session.
+- The radio stays with the body: the tools work from a hop with the home card off.
+
+Wire-check: `scripts/testHopWebTools.ts` 8/8.
 
 `curl`, `lynx`, `gobuster` — reachability and trace from the vantage; `curl` still needs no
 session from home (decision 6). **Decisions**: 2, 6.
