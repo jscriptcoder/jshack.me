@@ -4,7 +4,7 @@
 `find-gaps` pass that added 4a, 4b, 7a, 11a, "Out of scope" and "Done when"); nine slices
 planned and approved the same day. Slices 1–5, 6a–6c and 7 done (#598 v0.307.0, #599 v0.308.0,
 #600 v0.309.0, #601 v0.310.0, #602 v0.311.0, #603 v0.312.0, #604 v0.313.0, #605 v0.314.0,
-#606 v0.315.0, #607 v0.316.0). Next: slice 8a.
+#606 v0.315.0, #607 v0.316.0, #608 v0.317.0). Next: slice 8b.
 Resolves two §9 backlog items in `docs/conventions-and-gotchas.md`: "Pivot / operate-from-a-hop —
 source-IP masking only; ssh-from-a-pivot" and "Four tools cannot pivot: `ssh`, `nmap`, `curl`,
 `lynx`". Where they disagree with this file, this file wins.
@@ -467,6 +467,19 @@ shell's box. Agreed acceptance (owner, 2026-10-06):
 9. Wire-check: `scripts/testHopDataDoors.ts` — a LAN hop; a deep layer incl. a switch-denied
    port; `wrong_network` and `no_session`; loopback on a hop; a public target from the hop vs from
    home; a statement after the hop's shell has ended.
+
+✅ Done in #608 (v0.317.0). As built: the four doors send the shell's box as
+`caller_machine_id`, resolved server-side by `resolveCallerVantageOn` in
+`callerVantage.ts` (403 `wrong_network` / `no_session` / `caller_not_on_network`);
+`serviceHost.ts` keeps the single shared reach, its public arm now deriving the
+source through `resolveVantageSourceIp(standingEssid)` so a hop public reach is
+seen at the hop network's address, and `reachDeepLayerBox` applying a fronting
+switch's live ACL to a deep-by-address target. `localhost`/own-box reaches resolve
+server-side and log over loopback. Wire-check `scripts/testHopDataDoors.ts` (8/8)
+plus the 20 existing data-door checks, all live-green; the existing checks were
+reseated onto the caller-placement contract. Mutation on `serviceHost.ts`: 90.43%,
+0 timeouts, survivors triaged (equivalent/defensive, pre-existing same-LAN arm, or
+the new switch-ACL branch proven by the deep wire-checks).
 
 #### Slice 8b: The exploit and cracking tools run from a hop
 
