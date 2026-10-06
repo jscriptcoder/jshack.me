@@ -4,7 +4,7 @@
 `find-gaps` pass that added 4a, 4b, 7a, 11a, "Out of scope" and "Done when"); nine slices
 planned and approved the same day. Slices 1–5, 6a–6c and 7 done (#598 v0.307.0, #599 v0.308.0,
 #600 v0.309.0, #601 v0.310.0, #602 v0.311.0, #603 v0.312.0, #604 v0.313.0, #605 v0.314.0,
-#606 v0.315.0, #607 v0.316.0, #608 v0.317.0). Next: slice 8b (hydra).
+#606 v0.315.0, #607 v0.316.0, #608 v0.317.0, #610 v0.318.0). Next: slice 8c (msfconsole).
 Resolves two §9 backlog items in `docs/conventions-and-gotchas.md`: "Pivot / operate-from-a-hop —
 source-IP masking only; ssh-from-a-pivot" and "Four tools cannot pivot: `ssh`, `nmap`, `curl`,
 `lynx`". Where they disagree with this file, this file wins.
@@ -510,6 +510,20 @@ Agreed acceptance (owner, 2026-10-06):
 8. Wire-check `scripts/testHopHydra.ts` — a LAN hop; a deep layer incl. a switch-denied port;
    `wrong_network` and `no_session`; loopback on a hop; a public target from the hop vs from home.
    Existing hydra wire-checks reseated onto the caller-placement contract.
+
+✅ Done in #610 (v0.318.0). As built: `hydra`'s three server endpoints collapsed into one
+`hydraCrack` routing every target through the shared `reachServiceHost` in `serviceHost.ts` (the
+reach `ssh` and the data doors use), with the client's three-way split removed; the caller is
+placed by `resolveCallerVantageOn` (403 `wrong_network` / `no_session` / `caller_not_on_network`),
+`source_ip` no longer sent or read, and the trace address server-derived. The two sibling handlers
+(`hydraCrackPublic`, `hydraCrackInnerGateway`) and their tests were deleted; the writer-key is the
+reach's, which closed the inner-gateway writer-key defect the old handler flagged. Went port-first
+(decision 6): no `-p` uses the named service's default port, so a non-default `ftp` needs `-p` —
+the man page says so. Wire-check `scripts/testHopHydra.ts` (7/7) plus the existing hydra checks
+reseated onto the caller-placement contract (`testHydraOwnLan` 23/23, `testHydraCrossPlayer` 16/16,
+the sweep-trace/same-LAN/deep/cross-player checks), all live-green. Mutation on `hydraCrack.ts`:
+100% (80/80 killed, 0 survivors, 0 timeouts); `serviceHost.ts`/`callerVantage.ts` unchanged this
+slice (gated in 8a).
 
 #### Slice 8c: The exploit tool runs from a hop
 
