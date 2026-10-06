@@ -4,7 +4,7 @@
 `find-gaps` pass that added 4a, 4b, 7a, 11a, "Out of scope" and "Done when"); nine slices
 planned and approved the same day. Slices 1–5, 6a–6c and 7 done (#598 v0.307.0, #599 v0.308.0,
 #600 v0.309.0, #601 v0.310.0, #602 v0.311.0, #603 v0.312.0, #604 v0.313.0, #605 v0.314.0,
-#606 v0.315.0, #607 v0.316.0). Next: slice 8.
+#606 v0.315.0, #607 v0.316.0). Next: slice 8a.
 Resolves two §9 backlog items in `docs/conventions-and-gotchas.md`: "Pivot / operate-from-a-hop —
 source-IP masking only; ssh-from-a-pivot" and "Four tools cannot pivot: `ssh`, `nmap`, `curl`,
 `lynx`". Where they disagree with this file, this file wins.
@@ -433,8 +433,46 @@ session from home (decision 6). **Decisions**: 2, 6.
 
 ### Slice 8: The credential and service tools run from a hop
 
-`hydra`, `mysql`, `redis-cli`, `snmpwalk`, `snmpset`, `msfconsole`. ⚠ The largest tool slice;
-if it runs big, split `hydra`/`msfconsole` from the database and SNMP clients. **Decisions**: 2.
+Split in two at acceptance (the plan's own "if it runs big" call): the four tools that share one
+server reach go first, the two with their own handlers follow. **Decisions**: 2.
+
+#### Slice 8a: The database and SNMP tools run from a hop
+
+`mysql`, `redis-cli`, `snmpwalk`, `snmpset` — all four reach the server through one lookup
+(`reachBox`/`reachServiceHost` in `serviceHost.ts`), so one server change moves all four onto the
+shell's box. Agreed acceptance (owner, 2026-10-06):
+
+1. **The tools travel from the shell's box** (`vantageOf(...)`, not `wlan0`): they work from a hop
+   with the home card off, and from a foreign hop a home-LAN address is unreachable in each tool's
+   own "no route" wording.
+2. **A hop reaches** the generated hosts on its LAN; other players' boxes on that LAN (as 4b does
+   for `ssh`); every deep layer the box reaches (ports after the fronting switch's live ACL, a
+   denied port refused like an unserved one, a layer's `.1` no host); and public addresses.
+3. **`localhost` and the hop's own address reach the hop's own daemon, server-side.** The client
+   sends `127.0.0.1`; the server resolves it to the caller's box and logs under that box's usual
+   key (`ap:<essid>`, or the owner's key on a player box) from `127.0.0.1`. At home the existing
+   client-side own-box path is unchanged. Running the hop's daemon client-side would write the
+   hop's log under the player's own key, breaking 7a.
+4. **The server places the caller** (`resolveCallerVantage`): login, every `mysql`/`redis`
+   statement, and each walk/set send `caller_machine_id`; a network the caller isn't on is 403
+   `wrong_network`, a box they hold no shell on is 403 `no_session`, and `source_ip` is neither
+   sent nor read.
+5. **The source address is server-derived** (decision 7): the hop's LAN address, the box's layer
+   address, or the hop network's public IP; from home nothing changes.
+6. **One log row per box** (7a): generated and deep boxes under `ap:<essid>`, a player's box under
+   its owner's key.
+7. **An open `mysql`/`redis` prompt keeps the box it was opened from**, re-checked per statement;
+   once that shell is gone the next statement is refused `no_session` and the prompt drops.
+8. **The man pages say "the network you are on".**
+9. Wire-check: `scripts/testHopDataDoors.ts` — a LAN hop; a deep layer incl. a switch-denied
+   port; `wrong_network` and `no_session`; loopback on a hop; a public target from the hop vs from
+   home; a statement after the hop's shell has ended.
+
+#### Slice 8b: The exploit and cracking tools run from a hop
+
+`hydra` (own-LAN, inner-gateway and public paths) and `msfconsole` (the network fire; `--local`
+already runs on the box the shell stands on). Each has its own server handler, reworked onto the
+shell's box the same way 8a reworks the shared reach. **Decisions**: 2.
 
 ### Slice 9: The remaining IP tools run from a hop
 
