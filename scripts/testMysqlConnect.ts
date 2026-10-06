@@ -28,6 +28,8 @@
 import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign.js';
 import { generateIdentity } from '../src/core/identity/identity.js';
+import { lanAddressFor } from '../src/core/network/lanAddress.js';
+import { standOnNetwork, leaveNetwork } from './standVantage.js';
 import { generateHomeLan, type LanHost } from '../src/core/generation/generateHomeLan.js';
 import { hostServices } from '../src/core/generation/remoteHostFs.js';
 import { resolveLanHostIdentity } from '../src/core/generation/lanHostIdentity.js';
@@ -95,6 +97,12 @@ if (target === undefined) {
 }
 
 const { baseFs, machineId: targetMachine } = resolveLanHostIdentity(target, ESSID);
+
+// The caller's own LAN address, derived server-side from the lease they hold — the source
+// the target records now that the server places the caller rather than trusting a
+// client-sent `source_ip`. Its octet is chosen off the target's so the two never collide.
+const CLIENT_OCTET = Number(target.ip.split('.')[3]) === 200 ? 201 : 200;
+const HOME_IP = lanAddressFor(ESSID, CLIENT_OCTET);
 
 const fileAt = (root: Directory, segments: readonly string[]): string | null => {
   const parent = segments.slice(0, -1).reduce<Directory | undefined>((node, segment) => {
@@ -172,6 +180,7 @@ const sessionRowCount = async (): Promise<number> => {
 const clear = async () => {
   await sr.from('patches').delete().eq('machine_id', targetMachine);
   await sr.from('sessions').delete().eq('player_key', client.publicKeyHex);
+  await leaveNetwork(sr, ESSID);
 };
 
 const connect = (username: string, password: string, ip = target.ip) =>
@@ -211,6 +220,9 @@ const main = async (): Promise<void> => {
   );
 
   await clear();
+  // The caller joined this WiFi, so the server can place them on it — the login doors now
+  // refuse a caller they cannot seat rather than trusting the address a client claims.
+  await standOnNetwork(sr, ESSID, client, CLIENT_OCTET);
 
   const opened = await connect(databaseLogin.username, databaseLogin.password);
   check(
@@ -232,7 +244,7 @@ const main = async (): Promise<void> => {
   check(
     'the connection is recorded on the TARGET, naming the database it opened',
     (afterOpen?.content ?? '').includes(
-      `${databaseLogin.username}@${CLIENT_IP} on ${database.name} using TCP/IP`,
+      `${databaseLogin.username}@${HOME_IP} on ${database.name} using TCP/IP`,
     ),
     `${MYSQL_LOG_PATH}: ${afterOpen === null ? 'no row' : (afterOpen.content ?? '').trim()}`,
   );

@@ -304,8 +304,11 @@ const scanEnvelope = (identity: typeof attacker, target: string = DEFENDER_LAN_I
 // --- 1. The LAN boundary: you reach a box on a WiFi by being ON that WiFi. ---
 const offTheLan = await post(await connectEnvelope());
 check(
+  // The server now places the caller before anything is reached, so a caller who
+  // occupies no network is refused for having nowhere to stand rather than for the box
+  // being unreachable — the earlier, more precise refusal the login doors share.
   '1. a caller who is not on the WiFi reaches no occupant there',
-  offTheLan.status === 404 && errorOf(offTheLan.body) === 'host_unreachable',
+  offTheLan.status === 403 && errorOf(offTheLan.body) === 'caller_not_on_network',
   `${offTheLan.status} ${errorOf(offTheLan.body)}`,
 );
 

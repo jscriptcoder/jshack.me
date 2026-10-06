@@ -36,6 +36,8 @@
 import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign.js';
 import { generateIdentity } from '../src/core/identity/identity.js';
+import { lanAddressFor } from '../src/core/network/lanAddress.js';
+import { standOnNetwork, leaveNetwork } from './standVantage.js';
 import { generateHomeLan, type LanHost } from '../src/core/generation/generateHomeLan.js';
 import { hostServices } from '../src/core/generation/remoteHostFs.js';
 import { resolveLanHostIdentity } from '../src/core/generation/lanHostIdentity.js';
@@ -93,7 +95,6 @@ const post = async (
 // The same LAN the login smoke uses, so a failure here is about the statement door
 // rather than about which box was picked.
 const ESSID = 'MYSQL-LAB-3';
-const CLIENT_IP = '192.168.1.50';
 
 const client = generateIdentity();
 
@@ -109,6 +110,12 @@ if (target === undefined) {
 }
 
 const { baseFs, machineId: targetMachine } = resolveLanHostIdentity(target, ESSID);
+
+// The caller's own LAN address, derived server-side from the lease they hold — the source
+// the daemon now echoes in a denial, since the server places the caller rather than
+// trusting a client-sent `source_ip`. Its octet steps clear of the target's.
+const CLIENT_OCTET = Number(target.ip.split('.')[3]) === 200 ? 201 : 200;
+const CLIENT_IP = lanAddressFor(ESSID, CLIENT_OCTET);
 
 const fileAt = (root: Directory, segments: readonly string[]): string | null => {
   const parent = segments.slice(0, -1).reduce<Directory | undefined>((node, segment) => {
@@ -248,6 +255,8 @@ const main = async (): Promise<void> => {
   );
 
   await clear();
+  // The caller joined this WiFi, so the server can place them on it before each statement.
+  await standOnNetwork(sr, ESSID, client, CLIENT_OCTET);
   await connect(login.password);
   const afterLogin = await logLineCount();
 
@@ -385,6 +394,7 @@ const main = async (): Promise<void> => {
   );
 
   await clear();
+  await leaveNetwork(sr, ESSID);
 
   const failed = results.filter((result) => !result.pass).length;
   console.log(`\n${results.length - failed}/${results.length} passed`);

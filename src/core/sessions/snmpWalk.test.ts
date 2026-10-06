@@ -44,8 +44,25 @@ import type { NonceStore } from '../signedRequest/nonceStore.js';
 const freshStore: NonceStore = async () => ({ fresh: true });
 // 2026-08-09 11:04:07 UTC — the server clock every log line here is stamped with.
 const FIXED_NOW = Date.UTC(2026, 7, 9, 11, 4, 7);
-const CLIENT_IP = '192.168.1.50';
 const PUBLIC_IP = '82.14.203.77';
+
+/** The octet the player holds on their home network. The server derives the address a
+ *  walk is recorded from off the lease, never off a client claim, so the source a
+ *  device logs is `lanAddressFor(<the walked essid>, HOME_OCTET)`. */
+const HOME_OCTET = 50;
+const homeSourceOn = (essid: string): string => lanAddressFor(essid, HOME_OCTET);
+
+/** The caller standing on `essid` at home — the vantage the server derives for a
+ *  pre-hop walk, which must match the network the request names. `octet` null is an
+ *  occupant holding no lease, whose attempts are logged from an unknown address. */
+const homeOn = (
+  essid: string,
+  octet: number | null = HOME_OCTET,
+): Pick<SnmpWalkDeps, 'findActiveSession' | 'findHomeVantage' | 'findWorkstationLease'> => ({
+  findActiveSession: async () => ({ data: null, error: null }),
+  findHomeVantage: async () => ({ data: { essid, octet }, error: null }),
+  findWorkstationLease: async () => ({ data: null, error: null }),
+});
 
 /** ESSIDs scanned in a fixed order for a device of the wanted kind that rolled an
  *  agent. Routers roll at 0.6 and switches at 0.9, so which world holds one is seeded
@@ -98,7 +115,7 @@ const patchRow = (path: string, content: string | null): OwnerPatchRow =>
     writer_key: 'b'.repeat(64),
   }) as OwnerPatchRow;
 
-const makeDeps = (over: Partial<SnmpWalkDeps> = {}) => {
+const makeDeps = (over: Partial<SnmpWalkDeps> = {}, homeEssid: string = CANDIDATE_ESSIDS[0]!) => {
   const findPatches = vi.fn<SnmpWalkDeps['findPatches']>(async () => ({ data: [], error: null }));
   const upsertPatch = vi.fn<(row: PatchRow) => Promise<{ error: unknown }>>(async () => ({
     error: null,
@@ -117,6 +134,9 @@ const makeDeps = (over: Partial<SnmpWalkDeps> = {}) => {
     listOccupantsByEssid: async () => ({ data: [], error: null }),
     listLeasesByEssid: async () => ({ data: [], error: null }),
     findHomeNetworkByOwnerKey: async () => ({ data: null, error: null }),
+    // The caller is home on the network they walk unless a test says otherwise — the
+    // server derives the vantage from this, never from the request's essid.
+    ...homeOn(homeEssid),
     ...over,
   };
   return { deps, findPatches, readSnmpdLog, upsertPatch };
@@ -134,15 +154,15 @@ const signedWalk = (
     essid: request.essid,
     target_ip: request.target_ip,
     community: request.community ?? 'public',
-    source_ip: CLIENT_IP,
   });
 
 /** The two lines a walk leaves, as the device's file ends up holding them —
- *  newline-terminated, the way every appended log line is. */
-const loggedLines = (outcome: 'success' | 'failure', hostname: string): string =>
+ *  newline-terminated, the way every appended log line is. `fromIp` is the address the
+ *  server derives for the caller's vantage, not a value the client sent. */
+const loggedLines = (outcome: 'success' | 'failure', hostname: string, fromIp: string): string =>
   [
     formatSnmpdArrivalLine({
-      fromIp: CLIENT_IP,
+      fromIp,
       hostname,
       time: asGameTime(FIXED_NOW),
       pid: derivePid(FIXED_NOW),
@@ -150,7 +170,7 @@ const loggedLines = (outcome: 'success' | 'failure', hostname: string): string =
     formatSnmpdAttemptLine({
       outcome,
       user: '',
-      fromIp: CLIENT_IP,
+      fromIp,
       hostname,
       time: asGameTime(FIXED_NOW),
       pid: derivePid(FIXED_NOW),
@@ -162,7 +182,7 @@ describe('walking a device with the community it answers to', () => {
     const identity = generateIdentity();
     const essid = CANDIDATE_ESSIDS[0]!;
     const gateway = apGatewayOn(essid);
-    const { deps } = makeDeps();
+    const { deps } = makeDeps({}, essid);
 
     const response = await handleSnmpWalk(
       await signedWalk(identity, { essid, target_ip: gateway.ip }),
@@ -193,7 +213,7 @@ describe('walking a device with the community it answers to', () => {
   it('shows a device behind the gateway the one address it actually has', async () => {
     const identity = generateIdentity();
     const { essid, host } = deviceOfKind('switch');
-    const { deps } = makeDeps();
+    const { deps } = makeDeps({}, essid);
 
     const response = await handleSnmpWalk(
       await signedWalk(identity, { essid, target_ip: host.ip }),
@@ -220,7 +240,7 @@ describe('walking a device with the community it answers to', () => {
     const identity = generateIdentity();
     const essid = CANDIDATE_ESSIDS[0]!;
     const gateway = apGatewayOn(essid);
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, upsertPatch } = makeDeps({}, essid);
 
     await handleSnmpWalk(await signedWalk(identity, { essid, target_ip: gateway.ip }), deps);
 
@@ -229,7 +249,7 @@ describe('walking a device with the community it answers to', () => {
     expect(upsertPatch).toHaveBeenCalledTimes(1);
     expect(upsertPatch.mock.calls[0]![0]).toMatchObject({
       path: SNMPD_LOG_PATH,
-      content: loggedLines('success', gateway.hostname),
+      content: loggedLines('success', gateway.hostname, homeSourceOn(essid)),
     });
   });
 
@@ -241,7 +261,7 @@ describe('walking a device with the community it answers to', () => {
     const identity = generateIdentity();
     const essid = CANDIDATE_ESSIDS[0]!;
     const gateway = apGatewayOn(essid);
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, upsertPatch } = makeDeps(homeOn(essid, null), essid);
 
     await handleSnmpWalk(
       await signRequest(identity, 'snmpWalk', {
@@ -285,7 +305,7 @@ describe('walking a device with its read-write community', () => {
         ],
         error: null,
       }),
-    });
+    }, essid);
 
     const response = await handleSnmpWalk(
       await signedWalk(identity, { essid, target_ip: gateway.ip, community: 'corpnet' }),
@@ -317,7 +337,7 @@ describe('walking a device with its read-write community', () => {
     const identity = generateIdentity();
     const essid = 'APT-3B-WIFI';
     const gateway = apGatewayOn(essid);
-    const { deps } = makeDeps(answering('corpnet'));
+    const { deps } = makeDeps(answering('corpnet'), essid);
 
     const response = await handleSnmpWalk(
       await signedWalk(identity, { essid, target_ip: gateway.ip, community: 'corpnet' }),
@@ -344,7 +364,7 @@ describe('walking a device with its read-write community', () => {
         ],
         error: null,
       }),
-    });
+    }, essid);
 
     const response = await handleSnmpWalk(
       await signedWalk(identity, { essid, target_ip: host.ip, community: 'corpnet' }),
@@ -363,7 +383,7 @@ describe('walking a device with its read-write community', () => {
     const identity = generateIdentity();
     const essid = CANDIDATE_ESSIDS[0]!;
     const gateway = apGatewayOn(essid);
-    const { deps } = makeDeps(answering('corpnet'));
+    const { deps } = makeDeps(answering('corpnet'), essid);
 
     const response = await handleSnmpWalk(
       await signedWalk(identity, { essid, target_ip: gateway.ip }),
@@ -381,7 +401,7 @@ describe('walking a device with its read-write community', () => {
     const identity = generateIdentity();
     const essid = CANDIDATE_ESSIDS[0]!;
     const gateway = apGatewayOn(essid);
-    const { deps, upsertPatch } = makeDeps(answering('corpnet'));
+    const { deps, upsertPatch } = makeDeps(answering('corpnet'), essid);
 
     await handleSnmpWalk(
       await signedWalk(identity, { essid, target_ip: gateway.ip, community: 'corpnet' }),
@@ -399,7 +419,7 @@ describe('walking a device with a community it does not answer to', () => {
     const identity = generateIdentity();
     const essid = CANDIDATE_ESSIDS[0]!;
     const gateway = apGatewayOn(essid);
-    const { deps } = makeDeps();
+    const { deps } = makeDeps({}, essid);
 
     const [refused, absent] = await Promise.all([
       handleSnmpWalk(
@@ -421,7 +441,7 @@ describe('walking a device with a community it does not answer to', () => {
     const identity = generateIdentity();
     const essid = CANDIDATE_ESSIDS[0]!;
     const gateway = apGatewayOn(essid);
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, upsertPatch } = makeDeps({}, essid);
 
     await handleSnmpWalk(
       await signedWalk(identity, { essid, target_ip: gateway.ip, community: 'private' }),
@@ -431,7 +451,7 @@ describe('walking a device with a community it does not answer to', () => {
     // A refusal that left nothing behind would make a sweep free, and this log is the
     // only tell the owner of a device ever gets.
     expect(upsertPatch.mock.calls[0]![0]).toMatchObject({
-      content: loggedLines('failure', gateway.hostname),
+      content: loggedLines('failure', gateway.hostname, homeSourceOn(essid)),
     });
   });
 });
@@ -446,7 +466,7 @@ describe('walking a device that answers to nobody', () => {
         data: [patchRow('/etc/snmp/snmpd.conf', '# blanked by whoever owns this box')],
         error: null,
       }),
-    });
+    }, essid);
 
     const response = await handleSnmpWalk(
       await signedWalk(identity, { essid, target_ip: gateway.ip }),
@@ -467,7 +487,7 @@ describe('walking a gateway whose network was never registered', () => {
     const gateway = apGatewayOn(essid);
     const { deps } = makeDeps({
       findPublicIpByEssid: async () => ({ data: null, error: null }),
-    });
+    }, essid);
 
     const response = await handleSnmpWalk(
       await signedWalk(identity, { essid, target_ip: gateway.ip }),
@@ -487,7 +507,7 @@ describe('the envelope a walk arrives in', () => {
   it('refuses a request nobody signed', async () => {
     const essid = CANDIDATE_ESSIDS[0]!;
     const gateway = apGatewayOn(essid);
-    const { deps } = makeDeps();
+    const { deps } = makeDeps({}, essid);
 
     const response = await handleSnmpWalk(
       {
@@ -495,7 +515,7 @@ describe('the envelope a walk arrives in', () => {
         essid,
         target_ip: gateway.ip,
         community: 'public',
-        source_ip: CLIENT_IP,
+        source_ip: '192.168.1.50',
       },
       deps,
     );
@@ -511,7 +531,7 @@ describe('the envelope a walk arrives in', () => {
     const identity = generateIdentity();
     const essid = CANDIDATE_ESSIDS[0]!;
     const gateway = apGatewayOn(essid);
-    const { deps } = makeDeps();
+    const { deps } = makeDeps({}, essid);
 
     const response = await handleSnmpWalk(
       // Signed by a real key and still refused: a signature says who sent it, never that
@@ -519,7 +539,7 @@ describe('the envelope a walk arrives in', () => {
       await signRequest(identity, 'snmpWalk', {
         essid,
         target_ip: gateway.ip,
-        source_ip: CLIENT_IP,
+        source_ip: '192.168.1.50',
       }),
       deps,
     );
@@ -532,14 +552,14 @@ describe('the envelope a walk arrives in', () => {
     const identity = generateIdentity();
     const essid = CANDIDATE_ESSIDS[0]!;
     const gateway = apGatewayOn(essid);
-    const { deps } = makeDeps();
+    const { deps } = makeDeps({}, essid);
 
     const response = await handleSnmpWalk(
       await signRequest(identity, 'snmpWalk', {
         essid,
         target_ip: gateway.ip,
         community: 'public',
-        source_ip: CLIENT_IP,
+        source_ip: '192.168.1.50',
         player_key: generateIdentity().publicKeyHex,
       }),
       deps,
@@ -562,7 +582,7 @@ describe('walking a device whose agent is not running', () => {
         data: [patchRow(pidfilePath(SERVICE_CATALOG.snmp), null)],
         error: null,
       }),
-    });
+    }, essid);
 
     const response = await handleSnmpWalk(
       await signedWalk(identity, { essid, target_ip: gateway.ip }),
@@ -605,7 +625,7 @@ describe('a device that filters the port its agent answers on', () => {
 
     const filtered = makeDeps(
       answeringWith('corpnet', `deny ${SERVICE_CATALOG.snmp.defaultPort}\n`),
-    );
+    essid);
     const walked = await handleSnmpWalk(
       await signedWalk(identity, { essid, target_ip: gateway.ip, community: 'corpnet' }),
       filtered.deps,
@@ -619,7 +639,7 @@ describe('a device that filters the port its agent answers on', () => {
         ],
         error: null,
       }),
-    });
+    }, essid);
     const silent = await handleSnmpWalk(
       await signedWalk(identity, { essid, target_ip: gateway.ip, community: 'corpnet' }),
       stopped.deps,
@@ -640,7 +660,7 @@ describe('a device that filters the port its agent answers on', () => {
     const gateway = apGatewayOn(essid);
     const { deps, upsertPatch } = makeDeps(
       answeringWith('corpnet', `deny ${SERVICE_CATALOG.snmp.defaultPort}\n`),
-    );
+    essid);
 
     await handleSnmpWalk(
       await signedWalk(identity, { essid, target_ip: gateway.ip, community: 'corpnet' }),
@@ -656,7 +676,7 @@ describe('a device that filters the port its agent answers on', () => {
     const identity = generateIdentity();
     const essid = CANDIDATE_ESSIDS[0]!;
     const gateway = apGatewayOn(essid);
-    const { deps } = makeDeps(answeringWith('corpnet', 'deny 8080\n'));
+    const { deps } = makeDeps(answeringWith('corpnet', 'deny 8080\n'), essid);
 
     const response = await handleSnmpWalk(
       await signedWalk(identity, { essid, target_ip: gateway.ip, community: 'corpnet' }),
@@ -696,7 +716,7 @@ describe("whose row a gateway's own log accretes under", () => {
     const identity = generateIdentity();
     const essid = CANDIDATE_ESSIDS[0]!;
     const gateway = apGatewayOn(essid);
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, upsertPatch } = makeDeps({}, essid);
 
     await handleSnmpWalk(await signedWalk(identity, { essid, target_ip: gateway.ip }), deps);
 
@@ -715,7 +735,7 @@ describe("whose row a gateway's own log accretes under", () => {
     // before is simply gone.
     const identity = generateIdentity();
     const { essid, host } = deviceOfKind('switch');
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, upsertPatch } = makeDeps({}, essid);
 
     await handleSnmpWalk(await signedWalk(identity, { essid, target_ip: host.ip }), deps);
 
@@ -807,7 +827,7 @@ describe('the agent a player installed, walked by a neighbour', () => {
         ],
         error: null,
       }),
-    });
+    }, essid);
 
     const response = await handleSnmpWalk(
       await signedWalk(neighbour, { essid, target_ip: ownerIp }),
@@ -836,3 +856,86 @@ describe('the agent a player installed, walked by a neighbour', () => {
     });
   });
 });
+
+/**
+ * A caller standing on a hop rather than on their own WiFi. The server derives where
+ * they stand from the session they hold on the box they name — never from the essid the
+ * request carries — and a walk that names a network they are not on, or a box they hold
+ * no shell on, is refused before any device is reached.
+ */
+describe('walking from a hop', () => {
+  const shellOn = (essid: string): Partial<SnmpWalkDeps> => ({
+    findActiveSession: async () => ({
+      data: { username: 'root', userType: 'root', essid },
+      error: null,
+    }),
+    findHomeVantage: async () => ({ data: null, error: null }),
+  });
+
+  it('records a LAN walk from the hop box address, not the player home', async () => {
+    const identity = generateIdentity();
+    const essid = CANDIDATE_ESSIDS[0]!;
+    const gateway = apGatewayOn(essid);
+    // Standing on another LAN box on this ESSID: a generated host whose own address the
+    // walked device records as the source.
+    const hop = deviceOfKind('switch').essid === essid ? deviceOfKind('switch').host : gateway;
+    const hopMachineId = resolveLanHostIdentity(hop, essid).machineId;
+    const { deps, upsertPatch } = makeDeps(
+      { ...shellOn(essid), findHomeVantage: async () => ({ data: null, error: null }) },
+      essid,
+    );
+
+    await handleSnmpWalk(
+      await signRequestHop(identity, essid, gateway.ip, hopMachineId),
+      deps,
+    );
+
+    expect(upsertPatch.mock.calls[0]![0].content).toContain(`[${hop.ip}]`);
+  });
+
+  it('refuses a walk naming a network the caller is not standing on', async () => {
+    const identity = generateIdentity();
+    const essid = CANDIDATE_ESSIDS[0]!;
+    const gateway = apGatewayOn(essid);
+    const { deps, upsertPatch } = makeDeps(shellOn('SOME-OTHER-WIFI'), essid);
+
+    const response = await handleSnmpWalk(
+      await signRequestHop(identity, essid, gateway.ip, 'a-box-on-another-net'),
+      deps,
+    );
+
+    expect(response).toEqual({ status: 403, body: { error: 'wrong_network' } });
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
+  it('refuses a walk from a box the caller holds no shell on', async () => {
+    const identity = generateIdentity();
+    const essid = CANDIDATE_ESSIDS[0]!;
+    const gateway = apGatewayOn(essid);
+    const { deps, upsertPatch } = makeDeps(
+      { findActiveSession: async () => ({ data: null, error: null }), findHomeVantage: async () => ({ data: null, error: null }) },
+      essid,
+    );
+
+    const response = await handleSnmpWalk(
+      await signRequestHop(identity, essid, gateway.ip, 'a-box-i-do-not-hold'),
+      deps,
+    );
+
+    expect(response).toEqual({ status: 403, body: { error: 'no_session' } });
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+});
+
+const signRequestHop = (
+  identity: ReturnType<typeof generateIdentity>,
+  essid: string,
+  targetIp: string,
+  callerMachineId: string,
+) =>
+  signRequest(identity, 'snmpWalk', {
+    essid,
+    target_ip: targetIp,
+    community: 'public',
+    caller_machine_id: callerMachineId,
+  });

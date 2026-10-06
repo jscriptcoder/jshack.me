@@ -35,6 +35,7 @@ import { verifySignedRequest } from '../signedRequest/verify.js';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
 import { md5 } from '../generation/md5.js';
 import { reachServiceHost, type HandlerResponse, type ServiceHostLookup } from './serviceHost.js';
+import { resolveCallerVantageOn, type CallerVantageDeps } from './callerVantage.js';
 import { credentialIn, databaseNameIn } from '../mysql/datadir.js';
 import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
 import { derivePid } from '../logging/syslog.js';
@@ -45,7 +46,8 @@ import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appen
 import type { PatchRow } from '../patches/upsertPatch.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 
-export type MysqlConnectDeps = ServiceHostLookup & {
+export type MysqlConnectDeps = ServiceHostLookup &
+  CallerVantageDeps & {
   readonly nonceStore: NonceStore;
   /** The server's wall clock, epoch-ms (UTC) — stamps the mysql.log line. */
   readonly now: () => number;
@@ -70,6 +72,11 @@ const mysqlConnectSchema = z
     port: z.number().int().positive(),
     username: z.string().min(1),
     password: z.string(),
+    // The box the shell stands on — the server reads WHERE the caller is from it and
+    // derives the source address itself. Absent means the caller's own workstation.
+    caller_machine_id: z.string().min(1).optional(),
+    // Still accepted so an older caller does not 400, but never read: the source address
+    // is the vantage's, never a claim.
     source_ip: z.string().min(1).nullable().optional(),
   })
   .refine((payload) => !('player_key' in payload));
@@ -131,12 +138,25 @@ export const handleMysqlConnect = async (
   }
   const { publicKey, payload } = verified;
 
+  // Where the caller is STANDING, derived from the session they hold on the box they
+  // name (or their own occupancy when they name none) — never from a claim. A login
+  // naming a network the caller is not on is refused before anything is reached.
+  const vantage = await resolveCallerVantageOn(
+    deps,
+    publicKey,
+    payload.caller_machine_id,
+    payload.essid,
+  );
+  if (!vantage.ok) return { status: vantage.status, body: { error: vantage.error } };
+
   // Shared with the statement door, so a login and the queries behind it can never
   // disagree about whether the box is up or the daemon is listening. A stopped
   // daemon's log stays exactly as this request found it.
   const reach = await reachServiceHost(deps, {
-    essid: payload.essid,
+    essid: vantage.essid,
     targetIp: payload.target_ip,
+    callerMachineId: payload.caller_machine_id,
+    ownLanSourceIp: vantage.sourceIp,
     port: payload.port,
     service: SERVICE_CATALOG.mysql.service,
     actorKey: publicKey,
@@ -150,13 +170,12 @@ export const handleMysqlConnect = async (
   // The host is resolved by now, so the attempt CAN be recorded — the daemon writes
   // up accepted and refused connections alike. (A refusal above logs nothing: there
   // is no machine, or no daemon, to log on.)
-  // The ROUTE decides the address whenever it can: through a forward the box has only
-  // ever seen the fronting gateway's `.1`, whoever is behind it, so echoing the caller's
-  // claim would write a line no daemon could have produced. On the caller's own LAN the
-  // route knows nothing and the claim stands. ONE value, used for both the line written
-  // here and the refusal handed back, so what the player reads and what the defender
-  // finds cannot be different addresses for the same attempt.
-  const fromIp = sourceIp ?? payload.source_ip ?? 'unknown';
+  // The address the box saw, server-derived at the vantage: the hop's own LAN address,
+  // the layer address down a chain, the gateway's `.1` through a forward, or the hop
+  // network's public IP across the world. ONE value, used for both the line written here
+  // and the refusal handed back, so what the player reads and what the defender finds
+  // cannot be different addresses for the same attempt.
+  const fromIp = sourceIp ?? 'unknown';
 
   await recordAttempt(deps, {
     // The TARGET's key once the box has an owner: the system owns its logs, so every

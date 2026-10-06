@@ -7,14 +7,15 @@
  */
 
 import { generateHomeLan } from '../generation/generateHomeLan.js';
-import { connectedWlan0 } from '../network/interfaces.js';
 import { forwardsIntoDeepLayer, resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
 import { isPublicIp } from '../generation/ip.js';
 import { readOpenPorts } from '../services/pidfile.js';
 import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
 import { connectOwnDatabase, ownDaemonListening } from './mysqlOwnBox.js';
-import { ownBoxSource } from '../network/interfaces.js';
+import { ownBoxSource, LOOPBACK_IPV4, LOOPBACK_NAMES } from '../network/interfaces.js';
+import { vantageOf } from '../network/vantage.js';
 import type { Command, CommandEnv, CommandResult, TerminalLine } from './types.js';
+import type { MachineId } from '../types.js';
 
 const USAGE = 'usage: mysql [-p port] <host> [user]';
 
@@ -113,7 +114,7 @@ const openDatabase = async (
     address,
     port,
     essid,
-    sourceIp,
+    callerMachineId,
     named,
     own,
   }: {
@@ -124,7 +125,9 @@ const openDatabase = async (
     readonly address: string;
     readonly port: number;
     readonly essid: string;
-    readonly sourceIp: string;
+    /** The box the shell stands on, re-sent with every statement so the server places
+     *  the caller the same way each time and drops the prompt once that shell is gone. */
+    readonly callerMachineId: MachineId;
     readonly named: string | undefined;
     /** Their own box, whose whole conversation stays on this client. */
     readonly own: boolean;
@@ -138,13 +141,15 @@ const openDatabase = async (
   // filesystem structurally rather than by a rule somebody has to keep. The PORT rides
   // along with it, so each statement re-resolves the same forward the login came
   // through, and a forward pulled out from under the player drops them on the next one.
+  // The caller's box rides along too, so each statement is placed from where it still
+  // stands.
   const connection = {
     essid,
     targetIp: address,
     port,
     username: credential.username,
     password: credential.password,
-    sourceIp,
+    callerMachineId,
   };
   // ONE line of difference between the two vantages, and it is only about where the
   // answer is worked out. Everything around it -- the prompts, the greeting, the
@@ -231,7 +236,7 @@ const preflightRefusal = async (
   // A fellow occupant of this ESSID is reached DIRECTLY over the shared LAN. Asked
   // after the two vantages above because those need no lookup at all, and the answer
   // is the server's either way: what is behind a neighbour's address is theirs.
-  const occupants = await env.scan.resolveOccupants(target.essid);
+  const occupants = await env.scan.resolveOccupants(target.essid, env.session.machineId);
   if (occupants.some((occupant) => occupant.localIp === target.typed)) return null;
 
   return lanReach(target.essid, target.typed, target.port);
@@ -244,25 +249,43 @@ const execute: Command['execute'] = async (env, args, flags) => {
   const port = parsePort(flags.get('-p'));
   if (port === null) return errorResult(USAGE);
 
-  // One question, four ways to answer no — and the address comes back with it, so
-  // the refusal below can name what the daemon would have seen without a fallback
-  // for an address that cannot be missing by the time we are here.
-  const wlan0 = connectedWlan0(env.network);
-  if (wlan0 === null) return unreachable(target, port, 'Network is unreachable');
-  const essid = wlan0.association.essid;
+  // Where the shell stands: the hop on top of the stack and its network, or the
+  // player's own WiFi on their own box. The radio stays with the body; a database door
+  // follows the shell.
+  const vantage = vantageOf(env.session, env.network);
+  if (vantage === null) return unreachable(target, port, 'Network is unreachable');
+  const essid = vantage.essid;
 
-  const ownSource = ownBoxSource({ target, ownIp: wlan0.ipv4 });
-  const refusal = await preflightRefusal(env, { typed: target, port, essid, ownSource });
+  // The client answers the OWN box itself only at home, where `env.fs` IS that box: on a
+  // hop the box is the shell's remote one, whose live datadir only the server can read,
+  // so `localhost` there is sent on as 127.0.0.1 for the server to resolve to it.
+  const ownSource =
+    vantage.kind === 'home' ? ownBoxSource({ target, ownIp: vantage.address }) : null;
+  const serverTarget =
+    vantage.kind === 'hop' && LOOPBACK_NAMES.includes(target) ? LOOPBACK_IPV4 : target;
+
+  // The client settles reachability for itself only in the world it regenerates whole —
+  // its own LAN at home. On a hop the box's LAN, its deep layers and its occupants are
+  // the server's to resolve, so a target there is sent on rather than refused from a
+  // world this side cannot see; the player is told at the socket, as a real client is.
+  const refusal =
+    vantage.kind === 'home'
+      ? await preflightRefusal(env, { typed: target, port, essid, ownSource })
+      : null;
   if (refusal !== null) return refusal;
 
   return openDatabase(env, {
     typed: target,
-    // Their own box is held under the address it was LEASED, whichever of its three
-    // names they reached it by, so every statement after this re-resolves one machine.
-    address: ownSource === null ? target : wlan0.ipv4,
+    // Their own box is held under the address they reached it BY — loopback or their own
+    // LAN address — because that client-side path reads its own filesystem rather than
+    // routing on the address, and the address is only what its own log records. A target
+    // off their own box is held under what the server will route on.
+    address: ownSource === null ? serverTarget : ownSource,
     port,
     essid,
-    sourceIp: ownSource ?? wlan0.ipv4,
+    // The box the door ran from; the server places the caller by it and derives the
+    // source address itself.
+    callerMachineId: env.session.machineId,
     named: args[1],
     own: ownSource !== null,
   });
@@ -281,11 +304,13 @@ export const mysql: Command = {
   manual: {
     synopsis: 'mysql [-p port] <host> [user]',
     description:
-      'Open a database on a remote host running a MySQL server. The account is the ' +
-      "DATABASE's own, not the machine's — a box's shell users mean nothing here, and " +
-      'a login grants no access to its files. Prompts for the password and, on success, ' +
-      'leaves you at a "mysql>" prompt where every line you type is SQL. Your shell ' +
-      'stays exactly where it was — "quit" hands it straight back.',
+      'Open a database on a host running a MySQL server, on the network you are on — ' +
+      'your own at home, or the network of a box you have a shell on, "localhost" for ' +
+      "that box's own. The account is the DATABASE's own, not the machine's — a box's " +
+      "shell users mean nothing here, and a login grants no access to its files. " +
+      'Prompts for the password and, on success, leaves you at a "mysql>" prompt where ' +
+      'every line you type is SQL. Your shell stays exactly where it was — "quit" hands ' +
+      'it straight back.',
     arguments: [
       { name: 'host', description: 'The host IP to connect to, e.g. 192.168.1.5', required: true },
       {

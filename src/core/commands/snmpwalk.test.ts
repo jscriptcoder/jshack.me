@@ -3,11 +3,12 @@ import { snmpwalk } from './snmpwalk.js';
 import {
   mockCommandEnv,
   mockNetworkViewFromConnectivity,
+  mockSession,
   mockSnmpApi,
 } from '../../test/factories/commandEnv.js';
 import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces.js';
 import { assignHomeNetwork } from '../network/homeNetwork.js';
-import { asPlayerKeyHex } from '../types.js';
+import { asMachineId, asPlayerKeyHex } from '../types.js';
 import type { CommandEnv, CommandResult, SnmpApi, SnmpWalkResult } from './types.js';
 
 /**
@@ -107,7 +108,7 @@ describe('walking a device that answers', () => {
       essid: ESSID,
       targetIp: GATEWAY_IP,
       community: 'public',
-      sourceIp: assignHomeNetwork(PUBKEY, ESSID).localIp,
+      callerMachineId: asMachineId('localhost'),
     });
   });
 
@@ -232,5 +233,27 @@ describe('naming a device behind a gateway', () => {
 
     const silent = sync(await run(onLan({ walk: async () => ({ ok: false }) }), ['10.0.0.7:2222']));
     expect(silent.lines[0]?.content).toBe('Timeout: No Response from 10.0.0.7:2222');
+  });
+});
+
+describe('walking from a hop', () => {
+  it('walks the hop network from the hop box, whatever the home card is doing', async () => {
+    const walk = vi.fn<SnmpApi['walk']>(async () => ANSWERED);
+    // Standing in a shell on `hop-box` on another network; the player's own WiFi is
+    // still associated to ESSID and does not matter at all.
+    const env = mockCommandEnv({
+      network: mockNetworkViewFromConnectivity(onlineConnectivity(ESSID)),
+      snmp: mockSnmpApi({ walk }),
+      session: mockSession({ essid: 'HOP-NET', machineId: asMachineId('hop-box') }),
+    });
+
+    await snmpwalk.execute(env, [GATEWAY_IP], new Map());
+
+    expect(walk).toHaveBeenCalledWith({
+      essid: 'HOP-NET',
+      targetIp: GATEWAY_IP,
+      community: 'public',
+      callerMachineId: asMachineId('hop-box'),
+    });
   });
 });

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
+import { derivedPublicIpByEssid } from '../logging/crossPlayerSourceIp.js';
 import { handleSnmpSet, type SnmpSetDeps } from './snmpSet.js';
 import { signRequest } from '../signedRequest/sign.js';
 import { generateIdentity } from '../identity/identity.js';
@@ -41,8 +42,29 @@ import type { NonceStore } from '../signedRequest/nonceStore.js';
 const freshStore: NonceStore = async () => ({ fresh: true });
 // 2026-08-09 11:04:07 UTC — the server clock every log line here is stamped with.
 const FIXED_NOW = Date.UTC(2026, 7, 9, 11, 4, 7);
+// A sentinel address the client might once have claimed. The server now derives the
+// source from the vantage and never reads it, so it stands only as a value that must
+// NOT appear in a log the server wrote.
 const CLIENT_IP = '192.168.1.50';
 const RW_COMMUNITY = 'corpnet';
+
+/** The octet the player holds at home; the source a device records for a pre-hop set is
+ *  `lanAddressFor(<the set's essid>, HOME_OCTET)`, derived server-side. */
+const HOME_OCTET = 50;
+const homeSourceOn = (essid: string): string => lanAddressFor(essid, HOME_OCTET);
+const HOME_IP = homeSourceOn('BEAN-THERE-WIFI');
+
+/** The caller standing on `essid` at home — the vantage the server derives for a
+ *  pre-hop set, which must match the network the request names. `octet` null is an
+ *  occupant holding no lease, logged from an unknown address. */
+const homeOn = (
+  essid: string,
+  octet: number | null = HOME_OCTET,
+): Pick<SnmpSetDeps, 'findActiveSession' | 'findHomeVantage' | 'findWorkstationLease'> => ({
+  findActiveSession: async () => ({ data: null, error: null }),
+  findHomeVantage: async () => ({ data: { essid, octet }, error: null }),
+  findWorkstationLease: async () => ({ data: null, error: null }),
+});
 
 import { ownAgentCommunity } from '../snmp/ownAgent.js';
 import { SNMPD_CONF_PATH, SNMPD_CONF_SEED } from '../snmp/conf.js';
@@ -100,7 +122,7 @@ const answering = (...files: readonly OwnerPatchRow[]): Partial<SnmpSetDeps> => 
   }),
 });
 
-const makeDeps = (over: Partial<SnmpSetDeps> = {}) => {
+const makeDeps = (over: Partial<SnmpSetDeps> = {}, homeEssid: string = 'BEAN-THERE-WIFI') => {
   const findPatches = vi.fn<SnmpSetDeps['findPatches']>(async () => ({ data: [], error: null }));
   const upsertPatch = vi.fn<(row: PatchRow) => Promise<{ error: unknown }>>(async () => ({
     error: null,
@@ -118,6 +140,12 @@ const makeDeps = (over: Partial<SnmpSetDeps> = {}) => {
     listOccupantsByEssid: async () => ({ data: [], error: null }),
     listLeasesByEssid: async () => ({ data: [], error: null }),
     findHomeNetworkByOwnerKey: async () => ({ data: null, error: null }),
+    // The real pure derivation: the public address of the network the caller is placed
+    // on, which a hop reach to a public target is seen from.
+    findPublicIpByEssid: derivedPublicIpByEssid,
+    // Home on the network they set on unless a test says otherwise — the server derives
+    // the vantage from this, never from the request's essid.
+    ...homeOn(homeEssid),
     ...over,
   };
   return { deps, findPatches, readSnmpdLog, upsertPatch };
@@ -165,7 +193,7 @@ describe('opening a port on a router', () => {
     const essid = CANDIDATE_ESSIDS[0]!;
     const gateway = apGatewayOn(essid);
     const workstation = onSegment(essid, 10);
-    const { deps, upsertPatch } = makeDeps(answering());
+    const { deps, upsertPatch } = makeDeps(answering(), essid);
 
     const response = await handleSnmpSet(
       await signedSet(identity, {
@@ -189,7 +217,7 @@ describe('opening a port on a router', () => {
     const identity = generateIdentity();
     const essid = CANDIDATE_ESSIDS[0]!;
     const gateway = apGatewayOn(essid);
-    const { deps, upsertPatch } = makeDeps(answering());
+    const { deps, upsertPatch } = makeDeps(answering(), essid);
 
     await handleSnmpSet(
       await signedSet(identity, {
@@ -220,7 +248,7 @@ describe('opening a port on a router', () => {
     const gateway = apGatewayOn(essid);
     const { deps, upsertPatch } = makeDeps(
       answering(patchRow(RULES_V4_PATH, '# my rules\nforward 8080 to 10.0.0.9:80\n')),
-    );
+    essid);
 
     await handleSnmpSet(
       await signedSet(identity, {
@@ -242,7 +270,7 @@ describe('opening a port on a router', () => {
     const gateway = apGatewayOn(essid);
     const { deps, upsertPatch } = makeDeps(
       answering(patchRow(RULES_V4_PATH, `forward 2222 to ${onSegment(essid, 9)}:22\n`)),
-    );
+    essid);
 
     const response = await handleSnmpSet(
       await signedSet(identity, {
@@ -272,7 +300,7 @@ describe('opening a port on a router', () => {
     const gateway = apGatewayOn(essid);
     const { deps, upsertPatch } = makeDeps(
       answering(patchRow(RULES_V4_PATH, `forward 2222 to ${onSegment(essid, 9)}:22\n`)),
-    );
+    essid);
 
     const response = await handleSnmpSet(
       await signedSet(identity, { essid, target_ip: gateway.ip, assignment: 'forward.2222=none' }),
@@ -289,7 +317,7 @@ describe('filtering a port on a switch', () => {
     const identity = generateIdentity();
     const { essid, host } = switchRunningAgent();
 
-    const shut = makeDeps(answering());
+    const shut = makeDeps(answering(), essid);
     const shutResponse = await handleSnmpSet(
       await signedSet(identity, { essid, target_ip: host.ip, assignment: 'aclPort.22=deny' }),
       shut.deps,
@@ -298,7 +326,7 @@ describe('filtering a port on a switch', () => {
     expect(shutResponse.body).toEqual({ ok: true, oid: 'aclPort.22', value: 'deny' });
     expect(writtenTo(shut.upsertPatch, ACL_CONF_PATH)?.content).toContain('deny 22');
 
-    const open = makeDeps(answering());
+    const open = makeDeps(answering(), essid);
     const openResponse = await handleSnmpSet(
       await signedSet(identity, { essid, target_ip: host.ip, assignment: 'aclPort.8080=permit' }),
       open.deps,
@@ -316,7 +344,7 @@ describe('what an agent refuses once the community is accepted', () => {
     const identity = generateIdentity();
     const essid = CANDIDATE_ESSIDS[0]!;
     const gateway = apGatewayOn(essid);
-    const { deps, upsertPatch } = makeDeps(answering());
+    const { deps, upsertPatch } = makeDeps(answering(), essid);
 
     const response = await handleSnmpSet(
       await signedSet(identity, {
@@ -350,13 +378,13 @@ describe('what an agent refuses once the community is accepted', () => {
     const gateway = apGatewayOn(essid);
     const onSwitch = switchRunningAgent();
 
-    const router = makeDeps(answering());
+    const router = makeDeps(answering(), essid);
     const atRouter = await handleSnmpSet(
       await signedSet(identity, { essid, target_ip: gateway.ip, assignment: 'aclPort.22=deny' }),
       router.deps,
     );
 
-    const switched = makeDeps(answering());
+    const switched = makeDeps(answering(), essid);
     const atSwitch = await handleSnmpSet(
       await signedSet(identity, {
         essid: onSwitch.essid,
@@ -392,7 +420,7 @@ describe('what an agent refuses once the community is accepted', () => {
     const identity = generateIdentity();
     const essid = CANDIDATE_ESSIDS[0]!;
     const gateway = apGatewayOn(essid);
-    const { deps, upsertPatch } = makeDeps(answering());
+    const { deps, upsertPatch } = makeDeps(answering(), essid);
 
     const response = await handleSnmpSet(
       await signedSet(identity, { essid, target_ip: gateway.ip, assignment: 'sysDescr.0=hello' }),
@@ -417,7 +445,7 @@ describe('what an agent refuses once the community is accepted', () => {
     const identity = generateIdentity();
     const essid = CANDIDATE_ESSIDS[0]!;
     const gateway = apGatewayOn(essid);
-    const { deps, upsertPatch } = makeDeps(answering());
+    const { deps, upsertPatch } = makeDeps(answering(), essid);
     // The /24 next door — same leading characters, different network. A bound compared
     // on anything but whole octets would wave this through, and the forward would sit in
     // the file naming a host on somebody else's segment.
@@ -452,7 +480,7 @@ describe('what an agent refuses once the community is accepted', () => {
     const identity = generateIdentity();
     const essid = CANDIDATE_ESSIDS[0]!;
     const gateway = apGatewayOn(essid);
-    const { deps, upsertPatch } = makeDeps(answering());
+    const { deps, upsertPatch } = makeDeps(answering(), essid);
 
     const response = await handleSnmpSet(
       await signedSet(identity, {
@@ -487,8 +515,8 @@ describe('what an agent answers before the community is accepted', () => {
     const identity = generateIdentity();
     const essid = CANDIDATE_ESSIDS[0]!;
     const gateway = apGatewayOn(essid);
-    const refused = makeDeps(answering());
-    const absent = makeDeps(answering());
+    const refused = makeDeps(answering(), essid);
+    const absent = makeDeps(answering(), essid);
 
     const [wrongString, noDevice] = await Promise.all([
       handleSnmpSet(
@@ -533,7 +561,7 @@ describe('what an agent answers before the community is accepted', () => {
         ],
         error: null,
       }),
-    });
+    }, essid);
 
     const response = await handleSnmpSet(
       await signedSet(identity, { essid, target_ip: gateway.ip, assignment: 'forward.2222=none' }),
@@ -557,7 +585,7 @@ describe('what a set leaves on the device', () => {
     const workstation = onSegment(essid, 10);
     const { deps, upsertPatch } = makeDeps(
       answering(patchRow(RULES_V4_PATH, `forward 2222 to ${onSegment(essid, 9)}:22\n`)),
-    );
+    essid);
 
     await handleSnmpSet(
       await signedSet(identity, {
@@ -572,11 +600,11 @@ describe('what a set leaves on the device', () => {
     // is what they changed. Separate appends would be separate read-modify-writes
     // racing over one file.
     const logged = writtenTo(upsertPatch, SNMPD_LOG_PATH)?.content ?? '';
-    expect(logged).toContain('Connection from UDP: [192.168.1.50]');
-    expect(logged).toContain('Authentication succeeded from UDP: [192.168.1.50]');
+    expect(logged).toContain(`Connection from UDP: [${HOME_IP}]`);
+    expect(logged).toContain(`Authentication succeeded from UDP: [${HOME_IP}]`);
     expect(logged).toContain(
       `SET forward.2222 = ${onSegment(essid, 9)}:22 -> ${workstation}:22 ` +
-        'from UDP: [192.168.1.50]',
+        `from UDP: [${HOME_IP}]`,
     );
   });
 
@@ -584,7 +612,7 @@ describe('what a set leaves on the device', () => {
     const identity = generateIdentity();
     const essid = CANDIDATE_ESSIDS[0]!;
     const gateway = apGatewayOn(essid);
-    const { deps, upsertPatch } = makeDeps(answering());
+    const { deps, upsertPatch } = makeDeps(answering(), essid);
 
     await handleSnmpSet(
       await signedSet(identity, { essid, target_ip: gateway.ip, assignment: 'forward.9999=none' }),
@@ -592,7 +620,7 @@ describe('what a set leaves on the device', () => {
     );
 
     expect(writtenTo(upsertPatch, SNMPD_LOG_PATH)?.content).toContain(
-      'SET forward.9999 = none -> none from UDP: [192.168.1.50]',
+      `SET forward.9999 = none -> none from UDP: [${HOME_IP}]`,
     );
   });
 
@@ -600,7 +628,7 @@ describe('what a set leaves on the device', () => {
     const identity = generateIdentity();
     const essid = CANDIDATE_ESSIDS[0]!;
     const gateway = apGatewayOn(essid);
-    const { deps, upsertPatch } = makeDeps(answering());
+    const { deps, upsertPatch } = makeDeps(answering(), essid);
 
     await handleSnmpSet(
       await signedSet(identity, {
@@ -634,7 +662,7 @@ forward 2222 to ${onSegment(essid, 9)}:22
 `,
         ),
       ),
-    );
+    essid);
 
     await handleSnmpSet(
       await signedSet(identity, {
@@ -656,7 +684,7 @@ forward 2222 to ${onSegment(essid, 9)}:22
   it('reads the old value off the file that device actually keeps', async () => {
     const identity = generateIdentity();
     const { essid, host } = switchRunningAgent();
-    const { deps, upsertPatch } = makeDeps(answering());
+    const { deps, upsertPatch } = makeDeps(answering(), essid);
 
     await handleSnmpSet(
       await signedSet(identity, { essid, target_ip: host.ip, assignment: 'aclPort.8080=permit' }),
@@ -675,7 +703,7 @@ forward 2222 to ${onSegment(essid, 9)}:22
     const identity = generateIdentity();
     const essid = CANDIDATE_ESSIDS[0]!;
     const gateway = apGatewayOn(essid);
-    const { deps, upsertPatch } = makeDeps(answering());
+    const { deps, upsertPatch } = makeDeps({ ...answering(), ...homeOn(essid, null) }, essid);
 
     await handleSnmpSet(
       await signRequest(identity, 'snmpSet', {
@@ -683,14 +711,13 @@ forward 2222 to ${onSegment(essid, 9)}:22
         target_ip: gateway.ip,
         community: RW_COMMUNITY,
         assignment: `forward.2222=${onSegment(essid, 10)}:22`,
-        source_ip: null,
       }),
       deps,
     );
 
-    // On the caller's own LAN the route knows no address and the client claimed none.
-    // A blank or invented one would be worse than an honest gap: a defender's log is
-    // evidence, and a false address in it is worse than no address at all.
+    // The caller occupies the network but holds no lease, so the server can place them
+    // on it but not at an address. A blank or invented one would be worse than an honest
+    // gap: a defender's log is evidence, and a false address in it is worse than none.
     expect(writtenTo(upsertPatch, SNMPD_LOG_PATH)?.content).toContain('from UDP: [unknown]');
   });
 
@@ -698,7 +725,7 @@ forward 2222 to ${onSegment(essid, 9)}:22
     const identity = generateIdentity();
     const essid = CANDIDATE_ESSIDS[0]!;
     const gateway = apGatewayOn(essid);
-    const { deps, upsertPatch } = makeDeps(answering());
+    const { deps, upsertPatch } = makeDeps(answering(), essid);
 
     const response = await handleSnmpSet(
       await signRequest(identity, 'snmpSet', {
@@ -725,7 +752,7 @@ forward 2222 to ${onSegment(essid, 9)}:22
     const identity = generateIdentity();
     const essid = CANDIDATE_ESSIDS[0]!;
     const gateway = apGatewayOn(essid);
-    const { deps, upsertPatch } = makeDeps(answering());
+    const { deps, upsertPatch } = makeDeps(answering(), essid);
 
     const response = await handleSnmpSet(
       // Signed by a real key and still refused. A signature says who sent it, never that
@@ -751,7 +778,7 @@ forward 2222 to ${onSegment(essid, 9)}:22
     const identity = generateIdentity();
     const essid = CANDIDATE_ESSIDS[0]!;
     const gateway = apGatewayOn(essid);
-    const { deps, upsertPatch } = makeDeps(answering());
+    const { deps, upsertPatch } = makeDeps(answering(), essid);
 
     await handleSnmpSet(
       await signedSet(identity, {
@@ -777,7 +804,7 @@ forward 2222 to ${onSegment(essid, 9)}:22
     const upsertPatch = vi.fn<(row: PatchRow) => Promise<{ error: unknown }>>(async (row) => ({
       error: row.path === RULES_V4_PATH ? new Error('journal down') : null,
     }));
-    const { deps } = makeDeps({ ...answering(), upsertPatch });
+    const { deps } = makeDeps({ ...answering(), upsertPatch }, essid);
 
     const response = await handleSnmpSet(
       await signedSet(identity, {
@@ -800,15 +827,15 @@ forward 2222 to ${onSegment(essid, 9)}:22
     expect(logged.split('\n').filter(Boolean)).toHaveLength(2);
   });
   it('records an unnamed source as unknown in BOTH the contact and the SET line', async () => {
-    // On the caller's own LAN the route knows nothing about the address, so the client's
-    // claim stands — and a client that claims nothing leaves the device a line with a
-    // hole in it. `unknown` says a visit happened from somewhere unstated; an empty
-    // bracket reads like a line the device failed to finish writing. Both lines say it,
-    // because they are written by two different calls and only agree on purpose.
+    // A caller who occupies the network but holds no lease can be placed on it, not at
+    // an address, so the device records the visit from `unknown`. `unknown` says a visit
+    // happened from somewhere unstated; an empty bracket reads like a line the device
+    // failed to finish writing. Both lines say it, because they are written by two
+    // different calls and only agree on purpose.
     const identity = generateIdentity();
     const essid = CANDIDATE_ESSIDS[0]!;
     const gateway = apGatewayOn(essid);
-    const { deps, upsertPatch } = makeDeps(answering());
+    const { deps, upsertPatch } = makeDeps({ ...answering(), ...homeOn(essid, null) }, essid);
 
     const response = await handleSnmpSet(
       await signedSetWithoutSource(identity, {
@@ -840,7 +867,7 @@ describe('closing a port on the box that answers', () => {
     const identity = generateIdentity();
     const essid = CANDIDATE_ESSIDS[0]!;
     const gateway = apGatewayOn(essid);
-    const { deps, upsertPatch } = makeDeps(answering());
+    const { deps, upsertPatch } = makeDeps(answering(), essid);
 
     const response = await handleSnmpSet(
       await signedSet(identity, {
@@ -863,7 +890,7 @@ describe('closing a port on the box that answers', () => {
     const essid = CANDIDATE_ESSIDS[0]!;
     const gateway = apGatewayOn(essid);
     const seeded = `# my rules\nforward 8080 to ${onSegment(essid, 9)}:80\n`;
-    const { deps, upsertPatch } = makeDeps(answering(patchRow(RULES_V4_PATH, seeded)));
+    const { deps, upsertPatch } = makeDeps(answering(patchRow(RULES_V4_PATH, seeded)), essid);
 
     await handleSnmpSet(
       await signedSet(identity, {
@@ -886,7 +913,7 @@ describe('closing a port on the box that answers', () => {
     const gateway = apGatewayOn(essid);
     const { deps, upsertPatch } = makeDeps(
       answering(patchRow(RULES_V4_PATH, '# my rules\ndeny 6379\n')),
-    );
+    essid);
 
     const response = await handleSnmpSet(
       await signedSet(identity, {
@@ -909,7 +936,7 @@ describe('closing a port on the box that answers', () => {
   it('refuses the filter OID on a switch, which keeps no such file', async () => {
     const identity = generateIdentity();
     const { essid, host } = switchRunningAgent();
-    const { deps, upsertPatch } = makeDeps(answering());
+    const { deps, upsertPatch } = makeDeps(answering(), essid);
 
     const response = await handleSnmpSet(
       await signedSet(identity, { essid, target_ip: host.ip, assignment: 'inputPort.22=deny' }),
@@ -1021,7 +1048,10 @@ describe("re-opening a port on a neighbour's own box", () => {
         data: [...defendedBox(owner.publicKeyHex, over.rules)],
         error: null,
       }),
-    });
+      // The neighbour stands at home on this WiFi, so the box records the LEASE the
+      // server issued THEM — the address A's machine would really have seen.
+      ...homeOn(essid, ownerOctet + 1),
+    }, essid);
     return {
       deps,
       upsertPatch,
@@ -1156,3 +1186,68 @@ describe("re-opening a port on a neighbour's own box", () => {
   });
 });
 
+
+/**
+ * A caller standing on a hop. The server derives where they stand from the session they
+ * hold on the box they name, and refuses a network they are not on (`wrong_network`) or
+ * a box they hold no shell on (`no_session`) before any device is written to.
+ */
+describe('setting from a hop', () => {
+  const shellOn = (essid: string): Partial<SnmpSetDeps> => ({
+    findActiveSession: async () => ({
+      data: { username: 'root', userType: 'root', essid },
+      error: null,
+    }),
+    findHomeVantage: async () => ({ data: null, error: null }),
+  });
+
+  const signHopSet = (
+    identity: ReturnType<typeof generateIdentity>,
+    essid: string,
+    targetIp: string,
+    callerMachineId: string,
+  ) =>
+    signRequest(identity, 'snmpSet', {
+      essid,
+      target_ip: targetIp,
+      community: RW_COMMUNITY,
+      assignment: 'forward.9999=none',
+      caller_machine_id: callerMachineId,
+    });
+
+  it('refuses a set naming a network the caller is not standing on', async () => {
+    const identity = generateIdentity();
+    const essid = 'BEAN-THERE-WIFI';
+    const gateway = apGatewayOn(essid);
+    const { deps, upsertPatch } = makeDeps(shellOn('SOME-OTHER-WIFI'), essid);
+
+    const response = await handleSnmpSet(
+      await signHopSet(identity, essid, gateway.ip, 'a-box-on-another-net'),
+      deps,
+    );
+
+    expect(response).toEqual({ status: 403, body: { error: 'wrong_network' } });
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
+  it('refuses a set from a box the caller holds no shell on', async () => {
+    const identity = generateIdentity();
+    const essid = 'BEAN-THERE-WIFI';
+    const gateway = apGatewayOn(essid);
+    const { deps, upsertPatch } = makeDeps(
+      {
+        findActiveSession: async () => ({ data: null, error: null }),
+        findHomeVantage: async () => ({ data: null, error: null }),
+      },
+      essid,
+    );
+
+    const response = await handleSnmpSet(
+      await signHopSet(identity, essid, gateway.ip, 'a-box-i-do-not-hold'),
+      deps,
+    );
+
+    expect(response).toEqual({ status: 403, body: { error: 'no_session' } });
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+});

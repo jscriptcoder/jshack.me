@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
+import { derivedPublicIpByEssid } from '../logging/crossPlayerSourceIp.js';
 import { handleMysqlStatement, type MysqlStatementDeps } from './mysqlStatement.js';
 import { signRequest } from '../signedRequest/sign.js';
 import { generateIdentity } from '../identity/identity.js';
@@ -48,7 +49,23 @@ import { logRead } from '../../test/factories/logRows.js';
 
 const freshStore: NonceStore = async () => ({ fresh: true });
 const ESSID = 'BEAN-THERE-WIFI';
+// A bogus address the client might once have claimed. The server now derives the source
+// from the vantage and never reads this, so it stands only as a value that must NOT turn
+// up in what a box recorded.
 const CLIENT_IP = '192.168.1.50';
+// The octet the player holds at home, and the address the server derives for a pre-hop
+// statement. It equals the same-LAN attacker octet, so a home statement and an own-WiFi
+// one read as one address.
+const HOME_OCTET = 61;
+const HOME_IP = lanAddressFor(ESSID, HOME_OCTET);
+const homeVantage = (
+  essid: string,
+  octet: number | null = HOME_OCTET,
+): Pick<MysqlStatementDeps, 'findActiveSession' | 'findHomeVantage' | 'findWorkstationLease'> => ({
+  findActiveSession: async () => ({ data: null, error: null }),
+  findHomeVantage: async () => ({ data: { essid, octet }, error: null }),
+  findWorkstationLease: async () => ({ data: null, error: null }),
+});
 
 const databaselessHostOn = (essid: string): LanHost => {
   const host = generateHomeLan(essid).hosts.find((candidate) => {
@@ -99,6 +116,10 @@ const makeDeps = (
     listOccupantsByEssid: async () => ({ data: [], error: null }),
     listLeasesByEssid: async () => ({ data: [], error: null }),
     findHomeNetworkByOwnerKey: async () => ({ data: null, error: null }),
+    // The real pure derivation: the public address of the network the caller is placed
+    // on, which a hop reach to a public target is seen from.
+    findPublicIpByEssid: derivedPublicIpByEssid,
+    ...homeVantage(ESSID),
   };
   return { deps, findPatches, upsertPatch, readMysqlLog };
 };
@@ -265,10 +286,12 @@ const crossPlayerDeps = (
       data: [{ owner_key: occupant.owner_key, octet: DEFENDER_OCTET }],
       error: null,
     }),
+    ...homeVantage(ESSID),
     findHomeNetworkByOwnerKey: async () => ({
       data: { public_ip: ATTACKER_PUBLIC_IP },
       error: null,
     }),
+    findPublicIpByEssid: derivedPublicIpByEssid,
   };
   return { deps, upsertPatch };
 };
@@ -281,7 +304,7 @@ const acrossTheWorld = async (
 ) =>
   handleMysqlStatement(
     await signedStatement(generateIdentity(), {
-      essid: TARGET_ESSID,
+      essid: ESSID,
       target_ip: TARGET_PUBLIC_IP,
       port: PUBLIC_PORT,
       username,
@@ -331,6 +354,9 @@ const deepDeps = (deepPatches: readonly OwnerPatchRow[] = []) => {
     listOccupantsByEssid: async () => ({ data: [], error: null }),
     listLeasesByEssid: async () => ({ data: [], error: null }),
     findHomeNetworkByOwnerKey: async () => ({ data: null, error: null }),
+    findPublicIpByEssid: derivedPublicIpByEssid,
+    // At home on the network whose gateway forwards the port.
+    ...homeVantage(DEEP.essid),
   };
   return { deps, upsertPatch };
 };
@@ -451,7 +477,7 @@ describe("a statement on another player's database, across the world", () => {
 // forward, and occupancy standing in for all three. The address each player answers
 // to is the LEASE, which is why nothing here trusts a `source_ip`.
 const ATTACKER = generateIdentity();
-const ATTACKER_OCTET = 61;
+const ATTACKER_OCTET = HOME_OCTET;
 const ATTACKER_LAN_IP = lanAddressFor(ESSID, ATTACKER_OCTET);
 const DEFENDER_SAME_LAN_IP = lanAddressFor(ESSID, DEFENDER_OCTET);
 
@@ -495,6 +521,10 @@ const sameLanDeps = (
       error: null,
     }),
     findHomeNetworkByOwnerKey: async () => ({ data: null, error: null }),
+    findPublicIpByEssid: derivedPublicIpByEssid,
+    // The attacker stands at home on this WiFi at the lease the server issued them —
+    // the address the defender's box really saw, derived here, never a claim.
+    ...homeVantage(ESSID, ATTACKER_OCTET),
   };
   return { deps, upsertPatch };
 };
@@ -766,13 +796,11 @@ describe('answering a statement against a real box', () => {
   });
 
   it('carries the connecting account into the statement it runs', async () => {
-    // The username and the address are re-sent with every statement precisely
-    // because no session row holds them; a denial naming somebody else would mean
-    // the credential being checked is not the credential the prompt is holding.
-    //
-    // The account list is the statement to ask it with: it is the one write refused
-    // at every tier, so what comes back is about the identity being carried and not
-    // about which rung this box happened to hand out.
+    // The username is re-sent with every statement because no session row holds it; a
+    // denial naming somebody else would mean the credential being checked is not the
+    // credential the prompt is holding. The ADDRESS is not the client's to send — the
+    // server derives it from the vantage, so a claimed one is ignored and the real one
+    // (the home lease) names the account in the refusal.
     const host = mysqlHostOn(ESSID);
     const { identity, credential } = openOn(host);
     const { deps } = makeDeps();
@@ -792,7 +820,7 @@ describe('answering a statement against a real box', () => {
     expect(response.body).toEqual({
       failed: true,
       output: [
-        `ERROR 1142 (42000): DROP command denied to user '${credential.username}'@'10.9.9.9' for table 'credentials'`,
+        `ERROR 1142 (42000): DROP command denied to user '${credential.username}'@'${HOME_IP}' for table 'credentials'`,
       ],
     });
   });
@@ -948,7 +976,7 @@ describe('the tier a statement runs at', () => {
     expect(response.body).toEqual({
       failed: true,
       output: [
-        `ERROR 1142 (42000): SELECT command denied to user 'readonly'@'${CLIENT_IP}' for table 'credentials'`,
+        `ERROR 1142 (42000): SELECT command denied to user 'readonly'@'${HOME_IP}' for table 'credentials'`,
       ],
     });
     // Shape-independent, and that is the point: whatever fields the body grows, no
@@ -990,7 +1018,7 @@ describe('the tier a statement runs at', () => {
     expect(response.body).toEqual({
       failed: true,
       output: [
-        `ERROR 1142 (42000): SELECT command denied to user 'readonly'@'${CLIENT_IP}' for table 'credentials'`,
+        `ERROR 1142 (42000): SELECT command denied to user 'readonly'@'${HOME_IP}' for table 'credentials'`,
       ],
     });
   });
@@ -1202,7 +1230,7 @@ describe('what a statement leaves in the log', () => {
     const { upsertPatch } = await say(READONLY, 'DROP TABLE users');
 
     expect(loggedLines(upsertPatch)).toEqual([
-      `2026-08-21T09:14:02.000000Z\t6000 Denied\tDROP command denied to user 'readonly'@'${CLIENT_IP}' for table 'users'`,
+      `2026-08-21T09:14:02.000000Z\t6000 Denied\tDROP command denied to user 'readonly'@'${HOME_IP}' for table 'users'`,
     ]);
   });
 
@@ -1272,5 +1300,89 @@ describe('what a statement leaves in the log', () => {
 
     expect(response.status).toBe(500);
     expect(loggedLines(upsertPatch)).toEqual([]);
+  });
+});
+
+/**
+ * A statement issued from a hop. The vantage is re-derived on EVERY statement from the
+ * box the shell names, so a shell that has since ended refuses the next statement with
+ * `no_session` and the prompt drops — the eviction a credential-only door relies on,
+ * having no session row to invalidate.
+ */
+describe('a statement from a hop', () => {
+  const shellOn = (essid: string): Partial<MysqlStatementDeps> => ({
+    findActiveSession: async () => ({
+      data: { username: 'root', userType: 'root', essid },
+      error: null,
+    }),
+    findHomeVantage: async () => ({ data: null, error: null }),
+  });
+
+  const signHop = (
+    identity: ReturnType<typeof generateIdentity>,
+    request: {
+      readonly target_ip: string;
+      readonly username: string;
+      readonly password: string;
+      readonly statement: string;
+      readonly callerMachineId: string;
+    },
+  ) =>
+    signRequest(identity, 'mysqlStatement', {
+      essid: ESSID,
+      target_ip: request.target_ip,
+      port: SERVICE_CATALOG.mysql.defaultPort,
+      username: request.username,
+      password: request.password,
+      statement: request.statement,
+      caller_machine_id: request.callerMachineId,
+    });
+
+  const hopDeps = (over: Partial<MysqlStatementDeps>) => {
+    const { deps, findPatches, upsertPatch, readMysqlLog } = makeDeps();
+    return { deps: { ...deps, ...over }, findPatches, upsertPatch, readMysqlLog };
+  };
+
+  it('runs a statement from the box the shell stands on', async () => {
+    const host = mysqlHostOn(ESSID);
+    const { identity, credential } = openOn(host);
+    const hop = resolveLanHostIdentity(host, ESSID).machineId;
+    const { deps } = hopDeps(shellOn(ESSID));
+
+    const response = await handleMysqlStatement(
+      await signHop(identity, {
+        target_ip: host.ip,
+        username: credential.username,
+        password: credential.password,
+        statement: 'SHOW TABLES',
+        callerMachineId: hop,
+      }),
+      deps,
+    );
+
+    expect(response.status).toBe(200);
+  });
+
+  it('refuses the next statement once the shell it was opened from has ended', async () => {
+    const host = mysqlHostOn(ESSID);
+    const { identity, credential } = openOn(host);
+    // The shell is gone: no active session on the box the prompt still names.
+    const { deps } = hopDeps({
+      findActiveSession: async () => ({ data: null, error: null }),
+      findHomeVantage: async () => ({ data: null, error: null }),
+    });
+
+    const response = await handleMysqlStatement(
+      await signHop(identity, {
+        target_ip: host.ip,
+        username: credential.username,
+        password: credential.password,
+        statement: 'SHOW TABLES',
+        callerMachineId: 'the-box-the-shell-was-on',
+      }),
+      deps,
+    );
+
+    expect(response).toEqual({ status: 403, body: { error: 'no_session' } });
   });
 });

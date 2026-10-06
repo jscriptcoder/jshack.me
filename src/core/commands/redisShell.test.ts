@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { runRedisLine } from './redisShell.js';
+import { asMachineId } from '../types.js';
 import {
   mockCommandEnv,
   mockFsViewFromTree,
@@ -43,7 +44,7 @@ const CONNECTION = {
   essid: 'BEAN-THERE-WIFI',
   targetIp: '192.168.1.31',
   port: 6379,
-  sourceIp: '192.168.1.50',
+  callerMachineId: asMachineId('workstation-caller'),
 } as const;
 
 const answered = (output: readonly string[], failed = false): RedisStatementResult => ({
@@ -533,7 +534,7 @@ describe('the store on your own box', () => {
     essid: ESSID,
     targetIp: OWN_IP,
     port: SERVICE_CATALOG.redis.defaultPort,
-    sourceIp: '127.0.0.1',
+    callerMachineId: asMachineId('workstation-caller'),
   };
 
   const datadirWrite = (writes: readonly Write[]) =>

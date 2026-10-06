@@ -717,6 +717,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       readMysqlLog: listPathPatchesVia({ supabase, label: 'mysql log read' }),
       upsertPatch: upsertPatchVia({ supabase, label: 'mysql log upsert' }),
       findNetworkByPublicIp: derivedNetworkByPublicIp,
+      findPublicIpByEssid: derivedPublicIpByEssid,
       listOccupantsByEssid: listOccupantsByEssidVia<NatOccupantRow>({
         supabase,
         label: 'mysql connect occupant list',
@@ -726,6 +727,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         supabase,
         occupancyLabel: 'mysql connect source-ip occupancy',
       }),
+      findActiveSession: findActiveSessionVia({ supabase, label: 'mysql connect active-session' }),
+      findHomeVantage: findHomeVantageVia({ supabase, label: 'mysql connect vantage' }),
+      findWorkstationLease: findWorkstationLeaseVia({ supabase, label: 'mysql connect vantage' }),
     });
     res.status(status).json(body);
     return;
@@ -750,6 +754,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       readMysqlLog: listPathPatchesVia({ supabase, label: 'mysql statement log read' }),
       upsertPatch: upsertPatchVia({ supabase, label: 'mysql datadir + log upsert' }),
       findNetworkByPublicIp: derivedNetworkByPublicIp,
+      findPublicIpByEssid: derivedPublicIpByEssid,
       listOccupantsByEssid: listOccupantsByEssidVia<NatOccupantRow>({
         supabase,
         label: 'mysql statement occupant list',
@@ -759,6 +764,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         supabase,
         occupancyLabel: 'mysql statement source-ip occupancy',
       }),
+      findActiveSession: findActiveSessionVia({ supabase, label: 'mysql statement active-session' }),
+      findHomeVantage: findHomeVantageVia({ supabase, label: 'mysql statement vantage' }),
+      findWorkstationLease: findWorkstationLeaseVia({ supabase, label: 'mysql statement vantage' }),
     });
     res.status(status).json(body);
     return;
@@ -784,6 +792,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       readRedisLog: listPathPatchesVia({ supabase, label: 'redis log read' }),
       upsertPatch: upsertPatchVia({ supabase, label: 'redis log upsert' }),
       findNetworkByPublicIp: derivedNetworkByPublicIp,
+      findPublicIpByEssid: derivedPublicIpByEssid,
       listOccupantsByEssid: listOccupantsByEssidVia<NatOccupantRow>({
         supabase,
         label: 'redis connect occupant list',
@@ -793,6 +802,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         supabase,
         occupancyLabel: 'redis connect source-ip occupancy',
       }),
+      findActiveSession: findActiveSessionVia({ supabase, label: 'redis connect active-session' }),
+      findHomeVantage: findHomeVantageVia({ supabase, label: 'redis connect vantage' }),
+      findWorkstationLease: findWorkstationLeaseVia({ supabase, label: 'redis connect vantage' }),
     });
     res.status(status).json(body);
     return;
@@ -830,6 +842,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         supabase,
         occupancyLabel: 'snmp walk source-ip occupancy',
       }),
+      findActiveSession: findActiveSessionVia({ supabase, label: 'snmp walk active-session' }),
+      findHomeVantage: findHomeVantageVia({ supabase, label: 'snmp walk vantage' }),
+      findWorkstationLease: findWorkstationLeaseVia({ supabase, label: 'snmp walk vantage' }),
     });
     res.status(status).json(body);
     return;
@@ -861,6 +876,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       readSnmpdLog: listPathPatchesVia({ supabase, label: 'snmpd set log read' }),
       upsertPatch: upsertPatchVia({ supabase, label: 'snmpd set upsert' }),
       findNetworkByPublicIp: derivedNetworkByPublicIp,
+      findPublicIpByEssid: derivedPublicIpByEssid,
       listOccupantsByEssid: listOccupantsByEssidVia<NatOccupantRow>({
         supabase,
         label: 'snmp set occupant list',
@@ -870,6 +886,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         supabase,
         occupancyLabel: 'snmp set source-ip occupancy',
       }),
+      findActiveSession: findActiveSessionVia({ supabase, label: 'snmp set active-session' }),
+      findHomeVantage: findHomeVantageVia({ supabase, label: 'snmp set vantage' }),
+      findWorkstationLease: findWorkstationLeaseVia({ supabase, label: 'snmp set vantage' }),
     });
     res.status(status).json(body);
     return;
@@ -894,6 +913,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       readRedisLog: listPathPatchesVia({ supabase, label: 'redis statement log read' }),
       upsertPatch: upsertPatchVia({ supabase, label: 'redis statement upsert' }),
       findNetworkByPublicIp: derivedNetworkByPublicIp,
+      findPublicIpByEssid: derivedPublicIpByEssid,
       listOccupantsByEssid: listOccupantsByEssidVia<NatOccupantRow>({
         supabase,
         label: 'redis statement occupant list',
@@ -903,6 +923,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         supabase,
         occupancyLabel: 'redis statement source-ip occupancy',
       }),
+      findActiveSession: findActiveSessionVia({ supabase, label: 'redis statement active-session' }),
+      findHomeVantage: findHomeVantageVia({ supabase, label: 'redis statement vantage' }),
+      findWorkstationLease: findWorkstationLeaseVia({ supabase, label: 'redis statement vantage' }),
     });
     res.status(status).json(body);
     return;

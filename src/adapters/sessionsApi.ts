@@ -693,7 +693,7 @@ export const connectDatabase = async (
       port: params.port,
       username: params.username,
       password: params.password,
-      source_ip: params.sourceIp,
+      caller_machine_id: params.callerMachineId,
     });
     const body: unknown = await response.json().catch(() => null);
     if (response.ok) {
@@ -708,7 +708,7 @@ export const connectDatabase = async (
       return {
         ok: false,
         reason: 'denied',
-        fromIp: refused.success ? refused.data.from : params.sourceIp,
+        fromIp: refused.success ? refused.data.from : 'unknown',
       };
     }
     // A daemon that is not listening is the one non-credential refusal worth telling
@@ -749,7 +749,7 @@ export const runDatabaseStatement = async (
       username: params.username,
       password: params.password,
       statement: params.statement,
-      source_ip: params.sourceIp,
+      caller_machine_id: params.callerMachineId,
     });
     if (!response.ok) return { kind: 'lost' };
     const answer = statementAnswerSchema.safeParse(await response.json());
@@ -787,7 +787,7 @@ export const connectStore = async (
       essid: params.essid,
       target_ip: params.targetIp,
       port: params.port,
-      source_ip: params.sourceIp,
+      caller_machine_id: params.callerMachineId,
     });
     const body: unknown = await response.json().catch(() => null);
     if (response.ok) {
@@ -862,7 +862,7 @@ export const walkDevice = async (
       target_ip: params.targetIp,
       port: params.port,
       community: params.community,
-      source_ip: params.sourceIp,
+      caller_machine_id: params.callerMachineId,
     });
     if (!response.ok) return { ok: false };
     const body: unknown = await response.json().catch(() => null);
@@ -914,7 +914,7 @@ export const setDeviceOid = async (
       port: params.port,
       community: params.community,
       assignment: params.assignment,
-      source_ip: params.sourceIp,
+      caller_machine_id: params.callerMachineId,
     });
     if (!response.ok) return { ok: false, refusal: null };
     const body: unknown = await response.json().catch(() => null);
@@ -947,7 +947,7 @@ export const runStoreStatement = async (
       // Sent with EVERY statement, because no session row holds it: being past a
       // store's lock is a claim each line makes rather than a state either side keeps.
       ...(params.password === undefined ? {} : { password: params.password }),
-      source_ip: params.sourceIp,
+      caller_machine_id: params.callerMachineId,
     });
     if (!response.ok) return { kind: 'lost' };
     const answer = statementAnswerSchema.safeParse(await response.json());

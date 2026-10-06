@@ -33,6 +33,8 @@ import { apGatewayLogWriterKey } from '../src/core/logging/apGatewayLogWriter.js
 import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign.js';
 import { generateIdentity } from '../src/core/identity/identity.js';
+import { lanAddressFor } from '../src/core/network/lanAddress.js';
+import { standOnNetwork, leaveNetwork } from './standVantage.js';
 import { generateHomeLan, type LanHost } from '../src/core/generation/generateHomeLan.js';
 import { hostServices } from '../src/core/generation/remoteHostFs.js';
 import { resolveLanHostIdentity } from '../src/core/generation/lanHostIdentity.js';
@@ -78,7 +80,6 @@ const post = async (envelope: unknown): Promise<{ status: number; body: unknown 
 // The same LAN the read smoke uses, so a failure here is about the write rather than
 // about which box was picked.
 const ESSID = 'MYSQL-LAB-3';
-const CLIENT_IP = '192.168.1.50';
 
 const client = generateIdentity();
 // A different player on the same LAN. Never writes; only reads back what the first one
@@ -97,6 +98,16 @@ if (target === undefined) {
 }
 
 const { baseFs, machineId: targetMachine } = resolveLanHostIdentity(target, ESSID);
+
+// Both players stand ON this WiFi now — the server places each from their own occupancy
+// rather than trusting a client-sent `source_ip`, so the address a denial echoes is the
+// caller's LEASE. Their octets step clear of the target's and of each other.
+const freeOctets = [200, 201, 202].filter(
+  (octet) => octet !== Number(target.ip.split('.')[3]),
+);
+const CLIENT_OCTET = freeOctets[0];
+const NEIGHBOUR_OCTET = freeOctets[1];
+const CLIENT_IP = lanAddressFor(ESSID, CLIENT_OCTET);
 
 const fileAt = (root: Directory, segments: readonly string[]): string | null => {
   const parent = segments.slice(0, -1).reduce<Directory | undefined>((node, segment) => {
@@ -245,6 +256,9 @@ const main = async (): Promise<void> => {
   );
 
   await clear();
+  // Both players joined this WiFi, so the server can place each before their statements.
+  await standOnNetwork(sr, ESSID, client, CLIENT_OCTET);
+  await standOnNetwork(sr, ESSID, neighbour, NEIGHBOUR_OCTET, 'rig2');
   await plantDatadir();
 
   // A session of reads, first: whatever the write path does later, it must not be
@@ -360,6 +374,7 @@ const main = async (): Promise<void> => {
   );
 
   await clear();
+  await leaveNetwork(sr, ESSID);
 
   const failed = results.filter((result) => !result.pass).length;
   console.log(`\n${results.length - failed}/${results.length} passed`);

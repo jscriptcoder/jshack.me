@@ -129,6 +129,12 @@ const makeDeps = (
       data: { public_ip: ATTACKER_PUBLIC_IP },
       error: null,
     }),
+    // The attacker stands at home on their own ESSID, reaching a public address — which
+    // is the essid their request carries, so the server-derived vantage matches it. The
+    // source a cross-player line records comes from the public resolver, not this lease.
+    findActiveSession: async () => ({ data: null, error: null }),
+    findHomeVantage: async () => ({ data: { essid: ATTACKER_ESSID, octet: 50 }, error: null }),
+    findWorkstationLease: async () => ({ data: null, error: null }),
     findPublicIpByEssid: async (essid) => ({
       data: { public_ip: essid === TARGET_ESSID ? TARGET_PUBLIC_IP : ATTACKER_PUBLIC_IP },
       error: null,
@@ -298,7 +304,10 @@ describe('every way of not answering a stranger, which has to be one way', () =>
 
 describe('walking your OWN public address, which comes back through the same door', () => {
   it('reports the address once, however many faces the gateway wears', async () => {
-    const { deps } = makeDeps();
+    // This caller stands at home on TARGET's OWN network, reaching its public face.
+    const { deps } = makeDeps([], {
+      findHomeVantage: async () => ({ data: { essid: TARGET_ESSID, octet: 50 }, error: null }),
+    });
 
     // The owner's client sends the network it really is on, and the box behind the
     // address really is their own access point's gateway. From OUTSIDE it wears one

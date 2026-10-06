@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
 import { reachServiceHost, type ServiceHostLookup } from './serviceHost.js';
+import { derivedPublicIpByEssid } from '../logging/crossPlayerSourceIp.js';
 import { generateIdentity } from '../identity/identity.js';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
 import { resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
@@ -12,6 +13,11 @@ import { materializeWorkstationFs } from '../network/materializeWorkstationFs.js
 import { readOpenPorts, formatPidfileContent, pidfilePath } from '../services/pidfile.js';
 import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
 import { deepDatabaseFixture } from '../../test/factories/lanDatabase.js';
+import { chainLinks, type ChainLink } from '../generation/lanTopology.js';
+import { resolveDeepScanHosts } from '../scan/deepScanHosts.js';
+import { chainGatewayBaseFs } from '../generation/lanHostIdentity.js';
+import { hostMachineId } from '../generation/remoteHostId.js';
+import { crackableEssidPool } from '../generation/generateWifi.js';
 import { md5 } from '../generation/md5.js';
 import { asAbsPath } from '../types.js';
 import type { ApNetworkLookup, NatOccupantRow } from '../network/resolvePublicTarget.js';
@@ -76,8 +82,26 @@ const makeLookup = (over: Partial<ServiceHostLookup> = {}): ServiceHostLookup =>
   listOccupantsByEssid: async () => ({ data: [], error: null }),
   listLeasesByEssid: async () => ({ data: [], error: null }),
   findHomeNetworkByOwnerKey: async () => ({ data: null, error: null }),
+  findPublicIpByEssid: derivedPublicIpByEssid,
   ...over,
 });
+
+/** The reach with the caller placed on their own workstation at home — the vantage
+ *  every pre-hop test stands on, where the box saw no derived address (`null`) and the
+ *  caller names no box. A hop test passes `callerMachineId` and the address that box is
+ *  seen at on the network explicitly. */
+const reachHost = (
+  lookup: ServiceHostLookup,
+  target: {
+    readonly essid: string;
+    readonly targetIp: string;
+    readonly service: string;
+    readonly port: number;
+    readonly actorKey: string;
+    readonly callerMachineId?: string | undefined;
+    readonly ownLanSourceIp?: string | null;
+  },
+) => reachServiceHost(lookup, { callerMachineId: undefined, ownLanSourceIp: null, ...target });
 
 // ─── the caller's own LAN: a generated sibling, and the access point above it ───
 
@@ -115,7 +139,7 @@ const AP_GATEWAY = apGatewayOn(ESSID);
 
 describe('reaching a generated box on the caller own LAN', () => {
   it("reaches the box without inventing a source address, filed under the network's own key", async () => {
-    const reach = await reachServiceHost(makeLookup(), {
+    const reach = await reachHost(makeLookup(), {
       essid: ESSID,
       targetIp: OWN_LAN.host.ip,
       service: OWN_LAN.service,
@@ -157,7 +181,7 @@ describe('reaching a generated box on the caller own LAN', () => {
     ];
 
     for (const leases of leaseAnswers) {
-      const reach = await reachServiceHost(makeLookup({ listLeasesByEssid: async () => leases }), {
+      const reach = await reachHost(makeLookup({ listLeasesByEssid: async () => leases }), {
         essid: ESSID,
         targetIp: AP_GATEWAY.host.ip,
         service: AP_GATEWAY.service,
@@ -171,7 +195,7 @@ describe('reaching a generated box on the caller own LAN', () => {
   });
 
   it('refuses an address that names no host on this LAN', async () => {
-    const reach = await reachServiceHost(makeLookup(), {
+    const reach = await reachHost(makeLookup(), {
       essid: ESSID,
       targetIp: '192.168.99.99',
       service: OWN_LAN.service,
@@ -186,7 +210,7 @@ describe('reaching a generated box on the caller own LAN', () => {
   });
 
   it('refuses a bricked box before the daemon is asked about', async () => {
-    const reach = await reachServiceHost(
+    const reach = await reachHost(
       makeLookup({
         findPatches: async () => ({ data: [patchRow('/boot/vmlinuz', null)], error: null }),
       }),
@@ -208,7 +232,7 @@ describe('reaching a generated box on the caller own LAN', () => {
   });
 
   it('refuses a daemon that is not the one holding the reached port', async () => {
-    const reach = await reachServiceHost(makeLookup(), {
+    const reach = await reachHost(makeLookup(), {
       essid: ESSID,
       targetIp: OWN_LAN.host.ip,
       service: 'no-such-daemon',
@@ -224,7 +248,7 @@ describe('reaching a generated box on the caller own LAN', () => {
   });
 
   it('answers a filtered port exactly as a port nothing ever served', async () => {
-    const reach = await reachServiceHost(
+    const reach = await reachHost(
       makeLookup({
         findPatches: async () => ({
           data: [patchRow('/etc/iptables/rules.v4', `deny ${OWN_LAN.port}\n`)],
@@ -249,7 +273,7 @@ describe('reaching a generated box on the caller own LAN', () => {
   });
 
   it('reports an unreadable journal as a failure rather than an empty box', async () => {
-    const reach = await reachServiceHost(
+    const reach = await reachHost(
       makeLookup({
         findPatches: async () => ({ data: null, error: { message: 'connection reset' } }),
       }),
@@ -335,12 +359,15 @@ const sameLanLookup = (over: Partial<ServiceHostLookup> = {}) =>
   });
 
 const reachSameLan = (lookup: ServiceHostLookup, targetIp: string = DEFENDER_LAN_IP) =>
-  reachServiceHost(lookup, {
+  reachHost(lookup, {
     essid: ESSID,
     targetIp,
     service: DEFENDER_SSH_SERVICE,
     port: DEFENDER_SSH_PORT,
     actorKey: ATTACKER.publicKeyHex,
+    // Standing on their own WiFi at home: the box sees the caller at the lease the
+    // server issued them, which the vantage carries here rather than the reach guessing.
+    ownLanSourceIp: ATTACKER_LAN_IP,
   });
 
 describe('reaching a fellow occupant of the same WiFi', () => {
@@ -480,7 +507,7 @@ const deepLookup = (
   });
 
 const reachDeep = (lookup: ServiceHostLookup, port: number = DEEP_FORWARD_PORT) =>
-  reachServiceHost(lookup, {
+  reachHost(lookup, {
     essid: DEEP.essid,
     targetIp: DEEP.gateway.ip,
     service: DEEP_SERVICE,
@@ -567,7 +594,7 @@ const publicLookup = (over: Partial<ServiceHostLookup> = {}) =>
 
 describe('reaching a box by its public address', () => {
   it('reaches the access point gateway itself, showing only its public address', async () => {
-    const reach = await reachServiceHost(publicLookup(), {
+    const reach = await reachHost(publicLookup(), {
       essid: ESSID,
       targetIp: TARGET_PUBLIC_IP,
       service: REMOTE_GATEWAY.service,
@@ -594,7 +621,7 @@ describe('reaching a box by its public address', () => {
   });
 
   it('derives the source address server-side, whatever ESSID travelled with the request', async () => {
-    const reach = await reachServiceHost(publicLookup(), {
+    const reach = await reachHost(publicLookup(), {
       // The attacker's OWN network, which is the only ESSID their client can name and
       // which decides nothing about the box under attack.
       essid: ESSID,
@@ -608,7 +635,7 @@ describe('reaching a box by its public address', () => {
   });
 
   it('records an unknown source for an actor on no home network', async () => {
-    const reach = await reachServiceHost(
+    const reach = await reachHost(
       publicLookup({ findHomeNetworkByOwnerKey: async () => ({ data: null, error: null }) }),
       {
         essid: ESSID,
@@ -626,7 +653,7 @@ describe('reaching a box by its public address', () => {
 
   it('reaches an occupant behind a forward their owner opened', async () => {
     const publicPort = 43306;
-    const reach = await reachServiceHost(
+    const reach = await reachHost(
       publicLookup({
         findPatches: journals({
           [AP_GATEWAY_ID]: [
@@ -664,7 +691,7 @@ describe('reaching a box by its public address', () => {
   });
 
   it('refuses a public address bearing no network', async () => {
-    const reach = await reachServiceHost(
+    const reach = await reachHost(
       publicLookup({ findNetworkByPublicIp: async () => ({ data: null, error: null }) }),
       {
         essid: ESSID,
@@ -682,7 +709,7 @@ describe('reaching a box by its public address', () => {
   });
 
   it('refuses a port nothing behind the address serves', async () => {
-    const reach = await reachServiceHost(publicLookup(), {
+    const reach = await reachHost(publicLookup(), {
       essid: ESSID,
       targetIp: TARGET_PUBLIC_IP,
       service: REMOTE_GATEWAY.service,
@@ -697,7 +724,7 @@ describe('reaching a box by its public address', () => {
   });
 
   it('reports a network lookup failure as a failure rather than an empty world', async () => {
-    const reach = await reachServiceHost(
+    const reach = await reachHost(
       publicLookup({
         // A resolvable network alongside the failure: with `null` the reach would
         // refuse for want of a network and the guard could go unnoticed.
@@ -716,5 +743,152 @@ describe('reaching a box by its public address', () => {
       ok: false,
       refusal: { status: 500, body: { error: 'network_lookup_failed' } },
     });
+  });
+});
+
+// ─── a hop: the caller stands on a box, not on their own WiFi ───
+//
+// The reach is handed where the caller stands as the vantage (the box's own address on
+// the network it stands on), never the player's home. A box on this LAN records a
+// connection from that address, and `localhost` names the standing box itself.
+
+describe('reaching from a hop', () => {
+  it('records a generated LAN box as seen from the hop address, not from home', async () => {
+    const reach = await reachHost(makeLookup(), {
+      essid: ESSID,
+      targetIp: OWN_LAN.host.ip,
+      service: OWN_LAN.service,
+      port: OWN_LAN.port,
+      actorKey: ATTACKER.publicKeyHex,
+      // Standing on a box on this ESSID that holds this LAN address — the hop, not the
+      // player's own card.
+      callerMachineId: 'a-box-on-this-lan',
+      ownLanSourceIp: lanAddressFor(ESSID, 73),
+    });
+
+    expect(reach.ok && reach.reached.sourceIp).toBe(lanAddressFor(ESSID, 73));
+    expect(reach.ok && reach.reached.machineId).toBe(OWN_LAN_IDENTITY.machineId);
+    expect(reach.ok && reach.reached.writerKey).toBe(apGatewayLogWriterKey(ESSID));
+  });
+
+  it('resolves localhost to the standing box, seen over loopback', async () => {
+    // `localhost` is the hop's own address on the LAN, and the daemon it answers sees
+    // the request arrive over loopback — so that is the source a line records, whatever
+    // the box's place on the LAN.
+    const reach = await reachHost(makeLookup(), {
+      essid: ESSID,
+      targetIp: '127.0.0.1',
+      service: OWN_LAN.service,
+      port: OWN_LAN.port,
+      actorKey: ATTACKER.publicKeyHex,
+      callerMachineId: OWN_LAN_IDENTITY.machineId,
+      ownLanSourceIp: OWN_LAN.host.ip,
+    });
+
+    expect(reach.ok && reach.reached.machineId).toBe(OWN_LAN_IDENTITY.machineId);
+    expect(reach.ok && reach.reached.localIp).toBe(OWN_LAN.host.ip);
+    expect(reach.ok && reach.reached.sourceIp).toBe('127.0.0.1');
+  });
+
+  it('refuses loopback when the server cannot place the hop at an address', async () => {
+    // A hop the network cannot place — a box whose owner has left — has no address for
+    // loopback to name, so there is no own box to reach.
+    const reach = await reachHost(makeLookup(), {
+      essid: ESSID,
+      targetIp: '127.0.0.1',
+      service: OWN_LAN.service,
+      port: OWN_LAN.port,
+      actorKey: ATTACKER.publicKeyHex,
+      callerMachineId: 'a-placeless-box',
+      ownLanSourceIp: null,
+    });
+
+    expect(reach).toEqual({
+      ok: false,
+      refusal: { status: 404, body: { error: 'host_unreachable' } },
+    });
+  });
+
+  it('records a public target reached from a hop under the hop network public IP', async () => {
+    // A public reach from a box on the hop network leaves through THAT network's access
+    // point, so the far log names its public address — not the player's home, which their
+    // card never used for this. Server-derived from where they stand, like the LAN source.
+    const HOP_PUBLIC_IP = '87.51.100.99';
+    const reach = await reachHost(
+      publicLookup({
+        findPublicIpByEssid: async () => ({ data: { public_ip: HOP_PUBLIC_IP }, error: null }),
+      }),
+      {
+        essid: ESSID,
+        targetIp: TARGET_PUBLIC_IP,
+        service: REMOTE_GATEWAY.service,
+        port: REMOTE_GATEWAY.port,
+        actorKey: ATTACKER.publicKeyHex,
+        // Standing on a box on the hop network, not the player's own card at home.
+        callerMachineId: 'a-hop-box',
+      },
+    );
+
+    // The hop network's address, and emphatically not the home one the same lookup holds.
+    expect(reach.ok && reach.reached.sourceIp).toBe(HOP_PUBLIC_IP);
+    expect(reach.ok && reach.reached.sourceIp).not.toBe(ATTACKER_PUBLIC_IP);
+  });
+});
+
+// ─── a box on a deep layer the hop reaches, named by its address there ───
+//
+// Standing on a gateway, the reach finds a box on the layer BEHIND it by that box's own
+// address — the same lookup a scan from the shell draws the layer with, so a door opens
+// on a deep box exactly where a scan said one was.
+
+/** The first crackable network whose inner gateway fronts a layer carrying a box that
+ *  serves ssh: the essid, the gateway (the hop the caller stands on), the deep host, its
+ *  machine id, and its ssh port. */
+const deepSshTarget = (): {
+  readonly essid: string;
+  readonly gateway: ChainLink;
+  readonly host: LanHost;
+  readonly machineId: string;
+  readonly port: number;
+} => {
+  for (const essid of crackableEssidPool) {
+    for (const gateway of chainLinks(essid)) {
+      const onLayer = resolveDeepScanHosts(essid, gateway, chainGatewayBaseFs(essid, gateway)).hosts.find(
+        (entry) => entry.host.kind === 'machine' && entry.ports.some((open) => open.service === 'ssh'),
+      );
+      if (onLayer !== undefined) {
+        return {
+          essid,
+          gateway,
+          host: onLayer.host,
+          machineId: hostMachineId(onLayer.host, essid),
+          port: onLayer.ports.find((open) => open.service === 'ssh')!.port,
+        };
+      }
+    }
+  }
+  throw new Error('no crackable network fronts a deep layer with an ssh host');
+};
+
+describe('reaching a box on a deep layer the caller reaches', () => {
+  it('reaches it by its layer address, under the network key, seen from the fronting gateway', async () => {
+    const deep = deepSshTarget();
+    const reach = await reachHost(makeLookup(), {
+      essid: deep.essid,
+      targetIp: deep.host.ip,
+      service: 'ssh',
+      port: deep.port,
+      actorKey: ATTACKER.publicKeyHex,
+      // Standing on the gateway that fronts the layer.
+      callerMachineId: deep.gateway.machineId,
+      ownLanSourceIp: null,
+    });
+
+    expect(reach.ok && reach.reached.machineId).toBe(deep.machineId);
+    expect(reach.ok && reach.reached.localIp).toBe(deep.host.ip);
+    expect(reach.ok && reach.reached.writerKey).toBe(apGatewayLogWriterKey(deep.essid));
+    // Seen from the gateway's own downstream `.1`, never the caller's LAN address.
+    expect(reach.ok && typeof reach.reached.sourceIp === 'string').toBe(true);
+    expect(reach.ok && reach.reached.sourceIp?.endsWith('.1')).toBe(true);
   });
 });

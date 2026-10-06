@@ -19,13 +19,13 @@
  */
 
 import { generateHomeLan } from '../generation/generateHomeLan.js';
-import { connectedWlan0 } from '../network/interfaces.js';
 import { runRedisLine } from './redisShell.js';
 import { forwardsIntoDeepLayer, resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
 import { isPublicIp } from '../generation/ip.js';
 import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
 import { connectOwnStore, storeListening } from './redisOwnBox.js';
-import { ownBoxSource } from '../network/interfaces.js';
+import { ownBoxSource, LOOPBACK_IPV4, LOOPBACK_NAMES } from '../network/interfaces.js';
+import { vantageOf } from '../network/vantage.js';
 import type { Command, CommandEnv, CommandResult, TerminalLine } from './types.js';
 
 const USAGE = 'usage: redis-cli [-p port] <host> [password]';
@@ -120,7 +120,7 @@ const preflightRefusal = async (
     return null;
   }
 
-  const occupants = await env.scan.resolveOccupants(target.essid);
+  const occupants = await env.scan.resolveOccupants(target.essid, env.session.machineId);
   if (occupants.some((occupant) => occupant.localIp === target.typed)) return null;
 
   const host = generateHomeLan(target.essid).hosts.find(
@@ -144,24 +144,42 @@ const execute: Command['execute'] = async (env, args, flags) => {
   const port = parsePort(flags.get('-p'));
   if (port === null) return errorResult(USAGE);
 
-  const wlan0 = connectedWlan0(env.network);
-  if (wlan0 === null) return unreachable(target, port, 'Network is unreachable');
-  const essid = wlan0.association.essid;
+  // Where the shell stands — the hop on top of the stack and its network, or the
+  // player's own WiFi on their own box. A store door follows the shell.
+  const vantage = vantageOf(env.session, env.network);
+  if (vantage === null) return unreachable(target, port, 'Network is unreachable');
+  const essid = vantage.essid;
 
-  const ownSource = ownBoxSource({ target, ownIp: wlan0.ipv4 });
-  const refusal = await preflightRefusal(env, { typed: target, port, essid, ownSource });
+  // The client answers the OWN box itself only at home, where `env.fs` IS that box: on a
+  // hop the box is the shell's remote one, whose live datadir only the server can read,
+  // so `localhost` there is sent on as 127.0.0.1 for the server to resolve to it.
+  const ownSource =
+    vantage.kind === 'home' ? ownBoxSource({ target, ownIp: vantage.address }) : null;
+  const serverTarget =
+    vantage.kind === 'hop' && LOOPBACK_NAMES.includes(target) ? LOOPBACK_IPV4 : target;
+
+  // The client settles reachability only in the world it regenerates whole — its own LAN
+  // at home. On a hop the box's LAN, deep layers and occupants are the server's to
+  // resolve, so a target there is sent on rather than refused from a world this side
+  // cannot see.
+  const refusal =
+    vantage.kind === 'home'
+      ? await preflightRefusal(env, { typed: target, port, essid, ownSource })
+      : null;
   if (refusal !== null) return refusal;
 
   // What is held is exactly what is sent. There is no session row to name, so every
   // statement re-sends the whole connection — which is what makes this door reach no
-  // filesystem structurally rather than by a rule somebody has to keep.
+  // filesystem structurally rather than by a rule somebody has to keep. The caller's
+  // box rides along too, so each statement is placed from where it still stands.
   const connection = {
     essid,
-    // Their own box is held under the address it was LEASED, whichever of its three
-    // names they reached it by, so every statement after this re-resolves one machine.
-    targetIp: ownSource === null ? target : wlan0.ipv4,
+    // Their own box is held under the address they reached it BY — loopback or their own
+    // LAN address — because that client-side path reads its own filesystem rather than
+    // routing on the address; a target off it is held under what the server routes on.
+    targetIp: ownSource === null ? serverTarget : ownSource,
     port,
-    sourceIp: ownSource ?? wlan0.ipv4,
+    callerMachineId: env.session.machineId,
   };
   // Your own box is answered HERE. The server's same-LAN vantage excludes the caller,
   // so a self-addressed reach that went out would fall through to the generated world and
@@ -203,7 +221,9 @@ export const redisCli: Command = {
   manual: {
     synopsis: 'redis-cli [-p port] <host> [password]',
     description:
-      'Open the key-value store on a remote host running a Redis server. There is no ' +
+      'Open the key-value store on a host running a Redis server, on the network you ' +
+      'are on — your own at home, or the network of a box you have a shell on, ' +
+      '"localhost" for that box\'s own. There is no ' +
       'account and no login: a store answers to a single password or to nobody at all, ' +
       'and many answer to nobody. On success you are left at a "redis>" prompt where ' +
       'every line you type goes to the store. Your shell stays exactly where it was — ' +

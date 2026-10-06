@@ -7,7 +7,7 @@ import {
 } from '../../test/factories/commandEnv.js';
 import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces.js';
 import { assignHomeNetwork } from '../network/homeNetwork.js';
-import { asPlayerKeyHex } from '../types.js';
+import { asMachineId, asPlayerKeyHex } from '../types.js';
 import type { CommandEnv, CommandResult, SnmpApi, SnmpSetResult } from './types.js';
 
 /**
@@ -103,7 +103,7 @@ describe('setting a value a device accepts', () => {
       targetIp: GATEWAY_IP,
       community: COMMUNITY,
       assignment: ASSIGNMENT,
-      sourceIp: assignHomeNetwork(PUBKEY, ESSID).localIp,
+      callerMachineId: asMachineId('localhost'),
     });
   });
 });

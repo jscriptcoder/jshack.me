@@ -154,6 +154,11 @@ const RULES = '/etc/iptables/rules.v4';
 const PIDFILE = `/var/run/${SERVICE_CATALOG.redis.pidfile}`;
 const ROOT_ONLY = { read: ['root'], write: ['root'], execute: [] };
 
+// Alice reaches each deep store from the shell she holds on that store's own gateway —
+// the box she rooted to open the forward. `forwardsIntoDeepLayer` routes a port on the
+// gateway's address down the forward whoever is standing there, so standing on the
+// gateway she rooted is the realistic vantage, and the one that works across two networks
+// at once where a single home occupancy could not.
 const connect = (target: DeepTarget, port = FORWARD_PORT) =>
   post(
     SESSIONS,
@@ -161,7 +166,7 @@ const connect = (target: DeepTarget, port = FORWARD_PORT) =>
       essid: target.essid,
       target_ip: target.gateway.ip,
       port,
-      source_ip: CLIENT_IP,
+      caller_machine_id: target.gatewayId,
     }),
   );
 
@@ -178,7 +183,7 @@ const statement = (
       port: options.port ?? FORWARD_PORT,
       statement: line,
       ...(options.password === undefined ? {} : { password: options.password }),
-      source_ip: CLIENT_IP,
+      caller_machine_id: target.gatewayId,
     }),
   );
 

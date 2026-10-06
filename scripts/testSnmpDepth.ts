@@ -44,6 +44,7 @@ import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
 import { readOpenPorts } from '../src/core/services/pidfile.js';
 import { SNMPD_LOG_PATH } from '../src/core/logging/snmpdLog.js';
 import { RULES_V4_PATH } from '../src/core/network/iptablesRules.js';
+import { standOnNetwork, leaveNetwork } from './standVantage.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const url = process.env.SUPABASE_URL;
@@ -210,6 +211,11 @@ const main = async (): Promise<void> => {
   );
 
   await clear();
+  // The caller joined this WiFi, so the server can place them on it — the walk and set
+  // doors refuse a caller they cannot seat. Their octet steps clear of the gateway's.
+  const callerOctet = octetOf(topology.gateway) === 200 ? 201 : 200;
+  await leaveNetwork(sr, topology.essid);
+  await standOnNetwork(sr, topology.essid, attacker, callerOctet);
   await plant(topology.gatewayId, RW_STATE_PATH, `rwcommunity ${md5(RW_COMMUNITY)}\n`);
 
   // ─── the gateway answers at its own address, with no port naming anything behind it ───
@@ -307,6 +313,7 @@ const main = async (): Promise<void> => {
   );
 
   await clear();
+  await leaveNetwork(sr, topology.essid);
 
   const failed = results.filter((result) => !result.pass).length;
   console.log(`\n${results.length - failed}/${results.length} checks passed`);

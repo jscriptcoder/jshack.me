@@ -31,6 +31,7 @@ import { z } from 'zod';
 import { verifySignedRequest } from '../signedRequest/verify.js';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
 import { reachServiceHost, type HandlerResponse, type ServiceHostLookup } from './serviceHost.js';
+import { resolveCallerVantageOn, type CallerVantageDeps } from './callerVantage.js';
 import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
 import { derivePid } from '../logging/syslog.js';
 import { appendMachineLog } from '../patches/appendMachineLog.js';
@@ -39,7 +40,8 @@ import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appen
 import type { PatchRow } from '../patches/upsertPatch.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 
-export type RedisConnectDeps = ServiceHostLookup & {
+export type RedisConnectDeps = ServiceHostLookup &
+  CallerVantageDeps & {
   readonly nonceStore: NonceStore;
   /** The server's wall clock, epoch-ms (UTC) — stamps the redis.log line. */
   readonly now: () => number;
@@ -62,6 +64,9 @@ const redisConnectSchema = z
     essid: z.string().min(1),
     target_ip: z.string().min(1),
     port: z.number().int().positive(),
+    // The box the shell stands on; absent means the caller's own workstation. The
+    // source address is the vantage's, so `source_ip` is accepted but never read.
+    caller_machine_id: z.string().min(1).optional(),
     source_ip: z.string().min(1).nullable().optional(),
   })
   .refine((payload) => !('player_key' in payload));
@@ -120,12 +125,24 @@ export const handleRedisConnect = async (
   }
   const { publicKey, payload } = verified;
 
+  // Where the caller stands, derived from the box they name — never a claim. A
+  // connection naming a network the caller is not on is refused before it is reached.
+  const vantage = await resolveCallerVantageOn(
+    deps,
+    publicKey,
+    payload.caller_machine_id,
+    payload.essid,
+  );
+  if (!vantage.ok) return { status: vantage.status, body: { error: vantage.error } };
+
   // Shared with the statement door, so a connection and the reads behind it can never
   // disagree about whether the box is up or the daemon is listening. A stopped daemon's
   // log stays exactly as this request found it.
   const reach = await reachServiceHost(deps, {
-    essid: payload.essid,
+    essid: vantage.essid,
     targetIp: payload.target_ip,
+    callerMachineId: payload.caller_machine_id,
+    ownLanSourceIp: vantage.sourceIp,
     port: payload.port,
     service: SERVICE_CATALOG.redis.service,
     actorKey: publicKey,
@@ -133,17 +150,15 @@ export const handleRedisConnect = async (
   if (!reach.ok) return reach.refusal;
   const { hostname, machineId, sourceIp, writerKey } = reach.reached;
 
-  // The ROUTE decides the address whenever it can: through a forward the box has only
-  // ever seen the fronting gateway's `.1`, whoever is behind it, so echoing the caller's
-  // claim would write a line no daemon could have produced. On the caller's own LAN the
-  // route knows nothing and the claim stands.
+  // The address the box saw, server-derived at the vantage: the hop's own LAN address,
+  // the layer `.1` down a chain, or the hop network's public IP across the world.
   await recordArrival(deps, {
     // The TARGET's key once the box has an owner: the system owns its logs, so every
     // visitor's lines accrete into one row on the defender's box rather than a row
     // each, where the newest would erase the rest on replay.
     writerKey,
     machineId,
-    fromIp: sourceIp ?? payload.source_ip ?? 'unknown',
+    fromIp: sourceIp ?? 'unknown',
   });
 
   // The name comes back because through a forward it is unknowable any other way: a

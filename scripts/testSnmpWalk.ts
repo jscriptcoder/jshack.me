@@ -45,7 +45,9 @@ import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
 import { readOpenPorts } from '../src/core/services/pidfile.js';
 import { AUTH_LOG_PATH } from '../src/core/logging/authLog.js';
 import { SNMPD_LOG_OWNER, SNMPD_LOG_PATH } from '../src/core/logging/snmpdLog.js';
+import { lanAddressFor } from '../src/core/network/lanAddress.js';
 import { publicAddressOf } from './publicAddressOf.js';
+import { standOnNetwork, leaveNetwork } from './standVantage.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const url = process.env.SUPABASE_URL;
@@ -78,7 +80,10 @@ const post = async (envelope: unknown): Promise<{ status: number; body: unknown 
 // on one ESSID read each other's rows as their own.
 const ESSID = 'NULL-BYTE';
 const PUBLIC_IP = publicAddressOf(ESSID);
-const ATTACKER_IP = '192.168.1.50';
+// The caller now stands ON this WiFi (the walk door places them from their occupancy),
+// so the address a device records is their LEASE, derived server-side — never a claim.
+const ATTACKER_OCTET = 50;
+const ATTACKER_IP = lanAddressFor(ESSID, ATTACKER_OCTET);
 const NOWHERE_IP = '10.255.255.254';
 /** The community this run plants, in the clear. The generated one is drawn from a pool
  *  and is not guaranteed to be recoverable, and this script is proving the DOOR rather
@@ -251,6 +256,8 @@ const main = async (): Promise<void> => {
   );
 
   await clear();
+  // The caller joined this WiFi, so the server can place them on it before the walk.
+  await standOnNetwork(sr, ESSID, attacker, ATTACKER_OCTET);
 
   // ─── the walk that is answered ───
   const answered = await walk(gateway.ip, 'public');
@@ -380,6 +387,7 @@ const main = async (): Promise<void> => {
   );
 
   await clear();
+  await leaveNetwork(sr, ESSID);
 
   const failed = results.filter((result) => !result.pass).length;
   console.log(`\n${results.length - failed}/${results.length} checks passed`);

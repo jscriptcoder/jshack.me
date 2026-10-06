@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
+import { derivedPublicIpByEssid } from '../logging/crossPlayerSourceIp.js';
 import { handleSnmpSet, type SnmpSetDeps } from './snmpSet.js';
 import { signRequest } from '../signedRequest/sign.js';
 import { generateIdentity } from '../identity/identity.js';
@@ -181,6 +182,13 @@ const makeDeps = (
       data: { public_ip: ATTACKER_PUBLIC_IP },
       error: null,
     }),
+    findPublicIpByEssid: derivedPublicIpByEssid,
+    // The attacker stands at home on their own ESSID, reaching a public address — which
+    // is the essid their request carries, so the server-derived vantage matches it. A
+    // cross-player line's source comes from the public resolver, not from this lease.
+    findActiveSession: async () => ({ data: null, error: null }),
+    findHomeVantage: async () => ({ data: { essid: ATTACKER_ESSID, octet: 50 }, error: null }),
+    findWorkstationLease: async () => ({ data: null, error: null }),
     ...over,
   };
   return { deps, upsertPatch };

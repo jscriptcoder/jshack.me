@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
+import { derivedPublicIpByEssid } from '../logging/crossPlayerSourceIp.js';
 import { handleMysqlConnect, type MysqlConnectDeps } from './mysqlConnect.js';
 import { signRequest } from '../signedRequest/sign.js';
 import { generateIdentity } from '../identity/identity.js';
@@ -64,7 +65,20 @@ const freshStore: NonceStore = async () => ({ fresh: true });
 const ESSID = 'BEAN-THERE-WIFI';
 // 2026-08-09 11:04:07 UTC — the server clock every log line here is stamped with.
 const FIXED_NOW = Date.UTC(2026, 7, 9, 11, 4, 7);
-const CLIENT_IP = '192.168.1.50';
+// The octet the player holds at home on this ESSID. The server now derives the address
+// a login is recorded from off the lease, never off a client claim — so the source a
+// box logs for a pre-hop connection is this LAN address. It matches the same-LAN
+// attacker octet below, so a home login and an own-WiFi login read as one address.
+const HOME_OCTET = 61;
+const CLIENT_IP = lanAddressFor(ESSID, HOME_OCTET);
+const homeVantage = (
+  essid: string,
+  octet: number | null = HOME_OCTET,
+): Pick<MysqlConnectDeps, 'findActiveSession' | 'findHomeVantage' | 'findWorkstationLease'> => ({
+  findActiveSession: async () => ({ data: null, error: null }),
+  findHomeVantage: async () => ({ data: { essid, octet }, error: null }),
+  findWorkstationLease: async () => ({ data: null, error: null }),
+});
 
 /** A LAN host running mysqld — the only kind with a database to open. */
 const mysqlHostOn = (essid: string): LanHost => {
@@ -172,6 +186,12 @@ const makeDeps = (over: Partial<MysqlConnectDeps> = {}) => {
     listOccupantsByEssid: async () => ({ data: [], error: null }),
     listLeasesByEssid: async () => ({ data: [], error: null }),
     findHomeNetworkByOwnerKey: async () => ({ data: null, error: null }),
+    // A pure world-derivation (the real one): the public address of whatever network the
+    // caller is placed on, which a hop reach to a public target is seen from.
+    findPublicIpByEssid: derivedPublicIpByEssid,
+    // The caller stands at home on this ESSID unless a test says otherwise — the server
+    // derives the vantage from this, never from the request's essid.
+    ...homeVantage(ESSID),
     ...over,
   };
   return { deps, findPatches, readMysqlLog, upsertPatch };
@@ -305,7 +325,7 @@ const throughForward = (destination = `${DEEP.layer.host.ip}:3306`) =>
 // Which makes the whole reach the occupancy table: the caller must be ON the WiFi to
 // reach anything on it, the target must still be on it, and the address each answers
 // to is the LEASE the server issued rather than anything either client claims.
-const ATTACKER_OCTET = 61;
+const ATTACKER_OCTET = HOME_OCTET;
 const ATTACKER_LAN_IP = lanAddressFor(ESSID, ATTACKER_OCTET);
 const DEFENDER_SAME_LAN_IP = lanAddressFor(ESSID, DEFENDER_OCTET);
 
@@ -674,7 +694,7 @@ describe('handleMysqlConnect', () => {
 
       const response = await handleMysqlConnect(
         await signedConnect(identity, {
-          essid: TARGET_ESSID,
+          essid: ESSID,
           target_ip: TARGET_PUBLIC_IP,
           port: PUBLIC_PORT,
           username: DEFENDER_DB_ACCOUNT.username,
@@ -695,7 +715,7 @@ describe('handleMysqlConnect', () => {
 
       await handleMysqlConnect(
         await signedConnect(identity, {
-          essid: TARGET_ESSID,
+          essid: ESSID,
           target_ip: TARGET_PUBLIC_IP,
           port: PUBLIC_PORT,
           username: DEFENDER_DB_ACCOUNT.username,
@@ -731,7 +751,7 @@ describe('handleMysqlConnect', () => {
 
       await handleMysqlConnect(
         await signedConnect(identity, {
-          essid: TARGET_ESSID,
+          essid: ESSID,
           target_ip: TARGET_PUBLIC_IP,
           port: PUBLIC_PORT,
           username: DEFENDER_DB_ACCOUNT.username,
@@ -754,7 +774,7 @@ describe('handleMysqlConnect', () => {
 
       const response = await handleMysqlConnect(
         await signedConnect(identity, {
-          essid: TARGET_ESSID,
+          essid: ESSID,
           target_ip: TARGET_PUBLIC_IP,
           port: PUBLIC_PORT,
           username: DEFENDER_DB_ACCOUNT.username,
@@ -780,7 +800,7 @@ describe('handleMysqlConnect', () => {
 
       const response = await handleMysqlConnect(
         await signedConnect(identity, {
-          essid: TARGET_ESSID,
+          essid: ESSID,
           target_ip: TARGET_PUBLIC_IP,
           port: PUBLIC_PORT,
           username: DEFENDER_DB_ACCOUNT.username,
@@ -817,7 +837,7 @@ describe('handleMysqlConnect', () => {
 
       const response = await handleMysqlConnect(
         await signedConnect(identity, {
-          essid: TARGET_ESSID,
+          essid: ESSID,
           target_ip: TARGET_PUBLIC_IP,
           port: PUBLIC_PORT,
           username: DEFENDER_DB_ACCOUNT.username,
@@ -854,7 +874,7 @@ describe('handleMysqlConnect', () => {
 
       const response = await handleMysqlConnect(
         await signedConnect(identity, {
-          essid: TARGET_ESSID,
+          essid: ESSID,
           target_ip: TARGET_PUBLIC_IP,
           port: PUBLIC_PORT,
           username: DEFENDER_DB_ACCOUNT.username,
@@ -874,6 +894,7 @@ describe('handleMysqlConnect', () => {
       const identity = generateIdentity();
       const { username, password } = knownDatabaseCredentialIn(DEEP.database, DEEP.layer.host.hostname);
       const { deps } = makeDeps({
+        ...homeVantage(DEEP.essid),
         findPatches: throughForward(),
       });
 
@@ -900,6 +921,7 @@ describe('handleMysqlConnect', () => {
       const identity = generateIdentity();
       const { username, password } = knownDatabaseCredentialIn(DEEP.database, DEEP.layer.host.hostname);
       const { deps } = makeDeps({
+        ...homeVantage(DEEP.essid),
         findPatches: throughForward(),
       });
 
@@ -921,6 +943,7 @@ describe('handleMysqlConnect', () => {
       const identity = generateIdentity();
       const { username, password } = knownDatabaseCredentialIn(DEEP.database, DEEP.layer.host.hostname);
       const { deps } = makeDeps({
+        ...homeVantage(DEEP.essid),
         findPatches: throughForward(`${DEEP.layer.host.ip}:9999`),
       });
 
@@ -950,6 +973,7 @@ describe('handleMysqlConnect', () => {
       );
       if (sshPort === undefined) throw new Error('need a second daemon on the deep box');
       const { deps } = makeDeps({
+        ...homeVantage(DEEP.essid),
         findPatches: throughForward(`${DEEP.layer.host.ip}:${sshPort.port}`),
       });
 
@@ -973,6 +997,7 @@ describe('handleMysqlConnect', () => {
       const identity = generateIdentity();
       const { username, password } = knownDatabaseCredentialIn(DEEP.database, DEEP.layer.host.hostname);
       const { deps, upsertPatch } = makeDeps({
+        ...homeVantage(DEEP.essid),
         findPatches: throughForward(),
       });
 
@@ -1009,6 +1034,7 @@ describe('handleMysqlConnect', () => {
         ],
       };
       const { deps } = makeDeps({
+        ...homeVantage(DEEP.essid),
         findPatches: journals({
           [DEEP.gatewayMachineId]: [forwardTo(`${DEEP.layer.host.ip}:3306`)],
           [DEEP.machineId]: [patchRow('/var/lib/mysql/data.json', JSON.stringify(planted))],
@@ -1328,5 +1354,132 @@ describe('a box that filters the port its database answers on', () => {
 
     expect(refused).toEqual(silent);
     expect(refused).toEqual({ status: 404, body: { error: 'service_not_running' } });
+  });
+});
+
+/**
+ * A caller standing on a hop rather than on their own workstation. The server places
+ * them from the session they hold on the box they name, derives the source address
+ * itself, and refuses a network they are not on or a box they hold no shell on.
+ */
+describe('handleMysqlConnect — from a hop', () => {
+  const shellOn = (essid: string): Partial<MysqlConnectDeps> => ({
+    findActiveSession: async () => ({
+      data: { username: 'root', userType: 'root', essid },
+      error: null,
+    }),
+    findHomeVantage: async () => ({ data: null, error: null }),
+  });
+
+  const signHop = (
+    identity: ReturnType<typeof generateIdentity>,
+    request: {
+      readonly essid: string;
+      readonly target_ip: string;
+      readonly username: string;
+      readonly password: string;
+      readonly callerMachineId: string;
+      readonly port?: number;
+    },
+  ) =>
+    signRequest(identity, 'mysqlConnect', {
+      essid: request.essid,
+      target_ip: request.target_ip,
+      port: request.port ?? SERVICE_CATALOG.mysql.defaultPort,
+      username: request.username,
+      password: request.password,
+      caller_machine_id: request.callerMachineId,
+    });
+
+  it('records a LAN login from the hop box address, not from home', async () => {
+    const identity = generateIdentity();
+    const host = mysqlHostOn(ESSID);
+    const { username, password } = knownDatabaseCredential(host);
+    // Standing on another box on this ESSID — a generated sibling whose own address the
+    // target records as the source.
+    const hop = databaselessHostOn(ESSID);
+    const hopMachineId = resolveLanHostIdentity(hop, ESSID).machineId;
+    const { deps, upsertPatch } = makeDeps(shellOn(ESSID));
+
+    const response = await handleMysqlConnect(
+      await signHop(identity, {
+        essid: ESSID,
+        target_ip: host.ip,
+        username,
+        password,
+        callerMachineId: hopMachineId,
+      }),
+      deps,
+    );
+
+    expect(response.status).toBe(200);
+    expect(upsertPatch.mock.calls[0]![0].content).toContain(`${username}@${hop.ip} `);
+  });
+
+  it('resolves localhost to the hop box itself, logged over loopback', async () => {
+    const identity = generateIdentity();
+    const host = mysqlHostOn(ESSID);
+    const { username, password } = knownDatabaseCredential(host);
+    const hopMachineId = resolveLanHostIdentity(host, ESSID).machineId;
+    const { deps, upsertPatch } = makeDeps(shellOn(ESSID));
+
+    const response = await handleMysqlConnect(
+      await signHop(identity, {
+        essid: ESSID,
+        target_ip: '127.0.0.1',
+        username,
+        password,
+        callerMachineId: hopMachineId,
+      }),
+      deps,
+    );
+
+    expect(response.status).toBe(200);
+    expect(upsertPatch.mock.calls[0]![0].content).toContain(`${username}@127.0.0.1 `);
+  });
+
+  it('refuses a login naming a network the caller is not standing on', async () => {
+    const identity = generateIdentity();
+    const host = mysqlHostOn(ESSID);
+    const { username, password } = knownDatabaseCredential(host);
+    const { deps, upsertPatch } = makeDeps(shellOn('SOME-OTHER-WIFI'));
+
+    const response = await handleMysqlConnect(
+      await signHop(identity, {
+        essid: ESSID,
+        target_ip: host.ip,
+        username,
+        password,
+        callerMachineId: 'a-box-on-another-net',
+      }),
+      deps,
+    );
+
+    expect(response).toEqual({ status: 403, body: { error: 'wrong_network' } });
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
+  it('refuses a login from a box the caller holds no shell on', async () => {
+    const identity = generateIdentity();
+    const host = mysqlHostOn(ESSID);
+    const { username, password } = knownDatabaseCredential(host);
+    const { deps, upsertPatch } = makeDeps({
+      findActiveSession: async () => ({ data: null, error: null }),
+      findHomeVantage: async () => ({ data: null, error: null }),
+    });
+
+    const response = await handleMysqlConnect(
+      await signHop(identity, {
+        essid: ESSID,
+        target_ip: host.ip,
+        username,
+        password,
+        callerMachineId: 'a-box-i-do-not-hold',
+      }),
+      deps,
+    );
+
+    expect(response).toEqual({ status: 403, body: { error: 'no_session' } });
+    expect(upsertPatch).not.toHaveBeenCalled();
   });
 });

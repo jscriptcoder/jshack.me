@@ -264,7 +264,7 @@ describe('mysql', () => {
       port: 3306,
       username: 'readonly',
       password: 'hunter2',
-      sourceIp: LOCAL_IP,
+      callerMachineId: asMachineId('skylab-deadbeef'),
     });
   });
 
@@ -455,7 +455,7 @@ describe('mysql', () => {
       port: 3306,
       username: 'readonly',
       password: 'hunter2',
-      sourceIp: LOCAL_IP,
+      callerMachineId: asMachineId('skylab-deadbeef'),
     });
   });
 
@@ -989,12 +989,11 @@ describe('the database on your own box', () => {
 
     await mysql.execute(env, ['localhost', 'root'], new Map());
 
-    // One machine under one name. `localhost` names no machine to anybody but us, so a
-    // prompt that kept the word rather than the address would be holding a connection
-    // that means something different from the line the daemon just wrote down — and
-    // the statements after it would be resolving a different question each time.
-    expect(held[0]?.targetIp).toBe(LOCAL_IP);
-    expect(held[0]?.sourceIp).toBe('127.0.0.1');
+    // One machine under one name. `localhost` resolves to the box the client reads for
+    // itself, and the prompt holds it under the address it was reached BY — loopback —
+    // which is the address the daemon's own log then records for the visit.
+    expect(held[0]?.targetIp).toBe('127.0.0.1');
+    expect(held[0]?.callerMachineId).toBe(env.session.machineId);
   });
 
   it('refuses before asking for anything when the daemon is not running', async () => {
@@ -1493,5 +1492,50 @@ describe('the database on your own box', () => {
     // but replacing whatever is there with one line is worse than saying nothing.
     expect(linesOf(result)).toContain(`Connected to ${OWN_CONFIG.machineName}.`);
     expect(writes).toEqual([]);
+  });
+});
+
+describe('mysql — from a hop', () => {
+  const HOP_ESSID = 'HOP-NET';
+  const HOP_BOX = asMachineId('hop-box');
+
+  const hopEnv = (over: EnvOver = {}) =>
+    mockCommandEnv({
+      identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
+      network: mockNetworkViewFromConnectivity(onlineConnectivity(ESSID)),
+      // A shell held on another box on another network; the home card is irrelevant.
+      session: mockSession({
+        id: 'ssh-1',
+        machineId: HOP_BOX,
+        essid: HOP_ESSID,
+        username: 'root',
+        userType: 'root',
+      }),
+      now: () => asEpochMs(NOW),
+      scan: mockScanApi({ resolveOccupants: async () => over.occupants ?? [] }),
+      mysql: mockMysqlApi(over.mysql),
+      prompt: over.prompt ?? (async ({ masked }) => (masked ? 'hunter2' : 'readonly')),
+    });
+
+  it('sends localhost to the server as 127.0.0.1, so the hop own daemon answers', async () => {
+    const connect = vi.fn(async () => ({ ok: true as const, hostname: 'hop-db' }));
+
+    // On a hop the own box is the shell's remote one, whose live datadir only the server
+    // can read — so localhost is not the client own-box path but a server round-trip.
+    await mysql.execute(hopEnv({ mysql: { connect } }), ['localhost'], new Map());
+
+    expect(connect).toHaveBeenCalledWith(
+      expect.objectContaining({ essid: HOP_ESSID, targetIp: '127.0.0.1', callerMachineId: HOP_BOX }),
+    );
+  });
+
+  it('reaches a host on the hop network, placing itself by the hop box', async () => {
+    const connect = vi.fn(async () => ({ ok: true as const, hostname: 'hop-db' }));
+
+    await mysql.execute(hopEnv({ mysql: { connect } }), ['10.0.0.5'], new Map());
+
+    expect(connect).toHaveBeenCalledWith(
+      expect.objectContaining({ essid: HOP_ESSID, targetIp: '10.0.0.5', callerMachineId: HOP_BOX }),
+    );
   });
 });

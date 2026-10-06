@@ -38,6 +38,7 @@ import { verifySignedRequest } from '../signedRequest/verify.js';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
 import { md5 } from '../generation/md5.js';
 import { reachServiceHost, type HandlerResponse, type ServiceHostLookup } from './serviceHost.js';
+import { resolveCallerVantageOn, type CallerVantageDeps } from './callerVantage.js';
 import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
 import { credentialIn, databaseIn, DATADIR_OWNER, DATADIR_PATH } from '../mysql/datadir.js';
 import { runStatement } from '../mysql/statements.js';
@@ -54,7 +55,8 @@ import { asGameTime } from '../types.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 import type { PatchRow } from '../patches/upsertPatch.js';
 
-export type MysqlStatementDeps = ServiceHostLookup & {
+export type MysqlStatementDeps = ServiceHostLookup &
+  CallerVantageDeps & {
   readonly nonceStore: NonceStore;
   /** Write a patch — the datadir a statement changed, and the line the daemon records
    *  about having changed it. Kept to those two paths by the caller below rather than
@@ -83,6 +85,9 @@ const mysqlStatementSchema = z
     username: z.string().min(1),
     password: z.string(),
     statement: z.string(),
+    // The box the shell stands on; absent means the caller's own workstation. The
+    // source address is the vantage's, so `source_ip` is accepted but never read.
+    caller_machine_id: z.string().min(1).optional(),
     source_ip: z.string().min(1).nullable().optional(),
   })
   .refine((payload) => !('player_key' in payload));
@@ -105,9 +110,23 @@ export const handleMysqlStatement = async (
   }
   const { payload, publicKey } = verified;
 
+  // Where the caller stands, re-derived per statement from the box they name: the shell
+  // on top of the stack IS the connection, so a shell that has since ended refuses the
+  // next statement (`no_session`) and the prompt drops — the mechanism that keeps a
+  // credential-only door from outliving the vantage it was opened from.
+  const vantage = await resolveCallerVantageOn(
+    deps,
+    publicKey,
+    payload.caller_machine_id,
+    payload.essid,
+  );
+  if (!vantage.ok) return { status: vantage.status, body: { error: vantage.error } };
+
   const reach = await reachServiceHost(deps, {
-    essid: payload.essid,
+    essid: vantage.essid,
     targetIp: payload.target_ip,
+    callerMachineId: payload.caller_machine_id,
+    ownLanSourceIp: vantage.sourceIp,
     port: payload.port,
     service: SERVICE_CATALOG.mysql.service,
     actorKey: publicKey,
@@ -139,10 +158,10 @@ export const handleMysqlStatement = async (
     // From the credential that just validated, never from the payload. A client that
     // named its own tier would be naming its own permissions.
     userType: credential.userType,
-    // The route's address wins over the caller's claim: a refusal through a forward
-    // names the `.1` the box actually saw, so the error the player reads and the line
-    // the defender finds are the same string.
-    sourceIp: sourceIp ?? payload.source_ip ?? 'unknown',
+    // The address the box saw, server-derived at the vantage: a refusal through a
+    // forward names the `.1` the box actually saw, so the error the player reads and the
+    // line the defender finds are the same string.
+    sourceIp: sourceIp ?? 'unknown',
   });
 
   if (changed !== undefined) {
