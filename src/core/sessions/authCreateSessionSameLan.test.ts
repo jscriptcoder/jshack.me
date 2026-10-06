@@ -290,6 +290,21 @@ describe('handleAuthCreateSessionSameLan', () => {
     });
   });
 
+  it('records the door kind the caller named, so an ftp occupant login is not filed as ssh', async () => {
+    const { deps, insertSession } = makeDeps(undefined, async () => ({
+      data: [wsFtpdUp],
+      error: null,
+    }));
+
+    const result = await handleAuthCreateSessionSameLan(
+      envelope(BOB, { username: 'guest', password: GUEST_PW, kind: 'ftp', port: 2121 }),
+      deps,
+    );
+
+    expect(result.status).toBe(200);
+    expect(insertSession.mock.calls[0]![0]).toMatchObject({ kind: 'ftp' });
+  });
+
   it('refuses a caller standing on no network before any password check or journal read', async () => {
     const stranger = generateIdentity();
     const { deps, findPatches, insertSession } = makeDeps();

@@ -685,6 +685,14 @@ const ftpAuthenticatePublic = (params: PublicAuthParams): Promise<PublicAuthResu
     ? Promise.resolve({ ok: false, error: 'network_error' })
     : authCreateServerSessionPublic(sessionsClientDeps, params, 'ftp');
 
+/** Authenticate a SAME-WiFi ftp login server-side (backs `env.ftp.authenticateSameLan`)
+ *  — the same round-trip `ssh` uses, asked for an `ftp`-kind row. Degrades to a network
+ *  error before the sessions client is wired. */
+const ftpAuthenticateSameLan = (params: SameLanAuthParams): Promise<PublicAuthResult> =>
+  sessionsClientDeps === undefined
+    ? Promise.resolve({ ok: false, error: 'network_error' })
+    : authCreateServerSessionSameLan(sessionsClientDeps, params, 'ftp');
+
 /** Authenticate a SAME-WiFi LAN ssh login server-side (backs `env.ssh.authenticateSameLan`).
  *  Degrades to a network error before `startGame` wires the sessions client. */
 const sshAuthenticateSameLan = (params: SameLanAuthParams): Promise<PublicAuthResult> =>
@@ -920,6 +928,13 @@ const scpAuthenticatePublic = (params: PublicAuthParams): Promise<PublicAuthResu
   sessionsClientDeps === undefined
     ? Promise.resolve({ ok: false, error: 'network_error' })
     : authCreateServerSessionPublic(sessionsClientDeps, params, 'scp');
+
+/** Authenticate a SAME-WiFi transfer server-side (backs `env.scp.authenticateSameLan`)
+ *  — the same round-trip the other doors reach, asked for an `scp`-kind row. */
+const scpAuthenticateSameLan = (params: SameLanAuthParams): Promise<PublicAuthResult> =>
+  sessionsClientDeps === undefined
+    ? Promise.resolve({ ok: false, error: 'network_error' })
+    : authCreateServerSessionSameLan(sessionsClientDeps, params, 'scp');
 
 /** Write to the machine a transfer opened a session on (backs `env.scp.write`). The
  *  SHIPPED patch client, aimed at the target and stamped with the account the
@@ -1881,12 +1896,14 @@ const executeLine = async (line: string): Promise<void> => {
     onSshAuthenticate: sshAuthenticate,
     onFtpAuthenticate: ftpAuthenticate,
     onFtpAuthenticatePublic: ftpAuthenticatePublic,
+    onFtpAuthenticateSameLan: ftpAuthenticateSameLan,
     onFtpEnter: enterFtpSession,
     onFtpLeave: leaveFtpSession,
     ...ftpBinding(),
     onAptDowngrade: (downgrade) => void recordPackageDowngradeFn(aptDowngradeRecord(downgrade)),
     onScpAuthenticate: scpAuthenticate,
     onScpAuthenticatePublic: scpAuthenticatePublic,
+    onScpAuthenticateSameLan: scpAuthenticateSameLan,
     onScpWrite: writeToScpTarget,
     onScpRead: readFromScpTarget,
     onScpEnd: endScpSession,

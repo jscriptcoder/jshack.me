@@ -579,6 +579,10 @@ export type FtpApi = {
    *  forwarded. Shares `PublicAuthResult` with `ssh`'s: the machine id comes back from
    *  the server, because which box a stranger's forward reaches is not derivable here. */
   readonly authenticatePublic: (params: PublicAuthParams) => Promise<PublicAuthResult>;
+  /** Log into a FELLOW OCCUPANT's box by its LAN IP over shared WiFi — the same
+   *  endpoint `ssh` uses, asked for an `ftp`-kind row. The owner's machine id comes
+   *  back from the server, as the public path's does. */
+  readonly authenticateSameLan: (params: SameLanAuthParams) => Promise<PublicAuthResult>;
   /** Hold this session and put the terminal at the `ftp>` prompt. */
   readonly enter: (session: Session) => void;
   /** Drop it and hand the terminal back to the shell that never moved. */
@@ -626,6 +630,9 @@ export type ScpApi = {
    *  resolves it and names it back, which is why this returns a machine id and the
    *  own-LAN login does not. */
   readonly authenticatePublic: (params: PublicAuthParams) => Promise<PublicAuthResult>;
+  /** The same endpoint again, for a FELLOW OCCUPANT reached by LAN IP over shared WiFi,
+   *  asked for an `scp`-kind row; the owner's machine id comes back from the server. */
+  readonly authenticateSameLan: (params: SameLanAuthParams) => Promise<PublicAuthResult>;
   /** Write to the machine the session was opened on, at the tier the credential
    *  bought. Session-PARAMETERIZED rather than pre-bound, because the session it
    *  writes through was created moments ago by the same command. The gate is the
