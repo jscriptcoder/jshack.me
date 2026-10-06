@@ -33,6 +33,7 @@ import { md5 } from '../generation/md5.js';
 import { SERVICE_CATALOG, type ServiceSpec, type SweepLog } from '../services/serviceCatalog.js';
 import { listenerOn, type Listener } from '../services/pidfile.js';
 import { portsOpenToNetwork } from '../network/portsOpenToNetwork.js';
+import { LOOPBACK_IPV4 } from '../network/interfaces.js';
 import type { Directory } from '../filesystem/types.js';
 import { derivePid } from '../logging/syslog.js';
 import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
@@ -348,6 +349,16 @@ export const handleAuthCreateSession = async (
     return { status: 403, body: { error: 'wrong_network' } };
   }
 
+  // `localhost` names the box the shell stands ON — the hop itself, placed at the address
+  // the vantage sees it at. The client cannot read that box's live `/var/run`, so it sends
+  // loopback for the server to resolve to it here, exactly as the data doors do; it is
+  // `nc`'s motivating case, and the only door whose client ever sends it. A hop the server
+  // cannot place at an address has no box for loopback to name.
+  const targetIp = payload.target_ip === LOOPBACK_IPV4 ? vantage.sourceIp : payload.target_ip;
+  if (targetIp === null) {
+    return { status: 404, body: { error: 'host_unreachable' } };
+  }
+
   // Resolve the target on a network the caller reaches — the LAN, or a deep layer the
   // box they stand on reaches: gives the host needed to rebuild its FS, proves target_ip
   // is a real reachable host there, and says the address the box sees the caller at.
@@ -355,7 +366,7 @@ export const handleAuthCreateSession = async (
   // both agree on.
   const resolved = await resolveLoginTarget(deps, {
     essid: payload.essid,
-    targetIp: payload.target_ip,
+    targetIp,
     callerMachineId: payload.caller_machine_id,
     lanSourceIp: vantage.sourceIp,
   });

@@ -6,6 +6,7 @@ import {
   mockFsViewFromTree,
   mockIdentity,
   mockNcApi,
+  mockNetworkView,
   mockNetworkViewFromConnectivity,
   mockPatchApi,
   mockScanApi,
@@ -15,11 +16,20 @@ import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
 import { buildRemoteHostFs } from '../generation/remoteHostFs.js';
 import { resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
+import { chainLinks } from '../generation/lanTopology.js';
+import { resolveDeepScanHosts } from '../scan/deepScanHosts.js';
 import { PIDFILE_PERMISSIONS, readOpenPorts } from '../services/pidfile.js';
 import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
 import { assignHomeNetwork } from '../network/homeNetwork.js';
 import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces.js';
-import { asAbsPath, asMachineId, asNetworkAddress, asPlayerKeyHex, type UserType } from '../types.js';
+import {
+  asEpochMs,
+  asAbsPath,
+  asMachineId,
+  asNetworkAddress,
+  asPlayerKeyHex,
+  type UserType,
+} from '../types.js';
 import type { FilePermissions } from '../filesystem/types.js';
 import type { CommandEnv, CommandResult, NcApi, PatchResult } from './types.js';
 
@@ -801,7 +811,7 @@ describe('what nc actually sends when it knocks', () => {
     const env = onlineEnv({
       nc: mockNcApi({ connect }),
       pushSession,
-      session: mockSession({ id: 'sess-below' }),
+      session: mockSession({ id: 'sess-below', machineId: asMachineId('ws-mine') }),
     });
 
     await nc.execute(env, [host.ip, '4444'], NO_FLAGS);
@@ -813,6 +823,7 @@ describe('what nc actually sends when it knocks', () => {
       port: 4444,
       parentSessionId: 'sess-below',
       sourceIp: null,
+      callerMachineId: 'ws-mine',
     });
     // The row the client keeps and the one the server was asked for are the same
     // session — an id invented twice would leave the shell holding a row nobody has.
@@ -829,7 +840,7 @@ describe('what nc actually sends when it knocks', () => {
     }));
     const env = onlineEnv({
       nc: mockNcApi({ connectSameLan }),
-      session: mockSession({ id: 'sess-below' }),
+      session: mockSession({ id: 'sess-below', machineId: asMachineId('ws-mine') }),
       scan: mockScanApi({
         resolveOccupants: async () => [
           {
@@ -850,6 +861,7 @@ describe('what nc actually sends when it knocks', () => {
       port: 4444,
       parentSessionId: 'sess-below',
       sourceIp: null,
+      callerMachineId: 'ws-mine',
     });
   });
 
@@ -865,7 +877,7 @@ describe('what nc actually sends when it knocks', () => {
     }));
     const env = onlineEnv({
       nc: mockNcApi({ connectInnerGateway }),
-      session: mockSession({ id: 'sess-below' }),
+      session: mockSession({ id: 'sess-below', machineId: asMachineId('ws-mine') }),
     });
 
     await nc.execute(env, [inner.ip, '4444'], NO_FLAGS);
@@ -877,6 +889,7 @@ describe('what nc actually sends when it knocks', () => {
       port: 4444,
       parentSessionId: 'sess-below',
       sourceIp: null,
+      callerMachineId: 'ws-mine',
     });
   });
 
@@ -902,5 +915,292 @@ describe('what nc actually sends when it knocks', () => {
       parentSessionId: 'sess-below',
       sourceIp: null,
     });
+  });
+});
+
+/**
+ * `nc` from a hop — the connection travels from the box the shell stands on.
+ *
+ * A listener planted on a box three hops in is reachable from the shell that planted
+ * it, not from the player's own workstation: the knock leaves the hop, the hop's
+ * neighbours are the ones it can reach, and the box it opens onto is named on the
+ * hop's network. The arms stay the ssh ones — own-LAN, a deep layer the hop fronts,
+ * a fellow occupant, a public address — each now placing the caller by the box they
+ * stand on rather than their own card.
+ */
+
+const NOW = 1700000000000;
+const HOP_ESSID = 'RIDGEMONT-OFFICE';
+const OPENED = { ok: true, username: 'mallory', userType: 'user' } as const;
+
+/** A machine on `essid`'s LAN, other than any excluded — a box a player could really
+ *  hop onto. */
+const machineOn = (essid: string, exclude: readonly string[] = []): LanHost => {
+  const host = generateHomeLan(essid).hosts.find(
+    (candidate) => candidate.kind === 'machine' && !exclude.includes(candidate.ip),
+  );
+  if (host === undefined) throw new Error(`${essid} has no spare machine`);
+  return host;
+};
+
+/** The player stands in a shell on `hop`, a box on HOP_ESSID's LAN, with their own WiFi
+ *  card switched off — the radio stays with the body, the address follows the shell. */
+const hopEnv = (hop: LanHost, overrides: Partial<Parameters<typeof mockCommandEnv>[0]> = {}) =>
+  mockCommandEnv({
+    identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
+    network: mockNetworkView({ isOnline: () => false, interfaces: () => [] }),
+    session: mockSession({
+      id: 'ssh-hop-1',
+      machineId: asMachineId(resolveLanHostIdentity(hop, HOP_ESSID).machineId),
+      userType: 'root',
+      essid: HOP_ESSID,
+    }),
+    now: () => asEpochMs(NOW),
+    nc: mockNcApi({ connect: async () => ({ ...OPENED }) }),
+    pushSession: () => undefined,
+    setCwd: () => undefined,
+    ...overrides,
+  });
+
+describe('nc from a hop', () => {
+  it('opens a listener on the hop’s own LAN, naming the hop as where the knock comes from', async () => {
+    const hop = machineOn(HOP_ESSID);
+    const target = machineOn(HOP_ESSID, [hop.ip]);
+    const connect = vi.fn(async () => ({ ...OPENED }));
+    const pushSession = vi.fn();
+    const env = hopEnv(hop, { nc: mockNcApi({ connect }), pushSession });
+
+    await nc.execute(env, [target.ip, '4444'], NO_FLAGS);
+
+    expect(connect).toHaveBeenCalledWith(
+      expect.objectContaining({
+        essid: HOP_ESSID,
+        targetIp: target.ip,
+        port: 4444,
+        callerMachineId: resolveLanHostIdentity(hop, HOP_ESSID).machineId,
+      }),
+    );
+    expect(pushSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        machineId: resolveLanHostIdentity(target, HOP_ESSID).machineId,
+        essid: HOP_ESSID,
+        kind: 'nc',
+      }),
+    );
+  });
+
+  it('reaches a public address from the hop, telling the door where the knock comes from', async () => {
+    const hop = machineOn(HOP_ESSID);
+    const connectPublic = vi.fn(async () => ({ ...OPENED, machineId: 'ws-remote', essid: ESSID }));
+    const env = hopEnv(hop, {
+      nc: mockNcApi({ connectPublic }),
+      scan: mockScanApi({ resolvePublic: async () => ({ found: true, ports: [] }) }),
+    });
+
+    await nc.execute(env, ['87.0.113.7', '4444'], NO_FLAGS);
+
+    expect(connectPublic).toHaveBeenCalledWith(
+      expect.objectContaining({
+        target: '87.0.113.7',
+        port: 4444,
+        callerMachineId: resolveLanHostIdentity(hop, HOP_ESSID).machineId,
+      }),
+    );
+  });
+
+  it('lands a session on a fellow occupant’s box when their listener opens', async () => {
+    // The occupant arm's SUCCESS has to land: a knock the neighbour's box answered drops
+    // the player onto that box, under the owner's own id on the shared LAN.
+    const hop = machineOn(HOP_ESSID);
+    const occupantIp = `${generateHomeLan(HOP_ESSID).subnet}.241`;
+    const connectSameLan = vi.fn(async () => ({
+      ...OPENED,
+      machineId: 'alice-rig-cafef00d',
+      essid: HOP_ESSID,
+    }));
+    const pushSession = vi.fn();
+    const env = hopEnv(hop, {
+      nc: mockNcApi({ connectSameLan }),
+      scan: mockScanApi({
+        resolveOccupants: async () => [
+          {
+            workstation_machine_id: 'alice-rig-cafef00d',
+            localIp: asNetworkAddress(occupantIp),
+            machineName: 'alice-rig',
+          },
+        ],
+      }),
+      pushSession,
+    });
+
+    await nc.execute(env, [occupantIp, '4444'], NO_FLAGS);
+
+    expect(connectSameLan).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targetIp: occupantIp,
+        callerMachineId: resolveLanHostIdentity(hop, HOP_ESSID).machineId,
+      }),
+    );
+    expect(pushSession).toHaveBeenCalledWith(
+      expect.objectContaining({ machineId: 'alice-rig-cafef00d', essid: HOP_ESSID, kind: 'nc' }),
+    );
+  });
+});
+
+describe('nc from a box on a deep layer', () => {
+  const DEEP_ESSID = 'TYRELL-CORP';
+
+  /** The first chain link on DEEP_ESSID that fronts a machine, with that machine —
+   *  found rather than hardcoded, so an octet reshuffle does not rot it. */
+  const deepMachine = () => {
+    for (const link of chainLinks(DEEP_ESSID)) {
+      const onLayer = resolveDeepScanHosts(DEEP_ESSID, link, buildDirectory({})).hosts.find(
+        (entry) => entry.host.kind === 'machine',
+      );
+      if (onLayer !== undefined) return { gatewayId: link.machineId, deep: onLayer };
+    }
+    throw new Error(`${DEEP_ESSID} fronts no deep machine`);
+  };
+
+  const deepHopEnv = (gatewayId: string, overrides: Partial<Parameters<typeof mockCommandEnv>[0]> = {}) =>
+    mockCommandEnv({
+      identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
+      network: mockNetworkView({ isOnline: () => false, interfaces: () => [] }),
+      fs: mockFsViewFromTree(buildDirectory({}), { userType: 'root', cwd: () => asAbsPath('/') }),
+      session: mockSession({
+        id: 'ssh-deep-1',
+        machineId: asMachineId(gatewayId),
+        userType: 'root',
+        essid: DEEP_ESSID,
+      }),
+      now: () => asEpochMs(NOW),
+      nc: mockNcApi({ connect: async () => ({ ...OPENED }) }),
+      pushSession: () => undefined,
+      setCwd: () => undefined,
+      ...overrides,
+    });
+
+  it('reaches a listener on the layer the hop fronts, landing on that deep host', async () => {
+    const { gatewayId, deep } = deepMachine();
+    const connect = vi.fn(async () => ({ ...OPENED }));
+    const pushSession = vi.fn();
+    const env = deepHopEnv(gatewayId, { nc: mockNcApi({ connect }), pushSession });
+
+    await nc.execute(env, [deep.host.ip, '4444'], NO_FLAGS);
+
+    expect(connect).toHaveBeenCalledWith(
+      expect.objectContaining({
+        essid: DEEP_ESSID,
+        targetIp: deep.host.ip,
+        port: 4444,
+        callerMachineId: gatewayId,
+      }),
+    );
+    expect(pushSession).toHaveBeenCalledWith(
+      expect.objectContaining({ machineId: deep.machineId, essid: DEEP_ESSID, kind: 'nc' }),
+    );
+  });
+
+  it('grabs a deep host’s banner without a session when the catalog already names the port', async () => {
+    const DEEP_SSH_ESSID = 'TYRELL-CORP';
+    let found: { gatewayId: string; ip: string } | undefined;
+    for (const link of chainLinks(DEEP_SSH_ESSID)) {
+      const onLayer = resolveDeepScanHosts(DEEP_SSH_ESSID, link, buildDirectory({})).hosts.find(
+        (entry) => entry.ports.some((open) => open.service === 'ssh'),
+      );
+      if (onLayer !== undefined) {
+        found = { gatewayId: link.machineId, ip: onLayer.host.ip };
+        break;
+      }
+    }
+    if (found === undefined) throw new Error('no deep ssh host');
+    const connect = vi.fn(async () => ({ ...OPENED }));
+    const pushSession = vi.fn();
+    const env = deepHopEnv(found.gatewayId, { nc: mockNcApi({ connect }), pushSession });
+
+    const { lines } = await drain(await nc.execute(env, [found.ip, '22'], NO_FLAGS));
+
+    expect(lines).toContain('SSH-2.0-OpenSSH');
+    expect(connect).not.toHaveBeenCalled();
+    expect(pushSession).not.toHaveBeenCalled();
+  });
+
+  it('times out at an address no host holds on the layer, knocking nothing', async () => {
+    // The deep arm has to match the TARGET on the layer, not just any host there: an
+    // address nothing answers to falls through every segment to the own-LAN "nowhere",
+    // never a wrong box's door and never a crash reading an absent host's ports.
+    const { gatewayId, deep } = deepMachine();
+    const missIp = deep.host.ip.replace(/\.\d+$/, '.253');
+    const connect = vi.fn(async () => ({ ...OPENED }));
+    const env = deepHopEnv(gatewayId, { nc: mockNcApi({ connect }) });
+
+    const { text, exitCode } = sync(await nc.execute(env, [missIp, '4444'], NO_FLAGS));
+
+    expect(text).toBe(`nc: connect to ${missIp} port 4444: Connection timed out`);
+    expect(exitCode).toBe(1);
+    expect(connect).not.toHaveBeenCalled();
+  });
+});
+
+describe('nc localhost from a hop', () => {
+  it('reaches a listener on the box the shell stands on, sending loopback for the server to resolve', async () => {
+    const hop = machineOn(HOP_ESSID);
+    const connect = vi.fn<NcApi['connect']>(async () => ({ ...OPENED }));
+    const pushSession = vi.fn();
+    const env = hopEnv(hop, { nc: mockNcApi({ connect }), pushSession });
+
+    await nc.execute(env, ['localhost', '4444'], NO_FLAGS);
+
+    expect(connect).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: expect.stringContaining('nc-4444-'),
+        essid: HOP_ESSID,
+        targetIp: '127.0.0.1',
+        port: 4444,
+        callerMachineId: resolveLanHostIdentity(hop, HOP_ESSID).machineId,
+      }),
+    );
+    // The row the client keeps and the one the server was asked for are the same session.
+    const sent = connect.mock.calls[0]![0];
+    expect(pushSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: sent.sessionId,
+        machineId: resolveLanHostIdentity(hop, HOP_ESSID).machineId,
+        essid: HOP_ESSID,
+        kind: 'nc',
+      }),
+    );
+  });
+
+  it('reaches the same listener by the hop’s own address as by localhost', async () => {
+    const hop = machineOn(HOP_ESSID);
+    const connect = vi.fn(async () => ({ ...OPENED }));
+    const env = hopEnv(hop, { nc: mockNcApi({ connect }) });
+
+    // The hop's own LAN address names the same box as localhost does, so it takes the
+    // same own-box knock rather than falling through to a second resolution of itself.
+    await nc.execute(env, [hop.ip, '4444'], NO_FLAGS);
+
+    expect(connect).toHaveBeenCalledWith(expect.objectContaining({ targetIp: '127.0.0.1' }));
+  });
+
+  it('refuses when the server finds no listener on the loopback port', async () => {
+    const hop = machineOn(HOP_ESSID);
+    const env = hopEnv(hop, {
+      nc: mockNcApi({ connect: async () => ({ ok: false, error: 'host_unreachable' }) }),
+    });
+
+    const { text, exitCode } = sync(await nc.execute(env, ['localhost', '4444'], NO_FLAGS));
+
+    expect(text).toBe('nc: connect to localhost port 4444: Connection refused');
+    expect(exitCode).toBe(1);
+  });
+});
+
+describe('man nc', () => {
+  it('tells the player a connection in a remote shell travels from that box, localhost included', () => {
+    const description = nc.manual?.description ?? '';
+    expect(description).toContain('travels from that box');
+    expect(description).toContain('localhost');
   });
 });

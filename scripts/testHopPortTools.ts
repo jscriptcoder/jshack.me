@@ -12,7 +12,11 @@
 //   - an `scp` login from the same hop lands as a `kind:'scp'` session, and the target's
 //     AUTH.LOG (not vsftpd) names the HOP's address;
 //   - a login NAMING a network the caller is not standing on is refused (403);
-//   - a login naming a box the caller holds NO session on is refused (403).
+//   - a login naming a box the caller holds NO session on is refused (403);
+//   - an `nc` connect from the hop opens a planted listener on a box on the hop's LAN,
+//     landing a `kind:'nc'` session on that box;
+//   - `nc localhost` from the hop resolves to the box the shell stands ON — loopback is
+//     sent for the server to place, and the session lands on the HOP itself.
 //
 // The occupant and public arms reuse the endpoints ssh's own wire-checks already cover
 // (testHopSidewaysLogin, testDeepLayerSsh), and an occupant login is unstageable against
@@ -31,7 +35,12 @@ import { generateHomeLan, type LanHost } from '../src/core/generation/generateHo
 import { hostServices } from '../src/core/generation/remoteHostFs.js';
 import { machineIdForLanHost } from '../src/core/generation/lanTopology.js';
 import { resolveLanHostIdentity } from '../src/core/generation/lanHostIdentity.js';
-import { readOpenPorts } from '../src/core/services/pidfile.js';
+import {
+  formatListenerContent,
+  listenerPidfilePath,
+  PIDFILE_PERMISSIONS,
+  readOpenPorts,
+} from '../src/core/services/pidfile.js';
 import { ALL_GENERATED_PASSWORDS } from '../src/core/generation/passwordPools.js';
 import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
 import { accountsIn } from '../src/core/sessions/passwdAccount.js';
@@ -118,6 +127,11 @@ if (ftpPort === undefined || scpPort === undefined || guestPw === undefined || r
 const hopMachine = machineIdForLanHost(hop, ESSID);
 const ftpMachine = machineIdForLanHost(ftpHost, ESSID);
 const scpMachine = machineIdForLanHost(scpHost, ESSID);
+const unheldMachine = machineIdForLanHost(unheld, ESSID);
+
+// A listener someone left behind — the door `nc` connects to. 4444 is no catalog
+// service, so the box can only answer for it through the planted pidfile.
+const BACKDOOR_PORT = 4444;
 
 /** A door login from the caller's current stance. `callerMachineId` names the box the
  *  shell is standing on; `kind` is the door being knocked on. */
@@ -151,6 +165,45 @@ const sessionKind = async (sessionId: string): Promise<string | undefined> => {
   return (data?.[0] as { kind?: string } | undefined)?.kind;
 };
 
+const sessionMachine = async (sessionId: string): Promise<string | undefined> => {
+  const { data, error } = await sr.from('sessions').select('machine_id').eq('session_id', sessionId);
+  mustNotFail('sessions read', error);
+  return (data?.[0] as { machine_id?: string } | undefined)?.machine_id;
+};
+
+/** A backdoor knock — `nc` carries no account, so there is no username or password to
+ *  send: the pidfile on the far side names who it admits. */
+const ncKnock = (params: {
+  readonly sessionId: string;
+  readonly targetIp: string;
+  readonly port: number;
+  readonly callerMachineId: string;
+}) =>
+  post(
+    signRequest(op, 'authCreateSession', {
+      session_id: params.sessionId,
+      essid: ESSID,
+      target_ip: params.targetIp,
+      port: params.port,
+      parent_session_id: null,
+      kind: 'nc',
+      caller_machine_id: params.callerMachineId,
+    }),
+  );
+
+/** Leave a listener in a box's journal, the way `nc -l` would — the one row that IS the
+ *  open port, world-readable so the network can see it. */
+const plantListener = (machineId: string, user: string, userType: 'root' | 'user' | 'guest') =>
+  sr.from('patches').insert({
+    machine_id: machineId,
+    path: listenerPidfilePath(BACKDOOR_PORT),
+    content: formatListenerContent({ port: BACKDOOR_PORT, user, userType }),
+    owner: 'root',
+    permissions: PIDFILE_PERMISSIONS,
+    node_type: 'file',
+    writer_key: op.publicKeyHex,
+  });
+
 const logContent = async (machineId: string, path: string): Promise<string> => {
   const { data, error } = await sr
     .from('patches')
@@ -177,6 +230,9 @@ const cleanUp = async () => {
   for (const machineId of [ftpMachine, scpMachine, hopMachine]) {
     await sr.from('patches').delete().eq('machine_id', machineId).eq('path', AUTH_LOG_PATH);
     await sr.from('patches').delete().eq('machine_id', machineId).eq('path', VSFTPD_LOG_PATH);
+  }
+  for (const machineId of [unheldMachine, hopMachine]) {
+    await sr.from('patches').delete().eq('machine_id', machineId).eq('path', listenerPidfilePath(BACKDOOR_PORT));
   }
   await sr.from('sessions').delete().eq('player_key', op.publicKeyHex);
 };
@@ -277,12 +333,55 @@ const main = async () => {
     username: 'guest',
     password: guestPw,
     kind: 'ftp',
-    callerMachineId: machineIdForLanHost(unheld, ESSID),
+    callerMachineId: unheldMachine,
   });
   check(
     'an ftp login from a box the caller holds no session on is refused',
     noSession.status === 403,
     `status=${noSession.status} ${JSON.stringify(noSession.body)}`,
+  );
+
+  // === 5. An nc connect from the hop opens a listener on a box on the hop's own LAN. ===
+  const lanPlant = await plantListener(unheldMachine, 'mallory', 'user');
+  mustNotFail('plant LAN listener', lanPlant.error as { message: string } | null);
+  const ncLan = await ncKnock({
+    sessionId: 'nc-from-hop-1',
+    targetIp: unheld.ip,
+    port: BACKDOOR_PORT,
+    callerMachineId: hopMachine,
+  });
+  check(
+    'an nc connect from the hop opens a listener on the hop’s LAN',
+    ncLan.status === 200,
+    `status=${ncLan.status} ${JSON.stringify(ncLan.body)}`,
+  );
+  check(
+    'the nc session row carries kind:nc and lands on the box the listener is on',
+    (await sessionKind('nc-from-hop-1')) === 'nc' &&
+      (await sessionMachine('nc-from-hop-1')) === unheldMachine,
+    `kind=${await sessionKind('nc-from-hop-1')} machine=${await sessionMachine('nc-from-hop-1')}`,
+  );
+
+  // === 6. `nc localhost` from the hop reaches a listener on the HOP ITSELF. ===
+  // The client sends loopback; the server resolves it to the box the shell stands on and
+  // lands the session there — the own-box door the home card still refuses.
+  const hopPlant = await plantListener(hopMachine, 'root', 'root');
+  mustNotFail('plant hop listener', hopPlant.error as { message: string } | null);
+  const ncLoopback = await ncKnock({
+    sessionId: 'nc-localhost-1',
+    targetIp: '127.0.0.1',
+    port: BACKDOOR_PORT,
+    callerMachineId: hopMachine,
+  });
+  check(
+    'an nc localhost connect from the hop lands on the hop itself',
+    ncLoopback.status === 200 && (await sessionMachine('nc-localhost-1')) === hopMachine,
+    `status=${ncLoopback.status} machine=${await sessionMachine('nc-localhost-1')} ${JSON.stringify(ncLoopback.body)}`,
+  );
+  check(
+    'the nc localhost session carries kind:nc',
+    (await sessionKind('nc-localhost-1')) === 'nc',
+    `kind=${await sessionKind('nc-localhost-1')}`,
   );
 
   await cleanUp();

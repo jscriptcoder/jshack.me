@@ -7,18 +7,22 @@
  * service's own greeting, straight off the catalog, so a box identifies itself
  * in its own words rather than in the scanner's.
  *
- * Reachability reads the same world every other network command does: the
- * deterministic generated LAN for an NPC neighbour, `env.scan.resolvePublic` for
- * an address on another network, and — for a real occupant of your own ESSID —
- * nothing at all, because their services are theirs to know. So a port `nmap`
- * shows open is exactly a port `nc` can reach, and a box neither tool can account
- * for stays unaccounted for in both: one source of truth for what is running,
- * whichever tool asks.
+ * The knock travels from where the shell stands — the hop on top of the stack, or
+ * the player's own WiFi on their own box (`vantageOf`). It reaches that box's LAN, a
+ * deeper layer it fronts, a fellow occupant, or a public address, and the box it opens
+ * onto is named on that network. Reachability reads the same world every other network
+ * command does: the deterministic generated LAN for an NPC neighbour, the deep layer the
+ * scan draws, `env.scan.resolvePublic` for an address off it, and — for a real occupant —
+ * nothing at all, because their services are theirs to know. So a port `nmap` shows open
+ * is exactly a port `nc` can reach.
  *
  * The three refusals are distinct facts, not one error wearing three coats:
- * nothing at the address TIMES OUT, a host with that port shut REFUSES, and your
- * own box refuses whatever is running on it — planting a listener is a local act,
- * connecting to one is not.
+ * nothing at the address TIMES OUT, a host with that port shut REFUSES, and — AT HOME —
+ * your own box refuses whatever is running on it, because planting a listener is a local
+ * act and connecting to one is not. On a hop the box the shell stands on is a REMOTE one
+ * whose own `/var/run` only the server can read, so `localhost` there reaches the listener
+ * someone left on it, sent on as loopback for the server to resolve — the data doors' own
+ * reading of what "here" means.
  */
 
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
@@ -34,7 +38,9 @@ import {
   type OpenPort,
 } from '../services/pidfile.js';
 import { serviceByName, type ServiceSpec } from '../services/serviceCatalog.js';
-import { connectedWlan0, LOOPBACK_IPV4 } from '../network/interfaces.js';
+import { LOOPBACK_IPV4, LOOPBACK_NAMES } from '../network/interfaces.js';
+import { vantageOf, type Vantage } from '../network/vantage.js';
+import { resolveDeepScanHosts } from '../scan/deepScanHosts.js';
 import { addressForTarget } from '../network/resolveName.js';
 import { errorLine, streamedResult, text } from './streaming.js';
 import {
@@ -101,13 +107,35 @@ type Target =
       readonly kind: 'lan';
       readonly host: LanHost;
       readonly ports: readonly OpenPort[];
+      readonly machineId: string;
       readonly innerGateway: boolean;
-    };
+    }
+  | { readonly kind: 'deep'; readonly ports: readonly OpenPort[]; readonly machineId: string };
 
-const resolveTarget = async (env: CommandEnv, host: string, essid: string): Promise<Target> => {
+const resolveTarget = async (
+  env: CommandEnv,
+  host: string,
+  vantage: Vantage,
+  occupantsHere: () => Promise<readonly { readonly localIp: string }[]>,
+): Promise<Target> => {
+  const { essid } = vantage;
   if (isPublicIp(host)) {
     const resolution = await env.scan.resolvePublic(host, env.session.machineId);
     return resolution.found ? { kind: 'public', ports: resolution.ports } : { kind: 'nowhere' };
+  }
+
+  // A box on a deeper layer the shell reaches — the one a deep box stands on, the one a
+  // gateway fronts, or one above — is reached there directly. Its ports are the ones
+  // `nmap` shows from this shell (a switch's live ACL already filtered the resolution), so
+  // a cataloged service still banners and anything else still knocks the server for a
+  // listener, exactly as on the own LAN.
+  for (const segment of vantage.reaches) {
+    if (segment.fronting === null) continue;
+    const onLayer = resolveDeepScanHosts(essid, segment.fronting, env.fs.root()).hosts.find(
+      (entry) => entry.host.ip === host,
+    );
+    if (onLayer === undefined) continue;
+    return { kind: 'deep', ports: onLayer.ports, machineId: onLayer.machineId };
   }
 
   // A fellow occupant's services live on THEIR box and cannot be derived from the
@@ -117,15 +145,17 @@ const resolveTarget = async (env: CommandEnv, host: string, essid: string): Prom
   // theirs to say, which is why an occupant carries no ports and every knock at
   // one goes to the gate. Checked BEFORE the generated LAN so a real occupant wins
   // an octet collision, the same precedence the scan merge and the ssh login take.
-  const occupants = await env.scan.resolveOccupants(essid);
+  const occupants = await occupantsHere();
   if (occupants.some((occupant) => occupant.localIp === host)) return { kind: 'occupant' };
 
   const lanHost = generateHomeLan(essid).hosts.find((candidate) => candidate.ip === host);
   if (lanHost === undefined) return { kind: 'nowhere' };
+  const { baseFs, machineId } = resolveLanHostIdentity(lanHost, essid);
   return {
     kind: 'lan',
     host: lanHost,
-    ports: readOpenPorts(resolveLanHostIdentity(lanHost, essid).baseFs),
+    ports: readOpenPorts(baseFs),
+    machineId,
     innerGateway: isInnerGateway(lanHost),
   };
 };
@@ -166,13 +196,13 @@ const knock = async (
     port: request.port,
     parentSessionId: env.session.id,
     sourceIp: null,
+    // The box the shell stands on: the server places the knock on its network, so a
+    // connect out of a hop reaches the hop's LAN and is seen at the hop's address rather
+    // than the player's own card.
+    callerMachineId: env.session.machineId,
   };
   if (target.kind === 'public') {
-    const opened = await env.nc.connectPublic({
-      ...shared,
-      target: request.host,
-      callerMachineId: env.session.machineId,
-    });
+    const opened = await env.nc.connectPublic({ ...shared, target: request.host });
     return opened.ok ? { ...opened } : { ok: false };
   }
   if (target.kind === 'occupant') {
@@ -183,7 +213,7 @@ const knock = async (
     });
     return opened.ok ? { ...opened } : { ok: false };
   }
-  if (target.innerGateway) {
+  if (target.kind === 'lan' && target.innerGateway) {
     const opened = await env.nc.connectInnerGateway({
       ...shared,
       essid: request.essid,
@@ -191,19 +221,12 @@ const knock = async (
     });
     return opened.ok ? { ...opened } : { ok: false };
   }
-  // An ordinary host on the player's own LAN: the only arm whose machine id the
-  // client can derive for itself, from the same resolver the gate used.
-  const opened = await env.nc.connect({
-    ...shared,
-    essid: request.essid,
-    targetIp: request.host,
-  });
+  // An ordinary host on the shell's own LAN, or a box on a deep layer it reaches: the
+  // machine id is resolved on this side — the LAN identity, or the deep resolution — so
+  // the server is only ever asked whether a listener holds the port.
+  const opened = await env.nc.connect({ ...shared, essid: request.essid, targetIp: request.host });
   return opened.ok
-    ? {
-        ...opened,
-        machineId: resolveLanHostIdentity(target.host, request.essid).machineId,
-        essid: request.essid,
-      }
+    ? { ...opened, machineId: target.machineId, essid: request.essid }
     : { ok: false };
 };
 
@@ -281,6 +304,70 @@ const listen = async (env: CommandEnv, rawPort: string | undefined): Promise<Com
   return { kind: 'sync', lines: [text(`Listening on 0.0.0.0 ${port}`)], exitCode: 0 };
 };
 
+/** Stand a shell on the box a listener let the player onto, as whoever the pidfile says
+ *  planted it, keeping the door's port so the shell can later re-ask whether it is still
+ *  there. The hop chain is pushed and the cwd moves, the same as any other login. */
+const land = (
+  env: CommandEnv,
+  session: {
+    readonly sessionId: string;
+    readonly machineId: string;
+    readonly username: string;
+    readonly userType: UserType;
+    readonly essid: string;
+  },
+  host: string,
+  port: number,
+): CommandResult => {
+  env.pushSession({
+    id: session.sessionId,
+    playerKey: env.session.playerKey,
+    machineId: asMachineId(session.machineId),
+    username: session.username,
+    userType: session.userType,
+    kind: 'nc',
+    createdAt: env.now(),
+    essid: session.essid,
+    port,
+  });
+  env.setCwd(homeDirectory({ username: session.username, userType: session.userType }));
+  return {
+    kind: 'sync',
+    lines: [text(`Connecting to ${host}:${port}...`), text(`Connected to ${host}.`)],
+    exitCode: 0,
+  };
+};
+
+/** Reach a listener on the box the shell stands on, from a hop. The client cannot read
+ *  that box's live `/var/run`, so there is no port to banner-grab and nothing to resolve:
+ *  loopback is sent on for the server to place the caller by the box they stand on and
+ *  answer whether a listener holds the port there. The session lands on that same box. */
+const knockOwnBox = async (env: CommandEnv, essid: string, port: number): Promise<CommandResult> => {
+  const sessionId = `nc-${port}-${env.now()}`;
+  await env.sleep(CONNECT_DELAY_MS);
+  const opened = await env.nc.connect({
+    sessionId,
+    essid,
+    targetIp: LOOPBACK_IPV4,
+    port,
+    parentSessionId: env.session.id,
+    callerMachineId: env.session.machineId,
+  });
+  if (!opened.ok) return connectError('localhost', port, 'Connection refused');
+  return land(
+    env,
+    {
+      sessionId,
+      machineId: env.session.machineId,
+      username: opened.username,
+      userType: opened.userType,
+      essid,
+    },
+    LOOPBACK_IPV4,
+    port,
+  );
+};
+
 const execute: Command['execute'] = async (env, args, flags) => {
   if (flags.get(LISTEN_FLAG) === true) return listen(env, args[0]);
 
@@ -290,25 +377,36 @@ const execute: Command['execute'] = async (env, args, flags) => {
   const port = parsePort(rawPort);
   if (port === null) return error(PORT_RANGE);
 
-  const wlan0 = connectedWlan0(env.network);
-  if (wlan0 === null) return error(UNREACHABLE);
+  // Where the shell stands: the hop on top of the stack, or the player's own WiFi on
+  // their own box. Every address below is reached FROM there.
+  const vantage = vantageOf(env.session, env.network);
+  if (vantage === null) return error(UNREACHABLE);
+  const essid = vantage.essid;
 
-  if (requested === 'localhost' || requested === LOOPBACK_IPV4 || requested === wlan0.ipv4) {
-    return error(OWN_BOX);
+  // The box the shell stands ON, named for itself. At home it is the player's own box, and
+  // a connection to a listener you planted there is refused — planting is local,
+  // connecting is not. On a hop it is the REMOTE box the shell is on, so loopback reaches
+  // whatever listener was left on it, resolved server-side like the data doors do.
+  const ownBox =
+    LOOPBACK_NAMES.includes(requested) ||
+    (vantage.address !== null && requested === vantage.address);
+  if (ownBox) {
+    return vantage.kind === 'home' ? error(OWN_BOX) : knockOwnBox(env, essid, port);
   }
 
-  const essid = wlan0.association.essid;
+  // Who else is on this LAN, read at most once from the box the shell stands on so a hop
+  // lists the hop's neighbours: a name needs it to resolve, and a private address needs it
+  // to tell a real occupant's box from a generated one.
+  let occupantsRead: ReturnType<CommandEnv['scan']['resolveOccupants']> | undefined;
+  const occupantsHere = () =>
+    (occupantsRead ??= env.scan.resolveOccupants(essid, env.session.machineId));
 
   // A name becomes the address before anything routes on it, so every path below
   // sees the target it already knows how to reach. A name nothing answers to is left
   // exactly as typed, and falls through to the same unknown-target path an unknown
   // address takes.
-  const host = await addressForTarget({
-    essid,
-    target: requested,
-    resolveOccupants: env.scan.resolveOccupants,
-  });
-  const target = await resolveTarget(env, host, essid);
+  const host = await addressForTarget({ essid, target: requested, resolveOccupants: occupantsHere });
+  const target = await resolveTarget(env, host, vantage, occupantsHere);
   if (target.kind === 'nowhere') return connectError(host, port, 'Connection timed out');
 
   // A port the catalog can name is answered without asking anyone: a daemon greets
@@ -321,25 +419,18 @@ const execute: Command['execute'] = async (env, args, flags) => {
   const opened = await knock(env, target, { host, port, essid }, sessionId);
   if (!opened.ok) return connectError(host, port, 'Connection refused');
 
-  env.pushSession({
-    id: sessionId,
-    playerKey: env.session.playerKey,
-    machineId: asMachineId(opened.machineId),
-    username: opened.username,
-    userType: opened.userType,
-    kind: 'nc',
-    createdAt: env.now(),
-    essid: opened.essid,
-    // The door, kept: the shell re-asks whether this listener is still in the
-    // target's /var/run, and cannot ask without knowing which one let it in.
+  return land(
+    env,
+    {
+      sessionId,
+      machineId: opened.machineId,
+      username: opened.username,
+      userType: opened.userType,
+      essid: opened.essid,
+    },
+    host,
     port,
-  });
-  env.setCwd(homeDirectory({ username: opened.username, userType: opened.userType }));
-  return {
-    kind: 'sync',
-    lines: [text(`Connecting to ${host}:${port}...`), text(`Connected to ${host}.`)],
-    exitCode: 0,
-  };
+  );
 };
 
 export const nc: Command = {
@@ -365,7 +456,9 @@ export const nc: Command = {
       'could not name, or to check what a service claims to be. The connection closes as soon ' +
       'as the far side has spoken. With "-l" it does the opposite: it holds a port open on this ' +
       'machine and leaves it there after you log out, which takes root. Connecting requires a ' +
-      'network; listening does not. Install with "apt install netcat".',
+      'network; listening does not. Run inside a remote shell, the connection travels from that ' +
+      'box over the network you are on there, and "localhost" is that box — so you reach a ' +
+      'listener left on it. Install with "apt install netcat".',
     arguments: [
       { name: 'host', description: 'The address to connect to, e.g. 192.168.1.5', required: true },
       { name: 'port', description: 'The port to connect to, e.g. 22', required: true },
