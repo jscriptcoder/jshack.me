@@ -64,8 +64,9 @@ import {
 import { lanAddressesByOwner } from '../network/lanAddress.js';
 import { materializeWorkstationFs } from '../network/materializeWorkstationFs.js';
 import {
-  resolveCrossPlayerSourceIp,
+  resolveVantageSourceIp,
   type FindHomeNetworkByOwnerKey,
+  type FindPublicIpByEssid,
 } from '../logging/crossPlayerSourceIp.js';
 import {
   chainGatewayBaseFs,
@@ -94,10 +95,16 @@ export type HandlerResponse = {
  *  restatement of it, so a data door and `ssh` can never come to disagree about
  *  what resolving a public address takes. */
 export type ServiceHostLookup = ResolvePublicTargetDeps & {
-  /** The attacker's own network, for the address a cross-player line records. Their
-   *  VERIFIED key resolves it; a defender's log is evidence, so nothing a client sends
-   *  can reach it. */
+  /** The attacker's own network, for the address a cross-player line records when they
+   *  operate from their own workstation. Their VERIFIED key resolves it; a defender's log
+   *  is evidence, so nothing a client sends can reach it. */
   readonly findHomeNetworkByOwnerKey: FindHomeNetworkByOwnerKey;
+  /** One network's public address, by ESSID — the address a public reach FROM A HOP is
+   *  seen at, because an actor operating from a box on that network goes out through ITS
+   *  access point rather than their own. Keyed on the network they stand on (server-derived
+   *  from the session), not on who owns it, which is the whole of how a hop masks the
+   *  origin on the public path the same way it does on the LAN. */
+  readonly findPublicIpByEssid: FindPublicIpByEssid;
 };
 
 export type ReachedServiceHost = {
@@ -228,6 +235,15 @@ type SameLanLookup =
   | { readonly ok: true; readonly target: SameLanTarget | null }
   | { readonly ok: false; readonly refusal: HandlerResponse };
 
+/** Just the two occupancy reads placing a neighbour takes — narrower than the full
+ *  lookup on purpose. A caller that only has to find who is standing at an address on a
+ *  shared WiFi (the exploit door) should not have to carry the public-address resolvers
+ *  a data door needs to reach across the world. */
+export type SameLanLookupDeps = Pick<
+  ServiceHostLookup,
+  'listOccupantsByEssid' | 'listLeasesByEssid'
+>;
+
 /** Who, if anyone, is standing at that address on the caller's own WiFi.
  *
  *  The LAN boundary comes first: only a live occupant may reach a box on the ESSID, so
@@ -240,7 +256,7 @@ type SameLanLookup =
  *  generated world would route a player's statements onto a seeded box standing where
  *  a real player is, and write their data to it. */
 export const resolveSameLanOccupant = async (
-  deps: ServiceHostLookup,
+  deps: SameLanLookupDeps,
   target: {
     readonly essid: string;
     readonly targetIp: string;
@@ -352,7 +368,16 @@ export const reachBox = async (
       // internal one would tell a stranger the shape of a LAN they have not reached.
       localIp: address,
       reachedPort: resolved.target.reachedPort,
-      sourceIp: await resolveCrossPlayerSourceIp(deps.findHomeNetworkByOwnerKey, target.actorKey),
+      // The address the far box records this reach from. From a hop it is the HOP
+      // network's public address — the access point the request actually left through —
+      // and from the player's own workstation it is their home network's, resolved from
+      // their verified key. Standing on a box (`callerMachineId`) is the one thing that
+      // tells the two apart, and the network they stand on is server-derived, never a
+      // claim. This is the seam `crossPlayerSourceIp` promised the pivot would move.
+      sourceIp: await resolveVantageSourceIp(deps, {
+        actorKey: target.actorKey,
+        standingEssid: target.callerMachineId === undefined ? null : target.essid,
+      }),
       writerKey: resolved.target.logWriterKey,
       // The access point's own, resolved from ITS essid on the way in. The one the
       // request carried names the caller's network and decides nothing here.

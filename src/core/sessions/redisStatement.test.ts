@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
+import { derivedPublicIpByEssid } from '../logging/crossPlayerSourceIp.js';
 import { handleRedisStatement, type RedisStatementDeps } from './redisStatement.js';
 import { signRequest } from '../signedRequest/sign.js';
 import { generateIdentity } from '../identity/identity.js';
@@ -145,6 +146,9 @@ const makeDeps = (over: Partial<RedisStatementDeps> = {}) => {
     listOccupantsByEssid: async () => ({ data: [], error: null }),
     listLeasesByEssid: async () => ({ data: [], error: null }),
     findHomeNetworkByOwnerKey: async () => ({ data: null, error: null }),
+    // The real pure derivation: the public address of the network the caller is placed
+    // on, which a hop reach to a public target is seen from.
+    findPublicIpByEssid: derivedPublicIpByEssid,
     ...homeVantage(ESSID),
     ...over,
   };

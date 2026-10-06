@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
+import { derivedPublicIpByEssid } from '../logging/crossPlayerSourceIp.js';
 import { handleMysqlStatement, type MysqlStatementDeps } from './mysqlStatement.js';
 import { signRequest } from '../signedRequest/sign.js';
 import { generateIdentity } from '../identity/identity.js';
@@ -115,6 +116,9 @@ const makeDeps = (
     listOccupantsByEssid: async () => ({ data: [], error: null }),
     listLeasesByEssid: async () => ({ data: [], error: null }),
     findHomeNetworkByOwnerKey: async () => ({ data: null, error: null }),
+    // The real pure derivation: the public address of the network the caller is placed
+    // on, which a hop reach to a public target is seen from.
+    findPublicIpByEssid: derivedPublicIpByEssid,
     ...homeVantage(ESSID),
   };
   return { deps, findPatches, upsertPatch, readMysqlLog };
@@ -287,6 +291,7 @@ const crossPlayerDeps = (
       data: { public_ip: ATTACKER_PUBLIC_IP },
       error: null,
     }),
+    findPublicIpByEssid: derivedPublicIpByEssid,
   };
   return { deps, upsertPatch };
 };
@@ -349,6 +354,7 @@ const deepDeps = (deepPatches: readonly OwnerPatchRow[] = []) => {
     listOccupantsByEssid: async () => ({ data: [], error: null }),
     listLeasesByEssid: async () => ({ data: [], error: null }),
     findHomeNetworkByOwnerKey: async () => ({ data: null, error: null }),
+    findPublicIpByEssid: derivedPublicIpByEssid,
     // At home on the network whose gateway forwards the port.
     ...homeVantage(DEEP.essid),
   };
@@ -515,6 +521,7 @@ const sameLanDeps = (
       error: null,
     }),
     findHomeNetworkByOwnerKey: async () => ({ data: null, error: null }),
+    findPublicIpByEssid: derivedPublicIpByEssid,
     // The attacker stands at home on this WiFi at the lease the server issued them —
     // the address the defender's box really saw, derived here, never a claim.
     ...homeVantage(ESSID, ATTACKER_OCTET),

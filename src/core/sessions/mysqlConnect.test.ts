@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
+import { derivedPublicIpByEssid } from '../logging/crossPlayerSourceIp.js';
 import { handleMysqlConnect, type MysqlConnectDeps } from './mysqlConnect.js';
 import { signRequest } from '../signedRequest/sign.js';
 import { generateIdentity } from '../identity/identity.js';
@@ -185,6 +186,9 @@ const makeDeps = (over: Partial<MysqlConnectDeps> = {}) => {
     listOccupantsByEssid: async () => ({ data: [], error: null }),
     listLeasesByEssid: async () => ({ data: [], error: null }),
     findHomeNetworkByOwnerKey: async () => ({ data: null, error: null }),
+    // A pure world-derivation (the real one): the public address of whatever network the
+    // caller is placed on, which a hop reach to a public target is seen from.
+    findPublicIpByEssid: derivedPublicIpByEssid,
     // The caller stands at home on this ESSID unless a test says otherwise — the server
     // derives the vantage from this, never from the request's essid.
     ...homeVantage(ESSID),

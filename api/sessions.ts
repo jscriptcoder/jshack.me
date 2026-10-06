@@ -717,6 +717,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       readMysqlLog: listPathPatchesVia({ supabase, label: 'mysql log read' }),
       upsertPatch: upsertPatchVia({ supabase, label: 'mysql log upsert' }),
       findNetworkByPublicIp: derivedNetworkByPublicIp,
+      findPublicIpByEssid: derivedPublicIpByEssid,
       listOccupantsByEssid: listOccupantsByEssidVia<NatOccupantRow>({
         supabase,
         label: 'mysql connect occupant list',
@@ -753,6 +754,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       readMysqlLog: listPathPatchesVia({ supabase, label: 'mysql statement log read' }),
       upsertPatch: upsertPatchVia({ supabase, label: 'mysql datadir + log upsert' }),
       findNetworkByPublicIp: derivedNetworkByPublicIp,
+      findPublicIpByEssid: derivedPublicIpByEssid,
       listOccupantsByEssid: listOccupantsByEssidVia<NatOccupantRow>({
         supabase,
         label: 'mysql statement occupant list',
@@ -790,6 +792,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       readRedisLog: listPathPatchesVia({ supabase, label: 'redis log read' }),
       upsertPatch: upsertPatchVia({ supabase, label: 'redis log upsert' }),
       findNetworkByPublicIp: derivedNetworkByPublicIp,
+      findPublicIpByEssid: derivedPublicIpByEssid,
       listOccupantsByEssid: listOccupantsByEssidVia<NatOccupantRow>({
         supabase,
         label: 'redis connect occupant list',
@@ -873,6 +876,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       readSnmpdLog: listPathPatchesVia({ supabase, label: 'snmpd set log read' }),
       upsertPatch: upsertPatchVia({ supabase, label: 'snmpd set upsert' }),
       findNetworkByPublicIp: derivedNetworkByPublicIp,
+      findPublicIpByEssid: derivedPublicIpByEssid,
       listOccupantsByEssid: listOccupantsByEssidVia<NatOccupantRow>({
         supabase,
         label: 'snmp set occupant list',
@@ -909,6 +913,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       readRedisLog: listPathPatchesVia({ supabase, label: 'redis statement log read' }),
       upsertPatch: upsertPatchVia({ supabase, label: 'redis statement upsert' }),
       findNetworkByPublicIp: derivedNetworkByPublicIp,
+      findPublicIpByEssid: derivedPublicIpByEssid,
       listOccupantsByEssid: listOccupantsByEssidVia<NatOccupantRow>({
         supabase,
         label: 'redis statement occupant list',

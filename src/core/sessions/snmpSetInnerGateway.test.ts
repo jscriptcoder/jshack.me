@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { handleSnmpSet, type SnmpSetDeps } from './snmpSet.js';
+import { derivedPublicIpByEssid } from '../logging/crossPlayerSourceIp.js';
 import { signRequest } from '../signedRequest/sign.js';
 import { generateIdentity } from '../identity/identity.js';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
@@ -142,6 +143,7 @@ const makeDeps = (
     listOccupantsByEssid: async () => ({ data: [], error: null }),
     listLeasesByEssid: async () => ({ data: [], error: null }),
     findHomeNetworkByOwnerKey: async () => ({ data: null, error: null }),
+    findPublicIpByEssid: derivedPublicIpByEssid,
     // At home on the network whose gateway forwards the port — the essid the request
     // carries. The source a deep box records is the fronting gateway's `.1`, from the
     // chain walk, not this vantage.

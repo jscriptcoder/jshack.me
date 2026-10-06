@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
 import { reachServiceHost, type ServiceHostLookup } from './serviceHost.js';
+import { derivedPublicIpByEssid } from '../logging/crossPlayerSourceIp.js';
 import { generateIdentity } from '../identity/identity.js';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
 import { resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
@@ -81,6 +82,7 @@ const makeLookup = (over: Partial<ServiceHostLookup> = {}): ServiceHostLookup =>
   listOccupantsByEssid: async () => ({ data: [], error: null }),
   listLeasesByEssid: async () => ({ data: [], error: null }),
   findHomeNetworkByOwnerKey: async () => ({ data: null, error: null }),
+  findPublicIpByEssid: derivedPublicIpByEssid,
   ...over,
 });
 
@@ -805,6 +807,31 @@ describe('reaching from a hop', () => {
       ok: false,
       refusal: { status: 404, body: { error: 'host_unreachable' } },
     });
+  });
+
+  it('records a public target reached from a hop under the hop network public IP', async () => {
+    // A public reach from a box on the hop network leaves through THAT network's access
+    // point, so the far log names its public address — not the player's home, which their
+    // card never used for this. Server-derived from where they stand, like the LAN source.
+    const HOP_PUBLIC_IP = '87.51.100.99';
+    const reach = await reachHost(
+      publicLookup({
+        findPublicIpByEssid: async () => ({ data: { public_ip: HOP_PUBLIC_IP }, error: null }),
+      }),
+      {
+        essid: ESSID,
+        targetIp: TARGET_PUBLIC_IP,
+        service: REMOTE_GATEWAY.service,
+        port: REMOTE_GATEWAY.port,
+        actorKey: ATTACKER.publicKeyHex,
+        // Standing on a box on the hop network, not the player's own card at home.
+        callerMachineId: 'a-hop-box',
+      },
+    );
+
+    // The hop network's address, and emphatically not the home one the same lookup holds.
+    expect(reach.ok && reach.reached.sourceIp).toBe(HOP_PUBLIC_IP);
+    expect(reach.ok && reach.reached.sourceIp).not.toBe(ATTACKER_PUBLIC_IP);
   });
 });
 
