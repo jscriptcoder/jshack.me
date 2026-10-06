@@ -1685,6 +1685,30 @@ describe('the backdoor doors', () => {
     expect(sameLan).toMatchObject({ ok: true, essid: 'SHARED-LAN-WIFI' });
     expect(forwarded).toMatchObject({ ok: true, essid: 'BEAN-THERE-WIFI' });
   });
+
+  it('tells both own-network doors which box the knock comes from', async () => {
+    const sameLanSpy = vi.fn(async () => jsonResponse(200, { ...opened, essid: 'SHARED-LAN-WIFI' }));
+    const gatewaySpy = vi.fn(async () => jsonResponse(200, { ...opened, essid: 'BEAN-THERE-WIFI' }));
+
+    await ncConnectServerSameLan(makeDeps(sameLanSpy as unknown as typeof fetch), {
+      ...shared,
+      essid: 'SHARED-LAN-WIFI',
+      targetIp: '192.168.29.42',
+      callerMachineId: 'hop-box-1',
+    });
+    await ncConnectServerInnerGateway(makeDeps(gatewaySpy as unknown as typeof fetch), {
+      ...shared,
+      essid: 'BEAN-THERE-WIFI',
+      target: '192.168.29.25',
+      callerMachineId: 'hop-box-1',
+    });
+
+    const sameLan = await verifyPayload(sentEnvelope(sameLanSpy));
+    const gateway = await verifyPayload(sentEnvelope(gatewaySpy));
+    if (!sameLan.ok || !gateway.ok) throw new Error('expected verified envelopes');
+    expect(sameLan.payload).toMatchObject({ caller_machine_id: 'hop-box-1' });
+    expect(gateway.payload).toMatchObject({ caller_machine_id: 'hop-box-1' });
+  });
 });
 
 describe('listServerSessions', () => {

@@ -1113,6 +1113,7 @@ export const ncConnectServerSameLan = (
     port: params.port,
     parent_session_id: params.parentSessionId,
     source_ip: params.sourceIp,
+    ...(params.callerMachineId === undefined ? {} : { caller_machine_id: params.callerMachineId }),
   }, params.essid);
 
 export const ncConnectServerInnerGateway = (
@@ -1126,4 +1127,5 @@ export const ncConnectServerInnerGateway = (
     port: params.port,
     parent_session_id: params.parentSessionId,
     source_ip: params.sourceIp,
+    ...(params.callerMachineId === undefined ? {} : { caller_machine_id: params.callerMachineId }),
   }, params.essid);

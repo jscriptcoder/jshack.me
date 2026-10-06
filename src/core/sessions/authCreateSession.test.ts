@@ -1234,6 +1234,67 @@ describe('a door with no credential behind it', () => {
     );
   });
 
+  it('resolves localhost to the box the shell stands on, opening a listener left on the hop', async () => {
+    // On a hop the box the shell is on is REMOTE: the client cannot read its /var/run, so
+    // it sends loopback for the server to resolve to that box — the data doors' own reading
+    // of what "here" means. The listener was planted on the hop; the session lands on it.
+    const HOP_ESSID = 'RIDGEMONT-OFFICE';
+    const hop = generateHomeLan(HOP_ESSID).hosts.find((candidate) => candidate.kind === 'machine');
+    if (hop === undefined) throw new Error('no hop machine');
+    const hopMachineId = machineIdForLanHost(hop, HOP_ESSID);
+    const id = generateIdentity();
+    const { deps, insertSession } = makeDeps({
+      findActiveSession: async () => ({
+        data: { username: 'root', userType: 'root', essid: HOP_ESSID },
+        error: null,
+      }),
+      findPatches: async () => ({ data: [planted(id.publicKeyHex, listener())], error: null }),
+    });
+
+    const result = await handleAuthCreateSession(
+      knock(id, hop, { essid: HOP_ESSID, target_ip: '127.0.0.1', caller_machine_id: hopMachineId }),
+      deps,
+    );
+
+    expect(result.status).toBe(200);
+    expect(insertSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        machine_id: hopMachineId,
+        credentials: { username: 'mallory', userType: 'user' },
+        kind: 'nc',
+      }),
+    );
+  });
+
+  it('refuses localhost from a caller the network cannot place at an address', async () => {
+    // A hop the server cannot place — a player box whose owner left, holding no lease —
+    // has no box for loopback to name, so there is nothing to knock on.
+    const HOP_ESSID = 'RIDGEMONT-OFFICE';
+    const host = targetHostFor();
+    const id = generateIdentity();
+    const { deps, insertSession } = makeDeps({
+      findActiveSession: async () => ({
+        data: { username: 'root', userType: 'root', essid: HOP_ESSID },
+        error: null,
+      }),
+      // Not a generated LAN box (no reachable segment) and holding no lease: unplaceable.
+      findWorkstationLease: async () => ({ data: null, error: null }),
+      findPatches: async () => ({ data: [planted(id.publicKeyHex, listener())], error: null }),
+    });
+
+    const result = await handleAuthCreateSession(
+      knock(id, host, {
+        essid: HOP_ESSID,
+        target_ip: '127.0.0.1',
+        caller_machine_id: 'absent-player-ws',
+      }),
+      deps,
+    );
+
+    expect(result).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+    expect(insertSession).not.toHaveBeenCalled();
+  });
+
   it('shuts a listener on a port the owner closed, and leaves the ones beside it open', async () => {
     // This door is found through the pidfile rather than through the port readers, so a
     // filter honoured for ssh alone would leave an owner's own rule stepped over by
