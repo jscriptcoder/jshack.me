@@ -181,6 +181,12 @@ const makeDeps = (
       data: { public_ip: ATTACKER_PUBLIC_IP },
       error: null,
     }),
+    // The attacker stands at home on their own ESSID, reaching a public address — which
+    // is the essid their request carries, so the server-derived vantage matches it. A
+    // cross-player line's source comes from the public resolver, not from this lease.
+    findActiveSession: async () => ({ data: null, error: null }),
+    findHomeVantage: async () => ({ data: { essid: ATTACKER_ESSID, octet: 50 }, error: null }),
+    findWorkstationLease: async () => ({ data: null, error: null }),
     ...over,
   };
   return { deps, upsertPatch };

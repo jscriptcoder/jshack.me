@@ -26,6 +26,7 @@ import { z } from 'zod';
 import { verifySignedRequest } from '../signedRequest/verify.js';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
 import { reachServiceHost, type HandlerResponse, type ServiceHostLookup } from './serviceHost.js';
+import { resolveCallerVantageOn, type CallerVantageDeps } from './callerVantage.js';
 import {
   agentStamp,
   appendSnmpdLog,
@@ -47,6 +48,7 @@ import type { FindPublicIpByEssid } from '../logging/crossPlayerSourceIp.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 export type SnmpWalkDeps = ServiceHostLookup &
+  CallerVantageDeps &
   SnmpTraceDeps & {
     readonly nonceStore: NonceStore;
     /** The address the access point wears on the outside. Only a device that FRONTS the
@@ -70,6 +72,9 @@ const snmpWalkSchema = z
     // port on an inner gateway and the box behind that forward is what answers.
     port: z.number().int().min(1).max(65535).optional(),
     community: z.string().min(1),
+    // The box the shell stands on; absent means the caller's own workstation. The
+    // source address is the vantage's, so `source_ip` is accepted but never read.
+    caller_machine_id: z.string().min(1).optional(),
     source_ip: z.string().min(1).nullable().optional(),
   })
   .refine((payload) => !('player_key' in payload));
@@ -153,12 +158,24 @@ export const handleSnmpWalk = async (
   }
   const { publicKey, payload } = verified;
 
+  // Where the caller stands, derived from the box they name — never a claim. A walk
+  // naming a network the caller is not on is refused before any device is reached.
+  const vantage = await resolveCallerVantageOn(
+    deps,
+    publicKey,
+    payload.caller_machine_id,
+    payload.essid,
+  );
+  if (!vantage.ok) return { status: vantage.status, body: { error: vantage.error } };
+
   // The same reach every other door uses, asked for THIS daemon: a device whose agent
   // was stopped is simply not there, which is what makes `systemctl stop snmpd` a real
   // defence rather than a cosmetic one. Nothing is logged on a box that never answered.
   const reach = await reachServiceHost(deps, {
-    essid: payload.essid,
+    essid: vantage.essid,
     targetIp: payload.target_ip,
+    callerMachineId: payload.caller_machine_id,
+    ownLanSourceIp: vantage.sourceIp,
     port: payload.port ?? SERVICE_CATALOG.snmp.defaultPort,
     service: SERVICE_CATALOG.snmp.service,
     actorKey: publicKey,
@@ -176,9 +193,9 @@ export const handleSnmpWalk = async (
     { writerKey, machineId },
     contactLines({
       accepted: tier !== null,
-      // The ROUTE decides the address whenever it can; on the caller's own LAN it knows
-      // nothing and the claim stands.
-      fromIp: sourceIp ?? payload.source_ip ?? 'unknown',
+      // The address the device saw, server-derived at the vantage — the hop's own LAN
+      // address, the layer `.1` down a chain, or the hop network's public IP.
+      fromIp: sourceIp ?? 'unknown',
       ...agentStamp(deps, hostname),
     }),
   );

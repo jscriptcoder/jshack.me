@@ -33,6 +33,7 @@ import { z } from 'zod';
 import { verifySignedRequest } from '../signedRequest/verify.js';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
 import { reachServiceHost, type HandlerResponse, type ServiceHostLookup } from './serviceHost.js';
+import { resolveCallerVantageOn, type CallerVantageDeps } from './callerVantage.js';
 import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
 import { storeIn, DATADIR_OWNER, DATADIR_PATH } from '../redis/datadir.js';
 import { DATADIR_FILE } from '../generation/baseFs.js';
@@ -46,7 +47,8 @@ import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appen
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 import type { PatchRow } from '../patches/upsertPatch.js';
 
-export type RedisStatementDeps = ServiceHostLookup & {
+export type RedisStatementDeps = ServiceHostLookup &
+  CallerVantageDeps & {
   readonly nonceStore: NonceStore;
   /** The server's wall clock, epoch-ms (UTC) — stamps an attempt line. */
   readonly now: () => number;
@@ -74,6 +76,9 @@ const redisStatementSchema = z
      *  row to hold it instead, so a connection that has been let in proves it again on
      *  each line — and a store whose secret changed under one refuses it on the next. */
     password: z.string().optional(),
+    // The box the shell stands on; absent means the caller's own workstation. The
+    // source address is the vantage's, so `source_ip` is accepted but never read.
+    caller_machine_id: z.string().min(1).optional(),
     source_ip: z.string().min(1).nullable().optional(),
   })
   .refine((payload) => !('player_key' in payload));
@@ -129,11 +134,24 @@ export const handleRedisStatement = async (
   }
   const { publicKey, payload } = verified;
 
+  // Where the caller stands, re-derived per statement from the box they name: the shell
+  // is the connection, so one that has since ended refuses the next statement
+  // (`no_session`) and the prompt drops.
+  const vantage = await resolveCallerVantageOn(
+    deps,
+    publicKey,
+    payload.caller_machine_id,
+    payload.essid,
+  );
+  if (!vantage.ok) return { status: vantage.status, body: { error: vantage.error } };
+
   // Shared with the connect door, so a connection and the reads behind it can never
   // disagree about whether the box is up or the daemon is listening.
   const reach = await reachServiceHost(deps, {
-    essid: payload.essid,
+    essid: vantage.essid,
     targetIp: payload.target_ip,
+    callerMachineId: payload.caller_machine_id,
+    ownLanSourceIp: vantage.sourceIp,
     port: payload.port,
     service: SERVICE_CATALOG.redis.service,
     actorKey: publicKey,
@@ -152,10 +170,10 @@ export const handleRedisStatement = async (
   // own edits land there too, which is what puts a defender's changes and an intruder's
   // in the same file rather than in two that disagree.
   const targetWriterKey = writerKey;
-  // The ROUTE decides the address every line is written up as: through a forward the box
+  // The address the box saw, server-derived at the vantage: through a forward the box
   // has only ever seen the fronting gateway, so what the player is told and what the
   // defender finds are one string.
-  const fromIp = sourceIp ?? payload.source_ip ?? 'unknown';
+  const fromIp = sourceIp ?? 'unknown';
   const stamp = deps.now();
 
   // The store goes back whole, because that is what a store is here: one JSON file the

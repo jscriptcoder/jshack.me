@@ -67,13 +67,20 @@ import {
   resolveCrossPlayerSourceIp,
   type FindHomeNetworkByOwnerKey,
 } from '../logging/crossPlayerSourceIp.js';
-import { forwardsIntoDeepLayer, resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
+import {
+  chainGatewayBaseFs,
+  forwardsIntoDeepLayer,
+  resolveLanHostIdentity,
+} from '../generation/lanHostIdentity.js';
+import { segmentsReachedFrom } from '../generation/lanTopology.js';
+import { deniedPortsFor, resolveDeepScanHosts } from '../scan/deepScanHosts.js';
 import { resolveInnerGatewayTarget } from '../network/resolveInnerGatewayTarget.js';
 import { materializeMachineFs, type OwnerPatchRow } from '../network/materializeMachineFs.js';
 import { canBoot } from '../boot/bootFiles.js';
 import { portsOpenToNetwork } from '../network/portsOpenToNetwork.js';
 import { frontedSegment } from '../network/frontedSegment.js';
 import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
+import { LOOPBACK_IPV4 } from '../network/interfaces.js';
 import type { Directory } from '../filesystem/types.js';
 
 export type HandlerResponse = {
@@ -145,6 +152,12 @@ export type ReachedBox = ReachedServiceHost & {
    *  already had this checked for them, and handing it back would invite a second,
    *  looser check beside the one that already passed. */
   readonly reachedPort: number;
+  /** The ports a switch fronting this box's layer drops, read off its live ACL — empty
+   *  for every box reached any other way. A deep box behind a switch answers the network
+   *  only on the ports the ACL lets through, so a daemon on a denied port is as
+   *  unreachable here as a stopped one. Consumed by `reachServiceHost` and never handed
+   *  on: the port has been judged by the time a door sees the box. */
+  readonly deniedPorts: ReadonlySet<number>;
 };
 
 export type ServiceHostReach =
@@ -177,6 +190,9 @@ const openJournaledBox = async (
     readonly sourceIp: string | null;
     readonly writerKey: string;
     readonly frontedSegment: string | null;
+    /** The switch ACL in front of this box, when it sits on a deep layer; empty for a
+     *  box on the caller's own LAN, which no switch fronts. */
+    readonly deniedPorts?: ReadonlySet<number>;
   },
 ): Promise<BoxReach> => {
   const patches = await deps.findPatches({ machine_id: box.machineId });
@@ -192,6 +208,7 @@ const openJournaledBox = async (
     sourceIp: box.sourceIp,
     writerKey: box.writerKey,
     frontedSegment: box.frontedSegment,
+    deniedPorts: box.deniedPorts ?? new Set(),
   });
 };
 
@@ -274,6 +291,9 @@ const openBox = (box: ReachedBox): BoxReach => {
 export const reachBox = async (
   deps: ServiceHostLookup,
   target: {
+    /** The network the caller STANDS on, derived server-side from their session — never
+     *  the essid the client claimed. Every box below is regenerated from it, so a hop
+     *  onto another network reaches that network's boxes and not the player's home. */
     readonly essid: string;
     readonly targetIp: string;
     /** The port the request is addressed to. On an inner gateway a port other than its
@@ -281,18 +301,42 @@ export const reachBox = async (
      *  is named at all — and on a public address it is the ONLY thing that names a box,
      *  since the address itself names an access point. */
     readonly port: number;
+    /** The box the caller is standing on, or `undefined` for their own workstation at
+     *  home. Lets the reach find a deep layer the box reaches (`segmentsReachedFrom`) and
+     *  resolve `localhost` to the box itself — the hop's own daemon rather than the
+     *  player's. */
+    readonly callerMachineId: string | undefined;
+    /** The address the caller's standing box is seen at on `essid`: its LAN lease at
+     *  home, the hop's own LAN address on a hop, `null` for a box the network cannot
+     *  place. What a box on this LAN records a connection from — derived here, never a
+     *  claim. */
+    readonly ownLanSourceIp: string | null;
     /** The caller's VERIFIED key. Only ever used to resolve the address a cross-player
      *  line records for them, which is why it is a key rather than an address. */
     readonly actorKey: string;
   },
 ): Promise<BoxReach> => {
+  // `localhost` names the box the shell stands ON — the hop's own daemon, reached by the
+  // address it holds on the network it stands on. The daemon it answers sees the request
+  // come over loopback, so that is what a line records however the box is placed on the
+  // LAN. A hop the server cannot place at an address has no box for loopback to name.
+  const loopback = target.targetIp === LOOPBACK_IPV4;
+  const address = loopback ? target.ownLanSourceIp : target.targetIp;
+  if (address === null) {
+    return { ok: false, refusal: UNREACHABLE };
+  }
+  // Loopback is the box's own address, so the line says the visit came over loopback
+  // rather than from the box's place on the LAN; everywhere else the source is the
+  // address the route left (null until an arm fills it from the vantage).
+  const loopbackSource = loopback ? LOOPBACK_IPV4 : null;
+
   // A public address belongs to somebody else's access point, so the whole resolution
   // — which network, whose box behind which forward, is that box up — is the server's.
   // It is the SAME resolver `ssh` and `hydra` authenticate through, so a credential one
   // of them earns is one this door then accepts.
-  if (isPublicIp(target.targetIp)) {
+  if (isPublicIp(address)) {
     const resolved = await resolvePublicTarget(deps, {
-      publicIp: target.targetIp,
+      publicIp: address,
       port: target.port,
     });
     if (!resolved.ok) {
@@ -306,13 +350,14 @@ export const reachBox = async (
       hostFs: resolved.target.fs,
       // The public address IS what this box answers to from outside. Handing back its
       // internal one would tell a stranger the shape of a LAN they have not reached.
-      localIp: target.targetIp,
+      localIp: address,
       reachedPort: resolved.target.reachedPort,
       sourceIp: await resolveCrossPlayerSourceIp(deps.findHomeNetworkByOwnerKey, target.actorKey),
       writerKey: resolved.target.logWriterKey,
       // The access point's own, resolved from ITS essid on the way in. The one the
       // request carried names the caller's network and decides nothing here.
       frontedSegment: resolved.target.frontedSegment,
+      deniedPorts: new Set(),
     });
   }
 
@@ -322,21 +367,21 @@ export const reachBox = async (
   // a box somebody is standing on outranks the seeded router that used to be there.
   const sameLan = await resolveSameLanOccupant(deps, {
     essid: target.essid,
-    targetIp: target.targetIp,
+    targetIp: address,
     actorKey: target.actorKey,
   });
   if (!sameLan.ok) return { ok: false, refusal: sameLan.refusal };
   if (sameLan.target !== null) {
-    const { occupant, callerAddress } = sameLan.target;
+    const { occupant } = sameLan.target;
     return openJournaledBox(deps, {
       hostname: occupant.workstation_machine_name,
       machineId: occupant.workstation_machine_id,
       rebuild: (patches) => materializeWorkstationFs(occupant, patches),
-      localIp: target.targetIp,
+      localIp: address,
       reachedPort: target.port,
-      // Nothing rewrote the source on the way in: the box really did see the caller's
-      // own address on the WiFi they share.
-      sourceIp: callerAddress,
+      // The address the caller's standing box is seen at on this LAN — their own lease
+      // at home, the hop's address on a hop — derived from the vantage, never claimed.
+      sourceIp: loopbackSource ?? target.ownLanSourceIp,
       // The target's own key. Their box keeps ONE datadir and ONE log however many
       // neighbours touch it, rather than a row each where the newest erases the rest.
       writerKey: occupant.owner_key,
@@ -345,10 +390,10 @@ export const reachBox = async (
     });
   }
 
-  if (forwardsIntoDeepLayer({ essid: target.essid, target: target.targetIp, port: target.port })) {
+  if (forwardsIntoDeepLayer({ essid: target.essid, target: address, port: target.port })) {
     const resolved = await resolveInnerGatewayTarget(deps, {
       essid: target.essid,
-      target: target.targetIp,
+      target: address,
       port: target.port,
     });
     if (!resolved.ok) {
@@ -371,39 +416,105 @@ export const reachBox = async (
       writerKey: apGatewayLogWriterKey(target.essid),
       // The layer behind the box the chain walk stopped on, which only the walk knows.
       frontedSegment: resolved.target.frontedSegment,
+      deniedPorts: new Set(),
     });
   }
 
   // Resolved on the caller's OWN regenerated LAN, which proves the address names a
   // reachable host rather than an arbitrary number, and yields what is needed to
   // rebuild its filesystem.
-  const host = generateHomeLan(target.essid).hosts.find(
-    (candidate) => candidate.ip === target.targetIp,
-  );
-  if (host === undefined) return { ok: false, refusal: UNREACHABLE };
+  const host = generateHomeLan(target.essid).hosts.find((candidate) => candidate.ip === address);
+  if (host !== undefined) {
+    const { machineId, baseFs } = resolveLanHostIdentity(host, target.essid);
+    return openJournaledBox(deps, {
+      hostname: host.hostname,
+      machineId,
+      rebuild: (patches) => materializeMachineFs(baseFs, patches),
+      localIp: address,
+      reachedPort: target.port,
+      // The address the caller's standing box is seen at on this LAN, derived from the
+      // vantage — their own lease at home, the hop's address on a hop. Loopback records
+      // the box's own daemon seeing a local visit.
+      sourceIp: loopbackSource ?? target.ownLanSourceIp,
+      // Every box on this LAN belongs to the access point or to the generator, never to a
+      // player, and every occupant of the ESSID reaches the identical one: a box may not
+      // keep two logs, because a row per writer means the newest wins outright on replay.
+      // The gateway is the sharpest case, reachable from INSIDE as well as from the world,
+      // so an occupant walking their own gateway would erase the lines a stranger's visit
+      // left there — but a generated sibling shares its id across the ESSID the same way,
+      // and so takes the same key.
+      writerKey: apGatewayLogWriterKey(target.essid),
+      // The caller's own ESSID genuinely IS this box's network here, so the derivation the
+      // set door used to make is correct at this vantage — and only at this one.
+      frontedSegment: frontedSegment({ essid: target.essid, machineId, kind: host.kind }),
+    });
+  }
 
-  const { machineId, baseFs } = resolveLanHostIdentity(host, target.essid);
-  return openJournaledBox(deps, {
-    hostname: host.hostname,
-    machineId,
-    rebuild: (patches) => materializeMachineFs(baseFs, patches),
-    localIp: target.targetIp,
-    reachedPort: target.port,
-    // Never invented here. On the caller's own LAN the address the box saw is the
-    // caller's, which only the caller can state.
-    sourceIp: null,
-    // Every box on this LAN belongs to the access point or to the generator, never to a
-    // player, and every occupant of the ESSID reaches the identical one: a box may not
-    // keep two logs, because a row per writer means the newest wins outright on replay.
-    // The gateway is the sharpest case, reachable from INSIDE as well as from the world,
-    // so an occupant walking their own gateway would erase the lines a stranger's visit
-    // left there — but a generated sibling shares its id across the ESSID the same way,
-    // and so takes the same key.
-    writerKey: apGatewayLogWriterKey(target.essid),
-    // The caller's own ESSID genuinely IS this box's network here, so the derivation the
-    // set door used to make is correct at this vantage — and only at this one.
-    frontedSegment: frontedSegment({ essid: target.essid, machineId, kind: host.kind }),
+  // Not on the LAN and not behind a forward the caller typed — but a box on a DEEP
+  // LAYER the shell reaches, named by its own address there. The same lookup `nmap` and
+  // the deep-layer ssh login resolve a layer through, so a door opens on a deep box
+  // exactly where a scan from the same shell drew one. A switch fronting the layer drops
+  // the ports its live ACL denies; a router filters nothing, so its journal is never
+  // read.
+  const deep = await reachDeepLayerBox(deps, {
+    essid: target.essid,
+    callerMachineId: target.callerMachineId,
+    address,
+    port: target.port,
+    loopbackSource,
   });
+  return deep ?? { ok: false, refusal: UNREACHABLE };
+};
+
+/** The box at `address` on a deep layer the caller's standing box reaches, journal
+ *  replayed so a door reads its live datadir, or `null` when no reached layer carries
+ *  it. A switch fronting the layer applies its live ACL; a read failure there surfaces
+ *  as a 500 rather than a silently open port. */
+const reachDeepLayerBox = async (
+  deps: ServiceHostLookup,
+  target: {
+    readonly essid: string;
+    readonly callerMachineId: string | undefined;
+    readonly address: string;
+    readonly port: number;
+    readonly loopbackSource: string | null;
+  },
+): Promise<BoxReach | null> => {
+  if (target.callerMachineId === undefined) return null;
+  for (const segment of segmentsReachedFrom(target.essid, target.callerMachineId) ?? []) {
+    const { fronting } = segment;
+    if (fronting === null) continue;
+    let frontingFs = chainGatewayBaseFs(target.essid, fronting);
+    if (fronting.host.kind === 'switch') {
+      const patches = await deps.findPatches({ machine_id: fronting.machineId });
+      if (patches.error) {
+        return { ok: false, refusal: { status: 500, body: { error: 'patches_lookup_failed' } } };
+      }
+      frontingFs = materializeMachineFs(frontingFs, patches.data);
+    }
+    const onLayer = resolveDeepScanHosts(target.essid, fronting, frontingFs).hosts.find(
+      (entry) => entry.host.ip === target.address,
+    );
+    if (onLayer === undefined) continue;
+    return openJournaledBox(deps, {
+      hostname: onLayer.host.hostname,
+      machineId: onLayer.machineId,
+      rebuild: (patches) => materializeMachineFs(onLayer.baseFs, patches),
+      localIp: target.address,
+      reachedPort: target.port,
+      // A box on a layer is seen there at the address the caller's box holds on it — the
+      // gateway's `.1` on the way down — unless the request came over loopback.
+      sourceIp: target.loopbackSource ?? segment.address,
+      // Nobody owns a deep NPC box, and every occupant walks the identical chain, so its
+      // log accretes under the network's own key.
+      writerKey: apGatewayLogWriterKey(target.essid),
+      // A deep host fronts nothing behind it.
+      frontedSegment: null,
+      // Only the switch's live ACL shapes what the network can reach here.
+      deniedPorts: deniedPortsFor(fronting, frontingFs),
+    });
+  }
+  return null;
 };
 
 export const reachServiceHost = async (
@@ -411,6 +522,12 @@ export const reachServiceHost = async (
   target: {
     readonly essid: string;
     readonly targetIp: string;
+    /** The box the caller is standing on, forwarded so the reach can find a deep layer
+     *  it reaches and resolve `localhost` to it. `undefined` is their own workstation. */
+    readonly callerMachineId: string | undefined;
+    /** The address that box is seen at on `essid`, server-derived from the vantage —
+     *  what a connection on this LAN is recorded from. */
+    readonly ownLanSourceIp: string | null;
     /** The daemon the caller is reaching for, as the pidfiles name it. Passed rather
      *  than assumed so a forward to sshd is never a door to somebody else's service. */
     readonly service: string;
@@ -422,14 +539,17 @@ export const reachServiceHost = async (
     essid: target.essid,
     targetIp: target.targetIp,
     port: target.port,
+    callerMachineId: target.callerMachineId,
+    ownLanSourceIp: target.ownLanSourceIp,
     actorKey: target.actorKey,
   });
   if (!reach.ok) return { ok: false, refusal: reach.refusal };
 
   // The pidfiles are the truth about what is listening — the same source `nmap`
-  // reads — less whatever the box's own filter refuses the network. It must be THE
-  // NAMED DAEMON ON THE PORT REACHED: a forward to sshd is not a door to the data
-  // behind it, and neither is a LAN box's own ssh port.
+  // reads — less whatever the box's own filter refuses the network, and less the ports
+  // a switch fronting a deep layer denies. It must be THE NAMED DAEMON ON THE PORT
+  // REACHED: a forward to sshd is not a door to the data behind it, and neither is a
+  // LAN box's own ssh port.
   //
   // EVERY vantage the reach serves is a remote one, which is what makes a filtered
   // port unreachable from the world, from a neighbour and from down a forward with one
@@ -440,7 +560,10 @@ export const reachServiceHost = async (
   // A refusal of its own would be an oracle telling a scanner which ports are worth
   // attacking.
   const listening = portsOpenToNetwork(reach.reached.hostFs).some(
-    (open) => open.port === reach.reached.reachedPort && open.service === target.service,
+    (open) =>
+      open.port === reach.reached.reachedPort &&
+      open.service === target.service &&
+      !reach.reached.deniedPorts.has(open.port),
   );
   if (!listening) {
     return { ok: false, refusal: { status: 404, body: { error: 'service_not_running' } } };

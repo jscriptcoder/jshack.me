@@ -127,6 +127,12 @@ const makeDeps = (gatewayPatches: readonly OwnerPatchRow[]) => {
     listOccupantsByEssid: async () => ({ data: [], error: null }),
     listLeasesByEssid: async () => ({ data: [], error: null }),
     findHomeNetworkByOwnerKey: async () => ({ data: null, error: null }),
+    // At home on the network whose gateway forwards the port — the essid the request
+    // carries. The source a deep box records is the fronting gateway's `.1`, from the
+    // chain walk, not this vantage.
+    findActiveSession: async () => ({ data: null, error: null }),
+    findHomeVantage: async () => ({ data: { essid: DEEP.essid, octet: 50 }, error: null }),
+    findWorkstationLease: async () => ({ data: null, error: null }),
   };
   return { deps, upsertPatch };
 };
@@ -236,6 +242,9 @@ describe('walking the inner gateway itself', () => {
       listOccupantsByEssid: async () => ({ data: [], error: null }),
       listLeasesByEssid: async () => ({ data: [], error: null }),
       findHomeNetworkByOwnerKey: async () => ({ data: null, error: null }),
+      findActiveSession: async () => ({ data: null, error: null }),
+      findHomeVantage: async () => ({ data: { essid: INNER.essid, octet: 50 }, error: null }),
+      findWorkstationLease: async () => ({ data: null, error: null }),
     };
 
     const response = await handleSnmpWalk(

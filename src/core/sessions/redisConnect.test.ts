@@ -49,7 +49,19 @@ const freshStore: NonceStore = async () => ({ fresh: true });
 const ESSID = 'BEAN-THERE-WIFI';
 // 2026-08-09 11:04:07 UTC — the server clock every log line here is stamped with.
 const FIXED_NOW = Date.UTC(2026, 7, 9, 11, 4, 7);
-const CLIENT_IP = '192.168.1.50';
+// The octet the player holds at home, and the address the server derives for a pre-hop
+// connection — not a client claim. On another network (a forward, a public target) it
+// is a value that must NOT turn up, since those record the route's address instead.
+const HOME_OCTET = 50;
+const CLIENT_IP = lanAddressFor(ESSID, HOME_OCTET);
+const homeVantage = (
+  essid: string,
+  octet: number | null = HOME_OCTET,
+): Pick<RedisConnectDeps, 'findActiveSession' | 'findHomeVantage' | 'findWorkstationLease'> => ({
+  findActiveSession: async () => ({ data: null, error: null }),
+  findHomeVantage: async () => ({ data: { essid, octet }, error: null }),
+  findWorkstationLease: async () => ({ data: null, error: null }),
+});
 
 const runsService = (host: LanHost, spec: (typeof SERVICE_CATALOG)[keyof typeof SERVICE_CATALOG]) =>
   host.kind === 'machine' && hostServices(ESSID, host).some((service) => service.spec === spec);
@@ -97,6 +109,7 @@ const makeDeps = (over: Partial<RedisConnectDeps> = {}) => {
     listOccupantsByEssid: async () => ({ data: [], error: null }),
     listLeasesByEssid: async () => ({ data: [], error: null }),
     findHomeNetworkByOwnerKey: async () => ({ data: null, error: null }),
+    ...homeVantage(ESSID),
     ...over,
   };
   return { deps, findPatches, readRedisLog, upsertPatch };
@@ -274,7 +287,7 @@ describe('the line the daemon leaves behind', () => {
   it('records an arrival it was told no address for as coming from nowhere nameable', async () => {
     const identity = generateIdentity();
     const host = storeHostOn(ESSID);
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, upsertPatch } = makeDeps(homeVantage(ESSID, null));
 
     await handleRedisConnect(
       await signedConnect(identity, { target_ip: host.ip, source_ip: null }),
@@ -446,7 +459,7 @@ const openDeepStore = async (identity: ReturnType<typeof generateIdentity>, deps
 describe('a store on a hidden layer', () => {
   it('opens the box behind the forward, and names the box rather than the gateway', async () => {
     const identity = generateIdentity();
-    const { deps } = makeDeps({ findPatches: throughForward() });
+    const { deps } = makeDeps({ ...homeVantage(DEEP.essid), findPatches: throughForward() });
 
     const response = await openDeepStore(identity, deps);
 
@@ -460,7 +473,7 @@ describe('a store on a hidden layer', () => {
 
   it('records the arrival on the DEEP box, at the address NAT showed it', async () => {
     const identity = generateIdentity();
-    const { deps, upsertPatch } = makeDeps({ findPatches: throughForward() });
+    const { deps, upsertPatch } = makeDeps({ ...homeVantage(DEEP.essid), findPatches: throughForward() });
 
     await openDeepStore(identity, deps);
 
@@ -481,7 +494,7 @@ describe('a store on a hidden layer', () => {
 
   it('leaves the gateway with nothing written on it, because NAT does not log', async () => {
     const identity = generateIdentity();
-    const { deps, upsertPatch } = makeDeps({ findPatches: throughForward() });
+    const { deps, upsertPatch } = makeDeps({ ...homeVantage(DEEP.essid), findPatches: throughForward() });
 
     await openDeepStore(identity, deps);
 
@@ -496,6 +509,7 @@ describe('a store on a hidden layer', () => {
   it('refuses a deep box whose daemon was stopped through its own journal', async () => {
     const identity = generateIdentity();
     const { deps, upsertPatch } = makeDeps({
+      ...homeVantage(DEEP.essid),
       findPatches: throughForward([patchRow(pidfilePath(SERVICE_CATALOG.redis), null)]),
     });
 
@@ -511,6 +525,7 @@ describe('a store on a hidden layer', () => {
   it('refuses a deep box bricked through its own journal', async () => {
     const identity = generateIdentity();
     const { deps, upsertPatch } = makeDeps({
+      ...homeVantage(DEEP.essid),
       findPatches: throughForward([patchRow('/boot/vmlinuz', null)]),
     });
 
@@ -524,6 +539,7 @@ describe('a store on a hidden layer', () => {
   it('refuses a port the gateway forwards to a daemon that is not the store', async () => {
     const identity = generateIdentity();
     const { deps } = makeDeps({
+      ...homeVantage(DEEP.essid),
       findPatches: journals({
         [DEEP.gatewayMachineId]: [
           patchRow('/etc/iptables/rules.v4', `forward ${FORWARD_PORT} to ${DEEP.layer.host.ip}:22`),
@@ -619,7 +635,7 @@ const openAcrossTheWorld = async (
   port: number = PUBLIC_PORT,
 ) =>
   handleRedisConnect(
-    await signedConnect(identity, { essid: TARGET_ESSID, target_ip: TARGET_PUBLIC_IP, port }),
+    await signedConnect(identity, { essid: ESSID, target_ip: TARGET_PUBLIC_IP, port }),
     deps,
   );
 
@@ -800,6 +816,7 @@ const sameLanDeps = (
       ] as readonly LanLeaseRow[],
       error: null,
     }),
+    ...homeVantage(ESSID, ATTACKER_OCTET),
     ...options.over,
   });
 

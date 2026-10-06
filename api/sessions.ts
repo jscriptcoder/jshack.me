@@ -726,6 +726,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         supabase,
         occupancyLabel: 'mysql connect source-ip occupancy',
       }),
+      findActiveSession: findActiveSessionVia({ supabase, label: 'mysql connect active-session' }),
+      findHomeVantage: findHomeVantageVia({ supabase, label: 'mysql connect vantage' }),
+      findWorkstationLease: findWorkstationLeaseVia({ supabase, label: 'mysql connect vantage' }),
     });
     res.status(status).json(body);
     return;
@@ -759,6 +762,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         supabase,
         occupancyLabel: 'mysql statement source-ip occupancy',
       }),
+      findActiveSession: findActiveSessionVia({ supabase, label: 'mysql statement active-session' }),
+      findHomeVantage: findHomeVantageVia({ supabase, label: 'mysql statement vantage' }),
+      findWorkstationLease: findWorkstationLeaseVia({ supabase, label: 'mysql statement vantage' }),
     });
     res.status(status).json(body);
     return;
@@ -793,6 +799,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         supabase,
         occupancyLabel: 'redis connect source-ip occupancy',
       }),
+      findActiveSession: findActiveSessionVia({ supabase, label: 'redis connect active-session' }),
+      findHomeVantage: findHomeVantageVia({ supabase, label: 'redis connect vantage' }),
+      findWorkstationLease: findWorkstationLeaseVia({ supabase, label: 'redis connect vantage' }),
     });
     res.status(status).json(body);
     return;
@@ -830,6 +839,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         supabase,
         occupancyLabel: 'snmp walk source-ip occupancy',
       }),
+      findActiveSession: findActiveSessionVia({ supabase, label: 'snmp walk active-session' }),
+      findHomeVantage: findHomeVantageVia({ supabase, label: 'snmp walk vantage' }),
+      findWorkstationLease: findWorkstationLeaseVia({ supabase, label: 'snmp walk vantage' }),
     });
     res.status(status).json(body);
     return;
@@ -870,6 +882,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         supabase,
         occupancyLabel: 'snmp set source-ip occupancy',
       }),
+      findActiveSession: findActiveSessionVia({ supabase, label: 'snmp set active-session' }),
+      findHomeVantage: findHomeVantageVia({ supabase, label: 'snmp set vantage' }),
+      findWorkstationLease: findWorkstationLeaseVia({ supabase, label: 'snmp set vantage' }),
     });
     res.status(status).json(body);
     return;
@@ -903,6 +918,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         supabase,
         occupancyLabel: 'redis statement source-ip occupancy',
       }),
+      findActiveSession: findActiveSessionVia({ supabase, label: 'redis statement active-session' }),
+      findHomeVantage: findHomeVantageVia({ supabase, label: 'redis statement vantage' }),
+      findWorkstationLease: findWorkstationLeaseVia({ supabase, label: 'redis statement vantage' }),
     });
     res.status(status).json(body);
     return;

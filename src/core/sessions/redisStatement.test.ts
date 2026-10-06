@@ -61,7 +61,19 @@ const freshStore: NonceStore = async () => ({ fresh: true });
  *  than a lock this test planted, which is the difference between proving the door and
  *  proving the fixture. */
 const ESSID = 'NACHO-WIFI';
-const CLIENT_IP = '192.168.1.50';
+// The octet the player holds at home, and the address the server derives for a pre-hop
+// statement — never a client claim. Elsewhere (a forward, a public target) it is a value
+// that must NOT turn up, since those record the route's address instead.
+const HOME_OCTET = 50;
+const CLIENT_IP = lanAddressFor(ESSID, HOME_OCTET);
+const homeVantage = (
+  essid: string,
+  octet: number | null = HOME_OCTET,
+): Pick<RedisStatementDeps, 'findActiveSession' | 'findHomeVantage' | 'findWorkstationLease'> => ({
+  findActiveSession: async () => ({ data: null, error: null }),
+  findHomeVantage: async () => ({ data: { essid, octet }, error: null }),
+  findWorkstationLease: async () => ({ data: null, error: null }),
+});
 const FIXED_NOW = Date.UTC(2026, 7, 9, 11, 4, 7);
 
 const storeHostsOn = (essid: string): readonly LanHost[] =>
@@ -133,6 +145,7 @@ const makeDeps = (over: Partial<RedisStatementDeps> = {}) => {
     listOccupantsByEssid: async () => ({ data: [], error: null }),
     listLeasesByEssid: async () => ({ data: [], error: null }),
     findHomeNetworkByOwnerKey: async () => ({ data: null, error: null }),
+    ...homeVantage(ESSID),
     ...over,
   };
   return { deps, findPatches, readRedisLog, upsertPatch };
@@ -695,7 +708,7 @@ describe('changing a store through the door', () => {
   it('writes a change it can name no address for as coming from nowhere nameable', async () => {
     const identity = generateIdentity();
     const host = openStoreHostOn(ESSID);
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, upsertPatch } = makeDeps(homeVantage(ESSID, null));
 
     await handleRedisStatement(
       await signedStatement(identity, {
@@ -895,6 +908,7 @@ describe('a store on a hidden layer', () => {
     const identity = generateIdentity();
     const planted = { ...DEEP_OPEN.store, keys: { ...DEEP_OPEN.store.keys, 'sess:planted': 'yes' } };
     const { deps } = makeDeps({
+      ...homeVantage(DEEP_OPEN.essid),
       findPatches: throughForward(DEEP_OPEN, [patchRow(DATADIR_PATH, JSON.stringify(planted))]),
     });
 
@@ -907,7 +921,7 @@ describe('a store on a hidden layer', () => {
 
   it('writes a change onto the DEEP box, under its own machine id', async () => {
     const identity = generateIdentity();
-    const { deps, upsertPatch } = makeDeps({ findPatches: throughForward(DEEP_OPEN) });
+    const { deps, upsertPatch } = makeDeps({ ...homeVantage(DEEP_OPEN.essid), findPatches: throughForward(DEEP_OPEN) });
 
     const response = await askDeep(identity, DEEP_OPEN, deps, {
       statement: 'SET sess:new hello',
@@ -928,6 +942,7 @@ describe('a store on a hidden layer', () => {
     const identity = generateIdentity();
     const written: OwnerPatchRow[] = [];
     const { deps } = makeDeps({
+      ...homeVantage(DEEP_OPEN.essid),
       findPatches: vi.fn<RedisStatementDeps['findPatches']>(async ({ machine_id }) => ({
         data:
           machine_id === DEEP_OPEN.gatewayMachineId
@@ -958,7 +973,7 @@ describe('a store on a hidden layer', () => {
 
   it('records the change in the deep box own log, at the address NAT showed it', async () => {
     const identity = generateIdentity();
-    const { deps, upsertPatch } = makeDeps({ findPatches: throughForward(DEEP_OPEN) });
+    const { deps, upsertPatch } = makeDeps({ ...homeVantage(DEEP_OPEN.essid), findPatches: throughForward(DEEP_OPEN) });
 
     await askDeep(identity, DEEP_OPEN, deps, { statement: 'SET sess:new hello' });
 
@@ -981,7 +996,7 @@ describe('a store on a hidden layer', () => {
 
   it('leaves a deep box byte-identical when the statement was a read', async () => {
     const identity = generateIdentity();
-    const { deps, upsertPatch } = makeDeps({ findPatches: throughForward(DEEP_OPEN) });
+    const { deps, upsertPatch } = makeDeps({ ...homeVantage(DEEP_OPEN.essid), findPatches: throughForward(DEEP_OPEN) });
 
     await askDeep(identity, DEEP_OPEN, deps, { statement: 'KEYS *' });
 
@@ -992,7 +1007,7 @@ describe('a store on a hidden layer', () => {
     const identity = generateIdentity();
     const hash = DEEP_LOCKED.store.requirepassHash;
     if (hash === null) throw new Error('the locked fixture is not locked');
-    const { deps } = makeDeps({ findPatches: throughForward(DEEP_LOCKED) });
+    const { deps } = makeDeps({ ...homeVantage(DEEP_LOCKED.essid), findPatches: throughForward(DEEP_LOCKED) });
 
     const [refused, answered] = [
       await askDeep(identity, DEEP_LOCKED, deps, { statement: 'DBSIZE' }),
@@ -1022,6 +1037,7 @@ describe('a store on a hidden layer', () => {
     const chosen = 'hunter2';
     const rewritten = { ...DEEP_LOCKED.store, requirepassHash: md5(chosen) };
     const { deps } = makeDeps({
+      ...homeVantage(DEEP_LOCKED.essid),
       findPatches: throughForward(DEEP_LOCKED, [patchRow(DATADIR_PATH, JSON.stringify(rewritten))]),
     });
 
@@ -1050,6 +1066,7 @@ describe('a store on a hidden layer', () => {
   it('drops a player whose deep daemon was stopped under them', async () => {
     const identity = generateIdentity();
     const { deps } = makeDeps({
+      ...homeVantage(DEEP_OPEN.essid),
       findPatches: throughForward(DEEP_OPEN, [
         patchRow(pidfilePath(SERVICE_CATALOG.redis), null),
       ]),
@@ -1144,7 +1161,7 @@ const askAcrossTheWorld = async (
 ) =>
   handleRedisStatement(
     await signedStatement(identity, {
-      essid: TARGET_ESSID,
+      essid: ESSID,
       target_ip: TARGET_PUBLIC_IP,
       port: PUBLIC_PORT,
       statement: request.statement,
@@ -1322,6 +1339,7 @@ const sameLanDeps = (
       ] as readonly LanLeaseRow[],
       error: null,
     }),
+    ...homeVantage(ESSID, ATTACKER_OCTET),
   });
 
 const askNextDoor = async (

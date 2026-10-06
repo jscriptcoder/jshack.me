@@ -119,7 +119,10 @@ const patchRow = (path: string, content: string): OwnerPatchRow =>
     writer_key: 'b'.repeat(64),
   }) as OwnerPatchRow;
 
-const makeDeps = (patchesByMachine: Readonly<Record<string, readonly OwnerPatchRow[]>>) => {
+const makeDeps = (
+  patchesByMachine: Readonly<Record<string, readonly OwnerPatchRow[]>>,
+  homeEssid: string,
+) => {
   const upsertPatch = vi.fn<(row: PatchRow) => Promise<{ error: unknown }>>(async () => ({
     error: null,
   }));
@@ -139,6 +142,12 @@ const makeDeps = (patchesByMachine: Readonly<Record<string, readonly OwnerPatchR
     listOccupantsByEssid: async () => ({ data: [], error: null }),
     listLeasesByEssid: async () => ({ data: [], error: null }),
     findHomeNetworkByOwnerKey: async () => ({ data: null, error: null }),
+    // At home on the network whose gateway forwards the port — the essid the request
+    // carries. The source a deep box records is the fronting gateway's `.1`, from the
+    // chain walk, not this vantage.
+    findActiveSession: async () => ({ data: null, error: null }),
+    findHomeVantage: async () => ({ data: { essid: homeEssid, octet: 50 }, error: null }),
+    findWorkstationLease: async () => ({ data: null, error: null }),
   };
   return { deps, upsertPatch };
 };
@@ -166,11 +175,14 @@ describe('setting on a device behind an inner gateway', () => {
   const DEEP = deepSwitchWithAnAgent();
 
   it('writes the access list of the device the forward reaches', async () => {
-    const { deps, upsertPatch } = makeDeps({
-      [DEEP.gatewayId]: [
-        patchRow(RULES_V4_PATH, `forward ${FORWARDED_PORT} to ${DEEP.device.ip}:161`),
-      ],
-    });
+    const { deps, upsertPatch } = makeDeps(
+      {
+        [DEEP.gatewayId]: [
+          patchRow(RULES_V4_PATH, `forward ${FORWARDED_PORT} to ${DEEP.device.ip}:161`),
+        ],
+      },
+      DEEP.essid,
+    );
 
     const response = await handleSnmpSet(
       await signedSet({
@@ -196,11 +208,14 @@ describe('setting on a device behind an inner gateway', () => {
   it('refuses the gateway community on the device behind it', async () => {
     // Each box keeps its own community. A string cracked on the gateway is not a key to
     // everything the gateway can reach, or one crack would own the whole chain.
-    const { deps, upsertPatch } = makeDeps({
-      [DEEP.gatewayId]: [
-        patchRow(RULES_V4_PATH, `forward ${FORWARDED_PORT} to ${DEEP.device.ip}:161`),
-      ],
-    });
+    const { deps, upsertPatch } = makeDeps(
+      {
+        [DEEP.gatewayId]: [
+          patchRow(RULES_V4_PATH, `forward ${FORWARDED_PORT} to ${DEEP.device.ip}:161`),
+        ],
+      },
+      DEEP.essid,
+    );
 
     const response = await handleSnmpSet(
       await signedSet({
@@ -224,7 +239,7 @@ describe('what a forward on an inner gateway may point at', () => {
   it('accepts a destination on the layer the gateway fronts', async () => {
     // The only kind of destination that can route: the chain resolves a forward against
     // the deep layer, so an address there is a box the world can actually reach.
-    const { deps, upsertPatch } = makeDeps({});
+    const { deps, upsertPatch } = makeDeps({}, INNER.essid);
 
     const response = await handleSnmpSet(
       await signedSet({
@@ -251,7 +266,7 @@ describe('what a forward on an inner gateway may point at', () => {
     // Accepted, this would be a forward the chain resolves to nothing — a rule sitting
     // in the table, echoed back as success, routing nowhere for as long as it is there.
     const lanAddress = `${generateHomeLan(INNER.essid).subnet}.9`;
-    const { deps, upsertPatch } = makeDeps({});
+    const { deps, upsertPatch } = makeDeps({}, INNER.essid);
 
     const response = await handleSnmpSet(
       await signedSet({
