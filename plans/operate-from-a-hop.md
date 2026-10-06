@@ -5,8 +5,8 @@
 planned and approved the same day. Slices 1–5, 6a–6c, 7, 8a, 8b and 8c done (#598 v0.307.0,
 #599 v0.308.0, #600 v0.309.0, #601 v0.310.0, #602 v0.311.0, #603 v0.312.0, #604 v0.313.0,
 #605 v0.314.0, #606 v0.315.0, #607 v0.316.0, #608 v0.317.0, #610 v0.318.0, #611 v0.319.0,
-#612 v0.320.0). Slice 9 split in three (2026-10-06), then 9a split again into ftp+scp (#612) and
-`nc` (9a-ii). Next: slice 9a-ii (`nc` from a hop).
+#612 v0.320.0, #613 v0.321.0). Slice 9 split in three (2026-10-06), then 9a split again into
+ftp+scp (#612) and `nc` (#613). Next: slice 9b (ping and name lookups from a hop).
 Resolves two §9 backlog items in `docs/conventions-and-gotchas.md`: "Pivot / operate-from-a-hop —
 source-IP masking only; ssh-from-a-pivot" and "Four tools cannot pivot: `ssh`, `nmap`, `curl`,
 `lynx`". Where they disagree with this file, this file wins.
@@ -630,6 +630,19 @@ switch to `vantageOf(...)`, the one direct-deep arm it lacks, and `localhost`→
 (the data-doors' server-side loopback, retiring `nc`'s own-box refusal on a hop) carried over from
 9a. **Decisions**: 2. Wire-check extends `scripts/testHopPortTools.ts` with the `nc` and loopback
 rows.
+
+✅ **Done in #613 (v0.321.0).** As built:
+- `nc` routes through `vantageOf(...)` on every arm — own-LAN, public, direct deep-layer
+  (`resolveDeepScanHosts`, banner-or-knock), and fellow occupant — each sending `callerMachineId`,
+  so a connect from a hop is placed on the hop's network. The same-LAN and inner-gateway nc
+  adapters now forward `caller_machine_id`, which they had been dropping.
+- **`localhost`→the hop's own listener**: the client sends loopback on a hop, and
+  `handleAuthCreateSession` resolves a loopback `target_ip` to the caller's own box via its vantage
+  (`vantage.sourceIp`), mirroring the data doors' `reachBox`. At home the own-box refusal still
+  stands — planting is local, connecting is not.
+- Wire-check `scripts/testHopPortTools.ts` 12/12 live (`nc` lands `kind:nc` on the LAN box's own id;
+  `nc localhost` lands on the hop itself). Mutation: nc.ts changed regions killed bar documented
+  equivalents; the loopback null-guard is an equivalent type-narrow (fall-through yields the same 404).
 
 #### Slice 9b: Ping and name lookups run from a hop
 
