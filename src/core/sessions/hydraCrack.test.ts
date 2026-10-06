@@ -88,7 +88,12 @@ const WORKSTATION = 'skylab';
 // 2026-08-09 11:04:07 UTC — the server clock every trace line in these tests is
 // stamped with.
 const FIXED_NOW = Date.UTC(2026, 7, 9, 11, 4, 7);
-const ATTACKER_IP = '192.168.1.50';
+/** The octet the caller holds on their home network. The server derives the address a
+ *  sweep is recorded from off the lease, never off a client claim, so an own-LAN sweep
+ *  traces from `lanAddressFor(ESSID, HOME_OCTET)`. */
+const HOME_OCTET = 50;
+const ATTACKER_IP = lanAddressFor(ESSID, HOME_OCTET);
+const PUBLIC_IP = '82.14.203.77';
 
 /** A LAN host that actually runs ssh — the sweep needs a service to attack. */
 const sshHostOn = (essid: string): LanHost => {
@@ -270,6 +275,16 @@ const makeDeps = (over: DepOverrides = {}) => {
     // generated world, where every box at an address is a seeded sibling.
     listOccupantsByEssid: async () => ({ data: [], error: null }),
     listLeasesByEssid: async () => ({ data: [], error: null }),
+    // The public-reach resolvers, unused on the caller's own LAN but part of the shared
+    // reach the fold brought in. A network bears no public address by default.
+    findNetworkByPublicIp: async () => ({ data: null, error: null }),
+    findPublicIpByEssid: async () => ({ data: { public_ip: PUBLIC_IP }, error: null }),
+    findHomeNetworkByOwnerKey: async () => ({ data: null, error: null }),
+    // The caller stands at home on the network they attack unless a test says otherwise:
+    // the server derives the vantage from this, never from the request's essid. The lease
+    // octet is what every own-LAN trace is recorded from.
+    findHomeVantage: async () => ({ data: { essid: ESSID, octet: HOME_OCTET }, error: null }),
+    findWorkstationLease: async () => ({ data: null, error: null }),
     listPathPatches,
     readAuthLog,
     upsertPatch,
@@ -282,8 +297,11 @@ type CrackRequest = {
   readonly essid?: string;
   readonly target_ip: string;
   readonly service?: string;
+  readonly port?: number;
   readonly username?: string;
   readonly caller_machine_id?: string;
+  /** Still accepted by the schema, so an older caller does not 400 — but never read:
+   *  a test that sends it is proving the server ignores it. */
   readonly source_ip?: string | null;
 };
 
@@ -292,10 +310,11 @@ const signedCrack = (identity: ReturnType<typeof generateIdentity>, request: Cra
     essid: request.essid ?? ESSID,
     target_ip: request.target_ip,
     service: request.service ?? 'ssh',
+    ...(request.port === undefined ? {} : { port: request.port }),
     ...(request.username === undefined ? {} : { username: request.username }),
     caller_machine_id:
       request.caller_machine_id ?? computeWorkstationId(WORKSTATION, identity.publicKeyHex),
-    source_ip: request.source_ip === undefined ? ATTACKER_IP : request.source_ip,
+    ...(request.source_ip === undefined ? {} : { source_ip: request.source_ip }),
   });
 
 /** One line the sweep is expected to leave on the target's auth.log. */
@@ -596,24 +615,76 @@ describe('handleHydraCrack', () => {
     });
   });
 
-  it('refuses a caller machine it cannot place on the LAN, even with a session', async () => {
-    // The trace has to name where the sweep really came from. A box the server
-    // cannot locate has no address to record, and guessing one would frame a
-    // machine — so the sweep is refused rather than written up as somebody else.
+  it('refuses a sweep naming a network the caller is not standing on', async () => {
+    // Where the caller stands is derived from the session they hold, not from the essid
+    // the request carries: a caller on one network cannot sweep a box on another by
+    // naming it, because a login written up as somebody else's network is the whole
+    // reason the vantage is server-derived.
+    const identity = generateIdentity();
+    const host = sshHostOn(ESSID);
+    const { deps, upsertPatch, listPathPatches } = makeDeps({
+      wordlist: [],
+      findActiveSession: async () => ({
+        data: { username: 'root', userType: 'root', essid: 'SOME-OTHER-WIFI' },
+        error: null,
+      }),
+      findHomeVantage: async () => ({ data: null, error: null }),
+    });
+
+    const response = await handleHydraCrack(
+      signedCrack(identity, { target_ip: host.ip, caller_machine_id: 'a-box-on-another-net' }),
+      deps,
+    );
+
+    expect(response).toEqual({ status: 403, body: { error: 'wrong_network' } });
+    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(listPathPatches).not.toHaveBeenCalled();
+  });
+
+  it('refuses a sweep from a caller on no network at all', async () => {
+    // A caller holding no session and occupying no network has nowhere to stand: there
+    // is no LAN to regenerate for them, so the door refuses rather than guess one.
     const identity = generateIdentity();
     const host = sshHostOn(ESSID);
     const { deps, upsertPatch } = makeDeps({
       wordlist: [],
-      findActiveSession: async () => ({ data: { username: 'root', userType: 'root', essid: ESSID }, error: null }),
+      findHomeVantage: async () => ({ data: null, error: null }),
     });
 
     const response = await handleHydraCrack(
-      signedCrack(identity, { target_ip: host.ip, caller_machine_id: 'deep-layer-box' }),
+      signedCrack(identity, { target_ip: host.ip }),
       deps,
     );
 
-    expect(response).toEqual({ status: 403, body: { error: 'caller_not_on_lan' } });
+    expect(response).toEqual({ status: 403, body: { error: 'caller_not_on_network' } });
     expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
+  it('traces a LAN sweep from the hop box address, not the player home', async () => {
+    // Standing on another box on this ESSID, the sweep comes from THAT box's own LAN
+    // address — server-derived from the session's network, whatever the player's own
+    // card is doing.
+    const identity = generateIdentity();
+    const standing = lanHostOtherThan(sshHostOn(ESSID));
+    const host = sshHostOn(ESSID);
+    const { deps, upsertPatch } = makeDeps({
+      wordlist: accountsWithPasswords(host, KNOWN_POOL).map((account) => account.password),
+      findActiveSession: async () => ({
+        data: { username: 'root', userType: 'root', essid: ESSID },
+        error: null,
+      }),
+      findHomeVantage: async () => ({ data: null, error: null }),
+    });
+
+    await handleHydraCrack(
+      signedCrack(identity, {
+        target_ip: host.ip,
+        caller_machine_id: machineIdForLanHost(standing, ESSID),
+      }),
+      deps,
+    );
+
+    expect(upsertPatch.mock.calls[0]![0].content).toContain(standing.ip);
   });
 
   it('reports the port the service actually listens on', async () => {
@@ -944,19 +1015,21 @@ describe('the trace a hydra sweep leaves on its target', () => {
     expect(writtenLines(upsertPatch)).toEqual([traceLine('failure', target.username, host)]);
   });
 
-  it("records the address the attacker's machine connected from", async () => {
+  it('records the server-derived vantage address, ignoring any claimed source', async () => {
+    // The trace is the defender's evidence, so a client-sent address decides nothing: a
+    // sweep carrying a bogus source is still written up from the address the server
+    // derives for the caller's vantage — their own home lease here.
     const identity = generateIdentity();
     const host = sshHostOn(ESSID);
-    const elsewhere = '192.168.1.77';
     const { deps, upsertPatch } = makeDeps({ wordlist: ['no-such-word'] });
 
     await handleHydraCrack(
-      signedCrack(identity, { target_ip: host.ip, source_ip: elsewhere }),
+      signedCrack(identity, { target_ip: host.ip, source_ip: '192.168.1.77' }),
       deps,
     );
 
     expect(writtenLines(upsertPatch)).toEqual(
-      accountNamesOn(host).map((name) => traceLine('failure', name, host, elsewhere)),
+      accountNamesOn(host).map((name) => traceLine('failure', name, host, ATTACKER_IP)),
     );
   });
 
@@ -987,14 +1060,18 @@ describe('the trace a hydra sweep leaves on its target', () => {
     );
   });
 
-  it('records an unknown source when the attempt carried no address', async () => {
-    // A missing address is not a reason to drop the trace: the defender still
-    // learns their box was swept, exactly as `ssh` reports an unknown origin.
+  it('records an unknown source when the vantage places the caller at no address', async () => {
+    // A caller who occupies the network but holds no lease has no address the server can
+    // derive. That is not a reason to drop the trace: the defender still learns their box
+    // was swept, exactly as `ssh` reports an unknown origin.
     const identity = generateIdentity();
     const host = sshHostOn(ESSID);
-    const { deps, upsertPatch } = makeDeps({ wordlist: ['no-such-word'] });
+    const { deps, upsertPatch } = makeDeps({
+      wordlist: ['no-such-word'],
+      findHomeVantage: async () => ({ data: { essid: ESSID, octet: null }, error: null }),
+    });
 
-    await handleHydraCrack(signedCrack(identity, { target_ip: host.ip, source_ip: null }), deps);
+    await handleHydraCrack(signedCrack(identity, { target_ip: host.ip }), deps);
 
     expect(writtenLines(upsertPatch)).toEqual(
       accountNamesOn(host).map((name) => traceLine('failure', name, host, 'unknown')),
@@ -1897,6 +1974,10 @@ const sameLanDeps = (
       ],
       error: null,
     }),
+    // The attacker stands at home on this shared WiFi, holding the lease the table gives
+    // them — so the vantage the server derives for the trace is their own LAN address,
+    // which is what the occupant's log must record.
+    findHomeVantage: async () => ({ data: { essid: ESSID, octet: ATTACKER_OCTET }, error: null }),
     ...options.over,
   });
   return { deps, upsertPatch };

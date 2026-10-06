@@ -215,8 +215,6 @@ export type BuildCommandEnvArgs = {
    *  `crackCredentials` adapter (signed `hydraCrack` round-trip). Optional here for
    *  terse test setups; the UI always passes the real one. */
   readonly onHydraCrack?: HydraApi['crack'];
-  readonly onHydraCrackPublic?: HydraApi['crackPublic'];
-  readonly onHydraCrackInnerGateway?: HydraApi['crackInnerGateway'];
   /** The exploit seam — backs `env.exploit.run`. The UI wires it to the `runExploit`
    *  adapter (signed `exploitCreateSession` round-trip). Optional here for terse test
    *  setups; the UI always passes the real one. */
@@ -498,9 +496,6 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
   },
   hydra: {
     crack: args.onHydraCrack ?? notWired('hydra.crack'),
-    crackPublic: args.onHydraCrackPublic ?? notWired('hydra.crackPublic'),
-    crackInnerGateway:
-      args.onHydraCrackInnerGateway ?? notWired('hydra.crackInnerGateway'),
   },
   exploit: {
     // Loud when unwired: an exploit that answered on its own would either open a
