@@ -501,8 +501,11 @@ Agreed acceptance (owner, 2026-10-06):
    address, or the hop network's public IP; from home nothing changes.
 5. **One log row per box** (7a): generated and deep boxes under `ap:<essid>`, a player's box under
    its owner's key — closing the inner-gateway writer-key defect the handler's header flags.
-6. **A service name still picks its port** with no `-p` (ssh:22, ftp:2121, …): the box is resolved
-   first, the named daemon's listening port used.
+6. **Port-first, like the data doors** (owner, 2026-10-06): with no `-p` the named service's
+   default port is used (ssh:22, ftp:21, snmp:161) through the shared `reachServiceHost`, one rule
+   for every network tool. `hydra <ip> ftp` against ftp on a non-default port now needs `-p` — a
+   change from today's own-LAN "find the service on any port", accepted to avoid a hydra-only
+   carve-out now that snmp/mysql/redis all went port-first in 8a.
 7. **The man page says "the network you are on".**
 8. Wire-check `scripts/testHopHydra.ts` — a LAN hop; a deep layer incl. a switch-denied port;
    `wrong_network` and `no_session`; loopback on a hop; a public target from the hop vs from home.
