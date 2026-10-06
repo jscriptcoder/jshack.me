@@ -54,8 +54,6 @@ import type {
   Session,
   SuElevateParams,
   HydraCrackParams,
-  HydraCrackInnerGatewayParams,
-  HydraCrackPublicParams,
   HydraCrackResult,
   ExploitRunParams,
   ExploitRunResult,
@@ -977,33 +975,6 @@ export const crackCredentials = async (
       essid: params.essid,
       target_ip: params.target,
       service: params.service,
-      ...(params.username === undefined ? {} : { username: params.username }),
-      caller_machine_id: params.callerMachineId,
-      source_ip: params.sourceIp,
-    });
-    return await crackOutcome(response);
-  } catch {
-    return { ok: false, error: 'network_error' };
-  }
-};
-
-/**
- * Crack account passwords behind a PUBLIC IP — the signed `hydraCrackPublic`
- * round-trip behind `env.hydra.crackPublic`.
- *
- * Deliberately carries no source address. The target here belongs to somebody
- * else, so the line their `auth.log` records is evidence, and the server derives
- * it from the verified key instead of believing this request.
- */
-export const crackCredentialsPublic = async (
-  deps: SessionsClientDeps,
-  params: HydraCrackPublicParams,
-): Promise<HydraCrackResult> => {
-  try {
-    const response = await post(deps, 'hydraCrackPublic', {
-      essid: params.essid,
-      target: params.target,
-      service: params.service,
       ...(params.port === undefined ? {} : { port: params.port }),
       ...(params.username === undefined ? {} : { username: params.username }),
       caller_machine_id: params.callerMachineId,
@@ -1014,37 +985,9 @@ export const crackCredentialsPublic = async (
   }
 };
 
-/**
- * Crack account passwords on a box behind a NAT forward on one of the player's own
- * inner gateways — the signed `hydraCrackInnerGateway` round-trip behind
- * `env.hydra.crackInnerGateway`.
- *
- * Carries no source address: NAT means the deep box is shown the fronting gateway's
- * `.1` whoever is behind it, so the server derives it from the route it walked.
- */
-export const crackCredentialsInnerGateway = async (
-  deps: SessionsClientDeps,
-  params: HydraCrackInnerGatewayParams,
-): Promise<HydraCrackResult> => {
-  try {
-    const response = await post(deps, 'hydraCrackInnerGateway', {
-      essid: params.essid,
-      target: params.target,
-      service: params.service,
-      port: params.port,
-      ...(params.username === undefined ? {} : { username: params.username }),
-      caller_machine_id: params.callerMachineId,
-    });
-    return await crackOutcome(response);
-  } catch {
-    return { ok: false, error: 'network_error' };
-  }
-};
-
-/** Both crack actions answer in the same shape, and both pass an error through by
- *  NAME rather than collapsing it: `hydra` tells the player which of "no route",
- *  "nothing listening" and "no wordlist" happened, because they are three different
- *  things to go and fix. */
+/** The crack action passes an error through by NAME rather than collapsing it: `hydra`
+ *  tells the player which of "no route", "nothing listening" and "no wordlist" happened,
+ *  because they are three different things to go and fix. */
 const crackOutcome = async (response: Response): Promise<HydraCrackResult> => {
   const body: unknown = await response.json().catch(() => null);
   if (!response.ok) {

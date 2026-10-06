@@ -62,8 +62,6 @@ import type {
   SuElevateParams,
   RebootEvictResult,
   HydraCrackParams,
-  HydraCrackInnerGatewayParams,
-  HydraCrackPublicParams,
   HydraCrackResult,
   ExploitRunParams,
   ExploitRunResult,
@@ -151,8 +149,6 @@ import {
   runDatabaseStatement,
   runStoreStatement,
   crackCredentials,
-  crackCredentialsInnerGateway,
-  crackCredentialsPublic,
   runExploit,
   postExploitLocalElevate,
   createServerSession,
@@ -768,8 +764,10 @@ const chainOpenSessionIds = (): Promise<ReadonlySet<string> | null> =>
     ? Promise.resolve(null)
     : openServerSessionIds(sessionsClientDeps);
 
-/** Crack credentials on an own-LAN host server-side (backs `env.hydra.crack`).
- *  Degrades to a network error before `startGame` wires the sessions client. */
+/** Crack credentials on a network service server-side (backs `env.hydra.crack`). The
+ *  one action reaches every target through the shared server reach, so the client no
+ *  longer picks an endpoint by the address. Degrades to a network error before
+ *  `startGame` wires the sessions client. */
 const hydraCrack = (params: HydraCrackParams): Promise<HydraCrackResult> =>
   sessionsClientDeps === undefined
     ? Promise.resolve({ ok: false, error: 'network_error' })
@@ -838,23 +836,6 @@ const snmpSet = (params: SnmpSetParams): Promise<SnmpSetResult> =>
   sessionsClientDeps === undefined
     ? Promise.resolve({ ok: false, refusal: null })
     : setDeviceOid(sessionsClientDeps, params);
-
-/** Crack credentials behind a stranger's PUBLIC IP server-side (backs
- *  `env.hydra.crackPublic`). Degrades the same way before the client is wired. */
-const hydraCrackPublic = (params: HydraCrackPublicParams): Promise<HydraCrackResult> =>
-  sessionsClientDeps === undefined
-    ? Promise.resolve({ ok: false, error: 'network_error' })
-    : crackCredentialsPublic(sessionsClientDeps, params);
-
-/** Crack credentials on a box behind a forward on the player's own inner gateway
- *  (backs `env.hydra.crackInnerGateway`). Degrades the same way before the client is
- *  wired. */
-const hydraCrackInnerGateway = (
-  params: HydraCrackInnerGatewayParams,
-): Promise<HydraCrackResult> =>
-  sessionsClientDeps === undefined
-    ? Promise.resolve({ ok: false, error: 'network_error' })
-    : crackCredentialsInnerGateway(sessionsClientDeps, params);
 
 /** Record an nmap scan server-side (backs `env.scan.record`). Best-effort and a
  *  no-op until `startGame` wires the patch client; the scan stands regardless. */
@@ -1929,8 +1910,6 @@ const executeLine = async (line: string): Promise<void> => {
     onRedisEnter: enterRedisSession,
     onRedisLeave: leaveRedisSession,
     onHydraCrack: hydraCrack,
-    onHydraCrackPublic: hydraCrackPublic,
-    onHydraCrackInnerGateway: hydraCrackInnerGateway,
     onExploitRun: exploitRun,
     onExploitElevateLocal: exploitElevateLocal,
     onScanRecord: recordScanFn,

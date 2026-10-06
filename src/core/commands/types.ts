@@ -1038,20 +1038,21 @@ export type SnmpApi = {
   readonly set: (params: SnmpSetParams) => Promise<SnmpSetResult>;
 };
 
-/** What `hydra` hands the crack action. `callerMachineId` names the box whose
- *  wordlist is consulted — the server verifies it belongs to the caller rather
- *  than trusting it, so it is a lookup key, not a privilege claim. `username`
- *  absent means sweep every account the target has. */
+/** What `hydra` hands the crack action. `essid` is the network the shell stands on,
+ *  derived client-side from the vantage and re-derived server-side from the session —
+ *  the two must agree or the sweep is refused. `callerMachineId` names the box the shell
+ *  is on, whose wordlist is read and from whose place on the network the source address
+ *  is derived; the server verifies it belongs to the caller, so it is a lookup key, not a
+ *  privilege claim. `port` absent is the named service's default. `username` absent means
+ *  sweep every account the target has. No `sourceIp`: the address the target records is
+ *  the vantage's, derived server-side, never a claim. */
 export type HydraCrackParams = {
   readonly essid: string;
   readonly target: string;
   readonly service: string;
+  readonly port: number | undefined;
   readonly username: string | undefined;
   readonly callerMachineId: string;
-  /** The address the sweep originates from (the player's wlan0 LAN IP), or null.
-   *  The target's auth.log records it, exactly as it records an `ssh` login's — a
-   *  sweep and a login from one machine must not read as two different callers. */
-  readonly sourceIp: string | null;
 };
 
 export type HydraCrackResult =
@@ -1070,49 +1071,13 @@ export type HydraCrackResult =
     }
   | { readonly ok: false; readonly error: string };
 
-/** What `hydra` hands the CROSS-PLAYER crack action. No `sourceIp`: the address a
- *  foreign target records is derived server-side from the verified key, because a
- *  log line on somebody else's box is evidence and a client could otherwise frame
- *  another network. `target` is a public IP, which names an access point — the
- *  default port reaches its gateway rather than any player's workstation. */
-export type HydraCrackPublicParams = {
-  readonly essid: string;
-  readonly target: string;
-  readonly service: string;
-  /** The destination port behind the public IP — an access point's forward table is
-   *  addressed by port, so this is what names a box rather than the gateway.
-   *  `undefined` means the default, which is the gateway's own sshd. */
-  readonly port: number | undefined;
-  readonly username: string | undefined;
-  readonly callerMachineId: string;
-};
-
-/** What `hydra` hands the DEEP crack action: a NAT forward on one of the player's own
- *  inner gateways, which is the only way to address a box on the layer behind it. No
- *  `sourceIp` — a deep box is shown the fronting gateway's address by NAT whoever is
- *  behind it, so the server derives it from the route rather than from this request. */
-export type HydraCrackInnerGatewayParams = {
-  readonly essid: string;
-  readonly target: string;
-  readonly service: string;
-  /** The forwarded port on the gateway — the address of a box behind it. Required:
-   *  without a port there is no forward, and the gateway itself is an own-LAN target. */
-  readonly port: number;
-  readonly username: string | undefined;
-  readonly callerMachineId: string;
-};
-
-/** The credential-cracking seam, backed by the signed `hydraCrack` endpoints. What
- *  is crackable is decided server-side against the same `/etc/passwd` `ssh` reads,
- *  so the two tools can never disagree about a credential. The split mirrors
- *  `SshApi`'s: reachability decides the action, and each one resolves its target
- *  the same way its `ssh` counterpart does. */
+/** The credential-cracking seam, backed by the single signed `hydraCrack` endpoint.
+ *  What is crackable is decided server-side against the same `/etc/passwd` `ssh` reads,
+ *  so the two tools can never disagree about a credential — and the ONE action resolves
+ *  every target (own LAN, a deep layer, a fellow occupant, a public address) through the
+ *  same reach `ssh` and the data doors use, so a box dark to one is dark to all. */
 export type HydraApi = {
   readonly crack: (params: HydraCrackParams) => Promise<HydraCrackResult>;
-  readonly crackPublic: (params: HydraCrackPublicParams) => Promise<HydraCrackResult>;
-  readonly crackInnerGateway: (
-    params: HydraCrackInnerGatewayParams,
-  ) => Promise<HydraCrackResult>;
 };
 
 /** The two kinds of shell a fired CVE can hand over. Narrowed from `SessionKind`

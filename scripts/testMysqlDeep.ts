@@ -344,9 +344,9 @@ const main = async (): Promise<void> => {
   );
   const swept = await post(
     SESSIONS,
-    signRequest(alice, 'hydraCrackInnerGateway', {
+    signRequest(alice, 'hydraCrack', {
       essid: target.essid,
-      target: target.gateway.ip,
+      target_ip: target.gateway.ip,
       service: 'mysql',
       port: FORWARD_PORT,
       caller_machine_id: target.gatewayId,

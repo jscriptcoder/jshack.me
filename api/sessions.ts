@@ -24,14 +24,13 @@ import {
 import type { LanLeaseRow } from '../src/core/network/lanAddress.js';
 import { handleAuthCreateSessionInnerGateway } from '../src/core/sessions/authCreateSessionInnerGateway.js';
 import { handleHydraCrack } from '../src/core/sessions/hydraCrack.js';
+// (hydraCrackPublic/hydraCrackInnerGateway folded into the single hydraCrack reach)
 import { handleMysqlConnect } from '../src/core/sessions/mysqlConnect.js';
 import { handleMysqlStatement } from '../src/core/sessions/mysqlStatement.js';
 import { handleRedisConnect } from '../src/core/sessions/redisConnect.js';
 import { handleRedisStatement } from '../src/core/sessions/redisStatement.js';
 import { handleSnmpSet } from '../src/core/sessions/snmpSet.js';
 import { handleSnmpWalk } from '../src/core/sessions/snmpWalk.js';
-import { handleHydraCrackPublic } from '../src/core/sessions/hydraCrackPublic.js';
-import { handleHydraCrackInnerGateway } from '../src/core/sessions/hydraCrackInnerGateway.js';
 import type { OwnerPatchRow } from '../src/core/network/materializeWorkstationFs.js';
 import {
   handleAuthElevateSession,
@@ -932,80 +931,39 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   if (actionOf(req.body) === 'hydraCrack') {
-    // Credential sweep against a host on the caller's own LAN — a generated sibling, or
-    // a FELLOW OCCUPANT of the WiFi, who is a real player's box at a real lease and
-    // outranks the sibling the seed put on that octet. No session is created. The handler
-    // READS the target's journal (to see its real passwd and what it is actually
-    // running) and the caller's own wordlist patch — the wordlist exists solely as
-    // a patch (apt wrote it; no base FS carries it), so that one row IS the file,
-    // and reading it beats trusting a list the client could have posted. The one
-    // WRITE is the trace it leaves on the target: a sweep is the noisiest thing a
-    // player can do to a box, and the box's occupant reads it back from auth.log.
+    // Credential sweep against any reachable box: a generated sibling or a FELLOW
+    // OCCUPANT on the caller's own LAN, a box on a deep layer behind one of their
+    // gateways, or whatever answers behind a PUBLIC access point — the one door resolves
+    // every target through the SAME reach `ssh` and the data doors use, so a password
+    // this reports is one `ssh` then accepts and a box dark to one tool is dark to all.
+    // No session is created. The handler READS the target's journal (its real passwd and
+    // what it is actually running) and the caller's own wordlist patch — the wordlist
+    // exists solely as a patch (apt wrote it; no base FS carries it), so that one row IS
+    // the file, and reading it beats trusting a list the client could have posted. The
+    // one WRITE is the trace it leaves on whichever box was reached, under the key that
+    // owns THAT machine's logs, at the server-derived address of the network the caller
+    // is STANDING on rather than anything the client claimed.
     const { status, body } = await handleHydraCrack(req.body, {
       nonceStore: noopNonceStore,
       now: () => Date.now(),
-      findActiveSession: findActiveSessionVia({ supabase, label: 'hydra active-session lookup' }),
       findPatches: findPatchesVia({ supabase, label: 'hydra target journal lookup' }),
-      listOccupantsByEssid: listOccupantsByEssidVia<NatOccupantRow>({
-        supabase,
-        label: 'hydra same-lan occupant list',
-      }),
-      listLeasesByEssid: listLeasesByEssidVia({ supabase, label: 'hydra same-lan lease list' }),
       listPathPatches: listPathPatchesVia({ supabase, label: 'hydra wordlist read' }),
       readAuthLog: listPathPatchesVia({ supabase, label: 'hydra auth-log read' }),
       upsertPatch: upsertPatchVia({ supabase, label: 'hydra auth-log upsert' }),
-    });
-    res.status(status).json(body);
-    return;
-  }
-
-  if (actionOf(req.body) === 'hydraCrackPublic') {
-    // CROSS-PLAYER credential sweep. The target is a PUBLIC IP, so it names an access
-    // point rather than a machine: the shared resolver materializes that AP's gateway
-    // and routes by destination port, which is the same resolution `ssh` authenticates
-    // through — so a password this reports is one `ssh` then accepts. No session is
-    // created. The one WRITE is the trace, and it lands on whichever box was reached,
-    // under the key that owns THAT machine's logs, at the server-derived address of the
-    // network the caller is STANDING on rather than anything the client claimed.
-    const { status, body } = await handleHydraCrackPublic(req.body, {
-      nonceStore: noopNonceStore,
-      now: () => Date.now(),
       findNetworkByPublicIp: derivedNetworkByPublicIp,
-      findPatches: findPatchesVia({ supabase, label: 'hydra public target journal' }),
+      findPublicIpByEssid: derivedPublicIpByEssid,
       listOccupantsByEssid: listOccupantsByEssidVia<NatOccupantRow>({
         supabase,
-        label: 'hydra public occupant list',
+        label: 'hydra occupant list',
       }),
-      listLeasesByEssid: listLeasesByEssidVia({ supabase, label: 'hydra public lan-lease list' }),
-      findActiveSession: findActiveSessionVia({ supabase, label: 'hydra public active-session' }),
-      listPathPatches: listPathPatchesVia({ supabase, label: 'hydra public wordlist read' }),
+      listLeasesByEssid: listLeasesByEssidVia({ supabase, label: 'hydra lan-lease list' }),
       findHomeNetworkByOwnerKey: findHomeNetworkByOwnerKeyVia({
         supabase,
-        occupancyLabel: 'hydra public source-ip occupancy',
+        occupancyLabel: 'hydra source-ip occupancy',
       }),
-      findPublicIpByEssid: derivedPublicIpByEssid,
-      readAuthLog: listPathPatchesVia({ supabase, label: 'hydra public auth-log read' }),
-      upsertPatch: upsertPatchVia({ supabase, label: 'hydra public auth-log upsert' }),
-    });
-    res.status(status).json(body);
-    return;
-  }
-
-  if (actionOf(req.body) === 'hydraCrackInnerGateway') {
-    // DEEP credential sweep: a NAT forward on one of the caller's OWN inner gateways,
-    // the only way to address a box on the layer behind it. The chain is regenerated
-    // from the ESSID and each gateway's journal — no occupant or lease lookup — through
-    // the same walk `ssh` authenticates by, so a password this reports is one `ssh` then
-    // accepts. No session is created. The one WRITE is the trace on the box that was
-    // reached, at the fronting gateway's address, which is all NAT ever shows it.
-    const { status, body } = await handleHydraCrackInnerGateway(req.body, {
-      nonceStore: noopNonceStore,
-      now: () => Date.now(),
-      findPatches: findPatchesVia({ supabase, label: 'hydra deep gateway journal' }),
-      findActiveSession: findActiveSessionVia({ supabase, label: 'hydra deep active-session' }),
-      listPathPatches: listPathPatchesVia({ supabase, label: 'hydra deep wordlist read' }),
-      readAuthLog: listPathPatchesVia({ supabase, label: 'hydra deep auth-log read' }),
-      upsertPatch: upsertPatchVia({ supabase, label: 'hydra deep auth-log upsert' }),
+      findActiveSession: findActiveSessionVia({ supabase, label: 'hydra active-session lookup' }),
+      findHomeVantage: findHomeVantageVia({ supabase, label: 'hydra vantage' }),
+      findWorkstationLease: findWorkstationLeaseVia({ supabase, label: 'hydra vantage' }),
     });
     res.status(status).json(body);
     return;

@@ -23,9 +23,7 @@
  */
 
 import type { Command, CommandEnv, CommandResult, TerminalLine } from './types.js';
-import { connectedWlan0 } from '../network/interfaces.js';
-import { isPublicIp } from '../generation/ip.js';
-import { forwardsIntoDeepLayer } from '../generation/lanHostIdentity.js';
+import { vantageOf } from '../network/vantage.js';
 import { serviceByName } from '../services/serviceCatalog.js';
 
 const error = (message: string): CommandResult => ({
@@ -46,7 +44,8 @@ const REFUSALS: Readonly<Record<string, string>> = {
   host_unreachable: 'no route to host — is it up, and on your network?',
   service_not_running: 'no such service on that host — scan it first with nmap',
   no_session: 'you are not logged in on this machine any more — reconnect and retry',
-  caller_not_on_lan: 'cannot attack from this machine — it is not on your network',
+  wrong_network: 'cannot attack from this machine — it is not on that network',
+  caller_not_on_network: 'you are not on a network — connect first',
   no_password_set: 'that store has no password set (open access) — connect with redis-cli',
   wordlist_lookup_failed: 'could not read your wordlist — try again',
   patches_lookup_failed: 'could not reach the target — try again',
@@ -70,7 +69,6 @@ async function* attack(
   username: string | undefined,
   callerMachineId: string,
   essid: string,
-  sourceIp: string | null,
   port: number | undefined,
 ): AsyncIterable<TerminalLine> {
   yield text(`Hydra starting attack on ${service}://${target}`);
@@ -90,28 +88,14 @@ async function* attack(
   yield text('Loading /usr/share/wordlists/passwords.txt ...');
   await env.sleep(STEP_DELAY_MS);
 
-  // A public IP is not a host on the player's own LAN: it names an ACCESS POINT,
-  // and the port decides what behind it is reached — so it resolves server-side,
-  // exactly as `ssh` resolves one. That action derives the source address itself,
-  // because a trace on a foreign box is the defender's only evidence.
-  //
-  // On the player's own LAN, `-p` addresses something on exactly one kind of host: an
-  // INNER GATEWAY, whose forward table is the only door to the hidden layer behind it.
-  // The same rule `ssh -p <fwd> <inner>` routes by, so both tools reach the same box.
-  // Anywhere else a host IS the machine and the service name already picks its port, so
-  // the flag has nothing to address.
-  const result = isPublicIp(target)
-    ? await env.hydra.crackPublic({ essid, target, service, username, callerMachineId, port })
-    : port !== undefined && forwardsIntoDeepLayer({ essid, target, port })
-      ? await env.hydra.crackInnerGateway({
-          essid,
-          target,
-          service,
-          username,
-          callerMachineId,
-          port,
-        })
-      : await env.hydra.crack({ essid, target, service, username, callerMachineId, sourceIp });
+  // ONE action for every target. Which box the address names — a host on the hop's own
+  // LAN, a fellow occupant, a box on a deep layer behind one of the hop's gateways, or
+  // whatever answers behind a public access point — is the server's to resolve through
+  // the reach `ssh` and the data doors share, so hydra no longer splits the knock three
+  // ways by guessing the route here. The port is forwarded as typed: absent is the named
+  // service's default, and on an inner gateway a forwarded port still names the box on
+  // the layer behind it, exactly as `ssh -p <fwd> <inner>` routes.
+  const result = await env.hydra.crack({ essid, target, service, username, callerMachineId, port });
 
   if (!result.ok) {
     yield { kind: 'error', content: `hydra: ${REFUSALS[result.error] ?? result.error}` };
@@ -147,8 +131,11 @@ const execute: Command['execute'] = async (env, args, flags) => {
     return error('hydra: missing target — usage: hydra [-p port] <host> [service] [user]');
   }
 
-  const wlan0 = connectedWlan0(env.network);
-  if (wlan0 === null) {
+  // Where the shell stands: the hop on top of the stack and its network, or the
+  // player's own WiFi on their own box. The radio stays with the body; a sweep follows
+  // the shell, so the home card being off is no obstacle on a hop.
+  const vantage = vantageOf(env.session, env.network);
+  if (vantage === null) {
     return error('hydra: no route to host — you are not connected to a network');
   }
 
@@ -160,8 +147,7 @@ const execute: Command['execute'] = async (env, args, flags) => {
       service ?? DEFAULT_SERVICE,
       username,
       env.session.machineId,
-      wlan0.association.essid,
-      wlan0.ipv4,
+      vantage.essid,
       parsePort(flags.get('-p')),
     ),
     exitCode: async () => 0,
@@ -179,7 +165,9 @@ export const hydra: Command = {
     synopsis: 'hydra [-p port] <host> [service] [user]',
     description:
       'Attempt to recover account passwords on a host by trying every password in your ' +
-      'wordlist (/usr/share/wordlists/passwords.txt) against the service. With no user ' +
+      'wordlist (/usr/share/wordlists/passwords.txt) against the service, on the network ' +
+      'you are on — your own at home, or the network of a box you have a shell on, so a ' +
+      'sweep run from a remote shell comes from THAT box and not from home. With no user ' +
       'named, every account on the target is attacked. A password that is not in your ' +
       'wordlist will never be found, however weak it is — grow the list as you harvest ' +
       'passwords elsewhere, one at a time with "echo <password> >> ' +
@@ -187,8 +175,9 @@ export const hydra: Command = {
       'access point that bears it, so attacking one attacks that network’s gateway — use "-p" to ' +
       'reach a machine somebody has published behind it instead. "-p" also opens the ' +
       'layer hidden behind one of your own gateways: a port it forwards reaches a ' +
-      'machine that has no address on your network at all. Everywhere else the service ' +
-      'name already picks the port.',
+      'machine that has no address on your network at all. With no "-p", the service is ' +
+      'attacked on its own default port (ssh 22, ftp 21, snmp 161); name the port with ' +
+      '"-p" for a service listening anywhere else.',
     arguments: [
       {
         name: 'host',

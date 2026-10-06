@@ -254,9 +254,9 @@ const statementEnvelope = (statement: string, password?: string) =>
   });
 
 const sweepEnvelope = () =>
-  signRequest(attacker, 'hydraCrackPublic', {
+  signRequest(attacker, 'hydraCrack', {
     essid: ATTACKER_ESSID,
-    target: TARGET_PUBLIC_IP,
+    target_ip: TARGET_PUBLIC_IP,
     port: FORWARD_PORT,
     service: 'redis',
     caller_machine_id: ATTACKER_WS,

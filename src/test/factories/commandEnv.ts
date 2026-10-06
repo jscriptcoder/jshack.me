@@ -261,8 +261,6 @@ export const mockRebootApi = (overrides: Partial<RebootApi> = {}): RebootApi => 
  *  cracked, which is indistinguishable from a strong password. */
 export const mockHydraApi = (overrides: Partial<HydraApi> = {}): HydraApi => ({
   crack: NOT_IMPLEMENTED('hydra.crack'),
-  crackPublic: NOT_IMPLEMENTED('hydra.crackPublic'),
-  crackInnerGateway: NOT_IMPLEMENTED('hydra.crackInnerGateway'),
   ...overrides,
 });
 

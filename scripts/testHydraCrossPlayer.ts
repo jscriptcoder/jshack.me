@@ -3,7 +3,7 @@
 // supabase, seeding the stranger's AP and B's wordlist via service_role.
 //
 // Net-new under test (the locally-untypechecked api/ runtime):
-//   - the `hydraCrackPublic` route: its public-IP lookup, gateway journal read,
+//   - the `hydraCrack` route at a PUBLIC target: its public-IP lookup, gateway journal read,
 //     occupancy/lease reads, wordlist read and auth.log append, every one of which is
 //     a column selection no unit test can get wrong.
 //   - hydra and ssh AGREEING: the password the sweep reports is posted straight to
@@ -164,9 +164,9 @@ const seedWordlist = async (words: readonly string[]) => {
 };
 
 const crackEnvelope = (over: Record<string, unknown> = {}) =>
-  signRequest(attacker, 'hydraCrackPublic', {
+  signRequest(attacker, 'hydraCrack', {
     essid: ATTACKER_ESSID,
-    target: TARGET_PUBLIC_IP,
+    target_ip: TARGET_PUBLIC_IP,
     service: 'ssh',
     caller_machine_id: ATTACKER_WS,
     ...over,
@@ -244,7 +244,7 @@ check(
 );
 
 // --- 7. An address no access point bears reaches nothing. ---
-const nowhere = await post(crackEnvelope({ target: UNREGISTERED_IP }));
+const nowhere = await post(crackEnvelope({ target_ip: UNREGISTERED_IP }));
 check(
   '7. an unregistered public IP is unreachable',
   nowhere.status === 404 && errorOf(nowhere.body) === 'host_unreachable',
@@ -397,7 +397,14 @@ if (pivotWordlistError) {
 }
 
 const pivoted = await post(
-  crackEnvelope({ target: VICTIM_PUBLIC_IP, caller_machine_id: RESIDENT_WS }),
+  // Standing on the resident's box, the vantage is the network THAT box is on — the
+  // client derives it from the session and the server cross-checks it, so the pivot
+  // names TARGET_ESSID, not the attacker's own home network.
+  crackEnvelope({
+    essid: TARGET_ESSID,
+    target_ip: VICTIM_PUBLIC_IP,
+    caller_machine_id: RESIDENT_WS,
+  }),
 );
 const pivotedRoot = crackedIn(pivoted.body).find((entry) => entry.username === 'root');
 check(

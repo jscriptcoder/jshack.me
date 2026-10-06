@@ -30,6 +30,7 @@ import { generateIdentity } from '../src/core/identity/identity.js';
 import { computeWorkstationId } from '../src/core/identity/workstation.js';
 import { generateHomeLan, type LanHost } from '../src/core/generation/generateHomeLan.js';
 import { hostServices } from '../src/core/generation/remoteHostFs.js';
+import { standOnNetwork, leaveNetwork } from './standVantage.js';
 import { resolveLanHostIdentity } from '../src/core/generation/lanHostIdentity.js';
 import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
 import { accountsIn } from '../src/core/sessions/passwdAccount.js';
@@ -99,6 +100,13 @@ if (target === undefined) {
 }
 
 const { baseFs, machineId: targetMachine } = resolveLanHostIdentity(target, ESSID);
+
+// Each door's own port — sweeps are port-first now, so each names where its daemon
+// actually listens rather than relying on the service default.
+const portOf = (spec: (typeof SERVICE_CATALOG)[keyof typeof SERVICE_CATALOG]): number =>
+  hostServices(ESSID, target).find((service) => service.spec === spec)!.port;
+const MYSQL_PORT = portOf(SERVICE_CATALOG.mysql);
+const SSH_PORT = portOf(SERVICE_CATALOG.ssh);
 
 /** One file's content on the generated box, read the way each daemon reads its own. */
 const fileAt = (root: Directory, segments: readonly string[]): string | null => {
@@ -198,6 +206,7 @@ const readLog = async (path: string): Promise<LogRow | null> => {
 const clear = async () => {
   await sr.from('patches').delete().eq('machine_id', targetMachine);
   await sr.from('patches').delete().eq('machine_id', attackerMachine);
+  await leaveNetwork(sr, ESSID);
 };
 
 const seedWordlist = async () => {
@@ -216,14 +225,14 @@ const seedWordlist = async () => {
   );
 };
 
-const sweep = (service: string) =>
+const sweep = (service: string, port: number) =>
   post(
     signRequest(attacker, 'hydraCrack', {
       essid: ESSID,
       target_ip: target.ip,
       service,
+      port,
       caller_machine_id: attackerMachine,
-      source_ip: '192.168.1.50',
     }),
   );
 
@@ -234,9 +243,11 @@ const main = async (): Promise<void> => {
   );
 
   await clear();
+  // Seat the attacker on the network so the server can place where they stand.
+  await standOnNetwork(sr, ESSID, attacker, 50, 'datalab');
   await seedWordlist();
 
-  const mysqlSweep = await sweep('mysql');
+  const mysqlSweep = await sweep('mysql', MYSQL_PORT);
   check(
     'hydra <host> mysql is answered',
     mysqlSweep.status === 200,
@@ -300,7 +311,7 @@ const main = async (): Promise<void> => {
 
   // The ssh control, on the SAME box: teaching the database door to read its datadir
   // must not move the door every shipped trace already depends on.
-  const sshSweep = await sweep('ssh');
+  const sshSweep = await sweep('ssh', SSH_PORT);
   check('hydra <host> ssh is answered', sshSweep.status === 200, `status ${sshSweep.status}`);
   check(
     'and still hands back the box-s OWN accounts',

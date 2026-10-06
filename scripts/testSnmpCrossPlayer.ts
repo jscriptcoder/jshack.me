@@ -240,9 +240,9 @@ const set = setAs(attacker);
 
 const sweep = (targetIp = TARGET_PUBLIC_IP) =>
   post(
-    signRequest(attacker, 'hydraCrackPublic', {
+    signRequest(attacker, 'hydraCrack', {
       essid: ATTACKER_ESSID,
-      target: targetIp,
+      target_ip: targetIp,
       service: SERVICE_CATALOG.snmp.service,
       port: SERVICE_CATALOG.snmp.defaultPort,
       caller_machine_id: ATTACKER_WS,
