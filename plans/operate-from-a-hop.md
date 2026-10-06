@@ -2,9 +2,10 @@
 
 **Status**: Grilled and gap-reviewed. Decisions confirmed by the owner 2026-10-04 (grill, then a
 `find-gaps` pass that added 4a, 4b, 7a, 11a, "Out of scope" and "Done when"); nine slices
-planned and approved the same day. Slices 1–5, 6a–6c and 7 done (#598 v0.307.0, #599 v0.308.0,
-#600 v0.309.0, #601 v0.310.0, #602 v0.311.0, #603 v0.312.0, #604 v0.313.0, #605 v0.314.0,
-#606 v0.315.0, #607 v0.316.0, #608 v0.317.0, #610 v0.318.0). Next: slice 8c (msfconsole).
+planned and approved the same day. Slices 1–5, 6a–6c, 7, 8a, 8b and 8c done (#598 v0.307.0,
+#599 v0.308.0, #600 v0.309.0, #601 v0.310.0, #602 v0.311.0, #603 v0.312.0, #604 v0.313.0,
+#605 v0.314.0, #606 v0.315.0, #607 v0.316.0, #608 v0.317.0, #610 v0.318.0, #611 v0.319.0).
+Next: slice 9 (the remaining IP tools).
 Resolves two §9 backlog items in `docs/conventions-and-gotchas.md`: "Pivot / operate-from-a-hop —
 source-IP masking only; ssh-from-a-pivot" and "Four tools cannot pivot: `ssh`, `nmap`, `curl`,
 `lynx`". Where they disagree with this file, this file wins.
@@ -530,6 +531,14 @@ slice (gated in 8a).
 `msfconsole`'s network fire (`--local` already runs on the box the shell stands on), its own
 `reachTarget` retired onto the shared `reachBox` so it reaches what every other tool does, and the
 shell it mints stacked on the hop (11a). **Decisions**: 2.
+
+✅ Done in #611 (v0.319.0). As built: `exploitCreateSession`'s own `reachTarget` retired onto the
+shared `reachBox` (the reach `ssh`, the data doors and `hydra` use), and the caller is placed
+server-side by `resolveCallerVantageOn` — so the fire reaches, and is traced to, the hop exactly as
+every other tool does: its own LAN address, a fronting switch's `.1` down a chain, the hop network's
+public address across the world, or `127.0.0.1` over loopback. A denied port bounces with the uniform
+`not_vulnerable`; a network the hop is not on, or a box it holds no shell on, is refused before
+anything is reached. `--local` is unchanged. The minted shell stacking on the hop is slice 11a.
 
 ### Slice 9: The remaining IP tools run from a hop
 
