@@ -37,6 +37,8 @@ import { readOpenPorts } from '../src/core/services/pidfile.js';
 import { SNMPD_LOG_PATH } from '../src/core/logging/snmpdLog.js';
 import { RULES_V4_PATH } from '../src/core/network/iptablesRules.js';
 import { ACL_CONF_PATH } from '../src/core/network/switchAcl.js';
+import { lanAddressFor } from '../src/core/network/lanAddress.js';
+import { standOnNetwork, leaveNetwork } from './standVantage.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const url = process.env.SUPABASE_URL;
@@ -68,7 +70,6 @@ const post = async (envelope: unknown): Promise<{ status: number; body: unknown 
 // Its own ESSID, shared with no other check. Machines are ESSID-seeded, so two scripts
 // on one ESSID read each other's rows as their own.
 const ESSID = 'SNMP-SET-WIFI';
-const ATTACKER_IP = '192.168.1.50';
 const NOWHERE_IP = '10.255.255.254';
 /** Planted in the clear rather than cracked: this script proves the DOOR, and
  *  `routerFs.test.ts` owns the seeding. */
@@ -114,6 +115,12 @@ if (switchHost === undefined) {
   process.exit(2);
 }
 const switchDevice = resolveLanHostIdentity(switchHost, ESSID);
+
+// The caller now stands ON this WiFi (the set door places them from their occupancy), so
+// the address a device records is their LEASE, derived server-side — never a claim. The
+// octet steps clear of the switch so the caller never leases the device's own address.
+const ATTACKER_OCTET = Number(switchHost.ip.split('.')[3]) === 50 ? 51 : 50;
+const ATTACKER_IP = lanAddressFor(ESSID, ATTACKER_OCTET);
 
 type StoredRow = {
   readonly content: string;
@@ -244,6 +251,8 @@ const main = async (): Promise<void> => {
   );
 
   await clear();
+  // The caller joined this WiFi, so the server can place them on it before the set.
+  await standOnNetwork(sr, ESSID, attacker, ATTACKER_OCTET);
   await plant(router.machineId, RW_STATE_PATH, `rwcommunity ${md5(RW_COMMUNITY)}\n`);
 
   // ─── the set that is applied ───
@@ -405,6 +414,7 @@ const main = async (): Promise<void> => {
   );
 
   await clear();
+  await leaveNetwork(sr, ESSID);
 
   const failed = results.filter((result) => !result.pass).length;
   console.log(`\n${results.length - failed}/${results.length} checks passed`);

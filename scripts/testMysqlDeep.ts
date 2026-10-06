@@ -29,6 +29,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign.js';
 import { generateIdentity } from '../src/core/identity/identity.js';
+import { standOnNetwork, leaveNetwork } from './standVantage.js';
 import { generateHomeLan, type LanHost } from '../src/core/generation/generateHomeLan.js';
 import { crackableEssidPool } from '../src/core/generation/generateWifi.js';
 import { generateDeepLayer } from '../src/core/generation/generateDeepLayer.js';
@@ -135,6 +136,10 @@ if (target === null) {
 
 const alice = generateIdentity();
 const CLIENT_IP = '192.168.1.50';
+// Alice is at home on this LAN, reaching the deep box through a forward on her own
+// gateway — so the server places her from her occupancy here. Her octet steps clear of
+// the gateway's; the address a deep box records is the NAT `.1`, never this one.
+const ALICE_OCTET = octetOf(target.gateway) === 200 ? 201 : 200;
 const FORWARD_PORT = 33306;
 const RULES = '/etc/iptables/rules.v4';
 const DATADIR_PATH = '/var/lib/mysql/data.json';
@@ -228,6 +233,9 @@ const main = async (): Promise<void> => {
 
   await sr.from('patches').delete().eq('machine_id', target.gatewayId);
   await sr.from('patches').delete().eq('machine_id', target.deepId);
+  // A crashed earlier run could have left occupants on this ESSID (alice is a fresh key
+  // each run), so clear them before seating alice fresh.
+  await leaveNetwork(sr, target.essid);
   // By session_id as well as player_key: the id is derived from the gateway and is
   // therefore the SAME every run, while alice is a fresh identity each time. Deleting
   // only her own rows leaves the previous run's row holding the id, and the insert
@@ -248,6 +256,9 @@ const main = async (): Promise<void> => {
     console.error(`could not seed alice's root session on the gateway: ${seeded.error.message}`);
     process.exit(2);
   }
+  // Alice joined this WiFi: the forward is on it, and the gateway only admits a caller
+  // the server can place there — so she must stand on the network to reach through it.
+  await standOnNetwork(sr, target.essid, alice, ALICE_OCTET);
 
   const opened = await post(
     PATCHES,
@@ -408,6 +419,8 @@ const main = async (): Promise<void> => {
     stopped.status === 404 && errorOf(stopped.body) === 'service_not_running',
     `status=${stopped.status} error=${errorOf(stopped.body) ?? '-'}`,
   );
+
+  await leaveNetwork(sr, target.essid);
 
   const failed = results.filter(({ pass }) => !pass).length;
   console.log(`\n${results.length - failed}/${results.length} checks passed`);

@@ -55,6 +55,8 @@ import { DATADIR_FILE } from '../src/core/generation/baseFs.js';
 import { REDIS_LOG_OWNER, REDIS_LOG_PATH } from '../src/core/logging/redisLog.js';
 import { ALL_GENERATED_PASSWORDS } from '../src/core/generation/passwordPools.js';
 import { md5 } from '../src/core/generation/md5.js';
+import { lanAddressFor } from '../src/core/network/lanAddress.js';
+import { standOnNetwork, leaveNetwork } from './standVantage.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const url = process.env.SUPABASE_URL;
@@ -87,7 +89,6 @@ const post = async (envelope: unknown): Promise<{ status: number; body: unknown 
 // is the point: "the locked one disclosed nothing" proves little unless the open one on
 // the same LAN, through the same endpoint, disclosed everything.
 const ESSID = 'REDIS-LAB-4';
-const CLIENT_IP = '192.168.1.50';
 const PORT = SERVICE_CATALOG.redis.defaultPort;
 
 const client = generateIdentity();
@@ -121,6 +122,14 @@ if (openStore === null || lockedStore === null) {
 const machineOf = (host: LanHost) => resolveLanHostIdentity(host, ESSID).machineId;
 const openMachine = machineOf(openHost);
 const lockedMachine = machineOf(lockedHost);
+
+// The caller now stands ON this WiFi (the store door places them from their occupancy),
+// so the address a box records is their LEASE, derived server-side — never a claim. The
+// octet steps clear of the two store hosts so the caller never leases one of their addresses.
+const takenOctets = new Set([openHost, lockedHost].map((host) => Number(host.ip.split('.')[3])));
+let CLIENT_OCTET = 200;
+while (takenOctets.has(CLIENT_OCTET)) CLIENT_OCTET += 1;
+const CLIENT_IP = lanAddressFor(ESSID, CLIENT_OCTET);
 
 type PatchRowRead = {
   readonly path: string;
@@ -211,6 +220,8 @@ const main = async (): Promise<void> => {
   );
 
   await clear();
+  // The caller joined this WiFi, so the server can place them on it before the connection.
+  await standOnNetwork(sr, ESSID, client, CLIENT_OCTET);
 
   // ─── the open store: no credential in, everything out ───
   const opened = await connect(openHost);
@@ -452,6 +463,7 @@ const main = async (): Promise<void> => {
   );
 
   await clear();
+  await leaveNetwork(sr, ESSID);
 
   const failed = results.filter((result) => !result.pass).length;
   console.log(`\n${results.length - failed}/${results.length} checks passed`);
