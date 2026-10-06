@@ -649,6 +649,7 @@ describe('runExploit', () => {
     essid: 'BEAN-THERE-WIFI',
     targetIp: '192.168.1.31',
     port: 22,
+    callerMachineId: asMachineId('skylab-9a8b7c6d'),
     parentSessionId: 'shell-1',
   };
 
@@ -689,6 +690,9 @@ describe('runExploit', () => {
       essid: 'BEAN-THERE-WIFI',
       target_ip: '192.168.1.31',
       port: 22,
+      // The box the shell stands on travels so the server can place the caller and derive
+      // the source itself — the one piece of "where" the client is entitled to send.
+      caller_machine_id: 'skylab-9a8b7c6d',
       parent_session_id: 'shell-1',
     });
     // Nothing about the hole travels outward: the server derives all of it. The address

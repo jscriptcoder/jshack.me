@@ -773,9 +773,10 @@ const hydraCrack = (params: HydraCrackParams): Promise<HydraCrackResult> =>
     ? Promise.resolve({ ok: false, error: 'network_error' })
     : crackCredentials(sessionsClientDeps, params);
 
-/** Fire a CVE at a port on an own-LAN host server-side (backs `env.exploit.run`).
- *  Degrades to a network error before `startGame` wires the sessions client — never
- *  to `not_vulnerable`, which would blame the target for the client's own wiring. */
+/** Fire a CVE at a port on a host the shell's box reaches, server-side (backs
+ *  `env.exploit.run`). Degrades to a network error before `startGame` wires the sessions
+ *  client — never to `not_vulnerable`, which would blame the target for the client's own
+ *  wiring. */
 const exploitRun = (params: ExploitRunParams): Promise<ExploitRunResult> =>
   sessionsClientDeps === undefined
     ? Promise.resolve({ ok: false, error: 'network_error' })

@@ -1098,6 +1098,10 @@ export type ExploitRunParams = {
    *  listener, and which daemon answers there is the whole of what decides the
    *  outcome. */
   readonly port: number;
+  /** The box the shell stands on — the server reads WHERE the caller is from the session
+   *  they hold on it and derives the source address itself, so a fire from a hop reaches
+   *  the hop's network and is traced to the hop. */
+  readonly callerMachineId: MachineId;
   readonly parentSessionId: string | null;
   /** The third token the player typed, if any — the path a read effect reads. The
    *  client cannot know which effect it will get before firing, so it forwards

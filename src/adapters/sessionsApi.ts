@@ -472,6 +472,7 @@ export const runExploit = async (
       essid: params.essid,
       target_ip: params.targetIp,
       port: params.port,
+      caller_machine_id: params.callerMachineId,
       parent_session_id: params.parentSessionId,
       ...exploitPayloadFields(params),
     });

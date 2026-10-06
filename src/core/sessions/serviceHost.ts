@@ -108,6 +108,12 @@ export type ServiceHostLookup = ResolvePublicTargetDeps & {
 };
 
 export type ReachedServiceHost = {
+  /** The network this box was GENERATED under — the one a later read or write
+   *  regenerates it from, and the network a session minted here stands on. On the
+   *  caller's own LAN and down their own gateway it is the ESSID the request carried;
+   *  at a PUBLIC address it is the TARGET's own network, a different one the client has
+   *  no way to name, which only the resolver knows. */
+  readonly essid: string;
   /** The box's own name, which through a forward only the server can know: a deep
    *  address is absent from the generated LAN, so the client cannot look it up. */
   readonly hostname: string;
@@ -187,6 +193,7 @@ const UNREACHABLE: HandlerResponse = { status: 404, body: { error: 'host_unreach
 const openJournaledBox = async (
   deps: ServiceHostLookup,
   box: {
+    readonly essid: string;
     readonly hostname: string;
     readonly machineId: string;
     /** The rows made into a filesystem: over a seeded base for a generated box, over
@@ -207,6 +214,7 @@ const openJournaledBox = async (
     return { ok: false, refusal: { status: 500, body: { error: 'patches_lookup_failed' } } };
   }
   return openBox({
+    essid: box.essid,
     hostname: box.hostname,
     machineId: box.machineId,
     hostFs: box.rebuild(patches.data),
@@ -359,6 +367,10 @@ export const reachBox = async (
       return { ok: false, refusal: { status: resolved.status, body: { error: resolved.error } } };
     }
     return openBox({
+      // The TARGET's own network, not the WiFi the request travelled with: a public
+      // address reaches somebody else's access point, and this is the ESSID a later read
+      // or write regenerates the box from, and that a session minted here stands on.
+      essid: resolved.target.essid,
       hostname: resolved.target.hostname,
       machineId: resolved.target.machineId,
       // Already rebuilt from the owner's identity plus their journal — one of the two
@@ -399,6 +411,8 @@ export const reachBox = async (
   if (sameLan.target !== null) {
     const { occupant } = sameLan.target;
     return openJournaledBox(deps, {
+      // A fellow occupant of the caller's own WiFi — the same network the request carried.
+      essid: target.essid,
       hostname: occupant.workstation_machine_name,
       machineId: occupant.workstation_machine_id,
       rebuild: (patches) => materializeWorkstationFs(occupant, patches),
@@ -425,6 +439,9 @@ export const reachBox = async (
       return { ok: false, refusal: { status: resolved.status, body: { error: resolved.error } } };
     }
     return openBox({
+      // A deep box hangs off the caller's OWN gateway, so it is generated under the
+      // ESSID the request carried.
+      essid: target.essid,
       hostname: resolved.target.hostname,
       machineId: resolved.target.machineId,
       // The chain walk replayed this box's journal and boot-gated it, so the deep
@@ -452,6 +469,8 @@ export const reachBox = async (
   if (host !== undefined) {
     const { machineId, baseFs } = resolveLanHostIdentity(host, target.essid);
     return openJournaledBox(deps, {
+      // A generated box on the caller's own LAN, under the ESSID the request carried.
+      essid: target.essid,
       hostname: host.hostname,
       machineId,
       rebuild: (patches) => materializeMachineFs(baseFs, patches),
@@ -522,6 +541,9 @@ const reachDeepLayerBox = async (
     );
     if (onLayer === undefined) continue;
     return openJournaledBox(deps, {
+      // A deep layer hangs off the caller's OWN gateway chain, so its boxes are
+      // generated under the ESSID the request carried.
+      essid: target.essid,
       hostname: onLayer.host.hostname,
       machineId: onLayer.machineId,
       rebuild: (patches) => materializeMachineFs(onLayer.baseFs, patches),
@@ -601,6 +623,7 @@ export const reachServiceHost = async (
   return {
     ok: true,
     reached: {
+      essid: reach.reached.essid,
       hostname: reach.reached.hostname,
       machineId: reach.reached.machineId,
       hostFs: reach.reached.hostFs,

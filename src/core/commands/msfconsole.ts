@@ -23,8 +23,8 @@
  */
 
 import { asAbsPath, asMachineId, type UserType } from '../types.js';
-import { connectedWlan0 } from '../network/interfaces.js';
-import { isPublicIp } from '../generation/ip.js';
+import { connectedWlan0, LOOPBACK_IPV4, LOOPBACK_NAMES } from '../network/interfaces.js';
+import { vantageOf } from '../network/vantage.js';
 import { dir } from '../generation/baseFs.js';
 import { defaultDirectoryPermissions, defaultFilePermissions } from '../filesystem/defaultPermissions.js';
 import { createFsView } from '../filesystem/fsView.js';
@@ -512,6 +512,9 @@ async function* fire(env: CommandEnv, attempt: Attempt): AsyncGenerator<Terminal
     essid: attempt.essid,
     targetIp: attempt.targetIp,
     port: attempt.port,
+    // The box the shell stands on — the server reads where the caller is from it and
+    // derives the source address, so a fire from a hop travels from that box.
+    callerMachineId: env.session.machineId,
     parentSessionId: env.session.id,
     arg: attempt.arg,
     content: attempt.content,
@@ -1065,51 +1068,38 @@ const execute: Command['execute'] = async (env, args, flags) => {
   const port = Number(rawPort);
   if (!Number.isInteger(port) || port < 1 || port > MAX_PORT) return errorResult(USAGE);
 
-  const wlan0 = connectedWlan0(env.network);
-  if (wlan0 === null) {
+  // Where the shell stands: the hop on top of the stack and its network, or the player's
+  // own WiFi on their own box. The radio stays with the body; a network fire follows the
+  // shell, so the home card being off is no obstacle on a hop.
+  const vantage = vantageOf(env.session, env.network);
+  if (vantage === null) {
     return errorResult(connectFailure(rawTarget, port, 'Network is unreachable'));
   }
-  const essid = wlan0.association.essid;
+  const essid = vantage.essid;
 
-  // Read ONCE and used twice — to turn a name into an address, and then to ask whether
-  // that address is a player's. Two reads could answer differently between the two uses,
-  // and the second answer is the one that decides whether this fires at all.
-  const occupants = await env.scan.resolveOccupants(essid);
+  // A name becomes an address before anything routes on it, exactly as it does for `ssh`
+  // — a scan prints `web-04` and that is what a player types next — resolved on the network
+  // the shell stands on. `localhost` on a hop names the box the shell is on; it is sent as
+  // 127.0.0.1 for the server to resolve to that box, the same as the data doors.
+  const targetIp =
+    vantage.kind === 'hop' && LOOPBACK_NAMES.includes(rawTarget)
+      ? LOOPBACK_IPV4
+      : await addressForTarget({
+          essid,
+          target: rawTarget,
+          resolveOccupants: (forEssid) => env.scan.resolveOccupants(forEssid),
+        });
 
-  // A name becomes an address before anything routes on it, exactly as it does for
-  // `ssh` — a scan prints `web-04` and that is what a player types next.
-  const targetIp = await addressForTarget({
-    essid,
-    target: rawTarget,
-    resolveOccupants: async () => occupants,
-  });
-
-  // The two vantages that are NOT on the generated LAN, and that this side therefore
-  // cannot answer for. A public address names somebody else's access point, and whether a
-  // forward points at a live box behind it is server-side state. A fellow occupant leases
-  // an octet the generator never filled, so the generated world says "nobody" about a box
-  // that is really standing there — the same precedence `nmap`, `ssh` and `nc` already
-  // answer by. Refusing either here would shut the door from the inside, whatever the
-  // server is willing to open.
-  const offGeneratedLan =
-    isPublicIp(targetIp) || occupants.some((occupant) => occupant.localIp === targetIp);
-
-  // Everything else is the deterministic LAN, so an address nothing answers to is
-  // answerable here: firing anyway would spend a round trip to be told what this side
-  // already knew.
-  const host = offGeneratedLan
-    ? undefined
-    : generateHomeLan(essid).hosts.find((candidate) => candidate.ip === targetIp);
-  if (!offGeneratedLan && host === undefined) {
-    return errorResult(connectFailure(targetIp, port, 'No route to host'));
-  }
-
-  // The tree a blind script runs against. Only a box this side can REGENERATE has one:
-  // another player's is rebuilt server-side from THEIR identity and THEIR journal, so
-  // there is nothing here to read it from. An empty tree keeps the hole working — the
-  // writes still travel and are re-walked at the granted tier over there — at the same
-  // fidelity cost this run already carries on a generated box, where it sees the box as
-  // it shipped rather than as it stands.
+  // The tree a blind script runs against. Only a box this side can REGENERATE whole — a
+  // generated host on the network the shell stands on — has one; a fellow occupant, a
+  // public box and a box on a deep layer are the server's to resolve, so there is nothing
+  // here to read their tree from. An empty tree keeps a script hole working — its writes
+  // still travel and are re-walked at the granted tier over there — at the same fidelity
+  // cost this run already carries on a generated box, where it sees the box as it shipped
+  // rather than as it stands. Reachability is the server's too: an address nothing answers
+  // to is told at the socket, as `ssh` tells it, rather than refused from a world this side
+  // cannot see — the hop's deep layers and occupants are not this side's to rule on.
+  const host = generateHomeLan(essid).hosts.find((candidate) => candidate.ip === targetIp);
   const baseFs =
     host === undefined
       ? dir({}, defaultDirectoryPermissions('user'))
@@ -1146,7 +1136,10 @@ export const msfconsole: Command = {
   manual: {
     synopsis: 'msfconsole <host> <port> [path | local:remote]\n       msfconsole --local <command>',
     description:
-      'Attempt to exploit the service listening on a port of a host on your network. ' +
+      'Attempt to exploit the service listening on a port of a host on the network you ' +
+      'are on — your own at home, or the network of a box you have a shell on, so a fire ' +
+      'run from a remote shell comes from THAT box and not from home, and "localhost" ' +
+      'names the box you are standing on. ' +
       'No password is asked for and none is needed: if the version running there has a ' +
       'published vulnerability, the service gives itself up by itself. Most holes hand ' +
       'over a shell — how much it can do follows the severity, a critical hole landing ' +

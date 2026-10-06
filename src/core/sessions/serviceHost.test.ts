@@ -154,6 +154,7 @@ describe('reaching a generated box on the caller own LAN', () => {
       reached: {
         hostname: OWN_LAN.host.hostname,
         machineId: OWN_LAN_IDENTITY.machineId,
+        essid: ESSID,
         hostFs: expect.anything(),
         localIp: OWN_LAN.host.ip,
         sourceIp: null,
@@ -383,6 +384,7 @@ describe('reaching a fellow occupant of the same WiFi', () => {
       reached: {
         hostname: DEFENDER_HOSTNAME,
         machineId: DEFENDER_MACHINE,
+        essid: ESSID,
         hostFs: expect.anything(),
         localIp: DEFENDER_LAN_IP,
         sourceIp: ATTACKER_LAN_IP,
@@ -611,6 +613,7 @@ describe('reaching a box by its public address', () => {
       reached: {
         hostname: seedApGatewayHostname(TARGET_ESSID),
         machineId: AP_GATEWAY_ID,
+        essid: TARGET_ESSID,
         hostFs: expect.anything(),
         localIp: TARGET_PUBLIC_IP,
         sourceIp: ATTACKER_PUBLIC_IP,
@@ -681,6 +684,7 @@ describe('reaching a box by its public address', () => {
       reached: {
         hostname: DEFENDER_HOSTNAME,
         machineId: DEFENDER_MACHINE,
+        essid: TARGET_ESSID,
         hostFs: expect.anything(),
         localIp: TARGET_PUBLIC_IP,
         sourceIp: ATTACKER_PUBLIC_IP,

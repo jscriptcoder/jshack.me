@@ -561,6 +561,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       upsertPatch: upsertPatchVia({ supabase, label: 'exploit trace upsert' }),
       listLeasesByEssid: listLeasesByEssidVia({ supabase, label: 'exploit lan-lease list' }),
       findNetworkByPublicIp: derivedNetworkByPublicIp,
+      findPublicIpByEssid: derivedPublicIpByEssid,
       listOccupantsByEssid: listOccupantsByEssidVia<NatOccupantRow>({
         supabase,
         label: 'exploit occupant list',
@@ -569,6 +570,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         supabase,
         occupancyLabel: 'exploit source-ip occupancy',
       }),
+      findActiveSession: findActiveSessionVia({ supabase, label: 'exploit active-session lookup' }),
+      findHomeVantage: findHomeVantageVia({ supabase, label: 'exploit vantage' }),
+      findWorkstationLease: findWorkstationLeaseVia({ supabase, label: 'exploit vantage' }),
     });
     res.status(status).json(body);
     return;
