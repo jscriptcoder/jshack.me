@@ -4,7 +4,7 @@
 `find-gaps` pass that added 4a, 4b, 7a, 11a, "Out of scope" and "Done when"); nine slices
 planned and approved the same day. Slices 1–5, 6a–6c and 7 done (#598 v0.307.0, #599 v0.308.0,
 #600 v0.309.0, #601 v0.310.0, #602 v0.311.0, #603 v0.312.0, #604 v0.313.0, #605 v0.314.0,
-#606 v0.315.0, #607 v0.316.0, #608 v0.317.0). Next: slice 8b.
+#606 v0.315.0, #607 v0.316.0, #608 v0.317.0). Next: slice 8b (hydra).
 Resolves two §9 backlog items in `docs/conventions-and-gotchas.md`: "Pivot / operate-from-a-hop —
 source-IP masking only; ssh-from-a-pivot" and "Four tools cannot pivot: `ssh`, `nmap`, `curl`,
 `lynx`". Where they disagree with this file, this file wins.
@@ -481,11 +481,38 @@ reseated onto the caller-placement contract. Mutation on `serviceHost.ts`: 90.43
 0 timeouts, survivors triaged (equivalent/defensive, pre-existing same-LAN arm, or
 the new switch-ACL branch proven by the deep wire-checks).
 
-#### Slice 8b: The exploit and cracking tools run from a hop
+#### Slice 8b: The cracking tool runs from a hop
 
-`hydra` (own-LAN, inner-gateway and public paths) and `msfconsole` (the network fire; `--local`
-already runs on the box the shell stands on). Each has its own server handler, reworked onto the
-shell's box the same way 8a reworks the shared reach. **Decisions**: 2.
+`hydra` on all three paths (own-LAN, inner-gateway, public), folded onto the shared
+`reachBox`/`reachServiceHost` in `serviceHost.ts` so a crack reaches exactly what the data doors
+do — its three server endpoints collapsing to one, and the client's three-way split with them.
+Agreed acceptance (owner, 2026-10-06):
+
+1. **`hydra` travels from the shell's box**: it works from a hop with the home card off, and from a
+   foreign hop a home-network address is unreachable (`no route to host`).
+2. **A hop reaches** the generated hosts on its network; other players' boxes there (as 4b does for
+   `ssh`); every deep layer it reaches (behind the fronting switch's live ACL, a denied port refused
+   like an unserved one); public addresses; and `localhost` → the hop's own daemon.
+3. **The server places the caller** (`resolveCallerVantageOn`): every crack sends
+   `caller_machine_id`; a network the caller isn't on is 403 `wrong_network`, a box they hold no
+   shell on is 403 `no_session`; `source_ip` is neither sent nor read, and `caller_not_on_lan` is
+   gone.
+4. **The source address is server-derived** (decision 7): the hop's LAN address, its deep-layer
+   address, or the hop network's public IP; from home nothing changes.
+5. **One log row per box** (7a): generated and deep boxes under `ap:<essid>`, a player's box under
+   its owner's key — closing the inner-gateway writer-key defect the handler's header flags.
+6. **A service name still picks its port** with no `-p` (ssh:22, ftp:2121, …): the box is resolved
+   first, the named daemon's listening port used.
+7. **The man page says "the network you are on".**
+8. Wire-check `scripts/testHopHydra.ts` — a LAN hop; a deep layer incl. a switch-denied port;
+   `wrong_network` and `no_session`; loopback on a hop; a public target from the hop vs from home.
+   Existing hydra wire-checks reseated onto the caller-placement contract.
+
+#### Slice 8c: The exploit tool runs from a hop
+
+`msfconsole`'s network fire (`--local` already runs on the box the shell stands on), its own
+`reachTarget` retired onto the shared `reachBox` so it reaches what every other tool does, and the
+shell it mints stacked on the hop (11a). **Decisions**: 2.
 
 ### Slice 9: The remaining IP tools run from a hop
 
