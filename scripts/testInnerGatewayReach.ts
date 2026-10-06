@@ -8,7 +8,7 @@
 // which share one chain walk. The auth handler regenerates the gateway from the essid,
 // replays its journal (canBoot gate), routes the forwarded port via machineServing onto
 // the deep NPC, validates against ITS /etc/passwd, and inserts a session on the DEEP
-// host's machine id — not the gateway's. `hydraCrackInnerGateway` sweeps the same box
+// host's machine id — not the gateway's. `hydraCrack` down the same forward sweeps the same box
 // through the same walk, traces it at the fronting gateway's `.1` (all NAT ever shows a
 // deep host), and — the check that matters — reports a password `ssh` then accepts.
 //
@@ -294,9 +294,9 @@ check(
 const sweep = (over: Record<string, unknown>) =>
   post(
     SESSIONS,
-    signRequest(alice, 'hydraCrackInnerGateway', {
+    signRequest(alice, 'hydraCrack', {
       essid: ESSID,
-      target: INNER_IP,
+      target_ip: INNER_IP,
       service: 'ssh',
       port: 2222,
       username: 'guest',

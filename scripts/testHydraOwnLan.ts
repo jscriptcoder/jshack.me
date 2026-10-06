@@ -59,6 +59,8 @@ import {
   formatWordlist,
 } from '../src/core/wordlist/defaultWordlist.js';
 import { AUTH_LOG_OWNER, AUTH_LOG_PATH } from '../src/core/logging/authLog.js';
+import { lanAddressFor } from '../src/core/network/lanAddress.js';
+import { standOnNetwork, leaveNetwork } from './standVantage.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const url = process.env.SUPABASE_URL;
@@ -147,7 +149,11 @@ const listeningPort = hostServices(ESSID, target).find(
   ({ spec }) => spec === SERVICE_CATALOG.ssh,
 )?.port;
 
-const ATTACKER_IP = '192.168.1.50';
+// The octet the attacker holds on this network, and the address every own-LAN sweep is
+// now traced from — server-derived from the lease, never a client claim. The attacker is
+// seated here in `main` so the server can place them.
+const ATTACKER_OCTET = 50;
+const ATTACKER_IP = lanAddressFor(ESSID, ATTACKER_OCTET);
 const targetMachine = resolveLanHostIdentity(target, ESSID).machineId;
 
 const crackEnvelope = (over: Record<string, unknown> = {}) =>
@@ -155,8 +161,10 @@ const crackEnvelope = (over: Record<string, unknown> = {}) =>
     essid: ESSID,
     target_ip: target.ip,
     service: 'ssh',
+    // Port-first, like every network tool now: name the port the target's sshd actually
+    // listens on rather than relying on the service to pick it.
+    port: listeningPort,
     caller_machine_id: attackerMachine,
-    source_ip: ATTACKER_IP,
     ...over,
   });
 
@@ -269,6 +277,10 @@ const main = async () => {
   console.log(`All accounts:   ${accounts.map((entry) => entry.username).join(', ')}`);
   console.log(`Starter covers: ${starterAccounts.map((entry) => entry.username).join(', ')}`);
   console.log(`Holds out:      ${holdoutAccounts.map((entry) => entry.username).join(', ')}`);
+  // Seat the attacker on this network so the server can place where they stand: the
+  // own-LAN vantage is derived from occupancy + lease, never from a claimed source.
+  await leaveNetwork(sr, ESSID);
+  await standOnNetwork(sr, ESSID, attacker, ATTACKER_OCTET, 'cracklab');
   await clearWordlist();
 
   // 0. THE DIFFICULTY CURVE, end to end against the real endpoint. The starter
@@ -419,23 +431,26 @@ const main = async () => {
     `standing ${standing.ip}, workstation ${ATTACKER_IP}, first line ${traceLines(pivotTrace?.content ?? '')[0] ?? 'none'}`,
   );
 
-  // 7. A session is not enough on its own: a machine the server cannot place on the
-  //    LAN has no address to record, so the sweep is refused rather than written up
-  //    as coming from a box nobody can point at.
-  await seedSession('not-a-box-on-this-lan');
+  // 7. Standing is derived from the session, not claimed: a caller whose session is on a
+  //    DIFFERENT network than the one they name is refused wrong_network, before any box
+  //    is reached and with no trace left behind.
+  await seedSession(standingMachine);
   await clearTrace();
-  const unplaceable = await post(crackEnvelope({ caller_machine_id: 'not-a-box-on-this-lan' }));
+  const wrongNetwork = await post(
+    crackEnvelope({ essid: 'SOME-OTHER-WIFI', caller_machine_id: standingMachine }),
+  );
   check(
-    'a session on a machine that is not on the LAN is still refused',
-    unplaceable.status === 403 &&
-      (unplaceable.body as { error?: string } | null)?.error === 'caller_not_on_lan',
-    `status ${unplaceable.status}, body ${JSON.stringify(unplaceable.body)}`,
+    'a sweep naming a network the caller is not standing on is refused wrong_network',
+    wrongNetwork.status === 403 &&
+      (wrongNetwork.body as { error?: string } | null)?.error === 'wrong_network',
+    `status ${wrongNetwork.status}, body ${JSON.stringify(wrongNetwork.body)}`,
   );
   check(
     'the refused sweep left no trace on the target',
     (await readTrace()) === null,
     'expected no auth.log row',
   );
+  await clearSessions();
   await clearWordlist(standingMachine);
 
   // 6/7. Reachability refusals match ssh's.
@@ -524,6 +539,7 @@ const main = async () => {
   await clearWordlist();
   await clearWordlist(standingMachine);
   await clearSessions();
+  await leaveNetwork(sr, ESSID);
 
   const failed = results.filter((result) => !result.pass).length;
   console.log(`\n${results.length - failed}/${results.length} checks passed`);

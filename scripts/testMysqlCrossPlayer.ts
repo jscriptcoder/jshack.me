@@ -244,9 +244,9 @@ await seedForward(SERVICE_CATALOG.mysql.defaultPort);
 
 // --- 2. hydra earns an account in a stranger's database, over the network. ---
 const swept = await post(
-  await signRequest(attacker, 'hydraCrackPublic', {
+  await signRequest(attacker, 'hydraCrack', {
     essid: ATTACKER_ESSID,
-    target: TARGET_PUBLIC_IP,
+    target_ip: TARGET_PUBLIC_IP,
     port: FORWARD_PORT,
     service: 'mysql',
     caller_machine_id: ATTACKER_WS,

@@ -1,6 +1,6 @@
 // Wire-payload smoke for the KEY-VALUE DOOR ON A DEEP LAYER — `redisConnect` and
 // `redisStatement` reached through a NAT forward on the player's own inner gateway,
-// and `hydraCrackInnerGateway` pointed down the same one. Drives the REAL
+// and `hydraCrack` pointed down the same one. Drives the REAL
 // /api/sessions + /api/patches endpoints against a running `vercel dev` + supabase.
 //
 // Net-new under test (the locally-untypechecked api/ runtime):
@@ -404,9 +404,9 @@ const main = async (): Promise<void> => {
   );
   const swept = await post(
     SESSIONS,
-    signRequest(alice, 'hydraCrackInnerGateway', {
+    signRequest(alice, 'hydraCrack', {
       essid: LOCKED.essid,
-      target: LOCKED.gateway.ip,
+      target_ip: LOCKED.gateway.ip,
       service: 'redis',
       port: FORWARD_PORT,
       caller_machine_id: LOCKED.gatewayId,
@@ -444,9 +444,9 @@ const main = async (): Promise<void> => {
   );
   const sweptOpen = await post(
     SESSIONS,
-    signRequest(alice, 'hydraCrackInnerGateway', {
+    signRequest(alice, 'hydraCrack', {
       essid: OPEN.essid,
-      target: OPEN.gateway.ip,
+      target_ip: OPEN.gateway.ip,
       service: 'redis',
       port: FORWARD_PORT,
       caller_machine_id: OPEN.gatewayId,

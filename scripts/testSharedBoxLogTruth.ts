@@ -41,6 +41,7 @@ import {
   formatWordlist,
 } from '../src/core/wordlist/defaultWordlist.js';
 import { AUTH_LOG_PATH } from '../src/core/logging/authLog.js';
+import { lanAddressFor } from '../src/core/network/lanAddress.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const url = process.env.SUPABASE_URL;
@@ -90,8 +91,10 @@ const CAROL_OCTET = 5;
 const ALICE_OCTET = 21;
 const BOB_OCTET = 22;
 
-const ALICE_IP = '192.168.1.60';
-const BOB_IP = '192.168.1.61';
+// Server-derived from each attacker's lease on the shared WiFi — the vantage the trace
+// records, now that the source address is never a client claim.
+const ALICE_IP = lanAddressFor(ESSID, ALICE_OCTET);
+const BOB_IP = lanAddressFor(ESSID, BOB_OCTET);
 
 const aliceMachine = computeWorkstationId('alicelab', alice.publicKeyHex);
 const bobMachine = computeWorkstationId('boblab', bob.publicKeyHex);

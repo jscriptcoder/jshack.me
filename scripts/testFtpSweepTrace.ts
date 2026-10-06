@@ -25,6 +25,7 @@ import { generateHomeLan, type LanHost } from '../src/core/generation/generateHo
 import { hostServices } from '../src/core/generation/remoteHostFs.js';
 import { machineIdForLanHost } from '../src/core/generation/lanHostIdentity.js';
 import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
+import { standOnNetwork, leaveNetwork } from './standVantage.js';
 import {
   DEFAULT_WORDLIST,
   WORDLIST_PATH,
@@ -85,6 +86,13 @@ if (target === undefined) {
 
 const targetMachine = machineIdForLanHost(target, ESSID);
 
+// Each door's own listening port — a sweep is port-first now, so `hydra <host> ftp`
+// names where ftp actually listens (often 2121) rather than relying on the default.
+const portOf = (spec: (typeof SERVICE_CATALOG)[keyof typeof SERVICE_CATALOG]): number =>
+  hostServices(ESSID, target).find((service) => service.spec === spec)!.port;
+const FTP_PORT = portOf(SERVICE_CATALOG.ftp);
+const SSH_PORT = portOf(SERVICE_CATALOG.ssh);
+
 const readLog = async (path: string): Promise<string | null> => {
   const { data } = await sr
     .from('patches')
@@ -98,6 +106,7 @@ const readLog = async (path: string): Promise<string | null> => {
 const clear = async () => {
   await sr.from('patches').delete().eq('machine_id', targetMachine);
   await sr.from('patches').delete().eq('machine_id', attackerMachine);
+  await leaveNetwork(sr, ESSID);
 };
 
 const seedWordlist = async () => {
@@ -116,22 +125,26 @@ const seedWordlist = async () => {
   );
 };
 
-const sweep = (service: string) =>
+const sweep = (service: string, port: number) =>
   post(
     signRequest(attacker, 'hydraCrack', {
       essid: ESSID,
       target_ip: target.ip,
       service,
+      port,
       caller_machine_id: attackerMachine,
-      source_ip: '192.168.1.50',
     }),
   );
 
 const main = async (): Promise<void> => {
   await clear();
+  // Seat the attacker on the network so the server can place where they stand — the
+  // source address the trace records is derived from the vantage, never claimed.
+  await leaveNetwork(sr, ESSID);
+  await standOnNetwork(sr, ESSID, attacker, 50, 'tracelab');
   await seedWordlist();
 
-  const ftpSweep = await sweep('ftp');
+  const ftpSweep = await sweep('ftp', FTP_PORT);
   check(
     'hydra <host> ftp is answered',
     ftpSweep.status === 200,
@@ -172,7 +185,7 @@ const main = async (): Promise<void> => {
   );
 
   // The ssh control, on the SAME box: the routing has to send it somewhere else.
-  const sshSweep = await sweep('ssh');
+  const sshSweep = await sweep('ssh', SSH_PORT);
   check(
     'hydra <host> ssh is answered',
     sshSweep.status === 200,

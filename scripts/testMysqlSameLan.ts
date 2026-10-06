@@ -441,7 +441,9 @@ check(
 // --- 12. …and it is a MERGE, not a takeover: when they leave again, the seeded box
 //         underneath is what the address answers as. ---
 await departure();
-const handedBack = await post(await sweepEnvelope({ target_ip: npcHost.ip }));
+// The seeded sibling's sshd is on its own port, so a port-first sweep names it — the
+// player's own box answered on 22 above, and that is the difference this check turns on.
+const handedBack = await post(await sweepEnvelope({ target_ip: npcHost.ip, port: NPC_SSH_PORT }));
 check(
   '12. the address falls back to the generated sibling once the player leaves',
   // The PORT is what tells the boxes apart: the player's own sshd is on 22, the seeded

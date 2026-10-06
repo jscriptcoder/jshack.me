@@ -26,6 +26,7 @@ import { generateIdentity } from '../src/core/identity/identity.js';
 import { computeWorkstationId } from '../src/core/identity/workstation.js';
 import { generateHomeLan, type LanHost } from '../src/core/generation/generateHomeLan.js';
 import { hostServices } from '../src/core/generation/remoteHostFs.js';
+import { standOnNetwork, leaveNetwork } from './standVantage.js';
 import { resolveLanHostIdentity } from '../src/core/generation/lanHostIdentity.js';
 import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
 import { storeIn } from '../src/core/redis/datadir.js';
@@ -72,7 +73,9 @@ const post = async (envelope: unknown): Promise<{ status: number; body: unknown 
 // wordlist at all, and a run against one of those would report an empty sweep that
 // looks exactly like a broken endpoint.
 const ESSID = 'REDIS-LAB-4';
-const ATTACKER_IP = '192.168.1.50';
+// The octet the attacker holds on this network; the source address every sweep is traced
+// from is server-derived from the lease, so the attacker is seated in `main`.
+const ATTACKER_OCTET = 50;
 
 const attacker = generateIdentity();
 const attackerMachine = computeWorkstationId('datalab', attacker.publicKeyHex);
@@ -168,6 +171,7 @@ const clear = async () => {
   await sr.from('patches').delete().eq('machine_id', lockedMachine);
   await sr.from('patches').delete().eq('machine_id', openMachine);
   await sr.from('patches').delete().eq('machine_id', attackerMachine);
+  await leaveNetwork(sr, ESSID);
 };
 
 const seedWordlist = async () => {
@@ -186,15 +190,20 @@ const seedWordlist = async () => {
   );
 };
 
+// The store's own listening port — a sweep is port-first now, so it names where redis
+// actually listens rather than relying on the default.
+const redisPortOf = (host: LanHost): number =>
+  hostServices(ESSID, host).find(({ spec }) => spec === SERVICE_CATALOG.redis)!.port;
+
 const sweep = (host: LanHost, username?: string) =>
   post(
     signRequest(attacker, 'hydraCrack', {
       essid: ESSID,
       target_ip: host.ip,
       service: SERVICE_CATALOG.redis.service,
+      port: redisPortOf(host),
       ...(username === undefined ? {} : { username }),
       caller_machine_id: attackerMachine,
-      source_ip: ATTACKER_IP,
     }),
   );
 
@@ -205,6 +214,8 @@ const main = async (): Promise<void> => {
   );
 
   await clear();
+  // Seat the attacker on the network so the server can place where they stand.
+  await standOnNetwork(sr, ESSID, attacker, ATTACKER_OCTET, 'datalab');
   await seedWordlist();
 
   const cracked = await sweep(lockedHost);
