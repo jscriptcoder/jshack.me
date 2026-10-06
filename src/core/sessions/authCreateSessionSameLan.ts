@@ -293,7 +293,9 @@ export const handleAuthCreateSessionSameLan = async (
     credentials: { username: payload.username, userType: account.userType },
     parent_session_id: payload.parent_session_id ?? null,
     source_ip: payload.source_ip ?? null,
-    kind: 'ssh',
+    // The door the caller knocked on — an ftp/scp occupant login is its own kind of
+    // row, not an ssh one (the listener branch above already carries `payload.kind`).
+    kind: payload.kind,
     essid: payload.essid,
   });
   if (error) {

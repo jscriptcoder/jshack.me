@@ -22,6 +22,8 @@ import { generateHomeLan } from '../generation/generateHomeLan.js';
 import { resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
 import { isPublicIp } from '../generation/ip.js';
 import { addressForTarget } from '../network/resolveName.js';
+import { vantageOf } from '../network/vantage.js';
+import { resolveDeepScanHosts } from '../scan/deepScanHosts.js';
 import { readOpenPorts } from '../services/pidfile.js';
 import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
 import type { Command, CommandEnv, CommandResult, PublicAuthResult, Session } from './types.js';
@@ -90,12 +92,88 @@ const accepted = (env: CommandEnv, target: string, session: Session): CommandRes
   };
 };
 
-/** The address the client reports for itself on a public login. The server derives the
- *  address it traces, so this is kept only for the session row. */
-const localAddress = (env: CommandEnv): string | null =>
-  env.network.interfaces().find((iface) => iface.kind === 'wireless')?.ipv4 ?? null;
+/** Ask for a credential and hand it to the own-network door, landing the parallel
+ *  session on `machineId`. The server derives the network and address from the box the
+ *  shell stands on (`callerMachineId`); the machine id for the row the client already
+ *  knows, because it resolved the box to decide the door was there. Shared by the own-LAN
+ *  and deep-layer paths — both reach the generated world through one endpoint, exactly
+ *  as `ssh` does. */
+const networkLogin = async (
+  env: CommandEnv,
+  target: string,
+  essid: string,
+  machineId: string,
+  named: string | undefined,
+): Promise<CommandResult> => {
+  const credential = await askCredential(env, target, named);
+  if (credential === null) return ABORTED;
 
-/** A host on the player's OWN generated LAN: reachability is deterministic, so it is
+  const sessionId = `ftp-${credential.username}-${env.now()}`;
+  const result = await env.ftp.authenticate({
+    sessionId,
+    essid,
+    targetIp: target,
+    username: credential.username,
+    password: credential.password,
+    parentSessionId: env.session.id,
+    callerMachineId: env.session.machineId,
+  });
+  if (!result.ok) return refusal(target, result.error);
+
+  return accepted(env, target, {
+    id: sessionId,
+    playerKey: env.identity.publicKeyHex,
+    machineId: asMachineId(machineId),
+    username: credential.username,
+    userType: result.userType,
+    kind: 'ftp',
+    createdAt: env.now(),
+    essid,
+  });
+};
+
+/** A FELLOW OCCUPANT's box on the shell's LAN, reached directly over the shared WiFi.
+ *  Nothing about it is derivable here — it is another player's machine — so the owner's
+ *  id and tier come back from the server, which resolves the IP through the ESSID
+ *  occupancy and places the login on its network. */
+const occupantLogin = async (
+  env: CommandEnv,
+  target: string,
+  essid: string,
+  port: number,
+  named: string | undefined,
+  sourceIp: string | null,
+): Promise<CommandResult> => {
+  const credential = await askCredential(env, target, named);
+  if (credential === null) return ABORTED;
+
+  const sessionId = `ftp-${credential.username}-${env.now()}`;
+  const result = await env.ftp.authenticateSameLan({
+    sessionId,
+    essid,
+    targetIp: target,
+    username: credential.username,
+    password: credential.password,
+    port,
+    parentSessionId: env.session.id,
+    sourceIp,
+    callerMachineId: env.session.machineId,
+  });
+  if (!result.ok) return refusal(target, result.error);
+
+  return accepted(env, target, {
+    id: sessionId,
+    playerKey: env.identity.publicKeyHex,
+    machineId: asMachineId(result.machineId),
+    username: credential.username,
+    userType: result.userType,
+    kind: 'ftp',
+    createdAt: env.now(),
+    essid: result.essid,
+  });
+};
+
+/** A host on the vantage's OWN generated LAN: reachability is deterministic, so it is
  *  resolved here before anything is typed. */
 const lanLogin = async (
   env: CommandEnv,
@@ -112,30 +190,7 @@ const lanLogin = async (
   const open = readOpenPorts(baseFs).find((port) => port.service === SERVICE_CATALOG.ftp.service);
   if (open === undefined) return errorResult('ftp: connect: Connection refused');
 
-  const credential = await askCredential(env, target, named);
-  if (credential === null) return ABORTED;
-
-  const sessionId = `ftp-${credential.username}-${env.now()}`;
-  const result = await env.ftp.authenticate({
-    sessionId,
-    essid,
-    targetIp: target,
-    username: credential.username,
-    password: credential.password,
-    parentSessionId: env.session.id,
-  });
-  if (!result.ok) return refusal(target, result.error);
-
-  return accepted(env, target, {
-    id: sessionId,
-    playerKey: env.identity.publicKeyHex,
-    machineId: asMachineId(machineId),
-    username: credential.username,
-    userType: result.userType,
-    kind: 'ftp',
-    createdAt: env.now(),
-    essid,
-  });
+  return networkLogin(env, target, essid, machineId, named);
 };
 
 /** Another player's box, behind the port its owner forwarded. Nothing about it is
@@ -146,6 +201,7 @@ const publicLogin = async (
   target: string,
   port: number,
   named: string | undefined,
+  sourceIp: string | null,
 ): Promise<CommandResult> => {
   const resolution = await env.scan.resolvePublic(target, env.session.machineId);
   if (!resolution.found) return errorResult('ftp: connect: No route to host');
@@ -168,7 +224,7 @@ const publicLogin = async (
     username: credential.username,
     password: credential.password,
     parentSessionId: env.session.id,
-    sourceIp: localAddress(env),
+    sourceIp,
     // The box this command is being RUN from, which is what the target actually saw.
     // A claim, not a credential: the server refuses a caller who holds no session there.
     callerMachineId: env.session.machineId,
@@ -191,11 +247,19 @@ const execute: Command['execute'] = async (env, args, flags) => {
   const requested = args[0];
   if (requested === undefined) return errorResult(USAGE);
 
-  const essid = env.network.interfaces().find((iface) => iface.kind === 'wireless')?.association
-    ?.essid;
-  if (essid === undefined || !env.network.isOnline()) {
-    return errorResult('ftp: connect: Network is unreachable');
-  }
+  // Where the shell stands: the hop on top of the stack, or the player's own WiFi on
+  // their own box. Every address below is reached FROM there.
+  const vantage = vantageOf(env.session, env.network);
+  if (vantage === null) return errorResult('ftp: connect: Network is unreachable');
+  const essid = vantage.essid;
+
+  // Who else is on this LAN, read at most once: a name on this network needs it to
+  // resolve, and a private address needs it to tell a fellow occupant's box from a
+  // generated one. Asked from the box the shell stands on, so a hop lists the hop's
+  // neighbours.
+  let occupantsRead: ReturnType<CommandEnv['scan']['resolveOccupants']> | undefined;
+  const occupantsHere = () =>
+    (occupantsRead ??= env.scan.resolveOccupants(essid, env.session.machineId));
 
   // A name becomes the address before anything routes on it, so every path below
   // sees the target it already knows how to reach. A name nothing answers to is left
@@ -204,12 +268,39 @@ const execute: Command['execute'] = async (env, args, flags) => {
   const target = await addressForTarget({
     essid,
     target: requested,
-    resolveOccupants: env.scan.resolveOccupants,
+    resolveOccupants: occupantsHere,
   });
 
-  return isPublicIp(target)
-    ? publicLogin(env, target, parsePort(flags.get('-p')), args[1])
-    : lanLogin(env, target, essid, args[1]);
+  if (isPublicIp(target)) {
+    return publicLogin(env, target, parsePort(flags.get('-p')), args[1], vantage.address);
+  }
+
+  // A box on a deeper layer the shell reaches — the one a deep box stands on, the one a
+  // gateway fronts, or one above — is reached there directly, through the same door the
+  // own-LAN path uses. Its ports are the ones `nmap` shows from this shell (a switch's
+  // live ACL already filtered from the resolution), so the two never disagree about what
+  // answers; a denied port refuses exactly as an unserved one does.
+  for (const segment of vantage.reaches) {
+    if (segment.fronting === null) continue;
+    const onLayer = resolveDeepScanHosts(essid, segment.fronting, env.fs.root()).hosts.find(
+      (entry) => entry.host.ip === target,
+    );
+    if (onLayer === undefined) continue;
+    if (!onLayer.ports.some((open) => open.service === SERVICE_CATALOG.ftp.service)) {
+      return errorResult('ftp: connect: Connection refused');
+    }
+    return networkLogin(env, target, essid, onLayer.machineId, args[1]);
+  }
+
+  // A fellow occupant's box on the shared LAN, reached directly — checked BEFORE the
+  // generated LAN so a real occupant wins an octet collision with a generated NPC, the
+  // same precedence `ssh` and the scan merge take.
+  const occupants = await occupantsHere();
+  if (occupants.some((occupant) => occupant.localIp === target)) {
+    return occupantLogin(env, target, essid, parsePort(flags.get('-p')), args[1], vantage.address);
+  }
+
+  return lanLogin(env, target, essid, args[1]);
 };
 
 export const ftp: Command = {
@@ -228,7 +319,9 @@ export const ftp: Command = {
       'Open a file-transfer session on a remote host running an FTP server. Prompts ' +
       'for the account password and, on success, leaves you at an "ftp>" prompt where ' +
       'you browse the remote machine and move files between it and your own. Your shell ' +
-      'stays exactly where it was — "quit" hands it straight back.',
+      'stays exactly where it was — "quit" hands it straight back. Run inside a remote ' +
+      'shell, the connection travels from that box over the network you are on there: it ' +
+      'reaches what that box reaches, and the host records that box’s address.',
     arguments: [
       { name: 'host', description: 'The host IP to connect to, e.g. 192.168.1.5', required: true },
       {

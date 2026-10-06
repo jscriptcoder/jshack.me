@@ -18,6 +18,8 @@ import { defaultFilePermissions } from '../filesystem/defaultPermissions.js';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
 import { buildRemoteHostFs } from '../generation/remoteHostFs.js';
 import { hostMachineId } from '../generation/remoteHostId.js';
+import { chainLinks } from '../generation/lanTopology.js';
+import { resolveDeepScanHosts } from '../scan/deepScanHosts.js';
 import { readOpenPorts } from '../services/pidfile.js';
 import { assignHomeNetwork } from '../network/homeNetwork.js';
 import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces.js';
@@ -30,8 +32,11 @@ import type {
   PublicAuthResult,
   RemoteAuthParams,
   RemoteAuthResult,
+  SameLanAuthParams,
   Session,
 } from './types.js';
+import type { OccupantProjection } from '../network/resolveOccupants.js';
+import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
 
 /**
  * `ftp <host>` — the second door. It authenticates against the SAME `/etc/passwd`
@@ -1217,5 +1222,213 @@ describe('leaving a file at the ftp> prompt', () => {
     const { run } = transferEnv();
 
     expect(linesOf(await run('help'))).toContain('put');
+  });
+});
+
+const HOP_ESSID = 'RIDGEMONT-OFFICE';
+
+/** A machine on `essid`'s LAN, serving ftp or not as asked, other than any in `exclude`. */
+const machineOn = (essid: string, servesFtp: boolean, exclude: readonly string[] = []): LanHost => {
+  const host = generateHomeLan(essid).hosts.find(
+    (candidate) =>
+      candidate.kind === 'machine' &&
+      !exclude.includes(candidate.ip) &&
+      readOpenPorts(buildRemoteHostFs(essid, candidate)).some((open) => open.service === 'ftp') ===
+        servesFtp,
+  );
+  if (host === undefined) throw new Error(`${essid} has no such machine`);
+  return host;
+};
+
+/** The player stands in a shell on `hop`, a box on HOP_ESSID's LAN, with their own WiFi
+ *  card switched off — the radio stays with the body, the IP follows the shell. */
+const ftpHopEnv = (hop: LanHost, over: EnvOver = {}) =>
+  mockCommandEnv({
+    identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
+    network: mockNetworkView({ isOnline: () => false, interfaces: () => [] }),
+    session: mockSession({
+      id: 'ssh-hop-1',
+      machineId: asMachineId(hostMachineId(hop, HOP_ESSID)),
+      userType: 'root',
+      essid: HOP_ESSID,
+    }),
+    now: () => asEpochMs(NOW),
+    prompt: over.prompt ?? (async ({ masked }) => (masked ? 'hunter2' : 'alice')),
+    ftp: mockFtpApi({
+      authenticate: over.authenticate ?? (async () => ({ ok: true, userType: 'guest' })),
+      enter: over.onEnter ?? (() => undefined),
+    }),
+  });
+
+describe('ftp from a hop', () => {
+  it('logs in to a host on the hop’s own LAN with the home card off, naming the hop', async () => {
+    const hop = machineOn(HOP_ESSID, false);
+    const target = machineOn(HOP_ESSID, true, [hop.ip]);
+    const authenticate = vi.fn<(params: RemoteAuthParams) => Promise<RemoteAuthResult>>(
+      async () => ({ ok: true, userType: 'guest' }),
+    );
+    const entered = vi.fn<(session: Session) => void>();
+
+    const result = await ftp.execute(
+      ftpHopEnv(hop, { authenticate, onEnter: entered }),
+      [target.ip],
+      new Map(),
+    );
+
+    expect(linesOf(result)).toContain('230 Login successful');
+    expect(authenticate.mock.calls[0]![0]).toEqual({
+      sessionId: 'ftp-alice-1700000000000',
+      essid: HOP_ESSID,
+      targetIp: target.ip,
+      username: 'alice',
+      password: 'hunter2',
+      parentSessionId: 'ssh-hop-1',
+      callerMachineId: hostMachineId(hop, HOP_ESSID),
+    });
+    expect(entered.mock.calls[0]![0]).toMatchObject({
+      machineId: hostMachineId(target, HOP_ESSID),
+      kind: 'ftp',
+      essid: HOP_ESSID,
+    });
+  });
+
+  it('leaves the network by a public address from the hop, naming the hop as where it came from', async () => {
+    const hop = machineOn(HOP_ESSID, false);
+    const authenticatePublic = vi.fn<(params: PublicAuthParams) => Promise<PublicAuthResult>>(
+      async () => ({ ok: true, userType: 'guest', machineId: 'workstation-a1b2c3d4', essid: ESSID }),
+    );
+    const base = ftpHopEnv(hop);
+    const env = mockCommandEnv({
+      ...base,
+      scan: mockScanApi({
+        resolvePublic: async () => ({ found: true, ports: [{ port: 21, service: 'ftp' }] }),
+      }),
+      ftp: mockFtpApi({ ...base.ftp, authenticatePublic }),
+    });
+
+    const result = await ftp.execute(env, ['87.0.113.7'], new Map());
+
+    expect(linesOf(result)).toContain('230 Login successful');
+    expect(authenticatePublic.mock.calls[0]![0]).toEqual({
+      sessionId: 'ftp-alice-1700000000000',
+      target: '87.0.113.7',
+      port: 21,
+      username: 'alice',
+      password: 'hunter2',
+      parentSessionId: 'ssh-hop-1',
+      sourceIp: hop.ip,
+      callerMachineId: hostMachineId(hop, HOP_ESSID),
+    });
+  });
+});
+
+describe('ftp from a box on a deep layer', () => {
+  const DEEP_ESSID = 'TYRELL-CORP';
+
+  /** The first chain link on DEEP_ESSID whose fronted layer carries an ftp host, with
+   *  that host — found rather than hardcoded, so an octet reshuffle does not rot it. */
+  const deepFtpTarget = () => {
+    for (const link of chainLinks(DEEP_ESSID)) {
+      const resolved = resolveDeepScanHosts(DEEP_ESSID, link, buildDirectory({}));
+      const onLayer = resolved.hosts.find((entry) =>
+        entry.ports.some((open) => open.service === 'ftp'),
+      );
+      if (onLayer !== undefined) return { gatewayId: link.machineId, deep: onLayer };
+    }
+    throw new Error(`${DEEP_ESSID} has no deep ftp host`);
+  };
+
+  it('reaches an ftp host on the layer the hop fronts, landing on that deep host', async () => {
+    const { gatewayId, deep } = deepFtpTarget();
+    const authenticate = vi.fn<(params: RemoteAuthParams) => Promise<RemoteAuthResult>>(
+      async () => ({ ok: true, userType: 'guest' }),
+    );
+    const entered = vi.fn<(session: Session) => void>();
+
+    const env = mockCommandEnv({
+      identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
+      network: mockNetworkView({ isOnline: () => false, interfaces: () => [] }),
+      session: mockSession({
+        id: 'ssh-deep-1',
+        machineId: asMachineId(gatewayId),
+        userType: 'root',
+        essid: DEEP_ESSID,
+      }),
+      now: () => asEpochMs(NOW),
+      prompt: async ({ masked }) => (masked ? 'hunter2' : 'alice'),
+      ftp: mockFtpApi({ authenticate, enter: entered }),
+    });
+
+    const result = await ftp.execute(env, [deep.host.ip], new Map());
+
+    expect(linesOf(result)).toContain('230 Login successful');
+    expect(authenticate.mock.calls[0]![0]).toEqual({
+      sessionId: 'ftp-alice-1700000000000',
+      essid: DEEP_ESSID,
+      targetIp: deep.host.ip,
+      username: 'alice',
+      password: 'hunter2',
+      parentSessionId: 'ssh-deep-1',
+      callerMachineId: gatewayId,
+    });
+    expect(entered.mock.calls[0]![0]).toMatchObject({
+      machineId: deep.machineId,
+      kind: 'ftp',
+      essid: DEEP_ESSID,
+    });
+  });
+});
+
+describe('ftp to a fellow occupant from a hop', () => {
+  const OCCUPANT_IP = `${generateHomeLan(HOP_ESSID).subnet}.241`;
+  const OCCUPANT_MACHINE_ID = 'alice-rig-cafef00d';
+
+  const occupantAt = (ip: string): OccupantProjection => ({
+    workstation_machine_id: OCCUPANT_MACHINE_ID,
+    localIp: ip as OccupantProjection['localIp'],
+    machineName: 'alice-rig',
+  });
+
+  it('reaches another player’s box on the hop’s LAN, landing on the owner’s id', async () => {
+    const hop = machineOn(HOP_ESSID, false);
+    const authenticateSameLan = vi.fn<(params: SameLanAuthParams) => Promise<PublicAuthResult>>(
+      async () => ({ ok: true, userType: 'guest', machineId: OCCUPANT_MACHINE_ID, essid: HOP_ESSID }),
+    );
+    const entered = vi.fn<(session: Session) => void>();
+
+    const base = ftpHopEnv(hop, { onEnter: entered });
+    const env = mockCommandEnv({
+      ...base,
+      scan: mockScanApi({ resolveOccupants: async () => [occupantAt(OCCUPANT_IP)] }),
+      ftp: mockFtpApi({ authenticateSameLan, enter: entered }),
+    });
+
+    const result = await ftp.execute(env, [OCCUPANT_IP], new Map());
+
+    expect(linesOf(result)).toContain('230 Login successful');
+    expect(authenticateSameLan.mock.calls[0]![0]).toEqual({
+      sessionId: 'ftp-alice-1700000000000',
+      essid: HOP_ESSID,
+      targetIp: OCCUPANT_IP,
+      username: 'alice',
+      password: 'hunter2',
+      port: SERVICE_CATALOG.ftp.defaultPort,
+      parentSessionId: 'ssh-hop-1',
+      sourceIp: hop.ip,
+      callerMachineId: hostMachineId(hop, HOP_ESSID),
+    });
+    expect(entered.mock.calls[0]![0]).toMatchObject({
+      machineId: OCCUPANT_MACHINE_ID,
+      kind: 'ftp',
+      essid: HOP_ESSID,
+    });
+  });
+});
+
+describe('man ftp', () => {
+  it('tells the player a connection in a remote shell travels from that box', () => {
+    const description = ftp.manual?.description ?? '';
+    expect(description).toContain('travels from that box');
+    expect(description).toContain('network you are on');
   });
 });

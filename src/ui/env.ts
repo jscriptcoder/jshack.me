@@ -147,6 +147,9 @@ export type BuildCommandEnvArgs = {
    *  round-trip as the ssh one, asked for an `ftp`-kind row and carrying the box the
    *  command is being run from. */
   readonly onFtpAuthenticatePublic?: FtpApi['authenticatePublic'];
+  /** The same-LAN and inner-gateway ftp login seams — the same round-trips `ssh` uses,
+   *  asked for an `ftp`-kind row and carrying the box the command is run from. */
+  readonly onFtpAuthenticateSameLan?: FtpApi['authenticateSameLan'];
   /** Hold/drop the parallel ftp session — the UI owns the signal the `ftp>` prompt
    *  and the sub-shell dispatch both read. */
   readonly onFtpEnter?: FtpApi['enter'];
@@ -205,6 +208,9 @@ export type BuildCommandEnvArgs = {
    *  behind a stranger's forward is the server's to resolve, so this one names the
    *  machine back. */
   readonly onScpAuthenticatePublic?: ScpApi['authenticatePublic'];
+  /** The same login for a FELLOW OCCUPANT by LAN IP over shared WiFi — the server names
+   *  the owner's machine back. */
+  readonly onScpAuthenticateSameLan?: ScpApi['authenticateSameLan'];
   readonly onScpWrite?: ScpApi['write'];
   /** The read half: the target's journal replayed over its generated base, viewed at
    *  the tier the credential bought. Resolved per call rather than held — a transfer
@@ -405,6 +411,7 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
   ftp: {
     authenticate: args.onFtpAuthenticate ?? notWired('ftp.authenticate'),
     authenticatePublic: args.onFtpAuthenticatePublic ?? notWired('ftp.authenticatePublic'),
+    authenticateSameLan: args.onFtpAuthenticateSameLan ?? notWired('ftp.authenticateSameLan'),
     enter: args.onFtpEnter ?? (() => undefined),
     leave: args.onFtpLeave ?? (() => undefined),
     // No session, no remote: an empty tree, never the origin's. The `ftp>` commands
@@ -468,6 +475,7 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
     // Load-bearing like the own-LAN login: an unwired cross-network login must be
     // loud rather than silently refuse, which reads to the player as a bad password.
     authenticatePublic: args.onScpAuthenticatePublic ?? notWired('scp.authenticatePublic'),
+    authenticateSameLan: args.onScpAuthenticateSameLan ?? notWired('scp.authenticateSameLan'),
     // Load-bearing for the same reason ftp's write is: a transfer that reported
     // success onto a box which never received the bytes is the one lie this command
     // must not be able to tell.

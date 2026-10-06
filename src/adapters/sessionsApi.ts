@@ -226,6 +226,7 @@ export const authCreateServerSessionPublic = async (
 export const authCreateServerSessionSameLan = async (
   deps: SessionsClientDeps,
   params: SameLanAuthParams,
+  kind: DoorKind = 'ssh',
 ): Promise<PublicAuthResult> => {
   try {
     const response = await post(deps, 'authCreateSessionSameLan', {
@@ -238,6 +239,7 @@ export const authCreateServerSessionSameLan = async (
       parent_session_id: params.parentSessionId,
       source_ip: params.sourceIp,
       ...(params.callerMachineId === undefined ? {} : { caller_machine_id: params.callerMachineId }),
+      kind,
     });
     if (response.ok) {
       const body: unknown = await response.json();

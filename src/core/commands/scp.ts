@@ -33,6 +33,8 @@ import { generateHomeLan } from '../generation/generateHomeLan.js';
 import { resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
 import { isPublicIp } from '../generation/ip.js';
 import { addressForTarget } from '../network/resolveName.js';
+import { vantageOf } from '../network/vantage.js';
+import { resolveDeepScanHosts } from '../scan/deepScanHosts.js';
 import { basename, dirname, resolveAbsPath } from '../filesystem/path.js';
 import { homeDirectory } from '../sessions/homeDirectory.js';
 import { readOpenPorts } from '../services/pidfile.js';
@@ -88,11 +90,6 @@ const parsePort = (raw: string | true | undefined): number | null => {
   const port = Number(raw);
   return Number.isInteger(port) && port > 0 ? port : null;
 };
-
-/** The address the player is reaching the target from — their own leased LAN
- *  address, which on their own network is the only one the target could have seen. */
-const localAddress = (env: CommandEnv): string | null =>
-  env.network.interfaces().find((iface) => iface.kind === 'wireless')?.ipv4 ?? null;
 
 /** An answer that needs no round-trip: nothing is pending, so there is nothing to
  *  announce and nothing to pace. Only the path that actually reaches the network
@@ -294,6 +291,9 @@ const reachLan = (
           username: remote.user,
           password,
           parentSessionId: env.session.id,
+          // The box the transfer is run from, so the server places it on that box's
+          // network and traces it to that box's address — not the player's home.
+          callerMachineId: env.session.machineId,
         });
         return authenticated.ok
           ? { ok: true, userType: authenticated.userType, machineId, essid }
@@ -313,6 +313,7 @@ const reachPublic = async (
   env: CommandEnv,
   remote: RemoteOperand,
   portFlag: string | true | undefined,
+  sourceIp: string | null,
 ): Promise<Reached> => {
   const port = parsePort(portFlag) ?? SSH_PORT;
   const resolution = await env.scan.resolvePublic(
@@ -339,7 +340,7 @@ const reachPublic = async (
           username: remote.user,
           password,
           parentSessionId: env.session.id,
-          sourceIp: localAddress(env),
+          sourceIp,
           // The box this transfer is being RUN from, which is what the target
           // actually saw. A claim, not a credential: the server refuses a caller who
           // holds no session there.
@@ -347,6 +348,94 @@ const reachPublic = async (
         }),
     },
   };
+};
+
+/** A host on a deeper layer the shell reaches, resolved like `ssh`'s deep arm: the
+ *  box's own ports (a fronting switch's live ACL already filtered) decide reachability,
+ *  and the login rides the same `authenticate` endpoint the own-LAN path does, landing
+ *  on the id the resolution named. A denied or non-ssh port refuses like a shut one. */
+const reachDeep = (
+  env: CommandEnv,
+  remote: RemoteOperand,
+  essid: string,
+  machineId: string,
+  port: number,
+): Reach => ({
+  port,
+  login: async (sessionId, password) => {
+    const authenticated = await env.scp.authenticate({
+      sessionId,
+      essid,
+      targetIp: remote.host,
+      username: remote.user,
+      password,
+      parentSessionId: env.session.id,
+      callerMachineId: env.session.machineId,
+    });
+    return authenticated.ok
+      ? { ok: true, userType: authenticated.userType, machineId, essid }
+      : authenticated;
+  },
+});
+
+/** A FELLOW OCCUPANT's box on the shell's LAN, reached directly over shared WiFi: the
+ *  owner's id and tier come back from the server, which resolves the IP through the
+ *  ESSID occupancy. */
+const reachOccupant = (
+  env: CommandEnv,
+  remote: RemoteOperand,
+  essid: string,
+  port: number,
+  sourceIp: string | null,
+): Reach => ({
+  port,
+  login: (sessionId, password) =>
+    env.scp.authenticateSameLan({
+      sessionId,
+      essid,
+      targetIp: remote.host,
+      username: remote.user,
+      password,
+      port,
+      parentSessionId: env.session.id,
+      sourceIp,
+      callerMachineId: env.session.machineId,
+    }),
+});
+
+/** A private address from the box the shell stands on: a deeper layer the box fronts, a
+ *  fellow occupant, or an ordinary generated host — the three ways `ssh` reaches a
+ *  private target, in its order so a real occupant wins an octet collision. */
+const reachPrivate = async (
+  env: CommandEnv,
+  remote: RemoteOperand,
+  essid: string,
+  vantage: NonNullable<ReturnType<typeof vantageOf>>,
+  portFlag: string | true | undefined,
+  occupantsHere: () => ReturnType<CommandEnv['scan']['resolveOccupants']>,
+): Promise<Reached> => {
+  for (const segment of vantage.reaches) {
+    if (segment.fronting === null) continue;
+    const onLayer = resolveDeepScanHosts(essid, segment.fronting, env.fs.root()).hosts.find(
+      (entry) => entry.host.ip === remote.host,
+    );
+    if (onLayer === undefined) continue;
+    const port = parsePort(portFlag) ?? SSH_PORT;
+    if (!onLayer.ports.some((open) => open.port === port && open.service === SERVICE_CATALOG.ssh.service)) {
+      return { ok: false, line: unreachable(remote.host, port) };
+    }
+    return { ok: true, reach: reachDeep(env, remote, essid, onLayer.machineId, port) };
+  }
+
+  const occupants = await occupantsHere();
+  if (occupants.some((occupant) => occupant.localIp === remote.host)) {
+    return {
+      ok: true,
+      reach: reachOccupant(env, remote, essid, parsePort(portFlag) ?? SSH_PORT, vantage.address),
+    };
+  }
+
+  return reachLan(env, remote, essid, portFlag);
 };
 
 /** Reach the target, hold a session open for exactly one transfer, and close it
@@ -362,11 +451,18 @@ const connectAndTransfer = async (params: {
 }): Promise<CommandResult> => {
   const { env } = params;
 
-  const essid = env.network.interfaces().find((iface) => iface.kind === 'wireless')?.association
-    ?.essid;
-  if (essid === undefined || !env.network.isOnline()) {
-    return failure('scp: Network is unreachable');
-  }
+  // Where the shell stands: the hop on top of the stack, or the player's own WiFi on
+  // their own box. Every address below is reached FROM there.
+  const vantage = vantageOf(env.session, env.network);
+  if (vantage === null) return failure('scp: Network is unreachable');
+  const essid = vantage.essid;
+
+  // Who else is on this LAN, read at most once and from the box the shell stands on, so
+  // a hop lists the hop's neighbours — for a name to resolve, and to tell a fellow
+  // occupant's box from a generated one.
+  let occupantsRead: ReturnType<CommandEnv['scan']['resolveOccupants']> | undefined;
+  const occupantsHere = () =>
+    (occupantsRead ??= env.scan.resolveOccupants(essid, env.session.machineId));
 
   // A name becomes the address before anything routes on it, so every path below
   // sees the target it already knows how to reach. A name nothing answers to is left
@@ -377,13 +473,13 @@ const connectAndTransfer = async (params: {
     host: await addressForTarget({
       essid,
       target: params.remote.host,
-      resolveOccupants: env.scan.resolveOccupants,
+      resolveOccupants: occupantsHere,
     }),
   };
 
   const reached = isPublicIp(remote.host)
-    ? await reachPublic(env, remote, params.portFlag)
-    : reachLan(env, remote, essid, params.portFlag);
+    ? await reachPublic(env, remote, params.portFlag, vantage.address)
+    : await reachPrivate(env, remote, essid, vantage, params.portFlag, occupantsHere);
   if (!reached.ok) return failure(reached.line);
 
   let password: string;
@@ -507,7 +603,9 @@ export const scp: Command = {
       'account on that host. Prompts for the password, transfers the file, and hands ' +
       'the shell straight back — there is no prompt to leave. Use "-p" when the host ' +
       'serves ssh on a non-standard port. The destination directory must already ' +
-      'exist; create it with "mkdir -p" first if it does not.',
+      'exist; create it with "mkdir -p" first if it does not. Run inside a remote ' +
+      'shell, the transfer travels from that box over the network you are on there: it ' +
+      'reaches what that box reaches, and the host records that box’s address.',
     arguments: [
       { name: 'local-file', description: 'The file to copy, on your own machine', required: true },
       {
