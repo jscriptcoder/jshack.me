@@ -89,21 +89,6 @@ const vacantAddress = (): string => {
 
 const VACANT_IP = vacantAddress();
 
-/** A SECOND address nobody answers to. Needed because a fixture that stands an occupant
- *  at the very address it fires at cannot tell "somebody is at THIS address" from
- *  "somebody is on this WiFi at all" — the two answer identically until the occupant and
- *  the target are different places. */
-const otherVacantAddress = (): string => {
-  const taken = new Set([...LAN.hosts.map((host) => host.ip), VACANT_IP]);
-  for (let octet = 254; octet >= 2; octet -= 1) {
-    const candidate = `${LAN.subnet}.${octet}`;
-    if (!taken.has(candidate)) return candidate;
-  }
-  throw new Error('the generated LAN has no second vacant address');
-};
-
-const OTHER_VACANT_IP = otherVacantAddress();
-
 const SOURCE_IP = `${LAN.subnet}.50`;
 
 /** Somebody else's access point, reached across the internet. TEST-NET-3, so the address
@@ -262,6 +247,9 @@ type EnvOpts = {
    *  at an octet the generator never filled. Defaults leave the own-LAN tests alone —
    *  no occupants, so every existing target still resolves exactly as it did. */
   readonly scan?: Partial<ScanApi>;
+  /** The box the shell stands on, and the network it is on — a hop when `essid` is set,
+   *  the player's own workstation at home when omitted. */
+  readonly session?: Partial<Session>;
 };
 
 const exploitEnv = (opts: EnvOpts = {}) => {
@@ -273,7 +261,7 @@ const exploitEnv = (opts: EnvOpts = {}) => {
   const prompt = vi.fn(async () => '');
   const env = mockCommandEnv({
     identity: { publicKeyHex: asPlayerKeyHex(OWNER_KEY), privateKeyHex: 'b'.repeat(64) },
-    session: mockSession(),
+    session: mockSession(opts.session ?? {}),
     network: mockNetworkViewFromConnectivity(opts.connectivity ?? connectedState()),
     exploit: mockExploitApi({ run }),
     scan: mockScanApi(opts.scan ?? {}),
@@ -1262,18 +1250,24 @@ describe('msfconsole', () => {
     expect(patched.pushed).toEqual([]);
   });
 
-  it('answers an address its own network has never heard of the way ssh does, without firing', async () => {
-    const { env, run, pushed } = exploitEnv();
+  it('fires at an address its own LAN does not generate, leaving reachability to the server', async () => {
+    // A box on a deep layer the hop reaches, or behind a forward, has no host on the
+    // generated LAN — so the client cannot rule it out, and firing is the only way to
+    // learn whether it is there. The server, which can see the layers and occupants this
+    // side cannot, settles it and names the box the fire landed on.
+    const { env, run, pushed } = exploitEnv({
+      result: { ...GRANTED_FULL, machineId: FORWARDED_MACHINE_ID, essid: 'SKYLAB-HOME' },
+    });
 
-    const result = await msfconsole.execute(env, [VACANT_IP, String(PORT)], NO_FLAGS);
-
-    expect(syncText(result)).toBe(
-      `msfconsole: connect to host ${VACANT_IP} port ${PORT}: No route to host`,
+    const { text } = await drain(
+      await msfconsole.execute(env, [VACANT_IP, String(PORT)], NO_FLAGS),
     );
-    // The LAN is deterministic, so an address nothing answers to is answerable here.
-    // Firing anyway would spend a round trip to be told what the client already knew.
-    expect(run).not.toHaveBeenCalled();
-    expect(pushed).toEqual([]);
+
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({ targetIp: VACANT_IP, port: PORT }));
+    expect(text).toContain(`[+] Full shell as root@${VACANT_IP}`);
+    expect(pushed).toEqual([
+      expect.objectContaining({ machineId: FORWARDED_MACHINE_ID, essid: 'SKYLAB-HOME' }),
+    ]);
   });
 
   it('fires at a box behind somebody’s forward, which no client can generate a host for', async () => {
@@ -1338,21 +1332,40 @@ describe('msfconsole', () => {
     expect(pushed).toEqual([expect.objectContaining({ machineId: OCCUPANT_MACHINE_ID })]);
   });
 
-  it('does not make an empty address reachable just because somebody else is on the WiFi', async () => {
-    const { env, run, pushed } = exploitEnv({
-      scan: { resolveOccupants: async () => [occupantAt(VACANT_IP)] },
+  it('travels from the hop: fires on the network of the box the shell stands on, carrying that box', async () => {
+    // On a hop the fire reaches the hop's network, not the player's home WiFi, and names
+    // the box it runs from so the server can place the caller there. The radio stays with
+    // the body; the IP follows the shell.
+    const hopMachineId = asMachineId('ridgemont-gw-5a5a5a5a');
+    const { env, run } = exploitEnv({
+      session: { essid: 'RIDGEMONT-OFFICE', machineId: hopMachineId },
+      result: { ...GRANTED_FULL, essid: 'RIDGEMONT-OFFICE' },
     });
 
-    const result = await msfconsole.execute(env, [OTHER_VACANT_IP, String(PORT)], NO_FLAGS);
+    await drain(await msfconsole.execute(env, [TARGET.ip, String(PORT)], NO_FLAGS));
 
-    // An occupant standing at ONE address says nothing about another. Reading occupancy as
-    // "a player is on this network" rather than "a player is at this address" would make
-    // every octet the generator left empty answer as though somebody were behind it.
-    expect(syncText(result)).toBe(
-      `msfconsole: connect to host ${OTHER_VACANT_IP} port ${PORT}: No route to host`,
+    expect(run).toHaveBeenCalledWith(
+      expect.objectContaining({
+        essid: 'RIDGEMONT-OFFICE',
+        targetIp: TARGET.ip,
+        callerMachineId: hopMachineId,
+      }),
     );
-    expect(run).not.toHaveBeenCalled();
-    expect(pushed).toEqual([]);
+  });
+
+  it('sends localhost on a hop as 127.0.0.1 for the server to resolve to the hop’s own daemon', async () => {
+    // `localhost` names the box the shell stands on. On a hop only the server can read that
+    // box's live state, so the client hands it 127.0.0.1 and lets the server resolve it —
+    // the same contract the data doors keep.
+    const hopMachineId = asMachineId('ridgemont-gw-5a5a5a5a');
+    const { env, run } = exploitEnv({
+      session: { essid: 'RIDGEMONT-OFFICE', machineId: hopMachineId },
+      result: { ...GRANTED_FULL, essid: 'RIDGEMONT-OFFICE' },
+    });
+
+    await drain(await msfconsole.execute(env, ['localhost', String(PORT)], NO_FLAGS));
+
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({ targetIp: '127.0.0.1' }));
   });
 
   it('answers a box the server could not reach with the same sentence, and opens nothing', async () => {
