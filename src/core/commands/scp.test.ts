@@ -1453,3 +1453,134 @@ describe('man scp', () => {
     expect(description).toContain('network you are on');
   });
 });
+
+describe('scp from a hop — the deep-layer arm’s refusals and the occupant match', () => {
+  /** The first chain link on HOP_ESSID whose fronted layer carries an ssh host on :22. */
+  const deepSshTarget = () => {
+    for (const link of chainLinks(HOP_ESSID)) {
+      const onLayer = resolveDeepScanHosts(HOP_ESSID, link, buildDirectory({})).hosts.find((entry) =>
+        entry.ports.some((open) => open.service === 'ssh' && open.port === 22),
+      );
+      if (onLayer !== undefined) return { gatewayId: link.machineId, deepIp: onLayer.host.ip };
+    }
+    throw new Error(`${HOP_ESSID} has no deep ssh host`);
+  };
+
+  const onGateway = (gatewayId: string, over: EnvOver = {}) => {
+    const base = scpHopEnv(sshMachineOn(HOP_ESSID, false), over);
+    return mockCommandEnv({
+      ...base,
+      session: mockSession({
+        id: 'ssh-hop-1',
+        machineId: asMachineId(gatewayId),
+        username: 'alice',
+        userType: 'root',
+        essid: HOP_ESSID,
+      }),
+    });
+  };
+
+  it('refuses a deep host on a port it does not serve ssh on', async () => {
+    const { gatewayId, deepIp } = deepSshTarget();
+    const authenticate = vi.fn<(params: RemoteAuthParams) => Promise<RemoteAuthResult>>(async () => ({
+      ok: true,
+      userType: 'root',
+    }));
+
+    const { lines, exitCode } = await drain(
+      await scp.execute(
+        onGateway(gatewayId, { authenticate }),
+        [SOURCE, `root@${deepIp}:${REMOTE_DEST}`],
+        new Map([['-p', '9999']]),
+      ),
+    );
+
+    expect(exitCode).toBe(1);
+    expect(lines.join('\n')).toContain('Connection refused');
+    expect(authenticate).not.toHaveBeenCalled();
+  });
+
+  it('reports no route to an address no host holds on the layer the hop fronts', async () => {
+    const { gatewayId, deepIp } = deepSshTarget();
+    const missIp = deepIp.replace(/\.\d+$/, '.253');
+    const authenticate = vi.fn<(params: RemoteAuthParams) => Promise<RemoteAuthResult>>(async () => ({
+      ok: true,
+      userType: 'root',
+    }));
+
+    const { lines, exitCode } = await drain(
+      await scp.execute(
+        onGateway(gatewayId, { authenticate }),
+        [SOURCE, `root@${missIp}:${REMOTE_DEST}`],
+        new Map(),
+      ),
+    );
+
+    expect(exitCode).toBe(1);
+    expect(lines.join('\n')).toContain('No route to host');
+    expect(authenticate).not.toHaveBeenCalled();
+  });
+
+  it('reaches a generated LAN host by its own door when an unrelated occupant is present', async () => {
+    const hop = sshMachineOn(HOP_ESSID, false);
+    const target = sshMachineOn(HOP_ESSID, true, [hop.ip]);
+    const occupantIp = `${generateHomeLan(HOP_ESSID).subnet}.241`;
+    const occupant: OccupantProjection = {
+      workstation_machine_id: 'alice-rig-cafef00d',
+      localIp: occupantIp as OccupantProjection['localIp'],
+      machineName: 'alice-rig',
+    };
+    const authenticate = vi.fn<(params: RemoteAuthParams) => Promise<RemoteAuthResult>>(async () => ({
+      ok: true,
+      userType: 'root',
+    }));
+    const authenticateSameLan = vi.fn<(params: SameLanAuthParams) => Promise<PublicAuthResult>>(
+      async () => ({ ok: true, userType: 'guest', machineId: 'alice-rig-cafef00d', essid: HOP_ESSID }),
+    );
+    const write = vi.fn<NonNullable<EnvOver['write']>>(async () => ({ ok: true }));
+
+    const { exitCode } = await drain(
+      await scp.execute(
+        scpHopEnv(hop, {
+          authenticate,
+          authenticateSameLan,
+          write,
+          scanOver: { resolveOccupants: async () => [occupant] },
+        }),
+        upload(target),
+        new Map(),
+      ),
+    );
+
+    expect(exitCode).toBe(0);
+    expect(authenticate).toHaveBeenCalledTimes(1);
+    expect(authenticateSameLan).not.toHaveBeenCalled();
+    expect(write.mock.calls[0]![0]).toMatchObject({ machineId: hostMachineId(target, HOP_ESSID) });
+  });
+
+  it('carries the port the player named on -p to the occupant door', async () => {
+    const hop = sshMachineOn(HOP_ESSID, false);
+    const occupantIp = `${generateHomeLan(HOP_ESSID).subnet}.241`;
+    const occupant: OccupantProjection = {
+      workstation_machine_id: 'alice-rig-cafef00d',
+      localIp: occupantIp as OccupantProjection['localIp'],
+      machineName: 'alice-rig',
+    };
+    const authenticateSameLan = vi.fn<(params: SameLanAuthParams) => Promise<PublicAuthResult>>(
+      async () => ({ ok: true, userType: 'guest', machineId: 'alice-rig-cafef00d', essid: HOP_ESSID }),
+    );
+
+    await drain(
+      await scp.execute(
+        scpHopEnv(hop, {
+          authenticateSameLan,
+          scanOver: { resolveOccupants: async () => [occupant] },
+        }),
+        [SOURCE, `guest@${occupantIp}:${REMOTE_DEST}`],
+        new Map([['-p', '2222']]),
+      ),
+    );
+
+    expect(authenticateSameLan.mock.calls[0]![0]).toMatchObject({ port: 2222 });
+  });
+});

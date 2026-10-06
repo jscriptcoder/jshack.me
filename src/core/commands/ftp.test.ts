@@ -87,6 +87,7 @@ const pickHosts = (): { readonly ftpHost: LanHost; readonly noFtpHost: LanHost }
 
 type EnvOver = {
   readonly authenticate?: (params: RemoteAuthParams) => Promise<RemoteAuthResult>;
+  readonly authenticateSameLan?: (params: SameLanAuthParams) => Promise<PublicAuthResult>;
   readonly prompt?: (opts: { message: string; masked: boolean }) => Promise<string>;
   readonly onEnter?: (session: Session) => void;
   readonly onLeave?: () => void;
@@ -1430,5 +1431,175 @@ describe('man ftp', () => {
     const description = ftp.manual?.description ?? '';
     expect(description).toContain('travels from that box');
     expect(description).toContain('network you are on');
+  });
+});
+
+describe('ftp from a hop — the deep-layer arm’s refusals', () => {
+  const DEEP_ESSID = 'TYRELL-CORP';
+  const NON_FTP_ESSID = 'ACME-CORP';
+
+  /** On `essid`, the first chain link whose fronted layer carries a machine the
+   *  predicate accepts, with that machine — found rather than hardcoded. */
+  const deepMachine = (
+    essid: string,
+    accept: (ports: readonly { readonly service: string }[]) => boolean,
+  ) => {
+    for (const link of chainLinks(essid)) {
+      const onLayer = resolveDeepScanHosts(essid, link, buildDirectory({})).hosts.find(
+        (entry) => entry.host.kind === 'machine' && accept(entry.ports),
+      );
+      if (onLayer !== undefined) return { gatewayId: link.machineId, host: onLayer };
+    }
+    throw new Error(`${essid} has no matching deep machine`);
+  };
+
+  const hopOnGateway = (gatewayId: string, over: EnvOver = {}) =>
+    mockCommandEnv({
+      identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
+      network: mockNetworkView({ isOnline: () => false, interfaces: () => [] }),
+      session: mockSession({
+        id: 'ssh-deep-1',
+        machineId: asMachineId(gatewayId),
+        userType: 'root',
+        essid: DEEP_ESSID,
+      }),
+      now: () => asEpochMs(NOW),
+      prompt: over.prompt ?? (async ({ masked }) => (masked ? 'hunter2' : 'alice')),
+      ftp: mockFtpApi({
+        authenticate: over.authenticate ?? (async () => ({ ok: true, userType: 'guest' })),
+        enter: over.onEnter ?? (() => undefined),
+      }),
+    });
+
+  it('refuses a deep host that serves no ftp, before asking for anything', async () => {
+    const { gatewayId, host } = deepMachine(
+      NON_FTP_ESSID,
+      (ports) => ports.length > 0 && !ports.some((open) => open.service === 'ftp'),
+    );
+    const entered = vi.fn<(session: Session) => void>();
+    const prompt = vi.fn(async () => 'hunter2');
+    const env = mockCommandEnv({
+      ...hopOnGateway(gatewayId, { onEnter: entered, prompt }),
+      session: mockSession({
+        id: 'ssh-deep-1',
+        machineId: asMachineId(gatewayId),
+        userType: 'root',
+        essid: NON_FTP_ESSID,
+      }),
+    });
+
+    const result = await ftp.execute(env, [host.host.ip], new Map());
+
+    expect(linesOf(result)).toContain('ftp: connect: Connection refused');
+    expect(prompt).not.toHaveBeenCalled();
+    expect(entered).not.toHaveBeenCalled();
+  });
+
+  it('reports no route to an address no host holds on the layer the hop fronts', async () => {
+    const { gatewayId, host } = deepMachine(DEEP_ESSID, (ports) =>
+      ports.some((open) => open.service === 'ftp'),
+    );
+    // The deep host's own address with the final octet pushed to one nothing rolls —
+    // on the layer's subnet, but no host answers for it, so the fronting loop finds
+    // nothing on every segment and falls through to the own-LAN "no route".
+    const missIp = host.host.ip.replace(/\.\d+$/, '.253');
+    const entered = vi.fn<(session: Session) => void>();
+
+    const result = await ftp.execute(hopOnGateway(gatewayId, { onEnter: entered }), [missIp], new Map());
+
+    expect(linesOf(result)).toContain('ftp: connect: No route to host');
+    expect(entered).not.toHaveBeenCalled();
+  });
+});
+
+describe('ftp to a fellow occupant — the arm’s refusals and reach', () => {
+  const OCCUPANT_IP = `${generateHomeLan(HOP_ESSID).subnet}.241`;
+
+  const occupantAt = (ip: string, machineId = 'alice-rig-cafef00d'): OccupantProjection => ({
+    workstation_machine_id: machineId,
+    localIp: ip as OccupantProjection['localIp'],
+    machineName: 'alice-rig',
+  });
+
+  const occupantHopEnv = (over: EnvOver & { readonly occupants?: readonly OccupantProjection[] }) => {
+    const hop = machineOn(HOP_ESSID, false);
+    const base = ftpHopEnv(hop, over);
+    return mockCommandEnv({
+      ...base,
+      scan: mockScanApi({ resolveOccupants: async () => over.occupants ?? [occupantAt(OCCUPANT_IP)] }),
+      ftp: mockFtpApi({
+        authenticate: over.authenticate ?? (async () => ({ ok: true, userType: 'guest' })),
+        authenticateSameLan:
+          over.authenticateSameLan ??
+          (async () => ({ ok: true, userType: 'guest', machineId: 'alice-rig-cafef00d', essid: HOP_ESSID })),
+        enter: over.onEnter ?? (() => undefined),
+      }),
+    });
+  };
+
+  it('holds no session when the player aborts at the occupant password prompt', async () => {
+    const entered = vi.fn<(session: Session) => void>();
+    const env = occupantHopEnv({
+      onEnter: entered,
+      prompt: async () => {
+        throw new Error('aborted');
+      },
+    });
+
+    const result = await ftp.execute(env, [OCCUPANT_IP], new Map());
+
+    expect(sync(result).exitCode).toBe(130);
+    expect(entered).not.toHaveBeenCalled();
+  });
+
+  it('refuses a bad occupant credential with 530 and holds no session', async () => {
+    const entered = vi.fn<(session: Session) => void>();
+    const env = occupantHopEnv({
+      onEnter: entered,
+      authenticateSameLan: async () => ({ ok: false, error: 'invalid_credentials' }),
+    });
+
+    const result = await ftp.execute(env, [OCCUPANT_IP], new Map());
+
+    expect(linesOf(result)).toContain('530 Login incorrect.');
+    expect(entered).not.toHaveBeenCalled();
+  });
+
+  it('carries the port the player named on -p to the occupant door', async () => {
+    const authenticateSameLan = vi.fn<(params: SameLanAuthParams) => Promise<PublicAuthResult>>(
+      async () => ({ ok: true, userType: 'guest', machineId: 'alice-rig-cafef00d', essid: HOP_ESSID }),
+    );
+    const env = occupantHopEnv({ authenticateSameLan });
+
+    await ftp.execute(env, [OCCUPANT_IP], new Map([['-p', '2121']]));
+
+    expect(authenticateSameLan.mock.calls[0]![0]).toMatchObject({ port: 2121 });
+  });
+
+  it('reaches a generated LAN host by its own door, not the occupant one, when an unrelated occupant is present', async () => {
+    const hop = machineOn(HOP_ESSID, false);
+    const target = machineOn(HOP_ESSID, true, [hop.ip]);
+    const authenticate = vi.fn<(params: RemoteAuthParams) => Promise<RemoteAuthResult>>(async () => ({
+      ok: true,
+      userType: 'guest',
+    }));
+    const authenticateSameLan = vi.fn<(params: SameLanAuthParams) => Promise<PublicAuthResult>>(
+      async () => ({ ok: true, userType: 'guest', machineId: 'alice-rig-cafef00d', essid: HOP_ESSID }),
+    );
+    const entered = vi.fn<(session: Session) => void>();
+    const base = ftpHopEnv(hop, { onEnter: entered });
+    const env = mockCommandEnv({
+      ...base,
+      // An occupant is on the LAN, but at a DIFFERENT address than the ftp target.
+      scan: mockScanApi({ resolveOccupants: async () => [occupantAt(OCCUPANT_IP)] }),
+      ftp: mockFtpApi({ authenticate, authenticateSameLan, enter: entered }),
+    });
+
+    const result = await ftp.execute(env, [target.ip], new Map());
+
+    expect(linesOf(result)).toContain('230 Login successful');
+    expect(authenticate).toHaveBeenCalledTimes(1);
+    expect(authenticateSameLan).not.toHaveBeenCalled();
+    expect(entered.mock.calls[0]![0]).toMatchObject({ machineId: hostMachineId(target, HOP_ESSID) });
   });
 });
