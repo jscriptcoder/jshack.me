@@ -571,6 +571,34 @@ network (slice 2).
 hop's own daemon, as `localhost` became for the data doors (8a). Wire-check
 `scripts/testHopPortTools.ts`.
 
+Agreed acceptance (owner, 2026-10-06):
+
+1. **The tools travel from the shell's box** (`vantageOf(...)`, not `wlan0`): they work from a hop
+   with the home card off, and from a foreign hop a home-LAN address is unreachable in each tool's
+   own "no route" wording.
+2. **A hop reaches what `ssh` reaches from it**: the generated hosts on its LAN; other players'
+   boxes there; every deep layer it reaches (behind the fronting switch's live ACL, a denied port
+   refused like an unserved one); public addresses. `ftp` and `scp` gain the occupant and
+   deep-layer arms they lack, so they match `ssh` from home too.
+3. **`localhost` and the hop's own address reach the hop's own daemon, server-side**, logged from
+   `127.0.0.1` under the box's usual key — as the data doors do (8a). This retires `nc`'s
+   own-box refusal on a hop.
+4. **Names resolve on the network the shell stands on** (decision 8).
+5. **The server places the caller** (`resolveCallerVantageOn`): every login sends
+   `caller_machine_id`; a network the caller isn't on is 403 `wrong_network`, a box they hold no
+   shell on is 403 `no_session`; the client `sourceIp` is neither sent nor read.
+6. **The source address is server-derived** (decision 7): the hop's LAN address, its deep-layer
+   address, or the hop network's public IP; from home nothing changes.
+7. **One log row per box** (7a): generated and deep boxes under `ap:<essid>`, a player's box under
+   its owner's key; an `ftp`/`scp` login is recorded as its own kind of session on every arm, never
+   as `ssh`.
+8. **The `ftp>` prompt and a one-shot `scp` are never a vantage** (4b); the session either opens
+   names the hop it was opened from.
+9. **The man pages say "the network you are on".**
+10. Wire-check `scripts/testHopPortTools.ts` — a LAN hop; a deep layer incl. a switch-denied port;
+    `wrong_network` and `no_session`; loopback on a hop; a public target from the hop vs from home.
+    Existing ftp/scp/nc wire-checks reseated onto the caller-placement contract.
+
 #### Slice 9b: Ping and name lookups run from a hop
 
 `ping`, `dig`, `nslookup` — no login; each answers client-side from home `wlan0`
