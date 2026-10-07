@@ -25,7 +25,8 @@ import {
   readOpenPorts,
   readRunningProcesses,
 } from '../services/pidfile.js';
-import { credentialIn } from '../mysql/datadir.js';
+import { credentialIn, DATADIR_PATH as MYSQL_DATADIR_PATH } from '../mysql/datadir.js';
+import { DATADIR_FILE } from '../generation/baseFs.js';
 import { storeIn } from '../redis/datadir.js';
 import { asAbsPath, asEpochMs, asPlayerKeyHex, type AbsPath } from '../types.js';
 import type { PatchApi, PatchResult } from '../commands/types.js';
@@ -123,6 +124,9 @@ type JournalOptions = {
   readonly refusing?: AbsPath;
   /** The journal cannot be read at all. */
   readonly unreadable?: boolean;
+  /** The journal answers this many reads, then stops answering: a server that goes
+   *  away part way through the boot. */
+  readonly readsAnswered?: number;
 };
 
 /** A player's workstation whose journal is held in memory: the real generated base
@@ -158,12 +162,17 @@ const journalBox = (options: JournalOptions) => {
       }),
   });
   const tree = (): Directory => applyPatches(base, journal);
+  let reads = 0;
+  const answers = (): boolean => {
+    reads += 1;
+    return options.unreadable !== true && reads <= (options.readsAnswered ?? Infinity);
+  };
   const box: FirstBootBox = {
     identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(options.ownerKeyHex) }),
     hostname: 'workstation',
     now: () => BIRTH,
     patches,
-    readTree: async () => (options.unreadable === true ? null : tree()),
+    readTree: async () => (answers() ? tree() : null),
   };
   return { box, base, tree, journal };
 };
@@ -244,6 +253,43 @@ describe("a workstation's first boot", () => {
     const { box, journal } = journalBox({ ownerKeyHex: anyOwner() });
     await runFirstBoot(box);
     expect(journal.at(-1)).toMatchObject({ path: FIRST_BOOT_MARKER, owner: 'root' });
+  });
+
+  it('dates the marker with the moment the box was born', async () => {
+    const { box, tree } = journalBox({ ownerKeyHex: anyOwner() });
+    await runFirstBoot(box);
+    const marker = fileAt(tree(), FIRST_BOOT_MARKER);
+    expect(marker?.kind === 'file' ? marker.content : '').toContain(new Date(BIRTH).toUTCString());
+  });
+
+  it('leaves the box unborn when an install is refused', async () => {
+    const key = ownerWhose((names) => names.includes('nginx'));
+    const { box, tree } = journalBox({
+      ownerKeyHex: key,
+      refusing: asAbsPath('/var/lib/dpkg/status'),
+    });
+    await runFirstBoot(box);
+    expect(fileAt(tree(), FIRST_BOOT_MARKER)).toBeNull();
+  });
+
+  it('leaves the box unborn when the journal stops answering part way through', async () => {
+    const key = ownerWhose((names) => names.length >= 2);
+    const { box, tree } = journalBox({ ownerKeyHex: key, readsAnswered: 1 });
+    await expect(runFirstBoot(box)).resolves.toBeUndefined();
+    expect(fileAt(tree(), FIRST_BOOT_MARKER)).toBeNull();
+  });
+
+  it('keeps the database an older box already holds', async () => {
+    const key = ownerWhose((names) => names.includes('mysqld'));
+    const theirs: Patch = {
+      path: MYSQL_DATADIR_PATH,
+      content: '{"theirs":true}',
+      owner: 'root',
+      permissions: DATADIR_FILE,
+    };
+    const { box, tree } = journalBox({ ownerKeyHex: key, history: [theirs] });
+    await runFirstBoot(box);
+    expect(fileAt(tree(), MYSQL_DATADIR_PATH)).toMatchObject({ content: '{"theirs":true}' });
   });
 
   it('leaves the box unborn when a write is refused, and the next boot finishes it', async () => {

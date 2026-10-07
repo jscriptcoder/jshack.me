@@ -1603,12 +1603,9 @@ export const resolveBootCheck = async (): Promise<BootCheck> => {
       return read.ok ? applyPatches(seeded, read.patches) : null;
     },
   });
-  const read = await readOwnPatches(ownBox);
-  // The terminal comes up on what this read found, so a first boot's services are
-  // there at the first prompt — unless the player already stands on another machine,
-  // whose journal this is not.
-  if (read.ok && patchClientDeps?.machineId === ownBox.machineId) setPatches(read.patches);
-  return canBoot(applyPatches(seeded, read.ok ? read.patches : []));
+  // So a first boot's services are there at the first prompt.
+  await refetchPatches();
+  return canBoot(applyPatches(seeded, await fetchOwnPatches(ownBox)));
 };
 
 export type StartGameOptions = {

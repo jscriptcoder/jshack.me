@@ -626,22 +626,42 @@ describe('resolveBootCheck', () => {
     return { state, writes };
   };
 
-  /** What `ls /var/run` shows the player: the pidfiles of whatever their box runs. */
-  const listRunning = async (state: typeof import('./state.js')) => {
-    state.setInput('ls /var/run');
+  /** What one command prints on the player's terminal. */
+  const outputOf = async (state: typeof import('./state.js'), command: string) => {
+    const before = state.scrollback().length;
+    state.setInput(command);
     await state.runInput();
     return state
       .scrollback()
+      .slice(before)
       .map((line) => line.content)
       .join('\n');
   };
 
-  it('brings a new box up already running its starting services', async () => {
+  it('brings a new box up already running its starting services, started by root', async () => {
     const { state } = await startWithServer({ journal: [], readable: true });
 
     await expect(state.resolveBootCheck()).resolves.toEqual({ ok: true });
 
-    expect(await listRunning(state)).toContain('.pid');
+    const running = (await outputOf(state, 'ls -l /var/run'))
+      .split('\n')
+      .filter((line) => line.includes('.pid'));
+    expect(running.length).toBeGreaterThan(0);
+    for (const line of running) expect(line).toContain(' root ');
+  });
+
+  it('dates the birth with the moment the box first booted', async () => {
+    const born = new Date(Date.UTC(2026, 9, 7, 21, 30));
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(born);
+    try {
+      const { state } = await startWithServer({ journal: [], readable: true });
+      await state.resolveBootCheck();
+
+      expect(await outputOf(state, `cat ${FIRST_BOOT_MARKER}`)).toContain(born.toUTCString());
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('writes nothing to a box that has already had its first boot', async () => {
