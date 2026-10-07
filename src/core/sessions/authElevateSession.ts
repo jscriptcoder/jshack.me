@@ -44,6 +44,7 @@ import { asGameTime, type UserType } from '../types.js';
 import type { PatchRow } from '../patches/upsertPatch.js';
 import type { HandlerResponse } from './authCreateSession.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
+import type { FindActiveSession, StandingSession } from '../patches/authorizeMachineAccess.js';
 
 /** The occupancy fields a cross-player `su` elevation needs: who owns the box (to
  *  reconstruct its FS), the workstation's real machine id (the session target +
@@ -86,6 +87,9 @@ export type AuthElevateSessionDeps = {
   readonly findOccupantWorkstationByMachineId: (
     machineId: string,
   ) => Promise<{ readonly data: OccupantWorkstation | null; readonly error: unknown }>;
+  /** The caller's live shell on the box — the one `su` is typed into — whose login
+   *  address the elevated row carries on. */
+  readonly findActiveSession: FindActiveSession<StandingSession>;
   readonly insertSession: (row: SuSessionRow) => Promise<{ readonly error: unknown }>;
   /** The server's wall clock, epoch-ms (UTC) — stamps the auth.log trace line. */
   readonly now: () => number;
@@ -111,6 +115,7 @@ const authElevateSessionSchema = z
     // it only names which local account ran `su`, so the line reads truthfully.
     from_user: z.string().min(1),
     parent_session_id: z.string().min(1).nullable().optional(),
+    // Accepted but never read: the row's address is the one the server derives.
     source_ip: z.string().min(1).nullable().optional(),
   })
   .refine((payload) => !('player_key' in payload) && !('userType' in payload));
@@ -205,13 +210,22 @@ export const handleAuthElevateSession = async (
     return { status: 401, body: { error: 'invalid_credentials' } };
   }
 
+  // `su` crosses no wire, so the elevated shell came from wherever the login under it
+  // came from: carry that login's address on, so a reboot from the root shell names the
+  // visitor the box's auth.log already does. No shell to read it off — or no reading —
+  // carries none rather than failing an elevation that has already been granted.
+  const standing = await deps.findActiveSession({
+    player_key: publicKey,
+    machine_id: data.workstation_machine_id,
+  });
+
   const { error: insertError } = await deps.insertSession({
     session_id: payload.session_id,
     player_key: publicKey,
     machine_id: data.workstation_machine_id,
     credentials: { username: payload.username, userType: account.userType },
     parent_session_id: payload.parent_session_id ?? null,
-    source_ip: payload.source_ip ?? null,
+    source_ip: standing.data?.sourceIp ?? null,
     kind: 'su',
     essid: data.essid,
   });

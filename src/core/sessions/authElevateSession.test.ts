@@ -20,6 +20,7 @@ import { derivePid } from '../logging/syslog.js';
 import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog.js';
 import type { PatchRow } from '../patches/upsertPatch.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
+import type { FindActiveSession, StandingSession } from '../patches/authorizeMachineAccess.js';
 
 /**
  * `handleAuthElevateSession` is the server-authoritative `su`-to-root gate for a
@@ -51,6 +52,14 @@ const OCCUPANT: OccupantWorkstation = {
   workstation_root_hash: md5('matrix1999'),
 };
 const GUEST_PW = workstationGuestPassword(OWNER.publicKeyHex);
+// Where the attacker's ssh login onto the box came from, as the server stamped it.
+const SSH_LOGIN_IP = '198.51.100.23';
+
+/** The attacker's guest shell on the box, the one `su` is typed into. */
+const sshedInAsGuest: FindActiveSession<StandingSession> = async () => ({
+  data: { username: 'guest', userType: 'guest', essid: 'BEAN-THERE-WIFI', sourceIp: SSH_LOGIN_IP },
+  error: null,
+});
 
 type LookupResult = { data: OccupantWorkstation | null; error: unknown };
 
@@ -58,6 +67,7 @@ type LookupResult = { data: OccupantWorkstation | null; error: unknown };
  *  clock, an empty auth.log (a resolved attempt appends one line), and a successful
  *  write. (No source-IP lookup — su lines are username-only.) */
 type LogOverrides = {
+  findActiveSession?: FindActiveSession<StandingSession>;
   now?: () => number;
   readAuthLog?: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
   upsertPatch?: (row: PatchRow) => Promise<{ error: unknown }>;
@@ -77,9 +87,13 @@ const makeDeps = (
   const upsertPatch = vi.fn<(row: PatchRow) => Promise<{ error: unknown }>>(
     over.upsertPatch ?? (async () => ({ error: null })),
   );
+  const findActiveSession = vi.fn<FindActiveSession<StandingSession>>(
+    over.findActiveSession ?? sshedInAsGuest,
+  );
   const deps: AuthElevateSessionDeps = {
     nonceStore: freshStore,
     findOccupantWorkstationByMachineId,
+    findActiveSession,
     insertSession,
     now: over.now ?? (() => FIXED_NOW),
     readAuthLog,
@@ -140,10 +154,42 @@ describe('handleAuthElevateSession', () => {
       machine_id: MACHINE,
       credentials: { username: 'root', userType: 'root' },
       parent_session_id: 'ssh-guest-seed',
-      source_ip: '192.168.1.5',
+      // su crosses no wire: the elevated shell came from wherever the ssh login under
+      // it came from, so it carries that login's address on — never the client's — and
+      // a reboot from the root shell names the same visitor the auth.log does.
+      source_ip: SSH_LOGIN_IP,
       kind: 'su',
       essid: 'BEAN-THERE-WIFI',
     });
+  });
+
+  it("reads the address off the caller's own shell on that box, not anybody else's", async () => {
+    const attacker = generateIdentity();
+    const { deps } = makeDeps();
+
+    await handleAuthElevateSession(
+      envelope(attacker, { username: 'root', password: 'matrix1999' }),
+      deps,
+    );
+
+    expect(deps.findActiveSession).toHaveBeenCalledWith({
+      player_key: attacker.publicKeyHex,
+      machine_id: MACHINE,
+    });
+  });
+
+  it('carries no address when the caller holds no session on the box to carry one from', async () => {
+    const attacker = generateIdentity();
+    const { deps, insertSession } = makeDeps(undefined, undefined, {
+      findActiveSession: async () => ({ data: null, error: null }),
+    });
+
+    await handleAuthElevateSession(
+      envelope(attacker, { username: 'root', password: 'matrix1999' }),
+      deps,
+    );
+
+    expect(insertSession.mock.calls[0]![0].source_ip).toBeNull();
   });
 
   it('derives the userType from the passwd (a valid guest credential yields a guest session, not root)', async () => {

@@ -32,10 +32,12 @@
 //     newer row wins outright and the defender reads half a break-in. One row with
 //     everybody's lines in it is the assertion; a handler test asserting a writer key
 //     cannot tell the two apart.
-//   - Each line names the address the SERVER derived for its actor, from a real
-//     occupancy row — the defender's for their own reboots, the intruder's for theirs.
-//     An access point nobody owns files under the network's stable lease key instead,
-//     which is neither rebooter's.
+//   - Each line names the address the SERVER holds for its actor: the defender's own
+//     network for their own reboots, read off a real occupancy row; for the intruder,
+//     the address their login onto the box came from, read back off their session row
+//     — not their home network, which no login on that box ever showed. An access point
+//     nobody owns files under the network's stable lease key instead, which is neither
+//     rebooter's, and names itself by the hostname it answers to rather than by its id.
 //
 // Usage (with v2 supabase + vercel dev running on 3100):
 //   npx dotenv -e .env.development.local -- npx tsx scripts/testRebootEvicts.ts
@@ -50,6 +52,7 @@ import { computeWorkstationId } from '../src/core/identity/workstation.js';
 import { computeApGatewayId } from '../src/core/identity/router.js';
 import { BOOT_ID_PATH } from '../src/core/boot/bootId.js';
 import { KERN_LOG_PATH } from '../src/core/logging/kernLog.js';
+import { seedApGatewayHostname } from '../src/core/generation/gatewayHostname.js';
 import { publicAddressOf } from './publicAddressOf.js';
 import type { UserType } from '../src/core/types.js';
 
@@ -103,6 +106,9 @@ const INTRUDER_ESSID = 'HOUSE-OF-CARDS';
 const INTRUDER_BOX = computeWorkstationId('crackbox', intruder.publicKeyHex);
 const HOME_IP = publicAddressOf(HOME_ESSID);
 const INTRUDER_IP = publicAddressOf(INTRUDER_ESSID);
+// Where the intruder's login onto the defender's box came from — a hop on a third
+// network, as the door that admitted them would have stamped it on the row.
+const INTRUDER_LOGIN_IP = publicAddressOf('ESPRESSO-EXPRESS');
 
 const DEFENDER_SHELL = 'reboot-wire-defender-shell';
 const DEFENDER_UNNAMED = 'reboot-wire-defender-unnamed';
@@ -123,13 +129,15 @@ const sessionRow = (
   username: string,
   userType: UserType,
   essid: string = HOME_ESSID,
+  sourceIp: string | null = null,
 ) => ({
   session_id: sessionId,
   player_key: owner.publicKeyHex,
   machine_id: machineId,
   credentials: { username, userType },
   parent_session_id: null,
-  source_ip: null,
+  // The address the login came from, which the door stamps server-side.
+  source_ip: sourceIp,
   kind,
   // Which network the box is on, stamped when the hop was made. An ownerless box
   // reads its log's writer key off this, so a session with no ESSID would file an
@@ -451,7 +459,18 @@ check(
 await sr.from('sessions').delete().eq('session_id', INTRUDER_ROOT);
 await sr
   .from('sessions')
-  .insert([sessionRow(INTRUDER_ROOT, intruder, OWN_BOX, 'exploit', 'root', 'root')]);
+  .insert([
+    sessionRow(
+      INTRUDER_ROOT,
+      intruder,
+      OWN_BOX,
+      'exploit',
+      'root',
+      'root',
+      HOME_ESSID,
+      INTRUDER_LOGIN_IP,
+    ),
+  ]);
 const intruderReboot = await post(signRequest(intruder, 'rebootMachine', { machine_id: OWN_BOX }));
 const afterIntruder = await kernRows(OWN_BOX);
 check(
@@ -464,8 +483,10 @@ check(
 );
 const strangerLine = kernLines(afterIntruder).at(-1) ?? '';
 check(
-  "and it carries the intruder's own address, not the box owner's",
-  strangerLine.includes(INTRUDER_IP) && !strangerLine.includes(HOME_IP),
+  "and it carries the address the intruder's login came from, not their home or the owner's",
+  strangerLine.includes(`from ${INTRUDER_LOGIN_IP} `) &&
+    !strangerLine.includes(INTRUDER_IP) &&
+    !strangerLine.includes(HOME_IP),
   strangerLine.length === 0 ? '(no line)' : strangerLine,
 );
 
@@ -479,6 +500,12 @@ check(
     gatewayTrace[0]?.writer_key === apGatewayLogWriterKey(HOME_ESSID) &&
     kernLines(gatewayTrace).length === 1,
   `${gatewayTrace.length} row(s) under ${gatewayTrace[0]?.writer_key?.slice(0, 12) ?? '-'}…`,
+);
+const gatewayLine = kernLines(gatewayTrace)[0] ?? '';
+check(
+  'the access point names itself by the hostname it answers to, not by its id',
+  gatewayLine.includes(` ${seedApGatewayHostname(HOME_ESSID)} kernel: [reboot]`),
+  gatewayLine.length === 0 ? '(no line)' : gatewayLine,
 );
 
 // A refusal writes nothing at all. A forged entry naming somebody else is its own

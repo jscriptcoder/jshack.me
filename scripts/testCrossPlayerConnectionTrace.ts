@@ -229,6 +229,18 @@ check(
   s3.status === 200 && log3.includes(`from ${B_PUBLIC_IP}`) && !log3.includes('10.6.6.6'),
   `status=${s3.status} forgedPresent=${log3.includes('10.6.6.6')}`,
 );
+// The row the login opened carries the address the line names, so a reboot ordered from
+// this session later names the same visitor — and the forged one reaches neither.
+const { data: s3Row } = await sr
+  .from('sessions')
+  .select('source_ip')
+  .eq('session_id', 'ssh-b-r-3')
+  .maybeSingle();
+check(
+  'the session row stores the address the line names, not the forged one',
+  (s3Row as { source_ip: string | null } | null)?.source_ip === B_PUBLIC_IP,
+  `source_ip=${String((s3Row as { source_ip: string | null } | null)?.source_ip)}`,
+);
 
 // === 4. Keystone: a SECOND attacker (C) accretes into the SAME network-keyed row. ===
 const s4 = await post(

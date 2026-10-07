@@ -324,7 +324,10 @@ describe('handleAuthCreateSessionPublic', () => {
       machine_id: AP_GATEWAY_ID,
       credentials: { username: 'root', userType: 'root' },
       parent_session_id: 'seed-session',
-      source_ip: '192.168.1.5',
+      // The address this login's auth.log line names — the server's derivation, never
+      // the `source_ip` the client sent — so a reboot ordered from this session later
+      // names the same visitor.
+      source_ip: ATTACKER_PUBLIC_IP,
       kind: 'ssh',
       essid: ESSID,
     });
@@ -942,6 +945,27 @@ describe('handleAuthCreateSessionPublic', () => {
       expect(upsertPatch.mock.calls[0]![0].content).toContain(`from ${PIVOT_PUBLIC_IP}`);
     });
 
+    it('stores the hop address the line names on the session it opens', async () => {
+      const attacker = generateIdentity();
+      const { deps, insertSession } = makeDeps({
+        findActiveSession: async () => ({
+          data: { username: 'root', userType: 'root', essid: PIVOT_ESSID },
+          error: null,
+        }),
+      });
+
+      await handleAuthCreateSessionPublic(
+        envelope(attacker, {
+          username: 'root',
+          password: ADMIN_PW,
+          caller_machine_id: PIVOT_MACHINE,
+        }),
+        deps,
+      );
+
+      expect(insertSession.mock.calls[0]![0].source_ip).toBe(PIVOT_PUBLIC_IP);
+    });
+
     it('uses the address the caller OWNS when the box they name is their own workstation', async () => {
       const attacker = generateIdentity();
       const { deps, upsertPatch, findPublicIpByEssid } = makeDeps();
@@ -1238,6 +1262,21 @@ describe('a backdoor reached across the network', () => {
     await handleAuthCreateSessionPublic(knock(), deps);
 
     expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
+  // Nothing is logged on the way in, but the session still came from somewhere: a
+  // reboot ordered from it later is its own act, and names this address.
+  it('stores where the knock came from on the session, though it logs nothing', async () => {
+    const { deps, insertSession } = makeDeps({
+      patches: patchesByMachine({
+        [AP_GATEWAY_ID]: [backdoorForward],
+        [ALICE_WS]: [plantedByMallory],
+      }),
+    });
+
+    await handleAuthCreateSessionPublic(knock(), deps);
+
+    expect(insertSession.mock.calls[0]![0].source_ip).toBe(ATTACKER_PUBLIC_IP);
   });
 
   // The shared resolver refuses a forward whose internal port nothing is serving

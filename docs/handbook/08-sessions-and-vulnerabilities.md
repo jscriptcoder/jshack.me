@@ -246,6 +246,12 @@ Rules the trace system follows:
    they are standing on), looked up from their verified key (`logging/crossPlayerSourceIp.ts`). On the
    caller's **own** LAN, against a generated box, the address is the one the client states
    (`source_ip`), because only the caller can know it; the server does not invent one.
+   An act on a box the caller is already inside — `reboot` — names the address their **login**
+   came from: every cross-player door stores the address it derived on the session row
+   (`source_ip`), `su` and a local exploit carry the address of the shell they were typed into, and
+   `rebootMachine` reads it back, so the `kern.log` line and the login's `auth.log` line name one
+   visitor. The line names the box by its hostname (`hostnameForMachineId` in
+   `generation/lanTopology.ts` for gateways, whose ids carry no name).
 3. **One log per box, under a stable writer key.** Because the journal is last-write-wins per
    `(machine, path, writer)`, writers must agree on the key or they erase each other's lines. A
    player's box logs under the owner's key (`resolveTraceProvenance` in

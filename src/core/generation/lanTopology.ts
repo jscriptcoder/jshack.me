@@ -140,6 +140,17 @@ export const chainLinks = (essid: string): readonly ChainLink[] => {
     );
 };
 
+/** The hostname a box on the network answers to — a home-LAN host or any gateway down
+ *  its chain — recovered from the machine_id a session carries. Needed for the gateways:
+ *  their ids are hashes in a storage namespace (`ap-gw-…`), so the id's leading half is no
+ *  name at all, where an NPC's id already leads with its hostname. Null for a box the
+ *  network does not generate on its LAN or chain — a player's workstation, or a deep NPC. */
+export const hostnameForMachineId = (essid: string, machineId: string): string | null =>
+  generateHomeLan(essid).hosts.find((host) => machineIdForLanHost(host, essid) === machineId)
+    ?.hostname ??
+  chainLinks(essid).find((link) => link.machineId === machineId)?.host.hostname ??
+  null;
+
 /** A network a box reaches: its `/24` prefix, the gateway fronting it (null for the
  *  network's own LAN), and the address the box is seen at there. */
 export type ReachedSegment = {

@@ -9,7 +9,11 @@ import { signRequest } from '../signedRequest/sign.js';
 import { generateIdentity } from '../identity/identity.js';
 import { computeWorkstationId } from '../identity/workstation.js';
 import { computeApGatewayId } from '../identity/router.js';
-import type { ActiveSession, FindActiveSession } from '../patches/authorizeMachineAccess.js';
+import type { FindActiveSession, StandingSession } from '../patches/authorizeMachineAccess.js';
+import { generateHomeLan } from '../generation/generateHomeLan.js';
+import { seedApGatewayHostname } from '../generation/gatewayHostname.js';
+import { chainLinks, machineIdForLanHost } from '../generation/lanTopology.js';
+import { crackableEssidPool } from '../generation/generateWifi.js';
 import type { FindOccupantWorkstationByMachineId } from '../patches/remoteWritePermission.js';
 import type {
   MachineLogReadQuery,
@@ -53,18 +57,26 @@ const ownBoxOf = (identity: Identity): string =>
  *  identity this test generates. */
 const FOREIGN_BOX = 'victim-0b0b0b0b';
 
-const sessionAt = (userType: UserType): ActiveSession => ({
+/** The address the server recorded when the caller's session on the box logged in —
+ *  the same one that login's `auth.log` line names. */
+const LOGIN_IP = '198.51.100.23';
+
+const sessionAt = (userType: UserType, sourceIp: string | null): StandingSession => ({
   username: userType === 'root' ? 'root' : 'kai',
   userType,
   essid: 'HOME-9F2A',
+  sourceIp,
 });
 
-const holding = (userType: UserType): FindActiveSession => {
-  const session = sessionAt(userType);
+const holding = (
+  userType: UserType,
+  sourceIp: string | null = LOGIN_IP,
+): FindActiveSession<StandingSession> => {
+  const session = sessionAt(userType, sourceIp);
   return async () => ({ data: session, error: null });
 };
 
-const holdingNothing: FindActiveSession = async () => ({ data: null, error: null });
+const holdingNothing: FindActiveSession<StandingSession> = async () => ({ data: null, error: null });
 
 /** A clock the rendered line can be read against: `Sep 18 12:03:44` UTC. */
 const REBOOT_AT = Date.UTC(2026, 8, 18, 12, 3, 44);
@@ -96,7 +108,9 @@ const makeDeps = (over: Partial<RebootMachineDeps> = {}) => {
   const writeBootId = vi.fn<(params: WriteBootIdParams) => Promise<{ error: unknown }>>(
     over.writeBootId ?? (async () => ({ error: null })),
   );
-  const findActiveSession = vi.fn<FindActiveSession>(over.findActiveSession ?? holdingNothing);
+  const findActiveSession = vi.fn<FindActiveSession<StandingSession>>(
+    over.findActiveSession ?? holdingNothing,
+  );
   const upsertPatch = vi.fn<(row: PatchRow) => Promise<{ error: unknown }>>(
     over.upsertPatch ?? (async () => ({ error: null })),
   );
@@ -448,7 +462,7 @@ describe('the authority to reboot a box', () => {
  * A defender's log that a visitor can author is not evidence.
  */
 describe('the line a reboot leaves behind', () => {
-  it('records the reboot on the box that went down, naming where it came from', async () => {
+  it('records the reboot on the box that went down, naming where the login came from', async () => {
     const identity = generateIdentity();
     const envelope = signRequest(identity, 'rebootMachine', { machine_id: FOREIGN_BOX });
     const { deps, upsertPatch } = makeDeps({
@@ -467,7 +481,7 @@ describe('the line a reboot leaves behind', () => {
       machine_id: FOREIGN_BOX,
       path: KERN_LOG_PATH,
       content:
-        'Sep 18 12:03:44 victim kernel: [reboot] System restart requested from 203.0.113.77 — all sessions terminated\n',
+        'Sep 18 12:03:44 victim kernel: [reboot] System restart requested from 198.51.100.23 — all sessions terminated\n',
       owner: 'root',
       permissions: KERN_LOG_PERMISSIONS,
       node_type: 'file',
@@ -502,7 +516,7 @@ describe('the line a reboot leaves behind', () => {
     const written = upsertPatch.mock.calls.at(-1)?.[0];
     expect(written?.writer_key).toBe('0a0a0a0a');
     expect(written?.content).toBe(
-      `${existing}Sep 18 12:03:44 victim kernel: [reboot] System restart requested from 203.0.113.77 — all sessions terminated\n`,
+      `${existing}Sep 18 12:03:44 victim kernel: [reboot] System restart requested from 198.51.100.23 — all sessions terminated\n`,
     );
   });
 
@@ -561,17 +575,35 @@ describe('the line a reboot leaves behind', () => {
     await handleRebootMachine(envelope, deps);
 
     const written = upsertPatch.mock.calls.at(-1)?.[0];
-    expect(written?.content).toContain(ACTOR_IP);
+    expect(written?.content).toContain(LOGIN_IP);
     expect(written?.content).not.toContain('198.51.100.250');
   });
 
-  it('says unknown rather than guessing when the actor is on no network', async () => {
+  // The intruder's login already left `Accepted password ... from <address>` in this
+  // box's auth.log. The reboot names the same address, so the two lines a defender
+  // reads point at one visitor rather than two — and a visitor who came through a hop
+  // is traced to the hop, not to a home address no login on this box ever showed.
+  it("names the address the session's login came from, not the actor's home", async () => {
     const identity = generateIdentity();
     const envelope = signRequest(identity, 'rebootMachine', { machine_id: FOREIGN_BOX });
     const { deps, upsertPatch } = makeDeps({
-      findActiveSession: holding('root'),
+      findActiveSession: holding('root', '10.0.0.14'),
       findOccupantWorkstationByMachineId: ownedBy('0a0a0a0a'),
-      findHomeNetworkByOwnerKey: async () => ({ data: null, error: null }),
+    });
+
+    await handleRebootMachine(envelope, deps);
+
+    const written = upsertPatch.mock.calls.at(-1)?.[0];
+    expect(written?.content).toContain('requested from 10.0.0.14 —');
+    expect(written?.content).not.toContain(ACTOR_IP);
+  });
+
+  it('says unknown rather than guessing when the session carries no address', async () => {
+    const identity = generateIdentity();
+    const envelope = signRequest(identity, 'rebootMachine', { machine_id: FOREIGN_BOX });
+    const { deps, upsertPatch } = makeDeps({
+      findActiveSession: holding('root', null),
+      findOccupantWorkstationByMachineId: ownedBy('0a0a0a0a'),
     });
 
     await handleRebootMachine(envelope, deps);
@@ -581,7 +613,86 @@ describe('the line a reboot leaves behind', () => {
     expect(written?.content).toContain('requested from unknown');
   });
 
-  it('names a generated host by the only name anybody has for it', async () => {
+  it('says unknown when the owner reboots their own box from no network', async () => {
+    const identity = generateIdentity();
+    const ownBox = ownBoxOf(identity);
+    const envelope = signRequest(identity, 'rebootMachine', { machine_id: ownBox });
+    const { deps, upsertPatch } = makeDeps({
+      findOccupantWorkstationByMachineId: ownedBy(identity.publicKeyHex),
+      findHomeNetworkByOwnerKey: async () => ({ data: null, error: null }),
+    });
+
+    await handleRebootMachine(envelope, deps);
+
+    const written = upsertPatch.mock.calls.at(-1)?.[0];
+    expect(written?.content).toContain('requested from unknown');
+  });
+
+  // A defender who reads `hostname` on the box, or saw it on a scan, must recognise the
+  // box in its own log. The machine id's leading half is storage, not a name: every
+  // access point would otherwise log as `ap-gw`.
+  it("names an access point's gateway by the hostname it answers to", async () => {
+    const identity = generateIdentity();
+    const gateway = computeApGatewayId('HOME-9F2A');
+    const envelope = signRequest(identity, 'rebootMachine', { machine_id: gateway });
+    const { deps, upsertPatch } = makeDeps({ findActiveSession: holding('root') });
+
+    await handleRebootMachine(envelope, deps);
+
+    const written = upsertPatch.mock.calls.at(-1)?.[0];
+    expect(written?.content).toContain(`${seedApGatewayHostname('HOME-9F2A')} kernel: [reboot]`);
+  });
+
+  it('names a gateway in the network chain by the hostname it answers to', async () => {
+    const identity = generateIdentity();
+    const [link] = chainLinks('HOME-9F2A');
+    if (link === undefined) throw new Error('fixture: HOME-9F2A has no gateway chain');
+    const envelope = signRequest(identity, 'rebootMachine', { machine_id: link.machineId });
+    const { deps, upsertPatch } = makeDeps({ findActiveSession: holding('root') });
+
+    await handleRebootMachine(envelope, deps);
+
+    const written = upsertPatch.mock.calls.at(-1)?.[0];
+    expect(written?.content).toContain(`${link.host.hostname} kernel: [reboot]`);
+  });
+
+  // A deep child hangs below the home LAN, so the LAN alone does not know its name: the
+  // chain the network grows from its inner gateway does.
+  it('names a deep child gateway, below the home LAN, by its hostname', async () => {
+    const identity = generateIdentity();
+    const deep = crackableEssidPool
+      .flatMap((essid) => chainLinks(essid).map((link) => ({ essid, link })))
+      .find(({ link }) => link.parentMachineId !== null);
+    if (deep === undefined) throw new Error('fixture: no network grows a deep child gateway');
+    const envelope = signRequest(identity, 'rebootMachine', { machine_id: deep.link.machineId });
+    const { deps, upsertPatch } = makeDeps({
+      findActiveSession: async () => ({
+        data: { username: 'root', userType: 'root', essid: deep.essid, sourceIp: LOGIN_IP },
+        error: null,
+      }),
+    });
+
+    await handleRebootMachine(envelope, deps);
+
+    const written = upsertPatch.mock.calls.at(-1)?.[0];
+    expect(written?.content).toContain(`${deep.link.host.hostname} kernel: [reboot]`);
+  });
+
+  it('names a generated box on the network by its generated hostname', async () => {
+    const identity = generateIdentity();
+    const sibling = generateHomeLan('HOME-9F2A').hosts.find((host) => host.kind === 'machine');
+    if (sibling === undefined) throw new Error('fixture: HOME-9F2A generates no machine');
+    const machineId = machineIdForLanHost(sibling, 'HOME-9F2A');
+    const envelope = signRequest(identity, 'rebootMachine', { machine_id: machineId });
+    const { deps, upsertPatch } = makeDeps({ findActiveSession: holding('root') });
+
+    await handleRebootMachine(envelope, deps);
+
+    const written = upsertPatch.mock.calls.at(-1)?.[0];
+    expect(written?.content).toContain(`${sibling.hostname} kernel: [reboot]`);
+  });
+
+  it('names a box its network does not generate by its id', async () => {
     const identity = generateIdentity();
     const generated = 'lan-host-10-0-0-77';
     const envelope = signRequest(identity, 'rebootMachine', { machine_id: generated });

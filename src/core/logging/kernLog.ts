@@ -32,8 +32,9 @@ export const KERN_LOG_PERMISSIONS: FilePermissions = {
 export type RebootLogEvent = {
   readonly time: GameTime;
   readonly hostname: string;
-  /** Where the reboot was ordered from (see `resolveCrossPlayerSourceIp`) — the
-   *  defender's only lead on who threw them off their own box. */
+  /** Where the reboot was ordered from — the address the rebooting session's login came
+   *  from, as that login's own trace names it — the defender's only lead on who threw
+   *  them off their own box. */
   readonly sourceIp: string;
 };
 

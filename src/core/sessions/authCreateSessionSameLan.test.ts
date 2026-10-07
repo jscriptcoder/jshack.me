@@ -284,7 +284,9 @@ describe('handleAuthCreateSessionSameLan', () => {
       machine_id: A_WS_ID,
       credentials: { username: 'guest', userType: 'guest' },
       parent_session_id: 'seed-session',
-      source_ip: '192.168.29.50',
+      // Where B stands on the LAN, as the auth.log line names it — not the
+      // `source_ip` the client sent.
+      source_ip: B_LAN_IP,
       kind: 'ssh',
       essid: ESSID,
     });
@@ -860,6 +862,17 @@ describe('a backdoor on the box at the next desk', () => {
     await handleAuthCreateSessionSameLan(knock(), deps);
 
     expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
+  it('still stores where the knock came from on the session', async () => {
+    const { deps, insertSession } = makeDeps(undefined, async () => ({
+      data: [mallorysListener],
+      error: null,
+    }));
+
+    await handleAuthCreateSessionSameLan(knock(), deps);
+
+    expect(insertSession.mock.calls[0]![0].source_ip).toBe(B_LAN_IP);
   });
 
   it('is no door onto the sshd port next to it', async () => {

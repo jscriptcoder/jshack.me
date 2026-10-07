@@ -148,7 +148,9 @@ are no RPCs, no views, no seed data, and no Realtime use.
 
 `session_id` (TEXT primary key, client-minted), `player_key`, `machine_id`, `credentials` (JSONB
 `{username, userType}`), `parent_session_id`, `source_ip`, `kind`, `essid`, `created_at`, `ended_at`
-(null = active), `end_reason` (`user_exit`, `abandoned`, `rebooted`). Partial index on
+(null = active), `end_reason` (`user_exit`, `abandoned`, `rebooted`). `source_ip` is the address the
+login came from as the server derived it (what the box's `auth.log` names), never the client's;
+`su` and a local exploit inherit their shell's, and a reboot's `kern.log` line reads it back. Partial index on
 `(player_key, machine_id, created_at) WHERE ended_at IS NULL`.
 
 ### `home_network_occupants`: who is on which WiFi

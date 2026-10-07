@@ -92,6 +92,7 @@ const authCreateSessionInnerGatewaySchema = z
     // Absent means ssh, so every shipped caller keeps working untouched.
     kind: z.enum(DOOR_KINDS).default('ssh'),
     parent_session_id: z.string().min(1).nullable().optional(),
+    // Accepted but never read: the row's address is the one the server derives.
     source_ip: z.string().min(1).nullable().optional(),
     // The box the shell is standing on; absent, the caller's own workstation.
     caller_machine_id: z.string().min(1).optional(),
@@ -179,6 +180,11 @@ export const handleAuthCreateSessionInnerGateway = async (
     return { status: resolved.status, body: { error: resolved.error } };
   }
   const resolution = resolved.target;
+  // Where the landed box saw the caller come from, as its trace names it: a deep box
+  // through a forward sees the fronting gateway's `.1`, and the inner gateway itself,
+  // standing on the caller's own LAN, sees their address there. Stored on the session so
+  // a reboot ordered from it later names the same visitor. Never the payload's.
+  const sourceIp = resolution.sourceIp ?? vantage.sourceIp;
 
   // Only a backdoor asks who is behind the port here. An ssh reach is already routed
   // by `machineServing`, and putting a service check on that path would change a
@@ -194,7 +200,7 @@ export const handleAuthCreateSessionInnerGateway = async (
       machine_id: resolution.machineId,
       credentials: { username: admits.user, userType: admits.userType },
       parent_session_id: payload.parent_session_id ?? null,
-      source_ip: payload.source_ip ?? null,
+      source_ip: sourceIp,
       kind: payload.kind,
       essid: payload.essid,
     });
@@ -258,7 +264,7 @@ export const handleAuthCreateSessionInnerGateway = async (
     machine_id: resolution.machineId,
     credentials: { username: payload.username, userType: account.userType },
     parent_session_id: payload.parent_session_id ?? null,
-    source_ip: payload.source_ip ?? null,
+    source_ip: sourceIp,
     kind: 'ssh',
     essid: payload.essid,
   });

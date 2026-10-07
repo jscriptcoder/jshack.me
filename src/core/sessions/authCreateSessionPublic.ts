@@ -93,6 +93,7 @@ const authCreateSessionPublicSchema = z
     password: z.string().optional(),
     port: z.number().int().positive().optional(),
     parent_session_id: z.string().min(1).nullable().optional(),
+    // Accepted but never read: the row's address is the one the server derives.
     source_ip: z.string().min(1).nullable().optional(),
     // Absent means ssh, so every shipped caller keeps working untouched.
     kind: z.enum(DOOR_KINDS).default('ssh'),
@@ -198,6 +199,15 @@ export const handleAuthCreateSessionPublic = async (
     return { status: 404, body: { error: 'service_not_running' } };
   }
 
+  // The box is reached, so the visit has an origin: the attacker's address as the target
+  // saw it, server-derived from their verified key and where they stand — never the
+  // payload's `source_ip`. The auth.log line names it, and so does the session row, which
+  // is where a reboot ordered from this session later reads it back.
+  const sourceIp = await resolveVantageSourceIp(deps, {
+    actorKey: publicKey,
+    standingEssid: vantage.standingEssid,
+  });
+
   // A backdoor reached across the network behaves exactly as one reached from the
   // next desk: it admits whoever its pidfile names and records nothing. The forward
   // changed how far the knock travelled, not what is behind the door.
@@ -209,7 +219,7 @@ export const handleAuthCreateSessionPublic = async (
       machine_id: target.machineId,
       credentials: { username: user, userType },
       parent_session_id: payload.parent_session_id ?? null,
-      source_ip: payload.source_ip ?? null,
+      source_ip: sourceIp,
       kind: payload.kind,
       essid: target.essid,
     });
@@ -238,12 +248,7 @@ export const handleAuthCreateSessionPublic = async (
   // The target machine is resolved, so the attempt CAN be logged — sshd records both
   // accepted and rejected logins. (Every 404 host_unreachable above logs nothing —
   // there is no reachable machine to log on.) The line lands on the resolved machine
-  // under the key that owns its logs; the source IP is the attacker's own home public
-  // IP, server-derived from their verified key — never the payload's.
-  const sourceIp = await resolveVantageSourceIp(deps, {
-    actorKey: publicKey,
-    standingEssid: vantage.standingEssid,
-  });
+  // under the key that owns its logs.
   await logCrossPlayerAuth(deps, target.logWriterKey, target, {
     outcome: passwordOk ? 'success' : 'failure',
     user: payload.username,
@@ -261,7 +266,7 @@ export const handleAuthCreateSessionPublic = async (
     machine_id: target.machineId,
     credentials: { username: payload.username, userType: account.userType },
     parent_session_id: payload.parent_session_id ?? null,
-    source_ip: payload.source_ip ?? null,
+    source_ip: sourceIp,
     kind: payload.kind,
     essid: target.essid,
   });

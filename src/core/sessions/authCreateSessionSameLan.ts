@@ -110,6 +110,7 @@ const authCreateSessionSameLanSchema = z
     // Absent means ssh, so every shipped caller keeps working untouched.
     kind: z.enum(DOOR_KINDS).default('ssh'),
     parent_session_id: z.string().min(1).nullable().optional(),
+    // Accepted but never read: the row's address is the one the server derives.
     source_ip: z.string().min(1).nullable().optional(),
     // The box the login is run from. Absent means the caller's own workstation.
     caller_machine_id: z.string().min(1).optional(),
@@ -241,7 +242,7 @@ export const handleAuthCreateSessionSameLan = async (
       machine_id: target.workstation_machine_id,
       credentials: { username: user, userType },
       parent_session_id: payload.parent_session_id ?? null,
-      source_ip: payload.source_ip ?? null,
+      source_ip: fromIp,
       kind: payload.kind,
       essid: payload.essid,
     });
@@ -292,7 +293,7 @@ export const handleAuthCreateSessionSameLan = async (
     machine_id: target.workstation_machine_id,
     credentials: { username: payload.username, userType: account.userType },
     parent_session_id: payload.parent_session_id ?? null,
-    source_ip: payload.source_ip ?? null,
+    source_ip: fromIp,
     // The door the caller knocked on — an ftp/scp occupant login is its own kind of
     // row, not an ssh one (the listener branch above already carries `payload.kind`).
     kind: payload.kind,
