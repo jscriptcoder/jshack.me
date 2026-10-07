@@ -91,7 +91,17 @@ const readAuthLog = async (machineId: string, ownerKey: string): Promise<string>
 // --- Identities: A + B share ONE access point; C is an outsider who scans and attacks
 //     it from elsewhere. ---
 const alice = generateIdentity();
-const bob = generateIdentity();
+/** A fresh identity whose guest password is not Alice's. Guest passwords come from a small
+ *  crackable pool, so two random players share one about one run in seventeen — and then
+ *  "B's password is refused on A's box" is not a wrong password at all. */
+const drawNotSharingAliceGuestPassword = (): ReturnType<typeof generateIdentity> => {
+  const candidate = generateIdentity();
+  return workstationGuestPassword(candidate.publicKeyHex) ===
+    workstationGuestPassword(alice.publicKeyHex)
+    ? drawNotSharingAliceGuestPassword()
+    : candidate;
+};
+const bob = drawNotSharingAliceGuestPassword();
 const carol = generateIdentity();
 
 const ESSID = 'APT-3B-WIFI';
