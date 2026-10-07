@@ -8,13 +8,18 @@ import {
   mockNetworkView,
   mockNetworkViewFromConnectivity,
   mockScanApi,
+  mockSession,
 } from '../../test/factories/commandEnv.js';
 import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces.js';
+import { buildDirectory } from '../../test/factories/filesystem.js';
 import { assignHomeNetwork } from '../network/homeNetwork.js';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
 import { zoneRecordsFor } from '../generation/generateDnsZone.js';
+import { resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
+import { chainLinks } from '../generation/lanTopology.js';
+import { resolveDeepScanHosts } from '../scan/deepScanHosts.js';
 import type { OccupantProjection } from '../network/resolveOccupants.js';
-import { asEpochMs, asPlayerKeyHex } from '../types.js';
+import { asEpochMs, asMachineId, asPlayerKeyHex } from '../types.js';
 
 /**
  * `dig <name>` — the same question `nslookup` asks, in the form the tool most
@@ -78,6 +83,37 @@ const gatewayIp = (): string => `${generateHomeLan(ESSID).subnet}.1`;
  *  command's own business; that it reports one is the behaviour. */
 const queryTimeLine = (lines: readonly string[]): string | undefined =>
   lines.find((line) => line.startsWith(';; Query time:'));
+
+const HOP_ESSID = 'RIDGEMONT-OFFICE';
+
+/** A machine on `essid`'s LAN, other than any excluded — a box a player could hop onto. */
+const machineOn = (essid: string, exclude: readonly string[] = []): LanHost => {
+  const host = generateHomeLan(essid).hosts.find(
+    (candidate) => candidate.kind === 'machine' && !exclude.includes(candidate.ip),
+  );
+  if (host === undefined) throw new Error(`${essid} has no spare machine`);
+  return host;
+};
+
+/** Stand in a shell on box `machineId` of `essid`, the player's own WiFi card off. */
+const standingOn = (
+  essid: string,
+  machineId: string,
+  overrides: Partial<Parameters<typeof mockCommandEnv>[0]> = {},
+) =>
+  mockCommandEnv({
+    identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
+    network: mockNetworkView({ isOnline: () => false, interfaces: () => [] }),
+    session: mockSession({
+      id: 'ssh-hop-1',
+      machineId: asMachineId(machineId),
+      userType: 'root',
+      essid,
+    }),
+    scan: mockScanApi({ resolveOccupants: async () => [] }),
+    now: () => asEpochMs(NOW),
+    ...overrides,
+  });
 
 describe('dig', () => {
   it('answers a name with an A record, the resolver, and the time it claims to have taken', async () => {
@@ -194,41 +230,109 @@ describe('dig', () => {
 });
 
 /**
+ * `dig <name>` from a hop — the lookup follows the box the shell stands on, like every
+ * other IP tool. The resolver it names is the gateway of the segment that box stands
+ * on, and the names it answers are that network's.
+ */
+describe('dig from a hop', () => {
+  it('asks the hop network’s resolver and answers its names, the player’s card off', async () => {
+    const hop = machineOn(HOP_ESSID);
+    const target = machineOn(HOP_ESSID, [hop.ip]);
+    const resolver = `${generateHomeLan(HOP_ESSID).subnet}.1`;
+    const env = standingOn(HOP_ESSID, resolveLanHostIdentity(hop, HOP_ESSID).machineId);
+
+    const { lines, exitCode } = await drain(await dig.execute(env, [target.hostname], new Map()));
+
+    expect(lines).toContain(';; ANSWER SECTION:');
+    expect(lines.some((line) => line.includes(target.ip))).toBe(true);
+    expect(lines).toContain(`;; SERVER: ${resolver}#53`);
+    expect(exitCode).toBe(0);
+  });
+
+  it('does not answer the player’s home names — that is another network from here', async () => {
+    const hop = machineOn(HOP_ESSID);
+    const hopNames = generateHomeLan(HOP_ESSID).hosts.map((host) => host.hostname);
+    const home = generateHomeLan(ESSID).hosts.find(
+      (host) => host.kind === 'machine' && !hopNames.includes(host.hostname),
+    );
+    if (home === undefined) throw new Error('expected a home name the hop’s LAN lacks');
+    const env = standingOn(HOP_ESSID, resolveLanHostIdentity(hop, HOP_ESSID).machineId);
+
+    const { lines, exitCode } = await drain(await dig.execute(env, [home.hostname], new Map()));
+
+    expect(lines).toContain(';; status: NXDOMAIN');
+    expect(exitCode).toBe(1);
+  });
+});
+
+/**
  * `dig @<server> axfr` — the zone transfer. A name server hands its WHOLE zone to
  * anyone who asks: every configured host on the LAN and every host on the layers
  * behind it, addresses included — unless an admin closed `allow-transfer`. The zone is
  * generated from the ESSID, so the transfer reads it client-side and answers at once,
  * the same way `dig <name>` resolves without a round-trip.
  *
- * The fixtures are real, not convenient inventions. The whole generated world has
- * exactly two name servers that allow a transfer and both are DEEP: `ns-116` on
- * GRAD-STUDENT-WIFI, three hops in at 10.165.42.116, is one. Both Layer-1 name servers
- * happen to be locked, so OSCORP-GUEST's `bind-224` at 192.168.118.224 is the refusal.
+ * The transfer reaches only a name server the box can reach — the one it stands on, or
+ * a layer it fronts (criterion 6): `ns-116` on GRAD-STUDENT-WIFI is a deep box at
+ * 10.165.42.116 on the layer its inner gateway fronts, so a player reaches it by
+ * standing on that gateway, not from home. OSCORP-GUEST's `bind-224` at 192.168.118.224
+ * is a Layer-1 name server that refuses, reached from home.
  */
 
 const GRAD_ESSID = 'GRAD-STUDENT-WIFI';
 const GRAD_SLUG = 'grad-student-wifi';
-/** ns-116 — a deep name server on GRAD-STUDENT-WIFI, transfer OPEN. */
+/** ns-116 — a deep name server on GRAD-STUDENT-WIFI, transfer OPEN, on the layer its
+ *  inner gateway fronts. */
 const GRAD_NS_IP = '10.165.42.116';
-/** warehouse-241, a database server on GRAD-STUDENT-WIFI — a real MACHINE, but not a
- *  name server, so a transfer aimed at it has no zone to hand over. Sharper than a
- *  gateway: it proves the target must answer for names, not merely exist as a host. */
+/** warehouse-241, a database server on GRAD-STUDENT-WIFI's own LAN — a real MACHINE
+ *  reachable from home, but not a name server, so a transfer aimed at it has no zone. */
 const GRAD_NON_NS_IP = '192.168.112.241';
 
 /** bind-224 — a Layer-1 name server on OSCORP-GUEST whose `allow-transfer` is closed. */
 const OSCORP_ESSID = 'OSCORP-GUEST';
 const OSCORP_NS_IP = '192.168.118.224';
 
-const axfrEnv = (essid: string) =>
+/** The gateway whose fronted layer carries `serverIp` — the box a player stands on to
+ *  reach a deep name server, derived so an octet reshuffle cannot rot the fixture. */
+const gatewayReaching = (essid: string, serverIp: string): string => {
+  for (const link of chainLinks(essid)) {
+    const resolution = resolveDeepScanHosts(essid, link, buildDirectory({}));
+    if (resolution.hosts.some((entry) => entry.host.ip === serverIp)) return link.machineId;
+  }
+  throw new Error(`no gateway fronts ${serverIp} on ${essid}`);
+};
+
+/** The home env, connected to `essid` by the player's own card — it reaches the top LAN. */
+const axfrEnv = (essid: string, overrides: Partial<Parameters<typeof mockCommandEnv>[0]> = {}) =>
   mockCommandEnv({
     identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
     network: mockNetworkViewFromConnectivity(onlineConnectivity(essid)),
     scan: mockScanApi({ resolveOccupants: async () => [] }),
     now: () => asEpochMs(NOW),
+    ...overrides,
   });
 
-const transfer = async (essid: string, ...args: readonly string[]) =>
-  drain(await dig.execute(axfrEnv(essid), args, new Map()));
+/** The vantage that reaches `serverIp`: home when it is on the connected top LAN,
+ *  otherwise a shell on the gateway that fronts its deep layer. */
+const reachEnv = (
+  essid: string,
+  serverIp: string,
+  overrides: Partial<Parameters<typeof mockCommandEnv>[0]> = {},
+) =>
+  serverIp.startsWith(`${generateHomeLan(essid).subnet}.`)
+    ? axfrEnv(essid, overrides)
+    : standingOn(essid, gatewayReaching(essid, serverIp), overrides);
+
+/** The server address in an argument list — @-stripped, wherever it sits — or undefined
+ *  when none was given (the usage case). */
+const serverInArgs = (args: readonly string[]): string | undefined =>
+  args.map((arg) => (arg.startsWith('@') ? arg.slice(1) : arg)).find((arg) => /^\d+\.\d+\.\d+\.\d+$/.test(arg));
+
+const transfer = async (essid: string, ...args: readonly string[]) => {
+  const serverIp = serverInArgs(args);
+  const env = serverIp === undefined ? axfrEnv(essid) : reachEnv(essid, serverIp);
+  return drain(await dig.execute(env, args, new Map()));
+};
 
 /** One transferred record in the shape `dig` prints it: the fully qualified name,
  *  then TTL, class, type and address — the same columns `dig <name>` uses for a single
@@ -280,8 +384,20 @@ describe('dig — zone transfer', () => {
     expect(exitCode).toBe(1);
   });
 
+  it('refuses a name server the box cannot reach from where it stands', async () => {
+    // ns-116 is a real, open name server — but deep, on a layer a box at home does not
+    // reach. From home it is refused exactly as a non-existent name server is: a player
+    // reaches it only by standing on the gateway that fronts its layer (criterion 6).
+    const { lines, exitCode } = await drain(
+      await dig.execute(axfrEnv(GRAD_ESSID), [`@${GRAD_NS_IP}`, 'axfr'], new Map()),
+    );
+
+    expect(lines).toEqual([`dig: ${GRAD_NS_IP}: no DNS service on target`]);
+    expect(exitCode).toBe(1);
+  });
+
   it('refuses a target that is not a name server on this network', async () => {
-    // A transfer aimed at the LAN gateway has no zone to hand over. Without this the
+    // A transfer aimed at a LAN machine has no zone to hand over. Without this the
     // command would answer with the current network's zone for ANY address typed.
     const { lines, exitCode } = await transfer(GRAD_ESSID, `@${GRAD_NON_NS_IP}`, 'axfr');
 
@@ -347,34 +463,40 @@ describe('dig — zone transfer', () => {
  * The trace the transfer leaves. `dig` reads generation and answers instantly, so the
  * name server would learn nothing on its own — after it prints, `dig` fires a
  * fire-and-forget notify so the server can leave a `/var/log/named.log` line. The
- * notify carries only the network and the server; the server decides everything else.
- * A lookup, a target that is not a name server, and an offline terminal fire nothing —
- * only a real transfer or a real refusal is loud.
+ * notify carries only the network, the server, and the box it ran from; the server
+ * places the caller and decides everything else. A lookup, a target that is not a name
+ * server, and an offline terminal fire nothing — only a real transfer or a real refusal
+ * is loud.
  */
 describe('dig — the transfer leaves a trace', () => {
-  const traceEnv = (essid: string, recordZoneTransfer = vi.fn(async () => undefined)) => ({
+  const traceEnv = (
+    essid: string,
+    serverIp: string,
+    recordZoneTransfer = vi.fn(async () => undefined),
+  ) => ({
     recordZoneTransfer,
-    env: mockCommandEnv({
-      identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
-      network: mockNetworkViewFromConnectivity(onlineConnectivity(essid)),
+    env: reachEnv(essid, serverIp, {
       scan: mockScanApi({ resolveOccupants: async () => [], recordZoneTransfer }),
-      now: () => asEpochMs(NOW),
     }),
   });
 
-  it('tells the name server after handing its zone over, without changing the payout', async () => {
-    const { env, recordZoneTransfer } = traceEnv(GRAD_ESSID);
+  it('tells the name server after handing its zone over, naming the box it ran from', async () => {
+    const { env, recordZoneTransfer } = traceEnv(GRAD_ESSID, GRAD_NS_IP);
 
     const traced = await drain(await dig.execute(env, [`@${GRAD_NS_IP}`, 'axfr'], new Map()));
 
     // Byte-for-byte the untraced transfer — the notify is invisible to the player.
     expect(traced).toEqual(await transfer(GRAD_ESSID, `@${GRAD_NS_IP}`, 'axfr'));
     expect(recordZoneTransfer).toHaveBeenCalledTimes(1);
-    expect(recordZoneTransfer).toHaveBeenCalledWith({ essid: GRAD_ESSID, serverIp: GRAD_NS_IP });
+    expect(recordZoneTransfer).toHaveBeenCalledWith({
+      essid: GRAD_ESSID,
+      serverIp: GRAD_NS_IP,
+      callerMachineId: env.session.machineId,
+    });
   });
 
   it('tells the name server about a refusal too — a denied attempt is still attributable', async () => {
-    const { env, recordZoneTransfer } = traceEnv(OSCORP_ESSID);
+    const { env, recordZoneTransfer } = traceEnv(OSCORP_ESSID, OSCORP_NS_IP);
 
     await drain(await dig.execute(env, [`@${OSCORP_NS_IP}`, 'axfr'], new Map()));
 
@@ -382,11 +504,12 @@ describe('dig — the transfer leaves a trace', () => {
     expect(recordZoneTransfer).toHaveBeenCalledWith({
       essid: OSCORP_ESSID,
       serverIp: OSCORP_NS_IP,
+      callerMachineId: env.session.machineId,
     });
   });
 
   it('says nothing for an ordinary lookup — querylog is off, only transfers are loud', async () => {
-    const { env, recordZoneTransfer } = traceEnv(GRAD_ESSID);
+    const { env, recordZoneTransfer } = traceEnv(GRAD_ESSID, GRAD_NS_IP);
 
     await drain(await dig.execute(env, ['ns-116'], new Map()));
 
@@ -394,7 +517,7 @@ describe('dig — the transfer leaves a trace', () => {
   });
 
   it('says nothing when no name server stands at the target — there is no daemon to log it', async () => {
-    const { env, recordZoneTransfer } = traceEnv(GRAD_ESSID);
+    const { env, recordZoneTransfer } = traceEnv(GRAD_ESSID, GRAD_NON_NS_IP);
 
     await drain(await dig.execute(env, [`@${GRAD_NON_NS_IP}`, 'axfr'], new Map()));
 
@@ -422,11 +545,17 @@ describe('dig — the transfer leaves a trace', () => {
     const failing = vi.fn(async () => {
       throw new Error('trace endpoint down');
     });
-    const { env } = traceEnv(GRAD_ESSID, failing);
+    const { env } = traceEnv(GRAD_ESSID, GRAD_NS_IP, failing);
 
     const traced = await drain(await dig.execute(env, [`@${GRAD_NS_IP}`, 'axfr'], new Map()));
 
     // A rejected notify never reaches the player: the payout and exit are unchanged.
     expect(traced).toEqual(await transfer(GRAD_ESSID, `@${GRAD_NS_IP}`, 'axfr'));
+  });
+});
+
+describe('man dig', () => {
+  it('says it answers for the network the shell is on', () => {
+    expect(dig.manual?.description).toContain('the network you are on');
   });
 });

@@ -11,6 +11,9 @@
  * everything is called. It answers for its OWN network only: a name carrying a
  * different network's domain gets the same NXDOMAIN an invented name does, because
  * there is no world DNS behind this and a player resolves what they are standing on.
+ * That is the network of the box the shell is on (`vantageOf`) — the player's own at
+ * home, a hop's inside a remote shell — and the gateway asked is the one of the
+ * segment that box stands on, a deep layer's own when it stands behind one.
  *
  * Instant, with no pacing and nothing to interrupt: the resolver already holds the
  * answer, so spending real seconds on a simulated round trip would only make the
@@ -18,9 +21,8 @@
  */
 
 import type { Command, CommandResult } from './types.js';
-import { generateHomeLan } from '../generation/generateHomeLan.js';
 import { resolveName } from '../network/resolveName.js';
-import { connectedWlan0 } from '../network/interfaces.js';
+import { resolverFor, vantageOf } from '../network/vantage.js';
 import { errorLine, text } from './streaming.js';
 
 const error = (message: string): CommandResult => ({
@@ -43,19 +45,23 @@ const execute: Command['execute'] = async (env, args) => {
     return error(USAGE);
   }
 
-  const wlan0 = connectedWlan0(env.network);
-  if (wlan0 === null) {
+  const vantage = vantageOf(env.session, env.network);
+  if (vantage === null) {
     return error(UNREACHABLE);
   }
 
-  const essid = wlan0.association.essid;
-  const resolver = `${generateHomeLan(essid).subnet}.1`;
+  const essid = vantage.essid;
+  const resolver = resolverFor(vantage);
   // Named before the answer is known, and printed even when the lookup fails: a
   // player who gets NXDOMAIN has still learned WHICH resolver denied them, which is
   // the first thing worth knowing when the answer is not what you expected.
   const header = [text(`Server:  ${resolver}`), text(`Address: ${resolver}#${DNS_PORT}`), text('')];
 
-  const resolved = await resolveName({ essid, name, resolveOccupants: env.scan.resolveOccupants });
+  const resolved = await resolveName({
+    essid,
+    name,
+    resolveOccupants: (scanned) => env.scan.resolveOccupants(scanned, env.session.machineId),
+  });
   if (resolved === null) {
     return {
       kind: 'sync',
@@ -87,7 +93,7 @@ export const nslookup: Command = {
   manual: {
     synopsis: 'nslookup <name>',
     description:
-      "Ask the network's gateway what address a name points at. Answers for the network you are connected to — names are `<host>.<network>.lan`, and the short form works because that network is your search domain — and for the websites institutions publish to the whole world, such as ridgemont.edu. An unknown name answers NXDOMAIN.",
+      "Ask the network's gateway what address a name points at. Answers for the network you are on — your own at home, or the network of a box you have a shell on — and for the websites institutions publish to the whole world, such as ridgemont.edu. A network's names are `<host>.<network>.lan`, and the short form works because that network is your search domain. An unknown name answers NXDOMAIN.",
     arguments: [
       { name: 'name', description: 'The host name to look up, e.g. web-04', required: true },
     ],

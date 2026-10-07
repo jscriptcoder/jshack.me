@@ -531,32 +531,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (actionOf(req.body) === 'recordZoneTransfer') {
     // A zone transfer runs client-side, so the name server is told about it here: the
     // server recomputes the verdict from generation and writes the box's named.log
-    // itself, under the caller's key, via the same machine-log read-modify-write. The
-    // source IP is the actor's HOME public IP, resolved from their verified key —
-    // never a client claim.
-    const findPublicIpByEssid = derivedPublicIpByEssid;
-    const findHomeNetworkByOwnerKey = async (ownerKey: string) => {
-      const occupancy = await supabase
-        .from('home_network_occupants')
-        .select('essid')
-        .eq('owner_key', ownerKey)
-        .order('updated_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (occupancy.error) {
-        console.error('[patches] axfr source-ip occupancy error:', occupancy.error);
-        return { data: null, error: occupancy.error };
-      }
-      const essid = (occupancy.data as { essid: string } | null)?.essid ?? null;
-      if (essid === null) return { data: null, error: null };
-      return findPublicIpByEssid(essid);
-    };
+    // itself, under the network's key, via the same machine-log read-modify-write. The
+    // source IP is the address the server places the caller's box at on the name
+    // server's own segment — derived from where they stand (their own network, or a
+    // shell they hold), never a client claim.
     const { status, body } = await handleRecordZoneTransfer(req.body, {
       nonceStore: noopNonceStore,
       now: () => Date.now(),
       readLog: listPathPatches,
       upsertPatch,
-      findHomeNetworkByOwnerKey,
+      findActiveSession,
+      findHomeVantage,
+      findWorkstationLease,
     });
     res.status(status).json(body);
     return;

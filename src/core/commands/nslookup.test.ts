@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { nslookup } from './nslookup.js';
 import type { CommandResult } from './types.js';
 import {
@@ -7,13 +7,18 @@ import {
   mockNetworkView,
   mockNetworkViewFromConnectivity,
   mockScanApi,
+  mockSession,
 } from '../../test/factories/commandEnv.js';
 import type { OccupantProjection } from '../network/resolveOccupants.js';
 import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces.js';
 import { assignHomeNetwork } from '../network/homeNetwork.js';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
 import { publisherIp } from '../generation/publisher.js';
-import { asPlayerKeyHex } from '../types.js';
+import { asMachineId, asPlayerKeyHex } from '../types.js';
+import { buildDirectory } from '../../test/factories/filesystem.js';
+import { resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
+import { chainLinks } from '../generation/lanTopology.js';
+import { resolveDeepScanHosts } from '../scan/deepScanHosts.js';
 
 /**
  * `nslookup <name>` — what is this thing called, and where is it?
@@ -257,5 +262,114 @@ describe('nslookup', () => {
       expect(lines).toEqual(['nslookup: network is unreachable — connect to a network first']);
       expect(exitCode).toBe(1);
     });
+  });
+});
+
+const HOP_ESSID = 'RIDGEMONT-OFFICE';
+const DEEP_ESSID = 'TYRELL-CORP';
+
+/** A machine on `essid`'s LAN, other than any excluded — a box a player could really
+ *  hop onto. */
+const machineOn = (essid: string, exclude: readonly string[] = []): LanHost => {
+  const host = generateHomeLan(essid).hosts.find(
+    (candidate) => candidate.kind === 'machine' && !exclude.includes(candidate.ip),
+  );
+  if (host === undefined) throw new Error(`${essid} has no spare machine`);
+  return host;
+};
+
+/** The player stands in a shell on box `machineId` of `essid`, with their own WiFi card
+ *  switched off — the radio stays with the body, the address follows the shell. */
+const standingOn = (
+  essid: string,
+  machineId: string,
+  overrides: Partial<Parameters<typeof mockCommandEnv>[0]> = {},
+) =>
+  mockCommandEnv({
+    identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
+    network: mockNetworkView({ isOnline: () => false, interfaces: () => [] }),
+    session: mockSession({
+      id: 'ssh-hop-1',
+      machineId: asMachineId(machineId),
+      userType: 'root',
+      essid,
+    }),
+    ...overrides,
+  });
+
+/** A machine standing on a deep layer of DEEP_ESSID, with the layer's own subnet. */
+const deepMachine = () => {
+  for (const link of chainLinks(DEEP_ESSID)) {
+    const resolution = resolveDeepScanHosts(DEEP_ESSID, link, buildDirectory({}));
+    const onLayer = resolution.hosts.find((entry) => entry.host.kind === 'machine');
+    if (onLayer !== undefined) return { subnet: resolution.subnet, deep: onLayer };
+  }
+  throw new Error(`${DEEP_ESSID} fronts no deep machine`);
+};
+
+describe('nslookup from a hop', () => {
+  it('asks the hop network’s gateway, and answers its names with the player’s card off', async () => {
+    const hop = machineOn(HOP_ESSID);
+    const target = machineOn(HOP_ESSID, [hop.ip]);
+    const resolver = `${generateHomeLan(HOP_ESSID).subnet}.1`;
+    const env = standingOn(HOP_ESSID, resolveLanHostIdentity(hop, HOP_ESSID).machineId);
+
+    const { lines, exitCode } = await drain(
+      await nslookup.execute(env, [target.hostname], new Map()),
+    );
+
+    expect(lines).toEqual([
+      `Server:  ${resolver}`,
+      `Address: ${resolver}#53`,
+      '',
+      'Non-authoritative answer:',
+      `Name:    ${target.hostname}.ridgemont-office.lan`,
+      `Address: ${target.ip}`,
+    ]);
+    expect(exitCode).toBe(0);
+  });
+
+  it('does not know the player’s home names — that is another network from here', async () => {
+    const hop = machineOn(HOP_ESSID);
+    const hopNames = generateHomeLan(HOP_ESSID).hosts.map((host) => host.hostname);
+    const home = generateHomeLan(ESSID).hosts.find(
+      (host) => host.kind === 'machine' && !hopNames.includes(host.hostname),
+    );
+    if (home === undefined) throw new Error('expected a home name the hop’s LAN lacks');
+    const env = standingOn(HOP_ESSID, resolveLanHostIdentity(hop, HOP_ESSID).machineId);
+
+    const { lines, exitCode } = await drain(await nslookup.execute(env, [home.hostname], new Map()));
+
+    expect(lines.at(-1)).toBe(`** server can't find ${home.hostname}: NXDOMAIN`);
+    expect(exitCode).toBe(1);
+  });
+
+  it('finds a fellow player on the hop’s LAN, asking from the hop', async () => {
+    const hop = machineOn(HOP_ESSID);
+    const hopId = resolveLanHostIdentity(hop, HOP_ESSID).machineId;
+    const resolveOccupants = vi.fn(async () => [
+      { workstation_machine_id: 'ws-neighbour', localIp: '192.168.7.77', machineName: 'skylab' },
+    ]);
+    const env = standingOn(HOP_ESSID, hopId, { scan: mockScanApi({ resolveOccupants }) });
+
+    const { lines } = await drain(await nslookup.execute(env, ['skylab'], new Map()));
+
+    expect(lines.at(-1)).toBe('Address: 192.168.7.77');
+    expect(resolveOccupants).toHaveBeenCalledWith(HOP_ESSID, hopId);
+  });
+
+  it('on a deep layer, asks that layer’s own gateway', async () => {
+    const { subnet, deep } = deepMachine();
+    const env = standingOn(DEEP_ESSID, deep.machineId);
+
+    const { lines } = await drain(await nslookup.execute(env, ['no-such-box'], new Map()));
+
+    expect(lines.slice(0, 2)).toEqual([`Server:  ${subnet}.1`, `Address: ${subnet}.1#53`]);
+  });
+});
+
+describe('man nslookup', () => {
+  it('says it answers for the network the shell is on', () => {
+    expect(nslookup.manual?.description).toContain('the network you are on');
   });
 });

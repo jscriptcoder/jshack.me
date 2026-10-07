@@ -359,6 +359,7 @@ export const recordZoneTransfer = async (
     await post(deps, 'recordZoneTransfer', {
       essid: params.essid,
       server_ip: params.serverIp,
+      caller_machine_id: params.callerMachineId,
     });
   } catch {
     // best-effort: a logging failure must not surface to the transfer.

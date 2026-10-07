@@ -6,12 +6,15 @@
  * line in the box's own `/var/log/named.log`, the DNS equivalent of the scan's
  * `kern.log` and the login's `auth.log` line, read back by whoever roots the box next.
  *
- * The client says only WHICH network and WHICH server it aimed at. It does not get to
- * say who it is, when, or whether the box agreed:
+ * The client says only WHICH network, WHICH server it aimed at, and the box it ran from
+ * (`caller_machine_id`). It does not get to say who it is, when, or whether the box agreed:
  *
- * - the SOURCE is derived server-side from the verified key (`resolveCrossPlayerSourceIp`),
- *   never a client-supplied address — a defender's log a visitor can author is not
- *   evidence, and a forgeable source would let one player frame another;
+ * - the SOURCE is derived server-side from where the caller stands (`resolveCallerVantageOn`
+ *   places them by the box they named, and the line records that box's address on the name
+ *   server's own segment), never a client-supplied address — a defender's log a visitor can
+ *   author is not evidence, and a forgeable source would let one player frame another. A
+ *   caller on a network it is not standing on is refused (`wrong_network`), and a box it
+ *   holds no shell on (`no_session`);
  * - the CLOCK is the server's;
  * - the VERDICT — handed over vs refused — is recomputed here from generation, the same
  *   authority `dig` transferred from, so the log and a rooted `cat` of the zone can
@@ -34,16 +37,15 @@ import { z } from 'zod';
 import { verifySignedRequest } from '../signedRequest/verify.js';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
 import { asGameTime } from '../types.js';
+import { generateHomeLan } from '../generation/generateHomeLan.js';
+import { segmentsReachedFrom, type ReachedSegment } from '../generation/lanTopology.js';
+import { resolveCallerVantageOn, type CallerVantageDeps } from '../sessions/callerVantage.js';
 import {
   NAMED_LOG_OWNER,
   NAMED_LOG_PATH,
   NAMED_LOG_PERMISSIONS,
   formatNamedXfrLine,
 } from '../logging/namedLog.js';
-import {
-  resolveCrossPlayerSourceIp,
-  type FindHomeNetworkByOwnerKey,
-} from '../logging/crossPlayerSourceIp.js';
 import {
   allowsZoneTransfer,
   nameServerMachineIdAt,
@@ -59,15 +61,13 @@ import {
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 import type { PatchRow } from './upsertPatch.js';
 
-export type RecordZoneTransferDeps = {
+export type RecordZoneTransferDeps = CallerVantageDeps & {
   readonly nonceStore: NonceStore;
   /** The server's wall clock, epoch-ms (UTC). Injected so the handler is pure and
    *  deterministic under test. */
   readonly now: () => number;
   readonly readLog: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
   readonly upsertPatch: (row: PatchRow) => Promise<{ readonly error: unknown }>;
-  /** The address the transferring player OWNS, from their verified key. */
-  readonly findHomeNetworkByOwnerKey: FindHomeNetworkByOwnerKey;
 };
 
 export type HandlerResponse = {
@@ -83,8 +83,26 @@ const recordZoneTransferSchema = z
     action: z.literal('recordZoneTransfer'),
     essid: z.string().min(1),
     server_ip: z.string().min(1),
+    caller_machine_id: z.string().min(1).optional(),
   })
   .refine((payload) => !('player_key' in payload) && !('writer_key' in payload));
+
+/** Every network the caller's box reaches, each with the address it is seen at there —
+ *  from the box it names, or (at home, or on its own workstation) the single top LAN it
+ *  stands on, addressed by the lease the vantage placed it at. Mirrors the client's
+ *  `vantageOf`, so the source a trace records and the segment a transfer travelled over
+ *  are the one answer. */
+const reachedSegmentsFor = (
+  essid: string,
+  callerMachineId: string | undefined,
+  homeSource: string | null,
+): readonly ReachedSegment[] => {
+  if (callerMachineId !== undefined) {
+    const reached = segmentsReachedFrom(essid, callerMachineId);
+    if (reached !== null) return reached;
+  }
+  return [{ subnet: generateHomeLan(essid).subnet, fronting: null, address: homeSource }];
+};
 
 export const handleRecordZoneTransfer = async (
   body: unknown,
@@ -99,6 +117,29 @@ export const handleRecordZoneTransfer = async (
 
   const { publicKey, payload } = verified;
 
+  // Where the caller stands, placed from the box they named rather than a claim: their
+  // own network at home, or a shell they hold. A network they are not on is refused, as
+  // is a box they hold no session on — the same boundary every own-LAN trace draws.
+  const vantage = await resolveCallerVantageOn(
+    deps,
+    publicKey,
+    payload.caller_machine_id,
+    payload.essid,
+  );
+  if (!vantage.ok) return { status: vantage.status, body: { error: vantage.error } };
+
+  // The segment the transfer travelled over: the name server sits on one network the box
+  // reaches, and the source the line records is the box's address on THAT segment — its
+  // deep-layer address for a deep name server, its LAN address for a top-LAN one. A box
+  // that reaches no segment the server is on could not have transferred from it, so
+  // nothing is written.
+  const sourceSegment = reachedSegmentsFor(payload.essid, payload.caller_machine_id, vantage.sourceIp).find(
+    (segment) => payload.server_ip.startsWith(`${segment.subnet}.`),
+  );
+  if (sourceSegment === undefined) {
+    return { status: 200, body: { ok: true } };
+  }
+
   // No name server at the target — nothing there keeps a log, so nothing is written.
   // The verdict recompute below never runs for a box that does not exist as a server.
   const machineId = nameServerMachineIdAt(payload.essid, payload.server_ip);
@@ -109,7 +150,7 @@ export const handleRecordZoneTransfer = async (
   const stamp = deps.now();
   const line = formatNamedXfrLine({
     time: asGameTime(stamp),
-    sourceIp: await resolveCrossPlayerSourceIp(deps.findHomeNetworkByOwnerKey, publicKey),
+    sourceIp: sourceSegment.address ?? 'unknown',
     zone: lanZoneName(payload.essid),
     outcome: allowsZoneTransfer(payload.essid, payload.server_ip)
       ? { verdict: 'transferred', records: zoneRecordsFor(payload.essid).length }
