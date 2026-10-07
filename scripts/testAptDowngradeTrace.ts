@@ -109,7 +109,8 @@ const NPC_MACHINE = machineIdForLanHost(npcHost, A_ESSID);
 const PACKAGE = 'redis';
 const FROM_VERSION = '7.9.7';
 const TO_VERSION = '7.2.5';
-// The address B CLAIMS. It must never reach a log that is not B's own.
+// The address B CLAIMS. The server places every trace from where B stands, so this must
+// never reach a log at all — not even a generated box's, which used to take it.
 const CLAIMED_IP = '10.0.0.66';
 
 const PIVOT_SESSION = 'ssh-pivot-dpkg-wirecheck';
@@ -334,11 +335,14 @@ check(
 const npcRow = await logRow(NPC_MACHINE);
 const npcLine = npcRow === null ? '' : latestLine(npcRow.content);
 check(
-  "11. it lands in the NETWORK's row, at the address they reported",
+  "11. it lands in the NETWORK's row, at the SERVER-derived address, never the one claimed",
   npcRow !== null &&
     npcRow.writerKey === apGatewayLogWriterKey(A_ESSID) &&
-    npcLine.includes(`Client "${CLAIMED_IP}"`),
-  npcRow === null ? '(no dpkg.log row)' : `writer ${npcRow.writerKey.slice(0, 12)}…; ${npcLine}`,
+    npcLine.includes(`Client "${B_PUBLIC_IP}"`) &&
+    !npcLine.includes(CLAIMED_IP),
+  npcRow === null
+    ? '(no dpkg.log row)'
+    : `writer ${npcRow.writerKey.slice(0, 12)}…; ${npcLine}  — claimed ${CLAIMED_IP}, B at ${B_PUBLIC_IP}`,
 );
 
 // === 7. A blank version is refused rather than rendered ============================

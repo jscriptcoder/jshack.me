@@ -252,7 +252,6 @@ export type FtpTransferRecord = {
   readonly direction: TransferDirection;
   readonly path: AbsPath;
   readonly bytes: number;
-  readonly sourceIp: string | null;
   /** The box the transfer was run FROM. On a generated host it changes nothing — the
    *  reported address is already the only one that box could have seen. On another
    *  player's box it is what lets the server name the network the visitor is standing
@@ -275,7 +274,6 @@ export const recordFtpTransfer = async (
       direction: transfer.direction,
       path: transfer.path,
       bytes: transfer.bytes,
-      source_ip: transfer.sourceIp,
       caller_machine_id: transfer.callerMachineId,
     });
   } catch {
@@ -294,7 +292,6 @@ export type PackageDowngradeRecord = {
    *  naming only where it ended up cannot tell its owner how far back it was taken. */
   readonly fromVersion: string;
   readonly toVersion: string;
-  readonly sourceIp: string | null;
   /** The box the rollback was LAUNCHED from — the hop below the one being rolled back,
    *  because a downgrade happens where you are standing rather than on a separate target.
    *  Absent at the player's own workstation, which the server reads as their own home
@@ -318,7 +315,6 @@ export const recordPackageDowngrade = async (
       package_name: downgrade.packageName,
       from_version: downgrade.fromVersion,
       to_version: downgrade.toVersion,
-      source_ip: downgrade.sourceIp,
       caller_machine_id: downgrade.callerMachineId,
     });
   } catch {

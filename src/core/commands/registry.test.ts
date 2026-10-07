@@ -108,3 +108,75 @@ describe('commandRegistry', () => {
     expect(commandRegistry.get('cat')?.category).toBe('filesystem');
   });
 });
+
+/**
+ * No IP tool is left at home. Every command that reaches another machine runs from the
+ * box the shell stands on, so each `network`-category command is accounted for exactly
+ * once: an IP tool that travels from the vantage, or a box-local tool that does not. A
+ * command added later in neither list fails here the day it is registered — forcing its
+ * author either to wire the vantage and prove it in that tool's own "from a hop" tests,
+ * or to record why it stays put.
+ *
+ * The IP list is decision 2's roster; the per-tool runtime proof that each carries the
+ * shell's box lives in each tool's own test file (ssh/nmap/curl/… "from a hop"). What
+ * this guard owns is completeness: the set cannot grow a tool that nobody decided about.
+ */
+describe('every IP tool runs from a hop, and only box-local tools stay home', () => {
+  // Reaches another machine, so it travels from the vantage (decision 2).
+  const IP_TOOLS: ReadonlySet<string> = new Set([
+    'ssh',
+    'scp',
+    'ftp',
+    'nc',
+    'nmap',
+    'ping',
+    'curl',
+    'lynx',
+    'gobuster',
+    'hydra',
+    'mysql',
+    'redis-cli',
+    'snmpwalk',
+    'snmpset',
+    'msfconsole',
+    'apt',
+    'dig',
+    'nslookup',
+  ]);
+
+  // Acts on the box itself, so where the shell stands does not move it.
+  const BOX_LOCAL_TOOLS: ReadonlyMap<string, string> = new Map([
+    ['sshd', 'daemon — brings a service up on the box it runs on'],
+    ['vsftpd', 'daemon — brings a service up on the box it runs on'],
+    ['nginx', 'daemon — brings a service up on the box it runs on'],
+    ['apache2', 'daemon — brings a service up on the box it runs on'],
+    ['mysqld', 'daemon — brings a service up on the box it runs on'],
+    ['named', 'daemon — brings a service up on the box it runs on'],
+    ['redis-server', 'daemon — brings a service up on the box it runs on'],
+    ['systemctl', 'controls the box’s own services'],
+    ['kill', 'ends one of the box’s own processes'],
+    ['ps', 'lists the box’s own processes'],
+    ['ifconfig', 'reads out where the shell stands (decision 9)'],
+    ['whois', 'a registry lookup reveals nothing location-dependent (decision 2)'],
+  ]);
+
+  const networkCommands = [...commandRegistry.values()]
+    .filter((command) => command.category === 'network')
+    .map((command) => command.name);
+
+  it('classifies every network-category command as an IP tool or a box-local one', () => {
+    for (const name of networkCommands) {
+      // Exactly one bucket: a new command lands in neither and fails here, so it cannot
+      // be registered as a network tool without a decision about where it runs from.
+      const classified = IP_TOOLS.has(name) !== BOX_LOCAL_TOOLS.has(name);
+      expect(classified, `${name} is in neither (or both) of the IP / box-local lists`).toBe(true);
+    }
+  });
+
+  it('keeps no stale name in either list that the registry no longer carries', () => {
+    const registered = new Set(networkCommands);
+    for (const name of [...IP_TOOLS, ...BOX_LOCAL_TOOLS.keys()]) {
+      expect(registered.has(name), `${name} is listed but no longer a network command`).toBe(true);
+    }
+  });
+});

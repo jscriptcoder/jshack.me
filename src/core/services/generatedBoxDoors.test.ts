@@ -142,9 +142,11 @@ const on = async (
   const userType = options.userType ?? 'root';
   const patches: Patch[] = [];
   const env = mockCommandEnv({
-    session: mockSession({ userType }),
+    // A shell held ON this generated box: that session is the vantage every network tool
+    // (here, `apt`) reaches the repo from, the radio left back with the player's body.
+    session: mockSession({ userType, essid: 'GENERATED-BOX-LAB' }),
     fs: mockFsViewFromTree(box, { userType, cwd: () => asAbsPath('/') }),
-    network: { ...mockCommandEnv().network, isOnline: () => true },
+    network: { ...mockCommandEnv().network, isOnline: () => false },
     patches: {
       ...mockPatchApi(),
       remove: async (path) => {

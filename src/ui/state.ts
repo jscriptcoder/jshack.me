@@ -648,7 +648,6 @@ const ftpBinding = (): Pick<
         direction,
         path,
         bytes,
-        sourceIp: localAddress(),
         callerMachineId: requireSession().machineId,
       }),
   };
@@ -884,7 +883,6 @@ const aptDowngradeRecord = (downgrade: AptDowngrade): PackageDowngradeRecord => 
     packageName: downgrade.packageName,
     fromVersion: downgrade.fromVersion,
     toVersion: downgrade.toVersion,
-    sourceIp: localAddress(),
     ...(launchedFrom === undefined ? {} : { callerMachineId: launchedFrom }),
   };
 };

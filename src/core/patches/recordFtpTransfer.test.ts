@@ -4,10 +4,8 @@ import type { PatchRow } from './upsertPatch.js';
 import type { ActiveSession, FindActiveSessionResult } from './authorizeMachineAccess.js';
 import type { MachineLogReadQuery, MachineLogReadResult } from './appendMachineLog.js';
 import type { FindOccupantWorkstationByMachineId } from './remoteWritePermission.js';
-import type {
-  FindHomeNetworkByOwnerKey,
-  FindPublicIpByEssid,
-} from '../logging/crossPlayerSourceIp.js';
+import type { FindPublicIpByEssid } from '../logging/crossPlayerSourceIp.js';
+import type { FindHomeVantage, FindWorkstationLease } from '../sessions/callerVantage.js';
 import { md5 } from '../generation/md5.js';
 import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
 import { signRequest } from '../signedRequest/sign.js';
@@ -54,8 +52,12 @@ const theirWorkstation = {
   workstation_username: 'morpheus',
   workstation_root_hash: md5('toor'),
 };
-// What the server resolves for the actor: the address they own, and the address of a
-// network they are merely standing on.
+// Where the server places the actor. By default they are at home on their OWN network —
+// a different ESSID from the box's — so a reach to the box crosses a NAT and is seen at
+// the home network's PUBLIC address. A neighbour on the box's own LAN is named by the
+// lease they hold there instead.
+const ACTOR_HOME_ESSID = 'SKYLAB-HOUSE';
+const ACTOR_HOME_OCTET = 42;
 const ACTOR_HOME_IP = '198.51.100.22';
 const PIVOT_ESSID = 'CAFE-DEL-MAR-GUEST';
 const PIVOT_PUBLIC_IP = '203.0.113.199';
@@ -79,12 +81,19 @@ const makeDeps = (over: Partial<RecordFtpTransferDeps> = {}) => {
     data: null,
     error: null,
   }));
-  const findHomeNetworkByOwnerKey = vi.fn<FindHomeNetworkByOwnerKey>(async () => ({
-    data: { public_ip: ACTOR_HOME_IP },
+  const findHomeVantage = vi.fn<FindHomeVantage>(async () => ({
+    data: { essid: ACTOR_HOME_ESSID, octet: ACTOR_HOME_OCTET },
     error: null,
   }));
-  const findPublicIpByEssid = vi.fn<FindPublicIpByEssid>(async () => ({
-    data: { public_ip: PIVOT_PUBLIC_IP },
+  // A caller standing on another player's box holds no generated placement there, so the
+  // vantage falls to this lease — null by default, which lands the cross-network path on
+  // the standing network's public address.
+  const findWorkstationLease = vi.fn<FindWorkstationLease>(async () => ({
+    data: null,
+    error: null,
+  }));
+  const findPublicIpByEssid = vi.fn<FindPublicIpByEssid>(async (essid) => ({
+    data: { public_ip: essid === PIVOT_ESSID ? PIVOT_PUBLIC_IP : ACTOR_HOME_IP },
     error: null,
   }));
   const deps: RecordFtpTransferDeps = {
@@ -94,7 +103,8 @@ const makeDeps = (over: Partial<RecordFtpTransferDeps> = {}) => {
     readLog,
     upsertPatch,
     findOccupantWorkstationByMachineId,
-    findHomeNetworkByOwnerKey,
+    findHomeVantage,
+    findWorkstationLease,
     findPublicIpByEssid,
     ...over,
   };
@@ -104,7 +114,8 @@ const makeDeps = (over: Partial<RecordFtpTransferDeps> = {}) => {
     readLog,
     findActiveSession,
     findOccupantWorkstationByMachineId,
-    findHomeNetworkByOwnerKey,
+    findHomeVantage,
+    findWorkstationLease,
     findPublicIpByEssid,
   };
 };
@@ -132,7 +143,7 @@ describe('handleRecordFtpTransfer', () => {
       writer_key: apGatewayLogWriterKey(activeSession().essid),
       machine_id: THEIR_BOX,
       path: VSFTPD_LOG_PATH,
-      content: `Fri Aug 14 13:56:02 2026 [pid ${derivePid(STAMP)}] [guest] OK DOWNLOAD: Client "10.0.0.9", "/etc/passwd", 1243 bytes\n`,
+      content: `Fri Aug 14 13:56:02 2026 [pid ${derivePid(STAMP)}] [guest] OK DOWNLOAD: Client "198.51.100.22", "/etc/passwd", 1243 bytes\n`,
       owner: VSFTPD_LOG_OWNER,
       permissions: VSFTPD_LOG_PERMISSIONS,
       node_type: 'file',
@@ -155,7 +166,7 @@ describe('handleRecordFtpTransfer', () => {
     // One log, one shape, both halves of a visit.
     expect(result).toEqual({ status: 200, body: { ok: true } });
     expect(upsertPatch.mock.calls[0]![0].content).toBe(
-      `Fri Aug 14 13:56:02 2026 [pid ${derivePid(STAMP)}] [guest] OK UPLOAD: Client "10.0.0.9", "/home/guest/backdoor.sh", 512 bytes\n`,
+      `Fri Aug 14 13:56:02 2026 [pid ${derivePid(STAMP)}] [guest] OK UPLOAD: Client "198.51.100.22", "/home/guest/backdoor.sh", 512 bytes\n`,
     );
   });
 
@@ -214,7 +225,7 @@ describe('handleRecordFtpTransfer', () => {
     await handleRecordFtpTransfer(envelope, deps);
 
     expect(upsertPatch.mock.calls[0]![0].content).toBe(
-      `AN EARLIER LOGIN\nFri Aug 14 13:56:02 2026 [pid ${derivePid(STAMP)}] [guest] OK DOWNLOAD: Client "10.0.0.9", "/etc/passwd", 1243 bytes\n`,
+      `AN EARLIER LOGIN\nFri Aug 14 13:56:02 2026 [pid ${derivePid(STAMP)}] [guest] OK DOWNLOAD: Client "198.51.100.22", "/etc/passwd", 1243 bytes\n`,
     );
   });
 
@@ -261,16 +272,19 @@ describe('handleRecordFtpTransfer', () => {
     expect(result).toEqual({ status: 500, body: { error: 'session_lookup_failed' } });
   });
 
-  it('names an unknown client when the caller is on no network to report', async () => {
+  it('names an unknown client rather than a false one when the address cannot be resolved', async () => {
     const id = generateIdentity();
     const { source_ip: _omitted, ...withoutVantage } = transfer;
     const envelope = signRequest(id, 'recordFtpTransfer', withoutVantage);
-    const { deps, upsertPatch } = makeDeps();
+    // Placed on a network whose public address cannot be read: the transfer still
+    // happened, so the line is still written — the client named unknown rather than a
+    // guess, and never the address the caller tried to send.
+    const { deps, upsertPatch } = makeDeps({
+      findPublicIpByEssid: async () => ({ data: null, error: null }),
+    });
 
     await handleRecordFtpTransfer(envelope, deps);
 
-    // The transfer still happened, so the line is still written — with the client
-    // named as unknown rather than left blank, which reads as a corrupt log.
     expect(upsertPatch.mock.calls[0]![0].content).toContain('Client "unknown"');
   });
 
@@ -332,11 +346,11 @@ describe('handleRecordFtpTransfer', () => {
     it('names the address the SERVER resolves for the visitor, not the one they sent', async () => {
       const id = generateIdentity();
       const envelope = signRequest(id, 'recordFtpTransfer', { ...transfer, source_ip: '10.0.0.9' });
-      const { deps, upsertPatch, findHomeNetworkByOwnerKey } = onTheirBox();
+      const { deps, upsertPatch, findHomeVantage } = onTheirBox();
 
       await handleRecordFtpTransfer(envelope, deps);
 
-      expect(findHomeNetworkByOwnerKey).toHaveBeenCalledWith(id.publicKeyHex);
+      expect(findHomeVantage).toHaveBeenCalledWith(id.publicKeyHex);
       expect(upsertPatch.mock.calls[0]![0].content).toContain(`Client "${ACTOR_HOME_IP}"`);
       expect(upsertPatch.mock.calls[0]![0].content).not.toContain('10.0.0.9');
     });
@@ -376,9 +390,9 @@ describe('handleRecordFtpTransfer', () => {
       await handleRecordFtpTransfer(envelope, deps);
 
       // Reaching out from home is the ordinary case, and it holds no session row — the
-      // own-box L1 bypass hands one back as null. No network being stood on means the
-      // address is the one they own.
-      expect(findPublicIpByEssid).not.toHaveBeenCalled();
+      // own-box L1 bypass hands one back as null, placing the caller on their own home
+      // network. The target is elsewhere, so it saw that network's public address.
+      expect(findPublicIpByEssid).toHaveBeenCalledWith(ACTOR_HOME_ESSID);
       expect(upsertPatch.mock.calls[0]![0].content).toContain(`Client "${ACTOR_HOME_IP}"`);
     });
 
