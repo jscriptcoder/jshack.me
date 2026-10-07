@@ -57,7 +57,7 @@ Shipped so far (each milestone is in git history + its as-built doc/plan):
   its place in the world (`world.ts` `publicAddress`), and the allocator, `generatePublicIp` and
   the table are gone (`20260929000000_drop_network_public_ips.sql`).
 
-- **Shared-network reconciliation 🔨 IN PROGRESS (sharing work DONE at v0.94.0; only the registry removal remains)** (epic doc item #5, grilled & resolved
+- **Shared-network reconciliation ✅ COMPLETE (sharing work at v0.94.0; registry removed in Slices 6a + 6b below)** (epic doc item #5, grilled & resolved
   2026-07-25). The ESSID becomes the seed for the whole LAN. Merged so far:
   - **Slice 1 (v0.88.0)** — one shared, contested AP gateway per ESSID; the per-player router
     retires. `computeApGatewayId(essid)`, ESSID-seeded hostname + admin password.
@@ -618,9 +618,28 @@ glow, glitch, HUD and cursor one at a time. Amber, green, cyan and light look ex
 As built: handbook chapter 4, *Theming*. The plan was retired on close-out; its open items are in
 §9 under "Neon themes deferred".
 
-To pick up the next work: legacy parity is done, so there is no active epic. The remaining named
-work is the **post-ship missions epic** (see §9 and `docs/mission-ideas/`) and the deferred backlog
-in §9. When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
+**Operate from a hop — DONE (2026-10-07, v0.323.0):** #598–#615. Every IP tool runs from the box
+the shell stands on, and the server places each trace at that box's address. As built: handbook
+chapters 7 and 8 and `cross-player-architecture.md` §8; the summary and its follow-ups are in §9
+under "Pivot / operate-from-a-hop". Three of its four follow-ups closed at v0.324.0 (#616).
+
+To pick up the next work: there is no active epic. **The owner has postponed the missions epic
+(decided 2026-10-07)** to playtest the multiplayer sandbox as it stands first; missions come later
+(see `docs/mission-ideas/`). Until then the work is sandbox hardening from §9, in this agreed order:
+
+1. ✅ Operate-from-a-hop leftovers: `whois` from a hop, `man ssh` exit wording, WiFi followed across
+   tabs (#616, v0.324.0). **Still open:** the `reboot` `kern.log` line's source address and
+   hostname (§9, under "Pivot / operate-from-a-hop").
+2. ✅ Wire-check failures (#617, 2026-10-07): every script named in §9 passes alone.
+3. **Next:** small bugs a playtester would hit — `grep -c` (§9), `nmap` running a 5-digit port into
+   the STATE column (§9), `snmpd` not runnable by name (§9).
+4. Then give a player's own box an attack surface, so two players can go after each other's
+   machines: workstation daemons (mysqld/redis, §9 "Game-design / content ideas"), and later the
+   CVE arc.
+5. Defender-side items: hidden `auth.log` lines on a shared deep box, the `echo x > rules.v4` wipe,
+   player-driven service patching (all §9). In-game tutorials matter once others playtest.
+
+When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan
 and that is expected. For the shipped systems, start from the three as-built docs named at the top
 of this section, then the cross-player architecture doc if the work touches cross-player paths, and
