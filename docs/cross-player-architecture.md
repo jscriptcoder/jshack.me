@@ -321,13 +321,15 @@ shipped attack loop into an attacker/defender loop.
   `(machine_id, path, writer_key)`, append `${line}\n`, upsert `node_type:'file'`. A failed READ bails
   without writing (never clobbers). **Best-effort throughout**: a logging read/write failure never
   breaks — or fabricates — the underlying scan / auth (each handler wraps the call in try/catch).
-- **Source IP is server-derived, never the client `source_ip`** — `resolveCrossPlayerSourceIp`
-  (`core/logging/crossPlayerSourceIp.ts`, via `FindRegistryByOwnerKey`) maps the attacker's verified
-  pubkey → their HOME public IP. Forging / framing another network is impossible by construction; a
-  client-supplied `source_ip` is ignored. It is the attacker's **operating-machine** IP — B's home box
-  today (v2 has no command-vantage switch); when the pivot feature ships the operating machine becomes
-  the hop and the same path logs the hop's IP, masking B — no logging rework. (su lines carry **no**
-  source IP — they are username-only.)
+- **Source IP is server-derived, never the client `source_ip`.** Forging / framing another network is
+  impossible by construction; a client-supplied `source_ip` is ignored. It is the attacker's
+  **operating-machine** IP — the box their shell stands on. The original cross-player handlers mapped
+  the attacker's verified pubkey → their HOME public IP (`resolveCrossPlayerSourceIp`,
+  `core/logging/crossPlayerSourceIp.ts`); the **operate-from-a-hop** epic since generalised this to the
+  shell's box — the server places the caller from their session (`resolveCallerVantage`, via
+  `caller_machine_id`) and sources the line from that box's address (the hop's LAN address, its
+  deep-layer address, or the hop network's public IP across a NAT), so a trace left through a hop names
+  the hop, masking the attacker. (su lines carry **no** source IP — they are username-only.)
 - **The three cross-player handlers + the own-LAN fix:**
   - **Scan** (`resolvePublicScan`, 6.1): after a host-up resolve, one `formatNmapScanAggregate`
     `kern.log` line on the **router** record (`router_machine_id`), hostname =
@@ -429,10 +431,11 @@ observable attacker/defender loop. Confirmed live (agent-browser + per-slice wir
 `scripts/testCrossPlayer{Scan,Connection,Su}Trace.ts`). Decision 8: a cross-player ssh leaves both a
 scan and an auth trace (no silent recon).
 
-Since shipped: **Story 7** (same-wifi shared-LAN occupancy) and **5b** (multi-layer generated
-target networks). Still deferred: the **pivot / operate-from-a-hop** vantage (its own story — the
-source-IP derivation above is already shaped for it, so it needs no logging rework). See
-`conventions-and-gotchas.md` §9 under "Cross-player / multiplayer deferred".
+Since shipped: **Story 7** (same-wifi shared-LAN occupancy), **5b** (multi-layer generated target
+networks), and the **operate-from-a-hop** vantage — every IP tool now runs from the box its shell
+stands on, reachability and server-derived source address both, as the source-IP derivation above was
+shaped for (no logging rework). As-built: handbook chapter 7 ("Reachability"), and the chain/cascade
+in chapter 8 ("Reboots and boot ids").
 
 **Known accepted gap (deferred to an L3 smart-server):** a client with a valid keypair can
 mint an `effect_one_shot`/root session via `createSession` and call the read/reset effects

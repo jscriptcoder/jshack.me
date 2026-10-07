@@ -39,15 +39,6 @@ tier for non-owners, or to skip the raw journal read on cross-player hops.
 
 ## Latent bugs and sharp edges
 
-- **Probable bug: generated-box logs are split across writer keys.** The own-LAN login handler
-  (`core/sessions/authCreateSession.ts`, `logLoginAttempt`) writes `auth.log`/`vsftpd.log` on a
-  generated box under the **caller's** key, and `resolveTraceProvenance`
-  (`core/patches/traceProvenance.ts`, used by the FTP-transfer and downgrade traces) does the same for
-  any unowned box, as does the zone-transfer trace (`named.log`, in `api/patches.ts`). `hydraCrack.ts`, the shared
-  reach in `serviceHost.ts` and `rebootMachine.ts` use the access point's key (`ap:<essid>`). Because
-  replay keeps only the newest row per path, lines from the other rows vanish from what the defender
-  sees. `hydraCrack.ts` itself documents why the keys must agree. Confirm with a wire-check (an
-  own-LAN `ssh` login and a `hydra` sweep on the same box, then `cat /var/log/auth.log`).
 - **`removePatch` deletes descendants with SQL `LIKE '<path>/%'`.** `_` and `%` in a path are
   wildcards and would over-match (only the caller's own rows).
 - **The edit-conflict check is not atomic** with the upsert: two saves from the same base within one

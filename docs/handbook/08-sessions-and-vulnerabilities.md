@@ -97,6 +97,13 @@ a fresh random boot id to `/var/run/boot-id`. Each client session records the bo
 session has been evicted. `null` ("read, no marker yet") is distinct from `undefined` ("not read
 yet"), which is what lets the very first reboot of a box evict anyone.
 
+A reboot (or a box going dark) also ends every session **stacked above** that box through the hop
+chain, server-side, with reason `upstream_lost` (`sessions/upstreamLost.ts`, `endChainsAbove`); the
+terminal drops to the deepest surviving hop, printing `Connection to <host> closed by remote host.`
+per closed leg, and rehydration ends any orphaned child the same way. Nothing else re-validates an
+open session: a changed password, a closed forward or a new ACL rule affects only new logins, as a
+real `sshd` does — so a defender evicts an intruder by rebooting.
+
 ## Logging in: the credential check
 
 The password login handlers follow the same steps:

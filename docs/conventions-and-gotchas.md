@@ -43,8 +43,8 @@ Shipped so far (each milestone is in git history + its as-built doc/plan):
   ⚠️ Two claims here were **superseded by shared-network reconciliation** (below):
   the **octet reservation** in `mergeLanOccupants` is gone (Slice 4), and depth is no longer
   per-player — chains are **ESSID-shared** (Slice 5), so the "cross-player depth deferred"
-  note no longer applies. A fixed-IP mission catalog is still deferred, as is pivot
-  **source-IP masking** — both in §9 under "Cross-player / multiplayer deferred".
+  note no longer applies. A fixed-IP mission catalog is still deferred (§9 under "Cross-player /
+  multiplayer deferred"); pivot source-IP masking shipped as the operate-from-a-hop epic.
 
 - **Unique public-IP allocation ✅ COMPLETE (v0.87.0).** A network's WAN address is now
   **server-issued and stored**, not derived: `network_public_ips(essid PK, public_ip UNIQUE)`
@@ -298,12 +298,10 @@ still know before touching it:
   - **Sizes come back, pages do not.** Finding a path and reading it stay two acts, and the
     second leaves its own line. Returning bodies here would deliver every page found under the
     sweep's own wall of 404s with nothing recording that they were read.
-  - **The trace is VANTAGE-derived** (`resolveVantageSourceIp`, as `hydraCrackPublic` does): a
-    sweep launched from a box the caller only holds a session on is traced to THAT network.
-    ⚠️ **`curl` and `lynx` still stamp the actor's HOME address on the same handler**, because
-    neither sends a caller machine — two source-IP rules inside one web door until they get one.
-    Accepted knowingly; it is the slice named alongside `ssh`/`nmap` above and **backlogged in
-    §9**, which carries the whole four-tool list.
+  - **The trace is VANTAGE-derived** (`resolveVantageSourceIp`): a sweep launched from a box the
+    caller only holds a session on is traced to THAT network. ✅ `curl` and `lynx` now derive the
+    vantage the same way (operate-from-a-hop slice 7, v0.316.0) — one source-IP rule across the whole
+    web door, no home-address stamp.
   - **One definition of a probe** (`core/network/webSweep.ts`, `sweepWord`) shared by the own-LAN
     sweep and the server's, and **one reachability chain** (`resolveWebTarget`, extracted from
     `handleResolveHttpFetch`) shared by the fetch and the sweep — so a path found by sweeping a
@@ -373,18 +371,12 @@ still know before touching it:
     fetched; the slice deleted it rather than replacing it, and a deep-chain box became placeable for
     free because its session carries the caller's own essid. Before adding a refusal for "the server
     cannot know where you are", check whether a session already says.
-  - **`ssh`, `nmap`, `curl` and `lynx` do NOT pivot** (accurate as of v0.136.0; the list grew — it
-    read `ssh`/`nmap` only while it was written at v0.121.0). `resolvePublicScan` and
-    `resolveHttpFetch` carry no `caller_machine_id` at all, so they cannot derive a vantage even
-    in principle. `authCreateSessionPublic` now *accepts* one (D3 slice 6 gave the `ftp` door an
-    honest vantage), but `ssh` still sends none and therefore still traces to the actor's home —
-    the client half is the whole of what is left for that one. One shell on a rooted box
-    therefore produces a hydra trace and a `gobuster` trace pointing at the pivot, and an `ssh`,
-    `nmap`, `curl` or `lynx` trace pointing at the attacker. `resolveVantageSourceIp` is already
-    shaped for the fix; the client half (each command naming the box it runs from, as `hydra.ts`
-    and `gobuster.ts` do) is the real work. **Backlogged in §9** — and note `curl` currently needs
-    no session at all to fetch, so giving it a caller machine changes that contract, which is the
-    part to decide rather than assume.
+  - **Every IP tool now pivots ✅** (operate-from-a-hop, #598–#615, v0.307.0–v0.323.0). `ssh`, `nmap`,
+    `curl`, `lynx` and the rest each name the box they run from (`caller_machine_id`) and the server
+    places the caller (`resolveCallerVantage`), so one shell on a rooted box produces traces that all
+    point at the pivot — no mix of pivot and home. `curl` from home still needs no session (decision 6);
+    it gains a caller only when the player stands somewhere. As-built: handbook chapter 7
+    ("Reachability").
   - **A cross-player trace is written under the TARGET's log-writer key, and its source IP is
     server-derived.** On your own LAN hydra matches `ssh` and trusts the client's address (the
     occupant is an NPC; nobody to frame). Across the network the log is the defender's only
@@ -3292,18 +3284,6 @@ blocks the live PvP loop; each was a scoped owner decision, not a gap.
   — `ls scripts/test*.ts | wc -l` is the answer that cannot go stale.) Raised repeatedly and
   deliberately not taken on yet; it needs a CI supabase + a way to boot the functions
   headlessly, which is a piece of work in its own right rather than a config tweak.
-- **Four tools cannot pivot: `ssh`, `nmap`, `curl`, `lynx`.** They carry no `caller_machine_id`,
-  so a trace they leave names the actor's HOME even when the attack came from a box they only hold
-  a session on. `hydra` and `gobuster` do carry one and trace truthfully, so **one shell on a rooted
-  box currently produces traces with two different origins** — which is the reason to close it: a
-  defender's log is the attacker's whole visible cost, and a false address in it is worse than a
-  refusal (the rule D2.4 locked). Server side is ready — `resolveVantageSourceIp` takes
-  `{actorKey, standingEssid}` and the authorization that yields the session is the same
-  `authorizeMachineAccess` the other two already call. The work is the client half plus one
-  decision: **`curl` needs no session at all today**, so giving it a caller machine changes a
-  contract deliberately left open (the credential-free door). Detail at §1's cross-player trace
-  entry and in D1d's as-built.
-
 - **`scp` moves one file, one hop, one direction at a time.** Named and deferred at D3b's
   close-out (2026-08-16): **remote-to-remote** (`scp root@A:/f root@B:/g` — two transient
   sessions in one command, and genuinely interesting given how silent the door is), **`-r`**
@@ -3600,37 +3580,25 @@ blocks the live PvP loop; each was a scoped owner decision, not a gap.
   counter — is NOT a drop-in: it would also discard the reconciliation `wrapWithRefetch`
   awaits, breaking the documented promise that a command's write is visible to the next line it
   runs. Any fix has to keep that one.
-- **OPEN DESIGN QUESTION: an established session is never re-validated against its route.**
-  Reachability is decided once, at connect time; from then on `authorizeMachineAccess` only
-  asks "does this player hold an active session on this machine?", never "does the path still
-  exist?". The gateway's `canBoot` gate is consulted by scans but not by live sessions.
-  Observed 2026-07-28 in the browser E2E: an OUTSIDER (joined to a different ESSID) entered an
-  occupant's box through the AP's NAT forward, and an occupant then bricked that AP gateway.
-  The outsider kept the shell, ran commands, watched the public IP go dark from the inside, and
-  the session row closed with `end_reason = user_exit` — the brick never touched it. Same shape
-  as `nmcli disconnect`, which removes occupancy (new reach fails) without tearing down a
-  session already open on the departing box: topology changes govern NEW connections only.
-  **This is a design decision, not merely a defect** — "you are already inside, the door closing
-  behind you doesn't eject you" is defensible. But it costs the defender their most natural
-  panic move: bricking your own router when you notice an intruder currently does nothing to
-  them, and hands them a foothold nobody outside can scan or reach. If it is taken, the data
-  needed is already persisted: `sessions.source_ip` outside the target's `/24` identifies a
-  session that arrived through the NAT, and `parent_session_id` gives the hop chain for the
-  deep-chain case. Three shapes: leave it; evict off-LAN-sourced sessions when the tombstone
-  lands; or re-validate lazily on the next authorized action (preferred — server-authoritative,
-  no fan-out or background job, and it matches how the public scan already asks `canBoot` at
-  scan time rather than precomputing darkness). Decide the behaviour before writing RED.
-- **Pivot / operate-from-a-hop — source-IP masking only; ssh-from-a-pivot.** Still needs its own
-  `grill-me`; the REACHABILITY half already shipped in 5b, which lets a player pivot a
-  scan/connect *through* a hopped inner gateway or switch into their own deeper layers, with the
-  deep traces sourced from the fronting gateway's `.1`. What stays deferred is **cross-player
-  source-IP masking**: making a command's execution vantage adopt a *foreign* hopped machine, so
-  `nmap <A>` run from a compromised box N originates from N — N's network for reachability, N's IP
-  as A's logged source. Today `ssh.ts`/`nmap.ts` still run in B's HOME vantage for cross-player
-  ops and `resolveLogSourceIP` is ported-but-unwired. The Story-6 source-IP path was deliberately
-  shaped to extend into this **with no logging rework** (`cross-player-architecture.md` §8).
-  Substantial — it needs a vantage switch plus another player's box or foreign nets to pivot
-  through. Owner wants it POSSIBLE; deferred to its own story.
+- **Pivot / operate-from-a-hop ✅ SHIPPED (#598–#615, v0.307.0–v0.323.0).** Every IP tool now runs
+  from the box its shell stands on — reachability and server-derived source address both — so a trace
+  left through a hop names the hop, not the attacker's home. The old "established session never
+  re-validated against its route" open question was answered here: a reboot (or a box going dark)
+  cascades to the sessions stacked above it (`upstream_lost`), which is the defender's eviction move;
+  an established leg is otherwise not re-validated (a changed password / forward / ACL affects only
+  new logins). As-built: handbook chapters 7 ("Reachability") and 8 ("Reboots and boot ids"), and
+  `cross-player-architecture.md` §8. **Minor non-blocking follow-ups** found in the close-out e2e
+  (2026-10-07), all on commands outside the epic's vantage scope:
+  - **`whois` still gates on the home card** (`connectedWlan0`), so on a hop with the card *off* it
+    refuses "connect to a network first". `whois` is deliberately vantage-free (decision 2); normal
+    play hops from a connected home, so this only bites the card-off path. Could ask from the vantage.
+  - **`reboot`'s `kern.log` line sources the actor's HOME public IP** (`resolveCrossPlayerSourceIp`)
+    and names the box by its machine-id part (`ap-gw`, not the generated hostname). `reboot` is
+    box-local, untouched by the epic; the hostname part is the known cosmetic mismatch.
+  - **`man ssh` still says `exit` drops back to "your own machine"** — on a chain it is the previous
+    hop. One-line copy fix.
+  - **A WiFi change in one `xterm` tab is not seen by another tab until it reloads** (each terminal has
+    its own session; WiFi state is shared only through a refetch).
 - **Replay/nonce store** — built (#294, with a 7.2.0b retrofit + lazy prune) then REVERTED on the
   owner's call (ship-first): narrow value in this threat model (TLS wire + the adversary is the
   player's own key-holding client → an authorized player just re-signs with a fresh nonce, so it

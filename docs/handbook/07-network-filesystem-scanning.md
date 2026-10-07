@@ -273,13 +273,28 @@ occupant opened through it.
 
 ## Reachability: which box is at this address and port?
 
+**A network command runs from the box whose shell it was typed in, not the player's own
+workstation** (the *operate-from-a-hop* vantage). It reaches what that box reaches and is logged
+under that box's address; from a foreign box the player's home LAN is just another network, reached
+by its public IP like anyone else's. The client sends the box its session stands on as
+`caller_machine_id`; the server places it with `resolveCallerVantage` / `resolveCallerVantageOn`
+(`sessions/callerVantage.ts`) from the session row's network and machine — or the caller's home
+occupancy when there is no session — and derives the **source address itself**: the hop's LAN
+address inside its network, its address on a deep layer it reaches, or the network's public IP
+across a NAT boundary. A client-claimed network or `source_ip` is never trusted — a network the
+caller is not standing on is refused (`wrong_network`), a box it holds no shell on is refused
+(`no_session`). Only the **radio** stays with the body: `airmon-ng`, `airodump-ng`, `aircrack-ng`
+and `nmcli` always act on the player's own WiFi card. A chain of shells is built one `ssh` per hop;
+`exit` steps back one vantage, and if a hop goes down the sessions above it end (see chapter 8,
+`upstream_lost`).
+
 `reachBox` in `src/core/sessions/serviceHost.ts` is the shared algorithm for the "data doors": the
 database, key-value store and SNMP handlers reach it through `reachServiceHost`. `ssh`, `ftp` and
 `hydra` use the same underlying per-vantage resolvers (`resolvePublicTarget`,
 `resolveInnerGatewayTarget`), and the web uses `resolveWebTarget`. It runs **on the server**, and the vantage is decided from the address, never from
 anything the client claims about where it is standing.
 
-It tries four vantages in order:
+It tries five vantages in order:
 
 1. **Public address** (`isPublicIp`) → `resolvePublicTarget`:
    1. Look up which access point owns the IP (`404 host_unreachable` if none).
@@ -336,9 +351,10 @@ else's lines. So each reach also returns the key that log appends are written un
 - any generated box (gateway, NPC, deep box) → the access point's stable log-writer key
   (`apGatewayLogWriterKey(essid)`), because every occupant of the network reaches the same box.
 
-Not every trace writer follows this yet: the own-LAN login handler and `resolveTraceProvenance`
-still write generated-box traces under the caller's key (see [known issues](./13-known-issues.md)).
-Use the access point's key for anything new.
+Every trace writer now follows this — the own-LAN login handler (`apGatewayLogWriterKey`), the
+web/scan traces, `resolveTraceProvenance` (the dpkg and ftp-transfer traces) and the zone-transfer
+trace included: a generated box's lines are keyed by the network (`ap:<essid>`), a player's box by
+the owner. Use the access point's key for anything new.
 
 ## Scanning (`nmap`)
 
