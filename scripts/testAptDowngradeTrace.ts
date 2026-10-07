@@ -196,6 +196,34 @@ const seedPivotAndTarget = async () => {
   if (error) throw new Error(`pivot seed failed: ${error.message}`);
 };
 
+/** Standing on a generated box of the victim's OWN LAN, and holding the victim's box.
+ *  Both sessions carry A's ESSID, so the visitor is placed on the victim's network and
+ *  the address it saw is the hop's LAN address — not a public one, since nothing crossed
+ *  a NAT. The neighbour case criterion 5 names: a `dpkg.log` line that must agree with
+ *  the `auth.log` login above it. */
+const seedLanHopAndTarget = async () => {
+  await sr.from('sessions').delete().eq('player_key', attacker.publicKeyHex);
+  const { error } = await sr.from('sessions').insert([
+    {
+      session_id: 'ssh-lanhop-dpkg-wirecheck',
+      player_key: attacker.publicKeyHex,
+      machine_id: NPC_MACHINE,
+      credentials: { username: 'root', userType: 'root' },
+      kind: 'ssh',
+      essid: A_ESSID,
+    },
+    {
+      session_id: 'ssh-target-dpkg-wirecheck',
+      player_key: attacker.publicKeyHex,
+      machine_id: A_WS,
+      credentials: { username: 'root', userType: 'root' },
+      kind: 'ssh',
+      essid: A_ESSID,
+    },
+  ]);
+  if (error) throw new Error(`lan-hop seed failed: ${error.message}`);
+};
+
 const clean = async () => {
   for (const essid of [A_ESSID, B_ESSID, C_ESSID]) {
     await sr.from('home_network_occupants').delete().eq('essid', essid);
@@ -311,6 +339,28 @@ check(
     !pivotLine.includes(B_PUBLIC_IP) &&
     !pivotLine.includes(A_PUBLIC_IP),
   `${pivotLine || '(no line)'}  — pivot ${C_PUBLIC_IP}, home ${B_PUBLIC_IP}, target ${A_PUBLIC_IP}`,
+);
+
+// === 4b. A NEIGHBOUR on the victim's own LAN is named by their LAN address ==========
+await sr.from('patches').delete().eq('machine_id', A_WS);
+await seedLanHopAndTarget();
+const viaLanHop = await downgrade({ caller_machine_id: NPC_MACHINE });
+check(
+  '8a. a rollback run from a box on the victim’s own LAN is accepted',
+  viaLanHop.status === 200,
+  `status ${viaLanHop.status} ${JSON.stringify(viaLanHop.body)}`,
+);
+
+const lanHopRow = await logRow(A_WS);
+const lanHopLine = lanHopRow === null ? '' : latestLine(lanHopRow.content);
+check(
+  '8b. it is filed under the victim’s key, at the hop’s LAN address, never a public one',
+  lanHopRow !== null &&
+    lanHopRow.writerKey === victim.publicKeyHex &&
+    lanHopLine.includes(`Client "${npcHost.ip}"`) &&
+    !lanHopLine.includes(A_PUBLIC_IP) &&
+    !lanHopLine.includes(B_PUBLIC_IP),
+  `${lanHopLine || '(no line)'}  — lan hop ${npcHost.ip}, box public ${A_PUBLIC_IP}, attacker home ${B_PUBLIC_IP}`,
 );
 
 // === 5. A box claimed as a vantage but not held is refused =========================
