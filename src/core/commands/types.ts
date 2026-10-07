@@ -1344,6 +1344,9 @@ export type ScanRecordParams = {
 export type ZoneTransferRecordParams = {
   readonly essid: string;
   readonly serverIp: string;
+  /** The box the transfer ran from: the server places the caller by it and derives the
+   *  source address the named.log line records, rather than trusting a client claim. */
+  readonly callerMachineId: string;
 };
 
 /** The server-resolved result of scanning a public IP (Story 1). `found` is host

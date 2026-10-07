@@ -14,11 +14,10 @@
  */
 
 import type { Command, CommandEnv, CommandResult, TerminalLine } from './types.js';
-import { generateHomeLan } from '../generation/generateHomeLan.js';
 import { zoneRecordsFor, allowsZoneTransfer, nameServerStandsAt } from '../generation/generateDnsZone.js';
 import { createPrng } from '../generation/prng.js';
 import { resolveName, lanZoneName, type ResolvedName } from '../network/resolveName.js';
-import { connectedWlan0 } from '../network/interfaces.js';
+import { resolverFor, vantageOf, type Vantage } from '../network/vantage.js';
 import { MONTHS } from '../logging/syslog.js';
 import type { EpochMs } from '../types.js';
 import { errorLine, text } from './streaming.js';
@@ -99,17 +98,24 @@ const parseAxfr = (args: readonly string[]): { readonly server: string | undefin
  *  LAN and every host on the layers behind it — read out of generation and handed
  *  over, unless the server's `allow-transfer` is closed. Instant: the zone is a
  *  file, and a real transfer of a dozen records is milliseconds. */
+const reachesNameServer = (vantage: Vantage, server: string): boolean =>
+  vantage.reaches.some((segment) => server.startsWith(`${segment.subnet}.`)) &&
+  nameServerStandsAt(vantage.essid, server);
+
 const transferZone = (env: CommandEnv, server: string | undefined): CommandResult => {
-  const wlan0 = connectedWlan0(env.network);
-  if (wlan0 === null) {
+  const vantage = vantageOf(env.session, env.network);
+  if (vantage === null) {
     return error(UNREACHABLE);
   }
   if (server === undefined) {
     return error(AXFR_USAGE);
   }
 
-  const essid = wlan0.association.essid;
-  if (!nameServerStandsAt(essid, server)) {
+  const essid = vantage.essid;
+  // A name server the box cannot reach — on a segment this vantage does not touch, or
+  // with no name server there at all — is refused the same way: from where you stand
+  // there is nothing to transfer from.
+  if (!reachesNameServer(vantage, server)) {
     return error(`dig: ${server}: no DNS service on target`);
   }
 
@@ -117,7 +123,9 @@ const transferZone = (env: CommandEnv, server: string | undefined): CommandResul
   // it, and it leaves a `/var/log/named.log` line naming whoever ran this. Fire-and-
   // forget and best-effort: the payout below is byte-for-byte the same whether the
   // trace lands or the notify fails, and an ordinary lookup never reaches this branch.
-  void env.scan.recordZoneTransfer({ essid, serverIp: server }).catch(() => undefined);
+  void env.scan
+    .recordZoneTransfer({ essid, serverIp: server, callerMachineId: env.session.machineId })
+    .catch(() => undefined);
 
   const zone = lanZoneName(essid);
   const records = zoneRecordsFor(essid);
@@ -162,17 +170,17 @@ const execute: Command['execute'] = async (env, args) => {
     return error(USAGE);
   }
 
-  const wlan0 = connectedWlan0(env.network);
-  if (wlan0 === null) {
+  const vantage = vantageOf(env.session, env.network);
+  if (vantage === null) {
     return error(UNREACHABLE);
   }
 
-  const essid = wlan0.association.essid;
-  const resolver = `${generateHomeLan(essid).subnet}.1`;
+  const essid = vantage.essid;
+  const resolver = resolverFor(vantage);
   const resolved = await resolveName({
     essid,
     name,
-    resolveOccupants: env.scan.resolveOccupants,
+    resolveOccupants: (scanned) => env.scan.resolveOccupants(scanned, env.session.machineId),
   });
 
   // The answer section is the only part a miss drops. Everything else — what was
@@ -210,7 +218,7 @@ export const dig: Command = {
   manual: {
     synopsis: 'dig <name> | dig @<server> axfr',
     description:
-      "Ask the network's gateway for the record behind a name, and print it the way a name server hands it over — name, TTL, class, type and address — with the resolver that answered and how long it took. Given @<server> and axfr, transfer that name server's whole zone instead: every host it is authoritative for, on this network's own segments and the layers behind them — unless the server refuses. Answers for the network you are connected to only. An unknown name reports NXDOMAIN.",
+      "Ask the network's gateway for the record behind a name, and print it the way a name server hands it over — name, TTL, class, type and address — with the resolver that answered and how long it took. Given @<server> and axfr, transfer that name server's whole zone instead: every host it is authoritative for, on this network's own segments and the layers behind them — unless the server refuses, or you cannot reach it from where you stand. Answers for the network you are on — your own at home, or the network of a box you have a shell on. An unknown name reports NXDOMAIN.",
     arguments: [
       { name: 'name', description: 'The host name to look up, e.g. web-04' },
       {

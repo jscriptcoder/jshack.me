@@ -10,18 +10,22 @@
  * every time. A shimmering number would read as noise; a stable one reads as a
  * property of the host, which is what a player can then notice changing.
  *
- * Reachability is the LAN's own question, so it resolves entirely client-side from
- * the generated network plus the player's own lease. Reaching across networks by
- * public IP is a server round-trip and belongs with the cross-player slice.
+ * It asks from the box the shell stands on (`vantageOf`): the player's own lease at
+ * home, the hop's place on its network inside a remote shell. Reachability is that
+ * network's own question, so it resolves client-side from what the box reaches — the
+ * generated hosts of every segment it reaches, the deep layer it stands on, and the
+ * fellow players on its LAN. Reaching across networks by public IP is a server
+ * round-trip and belongs with the cross-player slice.
  */
 
 import type { Command, CommandEnv, CommandResult, TerminalLine } from './types.js';
 import { generateHomeLan } from '../generation/generateHomeLan.js';
-import { withSelfHost } from '../network/mergeLanOccupants.js';
-import { assignHomeNetwork } from '../network/homeNetwork.js';
 import { createPrng } from '../generation/prng.js';
 import { errorLine, streamedResult, text } from './streaming.js';
-import { connectedWlan0 } from '../network/interfaces.js';
+import { vantageOf, type Vantage } from '../network/vantage.js';
+import { addressForTarget } from '../network/resolveName.js';
+import { resolveDeepScanHosts } from '../scan/deepScanHosts.js';
+import type { OccupantProjection } from '../network/resolveOccupants.js';
 
 const error = (message: string): CommandResult => ({
   kind: 'sync',
@@ -52,18 +56,21 @@ const INTERVAL_MS = 300;
 const replyTimeMs = (ip: string, sequence: number): string =>
   (0.2 + createPrng(`ping-${ip}-${sequence}`).next() * 1.8).toFixed(3);
 
+/** Echoes `address`, under the name the player typed — real `ping` heads its output
+ *  and its statistics with what was asked for, and replies come from the address. */
 async function* echoes(
   env: CommandEnv,
   target: string,
+  address: string,
   reachable: boolean,
 ): AsyncGenerator<TerminalLine, number> {
-  yield text(`PING ${target} (${target}) ${PAYLOAD_BYTES}(${PAYLOAD_BYTES + 28}) bytes of data.`);
+  yield text(`PING ${target} (${address}) ${PAYLOAD_BYTES}(${PAYLOAD_BYTES + 28}) bytes of data.`);
 
   for (let sequence = 1; sequence <= ECHO_COUNT; sequence++) {
     await env.sleep(INTERVAL_MS);
     if (reachable) {
       yield text(
-        `${REPLY_BYTES} bytes from ${target}: icmp_seq=${sequence} ttl=${TTL} time=${replyTimeMs(target, sequence)} ms`,
+        `${REPLY_BYTES} bytes from ${address}: icmp_seq=${sequence} ttl=${TTL} time=${replyTimeMs(address, sequence)} ms`,
       );
     }
   }
@@ -76,30 +83,54 @@ async function* echoes(
   return received > 0 ? 0 : 1;
 }
 
+/** Whether anything at `address` answers a box standing at `vantage`: the box itself,
+ *  a generated host on the network's LAN, a host on a deep layer it reaches, or a
+ *  fellow player's box on its LAN. */
+const answers = async (
+  env: CommandEnv,
+  vantage: Vantage,
+  address: string,
+  occupantsHere: () => Promise<readonly OccupantProjection[]>,
+): Promise<boolean> => {
+  // The box's own address is part of what it reaches — pinging yourself is how you
+  // check your own stack before blaming the network.
+  if (address === vantage.address) return true;
+  if (generateHomeLan(vantage.essid).hosts.some((host) => host.ip === address)) return true;
+  for (const segment of vantage.reaches) {
+    if (segment.fronting === null) continue;
+    const layer = resolveDeepScanHosts(vantage.essid, segment.fronting, env.fs.root());
+    if (layer.hosts.some((entry) => entry.host.ip === address)) return true;
+  }
+  return (await occupantsHere()).some((occupant) => occupant.localIp === address);
+};
+
 const execute: Command['execute'] = async (env, args) => {
   const target = args[0];
   if (target === undefined) {
     return error(USAGE);
   }
 
-  const wlan0 = connectedWlan0(env.network);
-  if (wlan0 === null) {
+  const vantage = vantageOf(env.session, env.network);
+  if (vantage === null) {
     return error(UNREACHABLE);
   }
 
-  const essid = wlan0.association.essid;
-  // The player's own address is part of the LAN they can reach — pinging yourself is
-  // how you check your own stack before blaming the network.
-  const lan = withSelfHost(
-    generateHomeLan(essid),
-    wlan0.ipv4,
-    assignHomeNetwork(env.identity.publicKeyHex, essid).hostname,
-  );
-  const reachable = lan.hosts.some((host) => host.ip === target);
+  // Asked from the box the shell stands on, so the neighbours that answer are the hop's,
+  // and asked once however many steps want it.
+  let occupants: Promise<readonly OccupantProjection[]> | null = null;
+  const occupantsHere = () =>
+    (occupants ??= env.scan.resolveOccupants(vantage.essid, env.session.machineId));
+
+  const address = await addressForTarget({
+    essid: vantage.essid,
+    target,
+    resolveOccupants: occupantsHere,
+  });
+  const reachable = await answers(env, vantage, address, occupantsHere);
 
   // The exit code IS the answer here (0 only when something replied), so it comes from
   // the stream's own return value rather than being assumed up front.
-  return streamedResult(echoes(env, target, reachable));
+  return streamedResult(echoes(env, target, address, reachable));
 };
 
 export const ping: Command = {
@@ -113,9 +144,13 @@ export const ping: Command = {
   manual: {
     synopsis: 'ping <host>',
     description:
-      'Send ICMP echo requests to a host on your network and report which came back. Answers reachability only — a host that replies may still be running nothing. Always sends 4 packets.',
+      'Send ICMP echo requests to a host on the network you are on — your own at home, or the network of a box you have a shell on — and report which came back. Takes an address or a name. Answers reachability only — a host that replies may still be running nothing. Always sends 4 packets.',
     arguments: [
-      { name: 'host', description: 'The address to reach, e.g. 192.168.1.5', required: true },
+      {
+        name: 'host',
+        description: 'The address or name to reach, e.g. 192.168.1.5 or web-04',
+        required: true,
+      },
     ],
     examples: [
       { command: 'ping 192.168.1.5', description: 'Send four echo requests to a host' },

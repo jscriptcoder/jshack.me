@@ -1,16 +1,24 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { ping } from './ping.js';
 import type { CommandResult } from './types.js';
 import {
   mockCommandEnv,
+  mockFsViewFromTree,
   mockIdentity,
   mockNetworkView,
   mockNetworkViewFromConnectivity,
+  mockScanApi,
+  mockSession,
 } from '../../test/factories/commandEnv.js';
+import { buildDirectory } from '../../test/factories/filesystem.js';
+import { resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
+import { chainLinks } from '../generation/lanTopology.js';
+import { resolveDeepScanHosts } from '../scan/deepScanHosts.js';
+import type { OccupantProjection } from '../network/resolveOccupants.js';
 import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces.js';
 import { assignHomeNetwork } from '../network/homeNetwork.js';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
-import { asPlayerKeyHex } from '../types.js';
+import { asAbsPath, asMachineId, asPlayerKeyHex } from '../types.js';
 
 /**
  * `ping <host>` — the cheapest question a player can ask the network: is
@@ -273,5 +281,229 @@ describe('ping', () => {
       expect(exitCode).toBe(1);
       expect(text).toContain('unreachable');
     });
+  });
+});
+
+const HOP_ESSID = 'RIDGEMONT-OFFICE';
+const DEEP_ESSID = 'TYRELL-CORP';
+
+/** A machine on `essid`'s LAN, other than any excluded — a box a player could really
+ *  hop onto. */
+const machineOn = (essid: string, exclude: readonly string[] = []): LanHost => {
+  const host = generateHomeLan(essid).hosts.find(
+    (candidate) => candidate.kind === 'machine' && !exclude.includes(candidate.ip),
+  );
+  if (host === undefined) throw new Error(`${essid} has no spare machine`);
+  return host;
+};
+
+/** The player stands in a shell on box `machineId` of `essid`, with their own WiFi card
+ *  switched off — the radio stays with the body, the address follows the shell. */
+const standingOn = (
+  essid: string,
+  machineId: string,
+  overrides: Partial<Parameters<typeof mockCommandEnv>[0]> = {},
+) =>
+  mockCommandEnv({
+    identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
+    network: mockNetworkView({ isOnline: () => false, interfaces: () => [] }),
+    fs: mockFsViewFromTree(buildDirectory({}), { userType: 'root', cwd: () => asAbsPath('/') }),
+    session: mockSession({
+      id: 'ssh-hop-1',
+      machineId: asMachineId(machineId),
+      userType: 'root',
+      essid,
+    }),
+    ...overrides,
+  });
+
+const hopEnv = (hop: LanHost, overrides: Partial<Parameters<typeof mockCommandEnv>[0]> = {}) =>
+  standingOn(HOP_ESSID, resolveLanHostIdentity(hop, HOP_ESSID).machineId, overrides);
+
+const pingFrom = async (
+  env: ReturnType<typeof mockCommandEnv>,
+  target: string,
+): Promise<{ text: string; exitCode: number }> =>
+  drain(await ping.execute(env, [target], new Map()));
+
+/** An address on `essid`'s subnet that no generated host holds. */
+const freeAddressOn = (essid: string, exclude: readonly string[] = []): string => {
+  const lan = generateHomeLan(essid);
+  const taken = new Set([...lan.hosts.map((host) => host.ip), ...exclude]);
+  const free = Array.from({ length: 253 }, (_unused, index) => `${lan.subnet}.${index + 2}`).find(
+    (ip) => !taken.has(ip),
+  );
+  if (free === undefined) throw new Error(`expected a free address on ${essid}`);
+  return free;
+};
+
+const occupant = (localIp: string): OccupantProjection => ({
+  workstation_machine_id: 'ws-neighbour',
+  localIp,
+  machineName: 'skylab-neighbour',
+});
+
+describe('ping from a hop', () => {
+  it('reaches a host on the hop’s LAN with the player’s own card off', async () => {
+    const hop = machineOn(HOP_ESSID);
+    const target = machineOn(HOP_ESSID, [hop.ip]);
+
+    const { text, exitCode } = await pingFrom(hopEnv(hop), target.ip);
+
+    expect(exitCode).toBe(0);
+    expect(text).toContain('4 packets transmitted, 4 received, 0% packet loss');
+  });
+
+  it('answers for the hop’s own address', async () => {
+    const hop = machineOn(HOP_ESSID);
+
+    const { exitCode } = await pingFrom(hopEnv(hop), hop.ip);
+
+    expect(exitCode).toBe(0);
+  });
+
+  it('gets no reply from the player’s home LAN, which is another network from here', async () => {
+    const hop = machineOn(HOP_ESSID);
+    const hopAddresses = generateHomeLan(HOP_ESSID).hosts.map((host) => host.ip);
+    const home = generateHomeLan(ESSID).hosts.find(
+      (host) => host.kind === 'machine' && !hopAddresses.includes(host.ip),
+    );
+    if (home === undefined) throw new Error('expected a home host off the hop’s LAN');
+
+    const { text, exitCode } = await pingFrom(hopEnv(hop), home.ip);
+
+    expect(exitCode).toBe(1);
+    expect(text).toContain('0 received, 100% packet loss');
+  });
+
+  it('reaches a fellow player’s box on the hop’s LAN, asking from the hop', async () => {
+    const hop = machineOn(HOP_ESSID);
+    const neighbourIp = freeAddressOn(HOP_ESSID);
+    const resolveOccupants = vi.fn(async () => [occupant(neighbourIp)]);
+    const env = hopEnv(hop, { scan: mockScanApi({ resolveOccupants }) });
+
+    const { exitCode } = await pingFrom(env, neighbourIp);
+
+    expect(exitCode).toBe(0);
+    expect(resolveOccupants).toHaveBeenCalledWith(
+      HOP_ESSID,
+      resolveLanHostIdentity(hop, HOP_ESSID).machineId,
+    );
+  });
+
+  it('does not answer a hop address no occupant holds, though another occupant is present', async () => {
+    // The occupant arm answers for the box AT the address, not "someone is here": a
+    // neighbour present at one address must not make a different, unheld address reply.
+    const hop = machineOn(HOP_ESSID);
+    const present = freeAddressOn(HOP_ESSID);
+    const unheld = freeAddressOn(HOP_ESSID, [present]);
+    const env = hopEnv(hop, {
+      scan: mockScanApi({ resolveOccupants: async () => [occupant(present)] }),
+    });
+
+    const { text, exitCode } = await pingFrom(env, unheld);
+
+    expect(exitCode).toBe(1);
+    expect(text).toContain('0 received, 100% packet loss');
+  });
+});
+
+describe('ping from a box on a deep layer', () => {
+  /** The first chain link on DEEP_ESSID that fronts a machine, with that machine —
+   *  found rather than hardcoded, so an octet reshuffle does not rot it. */
+  const deepMachine = () => {
+    for (const link of chainLinks(DEEP_ESSID)) {
+      const resolution = resolveDeepScanHosts(DEEP_ESSID, link, buildDirectory({}));
+      const onLayer = resolution.hosts.find((entry) => entry.host.kind === 'machine');
+      if (onLayer !== undefined) return { gatewayId: link.machineId, resolution, deep: onLayer };
+    }
+    throw new Error(`${DEEP_ESSID} fronts no deep machine`);
+  };
+
+  it('reaches a host on the layer the gateway it stands on fronts', async () => {
+    const { gatewayId, deep } = deepMachine();
+
+    const { exitCode } = await pingFrom(standingOn(DEEP_ESSID, gatewayId), deep.host.ip);
+
+    expect(exitCode).toBe(0);
+  });
+
+  it('gets no reply from an empty address on that layer', async () => {
+    const { gatewayId, resolution } = deepMachine();
+    const taken = resolution.hosts.map((entry) => entry.host.ip);
+    const empty = Array.from(
+      { length: 253 },
+      (_unused, index) => `${resolution.subnet}.${index + 2}`,
+    ).find((ip) => !taken.includes(ip));
+    if (empty === undefined) throw new Error('expected a free address on the layer');
+
+    const { exitCode } = await pingFrom(standingOn(DEEP_ESSID, gatewayId), empty);
+
+    expect(exitCode).toBe(1);
+  });
+
+  it('answers one host on a deep layer that carries several — not only when it is the sole box', async () => {
+    // A layer with a machine AND a neighbour (a gateway/router) beside it: pinging the
+    // one host must still answer, so reachability is "this address is among the layer's
+    // hosts", never "this address is the layer's only host".
+    const essid = 'ACME-CORP';
+    const crowded = chainLinks(essid)
+      .map((link) => ({ link, resolution: resolveDeepScanHosts(essid, link, buildDirectory({})) }))
+      .find(
+        ({ resolution }) =>
+          resolution.hosts.length >= 2 &&
+          resolution.hosts.some((entry) => entry.host.kind === 'machine'),
+      );
+    if (crowded === undefined) throw new Error('expected a multi-host deep layer on ACME-CORP');
+    const machine = crowded.resolution.hosts.find((entry) => entry.host.kind === 'machine')!;
+
+    const { exitCode } = await pingFrom(
+      standingOn(essid, crowded.link.machineId),
+      machine.host.ip,
+    );
+
+    expect(exitCode).toBe(0);
+  });
+});
+
+describe('ping at home', () => {
+  it('reaches a fellow player’s box on the LAN', async () => {
+    const neighbourIp = freeAddressOn(ESSID, [ownIp()]);
+    const env = {
+      ...onlineEnv(),
+      scan: mockScanApi({ resolveOccupants: async () => [occupant(neighbourIp)] }),
+    };
+
+    const { exitCode } = await pingFrom(env, neighbourIp);
+
+    expect(exitCode).toBe(0);
+  });
+});
+
+describe('ping by name', () => {
+  it('resolves a host’s name on the network the shell stands on, and pings its address', async () => {
+    const hop = machineOn(HOP_ESSID);
+    const target = machineOn(HOP_ESSID, [hop.ip]);
+
+    const { text, exitCode } = await pingFrom(hopEnv(hop), target.hostname);
+
+    expect(exitCode).toBe(0);
+    const lines = text.split('\n');
+    expect(lines[0]).toBe(`PING ${target.hostname} (${target.ip}) 56(84) bytes of data.`);
+    expect(lines[1]).toMatch(new RegExp(`^64 bytes from ${target.ip}: icmp_seq=1 `));
+    expect(lines[6]).toBe(`--- ${target.hostname} ping statistics ---`);
+  });
+
+  it('reports total loss for a name nothing answers to, as typed', async () => {
+    const { text, exitCode } = await run('no-such-box');
+
+    expect(exitCode).toBe(1);
+    expect(text.split('\n')[0]).toBe('PING no-such-box (no-such-box) 56(84) bytes of data.');
+  });
+});
+
+describe('man ping', () => {
+  it('says it reaches the network the shell is on', () => {
+    expect(ping.manual?.description).toContain('the network you are on');
   });
 });

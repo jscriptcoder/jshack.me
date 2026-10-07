@@ -70,3 +70,11 @@ export const vantageOf = (
     reaches: [{ subnet: generateHomeLan(essid).subnet, fronting: null, address: wlan0.ipv4 }],
   };
 };
+
+/** The resolver a lookup typed here asks: the gateway of the segment the box stands on,
+ *  `.1` as every access point and every deep gateway sits — a deep layer's own when the
+ *  box stands behind one, never the top LAN's it can only reach out through. */
+export const resolverFor = (vantage: Vantage): Ipv4 => {
+  const standsOn = vantage.reaches[0]?.subnet ?? generateHomeLan(vantage.essid).subnet;
+  return `${standsOn}.1`;
+};
