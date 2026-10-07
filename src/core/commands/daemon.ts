@@ -47,6 +47,7 @@ import {
   type CommandEnv,
   type CommandExample,
   type CommandResult,
+  type PatchResult,
   type TerminalLine,
 } from './types.js';
 import { SERVICE_CATALOG, type ServiceSpec } from '../services/serviceCatalog.js';
@@ -154,19 +155,38 @@ export async function* bringUp(
   yield text(`Starting ${daemon.banner}...`);
   await env.sleep(STARTUP_DELAY_MS);
 
+  const started = await startDaemon(env, daemon, port);
+  if (!started.ok) {
+    yield errorLine(`${daemon.name}: ${PATCH_ERROR_REASON[started.error]}`);
+    return 1;
+  }
+
+  yield text(`Server listening on 0.0.0.0 port ${port}.`);
+  return 0;
+}
+
+/**
+ * The writes that make a daemon running: its pidfile, which opens the port, then any
+ * config it spends as it comes up. Stops at the first refused write and returns it.
+ *
+ * Silent, and as gate-free as `bringUp`. Shared with a workstation's first boot, which
+ * starts its services before any shell exists to print to.
+ */
+export const startDaemon = async (
+  box: Pick<CommandEnv, 'fs' | 'patches'>,
+  daemon: Daemon,
+  port: number,
+): Promise<PatchResult> => {
   // Permissions are NAMED rather than defaulted: a write that omits them takes
   // the caller's own tier defaults, and a daemon is root-only, so the pidfile
   // would come out root-readable — invisible to anyone who later hops onto this
   // box, since the server prunes what it hands them to their tier.
-  const result = await env.patches.write(
+  const result = await box.patches.write(
     pidfilePath(daemon.spec),
     formatPidfileContent(daemon.spec, port),
     { isNew: true, permissions: PIDFILE_PERMISSIONS },
   );
-  if (!result.ok) {
-    yield errorLine(`${daemon.name}: ${PATCH_ERROR_REASON[result.error]}`);
-    return 1;
-  }
+  if (!result.ok) return result;
 
   // After the port is open, and never before it: a daemon that spent its owner's new
   // community and then failed to bind would have taken the old one out of service with
@@ -175,20 +195,15 @@ export async function* bringUp(
   // OWNED BY ROOT explicitly. These are the daemon's own files, not the shell's, and a
   // rewrite that inherited the caller's username would hand the box's own state to
   // whoever happened to type the command.
-  for (const consumed of daemon.consumeConfig?.(env.fs.root()) ?? []) {
-    const written = await env.patches.write(consumed.path, consumed.content, {
+  for (const consumed of daemon.consumeConfig?.(box.fs.root()) ?? []) {
+    const written = await box.patches.write(consumed.path, consumed.content, {
       permissions: consumed.permissions,
       owner: 'root',
     });
-    if (!written.ok) {
-      yield errorLine(`${daemon.name}: ${PATCH_ERROR_REASON[written.error]}`);
-      return 1;
-    }
+    if (!written.ok) return written;
   }
-
-  yield text(`Server listening on 0.0.0.0 port ${port}.`);
-  return 0;
-}
+  return { ok: true };
+};
 
 const daemonCommand = (daemon: Daemon): Command => ({
   name: daemon.name,

@@ -64,8 +64,14 @@ Giving a player a reason to keep a service running despite the risk is a later e
    address are shared per ESSID, so two occupants' services would contend for one public port.
 3. **Every workstation starts with 1–3 services, never zero.** A box born with nothing would sit
    outside the loop the playtest exists to test.
-4. **The pool:** `sshd`, `vsftpd`, a web server (`nginx` or `apache2`, 50/50), `mysqld`,
-   `redis-server`. Not `snmpd` or `named`: network infrastructure, not desktop services.
+4. **The pool:** `sshd`, `vsftpd`, `nginx`, `mysqld`, `redis-server`. Not `snmpd` or `named`:
+   network infrastructure, not desktop services. *Amended in slice 1 (owner, 2026-10-07):* the
+   web slot was `nginx` or `apache2` 50/50, but this world keeps no release history for
+   `apache2` (no manifest row, no version in `nmap -sV`, never a CVE) and it shares nginx's
+   pidfile, so `ps` names it `nginx`. A box born with it would carry a door the clock never
+   opens, and stay that way, since the version is written at birth. **Follow-up PR:** make
+   `apache2` a real target (its own timeline, and a web service that knows which program is
+   running, for `ps`, `nmap -sV` and `msfconsole`), then return it to the pool 50/50.
 5. **The draw:** 1, 2 or 3 services with equal odds, distinct, seeded from the owner's identity
    like everything else on the box. `new-game` makes a new identity, so it re-draws.
 6. **A starting service is exactly what `apt install` plus a start would leave:** the manifest
