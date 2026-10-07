@@ -636,7 +636,9 @@ To pick up the next work: there is no active epic. **The owner has postponed the
    5-digit port column and ✅ `snmpd` by name (#620, v0.327.0). **Next — the last open item:**
    root's planted `.bash_history` lines the shell refuses (`tail -f /var/log/auth.log`; §9 has the
    agreed fix: a test runs every history-pool line through `runCommandLine`, then each failure is
-   reworded or supported).
+   reworded or supported). Measured and decided 2026-10-07 (§9 has the breakdown): `~` expansion
+   ships first as its own PR, then the history test with `grep -i`, `apt update`/`-y` and the
+   rewordings.
 4. Then give a player's own box an attack surface, so two players can go after each other's
    machines: workstation daemons (mysqld/redis, §9 "Game-design / content ideas"), and later the
    CVE arc.
@@ -2890,6 +2892,27 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   history meets `unrecognized option`. The fix that cannot rot is a test running every line of the
   history pools through `runCommandLine` against the real registry, then rewording or supporting
   each failure — `tail -f` becomes `tail -n 50`. Found while closing `grep -c` (2026-10-07).
+
+  **Measured 2026-10-07, and decided with the owner the same day.** All 323 lines of the five
+  history pools (root, gateway, role, personal, work) were run through `runCommandLine` with
+  `commandRegistry` on a generated box. What came back, and what each kind gets:
+  - **199 lines name a command the game does not ship** (`vim` 15, `git` 12, `ll` 9, `date` 8,
+    `python3`, `du`, `rndc` … about 100 distinct). **Exempt as flavour**: a real history names
+    tools the box does not have, and `grep -c` (#619) drew the line at commands the game ships.
+  - **The shell has no `~` expansion anywhere** — `cd ~`, `cat ~/notes/x`, `nano ~/.bashrc` and
+    `echo x >> ~/notes/x` all answer `No such file or directory`. About 20 planted lines break on
+    it, and so does every player's first `cd ~`. **Ships as its own PR first**, so the history
+    test lands green on top of it without rewording a tilde line.
+  - **A shipped command refusing the line's syntax** — the rule the test enforces. Supported:
+    `grep -i`, `apt update`, `apt upgrade -y` (`-y` a no-op; nothing here asks). Reworded:
+    `tail -f` (×3), `grep -r` (×2), `apt autoremove`, `mysql -u root` (the game's syntax is
+    `mysql localhost root`), `nginx -t`, `man bash`.
+  - **A relative file the box does not hold** (`cat sign.txt`, `./deploy.sh`, `wc -l
+    register.csv`) is the world answering truthfully, not the shell refusing — exempt, as
+    `homeHistory.ts` already intends.
+
+  So the test's one rule: **every planted line whose command the game ships parses and runs
+  without a usage refusal** (`unrecognized option`, `Invalid operation`).
 
 - **A deep TERMINAL NPC box is read-only when rooted — depth alone decides whether you can
   write to an NPC.** The cross-player/deep write gate (`remoteWritePermission` L2,
