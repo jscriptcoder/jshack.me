@@ -12,7 +12,7 @@
  * (`ui/state`) supplies the real `localStorage`.
  */
 
-import { lanLeaseCacheIn } from '../core/network/lanLeaseCache.js';
+import { LAN_LEASE_KEY_PREFIX, lanLeaseCacheIn } from '../core/network/lanLeaseCache.js';
 import type { ConnectivityState, NetworkInterface } from '../core/network/interfaces.js';
 import { bssidFromEssid } from '../core/network/wifi.js';
 
@@ -78,4 +78,34 @@ export const restoreConnection = (
     ipv4: localIp,
   };
   return { interfaces: new Map(cold.interfaces).set('wlan0', connected) };
+};
+
+/**
+ * Whether a write to storage under `key` can change the connection: the connected ESSID,
+ * any remembered lease, or `null`, which is the whole store being cleared. A join writes
+ * the ESSID and then its lease, and another tab may hear those as two separate events in
+ * either order, so both have to count.
+ */
+export const concernsConnection = (key: string | null): boolean =>
+  key === null || key === CONNECTED_ESSID_KEY || key.startsWith(LAN_LEASE_KEY_PREFIX);
+
+/**
+ * Bring a running terminal's `wlan0` into line with what storage now says, after another
+ * terminal changed it. Every tab is a window on the same workstation and the card is that
+ * workstation's, so its connection is whatever the last tab to touch it left — read back
+ * the same way a reload reads it, so a following tab and a reloaded one cannot disagree.
+ *
+ * Only the association and address follow. The rest of the card stays as this tab has
+ * it, because storage holds nothing else to follow.
+ */
+export const followConnection = (
+  storage: StorageLike,
+  current: ConnectivityState,
+): ConnectivityState => {
+  const wlan0 = current.interfaces.get('wlan0');
+  if (wlan0 === undefined || wlan0.kind !== 'wireless') return current;
+  const disconnected: NetworkInterface = { ...wlan0, association: null, ipv4: null };
+  return restoreConnection(storage, {
+    interfaces: new Map(current.interfaces).set('wlan0', disconnected),
+  });
 };

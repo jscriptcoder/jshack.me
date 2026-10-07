@@ -181,7 +181,12 @@ import { rehydrateSessionStack } from './sessionRehydrate.js';
 import { runFtpLine } from '../core/commands/ftpShell.js';
 import { runMysqlLine } from '../core/commands/mysqlShell.js';
 import { runRedisLine } from '../core/commands/redisShell.js';
-import { persistConnection, restoreConnection } from './connectionPersistence.js';
+import {
+  concernsConnection,
+  followConnection,
+  persistConnection,
+  restoreConnection,
+} from './connectionPersistence.js';
 
 // ---- Config-derived game state, assigned once by `startGame`. ----
 // `let` (not top-level `const`) precisely because these can't be built at
@@ -197,6 +202,8 @@ let sessionsClientDeps: SessionsClientDeps | undefined;
 let networkClientDeps: NetworkClientDeps | undefined;
 let patchApi: PatchApi | undefined;
 let syncChannel: SyncChannel | undefined;
+/** Ends the wait for other tabs' WiFi changes, so a restarted game listens once. */
+let otherTabsListener: AbortController | undefined;
 
 // The session stack: the active session is the top. `su` pushes a root session;
 // `exit` pops. Reactive so the prompt (username + `$`/`#`) reflects the active
@@ -1602,6 +1609,19 @@ export const startGame = (gameConfig: GameConfig, options?: StartGameOptions): v
   const wifi = generateWifi({ seedPubkeyHex: identity.publicKeyHex });
   setWifiNetworks(wifi);
   setConnectivity(restoreConnection(localStorage, cold));
+  // The card is the workstation's, not this tab's, so a connect or disconnect typed in
+  // another terminal is this one's too. The browser tells only the tabs that did not
+  // make the write, which is exactly the set that needs telling.
+  otherTabsListener?.abort();
+  otherTabsListener = new AbortController();
+  window.addEventListener(
+    'storage',
+    (event) => {
+      if (!concernsConnection(event.key)) return;
+      setConnectivity((previous) => followConnection(localStorage, previous));
+    },
+    { signal: otherTabsListener.signal },
+  );
 
   patchClientDeps = {
     identity,

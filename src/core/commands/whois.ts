@@ -16,7 +16,7 @@ import {
 } from '../generation/world.js';
 import { FINDIT_DOMAIN, FINDIT_NETWORK } from '../generation/finditNetwork.js';
 import { siteAddress } from '../generation/publisher.js';
-import { connectedWlan0 } from '../network/interfaces.js';
+import { vantageOf } from '../network/vantage.js';
 import { errorLine, text } from './streaming.js';
 
 /** What the registry knows about the network at an address. */
@@ -84,7 +84,9 @@ const error = (message: string): CommandResult => ({
 
 const USAGE = 'whois: usage: whois <ip|domain>';
 
-/** The registry is out on the internet, so asking it takes a network to ask from. */
+/** The registry is out on the internet, so asking it takes a network to ask from: the one
+ *  the shell's box stands on, which on a hop is the hop's whatever the player's own card is
+ *  doing. */
 const UNREACHABLE = 'whois: network is unreachable — connect to a network first';
 
 const execute: Command['execute'] = async (env, args): Promise<CommandResult> => {
@@ -92,7 +94,7 @@ const execute: Command['execute'] = async (env, args): Promise<CommandResult> =>
   if (query === undefined) {
     return error(USAGE);
   }
-  if (connectedWlan0(env.network) === null) {
+  if (vantageOf(env.session, env.network) === null) {
     return error(UNREACHABLE);
   }
 

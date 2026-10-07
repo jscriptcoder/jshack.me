@@ -359,6 +359,105 @@ describe('booting a terminal fresh', () => {
 });
 
 /**
+ * The WiFi card belongs to the player's body, not to a terminal: every tab is a window on
+ * the same workstation, so a connect or disconnect typed in one is the state of the card
+ * in all of them. Tabs share nothing but storage, so a tab follows the others by
+ * listening for their writes to it — which the browser announces only to the tabs that
+ * did NOT make them.
+ */
+describe('a WiFi change made in another terminal', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const ESSID = 'ferro-cafe';
+  const LAN = generateHomeLan(ESSID);
+  const ADDRESS = `${LAN.subnet}.77`;
+
+  const boot = async (connected: boolean) => {
+    vi.resetModules();
+    const store = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => store.set(key, value),
+      removeItem: (key: string) => store.delete(key),
+    };
+    lanLeaseCacheIn(storage).remember(ESSID, ADDRESS);
+    if (connected) storage.setItem(CONNECTED_ESSID_KEY, ESSID);
+    vi.stubGlobal('localStorage', storage);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({ patches: [], sessions: [] }),
+      })),
+    );
+
+    const state = await import('./state.js');
+    state.startGame({ machineName: 'box', username: 'tester', rootPassword: 'pw' });
+    return { state, storage };
+  };
+
+  /** What the browser does in every OTHER tab when one tab writes `key`; `null` is the
+   *  whole store being cleared. */
+  const announce = (key: string | null): void => {
+    window.dispatchEvent(new StorageEvent('storage', { key }));
+  };
+
+  it('takes this terminal offline when another one disconnects the card', async () => {
+    const { state, storage } = await boot(true);
+    expect(state.linkOnline()).toBe(true);
+
+    storage.removeItem(CONNECTED_ESSID_KEY);
+    announce(CONNECTED_ESSID_KEY);
+
+    expect(state.linkOnline()).toBe(false);
+  });
+
+  it('puts this terminal on the network another one joined, at the address it was leased', async () => {
+    const { state, storage } = await boot(false);
+    expect(state.linkOnline()).toBe(false);
+
+    storage.setItem(CONNECTED_ESSID_KEY, ESSID);
+    announce(CONNECTED_ESSID_KEY);
+
+    expect(state.connectedWireless()?.association.essid).toBe(ESSID);
+    expect(state.connectedWireless()?.ipv4).toBe(ADDRESS);
+  });
+
+  it('follows a join whose lease lands after the network it names', async () => {
+    const { state, storage } = await boot(false);
+    const LATER = 'BEAN-THERE-WIFI';
+    const laterAddress = `${generateHomeLan(LATER).subnet}.12`;
+
+    storage.setItem(CONNECTED_ESSID_KEY, LATER);
+    announce(CONNECTED_ESSID_KEY);
+    lanLeaseCacheIn(storage).remember(LATER, laterAddress);
+    announce(`jshack:lan-lease:${LATER}`);
+
+    expect(state.connectedWireless()?.association.essid).toBe(LATER);
+    expect(state.connectedWireless()?.ipv4).toBe(laterAddress);
+  });
+
+  it('takes this terminal offline when another one wipes the whole store', async () => {
+    const { state, storage } = await boot(true);
+
+    storage.removeItem(CONNECTED_ESSID_KEY);
+    announce(null);
+
+    expect(state.linkOnline()).toBe(false);
+  });
+
+  it('ignores storage writes that are not about the card', async () => {
+    const { state, storage } = await boot(true);
+
+    storage.removeItem(CONNECTED_ESSID_KEY);
+    announce('jshack:theme');
+
+    expect(state.linkOnline()).toBe(true);
+  });
+});
+
+/**
  * A shell runs ONE command at a time. The terminal must not start a second
  * command while one is still in flight (including its async server refresh) —
  * otherwise the second command snapshots a stale FS view mid-refresh (e.g. a
