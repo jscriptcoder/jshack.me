@@ -75,6 +75,8 @@ const formatRow = (host: LanHost): string =>
 /** Per-row pause so the host list populates live rather than all at once. */
 const SCAN_DELAY_MS = 200;
 
+/** Real nmap's width for `1234/tcp ` — a table holding a five-digit port grows past it,
+ *  as real nmap's does, rather than running `31337/tcp` into STATE. */
 const PORT_COL = 9;
 const STATE_COL = 6;
 const SERVICE_COL = 9;
@@ -88,9 +90,9 @@ const CVE_COL = 18;
 
 /** The scan table's header. Whichever column is last goes unpadded — a header trailing
  *  into whitespace is a column a player would have to select to discover was empty. */
-const portHeader = (withVersion: boolean): string =>
+const portHeader = (withVersion: boolean, portWidth: number): string =>
   [
-    padRight('PORT', PORT_COL),
+    padRight('PORT', portWidth),
     padRight('STATE', STATE_COL),
     padRight('SERVICE', SERVICE_COL),
     ...(withVersion
@@ -108,14 +110,20 @@ const portHeader = (withVersion: boolean): string =>
  *  only thing that reaches here unnamed, and `nc -l` is TCP. */
 const protocolOf = (service: string): string => serviceByName(service)?.protocol ?? 'tcp';
 
+const portCell = (entry: OpenPort): string => `${entry.port}/${protocolOf(entry.service)}`;
+
+/** The PORT column's width for one table: real nmap's, or the widest cell plus a gutter. */
+const portWidthFor = (ports: readonly OpenPort[]): number =>
+  Math.max(PORT_COL, ...ports.map((entry) => portCell(entry).length + 1));
+
 /** One scan row. A row stops at its last ANSWERED cell rather than trailing the spaces
  *  the empty ones would leave: a planted listener the box cannot name ends after its
  *  service, and a package still inside its safe window ends after its version. The blank
  *  is the finding in both cases — an open port belonging to no software the box admits
  *  to installing, or software with no hole published against it yet. */
-const formatPortLine = (entry: OpenPort, withVersion: boolean): string =>
+const formatPortLine = (entry: OpenPort, withVersion: boolean, portWidth: number): string =>
   [
-    padRight(`${entry.port}/${protocolOf(entry.service)}`, PORT_COL),
+    padRight(portCell(entry), portWidth),
     padRight('open', STATE_COL),
     padRight(entry.service, SERVICE_COL),
     ...(withVersion
@@ -138,9 +146,10 @@ function* portTableLines(
   withVersion: boolean,
 ): Iterable<TerminalLine> {
   if (ports.length === 0) return;
+  const portWidth = portWidthFor(ports);
   yield text('');
-  yield text(portHeader(withVersion));
-  for (const port of ports) yield text(formatPortLine(port, withVersion));
+  yield text(portHeader(withVersion, portWidth));
+  for (const port of ports) yield text(formatPortLine(port, withVersion, portWidth));
 }
 
 async function* scanRange(

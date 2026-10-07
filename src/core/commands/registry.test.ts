@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { commandRegistry } from './registry.js';
+import { DAEMONS } from './daemon.js';
 import { COMMAND_CATEGORIES } from './types.js';
 import { scriptIdentifier } from '../scripting/commandContext.js';
 
@@ -13,6 +14,16 @@ describe('commandRegistry', () => {
     // *silent* shadowing where one name resolves to a wrong command.
     for (const [key, command] of commandRegistry) {
       expect(command.name).toBe(key);
+    }
+  });
+
+  it('answers to the name of every daemon systemctl can start', () => {
+    // A package that lays a daemon in /usr/sbin while typing its name answers
+    // `command not found` reads as a broken install — the binary is right there.
+    for (const name of Object.keys(DAEMONS)) {
+      expect(commandRegistry.has(name), `${name} starts under systemctl but is no command`).toBe(
+        true,
+      );
     }
   });
 
@@ -152,6 +163,7 @@ describe('every IP tool runs from a hop, and only box-local tools stay home', ()
     ['apache2', 'daemon — brings a service up on the box it runs on'],
     ['mysqld', 'daemon — brings a service up on the box it runs on'],
     ['named', 'daemon — brings a service up on the box it runs on'],
+    ['snmpd', 'daemon — brings a service up on the box it runs on'],
     ['redis-server', 'daemon — brings a service up on the box it runs on'],
     ['systemctl', 'controls the box’s own services'],
     ['kill', 'ends one of the box’s own processes'],

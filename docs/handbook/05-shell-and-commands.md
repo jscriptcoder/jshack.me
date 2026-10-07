@@ -32,7 +32,7 @@ box and `ls` is gone there.
 | `commands/libraryDeps.ts`                                            | The shared-library gate and the command → library link map.                                                        |
 | `commands/streaming.ts`                                              | `streamedResult`: turns an async generator into a streamed result that keeps its exit code.                        |
 | `commands/help.ts`, `man.ts`                                         | Read registry metadata to list commands and show manual pages.                                                     |
-| `commands/daemon.ts`                                                 | One factory behind the service daemons (`sshd`, `vsftpd`, `nginx`, `apache2`, `mysqld`, `redis-server`, `named`).  |
+| `commands/daemon.ts`                                                 | One factory behind every service daemon (`sshd`, `mysqld`, `redis-server`, `named`, `snmpd`, …).                   |
 | `commands/ftpShell.ts`, `mysqlShell.ts`, `redisShell.ts`             | Line interpreters for the `ftp>`, `mysql>` and `redis>` sub-shells (not registered commands).                      |
 | `commands/<name>.ts`                                                 | One file per command (the catalog below).                                                                          |
 | `scripting/`                                                         | The `node` sandbox: `runScript`, `buildCommandContext`, the script `console` and `fs`.                             |
@@ -324,9 +324,7 @@ registered commands; `registry.ts` is the source of truth.
 | `ps`                                                                    | List running services and listeners                                                | S      |
 | `ifconfig`                                                              | Show network interfaces (`-a`)                                                     | S      |
 | `sshd`, `vsftpd`, `nginx`, `apache2`, `mysqld`, `redis-server`, `named` | Start a service daemon (root)                                                      | A/S    |
-
-`snmpd` exists in the daemon table but is deliberately not registered; only `systemctl start snmpd`
-starts it.
+| `snmpd`                                                                 | Start the SNMP agent once `apt install snmp` has laid it down (root)               | A/S    |
 
 ### WiFi
 

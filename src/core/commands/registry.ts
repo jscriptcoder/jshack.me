@@ -24,7 +24,7 @@ import { gpg } from './gpg.js';
 import { clear } from './clear.js';
 import { curl } from './curl.js';
 import { dig } from './dig.js';
-import { apache2, mysqld, named, nginx, redisServer, sshd, vsftpd } from './daemon.js';
+import { apache2, mysqld, named, nginx, redisServer, snmpd, sshd, vsftpd } from './daemon.js';
 import { echo } from './echo.js';
 import { effects } from './effects.js';
 import { exit } from './exit.js';
@@ -127,6 +127,7 @@ const builtins: readonly Command[] = [
   ftp,
   mysql,
   redisCli,
+  snmpd,
   snmpset,
   snmpwalk,
   strings,
