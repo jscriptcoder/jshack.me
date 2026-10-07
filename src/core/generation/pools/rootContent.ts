@@ -57,7 +57,7 @@ mesg n 2> /dev/null || true
 export const ROOT_HISTORY: readonly string[] = [
   'apt update',
   'apt upgrade -y',
-  'apt autoremove',
+  'apt list --installed',
   'apt list --upgradable',
   'df -h',
   'du -sh /var/log',
@@ -74,7 +74,7 @@ export const ROOT_HISTORY: readonly string[] = [
   'ifconfig',
   'ls -la /var/log',
   'tail /var/log/auth.log',
-  'tail -f /var/log/auth.log',
+  'tail -n 50 /var/log/auth.log',
   'grep Failed /var/log/auth.log',
   'grep -c sshd /var/log/auth.log',
   'less /var/log/kern.log',
@@ -172,7 +172,7 @@ export const ROLE_ROOT_HISTORY: Readonly<Record<DrawnRole, readonly string[]>> =
     'logrotate --help',
     'goaccess --help',
     'ls -la /var/log',
-    'nginx -t',
+    'openssl ciphers',
   ],
   // A file server here shares over ftp alone and keeps its share on the disk mounted at
   // /srv, so its admin names no samba, nfs or zfs.
@@ -186,7 +186,7 @@ export const ROLE_ROOT_HISTORY: Readonly<Record<DrawnRole, readonly string[]>> =
     'ls -l /srv',
   ],
   database: [
-    'mysql -u root',
+    'mysql localhost root',
     'mysqladmin status',
     'mysqladmin processlist',
     'mysqltuner',

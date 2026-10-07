@@ -663,7 +663,7 @@ describe('what a box writes is written the way the real file is', () => {
 /** The shapes of line root's history may hold beyond the habits in the pools: what it did
  *  to the box's services, its files, and its neighbours. */
 const GENERATED_ROOT_LINE =
-  /^(systemctl (status|restart|start|stop) \S+|(cat|vim|nano|less) \/\S+|(tail|tail -f|less|grep -i error) \/var\/log\/\S+|(ssh|curl|ping|nslookup) .+)$/;
+  /^(systemctl (status|restart|start|stop) \S+|(cat|vim|nano|less) \/\S+|(tail|tail -n 50|less|grep -i error) \/var\/log\/\S+|(ssh|curl|ping|nslookup) .+)$/;
 
 describe('root’s history is made of what the box is', () => {
   it('holds only commands root could have typed here', () => {

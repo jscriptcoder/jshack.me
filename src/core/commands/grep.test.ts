@@ -3,6 +3,7 @@ import { grep } from './grep.js';
 import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
 import { mockCommandEnv, mockFsViewFromTree } from '../../test/factories/commandEnv.js';
 import { asAbsPath } from '../types.js';
+import { runCommandLine } from '../shell/runLine.js';
 import type { TerminalLine } from './types.js';
 
 const NO_FLAGS = new Map<string, string | true>();
@@ -995,5 +996,47 @@ describe('grep — -c flag (count matching lines)', () => {
     expect(result.kind).toBe('sync');
     if (result.kind !== 'sync') return;
     expect(textLines(result)).toEqual(['/var/log/auth.log']);
+  });
+});
+
+describe('grep — -i and -r, which name what it already does', () => {
+  /** alice's log, read through the shell, which is where an unknown flag is refused. */
+  const typed = async (
+    line: string,
+  ): Promise<{ readonly text: string; readonly exitCode: number }> => {
+    const env = mockCommandEnv({
+      fs: mockFsViewFromTree(
+        buildDirectory({
+          var: buildDirectory({
+            log: buildDirectory({
+              'auth.log': buildFile(
+                'sshd: Accepted root\ncron: session opened\nSSHD: Failed alice\n',
+                {
+                  owner: 'alice',
+                },
+              ),
+            }),
+          }),
+        }),
+        { userType: 'user', cwd: asAbsPath('/') },
+      ),
+    });
+    const result = await runCommandLine(env, line, new Map([['grep', grep]]));
+    if (result.kind !== 'sync') throw new Error('grep answers synchronously');
+    return { text: result.lines.map((out) => out.content).join('\n'), exitCode: result.exitCode };
+  };
+
+  it('takes -i, matching case-insensitively exactly as it does without it', async () => {
+    const withFlag = await typed('grep -i sshd /var/log/auth.log');
+
+    expect(withFlag).toEqual({ text: 'sshd: Accepted root\nSSHD: Failed alice', exitCode: 0 });
+    expect(withFlag).toEqual(await typed('grep sshd /var/log/auth.log'));
+  });
+
+  it('takes -r, walking a directory exactly as it does without it', async () => {
+    const withFlag = await typed('grep -r cron /var/log');
+
+    expect(withFlag).toEqual({ text: '/var/log/auth.log:cron: session opened', exitCode: 0 });
+    expect(withFlag).toEqual(await typed('grep cron /var/log'));
   });
 });

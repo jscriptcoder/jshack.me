@@ -31,6 +31,11 @@
  * manifest — the file a scan reads and an exploit is keyed on — so a patch is one write
  * to one file. A package whose fix has not shipped yet is reported rather than moved:
  * the patch delay is the window nobody can buy their way out of.
+ *
+ * `update` is the habit every admin has before either: it fetches nothing new (the
+ * repo here is never stale) and only says how many packages `upgrade` could move,
+ * counted by the same resolver, so the three can never disagree. `-y` is taken and
+ * changes nothing, because apt here never stops to ask.
  */
 
 import { asAbsPath, type AbsPath } from '../types.js';
@@ -77,6 +82,7 @@ const USAGE = [
   'apt: usage:',
   '  apt install <package>[=<version>]  Install a package, or roll one back to a release',
   '  apt upgrade [package]              Patch the packages on this box whose fixes have shipped',
+  '  apt update                         Say how many packages on this box could be upgraded',
   '  apt list [--installed]             List packages (optionally only installed ones)',
   '  apt list --upgradable              List the packages on this box with a vulnerability',
 ];
@@ -411,6 +417,33 @@ async function* upgradePackages(
   return yield* applyUpgrades(env, packageName);
 }
 
+/** How many packages on the box a fix has shipped for — the ones `upgrade` would move.
+ *  A package still inside its patch delay has nothing newer to take, so it is not one. */
+const upgradableCount = (env: CommandEnv): number => {
+  const gameDay = gameDayAt(env.now());
+  return Array.from(parseDpkgVersions(readDpkgStatus(env.fs.root()))).filter(
+    ([pkg, version]) => exposureOf(pkg, version, gameDay)?.status.kind === 'upgradable',
+  ).length;
+};
+
+/** The `update` operation: the lists read, then what they mean for this box, in apt's own
+ *  words — the singular names the package `it`, as real apt does. */
+async function* updateLists(env: CommandEnv): AsyncGenerator<TerminalLine, number> {
+  yield text('Hit:1 http://deb.debian.org/debian stable InRelease');
+  await env.sleep(STEP_DELAY_MS);
+  yield text('Reading package lists... Done');
+  yield text('Building dependency tree... Done');
+  const count = upgradableCount(env);
+  if (count === 0) {
+    yield text('All packages are up to date.');
+  } else if (count === 1) {
+    yield text("1 package can be upgraded. Run 'apt list --upgradable' to see it.");
+  } else {
+    yield text(`${count} packages can be upgraded. Run 'apt list --upgradable' to see them.`);
+  }
+  return 0;
+}
+
 /** True when the repo holds nothing this box does not already have: a package that is not
  *  exposed at all, or one with no history to move along. Inside a patch delay it is
  *  FALSE — the hole is real, the warning says so, and calling that the newest version
@@ -654,6 +687,18 @@ const handleUpgrade = (env: CommandEnv, packageName: string | undefined): Comman
   return streamedResult(upgradePackages(env, packageName));
 };
 
+/** `update` takes `upgrade`'s two gates: real apt takes the lists lock, which is root's,
+ *  and fetches from the repo. */
+const handleUpdate = (env: CommandEnv): CommandResult => {
+  if (env.session.userType !== 'root') {
+    return lockError();
+  }
+  if (!reachesRepo(env)) {
+    return offlineError();
+  }
+  return streamedResult(updateLists(env));
+};
+
 const execute: Command['execute'] = async (env, args, flags) => {
   const [subcommand, packageName] = args;
   if (subcommand === undefined) {
@@ -668,6 +713,9 @@ const execute: Command['execute'] = async (env, args, flags) => {
   if (subcommand === 'upgrade') {
     return handleUpgrade(env, packageName);
   }
+  if (subcommand === 'update') {
+    return handleUpdate(env);
+  }
   return errorResult([`E: Invalid operation ${subcommand}`]);
 };
 
@@ -677,17 +725,24 @@ export const apt: Command = {
   category: 'network',
   tier: 'root',
   availability: { kind: 'localhost-only' },
-  flags: { '--installed': 'boolean', '-i': 'boolean', '--upgradable': 'boolean', '-u': 'boolean' },
+  flags: {
+    '--installed': 'boolean',
+    '-i': 'boolean',
+    '--upgradable': 'boolean',
+    '-u': 'boolean',
+    '-y': 'boolean',
+  },
   manual: {
-    synopsis: 'apt <install|list|upgrade> [--installed|--upgradable] [package[=<version>]]',
+    synopsis:
+      'apt <install|list|upgrade|update> [--installed|--upgradable] [-y] [package[=<version>]]',
     description:
-      'Advanced Package Tool. "install" downloads a package and places its binaries where they belong — tools in /usr/bin, service daemons in /usr/sbin — making them available to run (requires root — run "su" first). Naming a release as "<package>=<version>" installs that release instead of the newest: the repo hands over only releases it already holds, and only backwards — moving a box forward is what "upgrade" is for. "upgrade" closes the holes "list --upgradable" names: it moves every package on this box whose fix has been released onto that release, or only the package you name, and reports the ones whose fix has not shipped yet rather than moving them (requires root). "list" shows the installable catalog; "list --installed" shows only the packages already present. "list --upgradable" (or -u) reads this box\'s package manifest and names every package with a published vulnerability, by its CVE id and severity, beside the version that fixes it, or — while the fix has not been released yet — how many days until it is. It needs no root. All of them reach the repo over the network you are on — your own at home, or the network of a box you have a shell on.',
+      'Advanced Package Tool. "install" downloads a package and places its binaries where they belong — tools in /usr/bin, service daemons in /usr/sbin — making them available to run (requires root — run "su" first). Naming a release as "<package>=<version>" installs that release instead of the newest: the repo hands over only releases it already holds, and only backwards — moving a box forward is what "upgrade" is for. "upgrade" closes the holes "list --upgradable" names: it moves every package on this box whose fix has been released onto that release, or only the package you name, and reports the ones whose fix has not shipped yet rather than moving them (requires root). "update" reads the package lists and says how many packages on this box "upgrade" could move (requires root). "-y" is accepted out of habit: apt here never stops to ask. "list" shows the installable catalog; "list --installed" shows only the packages already present. "list --upgradable" (or -u) reads this box\'s package manifest and names every package with a published vulnerability, by its CVE id and severity, beside the version that fixes it, or — while the fix has not been released yet — how many days until it is. It needs no root. All of them reach the repo over the network you are on — your own at home, or the network of a box you have a shell on.',
     arguments: [
       {
         name: 'operation',
-        description: '"install", "list" or "upgrade"',
+        description: '"install", "list", "upgrade" or "update"',
         required: true,
-        values: ['install', 'list', 'upgrade'],
+        values: ['install', 'list', 'upgrade', 'update'],
       },
       {
         name: 'package',
@@ -699,6 +754,7 @@ export const apt: Command = {
         name: '--upgradable',
         description: 'With "list": only the packages on this box that are vulnerable (-u)',
       },
+      { name: '-y', description: 'Assume yes — accepted, though apt here never asks' },
     ],
     examples: [
       { command: 'apt install nmap', description: 'Install the nmap network scanner' },
@@ -710,6 +766,7 @@ export const apt: Command = {
         command: 'apt upgrade',
         description: 'Patch every package on this box whose fix has been released',
       },
+      { command: 'apt update', description: 'See how many packages here could be upgraded' },
       { command: 'apt list --installed', description: 'List the packages already installed' },
       {
         command: 'apt list --upgradable',

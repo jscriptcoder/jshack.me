@@ -633,13 +633,11 @@ To pick up the next work: there is no active epic. **The owner has postponed the
 2. ✅ Wire-check failures (#617, 2026-10-07): every script named in §9 passes alone.
 3. Small bugs a playtester would hit — ✅ `grep -c` (#619, v0.326.0, which also taught
    `head`/`tail` `-N` and `-nN` and every string flag its attached value: `ssh -p2222`); ✅ `nmap`'s
-   5-digit port column and ✅ `snmpd` by name (#620, v0.327.0). **Next — the last open item:**
-   root's planted `.bash_history` lines the shell refuses (`tail -f /var/log/auth.log`; §9 has the
-   agreed fix: a test runs every history-pool line through `runCommandLine`, then each failure is
-   reworded or supported). Measured and decided 2026-10-07 (§9 has the breakdown): `~` expansion
-   ships first as its own PR, then the history test with `grep -i`, `apt update`/`-y` and the
-   rewordings.
-4. Then give a player's own box an attack surface, so two players can go after each other's
+   5-digit port column and ✅ `snmpd` by name (#620, v0.327.0); ✅ `~` expansion (#621, v0.328.0)
+   and ✅ planted histories the shell refuses (v0.329.0: `plantedHistory.test.ts` runs every pool
+   line and one line per shape of every history the world plants; `grep -i`/`-r`, `ping -c`,
+   `apt update` and `apt -y` supported, the rest reworded — §9 has the record).
+4. **Next:** give a player's own box an attack surface, so two players can go after each other's
    machines: workstation daemons (mysqld/redis, §9 "Game-design / content ideas"), and later the
    CVE arc.
 5. Defender-side items: hidden `auth.log` lines on a shared deep box, the `echo x > rules.v4` wipe,
@@ -2886,7 +2884,24 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   `grep -c sshd /var/log/auth.log` in root's generated `.bash_history`, so it suggested a command it
   refused. Found in world-content slice 3's played run (v0.250.0).
 
-- **Root's planted `.bash_history` holds lines the shell refuses.** `ROOT_HISTORY` in
+- **CLOSED v0.329.0 — root's planted `.bash_history` held lines the shell refused.**
+  `src/core/generation/plantedHistory.test.ts` now runs every line of the five history pools, and
+  one real line per distinct shape of every `.bash_history` the world plants (home and deep boxes
+  and every gateway, about 3s), through `runCommandLine` with the real registry, and fails on a
+  usage refusal (`unrecognized option`, `Invalid operation`, `no manual entry`, `usage:`).
+  Running the WORLD, not just the pools, is what found the largest case: `gatewayHistory.ts`
+  planted `ping -c N <ip>` on 1722 distinct lines, and both generators planted `tail -f`. Two
+  decisions moved from the record below once that was measured: `ping -c N` is **supported**
+  (a flag names itself, which is why a bare positional count was refused; default stays 4), and
+  `grep -r` is **supported**, not reworded — this grep already recurses into a directory and is
+  already case-insensitive, so `-r` and `-i` are accepted and change nothing. `apt update` reports
+  how many packages `upgrade` could move (same resolver), `-y` is accepted; `tail -f` became
+  `tail -n 50` in the pools and both generators; `apt autoremove` → `apt list --installed`,
+  `mysql -u root` → `mysql localhost root`, `nginx -t` → `openssl ciphers` (not every webserver
+  serves a site, so nothing path-bearing was safe), `man bash` → `man grep`. All 57 landmark
+  fingerprints moved with it, on purpose. The original note follows.
+
+  Root's planted `.bash_history` holds lines the shell refuses. `ROOT_HISTORY` in
   `core/generation/pools/rootContent.ts` plants `tail -f /var/log/auth.log`, and `tail` has no `-f`
   by design (nothing appends to a log while you watch). A player who roots a box and replays its
   history meets `unrecognized option`. The fix that cannot rot is a test running every line of the

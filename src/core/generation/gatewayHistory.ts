@@ -132,7 +132,7 @@ export const gatewayRootHistory = (options: {
     .map((path) => `${prng.pick(['cat', 'less', 'nano'])} ${path}`);
   const logLines = prng
     .pickN(filePaths('/var/log', logs), prng.nextInt(1, 2))
-    .map((path) => `${prng.pick(['tail', 'tail -f', 'less', 'grep -i error'])} ${path}`);
+    .map((path) => `${prng.pick(['tail', 'tail -n 50', 'less', 'grep -i error'])} ${path}`);
   const serviceLines = daemons
     .filter(() => prng.next() < 0.5)
     .map((daemon) => `systemctl ${prng.pick(['status', 'restart'])} ${daemon}`);
