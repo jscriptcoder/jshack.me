@@ -5,9 +5,11 @@
 planned and approved the same day. Slices 1–5, 6a–6c, 7, 8a, 8b and 8c done (#598 v0.307.0,
 #599 v0.308.0, #600 v0.309.0, #601 v0.310.0, #602 v0.311.0, #603 v0.312.0, #604 v0.313.0,
 #605 v0.314.0, #606 v0.315.0, #607 v0.316.0, #608 v0.317.0, #610 v0.318.0, #611 v0.319.0,
-#612 v0.320.0, #613 v0.321.0, #614 v0.322.0). Slice 9 split in three (2026-10-06), then 9a split
-again into ftp+scp (#612) and `nc` (#613). Next: slice 9c (apt from a hop, and the done-when
-enumeration test).
+#612 v0.320.0, #613 v0.321.0, #614 v0.322.0, #615 v0.323.0). Slice 9 split in three (2026-10-06),
+then 9a split again into ftp+scp (#612) and `nc` (#613). **All nine slices (1–9c) are done:** with
+`apt` moved in #615, no IP tool runs from home inside a remote shell (decision 3). **Next: a
+full-epic e2e browser run (Done-when 6 and 7), THEN the close-out** (as-built docs + §9 cleanup +
+retire this file) — the owner asked to run the e2e before the close-out (2026-10-07).
 Resolves two §9 backlog items in `docs/conventions-and-gotchas.md`: "Pivot / operate-from-a-hop —
 source-IP masking only; ssh-from-a-pivot" and "Four tools cannot pivot: `ssh`, `nmap`, `curl`,
 `lynx`". Where they disagree with this file, this file wins.
@@ -766,3 +768,36 @@ Agreed acceptance (owner, 2026-10-07):
    is rerun unchanged.
 9. **Out of scope**: the close-out (handbook ch. 7, `cross-player-architecture.md` §8, the two §9
    backlog items, retiring this file) — a `docs(v2):` commit after this PR, as planned above.
+
+✅ **Done in #615 (v0.323.0).** As built:
+- `apt` gates every subcommand on `reachesRepo(env)` = `vantageOf(...) !== null` (the box it runs
+  on is on a network), not `env.network.isOnline()` (the home card). On a hop with the card off,
+  `list`, `list -u`, `install`, `upgrade` all reach the repo; at home with the card off the offline
+  refusal stands; root is still checked first. `man apt` says "the network you are on".
+- `traceProvenance` (shared by the dpkg-rollback and ftp-transfer traces) rewritten onto
+  `resolveCallerVantage` — the same placement every own-LAN door uses. On the target's own network
+  the line names the address it saw there (a neighbour's LAN lease, or the caller's deeper segment);
+  off it, the caller network's public NAT address. The client no longer sends `source_ip` and the
+  server never reads it; ownership decides only the log row. So a box's `dpkg.log`/`vsftpd.log` line
+  agrees with its `auth.log` login whoever reached it (criteria 3–5). Handler deps gained
+  `findHomeVantage` + `findWorkstationLease` (already wired in `api/patches.ts`); `claimedIp` gone.
+- Done-when 4 guard in `registry.test.ts`: every `network`-category command is an IP tool (18, decision
+  2) or a named box-local one (7 daemons, `systemctl`/`kill`/`ps`, `ifconfig`, `whois`); a new one in
+  neither fails.
+- **Wire-checks (live):** `testAptDowngradeTrace.ts` **16/16** (incl. 8a/8b, the owned-box same-LAN
+  neighbour case naming the hop's LAN address), `testFtpTransferTrace.ts` **13/13** — server-derived
+  addresses, claimed `source_ip` ignored. Run via `npm run vercel:dev` (port 3100) +
+  `npx dotenv -e .env.development.local -- npx tsx scripts/<file>`.
+- Mutation gate: `traceProvenance.ts` **35/35 (100%, 0 timeouts)**; `apt.ts` changed lines all killed
+  (remaining survivors are pre-existing `manual:`/install-logic, out of scope).
+
+### Before the close-out: a full-epic e2e browser run
+
+The owner asked (2026-10-07) to exercise the whole epic live in a real browser before retiring this
+file. Load the `e2e` skill; it holds the preflight and the in-game command sequences. Cover
+**Done-when 6** end to end — build a two-hop chain (home → a box on one network → by public address
+to a box on another → log in to a third network's gateway), confirm `ifconfig` shows the hop's
+interface/LAN address, `nmap` sweeps the hop's LAN, and `exit` steps back one vantage — plus a spot
+check of the moved tools from a hop (an `apt list`/`install`, a `curl`/`dig`, a `hydra`/`mysql`).
+Record the result here. Then do the close-out. (Two-player runs stay unstageable against a fresh box —
+prove the client half single-player, per the standing note.)
