@@ -142,6 +142,15 @@ const lockError = (): CommandResult =>
     'E: Unable to acquire the dpkg frontend lock (/var/lib/dpkg/lock-frontend), are you root?',
   ]);
 
+/** The part of a box an install touches: what it reads, where it writes, and the
+ *  clock that dates what it lays down. Narrower than a command's whole environment so
+ *  a workstation's first boot, which runs before any shell exists, installs its
+ *  starting services through the same steps `apt install` takes. */
+export type InstallBox = Pick<
+  CommandEnv,
+  'identity' | 'hostname' | 'now' | 'fs' | 'patches' | 'sleep'
+>;
+
 /**
  * Install the shared libraries a package's binaries link (`libraryDeps`) that
  * are MISSING on the current machine — each as a `/lib/<lib>.so` stub with
@@ -159,7 +168,7 @@ const lockError = (): CommandResult =>
  * whatever the real catalog happens to map today.
  */
 export const installPackageLibraries = async (
-  env: CommandEnv,
+  env: InstallBox,
   binaries: readonly string[],
   deps: Readonly<Record<string, readonly SystemLibrary[]>> = libraryDeps,
 ): Promise<PatchResult> => {
@@ -208,7 +217,7 @@ const ancestorsOf = (path: AbsPath): readonly AbsPath[] => {
  * one to reach those paths would be content written for a test.
  */
 export async function* installExtraFiles(
-  env: CommandEnv,
+  env: InstallBox,
   extraFiles: readonly AptExtraFile[],
 ): AsyncGenerator<TerminalLine, PatchResult> {
   for (const extraFile of extraFiles) {
@@ -341,7 +350,7 @@ type Upgrade = { readonly pkg: string; readonly from: string; readonly to: strin
  *  Shared with `install`, which does this to a package the box already carries — one
  *  resolver behind both verbs, so they cannot disagree about what the repo holds. */
 async function* applyUpgrades(
-  env: CommandEnv,
+  env: InstallBox,
   packageName: string | undefined,
 ): AsyncGenerator<TerminalLine, number> {
   const gameDay = gameDayAt(env.now());
@@ -538,22 +547,37 @@ async function* installPackage(
   yield text('Building dependency tree...');
   await env.sleep(STEP_DELAY_MS);
 
-  const gameDay = gameDayAt(env.now());
-  const manifest = readDpkgStatus(env.fs.root());
-  const carried = parseDpkgVersions(manifest);
-
   // A named release answers the version question outright, so it runs ahead of every
   // resolver below: those all ask "where should this box move to", and the player has
   // already said.
   if (pinnedVersion !== undefined) {
+    const manifest = readDpkgStatus(env.fs.root());
     return yield* pinVersion(env, {
       packageName,
       version: pinnedVersion,
       manifest,
-      carried,
-      gameDay,
+      carried: parseDpkgVersions(manifest),
+      gameDay: gameDayAt(env.now()),
     });
   }
+  return yield* installNewest(env, packageName);
+}
+
+/**
+ * Lay a package down at the newest release the repo holds today: its binaries, the
+ * libraries they link, its data files, and the manifest row that dates it. Everything
+ * `apt install <package>` does after its preamble, with no pinned version.
+ *
+ * Shared with a workstation's first boot, which installs its starting services this
+ * way so they are born exactly as a player who bought them that day would have them.
+ */
+export async function* installNewest(
+  env: InstallBox,
+  packageName: string,
+): AsyncGenerator<TerminalLine, number> {
+  const gameDay = gameDayAt(env.now());
+  const manifest = readDpkgStatus(env.fs.root());
+  const carried = parseDpkgVersions(manifest);
 
   // Shipped with the box, so there is nothing to lay down: no binary for software that
   // came with the image, no `.so` for a library everything already links. The VERSION is
