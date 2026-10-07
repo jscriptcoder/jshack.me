@@ -126,6 +126,47 @@ describe('ping', () => {
     expect(text).toContain('icmp_seq=4');
   });
 
+  describe('-c, the count every admin types', () => {
+    const counted = async (
+      count: string,
+      ...args: readonly string[]
+    ): Promise<{ text: string; exitCode: number }> =>
+      drain(await ping.execute(onlineEnv(), args, new Map([['-c', count]])));
+
+    it('sends exactly as many echoes as it is told', async () => {
+      const { text, exitCode } = await counted('2', hostOnLan().ip);
+
+      expect(exitCode).toBe(0);
+      expect(text).toContain('icmp_seq=2');
+      expect(text).not.toContain('icmp_seq=3');
+      expect(text).toContain('2 packets transmitted, 2 received, 0% packet loss');
+    });
+
+    it('takes a count of more than one digit', async () => {
+      const { text } = await counted('12', hostOnLan().ip);
+
+      expect(text).toContain('icmp_seq=12');
+      expect(text).toContain('12 packets transmitted, 12 received');
+    });
+
+    it('counts the loss against the echoes it sent', async () => {
+      const { text, exitCode } = await counted('1', unoccupiedIp());
+
+      expect(exitCode).toBe(1);
+      expect(text).toContain('1 packets transmitted, 0 received, 100% packet loss');
+    });
+
+    it.each(['0', 'three', '2.5'])(
+      'refuses a count of %s without sending anything',
+      async (count) => {
+        const { text, exitCode } = await counted(count, hostOnLan().ip);
+
+        expect(exitCode).toBe(2);
+        expect(text).toBe(`ping: invalid argument: '${count}'`);
+      },
+    );
+  });
+
   it('reports the whole exchange in ping’s own shape', async () => {
     // Pinned line by line: the payload/packet sizes, the reply format, the blank
     // separator and the statistics header are what make the output recognisable as

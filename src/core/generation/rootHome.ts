@@ -70,7 +70,7 @@ const boxLines = (options: {
     .map((path) => `${prng.pick(['cat', 'vim', 'nano', 'less'])} ${path}`);
   const logLines = prng
     .pickN(logPaths, prng.nextInt(1, 2))
-    .map((path) => `${prng.pick(['tail', 'tail -f', 'less', 'grep -i error'])} ${path}`);
+    .map((path) => `${prng.pick(['tail', 'tail -n 50', 'less', 'grep -i error'])} ${path}`);
   const noteLines = notePaths
     .filter(() => prng.next() < 0.5)
     .map((path) => `${prng.pick(['cat', 'vim'])} ${path}`);

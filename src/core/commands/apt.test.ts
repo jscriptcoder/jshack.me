@@ -2322,6 +2322,98 @@ describe('apt upgrade', () => {
     const { text } = syncResult(await apt.execute(aptEnv().env, [], NO_FLAGS));
     expect(text).toContain('apt upgrade');
   });
+
+  it('takes -y, which every admin types and which changes nothing, since apt here never asks', async () => {
+    const { gameDay, first } = mixedBox();
+    const box = () => upgradeBox(manifestOf({ [first.pkg]: first.from }), { gameDay }).env;
+
+    expect(bindFlags(['upgrade', '-y'], apt.flags ?? {})).toEqual({
+      ok: true,
+      positional: ['upgrade'],
+      flags: new Map([['-y', true]]),
+    });
+    expect(
+      await streamResult(await apt.execute(box(), ['upgrade'], new Map([['-y', true]]))),
+    ).toEqual(await upgrade(box()));
+  });
+
+  describe('apt update, which says how many of these a box could take', () => {
+    const update = async (env: CommandEnv) =>
+      streamResult(await apt.execute(env, ['update'], NO_FLAGS));
+
+    const UPDATE_PREAMBLE = [
+      'Hit:1 http://deb.debian.org/debian stable InRelease',
+      'Reading package lists... Done',
+      'Building dependency tree... Done',
+    ];
+
+    it('counts the packages whose fix has shipped, and leaves out the one still waiting', async () => {
+      const { gameDay, waiting, first, second } = mixedBox();
+      const { env, writes } = upgradeBox(
+        manifestOf({ [SSH]: waiting, [first.pkg]: first.from, [second.pkg]: second.from }),
+        { gameDay },
+      );
+
+      const { text, exitCode } = await update(env);
+
+      expect(text).toBe(
+        [
+          ...UPDATE_PREAMBLE,
+          "2 packages can be upgraded. Run 'apt list --upgradable' to see them.",
+        ].join('\n'),
+      );
+      expect(exitCode).toBe(0);
+      expect(writes).toEqual([]);
+    });
+
+    it('speaks of one package in the singular', async () => {
+      const { gameDay, first } = mixedBox();
+      const { env } = upgradeBox(manifestOf({ [first.pkg]: first.from }), { gameDay });
+
+      const { text } = await update(env);
+
+      expect(text).toContain("1 package can be upgraded. Run 'apt list --upgradable' to see it.");
+    });
+
+    it('says the box is up to date when nothing it carries has a fix to take', async () => {
+      // One package still waiting on its fix, and one already patched — exposed to nothing
+      // at all, which is most of what a real box carries.
+      const { gameDay, waiting, first } = mixedBox();
+      const { env } = upgradeBox(manifestOf({ [SSH]: waiting, [first.pkg]: first.to }), {
+        gameDay,
+      });
+
+      const { text, exitCode } = await update(env);
+
+      expect(text).toBe([...UPDATE_PREAMBLE, 'All packages are up to date.'].join('\n'));
+      expect(exitCode).toBe(0);
+    });
+
+    it('refuses a player who is not root, and one who is offline, as upgrade does', async () => {
+      const { gameDay, first } = mixedBox();
+      const manifest = manifestOf({ [first.pkg]: first.from });
+
+      const asUser = syncResult(
+        await apt.execute(
+          upgradeBox(manifest, { gameDay, userType: 'user' }).env,
+          ['update'],
+          NO_FLAGS,
+        ),
+      );
+      const offline = syncResult(
+        await apt.execute(
+          upgradeBox(manifest, { gameDay, online: false }).env,
+          ['update'],
+          NO_FLAGS,
+        ),
+      );
+
+      expect(asUser.exitCode).toBe(100);
+      expect(asUser.text).toContain('are you root?');
+      expect(offline.exitCode).toBe(100);
+      expect(offline.text).toContain('are you connected to a network');
+    });
+  });
 });
 
 /**

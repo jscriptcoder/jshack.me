@@ -41,10 +41,12 @@ const UNREACHABLE = 'ping: network is unreachable — connect to a network first
 const PAYLOAD_BYTES = 56;
 const REPLY_BYTES = 64;
 
-/** How many echoes every run sends. Fixed rather than a `[count]` argument: a bare
- *  number after the host would be the only positional in the game whose meaning a
- *  player could not read off the line, and nothing here needs a different number. */
-const ECHO_COUNT = 4;
+/** How many echoes a run sends unless `-c` says otherwise. Never a `[count]`
+ *  positional: a bare number after the host would be the only one in the game whose
+ *  meaning a player could not read off the line. `-c 3` names itself. */
+const DEFAULT_ECHO_COUNT = 4;
+
+const POSITIVE_WHOLE_NUMBER = /^[1-9]\d*$/;
 
 const TTL = 64;
 
@@ -63,10 +65,11 @@ async function* echoes(
   target: string,
   address: string,
   reachable: boolean,
+  count: number,
 ): AsyncGenerator<TerminalLine, number> {
   yield text(`PING ${target} (${address}) ${PAYLOAD_BYTES}(${PAYLOAD_BYTES + 28}) bytes of data.`);
 
-  for (let sequence = 1; sequence <= ECHO_COUNT; sequence++) {
+  for (let sequence = 1; sequence <= count; sequence++) {
     await env.sleep(INTERVAL_MS);
     if (reachable) {
       yield text(
@@ -75,11 +78,11 @@ async function* echoes(
     }
   }
 
-  const received = reachable ? ECHO_COUNT : 0;
-  const loss = Math.round(((ECHO_COUNT - received) / ECHO_COUNT) * 100);
+  const received = reachable ? count : 0;
+  const loss = Math.round(((count - received) / count) * 100);
   yield text('');
   yield text(`--- ${target} ping statistics ---`);
-  yield text(`${ECHO_COUNT} packets transmitted, ${received} received, ${loss}% packet loss`);
+  yield text(`${count} packets transmitted, ${received} received, ${loss}% packet loss`);
   return received > 0 ? 0 : 1;
 }
 
@@ -104,11 +107,20 @@ const answers = async (
   return (await occupantsHere()).some((occupant) => occupant.localIp === address);
 };
 
-const execute: Command['execute'] = async (env, args) => {
+const execute: Command['execute'] = async (env, args, flags) => {
   const target = args[0];
   if (target === undefined) {
     return error(USAGE);
   }
+  const countFlag = flags.get('-c');
+  if (typeof countFlag === 'string' && !POSITIVE_WHOLE_NUMBER.test(countFlag)) {
+    return {
+      kind: 'sync',
+      lines: [errorLine(`ping: invalid argument: '${countFlag}'`)],
+      exitCode: 2,
+    };
+  }
+  const count = typeof countFlag === 'string' ? Number(countFlag) : DEFAULT_ECHO_COUNT;
 
   const vantage = vantageOf(env.session, env.network);
   if (vantage === null) {
@@ -130,7 +142,7 @@ const execute: Command['execute'] = async (env, args) => {
 
   // The exit code IS the answer here (0 only when something replied), so it comes from
   // the stream's own return value rather than being assumed up front.
-  return streamedResult(echoes(env, target, address, reachable));
+  return streamedResult(echoes(env, target, address, reachable, count));
 };
 
 export const ping: Command = {
@@ -141,19 +153,22 @@ export const ping: Command = {
   // Ships in /bin on every box, so reachability can be checked from wherever the
   // player currently stands.
   availability: { kind: 'any-machine' },
+  flags: { '-c': 'string' },
   manual: {
-    synopsis: 'ping <host>',
+    synopsis: 'ping [-c count] <host>',
     description:
-      'Send ICMP echo requests to a host on the network you are on — your own at home, or the network of a box you have a shell on — and report which came back. Takes an address or a name. Answers reachability only — a host that replies may still be running nothing. Always sends 4 packets.',
+      'Send ICMP echo requests to a host on the network you are on — your own at home, or the network of a box you have a shell on — and report which came back. Takes an address or a name. Answers reachability only — a host that replies may still be running nothing. Sends 4 packets unless -c says how many.',
     arguments: [
       {
         name: 'host',
         description: 'The address or name to reach, e.g. 192.168.1.5 or web-04',
         required: true,
       },
+      { name: '-c', description: 'How many echo requests to send, e.g. -c 1 (default 4)' },
     ],
     examples: [
       { command: 'ping 192.168.1.5', description: 'Send four echo requests to a host' },
+      { command: 'ping -c 1 192.168.1.5', description: 'Send a single echo request' },
     ],
   },
   execute,

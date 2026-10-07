@@ -195,7 +195,7 @@ describe("root's shell history on a gateway", () => {
     ]) {
       expect(histories, path).toMatch(new RegExp(`^(cat|less|nano) ${path}$`, 'm'));
     }
-    for (const reader of ['tail', 'tail -f', 'less', 'grep -i error']) {
+    for (const reader of ['tail', 'tail -n 50', 'less', 'grep -i error']) {
       expect(histories, reader).toMatch(new RegExp(`^${reader} /var/log/\\S+$`, 'm'));
     }
   });

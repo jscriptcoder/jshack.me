@@ -17,6 +17,11 @@
  * - `-c` count mode: print how many lines matched instead of the lines.
  *   A directory prints `<filepath>:<count>` for every file it searched,
  *   zeros included, as GNU grep does. `-l` wins over `-c`, also as GNU.
+ * - `-i` and `-r` are taken and change nothing: this grep is already
+ *   case-insensitive and already walks a directory it is given. They are
+ *   what a player (and every admin's history) types out of habit, and
+ *   refusing a flag that names what the command does would be the game
+ *   contradicting itself.
  *
  * Pattern is `new RegExp(raw, 'i')` — case-insensitive, supports full
  * regex syntax. Invalid regex emits an error + exit 2.
@@ -192,9 +197,9 @@ export const grep: Command = {
   category: 'filesystem',
   tier: 'guest',
   availability: { kind: 'any-machine' },
-  flags: { '-l': 'boolean', '-c': 'boolean' },
+  flags: { '-l': 'boolean', '-c': 'boolean', '-i': 'boolean', '-r': 'boolean' },
   manual: {
-    synopsis: 'grep <pattern> [path] [-l] [-c]',
+    synopsis: 'grep <pattern> [path] [-l] [-c] [-i] [-r]',
     description:
       'Search for lines matching a case-insensitive regex pattern. With a file target, prints matching lines verbatim. With a directory target, recursively walks the tree and prints `<filepath>:<line>` for each match, sorted by filepath. Binary files and permission-denied files/dirs are silently skipped during recursion. With no path at all, reads stdin, so it can sit downstream of a pipe.',
     arguments: [
@@ -215,6 +220,11 @@ export const grep: Command = {
       {
         name: '-c',
         description: 'Print how many lines matched instead of the lines; per file in a directory',
+      },
+      { name: '-i', description: 'Ignore case — always on here, so it changes nothing' },
+      {
+        name: '-r',
+        description: 'Search a directory recursively — what a directory target always does',
       },
     ],
     examples: [
