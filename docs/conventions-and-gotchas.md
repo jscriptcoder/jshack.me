@@ -628,8 +628,8 @@ To pick up the next work: there is no active epic. **The owner has postponed the
 (see `docs/mission-ideas/`). Until then the work is sandbox hardening from §9, in this agreed order:
 
 1. ✅ Operate-from-a-hop leftovers: `whois` from a hop, `man ssh` exit wording, WiFi followed across
-   tabs (#616, v0.324.0). **Still open:** the `reboot` `kern.log` line's source address and
-   hostname (§9, under "Pivot / operate-from-a-hop").
+   tabs (#616, v0.324.0); the `reboot` `kern.log` line names the address the rebooter's login came
+   from and the box's real hostname (v0.325.0).
 2. ✅ Wire-check failures (#617, 2026-10-07): every script named in §9 passes alone.
 3. **Next:** small bugs a playtester would hit — `grep -c` (§9), `nmap` running a 5-digit port into
    the STATE column (§9), `snmpd` not runnable by name (§9).
@@ -3580,10 +3580,12 @@ blocks the live PvP loop; each was a scoped owner decision, not a gap.
   commands outside the epic's vantage scope. Three closed at v0.324.0: `whois` asks from the vantage
   (so a hop answers with the home card off), `man ssh` says `exit` steps back one hop, and a WiFi
   change in one tab is followed by the others (each tab listens for the others' `storage` writes).
-  One remains:
-  - **`reboot`'s `kern.log` line sources the actor's HOME public IP** (`resolveCrossPlayerSourceIp`)
-    and names the box by its machine-id part (`ap-gw`, not the generated hostname). `reboot` is
-    box-local, untouched by the epic; the hostname part is the known cosmetic mismatch.
+  The fourth closed at v0.325.0: **`reboot`'s `kern.log` line** used to source the actor's HOME
+  public IP and name a gateway by its machine-id part (`ap-gw`). It now names the address the
+  rebooting session's login came from — every door stores its server-derived address on the row
+  (`sessions.source_ip`, no longer the client's), `su` and a local exploit inherit their shell's —
+  and the box's generated hostname. A backdoor (`nc`) login stores its address too, though it logs
+  nothing on the way in, so a reboot from a backdoor shell does name the knocker.
   Two more, found while checking the cross-tab fix in two real tabs (2026-10-07):
   - **Each tab keeps its own scan list.** `nmcli connect <ESSID>` refuses with `network "<ESSID>"
     not found` in a tab that never ran `airodump-ng`, even when another tab scanned it moments ago —

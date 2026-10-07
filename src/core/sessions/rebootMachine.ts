@@ -33,7 +33,9 @@
  * other than rebooted.
  *
  * And the box keeps a note of it. Every reboot leaves one `kern.log` line naming
- * the address it was ordered from — with no carve-out for rebooting your own box,
+ * the address it was ordered from — the address the caller's login on the box came
+ * from, as that login's own `auth.log` line already names it, so a visitor who came
+ * through a hop is traced to the hop — with no carve-out for rebooting your own box,
  * because an exception is one more rule to remember and it would tell an attacker
  * exactly which act is invisible. That line is the defender's whole answer to the
  * question the eviction raises and cannot itself settle: you came back, your box is
@@ -47,6 +49,7 @@ import {
   authorizeMachineAccess,
   type ActiveSession,
   type FindActiveSession,
+  type StandingSession,
 } from '../patches/authorizeMachineAccess.js';
 import {
   appendMachineLog,
@@ -67,6 +70,7 @@ import {
   type FindHomeNetworkByOwnerKey,
 } from '../logging/crossPlayerSourceIp.js';
 import { parseWorkstationId } from '../identity/workstation.js';
+import { hostnameForMachineId } from '../generation/lanTopology.js';
 import { asGameTime } from '../types.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 import type { EndReason } from './endSession.js';
@@ -88,9 +92,9 @@ export type WriteBootIdParams = {
 export type RebootMachineDeps = {
   readonly nonceStore: NonceStore;
   /** The caller's own live row on the target, whose tier is the authority when the
-   *  box is not theirs. Shared with the patch endpoints so one shell's writes and
-   *  its reboot agree about where the player is standing. */
-  readonly findActiveSession: FindActiveSession;
+   *  box is not theirs. The same query the patch endpoints ask, so one shell's writes
+   *  and its reboot agree about where the player is standing. */
+  readonly findActiveSession: FindActiveSession<StandingSession>;
   /** Answers with the rows it closed, which are where the chains above them start. */
   readonly endMachineSessions: (
     params: EndMachineSessionsParams,
@@ -108,7 +112,7 @@ export type RebootMachineDeps = {
    *  thing standing between two attackers' lines and one erasing the other. */
   readonly findOccupantWorkstationByMachineId: FindOccupantWorkstationByMachineId;
   /** The address the actor OWNS, from their verified key — never a value they
-   *  send. */
+   *  send. Asked only when the owner reboots their own box, which no login reached. */
   readonly findHomeNetworkByOwnerKey: FindHomeNetworkByOwnerKey;
   readonly readLog: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
   readonly upsertPatch: (row: PatchRow) => Promise<{ readonly error: unknown }>;
@@ -155,6 +159,28 @@ const resolveLogWriterKey = async (
   if (target.standing === null) return target.actorKey;
   return apGatewayLogWriterKey(target.standing.essid);
 };
+
+/** Where the reboot was ordered from. A caller standing on the box by a session came
+ *  in through that session's login, so its address is the one to name; `unknown`
+ *  rather than a guess when the row carries none. The owner's base login is no row
+ *  and came from nowhere but their own network. */
+const rebootSourceIp = (
+  deps: RebootMachineDeps,
+  actorKey: string,
+  standing: StandingSession | null,
+): Promise<string> =>
+  standing === null
+    ? resolveCrossPlayerSourceIp(deps.findHomeNetworkByOwnerKey, actorKey)
+    : Promise.resolve(standing.sourceIp ?? 'unknown');
+
+/** The box's own name, as `hostname` on it and a scan of it both show. A box the
+ *  caller's network generates is named from that network; otherwise the id's leading
+ *  half is the name — a player's workstation — and an id with no name in it is the
+ *  only name anyone has for the box. */
+const rebootHostname = (machineId: string, standing: StandingSession | null): string =>
+  (standing === null ? null : hostnameForMachineId(standing.essid, machineId)) ??
+  parseWorkstationId(machineId)?.name ??
+  machineId;
 
 const rebootMachineSchema = z
   .looseObject({
@@ -223,11 +249,8 @@ export const handleRebootMachine = async (
       },
       formatRebootLine({
         time: asGameTime(deps.now()),
-        // The box's own name, which is the half of its id a player ever sees. An
-        // id with no name in it is a generated host, and there the id is the only
-        // name anyone has for it.
-        hostname: parseWorkstationId(payload.machine_id)?.name ?? payload.machine_id,
-        sourceIp: await resolveCrossPlayerSourceIp(deps.findHomeNetworkByOwnerKey, publicKey),
+        hostname: rebootHostname(payload.machine_id, access.session),
+        sourceIp: await rebootSourceIp(deps, publicKey, access.session),
       }),
     );
   }

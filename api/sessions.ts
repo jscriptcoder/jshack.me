@@ -61,6 +61,7 @@ import {
 import type {
   ActiveSessionQuery,
   FindActiveSessionResult,
+  StandingSession,
 } from '../src/core/patches/authorizeMachineAccess.js';
 import type { UserType } from '../src/core/types.js';
 import type {
@@ -334,14 +335,18 @@ const listLeasesByEssidVia =
 
 /** Whether the caller currently stands on the machine they named — their own workstation
  *  bypasses this inside the handler, anything else needs a live ssh session there. Same
- *  query and same shape the patch endpoints use, so a sweep and a write from one shell
- *  agree about where the player is. */
+ *  query the patch endpoints use, so a sweep and a write from one shell agree about where
+ *  the player is; it also reads back the address the row's login came from, which a
+ *  reboot names. */
 const findActiveSessionVia =
   ({ supabase, label }: QuerySpec) =>
-  async ({ player_key, machine_id }: ActiveSessionQuery): Promise<FindActiveSessionResult> => {
+  async ({
+    player_key,
+    machine_id,
+  }: ActiveSessionQuery): Promise<FindActiveSessionResult<StandingSession>> => {
     const { data, error } = await supabase
       .from('sessions')
-      .select('credentials, essid')
+      .select('credentials, essid, source_ip')
       .eq('player_key', player_key)
       .eq('machine_id', machine_id)
       .is('ended_at', null)
@@ -350,9 +355,18 @@ const findActiveSessionVia =
       .maybeSingle();
     logFailure(label, error);
     if (data === null) return { data: null, error };
-    const row = data as { credentials: { username: string; userType: UserType }; essid: string };
+    const row = data as {
+      credentials: { username: string; userType: UserType };
+      essid: string;
+      source_ip: string | null;
+    };
     return {
-      data: { username: row.credentials.username, userType: row.credentials.userType, essid: row.essid },
+      data: {
+        username: row.credentials.username,
+        userType: row.credentials.userType,
+        essid: row.essid,
+        sourceIp: row.source_ip,
+      },
       error,
     };
   };
@@ -1002,6 +1016,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       nonceStore: noopNonceStore,
       now: () => Date.now(),
       findOccupantWorkstationByMachineId,
+      findActiveSession: findActiveSessionVia({ supabase, label: 'su-elevate active-session' }),
       insertSession: insertSessionVia({ supabase, label: 'su-elevate insert' }),
       readAuthLog: listPathPatchesVia({ supabase, label: 'su auth-log read' }),
       upsertPatch: upsertPatchVia({ supabase, label: 'su auth-log upsert' }),

@@ -30,6 +30,7 @@ import type { PatchRow } from '../patches/upsertPatch.js';
 import { logRead } from '../../test/factories/logRows.js';
 import type { HomeVantage } from './callerVantage.js';
 import type { ActiveSession } from '../patches/authorizeMachineAccess.js';
+import { lanAddressFor } from '../network/lanAddress.js';
 
 /**
  * `handleAuthCreateSessionInnerGateway` is the server gate for `ssh user@<inner>:<fwd
@@ -277,15 +278,16 @@ describe('handleAuthCreateSessionInnerGateway — forward to the deep host', () 
     });
     // The journal it replays is the GATEWAY's (to read the forward + boot state)...
     expect(findPatches).toHaveBeenCalledWith({ machine_id: GATEWAY_ID });
-    // ...but the SESSION lands on the deep host, with the server-derived userType,
-    // and the parent hop + source IP flow through verbatim.
+    // ...but the SESSION lands on the deep host, with the server-derived userType, the
+    // parent hop through verbatim, and the address the deep box saw — the fronting
+    // gateway's `.1`, as its auth.log line names it — never the client's `source_ip`.
     expect(insertSession).toHaveBeenCalledWith({
       session_id: 'ssh-guest-1',
       player_key: PLAYER.publicKeyHex,
       machine_id: DEEP_ID,
       credentials: { username: 'guest', userType: DEEP_GUEST.userType },
       parent_session_id: 'sess-parent-1',
-      source_ip: '192.168.0.5',
+      source_ip: `${DEEP.subnet}.1`,
       kind: 'ssh',
       essid: ESSID,
     });
@@ -841,6 +843,19 @@ describe('handleAuthCreateSessionInnerGateway — the gateway itself (port 22)',
       expect.objectContaining({ machine_id: GATEWAY_ID, credentials: { username: 'root', userType: 'root' } }),
     );
   });
+
+  // The gateway stands on the caller's own LAN, so it saw them at their own address
+  // there — the lease their workstation holds — not at any forward's `.1`.
+  it("stores the caller's LAN address on the session it opens", async () => {
+    const { deps, insertSession } = makeDeps(async () => ({ data: [], error: null }));
+
+    await handleAuthCreateSessionInnerGateway(
+      envelope({ port: 22, username: 'root', password: GATEWAY_ROOT_PW }),
+      deps,
+    );
+
+    expect(insertSession.mock.calls[0]![0].source_ip).toBe(lanAddressFor(ESSID, 50));
+  });
 });
 
 describe('handleAuthCreateSessionInnerGateway — guards', () => {
@@ -1164,6 +1179,17 @@ describe('a backdoor behind the inner gateway', () => {
         kind: 'nc',
       }),
     );
+  });
+
+  it('still stores where the knock came from on the session', async () => {
+    const { deps, insertSession } = makeDeps(async () => ({
+      data: [mallorysListener],
+      error: null,
+    }));
+
+    await handleAuthCreateSessionInnerGateway(knock(), deps);
+
+    expect(insertSession.mock.calls[0]![0].source_ip).toBe(lanAddressFor(ESSID, 50));
   });
 
   it('records nothing on the gateway it just opened', async () => {

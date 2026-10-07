@@ -329,7 +329,9 @@ shipped attack loop into an attacker/defender loop.
   shell's box — the server places the caller from their session (`resolveCallerVantage`, via
   `caller_machine_id`) and sources the line from that box's address (the hop's LAN address, its
   deep-layer address, or the hop network's public IP across a NAT), so a trace left through a hop names
-  the hop, masking the attacker. (su lines carry **no** source IP — they are username-only.)
+  the hop, masking the attacker. (su lines carry **no** source IP — they are username-only.) Each
+  door also stores that address on the session it opens (`sessions.source_ip`), so a `reboot` from the
+  session — an act on the box itself, with no wire of its own — names the address its login came from.
 - **The three cross-player handlers + the own-LAN fix:**
   - **Scan** (`resolvePublicScan`, 6.1): after a host-up resolve, one `formatNmapScanAggregate`
     `kern.log` line on the **router** record (`router_machine_id`), hostname =
