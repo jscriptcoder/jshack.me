@@ -420,6 +420,13 @@ const main = async (): Promise<void> => {
     `status=${stopped.status} error=${errorOf(stopped.body) ?? '-'}`,
   );
 
+  // Put both boxes back as setup found them. The last check left the deep box's mysqld
+  // stopped and its forward on the gateway, and other wire-checks pick their deep target
+  // from the same game day — a neighbour landing here would meet a dead daemon and read
+  // it as its own failure.
+  await sr.from('patches').delete().eq('machine_id', target.gatewayId);
+  await sr.from('patches').delete().eq('machine_id', target.deepId);
+  await sr.from('sessions').delete().eq('session_id', gatewaySession);
   await leaveNetwork(sr, target.essid);
 
   const failed = results.filter(({ pass }) => !pass).length;

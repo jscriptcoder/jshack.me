@@ -499,8 +499,7 @@ still know before touching it:
     through `resolvePublicTarget` exactly as `ssh` and `hydra` do, so the credential `hydra`
     reports on a forwarded port is the one that opens it. Proved live end to end in Act 11 of
     [`e2e-shared-network-verification.md`](./e2e-shared-network-verification.md).
-  - **Wire-checks:** `testFtpSession` (**12/14** — the two backward-compat checks have been
-    failing for a while; real baseline and the open product question in §9), `testFtpRemoteRead`
+  - **Wire-checks:** `testFtpSession` (14/14), `testFtpRemoteRead`
     (7/7), `testFtpPut` (12/12), `testFtpTransferTrace` (13/13), `testFtpSweepTrace` (8/8),
     `testFtpCrossPlayer` (16/16).
     Several of them pin the ESSID to a fixture network deliberately: most generated LANs hold no
@@ -1292,11 +1291,9 @@ fails at a rate set by the smaller one:
 - guest passwords come from the crackable pool (**17 words** as of v0.262.0; it was 8 when this
   was first written), so two random identities share one about **1 run in 17** — which broke
   "Bob's password is refused on Alice's box": on a collision it was not a wrong password at all.
-  **The wire-check `testSharedApForwards` has the same shape and is not fixed**: its "B's guest
-  password on A's forwarded port is 401" check mints both players fresh, and failed 2 runs of 4
-  at 10a's gate (2026-09-25) while passing 8/8 between them. Draw B again until its guest
-  password differs from A's, per the remedy below; until then, re-run it before reading a
-  failure there as a regression.
+  The wire-check `testSharedApForwards` had the same shape (its "B's guest password on A's
+  forwarded port is 401" check); since 2026-10-07 it draws B again until B's guest password differs
+  from A's. Measured 2026-10-07: 58 of 1000 random pairs share one.
 - a player's LAN octet is drawn from their pubkey while ~10 of 253 octets hold generated hosts,
   so **~1 run in 25** puts a real NPC at the "self" address — which broke `nmapScan`'s
   self-exclusion count (`hostsLogged: 1`, not 0).
@@ -2830,27 +2827,12 @@ state costs you more than one wrong attempt.
 
 Forward-looking direction not yet built (preserved as pointers; design when actually built).
 
-- **`testCrossPlayerConnectionTrace` fails 3/7 even run alone: it reads the router's trace under
-  the wrong writer key.** It looks up A's router `auth.log` row by A's OWNER `writer_key`
-  (`readAuthLog`, `.eq('writer_key', ownerKey)`), but a gateway's lines now file under
-  `apGatewayLogWriterKey(essid)`, `ap:<essid>` (`logging/apGatewayLogWriter.ts`), so all four
-  trace checks read an empty row. §6's sweep note, which lists it among the scripts that pass
-  alone, predates the move. Found at procedural-world slice 1a's sweep (2026-09-28), failing
-  identically on `main`. Point the reads at the gateway's key, and seed the router row under
-  that key too.
-
-- **`testMysqlDeep` leaves its deep box's mysqld stopped, which fails `testExploitDeepChain`
-  5/11 on every later run.** Its last check plants a null `/var/run/mysqld.pid` on the deep box
-  and exits without restoring it; it cleans that box only at its own setup. Both scripts pick
-  their target from the game day, and on day 78 both land on `android-164` behind INITECH-5G, so
-  the exploit meets `not_vulnerable`. Deleting the box's three rows returned it to 11/11. It is
-  the `testDeepChainReach` shape (§6) poisoning a neighbour rather than itself, and which pair
-  collides moves with the day. Found at procedural-world slice 1b's sweep (2026-09-28). Clean the
-  deep box at teardown as well as setup.
-
-- **`testSharedApForwards` still mints both players fresh**, so its guest-password check fails
-  about one run in 17 (§5, "A test that mints a RANDOM identity…"). It failed 7/8 in slice 1a's
-  sweep and passed 8/8 alone and in 1b's. Draw B again until its guest password differs from A's.
+- **CLOSED (2026-10-07) — three wire-checks that failed for fixture reasons.**
+  `testCrossPlayerConnectionTrace` already read the gateway's trace under `ap:<essid>` (fixed in
+  #601; this entry outlived it). `testMysqlDeep` now cleans its gateway and deep box at teardown as
+  well as setup, so `testExploitDeepChain` no longer meets the mysqld it left stopped (on day 78 both
+  land on `android-164` behind INITECH-5G; 13/13 then 11/11 back to back, both orders).
+  `testSharedApForwards` redraws B until the guest passwords differ (8/8, three runs).
 
 - **Generated files too big to carry home.** Saving a file a player fetched (`ftp get`, `scp`,
   `cp` onto their own box) is one signed write whose payload `signedEnvelopeSchema` caps at 8192
@@ -3003,18 +2985,6 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   other box stops carrying a daemon it never runs. Today `vsftpd` ships on every machine
   (`SYSTEM_DAEMON_NAMES`) while the `ftp` package installs only the CLIENT — an asymmetry that is
   historical rather than designed, since ftp landed before apt had a `daemons` field.
-
-- **`testFtpSession` is 12/14 against a live stack, and has been for a while.** Two checks fail:
-  `a login that names no kind is still an ssh hop` (reads back `kind=no row`) and `and ending one
-  without a reason still reads as the player leaving` (`end_reason=undefined`). Both are the
-  BACKWARD-COMPAT pair — a session created the way the pre-`kind` client created one — so what
-  they guard is that an old-shaped login still lands a row at all. `no row` says it does not.
-  Found while running the neighbouring wire-checks for D6 slice 2, on a freshly `supabase
-  start`ed stack with migrations applied. Not caused by that slice, which touches neither
-  `authCreateSession` nor `api/sessions.ts`'s session path. Deliberately left unfixed rather than
-  patched on a guess: it needs someone to decide whether the old shape is still supposed to work,
-  and the answer is a product call about launch compatibility, not a test fix. Until it is
-  answered the doc's `testFtpSession (14/14)` is wrong; treat 12/14 as the current baseline.
 
 - **A door's error BODY is asserted by one test in ten (found by D7 slice 7a's mutation gate).**
   Nine refusal tests across `src/core/sessions/` assert `expect(response.status).toBe(400)` and
