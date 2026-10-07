@@ -4,13 +4,15 @@ import type { CommandEnv, CommandResult } from './types.js';
 import {
   mockCommandEnv,
   mockIdentity,
+  mockNetworkView,
   mockNetworkViewFromConnectivity,
+  mockSession,
 } from '../../test/factories/commandEnv.js';
 import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces.js';
 import { assignHomeNetwork } from '../network/homeNetwork.js';
 import { DECLARED_NETWORKS, publicAddress, REGION_FIRST_OCTETS } from '../generation/world.js';
 import { FINDIT_NETWORK } from '../generation/finditNetwork.js';
-import { asPlayerKeyHex } from '../types.js';
+import { asMachineId, asPlayerKeyHex } from '../types.js';
 
 /**
  * `whois <ip|domain>` — who holds this address?
@@ -333,6 +335,24 @@ describe('whois', () => {
     const address = addressOf('CITY-HALL-WIFI');
 
     const answer = await drain(await whois.execute(unreachable, [address], new Map()));
+
+    expect(answer).toEqual(await run(address));
+  });
+
+  it('asks from the box the shell stands on, with the player’s own card off', async () => {
+    const onHop = mockCommandEnv({
+      identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
+      network: mockNetworkView({ isOnline: () => false, interfaces: () => [] }),
+      session: mockSession({
+        id: 'ssh-hop-1',
+        machineId: asMachineId('ap-gw-hop'),
+        userType: 'guest',
+        essid: 'RIDGEMONT-OFFICE',
+      }),
+    });
+    const address = addressOf('CITY-HALL-WIFI');
+
+    const answer = await drain(await whois.execute(onHop, [address], new Map()));
 
     expect(answer).toEqual(await run(address));
   });

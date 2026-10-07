@@ -1426,6 +1426,12 @@ describe('man ssh', () => {
     // And that home is no longer specially reachable from a foreign shell.
     expect(description).toContain('home network');
   });
+
+  it('tells the player exit steps back one hop, which is home only from the first', async () => {
+    const description = ssh.manual?.description ?? '';
+    expect(description).toContain('"exit" to step back to the box you came from');
+    expect(description).not.toContain('back to your own machine');
+  });
 });
 
 describe('ssh from a hop', () => {

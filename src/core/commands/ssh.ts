@@ -432,8 +432,8 @@ export const ssh: Command = {
       'Open a login session on a remote host on your network. Connects to the host, ' +
       'prompts for the account password, and on success drops you into that machine ' +
       'with the account’s privileges and home directory. Use "-p" to connect to an ssh ' +
-      'service on a non-standard port (default 22). Use "exit" to drop back to your own ' +
-      'machine. A command run inside a remote shell travels from that box, not from yours: it ' +
+      'service on a non-standard port (default 22). Use "exit" to step back to the box you came ' +
+      'from: your own machine after one login, the previous hop on a chain of them. A command run inside a remote shell travels from that box, not from yours: it ' +
       'reaches the network that box is on, and the machines it reaches log the box’s ' +
       'address. From a box on another network, your own home network is reached only ' +
       'by its public address, like anyone else’s.',

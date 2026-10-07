@@ -25,7 +25,11 @@ type StorageLike = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
 
 /** One key per ESSID: a player holds a separate lease on every network it joins,
  *  and reconnecting to any of them must return the address that network issued. */
-const keyFor = (essid: string): string => `jshack:lan-lease:${essid}`;
+const keyFor = (essid: string): string => `${LAN_LEASE_KEY_PREFIX}${essid}`;
+
+/** Every remembered lease's key starts with this, so a reader can tell a lease write
+ *  from any other without knowing which network it was for. */
+export const LAN_LEASE_KEY_PREFIX = 'jshack:lan-lease:';
 
 export type LanLeaseCache = {
   readonly remember: (essid: string, localIp: Ipv4) => void;

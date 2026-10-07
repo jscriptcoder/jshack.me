@@ -3587,18 +3587,14 @@ blocks the live PvP loop; each was a scoped owner decision, not a gap.
   cascades to the sessions stacked above it (`upstream_lost`), which is the defender's eviction move;
   an established leg is otherwise not re-validated (a changed password / forward / ACL affects only
   new logins). As-built: handbook chapters 7 ("Reachability") and 8 ("Reboots and boot ids"), and
-  `cross-player-architecture.md` §8. **Minor non-blocking follow-ups** found in the close-out e2e
-  (2026-10-07), all on commands outside the epic's vantage scope:
-  - **`whois` still gates on the home card** (`connectedWlan0`), so on a hop with the card *off* it
-    refuses "connect to a network first". `whois` is deliberately vantage-free (decision 2); normal
-    play hops from a connected home, so this only bites the card-off path. Could ask from the vantage.
+  `cross-player-architecture.md` §8. **Follow-ups** found in the close-out e2e (2026-10-07), all on
+  commands outside the epic's vantage scope. Three closed at v0.324.0: `whois` asks from the vantage
+  (so a hop answers with the home card off), `man ssh` says `exit` steps back one hop, and a WiFi
+  change in one tab is followed by the others (each tab listens for the others' `storage` writes).
+  One remains:
   - **`reboot`'s `kern.log` line sources the actor's HOME public IP** (`resolveCrossPlayerSourceIp`)
     and names the box by its machine-id part (`ap-gw`, not the generated hostname). `reboot` is
     box-local, untouched by the epic; the hostname part is the known cosmetic mismatch.
-  - **`man ssh` still says `exit` drops back to "your own machine"** — on a chain it is the previous
-    hop. One-line copy fix.
-  - **A WiFi change in one `xterm` tab is not seen by another tab until it reloads** (each terminal has
-    its own session; WiFi state is shared only through a refetch).
 - **Replay/nonce store** — built (#294, with a 7.2.0b retrofit + lazy prune) then REVERTED on the
   owner's call (ship-first): narrow value in this threat model (TLS wire + the adversary is the
   player's own key-holding client → an authorized player just re-signs with a fresh nonce, so it
