@@ -55,6 +55,7 @@ import { resolveAbsPath } from '../filesystem/path.js';
 import { stubName } from '../generation/binaries.js';
 import { mayExecute } from '../commands/availability.js';
 import { parseWorkstationId } from '../identity/workstation.js';
+import { homeDirectory } from '../sessions/homeDirectory.js';
 
 const syncError = (content: string, exitCode: number): CommandResult => ({
   kind: 'sync',
@@ -452,7 +453,7 @@ export const runCommandLine = async (
     return syncError(wentDown(env.hostname), 1);
   }
 
-  const tokenized = tokenize(input);
+  const tokenized = tokenize(input, homeDirectory(env.session));
   if (!tokenized.ok) {
     return syncError(`bash: ${tokenized.error}`, 2);
   }
