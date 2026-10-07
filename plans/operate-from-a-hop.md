@@ -5,8 +5,9 @@
 planned and approved the same day. Slices 1–5, 6a–6c, 7, 8a, 8b and 8c done (#598 v0.307.0,
 #599 v0.308.0, #600 v0.309.0, #601 v0.310.0, #602 v0.311.0, #603 v0.312.0, #604 v0.313.0,
 #605 v0.314.0, #606 v0.315.0, #607 v0.316.0, #608 v0.317.0, #610 v0.318.0, #611 v0.319.0,
-#612 v0.320.0, #613 v0.321.0). Slice 9 split in three (2026-10-06), then 9a split again into
-ftp+scp (#612) and `nc` (#613). Next: slice 9b (ping and name lookups from a hop).
+#612 v0.320.0, #613 v0.321.0, #614 v0.322.0). Slice 9 split in three (2026-10-06), then 9a split
+again into ftp+scp (#612) and `nc` (#613). Next: slice 9c (apt from a hop, and the done-when
+enumeration test).
 Resolves two §9 backlog items in `docs/conventions-and-gotchas.md`: "Pivot / operate-from-a-hop —
 source-IP masking only; ssh-from-a-pivot" and "Four tools cannot pivot: `ssh`, `nmap`, `curl`,
 `lynx`". Where they disagree with this file, this file wins.
@@ -685,6 +686,30 @@ Agreed acceptance (owner, 2026-10-07):
    plus an own-LAN transfer naming the LAN address (not the public one), a transfer from a hop
    naming the hop's address, and `wrong_network`/`no_session`. `ping`, `nslookup` and an ordinary
    `dig` make no server call, so they are proven in unit tests.
+
+✅ **Done in #614 (v0.322.0).** As built:
+- `ping`, `dig` and `nslookup` route through `vantageOf(...)` on every path. `ping` answers for
+  what the vantage reaches — the box itself, its LAN's generated hosts, each deep layer it reaches,
+  and fellow occupants on its LAN — and takes a name via `addressForTarget`; a public address stays
+  unanswered. `dig`/`nslookup` resolve on the standing network and name the `.1` of the segment the
+  box stands on, a deep layer's own gateway included, through the new `resolverFor(vantage)` helper
+  on `vantage.ts`.
+- `dig @<server> axfr` reaches only a name server the vantage reaches (a deep one needs standing on
+  a box on its layer); one it cannot reach is refused as a non-name-server is. The stale "both open
+  name servers are deep" fixture note in `dig.test.ts` is corrected — 36 of the world's open name
+  servers sit on top LANs.
+- The axfr trace moved onto caller placement like `recordLanFetch` (slice 7): `recordZoneTransfer`
+  carries `caller_machine_id`, `handleRecordZoneTransfer` places the caller with
+  `resolveCallerVantageOn` and sources the `named.log` line from the box's address on the name
+  server's own segment (home LAN lease, hop LAN address, or deep-layer address), retiring the
+  home-public-IP source; `wrong_network`/`no_session` refuse, and a client `source_ip` is never
+  read. The line keeps `ap:<essid>` (7a).
+- Wire-check `scripts/testNamedXfrTrace.ts` reseated onto the caller-placement contract, 6/6 live
+  (own-LAN LAN-vs-public source; a hop's deep source; `wrong_network`/`no_session`).
+  `ping`/`nslookup`/ordinary `dig` make no server call, so they are proven in unit tests. Mutation:
+  changed regions killed bar documented equivalents (`vantage.ts` optional chaining on an
+  always-non-empty `reaches`; the `reachedSegmentsFor` undefined-caller guard that falls to the same
+  path; the denied-outcome object, since only the `transferred` verdict is read).
 
 #### Slice 9c: `apt` runs from a hop, and no IP tool is left at home
 
