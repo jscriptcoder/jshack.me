@@ -2,8 +2,18 @@ import { describe, expect, it, vi } from 'vitest';
 import { binaryStub, stubName } from '../generation/binaries.js';
 import { SYSTEM_LIBRARIES, type SystemLibrary } from '../generation/libraries.js';
 import type { Directory, FilePermissions } from '../filesystem/types.js';
-import { asAbsPath, asEpochMs, asPlayerKeyHex, type UserType } from '../types.js';
-import type { AptApi, CommandEnv, CommandResult, PatchResult, TerminalLine } from './types.js';
+import { asAbsPath, asEpochMs, asMachineId, asPlayerKeyHex, type UserType } from '../types.js';
+import type {
+  AptApi,
+  CommandEnv,
+  CommandResult,
+  NetworkView,
+  PatchResult,
+  Session,
+  TerminalLine,
+} from './types.js';
+import { generateHomeLan } from '../generation/generateHomeLan.js';
+import { resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
 import {
   CVE_TIMING,
   newestReleaseOn,
@@ -35,7 +45,6 @@ import {
   mockCommandEnv,
   mockFsViewFromTree,
   mockIdentity,
-  mockNetworkView,
   mockNetworkViewFromConnectivity,
   mockPatchApi,
   mockSession,
@@ -107,6 +116,42 @@ import {
 
 const NO_FLAGS = new Map<string, string | true>();
 
+/** wlan0 associated and addressed on `essid`, at the LAN IP that network issues this
+ *  player — what a scan of the player's own box needs to find it. */
+const onlineOn = (publicKey: string, essid: string): ConnectivityState => {
+  const cold = buildColdStartConnectivity(publicKey);
+  const wlan0 = cold.interfaces.get('wlan0');
+  if (wlan0 === undefined || wlan0.kind !== 'wireless') throw new Error('no wlan0 in cold start');
+  const { localIp } = assignHomeNetwork(publicKey, essid);
+  const connected = { ...wlan0, association: { essid, bssid: 'AA:BB:CC:DD:EE:FF' }, ipv4: localIp };
+  return { interfaces: new Map(cold.interfaces).set('wlan0', connected) };
+};
+
+const HOME_KEY = 'a'.repeat(64);
+const HOME_ESSID = 'BEAN-THERE-WIFI';
+
+/** The player's own card at home: joined to a WiFi and leased an address there, or cold.
+ *  Those are the only two states it is ever in — "online" with no address is not one. */
+const homeCard = (online: boolean): NetworkView =>
+  mockNetworkViewFromConnectivity(
+    online ? onlineOn(HOME_KEY, HOME_ESSID) : buildColdStartConnectivity(HOME_KEY),
+  );
+
+const HOP_ESSID = 'RIDGEMONT-OFFICE';
+
+/** A shell an ssh login opened on a generated box of `HOP_ESSID`. */
+const hopSession = (userType: UserType): Session => {
+  const host = generateHomeLan(HOP_ESSID).hosts.find((candidate) => candidate.kind === 'machine');
+  if (host === undefined) throw new Error(`${HOP_ESSID} has no machine to stand on`);
+  return mockSession({
+    id: 'ssh-hop-1',
+    kind: 'ssh',
+    machineId: asMachineId(resolveLanHostIdentity(host, HOP_ESSID).machineId),
+    userType,
+    essid: HOP_ESSID,
+  });
+};
+
 /** What `apt` must stamp on an installed binary: readable + executable by every
  *  tier, writable only by root — matching the system-binary perm shape. Without
  *  this, a root-installed file would be root-only-executable and the user could
@@ -136,6 +181,9 @@ type WriteCall = {
 
 type AptEnvOpts = {
   readonly online?: boolean;
+  /** The shell stands on a generated box of another network rather than the player's
+   *  own workstation. */
+  readonly onHop?: boolean;
   readonly userType?: UserType;
   readonly writeResult?: PatchResult;
   /** Fails ONLY the writes whose path matches, leaving the rest to succeed — so a
@@ -265,12 +313,15 @@ const aptEnv = (opts: AptEnvOpts = {}) => {
   const writes: WriteCall[] = [];
   const operations: Operation[] = [];
   const env = mockCommandEnv({
-    session: mockSession({ userType: opts.userType ?? 'root' }),
+    session:
+      opts.onHop === true
+        ? hopSession(opts.userType ?? 'root')
+        : mockSession({ userType: opts.userType ?? 'root' }),
     ...(opts.ownerKey === undefined
       ? {}
       : { identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(opts.ownerKey) }) }),
     fs: mockFsViewFromTree(installedBoxTree(opts)),
-    network: mockNetworkView({ isOnline: () => opts.online ?? true }),
+    network: homeCard(opts.online ?? true),
     ...(opts.gameDay === undefined
       ? {}
       : { now: () => asEpochMs(WORLD_EPOCH + opts.gameDay! * DAY_MS) }),
@@ -1550,7 +1601,7 @@ describe('apt list', () => {
     });
     const env = mockCommandEnv({
       session: mockSession({ userType: 'user' }),
-      network: mockNetworkView({ isOnline: () => opts.online ?? true }),
+      network: homeCard(opts.online ?? true),
       fs: mockFsViewFromTree(tree, { userType: 'user', cwd: () => asAbsPath('/') }),
     });
     return { env };
@@ -1687,17 +1738,6 @@ const sshSlowFix = () => {
   };
 };
 
-/** wlan0 associated and addressed on `essid`, at the LAN IP that network issues this
- *  player — what a scan of the player's own box needs to find it. */
-const onlineOn = (publicKey: string, essid: string): ConnectivityState => {
-  const cold = buildColdStartConnectivity(publicKey);
-  const wlan0 = cold.interfaces.get('wlan0');
-  if (wlan0 === undefined || wlan0.kind !== 'wireless') throw new Error('no wlan0 in cold start');
-  const { localIp } = assignHomeNetwork(publicKey, essid);
-  const connected = { ...wlan0, association: { essid, bssid: 'AA:BB:CC:DD:EE:FF' }, ipv4: localIp };
-  return { interfaces: new Map(cold.interfaces).set('wlan0', connected) };
-};
-
 /** The id and severity of the hole a box on `version` of `pkg` sits in, read straight
  *  off the package's history — `CVE-2026-0149031 medium`. */
 const holeOf = (pkg: string, version: string): string => {
@@ -1726,7 +1766,7 @@ describe('apt list --upgradable', () => {
     });
     return mockCommandEnv({
       session: mockSession({ userType }),
-      network: mockNetworkView({ isOnline: () => opts.online ?? true }),
+      network: homeCard(opts.online ?? true),
       fs: mockFsViewFromTree(tree, { userType }),
       now: () => asEpochMs(WORLD_EPOCH + (opts.gameDay ?? 0) * DAY_MS),
     });
@@ -2022,7 +2062,7 @@ describe('apt upgrade', () => {
     });
     const env = mockCommandEnv({
       session: mockSession({ userType }),
-      network: mockNetworkView({ isOnline: () => opts.online ?? true }),
+      network: homeCard(opts.online ?? true),
       fs: mockFsViewFromTree(tree, { userType }),
       now: () => asEpochMs(WORLD_EPOCH + opts.gameDay * DAY_MS),
       patches: {
@@ -2311,7 +2351,7 @@ describe('the database a player buys', () => {
       identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(ownerKey) }),
       hostname: CONFIG.machineName,
       session: mockSession({ userType: 'root' }),
-      network: mockNetworkView({ isOnline: () => true }),
+      network: homeCard(true),
       fs: mockFsViewFromTree(tree, { userType: 'root', cwd: () => asAbsPath('/') }),
       patches: {
         ...mockPatchApi(),
@@ -2600,7 +2640,7 @@ describe('the store a player buys', () => {
       identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(ownerKey) }),
       hostname: CONFIG.machineName,
       session: mockSession({ userType: 'root' }),
-      network: mockNetworkView({ isOnline: () => true }),
+      network: homeCard(true),
       fs: mockFsViewFromTree(tree, { userType: 'root', cwd: () => asAbsPath('/') }),
       patches: {
         ...mockPatchApi(),
@@ -2993,5 +3033,60 @@ describe('the package catalogue every box is built from', () => {
         expect(packageForBinary(binary)).toBe(pkg.name);
       }
     }
+  });
+});
+
+/**
+ * The IP follows the shell; the radio stays with the body. A repo is reached over the
+ * network the box apt runs on stands on, so in a shell on a hop apt is online whatever
+ * the player's own card is doing — here it is cold, and every subcommand still reaches
+ * the repo.
+ */
+describe('apt from a hop', () => {
+  it('lists the catalog with the player’s own card off', async () => {
+    const { env } = aptEnv({ onHop: true, online: false, userType: 'user' });
+
+    const { lines, exitCode } = await streamResult(await apt.execute(env, ['list'], NO_FLAGS));
+
+    expect(lines[0]).toEqual({ kind: 'text', content: 'Listing...' });
+    expect(exitCode).toBe(0);
+  });
+
+  it('names the hop’s exposed packages with the player’s own card off', async () => {
+    const { fix, shipsOn } = sshSlowFix();
+    const { env } = aptEnv({ onHop: true, online: false, userType: 'user', gameDay: shipsOn });
+
+    const { text, exitCode } = await streamResult(
+      await apt.execute(env, ['list'], new Map([['-u', true]])),
+    );
+
+    expect(text).toContain(`upgradable → ${fix.version}`);
+    expect(exitCode).toBe(0);
+  });
+
+  it('installs onto the hop with the player’s own card off', async () => {
+    const { env, writes } = aptEnv({ onHop: true, online: false });
+
+    const { exitCode } = await streamResult(await apt.execute(env, ['install', 'nmap'], NO_FLAGS));
+
+    expect(writes.map((write) => write.path)).toContain('/usr/bin/nmap');
+    expect(exitCode).toBe(0);
+  });
+
+  it('upgrades the hop with the player’s own card off', async () => {
+    const { fix, shipsOn } = sshSlowFix();
+    const { env, writes } = aptEnv({ onHop: true, online: false, gameDay: shipsOn });
+
+    const { exitCode } = await streamResult(await apt.execute(env, ['upgrade', SSH], NO_FLAGS));
+
+    const manifest = writes.find((write) => write.path === '/var/lib/dpkg/status');
+    expect(manifest?.content).toContain(`Version: ${fix.version}`);
+    expect(exitCode).toBe(0);
+  });
+});
+
+describe('man apt', () => {
+  it('says it reaches the repo over the network the shell is on', () => {
+    expect(apt.manual?.description).toContain('the network you are on');
   });
 });

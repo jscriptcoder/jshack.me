@@ -1270,16 +1270,18 @@ describe('the ftp sub-shell', () => {
       path: '/home/tester/remote-drop.txt',
       content: 'left behind\n',
     });
-    // And the target hears what left it. Which box, and from what address, are
-    // supplied HERE — the `ftp>` command names only the file, so this is the only
-    // place the wiring can be proved.
-    expect(sent.find((payload) => payload.action === 'recordFtpTransfer')).toMatchObject({
+    // And the target hears what left it. The `ftp>` command names only the file, so the
+    // target box and the direction are supplied HERE — this is the only place that
+    // wiring can be proved. The address is no longer among them: the server derives it
+    // from where the caller stands rather than any field the client sends.
+    const transfer = sent.find((payload) => payload.action === 'recordFtpTransfer');
+    expect(transfer).toMatchObject({
       direction: 'download',
       machine_id: FTP_MACHINE_ID,
       path: '/etc/remote-drop.txt',
       bytes: 12,
-      source_ip: `${LAN.subnet}.77`,
     });
+    expect(transfer).not.toHaveProperty('source_ip');
   });
 
   it('leaves a file on the target, addressed to the TARGET rather than the box it came from', async () => {
@@ -1299,12 +1301,13 @@ describe('the ftp sub-shell', () => {
       (payload) => payload.action === 'upsertPatch' && payload.path === '/var/www/html/index.html',
     );
     expect(upload).toMatchObject({ machine_id: FTP_MACHINE_ID, owner: 'guest' });
-    expect(sent.find((payload) => payload.action === 'recordFtpTransfer')).toMatchObject({
+    const transfer = sent.find((payload) => payload.action === 'recordFtpTransfer');
+    expect(transfer).toMatchObject({
       direction: 'upload',
       machine_id: FTP_MACHINE_ID,
       path: '/var/www/html/index.html',
-      source_ip: `${LAN.subnet}.77`,
     });
+    expect(transfer).not.toHaveProperty('source_ip');
   });
 
   /** The same door on somebody else's address: the player names the forwarded port and

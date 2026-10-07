@@ -109,7 +109,8 @@ const NPC_MACHINE = machineIdForLanHost(npcHost, A_ESSID);
 const PACKAGE = 'redis';
 const FROM_VERSION = '7.9.7';
 const TO_VERSION = '7.2.5';
-// The address B CLAIMS. It must never reach a log that is not B's own.
+// The address B CLAIMS. The server places every trace from where B stands, so this must
+// never reach a log at all — not even a generated box's, which used to take it.
 const CLAIMED_IP = '10.0.0.66';
 
 const PIVOT_SESSION = 'ssh-pivot-dpkg-wirecheck';
@@ -193,6 +194,34 @@ const seedPivotAndTarget = async () => {
     },
   ]);
   if (error) throw new Error(`pivot seed failed: ${error.message}`);
+};
+
+/** Standing on a generated box of the victim's OWN LAN, and holding the victim's box.
+ *  Both sessions carry A's ESSID, so the visitor is placed on the victim's network and
+ *  the address it saw is the hop's LAN address — not a public one, since nothing crossed
+ *  a NAT. The neighbour case criterion 5 names: a `dpkg.log` line that must agree with
+ *  the `auth.log` login above it. */
+const seedLanHopAndTarget = async () => {
+  await sr.from('sessions').delete().eq('player_key', attacker.publicKeyHex);
+  const { error } = await sr.from('sessions').insert([
+    {
+      session_id: 'ssh-lanhop-dpkg-wirecheck',
+      player_key: attacker.publicKeyHex,
+      machine_id: NPC_MACHINE,
+      credentials: { username: 'root', userType: 'root' },
+      kind: 'ssh',
+      essid: A_ESSID,
+    },
+    {
+      session_id: 'ssh-target-dpkg-wirecheck',
+      player_key: attacker.publicKeyHex,
+      machine_id: A_WS,
+      credentials: { username: 'root', userType: 'root' },
+      kind: 'ssh',
+      essid: A_ESSID,
+    },
+  ]);
+  if (error) throw new Error(`lan-hop seed failed: ${error.message}`);
 };
 
 const clean = async () => {
@@ -312,6 +341,28 @@ check(
   `${pivotLine || '(no line)'}  — pivot ${C_PUBLIC_IP}, home ${B_PUBLIC_IP}, target ${A_PUBLIC_IP}`,
 );
 
+// === 4b. A NEIGHBOUR on the victim's own LAN is named by their LAN address ==========
+await sr.from('patches').delete().eq('machine_id', A_WS);
+await seedLanHopAndTarget();
+const viaLanHop = await downgrade({ caller_machine_id: NPC_MACHINE });
+check(
+  '8a. a rollback run from a box on the victim’s own LAN is accepted',
+  viaLanHop.status === 200,
+  `status ${viaLanHop.status} ${JSON.stringify(viaLanHop.body)}`,
+);
+
+const lanHopRow = await logRow(A_WS);
+const lanHopLine = lanHopRow === null ? '' : latestLine(lanHopRow.content);
+check(
+  '8b. it is filed under the victim’s key, at the hop’s LAN address, never a public one',
+  lanHopRow !== null &&
+    lanHopRow.writerKey === victim.publicKeyHex &&
+    lanHopLine.includes(`Client "${npcHost.ip}"`) &&
+    !lanHopLine.includes(A_PUBLIC_IP) &&
+    !lanHopLine.includes(B_PUBLIC_IP),
+  `${lanHopLine || '(no line)'}  — lan hop ${npcHost.ip}, box public ${A_PUBLIC_IP}, attacker home ${B_PUBLIC_IP}`,
+);
+
 // === 5. A box claimed as a vantage but not held is refused =========================
 await sr.from('patches').delete().eq('machine_id', A_WS);
 await seedSession(A_WS, A_ESSID, 'ssh-target-dpkg-wirecheck');
@@ -334,11 +385,14 @@ check(
 const npcRow = await logRow(NPC_MACHINE);
 const npcLine = npcRow === null ? '' : latestLine(npcRow.content);
 check(
-  "11. it lands in the NETWORK's row, at the address they reported",
+  "11. it lands in the NETWORK's row, at the SERVER-derived address, never the one claimed",
   npcRow !== null &&
     npcRow.writerKey === apGatewayLogWriterKey(A_ESSID) &&
-    npcLine.includes(`Client "${CLAIMED_IP}"`),
-  npcRow === null ? '(no dpkg.log row)' : `writer ${npcRow.writerKey.slice(0, 12)}…; ${npcLine}`,
+    npcLine.includes(`Client "${B_PUBLIC_IP}"`) &&
+    !npcLine.includes(CLAIMED_IP),
+  npcRow === null
+    ? '(no dpkg.log row)'
+    : `writer ${npcRow.writerKey.slice(0, 12)}…; ${npcLine}  — claimed ${CLAIMED_IP}, B at ${B_PUBLIC_IP}`,
 );
 
 // === 7. A blank version is refused rather than rendered ============================

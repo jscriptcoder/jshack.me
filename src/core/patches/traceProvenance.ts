@@ -11,44 +11,40 @@
  * defender reads half a visit while a second visitor quietly erases the first. Two copies
  * of that logic is two chances to get it wrong in one of them and never notice.
  *
- * On a generated host the row is the NETWORK's own key: nobody owns the box, and every
- * occupant of its network reaches the identical one, so a row per visitor would let each
- * line erase the last. The LAN address they report is what that box saw. On a box
- * somebody OWNS both answers change: the row belongs to the machine's owner, and the
- * address comes from the verified key, because it is the owner's only evidence of who
- * reached them.
+ * The ROW depends on ownership: on a generated host it is the NETWORK's own key — nobody
+ * owns the box and every occupant reaches the identical one, so a row per visitor would
+ * let each line erase the last — while on a box somebody OWNS it is the owner's, because
+ * the log is their evidence.
  *
- * Pivot-aware — an action run from a box the visitor merely holds a session on is traced
- * to THAT network, which is the one the target actually saw.
+ * The ADDRESS does not depend on ownership. It is placed from where the caller stands
+ * (`resolveCallerVantage`, the same vantage every own-LAN door draws), never from a field
+ * the client sends: on the target's own network, the address the target saw on its LAN —
+ * a neighbour's lease, or the deeper segment the caller stands on; off it, the public
+ * address the caller's network wears crossing the NAT. So the trace line and the login
+ * line above it name the one address, whichever way the box was reached.
  *
  * Pure/framework-agnostic (core/): every lookup is injected.
  */
 
-import { standingVantage, type FindActiveSession } from './authorizeMachineAccess.js';
-import {
-  resolveVantageSourceIp,
-  type FindHomeNetworkByOwnerKey,
-  type FindPublicIpByEssid,
-} from '../logging/crossPlayerSourceIp.js';
+import { resolveCallerVantage, type CallerVantageDeps } from '../sessions/callerVantage.js';
+import type { FindPublicIpByEssid } from '../logging/crossPlayerSourceIp.js';
 import type { OccupantWorkstation } from './remoteWritePermission.js';
 import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
 
-/** The three lookups the rule needs. Declared structurally rather than as one handler's
- *  deps type, so each endpoint passes its own full deps block unchanged. */
-export type TraceProvenanceDeps = {
-  readonly findActiveSession: FindActiveSession;
-  readonly findHomeNetworkByOwnerKey: FindHomeNetworkByOwnerKey;
+/** The lookups the rule needs: where the caller stands (the same placement every own-LAN
+ *  door draws, `resolveCallerVantage`), plus the public address a network wears when the
+ *  caller reaches the target across a NAT. */
+export type TraceProvenanceDeps = CallerVantageDeps & {
   readonly findPublicIpByEssid: FindPublicIpByEssid;
 };
 
-/** Who the actor is, where they claim to be acting from, and whose box they reached. */
+/** Who the actor is, the box they are acting FROM, and whose box they reached. */
 export type TraceVisit = {
   readonly actorKey: string;
   readonly callerMachineId: string | undefined;
-  readonly claimedIp: string | null;
   /** `null` for a generated host nobody owns. */
   readonly owner: OccupantWorkstation | null;
-  /** The network the box is regenerated from, off the caller's session row on it — or
+  /** The network the target is regenerated from, off the caller's session row on it — or
    *  `null` with no session, which only the caller's own workstation is reached by. */
   readonly boxEssid: string | null;
 };
@@ -57,30 +53,36 @@ export type Provenance =
   | { readonly ok: true; readonly writerKey: string; readonly fromIp: string }
   | { readonly ok: false; readonly status: number; readonly error: string };
 
+const publicIpOf = async (deps: TraceProvenanceDeps, essid: string): Promise<string> => {
+  const { data, error } = await deps.findPublicIpByEssid(essid);
+  return error || data === null ? 'unknown' : data.public_ip;
+};
+
 export const resolveTraceProvenance = async (
   deps: TraceProvenanceDeps,
   visit: TraceVisit,
 ): Promise<Provenance> => {
-  if (visit.owner === null) {
-    // An ownerless box with no session is the caller's own, outside any WiFi: theirs alone.
-    const writerKey =
-      visit.boxEssid === null ? visit.actorKey : apGatewayLogWriterKey(visit.boxEssid);
-    return { ok: true, writerKey, fromIp: visit.claimedIp ?? 'unknown' };
+  // The caller's own box reached with no session while on no WiFi: nobody shares it, and
+  // there is no network to place them on. The action still happened, so the line is
+  // still written — the client named unknown rather than left blank, which reads as a
+  // corrupt log.
+  if (visit.owner === null && visit.boxEssid === null) {
+    return { ok: true, writerKey: visit.actorKey, fromIp: 'unknown' };
   }
-  const standing = await standingVantage(
-    visit.actorKey,
-    visit.callerMachineId,
-    deps.findActiveSession,
-  );
-  if (!standing.ok) {
-    return { ok: false, status: standing.status, error: standing.error };
+  // Placed from the box they act from, never a claim — their own network at home, or a
+  // shell they hold. A box they hold no session on is the shared L1 refusal.
+  const vantage = await resolveCallerVantage(deps, visit.actorKey, visit.callerMachineId);
+  if (!vantage.ok) {
+    return { ok: false, status: vantage.status, error: vantage.error };
   }
-  return {
-    ok: true,
-    writerKey: visit.owner.owner_key,
-    fromIp: await resolveVantageSourceIp(deps, {
-      actorKey: visit.actorKey,
-      standingEssid: standing.standingEssid,
-    }),
-  };
+  const writerKey =
+    visit.owner === null ? apGatewayLogWriterKey(visit.boxEssid as string) : visit.owner.owner_key;
+  // On the target's own network the address it saw is the caller's address there — a LAN
+  // lease, or the deeper segment the caller stands on. Off it, the only address the
+  // target could have seen is the public one the caller's network wears crossing the NAT.
+  const fromIp =
+    vantage.essid === visit.boxEssid
+      ? vantage.sourceIp ?? 'unknown'
+      : await publicIpOf(deps, vantage.essid);
+  return { ok: true, writerKey, fromIp };
 };

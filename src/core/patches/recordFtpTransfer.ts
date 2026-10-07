@@ -44,10 +44,8 @@ import {
 } from '../logging/vsftpdLog.js';
 import { derivePid } from '../logging/syslog.js';
 import { authorizeMachineAccess, type FindActiveSession } from './authorizeMachineAccess.js';
-import type {
-  FindHomeNetworkByOwnerKey,
-  FindPublicIpByEssid,
-} from '../logging/crossPlayerSourceIp.js';
+import type { FindPublicIpByEssid } from '../logging/crossPlayerSourceIp.js';
+import type { FindHomeVantage, FindWorkstationLease } from '../sessions/callerVantage.js';
 import { resolveTraceProvenance } from './traceProvenance.js';
 import {
   appendMachineLog,
@@ -69,9 +67,11 @@ export type RecordFtpTransferDeps = {
   /** Whose box this is — `null` for a generated host nobody owns. One lookup decides
    *  both halves of the provenance below. */
   readonly findOccupantWorkstationByMachineId: FindOccupantWorkstationByMachineId;
-  /** The address the visitor OWNS, from their verified key. */
-  readonly findHomeNetworkByOwnerKey: FindHomeNetworkByOwnerKey;
-  /** The address of a network the visitor is merely standing on. */
+  /** Where the caller stands, so the trace is placed from the box they act from rather
+   *  than a claim — the same two lookups every own-LAN door draws its vantage from. */
+  readonly findHomeVantage: FindHomeVantage;
+  readonly findWorkstationLease: FindWorkstationLease;
+  /** The public address a network wears when the caller reaches the target across a NAT. */
   readonly findPublicIpByEssid: FindPublicIpByEssid;
 };
 
@@ -91,7 +91,6 @@ const recordFtpTransferSchema = z
     machine_id: z.string().min(1),
     path: z.string().min(1),
     bytes: z.number().int().nonnegative(),
-    source_ip: z.string().min(1).nullable().optional(),
     // The box the transfer was run FROM. Read only on a foreign target, where the
     // address is derived rather than reported.
     caller_machine_id: z.string().min(1).optional(),
@@ -124,7 +123,6 @@ export const handleRecordFtpTransfer = async (
   const provenance = await resolveTraceProvenance(deps, {
     actorKey: publicKey,
     callerMachineId: payload.caller_machine_id,
-    claimedIp: payload.source_ip ?? null,
     owner: owner.data,
     boxEssid: access.session.essid,
   });

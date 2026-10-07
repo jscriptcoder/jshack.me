@@ -7,10 +7,8 @@ import type { PatchRow } from './upsertPatch.js';
 import type { ActiveSession, FindActiveSessionResult } from './authorizeMachineAccess.js';
 import type { MachineLogReadQuery, MachineLogReadResult } from './appendMachineLog.js';
 import type { FindOccupantWorkstationByMachineId } from './remoteWritePermission.js';
-import type {
-  FindHomeNetworkByOwnerKey,
-  FindPublicIpByEssid,
-} from '../logging/crossPlayerSourceIp.js';
+import type { FindPublicIpByEssid } from '../logging/crossPlayerSourceIp.js';
+import type { FindHomeVantage, FindWorkstationLease } from '../sessions/callerVantage.js';
 import { md5 } from '../generation/md5.js';
 import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
 import { signRequest } from '../signedRequest/sign.js';
@@ -59,8 +57,12 @@ const theirWorkstation = {
   workstation_root_hash: md5('toor'),
 };
 
-// What the server resolves for the actor: the address they own, and the address of a
-// network they are merely standing on.
+// Where the server places the actor. By default they are at home on their OWN network —
+// a different ESSID from the box's — so a reach to the box crosses a NAT and is seen at
+// the home network's PUBLIC address. A box they merely stand on is named by its public
+// address too; a neighbour on the box's own LAN, by the lease they hold there.
+const ACTOR_HOME_ESSID = 'SKYLAB-HOUSE';
+const ACTOR_HOME_OCTET = 42;
 const ACTOR_HOME_IP = '198.51.100.22';
 const PIVOT_ESSID = 'CAFE-DEL-MAR-GUEST';
 const PIVOT_PUBLIC_IP = '203.0.113.199';
@@ -84,12 +86,19 @@ const makeDeps = (over: Partial<RecordPackageDowngradeDeps> = {}) => {
     data: null,
     error: null,
   }));
-  const findHomeNetworkByOwnerKey = vi.fn<FindHomeNetworkByOwnerKey>(async () => ({
-    data: { public_ip: ACTOR_HOME_IP },
+  const findHomeVantage = vi.fn<FindHomeVantage>(async () => ({
+    data: { essid: ACTOR_HOME_ESSID, octet: ACTOR_HOME_OCTET },
     error: null,
   }));
-  const findPublicIpByEssid = vi.fn<FindPublicIpByEssid>(async () => ({
-    data: { public_ip: PIVOT_PUBLIC_IP },
+  // A caller standing on another player's box holds no generated placement there, so the
+  // vantage falls to this lease — null by default, which lands the cross-network path on
+  // the standing network's public address.
+  const findWorkstationLease = vi.fn<FindWorkstationLease>(async () => ({
+    data: null,
+    error: null,
+  }));
+  const findPublicIpByEssid = vi.fn<FindPublicIpByEssid>(async (essid) => ({
+    data: { public_ip: essid === PIVOT_ESSID ? PIVOT_PUBLIC_IP : ACTOR_HOME_IP },
     error: null,
   }));
   const deps: RecordPackageDowngradeDeps = {
@@ -99,7 +108,8 @@ const makeDeps = (over: Partial<RecordPackageDowngradeDeps> = {}) => {
     readLog,
     upsertPatch,
     findOccupantWorkstationByMachineId,
-    findHomeNetworkByOwnerKey,
+    findHomeVantage,
+    findWorkstationLease,
     findPublicIpByEssid,
     ...over,
   };
@@ -109,7 +119,8 @@ const makeDeps = (over: Partial<RecordPackageDowngradeDeps> = {}) => {
     readLog,
     findActiveSession,
     findOccupantWorkstationByMachineId,
-    findHomeNetworkByOwnerKey,
+    findHomeVantage,
+    findWorkstationLease,
     findPublicIpByEssid,
   };
 };
@@ -139,7 +150,7 @@ describe('handleRecordPackageDowngrade', () => {
       writer_key: apGatewayLogWriterKey(activeSession().essid),
       machine_id: THEIR_BOX,
       path: DPKG_LOG_PATH,
-      content: '2026-08-14 13:56:02 downgrade redis 7.9.7 7.2.5 Client "10.0.0.9"\n',
+      content: '2026-08-14 13:56:02 downgrade redis 7.9.7 7.2.5 Client "198.51.100.22"\n',
       owner: DPKG_LOG_OWNER,
       permissions: DPKG_LOG_PERMISSIONS,
       node_type: 'file',
@@ -191,7 +202,7 @@ describe('handleRecordPackageDowngrade', () => {
     // A package history that only ever holds the newest entry hides every rollback but
     // the last one.
     expect(upsertPatch.mock.calls[0]![0].content).toBe(
-      `${existing}2026-08-14 13:56:02 downgrade redis 7.9.7 7.2.5 Client "10.0.0.9"\n`,
+      `${existing}2026-08-14 13:56:02 downgrade redis 7.9.7 7.2.5 Client "198.51.100.22"\n`,
     );
   });
 
@@ -329,13 +340,13 @@ describe('handleRecordPackageDowngrade', () => {
         ...downgrade,
         source_ip: '10.0.0.9',
       });
-      const { deps, upsertPatch, findHomeNetworkByOwnerKey } = onTheirBox();
+      const { deps, upsertPatch, findHomeVantage } = onTheirBox();
 
       await handleRecordPackageDowngrade(envelope, deps);
 
       // The address is the defender's only route back to who did this, so a claimed
       // one would let the attacker write somebody else's name on it.
-      expect(findHomeNetworkByOwnerKey).toHaveBeenCalledWith(id.publicKeyHex);
+      expect(findHomeVantage).toHaveBeenCalledWith(id.publicKeyHex);
       expect(upsertPatch.mock.calls[0]![0].content).toContain(`Client "${ACTOR_HOME_IP}"`);
       expect(upsertPatch.mock.calls[0]![0].content).not.toContain('10.0.0.9');
     });

@@ -67,6 +67,7 @@ import { liveCve } from '../cve/liveCve.js';
 import { libraryDeps } from './libraryDeps.js';
 import { binaryExists } from './availability.js';
 import { errorLine, streamedResult, text } from './streaming.js';
+import { vantageOf } from '../network/vantage.js';
 
 /** Beat between apt's steps, so reaching the repo takes visible time even when
  *  the writes behind it return instantly. */
@@ -113,8 +114,13 @@ const errorResult = (lines: readonly string[]): CommandResult => ({
 const installFailureLine = (packageName: string, error: string): TerminalLine =>
   errorLine(`E: Failed to install ${packageName} (${error})`);
 
-/** The apt-style "no network" failure, shared by `install` and `list` (both are
- *  online-gated). */
+/** Whether the repo can be reached from the box apt runs on: the network the shell
+ *  stands on, not the player's own card. In a shell on a hop the radio is back with the
+ *  body, and the box reaches the repo over its own network. */
+const reachesRepo = (env: CommandEnv): boolean => vantageOf(env.session, env.network) !== null;
+
+/** The apt-style "no network" failure, shared by every subcommand (each needs the
+ *  repo). */
 const offlineError = (): CommandResult =>
   errorResult([
     "Err: http://deb.debian.org/debian Temporary failure resolving 'deb.debian.org'",
@@ -608,7 +614,7 @@ async function* installPackage(
 }
 
 const handleList = (env: CommandEnv, flags: ReadonlyMap<string, string | true>): CommandResult => {
-  if (!env.network.isOnline()) {
+  if (!reachesRepo(env)) {
     return offlineError();
   }
   // Ahead of `--installed`, which it already implies: a package has to be on the box
@@ -623,7 +629,7 @@ const handleInstall = (env: CommandEnv, spec: string | undefined): CommandResult
   if (env.session.userType !== 'root') {
     return lockError();
   }
-  if (!env.network.isOnline()) {
+  if (!reachesRepo(env)) {
     return offlineError();
   }
   if (spec === undefined) {
@@ -642,7 +648,7 @@ const handleUpgrade = (env: CommandEnv, packageName: string | undefined): Comman
   if (env.session.userType !== 'root') {
     return lockError();
   }
-  if (!env.network.isOnline()) {
+  if (!reachesRepo(env)) {
     return offlineError();
   }
   return streamedResult(upgradePackages(env, packageName));
@@ -675,7 +681,7 @@ export const apt: Command = {
   manual: {
     synopsis: 'apt <install|list|upgrade> [--installed|--upgradable] [package[=<version>]]',
     description:
-      'Advanced Package Tool. "install" downloads a package and places its binaries where they belong — tools in /usr/bin, service daemons in /usr/sbin — making them available to run (requires root — run "su" first). Naming a release as "<package>=<version>" installs that release instead of the newest: the repo hands over only releases it already holds, and only backwards — moving a box forward is what "upgrade" is for. "upgrade" closes the holes "list --upgradable" names: it moves every package on this box whose fix has been released onto that release, or only the package you name, and reports the ones whose fix has not shipped yet rather than moving them (requires root). "list" shows the installable catalog; "list --installed" shows only the packages already present. "list --upgradable" (or -u) reads this box\'s package manifest and names every package with a published vulnerability, by its CVE id and severity, beside the version that fixes it, or — while the fix has not been released yet — how many days until it is. It needs no root. All of them need a network connection.',
+      'Advanced Package Tool. "install" downloads a package and places its binaries where they belong — tools in /usr/bin, service daemons in /usr/sbin — making them available to run (requires root — run "su" first). Naming a release as "<package>=<version>" installs that release instead of the newest: the repo hands over only releases it already holds, and only backwards — moving a box forward is what "upgrade" is for. "upgrade" closes the holes "list --upgradable" names: it moves every package on this box whose fix has been released onto that release, or only the package you name, and reports the ones whose fix has not shipped yet rather than moving them (requires root). "list" shows the installable catalog; "list --installed" shows only the packages already present. "list --upgradable" (or -u) reads this box\'s package manifest and names every package with a published vulnerability, by its CVE id and severity, beside the version that fixes it, or — while the fix has not been released yet — how many days until it is. It needs no root. All of them reach the repo over the network you are on — your own at home, or the network of a box you have a shell on.',
     arguments: [
       {
         name: 'operation',

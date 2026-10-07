@@ -105,6 +105,13 @@ const credential = (host: LanHost): { readonly username: string; readonly passwo
 
 const account = credential(target);
 
+// The player stands on this LAN at octet 50 (`standOnNetwork` below), so the address the
+// target saw is their lease here — the one the server derives, whatever the client sends.
+const LEASE_IP = `${lan.subnet}.50`;
+// A bogus address the client claims. It must never reach the log: the point of the whole
+// path is that the source is the server's to place, never the caller's to assert.
+const CLAIMED_IP = '10.0.0.66';
+
 const recordTransfer = (over: Record<string, unknown> = {}) =>
   post(
     PATCHES,
@@ -113,7 +120,7 @@ const recordTransfer = (over: Record<string, unknown> = {}) =>
       machine_id: targetMachine,
       path: STOLEN,
       bytes: BYTES,
-      source_ip: '192.168.1.50',
+      source_ip: CLAIMED_IP,
       ...over,
     }),
   );
@@ -195,11 +202,12 @@ const main = async (): Promise<void> => {
     .split('\n')
     .find((line) => line.includes('OK DOWNLOAD'));
   check(
-    'the box own log names the file and its size',
+    'the box own log names the file, its size, and the SERVER-derived LAN address',
     downloadLine !== undefined &&
       downloadLine.includes(`"${STOLEN}", ${BYTES} bytes`) &&
-      downloadLine.includes('Client "192.168.1.50"'),
-    downloadLine ?? '(no OK DOWNLOAD line)',
+      downloadLine.includes(`Client "${LEASE_IP}"`) &&
+      !downloadLine.includes(CLAIMED_IP),
+    `${downloadLine ?? '(no OK DOWNLOAD line)'}  — lease ${LEASE_IP}, claimed ${CLAIMED_IP}`,
   );
   check(
     'the account is the one the SESSION carries, not the one the payload claimed',
