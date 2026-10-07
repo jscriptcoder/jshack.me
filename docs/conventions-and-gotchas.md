@@ -631,10 +631,12 @@ To pick up the next work: there is no active epic. **The owner has postponed the
    tabs (#616, v0.324.0); the `reboot` `kern.log` line names the address the rebooter's login came
    from and the box's real hostname (v0.325.0).
 2. ✅ Wire-check failures (#617, 2026-10-07): every script named in §9 passes alone.
-3. **Next:** small bugs a playtester would hit — ✅ `grep -c` (#619, v0.326.0, which also taught
+3. Small bugs a playtester would hit — ✅ `grep -c` (#619, v0.326.0, which also taught
    `head`/`tail` `-N` and `-nN` and every string flag its attached value: `ssh -p2222`); ✅ `nmap`'s
-   5-digit port column and ✅ `snmpd` by name (v0.327.0); still open: root's planted
-   `.bash_history` lines the shell refuses (`tail -f /var/log/auth.log`, §9).
+   5-digit port column and ✅ `snmpd` by name (#620, v0.327.0). **Next — the last open item:**
+   root's planted `.bash_history` lines the shell refuses (`tail -f /var/log/auth.log`; §9 has the
+   agreed fix: a test runs every history-pool line through `runCommandLine`, then each failure is
+   reworded or supported).
 4. Then give a player's own box an attack surface, so two players can go after each other's
    machines: workstation daemons (mysqld/redis, §9 "Game-design / content ideas"), and later the
    CVE arc.
@@ -1343,7 +1345,10 @@ Both instances above passed 8-10 consecutive isolated runs, so treat "it passes 
 evidence. Other files mint identities the same way (`resolvePublicScan`, `natHosts`,
 `authCreateSessionSameLan`, `createSession`) and are latent until an assertion depends on the
 draw; at least one further instance has been observed in a full-suite run without being
-pinned to a file.
+pinned to a file. **`authCreateSessionSameLan` has now fired** (2026-10-07, one full run of
+#619's gate): "reports host_unreachable when B targets its OWN LAN IP" got `401` where it expects
+`404`, then passed alone 3/3 and in the next full run. Same fix as above — draw B again until it
+does not collide — still to do.
 
 **A survivor masked by a LATER call is untested, not equivalent.** `withSelfHost`'s sort
 survived because `mergeLanOccupants` re-sorts downstream — the mutant is invisible through
