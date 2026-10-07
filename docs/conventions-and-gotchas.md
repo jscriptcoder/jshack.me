@@ -631,8 +631,10 @@ To pick up the next work: there is no active epic. **The owner has postponed the
    tabs (#616, v0.324.0); the `reboot` `kern.log` line names the address the rebooter's login came
    from and the box's real hostname (v0.325.0).
 2. ✅ Wire-check failures (#617, 2026-10-07): every script named in §9 passes alone.
-3. **Next:** small bugs a playtester would hit — `grep -c` (§9), `nmap` running a 5-digit port into
-   the STATE column (§9), `snmpd` not runnable by name (§9).
+3. **Next:** small bugs a playtester would hit — ✅ `grep -c` (#619, v0.326.0, which also taught
+   `head`/`tail` `-N` and `-nN` and every string flag its attached value: `ssh -p2222`); still open:
+   `nmap` running a 5-digit port into the STATE column (§9), `snmpd` not runnable by name (§9), and
+   root's planted `.bash_history` lines the shell refuses (`tail -f /var/log/auth.log`, §9).
 4. Then give a player's own box an attack surface, so two players can go after each other's
    machines: workstation daemons (mysqld/redis, §9 "Game-design / content ideas"), and later the
    CVE arc.
@@ -2872,9 +2874,17 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   keeps both (§7). Found building `>>` (v0.277.0); one `stat` and two fields, with a test beside the
   existing appendFile ones in `node.test.ts`.
 
-- **`grep -c` answers `grep: unrecognized option: -c`** — `grep` takes only `-l`. A player who
-  wants the count has `grep <pattern> <file> | wc -l` since v0.278.0, so this is parity, not a
-  missing capability. Found in world-content slice 3's played run (v0.250.0).
+- **CLOSED v0.326.0 (#619) — `grep -c` answered `grep: unrecognized option: -c`.** Parity rather
+  than a missing capability (`grep … | wc -l` worked since v0.278.0), but the game planted
+  `grep -c sshd /var/log/auth.log` in root's generated `.bash_history`, so it suggested a command it
+  refused. Found in world-content slice 3's played run (v0.250.0).
+
+- **Root's planted `.bash_history` holds lines the shell refuses.** `ROOT_HISTORY` in
+  `core/generation/pools/rootContent.ts` plants `tail -f /var/log/auth.log`, and `tail` has no `-f`
+  by design (nothing appends to a log while you watch). A player who roots a box and replays its
+  history meets `unrecognized option`. The fix that cannot rot is a test running every line of the
+  history pools through `runCommandLine` against the real registry, then rewording or supporting
+  each failure — `tail -f` becomes `tail -n 50`. Found while closing `grep -c` (2026-10-07).
 
 - **A deep TERMINAL NPC box is read-only when rooted — depth alone decides whether you can
   write to an NPC.** The cross-player/deep write gate (`remoteWritePermission` L2,
