@@ -52,6 +52,7 @@ type Command = {
   manual?: ManualPage; // `man` page; arguments[0].values feeds tab completion
   flags?: FlagSpec; // { '-p': 'string', '-a': 'boolean' } — keys are DASHED
   stacking?: boolean; // allow `-la` → `-l -a`
+  bareNumberFlag?: string; // the string flag a bare `-5` binds to ('-n' on head/tail)
   withoutTty?: string | ((args, flags) => string | undefined); // refusal on a shell without a terminal
   withoutScript?: string | ((args, flags) => string | undefined); // refusal when called from a script
   execute: (
@@ -130,7 +131,9 @@ the store treats a double-quoted run as one token).
 
 - `-` alone is a positional (stdin shorthand); `--` makes every later token positional.
 - A `'boolean'` flag becomes `true`. A `'string'` flag **always** consumes the next token as its value
-  (`-n -5` binds `-5`); a missing value is `option requires an argument`.
+  (`-n -5` binds `-5`); a missing value is `option requires an argument`. It also takes its value
+  written onto it (`-n5`, `-p2222`), unless the whole token is itself a declared flag (`-sV`).
+- A bare number (`-5`) binds to the command's `bareNumberFlag`, so `tail -5` is `tail -n 5`.
 - With `stacking: true`, `-abc` expands to `-a -b -c` only if **every** letter is a declared boolean
   flag; otherwise the whole token is rejected.
 - Any other dash token is `unrecognized option`.
@@ -279,8 +282,8 @@ registered commands; `registry.ts` is the source of truth.
 | `cat`          | Print files or stdin (`-n`)                                 | S      |
 | `cd`, `pwd`    | Change and print the working directory                      | S      |
 | `find`         | Find entries by name glob                                   | S      |
-| `grep`         | Search files or stdin, case-insensitive (`-l`)              | S      |
-| `head`, `tail` | First or last N lines (`-n N`)                              | S      |
+| `grep`         | Search files or stdin, case-insensitive (`-l`, `-c`)        | S      |
+| `head`, `tail` | First or last N lines (`-n N`, `-nN`, `-N`)                 | S      |
 | `wc`           | Count lines and words (`-l`, `-w`)                          | S      |
 | `strings`      | Print readable runs inside a file                           | S      |
 | `mkdir`        | Create directories (`-p`)                                   | S      |

@@ -14,6 +14,9 @@
  * - `-l` files-with-matches mode: in any of the above, switch output
  *   to filepaths (deduped, sorted) instead of matching-line content.
  *   With stdin, emits `(standard input)` if any line matched.
+ * - `-c` count mode: print how many lines matched instead of the lines.
+ *   A directory prints `<filepath>:<count>` for every file it searched,
+ *   zeros included, as GNU grep does. `-l` wins over `-c`, also as GNU.
  *
  * Pattern is `new RegExp(raw, 'i')` — case-insensitive, supports full
  * regex syntax. Invalid regex emits an error + exit 2.
@@ -35,7 +38,7 @@ import { resolveAbsPath } from '../filesystem/path.js';
 import { walkTree } from '../filesystem/walkTree.js';
 import { splitContentLines } from './contentHelpers.js';
 
-const USAGE = 'grep: usage: grep <pattern> <path> [-l]';
+const USAGE = 'grep: usage: grep <pattern> <path> [-l] [-c]';
 
 /** ELF magic — content with this prefix is treated as binary and skipped. */
 const ELF_MAGIC = '\x7fELF';
@@ -71,20 +74,21 @@ const errorResult = (message: string, exitCode: number): CommandResult => ({
   exitCode,
 });
 
-type Match = {
+type FileMatches = {
   readonly filepath: AbsPath;
-  readonly line: string;
+  readonly lines: readonly string[];
 };
 
 const matchesInFile = (content: string, pattern: RegExp): readonly string[] =>
   splitContentLines(content).filter((line) => pattern.test(line));
 
-/** Matches across all readable non-binary files under `dir`. Directories
- *  contribute nothing of their own — they are where the walk goes, not what it
- *  reports — and an unreadable file is skipped in silence, so a sweep over a
- *  mixed tree still answers for the part it can read. Alphabetical at each
- *  level, which yields a filepath-sorted result. */
-const walkAndSearch = (env: CommandEnv, dir: AbsPath, pattern: RegExp): readonly Match[] =>
+/** One entry per readable non-binary file under `dir`, holding its matching
+ *  lines — none for a file that has no match, which `-c` still reports.
+ *  Directories contribute nothing of their own — they are where the walk goes,
+ *  not what it reports — and an unreadable file is skipped in silence, so a
+ *  sweep over a mixed tree still answers for the part it can read. Alphabetical
+ *  at each level, which yields a filepath-sorted result. */
+const walkAndSearch = (env: CommandEnv, dir: AbsPath, pattern: RegExp): readonly FileMatches[] =>
   walkTree(env.fs, dir, (childPath, node) => {
     if (node.kind === 'directory') return [];
 
@@ -92,10 +96,7 @@ const walkAndSearch = (env: CommandEnv, dir: AbsPath, pattern: RegExp): readonly
     if (!readResult.ok) return [];
     if (isBinary(readResult.content)) return [];
 
-    return matchesInFile(readResult.content, pattern).map((line) => ({
-      filepath: childPath,
-      line,
-    }));
+    return [{ filepath: childPath, lines: matchesInFile(readResult.content, pattern) }];
   });
 
 const grepStdin = async (
@@ -109,11 +110,17 @@ const grepStdin = async (
   return matched;
 };
 
-const textResult = (contents: readonly string[]): CommandResult => ({
+/** Exit 0 only when something matched — a `-c` that prints `0` still exits 1. */
+const textResult = (
+  contents: readonly string[],
+  matched: boolean = contents.length > 0,
+): CommandResult => ({
   kind: 'sync',
   lines: contents.map((content) => ({ kind: 'text', content })),
-  exitCode: contents.length > 0 ? 0 : 1,
+  exitCode: matched ? 0 : 1,
 });
+
+const countResult = (count: number): CommandResult => textResult([String(count)], count > 0);
 
 const execute = async (
   env: CommandEnv,
@@ -129,6 +136,7 @@ const execute = async (
   }
 
   const dashL = flags.get('-l') === true;
+  const dashC = flags.get('-c') === true;
 
   // No path arg: stdin path. A path arg ALWAYS wins over stdin (matches
   // legacy `fnShell`); we only reach the stdin branch when args is just
@@ -139,6 +147,7 @@ const execute = async (
     if (dashL) {
       return textResult(stdinMatches.length > 0 ? ['(standard input)'] : []);
     }
+    if (dashC) return countResult(stdinMatches.length);
     return textResult(stdinMatches);
   }
 
@@ -147,12 +156,20 @@ const execute = async (
 
   if (!readResult.ok) {
     if (readResult.error === 'is_directory') {
-      const walkMatches = walkAndSearch(env, target, pattern);
+      const searched = walkAndSearch(env, target, pattern);
+      const matchedFiles = searched.filter(({ lines }) => lines.length > 0);
       if (dashL) {
-        const uniquePaths = [...new Set(walkMatches.map(({ filepath }) => filepath))];
-        return textResult(uniquePaths);
+        return textResult(matchedFiles.map(({ filepath }) => filepath));
       }
-      return textResult(walkMatches.map(({ filepath, line }) => `${filepath}:${line}`));
+      if (dashC) {
+        return textResult(
+          searched.map(({ filepath, lines }) => `${filepath}:${lines.length}`),
+          matchedFiles.length > 0,
+        );
+      }
+      return textResult(
+        matchedFiles.flatMap(({ filepath, lines }) => lines.map((line) => `${filepath}:${line}`)),
+      );
     }
     return errorResult(formatReadError(pathArg, readResult.error), 2);
   }
@@ -165,6 +182,7 @@ const execute = async (
   if (dashL) {
     return textResult(fileMatches.length > 0 ? [target] : []);
   }
+  if (dashC) return countResult(fileMatches.length);
   return textResult(fileMatches);
 };
 
@@ -174,9 +192,9 @@ export const grep: Command = {
   category: 'filesystem',
   tier: 'guest',
   availability: { kind: 'any-machine' },
-  flags: { '-l': 'boolean' },
+  flags: { '-l': 'boolean', '-c': 'boolean' },
   manual: {
-    synopsis: 'grep <pattern> [path] [-l]',
+    synopsis: 'grep <pattern> [path] [-l] [-c]',
     description:
       'Search for lines matching a case-insensitive regex pattern. With a file target, prints matching lines verbatim. With a directory target, recursively walks the tree and prints `<filepath>:<line>` for each match, sorted by filepath. Binary files and permission-denied files/dirs are silently skipped during recursion. With no path at all, reads stdin, so it can sit downstream of a pipe.',
     arguments: [
@@ -194,6 +212,10 @@ export const grep: Command = {
         name: '-l',
         description: 'Print only the names of files containing a match (deduped, sorted)',
       },
+      {
+        name: '-c',
+        description: 'Print how many lines matched instead of the lines; per file in a directory',
+      },
     ],
     examples: [
       {
@@ -205,6 +227,7 @@ export const grep: Command = {
         description: 'Recursively search /etc, printing <filepath>:<line> per match',
       },
       { command: 'grep "pa.sword" notes.txt', description: 'Search with a regex pattern' },
+      { command: 'grep -c Failed /var/log/auth.log', description: 'Count the failed logins' },
     ],
   },
   execute,

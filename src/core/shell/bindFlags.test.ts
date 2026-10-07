@@ -126,6 +126,51 @@ describe('bindFlags', () => {
     });
   });
 
+  it("takes a string flag's value written onto the flag itself (`-n5`, `-p2222`)", () => {
+    const spec: FlagSpec = { '-n': 'string' };
+    expect(bindFlags(['-n5', 'file'], spec)).toEqual({
+      ok: true,
+      positional: ['file'],
+      flags: new Map([['-n', '5']]),
+    });
+  });
+
+  it('gives a boolean flag no attached value — `-v5` is not `-v`', () => {
+    const spec: FlagSpec = { '-v': 'boolean' };
+    expect(bindFlags(['-v5'], spec)).toEqual({ ok: false, error: 'unrecognized option: -v5' });
+  });
+
+  it('prefers a declared multi-letter flag over reading its tail as a value (`nmap -sV`)', () => {
+    const spec: FlagSpec = { '-s': 'string', '-sV': 'boolean' };
+    expect(bindFlags(['-sV'], spec)).toEqual({
+      ok: true,
+      positional: [],
+      flags: new Map([['-sV', true]]),
+    });
+  });
+
+  it('binds a bare number to the flag the command names for it (`tail -50` is `tail -n 50`)', () => {
+    const spec: FlagSpec = { '-n': 'string' };
+    expect(bindFlags(['-50', 'file'], spec, { bareNumberFlag: '-n' })).toEqual({
+      ok: true,
+      positional: ['file'],
+      flags: new Map([['-n', '50']]),
+    });
+  });
+
+  it('refuses a bare number for a command that names no flag for it', () => {
+    const spec: FlagSpec = { '-n': 'string' };
+    expect(bindFlags(['-5'], spec)).toEqual({ ok: false, error: 'unrecognized option: -5' });
+  });
+
+  it.each(['-5x', '--5'])('takes only a dash and digits as a bare number, not %s', (token) => {
+    const spec: FlagSpec = { '-n': 'string' };
+    expect(bindFlags([token], spec, { bareNumberFlag: '-n' })).toEqual({
+      ok: false,
+      error: `unrecognized option: ${token}`,
+    });
+  });
+
   it('rejects a string flag with no value at the end of input', () => {
     const spec: FlagSpec = { '-n': 'string' };
     expect(bindFlags(['-n'], spec)).toEqual({

@@ -2,8 +2,8 @@
  * head — print the first lines of a file or of piped input.
  *
  * Behavior:
- * - Prints the first 10 lines, or the first N with `-n N`. Input shorter than
- *   that prints whole.
+ * - Prints the first 10 lines, or the first N with `-n N` (also `-nN` or `-N`).
+ *   Input shorter than that prints whole.
  * - Reads one file, or the piped input when no file is named. A line is a line
  *   as `cat` shows it: the newline that ends a file does not start another one.
  *
@@ -52,12 +52,13 @@ export const head: Command = {
   tier: 'guest',
   availability: { kind: 'any-machine' },
   flags: { '-n': 'string' },
+  bareNumberFlag: '-n',
   manual: {
-    synopsis: 'head [-n N] [file]',
+    synopsis: 'head [-n N | -N] [file]',
     description:
       'Print the first 10 lines of a file, or the first N with -n. With no file, read the piped input. Input shorter than that prints whole.',
     arguments: [
-      { name: '-n N', description: 'Print the first N lines instead of 10' },
+      { name: '-n N', description: 'Print the first N lines instead of 10; -N is the same' },
       { name: 'file', description: 'The one file to read; with none, read the piped input' },
     ],
     examples: [

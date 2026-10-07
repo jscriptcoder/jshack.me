@@ -16,6 +16,12 @@
  * - Any dash-prefixed token not in the spec is `unrecognized option`.
  * - A `'string'` flag with no following token is `option requires an
  *   argument`.
+ * - A `'string'` flag also takes its value written onto it — `-n5`,
+ *   `-p2222` — the POSIX attached form. A declared multi-letter flag
+ *   (`nmap -sV`) still wins, because the literal lookup runs first.
+ * - A bare number (`-5`) binds to the string flag the command names in
+ *   `bareNumberFlag` — `tail -5` is `tail -n 5`. Without it, it is an
+ *   unknown option like any other.
  * - When stacking is enabled, expansion is a FALLBACK after a literal
  *   spec miss, ALL-OR-NOTHING (every char must be a boolean flag in the
  *   spec, otherwise the whole original token is rejected verbatim).
@@ -36,6 +42,9 @@ export type BindResult =
       readonly flags: ReadonlyMap<string, string | true>;
     }
   | { readonly ok: false; readonly error: string };
+
+/** `-5`, `-50`: the old count-as-flag spelling `head` and `tail` still take. */
+const BARE_NUMBER = /^-\d+$/;
 
 /** A bare `-` (single dash) is not a flag — it's POSIX shorthand for stdin. */
 const isFlagToken = (token: string): boolean => token.startsWith('-') && token !== '-';
@@ -67,9 +76,10 @@ const tryExpandStack = (
 export const bindFlags = (
   args: readonly string[],
   spec: FlagSpec,
-  options: { readonly stacking?: boolean } = {},
+  options: { readonly stacking?: boolean; readonly bareNumberFlag?: string } = {},
 ): BindResult => {
   const stacking = options.stacking ?? false;
+  const { bareNumberFlag } = options;
   const positional: string[] = [];
   const flags = new Map<string, string | true>();
 
@@ -103,6 +113,15 @@ export const bindFlags = (
       // string flag will need a second `--` later in the line.
       flags.set(token, next);
       i += 1; // step past the value token; the for-loop's i++ then advances normally
+      continue;
+    }
+    if (bareNumberFlag !== undefined && BARE_NUMBER.test(token)) {
+      flags.set(bareNumberFlag, token.slice(1));
+      continue;
+    }
+    const shortFlag = token.slice(0, 2);
+    if (spec[shortFlag] === 'string') {
+      flags.set(shortFlag, token.slice(2));
       continue;
     }
     if (stacking && tryExpandStack(token, spec, flags)) {

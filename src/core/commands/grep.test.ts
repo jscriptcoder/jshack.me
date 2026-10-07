@@ -223,7 +223,7 @@ describe('grep — argument validation', () => {
     expect(result.kind).toBe('sync');
     if (result.kind !== 'sync') return;
     expect(result.exitCode).toBe(2);
-    expect(errorLines(result)).toEqual(['grep: usage: grep <pattern> <path> [-l]']);
+    expect(errorLines(result)).toEqual(['grep: usage: grep <pattern> <path> [-l] [-c]']);
   });
 
   it('errors with usage hint when only the pattern is given (no file, no stdin)', async () => {
@@ -238,7 +238,7 @@ describe('grep — argument validation', () => {
     expect(result.kind).toBe('sync');
     if (result.kind !== 'sync') return;
     expect(result.exitCode).toBe(2);
-    expect(errorLines(result)).toEqual(['grep: usage: grep <pattern> <path> [-l]']);
+    expect(errorLines(result)).toEqual(['grep: usage: grep <pattern> <path> [-l] [-c]']);
   });
 
   it('errors with single-quoted path for a missing file and exits 2', async () => {
@@ -718,7 +718,7 @@ describe('grep — stdin mode', () => {
     expect(result.kind).toBe('sync');
     if (result.kind !== 'sync') return;
     expect(result.exitCode).toBe(2);
-    expect(errorLines(result)).toEqual(['grep: usage: grep <pattern> <path> [-l]']);
+    expect(errorLines(result)).toEqual(['grep: usage: grep <pattern> <path> [-l] [-c]']);
   });
 
   it('IGNORES stdin when a file arg is also given (file mode wins)', async () => {
@@ -912,5 +912,88 @@ describe('grep — stdin + -l (v2-defined: `(standard input)`)', () => {
     if (result.kind !== 'sync') return;
     expect(result.exitCode).toBe(1);
     expect(result.lines).toEqual([]);
+  });
+});
+
+/** `-c` prints how many lines matched instead of the lines themselves — the way
+ *  an admin counts failed logins without scrolling them. */
+describe('grep — -c flag (count matching lines)', () => {
+  const DASH_C = new Map<string, string | true>([['-c', true]]);
+
+  const stdinOf = (lines: readonly string[]): AsyncIterable<string> =>
+    (async function* () {
+      yield* lines;
+    })();
+
+  /** A log with two sshd lines and one cron line, plus a file nothing in it matches. */
+  const logsEnv = () =>
+    mockCommandEnv({
+      fs: mockFsViewFromTree(
+        buildDirectory({
+          var: buildDirectory({
+            log: buildDirectory({
+              'auth.log': buildFile(
+                'sshd: Accepted root\ncron: session opened\nsshd: Failed alice\n',
+                {
+                  owner: 'alice',
+                },
+              ),
+              'kern.log': buildFile('kernel: eth0 up\n', { owner: 'alice' }),
+            }),
+          }),
+        }),
+        { userType: 'user', cwd: asAbsPath('/') },
+      ),
+    });
+
+  it('prints the number of matching lines in a file and exits 0', async () => {
+    const result = await grep.execute(logsEnv(), ['sshd', '/var/log/auth.log'], DASH_C);
+
+    expect(result).toEqual({ kind: 'sync', lines: [{ kind: 'text', content: '2' }], exitCode: 0 });
+  });
+
+  it('prints 0 and exits 1 when nothing in the file matches', async () => {
+    const result = await grep.execute(logsEnv(), ['sshd', '/var/log/kern.log'], DASH_C);
+
+    expect(result).toEqual({ kind: 'sync', lines: [{ kind: 'text', content: '0' }], exitCode: 1 });
+  });
+
+  it('counts the matching lines of piped input', async () => {
+    const env = mockCommandEnv({ stdin: stdinOf(['sshd one', 'cron', 'sshd two', 'sshd three']) });
+
+    const result = await grep.execute(env, ['sshd'], DASH_C);
+
+    expect(result).toEqual({ kind: 'sync', lines: [{ kind: 'text', content: '3' }], exitCode: 0 });
+  });
+
+  it('prints <filepath>:<count> for every file in a directory, including the ones with none', async () => {
+    const result = await grep.execute(logsEnv(), ['sshd', '/var/log'], DASH_C);
+
+    expect(result.kind).toBe('sync');
+    if (result.kind !== 'sync') return;
+    expect(result.exitCode).toBe(0);
+    expect(textLines(result)).toEqual(['/var/log/auth.log:2', '/var/log/kern.log:0']);
+  });
+
+  it('exits 1 when no file in the directory has a match', async () => {
+    const result = await grep.execute(logsEnv(), ['zzz', '/var/log'], DASH_C);
+
+    expect(result.kind).toBe('sync');
+    if (result.kind !== 'sync') return;
+    expect(result.exitCode).toBe(1);
+    expect(textLines(result)).toEqual(['/var/log/auth.log:0', '/var/log/kern.log:0']);
+  });
+
+  it('lets -l win over -c, as GNU grep does', async () => {
+    const bothFlags = new Map<string, string | true>([
+      ['-c', true],
+      ['-l', true],
+    ]);
+
+    const result = await grep.execute(logsEnv(), ['sshd', '/var/log/auth.log'], bothFlags);
+
+    expect(result.kind).toBe('sync');
+    if (result.kind !== 'sync') return;
+    expect(textLines(result)).toEqual(['/var/log/auth.log']);
   });
 });
