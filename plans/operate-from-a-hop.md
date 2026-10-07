@@ -721,3 +721,48 @@ remote shell with the home card off, travels from that shell's box — so a tool
 it fails. **To confirm at acceptance**: `ping`, `dig`/`nslookup` (non-axfr) and `apt` make no
 server call, so for them "carries the shell's box" can only mean "answers from the hop's network",
 not "sends `callerMachineId`".
+
+**Measured at acceptance (2026-10-07)**: "the traces already key by the session's network" is only
+half true. The row key is right, but on a box nobody owns `traceProvenance` names the address the
+client reports, and both callers still send the home card's lease (`sourceIp: localAddress()` in
+`ui/state.ts`, for the dpkg rollback and the ftp transfer). From a hop with the card off the line
+says `unknown`; from a foreign hop with it on, it names the home LAN lease, a false origin; and
+the ftp transfer line disagrees with the ftp login line 9a made server-derived. Decision 7 is not
+true until both are placed by the server, so 9c fixes both.
+
+Agreed acceptance (owner, 2026-10-07):
+
+1. **`apt` is online when the shell's box is on a network** (`vantageOf(...) !== null`), not when
+   the home card is up: on a hop with the home card off, `list`, `list -u`, `install` and
+   `upgrade` all work. At home with the card off the existing offline refusal stands. Root is
+   still checked before the network.
+2. **`apt` acts on the hop's box**: `install`/`upgrade` write the hop's `/usr/bin` and
+   `dpkg/status`, and `list -u` reads the hop's manifest (already so; a test proves it).
+3. **The rollback line is placed by the server.** `dpkg.log` on box X names the address X sees
+   the shell beneath at: the hop's LAN address when it stands on X's segment; its address on X's
+   deeper segment when it reaches that segment through a gateway (`segmentsReachedFrom`, as the
+   doors use); the public address of the hop's network when X is off that network. `source_ip` is
+   neither sent nor read; a caller box with no session behind it is 403 `no_session`. From the
+   base shell on your own workstation nothing changes.
+4. **The ftp transfer line uses the same rule.** The caller is the shell's box (the `ftp>` prompt
+   is never a vantage, 4b), so the transfer line names the same address as the ftp login line on
+   that box.
+5. **The rule is the same whoever owns X; ownership decides only the row.** A player-owned box
+   today always gets the public address of the caller's network, even from a fellow occupant on
+   its LAN, so its `dpkg.log` would disagree with its `auth.log` login line. It moves onto the
+   same placement.
+6. **The Done-when 4 test enumerates every `network`-category command.** Each is either in the
+   hop table — the 18 IP tools in decision 2, each run in a remote shell with the home card off:
+   a tool that calls the server sends the shell's box as `callerMachineId`; one that makes no
+   server call (`ping`, non-axfr `dig`/`nslookup`, `apt`) gives a result only the hop's network
+   can — or in a named "not an IP tool" list with its reason: `daemon`, `kill`, `ps`, `systemctl`
+   act on the box itself; `ifconfig` is the readout (decision 9); `whois` is vantage-free
+   (decision 2). A command added later that is in neither list fails. The radio tools are the
+   `wifi` category and stay out by design.
+7. **`man apt` says "the network you are on"**, not "a network connection".
+8. **Wire-checks**: `scripts/testAptDowngradeTrace.ts` and `scripts/testFtpTransferTrace.ts`
+   move to server placement — a LAN hop, a deep segment, a foreign hop naming the public address,
+   `no_session`, and a client `source_ip` shown to be ignored. `scripts/testRemoteAptInstall.ts`
+   is rerun unchanged.
+9. **Out of scope**: the close-out (handbook ch. 7, `cross-player-architecture.md` §8, the two §9
+   backlog items, retiring this file) — a `docs(v2):` commit after this PR, as planned above.
