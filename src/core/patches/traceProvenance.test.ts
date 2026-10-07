@@ -199,6 +199,20 @@ describe('a trace on a box somebody owns', () => {
     });
   });
 
+  it('names an unknown client on the target’s own LAN when the neighbour has no readable lease', async () => {
+    const { deps } = makeDeps({
+      findActiveSession: async () => ({ data: activeSession({ essid: BOX_ESSID }), error: null }),
+      findWorkstationLease: async () => ({ data: null, error: null }),
+    });
+
+    const provenance = await resolveTraceProvenance(deps, visit({ callerMachineId: PIVOT_MACHINE }));
+
+    // A neighbour on the target's own LAN whose lease the network cannot place: the trace
+    // still writes — the client named unknown rather than left blank, which reads as a
+    // corrupt log — and never a public address, since they never crossed a NAT.
+    expect(provenance).toEqual({ ok: true, writerKey: OWNER_KEY, fromIp: 'unknown' });
+  });
+
   it('names the visitor’s own public address when they reach out from home', async () => {
     const { deps, findHomeVantage, findPublicIpByEssid } = makeDeps();
 
