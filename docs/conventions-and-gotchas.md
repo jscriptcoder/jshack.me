@@ -641,8 +641,8 @@ To pick up the next work: there is no active epic. **The owner has postponed the
    no `-n`; `~` has no `~user` form and no tab completion.
 4. **Next:** give a player's own box an attack surface, so two players can go after each other's
    machines: workstation daemons (mysqld/redis, §9 "Game-design / content ideas"), and later the
-   CVE arc. Grilled 2026-10-07: decisions in `plans/workstation-attack-surface.md`, slices not
-   yet planned.
+   CVE arc. Grilled and planned 2026-10-07 in `plans/workstation-attack-surface.md` (two
+   slices); next: slice 1.
 5. Defender-side items: hidden `auth.log` lines on a shared deep box, the `echo x > rules.v4` wipe,
    player-driven service patching (all §9). In-game tutorials matter once others playtest.
 
