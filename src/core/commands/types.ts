@@ -1670,6 +1670,10 @@ export type Command = {
    *  (`nmap -sV`) keep them unambiguous. Stack members must all be
    *  `'boolean'`-typed. Literal-match wins over expansion. */
   readonly stacking?: boolean;
+  /** The string flag a bare number binds to, for the commands that still take
+   *  the old count-as-flag spelling: `'-n'` makes `tail -5` read as
+   *  `tail -n 5`. Absent, `-5` is an unknown option. */
+  readonly bareNumberFlag?: string;
   /** What this command says when the shell has no terminal behind it — a
    *  session reached through a planted listener rather than a login. Present
    *  means it needs one; absent means it runs anywhere.

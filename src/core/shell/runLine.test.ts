@@ -1475,6 +1475,19 @@ describe('the text readers at the prompt', () => {
     expect(await run('grep alice notes.txt | wc -l')).toEqual(printedText('1'));
   });
 
+  it('counts matching lines with grep -c', async () => {
+    expect(await run('grep -c o notes.txt')).toEqual(printedText('2'));
+  });
+
+  it.each([
+    ['tail -1 notes.txt', 'from alice'],
+    ['head -1 notes.txt', 'hello world'],
+    ['tail -n1 notes.txt', 'from alice'],
+    ['cat notes.txt | head -n1', 'hello world'],
+  ])('takes the line count the short way people type it: %s', async (line, printed) => {
+    expect(await run(line)).toEqual(printedText(printed));
+  });
+
   it('counts a file the same whether it is named or piped', async () => {
     expect(await run('wc notes.txt')).toEqual(printedText('2 4 notes.txt'));
     expect(await run('cat notes.txt | wc')).toEqual(printedText('2 4'));
@@ -1494,8 +1507,7 @@ describe('the text readers at the prompt', () => {
 
   it.each([
     ['tail -f notes.txt', 'tail: unrecognized option: -f'],
-    ['tail -5 notes.txt', 'tail: unrecognized option: -5'],
-    ['head -n5 notes.txt', 'head: unrecognized option: -n5'],
+    ['grep -5 alice notes.txt', 'grep: unrecognized option: -5'],
     ['wc -c notes.txt', 'wc: unrecognized option: -c'],
   ])('refuses %s as an option it does not have', async (line, error) => {
     expect(await run(line)).toEqual({

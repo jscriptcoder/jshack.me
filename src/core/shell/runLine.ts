@@ -221,7 +221,10 @@ const prepareStage = (
   if (!resolved.ok) return resolved;
   const { command } = resolved;
 
-  const bound = bindFlags(stage.args, command.flags ?? {}, { stacking: command.stacking ?? false });
+  const bound = bindFlags(stage.args, command.flags ?? {}, {
+    stacking: command.stacking ?? false,
+    ...(command.bareNumberFlag === undefined ? {} : { bareNumberFlag: command.bareNumberFlag }),
+  });
   if (!bound.ok) {
     return { ok: false, error: syncError(`${command.name}: ${bound.error}`, 2) };
   }
