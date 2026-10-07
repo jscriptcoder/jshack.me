@@ -3595,6 +3595,16 @@ blocks the live PvP loop; each was a scoped owner decision, not a gap.
   - **`reboot`'s `kern.log` line sources the actor's HOME public IP** (`resolveCrossPlayerSourceIp`)
     and names the box by its machine-id part (`ap-gw`, not the generated hostname). `reboot` is
     box-local, untouched by the epic; the hostname part is the known cosmetic mismatch.
+  Two more, found while checking the cross-tab fix in two real tabs (2026-10-07):
+  - **Each tab keeps its own scan list.** `nmcli connect <ESSID>` refuses with `network "<ESSID>"
+    not found` in a tab that never ran `airodump-ng`, even when another tab scanned it moments ago —
+    the scan roll lives in that tab's memory, not on the card. Following a connection does not
+    need the list, so only a fresh connect in a fresh tab bites.
+  - **A followed connect leaves the tab's monitor mode on.** A tab in monitor mode that follows
+    another tab's connect ends up both associated and in monitor — the state `airmon-ng` (refuses
+    while connected) and `nmcli` (refuses in monitor) otherwise keep apart. A real card cannot be
+    both; following a connect could switch monitor off. Reasoned from `followConnection`, not
+    staged live (the scan-list item above blocked the second tab's connect).
 - **Replay/nonce store** — built (#294, with a 7.2.0b retrofit + lazy prune) then REVERTED on the
   owner's call (ship-first): narrow value in this threat model (TLS wire + the adversary is the
   player's own key-holding client → an authorized player just re-signs with a fresh nonce, so it
