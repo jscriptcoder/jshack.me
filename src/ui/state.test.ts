@@ -14,6 +14,7 @@ import {
   readOpenPorts,
 } from '../core/services/pidfile.js';
 import { BOOT_ID_OWNER, BOOT_ID_PATH, BOOT_ID_PERMISSIONS } from '../core/boot/bootId.js';
+import { FIRST_BOOT_MARKER } from '../core/boot/firstBoot.js';
 import { applyPatches, type Patch } from '../core/filesystem/applyPatches.js';
 import { defaultFilePermissions } from '../core/filesystem/defaultPermissions.js';
 import { SERVICE_CATALOG } from '../core/services/serviceCatalog.js';
@@ -581,6 +582,83 @@ describe('resolveBootCheck', () => {
     const state = await import('./state.js');
 
     await expect(state.resolveBootCheck()).resolves.toEqual({ ok: true });
+  });
+
+  /** A server that keeps the box's journal: every accepted write is a row a later read
+   *  hands back, the way the real one replays it. `readable: false` answers every read
+   *  with a server error. */
+  const startWithServer = async (options: {
+    readonly journal: readonly Record<string, unknown>[];
+    readonly readable: boolean;
+  }) => {
+    vi.resetModules();
+    const store = new Map<string, string>();
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => store.set(key, value),
+      removeItem: (key: string) => store.delete(key),
+    });
+    const rows = [...options.journal];
+    const writes: Record<string, unknown>[] = [];
+    const json = (body: unknown) => ({ ok: true, status: 200, json: async () => body });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: { body?: string }) => {
+        const fields = JSON.parse(JSON.parse(init?.body ?? '{}').payload) as Record<
+          string,
+          unknown
+        >;
+        if (fields.action === 'upsertPatch') {
+          writes.push(fields);
+          rows.push(fields);
+          return json({});
+        }
+        if (fields.action === 'listPatches') {
+          return options.readable
+            ? json({ patches: rows })
+            : { ok: false, status: 500, json: async () => ({}) };
+        }
+        return json({ sessions: [] });
+      }),
+    );
+    const state = await import('./state.js');
+    state.startGame({ machineName: 'box', username: 'tester', rootPassword: 'pw' });
+    return { state, writes };
+  };
+
+  /** What `ls /var/run` shows the player: the pidfiles of whatever their box runs. */
+  const listRunning = async (state: typeof import('./state.js')) => {
+    state.setInput('ls /var/run');
+    await state.runInput();
+    return state
+      .scrollback()
+      .map((line) => line.content)
+      .join('\n');
+  };
+
+  it('brings a new box up already running its starting services', async () => {
+    const { state } = await startWithServer({ journal: [], readable: true });
+
+    await expect(state.resolveBootCheck()).resolves.toEqual({ ok: true });
+
+    expect(await listRunning(state)).toContain('.pid');
+  });
+
+  it('writes nothing to a box that has already had its first boot', async () => {
+    const born = { path: FIRST_BOOT_MARKER, content: 'done', owner: 'root' };
+    const { state, writes } = await startWithServer({ journal: [born], readable: true });
+
+    await state.resolveBootCheck();
+
+    expect(writes).toEqual([]);
+  });
+
+  it('writes nothing when the journal cannot be read, and still boots', async () => {
+    const { state, writes } = await startWithServer({ journal: [], readable: false });
+
+    await expect(state.resolveBootCheck()).resolves.toEqual({ ok: true });
+
+    expect(writes).toEqual([]);
   });
 });
 

@@ -19,7 +19,13 @@
  */
 
 import { createSignal } from 'solid-js';
-import { asAbsPath, type AbsPath, type MachineId, type UserType } from '../core/types.js';
+import {
+  asAbsPath,
+  asEpochMs,
+  type AbsPath,
+  type MachineId,
+  type UserType,
+} from '../core/types.js';
 import type {
   PublicAuthParams,
   Identity,
@@ -84,6 +90,7 @@ import type { GameConfig } from '../core/gameConfig/gameConfig.js';
 import type { Directory } from '../core/filesystem/types.js';
 import { applyPatches, type Patch } from '../core/filesystem/applyPatches.js';
 import { canBoot, type BootCheck } from '../core/boot/bootFiles.js';
+import { runFirstBoot } from '../core/boot/firstBoot.js';
 import { readBootId } from '../core/boot/bootId.js';
 import { isCrossPlayerHop, needsFreshTree, resolveActiveRoot } from './activeRoot.js';
 import { isCrossPlayerWorkstation } from '../core/network/crossPlayerHop.js';
@@ -1569,18 +1576,39 @@ export const followLink = async (url: string): Promise<FollowOutcome> => {
  *  session — "the box you're sitting at is always your workstation", never the
  *  remote you may be ssh'd into. Degrades to bootable before `startGame` wires
  *  identity/config (the boot gate guarantees that never happens in practice) and
- *  on any fetch failure (`fetchOwnPatches` returns []), so a transient error
- *  never bricks a healthy box — only a real tombstone in the journal does. */
+ *  on any fetch failure, so a transient error never bricks a healthy box — only a
+ *  real tombstone in the journal does.
+ *
+ *  A box that has never booted gets its starting services here first (`runFirstBoot`),
+ *  so the terminal comes up on a box already running them. */
 export const resolveBootCheck = async (): Promise<BootCheck> => {
   const base = sessionStack()[0];
   if (base === undefined || identity === undefined || config === undefined) return { ok: true };
-  const ownPatches = await fetchOwnPatches({
+  const ownBox: PatchClientDeps = {
     identity,
     machineId: base.machineId,
     owner: base.username,
     tier: base.userType,
+  };
+  const seeded = seedFs(config, identity);
+  await runFirstBoot({
+    identity,
+    hostname: config.machineName,
+    now: () => asEpochMs(Date.now()),
+    // The boot is the system, not the player: what it lays down belongs to root, as it
+    // does when root runs `apt install` and starts a daemon by hand.
+    patches: createPatchApi({ ...ownBox, owner: 'root', tier: 'root' }),
+    readTree: async () => {
+      const read = await readOwnPatches(ownBox);
+      return read.ok ? applyPatches(seeded, read.patches) : null;
+    },
   });
-  return canBoot(applyPatches(seedFs(config, identity), ownPatches));
+  const read = await readOwnPatches(ownBox);
+  // The terminal comes up on what this read found, so a first boot's services are
+  // there at the first prompt — unless the player already stands on another machine,
+  // whose journal this is not.
+  if (read.ok && patchClientDeps?.machineId === ownBox.machineId) setPatches(read.patches);
+  return canBoot(applyPatches(seeded, read.ok ? read.patches : []));
 };
 
 export type StartGameOptions = {

@@ -1,0 +1,312 @@
+import { describe, expect, it } from 'vitest';
+import {
+  FIRST_BOOT_MARKER,
+  runFirstBoot,
+  startingServices,
+  type FirstBootBox,
+} from './firstBoot.js';
+import { applyPatches, type Patch } from '../filesystem/applyPatches.js';
+import { createFsView } from '../filesystem/fsView.js';
+import {
+  defaultDirectoryPermissions,
+  defaultFilePermissions,
+} from '../filesystem/defaultPermissions.js';
+import type { Directory } from '../filesystem/types.js';
+import { buildWorkstationBaseFs } from '../generation/workstationFs.js';
+import { SYSTEM_LIBRARIES } from '../generation/libraries.js';
+import { md5 } from '../generation/md5.js';
+import { newestReleaseOn } from '../cve/packageTimeline.js';
+import { gameDayAt, WORLD_EPOCH } from '../cve/worldClock.js';
+import { parseDpkgVersions, readDpkgStatus } from '../packages/dpkgStatus.js';
+import {
+  daemonName,
+  formatPidfileContent,
+  pidfilePath,
+  readOpenPorts,
+  readRunningProcesses,
+} from '../services/pidfile.js';
+import { credentialIn } from '../mysql/datadir.js';
+import { storeIn } from '../redis/datadir.js';
+import { asAbsPath, asEpochMs, asPlayerKeyHex, type AbsPath } from '../types.js';
+import type { PatchApi, PatchResult } from '../commands/types.js';
+import { mockIdentity, mockPatchApi } from '../../test/factories/commandEnv.js';
+
+const POOL = ['sshd', 'vsftpd', 'nginx', 'mysqld', 'redis-server'];
+
+/** Enough distinct owners that every count and every pool member shows up, and few
+ *  enough that the suite stays instant. */
+const ownerKeys = (count: number): readonly string[] =>
+  Array.from({ length: count }, (_, index) => index.toString(16).padStart(64, 'a'));
+
+const drawnNames = (ownerKeyHex: string): readonly string[] =>
+  startingServices(ownerKeyHex).map((service) => service.daemon.name);
+
+describe('the services a workstation is born running', () => {
+  it('are one to three distinct daemons from the desktop pool', () => {
+    for (const key of ownerKeys(300)) {
+      const names = drawnNames(key);
+      expect(names.length).toBeGreaterThanOrEqual(1);
+      expect(names.length).toBeLessThanOrEqual(3);
+      expect(new Set(names).size).toBe(names.length);
+      for (const name of names) expect(POOL).toContain(name);
+    }
+  });
+
+  it('draws one, two and three services about equally often', () => {
+    const keys = ownerKeys(600);
+    const share = (count: number): number =>
+      keys.filter((key) => drawnNames(key).length === count).length / keys.length;
+    expect(share(1)).toBeGreaterThan(0.25);
+    expect(share(2)).toBeGreaterThan(0.25);
+    expect(share(3)).toBeGreaterThan(0.25);
+  });
+
+  it('reaches every daemon in the pool', () => {
+    const seen = new Set(ownerKeys(300).flatMap(drawnNames));
+    expect([...seen].sort()).toEqual([...POOL].sort());
+  });
+
+  it('is the same set every time for the same owner', () => {
+    for (const key of ownerKeys(50)) {
+      expect(drawnNames(key)).toEqual(drawnNames(key));
+    }
+  });
+
+  it('installs each daemon from the package that ships it', () => {
+    const packageOf = new Map(
+      ownerKeys(300)
+        .flatMap((key) => startingServices(key))
+        .map((service) => [service.daemon.name, service.packageName]),
+    );
+    expect(Object.fromEntries(packageOf)).toEqual({
+      sshd: 'openssh-server',
+      vsftpd: 'vsftpd',
+      nginx: 'nginx',
+      mysqld: 'mysql',
+      'redis-server': 'redis',
+    });
+  });
+});
+
+const ROOT_PASSWORD = 'hunter2';
+
+/** A day on which no pool package sits inside a patch window, so "born at the newest
+ *  release" and "born with no live hole" are the same claim and both can be checked. */
+const CLEAN_DAY = 100;
+const BIRTH = asEpochMs(WORLD_EPOCH + CLEAN_DAY * 86_400_000);
+
+/** The first owner whose draw satisfies `wanted`, so a test can ask for a box born
+ *  running a particular service rather than hoping a fixed key happens to draw it. */
+const ownerWhose = (wanted: (names: readonly string[]) => boolean): string => {
+  const key = ownerKeys(500).find((candidate) => wanted(drawnNames(candidate)));
+  if (key === undefined) throw new Error('no owner in range draws that');
+  return key;
+};
+
+/** Owners whose draws between them cover the whole pool. */
+const ownersCoveringPool = (): readonly string[] => {
+  const covered = new Set<string>();
+  return ownerKeys(500).filter((key) => {
+    const fresh = drawnNames(key).some((name) => !covered.has(name));
+    for (const name of drawnNames(key)) covered.add(name);
+    return fresh;
+  });
+};
+
+const anyOwner = (): string => ownerWhose(() => true);
+
+type JournalOptions = {
+  readonly ownerKeyHex: string;
+  /** Rows already on the journal before this boot: an existing box's history. */
+  readonly history?: readonly Patch[];
+  /** A write to this path is refused, as a server that went away mid-boot refuses it. */
+  readonly refusing?: AbsPath;
+  /** The journal cannot be read at all. */
+  readonly unreadable?: boolean;
+};
+
+/** A player's workstation whose journal is held in memory: the real generated base
+ *  tree with every accepted write replayed over it, read back the way the boot reads
+ *  the server's copy. */
+const journalBox = (options: JournalOptions) => {
+  const base = buildWorkstationBaseFs(options.ownerKeyHex, {
+    machineName: 'workstation',
+    username: 'alice',
+    rootPassword: ROOT_PASSWORD,
+  });
+  const journal: Patch[] = [...(options.history ?? [])];
+  const accept = (patch: Patch): PatchResult => {
+    if (patch.path === options.refusing) return { ok: false, error: 'network_error' };
+    journal.push(patch);
+    return { ok: true };
+  };
+  const patches: PatchApi = mockPatchApi({
+    write: async (path, content, writeOptions) =>
+      accept({
+        path,
+        content,
+        owner: writeOptions?.owner ?? 'root',
+        permissions: writeOptions?.permissions ?? defaultFilePermissions('root'),
+      }),
+    mkdir: async (path) =>
+      accept({
+        path,
+        content: null,
+        owner: 'root',
+        permissions: defaultDirectoryPermissions('root'),
+        nodeType: 'directory',
+      }),
+  });
+  const tree = (): Directory => applyPatches(base, journal);
+  const box: FirstBootBox = {
+    identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(options.ownerKeyHex) }),
+    hostname: 'workstation',
+    now: () => BIRTH,
+    patches,
+    readTree: async () => (options.unreadable === true ? null : tree()),
+  };
+  return { box, base, tree, journal };
+};
+
+const fileAt = (tree: Directory, path: string) =>
+  createFsView(tree, { userType: 'root' }).stat(asAbsPath(path));
+
+const runningNames = (tree: Directory): readonly string[] =>
+  readRunningProcesses(tree).flatMap((running) =>
+    running.kind === 'service' ? [daemonName(running.spec)] : [],
+  );
+
+describe("a workstation's first boot", () => {
+  it('leaves each drawn service running on its default port, and nothing else', async () => {
+    for (const key of ownersCoveringPool()) {
+      const { box, tree } = journalBox({ ownerKeyHex: key });
+      await runFirstBoot(box);
+      const drawn = startingServices(key);
+      expect([...runningNames(tree())].sort()).toEqual(
+        drawn.map((service) => daemonName(service.daemon.spec)).sort(),
+      );
+      for (const { daemon } of drawn) {
+        expect(fileAt(tree(), pidfilePath(daemon.spec))).toMatchObject({
+          content: formatPidfileContent(daemon.spec, daemon.spec.defaultPort),
+        });
+      }
+    }
+  });
+
+  it('installs each drawn service at the newest release of its birth day', async () => {
+    for (const key of ownersCoveringPool()) {
+      const { box, tree } = journalBox({ ownerKeyHex: key });
+      await runFirstBoot(box);
+      const installed = parseDpkgVersions(readDpkgStatus(tree()));
+      for (const { daemon, packageName } of startingServices(key)) {
+        expect(installed.get(packageName)).toBe(newestReleaseOn(packageName, CLEAN_DAY));
+        const binary =
+          fileAt(tree(), `/usr/sbin/${daemon.name}`) ?? fileAt(tree(), `/sbin/${daemon.name}`);
+        expect(binary?.kind).toBe('file');
+      }
+    }
+  });
+
+  it('is born clean: a scan that day finds every service versioned and with no live hole', async () => {
+    for (const key of ownersCoveringPool()) {
+      const { box, tree } = journalBox({ ownerKeyHex: key });
+      await runFirstBoot(box);
+      const ports = readOpenPorts(tree(), { gameDay: gameDayAt(BIRTH) });
+      expect(ports).toHaveLength(startingServices(key).length);
+      for (const port of ports) {
+        expect(port.version).toBeDefined();
+        expect(port.cve).toBeUndefined();
+      }
+    }
+  });
+
+  it('locks a born database and store with the root password the player chose', async () => {
+    const key = ownerWhose((names) => names.includes('mysqld') && names.includes('redis-server'));
+    const { box, tree } = journalBox({ ownerKeyHex: key });
+    await runFirstBoot(box);
+    expect(credentialIn(tree(), 'root')?.passwordHash).toBe(md5(ROOT_PASSWORD));
+    expect(storeIn(tree())?.requirepassHash).toBe(md5(ROOT_PASSWORD));
+  });
+
+  it('leaves the base system libraries at the release the box shipped with', async () => {
+    for (const key of ownersCoveringPool()) {
+      const { box, base, tree } = journalBox({ ownerKeyHex: key });
+      await runFirstBoot(box);
+      const shipped = parseDpkgVersions(readDpkgStatus(base));
+      const after = parseDpkgVersions(readDpkgStatus(tree()));
+      for (const library of SYSTEM_LIBRARIES) {
+        expect(after.get(library)).toBe(shipped.get(library));
+      }
+    }
+  });
+
+  it('marks the box born last of all, in a file root owns', async () => {
+    const { box, journal } = journalBox({ ownerKeyHex: anyOwner() });
+    await runFirstBoot(box);
+    expect(journal.at(-1)).toMatchObject({ path: FIRST_BOOT_MARKER, owner: 'root' });
+  });
+
+  it('leaves the box unborn when a write is refused, and the next boot finishes it', async () => {
+    const key = ownerWhose((names) => names.length === 3);
+    const lastService = startingServices(key).at(-1);
+    if (lastService === undefined) throw new Error('drew nothing');
+    const failed = journalBox({ ownerKeyHex: key, refusing: pidfilePath(lastService.daemon.spec) });
+    await runFirstBoot(failed.box);
+    expect(fileAt(failed.tree(), FIRST_BOOT_MARKER)).toBeNull();
+    expect(runningNames(failed.tree())).toHaveLength(2);
+
+    const retried = journalBox({ ownerKeyHex: key, history: failed.journal });
+    await runFirstBoot(retried.box);
+    expect(fileAt(retried.tree(), FIRST_BOOT_MARKER)).not.toBeNull();
+    expect(runningNames(retried.tree())).toHaveLength(3);
+  });
+
+  it('writes nothing on a box that was already born', async () => {
+    const key = anyOwner();
+    const first = journalBox({ ownerKeyHex: key });
+    await runFirstBoot(first.box);
+    const again = journalBox({ ownerKeyHex: key, history: first.journal });
+    await runFirstBoot(again.box);
+    expect(again.journal).toHaveLength(first.journal.length);
+  });
+
+  it('keeps a service the owner stopped stopped', async () => {
+    const key = ownerWhose((names) => names.includes('sshd'));
+    const first = journalBox({ ownerKeyHex: key });
+    await runFirstBoot(first.box);
+    const stopped: Patch = { path: '/var/run/sshd.pid', content: null, owner: 'root' };
+    const again = journalBox({ ownerKeyHex: key, history: [...first.journal, stopped] });
+    await runFirstBoot(again.box);
+    expect(runningNames(again.tree())).not.toContain('sshd');
+  });
+
+  it('keeps the port of a service an older box was already running', async () => {
+    const key = ownerWhose((names) => names.includes('sshd'));
+    const sshd = startingServices(key).find((service) => service.daemon.name === 'sshd');
+    if (sshd === undefined) throw new Error('drew no sshd');
+    const { spec } = sshd.daemon;
+    const running: Patch = {
+      path: pidfilePath(spec),
+      content: formatPidfileContent(spec, 2222),
+      owner: 'root',
+    };
+    const { box, tree } = journalBox({ ownerKeyHex: key, history: [running] });
+    await runFirstBoot(box);
+    expect(fileAt(tree(), pidfilePath(spec))).toMatchObject({
+      content: formatPidfileContent(spec, 2222),
+    });
+  });
+
+  it('writes nothing when the journal cannot be read, so a born box is never taken for a new one', async () => {
+    const { box, journal } = journalBox({ ownerKeyHex: anyOwner(), unreadable: true });
+    await runFirstBoot(box);
+    expect(journal).toHaveLength(0);
+  });
+
+  it('writes nothing on a box that cannot boot', async () => {
+    const bricked: Patch = { path: '/boot/vmlinuz', content: null, owner: 'root' };
+    const { box, journal } = journalBox({ ownerKeyHex: anyOwner(), history: [bricked] });
+    await runFirstBoot(box);
+    expect(journal).toEqual([bricked]);
+  });
+});
