@@ -634,9 +634,11 @@ To pick up the next work: there is no active epic. **The owner has postponed the
 3. Small bugs a playtester would hit — ✅ `grep -c` (#619, v0.326.0, which also taught
    `head`/`tail` `-N` and `-nN` and every string flag its attached value: `ssh -p2222`); ✅ `nmap`'s
    5-digit port column and ✅ `snmpd` by name (#620, v0.327.0); ✅ `~` expansion (#621, v0.328.0)
-   and ✅ planted histories the shell refuses (v0.329.0: `plantedHistory.test.ts` runs every pool
-   line and one line per shape of every history the world plants; `grep -i`/`-r`, `ping -c`,
-   `apt update` and `apt -y` supported, the rest reworded — §9 has the record).
+   and ✅ planted histories the shell refuses (#622, v0.329.0: `plantedHistory.test.ts` runs every
+   pool line and one line per shape of every history the world plants; `grep -i`/`-r`, `ping -c`,
+   `apt update` and `apt -y` supported, the rest reworded — §9 has the record). Found while doing
+   it and still open, both small (§9): `grep` takes no stacked flags (`grep -ri`, `grep -rn`) and
+   no `-n`; `~` has no `~user` form and no tab completion.
 4. **Next:** give a player's own box an attack surface, so two players can go after each other's
    machines: workstation daemons (mysqld/redis, §9 "Game-design / content ideas"), and later the
    CVE arc.
@@ -2879,12 +2881,28 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   keeps both (§7). Found building `>>` (v0.277.0); one `stat` and two fields, with a test beside the
   existing appendFile ones in `node.test.ts`.
 
+- **`grep` takes no stacked flags and no `-n`.** Since v0.329.0 (#622) it accepts `-l`, `-c`, `-i`
+  and `-r` one at a time, but it does not opt into `stacking`, so `grep -ri x .` and `grep -rl x .`
+  answer `unrecognized option: -ri`, and `-n` (line numbers, the other flag every admin types:
+  `grep -rn`) does not exist at all. A playtester will type both. The fix is `stacking: true` on
+  `grep` (every flag it has is boolean) plus a real `-n` that prefixes `<line>:` — and
+  `<file>:<line>:` under a directory, as GNU does. No planted history line uses either today, so
+  `plantedHistory.test.ts` would not catch a regression here; the test belongs in `grep.test.ts`
+  through `runCommandLine`. Found while closing the planted-history item (2026-10-07).
+
+- **`~` expands only as `~` and `~/path` (v0.328.0, #621).** Expansion happens in the tokenizer, so
+  every command and redirect target gets it. Still missing: `~user` (another account's home —
+  bash resolves it through `/etc/passwd`, which the box has), tab completion of a `~/…` path
+  (`shell/complete.ts` does not expand before matching), and the `ftp>`, `mysql>` and `redis>`
+  prompts, which never pass through the shell (real `ftp` does not expand `~` either, so that one is
+  probably right as it is).
+
 - **CLOSED v0.326.0 (#619) — `grep -c` answered `grep: unrecognized option: -c`.** Parity rather
   than a missing capability (`grep … | wc -l` worked since v0.278.0), but the game planted
   `grep -c sshd /var/log/auth.log` in root's generated `.bash_history`, so it suggested a command it
   refused. Found in world-content slice 3's played run (v0.250.0).
 
-- **CLOSED v0.329.0 — root's planted `.bash_history` held lines the shell refused.**
+- **CLOSED v0.329.0 (#622) — root's planted `.bash_history` held lines the shell refused.**
   `src/core/generation/plantedHistory.test.ts` now runs every line of the five history pools, and
   one real line per distinct shape of every `.bash_history` the world plants (home and deep boxes
   and every gateway, about 3s), through `runCommandLine` with the real registry, and fails on a
