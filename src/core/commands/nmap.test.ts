@@ -527,6 +527,19 @@ describe('nmap — self-host open ports (slice 1)', () => {
     expect(text).toContain('4444/tcp open  unknown');
   });
 
+  it('widens the PORT column for a five-digit port, as real nmap does, so STATE stays apart', async () => {
+    const env = envWithVarRun({
+      'sshd.pid': 'sshd:port=22',
+      'nc-31337.pid': 'nc:port=31337,user=mallory,userType=root',
+    });
+
+    const { text } = await drain(await nmap.execute(env, [SELF_IP], new Map()));
+
+    expect(text).toContain('PORT      STATE SERVICE');
+    expect(text).toContain('22/tcp    open  ssh');
+    expect(text).toContain('31337/tcp open  unknown');
+  });
+
   /** The port the GENERATOR opens on `host` for the service behind `pidfileName`, or
    *  null when it does not run that service. Lets the dispatch tests find a
    *  deterministic remote host that does — or does not — run a given service. */

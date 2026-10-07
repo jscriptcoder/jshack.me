@@ -632,9 +632,9 @@ To pick up the next work: there is no active epic. **The owner has postponed the
    from and the box's real hostname (v0.325.0).
 2. ✅ Wire-check failures (#617, 2026-10-07): every script named in §9 passes alone.
 3. **Next:** small bugs a playtester would hit — ✅ `grep -c` (#619, v0.326.0, which also taught
-   `head`/`tail` `-N` and `-nN` and every string flag its attached value: `ssh -p2222`); still open:
-   `nmap` running a 5-digit port into the STATE column (§9), `snmpd` not runnable by name (§9), and
-   root's planted `.bash_history` lines the shell refuses (`tail -f /var/log/auth.log`, §9).
+   `head`/`tail` `-N` and `-nN` and every string flag its attached value: `ssh -p2222`); ✅ `nmap`'s
+   5-digit port column and ✅ `snmpd` by name (v0.327.0); still open: root's planted
+   `.bash_history` lines the shell refuses (`tail -f /var/log/auth.log`, §9).
 4. Then give a player's own box an attack surface, so two players can go after each other's
    machines: workstation daemons (mysqld/redis, §9 "Game-design / content ideas"), and later the
    CVE arc.
@@ -2920,7 +2920,10 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   discoverable, whether to route Layer-1 role services (at least the `dns` row) through the same
   placement the deep path uses.
 
-- **`snmpd` is a daemon nobody can run by name.** `apt install snmp` lays it in `/usr/sbin`
+- **CLOSED v0.327.0 — `snmpd` was a daemon nobody could run by name.** It was left out on
+  purpose when the world first ran agents (#465, "an agent a player can install is its own
+  slice"); the slice that installed it (#472) never registered it. `registry.test.ts` now holds
+  every `DAEMONS` key to a registered command. The original note: `apt install snmp` lays it in `/usr/sbin`
   and typing `snmpd` answers `command not found` — the binary is right there. Every other
   daemon in `DAEMONS` is registered as a command; only this one is not, so it is reachable
   through `systemctl start snmpd` alone. Found at X1 slice 2's increment 2, where `named`
@@ -3208,7 +3211,9 @@ blocks the live PvP loop; each was a scoped owner decision, not a gap.
   wire-check written against behavior that is itself in flight has to be re-run after the PR it
   raced, because nothing else will notice. The script's header comment carried the same stale
   claim and moved with it — a comment that states a rule is part of the rule.
-- **`nmap` runs a 5-digit port into the STATE column.** `31337/tcpopen  unknown` — the PORT
+- **CLOSED v0.327.0 — `nmap` ran a 5-digit port into the STATE column.** The PORT column now
+  widens per table the way real nmap's does (9 normally, the widest cell plus a gutter when a
+  5-digit port is in it), so 4-digit tables are unchanged. The original note: `31337/tcpopen  unknown` — the PORT
   column pads for four digits. Cosmetic, but every port in the generated backdoor pool
   (`BACKDOOR_PORTS`) is 4-5 digits, so it shows up routinely now.
 - **CLOSED v0.216.0 + v0.217.0 — an own-LAN `nmap` replayed no journal, so it could not see a
