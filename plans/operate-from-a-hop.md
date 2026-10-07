@@ -658,6 +658,34 @@ the one server change: `handleRecordZoneTransfer` names the caller's HOME public
 **Watch for**: `ping` to a public address is not answered today (its header defers it to a
 cross-player slice) — keep that out of scope unless the owner adds it at acceptance.
 
+Agreed acceptance (owner, 2026-10-07):
+
+1. **All three travel from the shell's box** (`vantageOf(...)`, not `wlan0`): they work from a hop
+   with the home card off; from a foreign hop a home-LAN address does not answer, as for `ssh`
+   (decision 5); off any network the existing "network is unreachable" refusal stands.
+2. **`ping` answers for what the vantage reaches**: the box itself, the generated hosts on every
+   segment it reaches, the deep layer it stands on, and fellow occupants on its LAN — the reach
+   `ssh`/`nmap` already have, so `ping` gains the occupant and deep-layer reach from home too.
+3. **`ping` takes a name**, through `addressForTarget` on the vantage's network (decision 8).
+4. **`ping` to a public address stays unanswered** — out of scope, as above.
+5. **`dig`/`nslookup` resolve on the network the shell stands on** (decision 8): its `.lan` names,
+   its occupants, the world's published domains. The `Server:`/`SERVER:` line names the `.1` of
+   the segment the box stands on, so a deep-layer box names that layer's gateway.
+6. **`dig @<server> axfr` reaches only a name server the vantage reaches.** Today any name server
+   on the network answers, deep layers included even from the top LAN; one the vantage cannot
+   reach is refused like no name server at all.
+7. **The axfr trace is server-derived**: `recordZoneTransfer` takes `caller_machine_id` and places
+   the caller with `resolveCallerVantageOn`. The source is the vantage's address on the network it
+   stands on (the home LAN lease, the hop's LAN address, or its deep-layer address) — no longer
+   the home public address. A network the caller isn't on is 403 `wrong_network`, a box they hold
+   no shell on 403 `no_session`; a client `source_ip` is never read. The line keeps `ap:<essid>`
+   (7a).
+8. **The man pages say "the network you are on".**
+9. **Wire-check**: `scripts/testNamedXfrTrace.ts` reseated onto the caller-placement contract,
+   plus an own-LAN transfer naming the LAN address (not the public one), a transfer from a hop
+   naming the hop's address, and `wrong_network`/`no_session`. `ping`, `nslookup` and an ordinary
+   `dig` make no server call, so they are proven in unit tests.
+
 #### Slice 9c: `apt` runs from a hop, and no IP tool is left at home
 
 `apt list`/`install`/`upgrade` gate on `env.network.isOnline()` — the home card — so on a hop with
