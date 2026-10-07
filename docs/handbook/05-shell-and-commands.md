@@ -115,10 +115,11 @@ The command receives everything it may touch in `env` (chapter 4). It must never
 | Supported                                                                    | Not supported                                                                          |
 | ---------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
 | `"double"` and `'single'` quotes; adjacent segments join (`"x"y'z'` → `xyz`) | `\` escapes                                                                            |
-| `""` as an explicit empty argument                                           | `$VAR`, `~`, globbing (`*`, `?`), command substitution                                 |
+| `""` as an explicit empty argument                                           | `$VAR`, `~user`, globbing (`*`, `?`), command substitution                             |
+| `~` and `~/path` unquoted at a word's start → the home directory             | `"~"`, `a~` and `~"/x"` (each stays a literal `~`)                                     |
 | Pipes `a \| b \| c`                                                          | `;` and `&&` (they become literal words); `\|\|` (a syntax error: an empty pipe stage) |
 | Output redirect `>` and append `>>`, only at the end                         | Input redirect `<`                                                                     |
-| Per-command flags; `--` ends option parsing                                  | `--flag=value` and glued `-pVALUE` forms                                               |
+| Per-command flags; `--` ends option parsing; glued `-p2222`                  | `--flag=value`                                                                         |
 
 `find` does its own glob matching on its argument; that is the command, not the shell. Lines typed at
 `ftp>`, `mysql>` and `redis>` bypass the shell entirely: `ftp>` splits them on whitespace, while

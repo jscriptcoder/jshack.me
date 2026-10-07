@@ -972,6 +972,69 @@ describe('runCommandLine', () => {
   });
 });
 
+describe('a `~` the player types', () => {
+  /** alice standing at `/`, away from her home, so a path only reaches her notes
+   *  if the `~` became `/home/alice`. */
+  const awayFromHome = (overrides: Partial<CommandEnv> = {}): CommandEnv =>
+    mockCommandEnv({
+      fs: mockFsViewFromTree(
+        buildDirectory({
+          home: buildDirectory({
+            alice: buildDirectory(
+              { 'notes.txt': buildFile('hello world\n', { owner: 'alice' }) },
+              { owner: 'alice' },
+            ),
+          }),
+        }),
+        { userType: 'user', cwd: asAbsPath('/') },
+      ),
+      ...overrides,
+    });
+
+  const echoed = async (line: string, env: CommandEnv = awayFromHome()): Promise<string> =>
+    contentOf(expectSync(await runCommandLine(env, line, pipeCommands)).lines);
+
+  it('reads a file under the home directory from anywhere on the box', async () => {
+    const result = expectSync(
+      await runCommandLine(awayFromHome(), 'cat ~/notes.txt', pipeCommands),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(contentOf(result.lines)).toBe('hello world');
+  });
+
+  it('stands for the home directory on its own', async () => {
+    expect(await echoed('echo ~')).toBe('/home/alice');
+  });
+
+  it("is root's home for a root shell", async () => {
+    const root = awayFromHome({ session: mockSession({ username: 'root', userType: 'root' }) });
+
+    expect(await echoed('echo ~ ~/notes', root)).toBe('/root /root/notes');
+  });
+
+  it('keeps a quoted name after the slash, as bash does', async () => {
+    expect(await echoed('echo ~/"my notes"')).toBe('/home/alice/my notes');
+  });
+
+  it('stays a literal `~` when it is quoted', async () => {
+    expect(await echoed(`echo "~" '~/notes' "~/notes"`)).toBe('~ ~/notes ~/notes');
+  });
+
+  it('stays a literal `~` anywhere but the start of a word, or when a name follows it', async () => {
+    expect(await echoed('echo a~ a/~ ~~ ~notes ~"/notes"')).toBe('a~ a/~ ~~ ~notes ~/notes');
+  });
+
+  it('expands in a redirect target too, which is where a note gets appended', async () => {
+    const write = vi.fn<PatchApi['write']>(async () => ({ ok: true }));
+    const env = awayFromHome({ patches: { ...mockPatchApi(), write } });
+
+    await runCommandLine(env, 'echo hi > ~/out.txt', pipeCommands);
+
+    expect(write).toHaveBeenCalledWith(asAbsPath('/home/alice/out.txt'), 'hi', { isNew: true });
+  });
+});
+
 describe('a shell with no terminal behind it', () => {
   const NEEDS_TTY = 'needy: must be run from a terminal';
 

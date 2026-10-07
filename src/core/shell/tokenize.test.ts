@@ -12,6 +12,13 @@ const redirect: Token = { kind: 'redirect' };
 const append: Token = { kind: 'append' };
 
 describe('tokenize', () => {
+  it('leaves a `~` literal when no home is given, as a line for the store is', () => {
+    expect(tokenize('get ~ ~/x')).toEqual({
+      ok: true,
+      tokens: [word('get'), word('~'), word('~/x')],
+    });
+  });
+
   it('returns no tokens for empty input', () => {
     expect(tokenize('')).toEqual({ ok: true, tokens: [] });
   });
