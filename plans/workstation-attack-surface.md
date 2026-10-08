@@ -2,7 +2,9 @@
 
 **Status**: Grilled and planned. Decisions confirmed by the owner 2026-10-07; two slices planned
 and approved the same day (decision 10 refined while planning: a box is born on its first boot).
-Next: slice 1.
+**Slice 1 merged 2026-10-07 (#623, v0.330.0).** Slice 2's acceptance criteria were confirmed by the
+owner 2026-10-08 (below, under Slice 2). Next: slice 2 — cut `feat/boot-screen-services` off
+`main`, RED first.
 Resolves item 4 of the sandbox-hardening order in `docs/conventions-and-gotchas.md` §1 ("give a
 player's own box an attack surface") and the §9 idea "Workstation daemon expansion". Where they
 disagree with this file, this file wins.
@@ -156,7 +158,9 @@ version, and runs the mutation gate once at PR readiness (json reporter, one fil
 `conventions-and-gotchas.md` §4).
 
 The close-out (the two-player browser run, the docs in done-when 6, the memory correction,
-retiring this file) is a `docs(v2):` commit on `main` after slice 2, not a slice.
+retiring this file) is a `docs(v2):` commit on `main` after slice 2, not a slice. Added while
+building slice 1, also for the close-out: a §9 backlog entry for the `apache2` follow-up (decision
+4), and one for the `apt` base-image patch-window quirk (slice 1 as-built).
 
 ### Slice 1: A workstation's first boot leaves it running 1–3 services, born clean
 
@@ -184,16 +188,68 @@ fresh box has joined no network; `installPackageLibraries` restores missing `.so
 not move any library's VERSION (decision 7); `new-game` mints a new identity and so a new machine
 id, which must reprovision.
 
+**As built (merged 2026-10-07, #623, v0.330.0).**
+- `core/boot/firstBoot.ts`: `startingServices(ownerKey)` (the draw, seed `first-boot-<key>`) and
+  `runFirstBoot(box)`. Each drawn package goes through `apt`'s `installNewest` (lifted out of
+  `installPackage`), then `daemon.ts`'s `startDaemon` (lifted out of `bringUp`) on the default
+  port, skipped when the service already runs (an older box keeps its port). The journal is
+  re-read after each service so the next install builds on it. The marker,
+  `FIRST_BOOT_MARKER` = `/var/lib/cloud/instance/boot-finished` (root, `SERVICE_CONFIG_FILE`,
+  content dated with the boot time), is written last through `installExtraFiles`.
+- A born, bricked (`canBoot` fails) or unreadable box writes nothing. A failed install, start or
+  re-read leaves the box unborn for the next boot.
+- `ui/state.ts` `resolveBootCheck`: runs `runFirstBoot` with a root patch API
+  (`owner: 'root', tier: 'root'`), with `readTree` built on `readOwnPatches`, which returns null on
+  a failed read (never `fetchOwnPatches`, whose `[]` would make a born box look new and lay a
+  fresh database over the owner's). Then `refetchPatches()`, then `canBoot`.
+- Proof: `firstBoot.test.ts` (21), boot-check state tests,
+  `scripts/testWorkstationBirth.ts` (4/4 live over five draws covering the whole pool), and a
+  single-player browser run.
+- Found while building: `apt install openssh-server`/`vsftpd` during that package's patch window
+  (no-fix-yet) leaves a base-image box at its start-tuple release, though a newer exposed release
+  exists. That is existing `apt` behavior, out of scope; it goes to the §9 backlog at close-out.
+
 ### Slice 2: The boot screen prints a line for each service that started
 
 **Value**: the owner sees at a glance what their box runs, as a real boot shows it.
-**Path**: `BootScreen.tsx`'s hardcoded `[  OK  ] Started OpenSSH server.` → lines derived from
-the running services on the box the boot check already materialized (after slice 1's
-provisioning). Copy per service in the systemd style (`Started OpenSSH server.`, `Started MySQL
-Community Server.`, …), settled with the owner at the acceptance-criteria step.
+**Path**: `resolveBootCheck` already reads the box after the first boot → it also reports the
+services running on that tree → `BootScreen.tsx` prints one line per service in place of the
+hardcoded `[  OK  ] Started OpenSSH server.`.
 **Decisions**: 8. **Done-when**: 4, the slice-2 half of 5.
-**RED**: a jsdom test (`@solidjs/testing-library`): a box running `mysqld` and `nginx` prints both
-lines, and a box without `sshd` prints no OpenSSH line. No wire-check (no `api/` change);
-browser proof via the `e2e` skill.
-**Watch for**: the line list is static timing data today; the services arrive asynchronously
-with the boot check, so the lines must wait for it without stalling the animation.
+
+**Acceptance criteria (owner-confirmed 2026-10-08):**
+1. On a bootable box, the boot sequence prints one `[  OK  ] Started <description>.` line per
+   service running on the box, where the hardcoded `[  OK  ] Started OpenSSH server.` sits today
+   (after `Started Network Manager.`, before `Found device wlan0`). The copy is the world's own
+   Debian unit descriptions, `SERVICE_UNIT_DESCRIPTIONS` in `core/generation/pools/logLines.ts`,
+   which NPC syslogs already print on boot, so one source of truth:
+   - sshd → `Started OpenBSD Secure Shell server.`
+   - vsftpd → `Started vsftpd FTP server.`
+   - nginx → `Started A high performance web server and a reverse proxy server.`
+   - mysqld → `Started MySQL Community Server.`
+   - redis-server → `Started Advanced key-value store.`
+   - snmpd → `Started Simple Network Management Protocol (SNMP) Daemon.`
+   - named → `Started BIND Domain Name Server.`
+
+   snmpd and named appear only if the owner installed and started them. The shorter
+   `systemctl status` titles (`Started OpenSSH server.`) were offered and not chosen.
+2. **Running means what `ps` reads** (`readRunningProcesses`), taken from the tree after the first
+   boot, so a newborn box prints its starting services. A service the owner stopped prints
+   nothing. A box running nothing prints no service lines, and no OpenSSH line.
+3. **A backdoor listener (`nc -l`) prints no line:** systemd did not start it, and the boot screen
+   must not hint at one.
+4. **The lines come in a fixed order**, the order of the list in 1, so a box boots the same way
+   every time.
+5. **Nothing waits longer.** The success tail already plays only after the boot check resolves,
+   so the services arrive with the check; no extra wait.
+6. **A bricked box is unchanged:** it halts on the panic screen as today.
+7. **Proof:** a jsdom test of `BootScreen` (a box running `mysqld` and `nginx` prints both lines
+   and no OpenSSH line); a state test that `resolveBootCheck` reports the running services; a
+   browser run of a fresh `new-game`. No wire-check (no `api/` change).
+8. A patch-version bump.
+
+**Out of scope:** the in-game `reboot` command (`core/commands/reboot.ts`), which prints a short
+`System rebooted successfully` tail with no unit lines, and stays that way.
+**Shape note:** `BootCheck` (`core/boot/bootFiles.ts`) is shared with `reboot` and the server.
+Prefer widening only what `resolveBootCheck` returns to the boot screen (for example
+`BootCheck & { started }`), rather than changing `canBoot`.
