@@ -115,8 +115,9 @@ internalPort}`; else `none` (router-own wins a same-port tie). It shares `readRu
   forward's `internalIp` to the occupant LEASING that address (the same lease read the same-LAN
   path resolves addresses from, so the two can never disagree about where a box is), fetches that
   box's journal, and hands `core/network/natHosts.ts` the materialized trees. A forward is shown
-  **iff** its own target box is up and serving the internal port (a fresh box has an empty
-  `/var/run` → dark until its owner starts `sshd`), independently of every other occupant's.
+  **iff** its own target box is up and serving the internal port (a forward to a service the box
+  does not run, say `sshd` on a box born without it, stays dark until its owner starts it),
+  independently of every other occupant's.
   Both halves of the match are load-bearing: the LEASE says which address a box answers to,
   OCCUPANCY says the box is still on the WiFi — so a forward naming an unleased address, or one
   whose holder has run `nmcli disconnect`, reaches no player. With no occupant at the address,

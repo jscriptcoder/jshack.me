@@ -377,6 +377,21 @@ submit. Dispatch a native keydown instead:
 i.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }))
 ```
 
+### A player whose box was BORN with the service you need
+
+Verified 2026-10-08 (v0.330.1). Since v0.330.0 a workstation's first boot leaves it running 1–3
+services drawn from its identity (`sshd`, `vsftpd`, `nginx`, `mysqld`, `redis-server`), so B can
+sweep A's box with no setup on A beyond joining WiFi. The run: A on `LINKSYS-8939`, B re-scanned
+until it showed (34 scans), `nmap -sV <A>` listed A's three born services, `hydra <A> ssh` found
+`guest`, `ssh guest@<A>` landed on `guest@alicebox`.
+
+| Trap | What actually works |
+|---|---|
+| A was born without the service the scenario needs | Read A's boot screen: one `[  OK  ] Started …` line per running service (`OpenBSD Secure Shell server` is sshd). Re-mint A (`localStorage.clear()` + reload + NEW GAME) until it shows, about 2 in 5 for sshd — or `su` and start it, which is not the born case |
+| `agent-browser fill "input >> nth=0" …` on the NEW GAME form | Fills nothing, and START answers `Enter a name for your workstation`. Set all four inputs in one `eval` through the native setter (`Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, v)` then an `input` event), and read the values back before START |
+| `ssh: connect to host … Network error` partway through a long run | The `npm run vercel:dev` background task hit the harness's default 30-minute limit and was killed. Start it with the maximum background `timeout` (7200000) for any two-player run; a restart reloads every open page, which reboots both players and drops what was typed |
+| Catching the boot screen's lines | They are gone once the terminal takes over. Poll `get text body` every second for `Reached target Multi-User` and grep `Started` in the same call |
+
 ### Two terminals of ONE player (`xterm`)
 
 Verified 2026-10-07 (v0.324.0) checking that a WiFi change in one tab reaches the other.

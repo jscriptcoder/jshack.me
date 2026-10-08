@@ -639,11 +639,13 @@ To pick up the next work: there is no active epic. **The owner has postponed the
    `apt update` and `apt -y` supported, the rest reworded — §9 has the record). Found while doing
    it and still open, both small (§9): `grep` takes no stacked flags (`grep -ri`, `grep -rn`) and
    no `-n`; `~` has no `~user` form and no tab completion.
-4. **Next:** give a player's own box an attack surface, so two players can go after each other's
-   machines: workstation daemons (mysqld/redis, §9 "Game-design / content ideas"), and later the
-   CVE arc. Grilled and planned 2026-10-07 in `plans/workstation-attack-surface.md` (two
-   slices); slice 1 merged (#623); next: slice 2, its criteria confirmed in the plan.
-5. Defender-side items: hidden `auth.log` lines on a shared deep box, the `echo x > rules.v4` wipe,
+4. ✅ A player's own box has an attack surface (#623, v0.330.0; #624, v0.330.1): a workstation's
+   first boot leaves it running 1–3 services, born clean, and the boot screen prints one line per
+   running service. Browser-verified two-player 2026-10-08: B on A's WiFi scans A's born
+   services and gets a `guest` shell over `sshd`. As built: `vulnerability-architecture.md`
+   "How a workstation is born". Follow-ups in §9: `apache2` back into the pool, the `apt`
+   patch-window quirk, and the reason-to-keep-a-service-running epic.
+5. **Next:** defender-side items: hidden `auth.log` lines on a shared deep box, the `echo x > rules.v4` wipe,
    player-driven service patching (all §9). In-game tutorials matter once others playtest.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
@@ -2898,6 +2900,36 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   prompts, which never pass through the shell (real `ftp` does not expand `~` either, so that one is
   probably right as it is).
 
+- **`apache2` is hollow, so a workstation is never born with it.** The world keeps no release
+  history for it: no manifest row, no version in `nmap -sV`, never a CVE. It also shares nginx's
+  catalog row and pidfile, so `ps` names it `nginx`. A box born with it would carry a door the
+  clock never opens, so the birth pool's web slot is `nginx` only (`core/boot/firstBoot.ts`,
+  `docs/vulnerability-architecture.md` "How a workstation is born"). The follow-up: give `apache2`
+  its own timeline and make the web service know which program is running (for `ps`, `nmap -sV`
+  and `msfconsole`), then return it to the pool 50/50 with `nginx`. Owner-agreed 2026-10-07.
+
+- **`apt install` of a base-image service inside its patch window leaves it at the start tuple.**
+  `openssh-server` and `vsftpd` are base-image packages (`BASE_IMAGE_PACKAGES`), so `apt install`
+  on them is an upgrade. Inside the package's no-fix-yet window the upgrade has nothing safe to
+  move to and stays put, though a newer (exposed) release exists, so the box keeps its start-tuple
+  release rather than the newest one. Found building workstation birth (#623), which shares that
+  path, so a box born inside that window keeps the old release too; existing `apt` behaviour, left
+  alone. Decide
+  whether "no fix yet" should still move a box to the newest release, with a test in
+  `apt.test.ts` beside the upgrade-status ones.
+
+- **`ps` runs a 12-character command into the PORT column.** `COMMAND_COL` in
+  `commands/ps.ts` is 12, and `redis-server` is exactly 12, so the row reads
+  `redis-server6379` with no gap. The same class as `nmap`'s 5-digit port column (#620): pad to
+  the widest command plus one, with a test that asserts the gap. Seen in the workstation-birth
+  browser runs (2026-10-08).
+
+- **`relations.test.ts` times out under the full suite.** "an IT contractor's shortcuts > keeps no
+  shortcut to a client on any other box of the office" takes ~20s alone against the 30s
+  `testTimeout` and exceeds it when the whole suite runs, on `main` as of 2026-10-08 (seen twice
+  in a row, unrelated to the change at hand). Either make the test cheaper (it walks the world)
+  or give it its own timeout with the reason beside it; do not raise the global one.
+
 - **CLOSED v0.326.0 (#619) — `grep -c` answered `grep: unrecognized option: -c`.** Parity rather
   than a missing capability (`grep … | wc -l` worked since v0.278.0), but the game planted
   `grep -c sshd /var/log/auth.log` in root's generated `.bash_history`, so it suggested a command it
@@ -3722,8 +3754,11 @@ blocks the live PvP loop; each was a scoped owner decision, not a gap.
   HTML; CVE pickers constrain INITIAL state only (not post-`apt upgrade`).
 - **Player-hosted websites** — apache2/nginx daemons shipped (legacy); remaining: mutable
   router NAT, findit.io registration/crawl.
-- **Workstation daemon expansion** — when mysqld/redis land on workstations, extending
-  cross-player hydra is ~10 LOC.
+- **A reason to keep a service running (its own epic).** Since v0.330.0 a workstation is born
+  running 1–3 services and the CVE clock opens holes in them; an owner's safest move is to stop
+  them all, and nothing yet pays them not to. Give a running service something to offer (perhaps
+  a special service), so keeping it up is a trade rather than a mistake. Deferred by the owner
+  when the attack-surface epic was grilled (2026-10-07).
 - **Multi-target NAT forwarding** — distribute public-port forwards across multiple
   outer-layer machines.
 - **Mission template vs instance model** — catalog templates + per-acceptance instances;
