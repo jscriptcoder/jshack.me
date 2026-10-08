@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@solidjs/testing-library';
 import { BootScreen } from './BootScreen.js';
-import type { BootCheck } from '../../core/boot/bootFiles.js';
+import type { BootReport } from '../../core/boot/bootFiles.js';
 
 /**
  * The boot screen plays a kernel-boot animation, then — at the kernel-load step —
@@ -12,9 +12,26 @@ import type { BootCheck } from '../../core/boot/bootFiles.js';
  * Driven with fake timers; the async cascade is advanced with the async variant.
  */
 
-const bootable = (): Promise<BootCheck> => Promise.resolve({ ok: true });
-const missingFile = (file: 'vmlinuz' | 'initrd.img') => (): Promise<BootCheck> =>
-  Promise.resolve({ ok: false, missing: file });
+const bootable = (): Promise<BootReport> => Promise.resolve({ ok: true, started: [] });
+const missingFile = (file: 'vmlinuz' | 'initrd.img') => (): Promise<BootReport> =>
+  Promise.resolve({ ok: false, missing: file, started: [] });
+const running =
+  (...started: string[]) =>
+  (): Promise<BootReport> =>
+    Promise.resolve({ ok: true, started });
+
+/** Every line the screen has revealed, in order. */
+const revealedLines = (container: HTMLElement): string[] =>
+  [...container.querySelectorAll('div > div')].map((line) => line.textContent ?? '');
+
+/** The lines systemd prints between bringing the network manager up and finding the
+ *  wireless card, which is where a real boot starts the box's services. */
+const serviceLines = (container: HTMLElement): string[] => {
+  const lines = revealedLines(container);
+  const after = lines.indexOf('[  OK  ] Started Network Manager.');
+  const before = lines.findIndex((line) => line.startsWith('[  OK  ] Found device wlan0'));
+  return lines.slice(after + 1, before);
+};
 
 describe('BootScreen', () => {
   beforeEach(() => vi.useFakeTimers());
@@ -91,5 +108,64 @@ describe('BootScreen', () => {
     expect(screen.getByText(/System halted\./)).toBeInTheDocument();
     expect(onComplete).not.toHaveBeenCalled();
     expect(screen.queryByText(/skylab login:/)).not.toBeInTheDocument();
+  });
+
+  it('starts each service the box runs, and no service it does not', async () => {
+    const { container } = render(() => (
+      <BootScreen
+        machineName="skylab"
+        username="neo"
+        resolveBoot={running('mysql', 'http')}
+        onComplete={vi.fn()}
+      />
+    ));
+
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    expect(serviceLines(container)).toEqual([
+      '[  OK  ] Started A high performance web server and a reverse proxy server.',
+      '[  OK  ] Started MySQL Community Server.',
+    ]);
+    expect(screen.queryByText(/Secure Shell|OpenSSH/)).not.toBeInTheDocument();
+  });
+
+  it('starts the services in the same order however the box lists them', async () => {
+    const { container } = render(() => (
+      <BootScreen
+        machineName="skylab"
+        username="neo"
+        resolveBoot={running('domain', 'redis', 'http', 'snmp', 'ssh', 'mysql', 'ftp')}
+        onComplete={vi.fn()}
+      />
+    ));
+
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    expect(serviceLines(container)).toEqual([
+      '[  OK  ] Started OpenBSD Secure Shell server.',
+      '[  OK  ] Started vsftpd FTP server.',
+      '[  OK  ] Started A high performance web server and a reverse proxy server.',
+      '[  OK  ] Started MySQL Community Server.',
+      '[  OK  ] Started Advanced key-value store.',
+      '[  OK  ] Started Simple Network Management Protocol (SNMP) Daemon.',
+      '[  OK  ] Started BIND Domain Name Server.',
+    ]);
+  });
+
+  it('starts no service on a box that runs none, and still hands off', async () => {
+    const onComplete = vi.fn();
+    const { container } = render(() => (
+      <BootScreen
+        machineName="skylab"
+        username="neo"
+        resolveBoot={bootable}
+        onComplete={onComplete}
+      />
+    ));
+
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    expect(serviceLines(container)).toEqual([]);
+    expect(onComplete).toHaveBeenCalledTimes(1);
   });
 });

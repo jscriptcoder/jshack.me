@@ -11,7 +11,10 @@ import {
   daemonName,
   formatListenerContent,
   formatPidfileContent,
+  listenerPidfilePath,
+  pidfilePath,
   readOpenPorts,
+  serviceByPidfileName,
 } from '../core/services/pidfile.js';
 import { BOOT_ID_OWNER, BOOT_ID_PATH, BOOT_ID_PERMISSIONS } from '../core/boot/bootId.js';
 import { FIRST_BOOT_MARKER } from '../core/boot/firstBoot.js';
@@ -566,13 +569,17 @@ describe('resolveBootCheck', () => {
   it('reports the box bootable when the journal has no boot-file tombstone', async () => {
     const state = await startWithJournal([]);
 
-    await expect(state.resolveBootCheck()).resolves.toEqual({ ok: true });
+    await expect(state.resolveBootCheck()).resolves.toEqual({ ok: true, started: [] });
   });
 
   it('reports the box bricked when the shared journal tombstones /boot/vmlinuz', async () => {
     const state = await startWithJournal([{ path: '/boot/vmlinuz', content: null, owner: 'root' }]);
 
-    await expect(state.resolveBootCheck()).resolves.toEqual({ ok: false, missing: 'vmlinuz' });
+    await expect(state.resolveBootCheck()).resolves.toEqual({
+      ok: false,
+      missing: 'vmlinuz',
+      started: [],
+    });
   });
 
   it('degrades to bootable before the game has started (no session/identity/config yet)', async () => {
@@ -581,7 +588,7 @@ describe('resolveBootCheck', () => {
     vi.resetModules();
     const state = await import('./state.js');
 
-    await expect(state.resolveBootCheck()).resolves.toEqual({ ok: true });
+    await expect(state.resolveBootCheck()).resolves.toEqual({ ok: true, started: [] });
   });
 
   /** A server that keeps the box's journal: every accepted write is a row a later read
@@ -641,13 +648,46 @@ describe('resolveBootCheck', () => {
   it('brings a new box up already running its starting services, started by root', async () => {
     const { state } = await startWithServer({ journal: [], readable: true });
 
-    await expect(state.resolveBootCheck()).resolves.toEqual({ ok: true });
+    const report = await state.resolveBootCheck();
 
     const running = (await outputOf(state, 'ls -l /var/run'))
       .split('\n')
       .filter((line) => line.includes('.pid'));
     expect(running.length).toBeGreaterThan(0);
     for (const line of running) expect(line).toContain(' root ');
+    // The boot screen is told about exactly the services the box came up running.
+    const listed = running.map(
+      (line) => serviceByPidfileName(line.slice(line.lastIndexOf(' ') + 1))?.service,
+    );
+    expect(report.ok).toBe(true);
+    expect(new Set(report.started)).toEqual(new Set(listed));
+  });
+
+  it('reports the services the box runs, and not a listener somebody left on it', async () => {
+    const journal = [
+      { path: FIRST_BOOT_MARKER, content: 'done', owner: 'root' },
+      {
+        path: pidfilePath(SERVICE_CATALOG.mysql),
+        content: formatPidfileContent(SERVICE_CATALOG.mysql, 3306),
+        owner: 'root',
+      },
+      {
+        path: pidfilePath(SERVICE_CATALOG.http),
+        content: formatPidfileContent(SERVICE_CATALOG.http, 80),
+        owner: 'root',
+      },
+      {
+        path: listenerPidfilePath(4444),
+        content: formatListenerContent({ port: 4444, user: 'mallory', userType: 'root' }),
+        owner: 'root',
+      },
+    ];
+    const { state } = await startWithServer({ journal, readable: true });
+
+    const report = await state.resolveBootCheck();
+
+    expect(report.ok).toBe(true);
+    expect(new Set(report.started)).toEqual(new Set(['mysql', 'http']));
   });
 
   it('dates the birth with the moment the box first booted', async () => {
@@ -676,7 +716,7 @@ describe('resolveBootCheck', () => {
   it('writes nothing when the journal cannot be read, and still boots', async () => {
     const { state, writes } = await startWithServer({ journal: [], readable: false });
 
-    await expect(state.resolveBootCheck()).resolves.toEqual({ ok: true });
+    await expect(state.resolveBootCheck()).resolves.toEqual({ ok: true, started: [] });
 
     expect(writes).toEqual([]);
   });

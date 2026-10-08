@@ -16,16 +16,18 @@
  */
 
 import { createSignal, For, onCleanup, onMount } from 'solid-js';
-import type { BootCheck, BootFile } from '../../core/boot/bootFiles.js';
+import type { BootFile, BootReport } from '../../core/boot/bootFiles.js';
 import { BOOT_FAILURE } from '../../core/boot/bootMessages.js';
+import { SERVICE_UNIT_DESCRIPTIONS } from '../../core/generation/pools/logLines.js';
 
 export type BootScreenProps = {
   readonly machineName: string;
   readonly username: string;
   /** Resolve whether THIS machine can boot — the own-box FS (base + replayed
-   *  journal) checked by `canBoot`. Started at mount so the fetch overlaps the
-   *  animation; consulted once the early sequence has played. */
-  readonly resolveBoot: () => Promise<BootCheck>;
+   *  journal) checked by `canBoot` — and which services it starts. Started at
+   *  mount so the fetch overlaps the animation; consulted once the early sequence
+   *  has played. */
+  readonly resolveBoot: () => Promise<BootReport>;
   /** Called once when the boot succeeds and hands off to the terminal. A bricked
    *  box (a missing boot file) never calls this — it halts on the panic screen. */
   readonly onComplete: () => void;
@@ -47,9 +49,32 @@ const EARLY_SEQUENCE: readonly BootLine[] = [
   { text: '', delay: 100 },
 ];
 
+/** The order systemd starts the services in. Fixed, so a box boots the same way
+ *  every time whatever order its pidfiles were written in. */
+const SERVICE_START_ORDER: readonly string[] = [
+  'ssh',
+  'ftp',
+  'http',
+  'mysql',
+  'redis',
+  'snmp',
+  'domain',
+];
+
+/** One unit line per service the box runs, in start order. */
+const serviceLines = (started: readonly string[]): readonly BootLine[] =>
+  SERVICE_START_ORDER.filter((service) => started.includes(service)).map((service) => ({
+    text: `[  OK  ] Started ${SERVICE_UNIT_DESCRIPTIONS[service]}.`,
+    delay: 80,
+  }));
+
 /** The successful boot tail: kernel + initrd load, kernel log, systemd units,
  *  then the auto-login line. Played only when both boot files are present. */
-const successTail = (machineName: string, username: string): readonly BootLine[] => [
+const successTail = (
+  machineName: string,
+  username: string,
+  started: readonly string[],
+): readonly BootLine[] => [
   { text: 'Loading Linux 5.15.0-91-generic ...', delay: 300, color: 'var(--theme-text)' },
   { text: 'Loading initial ramdisk ...', delay: 250, color: 'var(--theme-text)' },
   { text: '', delay: 100 },
@@ -76,7 +101,7 @@ const successTail = (machineName: string, username: string): readonly BootLine[]
   { text: '[  OK  ] Reached target Local File Systems.', delay: 60 },
   { text: '[  OK  ] Started Login Service.', delay: 80 },
   { text: '[  OK  ] Started Network Manager.', delay: 100 },
-  { text: '[  OK  ] Started OpenSSH server.', delay: 80 },
+  ...serviceLines(started),
   { text: '[  OK  ] Found device wlan0 — Wireless Network Interface.', delay: 100 },
   { text: '[  OK  ] Reached target Network.', delay: 80 },
   { text: '[  OK  ] Reached target Multi-User System.', delay: 100 },
@@ -153,7 +178,7 @@ export const BootScreen = (props: BootScreenProps) => {
         return; // bricked — halt, never hand off to the terminal.
       }
 
-      if (!(await play(successTail(props.machineName, props.username)))) return;
+      if (!(await play(successTail(props.machineName, props.username, result.started)))) return;
       await wait(HANDOFF_DELAY_MS);
       if (cancelled) return;
       props.onComplete();

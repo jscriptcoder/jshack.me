@@ -24,6 +24,10 @@ export type BootFile = 'vmlinuz' | 'initrd.img';
 
 export type BootCheck = { readonly ok: true } | { readonly ok: false; readonly missing: BootFile };
 
+/** What the boot screen shows of the player's own box: whether it comes up, and the
+ *  catalog services (`ssh`, `http`, ...) systemd starts on it. */
+export type BootReport = BootCheck & { readonly started: readonly string[] };
+
 /** The files `/boot` must contain to boot, in the order the bootloader needs
  *  them — so a "both gone" check reports the kernel first. */
 const REQUIRED_BOOT_FILES: readonly BootFile[] = ['vmlinuz', 'initrd.img'];
