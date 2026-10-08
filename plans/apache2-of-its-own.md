@@ -1,7 +1,7 @@
 # Plan: apache2 of its own
 
 **Status**: Grilled and planned 2026-10-08. Slices 1–2 built (v0.331.0 #625, v0.332.0 #626).
-Next: slice 3 (to be planned in detail, then acceptance criteria to confirm before RED).
+Next: slice 3 (planned, acceptance criteria confirmed).
 Resolves the §9 follow-up "`apache2` is hollow, so a workstation is never born with it" in
 `docs/conventions-and-gotchas.md` (owner-agreed 2026-10-07), widened by the owner to the
 generated world. Where they disagree with this file, this file wins.
@@ -203,3 +203,44 @@ one until slice 4, which fixes it there with its test. The many `scripts/testExp
 `spec.package` target generated nginx boxes and stay right. The pool drops `file_write` entirely;
 the owner took it over the alternative that keeps it (`shell_full`, `file_read` ×2, `file_write`,
 `script_exec` ×2, backdoor), which leans only to script execution.
+
+### Slice 3: a workstation born with a web server runs nginx or apache2, 50/50
+
+**Value**: a new player's box that is born with a web server runs nginx or apache2 with even odds,
+and every tool that looks at it (`ps`, `systemctl`, the boot screen, `nmap -sV`, `curl -i`, the
+exploit trace) already tells which, from slices 1–2. The draw is the only new behavior.
+**Path**: `boot/firstBoot.ts` `startingServices` draws the web slot's program → `runFirstBoot`
+installs it through `installNewest` and starts it through `startDaemon`, as any pool service.
+**Shape to propose first** (the collapsed version):
+- The pool keeps five slots; the web slot holds two programs (nginx, apache2). After `pickN` picks
+  which slots a box gets, each slot picks its program. Every owner gets the same slots as before,
+  so the odds of a born web server cannot move and a draw can never hold both.
+- The "already started?" check reads whether ANY program of the service is up — `runningPort` in
+  `commands/daemon.ts`, the one answer `systemctl` and the start gate already share — instead of
+  the default pidfile. Reading only the drawn program's pidfile would still start apache2 beside an
+  nginx the owner runs on an unborn box. Reading the default one, as today, also rewrites a running
+  apache2's pidfile at the default port on a retry, losing the owner's port.
+**Acceptance criteria (owner-confirmed 2026-10-08)**:
+1. A workstation whose draw includes the web slot is born running exactly one web server, nginx or
+   apache2, never both; across the sampled owners each is drawn 35–65% of the time.
+2. The odds of being born with a web server are unchanged: the web slot is drawn about as often as
+   each other service (each slot in 30–50% of draws, expected ~40%), so apache2 sneaking in as a
+   sixth slot fails.
+3. A box born with apache2 has it as `apt install apache2` lays it down that day: `/usr/sbin/apache2`,
+   an `apache2` row in `/var/lib/dpkg/status` at that day's newest release, and
+   `/var/run/apache2.pid` on port 80; no nginx pidfile and no nginx package.
+4. A box born with apache2 scans clean that day: `Apache/<version>` with no live hole (test day 100
+   is measured clean for apache2, `3.0.4`, as for the other five).
+5. An unborn box already running apache2 on a port its owner chose finishes its birth on the next
+   boot, its pidfile and port untouched.
+6. An unborn box already running nginx when apache2 is drawn is born without a second web server:
+   nginx stays on its port and no apache2 pidfile appears; and the reverse.
+7. Nothing else moves: an already-born box is untouched, the 1/2/3 service counts hold, and
+   generated (NPC) boxes are still all nginx (slice 4).
+**RED**: `boot/firstBoot.test.ts` for 1–6. Its fixed pool list gains apache2, and the tests that read
+pidfiles by the service's name (`pidfilePath(daemon.spec)`, `daemonName(running.spec)`) move to each
+program's own pidfile, or nginx's checks would pass while apache2 went unchecked. No wire-check:
+first boot runs in the client and writes through the journal like any command, and slice 2's
+wire-check already covers how the server reads a box running apache2.
+**Watch for**: `firstBoot.ts`'s comment explaining why apache2 is never drawn becomes false and is
+rewritten. The existing "keeps the port" test covers sshd only, so the web-slot cases need 5–6.
