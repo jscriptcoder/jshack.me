@@ -25,7 +25,9 @@ export type BootFile = 'vmlinuz' | 'initrd.img';
 export type BootCheck = { readonly ok: true } | { readonly ok: false; readonly missing: BootFile };
 
 /** What the boot screen shows of the player's own box: whether it comes up, and the
- *  catalog services (`ssh`, `http`, ...) systemd starts on it. */
+ *  programs (`sshd`, `apache2`, ...) systemd starts on it. Programs rather than
+ *  services, because the web is one service two programs run, each with its own
+ *  unit line. */
 export type BootReport = BootCheck & { readonly started: readonly string[] };
 
 /** The files `/boot` must contain to boot, in the order the bootloader needs

@@ -124,6 +124,7 @@ describe('fetching one page', () => {
     expect(fetchFrom(tree, `http://${OWN_IP}/index.html`).result).toEqual({
       kind: 'page',
       content: '<h1>mine</h1>',
+      server: 'nginx',
     });
   });
 
@@ -133,6 +134,7 @@ describe('fetching one page', () => {
     expect(fetchFrom(tree, `http://${OWN_IP}/`).result).toEqual({
       kind: 'page',
       content: '<h1>mine</h1>',
+      server: 'nginx',
     });
   });
 

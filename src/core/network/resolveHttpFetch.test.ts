@@ -13,7 +13,11 @@ import { lanAddressFor, type LanLeaseRow } from './lanAddress.js';
 import { materializeWorkstationFs, type OwnerPatchRow } from './materializeWorkstationFs.js';
 import { createFsView } from '../filesystem/fsView.js';
 import { defaultFilePermissions } from '../filesystem/defaultPermissions.js';
-import { formatPidfileContent } from '../services/pidfile.js';
+import {
+  formatPidfileContent,
+  formatProgramPidfileContent,
+  programPidfilePath,
+} from '../services/pidfile.js';
 import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
 import { HTTP_DEFAULT_PORT } from './http.js';
 import { ACCESS_LOG_PATH } from '../logging/accessLog.js';
@@ -115,6 +119,12 @@ const webServerUp = (port = HTTP_DEFAULT_PORT): OwnerPatchRow =>
     path: `/var/run/${SERVICE_CATALOG.http.pidfile}`,
     content: formatPidfileContent(SERVICE_CATALOG.http, port),
   });
+
+/** The occupant started `apache2` instead: the same web service, its own pidfile. */
+const apacheUp = journalRow({
+  path: programPidfilePath('apache2'),
+  content: formatProgramPidfileContent('apache2', HTTP_DEFAULT_PORT),
+});
 
 const sshdUp = journalRow({
   path: `/var/run/${SERVICE_CATALOG.ssh.pidfile}`,
@@ -266,7 +276,7 @@ describe('a stranger fetches a page behind a NAT forward', () => {
 
     expect(await handleResolveHttpFetch(envelope(), deps)).toEqual({
       status: 200,
-      body: { ok: true, content: ALICE_PAGE },
+      body: { ok: true, content: ALICE_PAGE, server: 'nginx' },
     });
   });
 
@@ -277,7 +287,21 @@ describe('a stranger fetches a page behind a NAT forward', () => {
 
     expect(await handleResolveHttpFetch(envelope({ path: '/status.html' }), deps)).toEqual({
       status: 200,
-      body: { ok: true, content: '<h1>status: green</h1>' },
+      body: { ok: true, content: '<h1>status: green</h1>', server: 'nginx' },
+    });
+  });
+
+  it('names the program that served the page, so the caller can say which server answered', async () => {
+    const { deps } = makeDeps({
+      patches: patchesByMachine({
+        [AP_GATEWAY_ID]: [forwards(forwardTo(HTTP_DEFAULT_PORT, ALICE_LAN_IP, HTTP_DEFAULT_PORT))],
+        [ALICE_WS]: [apacheUp, publishedPage(ALICE_PAGE)],
+      }),
+    });
+
+    expect(await handleResolveHttpFetch(envelope(), deps)).toEqual({
+      status: 200,
+      body: { ok: true, content: ALICE_PAGE, server: 'apache2' },
     });
   });
 
@@ -297,11 +321,11 @@ describe('a stranger fetches a page behind a NAT forward', () => {
 
     expect(await handleResolveHttpFetch(envelope({ port: 8080 }), deps)).toEqual({
       status: 200,
-      body: { ok: true, content: '<h1>alice</h1>' },
+      body: { ok: true, content: '<h1>alice</h1>', server: 'nginx' },
     });
     expect(await handleResolveHttpFetch(envelope({ port: 9090 }), deps)).toEqual({
       status: 200,
-      body: { ok: true, content: '<h1>bob</h1>' },
+      body: { ok: true, content: '<h1>bob</h1>', server: 'nginx' },
     });
   });
 
@@ -315,7 +339,7 @@ describe('a stranger fetches a page behind a NAT forward', () => {
 
     expect(await handleResolveHttpFetch(envelope(), deps)).toEqual({
       status: 200,
-      body: { ok: true, content: ALICE_PAGE },
+      body: { ok: true, content: ALICE_PAGE, server: 'nginx' },
     });
   });
 
@@ -325,7 +349,7 @@ describe('a stranger fetches a page behind a NAT forward', () => {
 
     expect(await handleResolveHttpFetch(noPort, deps)).toEqual({
       status: 200,
-      body: { ok: true, content: ALICE_PAGE },
+      body: { ok: true, content: ALICE_PAGE, server: 'nginx' },
     });
   });
 });
@@ -360,7 +384,7 @@ describe("an institution's website, served from a machine nobody owns", () => {
     expect(homepage.ok).toBe(true);
     expect(response).toEqual({
       status: 200,
-      body: { ok: true, content: homepage.ok ? homepage.content : '' },
+      body: { ok: true, content: homepage.ok ? homepage.content : '', server: 'nginx' },
     });
   });
 
@@ -410,7 +434,7 @@ describe("an institution's website, served from a machine nobody owns", () => {
 
     const response = await handleResolveHttpFetch(envelope(), deps);
 
-    expect(response).toEqual({ status: 200, body: { ok: true, content: '<h1>defaced</h1>' } });
+    expect(response).toEqual({ status: 200, body: { ok: true, content: '<h1>defaced</h1>', server: 'nginx' } });
   });
 });
 
@@ -557,7 +581,7 @@ describe('a gateway that serves the web itself', () => {
 
     expect(await handleResolveHttpFetch(envelope(), deps)).toEqual({
       status: 200,
-      body: { ok: true, content: '<h1>the router itself</h1>' },
+      body: { ok: true, content: '<h1>the router itself</h1>', server: 'nginx' },
     });
   });
 
@@ -735,7 +759,7 @@ describe('the fetched machine records the hit', () => {
 
     expect(await handleResolveHttpFetch(envelope(), deps)).toEqual({
       status: 200,
-      body: { ok: true, content: ALICE_PAGE },
+      body: { ok: true, content: ALICE_PAGE, server: 'nginx' },
     });
 
     // The source IP is looked up for BOB — the verified caller — not for the target.
@@ -881,7 +905,7 @@ describe('the fetched machine records the hit', () => {
 
     expect(await handleResolveHttpFetch(envelope(), deps)).toEqual({
       status: 200,
-      body: { ok: true, content: '<h1>router</h1>' },
+      body: { ok: true, content: '<h1>router</h1>', server: 'nginx' },
     });
 
     expect(upsertPatch).toHaveBeenCalledWith(
@@ -915,7 +939,7 @@ describe('the fetched machine records the hit', () => {
 
       expect(await handleResolveHttpFetch(envelope(), deps)).toEqual({
         status: 200,
-        body: { ok: true, content: '<h1>router</h1>' },
+        body: { ok: true, content: '<h1>router</h1>', server: 'nginx' },
       });
       expect(upsertPatch).toHaveBeenCalledWith(
         expect.objectContaining({ writer_key: apGatewayLogWriterKey(ESSID), machine_id: AP_GATEWAY_ID }),
@@ -976,7 +1000,7 @@ describe('the fetched machine records the hit', () => {
 
     expect(await handleResolveHttpFetch(envelope(), deps)).toEqual({
       status: 200,
-      body: { ok: true, content: ALICE_PAGE },
+      body: { ok: true, content: ALICE_PAGE, server: 'nginx' },
     });
   });
 
@@ -990,7 +1014,7 @@ describe('the fetched machine records the hit', () => {
 
     expect(await handleResolveHttpFetch(envelope(), deps)).toEqual({
       status: 200,
-      body: { ok: true, content: ALICE_PAGE },
+      body: { ok: true, content: ALICE_PAGE, server: 'nginx' },
     });
     expect(upsertPatch).not.toHaveBeenCalled();
   });
@@ -1036,6 +1060,9 @@ describe('findit.io answers a search over the public web', () => {
 
     expect(response.status).toBe(200);
     expect(contentOf(response)).toContain('No matches for');
+    // A search is a page like any other: a client reads it as one, and `curl -i` names
+    // the server that answered it.
+    expect(response.body).toMatchObject({ ok: true, server: 'nginx' });
   });
 
   it('serves its own front page, from its own disk, when nothing was asked', async () => {
@@ -1105,7 +1132,7 @@ describe('findit.io answers a search over the public web', () => {
       deps,
     );
 
-    expect(response).toEqual({ status: 200, body: { ok: true, content: ALICE_PAGE } });
+    expect(response).toEqual({ status: 200, body: { ok: true, content: ALICE_PAGE, server: 'nginx' } });
   });
 });
 

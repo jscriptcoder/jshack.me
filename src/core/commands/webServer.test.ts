@@ -14,10 +14,11 @@ import { apache2, nginx } from './daemon.js';
 
 /**
  * `nginx` and `apache2` bring up THE web server on the current machine. They are
- * two names for one capability: both write `/var/run/nginx.pid`, so whichever
- * starts first owns port 80 and the other is refused — you cannot bind a port
- * twice, and the player learns that by being told a web server is already up
- * rather than being told a lie about which program it was.
+ * two programs for one service: each writes its own pidfile, as on Debian
+ * (`/var/run/nginx.pid`, `/var/run/apache2.pid`), so every tool can tell which one
+ * is up. Whichever starts first owns port 80 and the other is refused — you cannot
+ * bind a port twice, and the player learns that by being told a web server is
+ * already up rather than being told a lie about which program it was.
  *
  * Root-only, unconditionally. The "ports below 1024 need root" rule is
  * deliberately absent: the root gate fires before the port is ever parsed, so a
@@ -39,8 +40,10 @@ type WriteCall = {
 
 type WebServerEnvOpts = {
   readonly userType?: UserType;
-  /** Existing `/var/run/nginx.pid` content (omit ⇒ no web server running). */
+  /** Existing web pidfile content (omit ⇒ no web server running). */
   readonly pidfile?: string;
+  /** Which program wrote that pidfile, and so its name under `/var/run`. */
+  readonly runningProgram?: string;
   readonly writeResult?: PatchResult;
 };
 
@@ -53,7 +56,9 @@ const webServerEnv = (opts: WebServerEnvOpts = {}) => {
   const run =
     opts.pidfile === undefined
       ? buildDirectory({})
-      : buildDirectory({ 'nginx.pid': buildFile(opts.pidfile, { owner: 'root' }) });
+      : buildDirectory({
+          [`${opts.runningProgram ?? 'nginx'}.pid`]: buildFile(opts.pidfile, { owner: 'root' }),
+        });
   const tree = buildDirectory({ var: buildDirectory({ run }) });
   const env = mockCommandEnv({
     session: mockSession({ userType }),
@@ -112,7 +117,7 @@ const BOTH_SERVERS: readonly (readonly [string, Command])[] = [
 ];
 
 describe('the web server daemon', () => {
-  it.each(BOTH_SERVERS)('%s opens port 80 as a running http service', async (_name, server) => {
+  it.each(BOTH_SERVERS)('%s opens port 80 as a running http service', async (name, server) => {
     const { env, writes } = webServerEnv();
 
     const { exitCode } = await streamResult(await server.execute(env, [], NO_FLAGS));
@@ -122,24 +127,25 @@ describe('the web server daemon', () => {
     // later ask: through the pidfile reader, not the written bytes.
     const started = buildDirectory({
       var: buildDirectory({
-        run: buildDirectory({ 'nginx.pid': buildFile(writes[0].content, { owner: 'root' }) }),
+        run: buildDirectory({ [`${name}.pid`]: buildFile(writes[0].content, { owner: 'root' }) }),
       }),
     });
     expect(readOpenPorts(started)).toEqual([{ port: 80, service: 'http' }]);
   });
 
   it.each(BOTH_SERVERS)(
-    '%s writes the shared web pidfile as a new file',
-    async (_name, server) => {
+    '%s writes its own pidfile, named for the program, as a new file',
+    async (name, server) => {
       const { env, writes } = webServerEnv();
 
       await streamResult(await server.execute(env, [], NO_FLAGS));
 
-      // BOTH programs write the same path: one web identity, two names for it.
+      // Each program its own path, as on Debian: the pidfile is how every tool tells
+      // which web server is up.
       expect(writes).toEqual([
         {
-          path: '/var/run/nginx.pid',
-          content: 'nginx:port=80',
+          path: `/var/run/${name}.pid`,
+          content: `${name}:port=80`,
           options: { isNew: true, permissions: PIDFILE_PERMISSIONS },
         },
       ]);
@@ -174,12 +180,12 @@ describe('the web server daemon', () => {
     ]);
   });
 
-  it.each(BOTH_SERVERS)('%s starts on a given port, writing that port', async (_name, server) => {
+  it.each(BOTH_SERVERS)('%s starts on a given port, writing that port', async (name, server) => {
     const { env, writes } = webServerEnv();
 
     const { text, exitCode } = await streamResult(await server.execute(env, ['8080'], NO_FLAGS));
 
-    expect(writes[0].content).toBe('nginx:port=8080');
+    expect(writes[0].content).toBe(`${name}:port=8080`);
     expect(text).toContain('port 8080');
     expect(exitCode).toBe(0);
   });
@@ -221,22 +227,28 @@ describe('the web server daemon', () => {
     },
   );
 
-  it('refuses apache2 when nginx already holds the port, naming the conflict', async () => {
-    // The keystone of the one-web-identity decision: the player is told A WEB
-    // SERVER is up, not that "apache2 is already running" — which would be false.
-    const { env, writes } = webServerEnv({ pidfile: 'nginx:port=80' });
+  it.each([
+    ['apache2', 'nginx', apache2],
+    ['nginx', 'apache2', nginx],
+  ] as const)(
+    'refuses %s when %s already holds the web service, naming the conflict',
+    async (name, runningProgram, server) => {
+      // Two programs, one service: the player is told A WEB SERVER is up, not that
+      // the program they typed is already running — which would be false.
+      const { env, writes } = webServerEnv({ pidfile: `${runningProgram}:port=80`, runningProgram });
 
-    const { text, exitCode } = syncResult(await apache2.execute(env, [], NO_FLAGS));
+      const { text, exitCode } = syncResult(await server.execute(env, [], NO_FLAGS));
 
-    expect(text).toBe('apache2: web server already running on port 80');
-    expect(exitCode).toBe(1);
-    expect(writes).toEqual([]);
-  });
+      expect(text).toBe(`${name}: web server already running on port 80`);
+      expect(exitCode).toBe(1);
+      expect(writes).toEqual([]);
+    },
+  );
 
   it.each(BOTH_SERVERS)(
     '%s refuses to start twice, reporting the running port and writing nothing',
     async (name, server) => {
-      const { env, writes } = webServerEnv({ pidfile: 'nginx:port=80' });
+      const { env, writes } = webServerEnv({ pidfile: `${name}:port=80`, runningProgram: name });
 
       const { text, exitCode } = syncResult(await server.execute(env, [], NO_FLAGS));
 
@@ -277,15 +289,15 @@ describe('the web server daemon', () => {
     expect(high.writes).toEqual([]);
   });
 
-  it.each(BOTH_SERVERS)('%s accepts the boundary ports 1 and 65535', async (_name, server) => {
+  it.each(BOTH_SERVERS)('%s accepts the boundary ports 1 and 65535', async (name, server) => {
     const lowEnv = webServerEnv();
     const highEnv = webServerEnv();
 
     await streamResult(await server.execute(lowEnv.env, ['1'], NO_FLAGS));
     await streamResult(await server.execute(highEnv.env, ['65535'], NO_FLAGS));
 
-    expect(lowEnv.writes[0].content).toBe('nginx:port=1');
-    expect(highEnv.writes[0].content).toBe('nginx:port=65535');
+    expect(lowEnv.writes[0].content).toBe(`${name}:port=1`);
+    expect(highEnv.writes[0].content).toBe(`${name}:port=65535`);
   });
 
   it.each(BOTH_SERVERS)(

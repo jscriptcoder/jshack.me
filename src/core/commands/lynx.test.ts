@@ -293,7 +293,7 @@ describe('lynx across the network, at another player public IP', () => {
     return { result: await lynx.execute(env, args, new Map()), asked };
   };
 
-  const served = (content: string): PublicFetchResult => ({ ok: true, content });
+  const served = (content: string): PublicFetchResult => ({ ok: true, content, server: 'nginx' });
   const failed = (error: 'host_unreachable' | 'not_found' | 'network_error'): PublicFetchResult => ({
     ok: false,
     error,

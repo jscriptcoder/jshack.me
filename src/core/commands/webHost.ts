@@ -29,7 +29,7 @@ import { generateHomeLan } from '../generation/generateHomeLan.js';
 import { baseFsForLanHost } from '../generation/lanHostIdentity.js';
 import { resolveDeepScanHosts } from '../scan/deepScanHosts.js';
 import { readOpenPorts } from '../services/pidfile.js';
-import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
+import { webProgramOn } from '../network/webServing.js';
 import { resolveLanName } from '../network/resolveName.js';
 import { LOOPBACK_IPV4, LOOPBACK_NAMES } from '../network/interfaces.js';
 
@@ -44,6 +44,8 @@ export type ReachedHost = {
    *  address it leased, and `localhost` names no machine to anyone but us. A loopback
    *  fetch reports the loopback address, so the box logs the visit as local. */
   readonly address: string;
+  /** The program serving the web there (`nginx`, `apache2`), for a `Server` header. */
+  readonly server: string;
 };
 
 /** A finished result carrying lines — narrow enough that a caller with no terminal
@@ -172,10 +174,12 @@ export const reachWebHost = ({
     return { ok: false, failure: error(`${program}: (6) Could not resolve host: ${url.host}`) };
   }
 
-  const listening = located.ports.some(
-    (entry) => entry.port === url.port && entry.service === SERVICE_CATALOG.http.service,
-  );
-  if (!listening) {
+  // The port AS THE SHELL REACHES IT decides whether anything answers — a switch's ACL
+  // can shut a port the box behind it still serves — and the box's own tree then names
+  // the web server holding it, or nothing when what holds it is not the web.
+  const reachable = located.ports.some((entry) => entry.port === url.port);
+  const server = reachable ? webProgramOn(located.fs, url.port) : undefined;
+  if (server === undefined) {
     return {
       ok: false,
       failure: connectError({
@@ -189,6 +193,6 @@ export const reachWebHost = ({
 
   return {
     ok: true,
-    host: { fs: located.fs, essid, address },
+    host: { fs: located.fs, essid, address, server },
   };
 };

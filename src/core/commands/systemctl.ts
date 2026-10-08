@@ -12,12 +12,11 @@
  * A stop therefore SURVIVES A REBOOT. The pidfile is a patch row and `reboot`
  * never touches the journal, so a door closed today is still closed tomorrow.
  *
- * The UNIT, not the program, is what these verbs act on. `nginx` and `apache2`
- * are two ways to bind one port, so both resolve to the same unit and are
- * answered in the unit's words — stopping the web server never claims apache2
- * was running when nginx was the one that came up. That is why `Unit.title`
- * names the service ("web server") rather than reusing the daemon module's
- * per-program banner ("Apache httpd").
+ * `nginx` and `apache2` are two units, as on a real box, though they bind one
+ * port. Each answers for its own program's pidfile only, so asking after or
+ * stopping the one that is not up never claims it ran, and never touches the one
+ * that is. Starting either while the other holds the port is refused by the
+ * daemon's own gate, which a start (and a restart of a stopped unit) routes into.
  *
  * `start` does NOT write the pidfile here. It routes into the daemon command
  * that owns it, so there is ONE writer behind one gate ladder rather than a
@@ -39,7 +38,8 @@ import {
   type TerminalLine,
 } from './types.js';
 import { SERVICE_CATALOG, type ServiceSpec } from '../services/serviceCatalog.js';
-import { pidfilePath } from '../services/pidfile.js';
+import { programPidfilePath } from '../services/pidfile.js';
+import { UNIT_DESCRIPTIONS } from '../generation/pools/logLines.js';
 import { errorLine, streamedResult, text } from './streaming.js';
 import { binaryExists } from './availability.js';
 import {
@@ -48,8 +48,8 @@ import {
   DAEMONS,
   mysqld,
   nginx,
+  programPort,
   redisServer,
-  runningPort,
   snmpd,
   named,
   sshd,
@@ -68,11 +68,9 @@ const USAGE = 'Usage: systemctl {start|stop|status|restart} <unit>';
 const NO_FLAGS: ReadonlyMap<string, string | true> = new Map();
 
 type Unit = {
-  /** The `.service` name — the pidfile's daemon, shared by every program that
-   *  can bind this port. */
+  /** The `.service` name, which is also the program: its pidfile is
+   *  `/var/run/<name>.pid`. */
   readonly name: string;
-  /** The SERVICE's human name, never a program's. `apache2` and `nginx` are both
-   *  "web server", which is what makes a refusal true whichever one is up. */
   readonly title: string;
   readonly spec: ServiceSpec;
   /** The front door a `start` routes into — the command the player would have
@@ -85,8 +83,8 @@ type Unit = {
   readonly daemon: Daemon;
 };
 
-/** Every name that resolves to a unit. `nginx` and `apache2` deliberately share
- *  one unit identity while keeping their own start command. */
+/** Every name that resolves to a unit. The two web units share a service, and so a
+ *  port, but each is its own program with its own pidfile. */
 const UNITS: Readonly<Record<string, Unit>> = {
   sshd: {
     name: 'sshd',
@@ -104,14 +102,14 @@ const UNITS: Readonly<Record<string, Unit>> = {
   },
   nginx: {
     name: 'nginx',
-    title: 'web server',
+    title: UNIT_DESCRIPTIONS.nginx,
     spec: SERVICE_CATALOG.http,
     start: nginx,
     daemon: DAEMONS.nginx,
   },
   apache2: {
-    name: 'nginx',
-    title: 'web server',
+    name: 'apache2',
+    title: UNIT_DESCRIPTIONS.apache2,
     spec: SERVICE_CATALOG.http,
     start: apache2,
     daemon: DAEMONS.apache2,
@@ -184,8 +182,12 @@ const noticeResult = (content: string): CommandResult => ({
   exitCode: 0,
 });
 
+/** The port this unit's own program holds, or null when it is not up. */
+const unitPort = (env: CommandEnv, unit: Unit): number | null =>
+  programPort(env, unit.name, unit.spec);
+
 const status = (env: CommandEnv, unit: Unit): CommandResult => {
-  const port = runningPort(env, unit.spec);
+  const port = unitPort(env, unit);
   const marker = port === null ? '○' : '●';
   const active =
     port === null ? 'inactive (dead)' : `active (running) on port ${port}`;
@@ -200,7 +202,7 @@ async function* stopSteps(env: CommandEnv, unit: Unit): AsyncGenerator<TerminalL
   yield text(`Stopping ${unit.title}...`);
   await env.sleep(STOP_DELAY_MS);
 
-  const result = await env.patches.remove(pidfilePath(unit.spec));
+  const result = await env.patches.remove(programPidfilePath(unit.name));
   if (!result.ok) {
     yield errorLine(`systemctl: ${PATCH_ERROR_REASON[result.error]}`);
     return 1;
@@ -210,20 +212,18 @@ async function* stopSteps(env: CommandEnv, unit: Unit): AsyncGenerator<TerminalL
   return 0;
 }
 
-async function* restartSteps(env: CommandEnv, unit: Unit): AsyncGenerator<TerminalLine, number> {
-  // Read the port BEFORE the stop, so a service an admin put on a non-default
-  // port comes back where they put it rather than silently moving to the
-  // default — where every scan looking for it would find it again.
-  const port = runningPort(env, unit.spec);
-
-  // Real `systemctl restart` starts a unit that was not running, so a stop with
-  // nothing to stop is skipped rather than refused.
-  if (port !== null) {
-    const stopped = yield* stopSteps(env, unit);
-    if (stopped !== 0) return stopped;
-  }
-
-  return yield* bringUp(env, unit.daemon, port ?? unit.spec.defaultPort);
+/** Stop a running unit and bring it back on the port it held — read BEFORE the
+ *  stop, so a service an admin put on a non-default port comes back where they put
+ *  it rather than silently moving to the default, where every scan looking for it
+ *  would find it again. */
+async function* restartSteps(
+  env: CommandEnv,
+  unit: Unit,
+  port: number,
+): AsyncGenerator<TerminalLine, number> {
+  const stopped = yield* stopSteps(env, unit);
+  if (stopped !== 0) return stopped;
+  return yield* bringUp(env, unit.daemon, port);
 }
 
 const execute: Command['execute'] = async (env, args) => {
@@ -241,9 +241,18 @@ const execute: Command['execute'] = async (env, args) => {
   if (env.session.userType !== 'root') return errorResult('systemctl: must be run as root');
 
   if (verb === 'start') return unit.start.execute(env, [], NO_FLAGS);
-  if (verb === 'restart') return streamedResult(restartSteps(env, unit));
 
-  return runningPort(env, unit.spec) === null
+  const port = unitPort(env, unit);
+  if (verb === 'restart') {
+    // Real `systemctl restart` starts a unit that was not running, and a start goes
+    // through the front door: its gate refuses while the other web server holds the
+    // port, where bringing it up directly would leave the box running both.
+    return port === null
+      ? unit.start.execute(env, [], NO_FLAGS)
+      : streamedResult(restartSteps(env, unit, port));
+  }
+
+  return port === null
     ? noticeResult(`${unit.name} is not running.`)
     : streamedResult(stopSteps(env, unit));
 };

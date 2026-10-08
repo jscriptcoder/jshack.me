@@ -12,8 +12,6 @@
  *   carries, and no device node.
  */
 
-import type { ServiceSpec } from '../../services/serviceCatalog.js';
-
 /** A timer systemd fires once a day: what it says starting, and the unit it runs. */
 export type DailyTimer = { readonly description: string; readonly unit: string };
 
@@ -33,16 +31,18 @@ export const DAILY_TIMERS: readonly DailyTimer[] = [
   { description: 'Update the plocate database', unit: 'plocate-updatedb.service' },
 ];
 
-/** What systemd calls each service when it starts it after a boot. Keyed by the
- *  catalog's service name. */
-export const SERVICE_UNIT_DESCRIPTIONS: Readonly<Record<ServiceSpec['service'], string>> = {
-  ssh: 'OpenBSD Secure Shell server',
-  http: 'A high performance web server and a reverse proxy server',
-  ftp: 'vsftpd FTP server',
-  mysql: 'MySQL Community Server',
-  redis: 'Advanced key-value store',
-  snmp: 'Simple Network Management Protocol (SNMP) Daemon',
-  domain: 'BIND Domain Name Server',
+/** What systemd calls each program's unit when it starts it after a boot, and what
+ *  `systemctl` names a web unit by. Keyed by PROGRAM, not service: the web is one
+ *  service run by two programs, and nginx and apache2 each have their own unit. */
+export const UNIT_DESCRIPTIONS: Readonly<Record<string, string>> = {
+  sshd: 'OpenBSD Secure Shell server',
+  nginx: 'A high performance web server and a reverse proxy server',
+  apache2: 'The Apache HTTP Server',
+  vsftpd: 'vsftpd FTP server',
+  mysqld: 'MySQL Community Server',
+  'redis-server': 'Advanced key-value store',
+  snmpd: 'Simple Network Management Protocol (SNMP) Daemon',
+  named: 'BIND Domain Name Server',
 };
 
 /** The kernel's boot, in the order it prints it. Slots: `{uuid}` the root filesystem's

@@ -36,7 +36,7 @@ import type { OwnerPatchRow } from './materializeWorkstationFs.js';
 import { machineServing, type ServedMachine } from './machineServing.js';
 import { bootableOccupantFs } from './natHosts.js';
 import { lanAddressesByOwner, type LanLeaseRow } from './lanAddress.js';
-import { servesWebOn } from './webServing.js';
+import { webProgramOn } from './webServing.js';
 import { canBoot } from '../boot/bootFiles.js';
 import { createFsView } from '../filesystem/fsView.js';
 import { HTTP_DEFAULT_PORT, resolveWebPath } from './http.js';
@@ -172,6 +172,10 @@ type FetchTarget = {
    *  address the client supplied. */
   readonly essid: string;
 };
+
+/** A target that answered: something serves the web on its port, and this names the
+ *  program (`nginx`, `apache2`) for the caller's `Server` header. */
+type WebTarget = FetchTarget & { readonly server: string };
 
 /**
  * Resolve a NAT-forwarded port to the box behind it: the occupant leasing the address the
@@ -317,7 +321,7 @@ const logFetch = async (
 export const resolveWebTarget = async (
   deps: WebTargetDeps,
   request: { readonly target: string; readonly port: number },
-): Promise<FetchTarget | HandlerResponse> => {
+): Promise<WebTarget | HandlerResponse> => {
   const { data, error } = await deps.findNetworkByPublicIp(request.target);
   if (error) {
     return { status: 500, body: { error: 'network_lookup_failed' } };
@@ -354,8 +358,10 @@ export const resolveWebTarget = async (
 
   // ONE liveness check for both arms, and it is service-specific: reaching a listening
   // daemon is not reaching a web server. A forward onto `sshd`, or the gateway's own
-  // `:22`, refuses exactly like a closed port.
-  return servesWebOn(target.fs, target.servicePort) ? target : UNREACHABLE;
+  // `:22`, refuses exactly like a closed port. The same read names the program that
+  // answers, for the caller's `Server` header.
+  const server = webProgramOn(target.fs, target.servicePort);
+  return server === undefined ? UNREACHABLE : { ...target, server };
 };
 
 /**
@@ -444,7 +450,7 @@ export const handleResolveHttpFetch = async (
       status: 200,
       size: results.length,
     });
-    return { status: 200, body: { ok: true, content: results } };
+    return { status: 200, body: { ok: true, content: results, server: target.server } };
   }
 
   // The document-root confinement, applied to the RAW client path. A path that climbs out
@@ -467,5 +473,7 @@ export const handleResolveHttpFetch = async (
     size: content === null ? 0 : content.length,
   });
 
-  return content === null ? NOT_FOUND : { status: 200, body: { ok: true, content } };
+  return content === null
+    ? NOT_FOUND
+    : { status: 200, body: { ok: true, content, server: target.server } };
 };

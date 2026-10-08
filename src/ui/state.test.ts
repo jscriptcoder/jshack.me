@@ -11,10 +11,11 @@ import {
   daemonName,
   formatListenerContent,
   formatPidfileContent,
+  formatProgramPidfileContent,
   listenerPidfilePath,
   pidfilePath,
+  programPidfilePath,
   readOpenPorts,
-  serviceByPidfileName,
 } from '../core/services/pidfile.js';
 import { BOOT_ID_OWNER, BOOT_ID_PATH, BOOT_ID_PERMISSIONS } from '../core/boot/bootId.js';
 import { FIRST_BOOT_MARKER } from '../core/boot/firstBoot.js';
@@ -655,10 +656,8 @@ describe('resolveBootCheck', () => {
       .filter((line) => line.includes('.pid'));
     expect(running.length).toBeGreaterThan(0);
     for (const line of running) expect(line).toContain(' root ');
-    // The boot screen is told about exactly the services the box came up running.
-    const listed = running.map(
-      (line) => serviceByPidfileName(line.slice(line.lastIndexOf(' ') + 1))?.service,
-    );
+    // The boot screen is told about exactly the programs the box came up running.
+    const listed = running.map((line) => line.slice(line.lastIndexOf(' ') + 1).replace(/\.pid$/, ''));
     expect(report.ok).toBe(true);
     expect(new Set(report.started)).toEqual(new Set(listed));
   });
@@ -672,8 +671,8 @@ describe('resolveBootCheck', () => {
         owner: 'root',
       },
       {
-        path: pidfilePath(SERVICE_CATALOG.http),
-        content: formatPidfileContent(SERVICE_CATALOG.http, 80),
+        path: programPidfilePath('apache2'),
+        content: formatProgramPidfileContent('apache2', 80),
         owner: 'root',
       },
       {
@@ -687,7 +686,8 @@ describe('resolveBootCheck', () => {
     const report = await state.resolveBootCheck();
 
     expect(report.ok).toBe(true);
-    expect(new Set(report.started)).toEqual(new Set(['mysql', 'http']));
+    // By program, so the boot screen can tell the web server apache2 from nginx.
+    expect(new Set(report.started)).toEqual(new Set(['mysqld', 'apache2']));
   });
 
   it('dates the birth with the moment the box first booted', async () => {
@@ -2526,7 +2526,7 @@ describe('full-screen apps a command opens', () => {
             error: 'host_unreachable' as const,
           };
           return answered.ok
-            ? { ok: true, status: 200, json: async () => ({ ok: true, content: answered.content }) }
+            ? { ok: true, status: 200, json: async () => ({ ok: true, content: answered.content, server: answered.server }) }
             : { ok: false, status: 502, json: async () => ({ error: answered.error }) };
         }
         return {
@@ -2681,7 +2681,7 @@ describe('full-screen apps a command opens', () => {
 
   it('opens the browser on a page from behind another player public IP', async () => {
     const state = await startBrowsingGame({
-      across: () => ({ ok: true, content: THEIR_PAGE }),
+      across: () => ({ ok: true, content: THEIR_PAGE, server: 'nginx' }),
     });
 
     state.setInput(`lynx http://${THEIR_PUBLIC_IP}/`);
@@ -2692,11 +2692,12 @@ describe('full-screen apps a command opens', () => {
     expect(state.overlayMode()).toMatchObject({
       kind: 'lynx',
       url: `http://${THEIR_PUBLIC_IP}/`,
+      content: THEIR_PAGE,
     });
   });
 
   it('follows a link on another player page across the network, not into the local tree', async () => {
-    const across = vi.fn((): PublicFetchResult => ({ ok: true, content: THEIR_PAGE }));
+    const across = vi.fn((): PublicFetchResult => ({ ok: true, content: THEIR_PAGE, server: 'nginx' }));
     const state = await startBrowsingGame({ published: OWN_SITE, across });
     state.setInput(`lynx http://${THEIR_PUBLIC_IP}/`);
     await state.runInput();
@@ -2719,7 +2720,7 @@ describe('full-screen apps a command opens', () => {
       published: OWN_SITE,
       across: (request) => {
         asked.push(request);
-        return { ok: true, content: THEIR_PAGE };
+        return { ok: true, content: THEIR_PAGE, server: 'nginx' };
       },
     });
     state.setInput('lynx http://ridgemont.edu/');
@@ -2742,7 +2743,7 @@ describe('full-screen apps a command opens', () => {
       across: (): PublicFetchResult => {
         answered += 1;
         return answered === 1
-          ? { ok: true, content: THEIR_PAGE }
+          ? { ok: true, content: THEIR_PAGE, server: 'nginx' }
           : { ok: false, error: 'host_unreachable' };
       },
     });

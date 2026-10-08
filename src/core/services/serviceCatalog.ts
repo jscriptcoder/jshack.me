@@ -88,8 +88,15 @@ export type ServiceSpec = {
    *  two names for one thing is the drift a single package namespace exists to stop. */
   readonly package: string;
   /** The `/var/run/<pidfile>` name; its basename is the daemon written into the
-   *  pidfile line (`sshd.pid` → `sshd:port=22`). */
+   *  pidfile line (`sshd.pid` → `sshd:port=22`). The service's DEFAULT program: the
+   *  one the world generates, when more than one can run it. */
   readonly pidfile: string;
+  /** Other programs that run this same service, each writing its own
+   *  `/var/run/<program>.pid` — so a box running one of them is told apart from a box
+   *  running the default by every tool that reads `/var/run`. Absent for a service
+   *  only one program provides. They share everything else on the row, the port
+   *  first, so at most one of them can be up. */
+  readonly otherPrograms?: readonly string[];
   /** The port the daemon listens on absent an explicit override. */
   readonly defaultPort: number;
   /** The transport the port is on, as `nmap` names it — `161/udp`. Absent means
@@ -188,12 +195,14 @@ export const SERVICE_CATALOG = {
   },
   // One row for the web, not one per server program: `nginx` and `apache2` are two
   // ways to open the SAME port, so they share this identity and cannot both bind it.
+  // Each still writes its own pidfile, which is how a box says which one it runs.
   // Rarer than ssh — a box you can log into is ordinary, a box that publishes
   // something is a lead worth following.
   http: {
     service: 'http',
     package: 'nginx',
     pidfile: 'nginx.pid',
+    otherPrograms: ['apache2'],
     defaultPort: 80,
     runUser: 'root',
     // What a web server says to a client that speaks no HTTP at it — which is

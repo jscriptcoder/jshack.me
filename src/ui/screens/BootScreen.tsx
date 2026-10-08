@@ -18,7 +18,7 @@
 import { createSignal, For, onCleanup, onMount } from 'solid-js';
 import type { BootFile, BootReport } from '../../core/boot/bootFiles.js';
 import { BOOT_FAILURE } from '../../core/boot/bootMessages.js';
-import { SERVICE_UNIT_DESCRIPTIONS } from '../../core/generation/pools/logLines.js';
+import { UNIT_DESCRIPTIONS } from '../../core/generation/pools/logLines.js';
 
 export type BootScreenProps = {
   readonly machineName: string;
@@ -49,22 +49,24 @@ const EARLY_SEQUENCE: readonly BootLine[] = [
   { text: '', delay: 100 },
 ];
 
-/** The order systemd starts the services in. Fixed, so a box boots the same way
- *  every time whatever order its pidfiles were written in. */
-const SERVICE_START_ORDER: readonly string[] = [
-  'ssh',
-  'ftp',
-  'http',
-  'mysql',
-  'redis',
-  'snmp',
-  'domain',
+/** The order systemd starts the programs in. Fixed, so a box boots the same way
+ *  every time whatever order its pidfiles were written in. The two web servers
+ *  share a place: a box runs one of them at most. */
+const START_ORDER: readonly string[] = [
+  'sshd',
+  'vsftpd',
+  'nginx',
+  'apache2',
+  'mysqld',
+  'redis-server',
+  'snmpd',
+  'named',
 ];
 
-/** One unit line per service the box runs, in start order. */
+/** One unit line per program the box runs, in start order. */
 const serviceLines = (started: readonly string[]): readonly BootLine[] =>
-  SERVICE_START_ORDER.filter((service) => started.includes(service)).map((service) => ({
-    text: `[  OK  ] Started ${SERVICE_UNIT_DESCRIPTIONS[service]}.`,
+  START_ORDER.filter((program) => started.includes(program)).map((program) => ({
+    text: `[  OK  ] Started ${UNIT_DESCRIPTIONS[program]}.`,
     delay: 80,
   }));
 

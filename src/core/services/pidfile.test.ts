@@ -112,7 +112,7 @@ describe('a listener somebody planted', () => {
     );
 
     expect(running).toEqual([
-      { kind: 'service', spec: ssh, port: 22 },
+      { kind: 'service', spec: ssh, program: 'sshd', port: 22 },
       { kind: 'listener', port: 4444, user: 'alice', userType: 'user' },
     ]);
   });

@@ -59,14 +59,29 @@ export const PIDFILE_PERMISSIONS: FilePermissions = {
  *  for one daemon. */
 export const daemonName = (spec: ServiceSpec): string => spec.pidfile.replace(/\.pid$/, '');
 
-/** Where a service's pidfile lives, e.g. `/var/run/sshd.pid`. */
-export const pidfilePath = (spec: ServiceSpec): AbsPath => asAbsPath(`${VAR_RUN}/${spec.pidfile}`);
+/** Every program that can run a service, its default first: `[nginx, apache2]` for the
+ *  web, the one daemon for everything else. */
+export const programsOf = (spec: ServiceSpec): readonly string[] => [
+  daemonName(spec),
+  ...(spec.otherPrograms ?? []),
+];
 
-/** The canonical pidfile content for a service running on `port`:
- *  `<daemon>:port=<N>`. Producers MUST agree byte-for-byte; readers parse the
+/** Where a program's pidfile lives, e.g. `/var/run/apache2.pid`. */
+export const programPidfilePath = (program: string): AbsPath =>
+  asAbsPath(`${VAR_RUN}/${program}.pid`);
+
+/** Where a service's DEFAULT program keeps its pidfile, e.g. `/var/run/sshd.pid`. */
+export const pidfilePath = (spec: ServiceSpec): AbsPath => programPidfilePath(daemonName(spec));
+
+/** The canonical pidfile content for `program` running on `port`:
+ *  `<program>:port=<N>`. Producers MUST agree byte-for-byte; readers parse the
  *  same shape. */
+export const formatProgramPidfileContent = (program: string, port: number): string =>
+  `${program}:port=${port}`;
+
+/** The canonical pidfile content for a service's default program running on `port`. */
 export const formatPidfileContent = (spec: ServiceSpec, port: number): string =>
-  `${daemonName(spec)}:port=${port}`;
+  formatProgramPidfileContent(daemonName(spec), port);
 
 /** Extract the listening port from a pidfile line, or null when the content is
  *  not the canonical `<daemon>:port=<N>` shape. */
@@ -79,7 +94,9 @@ export const parsePidfilePort = (content: string): number | null => {
  *  undefined for an unrecognised pidfile — lets a reader label a `/var/run`
  *  entry without re-deriving the mapping. */
 export const serviceByPidfileName = (name: string): ServiceSpec | undefined =>
-  Object.values(SERVICE_CATALOG).find((spec) => spec.pidfile === name);
+  Object.values(SERVICE_CATALOG).find((spec) =>
+    programsOf(spec).some((program) => `${program}.pid` === name),
+  );
 
 /** The `/var/run` name prefix marking a planted listener. The port is in the NAME
  *  as well as the line so a defender can name the file they want gone without
@@ -176,7 +193,14 @@ export type OpenPort = {
  *  time, because the two kinds are addressed by different verbs: a service is
  *  stopped by name, a listener is killed by number. */
 export type RunningProcess =
-  | { readonly kind: 'service'; readonly spec: ServiceSpec; readonly port: number }
+  | {
+      readonly kind: 'service';
+      readonly spec: ServiceSpec;
+      /** Which of the service's programs is up: the pidfile's basename, so the web
+       *  service running apache2 is told apart from the same service running nginx. */
+      readonly program: string;
+      readonly port: number;
+    }
   | ({ readonly kind: 'listener' } & Listener);
 
 /** Resolve ONE pidfile (its `/var/run` basename + content) to what it advertises,
@@ -195,7 +219,12 @@ const runningFromPidfile = (pidfileName: string, content: string): RunningProces
   }
   const spec = serviceByPidfileName(pidfileName);
   if (spec === undefined) return null;
-  return { kind: 'service', spec, port: parsePidfilePort(content) ?? spec.defaultPort };
+  return {
+    kind: 'service',
+    spec,
+    program: pidfileName.replace(/\.pid$/, ''),
+    port: parsePidfilePort(content) ?? spec.defaultPort,
+  };
 };
 
 /** Everything a machine is running, read from its `/var/run/*.pid` files (the
