@@ -255,9 +255,9 @@ still know before touching it:
     `curl http://<its IP>` returns its seeded page (`curl -i` for headers). `ping` answers
     reachability, seeded per address. The first door since `ssh`, and the only one that opens
     with **no credential** at all.
-  - **The player's own server.** `nginx`/`apache2` are **two names for one capability** — both
-    write `/var/run/nginx.pid`, so the second is refused and told a web server is already up
-    rather than which program. Root-only. `curl` on the player's own address (or `localhost` /
+  - **The player's own server.** `nginx`/`apache2` are **two programs for one service**. Each
+    writes its own pidfile (`/var/run/nginx.pid`, `/var/run/apache2.pid`), and either is refused
+    while either runs, told a web server is already up rather than which program. Root-only. `curl` on the player's own address (or `localhost` /
     `127.0.0.1`) reads their **live** tree, so a `nano` edit changes what a fetch returns.
   - **Cross-player.** `curl http://<their public IP>` returns the page behind that NAT forward
     with **no session and no password**, via `core/network/resolveHttpFetch.ts`.
@@ -643,12 +643,18 @@ To pick up the next work: there is no active epic. **The owner has postponed the
    first boot leaves it running 1–3 services, born clean, and the boot screen prints one line per
    running service. Browser-verified two-player 2026-10-08: B on A's WiFi scans A's born
    services and gets a `guest` shell over `sshd`. As built: `vulnerability-architecture.md`
-   "How a workstation is born". Follow-ups in §9: `apache2` back into the pool, the `apt`
-   patch-window quirk, and the reason-to-keep-a-service-running epic.
-5. **In flight:** apache2 of its own, the first follow-up above: apache2 becomes a second web
-   server with its own pidfile, units and release history, then joins the birth pool and the
-   generated world 50/50 with nginx. Grilled and planned 2026-10-08 in
-   `plans/apache2-of-its-own.md` (four slices); next: slice 1.
+   "How a workstation is born". Follow-ups in §9: the `apt` patch-window quirk and the
+   reason-to-keep-a-service-running epic (`apache2` back into the pool is item 5).
+5. ✅ apache2 of its own (#625–#628, v0.331.0–v0.334.0): apache2 is a second web server with
+   its own pidfile, systemd unit, release history (CVE number 22) and effect pool; every tool
+   reads the RUNNING program; workstations and generated web hosts draw it 50/50 with nginx,
+   and fixed sites stay nginx. Browser-verified 2026-10-08: a box born with apache2 reads as it
+   in `ps`, `systemctl`, `nmap -sV` and `curl -i`, and a generated apache2 host scans, fires,
+   serves an Apache-style `httpd.conf` and logs `apache2[pid]`. As built:
+   `vulnerability-architecture.md` "One service, two programs: the web". Left as it is: the
+   wire-check scripts that read `spec.package` for a generated host all pass, since none of
+   their chosen hosts runs apache2; one that lands on an apache2 host needs the running
+   program's package instead.
 6. **Then:** defender-side items: the `echo x > rules.v4` wipe and player-driven service patching
    (both §9). In-game tutorials matter once others playtest.
 
@@ -2168,10 +2174,12 @@ state costs you more than one wrong attempt.
     the live scans showed no `6379` on any of them. Restricted to `machine` hosts — the only kind
     that consumes it — advertised and furnished agree **29/29, zero bare**. When writing an oracle,
     filter to `kind === 'machine'` or read the same filesystem the game reads.
-  - **`nginx` and `apache2` are two names for ONE capability.** They bind the same `http` catalog
-    row, so whichever starts first owns the port and the other is refused — and the refusal names
-    the CONFLICT ("web server already running"), never the program, because "apache2 is already
-    running" is false when nginx was the one that came up.
+  - **`nginx` and `apache2` are two programs for ONE service.** They bind the same `http` catalog
+    row (apache2 through `otherPrograms`), each with its own pidfile, so whichever starts first
+    owns the port and the other is refused. The refusal names the CONFLICT ("web server already
+    running"), never the program, because "apache2 is already running" is false when nginx was
+    the one that came up. What is DATED and FIRED is the running program's package, never the
+    row's (`vulnerability-architecture.md` "One service, two programs: the web").
   - Real Unix reserves ports below 1024 for root, which is tempting to model here. Don't: the root
     gate fires before a port is ever parsed, so the rule would be an unreachable branch.
 - **`pidfile.ts` owns the ONLY answer to "what is running here".** `readRunningProcesses` walks
@@ -2195,10 +2203,11 @@ state costs you more than one wrong attempt.
     therefore resolves a pid by matching `listenerPid` across the walk, not by reading a field** —
     and must check the `kind` discriminator first, or it reports success for a `/var/run/nc-22.pid`
     that never existed and tells a defender they shut a door that is still open.
-- **`systemctl` speaks as the UNIT; only `start` speaks as the program.** `stop` and `status`
-  answer `nginx.service - web server` however the player typed it, so stopping via `apache2` can
-  never claim apache2 was the one running. `start` keeps the program's banner, because starting IS
-  an act on a program. It is the same rule `webServer`'s conflict reply already followed.
+- **`systemctl` has one unit per PROGRAM.** `nginx` and `apache2` are two units for the one
+  web port, each titled with its own systemd description (`apache2.service - The Apache HTTP
+  Server`), as real systemd has them. `systemctl stop nginx` while apache2 runs answers that nginx
+  is inactive and stops nothing, so a stop can never claim a program that was not running.
+  (Until v0.331.0 both names resolved to one shared `nginx` unit.)
   - **Resolving a unit checks the BINARY, or `systemctl` is an apt bypass.** The binary gate lives
     on the `nginx`/`apache2` commands; delegating around it would open port 80 on a box that never
     installed a web server. `unitFor` gates on `binaryExists`, which is also what makes the
@@ -2210,9 +2219,8 @@ state costs you more than one wrong attempt.
   `systemctl stop <name>` is the only way to shut a daemon and `kill <pid>` the only way to remove
   a backdoor, and neither answers for the other: `ps` prints `-` in the PID column for a service,
   so no number a player can type resolves to one, and `kill sshd` answers
-  `kill: sshd: use "systemctl stop sshd"` — echoing the name AS TYPED, because `systemctl stop
-  apache2` really works and translating it to the shared unit name would hand the player a program
-  they never mentioned. **`kill` checks argument shape before privilege**, so a guest gets the
+  `kill: sshd: use "systemctl stop sshd"` — echoing the name AS TYPED, because each program is
+  its own unit and naming any other would hand the player a program they never mentioned. **`kill` checks argument shape before privilege**, so a guest gets the
   pointer rather than a root refusal that would be advice they cannot take. Success is silent, as
   the real thing is. The split is not arbitrary: sshd forks a child per session, so a stop leaves
   the room full, while netcat is the one process that both listens and serves — which is why only
@@ -2904,13 +2912,12 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   prompts, which never pass through the shell (real `ftp` does not expand `~` either, so that one is
   probably right as it is).
 
-- **`apache2` is hollow, so a workstation is never born with it.** The world keeps no release
-  history for it: no manifest row, no version in `nmap -sV`, never a CVE. It also shares nginx's
-  catalog row and pidfile, so `ps` names it `nginx`. A box born with it would carry a door the
-  clock never opens, so the birth pool's web slot is `nginx` only (`core/boot/firstBoot.ts`,
-  `docs/vulnerability-architecture.md` "How a workstation is born"). The follow-up: give `apache2`
-  its own timeline and make the web service know which program is running (for `ps`, `nmap -sV`
-  and `msfconsole`), then return it to the pool 50/50 with `nginx`. Owner-agreed 2026-10-07.
+- **`apache2` was hollow, so a workstation was never born with it — RESOLVED 2026-10-08
+  (v0.331.0–v0.334.0, #625–#628).** It had no release history and shared nginx's row and pidfile,
+  so `ps` named it `nginx`. It now has its own pidfile, unit, timeline (CVE number 22) and effect
+  pool, every tool reads the running program, and workstations and generated web hosts draw it
+  50/50 with nginx. As built: `docs/vulnerability-architecture.md` "One service, two programs:
+  the web".
 
 - **`apt install` of a base-image service inside its patch window leaves it at the start tuple.**
   `openssh-server` and `vsftpd` are base-image packages (`BASE_IMAGE_PACKAGES`), so `apt install`
@@ -3106,7 +3113,9 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   remained was the slice's own remainder, and slice 6b is now COMPLETE (v0.169.0): the end-to-end
   evidence landed as `generatedBoxDoors.test.ts` needing no production change, as predicted, and the
   two apache-flavoured `/etc/httpd.conf` templates were rewritten nginx-flavoured so a generated
-  webserver's config, its COMMAND column and its `/usr/sbin` all name one program. The one thing it
+  webserver's config, its COMMAND column and its `/usr/sbin` all name one program. (Since v0.334.0
+  a generated webserver runs nginx or apache2 and its config is in the words of whichever runs,
+  which keeps the same rule.) The one thing it
   surfaced rather than closed is the scan half, recorded with the own-LAN `nmap` entry below.
 
 - **Should `vsftpd` be an apt package rather than base image?** Raised while grilling slice 6b and

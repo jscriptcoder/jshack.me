@@ -86,16 +86,28 @@ agent-browser snapshot -i                              # interactive refs (@e1, 
   braille spinner (`⠋ apt...`) whose frames are all one character wide, so `innerText.length`
   holds perfectly still while the command is still working — a settle-detector built on length
   stability returns immediately, and the next `keyboard type` lands in a terminal that is not
-  listening. Poll for a line ENDING in a prompt character instead, and require it to be quiet for
-  a few consecutive samples:
+  listening. Poll for the prompt line instead, and require it to be quiet for a few consecutive
+  samples. Two things on screen defeat a naive version (2026-10-08, v0.334.0): the top bar's
+  CLOCK ticks every second, so the page text never holds still and a whole-text comparison times
+  out on an idle prompt; and the page ends with the status bar (`WLAN0 … V 0.334.0`), not the
+  prompt, so testing the LAST character never matches. Strip clock times, cut at the status bar,
+  and read the prompt as the line just above the bar's hostname line. Save it to a file and pass
+  it as `eval "$(cat wait.js)"`, written with the Write tool, since a bash heredoc eats the
+  `\d` escapes:
   ```js
   (async () => { let quiet = 0, prev = '';
-    for (let i = 0; i < 160; i++) { await new Promise(r => setTimeout(r, 250));
-      const t = document.body.innerText.trimEnd();
-      quiet = (t === prev && /[#$>]$/.test(t)) ? quiet + 1 : 0; prev = t;
-      if (quiet >= 3) return 'prompt'; }
+    for (let i = 0; i < 100; i++) { await new Promise(r => setTimeout(r, 250));
+      const t = document.body.innerText.replace(/\d\d:\d\d:\d\d/g, 'T');
+      const cut = t.lastIndexOf('\nWLAN0');
+      const term = (cut < 0 ? t : t.slice(0, cut)).split('\n').map((line) => line.trim()).filter((line) => line !== '');
+      const promptLine = term.at(-2) ?? '';
+      const key = term.slice(0, -1).join('\n');
+      quiet = (key === prev && /[#$>:]$/.test(promptLine)) ? quiet + 1 : 0; prev = key;
+      if (quiet >= 4) return 'prompt'; }
     return 'TIMEOUT'; })()
   ```
+  `:` is there for `Password:`. A wait that TIMES OUT is not the CLI hanging: an `eval` that
+  runs past ~30 s comes back as `os error 10060`, which reads like a dead browser.
   `>` matters as well as `#`/`$`: inside `mysql`/`rediscli` the prompt is `redis> `, and a matcher
   that only knows shell prompts times out on every statement you send to a data door.
 - **Each CLI call costs ~1-2 s, so anything short is over before you can look at it.** A
@@ -380,7 +392,8 @@ i.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, which:
 ### A player whose box was BORN with the service you need
 
 Verified 2026-10-08 (v0.330.1). Since v0.330.0 a workstation's first boot leaves it running 1–3
-services drawn from its identity (`sshd`, `vsftpd`, `nginx`, `mysqld`, `redis-server`), so B can
+services drawn from its identity (`sshd`, `vsftpd`, a web server, `mysqld`, `redis-server`; since
+v0.333.0 the web server is `nginx` or `apache2`, 50/50), so B can
 sweep A's box with no setup on A beyond joining WiFi. The run: A on `LINKSYS-8939`, B re-scanned
 until it showed (34 scans), `nmap -sV <A>` listed A's three born services, `hydra <A> ssh` found
 `guest`, `ssh guest@<A>` landed on `guest@alicebox`.
