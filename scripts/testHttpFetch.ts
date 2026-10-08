@@ -16,6 +16,8 @@
 //     `/etc/passwd` and the traversal that reaches it returns 404 with no content.
 //   - Every unreachable cause collapses to one `host_unreachable`: no forward, a bricked
 //     box, an occupant who left the WiFi, and a forward onto a non-web port.
+//   - The reply names the PROGRAM that served the page (`nginx`, `apache2`), read off
+//     the reached box's own pidfiles, so `curl -i` can say which server answered.
 //   - The hit is recorded on the machine that served it, in the TARGET OWNER's journal
 //     row — which only the database can settle, since `writer_key` is a column `tsc`
 //     cannot see. A fetcher who held their own row could rewrite the record of their
@@ -32,7 +34,11 @@ import { generateIdentity } from '../src/core/identity/identity.js';
 import { computeWorkstationId } from '../src/core/identity/workstation.js';
 import { computeApGatewayId } from '../src/core/identity/router.js';
 import { lanAddressFor } from '../src/core/network/lanAddress.js';
-import { formatPidfileContent } from '../src/core/services/pidfile.js';
+import {
+  formatPidfileContent,
+  formatProgramPidfileContent,
+  programPidfilePath,
+} from '../src/core/services/pidfile.js';
 import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
 import { HTTP_DEFAULT_PORT } from '../src/core/network/http.js';
 import { ACCESS_LOG_PATH } from '../src/core/logging/accessLog.js';
@@ -71,6 +77,9 @@ const post = async (
 
 const contentOf = (body: unknown): string | undefined =>
   (body as { content?: string } | null)?.content;
+
+const serverOf = (body: unknown): string | undefined =>
+  (body as { server?: string } | null)?.server;
 
 const errorOf = (body: unknown): string | undefined =>
   typeof body === 'object' && body !== null ? (body as { error?: string }).error : undefined;
@@ -152,6 +161,16 @@ const webServerUpRow = patchRow({
   machineId: A_WS,
   path: `/var/run/${SERVICE_CATALOG.http.pidfile}`,
   content: formatPidfileContent(SERVICE_CATALOG.http, HTTP_DEFAULT_PORT),
+  permissions: WORLD_PID,
+  nodeType: 'file',
+  ownerKey: alice.publicKeyHex,
+});
+
+/** Alice serving the same web with apache2 instead: its own pidfile, the same port. */
+const apacheUpRow = patchRow({
+  machineId: A_WS,
+  path: programPidfilePath('apache2'),
+  content: formatProgramPidfileContent('apache2', HTTP_DEFAULT_PORT),
   permissions: WORLD_PID,
   nodeType: 'file',
   ownerKey: alice.publicKeyHex,
@@ -245,6 +264,11 @@ check(
   page.status === 200 && contentOf(page.body) === A_PAGE,
   `status=${page.status} content=${JSON.stringify(contentOf(page.body) ?? null)}`,
 );
+check(
+  'the reply names nginx as the program that served it',
+  serverOf(page.body) === 'nginx',
+  `server=${JSON.stringify(serverOf(page.body) ?? null)}`,
+);
 
 // === 2. A named path under the document root. ===
 const named = await post(NETWORK, fetchAs(bob, { path: '/status.html' }));
@@ -253,6 +277,24 @@ check(
   named.status === 200 && contentOf(named.body) === A_STATUS_PAGE,
   `status=${named.status} content=${JSON.stringify(contentOf(named.body) ?? null)}`,
 );
+
+// === 2b. Alice swaps nginx for apache2: the same page, a different program answers. ===
+await sr
+  .from('patches')
+  .delete()
+  .eq('machine_id', A_WS)
+  .eq('path', `/var/run/${SERVICE_CATALOG.http.pidfile}`);
+await seed('patches', [apacheUpRow], 'A runs apache2');
+const apachePage = await post(NETWORK, fetchAs(bob, { path: '/' }));
+check(
+  'with apache2 running instead, the same page comes back naming apache2',
+  apachePage.status === 200 &&
+    contentOf(apachePage.body) === A_PAGE &&
+    serverOf(apachePage.body) === 'apache2',
+  `status=${apachePage.status} server=${JSON.stringify(serverOf(apachePage.body) ?? null)}`,
+);
+await sr.from('patches').delete().eq('machine_id', A_WS).eq('path', programPidfilePath('apache2'));
+await seed('patches', [webServerUpRow], 'A back on nginx');
 
 // === 3. The document root holds server-side, against a path the CLIENT chose. ===
 const traversal = await post(NETWORK, fetchAs(bob, { path: '/../../../etc/passwd' }));
@@ -378,8 +420,8 @@ check(
 );
 
 check(
-  'exactly the five fetches that reached A’s box are recorded — the unreachable ones left nothing',
-  logLines.length === 5,
+  'exactly the six fetches that reached A’s box are recorded — the unreachable ones left nothing',
+  logLines.length === 6,
   `lines=${logLines.length}`,
 );
 

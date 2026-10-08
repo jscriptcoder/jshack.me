@@ -226,13 +226,21 @@ export const fetchPublicPage = async (
       if (failed.error === 'host_unreachable') return { ok: false, error: 'host_unreachable' };
       return { ok: false, error: 'network_error' };
     }
-    const resolved = body as { readonly ok?: boolean; readonly content?: string };
+    const resolved = body as {
+      readonly ok?: boolean;
+      readonly content?: string;
+      readonly server?: string;
+    };
     // A 200 we cannot read is not a page. Reporting it as an empty one would print a
     // blank response as though the target had served it.
-    if (resolved.ok !== true || typeof resolved.content !== 'string') {
+    if (
+      resolved.ok !== true ||
+      typeof resolved.content !== 'string' ||
+      typeof resolved.server !== 'string'
+    ) {
       return { ok: false, error: 'network_error' };
     }
-    return { ok: true, content: resolved.content };
+    return { ok: true, content: resolved.content, server: resolved.server };
   } catch {
     return { ok: false, error: 'network_error' };
   }

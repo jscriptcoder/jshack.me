@@ -28,7 +28,6 @@
 import type { Command, CommandResult } from './types.js';
 import type { MachineId } from '../types.js';
 import {
-  daemonName,
   listenerPid,
   readRunningProcesses,
   LISTENER_COMMAND,
@@ -65,7 +64,7 @@ const rowOf = (running: RunningProcess, machineId: MachineId): Row =>
     ? {
         pid: NO_PID,
         user: running.spec.runUser,
-        command: daemonName(running.spec),
+        command: running.program,
         port: running.port,
       }
     : {

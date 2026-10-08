@@ -1612,7 +1612,7 @@ export const resolveBootCheck = async (): Promise<BootReport> => {
   await refetchPatches();
   const tree = applyPatches(seeded, await fetchOwnPatches(ownBox));
   const started = readRunningProcesses(tree).flatMap((running) =>
-    running.kind === 'service' ? [running.spec.service] : [],
+    running.kind === 'service' ? [running.program] : [],
   );
   return { ...canBoot(tree), started };
 };

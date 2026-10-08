@@ -88,6 +88,17 @@ describe('ps', () => {
     expect(lines).toEqual([HEADER, NO_PID + 'root      sshd        22', NO_PID + 'root      vsftpd      21']);
   });
 
+  it.each([
+    ['nginx', 'nginx.pid'],
+    ['apache2', 'apache2.pid'],
+  ])('names %s as the web server that is running, not the other', async (program, pidfile) => {
+    // Two programs run the web. A survey that named the default whichever one came
+    // up would tell the owner they are serving software they never started.
+    const lines = await runPs(varRun({ [pidfile]: `${program}:port=80` }));
+
+    expect(lines).toEqual([HEADER, NO_PID + `root      ${program.padEnd(12)}80`]);
+  });
+
   it('reports the port a service was actually started on, not its default', async () => {
     // A defender who moved ftp to 2121 must be able to SEE 2121 — a survey that
     // printed the catalog default would send them looking for a door that is

@@ -32,10 +32,9 @@ import { isUnitName, systemctl } from './systemctl.js';
  * the owner's own scan, a neighbour's, and a stranger's across the network —
  * and stays shut until someone starts it again.
  *
- * The unit, not the program, is what these verbs act on. `nginx` and `apache2`
- * are two ways to bind ONE port, so both resolve to the same unit and both are
- * answered in the unit's words: stopping the web server never claims apache2
- * was the one running when nginx was.
+ * `nginx` and `apache2` are two units, as on a real box, though they bind ONE
+ * port: each answers for its own program only, so stopping or asking after one
+ * never claims it was running when the other was.
  *
  * `start` deliberately does NOT write the pidfile itself — it routes into the
  * daemon commands, so there is one writer with one gate ladder rather than a
@@ -279,22 +278,47 @@ describe('systemctl stop', () => {
     expect(exitCode).toBe(1);
   });
 
-  it('stops the running web server under either name, naming the unit not the program', async () => {
-    // The keystone of the one-web-identity decision: `apache2` and `nginx` bind
-    // ONE port, so stopping via apache2 must not claim apache2 was running when
-    // it was nginx that came up.
+  it('stops the web server that is running, in its own words', async () => {
     const { env, removes } = systemctlEnv({
-      running: { 'nginx.pid': 'nginx:port=80' },
+      running: { 'apache2.pid': 'apache2:port=80' },
       installed: ['apache2'],
     });
 
     const { lines } = await streamResult(await systemctl.execute(env, ['stop', 'apache2'], NO_FLAGS));
 
-    expect(removes).toEqual([pidfilePath(SERVICE_CATALOG.http)]);
+    expect(removes).toEqual(['/var/run/apache2.pid']);
     expect(lines).toEqual([
-      { kind: 'text', content: 'Stopping web server...' },
-      { kind: 'text', content: 'nginx stopped.' },
+      { kind: 'text', content: 'Stopping The Apache HTTP Server...' },
+      { kind: 'text', content: 'apache2 stopped.' },
     ]);
+  });
+
+  it('leaves apache2 running when asked to stop nginx', async () => {
+    // Two units on one port: stopping the one that is not up must not take down the
+    // one that is, or an owner could close a door by naming the wrong program.
+    const { env, removes } = systemctlEnv({
+      running: { 'apache2.pid': 'apache2:port=80' },
+      installed: ['nginx', 'apache2'],
+    });
+
+    const { text, exitCode } = syncResult(await systemctl.execute(env, ['stop', 'nginx'], NO_FLAGS));
+
+    expect(text).toBe('nginx is not running.');
+    expect(exitCode).toBe(0);
+    expect(removes).toEqual([]);
+  });
+
+  it('refuses to start nginx while apache2 holds the web port', async () => {
+    const { env, writes } = systemctlEnv({
+      running: { 'apache2.pid': 'apache2:port=80' },
+      installed: ['nginx', 'apache2'],
+    });
+
+    const { text, exitCode } = syncResult(await systemctl.execute(env, ['start', 'nginx'], NO_FLAGS));
+
+    expect(text).toBe('nginx: web server already running on port 80');
+    expect(exitCode).toBe(1);
+    expect(writes).toEqual([]);
   });
 });
 
@@ -362,6 +386,36 @@ describe('systemctl start', () => {
 });
 
 describe('systemctl restart', () => {
+  it('refuses to restart nginx while apache2 holds the web port, writing nothing', async () => {
+    // A restart of a unit that is not up is a start, and a start is refused while the
+    // other web server holds the port: otherwise the box would run both.
+    const { env, removes, writes } = systemctlEnv({
+      running: { 'apache2.pid': 'apache2:port=80' },
+      installed: ['nginx', 'apache2'],
+    });
+
+    const { text, exitCode } = syncResult(
+      await systemctl.execute(env, ['restart', 'nginx'], NO_FLAGS),
+    );
+
+    expect(text).toBe('nginx: web server already running on port 80');
+    expect(exitCode).toBe(1);
+    expect(removes).toEqual([]);
+    expect(writes).toEqual([]);
+  });
+
+  it('restarts apache2 on its own pidfile and port', async () => {
+    const { env, removes, writes } = systemctlEnv({
+      running: { 'apache2.pid': 'apache2:port=8080' },
+      installed: ['apache2'],
+    });
+
+    await streamResult(await systemctl.execute(env, ['restart', 'apache2'], NO_FLAGS));
+
+    expect(removes).toEqual(['/var/run/apache2.pid']);
+    expect(writes).toEqual([{ path: '/var/run/apache2.pid', content: 'apache2:port=8080' }]);
+  });
+
   it('closes then re-opens a running unit', async () => {
     const { env, removes, writes } = systemctlEnv({ running: { 'vsftpd.pid': 'vsftpd:port=21' } });
 
@@ -479,21 +533,39 @@ describe('systemctl status', () => {
     expect(unknown.exitCode).toBe(notInstalled.exitCode);
   });
 
-  it.each([['apache2'], ['nginx']])(
-    'answers for the web unit under the name %s once installed',
-    async (typed) => {
-      // Both names, not just the alias: the canonical `nginx` entry carries its
-      // own unit identity, and testing only `apache2` would leave it unproven.
-      const { env } = systemctlEnv({
-        running: { 'nginx.pid': 'nginx:port=80' },
-        installed: [typed],
-      });
+  it('answers for each web unit on its own while apache2 runs', async () => {
+    // Two units, one port: each reports its own program, so the one that is up says
+    // so and the one that is not does not borrow its neighbour's state.
+    const { env } = systemctlEnv({
+      running: { 'apache2.pid': 'apache2:port=80' },
+      installed: ['nginx', 'apache2'],
+    });
 
-      const { text } = syncResult(await systemctl.execute(env, ['status', typed], NO_FLAGS));
+    const apache = syncResult(await systemctl.execute(env, ['status', 'apache2'], NO_FLAGS));
+    const nginxStatus = syncResult(await systemctl.execute(env, ['status', 'nginx'], NO_FLAGS));
 
-      expect(text).toBe('● nginx.service - web server\n     Active: active (running) on port 80');
-    },
-  );
+    expect(apache.text).toBe(
+      '● apache2.service - The Apache HTTP Server\n     Active: active (running) on port 80',
+    );
+    expect(nginxStatus.text).toBe(
+      '○ nginx.service - A high performance web server and a reverse proxy server\n' +
+        '     Active: inactive (dead)',
+    );
+  });
+
+  it('answers for nginx in its own words while it runs', async () => {
+    const { env } = systemctlEnv({
+      running: { 'nginx.pid': 'nginx:port=8080' },
+      installed: ['nginx'],
+    });
+
+    const { text } = syncResult(await systemctl.execute(env, ['status', 'nginx'], NO_FLAGS));
+
+    expect(text).toBe(
+      '● nginx.service - A high performance web server and a reverse proxy server\n' +
+        '     Active: active (running) on port 8080',
+    );
+  });
 
   it('treats a directory at the pidfile path as nothing running', async () => {
     // `mkdir /var/run/sshd.pid` is something a root player can really do. Read as

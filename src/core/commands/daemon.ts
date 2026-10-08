@@ -34,10 +34,10 @@
  * than being told afterwards. The gates refuse instantly and never reach the
  * daemon, so they stay sync.
  *
- * `nginx` and `apache2` are two names for ONE capability: both bind the `http`
- * row's pidfile, so whichever starts first owns the port and the other is
- * refused. See `alreadyRunning` for why that refusal names the conflict rather
- * than the program.
+ * `nginx` and `apache2` are two programs for ONE service: each writes its own
+ * pidfile, but both run the `http` row, so whichever starts first owns the port and
+ * the other is refused. See `alreadyRunning` for why that refusal names the
+ * conflict rather than the program.
  */
 
 import {
@@ -52,10 +52,11 @@ import {
 } from './types.js';
 import { SERVICE_CATALOG, type ServiceSpec } from '../services/serviceCatalog.js';
 import {
-  formatPidfileContent,
+  formatProgramPidfileContent,
   parsePidfilePort,
-  pidfilePath,
   PIDFILE_PERMISSIONS,
+  programPidfilePath,
+  programsOf,
 } from '../services/pidfile.js';
 import { errorLine, streamedResult, text } from './streaming.js';
 import { consumeRwCommunity, type ConsumedConfig } from '../snmp/rwCommunity.js';
@@ -81,8 +82,8 @@ export type Daemon = {
   /** How the program announces itself while starting: `Starting <banner>...`. */
   readonly banner: string;
   /** The refusal between `<name>: ` and ` on port <N>` when the port is already
-   *  bound. The web server says "web server already running" because two names
-   *  share one pidfile: "apache2 is already running" would be false when it was
+   *  bound. The web server says "web server already running" because two programs
+   *  run the one service: "apache2 is already running" would be false when it was
    *  nginx that came up. */
   readonly alreadyRunning: string;
   readonly description: string;
@@ -130,8 +131,16 @@ const parsePort = (raw: string | undefined, spec: ServiceSpec): number | null =>
  * `restart`: one answer to "is this up, and where", so a daemon's own gate and
  * the tool that reports on it can never disagree.
  */
-export const runningPort = (env: CommandEnv, spec: ServiceSpec): number | null => {
-  const node = env.fs.stat(pidfilePath(spec));
+export const runningPort = (env: CommandEnv, spec: ServiceSpec): number | null =>
+  programsOf(spec)
+    .map((program) => programPort(env, program, spec))
+    .find((port) => port !== null) ?? null;
+
+/** The port ONE program of a service holds, or null when that program is not up —
+ *  whatever else is running the service. What `systemctl` asks about a unit, since
+ *  nginx and apache2 are two units for one port. */
+export const programPort = (env: CommandEnv, program: string, spec: ServiceSpec): number | null => {
+  const node = env.fs.stat(programPidfilePath(program));
   if (node === null || node.kind !== 'file') return null;
   return parsePidfilePort(node.content) ?? spec.defaultPort;
 };
@@ -182,8 +191,8 @@ export const startDaemon = async (
   // would come out root-readable — invisible to anyone who later hops onto this
   // box, since the server prunes what it hands them to their tier.
   const result = await box.patches.write(
-    pidfilePath(daemon.spec),
-    formatPidfileContent(daemon.spec, port),
+    programPidfilePath(daemon.name),
+    formatProgramPidfileContent(daemon.name, port),
     { isNew: true, permissions: PIDFILE_PERMISSIONS },
   );
   if (!result.ok) return result;
@@ -280,8 +289,8 @@ const VSFTPD: Daemon = {
   ],
 };
 
-/** Both web-server programs write the `http` row's pidfile, so only one of them
- *  can be up. Unlike `sshd`, neither ships pre-installed: `apt install nginx` (or
+/** Both web-server programs run the `http` row, so only one of them can be up,
+ *  though each writes its own pidfile. Unlike `sshd`, neither ships pre-installed: `apt install nginx` (or
  *  `apache2`) puts the binary in `/usr/sbin` beside the daemons that do, and the
  *  existing binary-presence gate turns its absence into `command not found` with
  *  the install hint. */
@@ -433,8 +442,7 @@ export const named = daemonCommand(NAMED);
 
 /** Each daemon keyed by the command name that starts it. `systemctl` reads this
  *  to bring a unit up through `bringUp` once it has established the port is
- *  free — `nginx` and `apache2` keep separate entries so a start still announces
- *  the program the player actually asked for. */
+ *  free. */
 export const DAEMONS: Readonly<Record<string, Daemon>> = {
   sshd: SSHD,
   vsftpd: VSFTPD,

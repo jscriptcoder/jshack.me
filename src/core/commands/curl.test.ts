@@ -20,7 +20,11 @@ import { applyPatches, type Patch } from '../filesystem/applyPatches.js';
 import { defaultFilePermissions } from '../filesystem/defaultPermissions.js';
 import type { Directory } from '../filesystem/types.js';
 import { buildWorkstationBaseFs } from '../generation/workstationFs.js';
-import { formatPidfileContent } from '../services/pidfile.js';
+import {
+  formatPidfileContent,
+  formatProgramPidfileContent,
+  programPidfilePath,
+} from '../services/pidfile.js';
 import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
 import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces.js';
 import { assignHomeNetwork } from '../network/homeNetwork.js';
@@ -36,7 +40,7 @@ import { asAbsPath, asMachineId, asPlayerKeyHex } from '../types.js';
 import { chainLinks } from '../generation/lanTopology.js';
 import { resolveDeepScanHosts } from '../scan/deepScanHosts.js';
 import { crackableEssidPool } from '../generation/generateWifi.js';
-import { buildDirectory } from '../../test/factories/filesystem.js';
+import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
 
 /**
  * `curl <url>` fetches over HTTP — the one door that opens without a credential.
@@ -652,6 +656,29 @@ describe('curl against the player own address', () => {
     expect(text).toContain('It works!');
   });
 
+  it('names apache2 in the Server header when apache2 is the web server running', async () => {
+    // The product's own token, as a real Apache sends it, and still no version: what a
+    // box runs and what it is holed by are `nmap -sV`'s to say.
+    const apacheRunning: Patch = {
+      path: programPidfilePath('apache2'),
+      content: formatProgramPidfileContent('apache2', HTTP_DEFAULT_PORT),
+      owner: 'root',
+    };
+
+    const env = mockCommandEnv({
+      identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
+      network: mockNetworkViewFromConnectivity(onlineConnectivity(ESSID)),
+      fs: mockFsViewFromTree(ownBox(apacheRunning), { userType: 'user', cwd: () => asAbsPath('/') }),
+    });
+
+    const { text } = await drain(
+      await runCommandLine(env, `curl -i http://${OWN_IP}`, new Map([['curl', curl]])),
+    );
+
+    expect(text.split('\n')).toContain('Server: Apache');
+    expect(text.split('\n')).not.toContain('Server: nginx');
+  });
+
   it('reaches the box by its loopback names as readily as by its LAN address', async () => {
     // A player testing their own server types `localhost` before they type the address
     // they were leased — every real box answers to it, so a failure to resolve here
@@ -828,7 +855,11 @@ describe('curl across the network, at another player public IP', () => {
     return { drained: await drain(await curl.execute(env, args, new Map())), asked };
   };
 
-  const served = (content: string): PublicFetchResult => ({ ok: true, content });
+  const served = (content: string, server = 'nginx'): PublicFetchResult => ({
+    ok: true,
+    content,
+    server,
+  });
   const failed = (error: 'host_unreachable' | 'not_found' | 'network_error'): PublicFetchResult => ({
     ok: false,
     error,
@@ -928,6 +959,23 @@ describe('curl across the network, at another player public IP', () => {
     expect(text).toContain('HTTP/1.1 200 OK');
     expect(text).toContain(`Content-Length: ${THEIR_PAGE.length}`);
     expect(text).toContain('welcome to nebuchadnezzar');
+  });
+
+  it.each([
+    ['apache2', 'Server: Apache'],
+    ['nginx', 'Server: nginx'],
+  ])('names the program the far box serves with, %s, in the Server header', async (program, header) => {
+    const env = mockCommandEnv({
+      identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
+      network: mockNetworkViewFromConnectivity(onlineConnectivity(ESSID)),
+      remote: { ...mockRemoteApi(), fetchPublic: async () => served(THEIR_PAGE, program) },
+    });
+
+    const { text } = await drain(
+      await curl.execute(env, [`http://${THEIR_PUBLIC_IP}`], new Map([['-i', true]])),
+    );
+
+    expect(text.split('\n')).toContain(header);
   });
 
   it('never reaches the network while offline', async () => {
@@ -1075,6 +1123,60 @@ describe('curl from a hop', () => {
 
     expect(result.exitCode).toBe(0);
     expect(result.text).toBe(deepServedPage(deep.essid, deep.host));
+  });
+
+  /** A switch fronting a layer with a web host on it, and that host's web port: the
+   *  one device whose ACL can shut a port the box behind it still serves. */
+  const webHostBehindSwitch = (): {
+    readonly essid: string;
+    readonly switchMachineId: string;
+    readonly host: LanHost;
+    readonly port: number;
+  } => {
+    for (const essid of crackableEssidPool) {
+      for (const link of chainLinks(essid)) {
+        if (link.host.kind !== 'switch') continue;
+        const web = resolveDeepScanHosts(essid, link, buildDirectory({})).hosts.find(
+          (candidate) =>
+            candidate.host.kind === 'machine' &&
+            candidate.ports.some((open) => open.service === 'http'),
+        );
+        if (web !== undefined) {
+          const port = web.ports.find((open) => open.service === 'http')!.port;
+          return { essid, switchMachineId: link.machineId, host: web.host, port };
+        }
+      }
+    }
+    throw new Error('expected a crackable network with a web host behind a switch');
+  };
+
+  /** A switch's own tree holding just its ACL. */
+  const switchWithAcl = (acl: string): Directory =>
+    buildDirectory({
+      etc: buildDirectory({ switch: buildDirectory({ 'acl.conf': buildFile(acl) }) }),
+    });
+
+  it('refuses a web port the switch in front of it denies, though the box behind still serves it', async () => {
+    // The ACL is what the shell reaches, not what the box runs: a web tool refuses
+    // exactly the port a scan from here shows shut. The same fetch without the deny
+    // line is served, so the refusal is the ACL's and nothing else's.
+    const behind = webHostBehindSwitch();
+    const fetchWith = async (acl: string) =>
+      drain(
+        await curl.execute(
+          shellOn(behind.essid, behind.switchMachineId, { fs: switchWithAcl(acl) }),
+          [`http://${behind.host.ip}:${behind.port}`],
+          new Map(),
+        ),
+      );
+
+    const denied = await fetchWith(`deny ${behind.port}\n`);
+    const allowed = await fetchWith('');
+
+    expect(denied.text).toBe(
+      `curl: (7) Failed to connect to ${behind.host.ip} port ${behind.port}: Connection refused`,
+    );
+    expect(allowed.text).toBe(deepServedPage(behind.essid, behind.host));
   });
 
   it('reports the fetch under the box the shell stands on, not the player home', async () => {

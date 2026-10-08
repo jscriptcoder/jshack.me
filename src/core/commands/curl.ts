@@ -24,7 +24,6 @@
 
 import type { Command, CommandResult, TerminalLine } from './types.js';
 import { createFsView } from '../filesystem/fsView.js';
-import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
 import { parseTypedUrl, resolveWebPath } from '../network/http.js';
 import { isPublicIp } from '../generation/ip.js';
 import { addressForTarget } from '../network/resolveName.js';
@@ -48,20 +47,32 @@ const UNREACHABLE = 'curl: (7) Failed to connect — network is unreachable';
 
 const NOT_FOUND = 'curl: (22) The requested URL returned error: 404';
 
-/** The daemon behind the web service — what the `Server:` header advertises. No
- *  version: what version a service runs is what `nmap -sV` and the vulnerability
- *  system are for, and inventing one here would put a second answer in the world. */
-const SERVER_HEADER = SERVICE_CATALOG.http.pidfile.replace(/\.pid$/, '');
+/** What each web program calls itself in a `Server:` header — its product token, as
+ *  the real servers send it. No version: what version a service runs is what `nmap -sV`
+ *  and the vulnerability system are for, and inventing one here would put a second
+ *  answer in the world. */
+const SERVER_TOKENS: Readonly<Record<string, string>> = {
+  nginx: 'nginx',
+  apache2: 'Apache',
+};
 
 /** The response. Under `-i` the status line and headers come first, then a blank
  *  line, then the body — the wire order, so what the player sees is what came back. */
-async function* responseLines(
-  content: string,
-  includeHeaders: boolean,
-): AsyncIterable<TerminalLine> {
+type Response = {
+  readonly content: string;
+  /** The program that answered (`nginx`, `apache2`). */
+  readonly server: string;
+  readonly includeHeaders: boolean;
+};
+
+async function* responseLines({
+  content,
+  server,
+  includeHeaders,
+}: Response): AsyncIterable<TerminalLine> {
   if (includeHeaders) {
     yield text('HTTP/1.1 200 OK');
-    yield text(`Server: ${SERVER_HEADER}`);
+    yield text(`Server: ${SERVER_TOKENS[server]}`);
     yield text(`Content-Length: ${content.length}`);
     yield text('');
   }
@@ -70,9 +81,9 @@ async function* responseLines(
 
 /** The response, once some target has produced content — identical whether the file came
  *  off a tree on this LAN or off a machine the server materialized. */
-const respond = (content: string, includeHeaders: boolean): CommandResult => ({
+const respond = (response: Response): CommandResult => ({
   kind: 'async',
-  lines: responseLines(content, includeHeaders),
+  lines: responseLines(response),
   exitCode: async () => 0,
 });
 
@@ -125,14 +136,14 @@ const execute: Command['execute'] = async (env, args, flags) => {
     if (page.kind === 'not_found') {
       return error(NOT_FOUND);
     }
-    return respond(page.content, flags.has('-i'));
+    return respond({ content: page.content, server: page.server, includeHeaders: flags.has('-i') });
   }
 
   const reached = reachWebHost({ root: env.fs.root(), program: 'curl', url, vantage });
   if (!reached.ok) {
     return reached.failure;
   }
-  const { fs: hostFs, essid, address } = reached.host;
+  const { fs: hostFs, essid, address, server } = reached.host;
 
   // Something answered, so the box that answered records the hit — the server resolves
   // which machine that is and writes its /var/log/access.log itself. Above this line
@@ -177,7 +188,7 @@ const execute: Command['execute'] = async (env, args, flags) => {
     return error(NOT_FOUND);
   }
 
-  return respond(served.content, flags.has('-i'));
+  return respond({ content: served.content, server, includeHeaders: flags.has('-i') });
 };
 
 export const curl: Command = {

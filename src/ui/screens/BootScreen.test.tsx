@@ -115,7 +115,7 @@ describe('BootScreen', () => {
       <BootScreen
         machineName="skylab"
         username="neo"
-        resolveBoot={running('mysql', 'http')}
+        resolveBoot={running('mysqld', 'nginx')}
         onComplete={vi.fn()}
       />
     ));
@@ -134,7 +134,7 @@ describe('BootScreen', () => {
       <BootScreen
         machineName="skylab"
         username="neo"
-        resolveBoot={running('domain', 'redis', 'http', 'snmp', 'ssh', 'mysql', 'ftp')}
+        resolveBoot={running('named', 'redis-server', 'nginx', 'snmpd', 'sshd', 'mysqld', 'vsftpd')}
         onComplete={vi.fn()}
       />
     ));
@@ -149,6 +149,26 @@ describe('BootScreen', () => {
       '[  OK  ] Started Advanced key-value store.',
       '[  OK  ] Started Simple Network Management Protocol (SNMP) Daemon.',
       '[  OK  ] Started BIND Domain Name Server.',
+    ]);
+  });
+
+  it('starts apache2 in its own words, not as the web server nginx would be', async () => {
+    // One service, two programs: the line names the program the box runs, so an
+    // owner who installed apache2 is not told at boot that they are serving nginx.
+    const { container } = render(() => (
+      <BootScreen
+        machineName="skylab"
+        username="neo"
+        resolveBoot={running('apache2', 'sshd')}
+        onComplete={vi.fn()}
+      />
+    ));
+
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    expect(serviceLines(container)).toEqual([
+      '[  OK  ] Started OpenBSD Secure Shell server.',
+      '[  OK  ] Started The Apache HTTP Server.',
     ]);
   });
 

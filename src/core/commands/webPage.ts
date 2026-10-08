@@ -34,8 +34,8 @@ import { resolveWebPath } from '../network/http.js';
 import { connectError, reachWebHost, type ErrorResult } from './webHost.js';
 
 export type PageResult =
-  /** The box answered with a page — logged. */
-  | { readonly kind: 'page'; readonly content: string }
+  /** The box answered with a page — logged. `server` is the program that answered. */
+  | { readonly kind: 'page'; readonly content: string; readonly server: string }
   /** The box answered and had nothing there — logged, because it answered. */
   | { readonly kind: 'not_found' }
   /** Nothing answered, so nothing was logged and nowhere was visited. */
@@ -80,7 +80,7 @@ export const fetchWebPage = ({
   if (!reached.ok) {
     return { kind: 'unreachable', failure: reached.failure };
   }
-  const { fs, essid, address } = reached.host;
+  const { fs, essid, address, server } = reached.host;
 
   // Logged before the read, so a miss is recorded as readily as a hit: the box was
   // asked either way, and what a defender needs to see is that it was asked.
@@ -97,7 +97,7 @@ export const fetchWebPage = ({
   // Read as the SERVER: a web server serves its document root under its own
   // account, and the reader has no account on that box at all.
   const served = createFsView(fs, { userType: 'root' }).read(filePath);
-  return served.ok ? { kind: 'page', content: served.content } : { kind: 'not_found' };
+  return served.ok ? { kind: 'page', content: served.content, server } : { kind: 'not_found' };
 };
 
 /**
@@ -135,7 +135,7 @@ export const fetchPageAcrossNetwork = async ({
     callerMachineId,
   });
   if (fetched.ok) {
-    return { kind: 'page', content: fetched.content };
+    return { kind: 'page', content: fetched.content, server: fetched.server };
   }
   if (fetched.error === 'not_found') {
     return { kind: 'not_found' };

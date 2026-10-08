@@ -296,8 +296,8 @@ describe('kill, aimed at a service', () => {
     expect(removes).toEqual([]);
   });
 
-  it('names the unit the player typed, not the one it shares an identity with', async () => {
-    // `apache2` and `nginx` are two names for one unit, and `systemctl stop
+  it('names the unit the player typed, not the other web server', async () => {
+    // `apache2` and `nginx` are two units for one service, and `systemctl stop
     // apache2` really works — so echoing back what they typed gives a player a
     // line they can copy, where translating it would hand them a program they
     // never mentioned.

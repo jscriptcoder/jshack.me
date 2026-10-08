@@ -323,7 +323,8 @@ export type PublicFetchParams = {
  *  OUR side failing to complete the round-trip, which is a different sentence to the
  *  player: the target never answered because we never asked. */
 export type PublicFetchResult =
-  | { readonly ok: true; readonly content: string }
+  /** `server` is the program that answered (`nginx`, `apache2`), for `curl -i`. */
+  | { readonly ok: true; readonly content: string; readonly server: string }
   | { readonly ok: false; readonly error: 'host_unreachable' | 'not_found' | 'network_error' };
 
 /** What a path sweep hands the cross-network seam. It names no words: the server

@@ -72,7 +72,7 @@ import {
   KERNEL_BOOT_LINES,
   LOGROTATE_TIMER,
   REDIS_SAVE_RULES,
-  SERVICE_UNIT_DESCRIPTIONS,
+  UNIT_DESCRIPTIONS,
   type DailyTimer,
 } from './pools/logLines.js';
 
@@ -284,7 +284,7 @@ export const buildLogHistory = (options: LogHistoryOptions): Readonly<Record<str
                 laterBy(rebootAt, prng.nextInt(5, 20)),
                 'systemd',
                 1,
-                `Started ${SERVICE_UNIT_DESCRIPTIONS[spec.service]}.`,
+                `Started ${UNIT_DESCRIPTIONS[daemonName(spec)]}.`,
               ),
             ),
             auth:

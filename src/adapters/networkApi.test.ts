@@ -700,10 +700,16 @@ describe('fetchPublicPage', () => {
   };
 
   it('signs a resolveHttpFetch request, naming the hop it ran from, and returns the page', async () => {
-    const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true, content: '<h1>hi</h1>' }));
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse(200, { ok: true, content: '<h1>hi</h1>', server: 'apache2' }),
+    );
     const deps = makeDeps(fetchSpy as unknown as typeof fetch);
 
-    expect(await fetchPublicPage(deps, PARAMS)).toEqual({ ok: true, content: '<h1>hi</h1>' });
+    expect(await fetchPublicPage(deps, PARAMS)).toEqual({
+      ok: true,
+      content: '<h1>hi</h1>',
+      server: 'apache2',
+    });
     const verified = await verifyPayload(sentEnvelope(fetchSpy));
     if (!verified.ok) throw new Error('expected verified envelope');
     // The client box travels as `caller_machine_id`, not the camelCase field name.
@@ -718,10 +724,31 @@ describe('fetchPublicPage', () => {
 
   it('passes an empty page through as a page, not as a failure', async () => {
     const deps = makeDeps(
-      vi.fn(async () => jsonResponse(200, { ok: true, content: '' })) as unknown as typeof fetch,
+      vi.fn(async () =>
+        jsonResponse(200, { ok: true, content: '', server: 'nginx' }),
+      ) as unknown as typeof fetch,
     );
 
-    expect(await fetchPublicPage(deps, PARAMS)).toEqual({ ok: true, content: '' });
+    expect(await fetchPublicPage(deps, PARAMS)).toEqual({ ok: true, content: '', server: 'nginx' });
+  });
+
+  it.each([
+    ['says it is not ok', { ok: false, content: '<h1>hi</h1>', server: 'nginx' }],
+    ['carries no text', { ok: true, content: 7, server: 'nginx' }],
+  ])('treats a 200 that %s as a reply it cannot read', async (_case, body) => {
+    const deps = makeDeps(vi.fn(async () => jsonResponse(200, body)) as unknown as typeof fetch);
+
+    expect(await fetchPublicPage(deps, PARAMS)).toEqual({ ok: false, error: 'network_error' });
+  });
+
+  it('treats a page that names no server as a reply it cannot read', async () => {
+    // A `Server` header has to come from somewhere; inventing one here would put a
+    // program on the far box that the far box never named.
+    const deps = makeDeps(
+      vi.fn(async () => jsonResponse(200, { ok: true, content: '<h1>hi</h1>' })) as unknown as typeof fetch,
+    );
+
+    expect(await fetchPublicPage(deps, PARAMS)).toEqual({ ok: false, error: 'network_error' });
   });
 
   it('reports the target unreachable when the server refuses to reach it', async () => {
