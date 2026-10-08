@@ -95,8 +95,10 @@ export type ServiceSpec = {
    *  `/var/run/<program>.pid` — so a box running one of them is told apart from a box
    *  running the default by every tool that reads `/var/run`. Absent for a service
    *  only one program provides. They share everything else on the row, the port
-   *  first, so at most one of them can be up. */
-  readonly otherPrograms?: readonly string[];
+   *  first, so at most one of them can be up — everything but the PACKAGE, which is
+   *  the program's own: what dates it, and what holes it has, belongs to the software
+   *  actually running, not to the service it provides. */
+  readonly otherPrograms?: readonly { readonly name: string; readonly package: string }[];
   /** The port the daemon listens on absent an explicit override. */
   readonly defaultPort: number;
   /** The transport the port is on, as `nmap` names it — `161/udp`. Absent means
@@ -190,7 +192,7 @@ export const SERVICE_CATALOG = {
     altPorts: [2222, 8022],
     altPortChance: 0.2,
     sweepLog: SYSLOG_AUTH_SWEEP,
-    formatExploit: syslogExploitLine('sshd'),
+    formatExploit: syslogExploitLine,
     accountsOn: accountsIn,
   },
   // One row for the web, not one per server program: `nginx` and `apache2` are two
@@ -202,7 +204,7 @@ export const SERVICE_CATALOG = {
     service: 'http',
     package: 'nginx',
     pidfile: 'nginx.pid',
-    otherPrograms: ['apache2'],
+    otherPrograms: [{ name: 'apache2', package: 'apache2' }],
     defaultPort: 80,
     runUser: 'root',
     // What a web server says to a client that speaks no HTTP at it — which is
@@ -217,8 +219,9 @@ export const SERVICE_CATALOG = {
     // 401s — that is the web door's call to make, not the ftp door's.
     sweepLog: SYSLOG_AUTH_SWEEP,
     // Its own tag, though the file is shared: on the three rows that land in auth.log
-    // the daemon name is the only thing telling a defender which door was forced.
-    formatExploit: syslogExploitLine('nginx'),
+    // the daemon name is the only thing telling a defender which door was forced — and
+    // here which of the two web servers it was forced through.
+    formatExploit: syslogExploitLine,
     accountsOn: accountsIn,
   },
   // As common as the web and below ssh: a box you can log into is ordinary, and a
@@ -365,7 +368,7 @@ export const SERVICE_CATALOG = {
       formatArrival: formatSnmpdArrivalLine,
       formatAttempt: formatSnmpdAttemptLine,
     },
-    formatExploit: syslogExploitLine('snmpd'),
+    formatExploit: syslogExploitLine,
     // Nothing, as the store has nothing: a community string is the SERVICE's secret and
     // names no person. A username invented to fill this column would be the right name
     // against the wrong secret.
@@ -418,7 +421,7 @@ export const SERVICE_CATALOG = {
     // particular reason to read. One rule for every row was chosen over a carve-out
     // here: the destination follows the sweep, and the daemon tag is what keeps the
     // line honest about which door was forced.
-    formatExploit: syslogExploitLine('named'),
+    formatExploit: syslogExploitLine,
     // Nothing — BIND authenticates nobody. A zone is handed to whoever asks or to no
     // one, which is the transfer's own gate rather than a credential, so a sweep of
     // this port finds nothing because there is nothing there to find.

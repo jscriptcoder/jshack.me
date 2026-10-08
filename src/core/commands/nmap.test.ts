@@ -2295,6 +2295,15 @@ describe('nmap -sV — the version scan', () => {
     expect(text).toContain('22/tcp   open  ssh      OpenSSH 9.7.0');
   });
 
+  it('names apache2 by its own release on a box that has nginx installed beside it', async () => {
+    // The port is the web's either way; what answers on it is the program that is up.
+    const box = ownBox({ 'apache2.pid': 'apache2:port=80' }, { nginx: '1.26.0', apache2: '2.4.62' });
+
+    const { text } = await drain(await nmap.execute(box, [SELF_IP], VERSION_SCAN));
+
+    expect(text).toContain('80/tcp   open  http     Apache/2.4.62');
+  });
+
   it('prints exactly the three columns it always has when the flag is absent', async () => {
     // The flag is the whole difference. A scan that started volunteering versions would
     // hand every player recon they never asked for and make `-sV` mean nothing.

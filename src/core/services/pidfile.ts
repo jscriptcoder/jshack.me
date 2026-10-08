@@ -63,8 +63,14 @@ export const daemonName = (spec: ServiceSpec): string => spec.pidfile.replace(/\
  *  web, the one daemon for everything else. */
 export const programsOf = (spec: ServiceSpec): readonly string[] => [
   daemonName(spec),
-  ...(spec.otherPrograms ?? []),
+  ...(spec.otherPrograms ?? []).map((other) => other.name),
 ];
+
+/** The package one of a service's programs is: the row's own for its default program,
+ *  the program's own for any other — `apache2` for apache2, though the web row says
+ *  `nginx`. */
+const packageOfProgram = (spec: ServiceSpec, program: string): string =>
+  spec.otherPrograms?.find((other) => other.name === program)?.package ?? spec.package;
 
 /** Where a program's pidfile lives, e.g. `/var/run/apache2.pid`. */
 export const programPidfilePath = (program: string): AbsPath =>
@@ -199,6 +205,9 @@ export type RunningProcess =
       /** Which of the service's programs is up: the pidfile's basename, so the web
        *  service running apache2 is told apart from the same service running nginx. */
       readonly program: string;
+      /** The package that program is, which is what dates it and what holes it has:
+       *  the software actually running, never the service it provides. */
+      readonly package: string;
       readonly port: number;
     }
   | ({ readonly kind: 'listener' } & Listener);
@@ -219,10 +228,12 @@ const runningFromPidfile = (pidfileName: string, content: string): RunningProces
   }
   const spec = serviceByPidfileName(pidfileName);
   if (spec === undefined) return null;
+  const program = pidfileName.replace(/\.pid$/, '');
   return {
     kind: 'service',
     spec,
-    program: pidfileName.replace(/\.pid$/, ''),
+    program,
+    package: packageOfProgram(spec, program),
     port: parsePidfilePort(content) ?? spec.defaultPort,
   };
 };
@@ -262,6 +273,18 @@ export const listenerOn = (fs: Directory, port: number | undefined): Listener | 
       running.kind === 'listener' && running.port === port,
   ) ?? null;
 
+/** The catalog service running on a port of this box, with the program and package
+ *  behind it, or undefined when nothing the catalog knows holds that port — a planted
+ *  listener included, which is somebody's `nc` and no package at all. */
+export const serviceRunningOn = (
+  fs: Directory,
+  port: number,
+): Extract<RunningProcess, { kind: 'service' }> | undefined =>
+  readRunningProcesses(fs).find(
+    (running): running is Extract<RunningProcess, { kind: 'service' }> =>
+      running.kind === 'service' && running.port === port,
+  );
+
 /** The open ports a machine advertises, as a port scan sees them. Shared by every
  *  reader (the `nmap` display + the server scan action) so the ports a scan SHOWS
  *  and the ports it LOGS can never drift. A listener projects as `unknown` — open,
@@ -278,7 +301,7 @@ export const readOpenPorts = (
     // The MANIFEST decides, never the version table: `apt upgrade` moves a box off the
     // version it shipped with, and a scan answering from the table would keep pointing
     // at a hole the defender had already closed.
-    const version = installed.get(running.spec.package);
+    const version = installed.get(running.package);
     if (version === undefined) return { port: running.port, service: running.spec.service };
     // Answered from the SAME read as the version, so a scan can never name a version and
     // a vulnerability belonging to different software. A caller that named no day is
@@ -286,11 +309,11 @@ export const readOpenPorts = (
     const live =
       options.gameDay === undefined
         ? undefined
-        : liveCve(running.spec.package, version, options.gameDay);
+        : liveCve(running.package, version, options.gameDay);
     return {
       port: running.port,
       service: running.spec.service,
-      version: displayVersion(running.spec.package, version),
+      version: displayVersion(running.package, version),
       ...(live === undefined ? {} : { cve: live.cve, severity: live.severity }),
     };
   });

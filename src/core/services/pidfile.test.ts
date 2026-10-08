@@ -10,6 +10,7 @@ import {
   readOpenPorts,
   readRunningProcesses,
   serviceByPidfileName,
+  serviceRunningOn,
 } from './pidfile.js';
 import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
 import type { Directory } from '../filesystem/types.js';
@@ -81,6 +82,25 @@ describe('service pidfile format', () => {
  * That difference is why the reader returns a union rather than one row shape
  * with fields that are blank half the time.
  */
+describe('the catalog service holding a port', () => {
+  it('is the web server, not a backdoor somebody planted on the same port first', () => {
+    // A root player can plant `nc -l 80` on a box already serving the web, so two
+    // pidfiles claim one port. The service is what answers the question "which web
+    // server runs here" — the listener is somebody's `nc`, no package behind it — so a
+    // reader that took the first match would date and fire a backdoor as the web.
+    const web = serviceRunningOn(
+      varRun({
+        'nc-80.pid': formatListenerContent({ port: 80, user: 'mallory', userType: 'root' }),
+        'apache2.pid': 'apache2:port=80',
+      }),
+      80,
+    );
+
+    expect(web?.program).toBe('apache2');
+    expect(web?.package).toBe('apache2');
+  });
+});
+
 describe('a listener somebody planted', () => {
   it('records the port, the account that planted it, and the tier that account holds', () => {
     expect(formatListenerContent({ port: 4444, user: 'alice', userType: 'user' })).toBe(
@@ -112,7 +132,7 @@ describe('a listener somebody planted', () => {
     );
 
     expect(running).toEqual([
-      { kind: 'service', spec: ssh, program: 'sshd', port: 22 },
+      { kind: 'service', spec: ssh, program: 'sshd', package: 'openssh-server', port: 22 },
       { kind: 'listener', port: 4444, user: 'alice', userType: 'user' },
     ]);
   });
@@ -282,6 +302,20 @@ describe('the version a scanned port advertises', () => {
     expect(ports).toEqual([{ port: 80, service: 'http', version: 'nginx/1.26.0' }]);
   });
 
+  it('dates apache2 by its own package, though it serves the port nginx would', () => {
+    const ports = readOpenPorts(boxRunning({ 'apache2.pid': 'apache2:port=80' }, { apache2: '2.4.62' }));
+
+    expect(ports).toEqual([{ port: 80, service: 'http', version: 'Apache/2.4.62' }]);
+  });
+
+  it('has no version for apache2 on a box whose manifest lists only nginx', () => {
+    // nginx's row says nothing about the program actually answering, so borrowing it
+    // would date apache2 by software that is not running.
+    const ports = readOpenPorts(boxRunning({ 'apache2.pid': 'apache2:port=80' }, { nginx: '1.26.0' }));
+
+    expect(ports).toEqual([{ port: 80, service: 'http' }]);
+  });
+
   it('has no version for a listener the world cannot even name', () => {
     // A planted backdoor is somebody process, not a package. There is no row to read a
     // version from, and inventing one would hand the defender a lead that does not
@@ -373,6 +407,22 @@ describe('the vulnerability a scanned port advertises', () => {
       },
     ]);
   });
+
+  it.each([
+    ['apache2', 'apache2:port=80', 'Apache/2.4.62', 'CVE-2026-2235239'],
+    ['nginx', 'nginx:port=80', 'nginx/1.26.0', 'CVE-2026-0269486'],
+  ])(
+    'answers for %s, the web server that is up, on a box with both installed and both holed',
+    (program, line, version, cve) => {
+      // Both packages sit on a live hole on day 12. Which one the scan names is decided
+      // by the pidfile, so a defender patches the software that is actually exposed.
+      const box = boxRunning({ [`${program}.pid`]: line }, { nginx: '1.26.0', apache2: '2.4.62' });
+
+      expect(readOpenPorts(box, { gameDay: 12 })).toEqual([
+        { port: 80, service: 'http', version, cve, severity: 'high' },
+      ]);
+    },
+  );
 
   it('carries what the hole IS and nothing about what firing it would get you', () => {
     // The effect and the tier are derivable right here, from the same package and the

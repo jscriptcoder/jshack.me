@@ -155,6 +155,16 @@ describe("a package's version timeline", () => {
     }
   });
 
+  it('keeps apache2 in a block of its own, apart from the nginx it serves the same port as', () => {
+    // Two programs on one port are still two pieces of software: a defender matching an
+    // id against a scan has to be able to tell which one to patch from the id alone.
+    const apache = packageTimeline('apache2', 5000);
+    expect(apache[0]?.version).toBe('2.4.62');
+    for (const entry of apache) {
+      expect(entry.cve).toMatch(/^CVE-\d{4}-22\d{5}$/);
+    }
+  });
+
   it("names the calendar year the version's vulnerability published in", () => {
     // Unreachable until the walk went past entry 0: every FIRST publication lands
     // inside the epoch's own year by configuration, which left a hardcoded year
