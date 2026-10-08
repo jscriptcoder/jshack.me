@@ -140,7 +140,12 @@ describe('rendering a page as text', () => {
   });
 
   it('reads a page the generator actually serves, keeping its recon and dropping its comment', () => {
-    const html = pickWebPage({ role: undefined, seed: 'a-seed', hostname: 'db-01' });
+    const html = pickWebPage({
+      role: undefined,
+      seed: 'a-seed',
+      hostname: 'db-01',
+      program: 'nginx',
+    });
     // Guards the claim below: a page with no comment would pass it vacuously.
     expect(html).toContain('<!--');
 

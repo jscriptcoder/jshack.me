@@ -45,6 +45,7 @@ export const CRON_OUTPUT: Readonly<Record<string, readonly string[]>> = {
   'find /var/log -name "auth.log*" -mtime +30': [],
   'find /var/www/html -name "*.tmp" -delete': [],
   'systemctl reload nginx': [],
+  'systemctl reload apache2': [],
   'du -sh /var/www/html': ['{size}\t/var/www/html'],
   'systemctl is-active vsftpd': ['active'],
   'find /var/log -name "vsftpd.log*" -mtime +30': [],

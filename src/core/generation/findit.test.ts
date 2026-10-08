@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { FINDIT_NETWORK } from './findit.js';
 import { materializeApGatewayFs } from '../network/materializeRouterFs.js';
-import { readOpenPorts } from '../services/pidfile.js';
+import { readOpenPorts, readRunningProcesses } from '../services/pidfile.js';
 import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
 import { canBoot } from '../boot/bootFiles.js';
 import { createFsView } from '../filesystem/fsView.js';
@@ -39,6 +39,15 @@ describe('the box findit.io runs on', () => {
       ]),
     );
     expect(open).toHaveLength(2);
+  });
+
+  it('serves the web with nginx, whichever program a generated host would draw', () => {
+    // A fixed site is one box the whole world knows, and it stays the server its admin
+    // set up: the 50/50 between nginx and apache2 is for the hosts the world generates.
+    const web = readRunningProcesses(finditBox()).find(
+      (running) => running.kind === 'service' && running.spec === SERVICE_CATALOG.http,
+    );
+    expect(web).toMatchObject({ program: 'nginx', package: 'nginx' });
   });
 
   it('keeps a root account whose password no wordlist holds', () => {

@@ -17,7 +17,7 @@ import type { LanHost } from '../generation/generateHomeLan.js';
 import { apt } from '../commands/apt.js';
 import { systemctl } from '../commands/systemctl.js';
 import { SERVICE_CATALOG } from './serviceCatalog.js';
-import { readOpenPorts } from './pidfile.js';
+import { readOpenPorts, readRunningProcesses } from './pidfile.js';
 
 /**
  * A door on a box the WORLD generated, opened and shut.
@@ -195,6 +195,16 @@ const deepHostServing = (service: string): LanHost => {
 const openPorts = (box: Directory): readonly number[] =>
   readOpenPorts(box).map(({ port }) => port);
 
+/** The program serving a box's web, nginx or apache2, read off its pidfile as `ps`
+ *  and `systemctl` read it: the unit a player stops is the one that is running. */
+const webProgramOf = (box: Directory): string => {
+  const web = readRunningProcesses(box).find(
+    (running) => running.kind === 'service' && running.spec === SERVICE_CATALOG.http,
+  );
+  if (web === undefined || web.kind !== 'service') throw new Error('box serves no web');
+  return web.program;
+};
+
 describe('a door on a generated box can be shut, and opened again', () => {
   it('closes the web port of a box the world generated, and reopens it', async () => {
     const serving = boxServing(SERVICE_CATALOG.http.service);
@@ -202,23 +212,24 @@ describe('a door on a generated box can be shut, and opened again', () => {
       ({ service }) => service === SERVICE_CATALOG.http.service,
     )?.port;
     if (webPort === undefined) throw new Error('generated web box advertises no web port');
+    const program = webProgramOf(serving);
 
-    const before = await on(serving, systemctl, ['status', 'nginx']);
+    const before = await on(serving, systemctl, ['status', program]);
     expect(before.text).toContain('●');
     expect(before.text).toContain(`active (running) on port ${webPort}`);
 
-    const stopped = await on(before.box, systemctl, ['stop', 'nginx']);
+    const stopped = await on(before.box, systemctl, ['stop', program]);
     expect(stopped.exitCode).toBe(0);
 
     // The port is gone from what a scan reads, not merely from what `systemctl`
     // says. Those are two different files' worth of trust: the unit's answer
     // comes from the pidfile it just removed, the scan's from walking `/var/run`.
-    const shut = await on(stopped.box, systemctl, ['status', 'nginx']);
+    const shut = await on(stopped.box, systemctl, ['status', program]);
     expect(shut.text).toContain('○');
     expect(shut.text).toContain('inactive (dead)');
     expect(openPorts(stopped.box)).not.toContain(webPort);
 
-    const restarted = await on(stopped.box, systemctl, ['start', 'nginx']);
+    const restarted = await on(stopped.box, systemctl, ['start', program]);
     expect(restarted.exitCode).toBe(0);
     expect(openPorts(restarted.box)).toContain(SERVICE_CATALOG.http.defaultPort);
   });
@@ -235,7 +246,7 @@ describe('a door on a generated box can be shut, and opened again', () => {
           ?.port,
     );
 
-    const stopped = await on(serving, systemctl, ['stop', 'nginx']);
+    const stopped = await on(serving, systemctl, ['stop', webProgramOf(serving)]);
 
     expect(openPorts(stopped.box)).toEqual(others);
   });
@@ -288,9 +299,11 @@ describe('a door on a generated box can be shut, and opened again', () => {
     const webPort = readOpenPorts(serving).find((open) => open.service === service)?.port;
     if (webPort === undefined) throw new Error('generated web box advertises no web port');
 
-    const stopped = await on(serving, systemctl, ['stop', 'nginx']);
+    const program = webProgramOf(serving);
+
+    const stopped = await on(serving, systemctl, ['stop', program]);
     const rebuiltAfterReboot = applyPatches(buildRemoteHostFs(ESSID, host(octet)), [
-      { path: `/var/run/${SERVICE_CATALOG.http.pidfile}`, content: null, owner: 'root' },
+      { path: `/var/run/${program}.pid`, content: null, owner: 'root' },
     ]);
 
     expect(openPorts(stopped.box)).not.toContain(webPort);
@@ -301,8 +314,10 @@ describe('a door on a generated box can be shut, and opened again', () => {
     // Rooting the box is the price of closing its port. A guest may look.
     const serving = boxServing(SERVICE_CATALOG.http.service);
 
-    const looked = await on(serving, systemctl, ['status', 'nginx'], { userType: 'guest' });
-    const tried = await on(serving, systemctl, ['stop', 'nginx'], { userType: 'guest' });
+    const program = webProgramOf(serving);
+
+    const looked = await on(serving, systemctl, ['status', program], { userType: 'guest' });
+    const tried = await on(serving, systemctl, ['stop', program], { userType: 'guest' });
 
     expect(looked.text).toContain('●');
     expect(tried.text).toContain('must be run as root');
@@ -317,8 +332,6 @@ describe('a door on a generated box can be shut, and opened again', () => {
     });
 
     expect(listed.text).toContain('mysql [installed]');
-    // The player's own second front door is not something the world hands out.
-    expect(listed.text).not.toContain('apache2');
   });
 
   it('shuts the forced door of a deep host the same way', async () => {
@@ -348,7 +361,7 @@ describe('a door on a generated box can be shut, and opened again', () => {
     )?.port;
     if (webPort === undefined) throw new Error('deep web box advertises no web port');
 
-    const stopped = await on(deep, systemctl, ['stop', 'nginx']);
+    const stopped = await on(deep, systemctl, ['stop', webProgramOf(deep)]);
 
     expect(stopped.exitCode).toBe(0);
     expect(openPorts(stopped.box)).not.toContain(webPort);

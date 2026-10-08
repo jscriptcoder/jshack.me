@@ -43,18 +43,28 @@ import type { DrawnRole } from '../machineRole.js';
 /** Interpolated into a template wherever the host's name belongs. */
 const HOSTNAME_PLACEHOLDER = /\{\{hostname\}\}/g;
 
+/** Interpolated wherever a page names the web server serving it. */
+const WEB_SERVER_PLACEHOLDER = /\{\{webServer\}\}/g;
+
+/** How a page names each web program: what its own default page and status lines
+ *  call it. */
+const WEB_SERVER_NAMES: Readonly<Record<string, string>> = {
+  nginx: 'nginx',
+  apache2: 'Apache',
+};
+
 /** What a box with nothing particular to say serves — and what a webserver serves,
  *  since a corporate portal or a reverse proxy is exactly what one is for. */
 const GENERAL_SERVER_PAGES: readonly string[] = [
   '<html>\n<head><title>{{hostname}} — Status</title></head>\n<body>\n<h1>{{hostname}}</h1>\n<p>Server operational.</p>\n<!-- deploy: automated via CI/CD pipeline -->\n</body>\n</html>',
   '<html>\n<head><title>Welcome — {{hostname}}</title></head>\n<body>\n<h1>Welcome to {{hostname}}</h1>\n<p>Internal corporate portal</p>\n<!-- TODO: remove debug endpoints before release -->\n</body>\n</html>',
-  '<html>\n<head><title>{{hostname}} — nginx</title></head>\n<body>\n<h1>{{hostname}}</h1>\n<p>nginx reverse proxy — upstream: 127.0.0.1:8080</p>\n<p>SSL: enabled | HTTP/2: enabled</p>\n<!-- upstream pool cut to one node after the rack move -->\n</body>\n</html>',
+  '<html>\n<head><title>{{hostname}} — {{webServer}}</title></head>\n<body>\n<h1>{{hostname}}</h1>\n<p>{{webServer}} reverse proxy — upstream: 127.0.0.1:8080</p>\n<p>SSL: enabled | HTTP/2: enabled</p>\n<!-- upstream pool cut to one node after the rack move -->\n</body>\n</html>',
   '<html>\n<head><title>{{hostname}} — Application Server</title></head>\n<body>\n<h1>{{hostname}} App Server</h1>\n<p>Node.js | PM2 cluster mode</p>\n<p>Workers: 4/4 | Memory: 312MB | Uptime: 18d 4h</p>\n<!-- pm2 restarts the workers after every deploy -->\n</body>\n</html>',
 ];
 
 const WORKSTATION_PAGES: readonly string[] = [
   '<html>\n<head><title>{{hostname}} — dev</title></head>\n<body>\n<h1>{{hostname}}</h1>\n<p>Vite dev server on localhost:5173 — HMR connected</p>\n<!-- npm run dev -- --host, left running over the weekend -->\n</body>\n</html>',
-  '<html>\n<head><title>It works!</title></head>\n<body>\n<h1>It works!</h1>\n<p>nginx default page on {{hostname}}</p>\n<!-- /var/www/html untouched since the install -->\n</body>\n</html>',
+  '<html>\n<head><title>It works!</title></head>\n<body>\n<h1>It works!</h1>\n<p>{{webServer}} default page on {{hostname}}</p>\n<!-- /var/www/html untouched since the install -->\n</body>\n</html>',
   '<html>\n<head><title>{{hostname}} — notes</title></head>\n<body>\n<h1>{{hostname}} notes</h1>\n<p>Personal wiki — 41 pages, last edited yesterday</p>\n<!-- served straight off ~/notes, no backup configured -->\n</body>\n</html>',
   '<html>\n<head><title>{{hostname}}</title></head>\n<body>\n<h1>{{hostname}}</h1>\n<p>Static site preview — Hugo, built 3h ago</p>\n<p>Serving from localhost, draft posts included</p>\n<!-- python3 -m http.server, still up from this morning -->\n</body>\n</html>',
 ];
@@ -85,11 +95,16 @@ export const pickWebPage = ({
   role,
   seed,
   hostname,
+  program,
 }: {
   readonly role: DrawnRole | undefined;
   readonly seed: string;
   readonly hostname: string;
+  /** The web program serving the page, which is the one a page that names its
+   *  server names. */
+  readonly program: string;
 }): string =>
   createPrng(seed)
     .pick(PAGES_BY_ROLE.get(role) ?? GENERAL_SERVER_PAGES)
-    .replace(HOSTNAME_PLACEHOLDER, hostname);
+    .replace(HOSTNAME_PLACEHOLDER, hostname)
+    .replace(WEB_SERVER_PLACEHOLDER, WEB_SERVER_NAMES[program] ?? program);

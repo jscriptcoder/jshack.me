@@ -17,7 +17,6 @@
 import type { Directory, FileNode } from '../filesystem/types.js';
 import { dir, file, ROOT_DIR, ROOT_FILE } from './baseFs.js';
 import { isOnHomeLan, type LanHost } from './generateHomeLan.js';
-import { daemonName } from '../services/pidfile.js';
 import type { HostService } from './remoteHostFs.js';
 import type { DrawnRole } from './machineRole.js';
 import { networkPersona } from './persona.js';
@@ -63,7 +62,7 @@ const boxLines = (options: {
 }): readonly string[] => {
   const { prng, services, configPaths, logPaths, notePaths } = options;
   const serviceLines = services.map(
-    ({ spec }) => `systemctl ${prng.pick(['status', 'restart', 'start'])} ${daemonName(spec)}`,
+    ({ program }) => `systemctl ${prng.pick(['status', 'restart', 'start'])} ${program}`,
   );
   const configLines = configPaths
     .filter(() => prng.next() < 0.6)

@@ -12,7 +12,7 @@
  *
  * Two layers ride on the same deterministic seed:
  *   - `/var/run/<pidfile>` for the services a host runs (Slice 2) — the SAME
- *     byte-shape the `sshd` command writes (via `formatPidfileContent`), so every
+ *     byte-shape the `sshd` command writes (via `formatProgramPidfileContent`), so every
  *     reader (`nmap`; later `ssh`/`ps`) parses one format. Which services, on what
  *     port, is the service catalog's generation knobs (`placement`/`altPorts`/
  *     `altPortChance`).
@@ -31,11 +31,11 @@
 import { createPrng } from './prng.js';
 import { SERVICE_CATALOG, type ServiceSpec } from '../services/serviceCatalog.js';
 import {
-  daemonName,
   formatListenerContent,
-  formatPidfileContent,
+  formatProgramPidfileContent,
   listenerPidfileName,
   PIDFILE_PERMISSIONS,
+  programsOf,
   type Listener,
 } from '../services/pidfile.js';
 import { binariesForService } from '../packages/aptPackages.js';
@@ -136,7 +136,31 @@ const publishedTree = (files: ReadonlyMap<string, string>): Directory => {
   );
 };
 
-export type HostService = { readonly spec: ServiceSpec; readonly port: number };
+export type HostService = {
+  readonly spec: ServiceSpec;
+  /** Which of the service's programs runs it there: nginx or apache2 for the web, the
+   *  one daemon for every other service. */
+  readonly program: string;
+  readonly port: number;
+};
+
+/**
+ * The program a box runs `spec` with, should it run it. A property of the BOX, drawn
+ * whether or not the service is up, so a webserver that serves nothing today still
+ * keeps the config of the one program it would start.
+ *
+ * Seeded on its OWN stream, so every account, password, port and service the box
+ * already rolls stays where it was. A box whose name says which program it runs
+ * (`nginx-12`) runs that one: the name is the first thing a scan shows, and a box
+ * contradicting it would be lying before the player typed a command.
+ */
+export const serviceProgramOf = (essid: string, host: LanHost, spec: ServiceSpec): string => {
+  const programs = programsOf(spec);
+  return (
+    programs.find((program) => host.hostname.startsWith(`${program}-`)) ??
+    createPrng(`program-${spec.service}-${essid}-${host.ip}`).pick(programs)
+  );
+};
 
 /**
  * The ports a listener the world left behind is drawn from — legacy's pool, carried
@@ -201,7 +225,7 @@ export const hostServices = (essid: string, host: LanHost): readonly HostService
       spec.altPorts.length > 0 && prng.next() < spec.altPortChance
         ? prng.pick(spec.altPorts)
         : spec.defaultPort;
-    return [{ spec, port }];
+    return [{ spec, program: serviceProgramOf(essid, host, spec), port }];
   });
 };
 
@@ -281,8 +305,8 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
   // has rooted it can shut that door with `systemctl stop`. Purely additive — the
   // base image stays on every box, because a binary with no pidfile is a service
   // installed and stopped, which is the ordinary condition of a real machine.
-  const toolchain = services.flatMap(({ spec }) =>
-    binariesForService({ service: spec.service, daemon: daemonName(spec) }),
+  const toolchain = services.flatMap(({ spec, program }) =>
+    binariesForService({ service: spec.service, daemon: program }),
   );
   const serviceTools = toolchain.filter(({ isDaemon }) => !isDaemon).map(({ binary }) => binary);
   const serviceDaemons = toolchain.filter(({ isDaemon }) => isDaemon).map(({ binary }) => binary);
@@ -293,8 +317,11 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
   const pidfiles = {
     ...Object.fromEntries(
       services.map(
-        ({ spec, port }) =>
-          [spec.pidfile, pidfile(formatPidfileContent(spec, port), spec.runUser)] as const,
+        ({ spec, program, port }) =>
+          [
+            `${program}.pid`,
+            pidfile(formatProgramPidfileContent(program, port), spec.runUser),
+          ] as const,
       ),
     ),
     ...(backdoor === null
@@ -328,6 +355,7 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
           // draws would have re-rolled every account and password in the world.
           seed: `etc-config-${essid}-${host.ip}`,
           ports: new Map(services.map(({ spec, port }) => [spec.service, port])),
+          programOf: (spec) => serviceProgramOf(essid, host, spec),
           // What the box stands on and answers for, so a setting that names either can
           // be read against a scan rather than being furniture.
           cidr: `${host.ip.split('.').slice(0, 3).join('.')}.0/24`,
@@ -420,7 +448,8 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
   // A box named for the web publishes a whole site; any other box that serves one keeps
   // a single page. The two draw from different streams, so a site arriving on a
   // webserver moves no other box's page.
-  const webPort = services.find(({ spec }) => spec === SERVICE_CATALOG.http)?.port;
+  const web = services.find(({ spec }) => spec === SERVICE_CATALOG.http);
+  const webPort = web?.port;
   const site =
     webPort !== undefined && role === 'webserver'
       ? buildWebSite({ essid, host, port: webPort, database })
@@ -430,11 +459,16 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
   const webFiles: ReadonlyMap<string, string> | null =
     site?.files ??
     devicePages ??
-    (serves
+    (web !== undefined
       ? new Map([
           [
             'index.html',
-            pickWebPage({ role, seed: `web-page-${essid}-${host.ip}`, hostname: host.hostname }),
+            pickWebPage({
+              role,
+              seed: `web-page-${essid}-${host.ip}`,
+              hostname: host.hostname,
+              program: web.program,
+            }),
           ],
         ])
       : null);

@@ -17,7 +17,6 @@
  */
 
 import type { NetworkCategory } from './essidCatalog.js';
-import type { ServiceSpec } from '../../services/serviceCatalog.js';
 
 /** Login banners, by the kind of place the network is. Each names the place and the box. */
 export const MOTD_TEMPLATES: Readonly<Record<NetworkCategory, readonly string[]>> = {
@@ -101,19 +100,25 @@ export const GENERIC_CRON_JOBS: readonly string[] = [
 ];
 
 /** Jobs that look after one service, scheduled only on a box that runs it. Keyed by the
- *  catalog's service name. */
-export const SERVICE_CRON_JOBS: Readonly<Record<ServiceSpec['service'], readonly string[]>> = {
-  ssh: ['systemctl is-active sshd', 'find /var/log -name "auth.log*" -mtime +30'],
-  http: [
+ *  PROGRAM running it, as the unit descriptions are: the web is one service, and a box
+ *  running apache2 reloads apache2, never an nginx it does not have. */
+export const PROGRAM_CRON_JOBS: Readonly<Record<string, readonly string[]>> = {
+  sshd: ['systemctl is-active sshd', 'find /var/log -name "auth.log*" -mtime +30'],
+  nginx: [
     'find /var/www/html -name "*.tmp" -delete',
     'systemctl reload nginx',
     'du -sh /var/www/html',
   ],
-  ftp: ['systemctl is-active vsftpd', 'find /var/log -name "vsftpd.log*" -mtime +30'],
-  mysql: ['mysqlcheck --all-databases --auto-repair --silent', 'du -sh /var/lib/mysql'],
-  redis: ['redis-cli bgsave', 'du -sh /var/lib/redis'],
-  snmp: ['systemctl is-active snmpd'],
-  domain: ['systemctl is-active named'],
+  apache2: [
+    'find /var/www/html -name "*.tmp" -delete',
+    'systemctl reload apache2',
+    'du -sh /var/www/html',
+  ],
+  vsftpd: ['systemctl is-active vsftpd', 'find /var/log -name "vsftpd.log*" -mtime +30'],
+  mysqld: ['mysqlcheck --all-databases --auto-repair --silent', 'du -sh /var/lib/mysql'],
+  'redis-server': ['redis-cli bgsave', 'du -sh /var/lib/redis'],
+  snmpd: ['systemctl is-active snmpd'],
+  named: ['systemctl is-active named'],
 };
 
 /** Jobs a name server's root schedules against the zone it keeps. Filed by the ROLE rather

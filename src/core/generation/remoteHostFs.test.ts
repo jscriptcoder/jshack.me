@@ -21,6 +21,8 @@ import { parseRedisStore, type RedisStore } from '../redis/types.js';
 import { filterTreeToAllowlist } from '../patches/readFilter.js';
 import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
 import { generateHomeLan, type LanHost } from './generateHomeLan.js';
+import { parseDpkgVersions, readDpkgStatus } from '../packages/dpkgStatus.js';
+import { startingVersionOf } from '../packages/packageVersions.js';
 import type { Directory, FileEntry, FileNode } from '../filesystem/types.js';
 
 /**
@@ -66,6 +68,15 @@ const pidfileContent = (fs: Directory, name: string): string | null => {
   return node !== undefined && node.kind === 'file' ? node.content : null;
 };
 
+/** The program running a box's web service, read off its pidfile as `ps` reads it. */
+const webProgramOf = (fs: Directory): string => {
+  const web = readRunningProcesses(fs).find(
+    (running) => running.kind === 'service' && running.spec === SERVICE_CATALOG.http,
+  );
+  if (web === undefined || web.kind !== 'service') throw new Error('box serves no web');
+  return web.program;
+};
+
 const OCTETS = Array.from({ length: 253 }, (_, index) => index + 2); // 2..254
 
 /**
@@ -94,9 +105,16 @@ const sshHosts = (): readonly { octet: number; port: number }[] =>
     return [{ octet, port }];
   });
 
+/** The programs that can serve a generated host's web. */
+const WEB_PROGRAMS = ['nginx', 'apache2'] as const;
+
 const httpHosts = (): readonly { octet: number; port: number }[] =>
   OCTETS.flatMap((octet) => {
-    const content = pidfileContent(buildRemoteHostFs(ESSID, host(octet)), 'nginx.pid');
+    const fs = buildRemoteHostFs(ESSID, host(octet));
+    const content =
+      WEB_PROGRAMS.map((program) => pidfileContent(fs, `${program}.pid`)).find(
+        (found) => found !== null,
+      ) ?? null;
     if (content === null) return [];
     const port = Number(content.split('=')[1]);
     return [{ octet, port }];
@@ -283,15 +301,23 @@ describe('buildRemoteHostFs', () => {
       return index !== undefined && index.kind === 'file' ? index.content : null;
     };
 
+    /** A page with the web server it names substituted back out: a template that names
+     *  its server reads `nginx` on one box and `Apache` on another, and is still one
+     *  template. */
+    const asTemplate = (page: string): string =>
+      page.replace(/\b(nginx|Apache)\b/g, '{{webServer}}');
+
     /** A host's page with its own name substituted back out, so two hosts drawing
      *  the SAME template compare equal — the interpolated hostname would otherwise
      *  make every page look unique and hide a pool that never varies. */
     const servedTemplate = (octet: number): string | null => {
       const page = servedPage(buildRemoteHostFs(ESSID, host(octet)));
-      return page === null ? null : page.replace(new RegExp(`host-${octet}`, 'g'), '{{hostname}}');
+      return page === null
+        ? null
+        : asTemplate(page.replace(new RegExp(`host-${octet}`, 'g'), '{{hostname}}'));
     };
 
-    it('plants a root-owned nginx.pid and a page at /var/www/html/index.html', () => {
+    it('plants a root-owned pidfile named for its web server, and a page at /var/www/html/index.html', () => {
       // A web server is the one door that needs no credential, so the page IS the
       // reachable content: the pidfile opens the port, the web root holds what a
       // reader gets back.
@@ -299,9 +325,10 @@ describe('buildRemoteHostFs', () => {
       expect(web.length).toBeGreaterThan(0);
       const fs = buildRemoteHostFs(ESSID, host(web[0]!.octet));
 
-      const pid = varRun(fs)?.entries.get('nginx.pid');
-      if (pid === undefined || pid.kind !== 'file') throw new Error('expected nginx.pid file');
-      expect(pid.content).toMatch(/^nginx:port=\d+$/);
+      const program = webProgramOf(fs);
+      const pid = varRun(fs)?.entries.get(`${program}.pid`);
+      if (pid === undefined || pid.kind !== 'file') throw new Error(`expected ${program}.pid file`);
+      expect(pid.content).toMatch(new RegExp(`^${program}:port=\\d+$`));
       expect(pid.owner).toBe('root');
 
       const index = dirAt(fs, 'var', 'www', 'html').entries.get('index.html');
@@ -480,7 +507,7 @@ describe('buildRemoteHostFs', () => {
       const page = servedPage(buildRemoteHostFs(ESSID, namedHost(prefix, octet)));
       return page === null
         ? null
-        : page.replace(new RegExp(`${prefix}-${octet}`, 'g'), '{{hostname}}');
+        : asTemplate(page.replace(new RegExp(`${prefix}-${octet}`, 'g'), '{{hostname}}'));
     };
 
     /** Every distinct page a role serves across a LAN's worth of addresses. One host
@@ -545,12 +572,16 @@ describe('buildRemoteHostFs', () => {
     it('keeps the general pages themselves untouched', () => {
       // The test above proves nothing moved BETWEEN pools; this proves the pool the
       // rest fall back to is still the same four pages. Recaptured when the pages
-      // stopped quoting versions, and nothing since has had reason to touch them.
+      // stopped quoting versions, and read as an nginx box serves them, which is
+      // byte-for-byte what every box served before apache2 could serve one.
       const templates = [
         ...new Set(
           OCTETS.flatMap((octet) => {
-            const template = servedTemplate(octet);
-            return template === null ? [] : [template];
+            const fs = buildRemoteHostFs(ESSID, host(octet));
+            const page = servedPage(fs);
+            return page === null || webProgramOf(fs) !== 'nginx'
+              ? []
+              : [page.replace(new RegExp(`host-${octet}`, 'g'), '{{hostname}}')];
           }),
         ),
       ];
@@ -1432,15 +1463,19 @@ describe('buildRemoteHostFs', () => {
       // three off the one pidfile. A box whose process table says nginx must hold
       // nginx, or the only way to shut its door is missing from it.
       const fs = fsServing(SERVICE_CATALOG.http.service);
-      expect(fileAt(fs, 'usr', 'sbin', 'nginx')).toBeDefined();
+      const program = webProgramOf(fs);
+      expect(fileAt(fs, 'usr', 'sbin', program)).toBeDefined();
       // In `/usr/sbin` and NOWHERE else. Where a binary sits is the whole of what
       // separates a daemon from a tool here, and a box that scattered both through
       // both directories would teach the player an exception that is not real.
-      expect(fileAt(fs, 'usr', 'bin', 'nginx')).toBeUndefined();
+      expect(fileAt(fs, 'usr', 'bin', program)).toBeUndefined();
     });
 
     it('leaves the web daemon off a box that serves no web', () => {
-      expect(fileAt(fsIdle(SERVICE_CATALOG.http.service), 'usr', 'sbin', 'nginx')).toBeUndefined();
+      const fs = fsIdle(SERVICE_CATALOG.http.service);
+      for (const program of WEB_PROGRAMS) {
+        expect(fileAt(fs, 'usr', 'sbin', program)).toBeUndefined();
+      }
     });
 
     it('gives a database box both halves of the package it runs', () => {
@@ -1490,15 +1525,6 @@ describe('buildRemoteHostFs', () => {
       expect(missing).toEqual([]);
     });
 
-    it('plants apache2 on no generated box', () => {
-      // The web service has ONE identity and its pidfile names nginx. apache2 stays
-      // the player's second front door onto that same port — something they install
-      // on their own machine, never something the world is found running.
-      const carrying = OCTETS.filter((octet) =>
-        dirAt(buildRemoteHostFs(ESSID, host(octet)), 'usr', 'sbin').entries.has('apache2'),
-      );
-      expect(carrying).toEqual([]);
-    });
   });
 
   describe('/etc/passwd (NPC accounts — every account has a real password)', () => {
@@ -2289,29 +2315,64 @@ describe('buildRemoteHostFs', () => {
       expect(configOn('db', 11).name).toBe('mysql.cnf');
     });
 
+    /** Every `www-` box that serves the web, with its config and the program its
+     *  pidfile names — what `ps` prints and what `systemctl` resolves a unit by. */
+    const servingWebserverConfigs = (): readonly {
+      readonly hostname: string;
+      readonly content: string;
+      readonly program: string;
+    }[] =>
+      OCTETS.flatMap((octet) => {
+        const fs = buildRemoteHostFs(ESSID, namedHost('www', octet));
+        if (!readOpenPorts(fs).some(({ service }) => service === 'http')) return [];
+        return [
+          {
+            hostname: `www-${octet}`,
+            content: configOn('www', octet).file.content,
+            program: webProgramOf(fs),
+          },
+        ];
+      });
+
+    /** How each server spells the box's own name in its config: nginx's
+     *  `server_name <host>;`, Apache's bare `ServerName <host>`. */
+    const NAMES_THE_HOST: Readonly<Record<string, (hostname: string) => string>> = {
+      nginx: (hostname) => `server_name ${hostname};`,
+      apache2: (hostname) => `ServerName ${hostname}`,
+    };
+
+    /** What gives each server's config away, so the other's can be held free of it. */
+    const TELLS: Readonly<Record<string, readonly string[]>> = {
+      nginx: ['nginx', 'server_name', 'server {', 'proxy_pass'],
+      apache2: ['apache2', 'ServerName', 'VirtualHost', 'DocumentRoot'],
+    };
+
     it('states the box in the words of the server that box actually runs', () => {
-      // The file, the COMMAND column and `/usr/sbin` have to name ONE program. A
-      // generated webserver runs nginx — its pidfile says so, which is what `ps`
-      // prints and what `systemctl` resolves a unit by — so its config is written
-      // the way nginx writes one: `server_name <host>;`, not apache's bare
-      // `ServerName <host>`. Asserted across the population because the template is
-      // drawn per box, so a pool entry no host in the sample happened to draw is one
-      // no test has ever read.
-      configsAcross('www').forEach(({ hostname, content }) => {
-        expect(content).toContain(`server_name ${hostname};`);
+      // The file, the COMMAND column and `/usr/sbin` have to name ONE program, so the
+      // config is written the way that program writes one. Asserted across the
+      // population because the template is drawn per box, so a pool entry no host in
+      // the sample happened to draw is one no test has ever read.
+      const configs = servingWebserverConfigs();
+      expect(new Set(configs.map(({ program }) => program))).toEqual(new Set(WEB_PROGRAMS));
+      configs.forEach(({ hostname, content, program }) => {
+        expect({ hostname, content }).toEqual({
+          hostname,
+          content: expect.stringContaining(NAMES_THE_HOST[program]!(hostname)),
+        });
       });
     });
 
-    it('never names a web server the box does not carry', () => {
-      // `apache2` is real in this world — it is the second front door a PLAYER can
-      // apt-install on their own box — which is exactly why a generated box must not
-      // claim it. A player who cats the config, runs `ps` and lists `/usr/sbin` gets
-      // one answer or three, and the config was the odd one out.
-      const apacheTells = ['apache2', 'ServerRoot', 'VirtualHost', 'DocumentRoot'];
-
-      configsAcross('www').forEach(({ hostname, content }) => {
-        apacheTells.forEach((tell) => {
-          expect({ hostname, names: content.includes(tell) }).toEqual({ hostname, names: false });
+    it('never names a web server the box does not run', () => {
+      // A player who cats the config, runs `ps` and lists `/usr/sbin` gets one answer
+      // or three, and a config in the other server's words is the odd one out.
+      servingWebserverConfigs().forEach(({ hostname, content, program }) => {
+        const other = program === 'nginx' ? 'apache2' : 'nginx';
+        TELLS[other]!.forEach((tell) => {
+          expect({ hostname, tell, names: content.includes(tell) }).toEqual({
+            hostname,
+            tell,
+            names: false,
+          });
         });
       });
     });
@@ -2495,6 +2556,106 @@ describe('buildRemoteHostFs', () => {
 
       expect(dirAt(fs, 'var', 'log').entries.has('named.log')).toBe(false);
     });
+  });
+});
+
+/** Every path and every file's text on a box, which is everything `ls`, `cat` and
+ *  `grep -r` can show a player who has the run of it. */
+const everyText = (fs: Directory, path = ''): readonly string[] =>
+  [...fs.entries].flatMap(([name, node]) => {
+    const here = `${path}/${name}`;
+    if (node.kind === 'directory') return [here, ...everyText(node, here)];
+    return node.kind === 'file' ? [here, node.content] : [here];
+  });
+
+type WebBox = {
+  readonly essid: string;
+  readonly host: LanHost;
+  readonly fs: Directory;
+  readonly program: string;
+};
+
+/** Every generated host across the population that serves the web, and the program
+ *  its pidfile names. Built inside each test that asks, never cached, so a mutant the
+ *  draw survives is measured against every test rather than only the first. */
+const webBoxes = (): readonly WebBox[] =>
+  POPULATION_ESSIDS.flatMap((essid) =>
+    OCTETS.flatMap((octet) => {
+      const candidate = host(octet);
+      const fs = buildRemoteHostFs(essid, candidate);
+      const web = readRunningProcesses(fs).find(
+        (running) => running.kind === 'service' && running.spec === SERVICE_CATALOG.http,
+      );
+      return web === undefined || web.kind !== 'service'
+        ? []
+        : [{ essid, host: candidate, fs, program: web.program }];
+    }),
+  );
+
+describe('the web server a generated host runs', () => {
+  it('is nginx or apache2 about equally often across the world', () => {
+    const boxes = webBoxes();
+    const apacheShare = boxes.filter(({ program }) => program === 'apache2').length / boxes.length;
+    expect(boxes.every(({ program }) => WEB_PROGRAMS.some((web) => web === program))).toBe(true);
+    expect(apacheShare).toBeGreaterThan(0.35);
+    expect(apacheShare).toBeLessThan(0.65);
+  });
+
+  it('is nginx on a host whose name says nginx', () => {
+    // The name is the first thing a scan shows, and a box called nginx-12 found
+    // running apache2 would contradict itself before the player typed a command.
+    const named = OCTETS.flatMap((octet) => {
+      const fs = buildRemoteHostFs(ESSID, namedHost('nginx', octet));
+      return readOpenPorts(fs).some(({ service }) => service === 'http') ? [webProgramOf(fs)] : [];
+    });
+    expect(named.length).toBeGreaterThan(0);
+    expect(new Set(named)).toEqual(new Set(['nginx']));
+  });
+
+  it('gives an apache2 host apache2 throughout, and none of nginx', () => {
+    // Four places a player checks, and every one has to name the same program: the
+    // process table, the daemon in /usr/sbin, the package list and its version.
+    const apacheBoxes = webBoxes().filter(({ program }) => program === 'apache2');
+    expect(apacheBoxes.length).toBeGreaterThan(0);
+    apacheBoxes.forEach(({ fs }) => {
+      expect(pidfileContent(fs, 'apache2.pid')).toMatch(/^apache2:port=\d+$/);
+      expect(pidfileContent(fs, 'nginx.pid')).toBeNull();
+      expect(fileAt(fs, 'usr', 'sbin', 'apache2')).toBeDefined();
+      expect(fileAt(fs, 'usr', 'sbin', 'nginx')).toBeUndefined();
+      const installed = parseDpkgVersions(readDpkgStatus(fs));
+      expect(installed.get('apache2')).toBe(startingVersionOf('apache2'));
+      expect(installed.has('nginx')).toBe(false);
+    });
+  });
+
+  it('names the other web server nowhere on the box', () => {
+    // Not in a config, a page, a log line, a history or a cron job: a box that runs
+    // one program and mentions the other in passing disagrees with itself. The
+    // account name is a person's and is left out of it, and so is a neighbour called
+    // nginx-12, whose name is about that box, not this one.
+    webBoxes()
+      .filter(
+        ({ essid, host: candidate }) =>
+          !WEB_PROGRAMS.some((web) => web === npcUsername(essid, candidate)),
+      )
+      .forEach(({ host: candidate, fs, program }) => {
+        const other = program === 'nginx' ? 'apache2' : 'nginx';
+        const mention = new RegExp(`(?<![\\w-])${other}(?![\\w-])`);
+        const found = everyText(fs).filter((text) => mention.test(text));
+        expect({ host: candidate.ip, found }).toEqual({ host: candidate.ip, found: [] });
+      });
+  });
+
+  it('says apache2 wherever an admin of an apache2 host would', () => {
+    // The boot log starts its unit, root restarts it by name, and cron reloads it.
+    const apacheTexts = webBoxes()
+      .filter(({ program }) => program === 'apache2')
+      .map(({ fs }) => everyText(fs).join('\n'));
+    expect(apacheTexts.some((text) => text.includes('Started The Apache HTTP Server.'))).toBe(true);
+    expect(apacheTexts.some((text) => /systemctl (status|restart|start) apache2/.test(text))).toBe(
+      true,
+    );
+    expect(apacheTexts.some((text) => text.includes('systemctl reload apache2'))).toBe(true);
   });
 });
 

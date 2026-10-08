@@ -30,7 +30,7 @@ import {
   GENERIC_CRON_JOBS,
   MOTD_TEMPLATES,
   NAME_SERVER_CRON_JOBS,
-  SERVICE_CRON_JOBS,
+  PROGRAM_CRON_JOBS,
 } from './pools/etcFiles.js';
 
 const HEX_DIGITS = '0123456789abcdef';
@@ -97,8 +97,8 @@ const crontab = (options: {
 }): string => {
   const { prng, services, role } = options;
   const generic = prng.pickN(GENERIC_CRON_JOBS, prng.nextInt(1, 3));
-  const forServices = services.flatMap(({ spec }) => {
-    const jobs = SERVICE_CRON_JOBS[spec.service] ?? [];
+  const forServices = services.flatMap(({ program }) => {
+    const jobs = PROGRAM_CRON_JOBS[program] ?? [];
     return jobs.length === 0 || prng.next() < 0.5 ? [] : [prng.pick(jobs)];
   });
   const forNameServer = role === 'dns' ? [prng.pick(NAME_SERVER_CRON_JOBS)] : [];
