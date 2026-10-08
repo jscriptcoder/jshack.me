@@ -62,7 +62,11 @@ type RoleConfig = {
    *  because that is what mysql listens on, and nothing can contradict it until a
    *  `mysqld` exists to be scanned. */
   readonly service?: ServiceSpec;
+  /** In the words of the service's DEFAULT program. */
   readonly templates: readonly string[];
+  /** In the words of each other program that can run the service, for a box that
+   *  runs it with that one: an apache2 box's config is apache2's, not nginx's. */
+  readonly otherProgramTemplates?: Readonly<Record<string, readonly string[]>>;
 };
 
 /** Every role a template is DRAWN for — which is every role but `dns` and `iot`.
@@ -90,15 +94,12 @@ const CONFIG_BY_ROLE: Readonly<Record<PooledConfigRole, RoleConfig>> = {
       '# {{hostname}}\nHost *\n  PubkeyAuthentication yes\n  PasswordAuthentication yes\n  IdentitiesOnly yes\n  LogLevel INFO',
     ],
   },
-  // Every template here is NGINX's, and deliberately so. A generated webserver runs
-  // nginx — its pidfile names it, which is what `ps` prints and what `systemctl`
-  // resolves a unit by, and it is the binary the box carries in `/usr/sbin`. An
-  // apache-flavoured config would be the one thing on the box disagreeing with the
-  // other three, and a player who cats it, runs `ps` and lists `/usr/sbin` would get
-  // two answers about one program. `apache2` stays real elsewhere: it is the second
-  // front door a PLAYER can apt-install on their OWN box, never something the world
-  // hands out. The FILENAME is legacy's and stays generic — an httpd config is an
-  // http daemon's config whichever daemon writes it.
+  // In the words of the program the box runs, nginx's or apache2's. Its pidfile names
+  // that program, which is what `ps` prints and what `systemctl` resolves a unit by,
+  // and it is the binary the box carries in `/usr/sbin`; a config in the other's words
+  // would be the one thing on the box disagreeing with the other three. The FILENAME
+  // is legacy's and stays generic — an httpd config is an http daemon's config
+  // whichever daemon writes it.
   webserver: {
     filename: 'httpd.conf',
     service: SERVICE_CATALOG.http,
@@ -109,6 +110,15 @@ const CONFIG_BY_ROLE: Readonly<Record<PooledConfigRole, RoleConfig>> = {
       'upstream backend {\n  server 127.0.0.1:3000;\n}\nserver {\n  listen {{port}};\n  server_name {{hostname}};\n  location / {\n    proxy_pass http://backend;\n    proxy_set_header Host $host;\n  }\n}',
       'server {\n  listen {{port}} ssl;\n  server_name {{hostname}};\n  ssl_certificate /etc/ssl/certs/{{hostname}}.pem;\n  ssl_certificate_key /etc/ssl/private/{{hostname}}.key;\n  root /var/www/html;\n}',
     ],
+    otherProgramTemplates: {
+      apache2: [
+        '<VirtualHost *:{{port}}>\n  ServerName {{hostname}}\n  DocumentRoot /var/www/html\n  ErrorLog /var/log/apache2/error.log\n  CustomLog /var/log/apache2/access.log combined\n</VirtualHost>',
+        'Listen {{port}}\n<VirtualHost *:{{port}}>\n  ServerName {{hostname}}\n  DocumentRoot /var/www/html\n  <Directory /var/www/html>\n    Options -Indexes\n    AllowOverride None\n  </Directory>\n</VirtualHost>',
+        '<VirtualHost *:{{port}}>\n  ServerName {{hostname}}\n  DocumentRoot /var/www/html\n  LimitRequestBody 16777216\n  ErrorLog /var/log/apache2/error.log\n  LogLevel warn\n</VirtualHost>',
+        '<VirtualHost *:{{port}}>\n  ServerName {{hostname}}\n  ProxyPreserveHost On\n  ProxyPass / http://127.0.0.1:3000/\n  ProxyPassReverse / http://127.0.0.1:3000/\n</VirtualHost>',
+        '<VirtualHost *:{{port}}>\n  ServerName {{hostname}}\n  SSLEngine on\n  SSLCertificateFile /etc/ssl/certs/{{hostname}}.pem\n  SSLCertificateKeyFile /etc/ssl/private/{{hostname}}.key\n  DocumentRoot /var/www/html\n</VirtualHost>',
+      ],
+    },
   },
   // A setting here says what the ftp door does, and a player can check each against it:
   // nobody logs in anonymously, nobody is jailed in their home, and every login lands in
@@ -178,6 +188,7 @@ export const roleConfigFile = ({
   hostname,
   seed,
   ports,
+  programOf,
   cidr,
   zone,
   sshNeighbours,
@@ -186,6 +197,8 @@ export const roleConfigFile = ({
   readonly hostname: string;
   readonly seed: string;
   readonly ports: ReadonlyMap<string, number>;
+  /** The program the box runs a service with, should it run it. */
+  readonly programOf: (spec: ServiceSpec) => string;
   /** The address block the box itself stands on, `192.168.4.0/24` or `10.9.2.0/24`. */
   readonly cidr: string;
   /** The zone the box's network answers for, `acme-corp.lan`. */
@@ -194,11 +207,15 @@ export const roleConfigFile = ({
   readonly sshNeighbours: readonly SshNeighbour[];
 }): { readonly name: string; readonly content: string } => {
   const config = CONFIG_BY_ROLE[role];
+  const templates =
+    (config.service === undefined
+      ? undefined
+      : config.otherProgramTemplates?.[programOf(config.service)]) ?? config.templates;
   const prng = createPrng(seed);
-  const drawn = prng.pick(config.templates);
+  const drawn = prng.pick(templates);
   const template =
     namesNeighbour(drawn) && sshNeighbours.length === 0
-      ? prng.pick(config.templates.filter((candidate) => !namesNeighbour(candidate)))
+      ? prng.pick(templates.filter((candidate) => !namesNeighbour(candidate)))
       : drawn;
   const neighbour = namesNeighbour(template) ? prng.pick(sshNeighbours) : undefined;
   const named = template

@@ -79,17 +79,21 @@ const fileAt = (tree: Directory, path: string): string => {
 const daemonsRunningOn = (box: Box): readonly string[] =>
   hostServices(box.essid, box.host).map(({ spec }) => spec.service);
 
-/** What systemd calls each service's unit as it starts it — written out here rather than
- *  read from the table the generator uses, so a line naming the wrong unit fails. A
- *  generated web server is always nginx. */
+/** The programs a box runs its services with: nginx or apache2 for the web. */
+const programsRunningOn = (box: Box): readonly string[] =>
+  hostServices(box.essid, box.host).map(({ program }) => program);
+
+/** What systemd calls each program's unit as it starts it — written out here rather than
+ *  read from the table the generator uses, so a line naming the wrong unit fails. */
 const UNIT_STARTED: Readonly<Record<string, string>> = {
-  ssh: 'OpenBSD Secure Shell server',
-  http: 'A high performance web server and a reverse proxy server',
-  ftp: 'vsftpd FTP server',
-  mysql: 'MySQL Community Server',
-  redis: 'Advanced key-value store',
-  snmp: 'Simple Network Management Protocol (SNMP) Daemon',
-  domain: 'BIND Domain Name Server',
+  sshd: 'OpenBSD Secure Shell server',
+  nginx: 'A high performance web server and a reverse proxy server',
+  apache2: 'The Apache HTTP Server',
+  vsftpd: 'vsftpd FTP server',
+  mysqld: 'MySQL Community Server',
+  'redis-server': 'Advanced key-value store',
+  snmpd: 'Simple Network Management Protocol (SNMP) Daemon',
+  named: 'BIND Domain Name Server',
 };
 
 /** How each rotated file stamps its lines on 2026-07-11, and where the stamp sits. */
@@ -584,7 +588,7 @@ describe('who reached a box that day', () => {
       expect(fileAt(tree, '/boot/vmlinuz')).not.toBe('');
       expect(started.length).toBe(daemonsRunningOn(box).length);
       expect(new Set(started.map((line) => line.slice(line.indexOf('Started '))))).toEqual(
-        new Set(daemonsRunningOn(box).map((service) => `Started ${UNIT_STARTED[service]}.`)),
+        new Set(programsRunningOn(box).map((program) => `Started ${UNIT_STARTED[program]}.`)),
       );
       const ssh = hostServices(box.essid, box.host).find(({ spec }) => spec.service === 'ssh');
       const listening = linesOf(rotatedOf(tree).get('auth.log.1') ?? '').filter((line) =>

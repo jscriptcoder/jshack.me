@@ -279,12 +279,12 @@ export const buildLogHistory = (options: LogHistoryOptions): Readonly<Record<str
                 }),
               };
             }),
-            syslog: services.map(({ spec }) =>
+            syslog: services.map(({ program }) =>
               syslog(
                 laterBy(rebootAt, prng.nextInt(5, 20)),
                 'systemd',
                 1,
-                `Started ${UNIT_DESCRIPTIONS[daemonName(spec)]}.`,
+                `Started ${UNIT_DESCRIPTIONS[program]}.`,
               ),
             ),
             auth:

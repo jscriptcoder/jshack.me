@@ -69,7 +69,7 @@ export const programsOf = (spec: ServiceSpec): readonly string[] => [
 /** The package one of a service's programs is: the row's own for its default program,
  *  the program's own for any other — `apache2` for apache2, though the web row says
  *  `nginx`. */
-const packageOfProgram = (spec: ServiceSpec, program: string): string =>
+export const packageOfProgram = (spec: ServiceSpec, program: string): string =>
   spec.otherPrograms?.find((other) => other.name === program)?.package ?? spec.package;
 
 /** Where a program's pidfile lives, e.g. `/var/run/apache2.pid`. */

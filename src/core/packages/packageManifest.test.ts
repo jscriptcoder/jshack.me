@@ -11,7 +11,7 @@ import {
 } from '../generation/routerFs.js';
 import { SYSTEM_LIBRARIES } from '../generation/libraries.js';
 import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
-import { readOpenPorts } from '../services/pidfile.js';
+import { readOpenPorts, readRunningProcesses } from '../services/pidfile.js';
 import { filterTreeForRead, filterTreeToAllowlist } from '../patches/readFilter.js';
 import { buildEntry, DPKG_STATUS_PATH, formatDpkgStatus, parseDpkgVersions } from './dpkgStatus.js';
 import { withPackageManifest } from './packageManifest.js';
@@ -101,9 +101,12 @@ describe('the package manifest every box carries', () => {
     expect(octets.length).toBeGreaterThan(0);
 
     for (const octet of octets) {
-      const manifest = manifestOf(buildRemoteHostFs(ESSID, host(octet)));
-      for (const { spec } of hostServices(ESSID, host(octet))) {
-        expect(manifest.has(spec.package)).toBe(true);
+      const fs = buildRemoteHostFs(ESSID, host(octet));
+      const manifest = manifestOf(fs);
+      // The package of the program actually running, so a web server run by apache2
+      // is answered by an apache2 row, not by the nginx the web service defaults to.
+      for (const running of readRunningProcesses(fs)) {
+        if (running.kind === 'service') expect(manifest.has(running.package)).toBe(true);
       }
     }
   });

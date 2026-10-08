@@ -21,7 +21,7 @@
 import { applyPatches } from '../filesystem/applyPatches.js';
 import { SYSTEM_LIBRARIES } from '../generation/libraries.js';
 import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
-import { daemonName } from '../services/pidfile.js';
+import { packageOfProgram, programsOf } from '../services/pidfile.js';
 import {
   buildEntry,
   DPKG_STATUS_OWNER,
@@ -51,9 +51,13 @@ const installedPackages = (
   firmwareVendor: FirmwareVendor | undefined,
 ): readonly (readonly [string, string])[] => {
   const daemons = binaryNamesAt(fs, SBIN_SEGMENTS);
-  const services = Object.values(SERVICE_CATALOG)
-    .filter((spec) => daemons.has(daemonName(spec)))
-    .map((spec) => spec.package);
+  // Every program of a service, not only its default: `/usr/sbin/apache2` is the
+  // apache2 package, though the web row's own package is nginx.
+  const services = Object.values(SERVICE_CATALOG).flatMap((spec) =>
+    programsOf(spec)
+      .filter((program) => daemons.has(program))
+      .map((program) => packageOfProgram(spec, program)),
+  );
   const firmware = firmwareVendor === undefined ? [] : [firmwarePackageOf(firmwareVendor)];
   return [...new Set([...services, ...SYSTEM_LIBRARIES, ...firmware])].flatMap((pkg) => {
     const version = startingVersionOf(pkg);

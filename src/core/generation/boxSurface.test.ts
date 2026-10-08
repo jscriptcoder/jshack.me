@@ -7,7 +7,7 @@ import { generateDeepLayer } from './generateDeepLayer.js';
 import { generateApplication } from './generateDatabase.js';
 import { networkPersona } from './persona.js';
 import { roleOfHostname } from './pools/hostnames.js';
-import { GENERIC_CRON_JOBS, NAME_SERVER_CRON_JOBS, SERVICE_CRON_JOBS } from './pools/etcFiles.js';
+import { GENERIC_CRON_JOBS, NAME_SERVER_CRON_JOBS, PROGRAM_CRON_JOBS } from './pools/etcFiles.js';
 import { CRON_OUTPUT } from './pools/cronMail.js';
 import { roleConfigFile } from './pools/configFiles.js';
 import { ROLE_ROOT_HISTORY, ROOT_HISTORY } from './pools/rootContent.js';
@@ -18,7 +18,7 @@ import { asAbsPath } from '../types.js';
 import type { Directory, FilePermissions } from '../filesystem/types.js';
 import { buildWorkstationBaseFs } from './workstationFs.js';
 import { WORLD_EPOCH } from '../cve/worldClock.js';
-import { listenerPidfileName } from '../services/pidfile.js';
+import { daemonName, listenerPidfileName } from '../services/pidfile.js';
 import {
   ALL_ESSIDS,
   carriesMail,
@@ -626,7 +626,7 @@ describe('what a box writes is written the way the real file is', () => {
           );
         }),
     );
-    const serviceJobs = Object.values(SERVICE_CRON_JOBS).flat();
+    const serviceJobs = Object.values(PROGRAM_CRON_JOBS).flat();
     expect(everyJob.some((job) => serviceJobs.includes(job))).toBe(true);
     expect(everyJob.some((job) => NAME_SERVER_CRON_JOBS.includes(job))).toBe(true);
     const known = [...GENERIC_CRON_JOBS, ...serviceJobs, ...NAME_SERVER_CRON_JOBS];
@@ -768,7 +768,7 @@ describe('no two admins kept house the same way', () => {
   });
 
   it('shows some boxes scheduling a job for a service they run, and some leaving it be', () => {
-    const serviceJobs = Object.values(SERVICE_CRON_JOBS).flat();
+    const serviceJobs = Object.values(PROGRAM_CRON_JOBS).flat();
     const schedules = share(
       lanBoxes(ALL_ESSIDS)
         .filter(({ essid, host }) => hostServices(essid, host).length > 0)
@@ -998,6 +998,7 @@ describe('what a file server’s own config claims about it', () => {
             hostname: 'share-9',
             seed: `vsftpd-${index}`,
             ports: new Map([['ftp', 21]]),
+            programOf: daemonName,
             cidr: '192.168.4.0/24',
             zone: 'acme-corp.lan',
             sshNeighbours: [],
@@ -1069,6 +1070,7 @@ describe('the users a file server lets in over ftp', () => {
           hostname: 'share-9',
           seed: `vsftpd-${index}`,
           ports: new Map([['ftp', 21]]),
+          programOf: daemonName,
           cidr: '192.168.4.0/24',
           zone: 'acme-corp.lan',
           sshNeighbours: [],
@@ -1121,7 +1123,7 @@ describe('what every scheduled job prints', () => {
   it('is decided for every job a box can be given, so none is silent by omission', () => {
     const scheduled = [
       ...GENERIC_CRON_JOBS,
-      ...Object.values(SERVICE_CRON_JOBS).flat(),
+      ...Object.values(PROGRAM_CRON_JOBS).flat(),
       ...NAME_SERVER_CRON_JOBS,
     ];
     expect(scheduled.filter((command) => CRON_OUTPUT[command] === undefined)).toEqual([]);
