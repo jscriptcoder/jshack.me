@@ -1,7 +1,7 @@
 # Plan: apache2 of its own
 
 **Status**: Grilled and planned 2026-10-08. Slices 1–3 built (v0.331.0 #625, v0.332.0 #626,
-v0.333.0 #627). Next: slice 4 (to be planned in detail, then acceptance criteria to confirm before RED).
+v0.333.0 #627). Next: slice 4 (planned, acceptance criteria confirmed).
 Resolves the §9 follow-up "`apache2` is hollow, so a workstation is never born with it" in
 `docs/conventions-and-gotchas.md` (owner-agreed 2026-10-07), widened by the owner to the
 generated world. Where they disagree with this file, this file wins.
@@ -248,3 +248,63 @@ first boot runs in the client and writes through the journal like any command, a
 wire-check already covers how the server reads a box running apache2.
 **Watch for**: `firstBoot.ts`'s comment explaining why apache2 is never drawn becomes false and is
 rewritten. The existing "keeps the port" test covers sshd only, so the web-slot cases need 5–6.
+
+### Slice 4: a generated host that serves the web runs nginx or apache2, 50/50
+
+**Value**: generated LAN, deep and public-site hosts split between nginx and apache2, and an
+apache2 host agrees with itself everywhere a player looks: `ps`, `systemctl`, `/usr/sbin`, dpkg,
+`nmap -sV` (`Apache/2.4.62`, and its CVE once live), `curl -i`, `/etc/httpd.conf`, root's history,
+the boot log, cron mail, the served page and the trace. Routers, the gateway admin UI, `findit.io`
+and the other fixed sites stay nginx.
+**Path**: `generation/remoteHostFs.ts` `hostServices` (shared by client and server) gives each
+running service its `program` → the pidfile, `/usr/sbin` binary, dpkg row (`packageManifest.ts`),
+`httpd.conf` (`pools/configFiles.ts`), root's history (`rootHome.ts`), the boot log
+(`logHistory.ts`), cron jobs and mail (`pools/etcFiles.ts`, `pools/cronMail.ts`) and the page
+(`pools/webPages.ts`) read it. Deep hosts build on the same tree, so they split too.
+**Shape to propose first** (the collapsed version):
+- The web program is a property of the BOX, drawn on its own stream (`web-program-<essid>-<ip>`)
+  so every account, password, port and service already rolled stays put; a `webserver` box's
+  `httpd.conf` style and the program it would run always agree. A host whose name says `nginx`
+  (`nginx-*`, one of the webserver role's five prefixes) always runs nginx (owner's choice (a) of
+  three: the name wins over a re-roll of every hostname, or living with the contradiction).
+- `HostService` gains `program` (nginx/apache2 for the web, the only program for every other
+  service), read by the pidfile, the binary, root's `systemctl … <program>` line and the boot log.
+- The service cron jobs are keyed by PROGRAM, as the unit descriptions already are: `apache2` gets
+  `systemctl reload apache2`, and cron mail its row.
+- The webserver role's `httpd.conf` templates are keyed by program: nginx keeps its five, apache2
+  gets five Apache-style (`<VirtualHost *:{{port}}>`, `DocumentRoot`, `ErrorLog
+  /var/log/apache2/…`, a `mod_proxy` one, an SSL one). Filename unchanged.
+- The two pages that name nginx take a `{{webServer}}` placeholder (`nginx` / `Apache`).
+- `packageManifest.ts` maps every program of a service found in `/usr/sbin` to that program's
+  package, so `/usr/sbin/apache2` gets an `apache2` row at its start tuple.
+- Left as is (owner-confirmed): the webserver role's username pool keeps both `apache` and
+  `nginx`; an account name is a person's, not a claim about what runs.
+**Acceptance criteria (owner-confirmed 2026-10-08)**:
+1. Across generated hosts that serve the web, nginx and apache2 each run on 35–65% of them, and
+   the draw is stable per host: every occupant, every reload, the same program.
+2. Adding the draw moves nothing else: services, ports, accounts and passwords of every generated
+   host are identical to before.
+3. An apache2 host agrees with itself: `/var/run/apache2.pid`, `/usr/sbin/apache2` and no nginx
+   pidfile or binary; an `apache2` row in `/var/lib/dpkg/status` at `2.4.62` and no nginx row;
+   `ps`, `systemctl status apache2` and the boot log name apache2.
+4. A `webserver`-role apache2 host's `/etc/httpd.conf` is an Apache-style template with the host's
+   real name and port; an nginx host keeps today's.
+5. Root's history (`systemctl … apache2`), the cron job and its mail (`systemctl reload apache2`)
+   and the served page name the host's own program; an apache2 host shows no nginx line.
+6. Scanning and firing at a generated apache2 host — own LAN, deep layer, public site — shows
+   `Apache/<version>` on `nmap -sV`, resolves apache2's hole (refused on a release with none) and
+   tags the trace `apache2[pid]`, through the server.
+7. Routers, the gateway admin UI, `findit.io` and fixed sites stay nginx; player workstations are
+   untouched (slice 3); an nginx host is byte-for-byte what it is today.
+**RED**: `remoteHostFs` / `boxSurface` tests for 1–5; `packageManifest` for the `/usr/sbin/apache2`
+row; `configFiles` for the Apache templates; the existing fixed-site tests for 7. Live: a new
+`scripts/testExploitApacheNpc.ts` finds a generated apache2 web host on the player's LAN, checks the
+server scan reads `Apache/2.4.62`, walks its release onto a live hole and fires (apache2's CVE,
+`apache2[` in the trace), then walks it clean and expects the refusal. Before the slice no
+generated host runs apache2, so it has nothing to find and fails.
+**Watch for**: the wire-check scripts that assume a generated web host is nginx
+(`testExploitOwnLan`, `testExploitPublisherSite`, `testExploitDeepChain`, `testHopExploit`, and any
+asserting `Server: nginx`) move to the running program's package and name, and all are re-run, or
+half of them fail whenever their chosen host rolls apache2. Generation tests that pin nginx on a
+generated host surface in RED and get the same treatment. `findit.ts` and `routerFs.ts` derive nginx
+from the catalog's default program, which is what keeps them nginx; 7's tests pin it.
