@@ -1,7 +1,7 @@
 # Plan: apache2 of its own
 
-**Status**: Grilled and planned 2026-10-08. Slice 1 built at v0.331.0 (#625). Next: slice 2 (to
-be planned in detail, then acceptance criteria to confirm before RED).
+**Status**: Grilled and planned 2026-10-08. Slice 1 built at v0.331.0 (#625). Next: slice 2
+(planned, acceptance criteria confirmed).
 Resolves the §9 follow-up "`apache2` is hollow, so a workstation is never born with it" in
 `docs/conventions-and-gotchas.md` (owner-agreed 2026-10-07), widened by the owner to the
 generated world. Where they disagree with this file, this file wins.
@@ -141,3 +141,61 @@ show it fails against the pre-slice handler.
 per row, so each needs the right program or the row's default; a box that started apache2 before
 this slice holds `nginx.pid` and will read as nginx (pre-launch, no migration); `kill`'s
 `isUnitName` already knows both names.
+
+### Slice 2: apache2 has a release history, and every tool that dates or fires the web server reads the running program's
+
+**Value**: a box running apache2 scans as `Apache/2.4.62` with apache2's own CVE, is fired at
+through apache2's hole (not nginx's), and leaves an `apache2[pid]` line, so a defender patches
+the package that is actually exposed.
+**Path**: `packages/packageVersions.ts` gains the template → `packageTimeline` / `liveCve` /
+`exploitOutcome` key on it with no change → `apt install apache2` writes the manifest row through
+`newestReleaseOn` as any other package → `services/pidfile.ts` `readRunningProcesses` gives a
+running service the PACKAGE its program belongs to → `readOpenPorts` (every `nmap -sV`: own box,
+LAN, occupant, deep, public) and `sessions/exploitCreateSession.ts` (the server's version and
+outcome, which is all `msfconsole` renders) read that package → the trace line carries the program.
+**Shape to propose first** (the collapsed version):
+- `otherPrograms` entries name their package: `otherPrograms: [{ name: 'apache2', package: 'apache2' }]`.
+  A running service carries `package` next to `program` (the row's own `package` for its default
+  program), and every reader that today says `running.spec.package` says `running.package`.
+- The server finds the package of what holds the reached port by reading the running process on
+  it (one helper beside `listenerOn`, which `webProgramOn` also folds onto), rather than going
+  port → service name → catalog row, which loses the program.
+- `ExploitEvent` carries the `program`, and `syslogExploitLine` drops its parameter and tags with
+  it. sshd, snmpd and named write exactly what they write today; the three own-format formatters
+  ignore it.
+- Template: `apache2: { cveNumber: 22, displayPrefix: 'Apache/', startTuple: [2, 4, 62] }`.
+- Pool (7, nginx's size; one full shell traded for script execution, file write for file read):
+  `['shell_full', 'file_read', 'file_read', 'file_read', 'script_exec', 'script_exec', 'backdoor_port_open']`.
+**Acceptance criteria (owner-confirmed 2026-10-08)**:
+1. `apt install apache2` writes an `apache2` row into `/var/lib/dpkg/status` at the newest release
+   the repo holds that day; before this slice it wrote none.
+2. Root's own `nmap -sV localhost` on a box running apache2 shows port 80 `http`
+   `Apache/<that version>`, and the CVE and severity live against it, when one is.
+3. apache2's CVE ids carry its own number: `CVE-YYYY-22NNNNN`, never nginx's `02NNNNN`.
+4. On a box with both packages installed, the RUNNING program decides: running apache2, the scan,
+   the fire and the trace answer from the apache2 row even when the nginx row sits on a live hole,
+   and the reverse.
+5. `msfconsole` fired at a box running apache2 on a release with a live hole names apache2's CVE
+   and grants that release's effect from apache2's pool; on a release with no live hole it is
+   refused (`no known vulnerability`), whatever nginx's row says.
+6. The defender's `auth.log` line reads `apache2[pid]: Remote exploit of CVE-… from …; shell opened
+   as …` (and the `failed` line on a refusal); nginx still writes `nginx[pid]`; sshd, snmpd and
+   named are byte-for-byte unchanged.
+7. `apt list -u` lists `apache2` with its hole and its ETA wording, exactly as for nginx, and
+   `apt upgrade apache2` moves the row forward; the scan then reads the new version.
+8. The cross-player scan and fire (another player's box running apache2) agree with 2–6, through
+   the server.
+9. Generated boxes are unchanged: no NPC carries apache2 yet, so no CVE, scan or trace of theirs moves.
+**RED**: `packageVersions` / `packageTimeline` tests for 3; `apt.test.ts` for 1 and 7;
+`nmap.test.ts` (own box) for 2 and 4; `exploitCreateSession.test.ts` for 4–6; `exploitLog` /
+catalog test that the three syslog rows are unchanged. Live: a wire-check on the
+`testExploitCrossPlayer` harness (a sibling script, so a door search that moves never breaks the
+other): B's box running apache2 on a release with a live root hole — A's scan reads `Apache/…` and
+the CVE, A's fire opens the shell, B's `auth.log` gains `apache2[`; then B swaps to nginx on a clean
+nginx release and the same fire is refused. Show it fails against the pre-slice handler.
+**Watch for**: `packageManifest.ts` `installedPackages` maps `/usr/sbin` to packages by the row's
+default daemon only, so a generated box with `apache2` in sbin would get no row; nothing generates
+one until slice 4, which fixes it there with its test. The many `scripts/testExploit*.ts` that read
+`spec.package` target generated nginx boxes and stay right. The pool drops `file_write` entirely;
+the owner took it over the alternative that keeps it (`shell_full`, `file_read` ×2, `file_write`,
+`script_exec` ×2, backdoor), which leans only to script execution.
