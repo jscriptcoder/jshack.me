@@ -7,18 +7,16 @@
  * findit lists is a page a reader can actually fetch.
  */
 
-import { readRunningProcesses } from '../services/pidfile.js';
+import { serviceRunningOn } from '../services/pidfile.js';
 import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
 import type { Directory } from '../filesystem/types.js';
 
 /** Which program serves the web on a port of this box (`nginx`, `apache2`), or
  *  undefined when none does — what a response's `Server` header names. */
-export const webProgramOn = (fs: Directory, port: number): string | undefined =>
-  readRunningProcesses(fs).flatMap((running) =>
-    running.kind === 'service' && running.spec === SERVICE_CATALOG.http && running.port === port
-      ? [running.program]
-      : [],
-  )[0];
+export const webProgramOn = (fs: Directory, port: number): string | undefined => {
+  const running = serviceRunningOn(fs, port);
+  return running?.spec === SERVICE_CATALOG.http ? running.program : undefined;
+};
 
 export const servesWebOn = (fs: Directory, port: number): boolean =>
   webProgramOn(fs, port) !== undefined;

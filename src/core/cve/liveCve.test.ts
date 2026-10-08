@@ -72,7 +72,7 @@ describe('a package with a published CVE', () => {
  * BESIDE the lock instead of under it.
  *
  * All four severity bands appear here, which is the honest way to show each one
- * is reachable — a distribution assertion over twenty-one packages would not be.
+ * is reachable — a distribution assertion over twenty-two packages would not be.
  */
 const WORLD_PINS = [
   ['openssh-server', 'CVE-2026-0149031', 'medium', 8],
@@ -96,6 +96,7 @@ const WORLD_PINS = [
   ['openwrt-firmware', 'CVE-2026-1935221', 'high', 13],
   ['pfsense-firmware', 'CVE-2026-2014600', 'medium', 5],
   ['ubiquiti-firmware', 'CVE-2026-2152952', 'high', 9],
+  ['apache2', 'CVE-2026-2235239', 'high', 12],
 ] as const;
 
 describe('the world these seeds actually produce', () => {

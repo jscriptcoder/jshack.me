@@ -73,6 +73,9 @@ const SERVICE_PACKAGE_TEMPLATES: Readonly<Record<string, VersionTemplate>> = {
   redis: { cveNumber: 5, displayPrefix: 'Redis ', startTuple: [7, 2, 5] },
   bind9: { cveNumber: 6, displayPrefix: 'BIND ', startTuple: [9, 18, 22] },
   snmp: { cveNumber: 7, displayPrefix: 'net-snmp ', startTuple: [5, 9, 4] },
+  // The web's second program, numbered after the firmware because it arrived after it:
+  // a number is permanent, so a late arrival takes the next free one, never a gap.
+  apache2: { cveNumber: 22, displayPrefix: 'Apache/', startTuple: [2, 4, 62] },
 };
 
 /** The package a vendor's firmware is recorded under. One name per vendor rather

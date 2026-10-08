@@ -538,9 +538,10 @@ describe('apt', () => {
         '/usr/sbin/nginx',
         DPKG_STATUS_PATH,
       ]);
-      // Apache is the one web daemon this world keeps no versions for, so it lands with
-      // no row rather than with a version invented for it.
-      expect(apacheInstall.writes.map((write) => write.path)).toEqual(['/usr/sbin/apache2']);
+      expect(apacheInstall.writes.map((write) => write.path)).toEqual([
+        '/usr/sbin/apache2',
+        DPKG_STATUS_PATH,
+      ]);
     });
 
     it('installs a package that ships both a client and a daemon into both places', async () => {
@@ -761,6 +762,18 @@ describe('apt', () => {
       expect([...parseDpkgVersions(written?.content ?? '')].slice(0, -1)).toEqual([
         ...parseDpkgVersions(boxManifest()),
       ]);
+    });
+
+    it('records apache2 under its own name and release, not as the nginx it serves the same port as', async () => {
+      const gameDay = 300;
+      const { env, writes } = aptEnv({ gameDay });
+
+      await streamResult(await apt.execute(env, ['install', 'apache2'], NO_FLAGS));
+
+      const versions = parseDpkgVersions(writes.find(({ path }) => path === DPKG_STATUS_PATH)?.content ?? '');
+      expect(versions.get('apache2')).toBe(newestReleaseOn('apache2', gameDay));
+      expect(versions.get('apache2')).toBeDefined();
+      expect(versions.has('nginx')).toBe(false);
     });
 
     it('hands a scan the version it installed, and the hole that version catches later', async () => {
@@ -1791,6 +1804,22 @@ describe('apt list --upgradable', () => {
     expect(exitCode).toBe(0);
   });
 
+  it("names apache2's own hole and its own move, apart from nginx's", async () => {
+    // Its id carries apache2's number: the one thing in this line a defender can match
+    // against a scan to know which web server needs the patch.
+    const [first] = packageTimeline('apache2', 400);
+    const shipsOn = first!.publishedAt + first!.patchDelay;
+    const status = upgradeStatusFor('apache2', '2.4.62', shipsOn);
+    if (status.kind !== 'upgradable') throw new Error(`expected a shipped fix, got ${status.kind}`);
+
+    const { lines } = await listUpgradable(manifestBox({ apache2: '2.4.62' }, { gameDay: shipsOn }));
+
+    expect(lines[1]).toEqual({
+      kind: 'text',
+      content: `  apache2 2.4.62 [CVE-2026-2235239 high · upgradable → ${status.target}]`,
+    });
+  });
+
   it('says no fix exists yet inside the patch delay, counting down the days until one ships', async () => {
     // The state the whole patch-delay mechanic exists to create: the player is told
     // the truth and can do nothing about it — yet. The count is the real days
@@ -2170,6 +2199,25 @@ describe('apt upgrade', () => {
       },
     ]);
     expect(exitCode).toBe(0);
+  });
+
+  it('moves apache2 onto the release that fixes it, leaving the nginx row beside it alone', async () => {
+    const [first] = packageTimeline('apache2', 400);
+    const shipsOn = first!.publishedAt + first!.patchDelay;
+    const status = upgradeStatusFor('apache2', '2.4.62', shipsOn);
+    if (status.kind !== 'upgradable') throw new Error(`expected a shipped fix, got ${status.kind}`);
+    const nginxOn = startingVersionOf('nginx')!;
+    const { env, writes } = upgradeBox(manifestOf({ nginx: nginxOn, apache2: '2.4.62' }), {
+      gameDay: shipsOn,
+    });
+
+    const { lines } = await upgrade(env, 'apache2');
+
+    expect(lines).toContainEqual({
+      kind: 'text',
+      content: `Unpacking apache2 (${status.target}) over (2.4.62) ...`,
+    });
+    expect(writes[0]?.content).toBe(manifestOf({ nginx: nginxOn, apache2: status.target }));
   });
 
   it('with no package named, moves every exposed package at once and warns about the one whose fix has not shipped', async () => {
