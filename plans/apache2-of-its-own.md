@@ -1,7 +1,7 @@
 # Plan: apache2 of its own
 
-**Status**: Grilled and planned 2026-10-08. Slices 1–2 built (v0.331.0 #625, v0.332.0 #626).
-Next: slice 3 (planned, acceptance criteria confirmed).
+**Status**: Grilled and planned 2026-10-08. Slices 1–3 built (v0.331.0 #625, v0.332.0 #626,
+v0.333.0 #627). Next: slice 4 (to be planned in detail, then acceptance criteria to confirm before RED).
 Resolves the §9 follow-up "`apache2` is hollow, so a workstation is never born with it" in
 `docs/conventions-and-gotchas.md` (owner-agreed 2026-10-07), widened by the owner to the
 generated world. Where they disagree with this file, this file wins.
@@ -205,6 +205,10 @@ the owner took it over the alternative that keeps it (`shell_full`, `file_read` 
 `script_exec` ×2, backdoor), which leans only to script execution.
 
 ### Slice 3: a workstation born with a web server runs nginx or apache2, 50/50
+
+**Built**: v0.333.0, #627. The web slot picks its program after the slots are drawn, and first
+boot's "already started?" check reads `runningPort`, so the slice-2 note about the default pidfile
+is resolved.
 
 **Value**: a new player's box that is born with a web server runs nginx or apache2 with even odds,
 and every tool that looks at it (`ps`, `systemctl`, the boot screen, `nmap -sV`, `curl -i`, the
