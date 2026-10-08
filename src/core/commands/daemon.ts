@@ -131,7 +131,7 @@ const parsePort = (raw: string | undefined, spec: ServiceSpec): number | null =>
  * `restart`: one answer to "is this up, and where", so a daemon's own gate and
  * the tool that reports on it can never disagree.
  */
-export const runningPort = (env: CommandEnv, spec: ServiceSpec): number | null =>
+export const runningPort = (env: Pick<CommandEnv, 'fs'>, spec: ServiceSpec): number | null =>
   programsOf(spec)
     .map((program) => programPort(env, program, spec))
     .find((port) => port !== null) ?? null;
@@ -139,7 +139,11 @@ export const runningPort = (env: CommandEnv, spec: ServiceSpec): number | null =
 /** The port ONE program of a service holds, or null when that program is not up —
  *  whatever else is running the service. What `systemctl` asks about a unit, since
  *  nginx and apache2 are two units for one port. */
-export const programPort = (env: CommandEnv, program: string, spec: ServiceSpec): number | null => {
+export const programPort = (
+  env: Pick<CommandEnv, 'fs'>,
+  program: string,
+  spec: ServiceSpec,
+): number | null => {
   const node = env.fs.stat(programPidfilePath(program));
   if (node === null || node.kind !== 'file') return null;
   return parsePidfilePort(node.content) ?? spec.defaultPort;

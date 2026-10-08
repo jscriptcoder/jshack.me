@@ -19,9 +19,8 @@ import { newestReleaseOn } from '../cve/packageTimeline.js';
 import { gameDayAt, WORLD_EPOCH } from '../cve/worldClock.js';
 import { parseDpkgVersions, readDpkgStatus } from '../packages/dpkgStatus.js';
 import {
-  daemonName,
-  formatPidfileContent,
-  pidfilePath,
+  formatProgramPidfileContent,
+  programPidfilePath,
   readOpenPorts,
   readRunningProcesses,
 } from '../services/pidfile.js';
@@ -32,7 +31,14 @@ import { asAbsPath, asEpochMs, asPlayerKeyHex, type AbsPath } from '../types.js'
 import type { PatchApi, PatchResult } from '../commands/types.js';
 import { mockIdentity, mockPatchApi } from '../../test/factories/commandEnv.js';
 
-const POOL = ['sshd', 'vsftpd', 'nginx', 'mysqld', 'redis-server'];
+const POOL = ['sshd', 'vsftpd', 'nginx', 'apache2', 'mysqld', 'redis-server'];
+
+/** The two programs that can fill a box's one web server. */
+const WEB_SERVERS = ['nginx', 'apache2'];
+
+/** What a box can be born running, one entry per thing it serves: the web server is
+ *  one service whichever program runs it. */
+const SLOTS = [['sshd'], ['vsftpd'], WEB_SERVERS, ['mysqld'], ['redis-server']];
 
 /** Enough distinct owners that every count and every pool member shows up, and few
  *  enough that the suite stays instant. */
@@ -67,6 +73,36 @@ describe('the services a workstation is born running', () => {
     expect([...seen].sort()).toEqual([...POOL].sort());
   });
 
+  it('never holds both web servers, since the two cannot share the one port', () => {
+    for (const key of ownerKeys(600)) {
+      expect(drawnNames(key).filter((name) => WEB_SERVERS.includes(name)).length).toBeLessThanOrEqual(
+        1,
+      );
+    }
+  });
+
+  it('runs the web server as nginx or apache2 about equally often', () => {
+    const webServers = ownerKeys(600).flatMap((key) =>
+      drawnNames(key).filter((name) => WEB_SERVERS.includes(name)),
+    );
+    const apacheShare = webServers.filter((name) => name === 'apache2').length / webServers.length;
+    expect(apacheShare).toBeGreaterThan(0.35);
+    expect(apacheShare).toBeLessThan(0.65);
+  });
+
+  it('serves the web about as often as it serves anything else', () => {
+    // Two programs for one service must not double the web's odds: a box is born
+    // serving the web exactly as often as it is born serving files or a database.
+    const keys = ownerKeys(600);
+    for (const slot of SLOTS) {
+      const share =
+        keys.filter((key) => drawnNames(key).some((name) => slot.includes(name))).length /
+        keys.length;
+      expect(share).toBeGreaterThan(0.3);
+      expect(share).toBeLessThan(0.5);
+    }
+  });
+
   it('is the same set every time for the same owner', () => {
     for (const key of ownerKeys(50)) {
       expect(drawnNames(key)).toEqual(drawnNames(key));
@@ -83,6 +119,7 @@ describe('the services a workstation is born running', () => {
       sshd: 'openssh-server',
       vsftpd: 'vsftpd',
       nginx: 'nginx',
+      apache2: 'apache2',
       mysqld: 'mysql',
       'redis-server': 'redis',
     });
@@ -182,7 +219,7 @@ const fileAt = (tree: Directory, path: string) =>
 
 const runningNames = (tree: Directory): readonly string[] =>
   readRunningProcesses(tree).flatMap((running) =>
-    running.kind === 'service' ? [daemonName(running.spec)] : [],
+    running.kind === 'service' ? [running.program] : [],
   );
 
 describe("a workstation's first boot", () => {
@@ -192,11 +229,11 @@ describe("a workstation's first boot", () => {
       await runFirstBoot(box);
       const drawn = startingServices(key);
       expect([...runningNames(tree())].sort()).toEqual(
-        drawn.map((service) => daemonName(service.daemon.spec)).sort(),
+        drawn.map((service) => service.daemon.name).sort(),
       );
       for (const { daemon } of drawn) {
-        expect(fileAt(tree(), pidfilePath(daemon.spec))).toMatchObject({
-          content: formatPidfileContent(daemon.spec, daemon.spec.defaultPort),
+        expect(fileAt(tree(), programPidfilePath(daemon.name))).toMatchObject({
+          content: formatProgramPidfileContent(daemon.name, daemon.spec.defaultPort),
         });
       }
     }
@@ -227,6 +264,22 @@ describe("a workstation's first boot", () => {
         expect(port.cve).toBeUndefined();
       }
     }
+  });
+
+  it('serves the web as apache2 alone when the box draws it, and scans as Apache', async () => {
+    const key = ownerWhose((names) => names.includes('apache2'));
+    const { box, tree } = journalBox({ ownerKeyHex: key });
+    await runFirstBoot(box);
+    const installed = parseDpkgVersions(readDpkgStatus(tree()));
+    expect(installed.get('apache2')).toBe(newestReleaseOn('apache2', CLEAN_DAY));
+    expect(installed.has('nginx')).toBe(false);
+    expect(fileAt(tree(), '/usr/sbin/nginx')).toBeNull();
+    expect(fileAt(tree(), programPidfilePath('nginx'))).toBeNull();
+    const web = readOpenPorts(tree(), { gameDay: gameDayAt(BIRTH) }).find(
+      (open) => open.port === 80,
+    );
+    expect(web).toMatchObject({ service: 'http', version: expect.stringMatching(/^Apache\//) });
+    expect(web?.cve).toBeUndefined();
   });
 
   it('locks a born database and store with the root password the player chose', async () => {
@@ -296,7 +349,7 @@ describe("a workstation's first boot", () => {
     const key = ownerWhose((names) => names.length === 3);
     const lastService = startingServices(key).at(-1);
     if (lastService === undefined) throw new Error('drew nothing');
-    const failed = journalBox({ ownerKeyHex: key, refusing: pidfilePath(lastService.daemon.spec) });
+    const failed = journalBox({ ownerKeyHex: key, refusing: programPidfilePath(lastService.daemon.name) });
     await runFirstBoot(failed.box);
     expect(fileAt(failed.tree(), FIRST_BOOT_MARKER)).toBeNull();
     expect(runningNames(failed.tree())).toHaveLength(2);
@@ -326,22 +379,47 @@ describe("a workstation's first boot", () => {
     expect(runningNames(again.tree())).not.toContain('sshd');
   });
 
-  it('keeps the port of a service an older box was already running', async () => {
-    const key = ownerWhose((names) => names.includes('sshd'));
-    const sshd = startingServices(key).find((service) => service.daemon.name === 'sshd');
-    if (sshd === undefined) throw new Error('drew no sshd');
-    const { spec } = sshd.daemon;
+  it.each([
+    ['sshd', 2222],
+    ['apache2', 8080],
+  ])('keeps the port of a %s an older box was already running', async (program, port) => {
+    const key = ownerWhose((names) => names.includes(program));
     const running: Patch = {
-      path: pidfilePath(spec),
-      content: formatPidfileContent(spec, 2222),
+      path: programPidfilePath(program),
+      content: formatProgramPidfileContent(program, port),
       owner: 'root',
     };
     const { box, tree } = journalBox({ ownerKeyHex: key, history: [running] });
     await runFirstBoot(box);
-    expect(fileAt(tree(), pidfilePath(spec))).toMatchObject({
-      content: formatPidfileContent(spec, 2222),
+    expect(fileAt(tree(), programPidfilePath(program))).toMatchObject({
+      content: formatProgramPidfileContent(program, port),
     });
+    expect(fileAt(tree(), FIRST_BOOT_MARKER)).not.toBeNull();
   });
+
+  it.each([
+    ['apache2', 'nginx'],
+    ['nginx', 'apache2'],
+  ])(
+    'starts no %s beside the %s an older box already serves the web with',
+    async (drawn, alreadyUp) => {
+      // The web is one service on one port: whichever program the owner already runs
+      // is the box's web server, and starting the drawn one too would put two on it.
+      const key = ownerWhose((names) => names.includes(drawn));
+      const running: Patch = {
+        path: programPidfilePath(alreadyUp),
+        content: formatProgramPidfileContent(alreadyUp, 8080),
+        owner: 'root',
+      };
+      const { box, tree } = journalBox({ ownerKeyHex: key, history: [running] });
+      await runFirstBoot(box);
+      expect(fileAt(tree(), programPidfilePath(drawn))).toBeNull();
+      expect(fileAt(tree(), programPidfilePath(alreadyUp))).toMatchObject({
+        content: formatProgramPidfileContent(alreadyUp, 8080),
+      });
+      expect(fileAt(tree(), FIRST_BOOT_MARKER)).not.toBeNull();
+    },
+  );
 
   it('writes nothing when the journal cannot be read, so a born box is never taken for a new one', async () => {
     const { box, journal } = journalBox({ ownerKeyHex: anyOwner(), unreadable: true });

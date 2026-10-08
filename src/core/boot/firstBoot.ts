@@ -9,13 +9,12 @@
  */
 
 import { installExtraFiles, installNewest, type InstallBox } from '../commands/apt.js';
-import { DAEMONS, startDaemon, type Daemon } from '../commands/daemon.js';
+import { DAEMONS, runningPort, startDaemon, type Daemon } from '../commands/daemon.js';
 import type { CommandEnv } from '../commands/types.js';
 import { createFsView } from '../filesystem/fsView.js';
 import type { Directory } from '../filesystem/types.js';
 import { SERVICE_CONFIG_FILE } from '../generation/baseFs.js';
 import { createPrng } from '../generation/prng.js';
-import { pidfilePath } from '../services/pidfile.js';
 import { asAbsPath } from '../types.js';
 import { canBoot } from './bootFiles.js';
 
@@ -31,17 +30,17 @@ const service = (daemonName: string, packageName: string): StartingService => {
   return { daemon, packageName };
 };
 
-/** The desktop services a box can be born with. Network infrastructure (`snmpd`,
- *  `named`) stays out: nobody's desktop comes up as a name server. The web server is
- *  `nginx` and never `apache2`: this world keeps no release history for apache2, so a
- *  box born with it would serve a door the clock could never open, at no version a
- *  scan could read. */
-const POOL: readonly StartingService[] = [
-  service('sshd', 'openssh-server'),
-  service('vsftpd', 'vsftpd'),
-  service('nginx', 'nginx'),
-  service('mysqld', 'mysql'),
-  service('redis-server', 'redis'),
+/** The desktop services a box can be born with, each listing the programs that can
+ *  run it. Network infrastructure (`snmpd`, `named`) stays out: nobody's desktop comes
+ *  up as a name server. The web is ONE slot run by nginx or apache2, so a second web
+ *  server never doubles the odds of being born serving the web, and a box can never
+ *  draw both for the one port. */
+const POOL: readonly (readonly StartingService[])[] = [
+  [service('sshd', 'openssh-server')],
+  [service('vsftpd', 'vsftpd')],
+  [service('nginx', 'nginx'), service('apache2', 'apache2')],
+  [service('mysqld', 'mysql')],
+  [service('redis-server', 'redis')],
 ];
 
 /** Never zero: a box born with nothing would sit outside the loop of finding a door,
@@ -52,7 +51,7 @@ const MOST = 3;
 export const startingServices = (ownerKeyHex: string): readonly StartingService[] => {
   const prng = createPrng(`first-boot-${ownerKeyHex}`);
   const count = prng.nextInt(FEWEST, MOST);
-  return prng.pickN(POOL, count);
+  return prng.pickN(POOL, count).map((programs) => prng.pick(programs));
 };
 
 /** The file that says a box has had its first boot, where cloud-init keeps the same
@@ -108,8 +107,11 @@ export const runFirstBoot = async (box: FirstBootBox): Promise<void> => {
     const onBox = installBoxOver(box, tree);
     const installed = await finish(installNewest(onBox, packageName));
     if (installed !== 0) return;
-    // An older box's owner may already run it, on a port of their choosing.
-    if (onBox.fs.stat(pidfilePath(daemon.spec)) === null) {
+    // An older box's owner may already run the service, on a port of their choosing,
+    // and maybe as the other program that provides it: a web server they started
+    // themselves is the box's web server, and starting the drawn one too would put
+    // two on the one port.
+    if (runningPort(onBox, daemon.spec) === null) {
       const started = await startDaemon(onBox, daemon, daemon.spec.defaultPort);
       if (!started.ok) return;
     }
