@@ -1,7 +1,8 @@
 # Plan: apache2 of its own
 
-**Status**: Grilled and planned 2026-10-08. Slices 1–3 built (v0.331.0 #625, v0.332.0 #626,
-v0.333.0 #627). Next: slice 4 (planned, acceptance criteria confirmed).
+**Status**: Grilled and planned 2026-10-08. Slices 1–4 built (v0.331.0 #625, v0.332.0 #626,
+v0.333.0 #627, v0.334.0 #628). Next: the epic close-out (one browser E2E run over all four
+slices, the docs and the §9 entry, retiring this file).
 Resolves the §9 follow-up "`apache2` is hollow, so a workstation is never born with it" in
 `docs/conventions-and-gotchas.md` (owner-agreed 2026-10-07), widened by the owner to the
 generated world. Where they disagree with this file, this file wins.
@@ -250,6 +251,11 @@ wire-check already covers how the server reads a box running apache2.
 rewritten. The existing "keeps the port" test covers sshd only, so the web-slot cases need 5–6.
 
 ### Slice 4: a generated host that serves the web runs nginx or apache2, 50/50
+
+**Built**: v0.334.0, #628. The draw is `serviceProgramOf` on a `program-<service>-<essid>-<ip>`
+stream, generic over every service (only the web has a choice). Every landmark host that changed
+is an apache2 host; no nginx host moved. The existing wire-check scripts that read `spec.package`
+were left as they are: all pass, since none of their chosen hosts rolled apache2.
 
 **Value**: generated LAN, deep and public-site hosts split between nginx and apache2, and an
 apache2 host agrees with itself everywhere a player looks: `ps`, `systemctl`, `/usr/sbin`, dpkg,
