@@ -89,9 +89,10 @@ import {
 import type { GameConfig } from '../core/gameConfig/gameConfig.js';
 import type { Directory } from '../core/filesystem/types.js';
 import { applyPatches, type Patch } from '../core/filesystem/applyPatches.js';
-import { canBoot, type BootCheck } from '../core/boot/bootFiles.js';
+import { canBoot, type BootReport } from '../core/boot/bootFiles.js';
 import { runFirstBoot } from '../core/boot/firstBoot.js';
 import { readBootId } from '../core/boot/bootId.js';
+import { readRunningProcesses } from '../core/services/pidfile.js';
 import { isCrossPlayerHop, needsFreshTree, resolveActiveRoot } from './activeRoot.js';
 import { isCrossPlayerWorkstation } from '../core/network/crossPlayerHop.js';
 import { createFsView } from '../core/filesystem/fsView.js';
@@ -1580,10 +1581,14 @@ export const followLink = async (url: string): Promise<FollowOutcome> => {
  *  real tombstone in the journal does.
  *
  *  A box that has never booted gets its starting services here first (`runFirstBoot`),
- *  so the terminal comes up on a box already running them. */
-export const resolveBootCheck = async (): Promise<BootCheck> => {
+ *  so the terminal comes up on a box already running them, and the boot screen is told
+ *  which services those are. A listener somebody planted is not one: systemd did not
+ *  start it, and the boot must not give it away. */
+export const resolveBootCheck = async (): Promise<BootReport> => {
   const base = sessionStack()[0];
-  if (base === undefined || identity === undefined || config === undefined) return { ok: true };
+  if (base === undefined || identity === undefined || config === undefined) {
+    return { ok: true, started: [] };
+  }
   const ownBox: PatchClientDeps = {
     identity,
     machineId: base.machineId,
@@ -1605,7 +1610,11 @@ export const resolveBootCheck = async (): Promise<BootCheck> => {
   });
   // So a first boot's services are there at the first prompt.
   await refetchPatches();
-  return canBoot(applyPatches(seeded, await fetchOwnPatches(ownBox)));
+  const tree = applyPatches(seeded, await fetchOwnPatches(ownBox));
+  const started = readRunningProcesses(tree).flatMap((running) =>
+    running.kind === 'service' ? [running.spec.service] : [],
+  );
+  return { ...canBoot(tree), started };
 };
 
 export type StartGameOptions = {
