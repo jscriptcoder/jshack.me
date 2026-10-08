@@ -655,8 +655,10 @@ To pick up the next work: there is no active epic. **The owner has postponed the
    wire-check scripts that read `spec.package` for a generated host all pass, since none of
    their chosen hosts runs apache2; one that lands on an apache2 host needs the running
    program's package instead.
-6. **Then:** defender-side items: the `echo x > rules.v4` wipe and player-driven service patching
-   (both §9). In-game tutorials matter once others playtest.
+6. **Then:** defender-side items. ✅ The `echo x > rules.v4` wipe was decided a mechanic, not a
+   gap (2026-10-08, §9). Left: player-driven service patching (§9), whose v2 remainder needs
+   scoping first, since `apt upgrade` already patches the player's own box. In-game tutorials
+   matter once others playtest.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan
@@ -3675,12 +3677,13 @@ blocks the live PvP loop; each was a scoped owner decision, not a gap.
   same shape as the four writers above and NOT a defender-audit gap or a D8 bug: the trace is
   recorded and owner-readable, only not pushed to an already-open session. This nearly cost a wrong
   "workstation walks aren't logged" fix; the row check is what caught it.
-- **`echo x > rules.v4` is still an unguarded wipe vector.** A redirect carries no base
-  fingerprint by design — it truncates by definition, and the player was never shown the
-  content — so it overwrites a co-occupant's rules with no question asked. Deliberate by nature
-  and arguably correct (that is what `>` means), but it is the one remaining way to destroy
-  another occupant's edit without being told. Left open rather than fixed, because guarding it
-  would mean `>` no longer means truncate.
+- **`echo x > rules.v4` wipes a co-occupant's rules unasked — DECIDED, a mechanic, not a gap
+  (2026-10-08).** A redirect carries no base fingerprint by design — it truncates by definition,
+  and the player was never shown the content — so it overwrites a co-occupant's rules with no
+  question asked. The owner kept it: `>` means truncate everywhere, a blind wipe of a shared
+  gateway's rules is a legitimate move, and the defender learns of it the hard way. Do not
+  propose a guard, a shared-file carve-out, or a dedicated trace for it. `set -o noclobber` is
+  no answer either way: it protects the writer from themself, never the file's other owner.
 - **Two journal fetches for the SAME machine can still land out of order.** Fixed at v0.98.0:
   `refetchPatches` drops a late answer for a machine the player has LEFT, so a hop no longer
   paints the box you came from over the box you are on. What the machine-scoped guard does not
