@@ -1,7 +1,7 @@
 # Plan: apache2 of its own
 
-**Status**: Grilled and planned 2026-10-08. Slice 1 built at v0.331.0 (#625). Next: slice 2
-(planned, acceptance criteria confirmed).
+**Status**: Grilled and planned 2026-10-08. Slices 1–2 built (v0.331.0 #625, v0.332.0 #626).
+Next: slice 3 (to be planned in detail, then acceptance criteria to confirm before RED).
 Resolves the §9 follow-up "`apache2` is hollow, so a workstation is never born with it" in
 `docs/conventions-and-gotchas.md` (owner-agreed 2026-10-07), widened by the owner to the
 generated world. Where they disagree with this file, this file wins.
@@ -143,6 +143,10 @@ this slice holds `nginx.pid` and will read as nginx (pre-launch, no migration); 
 `isUnitName` already knows both names.
 
 ### Slice 2: apache2 has a release history, and every tool that dates or fires the web server reads the running program's
+
+**Built**: v0.332.0, #626. The running program decides the scanned version, the fired CVE and
+the trace tag; the release template and effect pool are pinned by exact-value lock tests. The
+first-boot pidfile check (below) still reads nginx's default and is slice 3's to fix.
 
 **Value**: a box running apache2 scans as `Apache/2.4.62` with apache2's own CVE, is fired at
 through apache2's hole (not nginx's), and leaves an `apache2[pid]` line, so a defender patches
