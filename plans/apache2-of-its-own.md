@@ -1,7 +1,7 @@
 # Plan: apache2 of its own
 
-**Status**: Grilled and planned 2026-10-08. Next: slice 1 (acceptance criteria to confirm before
-RED).
+**Status**: Grilled and planned 2026-10-08. Slice 1 built at v0.331.0 (#625). Next: slice 2 (to
+be planned in detail, then acceptance criteria to confirm before RED).
 Resolves the §9 follow-up "`apache2` is hollow, so a workstation is never born with it" in
 `docs/conventions-and-gotchas.md` (owner-agreed 2026-10-07), widened by the owner to the
 generated world. Where they disagree with this file, this file wins.
@@ -99,6 +99,9 @@ mutation gate once at PR readiness (json reporter, one file at a time, `conventi
 retiring this file) is a `docs(v2):` commit on `main` after S4.
 
 ### Slice 1: apache2 runs as itself, and every tool that names the running web server says so
+
+**Built**: v0.331.0, #625. The acceptance criteria were confirmed with `Server: Apache`. First
+boot's "already started?" check still reads the default pidfile; slice 3 fixes it.
 
 **Value**: a player who runs `apache2` sees apache2, not nginx, in `ps`, `systemctl`, `curl -i`
 and the boot screen, and the two web servers are two units as on a real box.
