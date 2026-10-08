@@ -645,8 +645,12 @@ To pick up the next work: there is no active epic. **The owner has postponed the
    services and gets a `guest` shell over `sshd`. As built: `vulnerability-architecture.md`
    "How a workstation is born". Follow-ups in §9: `apache2` back into the pool, the `apt`
    patch-window quirk, and the reason-to-keep-a-service-running epic.
-5. **Next:** defender-side items: hidden `auth.log` lines on a shared deep box, the `echo x > rules.v4` wipe,
-   player-driven service patching (all §9). In-game tutorials matter once others playtest.
+5. **In flight:** apache2 of its own, the first follow-up above: apache2 becomes a second web
+   server with its own pidfile, units and release history, then joins the birth pool and the
+   generated world 50/50 with nginx. Grilled and planned 2026-10-08 in
+   `plans/apache2-of-its-own.md` (four slices); next: slice 1.
+6. **Then:** defender-side items: the `echo x > rules.v4` wipe and player-driven service patching
+   (both §9). In-game tutorials matter once others playtest.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan

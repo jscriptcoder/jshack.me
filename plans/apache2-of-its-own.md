@@ -1,6 +1,7 @@
 # Plan: apache2 of its own
 
-**Status**: Grilled. Decisions confirmed by the owner 2026-10-08; slices not yet planned.
+**Status**: Grilled and planned 2026-10-08. Next: slice 1 (acceptance criteria to confirm before
+RED).
 Resolves the §9 follow-up "`apache2` is hollow, so a workstation is never born with it" in
 `docs/conventions-and-gotchas.md` (owner-agreed 2026-10-07), widened by the owner to the
 generated world. Where they disagree with this file, this file wins.
@@ -76,8 +77,64 @@ Accepted in bulk:
     unchanged), and admin histories and cron mail naming `apache2`. Router admin UIs, `findit.io`
     and the other fixed sites stay nginx.
 12. **Slices, each shippable alone:**
-    - **S1** apache2 is its own program (decisions 1, 3–6).
-    - **S2** its release history (7–9). Touches server-side exploit authorization, so it needs a
+    - **S1** apache2 is its own program (decisions 1, 3–5, and the boot-line half of 10).
+    - **S2** its release history (6–9). Touches server-side exploit authorization, so it needs a
       wire-check.
-    - **S3** back into the birth pool (10).
+    - **S3** back into the birth pool (the draw half of 10).
     - **S4** NPC web hosts (11).
+
+    Two moves made while planning, both following from what can be observed when: the trace tag
+    (6) moved to S2, because an apache2 door cannot be fired until it has a version, so nothing
+    in S1 could show the tag. The boot line (10) moved to S1, because S1 gives each unit its
+    systemd description anyway, and a player who installs apache2 and reboots would otherwise
+    read nginx's line from S1 until S3.
+
+## Slices
+
+All four are a **behavior change**, one independent PR against `main` each, cut after the
+previous one lands (`/continue`). Each loads `tdd`, `testing` and `refactoring` before code,
+confirms its acceptance criteria with the owner before RED, bumps the version, and runs the
+mutation gate once at PR readiness (json reporter, one file at a time, `conventions-and-gotchas.md`
+§4). S2–S4 are planned in detail when their turn comes; the close-out (docs, the §9 entry,
+retiring this file) is a `docs(v2):` commit on `main` after S4.
+
+### Slice 1: apache2 runs as itself, and every tool that names the running web server says so
+
+**Value**: a player who runs `apache2` sees apache2, not nginx, in `ps`, `systemctl`, `curl -i`
+and the boot screen, and the two web servers are two units as on a real box.
+**Path**: `apache2` / `systemctl start apache2` → `daemon.ts` `startDaemon` writes the
+program's own pidfile → `pidfile.ts` `readRunningProcesses` maps either pidfile to the `http`
+service and keeps the program → `ps` COMMAND, `systemctl` status/stop/restart, the boot screen
+line, and `curl`'s `Server` header (LAN and hop paths client-side; across the network through
+`network/resolveHttpFetch.ts`, which returns it).
+**Shape to propose first** (the collapsed version): the `http` catalog row names its programs
+(nginx, apache2), each with its own pidfile; every other row has exactly one. A running service
+carries the program its pidfile named. No second catalog row, and no generic port-in-use check:
+the web gate asks whether ANY of the row's pidfiles exists.
+**Acceptance criteria (draft, to confirm before RED)**:
+1. Root runs `apache2` on a box with it installed: `/var/run/apache2.pid` holds
+   `apache2:port=80`, and `ps` shows COMMAND `apache2`.
+2. `nginx` or `systemctl start nginx` while apache2 runs is refused with
+   `nginx: web server already running on port 80`, and the reverse is the same.
+3. `systemctl status apache2` shows `● apache2.service - The Apache HTTP Server` and
+   `Active: active (running) on port 80`; `systemctl status nginx` at the same moment shows
+   `○ nginx.service - A high performance web server and a reverse proxy server` and
+   `Active: inactive (dead)`.
+4. `systemctl stop nginx` while apache2 runs answers `nginx is not running.` and apache2 stays up;
+   `systemctl stop apache2` closes the port.
+5. `systemctl restart nginx` while apache2 runs is refused the same way as 2 and writes nothing
+   (today restart skips the front-door gate, so it would open a second pidfile).
+6. `nmap` still shows port 80 as `http` whichever program runs.
+7. `curl -i` prints `Server: Apache` for apache2 and `Server: nginx` for nginx (the product's own
+   token, still no version), on the own LAN, from a hop, and across the network.
+8. The boot screen prints `[  OK  ] Started The Apache HTTP Server.` for a box running apache2.
+9. Generated boxes are unchanged: still `nginx.pid`, still nginx everywhere.
+**RED**: `systemctl.test.ts` and `ps.test.ts` through `runCommandLine` for 1–5; `curl.test.ts`
+for the local and hop paths; `resolveHttpFetch.test.ts` for the server's answer; the boot line
+in the boot-screen test. Live: extend `scripts/testHttpFetch.ts` with a box serving apache2 and
+show it fails against the pre-slice handler.
+**Watch for**: nine callers of `daemonName(spec)` and five of `pidfilePath(spec)` (generators,
+`apt`'s base-image set, the manifest's installed-daemons read, `firstBoot`) assume one program
+per row, so each needs the right program or the row's default; a box that started apache2 before
+this slice holds `nginx.pid` and will read as nginx (pre-launch, no migration); `kill`'s
+`isUnitName` already knows both names.
