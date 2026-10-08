@@ -31,7 +31,7 @@
     "@noble/ed25519": "^3.1.0",
     "@noble/hashes": "^2.2.0",
     "@supabase/supabase-js": "^2.106.2",
-    "solid-js": "^1.9.3",
+    "solid-js": "^1.9.17",
     "zod": "^4.4.3"
   },
   "devDependencies": {
@@ -51,11 +51,19 @@
     "jsdom": "^27.4.0",
     "prettier": "^3.8.1",
     "tailwindcss": "^4.3.0",
-    "tsx": "^4.22.3",
+    "tsx": "^4.23.15",
     "typescript": "~5.6.2",
     "typescript-eslint": "^8.18.2",
     "vite": "^8.2.1",
     "vite-plugin-solid": "^2.11.0",
     "vitest": "^4.1.11"
+  },
+  "overrides": {
+    "tsx@^4.23.15": {
+      "esbuild": "^0.28.2"
+    },
+    "typed-rest-client": {
+      "qs": "^6.15.2"
+    }
   }
 }
