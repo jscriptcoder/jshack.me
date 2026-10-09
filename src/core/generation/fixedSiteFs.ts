@@ -32,6 +32,7 @@ import {
   TMP_DIR,
   TRAVERSABLE_DIR,
   WEB_PAGE_FILE,
+  withFiles,
 } from './baseFs.js';
 import { md5 } from './md5.js';
 import { drawPassword } from './passwordPools.js';
@@ -54,7 +55,8 @@ const SERVICES = [SERVICE_CATALOG.http, SERVICE_CATALOG.ssh] as const;
 
 const configFile = (content: string): FileEntry => file(content, SERVICE_CONFIG_FILE);
 
-/** What each fixed site publishes under its document root, by file name. */
+/** What each fixed site publishes under its document root, by path from that root —
+ *  `scripts/hello.js` lands in a `scripts` directory, as a site's own upload would. */
 const WEB_ROOTS: ReadonlyMap<string, Readonly<Record<string, string>>> = new Map([
   [FINDIT_NETWORK, { 'index.html': FINDIT_FRONT_PAGE }],
   [HACKADEMY_NETWORK, HACKADEMY_PAGES],
@@ -141,14 +143,12 @@ export const buildFixedSiteFs = (site: FixedSite): Directory => {
           ),
           www: dir(
             {
-              html: dir(
-                Object.fromEntries(
-                  Object.entries(WEB_ROOTS.get(site.key) ?? {}).map(([name, page]) => [
-                    name,
-                    file(page, WEB_PAGE_FILE),
-                  ]),
-                ),
-                TRAVERSABLE_DIR,
+              html: withFiles(
+                dir({}, TRAVERSABLE_DIR),
+                Object.entries(WEB_ROOTS.get(site.key) ?? {}).map(([path, page]) => [
+                  path,
+                  file(page, WEB_PAGE_FILE),
+                ]),
               ),
             },
             TRAVERSABLE_DIR,

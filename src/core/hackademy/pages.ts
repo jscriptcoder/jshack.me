@@ -52,6 +52,10 @@ const FRONT_PAGE = page(
     'version matters</li>',
     '<li><a href="/the-web.html">The web</a>: reading sites, running one, and finding what is out',
     'there</li>',
+    '<li><a href="/traces.html">Traces</a>: what a box writes down about everyone who touches it</li>',
+    '<li><a href="/other-services.html">Databases and other services</a>: the doors that are not',
+    'a shell</li>',
+    '<li><a href="/scripting.html">Scripting with node</a>: making the box do the typing</li>',
     '</ol>',
   ],
   'Tutorials for newcomers: how boxes, networks and the tools that touch them work, a chapter at a time, tried on your own box.',
@@ -505,10 +509,184 @@ const THE_WEB = page('The web', [
   '<li>Open findit in <code>lynx</code>, search for a word, and read <code>man gobuster</code> for',
   'how to grow its list.</li>',
   '</ol>',
+  next('/traces.html', 'Traces'),
   BACK,
 ]);
 
-/** Every page the site serves, by its file name under the document root. */
+const TRACES = page('Traces', [
+  '<h1>Traces</h1>',
+  '<p>A box keeps a diary. Every login, every refused password, every knock on a closed port and',
+  'every page it serves is written down in a file under <code>/var/log</code> — on your box, and',
+  'on every box you ever touch. This chapter is how to read yours.</p>',
+
+  '<h2>The three that matter</h2>',
+  '<ul>',
+  '<li><code>/var/log/auth.log</code> — logins over <code>ssh</code> and the other doors, accepted',
+  'or failed, with the address they came from; and every <code>su</code>.</li>',
+  '<li><code>/var/log/kern.log</code> — what the kernel saw: every port scan of your box, from',
+  'where and on which ports, and every restart and crash.</li>',
+  '<li><code>/var/log/access.log</code> — every request your web server answered, and who asked.</li>',
+  '</ul>',
+  '<p>Every address in them is the address the box saw — for a visitor from outside, their',
+  'network&#39;s public address, not their box.</p>',
+
+  '<h2>Reading them</h2>',
+  '<p>Logs grow at the bottom, so start there. <code>tail</code> prints the last lines of a file,',
+  '<code>grep</code> keeps only the lines that match a word, and <code>-c</code> counts them',
+  'instead.</p>',
+  '<pre>',
+  '$ cat /var/log/auth.log',
+  '$ tail /var/log/auth.log',
+  '$ tail -n 20 /var/log/access.log',
+  '$ grep Failed /var/log/auth.log',
+  '$ grep Failed /var/log/auth.log -c',
+  '$ grep scan /var/log/kern.log',
+  '</pre>',
+
+  '<h2>Whose diary it is</h2>',
+  '<p>A log is a file like any other. Whoever is root on a box can open it in <code>nano</code>',
+  'and change what it says — the box&#39;s owner, or anyone who became root there. A clean log',
+  'tells you what the last root wanted it to say.</p>',
+
+  '<h2>Practice</h2>',
+  '<ol>',
+  '<li>Read your own <code>auth.log</code> and find the line your last <code>su</code> wrote.</li>',
+  '<li>Start a web server, fetch <code>http://localhost/</code>, and find yourself in',
+  '<code>access.log</code>.</li>',
+  '<li>Count the failed logins on your box with <code>grep</code>. Then check again tomorrow.</li>',
+  '</ol>',
+  next('/other-services.html', 'Databases and other services'),
+  BACK,
+]);
+
+const OTHER_SERVICES = page('Databases and other services', [
+  '<h1>Databases and other services</h1>',
+  '<p>A shell is not the only door onto a box. A database answers on its own port, with its own',
+  'accounts, and what it holds is often worth more than the box it runs on. Each one here comes',
+  'as a package with both halves — the client you talk to one with, and the daemon that makes',
+  'your box run one.</p>',
+
+  '<h2>mysql</h2>',
+  '<p>A database of tables and the accounts allowed to read them, on port 3306. On your own box',
+  'its <code>root</code> account answers to your own root password.</p>',
+  '<pre>',
+  '# apt install mysql',
+  '# systemctl start mysqld',
+  '$ mysql localhost root',
+  'mysql&gt; SHOW TABLES;',
+  'mysql&gt; SELECT * FROM TABLE;',
+  '</pre>',
+
+  '<h2>redis</h2>',
+  '<p>A store of keys and values, on port 6379, with no accounts at all — one password opens the',
+  'whole thing. On your own box that password is your own root password too.</p>',
+  '<pre>',
+  '# apt install redis',
+  '# systemctl start redis-server',
+  '$ redis-cli localhost PASSWORD',
+  '&gt; KEYS *',
+  '&gt; SET note hello',
+  '&gt; GET note',
+  '</pre>',
+
+  '<h2>snmp</h2>',
+  '<p>Routers and some boxes run an SNMP agent, on port 161: it answers questions about the',
+  'device — its name, its interfaces, its ports — to anyone who knows its community string.',
+  '<code>public</code> reads; a second, secret community also writes. Installing the package',
+  'gives your box an agent of its own and prints its secret community once, and only once.</p>',
+  '<pre>',
+  '# apt install snmp',
+  '# systemctl start snmpd',
+  '</pre>',
+  '<p><code>snmpwalk</code> asks an agent everything it will tell you; <code>snmpset</code> changes',
+  'what a writable one holds. Your own agent answers the network, not you, so these are tools for',
+  'other people&#39;s devices; read about them before you need them.</p>',
+  '<pre>',
+  '$ man snmpwalk',
+  '</pre>',
+
+  '<h2>Practice</h2>',
+  '<ol>',
+  '<li>Install <code>mysql</code>, start it, and list the tables in your own database.</li>',
+  '<li>Install <code>redis</code>, start it, set a key, and read it back.</li>',
+  '<li>Run <code>nmap</code> against your own address with each one running, then stop them with',
+  '<code>systemctl stop</code> and look again.</li>',
+  '</ol>',
+  next('/scripting.html', 'Scripting with node'),
+  BACK,
+]);
+
+const SCRIPTING = page('Scripting with node', [
+  '<h1>Scripting with node</h1>',
+  '<p>Everything so far you have typed one line at a time. <code>node</code> runs a JavaScript',
+  'file, and inside it every command on your box is a function: <code>await</code> it and you get',
+  'back the lines it would have printed. A script can do nothing you could not type — it just',
+  'types faster, and does not get bored.</p>',
+
+  '<h2>Your first script</h2>',
+  '<p>We keep example scripts on this site. Fetch one with <code>curl</code>, save it with',
+  '<code>&gt;</code>, read it, and run it. Anything after the file name reaches the script as',
+  '<code>process.argv</code>.</p>',
+  '<pre>',
+  '$ curl http://hackademy.io/scripts/hello.js &gt; hello.js',
+  '$ cat hello.js',
+  '$ node hello.js',
+  '$ node hello.js NAME',
+  '</pre>',
+
+  '<h2>A script that reads a log</h2>',
+  '<p>This one runs <code>grep</code> over your <code>auth.log</code> and counts the failed logins',
+  'by the address they came from — the chapter on traces, done for you.</p>',
+  '<pre>',
+  '$ curl http://hackademy.io/scripts/failed.js &gt; failed.js',
+  '$ node failed.js',
+  '</pre>',
+  '<p>A script also gets <code>fs</code> to read and write files, <code>console.log</code> to',
+  'print, and <code>sleep</code> to wait. Ctrl-C stops one. <code>man node</code> has the rest.</p>',
+
+  '<h2>Practice</h2>',
+  '<ol>',
+  '<li>Fetch and run <code>hello.js</code>, then edit it in <code>nano</code> to say something',
+  'else.</li>',
+  '<li>Run <code>failed.js</code> on your own box, and pipe it through <code>grep</code> for one',
+  'address.</li>',
+  '<li>Write a script that prints the last five lines of each of your three logs.</li>',
+  '</ol>',
+  BACK,
+]);
+
+/** A script that greets whoever it is given, to show a script's arguments and a command
+ *  called as a function. */
+const HELLO_SCRIPT = [
+  '// hello.js — the smallest script worth running.',
+  '// Every command on your box is a function in here: await it, and you get back',
+  '// the lines it would have printed, one string each.',
+  "const name = process.argv.slice(2).join(' ') || 'world';",
+  'const [me] = await whoami();',
+  'console.log(`hello, ${name} — this is ${me}, speaking from a script`);',
+  '',
+].join('\n');
+
+/** A script that counts the failed logins in a box's own auth.log by source address. */
+const FAILED_SCRIPT = [
+  '// failed.js — who has been knocking on this box?',
+  '// Counts the failed logins in /var/log/auth.log by the address they came from.',
+  "const failures = await grep('Failed', '/var/log/auth.log');",
+  'const counts = {};',
+  'for (const entry of failures) {',
+  '  const address = entry.match(/from (\\S+)/)?.[1];',
+  '  if (address) counts[address] = (counts[address] ?? 0) + 1;',
+  '}',
+  'for (const [address, count] of Object.entries(counts)) {',
+  '  console.log(`${address}  ${count}`);',
+  '}',
+  '',
+].join('\n');
+
+/** What the site asks of search engines: to leave its scripts out of their listings. */
+const ROBOTS = ['User-agent: *', 'Disallow: /scripts/', ''].join('\n');
+
+/** Every file the site serves, by its path under the document root. */
 export const HACKADEMY_PAGES: Readonly<Record<string, string>> = {
   'index.html': FRONT_PAGE,
   'getting-around.html': GETTING_AROUND,
@@ -518,4 +696,10 @@ export const HACKADEMY_PAGES: Readonly<Record<string, string>> = {
   'getting-in.html': GETTING_IN,
   'services.html': SERVICES,
   'the-web.html': THE_WEB,
+  'traces.html': TRACES,
+  'other-services.html': OTHER_SERVICES,
+  'scripting.html': SCRIPTING,
+  'robots.txt': ROBOTS,
+  'scripts/hello.js': HELLO_SCRIPT,
+  'scripts/failed.js': FAILED_SCRIPT,
 };

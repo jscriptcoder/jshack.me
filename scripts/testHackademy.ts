@@ -161,9 +161,18 @@ const main = async () => {
   const front = await fetchPath('/');
   check(
     'the front page links to every chapter',
-    ['getting-around', 'wifi', 'your-network', 'looking-around', 'getting-in', 'services', 'the-web'].every((chapter) =>
-      contentOf(front.body).includes(`href="/${chapter}.html"`),
-    ),
+    [
+      'getting-around',
+      'wifi',
+      'your-network',
+      'looking-around',
+      'getting-in',
+      'services',
+      'the-web',
+      'traces',
+      'other-services',
+      'scripting',
+    ].every((chapter) => contentOf(front.body).includes(`href="/${chapter}.html"`)),
     'front-page chapter links',
   );
 
