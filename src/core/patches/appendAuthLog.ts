@@ -1,10 +1,10 @@
 /**
  * handleAppendAuthLog — the pure appendAuthLog endpoint logic (no Vercel, no
- * Supabase). Records an `su` user-switch to the caller's OWN `/var/log/auth.log`
+ * Supabase). Records an auth event on the caller's OWN box — an `su` user-switch, a
+ * session opened with no authentication, or a login through one of its own doors —
  * with a timestamp the SERVER stamps from its own UTC clock.
  *
- * The client sends only the su EVENT (target/from/outcome/hostname) — never a
- * time. The server reads the current log content, formats the syslog line via
+ * The client sends only the EVENT — never a time. The server reads the current log content, formats the syslog line via
  * the shared `core/logging/authLog` formatter using `deps.now()` (UTC), appends,
  * and upserts. This is the single source of truth for game time: a crafted
  * request cannot dictate the clock, which is what the future CVE time-gating
@@ -32,6 +32,8 @@ import {
 } from '../logging/authLog.js';
 import { derivePid } from '../logging/syslog.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
+import { SERVICE_CATALOG, type SweepLog } from '../services/serviceCatalog.js';
+import { SERVICE_BY_DOOR } from '../sessions/authCreateSession.js';
 import type { PatchRow } from './upsertPatch.js';
 import {
   logAsReadersSeeIt,
@@ -90,10 +92,71 @@ const sessionOpenedSchema = z
   })
   .refine(noStampedKeys);
 
-// `sessionOpened` first, so a payload carrying that discriminant is matched by its own
-// shape rather than falling through to the su schema (which would reject it for missing
-// su fields); a su envelope fails the `sessionOpened` kind literal and routes on.
-const appendAuthLogSchema = z.union([sessionOpenedSchema, suSwitchSchema]);
+// A login through a door on the caller's own box, which the client answers itself. The
+// address must be one, because it is written into the line verbatim: anything else
+// could carry a line of its own.
+const doorLoginSchema = z
+  .looseObject({
+    action: z.literal('appendAuthLog'),
+    kind: z.literal('doorLogin'),
+    door: z.enum(['ssh']),
+    machine_id: z.string().min(1),
+    user: z.string().min(1),
+    from_ip: z.ipv4(),
+    outcome: z.enum(['success', 'failure']),
+    hostname: z.string().min(1),
+  })
+  .refine(noStampedKeys);
+
+// The discriminated shapes first, so a payload carrying a discriminant is matched by its
+// own shape rather than falling through to the su schema (which would reject it for
+// missing su fields); a su envelope fails both kind literals and routes on.
+const appendAuthLogSchema = z.union([sessionOpenedSchema, doorLoginSchema, suSwitchSchema]);
+
+type AppendAuthLogPayload = z.infer<typeof appendAuthLogSchema>;
+
+/** Where the event's line goes and what it says. A door's line is the one its daemon
+ *  writes — the same catalog column a login or a sweep against that service records
+ *  through, so the own box cannot keep its evidence anywhere a stranger's box would not. */
+const lineFor = (
+  payload: AppendAuthLogPayload,
+  stamp: number,
+): { readonly log: Pick<SweepLog, 'path' | 'owner' | 'permissions'>; readonly line: string } => {
+  const time = asGameTime(stamp);
+  const pid = derivePid(stamp);
+  const authLog = { path: AUTH_LOG_PATH, owner: AUTH_LOG_OWNER, permissions: AUTH_LOG_PERMISSIONS };
+  if (payload.kind === 'doorLogin') {
+    const sweepLog = SERVICE_CATALOG[SERVICE_BY_DOOR[payload.door]].sweepLog;
+    return {
+      log: sweepLog,
+      line: sweepLog.formatAttempt({
+        outcome: payload.outcome,
+        user: payload.user,
+        fromIp: payload.from_ip,
+        hostname: payload.hostname,
+        time,
+        pid,
+      }),
+    };
+  }
+  if (payload.kind === 'sessionOpened') {
+    return {
+      log: authLog,
+      line: formatSessionOpenedLine({ user: payload.user, hostname: payload.hostname, time, pid }),
+    };
+  }
+  return {
+    log: authLog,
+    line: formatSuAuthLine({
+      outcome: payload.outcome,
+      targetUser: payload.target_user,
+      fromUser: payload.from_user,
+      hostname: payload.hostname,
+      time,
+      pid,
+    }),
+  };
+};
 
 export const handleAppendAuthLog = async (
   body: unknown,
@@ -111,37 +174,20 @@ export const handleAppendAuthLog = async (
     return { status: 403, body: { error: 'no_session' } };
   }
 
-  const existing = await deps.readAuthLog({ machine_id: payload.machine_id, path: AUTH_LOG_PATH });
+  const { log, line } = lineFor(payload, deps.now());
+  const existing = await deps.readAuthLog({ machine_id: payload.machine_id, path: log.path });
   if (existing.error) {
     return { status: 500, body: { error: 'read_failed' } };
   }
   const current = logAsReadersSeeIt(existing.data);
 
-  const stamp = deps.now();
-  const line =
-    payload.kind === 'sessionOpened'
-      ? formatSessionOpenedLine({
-          user: payload.user,
-          hostname: payload.hostname,
-          time: asGameTime(stamp),
-          pid: derivePid(stamp),
-        })
-      : formatSuAuthLine({
-          outcome: payload.outcome,
-          targetUser: payload.target_user,
-          fromUser: payload.from_user,
-          hostname: payload.hostname,
-          time: asGameTime(stamp),
-          pid: derivePid(stamp),
-        });
-
   const { error } = await deps.upsertPatch({
     writer_key: publicKey,
     machine_id: payload.machine_id,
-    path: AUTH_LOG_PATH,
+    path: log.path,
     content: `${current}${line}\n`,
-    owner: AUTH_LOG_OWNER,
-    permissions: AUTH_LOG_PERMISSIONS,
+    owner: log.owner,
+    permissions: log.permissions,
     node_type: 'file',
   });
   if (error) {

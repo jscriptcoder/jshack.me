@@ -274,6 +274,7 @@ describe('postAuthLog', () => {
     if (!verified.ok) throw new Error('expected verified envelope');
     expect(verified.payload).toMatchObject({
       action: 'appendAuthLog',
+      kind: 'suSwitch',
       machine_id: deps.machineId,
       target_user: 'root',
       from_user: 'neo',
@@ -330,6 +331,35 @@ describe('postAuthLog', () => {
     const keys = Object.keys(verified.payload as object);
     expect(keys).not.toContain('target_user');
     expect(keys).not.toContain('outcome');
+  });
+
+  it('signs a door login carrying the door, the user, the address and the outcome', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    const result = await postAuthLog(deps, {
+      kind: 'doorLogin',
+      door: 'ssh',
+      machineId: asMachineId(deps.machineId),
+      user: 'guest',
+      fromIp: '127.0.0.1',
+      outcome: 'failure',
+      hostname: 'rig',
+    });
+
+    expect(result).toEqual({ ok: true });
+    const verified = await verifyPayload(sentEnvelope(fetchSpy));
+    if (!verified.ok) throw new Error('expected verified envelope');
+    expect(verified.payload).toMatchObject({
+      action: 'appendAuthLog',
+      kind: 'doorLogin',
+      door: 'ssh',
+      machine_id: deps.machineId,
+      user: 'guest',
+      from_ip: '127.0.0.1',
+      outcome: 'failure',
+      hostname: 'rig',
+    });
   });
 });
 

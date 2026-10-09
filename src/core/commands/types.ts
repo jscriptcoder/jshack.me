@@ -382,6 +382,17 @@ export type AuthLogEvent =
       readonly machineId: MachineId;
       readonly user: string;
       readonly hostname: string;
+    }
+  | {
+      /** A login through a door on the player's own box — the daemon's own line,
+       *  from the address the box was reached by. */
+      readonly kind: 'doorLogin';
+      readonly door: 'ssh';
+      readonly machineId: MachineId;
+      readonly user: string;
+      readonly fromIp: string;
+      readonly outcome: 'success' | 'failure';
+      readonly hostname: string;
     };
 
 /** The crash a `msfconsole --local` MISS hands to `log.appendKernLog` — the command
