@@ -169,5 +169,5 @@ it. Leaving the CLI linked risks pushing to the wrong project.
 
 - [Chapter 2](./02-local-development.md) for the local setup.
 - [Chapter 10](./10-server-and-database.md) for the schema and migrations.
-- [`conventions-and-gotchas.md`](../conventions-and-gotchas.md) §5 for the full history of each
+- [`conventions-and-gotchas.md`](../conventions-and-gotchas.md) §4 for the full history of each
   gotcha.

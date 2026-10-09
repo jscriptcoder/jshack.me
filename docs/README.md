@@ -31,10 +31,13 @@ disagree, the code wins; fix the doc.
   every subsystem and its algorithms, the server and database reference, testing, deployment
   and operations, known issues, and a glossary. Written so an engineer new to the project can
   maintain it alone.
-- [conventions-and-gotchas.md](./conventions-and-gotchas.md) — the long-form record: project
-  arc, working conventions, build/test/type gates, mutation conventions, operational gotchas
-  (the 3100 squatter etc.), wire-check infra, architecture invariants, git conventions, and
-  the deferred backlog / future ideas (§9). Search it rather than reading it end to end.
+- [project-status.md](./project-status.md) — where the project stands, where to pick up next,
+  and the arc of how it got here.
+- [conventions-and-gotchas.md](./conventions-and-gotchas.md) — the long-form record: working
+  conventions, build/test/type gates, mutation conventions, operational gotchas (the 3100
+  squatter etc.), wire-check infra, architecture invariants, and git conventions. Search it
+  rather than reading it end to end.
+- [backlog.md](./backlog.md) — deliberately deferred work and future content ideas.
 - [cross-player-architecture.md](./cross-player-architecture.md) — how one player scans,
   enters, reads, and modifies another player's machine: the shared patch journal, the
   public-IP registry, L1/L2 authorization, and the server-side read filter (Stories 1–3

@@ -15,7 +15,7 @@
  *
  * A breach fails the build with the number that broke. The remedy for a slow box is a
  * cache introduced for that measured reason; the remedy for a heavy bundle is trimming
- * pools. See `docs/conventions-and-gotchas.md` §3.
+ * pools. See `docs/conventions-and-gotchas.md` §2.
  *
  * The timing budgets are calibrated on a developer machine. Vercel's build machine runs the same
  * code several times slower (3.1 ms per box against 0.85 ms locally), so a Vercel build checks
@@ -190,6 +190,6 @@ verdicts.forEach((verdict) => {
   console.log(`${verdict.passed ? 'ok  ' : 'FAIL'} ${verdict.line}`);
 });
 if (verdicts.some((verdict) => !verdict.passed)) {
-  console.error('checkBudgets: a world budget is exceeded — see docs/conventions-and-gotchas.md §3');
+  console.error('checkBudgets: a world budget is exceeded — see docs/conventions-and-gotchas.md §2');
   process.exit(1);
 }

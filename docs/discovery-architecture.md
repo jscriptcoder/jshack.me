@@ -191,7 +191,7 @@ kept:
   rebuilds one whose machines have any, so the kept copy never stands in for a touched
   site and never holds a page a player wrote; a box restored to generation reads as
   generated again. A search of an untouched world drops from about 520 ms to its reads.
-  `checkBudgets` times the cold build against 1,000 ms (`conventions-and-gotchas.md` §3).
+  `checkBudgets` times the cold build against 1,000 ms (`conventions-and-gotchas.md` §2).
   A player network whose gateway has no row is skipped outright: an untouched gateway
   forwards nothing.
 - **Players are crawled, not submitted.** Every page on a public `:80` is listed — player

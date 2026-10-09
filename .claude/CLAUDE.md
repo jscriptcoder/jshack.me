@@ -16,7 +16,7 @@ When a prompt, plan, or commit uses this terminology, interpret it in this game-
 
 **The repo is the Solid.js rewrite (v2); the legacy React app was removed.** Its source is at git tag `legacy-final`, its design docs in `docs/legacy/`, and its mission ideas in `docs/mission-ideas/` (input to the post-ship missions epic).
 
-**Start every session at [`docs/conventions-and-gotchas.md`](../docs/conventions-and-gotchas.md)** — it holds the current project status + where to pick up (the live per-slice status is in `plans/*.md`), all working conventions, build/test/type gates, operational gotchas, wire-check infra, architecture invariants, and the deferred backlog. As-built cross-player system: `docs/cross-player-architecture.md`; as-built generated world content: `docs/world-content-architecture.md`.
+**Start every session at [`docs/project-status.md`](../docs/project-status.md)** — the current project status + where to pick up (the live per-slice status is in `plans/*.md`). All working conventions, build/test/type gates, operational gotchas, wire-check infra and architecture invariants are in [`docs/conventions-and-gotchas.md`](../docs/conventions-and-gotchas.md); the deferred backlog and future ideas are in [`docs/backlog.md`](../docs/backlog.md). As-built cross-player system: `docs/cross-player-architecture.md`; as-built generated world content: `docs/world-content-architecture.md`.
 
 Always-apply project rules (full detail + rationale in that doc):
 

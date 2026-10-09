@@ -4,8 +4,8 @@ Every generated machine reads as somebody's. Its files, logs, configs, mail, pag
 what the machine is, the organisation it belongs to and the person who used it, and anything it
 mentions leads somewhere real on that network. This is the shipped model of the generated world
 content epic (#533–#550, v0.248.0–v0.264.0, closed 2026-09-25). The epic's plan file was retired
-on close-out; the questions it deliberately left open are in `conventions-and-gotchas.md` §9 under
-"World content deferred".
+on close-out; the questions it deliberately left open are in `backlog.md` under "World content
+deferred".
 
 It sits on top of the generators this doc does not re-describe: role and service placement
 (`machineRole.ts`, `generateHomeLan.ts`), passwords and accounts (`host-fs-` stream), the dpkg

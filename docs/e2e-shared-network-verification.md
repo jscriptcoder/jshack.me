@@ -466,7 +466,7 @@ and `press Control+o/x` stopped registering mid-session.
 until she ran something else. B's fetches were already persisted correctly — nothing
 pushes to A's client, because the `patches-changed` channel is workstation-scoped and
 BroadcastChannel is same-browser only. A defender gets no live tail. That is the accepted
-staleness in `conventions-and-gotchas.md` §"deferred backlog", where the decision against
+staleness in `backlog.md`, where the decision against
 Supabase Realtime and the cheaper pull-shaped alternative are both recorded.
 
 ---
@@ -679,7 +679,7 @@ Cross-network refusal, same act: `gobuster http://203.0.113.7` (nobody forwards 
 `gobuster: (7) Failed to connect to 203.0.113.7 port 80: Connection refused` — collapsed cause,
 named with its program.
 
-**The known log staleness, hit again — read `conventions-and-gotchas.md` §9 before calling it a
+**The known log staleness, hit again — read `backlog.md` before calling it a
 bug.** After a server-side append the client shows the log as **empty** until something else syncs
 its journal: `cat /var/log/access.log` printed nothing while the row already held 3201 characters,
 and a later own-LAN sweep (which writes locally) brought the whole file in at once. **Proven still
@@ -775,7 +775,7 @@ Three things at once, and each is a separate claim:
   B logged in as, and its content is B's wordlist. The patch is stored under *B's* writer key while
   the log stays under A's: the file is B's write, the record of it is A's box speaking.
 
-**The known log staleness, hit again — read `conventions-and-gotchas.md` §9 before calling it a
+**The known log staleness, hit again — read `backlog.md` before calling it a
 bug.** A's first `cat /var/log/vsftpd.log` said `No such file or directory` and `ls /tmp` was empty
 while the row already held all 85 lines. One local write (`echo sync > /tmp/sync.txt`) re-pulled the
 journal and the whole file appeared. Same pre-existing behaviour D1d recorded at Act 10, with a
@@ -930,7 +930,7 @@ seeing what runs is a recon reward that costs the defender nothing they control"
 argument holds precisely on the box you have broken into, which is where it currently does not
 work. Making it work means projecting `/var/run` to a foreign session regardless of tier, which
 is a change to the cross-player read filter and belongs to whoever owns that balance. Recorded
-in `conventions-and-gotchas.md` §9.
+in `backlog.md`.
 
 ---
 
@@ -1032,7 +1032,7 @@ while standing on the gateway, then scanned that same gateway from the LAN and g
 alone — while step 8 from outside showed both. A public-IP scan is server-resolved and replays
 the journal; an own-LAN `nmap` is client-resolved from seeded trees only. **An intruder can see
 their own planted door from outside, but not from the LAN they planted it on.** Recorded in
-`conventions-and-gotchas.md` section 9; it predates D5.
+`backlog.md`; it predates D5.
 
 ### Act 15 — the same door, after the fix (D5 slice 8)
 
@@ -1080,7 +1080,7 @@ time it has been shown across two.
   because those identities happened to share one. **A future act needing two players on one LAN
   cannot assume it** — check `airodump-ng` on both before planning around it.
 - **`31337/tcpopen` is still there** (step 6), untouched and still cosmetic: the PORT column pads
-  for four digits. Recorded in `conventions-and-gotchas.md` section 9.
+  for four digits. Recorded in `backlog.md`.
 
 ---
 
@@ -1241,7 +1241,7 @@ fingerprint, and are unaffected by construction rather than by a special case.
 machine still never learns of a foreign write — verified again below, where A's editor opened
 on a 5-line buffer while the world held 6. What changed is that the stale buffer can no longer
 destroy anything silently. An editor-open refetch and a machine-scoped invalidation channel
-both stay deferred (`conventions-and-gotchas.md` §9); rejections are therefore routine rather
+both stay deferred (`backlog.md`); rejections are therefore routine rather
 than rare, which is accepted.
 
 Re-verified end to end on 2026-07-29 at v0.102.0, three real players, same shape as the repro
@@ -1293,7 +1293,7 @@ while the player still stands on that machine — the same rule as its sibling. 
 `ui/state.test.ts` ("patch journal across a machine change"), which rehydrates onto a hop
 with the own box's journal held open, then releases it. One residue is deliberately left:
 two fetches for the SAME machine can still land out of order (own box only, self-healing) —
-see the deferred backlog in `conventions-and-gotchas.md` for why the obvious counter-based
+see the deferred backlog in `backlog.md` for why the obvious counter-based
 fix is not a drop-in.
 
 ---

@@ -127,17 +127,19 @@ files). `.branches/` and `.temp/` are CLI state and git-ignored.
 
 ## `docs/`
 
-| Path                                 | Kind                                                                                                                  |
-| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
-| `handbook/`                          | This maintainer's handbook.                                                                                           |
-| `conventions-and-gotchas.md`         | Working conventions, gates, mutation lessons, operational gotchas, invariants, the deferred backlog. Long; search it. |
-| `cross-player-architecture.md`       | As-built cross-player system.                                                                                         |
-| `world-content-architecture.md`      | As-built generated content and its rules.                                                                             |
-| `discovery-architecture.md`          | As-built DNS and public web (findit.io).                                                                              |
-| `vulnerability-architecture.md`      | As-built vulnerability system.                                                                                        |
-| `e2e-shared-network-verification.md` | Two-player browser journeys and a coverage map.                                                                       |
-| `legacy/`                            | The retired React app's design, and the rewrite blueprint. Historical.                                                |
-| `mission-ideas/`                     | Legacy mission designs, input to the planned missions feature.                                                        |
+| Path                                 | Kind                                                                                            |
+| ------------------------------------ | ----------------------------------------------------------------------------------------------- |
+| `handbook/`                          | This maintainer's handbook.                                                                     |
+| `project-status.md`                  | Where the project stands, where to pick up, and how it got here.                                |
+| `conventions-and-gotchas.md`         | Working conventions, gates, mutation lessons, operational gotchas, invariants. Long; search it. |
+| `backlog.md`                         | Deliberately deferred work and future content ideas.                                            |
+| `cross-player-architecture.md`       | As-built cross-player system.                                                                   |
+| `world-content-architecture.md`      | As-built generated content and its rules.                                                       |
+| `discovery-architecture.md`          | As-built DNS and public web (findit.io).                                                        |
+| `vulnerability-architecture.md`      | As-built vulnerability system.                                                                  |
+| `e2e-shared-network-verification.md` | Two-player browser journeys and a coverage map.                                                 |
+| `legacy/`                            | The retired React app's design, and the rewrite blueprint. Historical.                          |
+| `mission-ideas/`                     | Legacy mission designs, input to the planned missions feature.                                  |
 
 ## `.claude/`
 

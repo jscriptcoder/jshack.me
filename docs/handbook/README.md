@@ -79,9 +79,11 @@ v0.278.0 (2026-09-27). When the handbook and the code disagree, the code is righ
 The handbook is the entry point. These documents go deeper into specific shipped systems and are
 linked from the relevant chapters:
 
+- [`project-status.md`](../project-status.md): where the project stands and where to pick up.
 - [`conventions-and-gotchas.md`](../conventions-and-gotchas.md): the long-form record of working
-  conventions, testing and mutation lessons, operational gotchas, architecture invariants, and the
-  deferred backlog (§9). Search it; it is not meant to be read end to end.
+  conventions, testing and mutation lessons, operational gotchas and architecture invariants.
+  Search it; it is not meant to be read end to end.
+- [`backlog.md`](../backlog.md): deliberately deferred work and future content ideas.
 - [`cross-player-architecture.md`](../cross-player-architecture.md),
   [`world-content-architecture.md`](../world-content-architecture.md),
   [`procedural-world-architecture.md`](../procedural-world-architecture.md),

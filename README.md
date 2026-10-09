@@ -61,8 +61,10 @@ Supabase migrations in `supabase/migrations/`.
 
 New to the project? Start with the [maintainer's handbook](./docs/handbook/README.md): architecture,
 every subsystem, the server and database reference, testing, deployment and known issues. The full
-documentation index is [docs/README.md](./docs/README.md); the long-form conventions and gotchas are in
-[docs/conventions-and-gotchas.md](./docs/conventions-and-gotchas.md).
+documentation index is [docs/README.md](./docs/README.md). Where the project stands is in
+[docs/project-status.md](./docs/project-status.md), the long-form conventions and gotchas are in
+[docs/conventions-and-gotchas.md](./docs/conventions-and-gotchas.md), and deferred work is in
+[docs/backlog.md](./docs/backlog.md).
 
 This codebase is v2, a from-scratch rewrite. The original React app is retired: its design is in
 [docs/legacy/](./docs/legacy/README.md), its source at git tag `legacy-final`, and its mission ideas

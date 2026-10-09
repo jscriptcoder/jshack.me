@@ -103,7 +103,7 @@ not, which is why first-time setup runs it by hand.
 ## Working conventions you will meet in review
 
 These are enforced by review, not tools (except the `.js` import rule). The full list is in
-[`conventions-and-gotchas.md`](../conventions-and-gotchas.md) §2.
+[`conventions-and-gotchas.md`](../conventions-and-gotchas.md) §1.
 
 - **No single-letter variable names**, except loop indices `i`, `j`, `k`. Name parameters after what
   they hold (`port`, `machine`, `candidate`).
@@ -126,5 +126,5 @@ These are enforced by review, not tools (except the `.js` import rule). The full
 When a piece of work starts, it gets a plan in `plans/<name>.md` while it is in flight, and the plan is
 deleted when the work ships, after its lasting facts are folded into `docs/`. Between pieces of work
 there is no `plans/` folder, which is normal. The backlog of known, deliberately deferred work is
-[`conventions-and-gotchas.md`](../conventions-and-gotchas.md) §9; ideas for the next big feature
+[`backlog.md`](../backlog.md); ideas for the next big feature
 (missions) are in [`mission-ideas/`](../mission-ideas/README.md).

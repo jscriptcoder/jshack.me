@@ -236,7 +236,7 @@ Stop `vercel dev` and make no edits while it runs.
 ## Durable testing rules
 
 These come from real bugs and mutation runs; the full history is in
-[`conventions-and-gotchas.md`](../conventions-and-gotchas.md) §3–§4.
+[`conventions-and-gotchas.md`](../conventions-and-gotchas.md) §2–§3.
 
 1. **Test behaviour, never metadata existence** (`expect(cmd.name).toBe('foo')` is banned). Do test
    metadata that is consumed (`help`, `man`, flags).

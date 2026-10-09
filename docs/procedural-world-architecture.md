@@ -10,8 +10,8 @@ found on another network's machines.
 
 This is the shipped model of the procedural world epic (#572–#596, v0.284.0–v0.306.0, closed
 2026-10-03). The epic's plan file was retired on close-out; this doc holds its design, its
-standing rules and the calls worth not re-opening, and its deferred work is in
-`conventions-and-gotchas.md` §9 under "Procedural world deferred".
+standing rules and the calls worth not re-opening, and its deferred work is in `backlog.md`
+under "Procedural world deferred".
 
 It sits on top of two docs it does not repeat:
 
