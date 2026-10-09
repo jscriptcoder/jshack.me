@@ -8,7 +8,7 @@ others playtest. Where they disagree with this file, this file wins.
 ## Goal
 
 A new player learns the world from inside it. A short `README` in their home folder gets them
-from the first prompt to `lynx`, and `lynx` takes them to `rtfm.io`, an in-world site that
+from the first prompt to `lynx`, and `lynx` takes them to `hackademy.io`, an in-world site that
 teaches the world's concepts and tools chapter by chapter. The site is an ordinary machine:
 it can be found, scanned, rooted and defaced like any other, and the operator restores it as
 findit is restored.
@@ -54,13 +54,13 @@ Grilled singly:
 
 Accepted in bulk:
 
-4. **`rtfm.io` is its own fixed one-machine network**, findit's shape: its names in a leaf
+4. **`hackademy.io` is its own fixed one-machine network**, findit's shape: its names in a leaf
    module, placed among the publishers so DNS resolves it and findit indexes it.
 5. **Its posture is findit's exactly**: `sshd` + nginx, root from the uncrackable pool, falling
    only on the world clock, no bespoke weakness. Its world-readable `access.log` shows
    newcomers' addresses to anyone with a shell there — accepted as the price of decision 2.
 6. **One restore script, `scripts/restoreSite.ts <domain>`**, generalised from
-   `restoreFindit.ts`, covering findit and rtfm.io — two real callers. It keeps the reboot
+   `restoreFindit.ts`, covering findit and hackademy.io — two real callers. It keeps the reboot
    order.
 7. **The pages are generated files** in the box's `/var/www/html`, built from content in code
    as part of its base tree: a content update reaches the live site unless that page was
@@ -68,7 +68,7 @@ Accepted in bulk:
    (headings, paragraphs, lists, `<pre>`, links).
 8. **The welcome file is `/home/<username>/README`**, plain text, in the player's own home only
    (not guest's, not root's, not any NPC box). About ten lines: `help`, `man`, `ls`/`cat`,
-   `su root` with the password they chose, `apt install lynx`, `lynx http://rtfm.io`. It is a
+   `su root` with the password they chose, `apt install lynx`, `lynx http://hackademy.io`. It is a
    file on the box, so a visitor can tamper with it like any other.
 9. **findit.io is named only on the site**, in the web chapter — the one in-world pointer to it.
 10. **In-world voice**: written as a fictional collective's wiki. No fourth wall; never the word
@@ -84,12 +84,12 @@ Accepted in bulk:
     8. Wifi
     9. Databases and other services — `mysql`, `redis`, `snmp`
     10. Scripting with `node`
-12. **Scripting examples are files on the site** (`curl http://rtfm.io/scripts/x.js > x.js`,
+12. **Scripting examples are files on the site** (`curl http://hackademy.io/scripts/x.js > x.js`,
     then `node x.js`), exercising `curl`, redirection and `node`. Nothing beyond the `README` is
     planted in the home folder.
 13. **No new verbs.** A test checks that every command example in the tutorials names a
     registered command, so a rename or removal fails the build instead of silently rotting a
     page. The pre-release argument-realism pass (`backlog.md`) rewrites the examples with it.
-14. **Slice 1 is the walking skeleton**: the rtfm.io box, `restoreSite.ts`, the `README` and
+14. **Slice 1 is the walking skeleton**: the hackademy.io box, `restoreSite.ts`, the `README` and
     chapter 1 — `cat README` → `apt install lynx` → chapter 1. Later slices add chapters in
     groups. One browser run at close-out covers them all.
