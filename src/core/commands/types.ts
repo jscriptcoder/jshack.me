@@ -473,6 +473,10 @@ export type RemoteAuthParams = {
    *  the login comes from and the address it arrives from. Absent, the server takes the
    *  caller's own workstation on whichever network they occupy. */
   readonly callerMachineId?: string;
+  /** The port knocked on, for the server to check the door's daemon is on it. Sent only
+   *  where the client could not check that itself — `localhost` from a hop, whose live
+   *  `/var/run` only the server can read; absent, any port the daemon holds answers. */
+  readonly port?: number;
 };
 
 /** The outcome of a server-side ssh authentication. On success the userType is

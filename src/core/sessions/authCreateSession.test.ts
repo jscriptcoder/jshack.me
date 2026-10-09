@@ -763,6 +763,52 @@ describe('handleAuthCreateSession', () => {
       expect(upsertPatch.mock.calls[0]![0].content).toContain(`from ${hop.ip}`);
     });
 
+    it('resolves localhost to the hop itself, the login logged as arriving over loopback', async () => {
+      // A daemon reached by `localhost` sees the request come from 127.0.0.1, whatever
+      // address the box holds on its LAN — so that is the source the line and the row name.
+      const hop = generateHomeLan(HOP_ESSID).hosts.find(
+        (candidate) =>
+          candidate.kind === 'machine' &&
+          readOpenPorts(buildRemoteHostFs(HOP_ESSID, candidate)).some(
+            (open) => open.service === 'ssh',
+          ),
+      );
+      if (hop === undefined) throw new Error('no ssh host on the hop LAN');
+      const id = generateIdentity();
+      const callerMachineId = machineIdForLanHost(hop, HOP_ESSID);
+      const { deps, insertSession, upsertPatch } = makeDeps({
+        findActiveSession: async () => ({
+          data: { username: 'root', userType: 'root', essid: HOP_ESSID },
+          error: null,
+        }),
+      });
+
+      const result = await handleAuthCreateSession(
+        signRequest(
+          id,
+          'authCreateSession',
+          basePayload({
+            essid: HOP_ESSID,
+            target_ip: '127.0.0.1',
+            username: 'root',
+            password: passwordFor(buildRemoteHostFs(HOP_ESSID, hop), 'root'),
+            caller_machine_id: callerMachineId,
+          }),
+        ),
+        deps,
+      );
+
+      expect(result.status).toBe(200);
+      expect(insertSession.mock.calls[0]![0]).toMatchObject({
+        machine_id: callerMachineId,
+        source_ip: '127.0.0.1',
+      });
+      expect(upsertPatch.mock.calls[0]![0]).toMatchObject({
+        machine_id: callerMachineId,
+        content: `${expectedSshdLine(hop, 'success', 'root', '127.0.0.1')}\n`,
+      });
+    });
+
     it('refuses when the caller names a box they hold no live session on', async () => {
       const hop = hopBox();
       const id = generateIdentity();
@@ -1503,6 +1549,28 @@ describe('a host that filters the port its ssh answers on', () => {
 
     expect(result.status).toBe(200);
   });
+
+  it('admits localhost typed on the box itself — the filter closes the port to the network only', async () => {
+    const identity = generateIdentity();
+    const host = targetHostFor();
+    const { deps } = makeDeps({
+      ...filtering(`deny ${SERVICE_CATALOG.ssh.defaultPort}\n`),
+      findActiveSession: async () => ({
+        data: { username: 'root', userType: 'root', essid: ESSID },
+        error: null,
+      }),
+    });
+
+    const result = await handleAuthCreateSession(
+      validEnvelope(identity, host, 'root', {
+        target_ip: '127.0.0.1',
+        caller_machine_id: machineIdForLanHost(host, ESSID),
+      }),
+      deps,
+    );
+
+    expect(result.status).toBe(200);
+  });
 });
 
 /**
@@ -1589,6 +1657,38 @@ describe('handleAuthCreateSession — a box on a deep layer the caller reaches',
       path: AUTH_LOG_PATH,
       writer_key: apGatewayLogWriterKey(ESSID),
       content: `${expectedSshdLine(INNER_LAYER.host, 'success', 'root', LAYER_DOT_ONE)}\n`,
+    });
+  });
+
+  /** `localhost` typed in a shell on `callerMachineId`, as root with `targetFs`'s password. */
+  const loopbackFrom = (callerMachineId: string, targetFs: Directory) =>
+    signRequest(
+      generateIdentity(),
+      'authCreateSession',
+      basePayload({
+        target_ip: '127.0.0.1',
+        username: 'root',
+        password: passwordFor(targetFs, 'root'),
+        caller_machine_id: callerMachineId,
+      }),
+    );
+
+  it('resolves localhost to the deep box itself, not the gateway it reaches the LAN through', async () => {
+    const { deps, insertSession, upsertPatch } = makeDeps(shellHeld());
+
+    const result = await handleAuthCreateSession(
+      loopbackFrom(INNER_LAYER_HOST_ID, npcFs(INNER_LAYER)),
+      deps,
+    );
+
+    expect(result.status).toBe(200);
+    expect(insertSession.mock.calls[0]![0]).toMatchObject({
+      machine_id: INNER_LAYER_HOST_ID,
+      source_ip: '127.0.0.1',
+    });
+    expect(upsertPatch.mock.calls[0]![0]).toMatchObject({
+      machine_id: INNER_LAYER_HOST_ID,
+      content: `${expectedSshdLine(INNER_LAYER.host, 'success', 'root', '127.0.0.1')}\n`,
     });
   });
 
@@ -1725,6 +1825,21 @@ describe('handleAuthCreateSession — a box on a deep layer the caller reaches',
       expect(refused).toEqual({ status: 404, body: { error: 'service_not_running' } });
       expect(denied.upsertPatch).not.toHaveBeenCalled();
       expect(admitted.status).toBe(200);
+    });
+
+    it('lets localhost through on a port the switch denies — loopback never crosses it', async () => {
+      const { deps, insertSession } = onSwitch('deny 22');
+
+      const result = await handleAuthCreateSession(
+        loopbackFrom(hostMachineId(SWITCH_LAYER.host, ESSID), npcFs(SWITCH_LAYER)),
+        deps,
+      );
+
+      expect(result.status).toBe(200);
+      expect(insertSession.mock.calls[0]![0]).toMatchObject({
+        machine_id: hostMachineId(SWITCH_LAYER.host, ESSID),
+        source_ip: '127.0.0.1',
+      });
     });
 
     it('fails the login when the switch’s journal cannot be read', async () => {

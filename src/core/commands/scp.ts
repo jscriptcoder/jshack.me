@@ -34,6 +34,7 @@ import { resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
 import { isPublicIp } from '../generation/ip.js';
 import { addressForTarget } from '../network/resolveName.js';
 import { admitOwnBoxLogin, ownBoxVisitFrom } from './ownBoxLogin.js';
+import { LOOPBACK_IPV4, LOOPBACK_NAMES } from '../network/interfaces.js';
 import { vantageOf } from '../network/vantage.js';
 import { resolveDeepScanHosts } from '../scan/deepScanHosts.js';
 import { basename, dirname, resolveAbsPath } from '../filesystem/path.js';
@@ -456,6 +457,45 @@ const reachOccupant = (
     }),
 });
 
+/** The box the shell stands on, named `localhost` from a hop. Its live `/var/run` is
+ *  the server's to read, so loopback goes on with the port for the server to place and
+ *  check. A box the network generates is placed by the own-LAN door, and the transfer
+ *  lands where the shell stands; a player's workstation has no address the network gives
+ *  it, only its owner's lease, which is the same-LAN door's to read. */
+const reachHop = (
+  env: CommandEnv,
+  remote: RemoteOperand,
+  vantage: NonNullable<ReturnType<typeof vantageOf>>,
+  portFlag: string | true | undefined,
+): Reach => {
+  const port = parsePort(portFlag) ?? SSH_PORT;
+  const onLoopback = { ...remote, host: LOOPBACK_IPV4 };
+  if (vantage.address === null) return reachOccupant(env, onLoopback, vantage.essid, port, null);
+  return {
+    port,
+    login: async (sessionId, password) => {
+      const authenticated = await env.scp.authenticate({
+        sessionId,
+        essid: vantage.essid,
+        targetIp: LOOPBACK_IPV4,
+        port,
+        username: remote.user,
+        password,
+        parentSessionId: env.session.id,
+        callerMachineId: env.session.machineId,
+      });
+      return authenticated.ok
+        ? {
+            ok: true,
+            userType: authenticated.userType,
+            machineId: env.session.machineId,
+            essid: vantage.essid,
+          }
+        : authenticated;
+    },
+  };
+};
+
 /** A private address from the box the shell stands on: a deeper layer the box fronts, a
  *  fellow occupant, or an ordinary generated host — the three ways `ssh` reaches a
  *  private target, in its order so a real occupant wins an octet collision. */
@@ -513,6 +553,10 @@ const reachTarget = async (
     return { remote: typed, reached: { ok: false, line: 'scp: Network is unreachable' } };
   }
   const essid = vantage.essid;
+  // From a hop, `localhost` is the hop: nothing on this side can say what it answers.
+  if (LOOPBACK_NAMES.includes(typed.host)) {
+    return { remote: typed, reached: { ok: true, reach: reachHop(env, typed, vantage, portFlag) } };
+  }
 
   // Who else is on this LAN, read at most once and from the box the shell stands on, so
   // a hop lists the hop's neighbours — for a name to resolve, and to tell a fellow
@@ -675,7 +719,8 @@ export const scp: Command = {
       'serves ssh on a non-standard port. The destination directory must already ' +
       'exist; create it with "mkdir -p" first if it does not. Run inside a remote ' +
       'shell, the transfer travels from that box over the network you are on there: it ' +
-      'reaches what that box reaches, and the host records that box’s address.',
+      'reaches what that box reaches, and the host records that box’s address. ' +
+      '"localhost" is the box your shell is on.',
     arguments: [
       { name: 'local-file', description: 'The file to copy, on your own machine', required: true },
       {

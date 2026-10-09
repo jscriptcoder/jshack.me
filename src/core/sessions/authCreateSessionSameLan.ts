@@ -29,12 +29,8 @@ import { materializeWorkstationFs, type OwnerPatchRow } from '../network/materia
 import { canBoot } from '../boot/bootFiles.js';
 import { md5 } from '../generation/md5.js';
 import { accountIn } from './passwdAccount.js';
-import {
-  AUTH_LOG_OWNER,
-  AUTH_LOG_PATH,
-  AUTH_LOG_PERMISSIONS,
-  formatSshdAuthLine,
-} from '../logging/authLog.js';
+import { formatLoginLines, type SweepLog } from '../services/serviceCatalog.js';
+import { LOOPBACK_IPV4 } from '../network/interfaces.js';
 import { derivePid } from '../logging/syslog.js';
 import {
   appendMachineLog,
@@ -117,8 +113,9 @@ const authCreateSessionSameLanSchema = z
   })
   .refine((payload) => !('player_key' in payload) && !('owner_key' in payload));
 
-/** Stamp the LAN login attempt onto A's `/var/log/auth.log` via the shared system-log
- *  primitive — on BOTH outcomes (sshd records accepted AND rejected logins). The
+/** Stamp the LAN login attempt onto A's box in the log of the door it knocked on —
+ *  sshd's `auth.log`, vsftpd's own — on BOTH outcomes (every door records accepted AND
+ *  rejected logins). The
  *  keystone: `writerKey` is the TARGET OWNER's key — the system owns its logs, so every
  *  attacker's line accretes into ONE row instead of colliding under last-write-wins; the
  *  attacker's identity lives in the line's source IP. That source is where B stands on
@@ -127,7 +124,12 @@ const authCreateSessionSameLanSchema = z
  *  `source_ip`. Best-effort: a logging failure must never break (or fabricate) the auth. */
 const logSameLanAuth = async (
   deps: AuthCreateSessionSameLanDeps,
-  target: { readonly ownerKey: string; readonly machineId: string; readonly hostname: string },
+  target: {
+    readonly ownerKey: string;
+    readonly machineId: string;
+    readonly hostname: string;
+    readonly sweepLog: SweepLog;
+  },
   attempt: {
     readonly outcome: 'success' | 'failure';
     readonly user: string;
@@ -135,7 +137,7 @@ const logSameLanAuth = async (
   },
 ): Promise<void> => {
   const stamp = deps.now();
-  const line = formatSshdAuthLine({
+  const lines = formatLoginLines(target.sweepLog, {
     outcome: attempt.outcome,
     user: attempt.user,
     fromIp: attempt.fromIp,
@@ -149,11 +151,11 @@ const logSameLanAuth = async (
       {
         writerKey: target.ownerKey,
         machineId: target.machineId,
-        path: AUTH_LOG_PATH,
-        owner: AUTH_LOG_OWNER,
-        permissions: AUTH_LOG_PERMISSIONS,
+        path: target.sweepLog.path,
+        owner: target.sweepLog.owner,
+        permissions: target.sweepLog.permissions,
       },
-      line,
+      lines,
     );
   } catch {
     // best-effort: the auth result stands regardless of a logging failure.
@@ -178,7 +180,13 @@ export const handleAuthCreateSessionSameLan = async (
   const vantage = await resolveCallerVantage(deps, publicKey, payload.caller_machine_id);
   if (!vantage.ok) return { status: vantage.status, body: { error: vantage.error } };
   if (vantage.essid !== payload.essid) return { status: 403, body: { error: 'wrong_network' } };
-  const fromIp = vantage.sourceIp ?? 'unknown';
+
+  // `localhost` typed in a shell on a neighbour's box names that box, at the lease its
+  // owner holds here — the address the server placed the caller at. The daemon sees the
+  // knock come over loopback, and a lease nobody holds names no box at all.
+  const loopback = payload.target_ip === LOOPBACK_IPV4;
+  const targetIp = loopback ? vantage.sourceIp : payload.target_ip;
+  const fromIp = loopback ? LOOPBACK_IPV4 : (vantage.sourceIp ?? 'unknown');
 
   const occupants = await deps.listOccupantsByEssid(payload.essid);
   if (occupants.error) {
@@ -199,7 +207,7 @@ export const handleAuthCreateSessionSameLan = async (
   // departed player's lease reaches nothing (occupancy is what makes a box present)
   // and no two occupants can answer to one address.
   const target = rows.find(
-    (row) => row.owner_key !== publicKey && addresses.get(row.owner_key) === payload.target_ip,
+    (row) => row.owner_key !== publicKey && addresses.get(row.owner_key) === targetIp,
   );
   if (target === undefined) {
     return { status: 404, body: { error: 'host_unreachable' } };
@@ -227,7 +235,7 @@ export const handleAuthCreateSessionSameLan = async (
   // stopped them is a distinction no client can act on (the adapter maps every 404 to
   // `host_unreachable` before the command sees it).
   const port = payload.port ?? DEFAULT_SSH_PORT;
-  const reached = reachDoor(payload.kind, workstationFs, port);
+  const reached = reachDoor(payload.kind, workstationFs, port, { overLoopback: loopback });
   if (reached === null) {
     return { status: 404, body: { error: 'host_unreachable' } };
   }
@@ -279,6 +287,7 @@ export const handleAuthCreateSessionSameLan = async (
       ownerKey: target.owner_key,
       machineId: target.workstation_machine_id,
       hostname: target.workstation_machine_name,
+      sweepLog: reached.spec.sweepLog,
     },
     { outcome: passwordOk ? 'success' : 'failure', user: payload.username, fromIp },
   );

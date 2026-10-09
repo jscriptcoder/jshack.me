@@ -1429,6 +1429,13 @@ describe('man ssh', () => {
     expect(description).toContain('home network');
   });
 
+  it('tells the player localhost is the box the shell is on, and shows it', () => {
+    expect(ssh.manual?.description).toContain('"localhost" is the box your shell is on');
+    expect(ssh.manual?.examples?.map((example) => example.command)).toContain(
+      'ssh guest@localhost',
+    );
+  });
+
   it('tells the player exit steps back one hop, which is home only from the first', async () => {
     const description = ssh.manual?.description ?? '';
     expect(description).toContain('"exit" to step back to the box you came from');
@@ -1581,6 +1588,118 @@ describe('ssh from a hop', () => {
       parentSessionId: 'ssh-hop-1',
       sourceIp: hop.ip,
       callerMachineId: hostMachineId(hop, HOP_ESSID),
+    });
+  });
+
+  it('logs into the hop itself by localhost, sending loopback on for the server to place', async () => {
+    // The hop's live /var/run is the server's to read, not the client's: the port goes
+    // along for the server to check its sshd is on it.
+    const hop = sshHostOn(HOP_ESSID);
+    const authenticate = vi.fn<(params: RemoteAuthParams) => Promise<RemoteAuthResult>>(
+      async () => ({ ok: true, userType: 'guest' }),
+    );
+    const onPush = vi.fn<(session: Session) => void>();
+    const prompt = vi.fn(async () => 'hunter2');
+
+    const result = sync(
+      await ssh.execute(
+        sshHopEnv(hop, { authenticate, onPush, prompt }),
+        ['guest@localhost'],
+        new Map([['-p', '2222']]),
+      ),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(prompt).toHaveBeenCalledWith({ message: "guest@localhost's password: ", masked: true });
+    expect(authenticate.mock.calls[0]![0]).toEqual({
+      sessionId: 'ssh-guest-1700000000000',
+      essid: HOP_ESSID,
+      targetIp: '127.0.0.1',
+      port: 2222,
+      username: 'guest',
+      password: 'hunter2',
+      parentSessionId: 'ssh-hop-1',
+      callerMachineId: hostMachineId(hop, HOP_ESSID),
+    });
+    expect(onPush.mock.calls[0]![0]).toMatchObject({
+      machineId: hostMachineId(hop, HOP_ESSID),
+      username: 'guest',
+      userType: 'guest',
+      essid: HOP_ESSID,
+    });
+  });
+
+  it('answers to 127.0.0.1 on the hop as it does to localhost', async () => {
+    const hop = sshHostOn(HOP_ESSID);
+    const authenticate = vi.fn<(params: RemoteAuthParams) => Promise<RemoteAuthResult>>(
+      async () => ({ ok: true, userType: 'guest' }),
+    );
+
+    await ssh.execute(sshHopEnv(hop, { authenticate }), ['guest@127.0.0.1'], new Map());
+
+    expect(authenticate.mock.calls[0]![0]).toMatchObject({ targetIp: '127.0.0.1', port: 22 });
+  });
+
+  it('is refused at localhost when the hop’s sshd is not on the port', async () => {
+    const hop = sshHostOn(HOP_ESSID);
+    const onPush = vi.fn<(session: Session) => void>();
+
+    const result = sync(
+      await ssh.execute(
+        sshHopEnv(hop, {
+          authenticate: async () => ({ ok: false, error: 'host_unreachable' }),
+          onPush,
+        }),
+        ['guest@localhost'],
+        new Map(),
+      ),
+    );
+
+    expect(result.lines[0]?.content).toBe(
+      'ssh: connect to host localhost port 22: Connection refused',
+    );
+    expect(onPush).not.toHaveBeenCalled();
+  });
+
+  it('logs into the player’s workstation it stands on by localhost, through the same-LAN door', async () => {
+    // A workstation is no box the network generates, so the client cannot place it;
+    // its owner's lease does, and that is the same-LAN door's to read.
+    const hop = sshHostOn(HOP_ESSID);
+    const authenticateSameLan = vi.fn<(params: SameLanAuthParams) => Promise<PublicAuthResult>>(
+      async () => ({
+        ok: true,
+        userType: 'guest',
+        machineId: A_SAMELAN_MACHINE_ID,
+        essid: HOP_ESSID,
+      }),
+    );
+    const onPush = vi.fn<(session: Session) => void>();
+    const env = sshHopEnv(hop, { authenticateSameLan, onPush });
+
+    const result = sync(
+      await ssh.execute(
+        { ...env, session: { ...env.session, machineId: asMachineId(A_SAMELAN_MACHINE_ID) } },
+        ['guest@localhost'],
+        new Map(),
+      ),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(authenticateSameLan.mock.calls[0]![0]).toEqual({
+      sessionId: 'ssh-guest-1700000000000',
+      essid: HOP_ESSID,
+      targetIp: '127.0.0.1',
+      username: 'guest',
+      password: 'hunter2',
+      port: 22,
+      parentSessionId: 'ssh-hop-1',
+      sourceIp: null,
+      callerMachineId: A_SAMELAN_MACHINE_ID,
+    });
+    expect(onPush.mock.calls[0]![0]).toMatchObject({
+      machineId: A_SAMELAN_MACHINE_ID,
+      username: 'guest',
+      essid: HOP_ESSID,
     });
   });
 

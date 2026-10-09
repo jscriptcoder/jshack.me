@@ -154,6 +154,7 @@ export const authCreateServerSession = async (
       // No address goes out: the server derives where the login came from, off the box
       // the shell is standing on when one is named and the caller's own lease otherwise.
       ...(params.callerMachineId === undefined ? {} : { caller_machine_id: params.callerMachineId }),
+      ...(params.port === undefined ? {} : { port: params.port }),
       kind,
     });
     if (response.ok) {

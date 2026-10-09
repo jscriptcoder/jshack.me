@@ -1295,6 +1295,104 @@ describe('ftp from a hop', () => {
     });
   });
 
+  it('logs in to the hop itself by localhost, loopback and the port sent on for the server', async () => {
+    // The hop's live /var/run is the server's to read: it places loopback and checks
+    // vsftpd is on the port, and the session lands on the box the shell stands on.
+    const hop = machineOn(HOP_ESSID, false);
+    const authenticate = vi.fn<(params: RemoteAuthParams) => Promise<RemoteAuthResult>>(
+      async () => ({ ok: true, userType: 'guest' }),
+    );
+    const entered = vi.fn<(session: Session) => void>();
+    const prompt = vi.fn(async ({ masked }: { readonly masked?: boolean }) =>
+      masked === true ? 'hunter2' : 'alice',
+    );
+
+    const result = sync(
+      await ftp.execute(
+        ftpHopEnv(hop, { authenticate, onEnter: entered, prompt }),
+        ['localhost'],
+        new Map([['-p', '2121']]),
+      ),
+    );
+
+    expect(result.lines.map((line) => line.content)).toEqual([
+      'Connected to localhost.',
+      '220 (vsFTPd 3.0.3)',
+      '230 Login successful.',
+    ]);
+    expect(prompt).toHaveBeenCalledWith({ message: 'Name (localhost:alice): ', masked: false });
+    expect(authenticate.mock.calls[0]![0]).toEqual({
+      sessionId: 'ftp-alice-1700000000000',
+      essid: HOP_ESSID,
+      targetIp: '127.0.0.1',
+      port: 2121,
+      username: 'alice',
+      password: 'hunter2',
+      parentSessionId: 'ssh-hop-1',
+      callerMachineId: hostMachineId(hop, HOP_ESSID),
+    });
+    expect(entered.mock.calls[0]![0]).toMatchObject({
+      machineId: hostMachineId(hop, HOP_ESSID),
+      userType: 'guest',
+      kind: 'ftp',
+      essid: HOP_ESSID,
+    });
+  });
+
+  it('is refused at localhost when the hop runs no vsftpd on the port', async () => {
+    const hop = machineOn(HOP_ESSID, false);
+    const entered = vi.fn<(session: Session) => void>();
+
+    const result = sync(
+      await ftp.execute(
+        ftpHopEnv(hop, {
+          authenticate: async () => ({ ok: false, error: 'host_unreachable' }),
+          onEnter: entered,
+        }),
+        ['127.0.0.1'],
+        new Map(),
+      ),
+    );
+
+    expect(result.lines.map((line) => line.content)).toEqual(['ftp: connect: Connection refused']);
+    expect(entered).not.toHaveBeenCalled();
+  });
+
+  it('logs in to the player’s workstation it stands on by localhost, through the same-LAN door', async () => {
+    // A workstation is no box the network generates: only its owner's lease places it.
+    const hop = machineOn(HOP_ESSID, false);
+    const authenticateSameLan = vi.fn<(params: SameLanAuthParams) => Promise<PublicAuthResult>>(
+      async () => ({ ok: true, userType: 'guest', machineId: 'alice-rig-cafef00d', essid: HOP_ESSID }),
+    );
+    const entered = vi.fn<(session: Session) => void>();
+    const base = ftpHopEnv(hop);
+    const env = mockCommandEnv({
+      ...base,
+      session: { ...base.session, machineId: asMachineId('alice-rig-cafef00d') },
+      ftp: mockFtpApi({ authenticateSameLan, enter: entered }),
+    });
+
+    const result = sync(await ftp.execute(env, ['localhost'], new Map()));
+
+    expect(result.exitCode).toBe(0);
+    expect(authenticateSameLan.mock.calls[0]![0]).toEqual({
+      sessionId: 'ftp-alice-1700000000000',
+      essid: HOP_ESSID,
+      targetIp: '127.0.0.1',
+      username: 'alice',
+      password: 'hunter2',
+      port: SERVICE_CATALOG.ftp.defaultPort,
+      parentSessionId: 'ssh-hop-1',
+      sourceIp: null,
+      callerMachineId: 'alice-rig-cafef00d',
+    });
+    expect(entered.mock.calls[0]![0]).toMatchObject({
+      machineId: 'alice-rig-cafef00d',
+      kind: 'ftp',
+      essid: HOP_ESSID,
+    });
+  });
+
   it('leaves the network by a public address from the hop, naming the hop as where it came from', async () => {
     const hop = machineOn(HOP_ESSID, false);
     const authenticatePublic = vi.fn<(params: PublicAuthParams) => Promise<PublicAuthResult>>(
@@ -1433,6 +1531,10 @@ describe('man ftp', () => {
     const description = ftp.manual?.description ?? '';
     expect(description).toContain('travels from that box');
     expect(description).toContain('network you are on');
+  });
+
+  it('tells the player localhost is the box the shell is on', () => {
+    expect(ftp.manual?.description).toContain('"localhost" is the box your shell is on');
   });
 });
 
