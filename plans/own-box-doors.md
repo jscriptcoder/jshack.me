@@ -1,7 +1,7 @@
 # Plan: the login doors reach your own box
 
-**Status**: Grilled. Decisions confirmed by the owner 2026-10-09. Slice (a) built (#637,
-v0.341.0); slice (b) next.
+**Status**: Grilled. Decisions confirmed by the owner 2026-10-09. Slices (a) built (#637,
+v0.341.0) and (b) built (#638, v0.342.0); slice (c) next.
 
 **As built — slice (a):** `commands/ssh.ts` `executeOwnBoxLogin`, taken when the session stands
 at home (`essid === null`) and `ownBoxSource` names the target (its `ownIp` now accepts null, so
@@ -9,6 +9,17 @@ loopback answers offline). The trace is `appendAuthLog`'s `doorLogin` kind (`doo
 `from_ip` an IPv4), formatted through `SERVICE_CATALOG[SERVICE_BY_DOOR[door]].sweepLog` — slice
 (b) widens `door` to `ftp`/`scp`. `createSession` accepts `kind: 'ssh'` for an own-box row; without
 it `lostLegs` pops the shell on the next line. Wire-check: `scripts/testOwnBoxLogin.ts`.
+
+**As built — slice (b):** the home login is shared by all three doors in
+`commands/ownBoxLogin.ts` (`ownBoxVisitFrom` picks the own box at home, `admitOwnBoxLogin`
+checks `md5` and logs). `scp.ts` `reachOwnBox` (via `reachTarget`, before `vantageOf`) and `ftp.ts`
+`ownBoxLogin` each check their own daemon's pidfile port. `doorLogin` takes `door: 'scp' | 'ftp'`; the
+lines go through `serviceCatalog.ts` `formatLoginLines` (arrival + attempt), shared with the
+cross-player login. Neither door pushes onto the stack, so no `createSession` row: the writes ride
+the own-workstation bypass. Because that bypass skips L2, `ui/state.ts` `writesAboveOwnBoxLogin`
+holds `env.ftp.write`/`env.scp.write` on the own box to the login's tier. Not done, deliberately:
+ftp transfers at home are not itemised in `vsftpd.log` (`recordFtpTransfer` refuses the own box).
+Test fixture: `src/test/factories/ownBox.ts`.
 Resolves the `backlog.md` item "`ssh`, `scp` and `ftp` cannot reach your own box", found by the
 tutorials' close-out browser run. Where they disagree with this file, this file wins.
 
