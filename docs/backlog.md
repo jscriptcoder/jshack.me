@@ -958,8 +958,9 @@ epic that owned them is retired):
   release**, with a player's muscle memory in view — not one command at a time.
 - **Tutorials dropped into the player's home folder** — readable in-game files explaining the
   mechanics, and the one place the game names `findit.io` (X2 plants no in-world hint). Landing
-  before release; shape still to be decided; must cover scripting (D9 routed its example-script idea
-  here rather than shipping one via `apt install node`).
+  before release; must cover scripting (D9 routed its example-script idea here rather than
+  shipping one via `apt install node`). Grilled 2026-10-09 (`plans/in-game-tutorials.md`): a home
+  `README` bootstraps to `lynx`, and the tutorials live on `rtfm.io`, an attackable in-world site.
 - **`nmap`'s SERVICE column as a port→name GUESS.** Real nmap labels a port from `/etc/services`
   (31337→elite, 4444→krb524, unlisted→unknown), so the column is never evidence. One small table,
   flavour only; a listener reads `unknown` either way and probing stays how you learn the truth.
