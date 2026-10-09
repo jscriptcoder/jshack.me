@@ -44,12 +44,28 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   three doors now log into the own box client-side (`commands/ownBoxLogin.ts`): the daemon must hold
   the port, the password is checked against the box's own `/etc/passwd`, and the login lands in
   the door's own log as `127.0.0.1`. From a hop, `localhost` is sent on as `127.0.0.1` and lands on
-  the hop. Chapter 5 shows the `localhost` examples again. Still open: ftp transfers at home are not
-  itemised in `vsftpd.log` (`recordFtpTransfer` refuses the own box), and the data doors
-  (`serviceHost.ts`) still map loopback through `ownLanSourceIp`, so on a deep hop they may land
-  on the gateway. Unverified. And a file `scp` carries lands `rwx------`, owned by the login's
-  account, so `scp notes.txt root@localhost:/tmp/` leaves a file the player's own account cannot
-  read (real scp keeps the source's mode). Found by the close-out browser run.
+  the hop. Chapter 5 shows the `localhost` examples again. Three gaps left behind are the next
+  three items.
+
+- **ftp transfers at home are not itemised in `vsftpd.log`.** `ftp localhost` logs the CONNECT and
+  LOGIN lines from `127.0.0.1`, but a `get` or `put` that follows leaves no line, because
+  `recordFtpTransfer` (`core/patches/recordFtpTransfer.ts`) refuses the caller's own box. Fixing it
+  means letting the own box through for a transfer made over a door login; an `api/` change, so a
+  wire-check. Left out of the own-box doors epic on purpose (2026-10-09).
+
+- **The data doors may resolve `localhost` to the gateway on a deep hop. Unverified.** The login
+  doors resolve loopback from a hop to the box's own layer address (`segmentsReachedFrom(...)[0]`,
+  in `authCreateSession.ts`). The data doors' server handlers (`mysql`, `redis`, `snmp`, the exploit
+  session and `hydra`, in `core/sessions/`) resolve it in `serviceHost.ts` to the `ownLanSourceIp`
+  each handler passes, which on a deep box names the inner gateway. That was the login doors' bug before #639. First prove it
+  with a wire-check from a deep hop; if it holds, resolve loopback the way the login doors do.
+  Found while building #639 (2026-10-09).
+
+- **A file `scp` carries lands `rwx------`.** `scp` passes no mode, so the write takes
+  `defaultFilePermissions` for the login's tier (`adapters/patchApi.ts`). As root that is owner-only,
+  so `scp notes.txt root@localhost:/tmp/` (chapter 5's example) leaves a file the player's own
+  account cannot read. Real scp gives the copy the source's mode. Found by the own-box doors
+  close-out browser run (2026-10-09).
 
 - **`~` expands only as `~` and `~/path` (v0.328.0, #621).** Expansion happens in the tokenizer, so
   every command and redirect target gets it. Still missing: `~user` (another account's home —
