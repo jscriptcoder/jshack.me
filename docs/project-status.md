@@ -661,8 +661,11 @@ agreed order:
    program's package instead.
 6. **Then:** defender-side items. ✅ The `echo x > rules.v4` wipe was decided a mechanic, not a
    gap (2026-10-08, `backlog.md`). Left: player-driven service patching (`backlog.md`), whose v2
-   remainder needs scoping first, since `apt upgrade` already patches the player's own box. In-game
-   tutorials matter once others playtest.
+   remainder needs scoping first, since `apt upgrade` already patches the player's own box.
+7. **In flight:** in-game tutorials. A `README` in the player's home bootstraps them to `lynx`,
+   and the tutorials live on `hackademy.io`, an in-world site built like findit (attackable,
+   restored by the operator). Grilled and planned 2026-10-09 in `plans/in-game-tutorials.md`
+   (five slices); next: slice 1.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan
