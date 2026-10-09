@@ -1,8 +1,8 @@
 # Plan: in-game tutorials
 
-**Status**: S1 (v0.335.0, #631), S2 (v0.336.0, #632), S3 (v0.337.0, #633) and S4 (v0.338.0, #634)
-built, 2026-10-09. S5 (chapters 8–10, with the example scripts under `/scripts/`) planned below,
-branch `feat/tutorials-chapters-8-to-10`; then the close-out browser run.
+**Status**: all five slices built, 2026-10-09 — S1 (v0.335.0, #631), S2 (v0.336.0, #632), S3
+(v0.337.0, #633), S4 (v0.338.0, #634) and S5 (v0.339.0, #635). Next: the close-out browser run
+covering them all, then the close-out `docs(v2):` commit that retires this file.
 Resolves the `docs/backlog.md` entry "Tutorials dropped into the player's home folder" (shape
 still to be decided) and the `docs/project-status.md` note that in-game tutorials matter once
 others playtest. Where they disagree with this file, this file wins.
@@ -125,7 +125,7 @@ entry, retiring this file) is a `docs(v2):` commit on `main`, after the one brow
 - **S2** ✅ findit lists hackademy.io, so a search for it finds it.
 - **S3** ✅ chapters 2–4: wifi, your box and its network, looking around.
 - **S4** ✅ chapters 5–7: getting in, services and CVEs, the web (the one pointer to findit).
-- **S5** chapters 8–10: traces, databases and other services, scripting, with the example
+- **S5** ✅ chapters 8–10: traces, databases and other services, scripting, with the example
   scripts under `/scripts/` (decision 12).
 
 ### Slice 1 ✅: a new player gets from `cat README` to reading chapter 1 on hackademy.io
@@ -293,76 +293,60 @@ the recommended description.
 - **Only an example's command is checked, never its output.** The close-out browser run walks
   the chapters.
 
-### Slice 5 (planned): chapters 8–10, traces, databases and other services, scripting
+### Slice 5 ✅: chapters 8–10, traces, databases and other services, scripting
 
-**Branch** `feat/tutorials-chapters-8-to-10`, v0.339.0. Behavior change. The last slice: the
-chain runs 1 → 10 and the site carries its first files that are not pages.
+**Built** v0.339.0, #635 (squash `5b3e97b1`), 2026-10-09. All eight acceptance criteria met.
 
-**Facts it rests on** (read off the code, 2026-10-09):
-- **Logs.** A workstation boots with `/var/log/auth.log`, `kern.log` and `access.log`, all
-  readable by every tier, so `$ tail`/`grep`/`cat` on them need no `su`. `tail -n N` and
-  `grep PATTERN PATH [-c]` are registered.
-- **Databases.** `apt install mysql` / `redis` ship client and daemon together (`mysqld`,
-  `redis-server`); the player's own database root and store lock are the box's own root
-  password, mirrored from `/etc/passwd`. `mysql` and `redis-cli` resolve `localhost` to the
-  reader's own box (`ownBoxSource`), answered client-side.
-- **SNMP has no own-box walk.** `apt install snmp` ships `snmpwalk`/`snmpset`/`snmpd` and prints
-  the box's read-write community once; but a walk of your own agent from your own box does not
-  exist (only a neighbour walks it), so `snmpwalk` gets the `hydra` treatment: described, sent to
-  `man snmpwalk`, never run (decision 3).
-- **Scripts.** `node FILE [args]` runs a file with every registered command as an `await`able
-  function returning its stdout lines, plus `console`, `fs`, `process.argv`. `> FILE` redirects
-  a command's stdout into a file, so `curl URL > x.js` saves a script.
-- **The web root is flat.** `fixedSiteFs.ts` turns the page map into files directly under
-  `/var/www/html`; `/scripts/x.js` needs a subdirectory, so the map's keys gain a path and the
-  builder nests them. One map (`HACKADEMY_PAGES`), not a second one for scripts.
+**As built**:
+- **Three chapters on `hackademy/pages.ts`.** `TRACES` (`traces.html`), `OTHER_SERVICES`
+  (`other-services.html`) and `SCRIPTING` (`scripting.html`) join `HACKADEMY_PAGES` after
+  chapter 7. The front page lists all ten in order; chapter 7 now leads on to chapter 8 and
+  chapter 10 ends the chain.
+  - **Traces**: `auth.log` (logins over every door, `su`), `kern.log` (every port scan of the
+    box with its source and ports, every restart and crash) and `access.log` (every request
+    served), all world-readable, so `$ cat`/`tail`/`tail -n 20`/`grep Failed`/`grep … -c`/
+    `grep scan /var/log/kern.log` need no `su`. That a log is a file root can rewrite is said
+    plainly in prose, with no warning. The plan's "kern.log is the filter's dropped knocks" was
+    wrong: the kernel line records every scan, so the prose and the example say that.
+  - **Databases and other services**: `# apt install mysql` + `systemctl start mysqld` +
+    `$ mysql localhost root`, and `redis` the same with `redis-cli localhost PASSWORD`, both
+    opened by the box's own root password. In-shell lines (`mysql>`, `>`) carry no
+    prompt, so the command rules skip them. `# apt install snmp` + `systemctl start snmpd`
+    run; `snmpwalk`/`snmpset` are described and sent to `man snmpwalk`, never run: no own-box
+    walk exists, the line `hydra` drew.
+  - **Scripting with node**: commands as `await`able functions returning their stdout lines,
+    `process.argv`, `fs`/`console.log`/`sleep`, Ctrl-C; `$ curl http://hackademy.io/scripts/X
+    > X` then `$ node X`.
+- **Two scripts and a `robots.txt` in the same map.** `scripts/hello.js` greets its arguments
+  (default `world`) and calls `whoami` as a function; `scripts/failed.js` greps the reader's
+  own `auth.log` for `Failed` and prints `ADDRESS  COUNT` per source. Planned with an optional
+  log-path argument, dropped before the PR: nothing exercised it and `hello.js` already teaches
+  arguments. `robots.txt` (`Disallow: /scripts/`) fixes an S4 example that fetched a file the
+  site never served, caught by this slice's fetched-address rule. None are linked from the
+  pages; the chapter's `curl` examples are the way to them.
+- **The web root nests.** `fixedSiteFs.ts` builds `/var/www/html` with the existing
+  `withFiles` (baseFs), so a map key with a path lands in its directory. One map, still called
+  `HACKADEMY_PAGES`, now documented as every file the site serves.
+- **Tests.** `hackademy.test.ts` gains three table rows (ten chapters), "fetch only addresses
+  the site serves", "run a script with node only after an earlier example saved it from the
+  site", each script served under `/scripts/`, and each script run through the real `node`
+  command and registry on alice's generated workstation with `node` installed and an
+  `auth.log` of failed logins from two addresses (`hello.js` echoes its argument; `failed.js`
+  prints each address with its count). 53 tests, 19 RED first. A `(decision 9)` tag left in an
+  S4 test comment was removed.
+- **Wire-checks.** `testHackademy.ts` 21/21 live: every page, `robots.txt` and both scripts
+  served byte for byte, all ten chapters linked from the front page. `testFindit` 19/19.
+  vercel dev stopped; supabase left running.
+- **Mutation.** Hand-applied, all 15 killed: a flat web root, a script and `robots.txt`
+  dropped from the map, chapter 7's onward link removed, chapter 8's mis-pointed, chapter 10
+  given one, each new chapter mis-titled, a front-page entry removed, `failed.js` counting
+  from 1, `hello.js` ignoring its arguments, and the saved-before-run rule three ways (the
+  `curl` line removed, saved under another name, fetching a missing script). Prose-string
+  survivors are the accepted norm, as in S1–S4.
 
-**Chapters** (prose written straight into `pages.ts`, game-framed, `localhost`/uppercase
-placeholders, `&#39;` possessives, each ending in Practice; chapter 7 gains `next()`):
-- **8 Traces** (`traces.html`) — what each log records (`auth.log` logins and `su`, `kern.log`
-  the filter's dropped knocks, `access.log` every page served); `$ tail`, `$ tail -n 20`,
-  `$ grep Failed /var/log/auth.log`, `-c` to count; a log is a file root can edit, said plainly
-  in prose, no warning. Tools: `tail`, `grep`, `cat`.
-- **9 Databases and other services** (`other-services.html`) — `# apt install mysql`,
-  `# systemctl start mysqld`, `$ mysql localhost root`; `# apt install redis`,
-  `# systemctl start redis-server`, `$ redis-cli localhost PASSWORD`; `# apt install snmp` and
-  the community it prints once; `snmpwalk` described + `$ man snmpwalk`. Tools: `apt`,
-  `systemctl`, `mysql`, `redis-cli`.
-- **10 Scripting with node** (`scripting.html`) — `$ curl http://hackademy.io/scripts/hello.js
-  > hello.js`, `$ node hello.js`, a command as a function, `process.argv`; then a second script
-  that tallies failed logins in the reader's own `auth.log` by address (defensive, own box). Ends
-  the chain (Back only). Tools: `curl`, `node`.
-- **Scripts** under `/scripts/`: `hello.js` (prints a line and its arguments) and `failed.js`
-  (calls `grep` on `/var/log/auth.log`, counts by address). Unlinked from the pages: the
-  chapter's `curl` examples are how a reader gets them.
-
-**Acceptance criteria**:
-1. The front page lists all ten chapters in order; chapter 7 now leads on to chapter 8, each
-   new chapter links back and on to the next, and chapter 10 ends the chain.
-2. Each new chapter is titled for what it teaches (`<title>` and `<h1>`), shows its tools in
-   prompted examples, and ends in Practice — the existing table, three rows longer.
-3. The site serves `/scripts/hello.js` and `/scripts/failed.js` byte for byte as generated.
-4. Every `http://hackademy.io/...` address an example fetches is one the site serves.
-5. Every script the scripting chapter runs with `node` is one an example saved from the site
-   first.
-6. Each served script, run with `node` on a reader's own box (a workstation with an `auth.log`
-   holding failed logins), exits 0 and prints output — `failed.js` the tally by address.
-7. The site-wide rules hold over the new pages with no change: reachable, local links served,
-   findit named only in the web chapter, no example aimed at somebody else's box, registered
-   commands only.
-8. Live: `testHackademy.ts` serves every file (pages and scripts) byte for byte and checks the
-   front page links to all ten chapters; `testFindit` unchanged.
-
-**Evidence plan**: RED first for AC1–6 in `hackademy.test.ts` (rows, a fetched-address rule, a
-saved-before-run rule, a script-runs test through `node` on a mock env over the real workstation
-fs). GREEN: nest the web root in `fixedSiteFs.ts`, add the three chapters and two scripts to
-`pages.ts`. Full suite, typecheck, lint, build. Wire-checks `testHackademy` + `testFindit`.
-Mutation by hand on the structural lines (nesting, map, chain, front page, titles), prose
-accepted as before.
-
-**Weakest calls** (flagged for the owner):
-- **`snmpwalk` described, not run** — no own-box walk exists; the line `hydra`/`msfconsole` drew.
-- **AC6 runs the scripts on a mock command env**, not the real shell over the network; the
-  close-out browser run is where `curl … > x.js` + `node x.js` are typed for real.
-- **AC5 is a text rule** (a `node NAME` example has a `curl … > NAME` before it on the same
-  page), not a run of the sequence.
+**Weakest calls, carried**:
+- **`snmpwalk` is described, not run** — no own-box walk exists (decision 3).
+- **The scripts run on a mock command env in the test**, not the real shell over the
+  network; the close-out browser run types `curl … > x.js` and `node x.js` for real.
+- **The saved-before-run rule reads the page's text**: a `node NAME` example has a
+  `curl … > NAME` before it on the same page. It does not run the sequence.
