@@ -1,7 +1,8 @@
 # Plan: in-game tutorials
 
-**Status**: S1 built (v0.335.0, #631) and S2 built (v0.336.0, #632), 2026-10-09. Next: slice 3,
-chapters 2–4 (to be planned in detail, then acceptance criteria confirmed before RED).
+**Status**: S1 built (v0.335.0, #631) and S2 built (v0.336.0, #632), 2026-10-09. S3 planned
+2026-10-09 on `feat/tutorials-chapters-2-to-4`; acceptance criteria confirmed by the owner, as
+written.
 Resolves the `docs/backlog.md` entry "Tutorials dropped into the player's home folder" (shape
 still to be decided) and the `docs/project-status.md` note that in-game tutorials matter once
 others playtest. Where they disagree with this file, this file wins.
@@ -199,3 +200,65 @@ the recommended description.
   - **Equivalent:** the generated-web cache (a miss rebuilds the same page), a junk entry that
     would not typecheck, and the `<html>`/`<body>` literals.
   - **Deferred:** chapters gaining `<meta content="undefined">`; findit reads only front pages.
+
+### Slice 3: chapters 2–4, wifi, your box and its network, looking around
+
+**Value**: a new player who has read chapter 1 reads on, in order, about the first thing the
+README had them do (wifi), the network they are now on, and the tools that look at it.
+**Path**: `lynx http://hackademy.io` → front page → each chapter, served from the box's
+`/var/www/html` (`hackademy/pages.ts` → `HACKADEMY_PAGES` → `buildFixedSiteFs`).
+**Class**: behavior change. Branch `feat/tutorials-chapters-2-to-4`, v0.337.0.
+
+**Facts that shape it** (2026-10-09):
+- **No command shows a player their network's public address.** It surfaces only in the logs
+  of what they visit. The chapter explains it and runs nothing.
+- **A gateway's NAT table takes root on a shared box** whose admin password must be cracked
+  (`seedApGatewayAdminPw`). The `forward` line is shown as file content, never as a command.
+- **The same `/etc/iptables/rules.v4` filters the player's own box.** A hand-written
+  `deny PORT` closes that port to the network (`portsOpenToNetwork`) while the service keeps
+  running, and the owner's own scan, which reads the pidfiles, still shows it. A workstation
+  has no `/etc/iptables` until root makes one.
+- **`nmap` and `ping` do not take `localhost`** (only `curl`, `nc` and the database clients
+  do). Examples use uppercase placeholders, as the README does: `ADDRESS` is the reader's own
+  address from `ifconfig`. The "own box only" test already lets them through.
+- **`nmap`, `dnsutils` (`dig`, `nslookup`) and `whois` are apt packages**; the aircrack-ng
+  tools are not needed from apt on a fresh box, since the README runs them before any network.
+
+**Acceptance criteria** (owner-confirmed 2026-10-09):
+1. **The front page lists chapters 1–4 in order**: `getting-around.html`, `wifi.html`
+   ("Wifi"), `your-network.html` ("Your box and its network"), `looking-around.html`
+   ("Looking around").
+2. **Each new chapter** is titled for what it teaches (`<title>` and `<h1>`), shows its tools
+   in prompted examples, and ends in a Practice section:
+   - Wifi: `airmon-ng`, `airodump-ng`, `aircrack-ng`, `nmcli`;
+   - Your box and its network: `ifconfig`, `nmcli`, `mkdir`, `nano`, `cat`;
+   - Looking around: `ping`, `nmap`, `dig`, `nslookup`, `whois`.
+3. **Each chapter links to the front page and to the next chapter.** Chapter 1 gains a link
+   to chapter 2; chapter 4 links only to the front page until S4.
+4. **The site-wide rules from S1 cover the new pages unchanged**: reachable from the front
+   page, local links all served, findit never named, no address or domain but hackademy.io,
+   only registered commands.
+5. **Content, in the collective's voice**:
+   - Wifi: monitor mode on and off; what `airodump-ng` lists; `aircrack-ng` recovering a key
+     from a wordlist; `nmcli` needing monitor mode off.
+   - Your box and its network: the LAN address and the gateway at `.1`; one public address
+     for the whole network, which every site you visit logs; `forward` lines on a gateway;
+     `deny` lines on your own box.
+   - Looking around: `ping` answers reachability only; `nmap` on your own address shows your
+     open ports, and `-sV` adds versions and known CVEs; `dig` and `nslookup` turn names into
+     addresses; `whois` says who holds an address or a domain.
+
+   Prose is reviewed in the PR, not unit-tested.
+6. **`testHackademy` checks every page in `HACKADEMY_PAGES`** byte-for-byte as generated,
+   instead of chapter 1 alone.
+7. **Version 0.337.0.**
+
+**Tests**: chapter 1's three tests in `hackademy.test.ts` become one table over the four
+chapters (title, tools, Practice last, link onward); the new rows are the RED.
+
+**Weakest calls, carried**:
+- **"Looking around" shows no range scan of the LAN and no `ping` of the gateway**: both
+  target boxes that are not the reader's (decision 3). The prose says a network can be swept
+  and points at `man nmap`, whose examples show the range form.
+- **Only an example's command is checked, never its output.** The close-out browser run walks
+  the chapters.
