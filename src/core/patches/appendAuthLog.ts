@@ -32,7 +32,7 @@ import {
 } from '../logging/authLog.js';
 import { derivePid } from '../logging/syslog.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
-import { SERVICE_CATALOG, type SweepLog } from '../services/serviceCatalog.js';
+import { SERVICE_CATALOG, formatLoginLines, type SweepLog } from '../services/serviceCatalog.js';
 import { SERVICE_BY_DOOR } from '../sessions/authCreateSession.js';
 import type { PatchRow } from './upsertPatch.js';
 import {
@@ -99,7 +99,7 @@ const doorLoginSchema = z
   .looseObject({
     action: z.literal('appendAuthLog'),
     kind: z.literal('doorLogin'),
-    door: z.enum(['ssh']),
+    door: z.enum(['ssh', 'scp', 'ftp']),
     machine_id: z.string().min(1),
     user: z.string().min(1),
     from_ip: z.ipv4(),
@@ -129,7 +129,7 @@ const lineFor = (
     const sweepLog = SERVICE_CATALOG[SERVICE_BY_DOOR[payload.door]].sweepLog;
     return {
       log: sweepLog,
-      line: sweepLog.formatAttempt({
+      line: formatLoginLines(sweepLog, {
         outcome: payload.outcome,
         user: payload.user,
         fromIp: payload.from_ip,

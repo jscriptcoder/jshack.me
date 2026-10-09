@@ -14,6 +14,7 @@ import {
   mockSession,
 } from '../../test/factories/commandEnv.js';
 import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
+import { OWN_BOX, ownBoxEnv, type OwnBoxOptions } from '../../test/factories/ownBox.js';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
 import { buildRemoteHostFs } from '../generation/remoteHostFs.js';
 import { hostMachineId } from '../generation/remoteHostId.js';
@@ -24,6 +25,7 @@ import { asAbsPath, asEpochMs, asMachineId, asPlayerKeyHex } from '../types.js';
 import type { AbsPath } from '../types.js';
 import type { Directory } from '../filesystem/types.js';
 import type {
+  AuthLogEvent,
   CommandResult,
   PatchApi,
   PatchResult,
@@ -1582,5 +1584,237 @@ describe('scp from a hop — the deep-layer arm’s refusals and the occupant ma
     );
 
     expect(authenticateSameLan.mock.calls[0]![0]).toMatchObject({ port: 2222 });
+  });
+});
+
+/**
+ * `scp` to the box the shell stands on, at home. The login is answered from the box's
+ * own tree, as an own-box `ssh` is — its own sshd has to be listening, the password is
+ * checked against its own `/etc/passwd` — and the transfer then runs as the account
+ * that login bought, which is not the account the shell was already standing as.
+ */
+describe('scp to the box the shell stands on, at home', () => {
+  type OwnScpOver = {
+    readonly write?: NonNullable<EnvOver['write']>;
+    readonly read?: NonNullable<EnvOver['read']>;
+    readonly localWrite?: PatchApi['write'];
+    readonly prompt?: (opts: { message: string; masked: boolean }) => Promise<string>;
+  };
+
+  const ownScpEnv = (options: OwnBoxOptions = {}, over: OwnScpOver = {}) =>
+    ownBoxEnv(options, {
+      ...(over.prompt === undefined ? {} : { prompt: over.prompt }),
+      patches: mockPatchApi({ write: over.localWrite ?? (async () => ({ ok: true })) }),
+      signal: new AbortController().signal,
+      scp: mockScpApi({
+        write: over.write ?? (async () => ({ ok: true })),
+        read: over.read ?? (async () => ({ ok: true, content: PASSWD })),
+      }),
+    });
+
+  const NOTES = '/home/alice/notes.txt';
+
+  it('carries a file onto the own box as the account the login bought', async () => {
+    const write = vi.fn<NonNullable<EnvOver['write']>>(async () => ({ ok: true }));
+
+    const { lines, exitCode } = await drain(
+      await scp.execute(ownScpEnv({}, { write }), [NOTES, 'guest@localhost:notes.txt'], new Map()),
+    );
+
+    expect(lines).toEqual(['Connecting to localhost...', 'notes.txt   100%  18 bytes']);
+    expect(exitCode).toBe(0);
+    expect(write).toHaveBeenCalledWith(
+      {
+        id: `scp-guest-${OWN_BOX.now}`,
+        playerKey: asPlayerKeyHex(OWN_BOX.pubkey),
+        machineId: OWN_BOX.machineId,
+        username: 'guest',
+        userType: 'guest',
+        kind: 'scp',
+        createdAt: OWN_BOX.now,
+        // Still at home: the transfer never moved the shell off its own box.
+        essid: null,
+      },
+      '/home/guest/notes.txt',
+      'remember the milk\n',
+    );
+  });
+
+  it('takes a file off the own box at the login’s tier, landing it where the shell stands', async () => {
+    const read = vi.fn<NonNullable<EnvOver['read']>>(async () => ({ ok: true, content: PASSWD }));
+    const localWrite = vi.fn<PatchApi['write']>(async () => ({ ok: true }));
+
+    const { exitCode } = await drain(
+      await scp.execute(
+        ownScpEnv({}, { read, localWrite }),
+        ['guest@localhost:/etc/passwd', '/home/alice/'],
+        new Map(),
+      ),
+    );
+
+    expect(exitCode).toBe(0);
+    expect(read).toHaveBeenCalledWith(
+      expect.objectContaining({ machineId: OWN_BOX.machineId, userType: 'guest', kind: 'scp' }),
+      '/etc/passwd',
+    );
+    expect(localWrite).toHaveBeenCalledWith('/home/alice/passwd', PASSWD);
+  });
+
+  it('asks for the password the way sshd does, masked', async () => {
+    const prompt = vi.fn(async () => OWN_BOX.guestPassword);
+    await drain(
+      await scp.execute(ownScpEnv({}, { prompt }), [NOTES, 'guest@localhost:/tmp/x'], new Map()),
+    );
+    expect(prompt).toHaveBeenCalledWith({ message: "guest@localhost's password: ", masked: true });
+  });
+
+  it('records the login in its own auth.log as sshd would, from loopback', async () => {
+    const onLog = vi.fn<(event: AuthLogEvent) => void>();
+    await drain(
+      await scp.execute(ownScpEnv({ onLog }), [NOTES, 'guest@localhost:notes.txt'], new Map()),
+    );
+    expect(onLog).toHaveBeenCalledWith({
+      kind: 'doorLogin',
+      door: 'scp',
+      machineId: OWN_BOX.machineId,
+      user: 'guest',
+      fromIp: '127.0.0.1',
+      outcome: 'success',
+      hostname: OWN_BOX.hostname,
+    });
+  });
+
+  it('answers to its own leased address, recording the visit from it', async () => {
+    const onLog = vi.fn<(event: AuthLogEvent) => void>();
+    const write = vi.fn<NonNullable<EnvOver['write']>>(async () => ({ ok: true }));
+    const { exitCode } = await drain(
+      await scp.execute(
+        ownScpEnv({ onLog }, { write }),
+        [NOTES, `guest@${OWN_BOX.leasedIp}:notes.txt`],
+        new Map(),
+      ),
+    );
+    expect(exitCode).toBe(0);
+    expect(write.mock.calls[0]![0]).toMatchObject({ machineId: OWN_BOX.machineId });
+    expect(onLog).toHaveBeenCalledWith(expect.objectContaining({ fromIp: OWN_BOX.leasedIp }));
+  });
+
+  it('refuses a wrong password, records the failure and moves nothing', async () => {
+    const onLog = vi.fn<(event: AuthLogEvent) => void>();
+    const write = vi.fn<NonNullable<EnvOver['write']>>(async () => ({ ok: true }));
+
+    const { lines, exitCode } = await drain(
+      await scp.execute(
+        ownScpEnv({ onLog }, { write, prompt: async () => 'wrong' }),
+        [NOTES, 'guest@localhost:notes.txt'],
+        new Map(),
+      ),
+    );
+
+    expect(exitCode).toBe(1);
+    expect(lines).toEqual(['Connecting to localhost...', 'Permission denied (password).']);
+    expect(write).not.toHaveBeenCalled();
+    expect(onLog).toHaveBeenCalledWith(
+      expect.objectContaining({ user: 'guest', outcome: 'failure' }),
+    );
+  });
+
+  it('refuses an account with no password, whatever is typed', async () => {
+    const write = vi.fn<NonNullable<EnvOver['write']>>(async () => ({ ok: true }));
+    const { lines } = await drain(
+      await scp.execute(
+        ownScpEnv({}, { write, prompt: async () => '' }),
+        [NOTES, 'alice@localhost:/tmp/x'],
+        new Map(),
+      ),
+    );
+    expect(lines).toContain('Permission denied (password).');
+    expect(write).not.toHaveBeenCalled();
+  });
+
+  it('is refused before any password when the own sshd is not running', async () => {
+    const prompt = vi.fn(async () => OWN_BOX.guestPassword);
+    const { lines, exitCode } = await drain(
+      await scp.execute(
+        ownScpEnv({ sshdPort: null }, { prompt }),
+        [NOTES, 'guest@localhost:notes.txt'],
+        new Map(),
+      ),
+    );
+    expect(exitCode).toBe(1);
+    expect(lines).toEqual(['scp: connect to host localhost port 22: Connection refused']);
+    expect(prompt).not.toHaveBeenCalled();
+  });
+
+  it('reaches the own sshd only on the port it listens on', async () => {
+    const refused = await drain(
+      await scp.execute(
+        ownScpEnv(),
+        [NOTES, 'guest@localhost:notes.txt'],
+        new Map([['-p', '2222']]),
+      ),
+    );
+    expect(refused.lines).toEqual(['scp: connect to host localhost port 2222: Connection refused']);
+
+    const reached = await drain(
+      await scp.execute(
+        ownScpEnv({ sshdPort: 2222 }),
+        [NOTES, 'guest@localhost:notes.txt'],
+        new Map([['-p', '2222']]),
+      ),
+    );
+    expect(reached.exitCode).toBe(0);
+  });
+
+  it('reaches localhost with the WiFi down — loopback needs no network', async () => {
+    const { exitCode } = await drain(
+      await scp.execute(
+        ownScpEnv({ online: false }),
+        [NOTES, 'guest@localhost:notes.txt'],
+        new Map(),
+      ),
+    );
+    expect(exitCode).toBe(0);
+  });
+
+  it('cannot reach its leased address with the WiFi down — offline it holds none', async () => {
+    const { lines } = await drain(
+      await scp.execute(
+        ownScpEnv({ online: false }),
+        [NOTES, `guest@${OWN_BOX.leasedIp}:notes.txt`],
+        new Map(),
+      ),
+    );
+    expect(lines).toEqual(['scp: Network is unreachable']);
+  });
+
+  it('exits 130 and records nothing when the password prompt is cancelled', async () => {
+    const onLog = vi.fn<(event: AuthLogEvent) => void>();
+    const write = vi.fn<NonNullable<EnvOver['write']>>(async () => ({ ok: true }));
+    const { lines, exitCode } = await drain(
+      await scp.execute(
+        ownScpEnv({ onLog }, { write, prompt: async () => Promise.reject(new Error('aborted')) }),
+        [NOTES, 'guest@localhost:notes.txt'],
+        new Map(),
+      ),
+    );
+    expect(exitCode).toBe(130);
+    expect(lines).toEqual([]);
+    expect(onLog).not.toHaveBeenCalled();
+    expect(write).not.toHaveBeenCalled();
+  });
+
+  it('is not the own box from a hop: localhost there names the hop, not the tree at home', async () => {
+    const onLog = vi.fn<(event: AuthLogEvent) => void>();
+    const env = ownScpEnv({ onLog });
+    await scp
+      .execute(
+        { ...env, session: { ...env.session, machineId: asMachineId('hop-box'), essid: ESSID } },
+        [NOTES, 'guest@localhost:notes.txt'],
+        new Map(),
+      )
+      .then(drain)
+      .catch(() => undefined);
+    expect(onLog).not.toHaveBeenCalled();
   });
 });

@@ -30,7 +30,12 @@ import { deniedPortsFor, resolveDeepScanHosts } from '../scan/deepScanHosts.js';
 import { materializeMachineFs, type OwnerPatchRow } from '../network/materializeMachineFs.js';
 import { canBoot } from '../boot/bootFiles.js';
 import { md5 } from '../generation/md5.js';
-import { SERVICE_CATALOG, type ServiceSpec, type SweepLog } from '../services/serviceCatalog.js';
+import {
+  SERVICE_CATALOG,
+  formatLoginLines,
+  type ServiceSpec,
+  type SweepLog,
+} from '../services/serviceCatalog.js';
 import { listenerOn, type Listener } from '../services/pidfile.js';
 import { portsOpenToNetwork } from '../network/portsOpenToNetwork.js';
 import { LOOPBACK_IPV4 } from '../network/interfaces.js';
@@ -179,12 +184,7 @@ const logLoginAttempt = async (
     time: asGameTime(stamp),
     pid: derivePid(stamp),
   };
-  // A daemon that records arrivals separately writes both in one append: they are
-  // one event to the box, and two appends would be two read-modify-writes racing
-  // over the same file.
-  const line = [attempt.sweepLog.formatArrival?.(record), attempt.sweepLog.formatAttempt(record)]
-    .filter((entry) => entry !== undefined)
-    .join('\n');
+  const line = formatLoginLines(attempt.sweepLog, record);
   try {
     await appendMachineLog(
       { readLog: deps.readAuthLog, upsertPatch: deps.upsertPatch },

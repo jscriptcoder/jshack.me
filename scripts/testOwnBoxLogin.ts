@@ -1,4 +1,5 @@
-// Wire-payload check for a login to the player's OWN box — `ssh guest@localhost` at home.
+// Wire-payload check for a login to the player's OWN box — `ssh guest@localhost` at home,
+// and `scp`/`ftp` through the same doors.
 // The client answers the login itself from its own tree, as an own-box `su` is; what
 // crosses the wire is the two things only the server can do: stamp sshd's line into the
 // box's auth.log, and hold the session row that keeps the opened shell open. Drives the
@@ -13,6 +14,10 @@
 //   - An address that is not one is refused 400 and writes nothing: it is written into the
 //     line verbatim, so it could otherwise carry a line of its own.
 //   - A door login filed on another player's box is refused 403 and writes nothing.
+//   - An `scp` door login is written up as sshd's own line in auth.log: the daemon cannot
+//     know the login is a copy.
+//   - An `ftp` door login lands in vsftpd's own log, not auth.log: the connection and the
+//     login together, in one append.
 //   - A `createSession` of kind `ssh` on the own box is held, and `listSessions` reports it
 //     open — without that the shell is popped as closed on the very next line typed.
 //   - A kind no own-box shell produces (`nc`) is still refused 400.
@@ -27,6 +32,7 @@ import { signRequest } from '../src/core/signedRequest/sign.js';
 import { generateIdentity } from '../src/core/identity/identity.js';
 import { computeWorkstationId } from '../src/core/identity/workstation.js';
 import { AUTH_LOG_PATH } from '../src/core/logging/authLog.js';
+import { VSFTPD_LOG_PATH } from '../src/core/logging/vsftpdLog.js';
 
 const PATCHES = process.env.PATCHES_ENDPOINT ?? 'http://localhost:3100/api/patches';
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
@@ -68,16 +74,18 @@ const FOREIGN = computeWorkstationId('victimbox', stranger.publicKeyHex);
 const HOSTNAME = 'loginbox';
 const SESSION_ID = `ssh-guest-${Date.now()}`;
 
-const readAuthLog = async (machineId: string): Promise<string> => {
+const readLog = async (machineId: string, path: string): Promise<string> => {
   const { data } = await sr
     .from('patches')
     .select('content')
     .eq('machine_id', machineId)
-    .eq('path', AUTH_LOG_PATH)
+    .eq('path', path)
     .eq('writer_key', player.publicKeyHex)
     .maybeSingle();
   return (data as { content?: string } | null)?.content ?? '';
 };
+
+const readAuthLog = (machineId: string): Promise<string> => readLog(machineId, AUTH_LOG_PATH);
 
 const lines = (log: string): readonly string[] => (log.trim() === '' ? [] : log.trim().split('\n'));
 
@@ -143,26 +151,48 @@ check(
   `status=${r4.status} body=${JSON.stringify(r4.body)}`,
 );
 
-const r5 = await post(SESSIONS, await sshSession('ssh'));
+const r5 = await post(PATCHES, await doorLogin(WS, { door: 'scp' }));
+const auth5 = await readAuthLog(WS);
+check(
+  'an scp login is written up as sshd’s own accepted line',
+  r5.status === 200 &&
+    lines(auth5).length === 3 &&
+    /sshd\[\d+\]: Accepted password for guest from 127\.0\.0\.1$/.test(lines(auth5)[2] ?? ''),
+  `status=${r5.status} lines=${lines(auth5).length} last=${lines(auth5)[2] ?? '(empty)'}`,
+);
+
+const r6 = await post(PATCHES, await doorLogin(WS, { door: 'ftp' }));
+const vsftpd6 = await readLog(WS, VSFTPD_LOG_PATH);
+check(
+  'an ftp login lands in vsftpd’s log as the connection then the login, not in auth.log',
+  r6.status === 200 &&
+    lines(vsftpd6).length === 2 &&
+    /\] CONNECT: Client "127\.0\.0\.1"$/.test(lines(vsftpd6)[0] ?? '') &&
+    /\] \[guest\] OK LOGIN: Client "127\.0\.0\.1"$/.test(lines(vsftpd6)[1] ?? '') &&
+    lines(await readAuthLog(WS)).length === 3,
+  `status=${r6.status} lines=${JSON.stringify(lines(vsftpd6))}`,
+);
+
+const r7 = await post(SESSIONS, await sshSession('ssh'));
 check(
   'an own-box ssh session is held',
-  r5.status === 200,
-  `status=${r5.status} body=${JSON.stringify(r5.body)}`,
+  r7.status === 200,
+  `status=${r7.status} body=${JSON.stringify(r7.body)}`,
 );
 
-const r6 = await post(SESSIONS, await signRequest(player, 'listSessions', {}));
-const open = (r6.body as { sessions?: readonly { session_id: string }[] } | null)?.sessions ?? [];
+const r8 = await post(SESSIONS, await signRequest(player, 'listSessions', {}));
+const open = (r8.body as { sessions?: readonly { session_id: string }[] } | null)?.sessions ?? [];
 check(
   'listSessions reports it open, so the next line does not pop the shell',
-  r6.status === 200 && open.some((row) => row.session_id === SESSION_ID),
-  `status=${r6.status} open=${JSON.stringify(open.map((row) => row.session_id))}`,
+  r8.status === 200 && open.some((row) => row.session_id === SESSION_ID),
+  `status=${r8.status} open=${JSON.stringify(open.map((row) => row.session_id))}`,
 );
 
-const r7 = await post(SESSIONS, await sshSession('nc'));
+const r9 = await post(SESSIONS, await sshSession('nc'));
 check(
   'a kind no own-box shell produces is refused 400',
-  r7.status === 400,
-  `status=${r7.status} body=${JSON.stringify(r7.body)}`,
+  r9.status === 400,
+  `status=${r9.status} body=${JSON.stringify(r9.body)}`,
 );
 
 await wipe();

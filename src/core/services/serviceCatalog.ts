@@ -79,6 +79,16 @@ export type SweepLog = {
   ) => string;
 };
 
+/** Everything a daemon writes for one login: its arrival line, when it keeps one, then
+ *  the attempt. One string for one append — they are one event to the box, and two
+ *  appends would be two read-modify-writes racing over the same file. Shared by every
+ *  login that writes a daemon's log, so a stranger's box and the player's own cannot
+ *  disagree about what one visit looks like. */
+export const formatLoginLines = (sweepLog: SweepLog, attempt: CredentialAttempt): string =>
+  [sweepLog.formatArrival?.(attempt), sweepLog.formatAttempt(attempt)]
+    .filter((entry) => entry !== undefined)
+    .join('\n');
+
 export type ServiceSpec = {
   /** The label `nmap` prints in the SERVICE column (e.g. `ssh`). */
   readonly service: string;

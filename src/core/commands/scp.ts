@@ -33,6 +33,7 @@ import { generateHomeLan } from '../generation/generateHomeLan.js';
 import { resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
 import { isPublicIp } from '../generation/ip.js';
 import { addressForTarget } from '../network/resolveName.js';
+import { admitOwnBoxLogin, ownBoxVisitFrom } from './ownBoxLogin.js';
 import { vantageOf } from '../network/vantage.js';
 import { resolveDeepScanHosts } from '../scan/deepScanHosts.js';
 import { basename, dirname, resolveAbsPath } from '../filesystem/path.js';
@@ -49,7 +50,7 @@ import type {
   Session,
   TerminalLine,
 } from './types.js';
-import type { AbsPath } from '../types.js';
+import type { AbsPath, UserType } from '../types.js';
 import type { Directory } from '../filesystem/types.js';
 
 const USAGE = 'usage: scp [-p port] <local-file> <user>@<host>:<path>';
@@ -248,12 +249,35 @@ const unreachable = (host: string, port: number): string =>
  *  which is why everything after this point is one piece of code. */
 type Reach = {
   readonly port: number;
-  readonly login: (sessionId: string, password: string) => Promise<PublicAuthResult>;
+  readonly login: (sessionId: string, password: string) => Promise<Login>;
 };
+
+/** A login's answer. Across the network the box is always on SOME network; the
+ *  player's own box, reached at home, stands on none of its own. */
+type Login =
+  | Extract<PublicAuthResult, { readonly ok: false }>
+  | {
+      readonly ok: true;
+      readonly userType: UserType;
+      readonly machineId: string;
+      readonly essid: string | null;
+    };
 
 type Reached =
   | { readonly ok: true; readonly reach: Reach }
   | { readonly ok: false; readonly line: string };
+
+/** Whether `fs`'s sshd answers the port a transfer knocks on — an explicit `-p` has to
+ *  name the port it listens on, because a transfer reaches a login's door and never one
+ *  the box answers with something else — and which port that knock went to. */
+const sshdAnswering = (
+  fs: Directory,
+  portFlag: string | true | undefined,
+): { readonly port: number; readonly open: boolean } => {
+  const serving = sshPortOf(fs);
+  const port = parsePort(portFlag) ?? serving ?? SSH_PORT;
+  return { port, open: port === serving };
+};
 
 /** A host on the player's OWN generated LAN: what is listening is deterministic, so
  *  it is settled here before anything is typed. The ssh daemon's pidfile is the whole
@@ -273,16 +297,13 @@ const reachLan = (
   }
 
   const { machineId, baseFs } = resolveLanHostIdentity(host, essid);
-  const serving = sshPortOf(baseFs);
-  const port = parsePort(portFlag) ?? serving;
-  if (serving === null || port !== serving) {
-    return { ok: false, line: unreachable(remote.host, port ?? SSH_PORT) };
-  }
+  const door = sshdAnswering(baseFs, portFlag);
+  if (!door.open) return { ok: false, line: unreachable(remote.host, door.port) };
 
   return {
     ok: true,
     reach: {
-      port,
+      port: door.port,
       login: async (sessionId, password) => {
         const authenticated = await env.scp.authenticate({
           sessionId,
@@ -346,6 +367,38 @@ const reachPublic = async (
           // holds no session there.
           callerMachineId: env.session.machineId,
         }),
+    },
+  };
+};
+
+/** The player's OWN box, reached at home, answered from its own tree: its own sshd has
+ *  to answer, and `admitOwnBoxLogin` decides who gets in. The transfer then runs on the
+ *  box the shell already stands on, as the account that login bought — and the session
+ *  stands where the shell does, so it carries the network the shell carries: none. */
+const reachOwnBox = (
+  env: CommandEnv,
+  remote: RemoteOperand,
+  portFlag: string | true | undefined,
+  fromIp: string,
+): Reached => {
+  const door = sshdAnswering(env.fs.root(), portFlag);
+  if (!door.open) return { ok: false, line: unreachable(remote.host, door.port) };
+
+  return {
+    ok: true,
+    reach: {
+      port: door.port,
+      login: async (_sessionId, password) => {
+        const userType = await admitOwnBoxLogin(env, {
+          door: 'scp',
+          user: remote.user,
+          password,
+          fromIp,
+        });
+        return userType === null
+          ? { ok: false, error: 'invalid_credentials' }
+          : { ok: true, userType, machineId: env.session.machineId, essid: env.session.essid };
+      },
     },
   };
 };
@@ -438,23 +491,27 @@ const reachPrivate = async (
   return reachLan(env, remote, essid, portFlag);
 };
 
-/** Reach the target, hold a session open for exactly one transfer, and close it
- *  behind whatever the transfer had to say. Both directions and both ways of getting
- *  there come through here, so the row's lifetime is one piece of code rather than a
- *  discipline each path has to keep: create → transfer → end, with the end on EVERY
- *  way out. */
-const connectAndTransfer = async (params: {
-  readonly env: CommandEnv;
-  readonly remote: RemoteOperand;
-  readonly portFlag: string | true | undefined;
-  readonly transfer: (session: Session, remotePath: AbsPath) => Promise<Transfer>;
-}): Promise<CommandResult> => {
-  const { env } = params;
+/** The target named on the command line, reached from where the shell stands, and the
+ *  operand as the rest of the transfer should name it. The player's own box, named for
+ *  itself at home, is answered from its own tree before anything asks about the
+ *  network — loopback needs none. Everything else is reached across it, with a name
+ *  turned into the address it routes on. */
+const reachTarget = async (
+  env: CommandEnv,
+  typed: RemoteOperand,
+  portFlag: string | true | undefined,
+): Promise<{ readonly remote: RemoteOperand; readonly reached: Reached }> => {
+  const ownSource = ownBoxVisitFrom(env, typed.host);
+  if (ownSource !== null) {
+    return { remote: typed, reached: reachOwnBox(env, typed, portFlag, ownSource) };
+  }
 
   // Where the shell stands: the hop on top of the stack, or the player's own WiFi on
   // their own box. Every address below is reached FROM there.
   const vantage = vantageOf(env.session, env.network);
-  if (vantage === null) return failure('scp: Network is unreachable');
+  if (vantage === null) {
+    return { remote: typed, reached: { ok: false, line: 'scp: Network is unreachable' } };
+  }
   const essid = vantage.essid;
 
   // Who else is on this LAN, read at most once and from the box the shell stands on, so
@@ -469,17 +526,30 @@ const connectAndTransfer = async (params: {
   // exactly as typed, and falls through to the same unknown-target path an unknown
   // address takes.
   const remote = {
-    ...params.remote,
-    host: await addressForTarget({
-      essid,
-      target: params.remote.host,
-      resolveOccupants: occupantsHere,
-    }),
+    ...typed,
+    host: await addressForTarget({ essid, target: typed.host, resolveOccupants: occupantsHere }),
   };
 
   const reached = isPublicIp(remote.host)
-    ? await reachPublic(env, remote, params.portFlag, vantage.address)
-    : await reachPrivate(env, remote, essid, vantage, params.portFlag, occupantsHere);
+    ? await reachPublic(env, remote, portFlag, vantage.address)
+    : await reachPrivate(env, remote, essid, vantage, portFlag, occupantsHere);
+  return { remote, reached };
+};
+
+/** Reach the target, hold a session open for exactly one transfer, and close it
+ *  behind whatever the transfer had to say. Both directions and both ways of getting
+ *  there come through here, so the row's lifetime is one piece of code rather than a
+ *  discipline each path has to keep: create → transfer → end, with the end on EVERY
+ *  way out. */
+const connectAndTransfer = async (params: {
+  readonly env: CommandEnv;
+  readonly remote: RemoteOperand;
+  readonly portFlag: string | true | undefined;
+  readonly transfer: (session: Session, remotePath: AbsPath) => Promise<Transfer>;
+}): Promise<CommandResult> => {
+  const { env } = params;
+
+  const { remote, reached } = await reachTarget(env, params.remote, params.portFlag);
   if (!reached.ok) return failure(reached.line);
 
   let password: string;

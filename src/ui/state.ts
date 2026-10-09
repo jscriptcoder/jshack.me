@@ -902,6 +902,17 @@ const aptDowngradeRecord = (downgrade: AptDowngrade): PackageDowngradeRecord => 
   };
 };
 
+/** Whether a door's session would write above its login on the player's OWN box. The
+ *  server asks every other box whether a session's tier may make a write, and lets the
+ *  owner's writes to their own box through unasked, because a shell there asks the
+ *  walker itself. A door logged into the own box has to ask it too, at the tier ITS
+ *  login bought, or a guest login over `localhost` writes as whoever the shell already
+ *  was. The tree is the shell's: a door reaches the own box only from home, and a
+ *  transfer or an `ftp>` prompt never moves the shell off it. */
+const writesAboveOwnBoxLogin = (session: Session, path: AbsPath): boolean =>
+  session.machineId === ownWorkstationId() &&
+  !createFsView(activeRoot(), { userType: session.userType }).canWrite(path).allowed;
+
 /** Write to the machine an ftp session is held on (backs `env.ftp.write`). The
  *  SHIPPED patch client, aimed at the target and stamped with the session's account
  *  and tier — the server gate is reached with no idea a second door exists, which is
@@ -914,6 +925,7 @@ const writeToFtpTarget = async (
   ...args: Parameters<PatchApi['write']>
 ): Promise<PatchResult> => {
   if (identity === undefined) return { ok: false, error: 'network_error' };
+  if (writesAboveOwnBoxLogin(session, args[0])) return { ok: false, error: 'permission_denied' };
   const written = await createPatchApi({
     identity,
     machineId: session.machineId,
@@ -962,6 +974,7 @@ const writeToScpTarget = async (
   ...args: Parameters<PatchApi['write']>
 ): Promise<PatchResult> => {
   if (identity === undefined) return { ok: false, error: 'network_error' };
+  if (writesAboveOwnBoxLogin(session, args[0])) return { ok: false, error: 'permission_denied' };
   return createPatchApi({
     identity,
     machineId: session.machineId,

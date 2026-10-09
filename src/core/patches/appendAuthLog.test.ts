@@ -9,6 +9,11 @@ import { generateIdentity } from '../identity/identity.js';
 import { computeWorkstationId } from '../identity/workstation.js';
 import { AUTH_LOG_OWNER, AUTH_LOG_PATH, AUTH_LOG_PERMISSIONS } from '../logging/authLog.js';
 import { derivePid } from '../logging/syslog.js';
+import {
+  VSFTPD_LOG_OWNER,
+  VSFTPD_LOG_PATH,
+  VSFTPD_LOG_PERMISSIONS,
+} from '../logging/vsftpdLog.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 import { logRead, logRow } from '../../test/factories/logRows.js';
 
@@ -400,6 +405,39 @@ describe('handleAppendAuthLog — a login through a door on the own box', () => 
     expect(upsertPatch.mock.calls[0]![0].content).toBe(
       `PRIOR\nJun  7 14:32:01 rig sshd[${derivePid(STAMP)}]: Failed password for guest from 10.4.0.23\n`,
     );
+  });
+
+  it('records an ftp login in vsftpd’s own log, the connection and the login together', async () => {
+    const id = generateIdentity();
+    const envelope = signRequest(id, 'appendAuthLog', doorEvent(id.publicKeyHex, { door: 'ftp' }));
+    const readAuthLog = vi.fn<AppendAuthLogDeps['readAuthLog']>(async () => logRead('PRIOR\n'));
+    const { deps, upsertPatch } = makeDeps({ readAuthLog });
+
+    await handleAppendAuthLog(envelope, deps);
+
+    expect(upsertPatch.mock.calls[0]![0]).toMatchObject({
+      path: VSFTPD_LOG_PATH,
+      content:
+        'PRIOR\n' +
+        `Sun Jun  7 14:32:01 2026 [pid ${derivePid(STAMP)}] CONNECT: Client "127.0.0.1"\n` +
+        `Sun Jun  7 14:32:01 2026 [pid ${derivePid(STAMP)}] [guest] OK LOGIN: Client "127.0.0.1"\n`,
+      owner: VSFTPD_LOG_OWNER,
+      permissions: VSFTPD_LOG_PERMISSIONS,
+    });
+    expect(readAuthLog).toHaveBeenCalledWith(expect.objectContaining({ path: VSFTPD_LOG_PATH }));
+  });
+
+  it('records an scp login as sshd’s own line — the daemon cannot know it is a copy', async () => {
+    const id = generateIdentity();
+    const envelope = signRequest(id, 'appendAuthLog', doorEvent(id.publicKeyHex, { door: 'scp' }));
+    const { deps, upsertPatch } = makeDeps();
+
+    await handleAppendAuthLog(envelope, deps);
+
+    expect(upsertPatch.mock.calls[0]![0]).toMatchObject({
+      path: AUTH_LOG_PATH,
+      content: `Jun  7 14:32:01 rig sshd[${derivePid(STAMP)}]: Accepted password for guest from 127.0.0.1\n`,
+    });
   });
 
   it('rejects a door login on a machine that is not the caller’s workstation with 403', async () => {

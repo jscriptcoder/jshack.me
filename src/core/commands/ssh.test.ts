@@ -5,7 +5,6 @@ import {
   mockCommandEnv,
   mockFsViewFromTree,
   mockIdentity,
-  mockLogApi,
   mockNetworkView,
   mockNetworkViewFromConnectivity,
   mockScanApi,
@@ -20,9 +19,8 @@ import { chainLinks, type ChainLink } from '../generation/lanTopology.js';
 import { resolveDeepScanHosts } from '../scan/deepScanHosts.js';
 import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
 import { computeInnerGatewayId, computeApGatewayId } from '../identity/router.js';
-import { formatPidfileContent, parsePidfilePort } from '../services/pidfile.js';
-import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
-import { md5 } from '../generation/md5.js';
+import { parsePidfilePort } from '../services/pidfile.js';
+import { OWN_BOX, ownBoxEnv as ownBoxEnvFor } from '../../test/factories/ownBox.js';
 import { bindFlags } from '../shell/bindFlags.js';
 import { assignHomeNetwork } from '../network/homeNetwork.js';
 import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces.js';
@@ -1852,29 +1850,9 @@ describe('ssh from a box on a deep layer', () => {
  * off it. sshd records the attempt in the box's own auth.log, from the address the box
  * was reached BY.
  */
-const OWN_MACHINE_ID = asMachineId('skylab-deadbeef');
-const GUEST_PASSWORD = 'guestpw';
-const ROOT_PASSWORD = 'rootpw';
-
-const ownBoxTree = (sshdPortNumber: number | null): Directory =>
-  buildDirectory({
-    etc: buildDirectory({
-      passwd: buildFile(
-        [
-          `root:${md5(ROOT_PASSWORD)}:0:0:root:/root:/bin/bash`,
-          `guest:${md5(GUEST_PASSWORD)}:1001:1001:guest:/home/guest:/bin/bash`,
-          'alice::1000:1000:alice:/home/alice:/bin/bash',
-        ].join('\n') + '\n',
-      ),
-    }),
-    var: buildDirectory({
-      run: buildDirectory(
-        sshdPortNumber === null
-          ? {}
-          : { 'sshd.pid': buildFile(formatPidfileContent(SERVICE_CATALOG.ssh, sshdPortNumber)) },
-      ),
-    }),
-  });
+const OWN_MACHINE_ID = OWN_BOX.machineId;
+const GUEST_PASSWORD = OWN_BOX.guestPassword;
+const ROOT_PASSWORD = OWN_BOX.rootPassword;
 
 type OwnBoxOver = {
   readonly sshdPort?: number | null;
@@ -1888,22 +1866,9 @@ type OwnBoxOver = {
   readonly onLog?: (event: AuthLogEvent) => void;
 };
 
-const ownBoxEnv = (over: OwnBoxOver = {}) =>
-  mockCommandEnv({
-    identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
-    network: mockNetworkViewFromConnectivity(
-      over.online === false ? buildColdStartConnectivity(PUBKEY) : onlineConnectivity(ESSID),
-    ),
-    session: mockSession({
-      id: 'login-1',
-      machineId: OWN_MACHINE_ID,
-      username: 'alice',
-      userType: 'user',
-    }),
-    hostname: 'skylab',
-    fs: mockFsViewFromTree(ownBoxTree(over.sshdPort === undefined ? 22 : over.sshdPort)),
-    now: () => asEpochMs(NOW),
-    prompt: over.prompt ?? (async () => GUEST_PASSWORD),
+const ownBoxEnv = ({ prompt, onPush, onCwd, ...options }: OwnBoxOver = {}) =>
+  ownBoxEnvFor(options, {
+    ...(prompt === undefined ? {} : { prompt }),
     // The own box is answered from its own tree: no network seam is asked anything.
     ssh: mockSshApi({
       authenticate: async () => {
@@ -1913,19 +1878,8 @@ const ownBoxEnv = (over: OwnBoxOver = {}) =>
         throw new Error('the own box never asks the same-LAN door');
       },
     }),
-    scan: mockScanApi({
-      resolveOccupants: async () => {
-        throw new Error('the own box never asks who else is on the network');
-      },
-    }),
-    log: {
-      ...mockLogApi(),
-      appendAuthLog: async (event) => {
-        over.onLog?.(event);
-      },
-    },
-    pushSession: over.onPush ?? (() => undefined),
-    setCwd: over.onCwd ?? (() => undefined),
+    pushSession: onPush ?? (() => undefined),
+    setCwd: onCwd ?? (() => undefined),
   });
 
 describe('ssh to the box the shell stands on, at home', () => {
