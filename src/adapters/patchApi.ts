@@ -168,26 +168,47 @@ export const createPatchApi = (deps: PatchClientDeps): PatchApi => ({
     }),
 });
 
-/** Record an auth.log event to the caller's own `/var/log/auth.log`: a `su` user-switch,
- *  or a session opened with no authentication before it (a `--local` shell success). Sends
- *  only the EVENT — the server stamps the UTC timestamp and formats the line, so the client
- *  never dictates game time. The `kind` discriminant carries only the fields its shape needs.
- *  Returns the same `PatchResult` the UI uses to decide whether to reconcile the journal. */
+/** The signed fields for one auth event — each `kind` carries only what its shape needs. */
+const authLogFields = (event: AuthLogEvent): Record<string, string> => {
+  if (event.kind === 'sessionOpened') {
+    return {
+      kind: 'sessionOpened',
+      machine_id: event.machineId,
+      user: event.user,
+      hostname: event.hostname,
+    };
+  }
+  if (event.kind === 'doorLogin') {
+    return {
+      kind: 'doorLogin',
+      door: event.door,
+      machine_id: event.machineId,
+      user: event.user,
+      from_ip: event.fromIp,
+      outcome: event.outcome,
+      hostname: event.hostname,
+    };
+  }
+  return {
+    kind: 'suSwitch',
+    machine_id: event.machineId,
+    target_user: event.targetUser,
+    from_user: event.fromUser,
+    outcome: event.outcome,
+    hostname: event.hostname,
+  };
+};
+
+/** Record an auth event on the caller's own box: a `su` user-switch, a session opened with
+ *  no authentication before it (a `--local` shell success), or a login through one of its
+ *  own doors. Sends only the EVENT — the server stamps the UTC timestamp and formats the
+ *  line, so the client never dictates game time. Returns the same `PatchResult` the UI uses
+ *  to decide whether to reconcile the journal. */
 export const postAuthLog = async (
   deps: PatchClientDeps,
   event: AuthLogEvent,
 ): Promise<PatchResult> => {
-  const fields =
-    event.kind === 'sessionOpened'
-      ? { kind: 'sessionOpened', machine_id: event.machineId, user: event.user, hostname: event.hostname }
-      : {
-          kind: 'suSwitch',
-          machine_id: event.machineId,
-          target_user: event.targetUser,
-          from_user: event.fromUser,
-          outcome: event.outcome,
-          hostname: event.hostname,
-        };
+  const fields = authLogFields(event);
   try {
     return toPatchResult(await post(deps, 'appendAuthLog', fields));
   } catch {

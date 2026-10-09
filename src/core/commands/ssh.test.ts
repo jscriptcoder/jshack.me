@@ -5,6 +5,7 @@ import {
   mockCommandEnv,
   mockFsViewFromTree,
   mockIdentity,
+  mockLogApi,
   mockNetworkView,
   mockNetworkViewFromConnectivity,
   mockScanApi,
@@ -19,13 +20,16 @@ import { chainLinks, type ChainLink } from '../generation/lanTopology.js';
 import { resolveDeepScanHosts } from '../scan/deepScanHosts.js';
 import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
 import { computeInnerGatewayId, computeApGatewayId } from '../identity/router.js';
-import { parsePidfilePort } from '../services/pidfile.js';
+import { formatPidfileContent, parsePidfilePort } from '../services/pidfile.js';
+import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
+import { md5 } from '../generation/md5.js';
 import { bindFlags } from '../shell/bindFlags.js';
 import { assignHomeNetwork } from '../network/homeNetwork.js';
 import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces.js';
 import { asEpochMs, asMachineId, asPlayerKeyHex } from '../types.js';
 import type { Directory } from '../filesystem/types.js';
 import type {
+  AuthLogEvent,
   CommandResult,
   InnerGatewayAuthParams,
   PublicAuthResult,
@@ -1837,5 +1841,294 @@ describe('ssh from a box on a deep layer', () => {
 
     expect(result.lines[0]?.content).toBe('Permission denied (password).');
     expect(onPush).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * `ssh <user>@localhost` at home — the box the shell stands on is the player's own, so
+ * the login is answered from its own tree, as an own-box `su` is: its own sshd has to
+ * be listening on the asked port, the password is checked against its own
+ * `/etc/passwd`, and the session lands on the same machine without moving the shell
+ * off it. sshd records the attempt in the box's own auth.log, from the address the box
+ * was reached BY.
+ */
+const OWN_MACHINE_ID = asMachineId('skylab-deadbeef');
+const GUEST_PASSWORD = 'guestpw';
+const ROOT_PASSWORD = 'rootpw';
+
+const ownBoxTree = (sshdPortNumber: number | null): Directory =>
+  buildDirectory({
+    etc: buildDirectory({
+      passwd: buildFile(
+        [
+          `root:${md5(ROOT_PASSWORD)}:0:0:root:/root:/bin/bash`,
+          `guest:${md5(GUEST_PASSWORD)}:1001:1001:guest:/home/guest:/bin/bash`,
+          'alice::1000:1000:alice:/home/alice:/bin/bash',
+        ].join('\n') + '\n',
+      ),
+    }),
+    var: buildDirectory({
+      run: buildDirectory(
+        sshdPortNumber === null
+          ? {}
+          : { 'sshd.pid': buildFile(formatPidfileContent(SERVICE_CATALOG.ssh, sshdPortNumber)) },
+      ),
+    }),
+  });
+
+type OwnBoxOver = {
+  readonly sshdPort?: number | null;
+  readonly online?: boolean;
+  readonly prompt?: (options: {
+    readonly message: string;
+    readonly masked?: boolean;
+  }) => Promise<string>;
+  readonly onPush?: (session: Session) => void;
+  readonly onCwd?: (path: string) => void;
+  readonly onLog?: (event: AuthLogEvent) => void;
+};
+
+const ownBoxEnv = (over: OwnBoxOver = {}) =>
+  mockCommandEnv({
+    identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
+    network: mockNetworkViewFromConnectivity(
+      over.online === false ? buildColdStartConnectivity(PUBKEY) : onlineConnectivity(ESSID),
+    ),
+    session: mockSession({
+      id: 'login-1',
+      machineId: OWN_MACHINE_ID,
+      username: 'alice',
+      userType: 'user',
+    }),
+    hostname: 'skylab',
+    fs: mockFsViewFromTree(ownBoxTree(over.sshdPort === undefined ? 22 : over.sshdPort)),
+    now: () => asEpochMs(NOW),
+    prompt: over.prompt ?? (async () => GUEST_PASSWORD),
+    // The own box is answered from its own tree: no network seam is asked anything.
+    ssh: mockSshApi({
+      authenticate: async () => {
+        throw new Error('the own box never asks the LAN door');
+      },
+      authenticateSameLan: async () => {
+        throw new Error('the own box never asks the same-LAN door');
+      },
+    }),
+    scan: mockScanApi({
+      resolveOccupants: async () => {
+        throw new Error('the own box never asks who else is on the network');
+      },
+    }),
+    log: {
+      ...mockLogApi(),
+      appendAuthLog: async (event) => {
+        over.onLog?.(event);
+      },
+    },
+    pushSession: over.onPush ?? (() => undefined),
+    setCwd: over.onCwd ?? (() => undefined),
+  });
+
+describe('ssh to the box the shell stands on, at home', () => {
+  it('logs into the own box as the named account and lands in its home', async () => {
+    const onPush = vi.fn<(session: Session) => void>();
+    const onCwd = vi.fn<(path: string) => void>();
+    const result = sync(
+      await ssh.execute(ownBoxEnv({ onPush, onCwd }), ['guest@localhost'], new Map()),
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.lines).toEqual([]);
+    expect(onPush).toHaveBeenCalledWith({
+      id: `ssh-guest-${NOW}`,
+      playerKey: asPlayerKeyHex(PUBKEY),
+      machineId: OWN_MACHINE_ID,
+      username: 'guest',
+      userType: 'guest',
+      kind: 'ssh',
+      createdAt: NOW,
+      // Still at home: the login changed the user, not the box the shell stands on.
+      essid: null,
+    });
+    expect(onCwd).toHaveBeenCalledWith('/home/guest');
+  });
+
+  it('exits 130 and pushes no session when the password prompt is cancelled, recording nothing', async () => {
+    const onPush = vi.fn<(session: Session) => void>();
+    const onLog = vi.fn<(event: AuthLogEvent) => void>();
+    const result = sync(
+      await ssh.execute(
+        ownBoxEnv({ onPush, onLog, prompt: async () => Promise.reject(new Error('aborted')) }),
+        ['guest@localhost'],
+        new Map(),
+      ),
+    );
+    expect(result.exitCode).toBe(130);
+    expect(result.lines).toEqual([]);
+    expect(onPush).not.toHaveBeenCalled();
+    expect(onLog).not.toHaveBeenCalled();
+  });
+
+  it('is not the own box from a hop: localhost there names the hop, not the tree at home', async () => {
+    const onPush = vi.fn<(session: Session) => void>();
+    const onLog = vi.fn<(event: AuthLogEvent) => void>();
+    const env = ownBoxEnv({ onPush, onLog });
+    await ssh
+      .execute(
+        { ...env, session: { ...env.session, machineId: asMachineId('hop-box'), essid: ESSID } },
+        ['guest@localhost'],
+        new Map(),
+      )
+      .catch(() => undefined);
+    expect(onLog).not.toHaveBeenCalled();
+    expect(onPush).not.toHaveBeenCalledWith(expect.objectContaining({ machineId: 'hop-box' }));
+  });
+
+  it('asks for the password the way sshd does, masked', async () => {
+    const prompt = vi.fn(async () => GUEST_PASSWORD);
+    await ssh.execute(ownBoxEnv({ prompt }), ['guest@localhost'], new Map());
+    expect(prompt).toHaveBeenCalledWith({ message: "guest@localhost's password: ", masked: true });
+  });
+
+  it('answers to 127.0.0.1 as it does to localhost', async () => {
+    const onPush = vi.fn<(session: Session) => void>();
+    const result = sync(await ssh.execute(ownBoxEnv({ onPush }), ['guest@127.0.0.1'], new Map()));
+    expect(result.exitCode).toBe(0);
+    expect(onPush).toHaveBeenCalledWith(expect.objectContaining({ machineId: OWN_MACHINE_ID }));
+  });
+
+  it('answers to its own leased address', async () => {
+    const onPush = vi.fn<(session: Session) => void>();
+    const result = sync(await ssh.execute(ownBoxEnv({ onPush }), [`guest@${selfIp}`], new Map()));
+    expect(result.exitCode).toBe(0);
+    expect(onPush).toHaveBeenCalledWith(expect.objectContaining({ machineId: OWN_MACHINE_ID }));
+  });
+
+  it('records the accepted login in its own auth.log, from loopback', async () => {
+    const onLog = vi.fn<(event: AuthLogEvent) => void>();
+    await ssh.execute(ownBoxEnv({ onLog }), ['guest@localhost'], new Map());
+    expect(onLog).toHaveBeenCalledWith({
+      kind: 'doorLogin',
+      door: 'ssh',
+      machineId: OWN_MACHINE_ID,
+      user: 'guest',
+      fromIp: '127.0.0.1',
+      outcome: 'success',
+      hostname: 'skylab',
+    });
+  });
+
+  it('records a login by its leased address as coming from that address', async () => {
+    const onLog = vi.fn<(event: AuthLogEvent) => void>();
+    await ssh.execute(ownBoxEnv({ onLog }), [`guest@${selfIp}`], new Map());
+    expect(onLog).toHaveBeenCalledWith(expect.objectContaining({ fromIp: selfIp }));
+  });
+
+  it('refuses a wrong password, records the failure and pushes no session', async () => {
+    const onPush = vi.fn<(session: Session) => void>();
+    const onLog = vi.fn<(event: AuthLogEvent) => void>();
+    const result = sync(
+      await ssh.execute(
+        ownBoxEnv({ onPush, onLog, prompt: async () => 'wrong' }),
+        ['guest@localhost'],
+        new Map(),
+      ),
+    );
+    expect(result.exitCode).toBe(255);
+    expect(result.lines[0]?.content).toBe('Permission denied (password).');
+    expect(onPush).not.toHaveBeenCalled();
+    expect(onLog).toHaveBeenCalledWith(
+      expect.objectContaining({ user: 'guest', outcome: 'failure' }),
+    );
+  });
+
+  it('refuses an account with no password, whatever is typed — sshd permits no empty password', async () => {
+    const onPush = vi.fn<(session: Session) => void>();
+    const result = sync(
+      await ssh.execute(
+        ownBoxEnv({ onPush, prompt: async () => '' }),
+        ['alice@localhost'],
+        new Map(),
+      ),
+    );
+    expect(result.lines[0]?.content).toBe('Permission denied (password).');
+    expect(onPush).not.toHaveBeenCalled();
+  });
+
+  it('refuses an account the box does not have, and records the attempt', async () => {
+    const onPush = vi.fn<(session: Session) => void>();
+    const onLog = vi.fn<(event: AuthLogEvent) => void>();
+    const result = sync(
+      await ssh.execute(ownBoxEnv({ onPush, onLog }), ['mallory@localhost'], new Map()),
+    );
+    expect(result.lines[0]?.content).toBe('Permission denied (password).');
+    expect(onPush).not.toHaveBeenCalled();
+    expect(onLog).toHaveBeenCalledWith(
+      expect.objectContaining({ user: 'mallory', outcome: 'failure' }),
+    );
+  });
+
+  it('lands a root login in /root as root', async () => {
+    const onPush = vi.fn<(session: Session) => void>();
+    const onCwd = vi.fn<(path: string) => void>();
+    await ssh.execute(
+      ownBoxEnv({ onPush, onCwd, prompt: async () => ROOT_PASSWORD }),
+      ['root@localhost'],
+      new Map(),
+    );
+    expect(onPush).toHaveBeenCalledWith(
+      expect.objectContaining({ username: 'root', userType: 'root' }),
+    );
+    expect(onCwd).toHaveBeenCalledWith('/root');
+  });
+
+  it('is refused without a prompt when the own sshd is not running', async () => {
+    const prompt = vi.fn(async () => GUEST_PASSWORD);
+    const onLog = vi.fn<(event: AuthLogEvent) => void>();
+    const result = sync(
+      await ssh.execute(
+        ownBoxEnv({ sshdPort: null, prompt, onLog }),
+        ['guest@localhost'],
+        new Map(),
+      ),
+    );
+    expect(result.lines[0]?.content).toBe(
+      'ssh: connect to host localhost port 22: Connection refused',
+    );
+    expect(prompt).not.toHaveBeenCalled();
+    expect(onLog).not.toHaveBeenCalled();
+  });
+
+  it('honours -p: an sshd on 2222 answers -p 2222 and refuses the default port', async () => {
+    const onPort = sync(
+      await ssh.execute(
+        ownBoxEnv({ sshdPort: 2222 }),
+        ['guest@localhost'],
+        new Map([['-p', '2222']]),
+      ),
+    );
+    expect(onPort.exitCode).toBe(0);
+    const offPort = sync(
+      await ssh.execute(ownBoxEnv({ sshdPort: 2222 }), ['guest@localhost'], new Map()),
+    );
+    expect(offPort.lines[0]?.content).toBe(
+      'ssh: connect to host localhost port 22: Connection refused',
+    );
+  });
+
+  it('reaches localhost with the WiFi down — loopback needs no network', async () => {
+    const onPush = vi.fn<(session: Session) => void>();
+    const result = sync(
+      await ssh.execute(ownBoxEnv({ online: false, onPush }), ['guest@localhost'], new Map()),
+    );
+    expect(result.exitCode).toBe(0);
+    expect(onPush).toHaveBeenCalledWith(expect.objectContaining({ machineId: OWN_MACHINE_ID }));
+  });
+
+  it('cannot reach its leased address with the WiFi down — offline it holds none', async () => {
+    const result = sync(
+      await ssh.execute(ownBoxEnv({ online: false }), [`guest@${selfIp}`], new Map()),
+    );
+    expect(result.lines[0]?.content).toBe(
+      `ssh: connect to host ${selfIp} port 22: Network is unreachable`,
+    );
   });
 });

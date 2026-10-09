@@ -19,7 +19,10 @@ import { asMachineId } from '../types.js';
 import { generateHomeLan } from '../generation/generateHomeLan.js';
 import { isInnerGateway, resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
 import { isPublicIp } from '../generation/ip.js';
+import { md5 } from '../generation/md5.js';
+import { connectedWlan0, ownBoxSource } from '../network/interfaces.js';
 import { addressForTarget } from '../network/resolveName.js';
+import { accountIn } from '../sessions/passwdAccount.js';
 import { vantageOf } from '../network/vantage.js';
 import { resolveDeepScanHosts } from '../scan/deepScanHosts.js';
 import { parsePidfilePort } from '../services/pidfile.js';
@@ -314,12 +317,98 @@ const executeNetworkLogin = async (
   return { kind: 'sync', lines: [], exitCode: 0 };
 };
 
+/** Record a login on the player's own box in its own auth.log, from the address the
+ *  box was reached by. Best-effort: the outcome stands whether or not the line lands. */
+const logOwnBoxLogin = async (
+  env: CommandEnv,
+  attempt: {
+    readonly user: string;
+    readonly fromIp: string;
+    readonly outcome: 'success' | 'failure';
+  },
+): Promise<void> => {
+  try {
+    await env.log.appendAuthLog({
+      kind: 'doorLogin',
+      door: 'ssh',
+      machineId: env.session.machineId,
+      hostname: env.hostname,
+      ...attempt,
+    });
+  } catch {
+    // best-effort: logging must never change whether the login happened.
+  }
+};
+
+/** Login to the player's OWN box, which the client holds whole — so, like an own-box
+ *  `su`, it is answered here from the box's own tree rather than by a server that
+ *  would only be reading the same journal back. Its own sshd has to be listening on
+ *  the asked port, and the password is checked against its own `/etc/passwd`. An
+ *  account with no password never matches, since no typed password hashes to empty:
+ *  sshd permits no empty password, so the player's own passwordless login is no way
+ *  in. The session stands where the shell beneath it stood, so the box keeps
+ *  travelling from home. */
+const executeOwnBoxLogin = async (
+  env: CommandEnv,
+  target: { readonly user: string; readonly host: string },
+  port: number,
+  fromIp: string,
+): Promise<CommandResult> => {
+  const root = env.fs.root();
+  if (sshPortOf(root) !== port) {
+    return connectError(target.host, port, 'Connection refused');
+  }
+
+  let password: string;
+  try {
+    password = await env.prompt({
+      message: `${target.user}@${target.host}'s password: `,
+      masked: true,
+    });
+  } catch {
+    return { kind: 'sync', lines: [], exitCode: 130 };
+  }
+
+  const account = accountIn(root, target.user);
+  const admitted = account !== null && md5(password) === account.hash ? account : null;
+  await logOwnBoxLogin(env, {
+    user: target.user,
+    fromIp,
+    outcome: admitted === null ? 'failure' : 'success',
+  });
+  if (admitted === null) return errorResult('Permission denied (password).');
+
+  env.pushSession({
+    id: `ssh-${target.user}-${env.now()}`,
+    playerKey: env.session.playerKey,
+    machineId: env.session.machineId,
+    username: target.user,
+    userType: admitted.userType,
+    kind: 'ssh',
+    createdAt: env.now(),
+    essid: env.session.essid,
+  });
+  env.setCwd(homeDirectory({ username: target.user, userType: admitted.userType }));
+  return { kind: 'sync', lines: [], exitCode: 0 };
+};
+
 const execute: Command['execute'] = async (env, args, flags) => {
   const rawTarget = args[0];
   if (rawTarget === undefined) return errorResult(USAGE);
   const requested = parseTarget(rawTarget);
   if (requested === null) return errorResult(USAGE);
   const port = parsePort(flags.get('-p'));
+
+  // The player's own box, named for itself: loopback, or the address they were leased.
+  // Asked before anything about the network, because loopback needs none — it answers
+  // with the WiFi down.
+  if (env.session.essid === null) {
+    const ownSource = ownBoxSource({
+      target: requested.host,
+      ownIp: connectedWlan0(env.network)?.ipv4 ?? null,
+    });
+    if (ownSource !== null) return executeOwnBoxLogin(env, requested, port, ownSource);
+  }
 
   // Where the shell stands: the hop on top of the stack, or the player's own WiFi on
   // their own box. Every address below is reached FROM there, so a private address

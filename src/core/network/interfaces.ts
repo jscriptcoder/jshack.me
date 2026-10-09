@@ -110,13 +110,16 @@ export const LOOPBACK_NAMES: readonly string[] = ['localhost', LOOPBACK_IPV4];
  * door would be free to start disagreeing about `localhost`, and the door that
  * disagreed would route a player's own statements at whatever the world generated at
  * their address instead.
+ *
+ * `ownIp` is null on a box with no lease, which still answers to loopback: that needs
+ * no network.
  */
 export const ownBoxSource = ({
   target,
   ownIp,
 }: {
   readonly target: string;
-  readonly ownIp: string;
+  readonly ownIp: string | null;
 }): string | null => {
   if (LOOPBACK_NAMES.includes(target)) return LOOPBACK_IPV4;
   return target === ownIp ? ownIp : null;

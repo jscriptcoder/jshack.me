@@ -355,3 +355,91 @@ describe('handleAppendAuthLog — a no-auth session line', () => {
     expect(upsertPatch).not.toHaveBeenCalled();
   });
 });
+
+// A login through a door on the caller's own box: the daemon's own line, from the
+// address the box was reached by, stamped by the server's clock as every line is.
+describe('handleAppendAuthLog — a login through a door on the own box', () => {
+  const doorEvent = (publicKeyHex: string, over: Record<string, unknown> = {}) => ({
+    kind: 'doorLogin' as const,
+    door: 'ssh',
+    machine_id: computeWorkstationId('skylab', publicKeyHex),
+    user: 'guest',
+    from_ip: '127.0.0.1',
+    outcome: 'success',
+    hostname: 'rig',
+    ...over,
+  });
+
+  it('stamps the server time+pid into sshd’s accepted line, from the address the box was reached by', async () => {
+    const id = generateIdentity();
+    const envelope = signRequest(id, 'appendAuthLog', doorEvent(id.publicKeyHex));
+    const { deps, upsertPatch } = makeDeps();
+
+    const result = await handleAppendAuthLog(envelope, deps);
+
+    expect(result).toEqual({ status: 200, body: { ok: true } });
+    expect(upsertPatch.mock.calls[0]![0]).toMatchObject({
+      path: AUTH_LOG_PATH,
+      content: `Jun  7 14:32:01 rig sshd[${derivePid(STAMP)}]: Accepted password for guest from 127.0.0.1\n`,
+      owner: AUTH_LOG_OWNER,
+      permissions: AUTH_LOG_PERMISSIONS,
+    });
+  });
+
+  it('records a refused login as sshd’s failed line, after what the log already held', async () => {
+    const id = generateIdentity();
+    const envelope = signRequest(
+      id,
+      'appendAuthLog',
+      doorEvent(id.publicKeyHex, { outcome: 'failure', from_ip: '10.4.0.23' }),
+    );
+    const { deps, upsertPatch } = makeDeps({ readAuthLog: async () => logRead('PRIOR\n') });
+
+    await handleAppendAuthLog(envelope, deps);
+
+    expect(upsertPatch.mock.calls[0]![0].content).toBe(
+      `PRIOR\nJun  7 14:32:01 rig sshd[${derivePid(STAMP)}]: Failed password for guest from 10.4.0.23\n`,
+    );
+  });
+
+  it('rejects a door login on a machine that is not the caller’s workstation with 403', async () => {
+    const id = generateIdentity();
+    const envelope = signRequest(
+      id,
+      'appendAuthLog',
+      doorEvent(id.publicKeyHex, { machine_id: computeWorkstationId('victim', 'b'.repeat(64)) }),
+    );
+    const { deps, upsertPatch } = makeDeps();
+
+    const result = await handleAppendAuthLog(envelope, deps);
+
+    expect(result).toEqual({ status: 403, body: { error: 'no_session' } });
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
+  it('rejects a from address that is not an address with 400 payload_invalid — it would write a line of its own', async () => {
+    const id = generateIdentity();
+    const envelope = signRequest(
+      id,
+      'appendAuthLog',
+      doorEvent(id.publicKeyHex, { from_ip: '127.0.0.1\nJun  7 00:00:00 rig sshd[1]: forged' }),
+    );
+    const { deps, upsertPatch } = makeDeps();
+
+    const result = await handleAppendAuthLog(envelope, deps);
+
+    expect(result).toEqual({ status: 400, body: { error: 'payload_invalid' } });
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
+  it('rejects a door the own box has no daemon log for with 400 payload_invalid', async () => {
+    const id = generateIdentity();
+    const envelope = signRequest(id, 'appendAuthLog', doorEvent(id.publicKeyHex, { door: 'nc' }));
+    const { deps, upsertPatch } = makeDeps();
+
+    const result = await handleAppendAuthLog(envelope, deps);
+
+    expect(result).toEqual({ status: 400, body: { error: 'payload_invalid' } });
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+});

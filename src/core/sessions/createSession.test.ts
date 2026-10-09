@@ -81,6 +81,40 @@ describe('handleCreateSession', () => {
     });
   });
 
+  it('persists an ssh login to the own box, so the shell it opened is still open on the next line', async () => {
+    const id = generateIdentity();
+    const envelope = signRequest(id, 'createSession', {
+      ...ownPayload(id.publicKeyHex),
+      session_id: 'ssh-guest-1700000000000',
+      credentials: { username: 'guest', userType: 'guest' },
+      kind: 'ssh',
+    });
+    const { deps, insertSession } = makeDeps();
+
+    const result = await handleCreateSession(envelope, deps);
+
+    expect(result).toEqual({ status: 200, body: { ok: true } });
+    expect(insertSession.mock.calls[0]![0]).toMatchObject({
+      session_id: 'ssh-guest-1700000000000',
+      credentials: { username: 'guest', userType: 'guest' },
+      kind: 'ssh',
+    });
+  });
+
+  it('rejects a kind no own-box shell produces with 400 and never inserts', async () => {
+    const id = generateIdentity();
+    const envelope = signRequest(id, 'createSession', {
+      ...ownPayload(id.publicKeyHex),
+      kind: 'nc',
+    });
+    const { deps, insertSession } = makeDeps();
+
+    const result = await handleCreateSession(envelope, deps);
+
+    expect(result).toEqual({ status: 400, body: { error: 'payload_invalid' } });
+    expect(insertSession).not.toHaveBeenCalled();
+  });
+
   it('defaults parent_session_id to null when the payload omits it', async () => {
     const id = generateIdentity();
     const { parent_session_id: _omit, ...withoutParent } = ownPayload(id.publicKeyHex);
