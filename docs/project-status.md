@@ -667,8 +667,10 @@ agreed order:
    restored by the operator). Grilled and planned 2026-10-09 in `plans/in-game-tutorials.md`
    (five slices). ✅ S1, the walking skeleton (#631, v0.335.0): the README walks a new player
    online and to hackademy.io's front page and chapter 1; findit and hackademy share one table
-   of fixed sites and one restore script, `scripts/restoreSite.ts <domain>`. Next: slice 2,
-   findit lists hackademy.io.
+   of fixed sites and one restore script, `scripts/restoreSite.ts <domain>`. ✅ S2 (#632,
+   v0.336.0): findit lists every fixed site but itself under its domain, so a search for
+   `hackademy`, `tutorial` or `newcomer` finds hackademy.io. Next: slice 3, chapters 2–4 (wifi,
+   your box and its network, looking around).
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan
