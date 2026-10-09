@@ -43,7 +43,7 @@ import { relationsTo, type Login } from '../src/core/generation/relations.js';
 import { generateHomeLan } from '../src/core/generation/generateHomeLan.js';
 import { hostServices, npcUsername } from '../src/core/generation/remoteHostFs.js';
 import { siteServer } from '../src/core/generation/siteServer.js';
-import { FINDIT_DOMAIN } from '../src/core/generation/findit.js';
+import { FINDIT_DOMAIN } from '../src/core/generation/fixedSites.js';
 import { ACCESS_LOG_PATH } from '../src/core/logging/accessLog.js';
 import { AUTH_LOG_PATH } from '../src/core/logging/authLog.js';
 

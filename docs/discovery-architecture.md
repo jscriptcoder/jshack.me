@@ -23,7 +23,7 @@ and on the cross-player reachability, forwarding and trace machinery
 
 Source: `src/core/network/resolveName.ts` and `http.ts` (name resolution), the `dig`/
 `nslookup` commands and `generation/generateDnsZone.ts` (X1), and `src/core/findit/`,
-`generation/publisher.ts`, `generation/siteServer.ts`, `generation/findit.ts` (X2), and
+`generation/publisher.ts`, `generation/siteServer.ts`, `generation/fixedSiteFs.ts` (X2), and
 the `whois` command (the registry over the world's addresses).
 
 ## X1 — DNS
@@ -240,7 +240,7 @@ source IP, and the log records the raw path including the query — so a rooted 
 shell (`access.log` is world-readable); defacing the front page needs a root-tier full
 shell, whose window is on the world clock (nginx's opens ~day 106).
 
-Nothing in the world heals findit. `scripts/restoreFindit.ts` is the operator's undo, and
+Nothing in the world heals findit. `scripts/restoreSite.ts findit.io` is the operator's undo, and
 it is a **reboot**: it ends every open session on findit (`rebooted`), empties its
 `patches`, and writes a fresh boot marker — in that order, so a shell that stood on the old
 box has its writes refused mid-restore and cannot survive onto the clean one. Wiping the

@@ -13,7 +13,7 @@ import type { LanHost } from './generateHomeLan.js';
 import { FIRST_NAMES_BY_INITIAL, SURNAMES } from './pools/people.js';
 import { NETWORK_CATEGORIES, type NetworkCategory } from './pools/essidCatalog.js';
 import { declaredNetwork, RIDGEMONT } from './world.js';
-import { FINDIT_NETWORK, FINDIT_PLACE } from './finditNetwork.js';
+import { fixedSite } from './fixedSites.js';
 
 export type NetworkPersona = {
   readonly category: NetworkCategory;
@@ -47,7 +47,8 @@ export const networkPersona = (essid: string): NetworkPersona => {
     const { category, place, town } = known;
     return { category, place, domain, ...(town === undefined ? {} : { town }) };
   }
-  if (essid === FINDIT_NETWORK) return { ...FINDIT_PLACE, domain, town: RIDGEMONT };
+  const site = fixedSite(essid);
+  if (site !== undefined) return { ...site.place, domain, town: RIDGEMONT };
   // A network another player named, or one that left the catalog, still belongs
   // somewhere: its own stream picks a kind of place and a name for it. It stands where
   // everybody who could have joined it stands.

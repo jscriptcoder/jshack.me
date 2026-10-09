@@ -64,8 +64,8 @@ most are enforced by a property test named in "How it is tested".
    hostnames → machine ids → orphans journals and moves every pin, wire-check host selection
    and the `e2e` skill's derived secrets.
 8. **A network persona plus a box inhabitant.** The persona comes from the ESSID's category
-   (`pools/essidCatalog.ts`; uncatalogued ESSIDs seed one from every category, findit's is fixed
-   in `finditNetwork.ts` so a new category never re-rolls a box players reach) and gives an
+   (`pools/essidCatalog.ts`; uncatalogued ESSIDs seed one from every category, a fixed site's is
+   fixed in `fixedSites.ts` so a new category never re-rolls a box players reach) and gives an
    organisation, a kind of place, its vocabulary and a `.lan` domain. The inhabitant comes from the box's existing
    username (`mrodriguez` → Maria Rodriguez) and agrees across `.gitconfig`, history, notes,
    mail and DB rows. Roles are drawn blind to the persona, so the persona adapts to what was

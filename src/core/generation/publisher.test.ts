@@ -3,7 +3,7 @@ import { ESSID_CATALOG } from './pools/essidCatalog.js';
 import { isPublicIp } from './ip.js';
 import { networkAt, PLACELESS_FIRST_OCTET } from './world.js';
 import { publisherIp, publisherSite, siteAddress } from './publisher.js';
-import { FINDIT_NETWORK } from './findit.js';
+import { FINDIT_NETWORK } from './fixedSites.js';
 import { resolveName } from '../network/resolveName.js';
 
 /**
@@ -126,5 +126,36 @@ describe('findit.io, the search engine the public web is found by', () => {
   it('is no wifi network anybody can join', () => {
     expect(ESSID_CATALOG.some((entry) => entry.essid === FINDIT_NETWORK)).toBe(false);
     expect(publisherIp(FINDIT_NETWORK)).toBeUndefined();
+  });
+});
+
+describe('hackademy.io, where the world teaches itself', () => {
+  it('answers its domain from anywhere, at an address of the reserved kind', async () => {
+    const address = siteAddress('hackademy.io');
+    expect(address).toBeDefined();
+    expect(address!.startsWith(`${PLACELESS_FIRST_OCTET}.`)).toBe(true);
+    expect(isPublicIp(address!)).toBe(true);
+    const resolved = await resolveName({
+      essid: 'APT-3B-WIFI',
+      name: 'hackademy.io',
+      resolveOccupants: async () => [],
+    });
+    expect(resolved).toEqual({ fqdn: 'hackademy.io', ip: address });
+  });
+
+  it('shares its address with no institution, and not with findit', () => {
+    const institutions = Object.keys(PUBLISHED_SITES).map((essid) => publisherIp(essid));
+    expect([...institutions, siteAddress('findit.io')]).not.toContain(
+      siteAddress('hackademy.io'),
+    );
+  });
+
+  it('is found behind its own address, as its own network', () => {
+    expect(networkAt(siteAddress('hackademy.io')!)).toBe('hackademy.io');
+  });
+
+  it('is no wifi network anybody can join', () => {
+    expect(ESSID_CATALOG.some((entry) => entry.essid === 'hackademy.io')).toBe(false);
+    expect(publisherIp('hackademy.io')).toBeUndefined();
   });
 });

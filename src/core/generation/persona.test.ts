@@ -3,7 +3,7 @@ import { inhabitant, networkPersona } from './persona.js';
 import type { LanHost } from './generateHomeLan.js';
 import { NETWORK_CATEGORIES } from './pools/essidCatalog.js';
 import { DECLARED_NETWORKS } from './world.js';
-import { FINDIT_NETWORK } from './finditNetwork.js';
+import { FINDIT_NETWORK } from './fixedSites.js';
 
 /**
  * Who a network belongs to. Every machine behind an access point reads as part of one
@@ -63,6 +63,15 @@ describe('networkPersona', () => {
       category: 'hacker',
       place: 'the workshop',
       domain: 'findit-io.lan',
+      town: 'Ridgemont',
+    });
+  });
+
+  it('keeps hackademy a school, however many kinds of place the world grows', () => {
+    expect(networkPersona('hackademy.io')).toEqual({
+      category: 'hacker',
+      place: 'the school',
+      domain: 'hackademy-io.lan',
       town: 'Ridgemont',
     });
   });

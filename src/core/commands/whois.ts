@@ -14,7 +14,7 @@ import {
   networkAt,
   PLACELESS_FIRST_OCTET,
 } from '../generation/world.js';
-import { FINDIT_DOMAIN, FINDIT_NETWORK } from '../generation/finditNetwork.js';
+import { fixedSite, type FixedSite } from '../generation/fixedSites.js';
 import { siteAddress } from '../generation/publisher.js';
 import { vantageOf } from '../network/vantage.js';
 import { errorLine, text } from './streaming.js';
@@ -30,12 +30,12 @@ type RegistryRecord = {
   readonly place?: { readonly town: string; readonly region: string };
 };
 
-/** findit broadcasts no wifi, so its netname is its key spelt the way an ESSID is. */
-const FINDIT_RECORD: RegistryRecord = {
-  netname: FINDIT_NETWORK.toUpperCase().replace(/[^A-Z0-9]+/g, '-'),
-  orgName: FINDIT_DOMAIN,
-  domain: FINDIT_DOMAIN,
-};
+/** A fixed site broadcasts no wifi, so its netname is its key spelt the way an ESSID is. */
+const fixedSiteRecord = (site: FixedSite): RegistryRecord => ({
+  netname: site.key.toUpperCase().replace(/[^A-Z0-9]+/g, '-'),
+  orgName: site.domain,
+  domain: site.domain,
+});
 
 /** Whether `address` is in the block of the networks that stand in no town. */
 const isPlaceless = (address: string): boolean =>
@@ -44,7 +44,8 @@ const isPlaceless = (address: string): boolean =>
 /** The record for whichever network answers at `address`, or `undefined` where none does. */
 const recordAt = (address: string): RegistryRecord | undefined => {
   const key = networkAt(address);
-  if (key === FINDIT_NETWORK) return FINDIT_RECORD;
+  const site = fixedSite(key ?? '');
+  if (site !== undefined) return fixedSiteRecord(site);
   const network = declaredNetwork(key ?? '');
   if (network === undefined) return undefined;
   const { town, region } = network;

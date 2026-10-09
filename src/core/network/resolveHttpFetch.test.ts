@@ -33,7 +33,7 @@ import type {
 import type { PatchRow } from '../patches/upsertPatch.js';
 import { siteAddress } from '../generation/publisher.js';
 import { publicAddress } from '../generation/world.js';
-import { FINDIT_DOMAIN, FINDIT_NETWORK } from '../generation/findit.js';
+import { FINDIT_DOMAIN, FINDIT_NETWORK, HACKADEMY_NETWORK } from '../generation/fixedSites.js';
 import { FINDIT_FRONT_PAGE } from '../findit/page.js';
 import type { MachinePatchRow } from '../findit/webIndex.js';
 import { logRead } from '../../test/factories/logRows.js';
@@ -1133,6 +1133,56 @@ describe('findit.io answers a search over the public web', () => {
     );
 
     expect(response).toEqual({ status: 200, body: { ok: true, content: ALICE_PAGE, server: 'nginx' } });
+  });
+});
+
+describe('hackademy.io serves its pages to anybody who asks', () => {
+  const HACKADEMY_IP = siteAddress('hackademy.io') ?? '';
+  const HACKADEMY_ID = computeApGatewayId(HACKADEMY_NETWORK);
+  const onHackademy = {
+    lookup: async () => ({
+      data: { router_machine_id: HACKADEMY_ID, essid: HACKADEMY_NETWORK },
+      error: null,
+    }),
+    listOccupantsByEssid: async () => ({ data: [], error: null }),
+    listLeasesByEssid: async () => ({ data: [], error: null }),
+  };
+  const fetchPath = (path: string) =>
+    signRequest(BOB, 'resolveHttpFetch', { target: HACKADEMY_IP, port: HTTP_DEFAULT_PORT, path });
+  const contentOf = (response: { body: Record<string, unknown> }): string =>
+    typeof response.body.content === 'string' ? response.body.content : '';
+
+  it('serves its front page, and the first chapter it links to', async () => {
+    const { deps } = makeDeps(onHackademy);
+
+    const front = await handleResolveHttpFetch(fetchPath('/'), deps);
+    const chapter = await handleResolveHttpFetch(fetchPath('/getting-around.html'), deps);
+
+    expect(front.body).toMatchObject({ ok: true, server: 'nginx' });
+    expect(contentOf(front)).toContain('<title>hackademy.io</title>');
+    expect(contentOf(front)).toContain('href="/getting-around.html"');
+    expect(contentOf(chapter)).toContain('<h1>Getting around</h1>');
+  });
+
+  it('answers a query with its page, because only findit searches', async () => {
+    const { deps } = makeDeps(onHackademy);
+
+    const front = await handleResolveHttpFetch(fetchPath('/'), deps);
+    const queried = await handleResolveHttpFetch(fetchPath('/?q=university'), deps);
+
+    expect(contentOf(queried)).toBe(contentOf(front));
+  });
+
+  it('records the visit in its own access log', async () => {
+    const { deps, upsertPatch } = makeDeps(onHackademy);
+
+    await handleResolveHttpFetch(fetchPath('/getting-around.html'), deps);
+
+    const logged = upsertPatch.mock.calls
+      .map(([row]) => row)
+      .find((row) => row.path === ACCESS_LOG_PATH);
+    expect(logged?.machine_id).toBe(HACKADEMY_ID);
+    expect(logged?.content).toContain('GET /getting-around.html');
   });
 });
 

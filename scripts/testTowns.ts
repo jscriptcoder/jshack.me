@@ -32,7 +32,7 @@ import { md5 } from '../src/core/generation/md5.js';
 import { machineIdForLanHost } from '../src/core/generation/lanTopology.js';
 import { siteAddress } from '../src/core/generation/publisher.js';
 import { siteServer } from '../src/core/generation/siteServer.js';
-import { FINDIT_DOMAIN } from '../src/core/generation/findit.js';
+import { FINDIT_DOMAIN } from '../src/core/generation/fixedSites.js';
 import { DECLARED_NETWORKS, isLandmark, RIDGEMONT } from '../src/core/generation/world.js';
 import { ACCESS_LOG_PATH } from '../src/core/logging/accessLog.js';
 
