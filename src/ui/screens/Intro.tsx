@@ -107,7 +107,7 @@ export const Intro = (props: IntroProps) => {
 
       <p class="mb-8 text-base tracking-wide text-[var(--theme-text-dim)]">
         <Show when={step() === 'menu'} fallback="Configure your workstation.">
-          Hack the network. Complete the contract. Get paid.
+          Crack the network. Explore the machines. Go deeper.
         </Show>
       </p>
 
@@ -117,16 +117,18 @@ export const Intro = (props: IntroProps) => {
           <div class="flex max-w-lg flex-col items-center">
             <div class="mb-8 text-center text-base leading-relaxed text-[var(--theme-text-dim)]">
               <p class="mb-4">
-                You are a freelance operator working from a personal workstation. Your WiFi card can
-                reach several networks, each hiding its own machines. Crack in, explore, and install
-                your toolkit.
+                You start at a personal workstation whose WiFi card can reach several networks. Each
+                one hides its own machines, and some hide more networks behind them. Crack in,
+                explore, and see how deep you can go.
               </p>
               <p class="mb-4">
-                When you are ready, browse the darknet marketplace for contracts. Every job is a new
-                target network. Find what the client wants, deliver the proof, and move on to the
-                next one.
+                There are no missions yet. The world is an open sandbox for putting hacking
+                techniques into practice: scan, crack, exploit, escalate.
               </p>
-              <p>Everything runs in your browser. No server, no tracking.</p>
+              <p>
+                You are not alone. Other players connect to the same networks, and whatever anyone
+                changes stays changed for everyone.
+              </p>
             </div>
             <MenuButton onClick={goToForm}>NEW GAME</MenuButton>
           </div>
