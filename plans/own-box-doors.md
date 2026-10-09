@@ -1,6 +1,14 @@
 # Plan: the login doors reach your own box
 
-**Status**: Grilled. Decisions confirmed by the owner 2026-10-09; slice (a) in progress.
+**Status**: Grilled. Decisions confirmed by the owner 2026-10-09. Slice (a) built (#637,
+v0.341.0); slice (b) next.
+
+**As built — slice (a):** `commands/ssh.ts` `executeOwnBoxLogin`, taken when the session stands
+at home (`essid === null`) and `ownBoxSource` names the target (its `ownIp` now accepts null, so
+loopback answers offline). The trace is `appendAuthLog`'s `doorLogin` kind (`door: 'ssh'`,
+`from_ip` an IPv4), formatted through `SERVICE_CATALOG[SERVICE_BY_DOOR[door]].sweepLog` — slice
+(b) widens `door` to `ftp`/`scp`. `createSession` accepts `kind: 'ssh'` for an own-box row; without
+it `lostLegs` pops the shell on the next line. Wire-check: `scripts/testOwnBoxLogin.ts`.
 Resolves the `backlog.md` item "`ssh`, `scp` and `ftp` cannot reach your own box", found by the
 tutorials' close-out browser run. Where they disagree with this file, this file wins.
 
