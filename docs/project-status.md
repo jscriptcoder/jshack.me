@@ -675,8 +675,10 @@ agreed order:
    named in prose, the one in-world pointer); the crackers and CVE console are described, not
    run. ✅ S5 (#635, v0.339.0): chapters 8–10 — traces, databases and other services,
    scripting with `node` — and two example scripts under `/scripts/` (the fixed-site web root
-   now nests); `snmpwalk` is described, not run. All ten chapters live. Next: the close-out
-   browser run, then retire the plan.
+   now nests); `snmpwalk` is described, not run. All ten chapters live. Close-out browser run
+   done 2026-10-09: its broken examples fixed in ✅ S6 (#636, v0.340.0) — chapter 5 knocks on
+   hackademy.io with `ssh` (no `ssh`/`scp`/`ftp` reaches your own box), every chapter installs
+   its own tools. Next: the close-out commit — as-built doc, backlog, retire the plan.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan

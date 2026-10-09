@@ -1,9 +1,9 @@
 # Plan: in-game tutorials
 
-**Status**: all five slices built, 2026-10-09 — S1 (v0.335.0, #631), S2 (v0.336.0, #632), S3
-(v0.337.0, #633), S4 (v0.338.0, #634) and S5 (v0.339.0, #635). The close-out browser run
-(2026-10-09) found broken examples; S6 fixes them (planned at the end of this file), then the
-close-out `docs(v2):` commit retires this file.
+**Status**: all six slices built and the close-out browser run done, 2026-10-09 — S1
+(v0.335.0, #631), S2 (v0.336.0, #632), S3 (v0.337.0, #633), S4 (v0.338.0, #634), S5 (v0.339.0,
+#635) and S6, the run's fixes (v0.340.0, #636). Next: the close-out `docs(v2):` commit — as-built
+doc, backlog entries, retire this file.
 Resolves the `docs/backlog.md` entry "Tutorials dropped into the player's home folder" (shape
 still to be decided) and the `docs/project-status.md` note that in-game tutorials matter once
 others playtest. Where they disagree with this file, this file wins.
@@ -128,7 +128,7 @@ entry, retiring this file) is a `docs(v2):` commit on `main`, after the one brow
 - **S4** ✅ chapters 5–7: getting in, services and CVEs, the web (the one pointer to findit).
 - **S5** ✅ chapters 8–10: traces, databases and other services, scripting, with the example
   scripts under `/scripts/` (decision 12).
-- **S6** the close-out fixes: the examples the browser run found broken or missing an install.
+- **S6** ✅ the close-out fixes: the examples the browser run found broken or missing an install.
 
 ### Slice 1 ✅: a new player gets from `cat README` to reading chapter 1 on hackademy.io
 
@@ -383,33 +383,44 @@ hello.js [NAME]`, `failed.js` saved and run.
 6. **Not a tutorials defect**: `ps` runs two columns together (`redis-server6379`). For
    `docs/backlog.md` at close-out.
 
-### Slice 6 (planned): the close-out fixes
+### Slice 6 ✅: the close-out fixes
 
-**Branch** `fix/tutorials-close-out`, v0.340.0. Behavior change (served page content).
+**Built** v0.340.0, #636 (squash `01844fe2`), 2026-10-09. All five acceptance criteria met.
 
-**Owner decision** (2026-10-09, finding 1): chapter 5 shows `ssh root@hackademy.io` — a real
-password prompt and a refusal written to hackademy's own `auth.log` (decision 3 allows the site
-itself), which chapter 8 then explains. `scp` and `ftp` are described and sent to `man`. `nc`
-stays the door the reader runs on their own box. Rejected: describing all three (the chapter
-loses its one hands-on door), and building own-box `ssh`/`scp`/`ftp` (a feature slice).
+**Owner decision** (finding 1): chapter 5 shows `ssh root@hackademy.io` — a real password
+prompt and a refusal written to hackademy's own `auth.log` (decision 3 allows the site itself),
+which chapter 8 then explains. `scp` and `ftp` are described and sent to `man`; `nc` stays the
+door the reader runs on their own box. Rejected: describing all three (the chapter loses its one
+hands-on door), and building own-box `ssh`/`scp`/`ftp` (a feature slice).
 
-**Changes**: chapter 5 as above, Practice item 1 rewritten to match; chapter 6
-`$ systemctl status SERVICE`; `# apt install dnsutils` and `# apt install whois` in chapter 4,
-`# apt install netcat` and `# apt install john` in chapter 5, `# apt install node` in chapter 10,
-each before the first example that needs it; chapter 9's prompt `redis&gt;`.
+**As built**:
+- **Chapter 5.** The doors section runs `$ ssh root@hackademy.io` and says what happens to a
+  wrong password; `scp`/`ftp` are doors onto other boxes, with `$ man scp`/`$ man ftp`. Practice
+  item 1 knocks on the site; item 4 reads the two file doors' manuals.
+- **Installs**, each before the first example that needs it: `nmap`, `dnsutils`, `whois`
+  (chapter 4), `netcat`, `john` (5), `lynx` (7), `node` (10). `nmap` and `lynx` were beyond the
+  plan's list: chapter 1 and the README install them, but the rule reads each text on its own.
+- **Chapter 6** `$ systemctl status SERVICE`; **chapter 9** the prompt `redis>`.
+- **Tests.** Three rules in `hackademy.test.ts`: every program an example runs (site and README)
+  is always available, on a fresh workstation (`binaryExists`) or provided
+  (`packageForBinary`) by an `apt install` earlier in the same text; no example aims `ssh`/
+  `scp`/`ftp` at `localhost`; chapter 5 runs `ssh` at `…@hackademy.io`. Chapter 5's table row
+  is now `ssh`, `nc`, `john`. 56 tests, the three new ones RED first (the install rule listing
+  14 examples).
+- **Wire-check.** `testHackademy.ts` 21/21.
+- **Browser re-check** (the close-out run's last beat, v0.340.0, player carol on WEYLAND-NET):
+  `ssh root@hackademy.io` → password prompt → `Permission denied (password)`, and hackademy's
+  `auth.log` row reads `Failed password for root from <carol's network's public address>`;
+  `systemctl status sshd` answers; `apt install node` then `node hello.js` greets.
+- **Mutation.** Hand-applied, 8 killed / 2 survived. Killed: each install removed or moved after
+  its use, `ssh`/`scp` aimed back at `localhost`, the `ssh` example dropped or aimed elsewhere.
+  **Deferred:** a bare `systemctl status` (the rules check an example's command, never its
+  arguments — the backlog's argument-realism pass) and a bare `>` redis prompt (in-door lines
+  carry no shell prompt, so are prose by design).
 
-**Acceptance criteria**:
-1. Every program an example runs — on the site and in the README — is one a fresh box has (or
-   the shell always has), or one an `apt install` earlier in the same text provides.
-2. No example aims `ssh`, `scp` or `ftp` at `localhost`: those doors reach other boxes only.
-3. Chapter 5 shows `ssh` at hackademy.io, and still shows its tools (`ssh`, `nc`, `john`).
-4. The site-wide rules and the chapter table hold unchanged.
-5. Live: `testHackademy.ts` serves every page byte for byte; a re-typed browser check of the
-   changed examples (`ssh root@hackademy.io` refused, `systemctl status SERVICE`,
-   `apt install node` + `node hello.js`) is the close-out run's last beat.
-
-**Weakest calls**:
-- **AC2 encodes a fact of the commands in a test**: when `ssh` gains an own-box path the rule
-  is deleted, not satisfied.
-- **AC1 reads a fresh box**, not the box mid-chapter: an install in an earlier chapter does not
-  count, so each chapter installs its own tools even when a reader in order already has them.
+**Weakest calls, carried**:
+- **The doors rule encodes a fact of the commands**: when `ssh` gains an own-box path it is
+  deleted, not satisfied.
+- **The install rule reads a fresh box**, so each chapter installs its own tools even when a
+  reader in order already has them.
+- **Only an example's command is checked, never its arguments** — what let finding 2 through.
