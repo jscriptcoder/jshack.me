@@ -1,7 +1,7 @@
 # Plan: the login doors reach your own box
 
 **Status**: Grilled. Decisions confirmed by the owner 2026-10-09. Slices (a) built (#637,
-v0.341.0) and (b) built (#638, v0.342.0); slice (c) next.
+v0.341.0), (b) built (#638, v0.342.0) and (c) built (#639, v0.343.0); slice (d) next.
 
 **As built — slice (a):** `commands/ssh.ts` `executeOwnBoxLogin`, taken when the session stands
 at home (`essid === null`) and `ownBoxSource` names the target (its `ownIp` now accepts null, so
@@ -20,6 +20,20 @@ the own-workstation bypass. Because that bypass skips L2, `ui/state.ts` `writesA
 holds `env.ftp.write`/`env.scp.write` on the own box to the login's tier. Not done, deliberately:
 ftp transfers at home are not itemised in `vsftpd.log` (`recordFtpTransfer` refuses the own box).
 Test fixture: `src/test/factories/ownBox.ts`.
+
+**As built — slice (c):** each door checks `LOOPBACK_NAMES` right after `vantageOf`. A hop the
+network generates (`vantage.address` set) goes to the own-LAN door with `targetIp: 127.0.0.1`
+and the port (`RemoteAuthParams.port`, sent only here). A player's workstation (`vantage.address`
+null) goes to the same-LAN door with loopback. Server side, `handleAuthCreateSession` resolves
+loopback to `segmentsReachedFrom(...)[0].address`, the box's own layer address. Before, it used
+the LAN source, which named the inner gateway for a deep box; this also fixed `nc localhost` on a
+deep hop. `handleAuthCreateSessionSameLan` resolves it to the caller's vantage (the owner's
+lease). Both record `127.0.0.1`. `reachDoor` takes `{ deniedPorts, overLoopback }`, and loopback
+reads `readOpenPorts`, past the box's own filter and any switch. The same-LAN door now traces
+through the door's catalog `sweepLog` (`formatLoginLines`), so an ftp occupant login lands in
+`vsftpd.log`, not `auth.log`. Wire-check: `scripts/testHopLoopbackLogin.ts`. Not done:
+`serviceHost.ts` (the data doors) still maps loopback via `ownLanSourceIp`, so a data door on a
+deep hop may land on the gateway. Unverified.
 Resolves the `backlog.md` item "`ssh`, `scp` and `ftp` cannot reach your own box", found by the
 tutorials' close-out browser run. Where they disagree with this file, this file wins.
 
