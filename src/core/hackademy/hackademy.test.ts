@@ -96,7 +96,25 @@ const CHAPTERS = [
     title: 'Looking around',
     tools: ['ping', 'nmap', 'dig', 'nslookup', 'whois'],
   },
+  {
+    url: `${SITE}/getting-in.html`,
+    title: 'Getting in',
+    tools: ['ssh', 'scp', 'ftp', 'nc', 'john'],
+  },
+  {
+    url: `${SITE}/services.html`,
+    title: 'Services, versions and CVEs',
+    tools: ['systemctl', 'ps', 'apt'],
+  },
+  {
+    url: `${SITE}/the-web.html`,
+    title: 'The web',
+    tools: ['curl', 'lynx', 'gobuster'],
+  },
 ];
+
+/** The one chapter that is allowed — and required — to name findit (decision 9). */
+const WEB_CHAPTER = `${SITE}/the-web.html`;
 
 describe('the front page of hackademy.io', () => {
   it('names the site and lists the chapters in order', () => {
@@ -154,9 +172,10 @@ describe('every page of hackademy.io', () => {
     expect(everyPage().length).toBeGreaterThan(1);
   });
 
-  it('never names findit', () => {
+  it('names findit only in the web chapter', () => {
     for (const page of everyPage()) {
-      expect(served(page)?.toLowerCase(), page).not.toContain('findit');
+      const names = served(page)?.toLowerCase().includes('findit') ?? false;
+      expect(names, page).toBe(page === WEB_CHAPTER);
     }
   });
 
