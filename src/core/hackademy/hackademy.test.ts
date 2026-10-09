@@ -94,6 +94,7 @@ describe('chapter 1, getting around', () => {
   const chapter = (): string => served(`${SITE}/getting-around.html`) ?? '';
 
   it('is titled for what it teaches', () => {
+    expect(parsed(chapter()).title).toBe('Getting around');
     expect(parsed(chapter()).querySelector('h1')?.textContent).toBe('Getting around');
   });
 

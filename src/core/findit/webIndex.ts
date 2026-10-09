@@ -1,7 +1,7 @@
 /**
  * The web findit searches: every homepage on a public `:80`, as it is BEING SERVED —
- * each institution's under its domain, and anybody else's under the bare address it
- * answers at.
+ * each institution's and each fixed site's under its domain, and anybody else's under the
+ * bare address it answers at.
  *
  * The index is a VIEW of the live web. Every search reads the same journals a `curl` of
  * the same address would replay, so a page somebody rewrote an instant ago is found as
@@ -26,6 +26,7 @@
 
 import { DECLARED_NETWORKS, publicAddress } from '../generation/world.js';
 import { publisherIp } from '../generation/publisher.js';
+import { FINDIT_NETWORK, FIXED_SITES } from '../generation/fixedSites.js';
 import { siteServer } from '../generation/siteServer.js';
 import { resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
 import { computeApGatewayId } from '../identity/router.js';
@@ -92,10 +93,35 @@ const PUBLISHERS: readonly Publisher[] = DECLARED_NETWORKS.flatMap((network) => 
   ];
 });
 
-/** Every machine the index reads for the institutions: each publisher's gateway, and
- *  the box behind it. */
-export const publisherMachineIds = (): readonly string[] =>
-  PUBLISHERS.flatMap((publisher) => [publisher.gatewayId, publisher.serverId]);
+/** A site that is its own gateway: one box answering the web at its own address, with no
+ *  network behind it. */
+type FixedListing = {
+  readonly essid: string;
+  readonly domain: string;
+  readonly address: string;
+  readonly machineId: string;
+};
+
+/** Every fixed site findit lists: all of them but findit, which a searcher is already on. */
+const FIXED_LISTINGS: readonly FixedListing[] = FIXED_SITES.flatMap((site) => {
+  const address = publicAddress(site.key);
+  if (site.key === FINDIT_NETWORK || address === undefined) return [];
+  return [
+    {
+      essid: site.key,
+      domain: site.domain,
+      address,
+      machineId: computeApGatewayId(site.key),
+    },
+  ];
+});
+
+/** Every machine the index reads for the sites it lists by domain: each publisher's
+ *  gateway and the box behind it, and each fixed site's one box. */
+export const siteMachineIds = (): readonly string[] => [
+  ...PUBLISHERS.flatMap((publisher) => [publisher.gatewayId, publisher.serverId]),
+  ...FIXED_LISTINGS.map((site) => site.machineId),
+];
 
 const rowsByMachine = (
   rows: readonly MachinePatchRow[],
@@ -174,6 +200,19 @@ const publisherSiteServed = async (
   return address === undefined ? null : deps.siteAt(address);
 };
 
+/** What a visitor to a fixed site's public `:80` would be served, rebuilt from its box's
+ *  journal: null when nothing would answer them, and `ELSEWHERE` when the box sends them
+ *  on to some other machine. */
+const fixedSiteRebuilt = (
+  site: FixedListing,
+  journals: ReadonlyMap<string, readonly OwnerPatchRow[]>,
+): ServedSite | null | typeof ELSEWHERE => {
+  const boxFs = materializeApGatewayFs({ essid: site.essid }, journals.get(site.machineId) ?? null);
+  const served = webBehind(boxFs);
+  if (served === null) return null;
+  return served.kind === 'router' ? siteOn(boxFs) : ELSEWHERE;
+};
+
 /** A network that could serve a player's page: every one the world declares but an
  *  institution's, which is listed under its domain already. findit is no declared
  *  network, so it is never among them. */
@@ -207,18 +246,26 @@ const listing = (site: ServedSite | null, address: string): readonly IndexedPage
   return [{ address, ...readPage(site.homepage, address) }];
 };
 
+/** A site's listing as generated, keyed by its network — or nothing to keep, when even the
+ *  generated site sends its visitors somewhere this index cannot rebuild. */
+const generatedEntry = (
+  site: { readonly essid: string; readonly domain: string },
+  rebuilt: ServedSite | null | typeof ELSEWHERE,
+): readonly (readonly [string, readonly IndexedPage[]])[] =>
+  rebuilt === ELSEWHERE ? [] : [[site.essid, listing(rebuilt, site.domain)]];
+
 /**
- * Every publisher's listing as the world generated it, keyed by its network: what findit
- * lists for a publisher nobody has touched. Built from nothing on every call; a search
- * keeps the first one it builds.
+ * Every listing findit keeps by domain as the world generated it, keyed by its network:
+ * what findit lists for a publisher or a fixed site nobody has touched. Built from nothing
+ * on every call; a search keeps the first one it builds.
  */
 export const buildGeneratedWeb = (): ReadonlyMap<string, readonly IndexedPage[]> =>
-  new Map(
-    PUBLISHERS.flatMap((publisher) => {
-      const rebuilt = publisherSiteRebuilt(publisher, new Map());
-      return rebuilt === ELSEWHERE ? [] : [[publisher.essid, listing(rebuilt, publisher.domain)]];
-    }),
-  );
+  new Map([
+    ...PUBLISHERS.flatMap((publisher) =>
+      generatedEntry(publisher, publisherSiteRebuilt(publisher, new Map())),
+    ),
+    ...FIXED_LISTINGS.flatMap((site) => generatedEntry(site, fixedSiteRebuilt(site, new Map()))),
+  ]);
 
 /** The generated web, built on this instance's first search and kept for every later one.
  *  It holds only what generation builds, which never changes while the server runs, so a
@@ -243,6 +290,19 @@ const publisherListing = async (
   );
 };
 
+/** What findit lists for one fixed site: as generated while its box has no row, and
+ *  rebuilt from its journal once it has one. */
+const fixedSiteListing = async (
+  deps: WebIndexDeps,
+  site: FixedListing,
+  journals: ReadonlyMap<string, readonly OwnerPatchRow[]>,
+): Promise<readonly IndexedPage[]> => {
+  const generated = journals.has(site.machineId) ? undefined : generatedWeb().get(site.essid);
+  if (generated !== undefined) return generated;
+  const rebuilt = fixedSiteRebuilt(site, journals);
+  return listing(rebuilt === ELSEWHERE ? await deps.siteAt(site.address) : rebuilt, site.domain);
+};
+
 /**
  * Every page findit can answer with, read from the world as it stands.
  *
@@ -252,7 +312,7 @@ const publisherListing = async (
  */
 export const indexedWeb = async (deps: WebIndexDeps): Promise<readonly IndexedPage[]> => {
   const machineIds = [
-    ...publisherMachineIds(),
+    ...siteMachineIds(),
     ...PLAYER_NETWORKS.map((network) => computeApGatewayId(network.essid)),
   ];
   // Each machine is named in one read alone, so its journal arrives whole and in order.
@@ -268,6 +328,7 @@ export const indexedWeb = async (deps: WebIndexDeps): Promise<readonly IndexedPa
 
   const pages = await Promise.all([
     ...PUBLISHERS.map((publisher) => publisherListing(deps, publisher, journals)),
+    ...FIXED_LISTINGS.map((site) => fixedSiteListing(deps, site, journals)),
     // A gateway nobody has touched forwards nothing, so only a touched one can serve a page.
     ...PLAYER_NETWORKS.filter((network) => journals.has(computeApGatewayId(network.essid))).map(
       async (network) => listing(await playerSiteServed(deps, network, journals), network.address),

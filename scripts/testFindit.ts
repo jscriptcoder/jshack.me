@@ -41,7 +41,7 @@ import { generateHomeLan } from '../src/core/generation/generateHomeLan.js';
 import { lanAddressFor } from '../src/core/network/lanAddress.js';
 import { formatPidfileContent } from '../src/core/services/pidfile.js';
 import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
-import { publisherMachineIds } from '../src/core/findit/webIndex.js';
+import { siteMachineIds } from '../src/core/findit/webIndex.js';
 import { DECLARED_NETWORKS } from '../src/core/generation/world.js';
 import { escapeHtml } from '../src/core/findit/page.js';
 import { publicAddressOf } from './publicAddressOf.js';
@@ -409,7 +409,7 @@ const main = async () => {
   const { count: batchRows } = await sr
     .from('patches')
     .select('machine_id', { count: 'exact', head: true })
-    .in('machine_id', [...publisherMachineIds(), PLAYER_GATEWAY]);
+    .in('machine_id', [...siteMachineIds(), PLAYER_GATEWAY]);
   const unpublishedNetworks = DECLARED_NETWORKS.filter((network) => network.site === undefined);
   const timed = async (request: () => Promise<unknown>): Promise<number> => {
     const started = performance.now();

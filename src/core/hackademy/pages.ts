@@ -8,10 +8,14 @@
  * box: the pages teach the tools and leave putting them together to the reader.
  */
 
-const page = (title: string, body: readonly string[]): string =>
+/** A page. `description` is what a search engine says of it in a listing: only the front
+ *  page is listed, so only the front page gives one. */
+const page = (title: string, body: readonly string[], description?: string): string =>
   [
     '<html>',
-    `<head><title>${title}</title></head>`,
+    description === undefined
+      ? `<head><title>${title}</title></head>`
+      : `<head><title>${title}</title><meta name="description" content="${description}"></head>`,
     '<body>',
     ...body,
     '</body>',
@@ -21,18 +25,22 @@ const page = (title: string, body: readonly string[]): string =>
 
 const BACK = '<p><a href="/">Back to the front page</a></p>';
 
-const FRONT_PAGE = page('hackademy.io', [
-  '<h1>hackademy.io</h1>',
-  '<p>Everybody who ever got anywhere started where you are now: at a prompt, on a box,',
-  'knowing nothing. These pages are what we wish somebody had handed us.</p>',
-  '<p>Read them in order. Every example runs on your own box, so try each one as you go.',
-  'What you do with it afterwards is your business.</p>',
-  '<h2>Chapters</h2>',
-  '<ol>',
-  '<li><a href="/getting-around.html">Getting around</a>: files, users, and the tools your box',
-  'came with</li>',
-  '</ol>',
-]);
+const FRONT_PAGE = page(
+  'hackademy.io',
+  [
+    '<h1>hackademy.io</h1>',
+    '<p>Everybody who ever got anywhere started where you are now: at a prompt, on a box,',
+    'knowing nothing. These pages are what we wish somebody had handed us.</p>',
+    '<p>Read them in order. Every example runs on your own box, so try each one as you go.',
+    'What you do with it afterwards is your business.</p>',
+    '<h2>Chapters</h2>',
+    '<ol>',
+    '<li><a href="/getting-around.html">Getting around</a>: files, users, and the tools your box',
+    'came with</li>',
+    '</ol>',
+  ],
+  'Tutorials for newcomers: how boxes, networks and the tools that touch them work, a chapter at a time, tried on your own box.',
+);
 
 const GETTING_AROUND = page('Getting around', [
   '<h1>Getting around</h1>',

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   indexedWeb,
-  publisherMachineIds,
+  siteMachineIds,
   type MachinePatchRow,
   type WebIndexDeps,
 } from './webIndex.js';
@@ -9,7 +9,13 @@ import { computeApGatewayId } from '../identity/router.js';
 import { siteServer } from '../generation/siteServer.js';
 import { resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
 import { publisherIp, publisherSite } from '../generation/publisher.js';
-import { FINDIT_NETWORK } from '../generation/fixedSites.js';
+import {
+  FINDIT_DOMAIN,
+  FINDIT_NETWORK,
+  FIXED_SITES,
+  HACKADEMY_NETWORK,
+} from '../generation/fixedSites.js';
+import { HACKADEMY_PAGES } from '../hackademy/pages.js';
 import { rankPages } from './search.js';
 import { DECLARED_NETWORKS, publicAddress } from '../generation/world.js';
 
@@ -306,10 +312,12 @@ describe('the web findit searches', () => {
     const web = await indexWith([
       patchRow({ machine_id: campusServerId(), path: '/boot/vmlinuz', content: null }),
     ]);
-    // Two machines are read per publisher, exactly one publisher has gone dark, and the
-    // unlisted ones are read only to be left out.
+    // Exactly one publisher has gone dark, the unlisted ones are read only to be left out,
+    // and every fixed site but findit itself is listed beside them.
+    const publishers = DECLARED_NETWORKS.filter((network) => network.site !== undefined).length;
     const unlisted = DECLARED_NETWORKS.filter((network) => network.unlisted === true).length;
-    expect(web.length).toBe(publisherMachineIds().length / 2 - 1 - unlisted);
+    const fixedSites = FIXED_SITES.length - 1;
+    expect(web.length).toBe(publishers - 1 - unlisted + fixedSites);
     for (const page of web) {
       expect(page.address).not.toBe('');
       expect(typeof page.title).toBe('string');
@@ -370,7 +378,7 @@ describe('the web findit searches', () => {
     expect(asked.length).toBeGreaterThan(1);
     expect(asked.length).toBeLessThan(10);
     expect(new Set(named).size).toBe(named.length);
-    expect(named).toEqual(expect.arrayContaining([...publisherMachineIds()]));
+    expect(named).toEqual(expect.arrayContaining([...siteMachineIds()]));
     for (const machineIds of asked) {
       const address = encodeURIComponent(machineIds.map((id) => `"${id}"`).join(','));
       expect(address.length).toBeLessThanOrEqual(6_000);
@@ -648,7 +656,7 @@ describe("a player's page on the public web", () => {
     ).map((network) => computeApGatewayId(network.key));
     expect(unpublishedGateways).toContain(computeApGatewayId(HOME));
     expect(asked.flat().sort()).toEqual(
-      [...publisherMachineIds(), ...unpublishedGateways].sort(),
+      [...siteMachineIds(), ...unpublishedGateways].sort(),
     );
   });
 
@@ -680,6 +688,7 @@ describe("a player's page on the public web", () => {
       ),
     );
     expect(web.map((page) => page.address)).not.toContain(finditIp);
+    expect(web.map((page) => page.address)).not.toContain(FINDIT_DOMAIN);
   });
 
   it('is looked for on every network nobody publishes from, joined or not', async () => {
@@ -798,5 +807,157 @@ describe('a site that asks not to be listed', () => {
       ),
     );
     expect(web.map((page) => page.address)).not.toContain(CAMPUS_DOMAIN);
+  });
+});
+
+/**
+ * A site that is its own gateway: one box answering the web at its address, with no
+ * network behind it. It is listed under its domain, as an institution is, and read as
+ * its box is serving it right now.
+ */
+const HACKADEMY_DOMAIN = 'hackademy.io';
+const HACKADEMY_IP = publicAddress(HACKADEMY_NETWORK) ?? '';
+const HACKADEMY_BOX = computeApGatewayId(HACKADEMY_NETWORK);
+
+const hackademyRow = (overrides: Partial<MachinePatchRow>): MachinePatchRow =>
+  patchRow({ machine_id: HACKADEMY_BOX, ...overrides });
+
+const HACKADEMY_FRONT_PAGE = HACKADEMY_PAGES['index.html'] ?? '';
+
+describe('a site that is its own gateway', () => {
+  it('is listed under its domain, called and described as its front page says', async () => {
+    const hackademy = await found(HACKADEMY_DOMAIN);
+    expect(hackademy?.title).toBe('hackademy.io');
+    expect(hackademy?.description).toBe(
+      'Tutorials for newcomers: how boxes, networks and the tools that touch them work, a chapter at a time, tried on your own box.',
+    );
+  });
+
+  it('comes first for its own name', async () => {
+    expect(rankPages(await indexWith(), 'hackademy')[0]?.address).toBe(HACKADEMY_DOMAIN);
+  });
+
+  it('is found by what a newcomer would ask for', async () => {
+    const web = await indexWith();
+    for (const words of ['tutorial', 'newcomer']) {
+      expect(
+        rankPages(web, words).map((page) => page.address),
+        words,
+      ).toContain(HACKADEMY_DOMAIN);
+    }
+  });
+
+  it('is found for those words only while its front page still says them', async () => {
+    const undescribed = HACKADEMY_FRONT_PAGE.replace(/<meta\b[^>]*>/gi, '');
+    expect(undescribed).not.toBe(HACKADEMY_FRONT_PAGE);
+    const web = await indexWith([
+      hackademyRow({ path: '/var/www/html/index.html', content: undescribed }),
+    ]);
+    expect(web.map((page) => page.address)).toContain(HACKADEMY_DOMAIN);
+    for (const words of ['tutorial', 'newcomer']) {
+      expect(
+        rankPages(web, words).map((page) => page.address),
+        words,
+      ).not.toContain(HACKADEMY_DOMAIN);
+    }
+  });
+
+  it('is listed without being fetched while nobody has touched it', async () => {
+    const { visited, siteAt } = recordingVisits();
+    const web = await indexedWeb(depsWith([], { siteAt }));
+    expect(web.map((page) => page.address)).toContain(HACKADEMY_DOMAIN);
+    expect(visited).not.toContain(HACKADEMY_IP);
+  });
+
+  it('is read in the same reads as the publishers, each machine once', async () => {
+    const asked: string[][] = [];
+    await indexedWeb(
+      depsWith([], {
+        findPatchesForMachines: async (machineIds) => {
+          asked.push([...machineIds]);
+          return { data: [], error: null };
+        },
+      }),
+    );
+    expect(asked.flat().filter((machineId) => machineId === HACKADEMY_BOX)).toHaveLength(1);
+  });
+
+  it('reads a front page somebody rewrote as it now reads, without fetching it', async () => {
+    const { visited, siteAt } = recordingVisits();
+    const web = await indexedWeb(
+      depsWith(
+        [
+          hackademyRow({
+            content:
+              '<html><head><title>OWNED BY R00T</title></head><body><p>Hacked.</p></body></html>',
+          }),
+        ],
+        { siteAt },
+      ),
+    );
+    const rewritten = web.find((page) => page.address === HACKADEMY_DOMAIN);
+    expect(rewritten?.title).toBe('OWNED BY R00T');
+    expect(rewritten?.text).toBe('Hacked.');
+    expect(visited).not.toContain(HACKADEMY_IP);
+  });
+
+  it('is listed as generated still once a visit leaves a line in its log', async () => {
+    // Every reader leaves an access.log line on the box, so the box is touched from its
+    // first visitor on; a line in a log changes nothing a visitor is served.
+    const logged = await found(HACKADEMY_DOMAIN, [
+      hackademyRow({
+        path: '/var/log/access.log',
+        content: '203.0.113.9 - - "GET / HTTP/1.1" 200',
+      }),
+    ]);
+    expect(logged).toEqual(await found(HACKADEMY_DOMAIN));
+  });
+
+  it('cannot be found when its box will not come up', async () => {
+    expect(
+      await found(HACKADEMY_DOMAIN, [hackademyRow({ path: '/boot/vmlinuz', content: null })]),
+    ).toBeUndefined();
+  });
+
+  it('cannot be found when its web server has been stopped', async () => {
+    expect(
+      await found(HACKADEMY_DOMAIN, [hackademyRow({ path: '/var/run/nginx.pid', content: null })]),
+    ).toBeUndefined();
+  });
+
+  it('cannot be found when its front page was deleted', async () => {
+    expect(
+      await found(HACKADEMY_DOMAIN, [
+        hackademyRow({ path: '/var/www/html/index.html', content: null }),
+      ]),
+    ).toBeUndefined();
+  });
+
+  it('is kept out once somebody rewrites its robots.txt to ask', async () => {
+    expect(
+      await found(HACKADEMY_DOMAIN, [
+        hackademyRow({ path: '/var/www/html/robots.txt', content: 'User-agent: *\nDisallow: /\n' }),
+      ]),
+    ).toBeUndefined();
+  });
+
+  it('lists whatever answers at its address once it forwards the web somewhere else', async () => {
+    const asked: string[] = [];
+    const web = await indexedWeb(
+      depsWith(
+        [
+          hackademyRow({ path: '/var/run/nginx.pid', content: null }),
+          hackademyRow({ path: '/etc/iptables/rules.v4', content: 'forward 80 to 10.9.9.9:80\n' }),
+        ],
+        {
+          siteAt: async (publicIp) => {
+            asked.push(publicIp);
+            return publicIp === HACKADEMY_IP ? servedSite(PLAYER_PAGE) : null;
+          },
+        },
+      ),
+    );
+    expect(asked).toContain(HACKADEMY_IP);
+    expect(web.find((page) => page.address === HACKADEMY_DOMAIN)?.title).toBe('Ada builds things');
   });
 });

@@ -160,7 +160,7 @@ const checkBuildTime = (name: string, keys: readonly string[]): Verdict => {
 
 const checkGeneratedWeb = (): Verdict => {
   // The first pass pays for JIT compilation and the world's own memos, as the box sets'
-  // does; every pass after it builds every publisher's listing from nothing.
+  // does; every pass after it builds every listed site from nothing.
   const sites = buildGeneratedWeb().size;
   const passMs = Array.from({ length: TIMED_PASSES }, () => {
     const startedAt = performance.now();
@@ -170,7 +170,7 @@ const checkGeneratedWeb = (): Verdict => {
   const builtMs = Math.min(...passMs);
   return {
     passed: builtMs <= GENERATED_WEB_CEILING_MS,
-    line: `findit's generated web: ${builtMs.toFixed(0)} ms to build from nothing over ${sites} publishers (ceiling ${GENERATED_WEB_CEILING_MS} ms)`,
+    line: `findit's generated web: ${builtMs.toFixed(0)} ms to build from nothing over ${sites} sites (ceiling ${GENERATED_WEB_CEILING_MS} ms)`,
   };
 };
 
