@@ -1,7 +1,7 @@
 # Plan: in-game tutorials
 
-**Status**: S1 built (v0.335.0, #631, 2026-10-09). Next: slice 2, findit lists hackademy.io
-(to be planned in detail, then acceptance criteria confirmed before RED).
+**Status**: S1 built (v0.335.0, #631, 2026-10-09). S2 planned 2026-10-09 on
+`feat/tutorials-findit-lists-hackademy`; acceptance criteria confirmed by the owner, as written.
 Resolves the `docs/backlog.md` entry "Tutorials dropped into the player's home folder" (shape
 still to be decided) and the `docs/project-status.md` note that in-game tutorials matter once
 others playtest. Where they disagree with this file, this file wins.
@@ -163,3 +163,80 @@ AC1 amended as decision 8 records (the README walks the player online first).
   `/usr/sbin` tool lists), deferred. Survivors in `resolvePublicTarget.ts` and `publisher.ts`
   were killed by the wider related suite when hand-mutated; the whois regex and the `.io`
   name reservation are equivalent.
+
+### Slice 2: a search on findit finds hackademy.io
+
+**Value**: a player who lost the README, or never read it, finds the tutorials the way they
+find anything else: they search findit, and hackademy.io comes back as a result.
+**Class**: behavior change. **Delivery**: one PR against `main`.
+**Path**: `lynx http://findit.io/?q=…` → `resolveHttpFetch` `answerSearch` →
+`findit/webIndex.ts` `indexedWeb` (the batch journal read, then one listing per site) →
+`rankPages` → the results page. The front page's words come from
+`hackademy/pages.ts`.
+
+**Where it starts from (facts, 2026-10-09)**:
+- `indexedWeb` lists two kinds of site. **Publishers**: a declared network with a `site`, reached
+  through its gateway's forward to its site server, listed under its domain. **Player
+  networks**: every other declared network, listed under its bare address, fetched only when its
+  gateway answers `:80`. A fixed site is neither, because it is not a declared network. Its
+  gateway IS the box, and `machineServing` answers `{ kind: 'router' }` for its `:80`.
+- `webIndex.test.ts` already pins **"never lists findit among its own results"**. That stays:
+  findit lists every fixed site except itself, because a searcher is already on findit.
+- A publisher nobody has touched is listed from `buildGeneratedWeb()`, built once per server
+  and kept. A touched one is rebuilt from its journal, and a gateway sending `:80` somewhere the
+  index cannot rebuild is fetched through `siteAt`.
+- **Every visit writes a row.** Each `access.log` line is a `patches` row on the visited
+  machine, and nothing caps them. hackademy is touched from its first reader on, so every search
+  rebuilds it from a journal that grows by one row per page read. Publishers' site servers pay
+  the same cost today. The `COST` line in `testFindit.ts` measures it.
+- The front page has no `<meta name="description">`, so `readPage` describes it by its first
+  line, the `<h1>` `hackademy.io`, which repeats the title. Its words never include "tutorial",
+  "learn" or "beginner", so the searches a newcomer is most likely to type find nothing.
+
+**Design**:
+- **A third kind of listing: a fixed site.** Every entry in `FIXED_SITES` except findit, listed
+  under its **domain** as institutions are. Its one machine, `computeApGatewayId(site.key)`,
+  joins the batch read. Untouched, it is listed from the generated web, built from its base box.
+  Touched, it is rebuilt with `materializeApGatewayFs({ essid: site.key }, journal)`:
+  - a box that cannot boot, or whose `:80` answers nothing, is not listed;
+  - `router` (its own nginx answers) is listed from `siteOn(box)`;
+  - `forward` (somebody rooted it, stopped nginx and forwarded `:80` on) is fetched through
+    `siteAt`, so whatever really answers is what is listed, as for a repointed publisher.
+- **`robots.txt` rules as everywhere else.** A rooted hackademy that disallows findit drops out
+  of the results until a restore.
+- **The front page gets a `<meta name="description">`**, written in the site's voice, carrying
+  the words a newcomer searches for. Recommended: *"Tutorials for newcomers: how boxes, networks
+  and the tools that touch them work, a chapter at a time, tried on your own box."* A
+  restore brings it back, like every page.
+- `publisherMachineIds` keeps its name and meaning. Whatever exported list the wire-check's
+  `COST` read uses must name the fixed site's machine, so the measurement includes it.
+- No change to `search.ts` or `readPage.ts`: a fixed site's front page is ranked like any other.
+
+**Acceptance criteria** (owner-confirmed 2026-10-09, with the recommended description):
+1. **Found by name.** A findit search for `hackademy` lists `hackademy.io` first, under its
+   domain, with the title `hackademy.io` and the front page's own description.
+2. **Found by what a newcomer types.** Searches for `tutorial` and for `newcomer` each list
+   `hackademy.io`. They match the description; a front page whose description is removed is no
+   longer found by them.
+3. **Listed as it is served.** A rewritten front page is listed with the rewritten title and
+   words. A box that cannot boot, one whose web server is stopped, and one whose `robots.txt`
+   disallows findit are not listed. One that forwards `:80` elsewhere is listed as whatever
+   `siteAt` returns there.
+4. **findit still never lists itself**, even when its own box serves a page.
+5. **No extra fetch for an untouched site.** With no journal rows, `hackademy.io` is listed
+   without calling `siteAt`, and the batch read names hackademy's machine.
+6. **Live.** `scripts/testHackademy.ts` gains a check that a search through the real
+   `/api/network` endpoint lists `hackademy.io`, and that a reader following the result reaches
+   the front page. `testFindit` stays green, and its `COST` line is recorded before and after.
+7. **Gates.** All tests, typecheck, lint, build and budgets (`checkGeneratedWeb` among them)
+   pass, and the version is bumped to 0.336.0.
+
+**Tests**: `findit/webIndex.test.ts`, in a new `describe` for the fixed site, covering AC 1 and
+3–5 through `indexedWeb` with `depsWith` rows. The descriptions and searches in AC 1–2 run
+through `rankPages` over the real index. The existing reach test in `world.test.ts` stays as
+it is, because hackademy is not a declared network. Mutation runs on `webIndex.ts` only, at
+PR readiness.
+
+**Carried risk**: the uncapped access-log journal (above). It is out of scope here, and S2 only
+measures it. If the `COST` line shows a search slowing as hackademy is read, a backlog entry
+goes in for an index read that skips `/var/log/` rows, which never decide what a site serves.
