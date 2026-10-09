@@ -57,8 +57,8 @@ const sessionFor = (deps: SessionsClientDeps, over: Partial<Session> = {}): Sess
   ...over,
 });
 
-const sentEnvelope = (fetchSpy: ReturnType<typeof vi.fn>): unknown =>
-  JSON.parse((fetchSpy.mock.calls[0]![1] as RequestInit).body as string);
+const sentEnvelope = (fetchSpy: ReturnType<typeof vi.fn>, call = 0): unknown =>
+  JSON.parse((fetchSpy.mock.calls[call]![1] as RequestInit).body as string);
 
 const verifyPayload = (envelope: unknown) =>
   verifySignedRequest(envelope, z.looseObject({ action: z.string() }), {
@@ -183,6 +183,20 @@ describe('authCreateServerSession', () => {
     });
     // Where the login comes from is the server's to derive from the box named.
     expect(verified.payload).not.toHaveProperty('source_ip');
+  });
+
+  it('sends the port only when the login names one, for the server to check the daemon is on it', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true, userType: 'root' }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    await authCreateServerSession(deps, { ...params, targetIp: '127.0.0.1', port: 2222 });
+    await authCreateServerSession(deps, params);
+
+    const withPort = await verifyPayload(sentEnvelope(fetchSpy, 0));
+    const without = await verifyPayload(sentEnvelope(fetchSpy, 1));
+    if (!withPort.ok || !without.ok) throw new Error('expected verified envelopes');
+    expect(withPort.payload).toMatchObject({ target_ip: '127.0.0.1', port: 2222 });
+    expect(without.payload).not.toHaveProperty('port');
   });
 
   it('names no box when the shell is on the player’s own workstation', async () => {

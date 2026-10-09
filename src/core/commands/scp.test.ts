@@ -1366,6 +1366,97 @@ describe('scp from a hop', () => {
     });
   });
 
+  it('carries a file to the hop itself by localhost, loopback and the port sent on for the server', async () => {
+    // The hop's live /var/run is the server's to read: it places loopback and checks
+    // the port, and the transfer lands on the box the shell stands on.
+    const hop = sshMachineOn(HOP_ESSID, false);
+    const authenticate = vi.fn<(params: RemoteAuthParams) => Promise<RemoteAuthResult>>(async () => ({
+      ok: true,
+      userType: 'guest',
+    }));
+    const write = vi.fn<NonNullable<EnvOver['write']>>(async () => ({ ok: true }));
+    const prompt = vi.fn(async () => 'hunter2');
+
+    const { lines, exitCode } = await drain(
+      await scp.execute(
+        scpHopEnv(hop, { authenticate, write, prompt }),
+        [SOURCE, `guest@localhost:${REMOTE_DEST}`],
+        new Map([['-p', '2222']]),
+      ),
+    );
+
+    expect(exitCode).toBe(0);
+    expect(lines[0]).toBe('Connecting to localhost...');
+    expect(prompt).toHaveBeenCalledWith({ message: "guest@localhost's password: ", masked: true });
+    expect(authenticate.mock.calls[0]![0]).toEqual({
+      sessionId: `scp-guest-${NOW}`,
+      essid: HOP_ESSID,
+      targetIp: '127.0.0.1',
+      port: 2222,
+      username: 'guest',
+      password: 'hunter2',
+      parentSessionId: 'ssh-hop-1',
+      callerMachineId: hostMachineId(hop, HOP_ESSID),
+    });
+    expect(write.mock.calls[0]![0]).toMatchObject({
+      machineId: hostMachineId(hop, HOP_ESSID),
+      userType: 'guest',
+      kind: 'scp',
+      essid: HOP_ESSID,
+    });
+  });
+
+  it('is refused at localhost on the port the hop’s sshd is not on', async () => {
+    const hop = sshMachineOn(HOP_ESSID, false);
+    const write = vi.fn<NonNullable<EnvOver['write']>>(async () => ({ ok: true }));
+
+    const { lines, exitCode } = await drain(
+      await scp.execute(
+        scpHopEnv(hop, {
+          authenticate: async () => ({ ok: false, error: 'host_unreachable' }),
+          write,
+        }),
+        [SOURCE, `guest@127.0.0.1:${REMOTE_DEST}`],
+        new Map(),
+      ),
+    );
+
+    expect(exitCode).toBe(1);
+    expect(lines).toEqual([
+      'Connecting to 127.0.0.1...',
+      'scp: connect to host 127.0.0.1 port 22: Connection refused',
+    ]);
+    expect(write).not.toHaveBeenCalled();
+  });
+
+  it('carries a file to the player’s workstation it stands on by localhost, through the same-LAN door', async () => {
+    // A workstation is no box the network generates: only its owner's lease places it.
+    const hop = sshMachineOn(HOP_ESSID, false);
+    const authenticateSameLan = vi.fn<(params: SameLanAuthParams) => Promise<PublicAuthResult>>(
+      async () => ({ ok: true, userType: 'guest', machineId: 'alice-rig-cafef00d', essid: HOP_ESSID }),
+    );
+    const write = vi.fn<NonNullable<EnvOver['write']>>(async () => ({ ok: true }));
+    const env = scpHopEnv(hop, { authenticateSameLan, write });
+
+    const { exitCode } = await drain(
+      await scp.execute(
+        { ...env, session: { ...env.session, machineId: asMachineId('alice-rig-cafef00d') } },
+        [SOURCE, `guest@localhost:${REMOTE_DEST}`],
+        new Map(),
+      ),
+    );
+
+    expect(exitCode).toBe(0);
+    expect(authenticateSameLan.mock.calls[0]![0]).toMatchObject({
+      essid: HOP_ESSID,
+      targetIp: '127.0.0.1',
+      port: 22,
+      sourceIp: null,
+      callerMachineId: 'alice-rig-cafef00d',
+    });
+    expect(write.mock.calls[0]![0]).toMatchObject({ machineId: 'alice-rig-cafef00d', kind: 'scp' });
+  });
+
   it('reaches another player’s box on the hop’s LAN, landing on the owner’s id', async () => {
     const hop = sshMachineOn(HOP_ESSID, false);
     const occupantIp = `${generateHomeLan(HOP_ESSID).subnet}.241`;
@@ -1453,6 +1544,10 @@ describe('man scp', () => {
     const description = scp.manual?.description ?? '';
     expect(description).toContain('travels from that box');
     expect(description).toContain('network you are on');
+  });
+
+  it('tells the player localhost is the box the shell is on', () => {
+    expect(scp.manual?.description).toContain('"localhost" is the box your shell is on');
   });
 });
 

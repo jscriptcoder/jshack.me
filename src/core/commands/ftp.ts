@@ -22,6 +22,7 @@ import { generateHomeLan } from '../generation/generateHomeLan.js';
 import { resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
 import { isPublicIp } from '../generation/ip.js';
 import { addressForTarget } from '../network/resolveName.js';
+import { LOOPBACK_IPV4, LOOPBACK_NAMES } from '../network/interfaces.js';
 import { vantageOf } from '../network/vantage.js';
 import { resolveDeepScanHosts } from '../scan/deepScanHosts.js';
 import { readOpenPorts } from '../services/pidfile.js';
@@ -105,6 +106,7 @@ const networkLogin = async (
   essid: string,
   machineId: string,
   named: string | undefined,
+  knock: { readonly targetIp: string; readonly port?: number } = { targetIp: target },
 ): Promise<CommandResult> => {
   const credential = await askCredential(env, target, named);
   if (credential === null) return ABORTED;
@@ -113,7 +115,8 @@ const networkLogin = async (
   const result = await env.ftp.authenticate({
     sessionId,
     essid,
-    targetIp: target,
+    targetIp: knock.targetIp,
+    ...(knock.port === undefined ? {} : { port: knock.port }),
     username: credential.username,
     password: credential.password,
     parentSessionId: env.session.id,
@@ -144,6 +147,7 @@ const occupantLogin = async (
   port: number,
   named: string | undefined,
   sourceIp: string | null,
+  targetIp: string = target,
 ): Promise<CommandResult> => {
   const credential = await askCredential(env, target, named);
   if (credential === null) return ABORTED;
@@ -152,7 +156,7 @@ const occupantLogin = async (
   const result = await env.ftp.authenticateSameLan({
     sessionId,
     essid,
-    targetIp: target,
+    targetIp,
     username: credential.username,
     password: credential.password,
     port,
@@ -300,6 +304,21 @@ const execute: Command['execute'] = async (env, args, flags) => {
   if (vantage === null) return errorResult('ftp: connect: Network is unreachable');
   const essid = vantage.essid;
 
+  // `localhost` from a hop names the hop, whose live `/var/run` only the server can
+  // read: loopback goes on as typed, with the port, for the server to place and check.
+  // A box the network generates is placed by the own-LAN door; a player's workstation
+  // has no address the network gives it, only its owner's lease, which is the same-LAN
+  // door's to read.
+  if (LOOPBACK_NAMES.includes(requested)) {
+    const port = parsePort(flags.get('-p'));
+    return vantage.address === null
+      ? occupantLogin(env, requested, essid, port, args[1], null, LOOPBACK_IPV4)
+      : networkLogin(env, requested, essid, env.session.machineId, args[1], {
+          targetIp: LOOPBACK_IPV4,
+          port,
+        });
+  }
+
   // Who else is on this LAN, read at most once: a name on this network needs it to
   // resolve, and a private address needs it to tell a fellow occupant's box from a
   // generated one. Asked from the box the shell stands on, so a hop lists the hop's
@@ -368,7 +387,8 @@ export const ftp: Command = {
       'you browse the remote machine and move files between it and your own. Your shell ' +
       'stays exactly where it was — "quit" hands it straight back. Run inside a remote ' +
       'shell, the connection travels from that box over the network you are on there: it ' +
-      'reaches what that box reaches, and the host records that box’s address.',
+      'reaches what that box reaches, and the host records that box’s address. ' +
+      '"localhost" is the box your shell is on.',
     arguments: [
       { name: 'host', description: 'The host IP to connect to, e.g. 192.168.1.5', required: true },
       {

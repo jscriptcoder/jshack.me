@@ -36,7 +36,7 @@ import {
   type ServiceSpec,
   type SweepLog,
 } from '../services/serviceCatalog.js';
-import { listenerOn, type Listener } from '../services/pidfile.js';
+import { listenerOn, readOpenPorts, type Listener } from '../services/pidfile.js';
 import { portsOpenToNetwork } from '../network/portsOpenToNetwork.js';
 import { LOOPBACK_IPV4 } from '../network/interfaces.js';
 import type { Directory } from '../filesystem/types.js';
@@ -224,14 +224,24 @@ export const reachDoor = (
   kind: DoorKind,
   fs: Directory,
   reachedPort: number | undefined,
-  deniedPorts: ReadonlySet<number> = new Set(),
+  arrival: {
+    /** The ports the switch in front of the box lets nothing through to. */
+    readonly deniedPorts?: ReadonlySet<number>;
+    /** Knocked from the box itself, by `localhost`. */
+    readonly overLoopback?: boolean;
+  } = {},
 ): ReachedDoor | null => {
   // What the box answers to the NETWORK. A port its owner filtered is not a door,
   // whichever kind of door it would have been — a filter honoured for the daemon but
   // not for a planted listener would let whatever an attacker left running there step
   // straight over the owner's own rule. Nor is a port the switch in front of the box
-  // denies: nothing sent to it ever arrives.
-  const openToNetwork = portsOpenToNetwork(fs).filter((open) => !deniedPorts.has(open.port));
+  // denies: nothing sent to it ever arrives. A knock over loopback never leaves the
+  // box, so neither stands in its way: closed to the network, open on localhost.
+  const deniedPorts = arrival.deniedPorts ?? new Set();
+  const openToNetwork =
+    arrival.overLoopback === true
+      ? readOpenPorts(fs)
+      : portsOpenToNetwork(fs).filter((open) => !deniedPorts.has(open.port));
 
   if (kind === 'nc') {
     const reachable = openToNetwork.some((open) => open.port === reachedPort);
@@ -349,12 +359,17 @@ export const handleAuthCreateSession = async (
     return { status: 403, body: { error: 'wrong_network' } };
   }
 
-  // `localhost` names the box the shell stands ON — the hop itself, placed at the address
-  // the vantage sees it at. The client cannot read that box's live `/var/run`, so it sends
-  // loopback for the server to resolve to it here, exactly as the data doors do; it is
-  // `nc`'s motivating case, and the only door whose client ever sends it. A hop the server
+  // `localhost` names the box the shell stands ON — the hop itself. The client cannot read
+  // that box's live `/var/run`, so it sends loopback for the server to resolve here, to the
+  // address the box holds on the network it stands on: its own layer's, for a box behind
+  // a deeper gateway, never the gateway's it reaches the LAN through. A hop the server
   // cannot place at an address has no box for loopback to name.
-  const targetIp = payload.target_ip === LOOPBACK_IPV4 ? vantage.sourceIp : payload.target_ip;
+  const loopback = payload.target_ip === LOOPBACK_IPV4;
+  const standsAt =
+    payload.caller_machine_id === undefined
+      ? undefined
+      : segmentsReachedFrom(payload.essid, payload.caller_machine_id)?.[0]?.address;
+  const targetIp = loopback ? (standsAt ?? vantage.sourceIp) : payload.target_ip;
   if (targetIp === null) {
     return { status: 404, body: { error: 'host_unreachable' } };
   }
@@ -373,7 +388,9 @@ export const handleAuthCreateSession = async (
   if (!resolved.ok) {
     return { status: resolved.status, body: { error: resolved.error } };
   }
-  const { host, machineId, baseFs, fromIp, deniedPorts } = resolved.target;
+  // A daemon reached over loopback sees the request come from 127.0.0.1.
+  const { host, machineId, baseFs, deniedPorts } = resolved.target;
+  const fromIp = loopback ? LOOPBACK_IPV4 : resolved.target.fromIp;
 
   // Replay the host's journal over its seeded base so the gate reads the box's REAL
   // state rather than the pristine regeneration. A read failure is a 500: never a
@@ -420,7 +437,10 @@ export const handleAuthCreateSession = async (
   // does (`ROUTER_SSH_PROBABILITY` is 1), so the exemption protected nothing and only
   // left a gap a crafted request could walk through. An honest client never noticed
   // either way: `ssh` compares the target's pidfile port before it prompts.
-  const reached = reachDoor(payload.kind, hostFs, payload.port, deniedPorts);
+  const reached = reachDoor(payload.kind, hostFs, payload.port, {
+    deniedPorts,
+    overLoopback: loopback,
+  });
   if (reached === null) {
     return { status: 404, body: { error: 'service_not_running' } };
   }

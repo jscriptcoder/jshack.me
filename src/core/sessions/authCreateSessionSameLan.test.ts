@@ -17,6 +17,11 @@ import { assignHomeNetwork } from '../network/homeNetwork.js';
 import { lanAddressFor, type LanLeaseRow } from '../network/lanAddress.js';
 import type { OwnerPatchRow } from '../network/materializeWorkstationFs.js';
 import { formatSshdAuthLine, AUTH_LOG_PERMISSIONS } from '../logging/authLog.js';
+import {
+  VSFTPD_LOG_PATH,
+  formatVsftpdConnectLine,
+  formatVsftpdLoginLine,
+} from '../logging/vsftpdLog.js';
 import { derivePid } from '../logging/syslog.js';
 import { formatListenerContent } from '../services/pidfile.js';
 import { asGameTime } from '../types.js';
@@ -981,5 +986,97 @@ describe('logging in to the box at the next desk from a shell held on that LAN',
 
     expect(result).toEqual({ status: 500, body: { error: 'vantage_lookup_failed' } });
     expect(insertSession).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * `localhost` typed in a shell held on the box at the next desk names that box. The
+ * client cannot place it — a player's workstation holds a lease, not an address the
+ * network generates — so it sends loopback, and the server resolves it to the lease
+ * the box's owner holds. The daemon sees the knock come from 127.0.0.1.
+ */
+describe('localhost typed in a shell held on the box at the next desk', () => {
+  const CAROL = generateIdentity();
+  const onAlicesBox = holdingShellOn(ESSID, octetOf(A_LAN_IP));
+
+  const fromCarol = (fields: Record<string, unknown>) =>
+    envelope(CAROL, {
+      username: 'guest',
+      password: GUEST_PW,
+      target_ip: '127.0.0.1',
+      caller_machine_id: A_WS_ID,
+      ...fields,
+    });
+
+  it('logs her into the box she stands on, the trace naming loopback', async () => {
+    const { deps, insertSession, upsertPatch } = standing(makeDeps(), onAlicesBox);
+
+    const result = await handleAuthCreateSessionSameLan(fromCarol({}), deps);
+
+    expect(result.status).toBe(200);
+    expect(result.body).toMatchObject({ ok: true, userType: 'guest', machine_id: A_WS_ID });
+    expect(insertSession.mock.calls[0]![0]).toMatchObject({
+      player_key: CAROL.publicKeyHex,
+      machine_id: A_WS_ID,
+      source_ip: '127.0.0.1',
+    });
+    expect(upsertPatch.mock.calls[0]![0]).toMatchObject({
+      machine_id: A_WS_ID,
+      content: `${expectedSshdLine('success', 'guest', '127.0.0.1')}\n`,
+    });
+  });
+
+  it('opens the port its owner closed to the network', async () => {
+    const filtered: OwnerPatchRow = {
+      path: '/etc/iptables/rules.v4',
+      content: 'deny 22\n',
+      owner: 'root',
+      permissions: null,
+      node_type: 'file',
+      updated_at: '2026-06-19T00:00:00.000Z',
+      writer_key: ALICE.publicKeyHex,
+    };
+    const { deps } = standing(
+      makeDeps(undefined, async () => ({ data: [wsSshdUp, filtered], error: null })),
+      onAlicesBox,
+    );
+
+    const result = await handleAuthCreateSessionSameLan(fromCarol({}), deps);
+
+    expect(result.status).toBe(200);
+  });
+
+  it('reaches nothing once the box’s owner has left the network', async () => {
+    const { deps, insertSession, upsertPatch } = standing(makeDeps(), holdingShellOn(ESSID));
+
+    const result = await handleAuthCreateSessionSameLan(fromCarol({}), deps);
+
+    expect(result).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+    expect(insertSession).not.toHaveBeenCalled();
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+});
+
+describe('a same-LAN login is traced in the log of the door it knocked on', () => {
+  it('writes an ftp login to the box’s vsftpd log, never as an sshd line', async () => {
+    const { deps, upsertPatch } = makeDeps(undefined, async () => ({
+      data: [wsFtpdUp],
+      error: null,
+    }));
+
+    await handleAuthCreateSessionSameLan(
+      envelope(BOB, { username: 'guest', password: GUEST_PW, kind: 'ftp', port: 2121 }),
+      deps,
+    );
+
+    const stamp = { fromIp: B_LAN_IP, time: asGameTime(FIXED_NOW), pid: derivePid(FIXED_NOW) };
+    expect(upsertPatch.mock.calls[0]![0]).toMatchObject({
+      machine_id: A_WS_ID,
+      path: VSFTPD_LOG_PATH,
+      writer_key: ALICE.publicKeyHex,
+      content:
+        `${formatVsftpdConnectLine(stamp)}\n` +
+        `${formatVsftpdLoginLine({ ...stamp, outcome: 'success', user: 'guest', hostname: A_WS_NAME })}\n`,
+    });
   });
 });

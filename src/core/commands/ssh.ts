@@ -19,6 +19,7 @@ import { asMachineId } from '../types.js';
 import { generateHomeLan } from '../generation/generateHomeLan.js';
 import { isInnerGateway, resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
 import { isPublicIp } from '../generation/ip.js';
+import { LOOPBACK_IPV4, LOOPBACK_NAMES } from '../network/interfaces.js';
 import { addressForTarget } from '../network/resolveName.js';
 import { vantageOf } from '../network/vantage.js';
 import { resolveDeepScanHosts } from '../scan/deepScanHosts.js';
@@ -145,6 +146,7 @@ const executeSameLanLogin = async (
   port: number,
   sourceIp: string | null,
   essid: string,
+  targetIp: string = target.host,
 ): Promise<CommandResult> => {
   let password: string;
   try {
@@ -160,7 +162,7 @@ const executeSameLanLogin = async (
   const result = await env.ssh.authenticateSameLan({
     sessionId,
     essid,
-    targetIp: target.host,
+    targetIp,
     username: target.user,
     password,
     port,
@@ -271,6 +273,7 @@ const executeNetworkLogin = async (
   port: number,
   essid: string,
   machineId: string,
+  knock: { readonly targetIp: string; readonly port?: number } = { targetIp: target.host },
 ): Promise<CommandResult> => {
   let password: string;
   try {
@@ -286,7 +289,8 @@ const executeNetworkLogin = async (
   const result = await env.ssh.authenticate({
     sessionId,
     essid,
-    targetIp: target.host,
+    targetIp: knock.targetIp,
+    ...(knock.port === undefined ? {} : { port: knock.port }),
     username: target.user,
     password,
     parentSessionId: env.session.id,
@@ -384,6 +388,20 @@ const execute: Command['execute'] = async (env, args, flags) => {
   }
   const essid = vantage.essid;
   const sourceIp = vantage.address;
+
+  // `localhost` from a hop names the hop, whose live `/var/run` only the server can
+  // read: loopback goes on as typed, with the port, for the server to place and check.
+  // A box the network generates is placed by the LAN door; a player's workstation has
+  // no address the network gives it, only its owner's lease, which is the same-LAN
+  // door's to read.
+  if (LOOPBACK_NAMES.includes(requested.host)) {
+    return vantage.address === null
+      ? executeSameLanLogin(env, requested, port, null, essid, LOOPBACK_IPV4)
+      : executeNetworkLogin(env, requested, port, essid, env.session.machineId, {
+          targetIp: LOOPBACK_IPV4,
+          port,
+        });
+  }
 
   // Who else is on this LAN, read at most once and only when something needs it: a
   // name on this network needs it to resolve, and a private address needs it to tell a
@@ -489,7 +507,8 @@ export const ssh: Command = {
       'from: your own machine after one login, the previous hop on a chain of them. A command run inside a remote shell travels from that box, not from yours: it ' +
       'reaches the network that box is on, and the machines it reaches log the box’s ' +
       'address. From a box on another network, your own home network is reached only ' +
-      'by its public address, like anyone else’s.',
+      'by its public address, like anyone else’s. "localhost" is the box your shell is on: ' +
+      'your own machine at home, the remote box inside a remote shell.',
     arguments: [
       {
         name: 'user@host',
@@ -500,6 +519,7 @@ export const ssh: Command = {
     examples: [
       { command: 'ssh root@192.168.1.5', description: 'Log into 192.168.1.5 as root' },
       { command: 'ssh -p 2222 admin@192.168.1.9', description: 'Connect to ssh on port 2222' },
+      { command: 'ssh guest@localhost', description: 'Log into the box you are on as guest' },
     ],
   },
   execute,
