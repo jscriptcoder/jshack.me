@@ -74,11 +74,38 @@ const README = (): string => {
   return read.ok ? read.content : '';
 };
 
+/** The chapters, in the order the front page lists them, with the tools each one shows. */
+const CHAPTERS = [
+  {
+    url: `${SITE}/getting-around.html`,
+    title: 'Getting around',
+    tools: ['ls', 'cd', 'cat', 'whoami', 'su', 'nano', 'apt', 'man'],
+  },
+  {
+    url: `${SITE}/wifi.html`,
+    title: 'Wifi',
+    tools: ['airmon-ng', 'airodump-ng', 'aircrack-ng', 'nmcli'],
+  },
+  {
+    url: `${SITE}/your-network.html`,
+    title: 'Your box and its network',
+    tools: ['ifconfig', 'nmcli', 'mkdir', 'nano', 'cat'],
+  },
+  {
+    url: `${SITE}/looking-around.html`,
+    title: 'Looking around',
+    tools: ['ping', 'nmap', 'dig', 'nslookup', 'whois'],
+  },
+];
+
 describe('the front page of hackademy.io', () => {
-  it('names the site and links to the first chapter', () => {
+  it('names the site and lists the chapters in order', () => {
     const front = parsed(served(`${SITE}/`) ?? '');
     expect(front.title).toBe('hackademy.io');
-    expect(linksOn(`${SITE}/`)).toContain(`${SITE}/getting-around.html`);
+    const chapterLinks = linksOn(`${SITE}/`).filter((link) =>
+      CHAPTERS.some((chapter) => chapter.url === link),
+    );
+    expect(chapterLinks).toEqual(CHAPTERS.map((chapter) => chapter.url));
   });
 
   it('links only to pages the site serves', () => {
@@ -90,26 +117,37 @@ describe('the front page of hackademy.io', () => {
   });
 });
 
-describe('chapter 1, getting around', () => {
-  const chapter = (): string => served(`${SITE}/getting-around.html`) ?? '';
+describe.each(CHAPTERS.map((chapter, index) => ({ ...chapter, next: CHAPTERS[index + 1] })))(
+  'the chapter $title',
+  ({ url, title, tools, next }) => {
+    const chapter = (): string => served(url) ?? '';
 
-  it('is titled for what it teaches', () => {
-    expect(parsed(chapter()).title).toBe('Getting around');
-    expect(parsed(chapter()).querySelector('h1')?.textContent).toBe('Getting around');
-  });
+    it('is titled for what it teaches', () => {
+      expect(parsed(chapter()).title).toBe(title);
+      expect(parsed(chapter()).querySelector('h1')?.textContent).toBe(title);
+    });
 
-  it('shows the reader the tools of their own box', () => {
-    const programs = examplesOn(chapter()).flatMap(programsIn);
-    for (const tool of ['ls', 'cd', 'cat', 'whoami', 'su', 'nano', 'apt', 'man']) {
-      expect(programs, tool).toContain(tool);
-    }
-  });
+    it('shows the reader the tools it is about', () => {
+      const programs = examplesOn(chapter()).flatMap(programsIn);
+      for (const tool of tools) {
+        expect(programs, tool).toContain(tool);
+      }
+    });
 
-  it('ends in a practice on the reader’s own box', () => {
-    const headings = [...parsed(chapter()).querySelectorAll('h2')].map((h2) => h2.textContent);
-    expect(headings.at(-1)).toBe('Practice');
-  });
-});
+    it('ends in a practice on the reader’s own box', () => {
+      const headings = [...parsed(chapter()).querySelectorAll('h2')].map((h2) => h2.textContent);
+      expect(headings.at(-1)).toBe('Practice');
+    });
+
+    it('leads back to the front page, and on to the next chapter if there is one', () => {
+      const chapterLinks = linksOn(url).filter((link) =>
+        CHAPTERS.some((other) => other.url === link),
+      );
+      expect(linksOn(url)).toContain(`${SITE}/`);
+      expect(chapterLinks).toEqual(next === undefined ? [] : [next.url]);
+    });
+  },
+);
 
 describe('every page of hackademy.io', () => {
   it('can be reached from the front page, and there is more than one', () => {
