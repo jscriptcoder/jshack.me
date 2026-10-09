@@ -1,8 +1,9 @@
 # Plan: in-game tutorials
 
 **Status**: all five slices built, 2026-10-09 — S1 (v0.335.0, #631), S2 (v0.336.0, #632), S3
-(v0.337.0, #633), S4 (v0.338.0, #634) and S5 (v0.339.0, #635). Next: the close-out browser run
-covering them all, then the close-out `docs(v2):` commit that retires this file.
+(v0.337.0, #633), S4 (v0.338.0, #634) and S5 (v0.339.0, #635). The close-out browser run
+(2026-10-09) found broken examples; S6 fixes them (planned at the end of this file), then the
+close-out `docs(v2):` commit retires this file.
 Resolves the `docs/backlog.md` entry "Tutorials dropped into the player's home folder" (shape
 still to be decided) and the `docs/project-status.md` note that in-game tutorials matter once
 others playtest. Where they disagree with this file, this file wins.
@@ -127,6 +128,7 @@ entry, retiring this file) is a `docs(v2):` commit on `main`, after the one brow
 - **S4** ✅ chapters 5–7: getting in, services and CVEs, the web (the one pointer to findit).
 - **S5** ✅ chapters 8–10: traces, databases and other services, scripting, with the example
   scripts under `/scripts/` (decision 12).
+- **S6** the close-out fixes: the examples the browser run found broken or missing an install.
 
 ### Slice 1 ✅: a new player gets from `cat README` to reading chapter 1 on hackademy.io
 
@@ -350,3 +352,64 @@ the recommended description.
   network; the close-out browser run types `curl … > x.js` and `node x.js` for real.
 - **The saved-before-run rule reads the page's text**: a `node NAME` example has a
   `curl … > NAME` before it on the same page. It does not run the sequence.
+
+### Close-out browser run (2026-10-09, v0.339.0): findings
+
+One headed run, player alice on ACME-CORP. **Works**: `cat README` → wifi → `su root` →
+`apt install lynx` → `lynx http://hackademy.io` (S1); the front page lists ten chapters and
+Next walks 1 → 10 in lynx, each ending in Practice, chapter 10 Back only; findit in lynx for
+`tutorial` lists hackademy.io and the result opens its front page (S2); typed on the reader's
+own box, as written: `ifconfig`, `ping`, `apt install hydra` + `john /etc/passwd` (guest
+cracked), `ps`, `apt update`/`list --upgradable`, `systemctl status nginx`,
+`curl …/robots.txt`, nginx + `curl http://localhost/` + `gobuster` (every path in the reader's
+own `access.log`), `cat`/`tail`/`grep Failed`/`-c` on `auth.log`, `mysql localhost root` +
+`SHOW TABLES;`/`SELECT`, `redis-cli localhost PASSWORD` + `KEYS`/`SET`/`GET`, `apt install snmp`
+(community printed once) + `man snmpwalk`, `curl …/scripts/hello.js > hello.js` + `node
+hello.js [NAME]`, `failed.js` saved and run.
+
+**Findings** (fixed by S6 below unless noted):
+1. **Chapter 5's `ssh`/`scp`/`ftp` on `localhost` fail** — `No route to host`, sshd running or
+   not: those three have no own-box path (only `nc`, `mysql`, `redis-cli`, `msfconsole` and the
+   web tools do). S4's "fact" that they resolve `localhost` was never checked against the code.
+2. **Chapter 6's bare `$ systemctl status`** is a usage error; it takes a unit.
+3. **Installs are uneven**: chapter 4 never installs `dig`/`nslookup`/`whois`, chapter 5 never
+   `nc`/`john`, chapter 10 never `node`, while chapters 5, 7 and 9 install their other tools.
+   The shell's `Install with: apt install …` hint means nobody is stuck.
+4. **Chapter 9 shows the redis prompt as `>`**; the game prints `redis>`.
+5. **Not browser-verified**: `failed.js` tallying a real outside knock — bob never saw
+   ACME-CORP in 40 scans (the networks a player sees are drawn from their identity). The tally
+   is unit-proven through the real `node`, `grep` and auth-log line format; outside failed
+   logins landing in `auth.log` is wire-proven.
+6. **Not a tutorials defect**: `ps` runs two columns together (`redis-server6379`). For
+   `docs/backlog.md` at close-out.
+
+### Slice 6 (planned): the close-out fixes
+
+**Branch** `fix/tutorials-close-out`, v0.340.0. Behavior change (served page content).
+
+**Owner decision** (2026-10-09, finding 1): chapter 5 shows `ssh root@hackademy.io` — a real
+password prompt and a refusal written to hackademy's own `auth.log` (decision 3 allows the site
+itself), which chapter 8 then explains. `scp` and `ftp` are described and sent to `man`. `nc`
+stays the door the reader runs on their own box. Rejected: describing all three (the chapter
+loses its one hands-on door), and building own-box `ssh`/`scp`/`ftp` (a feature slice).
+
+**Changes**: chapter 5 as above, Practice item 1 rewritten to match; chapter 6
+`$ systemctl status SERVICE`; `# apt install dnsutils` and `# apt install whois` in chapter 4,
+`# apt install netcat` and `# apt install john` in chapter 5, `# apt install node` in chapter 10,
+each before the first example that needs it; chapter 9's prompt `redis&gt;`.
+
+**Acceptance criteria**:
+1. Every program an example runs — on the site and in the README — is one a fresh box has (or
+   the shell always has), or one an `apt install` earlier in the same text provides.
+2. No example aims `ssh`, `scp` or `ftp` at `localhost`: those doors reach other boxes only.
+3. Chapter 5 shows `ssh` at hackademy.io, and still shows its tools (`ssh`, `nc`, `john`).
+4. The site-wide rules and the chapter table hold unchanged.
+5. Live: `testHackademy.ts` serves every page byte for byte; a re-typed browser check of the
+   changed examples (`ssh root@hackademy.io` refused, `systemctl status SERVICE`,
+   `apt install node` + `node hello.js`) is the close-out run's last beat.
+
+**Weakest calls**:
+- **AC2 encodes a fact of the commands in a test**: when `ssh` gains an own-box path the rule
+  is deleted, not satisfied.
+- **AC1 reads a fresh box**, not the box mid-chapter: an install in an earlier chapter does not
+  count, so each chapter installs its own tools even when a reader in order already has them.
