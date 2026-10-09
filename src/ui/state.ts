@@ -932,7 +932,12 @@ const writeToFtpTarget = async (
     owner: session.username,
     tier: session.userType,
   }).write(...args);
-  if (written.ok) void refreshFtpTree(session);
+  // The put may have landed on the box the shell stands on: a hop re-reads its tree
+  // before every line, but the player's own box never does.
+  if (written.ok) {
+    void refreshFtpTree(session);
+    await refetchPatches();
+  }
   return written;
 };
 
@@ -966,21 +971,24 @@ const scpAuthenticateSameLan = (params: SameLanAuthParams): Promise<PublicAuthRe
  *  credential bought — the same gate an ssh session's write goes through, reached
  *  with no idea a transfer was involved.
  *
- *  Unlike the ftp write there is no journal to re-pull: nothing is being LOOKED at
- *  afterwards. The session is retired on the next line, and the shell the player is
- *  standing in never moved. */
+ *  Unlike the ftp write there is no target journal to re-pull: the session is retired
+ *  on the next line, and nothing looks at that box through it again. Only the shell's
+ *  own tree is re-read, for a copy that landed where the shell stands. */
 const writeToScpTarget = async (
   session: Session,
   ...args: Parameters<PatchApi['write']>
 ): Promise<PatchResult> => {
   if (identity === undefined) return { ok: false, error: 'network_error' };
   if (writesAboveOwnBoxLogin(session, args[0])) return { ok: false, error: 'permission_denied' };
-  return createPatchApi({
+  const written = await createPatchApi({
     identity,
     machineId: session.machineId,
     owner: session.username,
     tier: session.userType,
   }).write(...args);
+  // A hop re-reads its tree before every line, but the player's own box never does.
+  if (written.ok) await refetchPatches();
+  return written;
 };
 
 /** The tree a transfer addresses, held for ONE call rather than for a session: a

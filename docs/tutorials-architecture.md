@@ -73,8 +73,9 @@ words because the shell cannot parse `<bssid>`.
 4. **Looking around** — `ping`, `nmap`/`-sV` on your own address, `dig`/`nslookup` and `whois`
    on hackademy.io. A range scan is described and sent to `man nmap`.
 5. **Getting in** — `ssh root@hackademy.io` (a real prompt; a wrong password is refused and
-   lands in the site's `auth.log`), `scp`/`ftp` described, `nc` on your own box, `john` on your
-   own `/etc/passwd` with the wordlist `hydra` ships. `hydra` is described.
+   lands in the site's `auth.log`), then `ssh`, `scp` and `ftp` on `localhost` as root (sshd and
+   vsftpd started first, the `ftp` client installed), `nc` on your own box, `john` on your own
+   `/etc/passwd` with the wordlist `hydra` ships. `hydra` is described.
 6. **Services, versions and CVEs** — `ps`, `systemctl status`/`start`/`stop`, `apt update`/
    `list --upgradable`/`upgrade`; the CVE model without an attack; `msfconsole` described.
 7. **The web** — `curl` and `lynx` on hackademy.io and its `robots.txt`, your own nginx on
@@ -99,6 +100,8 @@ browser gets it, through `resolveWebPath` and the box's own tree, and checks the
 - **Each chapter** (a `describe.each` table): titled for what it teaches in `<title>` and
   `<h1>`, its tools shown in prompted examples, Practice its last `<h2>`, and its only chapter
   link the next one (none for the last).
+- **The getting-in chapter** knocks on hackademy.io with `ssh` and aims `ssh`, `scp` and `ftp`
+  at `localhost`.
 - **Every page**: reachable from the front page; findit named only in the web chapter; no
   example names another host (an IPv4 address or a domain other than hackademy.io).
 - **Every example** — a `<pre>` line starting at a `$ ` or `# ` prompt, on the site and in the
@@ -106,7 +109,6 @@ browser gets it, through `resolveWebPath` and the box's own tree, and checks the
   - runs only registered commands (rule 5);
   - runs only programs a fresh workstation has, or one an `apt install` earlier in the same
     text provides (rule 6);
-  - never aims `ssh`, `scp` or `ftp` at `localhost`, since those doors reach other boxes only;
   - fetches only hackademy.io addresses the site serves;
   - runs a script with `node` only after an earlier example saved it from the site.
 - **The scripts** are served under `/scripts/` and run through the real `node` command and
@@ -147,8 +149,6 @@ fresh boot marker — a reboot into the current generated site. It is safe to ru
 - **Only an example's command is checked, never its arguments.** A bare `systemctl status`
   shipped that way and was caught only by the browser run. The pre-release argument-realism
   pass (`backlog.md`) rewrites the examples with the commands.
-- **The `ssh`/`scp`/`ftp`-at-`localhost` rule encodes a fact of the commands.** If those doors
-  ever gain an own-box path, delete the rule and put the own-box examples back in chapter 5.
 - **The install rule reads a fresh box**, so a chapter installs its tools even when a reader in
   order already has them from an earlier chapter.
 - **`failed.js` has not tallied a real outside knock in a browser.** The close-out run could not

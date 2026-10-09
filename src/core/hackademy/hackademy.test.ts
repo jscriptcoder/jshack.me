@@ -338,16 +338,12 @@ describe('the command examples a new player is shown', () => {
     expect(missing).toEqual([]);
   });
 
-  it('never aim ssh, scp or ftp at localhost: those doors reach other boxes only', () => {
-    const doors = ['ssh', 'scp', 'ftp'];
-    for (const page of everyPage()) {
-      for (const line of examplesOn(served(page) ?? '')) {
-        for (const stage of pipelineOf(line)?.stages ?? []) {
-          const atLocalhost = stage.args.some((arg) => arg.includes('localhost'));
-          expect(doors.includes(stage.name) && atLocalhost, `${page}: ${line}`).toBe(false);
-        }
-      }
-    }
+  it('aim ssh, scp and ftp at localhost in the getting-in chapter: each door reaches your own box', () => {
+    const atLocalhost = examplesOn(served(`${SITE}/getting-in.html`) ?? '')
+      .flatMap((line) => pipelineOf(line)?.stages ?? [])
+      .filter((stage) => stage.args.some((arg) => arg.includes('localhost')))
+      .map((stage) => stage.name);
+    expect(atLocalhost).toEqual(expect.arrayContaining(['ssh', 'scp', 'ftp']));
   });
 
   it('show ssh in the getting-in chapter at hackademy.io itself', () => {
