@@ -671,7 +671,10 @@ agreed order:
    v0.336.0): findit lists every fixed site but itself under its domain, so a search for
    `hackademy`, `tutorial` or `newcomer` finds hackademy.io. ✅ S3 (#633, v0.337.0): chapters
    2–4 — wifi, your box and its network, looking around — each practised on the reader's own
-   box. Next: slice 4, chapters 5–7 (getting in, services and CVEs, the web).
+   box. ✅ S4 (#634, v0.338.0): chapters 5–7 — getting in, services and CVEs, the web (findit
+   named in prose, the one in-world pointer); the crackers and CVE console are described, not
+   run. Next: slice 5, chapters 8–10 (traces, databases and other services, scripting with
+   `node`, with the example scripts under `/scripts/`), then the close-out browser run.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan

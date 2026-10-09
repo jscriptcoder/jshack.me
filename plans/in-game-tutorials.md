@@ -1,8 +1,9 @@
 # Plan: in-game tutorials
 
-**Status**: S1 built (v0.335.0, #631), S2 built (v0.336.0, #632) and S3 built (v0.337.0, #633),
-2026-10-09. Slice 4 (chapters 5–7: getting in, services and CVEs, the web — the one pointer to
-findit) planned and approved 2026-10-09; building on `feat/tutorials-chapters-5-to-7`.
+**Status**: S1 (v0.335.0, #631), S2 (v0.336.0, #632), S3 (v0.337.0, #633) and S4 (v0.338.0, #634)
+built, 2026-10-09. Next: slice 5, chapters 8–10 (traces, databases and other services, scripting
+with `node`, with the example scripts under `/scripts/`), to be planned in detail and its
+acceptance criteria confirmed before RED.
 Resolves the `docs/backlog.md` entry "Tutorials dropped into the player's home folder" (shape
 still to be decided) and the `docs/project-status.md` note that in-game tutorials matter once
 others playtest. Where they disagree with this file, this file wins.
@@ -124,7 +125,7 @@ entry, retiring this file) is a `docs(v2):` commit on `main`, after the one brow
   there.
 - **S2** ✅ findit lists hackademy.io, so a search for it finds it.
 - **S3** ✅ chapters 2–4: wifi, your box and its network, looking around.
-- **S4** chapters 5–7: getting in, services and CVEs, the web (the one pointer to findit).
+- **S4** ✅ chapters 5–7: getting in, services and CVEs, the web (the one pointer to findit).
 - **S5** chapters 8–10: traces, databases and other services, scripting, with the example
   scripts under `/scripts/` (decision 12).
 
@@ -245,49 +246,50 @@ the recommended description.
 - **Only an example's command is checked, never its output.** The close-out browser run walks
   the chapters.
 
-### Slice 4 (planned): chapters 5–7, getting in, services and CVEs, the web
+### Slice 4 ✅: chapters 5–7, getting in, services and CVEs, the web
 
-**Approved** 2026-10-09 (acceptance criteria + this plan commit). Version 0.338.0.
+**Built** v0.338.0, #634 (squash `68a1d2a5`), 2026-10-09. All seven acceptance criteria met.
 
-**Acceptance criteria**:
-1. Three pages on hackademy.io — `getting-in.html`, `services.html`, `the-web.html` — each with
-   a `<title>` and `<h1>` naming it, reachable from the front page.
-2. The front page lists all seven chapters in order.
-3. Each chapter links back to the front page and on to the next; chapter 4 now links on to
-   chapter 5, and chapter 7 ends the chain (chapter 8 arrives in S5).
-4. Each chapter shows, in a prompted `$`/`#` example, the tools it is built around, and every
-   example targets the reader's own box or hackademy.io, never a third party (decision 3). A
-   tool that only makes sense aimed at someone else is described in prose and sent to `man`,
-   not run.
-5. The web chapter names findit — the one in-world pointer (decision 9); no other chapter does;
-   no example targets it, so the foreign-host rule stays green.
-6. Each chapter ends in a Practice section on the reader's own box.
-7. Version 0.337.0 → 0.338.0; the site-wide rules (reachable, local links served, registered
-   commands only, no foreign host) and findit's listing still pass.
+**As built**:
+- **Three chapters on `hackademy/pages.ts`.** `GETTING_IN` (`getting-in.html`), `SERVICES`
+  (`services.html`) and `THE_WEB` (`the-web.html`) join `HACKADEMY_PAGES` after chapter 4. The
+  front page lists all seven in order; chapter 4 now links on to chapter 5 through the existing
+  `next(href, title)` helper, and chapter 7 ends the chain until S5.
+  - **Getting in**: `ssh`/`ftp`/`scp` as the doors, pointed at `localhost` (the box you stand
+    on); `nc` connecting to a port and holding one open with `-l`; and the credential tools —
+    `john /etc/passwd` on the reader's own accounts (no network, no log), the wordlist arriving
+    with `apt install hydra`. `hydra` is described and sent to `man hydra`, not run: it knocks on
+    a live service and lands in that box's logs, a break-in on someone else (decision 3).
+  - **Services, versions and CVEs**: `ps` and `systemctl status`/`start`/`stop` for what runs,
+    `apt update`/`list --upgradable`/`upgrade` for the reader's own exposed packages. The CVE
+    model — a version, a published fix, a window on the world clock — is taught without an attack
+    or a warning; the console (`msfconsole`) is described and sent to `man`, not run.
+  - **The web**: `curl` and `lynx` reading hackademy.io; `apt install nginx` + `systemctl start`
+    + `curl http://localhost/` running the reader's own server; `gobuster http://localhost`
+    sweeping it; `robots.txt`; and findit named in prose — the one in-world pointer (decision 9),
+    never a runnable example, so the foreign-host rule stays green.
+  `localhost`/`SERVICE`/`USERNAME`/`PORT` placeholders keep every example on the reader's own box
+  or hackademy.io; `&#39;` possessives as in the earlier chapters.
+- **Tests.** `hackademy.test.ts` gains three rows in the `describe.each` table (seven chapters
+  now) and a `WEB_CHAPTER` constant; the old `never names findit` rule becomes "names findit only
+  in the web chapter". 35 tests, 14 of them RED first. The S1 site-wide rules (reachable, local
+  links served, registered commands only, no foreign host) covered the new pages with no change.
+- **Wire-checks.** `testHackademy.ts` serves every page byte-for-byte (15/15) and now checks the
+  front page links to all seven chapters; `testFindit` 19/19, untouched. vercel dev stopped;
+  supabase left running.
+- **Mutation.** The only new structural logic is the three constants and the page-map /
+  front-page / onward-link / findit-rule wiring; the rest is prose (AC-reviewed). Hand-applied,
+  all 8 killed: a page dropped from the map, chapter 4's onward link removed and mis-pointed,
+  each new chapter mis-titled, the web chapter ceasing to name findit, a front-page entry
+  removed. Prose-string survivors are the accepted norm, as in S1–S3.
 
-**What runs, what is described** (decision 3, S3's precedent — a range scan went to `man`):
-- **Getting in** (`ssh`, `scp`, `ftp`, `nc`, `john`): each runs against the reader's own box —
-  their own login, their own files, their own open port, a hash from their own box. `hydra`
-  points at the reader's own box (a password they already set) if the command supports it,
-  else prose + `man hydra`; decided at GREEN.
-- **Services, versions and CVEs** (`systemctl`, `ps`, `apt upgrade`): each runs on the reader's
-  own box — what is running, what is exposed, patching their own. The CVE console (`msfconsole`)
-  is described, not run: a live exploit is a break-in on someone else (decision 3). The CVE
-  model — a service version, a known fix, a window on the world clock — is taught without an
-  attack and without a warning (players learn the hard way).
-- **The web** (`curl`, `lynx`, `gobuster`): run against hackademy.io (an allowed target, as
-  `nmap hackademy.io` was) or the reader's own box; bringing up `nginx`/`apache2` is shown on
-  the reader's own box. findit is named in prose, not run as a command.
-
-**Two existing-test changes fold into the RED**:
-- `never names findit` narrows from "every chapter" to "every chapter except the web chapter";
-  the web chapter now must name it.
-- The `describe.each` table gains three rows, which flips chapter 4's onward link from "ends
-  the chain" to "→ chapter 5" on its own.
-
-**Weakest calls (owner-flagged, to carry)**:
-- The CVE console is described, not run (decision 3).
-- `hydra` runs against the reader's own box only if the command supports it; otherwise prose +
-  `man`.
-- Only an example's command is checked, never its output; the close-out browser run walks the
-  chapters.
+**Weakest calls, carried**:
+- **`hydra` and `msfconsole` are described, not run** — both aim at a box that is not the
+  reader's (decision 3); the prose points at `man`, the same line "Looking around" drew for a
+  LAN range scan.
+- **The web build-time budget is timing-flaky on the build machine** — samples 878–1137 ms
+  against a 1000 ms ceiling; the pre-slice baseline breaches it too (685–1075 ms on the same
+  loaded machine), so the slice adds no regression (site count unchanged at 358, three static
+  strings on one site). ~550–800 ms when the machine is quiet, where S3 measured it.
+- **Only an example's command is checked, never its output.** The close-out browser run walks
+  the chapters.
