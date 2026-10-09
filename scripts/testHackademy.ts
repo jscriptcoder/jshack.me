@@ -8,6 +8,9 @@
 //     the network's own key, naming the visitor at the address the server holds for them.
 //   - THE BOX IS REAL. A scan of its address finds the two doors it keeps, 22 and 80, and
 //     a login with a wrong password is refused and recorded in its auth.log.
+//   - FINDIT LISTS IT. A search for the site's name, and for a word a newcomer would type,
+//     answers with hackademy.io — both before anybody has visited it and after its own log
+//     has rows — and the result a reader follows leads to the front page.
 //
 // Usage (with v2 supabase + vercel dev running on 3100):
 //   npx dotenv -e .env.development.local -- npx tsx scripts/testHackademy.ts
@@ -21,6 +24,7 @@ import { computeWorkstationId } from '../src/core/identity/workstation.js';
 import { computeApGatewayId } from '../src/core/identity/router.js';
 import { crackableEssidPool } from '../src/core/generation/generateWifi.js';
 import { siteAddress } from '../src/core/generation/publisher.js';
+import { FINDIT_DOMAIN } from '../src/core/generation/fixedSites.js';
 import { buildFixedSiteFs } from '../src/core/generation/fixedSiteFs.js';
 import { fixedSite, HACKADEMY_NETWORK } from '../src/core/generation/fixedSites.js';
 import { apGatewayLogWriterKey } from '../src/core/logging/apGatewayLogWriter.js';
@@ -94,6 +98,10 @@ const siteLog = async (path: string): Promise<string> => {
   return (data as { content?: string } | null)?.content ?? '';
 };
 
+/** The address of the first result on a findit results page, as a reader would follow it. */
+const firstResultHost = (resultsPage: string): string =>
+  /<li>\s*<h2><a href="http:\/\/([^/"]+)\//.exec(resultsPage)?.[1] ?? '';
+
 const visitor = generateIdentity();
 const [visitorEssid] = crackableEssidPool;
 
@@ -124,9 +132,22 @@ const main = async () => {
   const visitorIp = publicAddressOf(visitorEssid);
   console.log(`Visitor on ${visitorEssid} at ${visitorIp}\n`);
 
+  const fetchFrom = (target: string, path: string) =>
+    post(NETWORK, signRequest(visitor, 'resolveHttpFetch', { target, port: 80, path }));
+  const fetchPath = (path: string) => fetchFrom(SITE_IP, path);
+  const FINDIT_IP = siteAddress(FINDIT_DOMAIN) ?? '';
+  const searchFor = async (term: string): Promise<string> =>
+    contentOf((await fetchFrom(FINDIT_IP, `/?q=${encodeURIComponent(term)}`)).body);
+
+  // 0. FINDIT LISTS IT BEFORE ANYBODY HAS VISITED.
+  const untouched = firstResultHost(await searchFor('hackademy'));
+  check(
+    'a search for its name answers with hackademy.io first while nobody has visited it',
+    untouched === 'hackademy.io',
+    untouched || '(no result)',
+  );
+
   // 1. THE FRONT PAGE, AND THE CHAPTER IT LINKS TO.
-  const fetchPath = (path: string) =>
-    post(NETWORK, signRequest(visitor, 'resolveHttpFetch', { target: SITE_IP, port: 80, path }));
   const front = await fetchPath('/');
   check(
     'the front page is the one hackademy was generated with',
@@ -178,6 +199,24 @@ const main = async () => {
     'a wrong root password is refused and recorded in its auth.log',
     login.status === 401 && authLog.includes(`Failed password for root from ${visitorIp}`),
     `status ${login.status}; ${authLog.trim().split('\n').slice(-1)[0] ?? '(empty log)'}`,
+  );
+
+  // 5. FINDIT STILL LISTS IT ONCE ITS OWN LOG HAS ROWS, AND THE RESULT LEADS HOME.
+  const named = firstResultHost(await searchFor('hackademy'));
+  const followed = siteAddress(named);
+  const landing = followed === undefined ? null : await fetchFrom(followed, '/');
+  check(
+    'a search for its name still answers with it, and the result leads to the front page',
+    named === 'hackademy.io' &&
+      landing?.status === 200 &&
+      contentOf(landing.body) === generated('/index.html'),
+    `${named || '(no result)'} -> ${followed ?? '(unresolved)'} -> status ${landing?.status ?? '-'}`,
+  );
+  const tutorial = await searchFor('tutorial');
+  check(
+    'a search for "tutorial" lists hackademy.io',
+    tutorial.includes('href="http://hackademy.io/"'),
+    firstResultHost(tutorial) || '(no result)',
   );
 
   await cleanup();

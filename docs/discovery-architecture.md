@@ -194,6 +194,14 @@ kept:
   `checkBudgets` times the cold build against 1,000 ms (`conventions-and-gotchas.md` §2).
   A player network whose gateway has no row is skipped outright: an untouched gateway
   forwards nothing.
+- **A fixed site is listed under its domain**, as an institution is: every entry in
+  `FIXED_SITES` but findit itself, which a searcher is already on (v0.336.0). Its one box,
+  gateway and web server at once, joins the batch read. Untouched, it is listed from the
+  generated web; touched, it is rebuilt from its journal, and a box that now forwards `:80`
+  elsewhere is fetched like a repointed publisher. Every reader leaves an `access.log` row
+  on it, so hackademy.io is rebuilt at nearly every search. Its `<meta name="description">`
+  carries the words a newcomer searches for ("tutorial", "newcomer"); `testFindit`'s `COST`
+  line read the same before and after (about 2.9 s against 2.2 s for one fetch, locally).
 - **Players are crawled, not submitted.** Every page on a public `:80` is listed — player
   or NPC — decided at query time through the same resolution a `curl` makes, so a player
   who leaves the wifi or stops nginx simply drops out. Being public is already deliberate
