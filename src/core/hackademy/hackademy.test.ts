@@ -13,6 +13,8 @@ import { withFiles } from '../generation/baseFs.js';
 import { createBinaryEntries } from '../generation/binaries.js';
 import { formatSshdAuthLine } from '../logging/authLog.js';
 import { HACKADEMY_PAGES } from './pages.js';
+import { binaryExists, isAlwaysAvailable } from '../commands/availability.js';
+import { packageForBinary } from '../packages/aptPackages.js';
 import {
   mockCommandEnv,
   mockFsViewFromTree,
@@ -183,7 +185,7 @@ const CHAPTERS = [
   {
     url: `${SITE}/getting-in.html`,
     title: 'Getting in',
-    tools: ['ssh', 'scp', 'ftp', 'nc', 'john'],
+    tools: ['ssh', 'nc', 'john'],
   },
   {
     url: `${SITE}/services.html`,
@@ -310,6 +312,50 @@ describe('the command examples a new player is shown', () => {
         .map((program) => `${program} (in: ${line})`),
     );
     expect(unknown).toEqual([]);
+  });
+
+  it('run only programs a fresh box has, or one an earlier example installed', () => {
+    const freshBox = mockCommandEnv({ fs: mockFsViewFromTree(aliceBox(), { userType: 'root' }) });
+    const texts = [
+      { name: 'README', lines: promptedLines(README()) },
+      ...everyPage().map((page) => ({ name: page, lines: examplesOn(served(page) ?? '') })),
+    ];
+    const missing = texts.flatMap(({ name, lines }) => {
+      const installed = new Set<string>();
+      return lines.flatMap((line) =>
+        (pipelineOf(line)?.stages ?? []).flatMap((stage) => {
+          const runnable =
+            isAlwaysAvailable(stage.name) ||
+            binaryExists(freshBox, stage.name) ||
+            installed.has(packageForBinary(stage.name) ?? '');
+          if (stage.name === 'apt' && stage.args[0] === 'install') {
+            stage.args.slice(1).forEach((pkg) => installed.add(pkg));
+          }
+          return runnable ? [] : [`${name}: ${line}`];
+        }),
+      );
+    });
+    expect(missing).toEqual([]);
+  });
+
+  it('never aim ssh, scp or ftp at localhost: those doors reach other boxes only', () => {
+    const doors = ['ssh', 'scp', 'ftp'];
+    for (const page of everyPage()) {
+      for (const line of examplesOn(served(page) ?? '')) {
+        for (const stage of pipelineOf(line)?.stages ?? []) {
+          const atLocalhost = stage.args.some((arg) => arg.includes('localhost'));
+          expect(doors.includes(stage.name) && atLocalhost, `${page}: ${line}`).toBe(false);
+        }
+      }
+    }
+  });
+
+  it('show ssh in the getting-in chapter at hackademy.io itself', () => {
+    const sshTargets = examplesOn(served(`${SITE}/getting-in.html`) ?? '')
+      .flatMap((line) => pipelineOf(line)?.stages ?? [])
+      .filter((stage) => stage.name === 'ssh')
+      .flatMap((stage) => stage.args);
+    expect(sshTargets).toContainEqual(expect.stringMatching(/@hackademy\.io$/));
   });
 
   it('fetch only addresses the site serves', () => {
