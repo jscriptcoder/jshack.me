@@ -3,7 +3,7 @@
 //
 // Net-new under test (the locally-untypechecked api/ runtime):
 //   - THE SITE IS AT ITS ADDRESS. `resolveHttpFetch` at hackademy's derived address serves
-//     the generated front page, and the chapter it links to, byte for byte.
+//     every page the site was generated with, byte for byte.
 //   - THE VISIT IS LOGGED. Each fetch lands in hackademy's own /var/log/access.log, under
 //     the network's own key, naming the visitor at the address the server holds for them.
 //   - THE BOX IS REAL. A scan of its address finds the two doors it keeps, 22 and 80, and
@@ -27,6 +27,7 @@ import { siteAddress } from '../src/core/generation/publisher.js';
 import { FINDIT_DOMAIN } from '../src/core/generation/fixedSites.js';
 import { buildFixedSiteFs } from '../src/core/generation/fixedSiteFs.js';
 import { fixedSite, HACKADEMY_NETWORK } from '../src/core/generation/fixedSites.js';
+import { HACKADEMY_PAGES } from '../src/core/hackademy/pages.js';
 import { apGatewayLogWriterKey } from '../src/core/logging/apGatewayLogWriter.js';
 import { createFsView } from '../src/core/filesystem/fsView.js';
 import { md5 } from '../src/core/generation/md5.js';
@@ -147,23 +148,23 @@ const main = async () => {
     untouched || '(no result)',
   );
 
-  // 1. THE FRONT PAGE, AND THE CHAPTER IT LINKS TO.
+  // 1. EVERY PAGE THE SITE WAS GENERATED WITH, SERVED BYTE FOR BYTE.
+  for (const name of Object.keys(HACKADEMY_PAGES)) {
+    const path = name === 'index.html' ? '/' : `/${name}`;
+    const served = await fetchPath(path);
+    check(
+      `${path} is served as generated`,
+      served.status === 200 && contentOf(served.body) === generated(`/${name}`),
+      contentOf(served.body).slice(0, 80) || `status ${served.status}`,
+    );
+  }
   const front = await fetchPath('/');
   check(
-    'the front page is the one hackademy was generated with',
-    front.status === 200 && contentOf(front.body) === generated('/index.html'),
-    contentOf(front.body).slice(0, 80) || `status ${front.status}`,
-  );
-  check(
-    'the front page links to chapter 1',
-    contentOf(front.body).includes('href="/getting-around.html"'),
-    'href="/getting-around.html"',
-  );
-  const chapter = await fetchPath('/getting-around.html');
-  check(
-    'chapter 1 is served as generated',
-    chapter.status === 200 && contentOf(chapter.body) === generated('/getting-around.html'),
-    contentOf(chapter.body).slice(0, 80) || `status ${chapter.status}`,
+    'the front page links to every chapter',
+    ['getting-around', 'wifi', 'your-network', 'looking-around'].every((chapter) =>
+      contentOf(front.body).includes(`href="/${chapter}.html"`),
+    ),
+    'front-page chapter links',
   );
 
   // 2. THE VISIT IS LOGGED ON THE SITE ITSELF.
