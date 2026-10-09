@@ -7,8 +7,21 @@ import { buildWorkstationBaseFs } from '../generation/workstationFs.js';
 import { commandRegistry } from '../commands/registry.js';
 import { tokenize } from '../shell/tokenize.js';
 import { parsePipeline } from '../shell/pipeline.js';
-import { asAbsPath } from '../types.js';
-import type { Directory } from '../filesystem/types.js';
+import type { Pipeline } from '../shell/pipeline.js';
+import { runCommandLine } from '../shell/runLine.js';
+import { withFiles } from '../generation/baseFs.js';
+import { createBinaryEntries } from '../generation/binaries.js';
+import { formatSshdAuthLine } from '../logging/authLog.js';
+import { HACKADEMY_PAGES } from './pages.js';
+import {
+  mockCommandEnv,
+  mockFsViewFromTree,
+  mockSession,
+} from '../../test/factories/commandEnv.js';
+import { buildFile } from '../../test/factories/filesystem.js';
+import { asAbsPath, asGameTime } from '../types.js';
+import type { CommandResult, TerminalLine } from '../commands/types.js';
+import type { Directory, FileEntry } from '../filesystem/types.js';
 
 /**
  * hackademy.io is where a new player learns the world, from inside it. Everything here is
@@ -57,21 +70,92 @@ const promptedLines = (text: string): readonly string[] =>
 const examplesOn = (html: string): readonly string[] =>
   [...parsed(html).querySelectorAll('pre')].flatMap((pre) => promptedLines(pre.textContent ?? ''));
 
-/** Every program a command line runs, one per stage of its pipeline. */
-const programsIn = (line: string): readonly string[] => {
+/** A command line as the shell reads it, or null when it would not parse. */
+const pipelineOf = (line: string): Pipeline | null => {
   const tokens = tokenize(line);
-  if (!tokens.ok) return [`unparsable: ${line}`];
+  if (!tokens.ok) return null;
   const pipeline = parsePipeline(tokens.tokens);
-  return pipeline.ok ? pipeline.pipeline.stages.map((stage) => stage.name) : [`unparsable: ${line}`];
+  return pipeline.ok ? pipeline.pipeline : null;
 };
 
-const README = (): string => {
-  const read = createFsView(buildWorkstationBaseFs('1'.repeat(64), {
+/** Every program a command line runs, one per stage of its pipeline. */
+const programsIn = (line: string): readonly string[] =>
+  pipelineOf(line)?.stages.map((stage) => stage.name) ?? [`unparsable: ${line}`];
+
+/** Every address on the site a command line names. */
+const siteAddressesIn = (line: string): readonly string[] =>
+  line.match(/http:\/\/hackademy\.io\S*/g) ?? [];
+
+/** A new player's own box, as it is first generated. */
+const aliceBox = (): Directory =>
+  buildWorkstationBaseFs('1'.repeat(64), {
     machineName: 'workstation',
     username: 'alice',
     rootPassword: 'hunter2',
-  }), { userType: 'root' }).read(asAbsPath('/home/alice/README'));
+  });
+
+const README = (): string => {
+  const read = createFsView(aliceBox(), { userType: 'root' }).read(asAbsPath('/home/alice/README'));
   return read.ok ? read.content : '';
+};
+
+/** Failed logins on alice's box: three from one address, one from another. */
+const KNOCKS = [
+  { fromIp: '10.0.0.5', times: 3 },
+  { fromIp: '10.0.0.9', times: 1 },
+];
+
+const failedLogin = (fromIp: string): string =>
+  formatSshdAuthLine({
+    outcome: 'failure',
+    user: 'root',
+    fromIp,
+    hostname: 'workstation',
+    time: asGameTime(0),
+    pid: 4242,
+  });
+
+/** What the site serves as the script `name`, saved into alice's home on a box that has
+ *  installed node and has been knocked on — the state a reader of the scripting chapter
+ *  runs it in. */
+const readerRunning = (name: string) => {
+  const nodeBinary = createBinaryEntries(['node']).node as FileEntry;
+  const authLog = KNOCKS.flatMap(({ fromIp, times }) =>
+    Array.from({ length: times }, () => failedLogin(fromIp)),
+  ).join('\n');
+  const box = withFiles(aliceBox(), [
+    ['/usr/bin/node', nodeBinary],
+    [
+      '/var/log/auth.log',
+      buildFile(`${authLog}\n`, { owner: 'root', perms: { read: ['root', 'user', 'guest'] } }),
+    ],
+    [`/home/alice/${name}`, buildFile(served(`${SITE}/scripts/${name}`) ?? '', { owner: 'alice' })],
+  ]);
+  return mockCommandEnv({
+    fs: mockFsViewFromTree(box, { userType: 'user', cwd: asAbsPath('/home/alice') }),
+    session: mockSession({ username: 'alice', userType: 'user' }),
+  });
+};
+
+/** Everything a command printed, in order, and the code it ended on. */
+const drain = async (
+  result: CommandResult,
+): Promise<{ readonly lines: readonly TerminalLine[]; readonly exitCode: number }> => {
+  if (result.kind === 'mode_change') return { lines: [], exitCode: 0 };
+  if (result.kind === 'sync') return { lines: result.lines, exitCode: result.exitCode };
+  const collected: TerminalLine[] = [];
+  for await (const line of result.lines) collected.push(line);
+  return { lines: collected, exitCode: await result.exitCode() };
+};
+
+const run = async (name: string, line: string) => {
+  const { lines, exitCode } = await drain(
+    await runCommandLine(readerRunning(name), line, commandRegistry),
+  );
+  return {
+    printed: lines.filter((printed) => printed.kind === 'text').map((printed) => printed.content),
+    exitCode,
+  };
 };
 
 /** The chapters, in the order the front page lists them, with the tools each one shows. */
@@ -111,9 +195,28 @@ const CHAPTERS = [
     title: 'The web',
     tools: ['curl', 'lynx', 'gobuster'],
   },
+  {
+    url: `${SITE}/traces.html`,
+    title: 'Traces',
+    tools: ['tail', 'grep', 'cat'],
+  },
+  {
+    url: `${SITE}/other-services.html`,
+    title: 'Databases and other services',
+    tools: ['apt', 'systemctl', 'mysql', 'redis-cli'],
+  },
+  {
+    url: `${SITE}/scripting.html`,
+    title: 'Scripting with node',
+    tools: ['curl', 'node'],
+  },
 ];
 
-/** The one chapter that is allowed — and required — to name findit (decision 9). */
+/** The example scripts the site keeps for a reader to download and run. */
+const SCRIPTS = ['hello.js', 'failed.js'];
+
+/** The one chapter that is allowed — and required — to name findit: the world's one pointer
+ *  to the search site a newcomer would otherwise never hear of. */
 const WEB_CHAPTER = `${SITE}/the-web.html`;
 
 describe('the front page of hackademy.io', () => {
@@ -207,5 +310,54 @@ describe('the command examples a new player is shown', () => {
         .map((program) => `${program} (in: ${line})`),
     );
     expect(unknown).toEqual([]);
+  });
+
+  it('fetch only addresses the site serves', () => {
+    for (const page of everyPage()) {
+      for (const address of examplesOn(served(page) ?? '').flatMap(siteAddressesIn)) {
+        expect(served(address), `${page}: ${address}`).not.toBeNull();
+      }
+    }
+  });
+
+  it('run a script with node only after an earlier example saved it from the site', () => {
+    for (const page of everyPage()) {
+      const pipelines = examplesOn(served(page) ?? '').flatMap((line) => pipelineOf(line) ?? []);
+      pipelines.forEach((pipeline, index) => {
+        const [stage] = pipeline.stages;
+        if (stage?.name !== 'node') return;
+        const saved = pipelines
+          .slice(0, index)
+          .filter((earlier) => earlier.stages[0]?.name === 'curl')
+          .filter((earlier) =>
+            earlier.stages[0]?.args.some((arg) => siteAddressesIn(arg).length > 0),
+          )
+          .map((earlier) => earlier.redirect?.path);
+        expect(saved, `${page}: node ${stage.args.join(' ')}`).toContain(stage.args[0]);
+      });
+    }
+  });
+});
+
+describe('the example scripts on hackademy.io', () => {
+  it.each(SCRIPTS)('serves /scripts/%s as the site keeps it', (name) => {
+    expect(served(`${SITE}/scripts/${name}`)).toBe(HACKADEMY_PAGES[`scripts/${name}`]);
+    expect(served(`${SITE}/scripts/${name}`)).not.toBe('');
+  });
+
+  it('hello.js runs on the reader’s own box and answers with what it was given', async () => {
+    const { printed, exitCode } = await run('hello.js', 'node hello.js stranger');
+    expect(exitCode).toBe(0);
+    expect(printed.join('\n')).toContain('stranger');
+  });
+
+  it('failed.js tallies the failed logins in the reader’s own auth.log by address', async () => {
+    const { printed, exitCode } = await run('failed.js', 'node failed.js');
+    expect(exitCode).toBe(0);
+    for (const { fromIp, times } of KNOCKS) {
+      expect(printed, fromIp).toContainEqual(
+        expect.stringMatching(new RegExp(`${fromIp}\\D+${times}$`)),
+      );
+    }
   });
 });
