@@ -3575,7 +3575,8 @@ describe('a door logged into the player’s own box', () => {
   ];
 
   /** Boot at home, offline — loopback needs no network — with every write the box is
-   *  sent kept, so a test can say what never left. */
+   *  sent kept, so a test can say what never left. A write lands in the journal the
+   *  box answers with from then on, as the server's would. */
   const bootAtHome = async () => {
     vi.resetModules();
     const store = new Map<string, string>();
@@ -3586,6 +3587,7 @@ describe('a door logged into the player’s own box', () => {
     });
 
     const sent: Record<string, unknown>[] = [];
+    const landed: Record<string, unknown>[] = [];
     vi.stubGlobal(
       'fetch',
       vi.fn(async (_url: string, init?: { body?: string }) => {
@@ -3598,7 +3600,11 @@ describe('a door logged into the player’s own box', () => {
           return { ok: true, status: 200, json: async () => ({ sessions: [] }) };
         }
         if (fields.action === 'listPatches') {
-          return { ok: true, status: 200, json: async () => ({ patches: ownJournal }) };
+          const patches = [...ownJournal, ...landed];
+          return { ok: true, status: 200, json: async () => ({ patches }) };
+        }
+        if (fields.action === 'upsertPatch') {
+          landed.push({ ...fields, permissions: fields.permissions ?? PIDFILE_PERMISSIONS });
         }
         return { ok: true, status: 200, json: async () => ({ ok: true }) };
       }),
@@ -3671,5 +3677,30 @@ describe('a door logged into the player’s own box', () => {
       '553 Could not create file: /root/planted: Permission denied',
     );
     expect(writesTo(sent, '/root/planted')).toEqual([]);
+  });
+
+  it('shows the shell a file scp carried onto the box it stands on', async () => {
+    const { state } = await bootAtHome();
+
+    await typeAnswering(state, 'scp /etc/passwd root@localhost:/tmp/carried', ['pw']);
+    state.setInput('ls /tmp');
+    await state.runInput();
+
+    expect(state.scrollback().at(-1)?.content).toContain('carried');
+  });
+
+  it('shows the shell a file an ftp put left on the box it stands on', async () => {
+    const { state } = await bootAtHome();
+
+    await typeAnswering(state, 'ftp localhost root', ['pw']);
+    state.setInput('put /etc/passwd /tmp/put');
+    await state.runInput();
+    state.setInput('quit');
+    await state.runInput();
+    await settle();
+    state.setInput('ls /tmp');
+    await state.runInput();
+
+    expect(state.scrollback().at(-1)?.content).toContain('put');
   });
 });

@@ -39,13 +39,17 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   `plantedHistory.test.ts` would not catch a regression here; the test belongs in `grep.test.ts`
   through `runCommandLine`. Found while closing the planted-history item (2026-10-07).
 
-- **`ssh`, `scp` and `ftp` cannot reach your own box.** `ssh root@localhost` (or your own LAN
-  address) answers `No route to host` with sshd running: those three resolve a target through the
-  generated LAN and occupants only, while `nc`, `mysql`, `redis-cli`, `msfconsole` and the web
-  tools go through `ownBoxSource` (`network/interfaces.ts`). A playtester will type `ssh localhost`.
-  Found by the tutorials' close-out browser run (2026-10-09), which moved chapter 5's door
-  examples to hackademy.io; if the doors gain an own-box path, put the `localhost` examples back
-  and delete the tutorial test that forbids them (`tutorials-architecture.md`).
+- **`ssh`, `scp` and `ftp` could not reach your own box — RESOLVED 2026-10-09 (v0.341.0–v0.344.0,
+  #637–#640).** `ssh root@localhost` answered `No route to host` with sshd running. At home the
+  three doors now log into the own box client-side (`commands/ownBoxLogin.ts`): the daemon must hold
+  the port, the password is checked against the box's own `/etc/passwd`, and the login lands in
+  the door's own log as `127.0.0.1`. From a hop, `localhost` is sent on as `127.0.0.1` and lands on
+  the hop. Chapter 5 shows the `localhost` examples again. Still open: ftp transfers at home are not
+  itemised in `vsftpd.log` (`recordFtpTransfer` refuses the own box), and the data doors
+  (`serviceHost.ts`) still map loopback through `ownLanSourceIp`, so on a deep hop they may land
+  on the gateway. Unverified. And a file `scp` carries lands `rwx------`, owned by the login's
+  account, so `scp notes.txt root@localhost:/tmp/` leaves a file the player's own account cannot
+  read (real scp keeps the source's mode). Found by the close-out browser run.
 
 - **`~` expands only as `~` and `~/path` (v0.328.0, #621).** Expansion happens in the tokenizer, so
   every command and redirect target gets it. Still missing: `~user` (another account's home —

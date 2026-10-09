@@ -669,8 +669,17 @@ agreed order:
    findit lists it under its domain. A close-out browser run walked the README, all ten
    chapters and the findit search, and typed the examples on a new player's box; the broken ones
    it found were fixed in #636 (chapter 5 knocks on hackademy.io with `ssh`, since no
-   `ssh`/`scp`/`ftp` reaches your own box; every chapter installs its own tools). As built:
+   `ssh`/`scp`/`ftp` reached your own box then; every chapter installs its own tools). As built:
    `tutorials-architecture.md`.
+8. ✅ The login doors reach your own box (#637–#640, v0.341.0–v0.344.0, 2026-10-09):
+   `ssh root@localhost`, `scp f root@localhost:/tmp/` and `ftp localhost` log into the box the
+   shell stands on. At home the login is client-side (`commands/ownBoxLogin.ts`): the door's
+   daemon must hold the port, the password is checked against the box's own `/etc/passwd`, an
+   account with no password is refused, and the door's own log records `127.0.0.1`. From a hop,
+   `localhost` goes to the server as `127.0.0.1` and lands on the hop, past its own filter and
+   any switch. Chapter 5 of hackademy.io shows the `localhost` examples again. Left open in
+   `backlog.md`: ftp transfers at home are not itemised in `vsftpd.log`, and the data doors may
+   resolve `localhost` to the gateway on a deep hop (unverified).
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan
