@@ -387,7 +387,7 @@ export type AuthLogEvent =
       /** A login through a door on the player's own box — the daemon's own line,
        *  from the address the box was reached by. */
       readonly kind: 'doorLogin';
-      readonly door: 'ssh';
+      readonly door: 'ssh' | 'scp' | 'ftp';
       readonly machineId: MachineId;
       readonly user: string;
       readonly fromIp: string;
@@ -616,7 +616,9 @@ export type FtpApi = {
    *  claim this door rests on is that a write is a write, so an ftp session reaches
    *  the very same gate an ssh session does and the protocol decides nothing. The
    *  tier is checked SERVER-side, not here — a client that refuses on its own behalf
-   *  is a client that could also permit on its own behalf. */
+   *  is a client that could also permit on its own behalf. The player's own box is the
+   *  exception the server makes: it lets the owner write there unasked, so the seam
+   *  asks the walker itself, at the tier the login bought. */
   readonly write: PatchApi['write'];
   /** Tell the REMOTE box a file crossed it, so its own `/var/log/vsftpd.log` itemises
    *  the visit in both directions. The command names only what moved and which way:
@@ -649,7 +651,8 @@ export type ScpApi = {
    *  bought. Session-PARAMETERIZED rather than pre-bound, because the session it
    *  writes through was created moments ago by the same command. The gate is the
    *  shipped one: it refuses an over-tier write having never been told a transfer
-   *  was involved. */
+   *  was involved — on the player's own box, which the server lets its owner write
+   *  unasked, the seam asks the walker itself at the tier the login bought. */
   readonly write: (
     session: Session,
     ...args: Parameters<PatchApi['write']>

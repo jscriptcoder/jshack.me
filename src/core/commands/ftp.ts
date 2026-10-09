@@ -26,6 +26,7 @@ import { vantageOf } from '../network/vantage.js';
 import { resolveDeepScanHosts } from '../scan/deepScanHosts.js';
 import { readOpenPorts } from '../services/pidfile.js';
 import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
+import { admitOwnBoxLogin, ownBoxVisitFrom } from './ownBoxLogin.js';
 import type { Command, CommandEnv, CommandResult, PublicAuthResult, Session } from './types.js';
 
 const USAGE = 'usage: ftp [-p port] <host> [user]';
@@ -243,9 +244,55 @@ const publicLogin = async (
   });
 };
 
+/** The player's OWN box, reached at home, answered from its own tree: its own vsftpd
+ *  has to be listening on the asked port, and `admitOwnBoxLogin` decides who gets in.
+ *  The session runs beside a shell that never left its own box, so it carries the
+ *  network that shell carries: none. */
+const ownBoxLogin = async (
+  env: CommandEnv,
+  target: string,
+  port: number,
+  named: string | undefined,
+  fromIp: string,
+): Promise<CommandResult> => {
+  const open = readOpenPorts(env.fs.root()).some(
+    (candidate) => candidate.port === port && candidate.service === SERVICE_CATALOG.ftp.service,
+  );
+  if (!open) return errorResult('ftp: connect: Connection refused');
+
+  const credential = await askCredential(env, target, named);
+  if (credential === null) return ABORTED;
+
+  const userType = await admitOwnBoxLogin(env, {
+    door: 'ftp',
+    user: credential.username,
+    password: credential.password,
+    fromIp,
+  });
+  if (userType === null) return refusal(target, 'invalid_credentials');
+
+  return accepted(env, target, {
+    id: `ftp-${credential.username}-${env.now()}`,
+    playerKey: env.identity.publicKeyHex,
+    machineId: env.session.machineId,
+    username: credential.username,
+    userType,
+    kind: 'ftp',
+    createdAt: env.now(),
+    essid: env.session.essid,
+  });
+};
+
 const execute: Command['execute'] = async (env, args, flags) => {
   const requested = args[0];
   if (requested === undefined) return errorResult(USAGE);
+
+  // The player's own box, named for itself: loopback, or the address they were leased.
+  // Asked before anything about the network, because loopback needs none.
+  const ownSource = ownBoxVisitFrom(env, requested);
+  if (ownSource !== null) {
+    return ownBoxLogin(env, requested, parsePort(flags.get('-p')), args[1], ownSource);
+  }
 
   // Where the shell stands: the hop on top of the stack, or the player's own WiFi on
   // their own box. Every address below is reached FROM there.

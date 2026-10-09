@@ -24,6 +24,7 @@ import { defaultFilePermissions } from '../core/filesystem/defaultPermissions.js
 import { SERVICE_CATALOG } from '../core/services/serviceCatalog.js';
 import { HTTP_DEFAULT_PORT } from '../core/network/http.js';
 import { binaryStub } from '../core/generation/binaries.js';
+import { md5 } from '../core/generation/md5.js';
 import { serializeTree } from '../core/filesystem/treeCodec.js';
 import { buildDirectory, buildFile } from '../test/factories/filesystem.js';
 import type { ModeChange, PublicFetchResult } from '../core/commands/types.js';
@@ -3520,5 +3521,155 @@ describe('the redis sub-shell', () => {
 
     expect(printed).toContain('Error: Server closed the connection');
     expect(state.subShellPrompt()).toBe(null);
+  });
+});
+
+/**
+ * A door that logs into the player's OWN box writes only what its login may.
+ *
+ * The server asks every other box's writes whether the session's tier may make them,
+ * and lets the owner's writes to their own box through unasked — on that box the
+ * client is what asks. So a guest login over `localhost` has to be held to guest here,
+ * or it writes as whoever the shell was already standing as.
+ */
+describe('a door logged into the player’s own box', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
+  const GUEST_PASSWORD = 'guestpw';
+
+  /** The own box's journal: a guest whose password the test knows, both door daemons
+   *  listening, and the apt-gated ftp client installed. */
+  const ownJournal: readonly Record<string, unknown>[] = [
+    {
+      path: '/etc/passwd',
+      content:
+        `root:${md5('pw')}:0:0:root:/root:/bin/bash\n` +
+        'tester::1000:1000:tester:/home/tester:/bin/bash\n' +
+        `guest:${md5(GUEST_PASSWORD)}:1001:1001:guest:/home/guest:/bin/bash\n`,
+      owner: 'root',
+      permissions: { read: ['root', 'user', 'guest'], write: ['root'], execute: [] },
+    },
+    {
+      path: pidfilePath(SERVICE_CATALOG.ssh),
+      content: formatPidfileContent(SERVICE_CATALOG.ssh, 22),
+      owner: 'root',
+      permissions: PIDFILE_PERMISSIONS,
+    },
+    {
+      path: pidfilePath(SERVICE_CATALOG.ftp),
+      content: formatPidfileContent(SERVICE_CATALOG.ftp, 21),
+      owner: 'root',
+      permissions: PIDFILE_PERMISSIONS,
+    },
+    {
+      path: '/usr/bin/ftp',
+      content: binaryStub('ftp'),
+      owner: 'root',
+      permissions: {
+        read: ['root', 'user', 'guest'],
+        write: ['root'],
+        execute: ['root', 'user', 'guest'],
+      },
+    },
+  ];
+
+  /** Boot at home, offline — loopback needs no network — with every write the box is
+   *  sent kept, so a test can say what never left. */
+  const bootAtHome = async () => {
+    vi.resetModules();
+    const store = new Map<string, string>();
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => store.set(key, value),
+      removeItem: (key: string) => store.delete(key),
+    });
+
+    const sent: Record<string, unknown>[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: { body?: string }) => {
+        const fields = JSON.parse(JSON.parse(init?.body ?? '{}').payload) as Record<
+          string,
+          unknown
+        >;
+        sent.push(fields);
+        if (fields.action === 'listSessions') {
+          return { ok: true, status: 200, json: async () => ({ sessions: [] }) };
+        }
+        if (fields.action === 'listPatches') {
+          return { ok: true, status: 200, json: async () => ({ patches: ownJournal }) };
+        }
+        return { ok: true, status: 200, json: async () => ({ ok: true }) };
+      }),
+    );
+
+    const state = await import('./state.js');
+    state.startGame({ machineName: 'box', username: 'tester', rootPassword: 'pw' });
+    await vi.waitFor(() => expect(state.promptHost()).toBe('box'));
+    // The boot journal fetch is in flight; the daemons only listen once it lands.
+    await vi.waitFor(async () => {
+      state.setInput('ls /var/run');
+      await state.runInput();
+      expect(state.scrollback().some((line) => line.content.includes('vsftpd.pid'))).toBe(true);
+    });
+    return { state, sent };
+  };
+
+  /** Run a line, answering each prompt it asks in turn. */
+  const typeAnswering = async (
+    state: typeof import('./state.js'),
+    line: string,
+    answers: readonly string[],
+  ): Promise<void> => {
+    state.setInput(line);
+    const run = state.runInput();
+    for (const answer of answers) {
+      await vi.waitFor(() => expect(state.pendingPrompt()).toBeDefined());
+      state.setInput(answer);
+      state.submitPrompt();
+    }
+    await run;
+    await settle();
+  };
+
+  const writesTo = (sent: readonly Record<string, unknown>[], path: string) =>
+    sent.filter((payload) => payload.action === 'upsertPatch' && payload.path === path);
+
+  it('refuses an scp carried in as guest where guest may not write, sending nothing', async () => {
+    const { state, sent } = await bootAtHome();
+
+    await typeAnswering(state, 'scp /etc/passwd guest@localhost:/root/planted', [GUEST_PASSWORD]);
+
+    expect(state.scrollback().map((line) => line.content)).toContain(
+      'scp: /root/planted: Permission denied',
+    );
+    expect(writesTo(sent, '/root/planted')).toEqual([]);
+  });
+
+  it('lands an scp carried in as guest where guest may write', async () => {
+    const { state, sent } = await bootAtHome();
+
+    await typeAnswering(state, 'scp /etc/passwd guest@localhost:/home/guest/carried', [
+      GUEST_PASSWORD,
+    ]);
+
+    expect(writesTo(sent, '/home/guest/carried')).toEqual([
+      expect.objectContaining({ owner: 'guest' }),
+    ]);
+  });
+
+  it('refuses an ftp put as guest where guest may not write, sending nothing', async () => {
+    const { state, sent } = await bootAtHome();
+
+    await typeAnswering(state, 'ftp localhost guest', [GUEST_PASSWORD]);
+    expect(state.inFtpSession()).toBe(true);
+    state.setInput('put /etc/passwd /root/planted');
+    await state.runInput();
+
+    expect(state.scrollback().at(-1)?.content).toBe(
+      '553 Could not create file: /root/planted: Permission denied',
+    );
+    expect(writesTo(sent, '/root/planted')).toEqual([]);
   });
 });

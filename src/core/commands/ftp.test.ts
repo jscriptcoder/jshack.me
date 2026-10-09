@@ -13,6 +13,7 @@ import {
   mockSession,
 } from '../../test/factories/commandEnv.js';
 import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
+import { OWN_BOX, ownBoxEnv, type OwnBoxOptions } from '../../test/factories/ownBox.js';
 import { applyPatches, type Patch } from '../filesystem/applyPatches.js';
 import { defaultFilePermissions } from '../filesystem/defaultPermissions.js';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
@@ -26,6 +27,7 @@ import { buildColdStartConnectivity, type ConnectivityState } from '../network/i
 import { asAbsPath, asEpochMs, asMachineId, asPlayerKeyHex } from '../types.js';
 import type { AbsPath, UserType } from '../types.js';
 import type {
+  AuthLogEvent,
   CommandResult,
   PublicAuthParams,
   FtpTransfer,
@@ -1601,5 +1603,219 @@ describe('ftp to a fellow occupant — the arm’s refusals and reach', () => {
     expect(authenticate).toHaveBeenCalledTimes(1);
     expect(authenticateSameLan).not.toHaveBeenCalled();
     expect(entered.mock.calls[0]![0]).toMatchObject({ machineId: hostMachineId(target, HOP_ESSID) });
+  });
+});
+
+/**
+ * `ftp localhost` at home. The login is answered from the box's own tree, as an
+ * own-box `ssh` is — its own vsftpd has to be listening, the password is checked
+ * against its own `/etc/passwd` — and the `ftp>` prompt then opens on the box the shell
+ * already stands on, as the account that login bought.
+ */
+describe('ftp to the box the shell stands on, at home', () => {
+  type OwnFtpOver = {
+    readonly prompt?: (opts: { message: string; masked: boolean }) => Promise<string>;
+    readonly onEnter?: (session: Session) => void;
+    readonly onPush?: (session: Session) => void;
+  };
+
+  const ownFtpEnv = (options: OwnBoxOptions = {}, over: OwnFtpOver = {}) =>
+    ownBoxEnv(options, {
+      // A guest login unless the test says otherwise: the Name prompt is answered with
+      // the account, the masked one with its password.
+      prompt: over.prompt ?? (async ({ masked }) => (masked ? OWN_BOX.guestPassword : 'guest')),
+      ftp: mockFtpApi({ enter: over.onEnter ?? (() => undefined) }),
+      pushSession: over.onPush ?? (() => undefined),
+    });
+
+  it('opens the ftp> prompt on the own box as the account the login bought, beside the shell', async () => {
+    const entered = vi.fn<(session: Session) => void>();
+    const pushed = vi.fn<(session: Session) => void>();
+
+    const result = sync(
+      await ftp.execute(ownFtpEnv({}, { onEnter: entered, onPush: pushed }), ['localhost'], new Map()),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.lines.map((line) => line.content)).toEqual([
+      'Connected to localhost.',
+      '220 (vsFTPd 3.0.3)',
+      '230 Login successful.',
+    ]);
+    expect(entered).toHaveBeenCalledWith({
+      id: `ftp-guest-${OWN_BOX.now}`,
+      playerKey: asPlayerKeyHex(OWN_BOX.pubkey),
+      machineId: OWN_BOX.machineId,
+      username: 'guest',
+      userType: 'guest',
+      kind: 'ftp',
+      createdAt: OWN_BOX.now,
+      // Still at home: the session runs beside a shell that never left its own box.
+      essid: null,
+    });
+    expect(pushed).not.toHaveBeenCalled();
+  });
+
+  it('asks for the account the way a real client does, offering the shell’s own', async () => {
+    const prompt = vi.fn<(opts: { message: string; masked: boolean }) => Promise<string>>(
+      async ({ masked }) => (masked ? OWN_BOX.guestPassword : 'guest'),
+    );
+    await ftp.execute(ownFtpEnv({}, { prompt }), ['localhost'], new Map());
+    expect(prompt.mock.calls.map(([options]) => options)).toEqual([
+      { message: 'Name (localhost:alice): ', masked: false },
+      { message: 'Password: ', masked: true },
+    ]);
+  });
+
+  it('takes the account from the command line, asking only for the password', async () => {
+    const entered = vi.fn<(session: Session) => void>();
+    await ftp.execute(
+      ownFtpEnv({}, { onEnter: entered, prompt: async () => OWN_BOX.rootPassword }),
+      ['localhost', 'root'],
+      new Map(),
+    );
+    expect(entered).toHaveBeenCalledWith(
+      expect.objectContaining({ username: 'root', userType: 'root' }),
+    );
+  });
+
+  it('records the visit in its own vsftpd log, from loopback', async () => {
+    const onLog = vi.fn<(event: AuthLogEvent) => void>();
+    await ftp.execute(ownFtpEnv({ onLog }), ['localhost'], new Map());
+    expect(onLog).toHaveBeenCalledWith({
+      kind: 'doorLogin',
+      door: 'ftp',
+      machineId: OWN_BOX.machineId,
+      user: 'guest',
+      fromIp: '127.0.0.1',
+      outcome: 'success',
+      hostname: OWN_BOX.hostname,
+    });
+  });
+
+  it('answers to its own leased address, recording the visit from it', async () => {
+    const onLog = vi.fn<(event: AuthLogEvent) => void>();
+    const entered = vi.fn<(session: Session) => void>();
+    await ftp.execute(ownFtpEnv({ onLog }, { onEnter: entered }), [OWN_BOX.leasedIp], new Map());
+    expect(entered).toHaveBeenCalledWith(expect.objectContaining({ machineId: OWN_BOX.machineId }));
+    expect(onLog).toHaveBeenCalledWith(expect.objectContaining({ fromIp: OWN_BOX.leasedIp }));
+  });
+
+  it('refuses a wrong password with 530, records the failure and holds no session', async () => {
+    const onLog = vi.fn<(event: AuthLogEvent) => void>();
+    const entered = vi.fn<(session: Session) => void>();
+
+    const result = sync(
+      await ftp.execute(
+        ownFtpEnv(
+          { onLog },
+          { onEnter: entered, prompt: async ({ masked }) => (masked ? 'wrong' : 'guest') },
+        ),
+        ['localhost'],
+        new Map(),
+      ),
+    );
+
+    expect(result.exitCode).toBe(1);
+    expect(result.lines.map((line) => line.content)).toEqual([
+      'Connected to localhost.',
+      '220 (vsFTPd 3.0.3)',
+      '530 Login incorrect.',
+    ]);
+    expect(entered).not.toHaveBeenCalled();
+    expect(onLog).toHaveBeenCalledWith(
+      expect.objectContaining({ user: 'guest', outcome: 'failure' }),
+    );
+  });
+
+  it('refuses an account with no password, whatever is typed', async () => {
+    const entered = vi.fn<(session: Session) => void>();
+    const result = await ftp.execute(
+      ownFtpEnv({}, { onEnter: entered, prompt: async () => '' }),
+      ['localhost', 'alice'],
+      new Map(),
+    );
+    expect(linesOf(result)).toContain('530 Login incorrect.');
+    expect(entered).not.toHaveBeenCalled();
+  });
+
+  it('is refused before any prompt when the own vsftpd is not running', async () => {
+    const prompt = vi.fn(async () => OWN_BOX.guestPassword);
+    const result = sync(
+      await ftp.execute(ownFtpEnv({ vsftpdPort: null }, { prompt }), ['localhost'], new Map()),
+    );
+    expect(result.exitCode).toBe(1);
+    expect(linesOf(result)).toBe('ftp: connect: Connection refused');
+    expect(prompt).not.toHaveBeenCalled();
+  });
+
+  it('reaches the own vsftpd only on the port it listens on', async () => {
+    const refused = await ftp.execute(
+      ownFtpEnv(),
+      ['localhost'],
+      new Map([['-p', '2121']]),
+    );
+    expect(linesOf(refused)).toBe('ftp: connect: Connection refused');
+
+    const reached = sync(
+      await ftp.execute(
+        ownFtpEnv({ vsftpdPort: 2121 }),
+        ['localhost'],
+        new Map([['-p', '2121']]),
+      ),
+    );
+    expect(reached.exitCode).toBe(0);
+  });
+
+  it('is refused on a port the own box answers with another daemon', async () => {
+    const prompt = vi.fn(async () => OWN_BOX.guestPassword);
+    const result = await ftp.execute(
+      ownFtpEnv({ sshdPort: 22 }, { prompt }),
+      ['localhost'],
+      new Map([['-p', '22']]),
+    );
+    expect(linesOf(result)).toBe('ftp: connect: Connection refused');
+    expect(prompt).not.toHaveBeenCalled();
+  });
+
+  it('reaches localhost with the WiFi down — loopback needs no network', async () => {
+    const result = sync(await ftp.execute(ownFtpEnv({ online: false }), ['localhost'], new Map()));
+    expect(result.exitCode).toBe(0);
+  });
+
+  it('cannot reach its leased address with the WiFi down — offline it holds none', async () => {
+    const result = await ftp.execute(ownFtpEnv({ online: false }), [OWN_BOX.leasedIp], new Map());
+    expect(linesOf(result)).toBe('ftp: connect: Network is unreachable');
+  });
+
+  it('exits 130 and records nothing when a prompt is cancelled', async () => {
+    const onLog = vi.fn<(event: AuthLogEvent) => void>();
+    const entered = vi.fn<(session: Session) => void>();
+    const result = sync(
+      await ftp.execute(
+        ownFtpEnv(
+          { onLog },
+          { onEnter: entered, prompt: async () => Promise.reject(new Error('aborted')) },
+        ),
+        ['localhost'],
+        new Map(),
+      ),
+    );
+    expect(result.exitCode).toBe(130);
+    expect(onLog).not.toHaveBeenCalled();
+    expect(entered).not.toHaveBeenCalled();
+  });
+
+  it('is not the own box from a hop: localhost there names the hop, not the tree at home', async () => {
+    const onLog = vi.fn<(event: AuthLogEvent) => void>();
+    const env = ownFtpEnv({ onLog });
+    await ftp
+      .execute(
+        { ...env, session: { ...env.session, machineId: asMachineId('hop-box'), essid: ESSID } },
+        ['localhost'],
+        new Map(),
+      )
+      .catch(() => undefined);
+    expect(onLog).not.toHaveBeenCalled();
   });
 });
