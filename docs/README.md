@@ -54,6 +54,9 @@ disagree, the code wins; fix the doc.
   in-game DNS, publisher networks, and the findit.io search engine.
 - [vulnerability-architecture.md](./vulnerability-architecture.md) — the vulnerability system:
   the world clock, package timelines, the three axes, effects, and the defender's loop.
+- [tutorials-architecture.md](./tutorials-architecture.md) — the in-game tutorials: the home
+  `README`, hackademy.io's ten chapters and example scripts, the rules every chapter keeps, the
+  tests that hold them, and how to add a chapter (the in-game tutorials epic, shipped).
 - [e2e-shared-network-verification.md](./e2e-shared-network-verification.md) — two-player
   browser journeys against a local stack, and a coverage map.
 - [legacy/rewrite-blueprint/](./legacy/rewrite-blueprint/README.md) — the design-intent blueprint for the rewrite

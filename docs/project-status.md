@@ -662,23 +662,15 @@ agreed order:
 6. **Then:** defender-side items. ✅ The `echo x > rules.v4` wipe was decided a mechanic, not a
    gap (2026-10-08, `backlog.md`). Left: player-driven service patching (`backlog.md`), whose v2
    remainder needs scoping first, since `apt upgrade` already patches the player's own box.
-7. **In flight:** in-game tutorials. A `README` in the player's home bootstraps them to `lynx`,
-   and the tutorials live on `hackademy.io`, an in-world site built like findit (attackable,
-   restored by the operator). Grilled and planned 2026-10-09 in `plans/in-game-tutorials.md`
-   (five slices). ✅ S1, the walking skeleton (#631, v0.335.0): the README walks a new player
-   online and to hackademy.io's front page and chapter 1; findit and hackademy share one table
-   of fixed sites and one restore script, `scripts/restoreSite.ts <domain>`. ✅ S2 (#632,
-   v0.336.0): findit lists every fixed site but itself under its domain, so a search for
-   `hackademy`, `tutorial` or `newcomer` finds hackademy.io. ✅ S3 (#633, v0.337.0): chapters
-   2–4 — wifi, your box and its network, looking around — each practised on the reader's own
-   box. ✅ S4 (#634, v0.338.0): chapters 5–7 — getting in, services and CVEs, the web (findit
-   named in prose, the one in-world pointer); the crackers and CVE console are described, not
-   run. ✅ S5 (#635, v0.339.0): chapters 8–10 — traces, databases and other services,
-   scripting with `node` — and two example scripts under `/scripts/` (the fixed-site web root
-   now nests); `snmpwalk` is described, not run. All ten chapters live. Close-out browser run
-   done 2026-10-09: its broken examples fixed in ✅ S6 (#636, v0.340.0) — chapter 5 knocks on
-   hackademy.io with `ssh` (no `ssh`/`scp`/`ftp` reaches your own box), every chapter installs
-   its own tools. Next: the close-out commit — as-built doc, backlog, retire the plan.
+7. ✅ In-game tutorials (#631–#636, v0.335.0–v0.340.0, 2026-10-09): a `README` in the player's
+   home walks them online and into `lynx`, and `hackademy.io` — an in-world site built like
+   findit, attackable and restored by `scripts/restoreSite.ts <domain>` — teaches the world in
+   ten chapters, each practised on the reader's own box, with example scripts under `/scripts/`.
+   findit lists it under its domain. A close-out browser run walked the README, all ten
+   chapters and the findit search, and typed the examples on a new player's box; the broken ones
+   it found were fixed in #636 (chapter 5 knocks on hackademy.io with `ssh`, since no
+   `ssh`/`scp`/`ftp` reaches your own box; every chapter installs its own tools). As built:
+   `tutorials-architecture.md`.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan

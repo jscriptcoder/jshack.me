@@ -39,6 +39,14 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   `plantedHistory.test.ts` would not catch a regression here; the test belongs in `grep.test.ts`
   through `runCommandLine`. Found while closing the planted-history item (2026-10-07).
 
+- **`ssh`, `scp` and `ftp` cannot reach your own box.** `ssh root@localhost` (or your own LAN
+  address) answers `No route to host` with sshd running: those three resolve a target through the
+  generated LAN and occupants only, while `nc`, `mysql`, `redis-cli`, `msfconsole` and the web
+  tools go through `ownBoxSource` (`network/interfaces.ts`). A playtester will type `ssh localhost`.
+  Found by the tutorials' close-out browser run (2026-10-09), which moved chapter 5's door
+  examples to hackademy.io; if the doors gain an own-box path, put the `localhost` examples back
+  and delete the tutorial test that forbids them (`tutorials-architecture.md`).
+
 - **`~` expands only as `~` and `~/path` (v0.328.0, #621).** Expansion happens in the tokenizer, so
   every command and redirect target gets it. Still missing: `~user` (another account's home —
   bash resolves it through `/etc/passwd`, which the box has), tab completion of a `~/…` path
@@ -955,13 +963,15 @@ epic that owned them is retired):
   [user]`, `john <file>`, `snmpwalk <host> [community]`, `redis-cli <host> [password]`, `find`'s
   positional shape). #464 bought realism in the binary NAMES, not the arguments. The
   realism-versus-simplicity tension is real, so the whole set gets tweaked **together, once, before
-  release**, with a player's muscle memory in view — not one command at a time.
-- **Tutorials dropped into the player's home folder** — readable in-game files explaining the
-  mechanics, and the one place the game names `findit.io` (X2 plants no in-world hint). Landing
-  before release; must cover scripting (D9 routed its example-script idea here rather than
-  shipping one via `apt install node`). Grilled 2026-10-09 (`plans/in-game-tutorials.md`): a home
-  `README` bootstraps to `lynx`, and the tutorials live on `hackademy.io`, an attackable in-world
-  site.
+  release**, with a player's muscle memory in view — not one command at a time. hackademy.io's
+  examples ride with it: the tutorial tests check an example's command and never its arguments
+  (`tutorials-architecture.md` "Accepted gaps"), which is how a bare `systemctl status` shipped,
+  so the pass rewrites the chapters too and is the natural place to start checking arguments.
+- **Tutorials dropped into the player's home folder — RESOLVED 2026-10-09 (v0.335.0–v0.340.0,
+  #631–#636).** A home `README` walks a new player online and into `lynx`, and `hackademy.io`, an
+  attackable in-world site, teaches the world in ten chapters, scripting and its example scripts
+  included; it is the one place the game names `findit.io`. As built:
+  `docs/tutorials-architecture.md`.
 - **`nmap`'s SERVICE column as a port→name GUESS.** Real nmap labels a port from `/etc/services`
   (31337→elite, 4444→krb524, unlisted→unknown), so the column is never evidence. One small table,
   flavour only; a listener reads `unknown` either way and probing stays how you learn the truth.
