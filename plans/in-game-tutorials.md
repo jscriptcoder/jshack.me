@@ -1,7 +1,7 @@
 # Plan: in-game tutorials
 
-**Status**: Grilled and planned 2026-10-09. Next: slice 1 (acceptance criteria to confirm before
-RED).
+**Status**: S1 built (v0.335.0, #631, 2026-10-09). Next: slice 2, findit lists hackademy.io
+(to be planned in detail, then acceptance criteria confirmed before RED).
 Resolves the `docs/backlog.md` entry "Tutorials dropped into the player's home folder" (shape
 still to be decided) and the `docs/project-status.md` note that in-game tutorials matter once
 others playtest. Where they disagree with this file, this file wins.
@@ -24,12 +24,14 @@ findit is restored.
 - **`lynx` is not preinstalled**; `apt install lynx` (root-tier) ships it. It renders headings,
   lists, `<table>`, `<pre>` and numbered links, and submits forms.
 - **`cat`, `man` and `help` exist; there is no pager.** A long file scrolls past.
-- **findit.io is the precedent for a fixed site.** Its names live in
-  `generation/finditNetwork.ts` (a leaf, to dodge an init cycle through `publisher`); it is
+- **findit.io is the precedent for a fixed site.** Its names lived in
+  `generation/finditNetwork.ts` (a leaf, to dodge an init cycle through `publisher`; S1 turned it
+  into `fixedSites.ts`); it is
   placed among the publishers in `generation/publisher.ts`, so world DNS resolves it and the
   index lists it. It is a real one-machine network: `sshd` + nginx, root from the uncrackable
   pool, falling only when a CVE window opens on the world clock.
-- **`scripts/restoreFindit.ts` is the operator's undo**, and a restore is a reboot in a
+- **`scripts/restoreFindit.ts` was the operator's undo** (S1 replaced it with
+  `restoreSite.ts <domain>`), and a restore is a reboot in a
   load-bearing order: end every open session, delete the journal, write a fresh boot marker.
 - **Redirection and `node` exist**: `curl … > file` saves a page, and `node x.js` runs a
   script whose output pipes and redirects like any command's.
@@ -68,21 +70,29 @@ Accepted in bulk:
    defaced, and a restore brings the current version. HTML only within what `lynx` renders
    (headings, paragraphs, lists, `<pre>`, links).
 8. **The welcome file is `/home/<username>/README`**, plain text, in the player's own home only
-   (not guest's, not root's, not any NPC box). About ten lines: `help`, `man`, `ls`/`cat`,
-   `su root` with the password they chose, `apt install lynx`, `lynx http://hackademy.io`. It is a
-   file on the box, so a visitor can tamper with it like any other.
+   (not guest's, not root's, not any NPC box). It is a file on the box, so a visitor can tamper
+   with it like any other. **Amended during S1 (owner, 2026-10-09):** a fresh box is on no
+   network (only `lo` has an address), so `apt install lynx` cannot work from the first prompt.
+   The README therefore walks the player online first — `airmon-ng start wlan0`, `airodump-ng`,
+   `aircrack-ng BSSID`, `airmon-ng stop wlan0`, `nmcli connect ESSID PASSWORD` — then `su root`
+   with the password they chose, `apt install lynx`, `lynx http://hackademy.io`. Each step named,
+   none explained; at most 20 lines (17 as built). Placeholders are uppercase words because the
+   shell cannot parse `<bssid>`. Rejected: a hint only (players stuck before ever reaching the
+   tutorials) and command names without arguments.
 9. **findit.io is named only on the site**, in the web chapter — the one in-world pointer to it.
 10. **In-world voice**: written as a fictional collective's wiki. No fourth wall; never the word
     "game".
-11. **Chapters**, each ending in a practice on your own box and pointing at `man` for syntax:
+11. **Chapters**, each ending in a practice on your own box and pointing at `man` for syntax.
+    WiFi moved from 8 to 2 with decision 8's amendment: it explains the first thing the README
+    already had the player do.
     1. Getting around — files, users, `su`, `nano`, `apt`, `man`
-    2. Your box and its network — LAN, gateway, public address, NAT forwards, `rules.v4`
-    3. Looking around — `ping`, `nmap`, `-sV`, `dig`, `whois`
-    4. Getting in — `ssh`, `ftp`, `scp`, `nc`; passwords with `hydra` and `john`
-    5. Services, versions and CVEs — `systemctl`, `ps`, `apt upgrade`, `msfconsole`
-    6. The web — nginx and apache2, `curl`, `lynx`, `gobuster`, `robots.txt`, findit
-    7. Traces — `auth.log`, `kern.log`, `access.log`
-    8. Wifi
+    2. Wifi — monitor mode, `airodump-ng`, `aircrack-ng`, `nmcli`
+    3. Your box and its network — LAN, gateway, public address, NAT forwards, `rules.v4`
+    4. Looking around — `ping`, `nmap`, `-sV`, `dig`, `whois`
+    5. Getting in — `ssh`, `ftp`, `scp`, `nc`; passwords with `hydra` and `john`
+    6. Services, versions and CVEs — `systemctl`, `ps`, `apt upgrade`, `msfconsole`
+    7. The web — nginx and apache2, `curl`, `lynx`, `gobuster`, `robots.txt`, findit
+    8. Traces — `auth.log`, `kern.log`, `access.log`
     9. Databases and other services — `mysql`, `redis`, `snmp`
     10. Scripting with `node`
 12. **Scripting examples are files on the site** (`curl http://hackademy.io/scripts/x.js > x.js`,
@@ -109,72 +119,47 @@ once at PR readiness (json reporter, one file at a time, `conventions-and-gotcha
 after S1 are planned in detail when their turn comes. The close-out (as-built doc, backlog
 entry, retiring this file) is a `docs(v2):` commit on `main`, after the one browser run.
 
-- **S1** the walking skeleton: hackademy.io answers, the README points to it, chapter 1 is there.
+- **S1** ✅ the walking skeleton: hackademy.io answers, the README points to it, chapter 1 is
+  there.
 - **S2** findit lists hackademy.io, so a search for it finds it.
-- **S3** chapters 2–4: your box and its network, looking around, getting in.
-- **S4** chapters 5–7: services and CVEs, the web (the one pointer to findit), traces.
-- **S5** chapters 8–10: wifi, databases and other services, scripting, with the example
+- **S3** chapters 2–4: wifi, your box and its network, looking around.
+- **S4** chapters 5–7: getting in, services and CVEs, the web (the one pointer to findit).
+- **S5** chapters 8–10: traces, databases and other services, scripting, with the example
   scripts under `/scripts/` (decision 12).
 
-### Slice 1: a new player gets from `cat README` to reading chapter 1 on hackademy.io
+### Slice 1 ✅: a new player gets from `cat README` to reading chapter 1 on hackademy.io
 
-**Value**: a player on a fresh box reads the README, becomes root, installs `lynx`, and reads
-hackademy.io's front page and chapter 1. Like findit, the site is a real machine that can be
-scanned, logged into and restored.
-**Path**: `cat ~/README` (a file in the workstation's generated base tree) → `lynx
-http://hackademy.io` → world DNS (`publisher.ts` `siteAddress`) → the address in the placeless
-block (`world.ts`) → `resolveHttpFetch` → `resolvePublicTarget`'s gateway arm, where the
-"gateway" is the hackademy box (`routerFs.ts` `apGatewayFs`) → `/var/www/html/index.html` and
-the chapter 1 page, read like any other served file, with an `access.log` line written on the
-box. `nmap`, `ssh`, `whois` and the restore reach it through the same arms findit uses.
-**Shape to propose first** (the collapsed version): today findit is special-cased by
-`essid === FINDIT_NETWORK` in eight places (`world.ts` address and drawn-name reservation,
-`publisher.ts` DNS, `persona.ts`, `routerFs.ts`, `resolvePublicTarget.ts` hostname and fronted
-segment, `whois.ts`), and the restore script is findit-only. With a second site, the leaf
-`finditNetwork.ts` becomes `fixedSites.ts`: one table of fixed sites (`key`, `domain`,
-`hostname`, `place`) and a lookup. Every check that means "a box that is its own gateway" asks
-the table, and the one that means findit's search (`resolveHttpFetch`'s query) stays findit's.
-`buildFinditFs` becomes `buildFixedSiteFs(site, webRoot)`: the same box (sshd and nginx, root
-from the pool that can't be cracked, on the CVE timeline), with each site supplying its own
-document root. hackademy.io takes the next placeless index after the corporations, so no address
-that exists today moves. No second copy of any branch.
-**Acceptance criteria (draft, to confirm before RED)**:
-1. A fresh workstation has `/home/<username>/README`, owned by the player, which `cat` prints:
-   about ten lines naming `help`, `man`, `ls`/`cat`, `su root` (the password chosen at the
-   start), `apt install lynx` and `lynx http://hackademy.io`. `guest` and `root` homes are
-   unchanged, and no NPC box has it.
-2. `lynx http://hackademy.io` from any network renders the front page: the site's name, a short
-   in-world welcome, and a numbered link to chapter 1. It lists only chapters that exist.
-3. Following that link renders chapter 1, "Getting around": files and directories, users and
-   `su`, `nano`, `apt`, `man`, ending in a practice on your own box. Every example targets the
-   reader's own machine, and the page never names findit.
-4. `curl http://hackademy.io/` returns the same HTML raw, and the visit appends a line to the
-   hackademy box's `/var/log/access.log` under the visitor's address.
-5. `nmap` on hackademy.io's address shows `22` and `80` open; `ssh root@hackademy.io` asks for a
-   password and a wrong one is refused and logged in its `auth.log`.
-6. `whois` on its address answers with the record `HACKADEMY-IO` / `hackademy.io`.
-7. No drawn business takes the name hackademy, and every address the world held before this
-   slice is unchanged.
-8. findit.io behaves exactly as before: same address, front page, search, whois record and
-   restore.
-9. Every command example in the README and in hackademy's pages (each `$ ` / `# ` line of a
-   `<pre>` block, every stage of a pipeline) names a registered command. Renaming one fails the
-   test.
-10. `scripts/restoreSite.ts hackademy.io` restores a defaced hackademy (sessions ended, journal
-    emptied, a fresh boot marker), `scripts/restoreSite.ts findit.io` does what
-    `restoreFindit.ts` did, and an unknown domain exits 2 without touching anything.
-    `restoreFindit.ts` is gone, and the docs that name it name `restoreSite.ts`.
-**RED**: `workstationFs.test.ts` for 1; `world.test.ts` / `publisher.test.ts` for the address,
-DNS and name reservation (7); `whois.test.ts` (6); `resolvePublicTarget.test.ts` for the
-hostname and no fronted segment; `resolveHttpFetch.test.ts` for 2–4 server-side; `lynx.test.ts`
-for following the chapter link; a new `hackademy/pages.test.ts` for 3 and 9. findit's existing
-tests are the guard for 8. Live: `scripts/testRestoreFindit.ts` becomes
-`scripts/testRestoreSite.ts`, run once per domain, and a new `scripts/testHackademy.ts` fetches
-`/` and chapter 1, scans `22`/`80` and checks the `access.log` line; both shown failing against
-the pre-slice server first.
-**Watch for**: the leaf exists to break an init cycle through `publisher` (its header says why),
-so the table stays names-only and the box builders stay in the generator; `finditNetwork.ts`'s
-importers (`whois`, `persona`, `publisher`, `world`, the scripts) all move to the table; the
-generated web's cold-build budget (`checkBudgets`) must not move; the README adds bytes to every
-workstation's base tree, so check any size budget that covers it; the chapter text is written
-by me in the in-world voice and reviewed by the owner in the PR.
+**Built** v0.335.0, #631 (squash `0d6fa0ab`), 2026-10-09. All ten acceptance criteria met, with
+AC1 amended as decision 8 records (the README walks the player online first).
+
+**As built**:
+- **One table of fixed sites.** `generation/fixedSites.ts` (the old `finditNetwork.ts` leaf,
+  names only) holds `FIXED_SITES` (`key`, `domain`, `hostname`, `place`) and `fixedSite(key)`.
+  Every check meaning "a box that is its own gateway" asks it: `world.ts` (drawn-name
+  reservation), `publisher.ts` (DNS), `persona.ts`, `routerFs.ts`, `resolvePublicTarget.ts`
+  (hostname, no fronted segment), `whois.ts` (netname `HACKADEMY-IO`). findit keeps its own
+  `FINDIT_*` names because its search is the one thing only it does. Landed first as a pure
+  refactor: the same 2,751 tests green before and after.
+- **The box.** `generation/fixedSiteFs.ts` `buildFixedSiteFs(site)` (was `findit.ts`
+  `buildFinditFs`), with each site's document root in a `WEB_ROOTS` map beside it, not in the
+  table, because the table must stay names-only. Each site seeds its own root password.
+- **The address.** hackademy.io answers at `193.249.140.121`, the next placeless index after the
+  corporations; a before/after dump of all 613 network addresses differs only by that line.
+- **The content.** `src/core/hackademy/readme.ts` (`WELCOME_README`, planted by
+  `workstationFs.ts`, owned by the player, `HOME_FILE` permissions) and
+  `src/core/hackademy/pages.ts` (`index.html`, `getting-around.html`). `hackademy.test.ts` reads
+  the pages off the box: front-page links, chapter 1's tools and closing Practice, no page naming
+  findit, no example naming another host, and every `$ `/`# ` example (README included) running
+  only registered commands.
+- **Restore.** `scripts/restoreSite.ts <domain>` replaced `restoreFindit.ts`; an unknown domain
+  exits 2 before touching anything. Docs and the e2e skill name it.
+- **Wire-checks.** New `scripts/testHackademy.ts` (6/6: pages byte-for-byte, the access.log line,
+  a scan finding 22 and 80, a wrong root password refused and logged).
+  `scripts/testRestoreSite.ts <domain>` (was `testRestoreFindit.ts`): hackademy 13/13, findit
+  14/14. It had been failing on `main` since `exploitCreateSession` started requiring
+  `caller_machine_id`; it passes one now. Not shown failing against the pre-slice server.
+- **Mutation.** `fixedSites.ts` 20/20. `fixedSiteFs.ts` 31 killed / 8 survived after three new
+  tests; the 8 are carried-over findit builder lines (root's gecos and home, the `/usr/bin` and
+  `/usr/sbin` tool lists), deferred. Survivors in `resolvePublicTarget.ts` and `publisher.ts`
+  were killed by the wider related suite when hand-mutated; the whois regex and the `.io`
+  name reservation are equivalent.
