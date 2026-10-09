@@ -9,7 +9,7 @@ import { computeApGatewayId } from '../identity/router.js';
 import { siteServer } from '../generation/siteServer.js';
 import { resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
 import { publisherIp, publisherSite } from '../generation/publisher.js';
-import { FINDIT_NETWORK } from '../generation/findit.js';
+import { FINDIT_NETWORK } from '../generation/fixedSites.js';
 import { rankPages } from './search.js';
 import { DECLARED_NETWORKS, publicAddress } from '../generation/world.js';
 

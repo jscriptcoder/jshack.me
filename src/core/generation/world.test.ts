@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { siteAddress } from './publisher.js';
 import { isPublicIp } from './ip.js';
-import { FINDIT_DOMAIN, FINDIT_NETWORK } from './finditNetwork.js';
+import { FINDIT_NETWORK, FIXED_SITES } from './fixedSites.js';
 import { siteServer } from './siteServer.js';
 import { resolveLanHostIdentity } from './lanHostIdentity.js';
 import { createFsView } from '../filesystem/fsView.js';
@@ -235,11 +235,11 @@ describe('Millbrook', () => {
   it('gives no two networks in the world the same address or the same domain', () => {
     const addresses = [
       ...DECLARED_NETWORKS.flatMap((network) => publicAddress(network.key) ?? []),
-      siteAddress(FINDIT_DOMAIN),
+      ...FIXED_SITES.map((site) => siteAddress(site.domain)),
     ];
     const domains = [
       ...DECLARED_NETWORKS.flatMap((network) => network.site?.domain ?? []),
-      FINDIT_DOMAIN,
+      ...FIXED_SITES.map((site) => site.domain),
     ];
     expect(new Set(addresses).size).toBe(addresses.length);
     expect(new Set(domains).size).toBe(domains.length);
@@ -1277,7 +1277,7 @@ describe("the corporations' names", () => {
         corporation.key,
       ).not.toContain(corporation.essid);
       expect(
-        [FINDIT_DOMAIN, ...others.map((network) => network.site?.domain)],
+        [...FIXED_SITES.map((site) => site.domain), ...others.map((network) => network.site?.domain)],
         corporation.key,
       ).not.toContain(corporation.site?.domain);
     }
@@ -2478,25 +2478,35 @@ describe("Ridgemont's addresses", () => {
     }
   });
 
-  it('answers findit and every corporation in the placeless block', () => {
+  it('answers findit, hackademy and every corporation in the placeless block', () => {
     const corporations = landmarks().filter((network) => network.category === 'corporate');
     expect(corporations).toHaveLength(20);
-    for (const key of [FINDIT_NETWORK, ...corporations.map((network) => network.key)]) {
+    for (const key of [
+      FINDIT_NETWORK,
+      'hackademy.io',
+      ...corporations.map((network) => network.key),
+    ]) {
       const address = publicAddress(key);
       expect(address, key).toMatch(/^193\.\d{1,3}\.\d{1,3}\.\d{1,3}$/);
       expect(isPublicIp(address ?? ''), key).toBe(true);
     }
   });
 
-  it('keeps findit and the landmarks at the addresses they were given', () => {
+  it('keeps findit, hackademy and the landmarks at the addresses they were given', () => {
     // An address that moved would strand every note, log line and script a player holds
     // about the network, so the catalog only ever grows at its end.
     expect(
-      [FINDIT_NETWORK, 'ACME-CORP', 'NAKATOMI-PLAZA', 'BREW-AND-CODE', 'MEGA-LO-MART'].map(
-        (key) => [key, publicAddress(key)],
-      ),
+      [
+        FINDIT_NETWORK,
+        'hackademy.io',
+        'ACME-CORP',
+        'NAKATOMI-PLAZA',
+        'BREW-AND-CODE',
+        'MEGA-LO-MART',
+      ].map((key) => [key, publicAddress(key)]),
     ).toEqual([
       [FINDIT_NETWORK, '193.1.0.2'],
+      ['hackademy.io', '193.249.140.121'],
       ['ACME-CORP', '193.16.112.149'],
       ['NAKATOMI-PLAZA', '193.55.203.159'],
       ['BREW-AND-CODE', '87.1.159.19'],
@@ -2803,10 +2813,10 @@ describe("Ridgemont's drawn networks", () => {
 });
 
 describe('the addresses of the world', () => {
-  /** Every network with a public address: all the declared ones, and findit. */
+  /** Every network with a public address: all the declared ones, and the fixed sites. */
   const everyKey = (): readonly string[] => [
     ...DECLARED_NETWORKS.map((network) => network.key),
-    FINDIT_NETWORK,
+    ...FIXED_SITES.map((site) => site.key),
   ];
 
   it('gives every network an address no other network holds', () => {

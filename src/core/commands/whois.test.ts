@@ -11,7 +11,7 @@ import {
 import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces.js';
 import { assignHomeNetwork } from '../network/homeNetwork.js';
 import { DECLARED_NETWORKS, publicAddress, REGION_FIRST_OCTETS } from '../generation/world.js';
-import { FINDIT_NETWORK } from '../generation/finditNetwork.js';
+import { FINDIT_NETWORK } from '../generation/fixedSites.js';
 import { asMachineId, asPlayerKeyHex } from '../types.js';
 
 /**
@@ -223,6 +223,24 @@ describe('whois', () => {
         'netname:        FINDIT-IO',
         'org-name:       findit.io',
         'domain:         findit.io',
+      ],
+      exitCode: 0,
+    });
+  });
+
+  it('names hackademy, which broadcasts no wifi, by its domain spelt as a network name', async () => {
+    const address = addressOf('hackademy.io');
+
+    const { lines, exitCode } = await run(address);
+
+    expect({ lines, exitCode }).toEqual({
+      lines: [
+        '% Harrow Valley registry',
+        '',
+        `inetnum:        ${address} - ${address}`,
+        'netname:        HACKADEMY-IO',
+        'org-name:       hackademy.io',
+        'domain:         hackademy.io',
       ],
       exitCode: 0,
     });

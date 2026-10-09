@@ -65,7 +65,8 @@ import {
 } from '../identity/router.js';
 import { gatewayLogRotations, gatewayRootHistory, gatewaySite } from './gatewayHistory.js';
 import { SYSLOG_PERMISSIONS } from '../logging/syslog.js';
-import { buildFinditFs, FINDIT_NETWORK } from './findit.js';
+import { buildFixedSiteFs } from './fixedSiteFs.js';
+import { fixedSite } from './fixedSites.js';
 import { buildBranchSshDirectory } from './sshContent.js';
 
 /** The AP gateway's root account plaintext password, seeded from the ESSID alone
@@ -391,11 +392,12 @@ export const buildApGatewayBaseFs = (essid: string): Directory =>
   withRootSsh(apGatewayFs(essid), buildBranchSshDirectory(essid));
 
 /** The AP gateway's tree before root's `.ssh/`. */
-const apGatewayFs = (essid: string): Directory =>
-  // findit owns its public address with nothing behind it, so the box a request to that
-  // address reaches, its "gateway", is findit itself.
-  essid === FINDIT_NETWORK
-    ? buildFinditFs()
+const apGatewayFs = (essid: string): Directory => {
+  // A fixed site owns its public address with nothing behind it, so the box a request to
+  // that address reaches, its "gateway", is the site itself.
+  const site = fixedSite(essid);
+  return site !== undefined
+    ? buildFixedSiteFs(site)
     : buildRouterBaseFsFromIdentity(
       {
         adminPwHash: md5(seedApGatewayAdminPw(essid)),
@@ -414,6 +416,7 @@ const apGatewayFs = (essid: string): Directory =>
       apGatewayNetwork(essid),
       apGatewayRules(essid),
     );
+};
 
 /** `tree` with `ssh` as root's `.ssh/`, where the gateway keeps one: a head office's
  *  shortcuts to its branches. */

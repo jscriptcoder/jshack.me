@@ -37,6 +37,7 @@ import {
   generatePasswd,
   GUEST_HOME_DIR,
   HOME_DIR,
+  HOME_FILE,
   PASSWD_FILE,
   ROOT_DIR,
   SHELL,
@@ -49,6 +50,7 @@ import { CRACK_CHANCE, drawPassword } from './passwordPools.js';
 import { ACCESS_LOG_PERMISSIONS } from '../logging/accessLog.js';
 import { AUTH_LOG_PERMISSIONS } from '../logging/authLog.js';
 import { KERN_LOG_PERMISSIONS } from '../logging/kernLog.js';
+import { WELCOME_README } from '../hackademy/readme.js';
 
 // --- Player workstation composer ---
 
@@ -135,11 +137,16 @@ export const buildWorkstationBaseFsFromIdentity = (identity: {
       bin: dir(createBinaryEntries(SYSTEM_UTILITY_NAMES), TRAVERSABLE_DIR),
       boot: bootDir(),
       etc: dir({ passwd: file(passwd, PASSWD_FILE) }, TRAVERSABLE_DIR),
+      // The player's home holds the README that walks them online and to the tutorials.
       // The guest home `/etc/passwd` names, empty: a fresh install has one, and a guest
       // session lands in it.
       home: dir(
         {
-          [identity.username]: dir({}, HOME_DIR, identity.username),
+          [identity.username]: dir(
+            { README: file(WELCOME_README, HOME_FILE, identity.username) },
+            HOME_DIR,
+            identity.username,
+          ),
           guest: dir({}, GUEST_HOME_DIR, 'guest'),
         },
         TRAVERSABLE_DIR,

@@ -616,12 +616,12 @@ guest-tier, which is enough to READ but not to write its root-owned `/var/www/ht
   `GET /?q=<term>` under the address the server holds for them — intel on who is hunting what.
 - **Reading a rooted findit works because the exploit session records findit's OWN network**, not
   the WiFi the attack came from — without that the box resolves to nothing and the shell reads an
-  empty tree. Fixed in this slice; the guard is `scripts/testRestoreFindit.ts`.
-- **`scripts/restoreFindit.ts` is the undo, and it is a reboot.** `npx dotenv -e
-  .env.development.local -- npx tsx scripts/restoreFindit.ts` closes every session on findit, empties
-  its journal (defacement, planted manifest, logs, all of it) and leaves a fresh boot marker. Run it
-  twice and nothing breaks; run it with no `SUPABASE_*` env and it exits 2 rather than touching
-  anything.
+  empty tree. Fixed in this slice; the guard is `scripts/testRestoreSite.ts findit.io`.
+- **`scripts/restoreSite.ts findit.io` is the undo, and it is a reboot.** `npx dotenv -e
+  .env.development.local -- npx tsx scripts/restoreSite.ts findit.io` closes every session on
+  findit, empties its journal (defacement, planted manifest, logs, all of it) and leaves a fresh
+  boot marker. Run it twice and nothing breaks; run it with no `SUPABASE_*` env and it exits 2
+  rather than touching anything.
 - **After the restore the standing shell has LOST the box.** Its session is closed server-side, so a
   write is refused (`no_session`) and the next `cat` reads nothing of findit — the box is
   unresolvable to it, so the shell silently falls back to the attacker's OWN tree (`cat: command not

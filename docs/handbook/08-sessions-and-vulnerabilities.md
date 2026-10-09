@@ -219,7 +219,8 @@ world's DNS (chapter 7). Its search is computed at request time on the server:
 - `findit/page.ts` renders the results page; everything interpolated is escaped.
 
 Rooting findit and restoring it are covered in [`discovery-architecture.md`](../discovery-architecture.md).
-`scripts/restoreFindit.ts` is the operator tool that resets its journal and sessions.
+`scripts/restoreSite.ts <domain>` is the operator tool that resets a fixed site's journal and
+sessions.
 
 ## Traces: actions leave log lines
 

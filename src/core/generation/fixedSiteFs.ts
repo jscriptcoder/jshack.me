@@ -1,9 +1,10 @@
 /**
- * findit.io — the search engine the public web is found by.
+ * The machine a fixed site runs on — findit.io, the search engine the public web is found
+ * by, and the others in `fixedSites`.
  *
- * It is a place on the internet and nowhere else: a single machine that owns its public
+ * Each is a place on the internet and nowhere else: a single machine that owns its public
  * address, with no wifi anybody can join and no LAN behind it. Everything that reaches
- * a network by its public address reaches findit the same way, as a network whose
+ * a network by its public address reaches a fixed site the same way, as a network whose
  * gateway IS the box.
  */
 
@@ -40,30 +41,33 @@ import { KERN_LOG_PERMISSIONS } from '../logging/kernLog.js';
 import { FINDIT_FRONT_PAGE } from '../findit/page.js';
 import type { Directory, FileEntry } from '../filesystem/types.js';
 
-// findit's names live in a leaf module so `publisher` can place findit without importing
-// this generator, which would close an initialization cycle. Imported for use here and
-// re-exported so every importer that reaches for them through the generator keeps working.
-import { FINDIT_DOMAIN, FINDIT_HOSTNAME, FINDIT_NETWORK } from './finditNetwork.js';
-export { FINDIT_DOMAIN, FINDIT_HOSTNAME, FINDIT_NETWORK };
+import { HACKADEMY_PAGES } from '../hackademy/pages.js';
+import { FINDIT_NETWORK, HACKADEMY_NETWORK, type FixedSite } from './fixedSites.js';
 
-/** The chance findit's root password is one a wordlist holds: none. It is a real host
- *  run by people who meant it to stay up, so the way in is the software it runs, when
- *  a hole in that software opens — never a guess. */
+/** The chance a fixed site's root password is one a wordlist holds: none. It is a real
+ *  host run by people who meant it to stay up, so the way in is the software it runs,
+ *  when a hole in that software opens — never a guess. */
 const CRACKABLE_ROOT_CHANCE = 0;
 
-/** The two doors findit keeps, on their ordinary ports. */
+/** The two doors a fixed site keeps, on their ordinary ports. */
 const SERVICES = [SERVICE_CATALOG.http, SERVICE_CATALOG.ssh] as const;
 
 const configFile = (content: string): FileEntry => file(content, SERVICE_CONFIG_FILE);
 
+/** What each fixed site publishes under its document root, by file name. */
+const WEB_ROOTS: ReadonlyMap<string, Readonly<Record<string, string>>> = new Map([
+  [FINDIT_NETWORK, { 'index.html': FINDIT_FRONT_PAGE }],
+  [HACKADEMY_NETWORK, HACKADEMY_PAGES],
+]);
+
 /**
- * The machine findit.io runs on, as generated: a web host with one account, the web
- * server that publishes its search and the sshd its operators log in by. Built from
- * the same parts as every generated box, so what a rooted findit holds reads like any
- * other server.
+ * The machine a fixed site runs on, as generated: a web host with one account, the web
+ * server that publishes its pages and the sshd its operators log in by. Built from the
+ * same parts as every generated box, so what a rooted site holds reads like any other
+ * server.
  */
-export const buildFinditFs = (): Directory => {
-  const prng = createPrng(`host-fs-${FINDIT_NETWORK}`);
+export const buildFixedSiteFs = (site: FixedSite): Directory => {
+  const prng = createPrng(`host-fs-${site.key}`);
   const passwd = generatePasswd([
     {
       username: 'root',
@@ -85,9 +89,9 @@ export const buildFinditFs = (): Directory => {
       boot: bootDir(),
       etc: dir(
         {
-          hostname: configFile(`${FINDIT_HOSTNAME}\n`),
+          hostname: configFile(`${site.hostname}\n`),
           hosts: configFile(
-            `127.0.0.1\tlocalhost\n127.0.1.1\t${FINDIT_HOSTNAME}.${FINDIT_DOMAIN} ${FINDIT_HOSTNAME}\n`,
+            `127.0.0.1\tlocalhost\n127.0.1.1\t${site.hostname}.${site.domain} ${site.hostname}\n`,
           ),
           passwd: file(passwd, PASSWD_FILE),
         },
@@ -136,7 +140,17 @@ export const buildFinditFs = (): Directory => {
             TRAVERSABLE_DIR,
           ),
           www: dir(
-            { html: dir({ 'index.html': file(FINDIT_FRONT_PAGE, WEB_PAGE_FILE) }, TRAVERSABLE_DIR) },
+            {
+              html: dir(
+                Object.fromEntries(
+                  Object.entries(WEB_ROOTS.get(site.key) ?? {}).map(([name, page]) => [
+                    name,
+                    file(page, WEB_PAGE_FILE),
+                  ]),
+                ),
+                TRAVERSABLE_DIR,
+              ),
+            },
             TRAVERSABLE_DIR,
           ),
         },

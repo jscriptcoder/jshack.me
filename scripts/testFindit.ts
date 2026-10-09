@@ -29,7 +29,7 @@ import { generateIdentity } from '../src/core/identity/identity.js';
 import { computeWorkstationId } from '../src/core/identity/workstation.js';
 import { crackableEssidPool } from '../src/core/generation/generateWifi.js';
 import { siteAddress } from '../src/core/generation/publisher.js';
-import { FINDIT_DOMAIN, FINDIT_NETWORK } from '../src/core/generation/findit.js';
+import { FINDIT_DOMAIN, FINDIT_NETWORK } from '../src/core/generation/fixedSites.js';
 import { siteServer } from '../src/core/generation/siteServer.js';
 import { resolveLanHostIdentity } from '../src/core/generation/lanHostIdentity.js';
 import { computeApGatewayId } from '../src/core/identity/router.js';

@@ -7,7 +7,7 @@
  */
 
 import type { PublishedSite } from './pools/essidCatalog.js';
-import { FINDIT_DOMAIN, FINDIT_NETWORK } from './finditNetwork.js';
+import { FIXED_SITES } from './fixedSites.js';
 import { DECLARED_NETWORKS, publicAddress } from './world.js';
 
 const SITE_BY_ESSID: ReadonlyMap<string, PublishedSite> = new Map(
@@ -27,7 +27,7 @@ export const publisherIp = (essid: string): string | undefined =>
 
 const NETWORK_BY_DOMAIN: ReadonlyMap<string, string> = new Map([
   ...[...SITE_BY_ESSID].map(([essid, site]): [string, string] => [site.domain, essid]),
-  [FINDIT_DOMAIN, FINDIT_NETWORK],
+  ...FIXED_SITES.map((site): [string, string] => [site.domain, site.key]),
 ]);
 
 /** The address the website called `domain` answers at, or `undefined` when nobody

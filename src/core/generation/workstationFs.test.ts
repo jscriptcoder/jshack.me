@@ -122,7 +122,9 @@ describe('buildWorkstationBaseFs', () => {
     expect([...dirAt(fs, 'boot').entries.keys()].sort()).toEqual(['initrd.img', 'vmlinuz']);
     expect([...dirAt(fs, 'etc').entries.keys()]).toEqual(['passwd']);
     expect([...dirAt(fs, 'home').entries.keys()].sort()).toEqual(['alice', 'guest']);
-    expect(dirAt(fs, 'home', 'alice').entries.size).toBe(0);
+    // The player's home holds one thing on a fresh install: the README that tells them
+    // where to start.
+    expect([...dirAt(fs, 'home', 'alice').entries.keys()]).toEqual(['README']);
     // Every `/etc/passwd` names a guest home, and a guest session lands in it, so a
     // fresh install has one — with nothing in it, because nobody has used it.
     expect(dirAt(fs, 'home', 'guest').entries.size).toBe(0);
@@ -139,6 +141,51 @@ describe('buildWorkstationBaseFs', () => {
       'kern.log',
     ]);
     expect(dirAt(fs, 'var', 'run').entries.size).toBe(0);
+  });
+
+  describe("the README in the player's home", () => {
+    const readme = (): FileEntry => fileAt(buildWorkstationBaseFs(SEED_A, getConfig()), '/home/alice/README');
+
+    it('belongs to the player, who can read and edit it, and guest cannot read it', () => {
+      const fs = buildWorkstationBaseFs(SEED_A, getConfig());
+      const file = readme();
+      const chain = [fs.perms, dirAt(fs, 'home').perms, dirAt(fs, 'home', 'alice').perms];
+      expect(file.owner).toBe('alice');
+      expect(canRead('user', file.perms, chain).allowed).toBe(true);
+      expect(canWrite('user', file.perms, chain).allowed).toBe(true);
+      expect(canRead('guest', file.perms, chain).allowed).toBe(false);
+    });
+
+    it('walks the player from the first prompt to the tutorials', () => {
+      const { content } = readme();
+      // A fresh box is on no network, so the walk starts with getting online.
+      for (const step of [
+        'help',
+        'man',
+        'airmon-ng start wlan0',
+        'airodump-ng',
+        'aircrack-ng',
+        'nmcli connect',
+        'su root',
+        'apt install lynx',
+      ]) {
+        expect(content, step).toContain(step);
+      }
+      expect(content).toContain('lynx http://hackademy.io');
+      // `su root` asks for the password the player chose when the box was set up, and
+      // the README says so rather than leaving them to guess.
+      expect(content).toMatch(/root password you chose/);
+    });
+
+    it('fits on one screen', () => {
+      expect(readme().content.trimEnd().split('\n').length).toBeLessThanOrEqual(20);
+    });
+
+    it('is the same file whoever the player is, named for nobody', () => {
+      const neo = fileAt(buildWorkstationBaseFs(SEED_B, getConfig({ username: 'neo' })), '/home/neo/README');
+      expect(neo.content).toBe(readme().content);
+      expect(neo.owner).toBe('neo');
+    });
   });
 
   it('gives the guest account a home a guest session can list and write in', () => {

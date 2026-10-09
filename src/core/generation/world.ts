@@ -31,7 +31,7 @@ import {
   type HomeTemplate,
 } from './pools/homeNames.js';
 import { createPrng, type Prng } from './prng.js';
-import { FINDIT_NETWORK } from './finditNetwork.js';
+import { FINDIT_NETWORK, FIXED_SITES, HACKADEMY_NETWORK } from './fixedSites.js';
 
 /** How much stands behind a network's gateway: one machine, a few, or today's inner
  *  router, switch and chain of hidden segments. */
@@ -421,7 +421,7 @@ const namedOf = (
   const held = [...ESSID_CATALOG, ...neighbours];
   const essids = new Set(held.map((network) => network.essid));
   const domains = new Set([
-    FINDIT_NETWORK,
+    ...FIXED_SITES.map((site) => site.domain),
     ...held.flatMap((network) => network.site?.domain ?? []),
   ]);
   const heldWords = new Set(words);
@@ -741,6 +741,9 @@ const ADDRESS_BY_KEY: ReadonlyMap<string, string> = new Map([
     network.key,
     placelessAddress(1 + LANDMARK_CORPORATIONS.length + index),
   ]),
+  // hackademy came after every corporation, so it answers after them all: no address
+  // anybody already holds moves to make room for it.
+  [HACKADEMY_NETWORK, placelessAddress(1 + LANDMARK_CORPORATIONS.length + CORPORATIONS.length)],
   ...DRAWN_TOWNS.flatMap((drawn) => townAddresses(drawn.town, drawn.networks)),
   // Ridgemont's drawn networks answer after its landmarks, at the places their keys hold.
   ...RIDGEMONT_DRAWN.map((network, index): [string, string] => [

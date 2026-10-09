@@ -42,7 +42,7 @@ import { createFsView } from '../filesystem/fsView.js';
 import { HTTP_DEFAULT_PORT, resolveWebPath } from './http.js';
 import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
 import { generatedLanBox } from './generatedLanBox.js';
-import { FINDIT_NETWORK } from '../generation/findit.js';
+import { FINDIT_NETWORK } from '../generation/fixedSites.js';
 import { indexedWeb, siteOn, type MachinePatchRow } from '../findit/webIndex.js';
 import { rankPages } from '../findit/search.js';
 import { searchResultsPage } from '../findit/page.js';
