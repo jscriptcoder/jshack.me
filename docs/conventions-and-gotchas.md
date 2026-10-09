@@ -3210,6 +3210,33 @@ blocks the live PvP loop; each was a scoped owner decision, not a gap.
     touched. Needs the first per-player exploration record (where it is stored, what counts as
     "found"). Brings the town rows' map coordinates and `ping` across networks, latency growing
     with distance. The world map of regions waits for a second region.
+    Why it matters: 612 networks are invisible today. Nothing shows a player how much world
+    there is or how much of it they have seen, so the scale reads as sameness rather than as an
+    open world; a found count per town ("41/178") is what makes it something to complete.
+    Shape proposed 2026-10-09, not yet grilled:
+    - **A `map` command opens a full-screen overlay**, the Lynx/Nano pattern: box-drawing
+      characters in the active theme's colours, arrows to move, Enter to zoom in, Esc to zoom
+      out. It reads as the player's own tool, not a game menu. Precedents: Uplink's world map
+      and Hacknet's netmap, which grows a node each time something is found.
+    - **Three zoom levels.** The *region*: the towns at their authored coordinates, an
+      untouched town fogged or absent, each lit town with its found count. A *town*: a graph of
+      the networks the player knows, each edge the route that led there (findit, the council
+      directory, a lead's kind, `whois`), so it reads as the player's own investigation board
+      rather than a street plan; that is the shape the discovery design already has. A
+      *network*: its topology as the player has scanned it (gateway, machines, inner router),
+      deep layers `???` until pivoted into.
+    - **Five states a network can be in**, each a glyph, each something the player did: heard
+      of (a file or trace named it), reached (scanned or its site fetched), got in (a session),
+      root, bricked.
+    - **The exploration record is the root decision**: server-side, keyed by the player's
+      identity, written as a side effect of actions the server already sees (scans, `whois`,
+      sessions, patches). The rest of the map follows from what it records.
+    - **Town coordinates are authored data on the rows**, append-only like the rows
+      themselves; a town's internal layout is computed from its graph each render, never stored.
+    - **Later, a multiplayer layer**: addresses from the player's own traces shown as "someone
+      came from here", which is the missing route to deliberate rendezvous (below).
+    - Plain DOM like the other overlays, so the jsdom + `@solidjs/testing-library` harness
+      tests it; no canvas.
   - **Travel** between towns and regions. Joining another town's WiFi gives another public
     address, since the address belongs to the network. Needs a server-authoritative player
     location; until then the join refuses every network outside Ridgemont.
