@@ -61,11 +61,14 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   with a wire-check from a deep hop; if it holds, resolve loopback the way the login doors do.
   Found while building #639 (2026-10-09).
 
-- **A file `scp` carries lands `rwx------`.** `scp` passes no mode, so the write takes
-  `defaultFilePermissions` for the login's tier (`adapters/patchApi.ts`). As root that is owner-only,
-  so `scp notes.txt root@localhost:/tmp/` (chapter 5's example) leaves a file the player's own
-  account cannot read. Real scp gives the copy the source's mode. Found by the own-box doors
-  close-out browser run (2026-10-09).
+- **A file `scp` carried landed `rwx------` — RESOLVED 2026-10-10 (v0.345.0).** `scp` passed no
+  mode, so the write took `defaultFilePermissions` for the login's tier, and
+  `scp notes.txt root@localhost:/tmp/` (chapter 5's example) left a file the player's own account
+  could not read. The copy now takes the source's mode exactly. Decided with it (2026-10-10): the
+  mode travels as it is, with nothing added for the login, so a `user`-only file carried in as
+  `guest` lands unreadable to that guest, who cannot `chmod` it there either; the player widens it
+  at home first. The other direction is unchanged: a file taken off a box lands as the player's
+  own write. `ftp put` still writes the login's default.
 
 - **`~` expands only as `~` and `~/path` (v0.328.0, #621).** Expansion happens in the tokenizer, so
   every command and redirect target gets it. Still missing: `~user` (another account's home —

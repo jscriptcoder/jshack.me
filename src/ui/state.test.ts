@@ -3689,6 +3689,18 @@ describe('a door logged into the player’s own box', () => {
     expect(state.scrollback().at(-1)?.content).toContain('carried');
   });
 
+  it('lets the player read a file of their own that scp carried in as root', async () => {
+    const { state } = await bootAtHome();
+    state.setInput('echo remember the milk > /tmp/notes.txt');
+    await state.runInput();
+
+    await typeAnswering(state, 'scp /tmp/notes.txt root@localhost:/tmp/carried.txt', ['pw']);
+    state.setInput('cat /tmp/carried.txt');
+    await state.runInput();
+
+    expect(state.scrollback().at(-1)?.content).toBe('remember the milk');
+  });
+
   it('shows the shell a file an ftp put left on the box it stands on', async () => {
     const { state } = await bootAtHome();
 
