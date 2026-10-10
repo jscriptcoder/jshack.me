@@ -52,13 +52,29 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   means letting the own box through for a transfer made over a door login; an `api/` change, so a
   wire-check. Left out of the own-box doors epic on purpose (2026-10-09).
 
-- **The data doors may resolve `localhost` to the gateway on a deep hop. Unverified.** The login
-  doors resolve loopback from a hop to the box's own layer address (`segmentsReachedFrom(...)[0]`,
-  in `authCreateSession.ts`). The data doors' server handlers (`mysql`, `redis`, `snmp`, the exploit
-  session and `hydra`, in `core/sessions/`) resolve it in `serviceHost.ts` to the `ownLanSourceIp`
-  each handler passes, which on a deep box names the inner gateway. That was the login doors' bug before #639. First prove it
-  with a wire-check from a deep hop; if it holds, resolve loopback the way the login doors do.
-  Found while building #639 (2026-10-09).
+- **The data doors resolved `localhost` to the gateway on a deep hop — RESOLVED 2026-10-10
+  (v0.349.0).** Proved first on the live stack (`scripts/testHopDataDoors.ts`): `redis-cli
+  localhost` from a box on a deep layer answered `host_unreachable`. On the gateway's own ssh
+  port the reach returned the GATEWAY instead (seen in the unit test, not live), which is the box
+  a `hydra localhost` from the deep one would have swept. `reachBox` (`core/sessions/serviceHost.ts`) took loopback's address from
+  `ownLanSourceIp`, which is where the LAN sees the box. It now resolves it the way the login
+  doors do (`segmentsReachedFrom(...)[0]`, the lease for a player's box), which covers `mysql`,
+  `redis-cli`, `snmpwalk`/`snmpset`, `hydra` and the exploit session at once, and a switch in
+  front of the layer no longer stands in loopback's way. Two neighbours found on the way are the
+  next two items.
+
+- **A data door over `localhost` still obeys the hop's own filter. By reading, not reproduced.**
+  The login doors let loopback past the box's own `rules.v4` denies (`reachDoor`'s
+  `overLoopback`); `reachServiceHost` and the exploit session ask `portsOpenToNetwork` whatever
+  the request came over, so `redis-cli localhost` on a hop whose owner filtered the port answers
+  `service_not_running` where `ssh localhost` would log in. Only a box somebody wrote a filter on
+  shows it. Found 2026-10-10.
+
+- **`curl localhost` on a deep box leaves no line in its own access log. By reading, not
+  reproduced.** The page is served client-side, but the trace (`core/network/recordLanFetch.ts`)
+  resolves loopback from `vantage.sourceIp`, the same LAN-side address the data doors used, so it
+  looks for a web server on the gateway and records nothing. Same fix as the item above this
+  pair; needs `scripts/testLanFetchLog.ts` extended to a deep hop. Found 2026-10-10.
 
 - **A file `scp` carried landed `rwx------` — RESOLVED 2026-10-10 (v0.345.0).** `scp` passed no
   mode, so the write took `defaultFilePermissions` for the login's tier, and

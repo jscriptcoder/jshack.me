@@ -682,9 +682,12 @@ agreed order:
    account with no password is refused, and the door's own log records `127.0.0.1`. From a hop,
    `localhost` goes to the server as `127.0.0.1` and lands on the hop, past its own filter and
    any switch. Chapter 5 of hackademy.io shows the `localhost` examples again. Left open, each
-   its own `backlog.md` item: ftp transfers at home are not itemised in `vsftpd.log`, and the data
-   doors may resolve `localhost` to the gateway on a deep hop (unverified). ✅ The third, a file
-   `scp` carried landing `rwx------`, closed at v0.345.0: the copy takes the source's mode.
+   its own `backlog.md` item: ftp transfers at home are not itemised in `vsftpd.log`. ✅ A file
+   `scp` carried landing `rwx------` closed at v0.345.0: the copy takes the source's mode. ✅ The
+   data doors resolving `localhost` to the gateway on a deep hop closed at v0.349.0: `mysql`,
+   `redis-cli`, the snmp tools, `hydra` and the exploit session reach the deep box itself, past
+   any switch. Two neighbours it turned up are in `backlog.md`: a data door over `localhost`
+   still obeys the hop's own filter, and `curl localhost` on a deep box is not traced.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan
