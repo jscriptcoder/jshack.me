@@ -9,6 +9,8 @@ import { computeDeepGatewayId, computeInnerGatewayId, computeApGatewayId } from 
 import { generateHomeLan } from '../generation/generateHomeLan.js';
 import { crackableEssidPool } from '../generation/generateWifi.js';
 import { generateDeepLayer, seedNetworkDepth } from '../generation/generateDeepLayer.js';
+import { chainLinks } from '../generation/lanTopology.js';
+import { hostMachineId } from '../generation/remoteHostId.js';
 import { md5 } from '../generation/md5.js';
 import type { Directory, FileNode } from '../filesystem/types.js';
 
@@ -289,6 +291,119 @@ describe('enforceRemoteWriteL2 — a deep chain gateway', () => {
  * router-only `/etc/iptables` dir would be absent → creating `rules.v4` would have
  * no container → denied, so a passing "allowed" proves the router tree was built.
  */
+describe('enforceRemoteWriteL2 — a host on a deep layer', () => {
+  const noPriorPatches = () => Promise.resolve({ data: [], error: null });
+  const noOccupant = () => Promise.resolve({ data: null, error: null });
+
+  // The one machine on the layer a network's first chain gateway fronts: the box a
+  // player reaches by logging into that gateway and then into the address below it.
+  const deepHostOf = (essid: string): string => {
+    const [gateway] = chainLinks(essid);
+    if (gateway === undefined) throw new Error(`${essid} has no chain gateway`);
+    const layer = generateDeepLayer(
+      essid,
+      { machineId: gateway.machineId, kind: gateway.host.kind },
+      { hangsChild: gateway.hangsChild },
+    );
+    return hostMachineId(layer.host, essid);
+  };
+  const [ESSID, OTHER_ESSID] = crackableEssidPool;
+  if (ESSID === undefined || OTHER_ESSID === undefined) throw new Error('the pool is empty');
+
+  it('allows a root shell on the box to write a file there', async () => {
+    const denial = await enforceRemoteWriteL2({
+      machineId: deepHostOf(ESSID),
+      path: '/tmp/probe.txt',
+      session: { userType: 'root', essid: ESSID },
+      listMachinePatches: noPriorPatches,
+      findOccupantWorkstationByMachineId: noOccupant,
+    });
+
+    expect(denial).toBeNull();
+  });
+
+  it('holds a guest shell on the box to its tier', async () => {
+    const denial = await enforceRemoteWriteL2({
+      machineId: deepHostOf(ESSID),
+      path: '/etc/probe.conf',
+      session: { userType: 'guest', essid: ESSID },
+      listMachinePatches: noPriorPatches,
+      findOccupantWorkstationByMachineId: noOccupant,
+    });
+
+    expect(denial).toEqual({ status: 403, error: 'permission_denied' });
+  });
+
+  it('asks the box as its journal left it, not as it was generated', async () => {
+    // Somebody opened a file in /etc to every tier. The gate has to see that, and has to
+    // read it from this box's journal and no other.
+    const deepHost = deepHostOf(ESSID);
+    const opened = {
+      path: '/etc/probe.conf',
+      content: 'shared',
+      owner: 'root',
+      permissions: {
+        read: ['root', 'user', 'guest'] as const,
+        write: ['root', 'user', 'guest'] as const,
+        execute: [] as const,
+      },
+    };
+
+    const denial = await enforceRemoteWriteL2({
+      machineId: deepHost,
+      path: '/etc/probe.conf',
+      session: { userType: 'guest', essid: ESSID },
+      listMachinePatches: ({ machine_id }) =>
+        Promise.resolve({ data: machine_id === deepHost ? [opened] : [], error: null }),
+      findOccupantWorkstationByMachineId: noOccupant,
+    });
+
+    expect(denial).toBeNull();
+  });
+
+  it('500s (no false deny) when the journal cannot be read', async () => {
+    const denial = await enforceRemoteWriteL2({
+      machineId: deepHostOf(ESSID),
+      path: '/tmp/probe.txt',
+      session: { userType: 'root', essid: ESSID },
+      listMachinePatches: () => Promise.resolve({ data: null, error: new Error('db down') }),
+      findOccupantWorkstationByMachineId: noOccupant,
+    });
+
+    expect(denial).toEqual({ status: 500, error: 'permission_check_failed' });
+  });
+
+  it("denies a write to a deep box that is not on the session's own network", async () => {
+    // The box is found from the network the session was opened on, so a shell on one
+    // network cannot write another network's box by naming its id.
+    const denial = await enforceRemoteWriteL2({
+      machineId: deepHostOf(OTHER_ESSID),
+      path: '/tmp/probe.txt',
+      session: { userType: 'root', essid: ESSID },
+      listMachinePatches: noPriorPatches,
+      findOccupantWorkstationByMachineId: noOccupant,
+    });
+
+    expect(denial).toEqual({ status: 403, error: 'permission_denied' });
+  });
+});
+
+describe("enforceRemoteWriteL2 — the caller's own workstation", () => {
+  it('lets the write through unasked, since no session stands between a player and their box', async () => {
+    const neverAsked = () => Promise.reject(new Error('the gate asked about an own-box write'));
+
+    const denial = await enforceRemoteWriteL2({
+      machineId: 'alicebox-deadbeef',
+      path: '/boot/vmlinuz',
+      session: null,
+      listMachinePatches: neverAsked,
+      findOccupantWorkstationByMachineId: neverAsked,
+    });
+
+    expect(denial).toBeNull();
+  });
+});
+
 describe('enforceRemoteWriteL2 — foreign router (cross-player)', () => {
   const noPriorPatches = () => Promise.resolve({ data: [], error: null });
 

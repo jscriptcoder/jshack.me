@@ -76,16 +76,17 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   looks for a web server on the gateway and records nothing. Same fix as the item above this
   pair; needs `scripts/testLanFetchLog.ts` extended to a deep hop. Found 2026-10-10.
 
-- **A shell on a deep box can write nothing there, even as root. Reproduced in the browser
-  2026-10-10 (v0.349.0).** On ABSTERGO-NET, `ssh root@192.168.190.184` then
+- **A shell on a deep box could write nothing there, even as root — RESOLVED 2026-10-10
+  (v0.350.0).** Found in the browser on ABSTERGO-NET: `ssh root@192.168.190.184` then
   `ssh root@10.241.72.247` lands on `mysql-247` as root, where `echo probe > /tmp/probe.txt`
-  answers `Permission denied` and `redis-server` answers `redis-server: Permission denied`. The
-  write gate (`core/patches/remoteWritePermission.ts`, `resolveTargetBaseFs`) rebuilds a LAN host
-  or a chain gateway and then falls to "another player's workstation", so a deep box resolves to
-  nothing and the write fails closed. Asked directly, the gate answers `403 permission_denied` for
-  the deep box and lets the same write through on its gateway. `generatedBaseFsForMachineId`
-  already knows all three kinds. Reads, logins and the data doors are unaffected, since they do
-  not pass this gate. Needs a wire-check: a write from a session on a deep box.
+  answered `Permission denied` and so did `redis-server`. The write gate
+  (`core/patches/remoteWritePermission.ts`) named the boxes it could rebuild kind by kind, a LAN
+  host and a chain gateway, and took anything else for another player's workstation, so a deep
+  box resolved to nothing and the write failed closed. It now asks
+  `generatedBaseFsForMachineId`, the resolver the read side already used, which knows every box
+  a network generates. A guest shell there is still held to its tier, and a deep box on another
+  network is still refused. `scripts/testDeepLayerSsh.ts` carries the two write cases. Not yet
+  re-played in the browser.
 
 - **A file `scp` carried landed `rwx------` — RESOLVED 2026-10-10 (v0.345.0).** `scp` passed no
   mode, so the write took `defaultFilePermissions` for the login's tier, and
