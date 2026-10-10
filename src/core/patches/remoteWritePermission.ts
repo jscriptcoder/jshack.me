@@ -7,8 +7,8 @@
  * server REGENERATES it and asks the SHARED `createFsView`/walker the exact same
  * `canWrite` question the own-box client asks (one walker, no drift). The base FS
  * is resolved two ways:
- *   1. an NPC host on the CALLER's own regenerated LAN (`hostForMachineId` →
- *      `buildRemoteHostFs`) — an ssh hop to a generated machine, pure;
+ *   1. a box the session's own network generates, at any depth
+ *      (`generatedBaseFsForMachineId`) — an ssh hop to a generated machine, pure;
  *   2. a FOREIGN player workstation, rebuilt from the OWNER's identity held in
  *      `home_network_occupants` (decision D6) — a cross-player write to another
  *      player's box. The own-LAN resolvers miss (it's not on the caller's LAN), so we
@@ -21,10 +21,7 @@
 
 import { applyPatches, type Patch } from '../filesystem/applyPatches.js';
 import { createFsView } from '../filesystem/fsView.js';
-import {
-  chainGatewayBaseFsForMachineId,
-  lanBaseFsForMachineId,
-} from '../generation/lanHostIdentity.js';
+import { generatedBaseFsForMachineId } from '../generation/lanHostIdentity.js';
 import { buildWorkstationBaseFsFromIdentity } from '../generation/workstationFs.js';
 import { buildApGatewayBaseFs } from '../generation/routerFs.js';
 import { computeApGatewayId } from '../identity/router.js';
@@ -85,8 +82,8 @@ export type L2Denial = { readonly status: number; readonly error: string };
 
 type ResolvedBase = { readonly fs: Directory | null; readonly error: unknown };
 
-/** Resolve the target's base FS for the L2 perm check: an NPC host on the caller's
- *  own LAN (pure), else a foreign player's workstation via occupancy (D6),
+/** Resolve the target's base FS for the L2 perm check: a box the session's own
+ *  network generates (pure), else a foreign player's workstation via occupancy (D6),
  *  else `fs: null` (unresolvable → fail closed). `error` surfaces a lookup
  *  failure so the caller 500s rather than issuing a false deny. */
 const resolveTargetBaseFs = async (args: {
@@ -94,10 +91,6 @@ const resolveTargetBaseFs = async (args: {
   readonly session: SessionTier;
   readonly findOccupantWorkstationByMachineId: FindOccupantWorkstationByMachineId;
 }): Promise<ResolvedBase> => {
-  // Any host on the session's LAN — a journal-backed edge router or inner gateway (a
-  // `ssh root@<gateway>` hop), or an NPC sibling — rebuilds from the ESSID via the shared
-  // resolver, the SAME tree the client edits, so a root-tier `rules.v4` write walks the
-  // real router perms.
   // The AP gateway at `.1`. The LAN walker deliberately skips that octet — the gateway
   // belongs to the access point rather than sitting on its LAN as a host — so it gets
   // its own arm. Standing on it means holding a session opened against it, and that
@@ -107,17 +100,14 @@ const resolveTargetBaseFs = async (args: {
   if (computeApGatewayId(args.session.essid) === args.machineId) {
     return { fs: buildApGatewayBaseFs(args.session.essid), error: null };
   }
-  const lanFs = lanBaseFsForMachineId(args.session.essid, args.machineId);
-  if (lanFs !== null) {
-    return { fs: lanFs, error: null };
-  }
-  // A deep chain gateway (an L2+ chain door rooted through a forward) lives BELOW the home
-  // LAN, so it isn't a `generateHomeLan` host. Resolve it from the ESSID so `nano rules.v4`
-  // on it walks the real router perms — the write that lets a player chain a forward one
-  // layer deeper, on the box every other occupant of the network reaches too.
-  const deepGatewayFs = chainGatewayBaseFsForMachineId(args.session.essid, args.machineId);
-  if (deepGatewayFs !== null) {
-    return { fs: deepGatewayFs, error: null };
+  // Every other box the session's network generates, down the whole chain: a LAN host, a
+  // gateway at any depth, and the machine on each layer a gateway fronts. One resolver for
+  // all of them, the same one the read side builds a generated box from, so a box a shell
+  // can stand on and read is a box it can write at its tier. Naming them kind by kind here
+  // left the deep machines out, and a root shell on one could write nothing.
+  const generatedFs = generatedBaseFsForMachineId(args.session.essid, args.machineId);
+  if (generatedFs !== null) {
+    return { fs: generatedFs, error: null };
   }
   // Not a machine the session's own network generates, so it is another player's
   // workstation. Occupancy is both the identity source and the reachability test: it

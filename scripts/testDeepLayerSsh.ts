@@ -14,7 +14,9 @@
 //   - a SWITCH replays its journal to read acl.conf, so a `deny 22` patch refuses the
 //     login and removing it lets it through (the materialize → ACL read path);
 //   - a caller with no shell on the box they name, a layer below the one a gateway fronts,
-//     and a layer's `.1` are all refused, and log nothing.
+//     and a layer's `.1` are all refused, and log nothing;
+//   - a shell on a deep host writes that host's files at its own tier: root's write lands in
+//     the box's journal, and a guest's write to a root-only directory is refused.
 //
 // Usage (with v2 supabase + vercel dev running):
 //   npx dotenv -e .env.development.local -- npx tsx scripts/testDeepLayerSsh.ts
@@ -38,6 +40,7 @@ import { md5 } from '../src/core/generation/md5.js';
 import type { Directory } from '../src/core/filesystem/types.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
+const PATCHES = process.env.PATCHES_ENDPOINT ?? 'http://localhost:3100/api/patches';
 const url = process.env.SUPABASE_URL;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -110,8 +113,10 @@ if (ESSID === undefined) {
 }
 
 // The acting player holds a shell on every box a check logs in from; mallory holds none.
+// Gus holds one, on the deep NPC, as its guest.
 const alice = generateIdentity();
 const mallory = generateIdentity();
+const gus = generateIdentity();
 
 const links = chainLinks(ESSID);
 const INNER_R = links.find((link) => link.parentMachineId === null && link.host.kind === 'router')!;
@@ -186,6 +191,34 @@ const cleanUp = async () => {
     await sr.from('patches').delete().eq('machine_id', machineId);
   }
   await sr.from('sessions').delete().eq('player_key', alice.publicKeyHex);
+  await sr.from('sessions').delete().eq('player_key', gus.publicKeyHex);
+};
+
+const writeOn = (
+  identity: ReturnType<typeof generateIdentity>,
+  machineId: string,
+  path: string,
+  owner: string,
+) =>
+  post(
+    PATCHES,
+    signRequest(identity, 'upsertPatch', {
+      machine_id: machineId,
+      path,
+      content: 'probe',
+      owner,
+      node_type: 'file',
+      is_new: true,
+    }),
+  );
+
+const rowsAt = async (machineId: string, path: string): Promise<number> => {
+  const { data } = await sr
+    .from('patches')
+    .select('path')
+    .eq('machine_id', machineId)
+    .eq('path', path);
+  return data?.length ?? 0;
 };
 
 // Clean slate, then alice's shells — as `ssh` would have left them, each stamped with the
@@ -206,6 +239,18 @@ for (const [index, machineId] of shells.entries()) {
     console.error(`FATAL: session seed failed: ${seeded.error.message}`);
     process.exit(1);
   }
+}
+const guestShell = await sr.from('sessions').insert({
+  session_id: 'ssh-guest-deep-shell',
+  player_key: gus.publicKeyHex,
+  machine_id: R_NPC_ID,
+  credentials: { username: 'guest', userType: 'guest' },
+  kind: 'ssh',
+  essid: ESSID,
+});
+if (guestShell.error) {
+  console.error(`FATAL: guest session seed failed: ${guestShell.error.message}`);
+  process.exit(1);
 }
 
 try {
@@ -319,6 +364,26 @@ try {
     'reach: a layer’s .1 is 404 host_unreachable',
     l10.status === 404 && (l10.body as { error?: string } | null)?.error === 'host_unreachable',
     `status=${l10.status} body=${JSON.stringify(l10.body)}`,
+  );
+
+  // 11. Root on the deep NPC writes a file there, and the row lands on that box.
+  const rootWrite = await writeOn(alice, R_NPC_ID, '/tmp/probe.txt', 'root');
+  const rootRows = await rowsAt(R_NPC_ID, '/tmp/probe.txt');
+  check(
+    'write: root on the deep NPC writes a file, journaled on that box',
+    rootWrite.status === 200 && rootRows === 1,
+    `status=${rootWrite.status} body=${JSON.stringify(rootWrite.body)} rows=${rootRows}`,
+  );
+
+  // 12. A guest shell on the same box is held to its tier: /etc is root's to write.
+  const guestWrite = await writeOn(gus, R_NPC_ID, '/etc/probe.conf', 'guest');
+  const guestRows = await rowsAt(R_NPC_ID, '/etc/probe.conf');
+  check(
+    'write: a guest on the deep NPC writing into /etc is 403 permission_denied, nothing journaled',
+    guestWrite.status === 403 &&
+      (guestWrite.body as { error?: string } | null)?.error === 'permission_denied' &&
+      guestRows === 0,
+    `status=${guestWrite.status} body=${JSON.stringify(guestWrite.body)} rows=${guestRows}`,
   );
 } finally {
   await cleanUp();

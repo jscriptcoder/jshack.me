@@ -303,7 +303,6 @@ deep box runs sshd; 18 in the whole world run a store.
 | `crackableEssidPool` holds keys like `r0/t0/n120` | A drawn network's key is not its name. `essidOf(key)` is what `airodump-ng` shows and `nmcli` takes; the generators take the key |
 | `ps` on the box shows no `redis-server` although the generator says it runs | `scripts/testRedisDeep.ts` stops the daemon on the first deep store it finds and leaves that row in the local database. Check `select path, content is null from patches where machine_id like '<hostname>%'` before reading it as a defect |
 | `mysql localhost <the box's own user>` → `Access denied` | A database's accounts are not the box's. Draw them with `drawDatabaseCredentials('mysql-db-<key>-<ip>')` (above) |
-| Any write on the box → `Permission denied`, even as root | Open defect at v0.349.0, see `docs/backlog.md`: the write gate does not know a deep box. Reads, logins and the data doors work |
 
 ### Then: a local hole on your own box
 

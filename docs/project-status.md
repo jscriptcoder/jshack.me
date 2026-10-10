@@ -687,7 +687,10 @@ agreed order:
    data doors resolving `localhost` to the gateway on a deep hop closed at v0.349.0: `mysql`,
    `redis-cli`, the snmp tools, `hydra` and the exploit session reach the deep box itself, past
    any switch. Two neighbours it turned up are in `backlog.md`: a data door over `localhost`
-   still obeys the hop's own filter, and `curl localhost` on a deep box is not traced.
+   still obeys the hop's own filter, and `curl localhost` on a deep box is not traced. ✅ The
+   browser run over v0.345.0 to v0.349.0 passed, and found that a shell on a deep box could
+   write nothing there; closed at v0.350.0, the write gate now knows every box a network
+   generates.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan
