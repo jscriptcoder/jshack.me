@@ -84,6 +84,11 @@ export type Session = {
    *  under it, every session becomes what a backdoor already was — a door that
    *  has to keep asking whether it is still there. */
   readonly bootId?: string | null;
+  /** The address a door login to the player's OWN box came from: loopback, or the
+   *  address the box is leased. Only that login carries one. The client answered it
+   *  itself, so no server row remembers where it came from, and what the daemon logs
+   *  after the login has to name the address the login line named. */
+  readonly fromIp?: string;
 };
 
 export type HopChain = readonly Session[];
@@ -362,10 +367,10 @@ export type PublicSweepResult =
     }
   | { readonly ok: false; readonly error: 'host_unreachable' | 'network_error' };
 
-/** An event a command hands to `log.appendAuthLog` for the box's own `/var/log/auth.log`.
- *  Two shapes today: a `su` user-switch, and a session opened with NO
- *  authentication before it — the trace a `--local` shell success leaves, whose whole tell
- *  is the missing password line. Neither carries a timestamp: the SERVER stamps the time
+/** An event a command hands to `log.appendAuthLog` for the box's own logs: a `su`
+ *  user-switch, a session opened with NO authentication before it — the trace a `--local`
+ *  shell success leaves, whose whole tell is the missing password line — a login through
+ *  one of its own doors, and a file moved over its own ftp door. None carries a timestamp: the SERVER stamps the time
  *  (UTC) and the pid when it records the line, so a crafted client request can't dictate
  *  game time. `machineId` selects the row; `hostname` is the display name in the line. */
 export type AuthLogEvent =
@@ -393,6 +398,17 @@ export type AuthLogEvent =
       readonly fromIp: string;
       readonly outcome: 'success' | 'failure';
       readonly hostname: string;
+    }
+  | {
+      /** A file moved over an ftp login to the player's own box — vsftpd's own line,
+       *  naming the account and the address that login was made with. */
+      readonly kind: 'ftpTransfer';
+      readonly machineId: MachineId;
+      readonly user: string;
+      readonly fromIp: string;
+      readonly direction: TransferDirection;
+      readonly path: AbsPath;
+      readonly bytes: number;
     };
 
 /** The crash a `msfconsole --local` MISS hands to `log.appendKernLog` — the command

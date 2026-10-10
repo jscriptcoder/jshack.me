@@ -1,8 +1,8 @@
 /**
  * handleAppendAuthLog — the pure appendAuthLog endpoint logic (no Vercel, no
  * Supabase). Records an auth event on the caller's OWN box — an `su` user-switch, a
- * session opened with no authentication, or a login through one of its own doors —
- * with a timestamp the SERVER stamps from its own UTC clock.
+ * session opened with no authentication, a login through one of its own doors, or a file
+ * moved over its own ftp door — with a timestamp the SERVER stamps from its own UTC clock.
  *
  * The client sends only the EVENT — never a time. The server reads the current log content, formats the syslog line via
  * the shared `core/logging/authLog` formatter using `deps.now()` (UTC), appends,
@@ -22,7 +22,7 @@ import { z } from 'zod';
 import { verifySignedRequest } from '../signedRequest/verify.js';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
 import { isOwnWorkstation } from '../identity/workstation.js';
-import { asGameTime } from '../types.js';
+import { asAbsPath, asGameTime } from '../types.js';
 import {
   AUTH_LOG_OWNER,
   AUTH_LOG_PATH,
@@ -31,6 +31,12 @@ import {
   formatSuAuthLine,
 } from '../logging/authLog.js';
 import { derivePid } from '../logging/syslog.js';
+import {
+  VSFTPD_LOG_OWNER,
+  VSFTPD_LOG_PATH,
+  VSFTPD_LOG_PERMISSIONS,
+  formatVsftpdTransferLine,
+} from '../logging/vsftpdLog.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 import { SERVICE_CATALOG, formatLoginLines, type SweepLog } from '../services/serviceCatalog.js';
 import { SERVICE_BY_DOOR } from '../sessions/authCreateSession.js';
@@ -108,10 +114,32 @@ const doorLoginSchema = z
   })
   .refine(noStampedKeys);
 
+// A file moved over an ftp login to the caller's own box. The client answered that login
+// itself, so there is no session row to read the account or the address from, and it
+// names both, as the login before it did. The path is written into the line verbatim
+// like the address, so it may not break the line: it could otherwise carry one of its own.
+const ftpTransferSchema = z
+  .looseObject({
+    action: z.literal('appendAuthLog'),
+    kind: z.literal('ftpTransfer'),
+    machine_id: z.string().min(1),
+    user: z.string().min(1),
+    from_ip: z.ipv4(),
+    direction: z.enum(['download', 'upload']),
+    path: z.string().regex(/^\/[^\r\n]*$/),
+    bytes: z.number().int().nonnegative(),
+  })
+  .refine(noStampedKeys);
+
 // The discriminated shapes first, so a payload carrying a discriminant is matched by its
 // own shape rather than falling through to the su schema (which would reject it for
-// missing su fields); a su envelope fails both kind literals and routes on.
-const appendAuthLogSchema = z.union([sessionOpenedSchema, doorLoginSchema, suSwitchSchema]);
+// missing su fields); a su envelope fails every kind literal and routes on.
+const appendAuthLogSchema = z.union([
+  sessionOpenedSchema,
+  doorLoginSchema,
+  ftpTransferSchema,
+  suSwitchSchema,
+]);
 
 type AppendAuthLogPayload = z.infer<typeof appendAuthLogSchema>;
 
@@ -136,6 +164,20 @@ const lineFor = (
         hostname: payload.hostname,
         time,
         pid,
+      }),
+    };
+  }
+  if (payload.kind === 'ftpTransfer') {
+    return {
+      log: { path: VSFTPD_LOG_PATH, owner: VSFTPD_LOG_OWNER, permissions: VSFTPD_LOG_PERMISSIONS },
+      line: formatVsftpdTransferLine({
+        direction: payload.direction,
+        user: payload.user,
+        fromIp: payload.from_ip,
+        time,
+        pid,
+        path: asAbsPath(payload.path),
+        bytes: payload.bytes,
       }),
     };
   }

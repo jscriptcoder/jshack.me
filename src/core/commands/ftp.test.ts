@@ -1754,6 +1754,8 @@ describe('ftp to the box the shell stands on, at home', () => {
       createdAt: OWN_BOX.now,
       // Still at home: the session runs beside a shell that never left its own box.
       essid: null,
+      // No server row remembers where this login came from, so the session does.
+      fromIp: '127.0.0.1',
     });
     expect(pushed).not.toHaveBeenCalled();
   });
@@ -1799,7 +1801,9 @@ describe('ftp to the box the shell stands on, at home', () => {
     const onLog = vi.fn<(event: AuthLogEvent) => void>();
     const entered = vi.fn<(session: Session) => void>();
     await ftp.execute(ownFtpEnv({ onLog }, { onEnter: entered }), [OWN_BOX.leasedIp], new Map());
-    expect(entered).toHaveBeenCalledWith(expect.objectContaining({ machineId: OWN_BOX.machineId }));
+    expect(entered).toHaveBeenCalledWith(
+      expect.objectContaining({ machineId: OWN_BOX.machineId, fromIp: OWN_BOX.leasedIp }),
+    );
     expect(onLog).toHaveBeenCalledWith(expect.objectContaining({ fromIp: OWN_BOX.leasedIp }));
   });
 

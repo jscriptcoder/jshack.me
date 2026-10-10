@@ -46,11 +46,23 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   the hop. Chapter 5 shows the `localhost` examples again. Three gaps left behind are the next
   three items.
 
-- **ftp transfers at home are not itemised in `vsftpd.log`.** `ftp localhost` logs the CONNECT and
-  LOGIN lines from `127.0.0.1`, but a `get` or `put` that follows leaves no line, because
-  `recordFtpTransfer` (`core/patches/recordFtpTransfer.ts`) refuses the caller's own box. Fixing it
-  means letting the own box through for a transfer made over a door login; an `api/` change, so a
-  wire-check. Left out of the own-box doors epic on purpose (2026-10-09).
+- **ftp transfers at home were not itemised in `vsftpd.log` — RESOLVED 2026-10-10 (v0.353.0).**
+  `ftp localhost` logged the CONNECT and LOGIN lines from `127.0.0.1`, but a `get` or `put` that
+  followed left no line, because `recordFtpTransfer` refuses the caller's own box: it reads the
+  account off a session row, and a login the client answered has none. That refusal stays. The
+  line is written by `appendAuthLog` instead (an `ftpTransfer` event), the action that already
+  records the own-box login, told the account and the address that login was made with; the
+  session carries the address (`Session.fromIp`) from the login to the transfer.
+  `scripts/testOwnBoxLogin.ts` carries the five checks. Not played in the browser yet. One
+  neighbour found on the way is the next item.
+
+- **A trace's free-text fields can carry a line of their own, on another player's box. By
+  reading, not reproduced.** `recordFtpTransfer` takes `path` as any non-empty string and
+  `recordPackageDowngrade` takes the package name and both versions the same way, and each is
+  written into the line as sent. A request signed outside the game, by a caller holding a
+  session on the box, could put a line break in one and append whole lines to the owner's
+  `vsftpd.log` or `dpkg.log`, under the owner's key. The own-box shapes refuse it: an address
+  must be one, and the own-box transfer's path may not break the line. Found 2026-10-10.
 
 - **The data doors resolved `localhost` to the gateway on a deep hop — RESOLVED 2026-10-10
   (v0.349.0).** Proved first on the live stack (`scripts/testHopDataDoors.ts`): `redis-cli

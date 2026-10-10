@@ -2041,7 +2041,9 @@ state costs you more than one wrong attempt.
   worth stating: `ActiveSession` therefore carries `username`, and a handler that needs an
   identity must **refuse the own-workstation L1 BYPASS**, which returns `session: null` and so
   can name nobody. Proven live by `scripts/testFtpTransferTrace.ts`, which claims `impostor`
-  and reads the real account back out of the box's own log.
+  and reads the real account back out of the box's own log. The caller's OWN box is the one
+  place a client names the account: it answered that login itself, so the login and every
+  transfer after it go through `appendAuthLog`, which writes to no box but the caller's.
 - **`ActiveSession` is the L1 projection; take a `Pick` of it when you only need the tier.**
   `remoteWritePermission` answers a permission question, which needs `userType` + `essid` and
   no name at all — so it takes `Pick<ActiveSession, 'userType' | 'essid'>`. Without that, every

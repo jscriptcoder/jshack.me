@@ -681,8 +681,9 @@ agreed order:
    daemon must hold the port, the password is checked against the box's own `/etc/passwd`, an
    account with no password is refused, and the door's own log records `127.0.0.1`. From a hop,
    `localhost` goes to the server as `127.0.0.1` and lands on the hop, past its own filter and
-   any switch. Chapter 5 of hackademy.io shows the `localhost` examples again. Left open, each
-   its own `backlog.md` item: ftp transfers at home are not itemised in `vsftpd.log`. ✅ A file
+   any switch. Chapter 5 of hackademy.io shows the `localhost` examples again. ✅ ftp transfers at
+   home are itemised in `vsftpd.log` (v0.353.0): `appendAuthLog` writes the line, since a login
+   the client answered leaves no session row to name the account from. ✅ A file
    `scp` carried landing `rwx------` closed at v0.345.0: the copy takes the source's mode. ✅ The
    data doors resolving `localhost` to the gateway on a deep hop closed at v0.349.0: `mysql`,
    `redis-cli`, the snmp tools, `hydra` and the exploit session reach the deep box itself, past

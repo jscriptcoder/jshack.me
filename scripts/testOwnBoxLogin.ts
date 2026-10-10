@@ -18,6 +18,9 @@
 //     know the login is a copy.
 //   - An `ftp` door login lands in vsftpd's own log, not auth.log: the connection and the
 //     login together, in one append.
+//   - An `ftpTransfer` appendAuthLog itemises a file moved over that login in the same
+//     vsftpd row, in either direction; a path that breaks the line is refused 400, and one
+//     filed on another player's box 403. `recordFtpTransfer` still refuses the own box.
 //   - A `createSession` of kind `ssh` on the own box is held, and `listSessions` reports it
 //     open — without that the shell is popped as closed on the very next line typed.
 //   - A kind no own-box shell produces (`nc`) is still refused 400.
@@ -171,6 +174,77 @@ check(
     /\] \[guest\] OK LOGIN: Client "127\.0\.0\.1"$/.test(lines(vsftpd6)[1] ?? '') &&
     lines(await readAuthLog(WS)).length === 3,
   `status=${r6.status} lines=${JSON.stringify(lines(vsftpd6))}`,
+);
+
+const ftpTransfer = (machineId: string, over: Record<string, unknown> = {}) =>
+  signRequest(player, 'appendAuthLog', {
+    kind: 'ftpTransfer',
+    machine_id: machineId,
+    user: 'guest',
+    from_ip: '127.0.0.1',
+    direction: 'download',
+    path: '/etc/passwd',
+    bytes: 1243,
+    ...over,
+  });
+
+const t1 = await post(PATCHES, await ftpTransfer(WS));
+const vsftpdT1 = await readLog(WS, VSFTPD_LOG_PATH);
+check(
+  'a file taken over ftp on the own box is itemised after the login, in the same row',
+  t1.status === 200 &&
+    lines(vsftpdT1).length === 3 &&
+    /\] \[guest\] OK DOWNLOAD: Client "127\.0\.0\.1", "\/etc\/passwd", 1243 bytes$/.test(
+      lines(vsftpdT1)[2] ?? '',
+    ),
+  `status=${t1.status} last=${lines(vsftpdT1)[2] ?? '(empty)'}`,
+);
+
+const t2 = await post(
+  PATCHES,
+  await ftpTransfer(WS, { direction: 'upload', path: '/tmp/planted.sh', bytes: 0 }),
+);
+const vsftpdT2 = await readLog(WS, VSFTPD_LOG_PATH);
+check(
+  'a file left over ftp on the own box is itemised too',
+  t2.status === 200 &&
+    lines(vsftpdT2).length === 4 &&
+    /\] \[guest\] OK UPLOAD: Client "127\.0\.0\.1", "\/tmp\/planted\.sh", 0 bytes$/.test(
+      lines(vsftpdT2)[3] ?? '',
+    ),
+  `status=${t2.status} last=${lines(vsftpdT2)[3] ?? '(empty)'}`,
+);
+
+const t3 = await post(
+  PATCHES,
+  await ftpTransfer(WS, { path: '/tmp/x", 1 bytes\nforged line' }),
+);
+check(
+  'a path that carries a line of its own is refused 400 and writes nothing',
+  t3.status === 400 && lines(await readLog(WS, VSFTPD_LOG_PATH)).length === 4,
+  `status=${t3.status} body=${JSON.stringify(t3.body)}`,
+);
+
+const t4 = await post(PATCHES, await ftpTransfer(FOREIGN));
+check(
+  'a transfer filed on another player’s box is refused 403 and writes nothing',
+  t4.status === 403 && (await readLog(FOREIGN, VSFTPD_LOG_PATH)) === '',
+  `status=${t4.status} body=${JSON.stringify(t4.body)}`,
+);
+
+const t5 = await post(
+  PATCHES,
+  await signRequest(player, 'recordFtpTransfer', {
+    machine_id: WS,
+    direction: 'download',
+    path: '/etc/passwd',
+    bytes: 1243,
+  }),
+);
+check(
+  'the transfer action still refuses the own box: it has no session row to name an account from',
+  t5.status === 403 && lines(await readLog(WS, VSFTPD_LOG_PATH)).length === 4,
+  `status=${t5.status} body=${JSON.stringify(t5.body)}`,
 );
 
 const r7 = await post(SESSIONS, await sshSession('ssh'));

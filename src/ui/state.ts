@@ -657,14 +657,28 @@ const ftpBinding = (): Pick<
     // added here, off the session it could not have opened by itself. The box the
     // shell is standing on rides along too: on another player's machine the reported
     // address is not evidence, and that is what the server derives one from.
+    //
+    // A login to the player's own box was answered here, so the server holds no row to
+    // read the account from and refuses the transfer action. Its line goes where its
+    // login's went: the own box's log, told who and from where.
     onFtpTransfer: ({ direction, path, bytes }) =>
-      void recordFtpTransferFn({
-        machineId: session.machineId,
-        direction,
-        path,
-        bytes,
-        callerMachineId: requireSession().machineId,
-      }),
+      session.fromIp === undefined
+        ? void recordFtpTransferFn({
+            machineId: session.machineId,
+            direction,
+            path,
+            bytes,
+            callerMachineId: requireSession().machineId,
+          })
+        : void log.appendAuthLog({
+            kind: 'ftpTransfer',
+            machineId: session.machineId,
+            user: session.username,
+            fromIp: session.fromIp,
+            direction,
+            path,
+            bytes,
+          }),
   };
 };
 

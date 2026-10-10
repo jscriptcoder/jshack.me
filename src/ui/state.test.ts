@@ -3715,4 +3715,46 @@ describe('a door logged into the player’s own box', () => {
 
     expect(state.scrollback().at(-1)?.content).toContain('put');
   });
+
+  const transfersIn = (sent: readonly Record<string, unknown>[]) =>
+    sent.filter((payload) => payload.kind === 'ftpTransfer');
+
+  it('itemises a file taken over ftp in the own box’s log, as the account and address of the login', async () => {
+    const { state, sent } = await bootAtHome();
+    const ownBox = sent.find((payload) => payload.action === 'listPatches')?.machine_id;
+
+    await typeAnswering(state, 'ftp localhost guest', [GUEST_PASSWORD]);
+    state.setInput('get /etc/passwd /tmp/taken');
+    await state.runInput();
+    await settle();
+
+    // The login was answered here, so no session row names the account: the box's own
+    // log is told, by the action that recorded the login. The transfer action is for a
+    // box a session is held on, and would refuse this one.
+    expect(transfersIn(sent)).toEqual([
+      expect.objectContaining({
+        action: 'appendAuthLog',
+        machine_id: ownBox,
+        user: 'guest',
+        from_ip: '127.0.0.1',
+        direction: 'download',
+        path: '/etc/passwd',
+        bytes: expect.any(Number),
+      }),
+    ]);
+    expect(sent.filter((payload) => payload.action === 'recordFtpTransfer')).toEqual([]);
+  });
+
+  it('itemises a file left over ftp on the own box', async () => {
+    const { state, sent } = await bootAtHome();
+
+    await typeAnswering(state, 'ftp localhost root', ['pw']);
+    state.setInput('put /etc/passwd /tmp/put');
+    await state.runInput();
+    await settle();
+
+    expect(transfersIn(sent)).toEqual([
+      expect.objectContaining({ user: 'root', direction: 'upload', path: '/tmp/put' }),
+    ]);
+  });
 });

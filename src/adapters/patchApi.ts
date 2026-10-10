@@ -169,7 +169,18 @@ export const createPatchApi = (deps: PatchClientDeps): PatchApi => ({
 });
 
 /** The signed fields for one auth event — each `kind` carries only what its shape needs. */
-const authLogFields = (event: AuthLogEvent): Record<string, string> => {
+const authLogFields = (event: AuthLogEvent): Record<string, string | number> => {
+  if (event.kind === 'ftpTransfer') {
+    return {
+      kind: 'ftpTransfer',
+      machine_id: event.machineId,
+      user: event.user,
+      from_ip: event.fromIp,
+      direction: event.direction,
+      path: event.path,
+      bytes: event.bytes,
+    };
+  }
   if (event.kind === 'sessionOpened') {
     return {
       kind: 'sessionOpened',
@@ -200,8 +211,8 @@ const authLogFields = (event: AuthLogEvent): Record<string, string> => {
 };
 
 /** Record an auth event on the caller's own box: a `su` user-switch, a session opened with
- *  no authentication before it (a `--local` shell success), or a login through one of its
- *  own doors. Sends only the EVENT — the server stamps the UTC timestamp and formats the
+ *  no authentication before it (a `--local` shell success), a login through one of its own
+ *  doors, or a file moved over its own ftp door. Sends only the EVENT — the server stamps the UTC timestamp and formats the
  *  line, so the client never dictates game time. Returns the same `PatchResult` the UI uses
  *  to decide whether to reconcile the journal. */
 export const postAuthLog = async (
