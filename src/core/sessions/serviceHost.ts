@@ -341,11 +341,18 @@ export const reachBox = async (
   },
 ): Promise<BoxReach> => {
   // `localhost` names the box the shell stands ON — the hop's own daemon, reached by the
-  // address it holds on the network it stands on. The daemon it answers sees the request
-  // come over loopback, so that is what a line records however the box is placed on the
-  // LAN. A hop the server cannot place at an address has no box for loopback to name.
+  // address it holds on the network it stands on: its own layer's, for a box behind a
+  // deeper gateway, never the gateway's the LAN sees it as, which is the only address
+  // `ownLanSourceIp` knows. A box the network does not generate has its lease and nothing
+  // else. The daemon it answers sees the request come over loopback, so that is what a
+  // line records however the box is placed. A hop the server cannot place at an address
+  // has no box for loopback to name.
   const loopback = target.targetIp === LOOPBACK_IPV4;
-  const address = loopback ? target.ownLanSourceIp : target.targetIp;
+  const standsAt =
+    target.callerMachineId === undefined
+      ? undefined
+      : segmentsReachedFrom(target.essid, target.callerMachineId)?.[0]?.address;
+  const address = loopback ? (standsAt ?? target.ownLanSourceIp) : target.targetIp;
   if (address === null) {
     return { ok: false, refusal: UNREACHABLE };
   }
@@ -557,8 +564,10 @@ const reachDeepLayerBox = async (
       writerKey: apGatewayLogWriterKey(target.essid),
       // A deep host fronts nothing behind it.
       frontedSegment: null,
-      // Only the switch's live ACL shapes what the network can reach here.
-      deniedPorts: deniedPortsFor(fronting, frontingFs),
+      // Only the switch's live ACL shapes what the network can reach here, and a
+      // request over loopback never leaves the box to cross it.
+      deniedPorts:
+        target.loopbackSource === null ? deniedPortsFor(fronting, frontingFs) : new Set(),
     });
   }
   return null;

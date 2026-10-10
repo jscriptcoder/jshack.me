@@ -13,6 +13,8 @@
 //   - a call naming a network the hop is not on is 403 `wrong_network`, and one naming a box
 //     the op holds no shell on is 403 `no_session`; both write nothing;
 //   - `localhost` on the hop reaches the hop box's own daemon, logged over `127.0.0.1`;
+//   - `localhost` on a box on a DEEP layer reaches that box's own daemon too, never the
+//     gateway it reaches the LAN through, and whatever the switch in front of it denies;
 //   - a PUBLIC target reached from the hop is logged under the HOP network's public address,
 //     and the same target from home under the op's own — the origin the hop masks;
 //   - once the hop's shell is gone, the next statement is refused `no_session`.
@@ -239,6 +241,7 @@ await standOnNetwork(sr, HOME, op, 27);
 await seedSession('hop-n-sibling', HOP_SIBLING_ID, N);
 await seedSession('hop-n-store', STORE_HOST_ID, N);
 await seedSession('hop-d-switch', deep.switchId, deep.essid);
+await seedSession('hop-d-deep', deep.deepId, deep.essid);
 // D's deep box runs an open store, planted as its own daemon would leave it — a layer host
 // serves nothing by default, so without this there is nothing on the deep layer to reach.
 await plant(
@@ -344,6 +347,31 @@ try {
       errorOf(denied.body) === 'service_not_running' &&
       reopened.status === 200,
     `denied=${denied.status}/${errorOf(denied.body)} reopened=${reopened.status}`,
+  );
+
+  // === 5b. `localhost` on the DEEP box reaches that box's own store. The LAN sees a deep
+  //     box as the gateway in front of it, so an address taken from there names the wrong
+  //     machine. The switch denies the port throughout: loopback never crosses it. ===
+  await clearLog(deep.deepId, REDIS_LOG_PATH, deep.essid);
+  await plant(deep.switchId, '/etc/switch/acl.conf', `# acl\ndeny ${REDIS_PORT}\n`);
+  const deepLoop = await redisConnect({
+    essid: deep.essid,
+    target_ip: '127.0.0.1',
+    caller_machine_id: deep.deepId,
+  });
+  await sr
+    .from('patches')
+    .delete()
+    .eq('machine_id', deep.switchId)
+    .eq('path', '/etc/switch/acl.conf');
+  const deepLoopLog = await logOn(deep.deepId, REDIS_LOG_PATH, deep.essid);
+  check(
+    'localhost on a deep box opens that box own store past a switch deny, logged over loopback',
+    deepLoop.status === 200 &&
+      deepLoop.body?.hostname === deep.deepHost.hostname &&
+      deepLoopLog.includes('Client connected from 127.0.0.1'),
+    `status=${deepLoop.status} body=${JSON.stringify(deepLoop.body)} ` +
+      `log=${JSON.stringify(deepLoopLog.trim())}`,
   );
 
   // === 6. A PUBLIC target from the hop is logged under the HOP network's public address,

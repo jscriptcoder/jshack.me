@@ -13,7 +13,7 @@ import { materializeWorkstationFs } from '../network/materializeWorkstationFs.js
 import { readOpenPorts, formatPidfileContent, pidfilePath } from '../services/pidfile.js';
 import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
 import { deepDatabaseFixture } from '../../test/factories/lanDatabase.js';
-import { chainLinks, type ChainLink } from '../generation/lanTopology.js';
+import { chainLinks, segmentsReachedFrom, type ChainLink } from '../generation/lanTopology.js';
 import { resolveDeepScanHosts } from '../scan/deepScanHosts.js';
 import { chainGatewayBaseFs } from '../generation/lanHostIdentity.js';
 import { hostMachineId } from '../generation/remoteHostId.js';
@@ -794,6 +794,23 @@ describe('reaching from a hop', () => {
     expect(reach.ok && reach.reached.sourceIp).toBe('127.0.0.1');
   });
 
+  it('resolves localhost on a fellow occupant box to that box, by the lease its owner holds', async () => {
+    // The network generates no place for a player's workstation, so the lease the
+    // vantage carries is the only address loopback has to name it by.
+    const reach = await reachHost(sameLanLookup(), {
+      essid: ESSID,
+      targetIp: '127.0.0.1',
+      service: DEFENDER_SSH_SERVICE,
+      port: DEFENDER_SSH_PORT,
+      actorKey: ATTACKER.publicKeyHex,
+      callerMachineId: DEFENDER_MACHINE,
+      ownLanSourceIp: DEFENDER_LAN_IP,
+    });
+
+    expect(reach.ok && reach.reached.machineId).toBe(DEFENDER_MACHINE);
+    expect(reach.ok && reach.reached.sourceIp).toBe('127.0.0.1');
+  });
+
   it('refuses loopback when the server cannot place the hop at an address', async () => {
     // A hop the network cannot place — a box whose owner has left — has no address for
     // loopback to name, so there is no own box to reach.
@@ -847,8 +864,11 @@ describe('reaching from a hop', () => {
 
 /** The first crackable network whose inner gateway fronts a layer carrying a box that
  *  serves ssh: the essid, the gateway (the hop the caller stands on), the deep host, its
- *  machine id, and its ssh port. */
-const deepSshTarget = (): {
+ *  machine id, and its ssh port. `frontedBy` narrows it to a layer behind that kind of
+ *  gateway. */
+const deepSshTarget = (
+  frontedBy?: LanHost['kind'],
+): {
   readonly essid: string;
   readonly gateway: ChainLink;
   readonly host: LanHost;
@@ -857,6 +877,7 @@ const deepSshTarget = (): {
 } => {
   for (const essid of crackableEssidPool) {
     for (const gateway of chainLinks(essid)) {
+      if (frontedBy !== undefined && gateway.host.kind !== frontedBy) continue;
       const onLayer = resolveDeepScanHosts(essid, gateway, chainGatewayBaseFs(essid, gateway)).hosts.find(
         (entry) => entry.host.kind === 'machine' && entry.ports.some((open) => open.service === 'ssh'),
       );
@@ -894,5 +915,71 @@ describe('reaching a box on a deep layer the caller reaches', () => {
     // Seen from the gateway's own downstream `.1`, never the caller's LAN address.
     expect(reach.ok && typeof reach.reached.sourceIp === 'string').toBe(true);
     expect(reach.ok && reach.reached.sourceIp?.endsWith('.1')).toBe(true);
+  });
+
+  /** Where the LAN sees a box: for one on a deep layer, the gateway it reaches the LAN
+   *  through. It is the address a hop's vantage hands the reach. */
+  const seenOnLanAt = (essid: string, machineId: string): string | null =>
+    segmentsReachedFrom(essid, machineId)?.find((segment) => segment.fronting === null)
+      ?.address ?? null;
+
+  /** The switch in front of a layer, with an ACL that denies the box's ssh port. */
+  const switchDenying = (deep: ReturnType<typeof deepSshTarget>) =>
+    makeLookup({
+      findPatches: journals({
+        [deep.gateway.machineId]: [patchRow('/etc/switch/acl.conf', `deny ${deep.port}\n`)],
+      }),
+    });
+
+  it('resolves localhost on a deep box to that box, not the gateway it reaches the LAN through', async () => {
+    const deep = deepSshTarget();
+    const reach = await reachHost(makeLookup(), {
+      essid: deep.essid,
+      targetIp: '127.0.0.1',
+      service: 'ssh',
+      port: deep.port,
+      actorKey: ATTACKER.publicKeyHex,
+      // Standing on the deep box itself, which the LAN only ever sees as its gateway.
+      callerMachineId: deep.machineId,
+      ownLanSourceIp: seenOnLanAt(deep.essid, deep.machineId),
+    });
+
+    expect(reach.ok && reach.reached.machineId).toBe(deep.machineId);
+    expect(reach.ok && reach.reached.localIp).toBe(deep.host.ip);
+    expect(reach.ok && reach.reached.sourceIp).toBe('127.0.0.1');
+  });
+
+  it('refuses a port the switch in front of the layer denies', async () => {
+    const deep = deepSshTarget('switch');
+    const reach = await reachHost(switchDenying(deep), {
+      essid: deep.essid,
+      targetIp: deep.host.ip,
+      service: 'ssh',
+      port: deep.port,
+      actorKey: ATTACKER.publicKeyHex,
+      callerMachineId: deep.gateway.machineId,
+      ownLanSourceIp: null,
+    });
+
+    expect(reach).toEqual({
+      ok: false,
+      refusal: { status: 404, body: { error: 'service_not_running' } },
+    });
+  });
+
+  it('lets localhost through on a port that switch denies, since loopback never crosses it', async () => {
+    const deep = deepSshTarget('switch');
+    const reach = await reachHost(switchDenying(deep), {
+      essid: deep.essid,
+      targetIp: '127.0.0.1',
+      service: 'ssh',
+      port: deep.port,
+      actorKey: ATTACKER.publicKeyHex,
+      callerMachineId: deep.machineId,
+      ownLanSourceIp: seenOnLanAt(deep.essid, deep.machineId),
+    });
+
+    expect(reach.ok && reach.reached.machineId).toBe(deep.machineId);
+    expect(reach.ok && reach.reached.sourceIp).toBe('127.0.0.1');
   });
 });
