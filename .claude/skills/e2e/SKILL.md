@@ -283,6 +283,41 @@ time is the PDF's `ModDate` to the second. Not every guest-readable log carries 
 is over the signed-write cap on most boxes and fails with `I/O error` (see the conventions doc
 §9).
 
+### Then: a box on a deep layer
+
+Verified 2026-10-10 (v0.349.0) on ABSTERGO-NET. No forward is needed: a gateway stands on the
+layer it fronts, so it is two logins.
+
+```
+ssh root@<inner gateway's LAN ip>   →  password = seedInnerGatewayAdminPw(<key>, <octet>)
+ssh root@<deep box's 10.x ip>       →  password from its /etc/passwd md5 (§6)
+```
+
+Find the box offline: walk `chainLinks(key)`, call `generateDeepLayer(key, { machineId, kind },
+{ hangsChild })` for each link, and read `readOpenPorts(buildDeepHostFs(key, layer.host))`. Every
+deep box runs sshd; 18 in the whole world run a store.
+
+| Trap | What actually works |
+|---|---|
+| Rescanning for one named network | There are 178, two or three per scan. Build the list of every network that would do, and take the first that shows (five scans for one of eleven) |
+| `crackableEssidPool` holds keys like `r0/t0/n120` | A drawn network's key is not its name. `essidOf(key)` is what `airodump-ng` shows and `nmcli` takes; the generators take the key |
+| `ps` on the box shows no `redis-server` although the generator says it runs | `scripts/testRedisDeep.ts` stops the daemon on the first deep store it finds and leaves that row in the local database. Check `select path, content is null from patches where machine_id like '<hostname>%'` before reading it as a defect |
+| `mysql localhost <the box's own user>` → `Access denied` | A database's accounts are not the box's. Draw them with `drawDatabaseCredentials('mysql-db-<key>-<ip>')` (above) |
+| Any write on the box → `Permission denied`, even as root | Open defect at v0.349.0, see `docs/backlog.md`: the write gate does not know a deep box. Reads, logins and the data doors work |
+
+### Then: a local hole on your own box
+
+A new workstation's LIBRARIES are born at their first release, every one with a published hole
+(`apt list -u` names them), so `msfconsole --local` needs no rollback: `su root`,
+`apt install metasploit`, `exit`, fire. What a hole does is drawn per command and release, so
+compute it rather than guess — `localExploitOutcome(command, new Map([[library, version]]),
+gameDayAt(now))` from `core/cve/localExploit.ts`. On 2026-10-10: `msfconsole --local rm
+<source>:<target>` writes a file as root (libpcre 10.43.0), and `msfconsole --local node
+<script>` runs a script as root (libreadline 8.2.10, after `apt install node`).
+
+To tell a kept mode from a reset one, give the target a mode that is nobody's default first:
+`chmod o+r <file>` shows as `-rwxrw-r--` in `ls -l`, against the user default `-rwxrw----`.
+
 ### Then: an NPC phone or tablet
 
 An `android-`, `iphone-` or `tablet-` keeps a device's storage in its person's home instead of
@@ -579,7 +614,8 @@ the text browser are now written up** — as full journeys rather than recipes �
 [`docs/e2e-shared-network-verification.md`](../../../docs/e2e-shared-network-verification.md),
 which also carries the two-player mechanics, the ESSID-discovery constraint, and a known
 client defect worth not misreading as a test failure. Read it before driving any
-cross-player scenario. Still unwritten: a deep-chain pivot.
+cross-player scenario. A box on a deep layer is in §3; still unwritten: a pivot more than one
+layer down.
 
 **Publishing a site to browse (Act 9's setup)**: `apt install lynx` and `apt install nginx` —
 neither is preinstalled — then `nginx` to listen, and **`rm /var/www/html/index.html` before
