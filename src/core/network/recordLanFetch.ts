@@ -34,8 +34,11 @@
  *     from its live journal, because a fresh box serves nothing and an edited page is
  *     what a fetch returns;
  *   - otherwise a generated NPC sibling on the LAN.
- * The loopback address names the box the shell stands ON: the server reads it as the
- * caller's own box and records the visit as local.
+ * The loopback address names the box the shell stands ON, and the visit is recorded as
+ * local. In a shell on a box the network generates that is the box the caller named and
+ * holds a session on, wherever it sits, so nothing is looked up by address and no gateway
+ * in front of it is asked: the request never leaves the box. A player's workstation is
+ * the one box the network does not generate, and is found by the lease it holds.
  *
  * The client names no time, status or size — for any line, however many it asks for.
  * The server reads the resolved tree and works those out itself, so a crafted request
@@ -53,7 +56,11 @@ import { z } from 'zod';
 import { verifySignedRequest } from '../signedRequest/verify.js';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
 import { generateHomeLan } from '../generation/generateHomeLan.js';
-import { chainGatewayBaseFs, resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
+import {
+  chainGatewayBaseFs,
+  generatedBaseFsForMachineId,
+  resolveLanHostIdentity,
+} from '../generation/lanHostIdentity.js';
 import { segmentsReachedFrom } from '../generation/lanTopology.js';
 import { resolveDeepScanHosts } from '../scan/deepScanHosts.js';
 import { materializeMachineFs } from './materializeMachineFs.js';
@@ -238,6 +245,57 @@ const generatedHostTarget = (
   };
 };
 
+/** The box the shell stands ON, when the network generates it: a LAN host, a gateway at
+ *  any depth, or the machine on a deep layer. The caller named it and the vantage already
+ *  confirmed the session they hold there, so it is resolved by what it IS rather than by
+ *  an address: where the LAN sees a deep box is the gateway in front of it, which is a
+ *  different machine. Its own ports, unfiltered, because nothing stands between a box and
+ *  itself. Null for a player's workstation, which the network does not generate. */
+const standingBoxTarget = (essid: string, callerMachineId: string): FetchTarget | null => {
+  const fs = generatedBaseFsForMachineId(essid, callerMachineId);
+  if (fs === null) return null;
+  return {
+    machineId: callerMachineId,
+    fs,
+    ports: readOpenPorts(fs),
+    writerKey: apGatewayLogWriterKey(essid),
+    sourceIp: LOOPBACK_IPV4,
+  };
+};
+
+/** The box at the address a request names, among the networks the caller reaches, nearest
+ *  first: a deep layer the box reaches, then the caller's own workstation, then a
+ *  generated LAN sibling. The arms are exclusive by construction — a deep address is never
+ *  a LAN one, and only a player holds their own lease — so the order settles a self-fetch
+ *  onto the live own box rather than a generated collision. */
+const addressedTarget = async (
+  deps: RecordLanFetchDeps,
+  request: {
+    readonly essid: string;
+    readonly target: string;
+    readonly callerMachineId: string | undefined;
+  },
+  callerKey: string,
+  vantageSourceIp: string | null,
+): Promise<FetchTarget | HandlerResponse | null> => {
+  // Loopback that reaches here stands on a player's workstation, which is found at the
+  // lease it holds. A box the server cannot place at an address has none to resolve
+  // loopback to, so nothing is logged.
+  const address = request.target === LOOPBACK_IPV4 ? vantageSourceIp : request.target;
+  if (address === null) return null;
+  const sourceIp = vantageSourceIp ?? 'unknown';
+
+  const deep =
+    request.callerMachineId === undefined
+      ? null
+      : await deepLayerTarget(deps, request.essid, request.callerMachineId, address);
+  if (deep !== null) return deep;
+  return (
+    (await ownWorkstationTarget(deps, request.essid, callerKey, address, sourceIp)) ??
+    generatedHostTarget(request.essid, address, sourceIp)
+  );
+};
+
 export const handleRecordLanFetch = async (
   body: unknown,
   deps: RecordLanFetchDeps,
@@ -260,28 +318,26 @@ export const handleRecordLanFetch = async (
   );
   if (!vantage.ok) return { status: vantage.status, body: { error: vantage.error } };
 
-  // Loopback names the box the shell stands ON — its own address on the network it is
-  // seen at — and the line records a local visit. A hop the server cannot place at an
-  // address has no box to resolve loopback to, so nothing is logged.
+  // Loopback names the box the shell stands ON, and the line records a local visit.
   const loopback = payload.target === LOOPBACK_IPV4;
-  const address = loopback ? vantage.sourceIp : payload.target;
-  if (address === null) return { status: 200, body: { ok: true } };
-  const sourceIp = vantage.sourceIp ?? 'unknown';
-
-  // Nearest first: a deep layer the box reaches, then the caller's own workstation, then
-  // a generated LAN sibling. The arms are exclusive by construction — a deep address is
-  // never a LAN one, and only a player holds their own lease — so the order settles a
-  // self-fetch onto the live own box rather than a generated collision.
-  const deep =
-    payload.caller_machine_id === undefined
-      ? null
-      : await deepLayerTarget(deps, payload.essid, payload.caller_machine_id, address);
-  if (deep !== null && 'status' in deep) return deep;
+  const standing =
+    loopback && payload.caller_machine_id !== undefined
+      ? standingBoxTarget(payload.essid, payload.caller_machine_id)
+      : null;
   const resolved =
-    deep ??
-    (await ownWorkstationTarget(deps, payload.essid, publicKey, address, sourceIp)) ??
-    generatedHostTarget(payload.essid, address, sourceIp);
+    standing ??
+    (await addressedTarget(
+      deps,
+      {
+        essid: payload.essid,
+        target: payload.target,
+        callerMachineId: payload.caller_machine_id,
+      },
+      publicKey,
+      vantage.sourceIp,
+    ));
   if (resolved === null) return { status: 200, body: { ok: true } };
+  if ('status' in resolved) return resolved;
 
   // Only a REACHED web server logs. The client already decided something answered; the
   // server checks the tree it resolved rather than taking that on trust, and a web

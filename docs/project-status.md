@@ -686,8 +686,10 @@ agreed order:
    `scp` carried landing `rwx------` closed at v0.345.0: the copy takes the source's mode. ✅ The
    data doors resolving `localhost` to the gateway on a deep hop closed at v0.349.0: `mysql`,
    `redis-cli`, the snmp tools, `hydra` and the exploit session reach the deep box itself, past
-   any switch. Two neighbours it turned up are in `backlog.md`: a data door over `localhost`
-   still obeys the hop's own filter, and `curl localhost` on a deep box is not traced. ✅ The
+   any switch. One neighbour it turned up is still in `backlog.md`: a data door over
+   `localhost` still obeys the hop's own filter. ✅ The other, `curl localhost` on a deep box
+   leaving no line in its own access log, closed at v0.351.0: loopback names the box the shell
+   stands on by the machine it is, never by an address. ✅ The
    browser run over v0.345.0 to v0.349.0 passed, and found that a shell on a deep box could
    write nothing there; closed at v0.350.0, the write gate now knows every box a network
    generates.

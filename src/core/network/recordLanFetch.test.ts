@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { handleRecordLanFetch, type FetchOccupant, type RecordLanFetchDeps } from './recordLanFetch.js';
 import { signRequest } from '../signedRequest/sign.js';
 import { generateIdentity } from '../identity/identity.js';
+import { computeWorkstationId } from '../identity/workstation.js';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
 import { buildRemoteHostFs } from '../generation/remoteHostFs.js';
 import {
@@ -382,6 +383,48 @@ describe('handleRecordLanFetch', () => {
         size: page.ok ? page.content.length : -1,
       })}\n`,
     );
+  });
+
+  it('records a loopback fetch at home on the caller own workstation, as a local visit', async () => {
+    const caller = generateIdentity();
+    const { deps, upsertPatch } = selfServingDeps(caller, SOURCE_OCTET);
+
+    await handleRecordLanFetch(
+      await envelope(caller, { target: '127.0.0.1', port: 80, paths: ['/'] }),
+      deps,
+    );
+
+    const row = writtenLog(upsertPatch);
+    expect(row.machine_id).toBe(OWN_WS);
+    expect(row.writer_key).toBe(caller.publicKeyHex);
+    expect(row.content).toMatch(/^127\.0\.0\.1 - - \[/);
+  });
+
+  it('records a loopback fetch on the caller own workstation when they name it as where they stand', async () => {
+    const caller = generateIdentity();
+    // A player's box is the one kind the network does not generate, so naming it finds
+    // nothing to rebuild and the lease they hold is what places it.
+    const ownId = computeWorkstationId('nebuchadnezzar', caller.publicKeyHex);
+    const { deps, upsertPatch } = selfServingDeps(caller, SOURCE_OCTET, {
+      listOccupantsByEssid: async () => ({
+        data: [{ ...ownOccupant(caller), workstation_machine_id: ownId }],
+        error: null,
+      }),
+    });
+
+    await handleRecordLanFetch(
+      await envelope(
+        caller,
+        { target: '127.0.0.1', port: 80, paths: ['/'] },
+        { caller_machine_id: ownId },
+      ),
+      deps,
+    );
+
+    const row = writtenLog(upsertPatch);
+    expect(row.machine_id).toBe(ownId);
+    expect(row.writer_key).toBe(caller.publicKeyHex);
+    expect(row.content).toMatch(/^127\.0\.0\.1 - - \[/);
   });
 
   it('lands on the NEIGHBOUR a registered occupant fetched, never on their own box', async () => {
@@ -1015,6 +1058,47 @@ describe('handleRecordLanFetch — a caller standing on a hop', () => {
     expect(row.writer_key).toBe(apGatewayLogWriterKey(ESSID));
     expect(row.content).toContain('127.0.0.1 - - [');
   });
+
+  it('records a loopback fetch on a box on a deep layer on that box, never on the gateway in front', async () => {
+    const caller = generateIdentity();
+    const deep = deepWebTarget();
+    const { deps, upsertPatch } = makeDeps(shellOn(deep.essid));
+
+    await handleRecordLanFetch(
+      hopEnvelope(
+        caller,
+        deep.essid,
+        { target: '127.0.0.1', port: deep.port, paths: ['/'] },
+        deep.machineId,
+      ),
+      deps,
+    );
+
+    const row = writtenLog(upsertPatch);
+    expect(row.machine_id).toBe(deep.machineId);
+    expect(row.writer_key).toBe(apGatewayLogWriterKey(deep.essid));
+    expect(row.content).toMatch(/^127\.0\.0\.1 - - \[/);
+    expect(row.content).toContain('" 200 ');
+  });
+
+  it('leaves no line for a loopback fetch of a port the hop box serves no web on', async () => {
+    const caller = generateIdentity();
+    const deep = deepWebTarget();
+    const { deps, upsertPatch } = makeDeps(shellOn(deep.essid));
+
+    const result = await handleRecordLanFetch(
+      hopEnvelope(
+        caller,
+        deep.essid,
+        { target: '127.0.0.1', port: deep.port + 1, paths: ['/'] },
+        deep.machineId,
+      ),
+      deps,
+    );
+
+    expect(result).toEqual({ status: 200, body: { ok: true } });
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
 });
 
 describe('handleRecordLanFetch — a deep layer fronted by a switch', () => {
@@ -1141,6 +1225,25 @@ describe('handleRecordLanFetch — a deep layer fronted by a switch', () => {
 
     expect(result).toEqual({ status: 200, body: { ok: true } });
     expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
+  it('records a loopback fetch on a box behind the switch whatever its ACL denies, reading no journal', async () => {
+    const caller = generateIdentity();
+    const target = switchWeb();
+    // The request never leaves the box to cross the switch, so neither a deny on the web
+    // port nor a journal that cannot be read stands in its way.
+    const findPatches = vi.fn(async () => ({ data: null, error: new Error('db down') }));
+    const { deps, upsertPatch } = makeDeps({ ...shellOn(target.essid), findPatches });
+
+    await handleRecordLanFetch(
+      hopEnvelope(caller, target.essid, '127.0.0.1', target.port, target.hostId),
+      deps,
+    );
+
+    expect(findPatches).not.toHaveBeenCalled();
+    const row = writtenLog(upsertPatch);
+    expect(row.machine_id).toBe(target.hostId);
+    expect(row.content).toMatch(/^127\.0\.0\.1 - - \[/);
   });
 
   it('reads no journal for a router-fronted layer, which filters nothing', async () => {
