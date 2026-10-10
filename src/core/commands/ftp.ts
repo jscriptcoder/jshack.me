@@ -284,6 +284,7 @@ const ownBoxLogin = async (
     kind: 'ftp',
     createdAt: env.now(),
     essid: env.session.essid,
+    fromIp,
   });
 };
 

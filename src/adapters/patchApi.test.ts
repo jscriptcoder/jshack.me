@@ -361,6 +361,35 @@ describe('postAuthLog', () => {
       hostname: 'rig',
     });
   });
+
+  it('signs a file moved over ftp on the own box: who, from where, which way, what and how much', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    const result = await postAuthLog(deps, {
+      kind: 'ftpTransfer',
+      machineId: asMachineId(deps.machineId),
+      user: 'guest',
+      fromIp: '127.0.0.1',
+      direction: 'upload',
+      path: asAbsPath('/tmp/planted.sh'),
+      bytes: 512,
+    });
+
+    expect(result).toEqual({ ok: true });
+    const verified = await verifyPayload(sentEnvelope(fetchSpy));
+    if (!verified.ok) throw new Error('expected verified envelope');
+    expect(verified.payload).toMatchObject({
+      action: 'appendAuthLog',
+      kind: 'ftpTransfer',
+      machine_id: deps.machineId,
+      user: 'guest',
+      from_ip: '127.0.0.1',
+      direction: 'upload',
+      path: '/tmp/planted.sh',
+      bytes: 512,
+    });
+  });
 });
 
 describe('postKernLog', () => {

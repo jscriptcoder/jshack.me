@@ -255,7 +255,7 @@ describe('handleRecordFtpTransfer', () => {
     const result = await handleRecordFtpTransfer(envelope, deps);
 
     // The own-box L1 bypass hands back no session row, and this line needs one to
-    // name an account. A download from yourself is not a transfer anyone logged.
+    // name an account. A transfer on the caller's own box is `appendAuthLog`'s to write.
     expect(result).toEqual({ status: 403, body: { error: 'no_session' } });
     expect(upsertPatch).not.toHaveBeenCalled();
   });

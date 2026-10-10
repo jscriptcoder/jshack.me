@@ -21,7 +21,9 @@
  * Unlike `appendAuthLog` (own workstation only) this writes to SOMEONE ELSE'S box,
  * so it runs the shared L1 gate — and then insists on the session row itself. The
  * own-workstation bypass hands back no row, and a line naming no account is one
- * this handler will not write: ftp'ing to yourself is not a transfer to record.
+ * this handler will not write. A transfer over a login to the caller's own box is
+ * itemised by `appendAuthLog` instead, where the client that answered the login names
+ * the account, as it did for the login's own line.
  *
  * The transfer itself is NOT this endpoint's business: an upload's bytes land through
  * the shipped `upsertPatch`, gated exactly as an ssh-session write is. This only

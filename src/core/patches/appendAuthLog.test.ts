@@ -481,3 +481,88 @@ describe('handleAppendAuthLog — a login through a door on the own box', () => 
     expect(upsertPatch).not.toHaveBeenCalled();
   });
 });
+
+// A file moved over an ftp login to the caller's own box. The client answered that login
+// itself, so no session row names the account: the transfer is itemised here, beside the
+// login, in the log a stranger's box would keep it in.
+describe('handleAppendAuthLog — a file moved over ftp on the own box', () => {
+  const transferEvent = (publicKeyHex: string, over: Record<string, unknown> = {}) => ({
+    kind: 'ftpTransfer' as const,
+    machine_id: computeWorkstationId('skylab', publicKeyHex),
+    user: 'guest',
+    from_ip: '127.0.0.1',
+    direction: 'download',
+    path: '/etc/passwd',
+    bytes: 1243,
+    ...over,
+  });
+
+  const append = async (over: Record<string, unknown> = {}, depsOver: Partial<AppendAuthLogDeps> = {}) => {
+    const id = generateIdentity();
+    const envelope = signRequest(id, 'appendAuthLog', transferEvent(id.publicKeyHex, over));
+    const { deps, upsertPatch } = makeDeps(depsOver);
+    const result = await handleAppendAuthLog(envelope, deps);
+    return { id, result, upsertPatch };
+  };
+
+  it('itemises a file taken off the box in vsftpd’s own log, after the login already there', async () => {
+    const { id, result, upsertPatch } = await append({}, { readAuthLog: async () => logRead('PRIOR\n') });
+
+    expect(result).toEqual({ status: 200, body: { ok: true } });
+    expect(upsertPatch.mock.calls[0]![0]).toEqual({
+      writer_key: id.publicKeyHex,
+      machine_id: computeWorkstationId('skylab', id.publicKeyHex),
+      path: VSFTPD_LOG_PATH,
+      content:
+        'PRIOR\n' +
+        `Sun Jun  7 14:32:01 2026 [pid ${derivePid(STAMP)}] [guest] OK DOWNLOAD: Client "127.0.0.1", "/etc/passwd", 1243 bytes\n`,
+      owner: VSFTPD_LOG_OWNER,
+      permissions: VSFTPD_LOG_PERMISSIONS,
+      node_type: 'file',
+    });
+  });
+
+  it('itemises a file left on the box, from the address the login came by', async () => {
+    const { upsertPatch } = await append({
+      direction: 'upload',
+      user: 'root',
+      from_ip: '10.4.0.23',
+      path: '/tmp/planted.sh',
+      bytes: 0,
+    });
+
+    expect(upsertPatch.mock.calls[0]![0].content).toBe(
+      `Sun Jun  7 14:32:01 2026 [pid ${derivePid(STAMP)}] [root] OK UPLOAD: Client "10.4.0.23", "/tmp/planted.sh", 0 bytes\n`,
+    );
+  });
+
+  it('rejects a transfer on a machine that is not the caller’s workstation with 403', async () => {
+    const { result, upsertPatch } = await append({
+      machine_id: computeWorkstationId('victim', 'b'.repeat(64)),
+    });
+
+    expect(result).toEqual({ status: 403, body: { error: 'no_session' } });
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['a direction the daemon has no verb for', { direction: 'sideways' }],
+    ['a from address that is not an address', { from_ip: 'localhost' }],
+    // The forged line names a path of its own, so the rule has to hold from the first
+    // character: checked only from some later slash, the tail alone would pass.
+    [
+      'a path that carries a line of its own',
+      { path: '/tmp/x", 1 bytes\nSun Jun  7 [root] OK UPLOAD: Client "10.0.0.9", "/etc/shadow' },
+    ],
+    ['a path that is not absolute', { path: 'tmp/passwd' }],
+    ['a byte count that is not a whole number', { bytes: 12.5 }],
+    ['a negative byte count', { bytes: -1 }],
+    ['no account', { user: '' }],
+    ['a writer the caller chose', { writer_key: 'f'.repeat(64) }],
+  ])('rejects %s with 400 payload_invalid and writes nothing', async (_what, over) => {
+    const { result, upsertPatch } = await append(over);
+
+    expect(result).toEqual({ status: 400, body: { error: 'payload_invalid' } });
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+});
