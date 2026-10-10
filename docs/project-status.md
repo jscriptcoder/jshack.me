@@ -689,7 +689,9 @@ agreed order:
    any switch. One neighbour it turned up is still in `backlog.md`: a data door over
    `localhost` still obeys the hop's own filter. ✅ The other, `curl localhost` on a deep box
    leaving no line in its own access log, closed at v0.351.0: loopback names the box the shell
-   stands on by the machine it is, never by an address. ✅ The
+   stands on by the machine it is, never by an address. ✅ Its own neighbour, the same fetch in
+   a shell on another player's box, closed at v0.352.0: the line lands in that player's log,
+   under their key. ✅ The
    browser run over v0.345.0 to v0.349.0 passed, and found that a shell on a deep box could
    write nothing there; closed at v0.350.0, the write gate now knows every box a network
    generates.

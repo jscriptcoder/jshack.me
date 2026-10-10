@@ -1101,6 +1101,143 @@ describe('handleRecordLanFetch — a caller standing on a hop', () => {
   });
 });
 
+describe('handleRecordLanFetch — a caller in a shell on another player’s workstation', () => {
+  const OWNER_WS = 'the-owners-workstation';
+
+  /** Octets no generated host occupies, one for each player a test seats on the LAN. */
+  const [OWNER_OCTET, VISITOR_OCTET, BYSTANDER_OCTET] = ((): readonly number[] => {
+    const taken = new Set(
+      generateHomeLan(ESSID).hosts.map((host) => Number(host.ip.split('.')[3])),
+    );
+    return Array.from({ length: 253 }, (_unused, index) => index + 2)
+      .filter((octet) => !taken.has(octet))
+      .slice(0, 3);
+  })() as readonly [number, number, number];
+  const OWNER_IP = lanAddressFor(ESSID, OWNER_OCTET);
+
+  type Resident = { readonly occupant: FetchOccupant; readonly octet: number };
+
+  const resident = (
+    player: ReturnType<typeof generateIdentity>,
+    machineId: string,
+    octet: number,
+  ): Resident => ({
+    occupant: { ...ownOccupant(player), workstation_machine_id: machineId },
+    octet,
+  });
+
+  /** Deps for a visitor whose place on the network is the shell they hold on the owner's
+   *  workstation. Every workstation on the LAN is serving the web, so a line filed on the
+   *  wrong one would be written rather than quietly dropped. */
+  const shellOnOwnerBox = (
+    owner: ReturnType<typeof generateIdentity>,
+    others: readonly Resident[] = [],
+  ) => {
+    const residents = [resident(owner, OWNER_WS, OWNER_OCTET), ...others];
+    return makeDeps({
+      findActiveSession: async () => ({
+        data: { username: 'guest', userType: 'guest', essid: ESSID },
+        error: null,
+      }),
+      findHomeVantage: async () => ({ data: null, error: null }),
+      findWorkstationLease: async () => ({ data: OWNER_OCTET, error: null }),
+      listOccupantsByEssid: async () => ({
+        data: residents.map((entry) => entry.occupant),
+        error: null,
+      }),
+      listLeasesByEssid: async () => ({
+        data: residents.map((entry) => ({
+          owner_key: entry.occupant.owner_key,
+          octet: entry.octet,
+        })),
+        error: null,
+      }),
+      // Keyed on the machine asked for, so a journal read under any other id finds a
+      // box that serves nothing.
+      findPatches: async ({ machine_id }) => ({
+        data: residents.some((entry) => entry.occupant.workstation_machine_id === machine_id)
+          ? [nginxUp(owner)]
+          : [],
+        error: null,
+      }),
+    });
+  };
+
+  const fromOwnerBox = (visitor: ReturnType<typeof generateIdentity>, target: string) =>
+    envelope(visitor, { target, port: 80, paths: ['/'] }, { caller_machine_id: OWNER_WS });
+
+  it('records a loopback fetch on that workstation as a local visit, in its owner’s log', async () => {
+    const owner = generateIdentity();
+    const visitor = generateIdentity();
+    const { deps, upsertPatch } = shellOnOwnerBox(owner);
+
+    await handleRecordLanFetch(await fromOwnerBox(visitor, '127.0.0.1'), deps);
+
+    const row = writtenLog(upsertPatch);
+    expect(row.machine_id).toBe(OWNER_WS);
+    expect(row.writer_key).toBe(owner.publicKeyHex);
+    expect(row.content).toMatch(/^127\.0\.0\.1 - - \[/);
+  });
+
+  it('records a fetch of that workstation by its own LAN address, as coming from that address', async () => {
+    const owner = generateIdentity();
+    const visitor = generateIdentity();
+    const { deps, upsertPatch } = shellOnOwnerBox(owner);
+
+    await handleRecordLanFetch(await fromOwnerBox(visitor, OWNER_IP), deps);
+
+    const served = materializeWorkstationFs(resident(owner, OWNER_WS, OWNER_OCTET).occupant, [
+      nginxUp(owner),
+    ]);
+    const page = createFsView(served, { userType: 'root' }).read(resolveWebPath('/')!);
+    const row = writtenLog(upsertPatch);
+    expect(row.machine_id).toBe(OWNER_WS);
+    expect(row.writer_key).toBe(owner.publicKeyHex);
+    expect(row.content).toBe(
+      `${formatAccessLogLine({
+        time: asGameTime(FIXED_NOW),
+        sourceIp: OWNER_IP,
+        path: '/',
+        status: 200,
+        size: page.ok ? page.content.length : -1,
+      })}\n`,
+    );
+  });
+
+  it('lands on the workstation the shell stands on when the visitor lives on the network too', async () => {
+    const owner = generateIdentity();
+    const visitor = generateIdentity();
+    const { deps, upsertPatch } = shellOnOwnerBox(owner, [
+      resident(visitor, 'the-visitors-own-workstation', VISITOR_OCTET),
+    ]);
+
+    await handleRecordLanFetch(await fromOwnerBox(visitor, '127.0.0.1'), deps);
+
+    const row = writtenLog(upsertPatch);
+    expect(row.machine_id).toBe(OWNER_WS);
+    expect(row.writer_key).toBe(owner.publicKeyHex);
+  });
+
+  it('leaves no line on a third player’s workstation, which the shell does not stand on', async () => {
+    // Nothing on the LAN serves another player's pages to a shell that is not on their
+    // box, so a request naming one is a line for a visit that never happened.
+    const owner = generateIdentity();
+    const visitor = generateIdentity();
+    const bystander = generateIdentity();
+    const { deps, upsertPatch } = shellOnOwnerBox(owner, [
+      resident(bystander, 'the-bystanders-workstation', BYSTANDER_OCTET),
+    ]);
+
+    const result = await handleRecordLanFetch(
+      await fromOwnerBox(visitor, lanAddressFor(ESSID, BYSTANDER_OCTET)),
+      deps,
+    );
+
+    expect(result).toEqual({ status: 200, body: { ok: true } });
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+});
+
 describe('handleRecordLanFetch — a deep layer fronted by a switch', () => {
   const shellOn = (essid: string): Partial<RecordLanFetchDeps> => ({
     findActiveSession: async () => ({

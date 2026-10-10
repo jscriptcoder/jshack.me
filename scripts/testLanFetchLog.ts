@@ -22,6 +22,9 @@
 //   - `curl localhost` in a shell on a box on a DEEP layer lands on that box, as a local
 //     visit, and a switch in front of the layer denying the web port does not stop it:
 //     the request never leaves the box to cross the switch.
+//   - `curl localhost`, or the box's own LAN address, in a shell on ANOTHER player's
+//     workstation lands on that workstation, in its owner's log — the visitor writes no
+//     row of their own there.
 //
 // Usage (with v2 supabase + vercel dev running on 3100):
 //   npx dotenv -e .env.development.local -- npx tsx scripts/testLanFetchLog.ts
@@ -380,6 +383,64 @@ try {
   );
 } finally {
   await cleanDeep();
+}
+
+// === 10. `curl localhost` in a shell on ANOTHER player's workstation lands on that box. ===
+// The visitor lives nowhere; what puts them on the network is the shell they hold on the
+// player's workstation, seeded as their `ssh` login would leave it.
+const visitor = generateIdentity();
+const VISITOR_SHELL = 'fetch-log-visitor-shell';
+await sr.from('sessions').delete().eq('session_id', VISITOR_SHELL);
+const visitorShell = await sr.from('sessions').insert({
+  session_id: VISITOR_SHELL,
+  player_key: visitor.publicKeyHex,
+  machine_id: WS,
+  credentials: { username: 'guest', userType: 'guest' },
+  kind: 'ssh',
+  essid: ESSID,
+});
+if (visitorShell.error) {
+  console.error(`FATAL: session seed failed: ${visitorShell.error.message}`);
+  process.exit(1);
+}
+const fetchedByVisitor = (target: string) =>
+  signRequest(visitor, 'recordLanFetch', {
+    essid: ESSID,
+    target,
+    port: 80,
+    paths: ['/'],
+    caller_machine_id: WS,
+  });
+
+try {
+  const before10 = lineCount(await readAccessLog(WS, player.publicKeyHex));
+  const r10 = await post(PATCHES, await fetchedByVisitor('127.0.0.1'));
+  const own10 = await readAccessLog(WS, player.publicKeyHex);
+  check(
+    '`curl localhost` in a shell on another player’s workstation records a local visit there, in the owner’s log',
+    r10.status === 200 &&
+      lineCount(own10) === before10 + 1 &&
+      lastLine(own10).startsWith('127.0.0.1 - - ['),
+    `status=${r10.status} before=${before10} after=${lineCount(own10)} line=${lastLine(own10)}`,
+  );
+
+  // === 11. The same box by the address it holds on the LAN, from the same shell. ===
+  const r11 = await post(PATCHES, await fetchedByVisitor(PLAYER_LAN));
+  const own11 = await readAccessLog(WS, player.publicKeyHex);
+  check(
+    'fetching that workstation by its own LAN address from the shell on it records there too',
+    r11.status === 200 &&
+      lineCount(own11) === before10 + 2 &&
+      lastLine(own11).startsWith(`${PLAYER_LAN} - - [`),
+    `status=${r11.status} after=${lineCount(own11)} line=${lastLine(own11)}`,
+  );
+  check(
+    'the visitor’s fetches wrote no row of their own on that box',
+    (await readAccessLog(WS, visitor.publicKeyHex)) === '',
+    `visitorRow=${JSON.stringify(await readAccessLog(WS, visitor.publicKeyHex))}`,
+  );
+} finally {
+  await sr.from('sessions').delete().eq('session_id', VISITOR_SHELL);
 }
 
 const failed = results.filter((result) => !result.pass).length;

@@ -30,23 +30,25 @@
  *     `resolveDeepScanHosts` a scan and an ssh login use (a switch fronting the layer
  *     drops the ports its live ACL denies, read off its journal; a router filters
  *     nothing, so its journal is never read);
- *   - the caller's OWN workstation, when they fetched their own leased address — read
- *     from its live journal, because a fresh box serves nothing and an edited page is
- *     what a fetch returns;
+ *   - a PLAYER's workstation, when the address is the lease its owner holds and the box
+ *     is the caller's own or the one their shell stands on — read from its live journal,
+ *     because a fresh box serves nothing and an edited page is what a fetch returns;
  *   - otherwise a generated NPC sibling on the LAN.
  * The loopback address names the box the shell stands ON, and the visit is recorded as
  * local. In a shell on a box the network generates that is the box the caller named and
  * holds a session on, wherever it sits, so nothing is looked up by address and no gateway
  * in front of it is asked: the request never leaves the box. A player's workstation is
- * the one box the network does not generate, and is found by the lease it holds.
+ * the one box the network does not generate, and is found by the lease it holds —
+ * whoever's it is, so a visitor in a shell on another player's box leaves their line in
+ * that player's log.
  *
  * The client names no time, status or size — for any line, however many it asks for.
  * The server reads the resolved tree and works those out itself, so a crafted request
  * can never author a line claiming something was served that never was, and a sweep
  * cannot dress its misses up as hits.
  *
- * The writer key follows the box, not the fetcher. The player's own workstation keeps
- * their own key, since they own it. A generated or deep NPC host has no owner, and every
+ * The writer key follows the box, not the fetcher. A player's workstation keeps its
+ * OWNER's key, whoever fetched it. A generated or deep NPC host has no owner, and every
  * visitor fetches from the identical box, so it takes the network's own key: one log
  * that every visit accretes into, rather than a row per fetcher where the newest erases
  * the rest.
@@ -64,7 +66,7 @@ import {
 import { segmentsReachedFrom } from '../generation/lanTopology.js';
 import { resolveDeepScanHosts } from '../scan/deepScanHosts.js';
 import { materializeMachineFs } from './materializeMachineFs.js';
-import { lanAddressesByOwner, type LanLeaseRow } from './lanAddress.js';
+import { lanAddressFor, type LanLeaseRow } from './lanAddress.js';
 import { materializeWorkstationFs, type OwnerPatchRow } from './materializeWorkstationFs.js';
 import { createFsView } from '../filesystem/fsView.js';
 import { resolveWebPath } from './http.js';
@@ -89,10 +91,11 @@ import type { Directory } from '../filesystem/types.js';
 import type { PatchRow } from '../patches/upsertPatch.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 
-/** The occupancy fields an own-LAN fetch trace needs: whose row it is (to spot the
- *  caller fetching THEMSELVES) and the identity fields that rebuild their box so the
- *  server can read what it actually served. No machine NAME — unlike a syslog line,
- *  an access-log line carries no hostname. */
+/** The occupancy fields an own-LAN fetch trace needs: whose row it is and which box (to
+ *  spot a fetch of the caller's own workstation, or of the one their shell stands on)
+ *  and the identity fields that rebuild that box so the server can read what it
+ *  actually served. No machine NAME — unlike a syslog line, an access-log line carries
+ *  no hostname. */
 export type FetchOccupant = {
   readonly owner_key: string;
   readonly workstation_machine_id: string;
@@ -106,17 +109,17 @@ export type RecordLanFetchDeps = CallerVantageDeps & {
   readonly now: () => number;
   readonly readLog: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
   readonly upsertPatch: (row: PatchRow) => Promise<{ readonly error: unknown }>;
-  /** Every occupant of the ESSID — read to recognise the caller's OWN workstation
+  /** Every occupant of the ESSID — read to recognise the workstation that answered
    *  and to rebuild it. */
   readonly listOccupantsByEssid: (
     essid: string,
   ) => Promise<{ readonly data: readonly FetchOccupant[] | null; readonly error: unknown }>;
-  /** Every lease on the ESSID — the caller's own LAN address is a lease, not a
-   *  derivation, so this is what says whether they fetched themselves. */
+  /** Every lease on the ESSID — a player's LAN address is a lease, not a derivation,
+   *  so this is what says whose workstation an address is. */
   readonly listLeasesByEssid: (
     essid: string,
   ) => Promise<{ readonly data: readonly LanLeaseRow[] | null; readonly error: unknown }>;
-  /** A box's journal, replayed over its seeded base. Reads the caller's own workstation
+  /** A box's journal, replayed over its seeded base. Reads a player's workstation
    *  (a fresh box serves nothing, so whether it serves at all lives here), and a switch
    *  fronting a deep layer (its live ACL). */
   readonly findPatches: (query: {
@@ -157,35 +160,43 @@ type FetchTarget = {
   readonly sourceIp: string;
 };
 
-/** The caller's OWN workstation, when `address` is the one they hold on this LAN. Every
- *  read here is load-bearing — a failure means we cannot tell whether this was a
- *  self-fetch, and guessing would land the line on a generated host that shares the
- *  octet. Null falls through to the generated-host path, which finds nothing for an
- *  address only a player holds. */
-const ownWorkstationTarget = async (
+/** The player's workstation at `address` on this LAN, when it is the caller's OWN or the
+ *  one their shell STANDS ON — the two a fetch is ever served from, since nothing on the
+ *  LAN serves a player's pages to a shell that is neither theirs nor on their box. Found
+ *  by the lease its owner holds, and filed under that owner's key: their box keeps one
+ *  log however many visitors leave a line in it. Every read here is load-bearing — a
+ *  failure means we cannot tell whose box this is, and guessing would land the line on a
+ *  generated host that shares the octet. Null falls through to the generated-host path,
+ *  which finds nothing for an address only a player holds. */
+const workstationTarget = async (
   deps: RecordLanFetchDeps,
   essid: string,
-  callerKey: string,
+  standing: { readonly callerKey: string; readonly callerMachineId: string | undefined },
   address: string,
   sourceIp: string,
 ): Promise<FetchTarget | null> => {
   const leases = await deps.listLeasesByEssid(essid);
   if (leases.error) return null;
-  if (lanAddressesByOwner(essid, leases.data ?? []).get(callerKey) !== address) return null;
+  const lease = (leases.data ?? []).find((row) => lanAddressFor(essid, row.octet) === address);
+  if (lease === undefined) return null;
 
   const occupants = await deps.listOccupantsByEssid(essid);
   if (occupants.error) return null;
-  const own = (occupants.data ?? []).find((row) => row.owner_key === callerKey);
-  if (own === undefined) return null;
+  const holder = (occupants.data ?? []).find((row) => row.owner_key === lease.owner_key);
+  if (holder === undefined) return null;
+  const servesTheCaller =
+    holder.owner_key === standing.callerKey ||
+    holder.workstation_machine_id === standing.callerMachineId;
+  if (!servesTheCaller) return null;
 
-  const patches = await deps.findPatches({ machine_id: own.workstation_machine_id });
+  const patches = await deps.findPatches({ machine_id: holder.workstation_machine_id });
   if (patches.error) return null;
-  const fs = materializeWorkstationFs(own, patches.data);
+  const fs = materializeWorkstationFs(holder, patches.data);
   return {
-    machineId: own.workstation_machine_id,
+    machineId: holder.workstation_machine_id,
     fs,
     ports: readOpenPorts(fs),
-    writerKey: callerKey,
+    writerKey: holder.owner_key,
     sourceIp,
   };
 };
@@ -264,10 +275,10 @@ const standingBoxTarget = (essid: string, callerMachineId: string): FetchTarget 
 };
 
 /** The box at the address a request names, among the networks the caller reaches, nearest
- *  first: a deep layer the box reaches, then the caller's own workstation, then a
- *  generated LAN sibling. The arms are exclusive by construction — a deep address is never
- *  a LAN one, and only a player holds their own lease — so the order settles a self-fetch
- *  onto the live own box rather than a generated collision. */
+ *  first: a deep layer the box reaches, then a player's workstation, then a generated
+ *  LAN sibling. The arms are exclusive by construction — a deep address is never a LAN
+ *  one, and only a player holds a lease — so the order settles a fetch of a workstation
+ *  onto the live box rather than a generated collision. */
 const addressedTarget = async (
   deps: RecordLanFetchDeps,
   request: {
@@ -291,8 +302,13 @@ const addressedTarget = async (
       : await deepLayerTarget(deps, request.essid, request.callerMachineId, address);
   if (deep !== null) return deep;
   return (
-    (await ownWorkstationTarget(deps, request.essid, callerKey, address, sourceIp)) ??
-    generatedHostTarget(request.essid, address, sourceIp)
+    (await workstationTarget(
+      deps,
+      request.essid,
+      { callerKey, callerMachineId: request.callerMachineId },
+      address,
+      sourceIp,
+    )) ?? generatedHostTarget(request.essid, address, sourceIp)
   );
 };
 
