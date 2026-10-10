@@ -641,8 +641,10 @@ agreed order:
    and ✅ planted histories the shell refuses (#622, v0.329.0: `plantedHistory.test.ts` runs every
    pool line and one line per shape of every history the world plants; `grep -i`/`-r`, `ping -c`,
    `apt update` and `apt -y` supported, the rest reworded — `backlog.md` has the record). Found
-   while doing it and still open, both small (`backlog.md`): `grep` takes no stacked flags
-   (`grep -ri`, `grep -rn`) and no `-n`; `~` has no `~user` form and no tab completion.
+   while doing it (`backlog.md`): `grep` takes no stacked flags (`grep -ri`, `grep -rn`) and no
+   `-n`, decided 2026-10-10 to stay that way — commands are not 1:1 copies of the real ones; and
+   `~` has no `~user` form and no tab completion, still open. ✅ `ps` no longer runs
+   `redis-server` into its PORT column (v0.346.0).
 4. ✅ A player's own box has an attack surface (#623, v0.330.0; #624, v0.330.1): a workstation's
    first boot leaves it running 1–3 services, born clean, and the boot screen prints one line per
    running service. Browser-verified two-player 2026-10-08: B on A's WiFi scans A's born

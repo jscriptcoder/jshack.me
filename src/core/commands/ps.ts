@@ -39,12 +39,10 @@ const PID_COL = 8;
 const USER_COL = 10;
 const COMMAND_COL = 12;
 
-/** Printed even when nothing is running: a bare header IS the answer "nothing
- *  is up", where printing nothing at all is indistinguishable from a command
- *  that failed to run. */
-const HEADER =
-  `${'PID'.padEnd(PID_COL)}${'USER'.padEnd(USER_COL)}` +
-  `${'COMMAND'.padEnd(COMMAND_COL)}PORT`;
+/** The header's own answers to the four questions. Printed even when nothing is
+ *  running: a bare header IS the answer "nothing is up", where printing nothing at
+ *  all is indistinguishable from a command that failed to run. */
+const HEADER = { pid: 'PID', user: 'USER', command: 'COMMAND', port: 'PORT' };
 
 /** What a service has instead of a PID. */
 const NO_PID = '-';
@@ -53,7 +51,8 @@ type Row = {
   readonly pid: string;
   readonly user: string;
   readonly command: string;
-  readonly port: number;
+  /** A number on a row; the column's title on the header. */
+  readonly port: number | string;
 };
 
 /** The two kinds of running thing, each answering the same four questions in its
@@ -74,8 +73,18 @@ const rowOf = (running: RunningProcess, machineId: MachineId): Row =>
         port: running.port,
       };
 
-const formatRow = ({ pid, user, command, port }: Row): string =>
-  `${pid.padEnd(PID_COL)}${user.padEnd(USER_COL)}${command.padEnd(COMMAND_COL)}${port}`;
+/** The COMMAND column's width for one table: its usual one, or the widest program
+ *  plus a gutter — `redis-server` fills the usual width to the last character. */
+const commandWidthFor = (rows: readonly Row[]): number =>
+  Math.max(COMMAND_COL, ...rows.map((row) => row.command.length + 1));
+
+const formatRow = ({ pid, user, command, port }: Row, commandWidth: number): string =>
+  `${pid.padEnd(PID_COL)}${user.padEnd(USER_COL)}${command.padEnd(commandWidth)}${port}`;
+
+const formatTable = (rows: readonly Row[]): readonly string[] => {
+  const commandWidth = commandWidthFor(rows);
+  return [HEADER, ...rows].map((row) => formatRow(row, commandWidth));
+};
 
 export const ps: Command = {
   name: 'ps',
@@ -94,12 +103,9 @@ export const ps: Command = {
   },
   execute: async (env): Promise<CommandResult> => ({
     kind: 'sync',
-    lines: [
-      text(HEADER),
-      ...readRunningProcesses(env.fs.root()).map((running) =>
-        text(formatRow(rowOf(running, env.session.machineId))),
-      ),
-    ],
+    lines: formatTable(
+      readRunningProcesses(env.fs.root()).map((running) => rowOf(running, env.session.machineId)),
+    ).map(text),
     exitCode: 0,
   }),
 };
