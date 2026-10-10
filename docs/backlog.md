@@ -70,11 +70,28 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   `service_not_running` where `ssh localhost` would log in. Only a box somebody wrote a filter on
   shows it. Found 2026-10-10.
 
-- **`curl localhost` on a deep box leaves no line in its own access log. By reading, not
-  reproduced.** The page is served client-side, but the trace (`core/network/recordLanFetch.ts`)
-  resolves loopback from `vantage.sourceIp`, the same LAN-side address the data doors used, so it
-  looks for a web server on the gateway and records nothing. Same fix as the item above this
-  pair; needs `scripts/testLanFetchLog.ts` extended to a deep hop. Found 2026-10-10.
+- **`curl localhost` on a deep box left no line in its own access log — RESOLVED 2026-10-10
+  (v0.351.0).** Proved first on the live stack (`scripts/testLanFetchLog.ts`, on `cam-189`
+  behind ACME-CORP's inner switch): the trace answered 200 and wrote nothing, because it
+  resolved loopback to where the LAN sees the box, which is the gateway in front of it, and no
+  gateway serves the web. `handleRecordLanFetch` (`core/network/recordLanFetch.ts`) now takes
+  loopback in a shell on a generated box to mean the box the caller named and holds a session
+  on (`generatedBaseFsForMachineId`), so nothing is looked up by address. The box's own ports
+  decide, unfiltered, and no switch journal is read: a deny on the web port in front of the
+  layer does not stop the line, as it does not stop the page. A player's workstation is still
+  placed by its lease. Two neighbours found on the way are the next two items. Not yet
+  re-played in the browser.
+
+- **`curl localhost` in a shell on another player's box leaves no line there. By reading, not
+  reproduced.** The trace places a player's box by lease and then asks whether that address is
+  the CALLER's own (`ownWorkstationTarget`), which it is not, so the visit to the owner's web
+  server goes unrecorded. Found 2026-10-10.
+
+- **`curl <its own address>` on a deep box behind a switch that denies the web port is served
+  but not traced. By reading, not reproduced.** The client serves the standing box's own tree
+  whichever of its names was used; the trace only skips the switch for `localhost`, and finds
+  the box by address through the filtered layer otherwise. Only a layer whose switch somebody
+  wrote a deny on shows it. Found 2026-10-10.
 
 - **A shell on a deep box could write nothing there, even as root — RESOLVED 2026-10-10
   (v0.350.0).** Found in the browser on ABSTERGO-NET: `ssh root@192.168.190.184` then

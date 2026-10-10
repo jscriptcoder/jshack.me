@@ -19,6 +19,9 @@
 //   - A SWEEP of many paths lands as ONE append — a line per probe in the order asked,
 //     every line stamped with the single moment the request arrived — and a sweep that
 //     names no path at all is refused rather than recorded as a visit.
+//   - `curl localhost` in a shell on a box on a DEEP layer lands on that box, as a local
+//     visit, and a switch in front of the layer denying the web port does not stop it:
+//     the request never leaves the box to cross the switch.
 //
 // Usage (with v2 supabase + vercel dev running on 3100):
 //   npx dotenv -e .env.development.local -- npx tsx scripts/testLanFetchLog.ts
@@ -37,6 +40,11 @@ import { resolveLanHostIdentity } from '../src/core/generation/lanHostIdentity.j
 import { readOpenPorts, formatPidfileContent } from '../src/core/services/pidfile.js';
 import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
 import { md5 } from '../src/core/generation/md5.js';
+import { crackableEssidPool } from '../src/core/generation/generateWifi.js';
+import { generateDeepLayer } from '../src/core/generation/generateDeepLayer.js';
+import { buildDeepHostFs } from '../src/core/generation/deepHostFs.js';
+import { chainLinks } from '../src/core/generation/lanTopology.js';
+import { hostMachineId } from '../src/core/generation/remoteHostId.js';
 
 const PATCHES = process.env.PATCHES_ENDPOINT ?? 'http://localhost:3100/api/patches';
 const url = process.env.SUPABASE_URL;
@@ -281,6 +289,98 @@ check(
     lineCount(await readAccessLog(SERVING_ID, NETWORK_KEY)) === before7,
   `status=${r7.status} body=${JSON.stringify(r7.body)}`,
 );
+
+// === 8. `curl localhost` on a box on a deep layer lands on THAT box, as a local visit. ===
+// A switch-fronted layer, so the same box also carries the case where the switch denies
+// the web port. The player holds a shell there, seeded as their `ssh` login would leave it.
+const deepWeb = crackableEssidPool
+  .flatMap((essid) =>
+    chainLinks(essid)
+      .filter((link) => link.host.kind === 'switch')
+      .map((link) => {
+        const { host } = generateDeepLayer(
+          essid,
+          { machineId: link.machineId, kind: link.host.kind },
+          { hangsChild: link.hangsChild },
+        );
+        const web = readOpenPorts(buildDeepHostFs(essid, host)).find(
+          (entry) => entry.service === SERVICE_CATALOG.http.service,
+        );
+        return { essid, switchId: link.machineId, host, port: web?.port ?? null };
+      }),
+  )
+  .find((candidate) => candidate.port !== null);
+if (deepWeb === undefined || deepWeb.port === null) {
+  console.error('no network in the crackable pool has a web box behind a switch');
+  process.exit(2);
+}
+const DEEP_ESSID = deepWeb.essid;
+const DEEP_PORT = deepWeb.port;
+const DEEP_ID = hostMachineId(deepWeb.host, DEEP_ESSID);
+const DEEP_KEY = apGatewayLogWriterKey(DEEP_ESSID);
+const ACL_PATH = '/etc/switch/acl.conf';
+const DEEP_SHELL = 'fetch-log-deep-shell';
+
+const cleanDeep = async () => {
+  await sr.from('patches').delete().eq('machine_id', DEEP_ID).eq('path', ACCESS_LOG);
+  await sr.from('patches').delete().eq('machine_id', deepWeb.switchId).eq('path', ACL_PATH);
+  await sr.from('sessions').delete().eq('session_id', DEEP_SHELL);
+};
+await cleanDeep();
+const deepShell = await sr.from('sessions').insert({
+  session_id: DEEP_SHELL,
+  player_key: player.publicKeyHex,
+  machine_id: DEEP_ID,
+  credentials: { username: 'root', userType: 'root' },
+  kind: 'ssh',
+  essid: DEEP_ESSID,
+});
+if (deepShell.error) {
+  console.error(`FATAL: session seed failed: ${deepShell.error.message}`);
+  process.exit(1);
+}
+const fetchedOnDeepBox = () =>
+  signRequest(player, 'recordLanFetch', {
+    essid: DEEP_ESSID,
+    target: '127.0.0.1',
+    port: DEEP_PORT,
+    paths: ['/'],
+    caller_machine_id: DEEP_ID,
+  });
+
+try {
+  const r8 = await post(PATCHES, await fetchedOnDeepBox());
+  const deep8 = await readAccessLog(DEEP_ID, DEEP_KEY);
+  check(
+    '`curl localhost` on a deep box records one local visit on that box',
+    r8.status === 200 && lineCount(deep8) === 1 && deep8.startsWith('127.0.0.1 - - ['),
+    `box=${deepWeb.host.hostname}@${DEEP_ESSID} status=${r8.status} lines=${lineCount(deep8)} line=${lastLine(deep8)}`,
+  );
+
+  // === 9. The switch in front denying the web port does not stand in loopback's way. ===
+  await sr.from('patches').insert([
+    {
+      machine_id: deepWeb.switchId,
+      path: ACL_PATH,
+      content: `deny ${DEEP_PORT}`,
+      owner: 'root',
+      permissions: { read: ['root'], write: ['root'], execute: [] },
+      node_type: 'file',
+      writer_key: player.publicKeyHex,
+      updated_at: new Date().toISOString(),
+    },
+  ]);
+  const before9 = lineCount(await readAccessLog(DEEP_ID, DEEP_KEY));
+  const r9 = await post(PATCHES, await fetchedOnDeepBox());
+  const deep9 = await readAccessLog(DEEP_ID, DEEP_KEY);
+  check(
+    'a switch denying the web port in front of the layer does not stop the local visit',
+    r9.status === 200 && lineCount(deep9) === before9 + 1 && lastLine(deep9).startsWith('127.0.0.1 '),
+    `status=${r9.status} before=${before9} after=${lineCount(deep9)}`,
+  );
+} finally {
+  await cleanDeep();
+}
 
 const failed = results.filter((result) => !result.pass).length;
 console.log(`\n${results.length - failed}/${results.length} checks passed`);
