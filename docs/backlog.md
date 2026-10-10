@@ -23,12 +23,12 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   own wire-check and a reason the guard can grow). `share.test.ts`'s transport tests are the
   pattern for holding any fix.
 
-- **A script's `fs.appendFile` takes the file it adds to.** It composes on the machine and names
-  `baseContent`, but passes neither `owner` nor `permissions`, so `patches.write` stamps the
-  script's session and tier defaults over an existing node: a user-tier sweep appending to a
-  root-owned file that grants user write walks away owning it (and can `chmod` it). The shell's `>>`
-  keeps both (`conventions-and-gotchas.md` §6). Found building `>>` (v0.277.0); one `stat` and two
-  fields, with a test beside the existing appendFile ones in `node.test.ts`.
+- **A script's `fs.appendFile` took the file it added to — CLOSED v0.347.0.** It composed on the
+  machine and named `baseContent`, but passed neither `owner` nor `permissions`, so `patches.write`
+  stamped the script's session and tier defaults over an existing node. It now does what the
+  shell's `>>` does (`conventions-and-gotchas.md` §6): one `stat` on the reloaded machine, and an
+  existing node's owner and permissions travel with the write; a file the append creates is still
+  the session's. `fs.writeFile` is untouched: it is a "this is mine" writer, as `>` is.
 
 - **`grep` takes no stacked flags and no `-n` — DECIDED 2026-10-10, left as it is.** It accepts
   `-l`, `-c`, `-i` and `-r` one at a time, so `grep -ri x .` answers `unrecognized option: -ri`,

@@ -49,7 +49,6 @@ tier for non-owners, or to skip the raw journal read on cross-player hops.
   (`withCarried` in `core/shell/runLine.ts` handles only a `sync` final result, and that branch is
   untested).
 - **An interrupted redirect (`cmd > file` then Ctrl-C) is silent.**
-- **A script's `fs.appendFile` does not preserve the target's owner and permissions** (backlog §9).
 - **Large generated files cannot be carried home**: a single signed write is capped at 8,192
   characters; some generated logs and datadirs are larger (backlog §9).
 - **Replay order ties**: SQL `ORDER BY writer_key` (database collation) and the core sort (code points)

@@ -149,11 +149,18 @@ export const buildFsApi = (env: CommandEnv): ScriptFs => ({
     // the daemons' own log appender, which names no base — a dropped log line is
     // worse than a raced one for a defender's evidence, and a player's loot file
     // is not that.
+    //
+    // Adding a line is not taking the file: an existing node keeps its owner and
+    // permissions, where the write's defaults would stamp the session's own name
+    // and tier on it. A new file is the session's, exactly as `writeFile` makes it.
+    const node = machine.stat(resolved.target);
+    const keep = node === null ? {} : { owner: node.owner, permissions: node.perms };
     orThrow(
       path,
       await env.patches.write(resolved.target, `${base}${formatScriptValue(data)}`, {
         isNew: resolved.isNew,
         baseContent: base,
+        ...keep,
       }),
     );
   },

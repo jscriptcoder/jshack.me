@@ -109,6 +109,13 @@ const envWithCatAndScript = (source: string): CommandEnv =>
 
 const READABLE = 'port 22 is open\n';
 
+/** What an append to alice's own `notes.txt` names beside the content: the owner
+ *  and permissions the file already had, so the write changes nothing but the text. */
+const STILL_ALICES = {
+  owner: 'alice',
+  permissions: { read: ['root', 'user'], write: ['root', 'user'], execute: ['root'] },
+};
+
 /** The home a script sits in: one file it may read, one it may not, a directory
  *  to write into — and a recorded `patches.write`, because a script that keeps
  *  what it found is a script whose write IS the observable.
@@ -139,6 +146,12 @@ const homeTree = (source: string, notes: string) =>
           'write-only.txt': buildFile('evidence alice may not read', {
             owner: 'alice',
             perms: { read: ['root'], write: ['root', 'user'] },
+          }),
+          // Root's, and open to the user tier to add to — the one shape where
+          // "may write here" and "this is mine" come apart.
+          'shared.txt': buildFile('root line\n', {
+            owner: 'root',
+            perms: { read: ['root', 'user', 'guest'], write: ['root', 'user'], execute: [] },
           }),
           loot: buildDirectory({}, { owner: 'alice' }),
         },
@@ -916,7 +929,7 @@ describe("a script's filesystem", () => {
       1,
       asAbsPath('/home/alice/notes.txt'),
       'port 22 is open\nport 443 is open',
-      { isNew: false, baseContent: READABLE },
+      { isNew: false, baseContent: READABLE, ...STILL_ALICES },
     );
     // An absent file is the ORDINARY first-line case, not a failure — and it
     // names the empty string as its base, which is how the server tells "expected
@@ -927,6 +940,24 @@ describe("a script's filesystem", () => {
       'first line',
       { isNew: true, baseContent: '' },
     );
+  });
+
+  it('leaves a file it appends to its owner and its permissions', async () => {
+    // Adding a line is not taking the file. A write that let the session's own
+    // name and tier defaults stand would hand a root-owned file to whoever
+    // appended to it — and with it the right to chmod it — and would close a
+    // file the guest tier could read. The shell's `>>` already keeps both.
+    const { env, writeFn } = scriptEnv("await fs.appendFile('shared.txt', 'mine')");
+
+    const result = await drain(await node.execute(env, ['sweep.js'], NO_FLAGS));
+
+    expect(result.exitCode).toBe(0);
+    expect(writeFn).toHaveBeenCalledWith(asAbsPath('/home/alice/shared.txt'), 'root line\nmine', {
+      isNew: false,
+      baseContent: 'root line\n',
+      owner: 'root',
+      permissions: { read: ['root', 'user', 'guest'], write: ['root', 'user'], execute: [] },
+    });
   });
 
   it('composes an append against the machine as it stands, not the tree this shell holds', async () => {
@@ -949,7 +980,7 @@ describe("a script's filesystem", () => {
     expect(writeFn).toHaveBeenCalledWith(
       asAbsPath('/home/alice/notes.txt'),
       `${OCCUPIED}mine`,
-      { isNew: false, baseContent: OCCUPIED },
+      { isNew: false, baseContent: OCCUPIED, ...STILL_ALICES },
     );
   });
 

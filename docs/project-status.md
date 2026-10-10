@@ -644,7 +644,8 @@ agreed order:
    while doing it (`backlog.md`): `grep` takes no stacked flags (`grep -ri`, `grep -rn`) and no
    `-n`, decided 2026-10-10 to stay that way — commands are not 1:1 copies of the real ones; and
    `~` has no `~user` form and no tab completion, still open. ✅ `ps` no longer runs
-   `redis-server` into its PORT column (v0.346.0).
+   `redis-server` into its PORT column (v0.346.0). ✅ A script's `fs.appendFile` leaves the file
+   its owner and permissions, as `>>` does (v0.347.0).
 4. ✅ A player's own box has an attack surface (#623, v0.330.0; #624, v0.330.1): a workstation's
    first boot leaves it running 1–3 services, born clean, and the boot screen prints one line per
    running service. Browser-verified two-player 2026-10-08: B on A's WiFi scans A's born
