@@ -52,7 +52,7 @@ import type {
   TerminalLine,
 } from './types.js';
 import type { AbsPath, UserType } from '../types.js';
-import type { Directory } from '../filesystem/types.js';
+import type { Directory, FilePermissions } from '../filesystem/types.js';
 
 const USAGE = 'usage: scp [-p port] <local-file> <user>@<host>:<path>';
 
@@ -110,17 +110,27 @@ const ABORTED: CommandResult = { kind: 'sync', lines: [], exitCode: 130 };
  *  one rather than collapsed into "no such file": it exists, and telling the player
  *  so is what makes the missing `-r` legible instead of mysterious. */
 type Source =
-  | { readonly ok: true; readonly path: AbsPath; readonly content: string }
+  | {
+      readonly ok: true;
+      readonly path: AbsPath;
+      readonly content: string;
+      readonly permissions: FilePermissions;
+    }
   | { readonly ok: false; readonly line: string };
 
 const readSource = (env: CommandEnv, raw: string): Source => {
   const path = resolveAbsPath(env.fs.cwd(), raw);
   const read = env.fs.read(path);
-  if (read.ok) return { ok: true, path, content: read.content };
-  return {
-    ok: false,
-    line: `scp: ${path}: ${read.error === 'is_directory' ? 'Is a directory' : 'No such file or directory'}`,
-  };
+  const node = env.fs.stat(path);
+  // The null arm is the type's, not the tree's: a path that read has a node.
+  if (!read.ok || node === null) {
+    const directory = !read.ok && read.error === 'is_directory';
+    return {
+      ok: false,
+      line: `scp: ${path}: ${directory ? 'Is a directory' : 'No such file or directory'}`,
+    };
+  }
+  return { ok: true, path, content: read.content, permissions: node.perms };
 };
 
 /** Where a taken file lands on the box the player is standing on. A destination that
@@ -196,14 +206,22 @@ const writeRefusal = (
  *  direction never looks. The read that would let it look belongs to the other
  *  direction and addresses a different box, so claiming knowledge it does not have
  *  would be worse than omitting the claim — omission preserves whatever the row
- *  already says, which is exactly scp's position. */
+ *  already says, which is exactly scp's position.
+ *
+ *  The copy takes the source's mode exactly, as scp's does. Left to the write's
+ *  default it would take the login's instead, and a file carried in as root would be
+ *  root's alone — unreadable to the account that carried it. The other edge is the
+ *  player's to learn: a mode that leaves out the login's tier leaves that login unable
+ *  to read its own copy. */
 const carry = async (
   env: CommandEnv,
   session: Session,
   destination: AbsPath,
-  source: { readonly path: AbsPath; readonly content: string },
+  source: Extract<Source, { readonly ok: true }>,
 ): Promise<Transfer> => {
-  const written = await env.scp.write(session, destination, source.content);
+  const written = await env.scp.write(session, destination, source.content, {
+    permissions: source.permissions,
+  });
   if (!written.ok) return writeRefusal(destination, written.error);
   return landed(basename(source.path), source.content.length);
 };

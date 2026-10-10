@@ -136,9 +136,7 @@ type EnvOver = {
   readonly authenticate?: (params: RemoteAuthParams) => Promise<RemoteAuthResult>;
   readonly write?: (
     session: Session,
-    path: AbsPath,
-    content: string,
-    options?: { readonly isNew?: boolean },
+    ...args: Parameters<PatchApi['write']>
   ) => Promise<PatchResult>;
   /** The read of the TARGET — its journal replayed over its generated base, at the
    *  tier the credential bought. Stubbed here; the composition it stands for is the
@@ -275,6 +273,28 @@ describe('scp', () => {
       `passwords.txt   100%  ${WORDS.length} bytes`,
     ]);
     expect(exitCode).toBe(0);
+  });
+
+  it('gives the copy the mode the source has, not the default of the account that carried it', async () => {
+    const { sshHost } = pickHosts();
+    const mode = {
+      read: ['root', 'user', 'guest'],
+      write: ['root', 'user'],
+      execute: ['root', 'user'],
+    } as const;
+    const tree = buildDirectory({
+      root: buildDirectory(
+        { 'passwords.txt': buildFile(WORDS, { owner: 'alice', perms: mode }) },
+        { owner: 'root' },
+      ),
+    });
+    const write = vi.fn<NonNullable<EnvOver['write']>>(async () => ({ ok: true }));
+
+    await drain(await scp.execute(scpEnv({ write, tree }), upload(sshHost), new Map()));
+
+    expect(write).toHaveBeenCalledWith(expect.anything(), REMOTE_DEST, WORDS, {
+      permissions: mode,
+    });
   });
 
   it('ends the session it opened once the file has landed', async () => {
@@ -1732,6 +1752,9 @@ describe('scp to the box the shell stands on, at home', () => {
       },
       '/home/guest/notes.txt',
       'remember the milk\n',
+      // alice's mode, exactly: the guest that carried it is not in it, and so cannot
+      // read its own copy.
+      { permissions: { read: ['root', 'user'], write: ['root', 'user'], execute: ['root'] } },
     );
   });
 
