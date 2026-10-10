@@ -30,14 +30,13 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   keeps both (`conventions-and-gotchas.md` §6). Found building `>>` (v0.277.0); one `stat` and two
   fields, with a test beside the existing appendFile ones in `node.test.ts`.
 
-- **`grep` takes no stacked flags and no `-n`.** Since v0.329.0 (#622) it accepts `-l`, `-c`, `-i`
-  and `-r` one at a time, but it does not opt into `stacking`, so `grep -ri x .` and `grep -rl x .`
-  answer `unrecognized option: -ri`, and `-n` (line numbers, the other flag every admin types:
-  `grep -rn`) does not exist at all. A playtester will type both. The fix is `stacking: true` on
-  `grep` (every flag it has is boolean) plus a real `-n` that prefixes `<line>:` — and
-  `<file>:<line>:` under a directory, as GNU does. No planted history line uses either today, so
-  `plantedHistory.test.ts` would not catch a regression here; the test belongs in `grep.test.ts`
-  through `runCommandLine`. Found while closing the planted-history item (2026-10-07).
+- **`grep` takes no stacked flags and no `-n` — DECIDED 2026-10-10, left as it is.** It accepts
+  `-l`, `-c`, `-i` and `-r` one at a time, so `grep -ri x .` answers `unrecognized option: -ri`,
+  and `-n` does not exist. The owner declined both: a command here takes the flags it takes and is
+  not a 1:1 copy of the real one, because realism is weighed against playability and a command
+  that grows toward the real one's surface complicates the game. A missing flag is therefore not
+  a bug on its own; it becomes one when something the game shows the player (a tutorial, a planted
+  history, a man page) types it.
 
 - **`ssh`, `scp` and `ftp` could not reach your own box — RESOLVED 2026-10-09 (v0.341.0–v0.344.0,
   #637–#640).** `ssh root@localhost` answered `No route to host` with sshd running. At home the
@@ -94,11 +93,10 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   whether "no fix yet" should still move a box to the newest release, with a test in
   `apt.test.ts` beside the upgrade-status ones.
 
-- **`ps` runs a 12-character command into the PORT column.** `COMMAND_COL` in
-  `commands/ps.ts` is 12, and `redis-server` is exactly 12, so the row reads
-  `redis-server6379` with no gap. The same class as `nmap`'s 5-digit port column (#620): pad to
-  the widest command plus one, with a test that asserts the gap. Seen in the workstation-birth
-  browser runs (2026-10-08).
+- **CLOSED v0.346.0 — `ps` ran a 12-character command into the PORT column.** `redis-server` is
+  exactly as wide as the COMMAND column was, so its row read `redis-server6379`. The column now
+  widens to the widest program plus one, header and every row together, as `nmap`'s PORT column
+  does (#620). Seen in the workstation-birth browser runs (2026-10-08).
 
 - **`relations.test.ts` times out under the full suite.** "an IT contractor's shortcuts > keeps no
   shortcut to a client on any other box of the office" takes ~20s alone against the 30s

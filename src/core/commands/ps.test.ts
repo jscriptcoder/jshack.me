@@ -99,6 +99,18 @@ describe('ps', () => {
     expect(lines).toEqual([HEADER, NO_PID + `root      ${program.padEnd(12)}80`]);
   });
 
+  it('keeps a gap before PORT for a program as wide as the column, on every row', async () => {
+    const lines = await runPs(
+      varRun({ 'redis-server.pid': 'redis-server:port=6379', 'sshd.pid': 'sshd:port=22' }),
+    );
+
+    expect(lines).toEqual([
+      'PID     USER      COMMAND      PORT',
+      '-       redis     redis-server 6379',
+      '-       root      sshd         22',
+    ]);
+  });
+
   it('reports the port a service was actually started on, not its default', async () => {
     // A defender who moved ftp to 2121 must be able to SEE 2121 — a survey that
     // printed the catalog default would send them looking for a door that is
