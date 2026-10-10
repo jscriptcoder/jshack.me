@@ -397,9 +397,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // answered it, and a path sweep records a line per probe as a single append. Both are
     // server-internal: the handler places the caller from where they stand (their own
     // network, or a shell they hold), resolves WHICH box answered (a host on a deep layer
-    // they reach, their own workstation at their leased address, or a generated sibling),
-    // reads the pages itself, derives the source address, and stamps time/status/size.
-    // The client names only what it asked for and the box it ran from.
+    // they reach, a player's workstation that is theirs or the one their shell stands on,
+    // or a generated sibling), reads the pages itself, derives the source address, and
+    // stamps time/status/size. The client names only what it asked for and the box it ran
+    // from.
     const listOccupantsByEssid = async (essid: string) => {
       const { data, error } = await supabase
         .from('home_network_occupants')

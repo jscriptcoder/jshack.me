@@ -82,10 +82,22 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   placed by its lease. Two neighbours found on the way are the next two items. Not yet
   re-played in the browser.
 
-- **`curl localhost` in a shell on another player's box leaves no line there. By reading, not
-  reproduced.** The trace places a player's box by lease and then asks whether that address is
-  the CALLER's own (`ownWorkstationTarget`), which it is not, so the visit to the owner's web
-  server goes unrecorded. Found 2026-10-10.
+- **`curl localhost` in a shell on another player's box left no line there — RESOLVED
+  2026-10-10 (v0.352.0).** Proved first on the live stack (`scripts/testLanFetchLog.ts`): a
+  visitor holding a shell on a player's workstation fetched `localhost`, then the box's own LAN
+  address, and both answered 200 and wrote nothing. The trace placed the box by its lease and
+  then asked whether that address was the CALLER's own. `handleRecordLanFetch` now takes the
+  workstation at the address when it is the caller's own or the one their shell stands on
+  (`workstationTarget`), and files the line under the box OWNER's key, so the owner reads the
+  visit in their own log and the visitor writes no row of their own. A third player's
+  workstation, which nothing on the LAN serves to that shell, still gets no line. Not yet
+  re-played in the browser.
+
+- **A shell on a player's box whose owner has left the network: `curl localhost` there would
+  leave no line. By reading, not reproduced.** The box is found by the lease its owner holds on
+  the network the session stands on; with no lease there is no address and nothing is logged,
+  while the client still serves the page. Whether such a shell survives the owner leaving is
+  not checked either. Found 2026-10-10.
 
 - **`curl <its own address>` on a deep box behind a switch that denies the web port is served
   but not traced. By reading, not reproduced.** The client serves the standing box's own tree
