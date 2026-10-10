@@ -794,15 +794,16 @@ async function* fireLocalFileWrite(
     );
     return 1;
   }
-  // An overwrite leaves the file's own owner alone; a new file takes the tier's actor.
-  // Restamping an existing file's owner would quietly re-own a root's file to whoever wrote
-  // it, handing away more than the bytes.
-  const existingOwner = destination.isNew ? undefined : view.stat(destination.target)?.owner;
+  // An overwrite leaves the file's own terms alone, owner and permissions both; a new file
+  // takes the tier's actor and the tier's defaults. Restamping an existing file's owner would
+  // quietly re-own a root's file to whoever wrote it, handing away more than the bytes — and
+  // the permissions have to be NAMED to be kept, because the write layer fills in the shell's
+  // own tier defaults for a write that names none.
+  const existing = destination.isNew ? null : view.stat(destination.target);
   const result = await env.patches.write(destination.target, source.content, {
-    owner: existingOwner ?? actor,
-    ...(destination.isNew
-      ? { isNew: true, permissions: defaultFilePermissions(outcome.tier) }
-      : {}),
+    owner: existing?.owner ?? actor,
+    permissions: existing?.perms ?? defaultFilePermissions(outcome.tier),
+    ...(destination.isNew ? { isNew: true } : {}),
   });
   if (!result.ok) {
     yield errorLine(`[-] Write failed: ${PATCH_ERROR_REASON[result.error]}`);
@@ -856,12 +857,12 @@ async function* fireLocalScriptExec(
   for (const write of collected) {
     const destination = resolveWriteTarget(view, write.path);
     if (!destination.ok) continue;
-    const existingOwner = destination.isNew ? undefined : view.stat(destination.target)?.owner;
+    // The same terms a write effect leaves: an existing file keeps its owner and permissions.
+    const existing = destination.isNew ? null : view.stat(destination.target);
     const result = await env.patches.write(destination.target, write.content, {
-      owner: existingOwner ?? actor,
-      ...(destination.isNew
-        ? { isNew: true, permissions: defaultFilePermissions(outcome.tier) }
-        : {}),
+      owner: existing?.owner ?? actor,
+      permissions: existing?.perms ?? defaultFilePermissions(outcome.tier),
+      ...(destination.isNew ? { isNew: true } : {}),
     });
     if (!result.ok) {
       yield errorLine(`[-] Script injection failed: ${PATCH_ERROR_REASON[result.error]}`);
