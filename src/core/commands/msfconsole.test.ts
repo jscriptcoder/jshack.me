@@ -45,6 +45,7 @@ import type {
   SessionKind,
 } from './types.js';
 import type { MachineId } from '../types.js';
+import type { FilePermissions } from '../filesystem/types.js';
 import type { ConnectivityState, NetworkInterface } from '../network/interfaces.js';
 
 /**
@@ -1698,7 +1699,13 @@ const localBoxEnv = (opts: {
   // Every write a local effect makes travels through `env.patches.write`; recording them
   // lets a test see the lock actually turn (a reset), the bytes actually land (a write) or
   // the door actually open (a backdoor), not just the line that claims it did.
-  const writes: { path: string; content: string; owner: string | undefined }[] = [];
+  const writes: {
+    path: string;
+    content: string;
+    owner: string | undefined;
+    permissions: FilePermissions | undefined;
+    isNew: boolean | undefined;
+  }[] = [];
   // Every trace a local effect leaves travels through `env.log`; recording the two appends
   // lets a test see the crash line a miss records and the no-auth session line a shell
   // success records — and, just as important, their ABSENCE on the quiet effects.
@@ -1721,7 +1728,13 @@ const localBoxEnv = (opts: {
     patches: mockPatchApi({
       write: async (path, content, options) => {
         if (opts.failWrite !== undefined) return { ok: false, error: opts.failWrite };
-        writes.push({ path, content, owner: options?.owner });
+        writes.push({
+          path,
+          content,
+          owner: options?.owner,
+          permissions: options?.permissions,
+          isNew: options?.isNew,
+        });
         return { ok: true };
       },
     }),
@@ -1752,6 +1765,16 @@ const scriptedLocalRun = (opts: Parameters<typeof localBoxEnv>[0]) => {
   );
   return { fire: context.msfconsole, pushed, cwds, emitted, logs };
 };
+
+/** A file's terms that are nobody's defaults — open to the guest tier to read and to no
+ *  tier to run — so a write that kept them is told apart from one that reset them. */
+const SHARED_LIST: FilePermissions = {
+  read: ['root', 'user', 'guest'],
+  write: ['root', 'user'],
+  execute: [],
+};
+
+const OVERWRITING_SCRIPT = "await fs.writeFile('/existing.txt', 'sabotage')";
 
 /** How the shell parser hands `msfconsole --local su` to `execute`: the command a
  *  positional, `--local` a bare flag. */
@@ -2290,6 +2313,10 @@ describe('msfconsole --local', () => {
     expect(writes[0]?.path).toBe('/etc/dropped.txt');
     expect(writes[0]?.content).toBe('planted');
     expect(writes[0]?.owner).toBe('root');
+    // A file the script creates takes the terms of the tier the hole GRANTED — root's
+    // here — not those of the user shell the exploit was fired from.
+    expect(writes[0]?.permissions).toEqual({ read: ['root'], write: ['root'], execute: ['root'] });
+    expect(writes[0]?.isNew).toBe(true);
     // A script leaves its effects behind and stands the player nowhere.
     expect(pushed).toEqual([]);
     expect(cwds).toEqual([]);
@@ -2466,6 +2493,63 @@ describe('msfconsole --local', () => {
     expect(writes[0]?.owner).toBe('alice');
   });
 
+  it('leaves an overwritten file its own permissions rather than the tier defaults', async () => {
+    // The write layer fills in the session tier's defaults for a write that names no
+    // permissions, so an overwrite that named none would reset the file: a list the guest
+    // tier could read would close to it, for a hole that was only asked to plant bytes.
+    const release = effectReleaseFor('rm', 'libpcre', 'file_write', 'root');
+    const { env, writes } = localBoxEnv({
+      library: 'libpcre',
+      version: release.version,
+      gameDay: release.publishedAt,
+      extra: {
+        'payload.txt': buildFile('sabotage', { owner: 'alice' }),
+        'existing.txt': buildFile('old contents', { owner: 'alice', perms: SHARED_LIST }),
+      },
+    });
+
+    await drain(await msfconsole.execute(env, ['rm', '/payload.txt:/existing.txt'], localFlags));
+
+    expect(writes).toEqual([
+      {
+        path: '/existing.txt',
+        content: 'sabotage',
+        owner: 'alice',
+        permissions: SHARED_LIST,
+        // Not marked new: the row keeps whatever it already said about that.
+        isNew: undefined,
+      },
+    ]);
+  });
+
+  it('leaves a file a script overwrites its own owner and permissions', async () => {
+    // A script's write is the same overwrite by another road, and owes the file the same:
+    // the bytes change, the terms do not.
+    const release = effectReleaseFor('reboot', 'libsystemd', 'script_exec', 'root');
+    const { env, writes } = localBoxEnv({
+      library: 'libsystemd',
+      version: release.version,
+      gameDay: release.publishedAt,
+      extra: {
+        'attack.js': buildFile(OVERWRITING_SCRIPT, { owner: 'alice' }),
+        'existing.txt': buildFile('old contents', { owner: 'alice', perms: SHARED_LIST }),
+      },
+    });
+
+    await drain(await msfconsole.execute(env, ['reboot', '/attack.js'], localFlags));
+
+    expect(writes).toEqual([
+      {
+        path: '/existing.txt',
+        content: 'sabotage',
+        owner: 'alice',
+        permissions: SHARED_LIST,
+        // Not marked new: the row keeps whatever it already said about that.
+        isNew: undefined,
+      },
+    ]);
+  });
+
   it('owns a newly written file by the account the tier names, not the bare tier', async () => {
     // A new file takes the actor as its owner — the account at the granted tier, not the
     // tier word itself, so a user-floored write lands as `alice` rather than as `user`.
@@ -2488,6 +2572,12 @@ describe('msfconsole --local', () => {
     expect(text).toContain('[+] Wrote 8 bytes to /srv/new.txt (as user)');
     expect(writes).toHaveLength(1);
     expect(writes[0]?.owner).toBe('alice');
+    expect(writes[0]?.permissions).toEqual({
+      read: ['root', 'user'],
+      write: ['root', 'user'],
+      execute: ['root'],
+    });
+    expect(writes[0]?.isNew).toBe(true);
   });
 
   // Each write effect goes through `env.patches.write`, which can refuse — a session gone, a

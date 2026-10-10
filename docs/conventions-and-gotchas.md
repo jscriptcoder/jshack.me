@@ -1590,6 +1590,11 @@ state costs you more than one wrong attempt.
   `permissions` would reset the node while claiming to change one thing. Any new writer over an
   EXISTING node must pass `owner: node.owner` and explicit `permissions`, and name `baseContent` so a
   fellow occupant's edit is refused rather than reverted.
+  **Omitting `permissions` means "keep" only on the SERVER.** A fire the server lands
+  (`exploitCreateSession.ts`, `exploitLocalElevate.ts`) sends an overwrite's row without them and
+  the fold keeps the file's own; the client adapter (`createPatchApi`) instead fills in the shell
+  tier's defaults. `msfconsole --local` copied the server's shape onto `env.patches.write` and reset
+  the mode of every file it overwrote until v0.348.0, so on the client an overwrite names them.
 - **The shell's `>>` is the model append (`runLine.ts` `applyAppend`).** It validates the target
   against the held tree BEFORE the command runs (as `>` does), then composes on the MACHINE
   (`fs.reload()`), keeps an existing node's owner and permissions, and names `baseContent`, so a
