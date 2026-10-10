@@ -79,8 +79,9 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   on (`generatedBaseFsForMachineId`), so nothing is looked up by address. The box's own ports
   decide, unfiltered, and no switch journal is read: a deny on the web port in front of the
   layer does not stop the line, as it does not stop the page. A player's workstation is still
-  placed by its lease. Two neighbours found on the way are the next two items. Not yet
-  re-played in the browser.
+  placed by its lease. Two neighbours found on the way are the next two items. Played in the
+  browser 2026-10-10 on COPPER-SYSTEMS: `curl localhost` as root on `web-176`, one layer down,
+  served the page and `cat /var/log/access.log` showed the one `127.0.0.1` line.
 
 - **`curl localhost` in a shell on another player's box left no line there — RESOLVED
   2026-10-10 (v0.352.0).** Proved first on the live stack (`scripts/testLanFetchLog.ts`): a
@@ -90,8 +91,20 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   workstation at the address when it is the caller's own or the one their shell stands on
   (`workstationTarget`), and files the line under the box OWNER's key, so the owner reads the
   visit in their own log and the visitor writes no row of their own. A third player's
-  workstation, which nothing on the LAN serves to that shell, still gets no line. Not yet
-  re-played in the browser.
+  workstation, which nothing on the LAN serves to that shell, still gets no line. Played in the
+  browser 2026-10-10: a second player on the owner's WiFi logged in as `guest`, ran
+  `curl localhost`, and the owner's `cat /var/log/access.log` showed the `127.0.0.1` line (once
+  the owner had run a command of their own; a defender gets no live tail). The journal holds one row, under the
+  owner's key. The address half is not reachable in play; see the next item.
+
+- **`curl <a player's LAN address>` answers `Could not resolve host`, from the LAN and from a
+  shell on that box.** Found in the browser 2026-10-10. A player's workstation is on no
+  generated LAN, and a shell on one stands there with its address unknown (`vantageOf`), so
+  `locateHost` (`core/commands/webHost.ts`) finds no box at the address. From another box on
+  the WiFi that matches the rule that nothing on the LAN serves a player's workstation. In a
+  shell ON the box it differs from every other box, where `curl <its own address>` serves the
+  box's own tree. The trace already accepts the address there (v0.352.0), so only the client
+  refuses. Not decided whether this is a gap or the rule.
 
 - **A shell on a player's box whose owner has left the network: `curl localhost` there would
   leave no line. By reading, not reproduced.** The box is found by the lease its owner holds on
@@ -114,8 +127,9 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   box resolved to nothing and the write failed closed. It now asks
   `generatedBaseFsForMachineId`, the resolver the read side already used, which knows every box
   a network generates. A guest shell there is still held to its tier, and a deep box on another
-  network is still refused. `scripts/testDeepLayerSsh.ts` carries the two write cases. Not yet
-  re-played in the browser.
+  network is still refused. `scripts/testDeepLayerSsh.ts` carries the two write cases. Played
+  in the browser 2026-10-10 on COPPER-SYSTEMS: as root on `web-176`,
+  `echo browser-run-0352 > /root/proof.txt` took, and `cat` read it back.
 
 - **A file `scp` carried landed `rwx------` — RESOLVED 2026-10-10 (v0.345.0).** `scp` passed no
   mode, so the write took `defaultFilePermissions` for the login's tier, and

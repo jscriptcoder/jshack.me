@@ -110,6 +110,11 @@ agent-browser snapshot -i                              # interactive refs (@e1, 
   runs past ~30 s comes back as `os error 10060`, which reads like a dead browser.
   `>` matters as well as `#`/`$`: inside `mysql`/`rediscli` the prompt is `redis> `, and a matcher
   that only knows shell prompts times out on every statement you send to a data door.
+- **The terminal `<input>` is GONE while a command runs, so wait for it before typing.** A write
+  on a remote box (`echo x > file` in a shell on a deep box) holds the spinner for a few seconds,
+  and a helper that types the next command at once dies with `Cannot read properties of null`
+  and drops that command. Poll `document.querySelector('input') !== null` before every type, and
+  again before reading the output (2026-10-10, v0.352.0).
 - **Each CLI call costs ~1-2 s, so anything short is over before you can look at it.** A
   transient state (a spinner, a busy bar, a streamed command under ~2 s) will be gone by the
   time a follow-up `eval`/`screenshot` lands, which reads exactly like a broken feature. Drive

@@ -694,13 +694,14 @@ agreed order:
    under their key. ✅ The
    browser run over v0.345.0 to v0.349.0 passed, and found that a shell on a deep box could
    write nothing there; closed at v0.350.0, the write gate now knows every box a network
-   generates. **Pick up here (2026-10-10):** v0.350.0 to v0.352.0 (#646–#648) are proven by
-   unit tests and live wire-checks only, so the next browser run owes all three: a root write in
-   a shell on a deep box, `curl localhost` on a deep box, and `curl localhost` in a shell on
-   another player's box, each followed by a `cat` of the file it should have changed. The next
-   fix in line is the last gap in the same fetch trace: `curl <its own address>` on a deep box
-   behind a switch that denies the web port (`backlog.md`, not reproduced, so it starts with a
-   wire-check in `scripts/testLanFetchLog.ts`).
+   generates. ✅ The browser run over v0.350.0 to v0.352.0 (#646–#648) passed 2026-10-10: a root
+   write in a shell on a deep box, `curl localhost` on a deep box, and `curl localhost` in a
+   shell on another player's box, each followed by a `cat` of the file it changed. It found
+   one thing, in `backlog.md` and not decided: `curl <a player's LAN address>` answers
+   `Could not resolve host`, even in a shell on that box. **Pick up here (2026-10-10):** the
+   next fix in line is the last gap in the same fetch trace: `curl <its own address>` on a deep
+   box behind a switch that denies the web port (`backlog.md`, not reproduced, so it starts
+   with a wire-check in `scripts/testLanFetchLog.ts`).
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan
