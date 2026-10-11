@@ -38,6 +38,7 @@ import type {
   RebootApi,
   ChainApi,
   AptApi,
+  WalletApi,
   TerminalLine,
 } from '../core/commands/types.js';
 import type { Directory } from '../core/filesystem/types.js';
@@ -241,6 +242,8 @@ export type BuildCommandEnvArgs = {
   /** Backs `env.chain.openSessionIds` — which of this terminal's sessions the server
    *  still holds open. */
   readonly onChainOpenSessionIds?: ChainApi['openSessionIds'];
+  /** Backs `env.wallet.balance` — the unsigned read of one address off the ledger. */
+  readonly onWalletBalance?: WalletApi['balance'];
   /** The scan-logging seam — backs `env.scan.record`. The UI wires it to the
    *  `recordScan` adapter (signed `nmapScan` round-trip). Optional here for terse
    *  test setups; the UI always passes the real one. */
@@ -515,6 +518,11 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
   },
   hydra: {
     crack: args.onHydraCrack ?? notWired('hydra.crack'),
+  },
+  wallet: {
+    // Loud when unwired: a read that answered on its own would print a balance no
+    // ledger ever held.
+    balance: args.onWalletBalance ?? notWired('wallet.balance'),
   },
   exploit: {
     // Loud when unwired: an exploit that answered on its own would either open a

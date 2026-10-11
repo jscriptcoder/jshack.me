@@ -11,6 +11,7 @@ import type {
   LogApi,
   PatchApi,
   ScanRecordParams,
+  WalletApi,
 } from '../core/commands/types.js';
 
 const noopPatches: PatchApi = {
@@ -36,6 +37,7 @@ const seedEnv = (
   seams: {
     readonly onChildCommand?: (name: string | null) => void;
     readonly onExploitElevateLocal?: ExploitApi['elevateLocal'];
+    readonly onWalletBalance?: WalletApi['balance'];
   } = {},
 ) =>
   buildCommandEnv({
@@ -108,6 +110,35 @@ describe('the cross-player local-exploit seam', () => {
     expect(() => seedEnv().exploit.elevateLocal(params)).toThrow(
       'exploit.elevateLocal is not wired',
     );
+  });
+});
+
+describe('the ledger seam', () => {
+  const address = `jsc${'0123456789abcdef'.repeat(3).slice(0, 40)}`;
+
+  it('routes onWalletBalance through env.wallet.balance', async () => {
+    const seen: string[] = [];
+    const env = seedEnv(
+      'guest',
+      {},
+      {
+        onWalletBalance: async (received) => {
+          seen.push(received);
+          return { ok: true, balance: 250, nextSequence: 4 };
+        },
+      },
+    );
+
+    const result = await env.wallet.balance(address);
+
+    expect(seen).toEqual([address]);
+    expect(result).toEqual({ ok: true, balance: 250, nextSequence: 4 });
+  });
+
+  it('is loud when left unwired, refusing to make up a balance', () => {
+    // A read that answered on its own would print coins no ledger ever held, and
+    // "0 JSC" is exactly what a real answer looks like.
+    expect(() => seedEnv().wallet.balance(address)).toThrow('wallet.balance is not wired');
   });
 });
 

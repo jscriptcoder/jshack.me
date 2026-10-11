@@ -34,6 +34,7 @@ import type {
   HydraApi,
   ExploitApi,
   AptApi,
+  WalletApi,
 } from '../../core/commands/types.js';
 import { basename, dirname } from '../../core/filesystem/path.js';
 import { canWrite } from '../../core/filesystem/walker.js';
@@ -281,6 +282,13 @@ export const mockExploitApi = (overrides: Partial<ExploitApi> = {}): ExploitApi 
   ...overrides,
 });
 
+/** The ledger seam. Load-bearing: its answer IS the balance, so an unstubbed read
+ *  must be loud rather than report an address as holding nothing. */
+export const mockWalletApi = (overrides: Partial<WalletApi> = {}): WalletApi => ({
+  balance: NOT_IMPLEMENTED('wallet.balance'),
+  ...overrides,
+});
+
 /** A scan seam whose `record` no-ops by default (logging is best-effort and
  *  fire-and-forget, so it must not throw the way a load-bearing seam does) and
  *  whose `resolvePublic` throws unless overridden (it is load-bearing — its result
@@ -342,6 +350,7 @@ export const mockCommandEnv = (overrides: Partial<CommandEnv> = {}): CommandEnv 
   chain: { openSessionIds: async () => null },
   hydra: mockHydraApi(),
   exploit: mockExploitApi(),
+  wallet: mockWalletApi(),
   scan: mockScanApi(),
   setCwd: () => undefined,
   setInterface: () => undefined,

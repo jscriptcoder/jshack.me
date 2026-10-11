@@ -1533,6 +1533,20 @@ export type ScanApi = {
   readonly resolveOccupiedEssids: () => Promise<readonly string[]>;
 };
 
+/** What the ledger holds at one address. `nextSequence` is the number the next
+ *  transfer out of it has to name. An address the ledger has never seen answers
+ *  zero for both, so there is no "unknown address" among the outcomes. */
+export type WalletBalanceResult =
+  | { readonly ok: true; readonly balance: number; readonly nextSequence: number }
+  /** OUR side failing to ask, or an answer that was not one. Never a balance. */
+  | { readonly ok: false; readonly error: 'network_error' };
+
+/** The ledger seam. The ledger is public and knows addresses, not players, so a
+ *  read names an address and carries nothing that says who is asking. */
+export type WalletApi = {
+  readonly balance: (address: string) => Promise<WalletBalanceResult>;
+};
+
 // ---- The boundary ----
 
 export type CommandEnv = {
@@ -1580,6 +1594,7 @@ export type CommandEnv = {
   readonly scan: ScanApi;
   readonly hydra: HydraApi;
   readonly exploit: ExploitApi;
+  readonly wallet: WalletApi;
 
   /** Mutate the shell's cwd. UI layer owns the underlying signal; commands
    *  call this when they need to move (`cd`). FsView's `cwd()` reflects

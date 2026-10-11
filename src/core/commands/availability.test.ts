@@ -274,7 +274,9 @@ describe('commandRegistry gating (registry wiring)', () => {
       });
       const after = await command.execute(installed, [], NO_FLAGS);
 
-      expect(errorLines(after)).toEqual(['wallet: usage: wallet init']);
+      // The wallet's own voice rather than the shell's install hint. Which
+      // subcommands the line lists is the wallet's to say, and grows with it.
+      expect(errorLines(after)).toEqual([expect.stringMatching(/^wallet: usage: wallet /)]);
     },
   );
 

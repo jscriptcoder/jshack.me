@@ -186,6 +186,7 @@ import {
   resolveInnerGateway,
   type NetworkClientDeps,
 } from '../adapters/networkApi.js';
+import { readBalance } from '../adapters/walletApi.js';
 import type { OccupantProjection } from '../core/network/resolveOccupants.js';
 import type { HomeNetworkAssignment } from '../core/network/homeNetwork.js';
 import { lanLeaseCacheIn } from '../core/network/lanLeaseCache.js';
@@ -2026,6 +2027,8 @@ const executeLine = async (line: string): Promise<void> => {
     onSuElevate: suElevate,
     onRebootEvict: rebootEvict,
     onChainOpenSessionIds: chainOpenSessionIds,
+    // Nothing of the player's goes with it: the ledger answers anyone about any address.
+    onWalletBalance: (address) => readBalance({}, address),
     onMysqlConnect: mysqlConnect,
     onMysqlStatement: mysqlStatement,
     onMysqlEnter: enterMysqlSession,
