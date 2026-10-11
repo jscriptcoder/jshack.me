@@ -118,6 +118,7 @@ const TOOLCHAIN_LINKS: ReadonlyArray<[string, readonly SystemLibrary[]]> = [
   ['lynx', ['libssl', 'libxml2']],
   ['john', ['libcrypt']],
   ['gpg', ['libcrypt']],
+  ['wallet', ['libssl', 'libcrypt']],
   ['airmon-ng', ['libcrypt']],
   ['airodump-ng', ['libcrypt']],
   ['aircrack-ng', ['libcrypt']],

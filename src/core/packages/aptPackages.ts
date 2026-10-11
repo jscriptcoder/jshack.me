@@ -149,6 +149,9 @@ export const APT_PACKAGES: readonly AptPackage[] = [
   { name: 'metasploit', binaries: ['msfconsole'] },
   { name: 'aircrack-ng', binaries: ['airmon-ng', 'airodump-ng', 'aircrack-ng'] },
   { name: 'gpg' },
+  // Bought, not shipped: holding money is a choice, and the key file it leaves on
+  // the box is one more thing there for a visitor to find.
+  { name: 'wallet' },
   { name: 'node' },
   {
     name: 'hydra',

@@ -249,6 +249,35 @@ describe('commandRegistry gating (registry wiring)', () => {
     ]);
   });
 
+  // A wallet is bought like any other tool, and once root has installed it every
+  // account on the box runs it: each tier reaches the command's own answer.
+  it.each(['guest', 'user', 'root'] as const)(
+    'gates wallet behind an apt install, then runs it for a %s shell once /usr/bin/wallet is there',
+    async (userType) => {
+      const command = commandRegistry.get('wallet');
+      if (command === undefined) throw new Error('wallet not registered');
+
+      const fresh = mockCommandEnv({
+        fs: mockFsViewFromTree(buildDirectory({ tmp: buildDirectory({}) }), {
+          userType,
+          cwd: asAbsPath('/tmp'),
+        }),
+      });
+      const before = await command.execute(fresh, [], NO_FLAGS);
+      expect(errorLines(before)).toEqual([
+        'bash: wallet: command not found. Install with: apt install wallet',
+      ]);
+      expect(before.kind === 'sync' && before.exitCode).toBe(127);
+
+      const installed = mockCommandEnv({
+        fs: mockFsViewFromTree(treeWithUsrBinary('wallet'), { userType, cwd: asAbsPath('/') }),
+      });
+      const after = await command.execute(installed, [], NO_FLAGS);
+
+      expect(errorLines(after)).toEqual(['wallet: usage: wallet init']);
+    },
+  );
+
   // The DNS tools are the second family bought rather than shipped, and the pair
   // that changes what the OTHER commands accept — so the gate is worth showing on
   // the real registry entry rather than on a stand-in. Both directions, as gpg's.
@@ -564,6 +593,7 @@ describe('wrapWithBinaryCheck — /usr/bin resolution + apt-install hint (slice 
     ['airodump-ng', 'aircrack-ng'],
     ['aircrack-ng', 'aircrack-ng'],
     ['gpg', 'gpg'],
+    ['wallet', 'wallet'],
     ['node', 'node'],
     ['hydra', 'hydra'],
     ['gobuster', 'gobuster'],
