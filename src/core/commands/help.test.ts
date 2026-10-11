@@ -164,4 +164,17 @@ describe('help', () => {
     // Encrypting a file is a thing done TO a file, whatever it protects it from.
     expect(rowOf('gpg')).toBeGreaterThan(filesystem);
   });
+
+  // Four of the five things a wallet will do are a message to the ledger, so it
+  // sits with the tools that talk to something else rather than with the files.
+  it('files wallet under Network, saying what it is for', async () => {
+    const result = await help.execute(mockCommandEnv(), [], NO_FLAGS);
+    if (result.kind !== 'sync') throw new Error('help answers synchronously');
+    const contents = contentsOf(result.lines);
+
+    const walletRow = contents.findIndex((line) => line.startsWith('   wallet '));
+    expect(walletRow).toBeGreaterThan(contents.indexOf(' Network'));
+    expect(walletRow).toBeLessThan(contents.indexOf(' WiFi'));
+    expect(contents[walletRow]).toContain('Hold and send JSC');
+  });
 });

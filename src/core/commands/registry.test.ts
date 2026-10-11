@@ -170,6 +170,7 @@ describe('every IP tool runs from a hop, and only box-local tools stay home', ()
     ['ps', 'lists the box’s own processes'],
     ['ifconfig', 'reads out where the shell stands (decision 9)'],
     ['whois', 'a registry lookup reveals nothing location-dependent (decision 2)'],
+    ['wallet', 'talks to the ledger, which is no machine: nothing sees where it came from'],
   ]);
 
   const networkCommands = [...commandRegistry.values()]

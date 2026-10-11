@@ -199,6 +199,7 @@ describe('man', () => {
     'strings',
     'chmod',
     'gpg',
+    'wallet',
     'msfconsole',
     'whois',
   ])(

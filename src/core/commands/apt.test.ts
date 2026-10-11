@@ -489,6 +489,16 @@ describe('apt', () => {
       expect(writes.map((write) => write.path)).toEqual(['/usr/bin/whois']);
     });
 
+    it('installs wallet into /usr/bin, for every tier to run', async () => {
+      const { env, writes } = aptEnv();
+
+      await streamResult(await apt.execute(env, ['install', 'wallet'], NO_FLAGS));
+
+      expect(writes.map(({ path, options }) => [path, options?.permissions])).toEqual([
+        ['/usr/bin/wallet', WORLD_EXECUTABLE],
+      ]);
+    });
+
     it('installs both DNS tools into /usr/bin — neither half of the pair is a daemon', async () => {
       const { env, writes } = aptEnv();
 

@@ -70,6 +70,7 @@ import { systemctl } from './systemctl.js';
 import { tail } from './tail.js';
 import { theme } from './theme.js';
 import { touch } from './touch.js';
+import { wallet } from './wallet.js';
 import { wc } from './wc.js';
 import { whoami } from './whoami.js';
 import { xterm } from './xterm.js';
@@ -143,6 +144,7 @@ const builtins: readonly Command[] = [
   tail,
   theme,
   touch,
+  wallet,
   wc,
   whoami,
   xterm,
