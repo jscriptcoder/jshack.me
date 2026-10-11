@@ -159,6 +159,20 @@ Shipped so far (each milestone is in git history + its as-built doc/plan):
   the editor open); a refused one leaves it alone. Wire-check `scripts/testModifiedSinceOpen.ts`;
   three-player browser verification in `e2e-shared-network-verification.md` §6.
 
+- **Crypto wallet epic ✅ COMPLETE (v0.362.0).** A player holds money: the `wallet` command
+  (`init | balance | history | send | sweep`), a public ledger of **JSC** keyed by address, and
+  the operator's `scripts/mintCoins.ts`. **The key is the money** — a random Ed25519 key in
+  `~/.wallet/wallet.dat`, so a wallet is something to hide and something another player takes by
+  rooting your box. Reads are public and unsigned; a transfer is signed by the *wallet* key, never
+  the player's identity, and the ledger stores no player. Server: `wallet_balances` +
+  `wallet_transfers` with `wallet_mint` and `wallet_transfer` (the repo's first stored procedure
+  with logic — debit, credit and transfer row in one transaction, sequence-number replay guard),
+  behind a thin `api/wallet.ts` that forks transfer/history/balance. Seven slices (v0.356.0–
+  v0.362.0, PRs #653–#658), each TDD + wire-check (`scripts/testWallet.ts`, 89 checks) + migration
+  to dev then prod before merge. As-built: **[`wallet-architecture.md`](./wallet-architecture.md)**.
+  Browser close-out (two players) ran the full theft loop end to end. Deferred (recognition,
+  something to spend JSC on, mission payouts, generated wallets as loot) is in `backlog.md`.
+
 **Legacy parity is COMPLETE — the epic is retired.** Every way into a machine shipped: the doors
 (Phase 1), discovery (Phase 2), and the CVE vulnerability system (Phase 3). The ship gate was
 legacy parity **minus missions**, and it is met; missions are a post-ship epic. The epic's plan
@@ -719,6 +733,14 @@ agreed order:
    probe), and four found by reading: a deep box's own address behind a switch that
    denies the web port, a data door over `localhost`, a shell on a box whose owner left,
    and a line break in a trace's free-text fields.
+9. ✅ **Crypto wallet epic (v0.356.0–v0.362.0, PRs #653–#658, 2026-10-11/12).** Slotted ahead of
+   the rest of the sandbox-hardening list: the `wallet` command, a public JSC ledger keyed by
+   address, and the operator mint. Seven slices, each TDD + wire-check + migration to dev then
+   prod. Two-player browser close-out ran the theft loop (mint → root the box → read the key →
+   sweep → gpg the replacement) with no defects. As built:
+   [`wallet-architecture.md`](./wallet-architecture.md). **Pick up here (2026-10-12):** back to the
+   sandbox-hardening leftovers in item 8's list above and the defender-side item 6, still the
+   agreed work until the owner reopens missions.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan
