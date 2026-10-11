@@ -23,13 +23,11 @@
  */
 
 import type { Command, CommandResult, TerminalLine } from './types.js';
-import { createFsView } from '../filesystem/fsView.js';
-import { parseTypedUrl, resolveWebPath } from '../network/http.js';
+import { parseTypedUrl } from '../network/http.js';
 import { isPublicIp } from '../generation/ip.js';
 import { addressForTarget } from '../network/resolveName.js';
 import { vantageOf } from '../network/vantage.js';
-import { reachWebHost } from './webHost.js';
-import { fetchPageAcrossNetwork } from './webPage.js';
+import { fetchPageAcrossNetwork, fetchWebPage } from './webPage.js';
 
 const error = (message: string): CommandResult => ({
   kind: 'sync',
@@ -121,74 +119,30 @@ const execute: Command['execute'] = async (env, args, flags) => {
   };
 
   // A public address is not on this LAN by construction, so it can only be reached the
-  // way the internet is reached — through the server. Gated on being online first: the
-  // player needs a connection either way.
-  if (isPublicIp(url.host)) {
-    const page = await fetchPageAcrossNetwork({
-      program: 'curl',
-      url,
-      callerMachineId: env.session.machineId,
-      fetchPublic: (params) => env.remote.fetchPublic(params),
-    });
-    if (page.kind === 'unreachable') {
-      return page.failure;
-    }
-    if (page.kind === 'not_found') {
-      return error(NOT_FOUND);
-    }
-    return respond({ content: page.content, server: page.server, includeHeaders: flags.has('-i') });
-  }
-
-  const reached = reachWebHost({ root: env.fs.root(), program: 'curl', url, vantage });
-  if (!reached.ok) {
-    return reached.failure;
-  }
-  const { fs: hostFs, essid, address, server } = reached.host;
-
-  // Something answered, so the box that answered records the hit — the server resolves
-  // which machine that is and writes its /var/log/access.log itself. Above this line
-  // nothing was reached, and an access log belongs to a server that handled a request.
-  //
-  // Fire-and-forget: the page renders alongside the round-trip rather than waiting on
-  // it, and neither a failed write nor an unwired seam can break a fetch that already
-  // succeeded.
-  try {
-    void env.log
-      .appendAccessLog({
-        essid,
-        target: address,
-        port: url.port,
-        // One fetch is one path. The seam takes a run of them because a path sweep
-        // asks many at once; a fetch that named several would be claiming requests it
-        // never made.
-        paths: [url.path],
-        // The box the fetch ran from. The server places the caller there and derives
-        // the source address itself, so this names where it came from without claiming
-        // the address.
+  // way the internet is reached — through the server. Either way what comes back is the
+  // same three outcomes, so only this line knows how far the page was.
+  const page = isPublicIp(url.host)
+    ? await fetchPageAcrossNetwork({
+        program: 'curl',
+        url,
         callerMachineId: env.session.machineId,
+        fetchPublic: (params) => env.remote.fetchPublic(params),
       })
-      .catch(() => undefined);
-  } catch {
-    // best-effort: logging must not surface to the fetch.
+    : fetchWebPage({
+        root: env.fs.root(),
+        program: 'curl',
+        url,
+        vantage,
+        callerMachineId: env.session.machineId,
+        appendAccessLog: (fetched) => env.log.appendAccessLog(fetched),
+      });
+  if (page.kind === 'unreachable') {
+    return page.failure;
   }
-
-  // A path that climbs out of the published directory names nothing, and says so the
-  // same way a missing file does — telling a caller their traversal was SPOTTED is
-  // itself a hint worth withholding.
-  const filePath = resolveWebPath(url.path);
-  if (filePath === null) {
+  if (page.kind === 'not_found') {
     return error(NOT_FOUND);
   }
-
-  // Read as the SERVER, not as the caller: a web server serves its document root
-  // under its own account, and the requester has no account on that box at all. The
-  // confinement is the document root, not the file permissions.
-  const served = createFsView(hostFs, { userType: 'root' }).read(filePath);
-  if (!served.ok) {
-    return error(NOT_FOUND);
-  }
-
-  return respond({ content: served.content, server, includeHeaders: flags.has('-i') });
+  return respond({ content: page.content, server: page.server, includeHeaders: flags.has('-i') });
 };
 
 export const curl: Command = {
