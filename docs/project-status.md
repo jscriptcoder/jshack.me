@@ -703,15 +703,20 @@ agreed order:
    shell on that box. ✅ Decided a gap and closed at v0.354.0: `curl` and `lynx` reach a
    fellow occupant's web server at its LAN address, served from the owner's journal by
    `resolveOccupantFetch` and logged in the owner's `access.log`
-   (`scripts/testOccupantFetch.ts`, 11/11; not played in the browser yet). ✅ Its neighbour
+   (`scripts/testOccupantFetch.ts`, 11/11). ✅ Its neighbour
    closed at v0.355.0: `gobuster` sweeps a fellow occupant's web server at its LAN address
    through `resolveOccupantSweep`, with the list on the box the caller stands on
-   (`scripts/testOccupantSweep.ts`, 11/11; not played in the browser yet). ✅ And at
+   (`scripts/testOccupantSweep.ts`, 11/11). ✅ And at
    v0.356.0 `gobuster` reaches that box by its machine name, and an institution by its
-   domain, through the name step `curl` and `lynx` take (client only; not played in the
-   browser yet). **Pick up here (2026-10-11):** a browser run over v0.354.0 to v0.356.0,
-   then the items still open in `backlog.md`, none of them played: a neighbour named
-   `localhost` taking loopback traffic, a deep box's own address behind a switch that
+   domain, through the name step `curl` and `lynx` take (client only). ✅ All three were
+   played in the browser on 2026-10-11, two players on QUIGLEY-WIFI: the visitor fetched,
+   browsed and swept the owner's box by address and by name, from the WiFi and from a
+   guest shell on it, and the owner's one `access.log` row holds every request. The run
+   found one thing: in that guest shell `localhost` answered 404 and swept nothing, for
+   pages the box's own address served. **Pick up here (2026-10-11):** the items still
+   open in `backlog.md`: `localhost` in a visitor's shell serving less than the box does
+   (seen in the browser), a neighbour named `localhost` taking loopback traffic (unit
+   probe), and four found by reading: a deep box's own address behind a switch that
    denies the web port, a data door over `localhost`, a shell on a box whose owner left,
    and a line break in a trace's free-text fields.
 

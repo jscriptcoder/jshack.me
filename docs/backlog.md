@@ -125,8 +125,13 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   only for an address no box it can build holds (`fetchWebPage`, which `curl` now goes
   through as `lynx` and a followed link do), so a fetch of a generated box costs no round
   trip. An address nobody holds still answers `Could not resolve host`.
-  `scripts/testOccupantFetch.ts` carries the eleven checks. Not played in the browser yet. One
-  neighbour found on the way is the next item.
+  `scripts/testOccupantFetch.ts` carries the eleven checks. Played in the browser 2026-10-11
+  on QUIGLEY-WIFI: a second player on the owner's WiFi ran `curl http://<her address>`,
+  `curl <her machine name>/admin/` and `lynx <her machine name>`, and each showed her page.
+  From a guest shell on her box, `curl http://<its address>/status` served the page too. Her
+  journal holds one `access.log` row, under her key, with each visit from the visitor's
+  lease, or from her own address for the shell on her box. One neighbour found on the way is
+  the next item.
 
 - **`gobuster http://<a player's LAN address>` answered `Could not resolve host` — RESOLVED
   2026-10-11 (v0.355.0).** Found by reading 2026-10-11 and never reproduced in play: the sweep
@@ -139,8 +144,13 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   lands in the owner's `access.log` as one append, under the owner's key, from the address
   the server places the caller at. A shell on the box itself sweeps its own address past its
   own filter, with the list on that box. `gobuster` asks the server only for an address no
-  box it can build holds. `scripts/testOccupantSweep.ts` carries the eleven checks. Not played
-  in the browser yet. One neighbour found on the way is the next item.
+  box it can build holds. `scripts/testOccupantSweep.ts` carries the eleven checks. Played in
+  the browser 2026-10-11 in the same run: `gobuster http://<her address>` printed her three
+  pages of the list's forty words, a port she serves nothing on was refused, and each run is
+  41 lines under one stamp in her log (forty words, and the second request her directory
+  cost). From the guest shell on her box, where she had installed the tool, the same sweep
+  found the same three and is logged from her own address. Both boxes held the stock list, so
+  the run does not show whose was read. One neighbour found on the way is the next item.
 
 - **`gobuster http://<a player's machine name>` answered `Could not resolve host` — RESOLVED
   2026-10-11 (v0.356.0).** `curl` and `lynx` turn a fellow occupant's name into their address
@@ -150,8 +160,11 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   as the box it runs on. An institution's domain resolves with it, so
   `gobuster http://ridgemont.edu` sweeps the address the domain names. The header keeps what
   was typed. An address, and a name the network generates, still cost no occupant round
-  trip. No server change. Not played in the browser yet. One neighbour found on the way is
-  the next item.
+  trip. No server change. Played in the browser 2026-10-11 in the same run:
+  `gobuster http://nebula` and `gobuster http://nebula.quigley-wifi.lan` printed the three
+  pages the sweep by address had, `gobuster http://nebula:8080` was refused at her address,
+  a name nobody holds stayed unresolved as typed, and `gobuster http://ridgemont.edu` found
+  seven paths. Two neighbours found on the way are the next two items.
 
 - **A neighbour who names their box `localhost` takes your loopback traffic. Shown in a unit
   probe, not played.** `addressForTarget` asks who is on the network for any target with a
@@ -162,6 +175,17 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   `ping` and `msfconsole` at home are worth reading. Every `curl localhost` also pays an
   occupant round trip it does not need. One guard in `addressForTarget` would cover them
   all. Found 2026-10-11.
+
+- **In a visitor's shell on a player's box, `localhost` serves less than the box does. Seen
+  in the browser 2026-10-11.** The owner had published three pages as root, which `echo >`
+  leaves readable by root alone. From a guest shell on her box, `curl localhost` answered
+  404 and `gobuster http://localhost` found 0 of 40, while her `access.log` recorded the
+  same requests as `200`, and `curl` and `gobuster` at the box's own address or name, from
+  the same shell, served all three. Loopback reads the tree the client holds for the hop,
+  which the server prunes to what the visitor's tier may read (`patches/readFilter.ts`);
+  every other route asks the server, which reads the page as the web server does. The owner
+  at home is not affected, and nor is a page the visitor's tier can read as a file. Older
+  than the three fixes above; the address route is what made it show.
 
 - **A shell on a player's box whose owner has left the network: `curl localhost` there would
   leave no line. By reading, not reproduced.** The box is found by the lease its owner holds on
