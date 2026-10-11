@@ -54,16 +54,16 @@ import {
 import { asGameTime } from '../types.js';
 import { resolveCallerVantageOn, type CallerVantageDeps } from '../sessions/callerVantage.js';
 import type { HttpFetchOccupant } from './resolveHttpFetch.js';
+import type { Directory } from '../filesystem/types.js';
 import type { OwnerPatchRow } from './materializeWorkstationFs.js';
 import type { PatchRow } from '../patches/upsertPatch.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 
-export type ResolveOccupantFetchDeps = CallerVantageDeps & {
-  readonly nonceStore: NonceStore;
-  /** The server's wall clock, epoch-ms (UTC) — stamps the access.log line. */
-  readonly now: () => number;
-  readonly readLog: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
-  readonly upsertPatch: (row: PatchRow) => Promise<{ readonly error: unknown }>;
+/** What it takes to find a fellow occupant's web server from where the caller stands.
+ *  Named apart from the fetch's own dependencies because reaching a box and asking it for
+ *  something are different jobs: a single page read and a whole path sweep enter through
+ *  the same door, and neither may reach a box the other could not. */
+export type OccupantWebTargetDeps = CallerVantageDeps & {
   /** Who is currently ON the ESSID, with the identity fields that rebuild each box.
    *  Occupancy is half the reach: a lease outlives it, so an address whose holder has
    *  left the WiFi answers nothing. */
@@ -82,9 +82,31 @@ export type ResolveOccupantFetchDeps = CallerVantageDeps & {
   }) => Promise<{ readonly data: readonly OwnerPatchRow[] | null; readonly error: unknown }>;
 };
 
+export type ResolveOccupantFetchDeps = OccupantWebTargetDeps & {
+  readonly nonceStore: NonceStore;
+  /** The server's wall clock, epoch-ms (UTC) — stamps the access.log line. */
+  readonly now: () => number;
+  readonly readLog: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
+  readonly upsertPatch: (row: PatchRow) => Promise<{ readonly error: unknown }>;
+};
+
 export type HandlerResponse = {
   readonly status: number;
   readonly body: Record<string, unknown>;
+};
+
+/** The web server a request reached on a fellow occupant's box, with the log identity
+ *  its visit is written under and the address the server places the caller at. */
+export type OccupantWebTarget = {
+  readonly fs: Directory;
+  /** The program serving the web there (`nginx`, `apache2`). */
+  readonly server: string;
+  readonly machineId: string;
+  /** The log is the OWNER's, never the requester's: a visitor who wrote their own row
+   *  could rewrite the record of their own visit. */
+  readonly logWriterKey: string;
+  /** `unknown` for a caller the LAN cannot place, never an address they sent. */
+  readonly sourceIp: string;
 };
 
 const UNREACHABLE: HandlerResponse = { status: 404, body: { error: 'host_unreachable' } };
@@ -108,6 +130,64 @@ const resolveOccupantFetchSchema = z
   })
   .refine((payload) => !('player_key' in payload));
 
+/**
+ * Find the web server at `request.target` on the network the caller stands on — the whole
+ * reach in one place, so a page read and a path sweep can never disagree about which box
+ * answered or whether it answered at all.
+ */
+export const resolveOccupantWebTarget = async (
+  deps: OccupantWebTargetDeps,
+  caller: { readonly publicKey: string; readonly machineId: string | undefined },
+  request: { readonly essid: string; readonly target: string; readonly port: number },
+): Promise<OccupantWebTarget | HandlerResponse> => {
+  // LAN boundary first, so no page and no hint of who is here reaches a caller who is
+  // not standing on this network — placed by the server, never by the ESSID they sent.
+  const vantage = await resolveCallerVantageOn(
+    deps,
+    caller.publicKey,
+    caller.machineId,
+    request.essid,
+  );
+  if (!vantage.ok) return { status: vantage.status, body: { error: vantage.error } };
+
+  const occupants = await deps.listOccupantsByEssid(request.essid);
+  if (occupants.error) {
+    return { status: 500, body: { error: 'occupants_lookup_failed' } };
+  }
+  const leases = await deps.listLeasesByEssid(request.essid);
+  if (leases.error) {
+    return { status: 500, body: { error: 'leases_lookup_failed' } };
+  }
+  const addresses = lanAddressesByOwner(request.essid, leases.data ?? []);
+  const occupant = (occupants.data ?? []).find(
+    (row) => addresses.get(row.owner_key) === request.target,
+  );
+  if (occupant === undefined) return UNREACHABLE;
+
+  const patches = await deps.findPatches({ machine_id: occupant.workstation_machine_id });
+  if (patches.error) {
+    return { status: 500, body: { error: 'patches_lookup_failed' } };
+  }
+  const occupantFs = bootableOccupantFs(occupant, patches.data);
+  if (occupantFs === null) return UNREACHABLE;
+
+  // What the box answers to the NETWORK, so a web tool refuses exactly the port a scan
+  // showed shut. A shell on the box itself reaches its own address past its own filter.
+  const standsOnIt = caller.machineId === occupant.workstation_machine_id;
+  const ports = standsOnIt ? readOpenPorts(occupantFs) : portsOpenToNetwork(occupantFs);
+  const reachable = ports.some((entry) => entry.port === request.port);
+  const server = reachable ? webProgramOn(occupantFs, request.port) : undefined;
+  if (server === undefined) return REFUSED;
+
+  return {
+    fs: occupantFs,
+    server,
+    machineId: occupant.workstation_machine_id,
+    logWriterKey: occupant.owner_key,
+    sourceIp: vantage.sourceIp ?? 'unknown',
+  };
+};
+
 export const handleResolveOccupantFetch = async (
   body: unknown,
   deps: ResolveOccupantFetchDeps,
@@ -120,55 +200,23 @@ export const handleResolveOccupantFetch = async (
   }
   const { publicKey, payload } = verified;
 
-  // LAN boundary first, so no page and no hint of who is here reaches a caller who is
-  // not standing on this network — placed by the server, never by the ESSID they sent.
-  const vantage = await resolveCallerVantageOn(
+  const target = await resolveOccupantWebTarget(
     deps,
-    publicKey,
-    payload.caller_machine_id,
-    payload.essid,
+    { publicKey, machineId: payload.caller_machine_id },
+    payload,
   );
-  if (!vantage.ok) return { status: vantage.status, body: { error: vantage.error } };
-
-  const occupants = await deps.listOccupantsByEssid(payload.essid);
-  if (occupants.error) {
-    return { status: 500, body: { error: 'occupants_lookup_failed' } };
-  }
-  const leases = await deps.listLeasesByEssid(payload.essid);
-  if (leases.error) {
-    return { status: 500, body: { error: 'leases_lookup_failed' } };
-  }
-  const addresses = lanAddressesByOwner(payload.essid, leases.data ?? []);
-  const occupant = (occupants.data ?? []).find(
-    (row) => addresses.get(row.owner_key) === payload.target,
-  );
-  if (occupant === undefined) return UNREACHABLE;
-
-  const patches = await deps.findPatches({ machine_id: occupant.workstation_machine_id });
-  if (patches.error) {
-    return { status: 500, body: { error: 'patches_lookup_failed' } };
-  }
-  const occupantFs = bootableOccupantFs(occupant, patches.data);
-  if (occupantFs === null) return UNREACHABLE;
-
-  // What the box answers to the NETWORK, so a fetch refuses exactly the port a scan
-  // showed shut. A shell on the box itself reaches its own address past its own filter.
-  const standsOnIt = payload.caller_machine_id === occupant.workstation_machine_id;
-  const ports = standsOnIt ? readOpenPorts(occupantFs) : portsOpenToNetwork(occupantFs);
-  const reachable = ports.some((entry) => entry.port === payload.port);
-  const server = reachable ? webProgramOn(occupantFs, payload.port) : undefined;
-  if (server === undefined) return REFUSED;
+  if ('status' in target) return target;
 
   // Read as the SERVER, not as the caller: a page published under the document root is
   // written by root and readable by root alone, and the requester has no account here.
   const filePath = resolveWebPath(payload.path);
   const page =
-    filePath === null ? null : createFsView(occupantFs, { userType: 'root' }).read(filePath);
+    filePath === null ? null : createFsView(target.fs, { userType: 'root' }).read(filePath);
   const content = page === null || !page.ok ? null : page.content;
 
   const line = formatAccessLogLine({
     time: asGameTime(deps.now()),
-    sourceIp: vantage.sourceIp ?? 'unknown',
+    sourceIp: target.sourceIp,
     // The path AS ASKED FOR, never as resolved: a request that resolved to nothing is
     // exactly the line a defender needs to see.
     path: payload.path,
@@ -179,10 +227,8 @@ export const handleResolveOccupantFetch = async (
     await appendMachineLog(
       { readLog: deps.readLog, upsertPatch: deps.upsertPatch },
       {
-        // The log is the OWNER's, never the requester's: a visitor who wrote their own
-        // row could rewrite the record of their own visit.
-        writerKey: occupant.owner_key,
-        machineId: occupant.workstation_machine_id,
+        writerKey: target.logWriterKey,
+        machineId: target.machineId,
         path: ACCESS_LOG_PATH,
         owner: ACCESS_LOG_OWNER,
         permissions: ACCESS_LOG_PERMISSIONS,
@@ -193,5 +239,7 @@ export const handleResolveOccupantFetch = async (
     // best-effort: the served page stands regardless of a logging failure.
   }
 
-  return content === null ? NOT_FOUND : { status: 200, body: { ok: true, content, server } };
+  return content === null
+    ? NOT_FOUND
+    : { status: 200, body: { ok: true, content, server: target.server } };
 };
