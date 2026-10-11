@@ -283,6 +283,9 @@ export type BuildCommandEnvArgs = {
    *  generated box holds stays unresolved. */
   readonly onHttpFetchOccupant?: RemoteApi['fetchOccupant'];
   readonly onHttpSweepPublic?: RemoteApi['sweepPublic'];
+  /** The fellow-occupant path-sweep seam — backs `env.remote.sweepOccupant`. Additive
+   *  as the fetch of one is: absent, nobody else is on the WiFi. */
+  readonly onHttpSweepOccupant?: RemoteApi['sweepOccupant'];
   /** The home-network join seam — backs `env.homeNetwork.join`. The UI wires it to
    *  the `joinHomeNetwork` adapter, which registers the network server-side and carries
    *  back the address the server leased. Optional here: when absent nothing can ISSUE an
@@ -388,6 +391,8 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
     fetchOccupant:
       args.onHttpFetchOccupant ?? (async () => ({ ok: false, error: 'host_unreachable' })),
     sweepPublic: args.onHttpSweepPublic ?? notWired('remote.sweepPublic'),
+    sweepOccupant:
+      args.onHttpSweepOccupant ?? (async () => ({ ok: false, error: 'host_unreachable' })),
   },
   log: args.log,
   // The home-network join: the UI wires `onHomeNetworkJoin` to the `joinHomeNetwork`

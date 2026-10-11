@@ -5,6 +5,8 @@ import type {
   AccessLogFetch,
   CommandEnv,
   CommandResult,
+  OccupantSweepParams,
+  OccupantSweepResult,
   PublicSweepParams,
   PublicSweepResult,
 } from './types.js';
@@ -823,5 +825,167 @@ describe('gobuster from a hop', () => {
       target: host.ip,
       callerMachineId: machineIdForLanHost(hop, ESSID),
     });
+  });
+});
+
+describe('gobuster at a fellow occupant of the network', () => {
+  // Another player's box holds an address on the WiFi, but it is built from their
+  // journal: nothing this side can generate answers there, so the server runs the sweep.
+  const THEIR_WORKSTATION = 'workstation-c3d4e5f6';
+  const neighbourIp = unoccupiedIp();
+
+  const swept = (
+    ...results: readonly { path: string; status: number; size: number }[]
+  ): OccupantSweepResult => ({ ok: true, dirlistFound: true, results });
+
+  /** A sweep on a network holding one fellow occupant, whose box answers `answer` — with
+   *  what the server was asked, and what this side told its own access-log seam. */
+  const sweepNeighbour = async (
+    answer: OccupantSweepResult,
+    url: string,
+    over: Partial<CommandEnv> = {},
+  ) => {
+    const asked: OccupantSweepParams[] = [];
+    const reported: AccessLogFetch[] = [];
+    const env = envOn(ownBox(), {
+      remote: {
+        ...mockRemoteApi(),
+        sweepOccupant: async (params) => {
+          asked.push(params);
+          return answer;
+        },
+      },
+      log: {
+        appendAuthLog: async () => undefined,
+        appendKernLog: async () => undefined,
+        appendAccessLog: async (fetched) => {
+          reported.push(fetched);
+        },
+      },
+      ...over,
+    });
+    return { drained: await drain(await gobuster.execute(env, [url], new Map())), asked, reported };
+  };
+
+  it('reports the paths their box answered at its LAN address', async () => {
+    const { drained, asked } = await sweepNeighbour(
+      swept(
+        { path: '/index.html', status: 200, size: 42 },
+        { path: '/admin', status: 404, size: 0 },
+        { path: '/hidden/', status: 200, size: 812 },
+      ),
+      `http://${neighbourIp}:8080`,
+    );
+
+    expect(drained.text.split('\n')).toEqual([
+      'Gobuster dir mode',
+      `[+] Url:       http://${neighbourIp}:8080`,
+      '[+] Wordlist:  /usr/share/wordlists/dirlist.txt',
+      '[+] Words:     3',
+      '',
+      '/index.html          (Status: 200) [Size: 42]',
+      '/hidden/             (Status: 200) [Size: 812]',
+      '',
+      'Finished. 2/3 paths found.',
+    ]);
+    expect(drained.exitCode).toBe(0);
+    // The network and the box it ran from, and no list: the server reads that off the box.
+    expect(asked).toEqual([
+      {
+        essid: ESSID,
+        target: neighbourIp,
+        port: 8080,
+        callerMachineId: mockSession().machineId,
+      },
+    ]);
+  });
+
+  it('reports nothing to its own access-log seam, since the server records the run', async () => {
+    const { reported } = await sweepNeighbour(
+      swept({ path: '/index.html', status: 200, size: 9 }),
+      `http://${neighbourIp}`,
+    );
+
+    expect(reported).toEqual([]);
+  });
+
+  it('tells a player whose box holds no list to install one', async () => {
+    const { drained } = await sweepNeighbour(
+      { ok: true, dirlistFound: false, results: [] },
+      `http://${neighbourIp}`,
+    );
+
+    expect(drained.text).toBe(
+      `gobuster: no wordlist at ${DIRLIST_PATH} — install one with: apt install gobuster`,
+    );
+    expect(drained.exitCode).toBe(1);
+  });
+
+  it('is refused by their box when it serves no web on that port', async () => {
+    const { drained } = await sweepNeighbour(
+      { ok: false, error: 'connection_refused' },
+      `http://${neighbourIp}`,
+    );
+
+    expect(drained.text).toBe(
+      `gobuster: (7) Failed to connect to ${neighbourIp} port ${HTTP_DEFAULT_PORT}: Connection refused`,
+    );
+    expect(drained.kinds).toEqual(['error']);
+    expect(drained.exitCode).toBe(1);
+  });
+
+  it.each(['host_unreachable', 'network_error'] as const)(
+    'leaves an address unresolved when the server answers %s',
+    async (error) => {
+      const { drained } = await sweepNeighbour({ ok: false, error }, `http://${neighbourIp}`);
+
+      // Nobody holds it, or nobody could be asked: either way the address is what it was
+      // before the server came into it, and an outage of ours says nothing about it.
+      expect(drained.text).toBe(`gobuster: (6) Could not resolve host: ${neighbourIp}`);
+      expect(drained.exitCode).toBe(1);
+    },
+  );
+
+  it('asks from the box the shell stands on, with the home card offline', async () => {
+    // A shell on the neighbour's own workstation: a box the network does not generate,
+    // standing at an address this side cannot recover. Its own address is still its own.
+    const { drained, asked } = await sweepNeighbour(
+      swept({ path: '/index.html', status: 200, size: 9 }),
+      `http://${neighbourIp}`,
+      {
+        network: mockNetworkView(),
+        session: mockSession({
+          id: 'gob-hop-2',
+          machineId: asMachineId(THEIR_WORKSTATION),
+          essid: ESSID,
+          userType: 'guest',
+          kind: 'ssh',
+        }),
+      },
+    );
+
+    expect(drained.text).toContain('Finished. 1/1 paths found.');
+    expect(asked).toEqual([
+      {
+        essid: ESSID,
+        target: neighbourIp,
+        port: HTTP_DEFAULT_PORT,
+        callerMachineId: THEIR_WORKSTATION,
+      },
+    ]);
+  });
+
+  it('never asks the server about a box the network generates, served or refusing', async () => {
+    const { host, port } = webHostOnLan();
+
+    const served = await sweepNeighbour(swept(), `http://${host.ip}:${port}`);
+    const refusing = await sweepNeighbour(swept(), `http://${host.ip}:1`);
+
+    // A generated box is this side's to read, and one that refuses has answered.
+    expect(served.asked).toEqual([]);
+    expect(refusing.asked).toEqual([]);
+    expect(refusing.drained.text).toBe(
+      `gobuster: (7) Failed to connect to ${host.ip} port 1: Connection refused`,
+    );
   });
 });

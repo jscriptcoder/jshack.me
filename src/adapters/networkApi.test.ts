@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import {
   fetchOccupantPage,
+  sweepOccupantPaths,
   fetchPublicPage,
   joinHomeNetwork,
   leaveHomeNetwork,
@@ -900,5 +901,96 @@ describe('fetchOccupantPage', () => {
     );
 
     expect(await fetchOccupantPage(deps, PARAMS)).toEqual({ ok: false, error: 'network_error' });
+  });
+});
+
+describe('sweepOccupantPaths', () => {
+  const PARAMS = {
+    essid: ESSID,
+    target: '192.168.7.42',
+    port: 8080,
+    callerMachineId: asMachineId(HOP_BOX),
+  };
+  const RESULTS = [
+    { path: '/index.html', status: 200, size: 42 },
+    { path: '/admin', status: 404, size: 0 },
+  ];
+
+  it('signs a resolveOccupantSweep request, naming the network and the box it ran from, and returns the run', async () => {
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse(200, { ok: true, dirlistFound: true, results: RESULTS }),
+    );
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await sweepOccupantPaths(deps, PARAMS)).toEqual({
+      ok: true,
+      dirlistFound: true,
+      results: RESULTS,
+    });
+    const verified = await verifyPayload(sentEnvelope(fetchSpy));
+    if (!verified.ok) throw new Error('expected verified envelope');
+    expect(verified.payload).toMatchObject({
+      action: 'resolveOccupantSweep',
+      essid: ESSID,
+      target: PARAMS.target,
+      port: PARAMS.port,
+      caller_machine_id: HOP_BOX,
+    });
+    // The list is read off the box server-side: a request carries no words.
+    expect(verified.payload).not.toHaveProperty('words');
+  });
+
+  it('reports a box with no path list as that, not as an empty run', async () => {
+    const deps = makeDeps(
+      vi.fn(async () =>
+        jsonResponse(200, { ok: true, dirlistFound: false, results: [] }),
+      ) as unknown as typeof fetch,
+    );
+
+    expect(await sweepOccupantPaths(deps, PARAMS)).toEqual({
+      ok: true,
+      dirlistFound: false,
+      results: [],
+    });
+  });
+
+  it.each(['host_unreachable', 'connection_refused'] as const)(
+    'reports %s as the box’s own answer',
+    async (error) => {
+      const deps = makeDeps(
+        vi.fn(async () => jsonResponse(404, { error })) as unknown as typeof fetch,
+      );
+
+      expect(await sweepOccupantPaths(deps, PARAMS)).toEqual({ ok: false, error });
+    },
+  );
+
+  it.each([
+    ['a server error', 500, { error: 'dirlist_lookup_failed' }],
+    ['a refusal at the LAN boundary', 403, { error: 'wrong_network' }],
+    ['an answer only a fetch gives', 404, { error: 'not_found' }],
+  ])('blames our own side, not the box, for %s', async (_case, status, body) => {
+    const deps = makeDeps(vi.fn(async () => jsonResponse(status, body)) as unknown as typeof fetch);
+
+    expect(await sweepOccupantPaths(deps, PARAMS)).toEqual({ ok: false, error: 'network_error' });
+  });
+
+  it.each([
+    ['says it is not ok', { ok: false, dirlistFound: true, results: RESULTS }],
+    ['carries no results', { ok: true, dirlistFound: true }],
+  ])('treats a 200 that %s as a reply it cannot read', async (_case, body) => {
+    const deps = makeDeps(vi.fn(async () => jsonResponse(200, body)) as unknown as typeof fetch);
+
+    expect(await sweepOccupantPaths(deps, PARAMS)).toEqual({ ok: false, error: 'network_error' });
+  });
+
+  it('treats a thrown fetch (offline) as our own failure to ask', async () => {
+    const deps = makeDeps(
+      vi.fn(async () => {
+        throw new Error('offline');
+      }) as unknown as typeof fetch,
+    );
+
+    expect(await sweepOccupantPaths(deps, PARAMS)).toEqual({ ok: false, error: 'network_error' });
   });
 });

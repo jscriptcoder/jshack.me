@@ -128,12 +128,25 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   `scripts/testOccupantFetch.ts` carries the eleven checks. Not played in the browser yet. One
   neighbour found on the way is the next item.
 
-- **`gobuster http://<a player's LAN address>` still answers `Could not resolve host`. By
-  reading, not reproduced.** The sweep reaches a box through `reachWebHost` alone and has no
-  server path for a fellow occupant: `resolveHttpSweep` finds a box by public address. A
-  neighbour's pages can be fetched one at a time and not swept. The fix is the sweep's twin of
-  `resolveOccupantFetch`, the path list read off the caller's box as the public sweep reads
-  it. Found 2026-10-11.
+- **`gobuster http://<a player's LAN address>` answered `Could not resolve host` — RESOLVED
+  2026-10-11 (v0.355.0).** Found by reading 2026-10-11 and never reproduced in play: the sweep
+  reached a box through `reachWebHost` alone and had no server path for a fellow occupant, so
+  a neighbour's pages could be fetched one at a time and not swept. The sweep is now a server
+  action, `resolveOccupantSweep` on `/api/network`, entering through the door the fetch of a
+  neighbour enters (`resolveOccupantWebTarget`, shared by both), so what a scan shows open a
+  sweep walks and what it shows shut refuses. The path list is read off the box the caller
+  stands on and never sent, sizes come back and never pages, and every request the run cost
+  lands in the owner's `access.log` as one append, under the owner's key, from the address
+  the server places the caller at. A shell on the box itself sweeps its own address past its
+  own filter, with the list on that box. `gobuster` asks the server only for an address no
+  box it can build holds. `scripts/testOccupantSweep.ts` carries the eleven checks. Not played
+  in the browser yet. One neighbour found on the way is the next item.
+
+- **`gobuster http://<a player's machine name>` answers `Could not resolve host`. By reading,
+  not reproduced.** `curl` and `lynx` turn a fellow occupant's name into their address before
+  they route on it (`addressForTarget`); `gobuster` resolves only the names a network
+  generates, through `reachWebHost`. So a neighbour's box can be fetched by name and swept
+  only by address. Found 2026-10-11.
 
 - **A shell on a player's box whose owner has left the network: `curl localhost` there would
   leave no line. By reading, not reproduced.** The box is found by the lease its owner holds on

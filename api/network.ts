@@ -24,6 +24,7 @@ import {
 } from '../src/core/network/resolveHttpFetch.js';
 import { handleResolveHttpSweep } from '../src/core/network/resolveHttpSweep.js';
 import { handleResolveOccupantFetch } from '../src/core/network/resolveOccupantFetch.js';
+import { handleResolveOccupantSweep } from '../src/core/network/resolveOccupantSweep.js';
 import type {
   ActiveSessionQuery,
   FindActiveSessionResult,
@@ -474,6 +475,32 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       findActiveSession: findActiveSessionVia({ supabase, label: 'occupant-fetch active-session' }),
       findHomeVantage: findHomeVantageVia({ supabase, label: 'occupant-fetch vantage' }),
       findWorkstationLease: findWorkstationLeaseVia({ supabase, label: 'occupant-fetch vantage' }),
+    });
+    res.status(status).json(body);
+    return;
+  }
+
+  if (actionOf(req.body) === 'resolveOccupantSweep') {
+    // Same-LAN path SWEEP of a fellow occupant's box: the door the fetch of one enters
+    // (so neither reaches a box the other could not), plus what makes it a sweep. The
+    // list is read off the box the caller stands on rather than sent, and every path
+    // asked about lands in the OWNER's access log as ONE append. Sizes come back, never
+    // pages.
+    const { findPatches, listOccupantsByEssid, listLeasesByEssid } = webTargetDepsVia({
+      supabase,
+      label: 'occupant-sweep',
+    });
+    const { status, body } = await handleResolveOccupantSweep(req.body, {
+      nonceStore: noopNonceStore,
+      now: () => Date.now(),
+      findPatches,
+      listOccupantsByEssid,
+      listLeasesByEssid,
+      ...accessLogWriterVia({ supabase, label: 'occupant-sweep' }),
+      findActiveSession: findActiveSessionVia({ supabase, label: 'occupant-sweep active-session' }),
+      findHomeVantage: findHomeVantageVia({ supabase, label: 'occupant-sweep vantage' }),
+      findWorkstationLease: findWorkstationLeaseVia({ supabase, label: 'occupant-sweep vantage' }),
+      listPathPatches: listPathPatchesVia({ supabase, label: 'occupant-sweep' }),
     });
     res.status(status).json(body);
     return;

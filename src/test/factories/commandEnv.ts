@@ -118,6 +118,9 @@ export const mockRemoteApi = (): RemoteApi => ({
   // Load-bearing for the same reason: the far side's answer IS the sweep, so an
   // own-LAN sweep reaching here is a bug a test must see rather than absorb.
   sweepPublic: NOT_IMPLEMENTED('remote.sweepPublic'),
+  // Additive read like `fetchOccupant`: a sweep of an address no generated box holds
+  // asks it, and in a test with no neighbour nothing answers there.
+  sweepOccupant: async () => ({ ok: false, error: 'host_unreachable' }),
 });
 
 export const mockLogApi = (): LogApi => ({

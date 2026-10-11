@@ -20,12 +20,22 @@
  * check — because two readings of a URL would mean a path reachable through one
  * tool and refused by the other.
  *
+ * Two kinds of box are not this client's to read, and the server runs the sweep of
+ * both: one behind a public address, and a fellow occupant's on this network. Either
+ * is built from its owner's journal, which lives server-side.
+ *
  * Every miss is silent HERE and loud on the target: the attacker's screen shows
  * only what answered, while the box records each probe it was asked about. That
  * asymmetry is the point of the tool and the whole cost of using it.
  */
 
-import type { Command, CommandEnv, CommandResult, TerminalLine } from './types.js';
+import type {
+  Command,
+  CommandEnv,
+  CommandResult,
+  PublicSweepOutcome,
+  TerminalLine,
+} from './types.js';
 import type { Directory } from '../filesystem/types.js';
 import type { MachineId } from '../types.js';
 import { streamedResult, text } from './streaming.js';
@@ -154,6 +164,25 @@ async function* sweepLocally(
   return exitCode;
 }
 
+/** A run the server resolved, as the player watches it — the same walk whichever box
+ *  it was, behind a public address or a neighbour's on this network. A box holding no
+ *  list is reported rather than run: zero findings would read as a server with nothing
+ *  on it rather than as a tool with nothing to ask. */
+const showServerSweep = (
+  env: CommandEnv,
+  url: string,
+  swept: { readonly dirlistFound: boolean; readonly results: readonly PublicSweepOutcome[] },
+): CommandResult =>
+  swept.dirlistFound
+    ? streamedResult(
+        run(
+          env,
+          url,
+          swept.results.map((outcome) => (outcome.status === FOUND ? outcome : null)),
+        ),
+      )
+    : error(NO_LIST);
+
 const execute: Command['execute'] = async (env, args) => {
   const raw = args[0];
   if (raw === undefined) {
@@ -190,21 +219,36 @@ const execute: Command['execute'] = async (env, args) => {
         reason: swept.error === 'host_unreachable' ? 'Connection refused' : 'Network error',
       });
     }
-    if (!swept.dirlistFound) {
-      return error(NO_LIST);
-    }
-    return streamedResult(
-      run(
-        env,
-        raw,
-        swept.results.map((outcome) => (outcome.status === FOUND ? outcome : null)),
-      ),
-    );
+    return showServerSweep(env, raw, swept);
   }
 
   const reached = reachWebHost({ root: env.fs.root(), program: 'gobuster', url, vantage });
   if (!reached.ok) {
-    return reached.failure;
+    // An address no box this side can build holds is a fellow occupant's, if anybody's.
+    // The server says whose it is, sweeps it with the list on the box named here and
+    // records the run there itself, so nothing is logged from this side.
+    if (reached.reason !== 'unresolved') {
+      return reached.failure;
+    }
+    const swept = await env.remote.sweepOccupant({
+      essid: vantage.essid,
+      target: url.host,
+      port: url.port,
+      callerMachineId: env.session.machineId,
+    });
+    if (swept.ok) {
+      return showServerSweep(env, raw, swept);
+    }
+    // An address the server finds nobody at stays what it was before anybody was asked,
+    // and so does one it could not be asked about: an outage of ours says nothing of it.
+    return swept.error === 'connection_refused'
+      ? connectError({
+          program: 'gobuster',
+          host: url.host,
+          port: url.port,
+          reason: 'Connection refused',
+        })
+      : reached.failure;
   }
   const { fs: hostFs, essid, address } = reached.host;
 

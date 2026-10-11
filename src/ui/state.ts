@@ -37,6 +37,8 @@ import type {
   ScpReadResult,
   OccupantFetchParams,
   OccupantFetchResult,
+  OccupantSweepParams,
+  OccupantSweepResult,
   PublicFetchParams,
   PublicFetchResult,
   PublicSweepParams,
@@ -171,6 +173,7 @@ import {
 import {
   fetchOccupantPage,
   fetchPublicPage,
+  sweepOccupantPaths,
   sweepPublicPaths,
   joinHomeNetwork,
   leaveHomeNetwork,
@@ -1097,6 +1100,13 @@ const sweepPublicPathsFn = (params: PublicSweepParams): Promise<PublicSweepResul
   networkClientDeps === undefined
     ? Promise.resolve({ ok: false, error: 'network_error' })
     : sweepPublicPaths(networkClientDeps, params);
+
+/** Sweep a path list against a fellow occupant's box on the network the shell stands
+ *  on (backs `env.remote.sweepOccupant`). Same degradation as the fetch of one. */
+const sweepOccupantPathsFn = (params: OccupantSweepParams): Promise<OccupantSweepResult> =>
+  networkClientDeps === undefined
+    ? Promise.resolve({ ok: false, error: 'network_error' })
+    : sweepOccupantPaths(networkClientDeps, params);
 
 /** Resolve an own-LAN `nmap <inner gateway IP>` server-side (backs
  *  `env.scan.resolveInnerGateway`). Host-down until `startGame` wires the network
@@ -2040,6 +2050,7 @@ const executeLine = async (line: string): Promise<void> => {
     onHttpFetchPublic: fetchPublicPageFn,
     onHttpFetchOccupant: fetchOccupantPageFn,
     onHttpSweepPublic: sweepPublicPathsFn,
+    onHttpSweepOccupant: sweepOccupantPathsFn,
     onHomeNetworkJoin: joinHomeNetworkFn,
     onHomeNetworkLeave: leaveHomeNetworkFn,
     // The sessions below the active one — what `exit` consults to decide

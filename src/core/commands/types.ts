@@ -306,6 +306,10 @@ export type RemoteApi = {
    *  is built from their journal, so its page cannot be computed locally. */
   readonly fetchOccupant: (params: OccupantFetchParams) => Promise<OccupantFetchResult>;
   readonly sweepPublic: (params: PublicSweepParams) => Promise<PublicSweepResult>;
+  /** Sweep a path list against a FELLOW OCCUPANT's box, at the address it holds on the
+   *  network the shell stands on. Load-bearing as the fetch of one is: a player's box is
+   *  built from their journal, so what it serves cannot be computed locally. */
+  readonly sweepOccupant: (params: OccupantSweepParams) => Promise<OccupantSweepResult>;
   // More methods added as commands need them. The spike doesn't exercise this.
 };
 
@@ -394,6 +398,32 @@ export type PublicSweepResult =
       readonly results: readonly PublicSweepOutcome[];
     }
   | { readonly ok: false; readonly error: 'host_unreachable' | 'network_error' };
+
+/** What a path sweep hands the fellow-occupant seam: an address on the network the
+ *  shell stands on that no generated box holds. It names no words, as a sweep across
+ *  networks names none: the server reads the list off `callerMachineId`'s journal, and
+ *  places the caller on the network by the same box. */
+export type OccupantSweepParams = {
+  readonly essid: string;
+  readonly target: string;
+  readonly port: number;
+  readonly callerMachineId: MachineId;
+};
+
+/** A run reads as it does across networks. The refusals are the LAN's own two, kept
+ *  apart because a scan from the same place already tells them apart:
+ *  `host_unreachable` is an address nothing answers at, `connection_refused` a box that
+ *  is there and serves no web on that port. `network_error` is OUR side failing to ask. */
+export type OccupantSweepResult =
+  | {
+      readonly ok: true;
+      readonly dirlistFound: boolean;
+      readonly results: readonly PublicSweepOutcome[];
+    }
+  | {
+      readonly ok: false;
+      readonly error: 'host_unreachable' | 'connection_refused' | 'network_error';
+    };
 
 /** An event a command hands to `log.appendAuthLog` for the box's own logs: a `su`
  *  user-switch, a session opened with NO authentication before it — the trace a `--local`
