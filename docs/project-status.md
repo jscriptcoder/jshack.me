@@ -230,7 +230,8 @@ still know before touching it:
     `acme.com` — catalog `site.domain`, case-folded) resolves to its derived `193.` address from
     ANY network, before the LAN and occupant steps and with no occupant round trip. This is why
     `nmap` and `ssh` resolve BEFORE their `isPublicIp` check: a domain has no public shape until it
-    is resolved. `gobuster` and `hydra` still take addresses only.
+    is resolved. `gobuster` resolves names the same way since v0.356.0; `hydra` still takes
+    addresses only.
   - **An unresolvable name passes through UNCHANGED**, so each command reaches its own existing
     unknown-target path. There is deliberately no seventh error message. Note `ssh` exits **255**
     there, not 1.
@@ -702,14 +703,22 @@ agreed order:
    shell on that box. ✅ Decided a gap and closed at v0.354.0: `curl` and `lynx` reach a
    fellow occupant's web server at its LAN address, served from the owner's journal by
    `resolveOccupantFetch` and logged in the owner's `access.log`
-   (`scripts/testOccupantFetch.ts`, 11/11; not played in the browser yet). ✅ Its neighbour
+   (`scripts/testOccupantFetch.ts`, 11/11). ✅ Its neighbour
    closed at v0.355.0: `gobuster` sweeps a fellow occupant's web server at its LAN address
    through `resolveOccupantSweep`, with the list on the box the caller stands on
-   (`scripts/testOccupantSweep.ts`, 11/11; not played in the browser yet). **Pick up here
-   (2026-10-11):** the items still open in `backlog.md`, each found by reading and none
-   reproduced: `gobuster` at a fellow occupant's machine name, a deep box's own address
-   behind a switch that denies the web port, a data door over `localhost`, a shell on a box
-   whose owner left, and a line break in a trace's free-text fields.
+   (`scripts/testOccupantSweep.ts`, 11/11). ✅ And at
+   v0.356.0 `gobuster` reaches that box by its machine name, and an institution by its
+   domain, through the name step `curl` and `lynx` take (client only). ✅ All three were
+   played in the browser on 2026-10-11, two players on QUIGLEY-WIFI: the visitor fetched,
+   browsed and swept the owner's box by address and by name, from the WiFi and from a
+   guest shell on it, and the owner's one `access.log` row holds every request. The run
+   found one thing: in that guest shell `localhost` answered 404 and swept nothing, for
+   pages the box's own address served. **Pick up here (2026-10-11):** the items still
+   open in `backlog.md`: `localhost` in a visitor's shell serving less than the box does
+   (seen in the browser), a neighbour named `localhost` taking loopback traffic (unit
+   probe), and four found by reading: a deep box's own address behind a switch that
+   denies the web port, a data door over `localhost`, a shell on a box whose owner left,
+   and a line break in a trace's free-text fields.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan

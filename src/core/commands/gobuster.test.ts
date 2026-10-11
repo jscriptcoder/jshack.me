@@ -17,10 +17,12 @@ import {
   mockNetworkView,
   mockNetworkViewFromConnectivity,
   mockRemoteApi,
+  mockScanApi,
   mockSession,
 } from '../../test/factories/commandEnv.js';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
 import { buildRemoteHostFs } from '../generation/remoteHostFs.js';
+import { publisherIp } from '../generation/publisher.js';
 import { DEFAULT_DIRLIST, DIRLIST_PATH } from '../network/defaultDirlist.js';
 import { applyPatches, type Patch } from '../filesystem/applyPatches.js';
 import type { Directory, FilePermissions } from '../filesystem/types.js';
@@ -723,6 +725,26 @@ describe('gobuster sweeps a server on another network', () => {
     ]);
   });
 
+  it('sweeps an institution by the domain it publishes, asking for the address it names', async () => {
+    const { drained, asked } = await sweepPublic(
+      ownBox(),
+      swept({ path: '/index.html', status: 200, size: 9 }),
+      'http://ridgemont.edu:8080',
+    );
+
+    // The domain is the internet's, so it names the same address from every network,
+    // and a sweep of it is the sweep of that address. The header keeps what was typed.
+    expect(asked).toEqual([
+      {
+        target: publisherIp('CAMPUS-GUEST-OPEN'),
+        port: 8080,
+        callerMachineId: mockSession().machineId,
+      },
+    ]);
+    expect(drained.text).toContain('[+] Url:       http://ridgemont.edu:8080');
+    expect(drained.text).toContain('Finished. 1/1 paths found.');
+  });
+
   it('tells a player with no list to install one, wherever they are standing', async () => {
     const { drained } = await sweepPublic(
       ownBox(),
@@ -832,6 +854,7 @@ describe('gobuster at a fellow occupant of the network', () => {
   // Another player's box holds an address on the WiFi, but it is built from their
   // journal: nothing this side can generate answers there, so the server runs the sweep.
   const THEIR_WORKSTATION = 'workstation-c3d4e5f6';
+  const THEIR_NAME = 'nebuchadnezzar';
   const neighbourIp = unoccupiedIp();
 
   const swept = (
@@ -839,7 +862,8 @@ describe('gobuster at a fellow occupant of the network', () => {
   ): OccupantSweepResult => ({ ok: true, dirlistFound: true, results });
 
   /** A sweep on a network holding one fellow occupant, whose box answers `answer` — with
-   *  what the server was asked, and what this side told its own access-log seam. */
+   *  what the server was asked, who it was asked to name, and what this side told its
+   *  own access-log seam. */
   const sweepNeighbour = async (
     answer: OccupantSweepResult,
     url: string,
@@ -847,6 +871,7 @@ describe('gobuster at a fellow occupant of the network', () => {
   ) => {
     const asked: OccupantSweepParams[] = [];
     const reported: AccessLogFetch[] = [];
+    const lookedUp: { readonly essid: string; readonly from: string | undefined }[] = [];
     const env = envOn(ownBox(), {
       remote: {
         ...mockRemoteApi(),
@@ -855,6 +880,18 @@ describe('gobuster at a fellow occupant of the network', () => {
           return answer;
         },
       },
+      scan: mockScanApi({
+        resolveOccupants: async (essid, from) => {
+          lookedUp.push({ essid, from });
+          return [
+            {
+              workstation_machine_id: THEIR_WORKSTATION,
+              localIp: neighbourIp,
+              machineName: THEIR_NAME,
+            },
+          ];
+        },
+      }),
       log: {
         appendAuthLog: async () => undefined,
         appendKernLog: async () => undefined,
@@ -864,7 +901,12 @@ describe('gobuster at a fellow occupant of the network', () => {
       },
       ...over,
     });
-    return { drained: await drain(await gobuster.execute(env, [url], new Map())), asked, reported };
+    return {
+      drained: await drain(await gobuster.execute(env, [url], new Map())),
+      asked,
+      reported,
+      lookedUp,
+    };
   };
 
   it('reports the paths their box answered at its LAN address', async () => {
@@ -898,6 +940,79 @@ describe('gobuster at a fellow occupant of the network', () => {
         callerMachineId: mockSession().machineId,
       },
     ]);
+  });
+
+  it('sweeps their box by the name it goes by on the network', async () => {
+    const { drained, asked, lookedUp } = await sweepNeighbour(
+      swept({ path: '/index.html', status: 200, size: 42 }),
+      `http://${THEIR_NAME}:8080`,
+    );
+
+    // The name becomes their address before anything routes on it, so the server is
+    // asked about the box a fetch of that name reaches. The header keeps what was typed.
+    expect(asked).toEqual([
+      {
+        essid: ESSID,
+        target: neighbourIp,
+        port: 8080,
+        callerMachineId: mockSession().machineId,
+      },
+    ]);
+    expect(drained.text.split('\n')).toEqual([
+      'Gobuster dir mode',
+      `[+] Url:       http://${THEIR_NAME}:8080`,
+      '[+] Wordlist:  /usr/share/wordlists/dirlist.txt',
+      '[+] Words:     1',
+      '',
+      '/index.html          (Status: 200) [Size: 42]',
+      '',
+      'Finished. 1/1 paths found.',
+    ]);
+    // Who is here is asked of the network the shell stands on, as the box it runs on.
+    expect(lookedUp).toEqual([{ essid: ESSID, from: mockSession().machineId }]);
+  });
+
+  it('sweeps their box by its name in full, under the domain of the network', async () => {
+    const { asked } = await sweepNeighbour(
+      swept({ path: '/index.html', status: 200, size: 42 }),
+      `http://${THEIR_NAME}.${lanZoneName(ESSID)}`,
+    );
+
+    expect(asked.map((request) => request.target)).toEqual([neighbourIp]);
+  });
+
+  it('is refused by the box a name reaches, at the address it reached', async () => {
+    const { drained } = await sweepNeighbour(
+      { ok: false, error: 'connection_refused' },
+      `http://${THEIR_NAME}`,
+    );
+
+    expect(drained.text).toBe(
+      `gobuster: (7) Failed to connect to ${neighbourIp} port ${HTTP_DEFAULT_PORT}: Connection refused`,
+    );
+  });
+
+  it('leaves a name nobody here answers to unresolved, as it was typed', async () => {
+    const { drained } = await sweepNeighbour(
+      { ok: false, error: 'host_unreachable' },
+      'http://nostromo',
+    );
+
+    expect(drained.text).toBe('gobuster: (6) Could not resolve host: nostromo');
+    expect(drained.exitCode).toBe(1);
+  });
+
+  it('never asks who is here about an address, nor about a name the network generates', async () => {
+    const { host, port } = webHostOnLan();
+
+    const byAddress = await sweepNeighbour(swept(), `http://${neighbourIp}`);
+    const generated = await sweepNeighbour(swept(), `http://${host.hostname}:${port}`);
+
+    // An address is already what a name becomes, and the network's own record of
+    // itself answers before anybody else on it is asked: neither costs the round trip.
+    expect(byAddress.lookedUp).toEqual([]);
+    expect(generated.lookedUp).toEqual([]);
+    expect(generated.asked).toEqual([]);
   });
 
   it('reports nothing to its own access-log seam, since the server records the run', async () => {
@@ -973,6 +1088,26 @@ describe('gobuster at a fellow occupant of the network', () => {
         callerMachineId: THEIR_WORKSTATION,
       },
     ]);
+  });
+
+  it('resolves a name from the box the shell stands on, with the home card offline', async () => {
+    const { asked, lookedUp } = await sweepNeighbour(
+      swept({ path: '/index.html', status: 200, size: 9 }),
+      `http://${THEIR_NAME}`,
+      {
+        network: mockNetworkView(),
+        session: mockSession({
+          id: 'gob-hop-3',
+          machineId: asMachineId(THEIR_WORKSTATION),
+          essid: ESSID,
+          userType: 'guest',
+          kind: 'ssh',
+        }),
+      },
+    );
+
+    expect(lookedUp).toEqual([{ essid: ESSID, from: THEIR_WORKSTATION }]);
+    expect(asked.map((request) => request.target)).toEqual([neighbourIp]);
   });
 
   it('never asks the server about a box the network generates, served or refusing', async () => {

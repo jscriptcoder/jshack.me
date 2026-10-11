@@ -16,9 +16,9 @@
  * Reading and probing both happen where the player STANDS: the list comes off the
  * current machine, so a sweep works from a box they have taken exactly as it does
  * at home. It reaches hosts on that machine's own LAN, and resolves them through
- * the same pieces `curl` does — one parser, one document-root confinement, one port
- * check — because two readings of a URL would mean a path reachable through one
- * tool and refused by the other.
+ * the same pieces `curl` does — one parser, one name lookup, one document-root
+ * confinement, one port check — because two readings of a URL would mean a path
+ * reachable through one tool and refused by the other.
  *
  * Two kinds of box are not this client's to read, and the server runs the sweep of
  * both: one behind a public address, and a fellow occupant's on this network. Either
@@ -44,6 +44,7 @@ import { sweepWord, type ProbedPath } from '../network/webSweep.js';
 import { DIRLIST_PATH, parseDirlist } from '../network/defaultDirlist.js';
 import { isPublicIp } from '../generation/ip.js';
 import { vantageOf } from '../network/vantage.js';
+import { addressForTarget } from '../network/resolveName.js';
 import { connectError, reachWebHost } from './webHost.js';
 
 const error = (message: string): CommandResult => ({
@@ -189,8 +190,8 @@ const execute: Command['execute'] = async (env, args) => {
     return error(USAGE);
   }
 
-  const url = parseHttpUrl(raw);
-  if (url === null) {
+  const requested = parseHttpUrl(raw);
+  if (requested === null) {
     return error(`gobuster: (3) URL rejected: ${raw}`);
   }
 
@@ -200,6 +201,19 @@ const execute: Command['execute'] = async (env, args) => {
   if (vantage === null) {
     return error(UNREACHABLE);
   }
+
+  // A name becomes the address before anything routes on it, exactly as for `curl`: a
+  // box on the network the shell stands on by its name, an institution by its domain.
+  // A name nothing answers to is left as typed and fails as an unknown address does.
+  // The header keeps what the player typed.
+  const url = {
+    ...requested,
+    host: await addressForTarget({
+      essid: vantage.essid,
+      target: requested.host,
+      resolveOccupants: (scanned) => env.scan.resolveOccupants(scanned, env.session.machineId),
+    }),
+  };
 
   // A public address is another player's, and nothing here can resolve it: their
   // tree lives server-side, so the far side runs the sweep and reports what it
@@ -289,7 +303,8 @@ export const gobuster: Command = {
       'tell you. Tries every path in the list (/usr/share/wordlists/dirlist.txt) against the ' +
       'target and prints each one that returns something. A path that is not in your list will ' +
       'never be found, however plainly it is sitting there — grow the list by editing it with ' +
-      'nano as you see paths referenced elsewhere. Reaches hosts on the network you are on — ' +
+      'nano as you see paths referenced elsewhere. Reaches hosts on the network you are on, by ' +
+      'address or by name — ' +
       'your own at home, or the network of a box you have a shell on, whose own wordlist it ' +
       'reads. Every probe, hit or miss, is recorded in the ' +
       "target's own access log, so a sweep is not a quiet thing to do.",
