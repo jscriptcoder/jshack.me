@@ -702,11 +702,14 @@ agreed order:
    shell on that box. ✅ Decided a gap and closed at v0.354.0: `curl` and `lynx` reach a
    fellow occupant's web server at its LAN address, served from the owner's journal by
    `resolveOccupantFetch` and logged in the owner's `access.log`
-   (`scripts/testOccupantFetch.ts`, 11/11; not played in the browser yet). **Pick up here
-   (2026-10-11):** `gobuster` at a player's LAN address is the neighbour it left
-   (`backlog.md`). Still open there, each found by reading and none reproduced: a deep box's
-   own address behind a switch that denies the web port, a data door over `localhost`, a
-   shell on a box whose owner left, and a line break in a trace's free-text fields.
+   (`scripts/testOccupantFetch.ts`, 11/11; not played in the browser yet). ✅ Its neighbour
+   closed at v0.355.0: `gobuster` sweeps a fellow occupant's web server at its LAN address
+   through `resolveOccupantSweep`, with the list on the box the caller stands on
+   (`scripts/testOccupantSweep.ts`, 11/11; not played in the browser yet). **Pick up here
+   (2026-10-11):** the items still open in `backlog.md`, each found by reading and none
+   reproduced: `gobuster` at a fellow occupant's machine name, a deep box's own address
+   behind a switch that denies the web port, a data door over `localhost`, a shell on a box
+   whose owner left, and a line break in a trace's free-text fields.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan

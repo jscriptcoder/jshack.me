@@ -30,6 +30,8 @@ import type {
   Identity,
   OccupantFetchParams,
   OccupantFetchResult,
+  OccupantSweepParams,
+  OccupantSweepResult,
   PublicFetchParams,
   PublicFetchResult,
   PublicSweepOutcome,
@@ -337,6 +339,57 @@ export const sweepPublicPaths = async (
     };
     // A 200 we cannot read is not a sweep. Reporting it as an empty one would print
     // "0 found" as though the target had answered nothing.
+    if (resolved.ok !== true || !Array.isArray(resolved.results)) {
+      return { ok: false, error: 'network_error' };
+    }
+    return {
+      ok: true,
+      dirlistFound: resolved.dirlistFound === true,
+      results: resolved.results,
+    };
+  } catch {
+    return { ok: false, error: 'network_error' };
+  }
+};
+
+/** The refusals a fellow occupant's box gives a sweep for itself. A sweep has no 404
+ *  of its own: a path that answers nothing is an ordinary result inside a run. */
+const OCCUPANT_SWEEP_REFUSALS = ['host_unreachable', 'connection_refused'] as const;
+
+/**
+ * Sweep a path list against a fellow occupant's box on the network the shell stands on
+ * (backs `env.remote.sweepOccupant`).
+ *
+ * One round-trip for the whole run, as across networks: the words never leave this
+ * machine (the server reads the list off the box named in `callerMachineId`). The box's
+ * own two refusals pass through as they are; everything else — a 500, a refusal at the
+ * LAN boundary, a malformed body, a thrown request — is `network_error`, since
+ * reporting it as a refusal would blame the neighbour for our own outage.
+ */
+export const sweepOccupantPaths = async (
+  deps: NetworkClientDeps,
+  params: OccupantSweepParams,
+): Promise<OccupantSweepResult> => {
+  try {
+    const response = await post(deps, 'resolveOccupantSweep', {
+      essid: params.essid,
+      target: params.target,
+      port: params.port,
+      caller_machine_id: params.callerMachineId,
+    });
+    const body: unknown = await response.json();
+    if (!response.ok) {
+      const failed = body as { readonly error?: string };
+      const refusal = OCCUPANT_SWEEP_REFUSALS.find((error) => error === failed.error);
+      return { ok: false, error: refusal ?? 'network_error' };
+    }
+    const resolved = body as {
+      readonly ok?: boolean;
+      readonly dirlistFound?: boolean;
+      readonly results?: readonly PublicSweepOutcome[];
+    };
+    // A 200 we cannot read is not a sweep. Reporting it as an empty one would print
+    // "0 found" as though the neighbour had answered nothing.
     if (resolved.ok !== true || !Array.isArray(resolved.results)) {
       return { ok: false, error: 'network_error' };
     }

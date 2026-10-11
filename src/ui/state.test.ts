@@ -30,6 +30,7 @@ import { buildDirectory, buildFile } from '../test/factories/filesystem.js';
 import type {
   ModeChange,
   OccupantFetchResult,
+  OccupantSweepResult,
   PublicFetchResult,
 } from '../core/commands/types.js';
 
@@ -2512,6 +2513,8 @@ describe('full-screen apps a command opens', () => {
     /** What a fellow occupant's box answers when this one asks the server for a page
      *  off it. Absent means nobody else is on the WiFi. */
     readonly neighbour?: (request: string) => OccupantFetchResult;
+    /** What a fellow occupant's box answers when this one asks the server to sweep it. */
+    readonly neighbourSwept?: (request: string) => OccupantSweepResult;
   }) => {
     vi.resetModules();
     const store = new Map<string, string>([[CONNECTED_ESSID_KEY, ESSID]]);
@@ -2544,6 +2547,15 @@ describe('full-screen apps a command opens', () => {
           };
           return answered.ok
             ? { ok: true, status: 200, json: async () => ({ ok: true, content: answered.content, server: answered.server }) }
+            : { ok: false, status: 404, json: async () => ({ error: answered.error }) };
+        }
+        if ((init?.body ?? '').includes('resolveOccupantSweep')) {
+          const answered = options?.neighbourSwept?.(init?.body ?? '') ?? {
+            ok: false as const,
+            error: 'host_unreachable' as const,
+          };
+          return answered.ok
+            ? { ok: true, status: 200, json: async () => answered }
             : { ok: false, status: 404, json: async () => ({ error: answered.error }) };
         }
         return {
@@ -2733,6 +2745,33 @@ describe('full-screen apps a command opens', () => {
       url: `http://${neighbour}/crew.html`,
       content: NEIGHBOUR_PAGE,
     });
+  });
+
+  it('sweeps a fellow occupant of the WiFi by asking the server, and prints what it found', async () => {
+    const neighbour = unleasedIp();
+    const asked: string[] = [];
+    const state = await startBrowsingGame({
+      published: [{ ...INSTALLED_LYNX, path: '/usr/bin/gobuster' }],
+      neighbourSwept: (request) => {
+        asked.push(request);
+        return {
+          ok: true,
+          dirlistFound: true,
+          results: [{ path: '/zion-ops/', status: 200, size: 77 }],
+        };
+      },
+    });
+
+    state.setInput(`gobuster http://${neighbour}`);
+    await state.runInput();
+
+    // A path nothing on this player's own box is named like, so reading it in the
+    // terminal proves the server was asked and its answer is what got printed.
+    expect(asked).toHaveLength(1);
+    expect(asked[0]).toContain(neighbour);
+    expect(state.scrollback().map((line) => line.content)).toContain(
+      '/zion-ops/           (Status: 200) [Size: 77]',
+    );
   });
 
   const THEIR_PUBLIC_IP = '87.0.113.7';

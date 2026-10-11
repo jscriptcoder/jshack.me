@@ -93,9 +93,10 @@ const resolveHttpSweepSchema = z
 /** Tell the box what it was just asked for — every probe, in the order tried, as ONE
  *  append. Best-effort: the sweep has already happened, and a logging failure must
  *  never surface to the requester, which would leak the defender's storage state to a
- *  stranger. Nothing asked, nothing said. */
-const recordSweep = async (
-  deps: ResolveHttpSweepDeps,
+ *  stranger. Nothing asked, nothing said. Shared with the sweep of a fellow occupant, so
+ *  a box hears a run the same way wherever it came from. */
+export const recordSweep = async (
+  deps: Pick<ResolveHttpSweepDeps, 'now' | 'readLog' | 'upsertPatch'>,
   target: { readonly machineId: string; readonly logWriterKey: string },
   sourceIp: string,
   asked: readonly ProbedPath[],

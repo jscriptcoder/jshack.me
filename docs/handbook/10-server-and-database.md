@@ -81,6 +81,7 @@ false}})`, per request. The service role bypasses row-level security.
 | `resolveOccupants`          | Fellow players on your network, with their LAN addresses.                                               | SIG + OCC        |
 | `resolveOccupantScan`       | `nmap` a fellow player's box.                                                                           | SIG + OCC        |
 | `resolveOccupantFetch`      | `curl`/`lynx` a fellow player's box at its LAN address; writes its owner's `access.log`.                | SIG + OCC        |
+| `resolveOccupantSweep`      | `gobuster` a fellow player's box at its LAN address; writes its owner's `access.log`.                   | SIG + OCC        |
 | `resolveSameLanScan`        | `nmap` a generated machine on your LAN (journal-aware).                                                 | SIG              |
 | `resolveInnerGatewayScan`   | `nmap` an inner gateway from outside.                                                                   | SIG              |
 | `resolvePublicScan`         | `nmap` a public IP; writes a `kern.log` trace on the target gateway.                                    | SIG + REACH      |
