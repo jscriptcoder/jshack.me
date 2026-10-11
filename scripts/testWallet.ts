@@ -1,5 +1,5 @@
 // Wire-payload smoke for the LEDGER — what an address holds, read by anybody, how coins
-// come to exist, and how they move. Drives the REAL /api/wallet endpoint against a running
+// come to exist, how they move, and what an address has sent and received. Drives the REAL /api/wallet endpoint against a running
 // `vercel dev` + supabase, writes the rows it reads back straight into `wallet_balances`
 // through the service role, mints with the operator's `scripts/mintCoins.ts`, run as a
 // child process exactly as the operator runs it, and sends transfers signed the way the
@@ -44,6 +44,15 @@
 //   - The debit, the credit and the transfer row are one act, and the function is closed
 //     to a client holding only the anon key.
 //   - Every balance the transfers touched adds up to what was minted, throughout.
+//   - THE HISTORY. An address's history is every transfer it sent or received and no
+//     other, newest first, which is what proves the filter and the ordering the endpoint
+//     asks the table for. A mint comes back with no sender, and each transfer carries the
+//     moment it was made, in UTC.
+//   - The same transfer shows on both sides, and the largest amount comes back digit for
+//     digit.
+//   - An address with 21 transfers is shown the latest 20 and no sign of the first.
+//   - An address the ledger has never seen has an empty history, and asking leaves no row.
+//   - Text that is not address-shaped is a 400 here too, the mint's label included.
 //
 // Usage (with v2 supabase + vercel dev running on 3100):
 //   npx dotenv -e .env.development.local -- npx tsx scripts/testWallet.ts
@@ -148,6 +157,11 @@ const THIRD = generateWalletKey().address;
 const NOWHERE = generateWalletKey().address;
 const BRIM = generateWalletKey().address;
 
+// Two addresses only the history checks use: one with more to tell than a history
+// holds, and one with nothing.
+const BUSY = generateWalletKey().address;
+const QUIET = generateWalletKey().address;
+
 const LEDGER = [
   PAYER.address,
   PAUPER.address,
@@ -169,6 +183,8 @@ const EVERY_ADDRESS = [
   NEARLY_FULL,
   MISTYPED,
   OTHER,
+  BUSY,
+  QUIET,
   ...LEDGER,
 ];
 
@@ -778,6 +794,123 @@ check(
   heldAtTheEnd === minted,
   `held=${heldAtTheEnd} minted=${minted}`,
 );
+
+// === 22. What an address has sent and received. ===
+const historyOf = (address: unknown) => send('POST', { action: 'history', address });
+
+type Listed = {
+  readonly from: string | null;
+  readonly to: string;
+  readonly amount: number;
+  readonly at: string;
+};
+
+const listedIn = (body: unknown): readonly Listed[] => {
+  const transfers =
+    typeof body === 'object' && body !== null ? (body as { transfers?: unknown }).transfers : null;
+  return Array.isArray(transfers) ? (transfers as Listed[]) : [];
+};
+
+/** Who and how many, without the moment: the part of a history a run can predict. */
+const movesIn = (body: unknown) =>
+  listedIn(body).map(({ from, to, amount }) => ({ from, to, amount }));
+
+const payerHistory = await historyOf(PAYER.address);
+check(
+  'an address’s history is everything it sent and received, newest first, and nothing else',
+  payerHistory.status === 200 &&
+    show(movesIn(payerHistory.body)) ===
+      show([
+        { from: PAYER.address, to: BRIM, amount: 100 },
+        { from: PAYER.address, to: PAYEE, amount: 100 },
+        { from: null, to: PAYER.address, amount: 1000 },
+        { from: PAYER.address, to: PAYEE, amount: 300 },
+        { from: PAYER.address, to: PAYEE, amount: 200 },
+        { from: null, to: PAYER.address, amount: 500 },
+      ]),
+  `status=${payerHistory.status} moves=${show(movesIn(payerHistory.body))}`,
+);
+
+const UTC_STAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+const QUARTER_HOUR_MS = 15 * 60_000;
+const payerListed = listedIn(payerHistory.body);
+const stamps = payerListed.map((listed) => listed.at);
+check(
+  'each transfer carries the moment it was made, in UTC, and the list runs back in time',
+  stamps.length === 6 &&
+    stamps.every(
+      (at) => UTC_STAMP.test(at) && Math.abs(Date.now() - Date.parse(at)) < QUARTER_HOUR_MS,
+    ) &&
+    stamps.every((at, index) => index === 0 || (stamps[index - 1] ?? '') >= at),
+  `now=${new Date().toISOString()} stamps=${show(stamps)}`,
+);
+check(
+  'a transfer is told as who, how many and when, and nothing else of its row',
+  show(Object.keys(payerHistory.body ?? {})) === show(['transfers']) &&
+    payerListed.every(
+      (listed) => show(Object.keys(listed).sort()) === show(['amount', 'at', 'from', 'to']),
+    ),
+  `answer=${show(Object.keys(payerHistory.body ?? {}))} transfer=${show(Object.keys(payerListed[0] ?? {}))}`,
+);
+
+const mintedHistory = await historyOf(MINTED);
+check(
+  'a mint comes back with no sender',
+  show(movesIn(mintedHistory.body)) ===
+    show([
+      { from: null, to: MINTED, amount: 500 },
+      { from: null, to: MINTED, amount: 500 },
+    ]),
+  `moves=${show(movesIn(mintedHistory.body))}`,
+);
+
+const brimHistory = await historyOf(BRIM);
+check(
+  'the same transfer shows at the address it reached, under the largest mint, digit for digit',
+  show(movesIn(brimHistory.body)) ===
+    show([
+      { from: PAYER.address, to: BRIM, amount: 100 },
+      { from: null, to: BRIM, amount: LARGEST - 100 },
+    ]),
+  `moves=${show(movesIn(brimHistory.body))}`,
+);
+
+for (let coins = 1; coins <= 21; coins += 1) {
+  await sr.rpc('wallet_mint', { mint_to: BUSY, mint_amount: coins });
+}
+const busyHistory = await historyOf(BUSY);
+const busyAmounts = listedIn(busyHistory.body).map((listed) => listed.amount);
+check(
+  'an address with 21 transfers is shown the latest 20, newest first, and no sign of the first',
+  busyHistory.status === 200 &&
+    show(busyAmounts) === show(Array.from({ length: 20 }, (_unused, index) => 21 - index)) &&
+    show(Object.keys(busyHistory.body ?? {})) === show(['transfers']),
+  `status=${busyHistory.status} amounts=${show(busyAmounts)}`,
+);
+
+const quietHistory = await historyOf(QUIET);
+const quietRows = (await rowsAt(QUIET)) + (await transfersTo(QUIET)).length;
+check(
+  'an address the ledger has never seen has an empty history, and asking leaves no row',
+  quietHistory.status === 200 &&
+    show(quietHistory.body) === show({ transfers: [] }) &&
+    quietRows === 0,
+  `status=${quietHistory.status} body=${show(quietHistory.body)} rows=${quietRows}`,
+);
+
+for (const [label, address] of [
+  ['the mint’s label', 'coinbase'],
+  ['an address in upper case', BUSY.toUpperCase()],
+  ['an address one character short', BUSY.slice(0, -1)],
+  ['no address at all', undefined],
+] as const) {
+  const turnedAway = await historyOf(address);
+  check(
+    `a history of ${label} is a 400 invalid_address`,
+    refusedAs(turnedAway, 400, 'invalid_address'),
+    `status=${turnedAway.status} body=${show(turnedAway.body)}`,
+  );
+}
 
 await cleanup();
 await sr.from('wallet_transfers').delete().eq('to_address', 'coinbase');

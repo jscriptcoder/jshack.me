@@ -1,16 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import * as ed from '@noble/ed25519';
 import { sha256 } from '@noble/hashes/sha2.js';
-import { readBalance, sendTransfer } from './walletApi.js';
+import { readBalance, readHistory, sendTransfer } from './walletApi.js';
 import { bytesToHex, hexToBytes } from '../core/identity/hex.js';
+import { handleWalletHistory } from '../core/wallet/handleWalletHistory.js';
 import { handleWalletTransfer, type TransferOrder } from '../core/wallet/handleWalletTransfer.js';
 
 /**
  * walletApi — the `/api/wallet` client behind `env.wallet`.
  *
  * A balance read is unsigned: the ledger is public, and nothing the player holds
- * travels with the question. A transfer is signed, by the wallet's key and by
- * nothing of the player's.
+ * travels with the question. A history is read the same way. A transfer is
+ * signed, by the wallet's key and by nothing of the player's.
  */
 
 const ENDPOINT = 'http://test.local/api/wallet';
@@ -112,6 +113,176 @@ describe('readBalance', () => {
     const { fetchImpl } = serverThat(respond);
 
     const result = await readBalance({ endpoint: ENDPOINT, fetchImpl }, ADDRESS);
+
+    expect(result).toEqual({ ok: false, error: 'network_error' });
+  });
+});
+
+const OTHER_ADDRESS = `jsc${'fedcba9876543210'.repeat(3).slice(0, 40)}`;
+
+/** A transfer as the ledger answers with it: a mint to `ADDRESS` unless told otherwise. */
+const recordOf = (overrides: Readonly<Record<string, unknown>> = {}): Record<string, unknown> => ({
+  from: null,
+  to: ADDRESS,
+  amount: 500,
+  at: '2026-10-11T14:02:33.123Z',
+  ...overrides,
+});
+
+describe('readHistory', () => {
+  it('hands back the transfers the ledger answers with, in its order', async () => {
+    const transfers = [
+      recordOf({ from: ADDRESS, to: OTHER_ADDRESS, at: '2026-10-11T14:09:41.500Z' }),
+      recordOf({ from: OTHER_ADDRESS, amount: 200, at: '2026-10-11T14:05:00.000Z' }),
+      recordOf(),
+    ];
+    const { fetchImpl } = serverThat(() => jsonResponse(200, { transfers }));
+
+    const result = await readHistory({ endpoint: ENDPOINT, fetchImpl }, ADDRESS);
+
+    expect(result).toEqual({ ok: true, transfers });
+  });
+
+  it('hands back an empty list for an address that has done nothing', async () => {
+    const { fetchImpl } = serverThat(() => jsonResponse(200, { transfers: [] }));
+
+    const result = await readHistory({ endpoint: ENDPOINT, fetchImpl }, ADDRESS);
+
+    expect(result).toEqual({ ok: true, transfers: [] });
+  });
+
+  it('asks with the address and nothing that says who is asking', async () => {
+    const { fetchImpl, sent } = serverThat(() => jsonResponse(200, { transfers: [] }));
+
+    await readHistory({ endpoint: ENDPOINT, fetchImpl }, ADDRESS);
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.url).toBe(ENDPOINT);
+    expect(sent[0]?.init?.method).toBe('POST');
+    expect(sent[0]?.init?.headers).toEqual({ 'Content-Type': 'application/json' });
+    expect(JSON.parse(String(sent[0]?.init?.body))).toEqual({
+      action: 'history',
+      address: ADDRESS,
+    });
+  });
+
+  it('asks the game’s own wallet endpoint when none is named', async () => {
+    const { fetchImpl, sent } = serverThat(() => jsonResponse(200, { transfers: [] }));
+
+    await readHistory({ fetchImpl }, ADDRESS);
+
+    expect(sent[0]?.url).toBe('/api/wallet');
+  });
+
+  it('reads what the ledger’s own handler answers with', async () => {
+    const fetchImpl: typeof fetch = async (_input, init) => {
+      const { status, body } = await handleWalletHistory(JSON.parse(String(init?.body)), {
+        findTransfers: async (address) => ({
+          data: [
+            {
+              from_address: address,
+              to_address: OTHER_ADDRESS,
+              amount: 500,
+              created_at: '2026-10-11T14:09:41.5+00:00',
+            },
+            {
+              from_address: null,
+              to_address: address,
+              amount: 500,
+              created_at: '2026-10-11T14:02:33.123456+00:00',
+            },
+          ],
+          error: null,
+        }),
+      });
+      return jsonResponse(status, body);
+    };
+
+    const result = await readHistory({ endpoint: ENDPOINT, fetchImpl }, ADDRESS);
+
+    expect(result).toEqual({
+      ok: true,
+      transfers: [
+        { from: ADDRESS, to: OTHER_ADDRESS, amount: 500, at: '2026-10-11T14:09:41.500Z' },
+        { from: null, to: ADDRESS, amount: 500, at: '2026-10-11T14:02:33.123Z' },
+      ],
+    });
+  });
+
+  it.each([
+    ['a refused request', () => jsonResponse(400, { error: 'invalid_address' })],
+    ['a server error', () => jsonResponse(500, { error: 'history_lookup_failed' })],
+    [
+      'an error status that carries a list anyway',
+      () => jsonResponse(500, { transfers: [recordOf()] }),
+    ],
+    ['an answer with no list', () => jsonResponse(200, {})],
+    [
+      'a list that is one transfer and not a list',
+      () => jsonResponse(200, { transfers: recordOf() }),
+    ],
+    ['a balance where a list was due', () => jsonResponse(200, { balance: 250, nextSequence: 0 })],
+    [
+      'a sender that is not an address',
+      () => jsonResponse(200, { transfers: [recordOf({ from: 'coinbase' })] }),
+    ],
+    [
+      'a transfer with no sender named',
+      () => jsonResponse(200, { transfers: [recordOf({ from: undefined })] }),
+    ],
+    [
+      'a destination that is not an address',
+      () => jsonResponse(200, { transfers: [recordOf({ to: 'nowhere' })] }),
+    ],
+    [
+      'a transfer with no destination',
+      () => jsonResponse(200, { transfers: [recordOf({ to: null })] }),
+    ],
+    [
+      'an amount sent as text',
+      () => jsonResponse(200, { transfers: [recordOf({ amount: '500' })] }),
+    ],
+    ['an amount below zero', () => jsonResponse(200, { transfers: [recordOf({ amount: -1 })] })],
+    [
+      'an amount with a fraction',
+      () => jsonResponse(200, { transfers: [recordOf({ amount: 2.5 })] }),
+    ],
+    [
+      'an amount too large to be exact',
+      () => jsonResponse(200, { transfers: [recordOf({ amount: 2 ** 53 })] }),
+    ],
+    [
+      'a time in a clock that is not UTC',
+      () => jsonResponse(200, { transfers: [recordOf({ at: '2026-10-11T16:02:33.123+02:00' })] }),
+    ],
+    [
+      'a time that is not one',
+      () => jsonResponse(200, { transfers: [recordOf({ at: 'yesterday' })] }),
+    ],
+    [
+      'a time sent as a number',
+      () => jsonResponse(200, { transfers: [recordOf({ at: 1791727353000 })] }),
+    ],
+    [
+      'a transfer with no time',
+      () => jsonResponse(200, { transfers: [recordOf({ at: undefined })] }),
+    ],
+    [
+      'one bad transfer among good ones',
+      () => jsonResponse(200, { transfers: [recordOf(), recordOf({ amount: '1' }), recordOf()] }),
+    ],
+    ['a body that is not JSON', () => new Response('<html>502</html>', { status: 200 })],
+    ['an answer that is not an object', () => jsonResponse(200, null)],
+    [
+      'a request that never completes',
+      () => {
+        throw new TypeError('Failed to fetch');
+      },
+    ],
+  ])('reports %s as a ledger that did not answer', async (_label, respond) => {
+    const { fetchImpl } = serverThat(respond);
+
+    const result = await readHistory({ endpoint: ENDPOINT, fetchImpl }, ADDRESS);
 
     expect(result).toEqual({ ok: false, error: 'network_error' });
   });

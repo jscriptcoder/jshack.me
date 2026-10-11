@@ -2,6 +2,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
 import type { NonceStore } from '../src/core/signedRequest/nonceStore.js';
 import { handleWalletBalance } from '../src/core/wallet/handleWalletBalance.js';
+import { handleWalletHistory } from '../src/core/wallet/handleWalletHistory.js';
 import {
   handleWalletTransfer,
   type TransferOrder,
@@ -10,11 +11,13 @@ import {
 // Vercel adapter for POST /api/wallet — the ledger.
 //
 // The one endpoint that verifies no envelope on a read. The ledger is keyed by
-// address and public, so a balance read names an address and nothing else.
+// address and public, so a read names an address and nothing else: what the
+// address holds, or what it has sent and received.
 //
 // A transfer is the one request here that is signed, and it is signed by the
 // wallet's key, not a player's. A body that carries a signed payload is a
-// transfer; anything else is a read.
+// transfer; anything else is a read, and a read that is not a history is taken
+// for a balance, whose handler turns away an action it does not know.
 //
 // Logic lives in core/ handlers (unit + mutation tested); this file stays a thin
 // Supabase adapter. It's typechecked via tsconfig.node.json (`npm run typecheck`),
@@ -61,6 +64,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       nonceStore: noopNonceStore,
       transfer,
     });
+    res.status(status).json(body);
+    return;
+  }
+
+  if ((req.body as { action?: unknown } | null)?.action === 'history') {
+    // The latest transfers into or out of one address, newest first. `id` orders
+    // them, because two transfers can share an instant. The address has already
+    // been checked for its shape, so it carries nothing the filter could misread.
+    const findTransfers = async (address: string, limit: number) => {
+      const { data, error } = await supabase
+        .from('wallet_transfers')
+        .select('from_address, to_address, amount, created_at')
+        .or(`from_address.eq.${address},to_address.eq.${address}`)
+        .order('id', { ascending: false })
+        .limit(limit);
+      if (error) console.error('[wallet] history lookup error:', error);
+      return { data: data as unknown, error };
+    };
+
+    const { status, body } = await handleWalletHistory(req.body, { findTransfers });
     res.status(status).json(body);
     return;
   }

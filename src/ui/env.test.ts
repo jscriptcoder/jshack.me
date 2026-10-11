@@ -38,6 +38,7 @@ const seedEnv = (
     readonly onChildCommand?: (name: string | null) => void;
     readonly onExploitElevateLocal?: ExploitApi['elevateLocal'];
     readonly onWalletBalance?: WalletApi['balance'];
+    readonly onWalletHistory?: WalletApi['history'];
     readonly onWalletTransfer?: WalletApi['transfer'];
   } = {},
 ) =>
@@ -140,6 +141,32 @@ describe('the ledger seam', () => {
     // A read that answered on its own would print coins no ledger ever held, and
     // "0 JSC" is exactly what a real answer looks like.
     expect(() => seedEnv().wallet.balance(address)).toThrow('wallet.balance is not wired');
+  });
+
+  it('routes onWalletHistory through env.wallet.history', async () => {
+    const seen: string[] = [];
+    const minted = { from: null, to: address, amount: 500, at: '2026-10-11T14:02:33.123Z' };
+    const env = seedEnv(
+      'guest',
+      {},
+      {
+        onWalletHistory: async (received) => {
+          seen.push(received);
+          return { ok: true, transfers: [minted] };
+        },
+      },
+    );
+
+    const result = await env.wallet.history(address);
+
+    expect(seen).toEqual([address]);
+    expect(result).toEqual({ ok: true, transfers: [minted] });
+  });
+
+  it('is loud when left unwired, refusing to make up a history', () => {
+    // A read that answered on its own would print nothing, which is exactly what
+    // an address that has done nothing looks like.
+    expect(() => seedEnv().wallet.history(address)).toThrow('wallet.history is not wired');
   });
 
   const order = { keyHex: 'c0ffee'.repeat(11).slice(0, 64), to: address, amount: 200, sequence: 4 };

@@ -3928,6 +3928,95 @@ describe('a wallet at the terminal asks the ledger', () => {
     expect(askedOfTheLedger).toEqual([{ action: 'balance', address: ADDRESS }]);
   });
 
+  it('asks /api/wallet for a history, unsigned, and prints the list that comes back', async () => {
+    vi.resetModules();
+    const store = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => store.set(key, value),
+      removeItem: (key: string) => store.delete(key),
+    };
+    storage.setItem(CONNECTED_ESSID_KEY, ESSID);
+    lanLeaseCacheIn(storage).remember(ESSID, `${LAN.subnet}.77`);
+    vi.stubGlobal('localStorage', storage);
+
+    const installed = {
+      path: '/usr/bin/wallet',
+      content: binaryStub('wallet'),
+      owner: 'root',
+      permissions: {
+        read: ['root', 'user', 'guest'],
+        write: ['root'],
+        execute: ['root', 'user', 'guest'],
+      },
+    };
+    const THIEF = `jsc${'fedcba9876543210'.repeat(3).slice(0, 40)}`;
+    const askedOfTheLedger: unknown[] = [];
+    const json = (body: unknown) => ({ ok: true, status: 200, json: async () => body });
+    // The ledger's own handler answers, over rows as the table holds them, so what
+    // the terminal prints is what the endpoint's answer comes out as.
+    const { handleWalletHistory } = await import('../core/wallet/handleWalletHistory.js');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: { body?: string }) => {
+        const body = JSON.parse(init?.body ?? '{}') as { payload?: string };
+        if (url === '/api/wallet') {
+          askedOfTheLedger.push(body);
+          const answered = await handleWalletHistory(body, {
+            findTransfers: async (address) => ({
+              data: [
+                {
+                  from_address: address,
+                  to_address: THIEF,
+                  amount: 500,
+                  created_at: '2026-10-11T14:09:41.5+00:00',
+                },
+                {
+                  from_address: null,
+                  to_address: address,
+                  amount: 500,
+                  created_at: '2026-10-11T14:02:33.123456+00:00',
+                },
+              ],
+              error: null,
+            }),
+          });
+          return json(answered.body);
+        }
+        const fields = JSON.parse(body.payload ?? '{}') as Record<string, unknown>;
+        return fields.action === 'listPatches'
+          ? json({ patches: [installed] })
+          : json({ patches: [], sessions: [] });
+      }),
+    );
+    const state = await import('./state.js');
+    state.startGame({ machineName: 'box', username: 'tester', rootPassword: 'pw' });
+    const printedBy = async (command: string): Promise<string[]> => {
+      const before = state.scrollback().length;
+      state.setInput(command);
+      await state.runInput();
+      return state
+        .scrollback()
+        .slice(before)
+        .map((line) => line.content);
+    };
+    // The journal that carries the installed binary lands after the boot returns.
+    await vi.waitFor(async () => expect(await printedBy('ls /usr/bin')).toContain('wallet'));
+
+    const printed = await printedBy(`wallet history ${ADDRESS}`);
+
+    expect(printed).toEqual(
+      expect.arrayContaining([
+        `2026-10-11 14:09  -500 JSC  to ${THIEF}`,
+        '2026-10-11 14:02  +500 JSC  from coinbase',
+      ]),
+    );
+    expect(printed.indexOf(`2026-10-11 14:09  -500 JSC  to ${THIEF}`)).toBeLessThan(
+      printed.indexOf('2026-10-11 14:02  +500 JSC  from coinbase'),
+    );
+    expect(askedOfTheLedger).toEqual([{ action: 'history', address: ADDRESS }]);
+  });
+
   it('signs a send with the wallet’s key, and with nothing of the player’s', async () => {
     vi.resetModules();
     const store = new Map<string, string>();

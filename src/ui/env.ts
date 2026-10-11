@@ -244,6 +244,9 @@ export type BuildCommandEnvArgs = {
   readonly onChainOpenSessionIds?: ChainApi['openSessionIds'];
   /** Backs `env.wallet.balance` — the unsigned read of one address off the ledger. */
   readonly onWalletBalance?: WalletApi['balance'];
+  /** Backs `env.wallet.history` — the unsigned read of what one address has sent
+   *  and received. */
+  readonly onWalletHistory?: WalletApi['history'];
   /** Backs `env.wallet.transfer` — coins moved by a transfer the wallet's key signs. */
   readonly onWalletTransfer?: WalletApi['transfer'];
   /** The scan-logging seam — backs `env.scan.record`. The UI wires it to the
@@ -525,6 +528,9 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
     // Loud when unwired: a read that answered on its own would print a balance no
     // ledger ever held.
     balance: args.onWalletBalance ?? notWired('wallet.balance'),
+    // Loud as well: an empty list is what an address that has done nothing reads
+    // as, so a history that answered on its own would hide every transfer.
+    history: args.onWalletHistory ?? notWired('wallet.history'),
     // Loud for the same reason: a transfer that answered on its own would tell a
     // player their coins had moved when no ledger was ever asked.
     transfer: args.onWalletTransfer ?? notWired('wallet.transfer'),

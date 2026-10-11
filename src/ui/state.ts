@@ -186,7 +186,7 @@ import {
   resolveInnerGateway,
   type NetworkClientDeps,
 } from '../adapters/networkApi.js';
-import { readBalance, sendTransfer } from '../adapters/walletApi.js';
+import { readBalance, readHistory, sendTransfer } from '../adapters/walletApi.js';
 import type { OccupantProjection } from '../core/network/resolveOccupants.js';
 import type { HomeNetworkAssignment } from '../core/network/homeNetwork.js';
 import { lanLeaseCacheIn } from '../core/network/lanLeaseCache.js';
@@ -2027,8 +2027,9 @@ const executeLine = async (line: string): Promise<void> => {
     onSuElevate: suElevate,
     onRebootEvict: rebootEvict,
     onChainOpenSessionIds: chainOpenSessionIds,
-    // Nothing of the player's goes with it: the ledger answers anyone about any address.
+    // Nothing of the player's goes with either read: the ledger answers anyone about any address.
     onWalletBalance: (address) => readBalance({}, address),
+    onWalletHistory: (address) => readHistory({}, address),
     // Signed by the key in the order, which is the wallet's. The player's identity is
     // not handed over, so it cannot sign or ride along.
     onWalletTransfer: (order) => sendTransfer({}, order),
