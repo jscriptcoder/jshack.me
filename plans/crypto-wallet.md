@@ -1,7 +1,8 @@
 # Plan: crypto wallet
 
-**Status**: Grilled. Decisions confirmed by the owner 2026-10-11; slices not yet planned. Nothing
-in the repo covered money before this file. Where another doc disagrees with it, this file wins.
+**Status**: Grilled, then reviewed for gaps. Decisions confirmed by the owner 2026-10-11; slices
+not yet planned. Nothing in the repo covered money before this file. Where another doc disagrees
+with it, this file wins.
 
 ## Goal
 
@@ -54,6 +55,11 @@ All grilled singly.
    `wallet init`, readable by that account and root. Taking it from a player means rooting their
    box. Rejected: a root-only system path (the owner needs `su` for every use) and a file every
    tier can read (any guest shell takes it).
+   **Each account has its own wallet, root included.** A root shell's home is `/root`, and
+   `apt install` needs root, so a player who runs `wallet init` before leaving `su` gets
+   `/root/.wallet/wallet.dat`, which their own account cannot see or use. `init` prints that
+   path and nothing explains it. Confirmed in the gap review; rejected there: one wallet per box
+   at a fixed path.
 4. **The ledger is public.** `wallet balance <address>` and `wallet history <address>` answer
    for any address; the key is needed only to send. A player who hid their key still watches
    their coins, and a victim sees the address the coins went to, never a name. Rejected: public
@@ -96,9 +102,19 @@ All grilled singly.
     one transaction, and refuses a short balance or a stale sequence number. It is the first
     stored procedure with logic in the repo; a wire-check proves it. Rejected: three separate
     calls from the endpoint (a failure between them destroys coins).
+    **The function holds only what must be atomic**: the balance covers the amount, the
+    sequence number matches, both rows are written. Every other rule (the signature, the
+    address shape, a positive whole amount, no send to yourself) lives in `core/` with unit
+    tests written first, because a wire-check is run by hand and nothing runs it in CI. Settled
+    in the gap review; rejected there: every rule inside the function.
 17. **The ledger never learns who sent a transfer.** A transfer carries the wallet key's
-    signature and nothing about the player; not even the operator can say who emptied a wallet.
+    signature and nothing about the player, and the ledger stores none.
     Rejected: the player's identity stored beside the transfer in a column no player reads.
+    **The operator is not blind, though.** A key file is a journal row like any other file, and
+    a row carries its writer's player key, so an operator who queries the journal for wallet
+    files can link an address to the players who saved it. No player can see that. Corrected in
+    the gap review, where the first wording claimed the operator could not tell; the owner kept
+    the decision.
 
 ## What follows from the decisions
 
@@ -112,10 +128,60 @@ Shown to the owner with the decisions and confirmed with them.
   their coins if they kept the key text.
 - **It runs wherever it is installed.** `apt install wallet` needs root on that box, and the
   wallet lands in the home of the account that ran `init`. One made in a `guest` shell sits in
-  `/home/guest`, which every tier can read.
+  `/home/guest/.wallet/`, and every visitor who logs in as `guest` is that same account, so
+  each of them can read it.
 - **`send` refuses** an amount above the balance, anything that is not a positive whole number,
   text that is not address-shaped, and a send to its own address.
 - **A mint shows in history as coming from `coinbase`.**
+
+## Settled in the gap review (2026-10-11)
+
+Gaps found by reading this plan against the code, each answered by the owner.
+
+- **The wallet needs a network, except `init`.** `balance`, `history`, `send` and `sweep`
+  refuse on a box with no connection, in the wording `dig` and `whois` use:
+  `wallet: network is unreachable — connect to a network first`. `init` makes a key with no
+  network. In a shell on another box the check reads the player's own connection, as every
+  command reading `env.network` from a hop does (`docs/project-status.md`, D2). Rejected: a
+  wallet that reaches the ledger with no connection.
+- **`coinbase` is a label, not an address.** It is the word a history line prints for a mint.
+  `wallet history coinbase` and `wallet balance coinbase` are refused like any text that is not
+  address-shaped, and nothing lists addresses. A player learns an address by reading a key file
+  or by trading with its holder; a history shows only that address's own counterparties.
+  Rejected: a public coinbase history, which would be a list of every wallet ever paid.
+- **What `sweep` refuses.** No wallet in place (it needs a destination before it reads the
+  source); a key file that is missing, unreadable at the caller's tier, or holds no valid key,
+  which is what an encrypted or damaged file is; and a key file that is the wallet in place. On
+  an address holding nothing it prints that there is nothing to sweep and sends no transfer.
+  Rejected: `sweep` creating a wallet when none is in place, which is `init`'s job.
+- **`wallet history` shows the latest 20 transfers, newest first.** No paging and no flag. Older
+  transfers stay stored and no command shows them, so twenty 1 JSC transfers push a theft out
+  of sight; accepted. Rejected: the whole history, and a count flag with a server cap.
+- **An address the ledger has never seen holds `0 JSC`.** The server cannot tell an unused
+  wallet from a typo, so `balance` never answers "unknown address", and its history is empty.
+- **Every tier can run `wallet`.** The binary is world-executable, as `gpg`'s is. Once root has
+  installed it on a box, the owner, root and any guest shell run it there, each against the
+  wallet in their own home. Rejected: owner and root only.
+- **Spam on the ledger is an accepted cost.** Anyone can send 1 JSC to any address as often as
+  they like, and no endpoint in the game has a rate limit. Each transfer costs its sender a
+  coin, and a history reply never exceeds 20 lines. Rejected: a minimum send amount, and a rate
+  limit on the endpoint.
+- **Coins are not safe before launch.** The repo carries no backward-compatibility burden until
+  the multiplayer announce (`.claude/CLAUDE.md`), so a schema change may reset every balance.
+- **A restore takes the keys with it.** `scripts/restoreSite.ts` deletes a box's journal, so a
+  key file hidden on a site the operator restores is gone, and its coins with it. This is
+  "loss is final" applied to a box the player does not own.
+
+## Done when
+
+A two-player browser run at close-out shows all of it through the real terminal. Slice PRs
+merge on their unit tests and the wire-check; this one run covers them together.
+
+1. A installs `wallet` and runs `wallet init`.
+2. The operator mints 500 JSC to A's address, and A's `wallet balance` reads `500 JSC`.
+3. B roots A's box, copies the key home and sweeps it.
+4. A's balance reads `0 JSC`, and A's history shows the transfer to B's address.
+5. A makes a new wallet and encrypts its key with `gpg -c`; B's second copy sweeps nothing.
 
 ## Server shape
 
@@ -140,5 +206,10 @@ Each goes to `docs/backlog.md`.
 - What the signed transfer message contains, and how a sweep reads the sequence number.
 - Whether balance and history reads sit inside the signed-envelope convention the other
   endpoints use, given decision 17.
-- The line format of `balance` and `history`.
+- The line format of `balance` and `history`, and the clock a history line's time is shown in.
+- Which written forms of an amount are accepted (digits only is the starting point) and the
+  largest amount, given that the client handles it as a JavaScript number.
+- How `scripts/mintCoins.ts` names the database it writes to, and that running it twice mints
+  twice.
 - The wire-check script and the slice order.
+- An as-built doc under `docs/` at close-out, when this file is retired.
