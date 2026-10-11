@@ -1,6 +1,8 @@
-// Wire-payload smoke for the LEDGER — what an address holds, read by anybody. Drives the
-// REAL /api/wallet endpoint against a running `vercel dev` + supabase, and writes the rows
-// it reads back straight into `wallet_balances` through the service role.
+// Wire-payload smoke for the LEDGER — what an address holds, read by anybody, and how coins
+// come to exist. Drives the REAL /api/wallet endpoint against a running `vercel dev` +
+// supabase, writes the rows it reads back straight into `wallet_balances` through the
+// service role, and mints with the operator's `scripts/mintCoins.ts`, run as a child
+// process exactly as the operator runs it.
 //
 // Net-new under test (the locally-untypechecked api/ runtime, and the table itself):
 //   - An address the ledger has never seen reads 0 with sequence 0, and asking leaves no
@@ -14,12 +16,24 @@
 //   - The table refuses what no balance may be: a negative one, one past the largest whole
 //     number a browser holds exactly, and a row whose address is not address-shaped.
 //   - A client holding only the anon key reads nothing off the table.
+//   - THE MINT. The script raises an address's balance by what it was told and records one
+//     transfer with no sender each time; an address the ledger has never seen is created;
+//     the sequence number of an address that has one is left alone; it names the database
+//     before it writes and the new balance after.
+//   - A mint that would pass the largest balance is refused and writes nothing, while one
+//     that lands exactly on it is taken.
+//   - Bad arguments and missing env stop the script before it writes anything.
+//   - The credit and its transfer row are one act: a mint whose transfer row the table
+//     refuses leaves the balance where it was.
+//   - The transfers table refuses what no transfer may be, and neither it nor the mint is
+//     open to a client holding only the anon key.
 //
 // Usage (with v2 supabase + vercel dev running on 3100):
 //   npx dotenv -e .env.development.local -- npx tsx scripts/testWallet.ts
 //
 // Exits 0 when all checks pass, 1 on failure, 2 on missing env.
 
+import { spawnSync } from 'node:child_process';
 import { createClient } from '@supabase/supabase-js';
 import { generateWalletKey } from '../src/core/wallet/walletKey.js';
 
@@ -69,6 +83,26 @@ const rowsAt = async (address: string): Promise<number> => {
   return count ?? 0;
 };
 
+const transfersTo = async (
+  address: string,
+): Promise<readonly { readonly from_address: string | null; readonly amount: number }[]> => {
+  const { data } = await sr
+    .from('wallet_transfers')
+    .select('from_address, amount')
+    .eq('to_address', address)
+    .order('id');
+  return data ?? [];
+};
+
+const MINT_SCRIPT = 'scripts/mintCoins.ts';
+
+/** Runs the operator's mint the way the operator does, with `env` as its environment. */
+const mint = (words: readonly string[], env: NodeJS.ProcessEnv = process.env) =>
+  spawnSync(process.execPath, ['--import', 'tsx', MINT_SCRIPT, ...words], {
+    env,
+    encoding: 'utf8',
+  });
+
 const LARGEST = 9007199254740991;
 
 // Fresh addresses every run, made the way the game makes them, so a run never reads a
@@ -77,9 +111,16 @@ const UNSEEN = generateWalletKey().address;
 const HELD = generateWalletKey().address;
 const FULL = generateWalletKey().address;
 const REFUSED = generateWalletKey().address;
+const MINTED = generateWalletKey().address;
+const NEARLY_FULL = generateWalletKey().address;
+const MISTYPED = generateWalletKey().address;
+const OTHER = generateWalletKey().address;
+
+const EVERY_ADDRESS = [UNSEEN, HELD, FULL, REFUSED, MINTED, NEARLY_FULL, MISTYPED, OTHER];
 
 const cleanup = async () => {
-  await sr.from('wallet_balances').delete().in('address', [UNSEEN, HELD, FULL, REFUSED]);
+  await sr.from('wallet_transfers').delete().in('to_address', EVERY_ADDRESS);
+  await sr.from('wallet_balances').delete().in('address', EVERY_ADDRESS);
 };
 await cleanup();
 
@@ -169,7 +210,156 @@ check(
   `rows=${peeked.data?.length ?? 0} error=${peeked.error?.message ?? 'none'}`,
 );
 
+// === 7. The operator mints. ===
+const HOST = new URL(url).host;
+const first = mint([MINTED, '500']);
+const afterFirst = await balanceOf(MINTED);
+check(
+  'a mint to an address the ledger has never seen creates it holding the amount',
+  first.status === 0 &&
+    afterFirst.status === 200 &&
+    show(afterFirst.body) === show({ balance: 500, nextSequence: 0 }),
+  `exit=${first.status} stderr=${show(first.stderr)} body=${show(afterFirst.body)}`,
+);
+check(
+  'it names the database before it writes and the new balance after',
+  first.stdout === `Minting 500 JSC to ${MINTED} on ${HOST}\n${MINTED}  500 JSC\n`,
+  `stdout=${show(first.stdout)}`,
+);
+const second = mint([MINTED, '500']);
+const afterSecond = await balanceOf(MINTED);
+check(
+  'minting again raises the balance by the amount again',
+  second.status === 0 &&
+    second.stdout.endsWith(`${MINTED}  1000 JSC\n`) &&
+    show(afterSecond.body) === show({ balance: 1000, nextSequence: 0 }),
+  `exit=${second.status} stdout=${show(second.stdout)} body=${show(afterSecond.body)}`,
+);
+const mintedRows = await transfersTo(MINTED);
+check(
+  'each mint is one transfer of the amount with no sender',
+  show(mintedRows) ===
+    show([
+      { from_address: null, amount: 500 },
+      { from_address: null, amount: 500 },
+    ]),
+  `rows=${show(mintedRows)}`,
+);
+const toHeld = mint([HELD, '100']);
+const heldAfter = await balanceOf(HELD);
+check(
+  'a mint leaves the sequence number of an address that has one alone',
+  toHeld.status === 0 && show(heldAfter.body) === show({ balance: 350, nextSequence: 3 }),
+  `exit=${toHeld.status} stderr=${show(toHeld.stderr)} body=${show(heldAfter.body)}`,
+);
+
+// === 8. The largest balance is a wall. ===
+await sr.from('wallet_balances').insert({ address: NEARLY_FULL, balance: LARGEST - 500 });
+const tooMuch = mint([NEARLY_FULL, '501']);
+const afterTooMuch = await balanceOf(NEARLY_FULL);
+const tooMuchRows = await transfersTo(NEARLY_FULL);
+check(
+  'a mint that would pass the largest balance exits 1 and says it was refused',
+  tooMuch.status === 1 &&
+    tooMuch.stderr === `mint refused: ${NEARLY_FULL} would hold more than ${LARGEST} JSC\n`,
+  `exit=${tooMuch.status} stderr=${show(tooMuch.stderr)}`,
+);
+check(
+  'and leaves the balance and the transfers as they were',
+  show(afterTooMuch.body) === show({ balance: LARGEST - 500, nextSequence: 0 }) &&
+    tooMuchRows.length === 0,
+  `body=${show(afterTooMuch.body)} transfers=${tooMuchRows.length}`,
+);
+const justFits = mint([NEARLY_FULL, '500']);
+const afterJustFits = await balanceOf(NEARLY_FULL);
+check(
+  'a mint that lands exactly on the largest balance is taken',
+  justFits.status === 0 && show(afterJustFits.body) === show({ balance: LARGEST, nextSequence: 0 }),
+  `exit=${justFits.status} stderr=${show(justFits.stderr)} body=${show(afterJustFits.body)}`,
+);
+
+// === 9. What stops the script before it writes. ===
+for (const [label, words] of [
+  ['text that is not an address', ['coinbase', '500']],
+  ['an amount of nothing', [MISTYPED, '0']],
+  ['an amount with a fraction', [MISTYPED, '2.5']],
+  ['no amount', [MISTYPED]],
+  ['a third word', [MISTYPED, '500', '500']],
+] as const) {
+  const stopped = mint(words);
+  check(
+    `${label} exits 2 with the usage`,
+    stopped.status === 2 && stopped.stderr === 'Usage: mintCoins.ts <address> <amount>\n',
+    `exit=${stopped.status} stderr=${show(stopped.stderr)}`,
+  );
+}
+const { SUPABASE_SERVICE_ROLE_KEY: _withheld, ...keyless } = process.env;
+const noKey = mint([MISTYPED, '500'], keyless);
+check(
+  'a missing service key exits 2',
+  noKey.status === 2 && noKey.stderr === 'Missing env: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY\n',
+  `exit=${noKey.status} stderr=${show(noKey.stderr)}`,
+);
+const mistypedRows = (await rowsAt(MISTYPED)) + (await transfersTo(MISTYPED)).length;
+check('and none of those wrote anything', mistypedRows === 0, `rows=${mistypedRows}`);
+
+// === 10. The credit and its transfer row are one act. ===
+const nothing = await sr.rpc('wallet_mint', { mint_to: OTHER, mint_amount: 0 });
+const otherRows = await rowsAt(OTHER);
+check(
+  'a mint of nothing is refused by the transfers table and leaves no balance row',
+  nothing.error?.code === '23514' && otherRows === 0,
+  `code=${nothing.error?.code ?? 'none'} rows=${otherRows}`,
+);
+const negative = await sr.rpc('wallet_mint', { mint_to: MINTED, mint_amount: -5 });
+const afterNegative = await balanceOf(MINTED);
+check(
+  'a mint of a negative amount is refused and takes nothing from the balance',
+  negative.error?.code === '23514' &&
+    show(afterNegative.body) === show({ balance: 1000, nextSequence: 0 }),
+  `code=${negative.error?.code ?? 'none'} body=${show(afterNegative.body)}`,
+);
+
+// === 11. What the transfers table itself refuses. ===
+for (const [label, row] of [
+  ['a transfer of nothing', { to_address: OTHER, amount: 0 }],
+  ['a transfer past the largest exact number', { to_address: OTHER, amount: '9007199254740992' }],
+  ['a destination that is not address-shaped', { to_address: 'coinbase', amount: 1 }],
+  [
+    'a sender that is not address-shaped',
+    { from_address: 'coinbase', to_address: OTHER, amount: 1 },
+  ],
+  ['a transfer to the address it came from', { from_address: OTHER, to_address: OTHER, amount: 1 }],
+] as const) {
+  const { error } = await sr.from('wallet_transfers').insert(row);
+  check(
+    `the transfers table refuses ${label}`,
+    error?.code === '23514',
+    `code=${error?.code ?? 'none (the row was written)'}`,
+  );
+}
+
+// === 12. Neither the mint nor the transfers are open to the anon key. ===
+const anonMint = await anon.rpc('wallet_mint', { mint_to: OTHER, mint_amount: 500 });
+const afterAnonMint = (await rowsAt(OTHER)) + (await transfersTo(OTHER)).length;
+check(
+  'a client holding only the anon key cannot mint',
+  // Row security would stop the write too, under the same code; the message is what
+  // says the function itself was closed.
+  anonMint.error?.code === '42501' &&
+    anonMint.error.message.includes('function wallet_mint') &&
+    afterAnonMint === 0,
+  `error=${anonMint.error?.message ?? 'none (it minted)'} rows=${afterAnonMint}`,
+);
+const peekedTransfers = await anon.from('wallet_transfers').select('id').eq('to_address', MINTED);
+check(
+  'and reads nothing off the transfers table',
+  (peekedTransfers.data ?? []).length === 0,
+  `rows=${peekedTransfers.data?.length ?? 0} error=${peekedTransfers.error?.message ?? 'none'}`,
+);
+
 await cleanup();
+await sr.from('wallet_transfers').delete().eq('to_address', 'coinbase');
 await sr.from('wallet_balances').delete().in('address', ['coinbase', REFUSED.toUpperCase()]);
 
 const passed = results.filter((result) => result.pass).length;
