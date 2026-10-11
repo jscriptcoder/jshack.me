@@ -11,7 +11,6 @@
 import { sign as edSign } from '../identity/identity.js';
 import { bytesToHex, hexToBytes } from '../identity/hex.js';
 import { NONCE_HEX_LENGTH, type SignedEnvelope } from './types.js';
-import type { Identity } from '../commands/types.js';
 
 const NONCE_BYTES = NONCE_HEX_LENGTH / 2;
 
@@ -24,8 +23,15 @@ const generateNonce = (): string => {
 /** Caller-provided action fields. `action`, `ts`, and `nonce` are reserved. */
 export type ActionFields = Readonly<Record<string, unknown>>;
 
+/** Whoever signs: the player's identity for most actions, a wallet's key for a
+ *  transfer. Both halves hex-encoded. */
+export type Signer = {
+  readonly publicKeyHex: string;
+  readonly privateKeyHex: string;
+};
+
 export const signRequest = (
-  identity: Identity,
+  signer: Signer,
   action: string,
   fields: ActionFields,
 ): SignedEnvelope => {
@@ -37,11 +43,12 @@ export const signRequest = (
   });
   const messageBytes = new TextEncoder().encode(payload);
   // privateKeyHex is 64-char hex by construction (generateIdentity / validated
-  // loadIdentity), so hexToBytes never returns null here.
-  const signature = edSign(hexToBytes(identity.privateKeyHex)!, messageBytes);
+  // loadIdentity, or a wallet key its file's key line matched), so hexToBytes
+  // never returns null here.
+  const signature = edSign(hexToBytes(signer.privateKeyHex)!, messageBytes);
   return {
     payload,
-    publicKey: identity.publicKeyHex,
+    publicKey: signer.publicKeyHex,
     signature: bytesToHex(signature),
   };
 };

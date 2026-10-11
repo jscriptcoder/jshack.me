@@ -1,8 +1,9 @@
-// Wire-payload smoke for the LEDGER — what an address holds, read by anybody, and how coins
-// come to exist. Drives the REAL /api/wallet endpoint against a running `vercel dev` +
-// supabase, writes the rows it reads back straight into `wallet_balances` through the
-// service role, and mints with the operator's `scripts/mintCoins.ts`, run as a child
-// process exactly as the operator runs it.
+// Wire-payload smoke for the LEDGER — what an address holds, read by anybody, how coins
+// come to exist, and how they move. Drives the REAL /api/wallet endpoint against a running
+// `vercel dev` + supabase, writes the rows it reads back straight into `wallet_balances`
+// through the service role, mints with the operator's `scripts/mintCoins.ts`, run as a
+// child process exactly as the operator runs it, and sends transfers signed the way the
+// game's own client signs them.
 //
 // Net-new under test (the locally-untypechecked api/ runtime, and the table itself):
 //   - An address the ledger has never seen reads 0 with sequence 0, and asking leaves no
@@ -27,6 +28,22 @@
 //     refuses leaves the balance where it was.
 //   - The transfers table refuses what no transfer may be, and neither it nor the mint is
 //     open to a client holding only the anon key.
+//   - THE TRANSFER. A signed transfer moves the amount from the address of the key that
+//     signed it, raises that address's sequence number by one, creates a destination the
+//     ledger has never seen, and records one transfer row naming both addresses.
+//   - A balance that does not cover the amount moves nothing, and one that covers it
+//     exactly is emptied. An address with no row holds nothing to send.
+//   - A sequence number that is not the sender's next one moves nothing, whichever side
+//     it is wrong on, and is judged before the balance.
+//   - The same signed transfer sent twice moves the coins once. Of two transfers signed at
+//     one sequence and sent together, exactly one lands: through the endpoint, and through
+//     the function called twice at once. Two wallets paying each other at once both land.
+//   - A destination that can hold no more refuses the credit and the sender keeps the coins.
+//   - A forged or stale signature, a transfer to its own address and a malformed one are
+//     turned away by the endpoint and move nothing.
+//   - The debit, the credit and the transfer row are one act, and the function is closed
+//     to a client holding only the anon key.
+//   - Every balance the transfers touched adds up to what was minted, throughout.
 //
 // Usage (with v2 supabase + vercel dev running on 3100):
 //   npx dotenv -e .env.development.local -- npx tsx scripts/testWallet.ts
@@ -35,7 +52,10 @@
 
 import { spawnSync } from 'node:child_process';
 import { createClient } from '@supabase/supabase-js';
-import { generateWalletKey } from '../src/core/wallet/walletKey.js';
+import { sign } from '../src/core/identity/identity.js';
+import { bytesToHex, hexToBytes } from '../src/core/identity/hex.js';
+import { signRequest } from '../src/core/signedRequest/sign.js';
+import { generateWalletKey, signerOf, type WalletKey } from '../src/core/wallet/walletKey.js';
 
 const WALLET = process.env.WALLET_ENDPOINT ?? 'http://localhost:3100/api/wallet';
 const url = process.env.SUPABASE_URL;
@@ -116,10 +136,45 @@ const NEARLY_FULL = generateWalletKey().address;
 const MISTYPED = generateWalletKey().address;
 const OTHER = generateWalletKey().address;
 
-const EVERY_ADDRESS = [UNSEEN, HELD, FULL, REFUSED, MINTED, NEARLY_FULL, MISTYPED, OTHER];
+// The wallets that send, and the addresses they send to. Everything these hold comes
+// from a mint, so what they add up to is known at every step.
+const PAYER = generateWalletKey();
+const PAUPER = generateWalletKey();
+const RACER = generateWalletKey();
+const CROSS_A = generateWalletKey();
+const CROSS_B = generateWalletKey();
+const PAYEE = generateWalletKey().address;
+const THIRD = generateWalletKey().address;
+const NOWHERE = generateWalletKey().address;
+const BRIM = generateWalletKey().address;
+
+const LEDGER = [
+  PAYER.address,
+  PAUPER.address,
+  RACER.address,
+  CROSS_A.address,
+  CROSS_B.address,
+  PAYEE,
+  THIRD,
+  NOWHERE,
+  BRIM,
+];
+
+const EVERY_ADDRESS = [
+  UNSEEN,
+  HELD,
+  FULL,
+  REFUSED,
+  MINTED,
+  NEARLY_FULL,
+  MISTYPED,
+  OTHER,
+  ...LEDGER,
+];
 
 const cleanup = async () => {
   await sr.from('wallet_transfers').delete().in('to_address', EVERY_ADDRESS);
+  await sr.from('wallet_transfers').delete().in('from_address', EVERY_ADDRESS);
   await sr.from('wallet_balances').delete().in('address', EVERY_ADDRESS);
 };
 await cleanup();
@@ -356,6 +411,372 @@ check(
   'and reads nothing off the transfers table',
   (peekedTransfers.data ?? []).length === 0,
   `rows=${peekedTransfers.data?.length ?? 0} error=${peekedTransfers.error?.message ?? 'none'}`,
+);
+
+// === 13. A wallet sends. ===
+let minted = 0n;
+const fund = async (address: string, amount: number) => {
+  const { error } = await sr.rpc('wallet_mint', { mint_to: address, mint_amount: amount });
+  if (error === null) minted += BigInt(amount);
+  return error;
+};
+
+/** What the game's client posts for a transfer: the envelope its own signer makes. */
+const transferOf = (wallet: WalletKey, to: string, amount: number, sequence: number) =>
+  signRequest(signerOf(wallet.keyHex), 'transfer', { to, amount, sequence });
+
+const transfer = (wallet: WalletKey, to: string, amount: number, sequence: number) =>
+  send('POST', transferOf(wallet, to, amount, sequence));
+
+/** An envelope around any payload at all, signed by `wallet`: for what the client's
+ *  own signer would never produce. */
+const signedBy = (wallet: WalletKey, payload: unknown) => {
+  const text = JSON.stringify(payload);
+  const key = hexToBytes(wallet.keyHex);
+  if (key === null) throw new Error('a wallet key that is not hex');
+  return {
+    payload: text,
+    publicKey: signerOf(wallet.keyHex).publicKeyHex,
+    signature: bytesToHex(sign(key, new TextEncoder().encode(text))),
+  };
+};
+
+const reads = async (address: string, balance: number, nextSequence: number) => {
+  const { body } = await balanceOf(address);
+  return { as: show(body), right: show(body) === show({ balance, nextSequence }) };
+};
+
+const transfersFrom = async (address: string) => {
+  const { data } = await sr
+    .from('wallet_transfers')
+    .select('to_address, amount')
+    .eq('from_address', address)
+    .order('id');
+  return data ?? [];
+};
+
+/** What every address the transfers touch holds, added up. Whole coins past the largest
+ *  exact number need more than a number to add. */
+const heldInAll = async (): Promise<bigint> => {
+  const { data } = await sr.from('wallet_balances').select('balance').in('address', LEDGER);
+  return (data ?? []).reduce((sum, row) => sum + BigInt(row.balance as number), 0n);
+};
+
+const refusedAs = (
+  answer: { readonly status: number; readonly body: unknown },
+  status: number,
+  error: string,
+) => answer.status === status && errorOf(answer.body) === error;
+
+const funded = await fund(PAYER.address, 500);
+const sent200 = await transfer(PAYER, PAYEE, 200, 0);
+const payerAfter200 = await reads(PAYER.address, 300, 1);
+const payeeAfter200 = await reads(PAYEE, 200, 0);
+check(
+  'a signed transfer of 200 from an address holding 500 is made',
+  funded === null && sent200.status === 200 && show(sent200.body) === show({ ok: true }),
+  `mint=${funded?.message ?? 'ok'} status=${sent200.status} body=${show(sent200.body)}`,
+);
+check(
+  'it leaves 300 at the sender and raises its sequence number by one',
+  payerAfter200.right,
+  `sender=${payerAfter200.as}`,
+);
+check(
+  'it creates a destination the ledger had never seen, holding 200 at sequence 0',
+  payeeAfter200.right,
+  `destination=${payeeAfter200.as}`,
+);
+const firstRows = await transfersFrom(PAYER.address);
+check(
+  'it records one transfer row naming both addresses',
+  show(firstRows) === show([{ to_address: PAYEE, amount: 200 }]),
+  `rows=${show(firstRows)}`,
+);
+const heldAfterFirst = await heldInAll();
+check(
+  'what the addresses hold still adds up to what was minted',
+  heldAfterFirst === minted,
+  `held=${heldAfterFirst} minted=${minted}`,
+);
+
+// === 14. A balance that does not cover the amount. ===
+const tooDear = await transfer(PAYER, PAYEE, 301, 1);
+const payerAfterTooDear = await reads(PAYER.address, 300, 1);
+const rowsAfterTooDear = (await transfersFrom(PAYER.address)).length;
+check(
+  'one coin more than the sender holds is a 409 insufficient_balance',
+  refusedAs(tooDear, 409, 'insufficient_balance'),
+  `status=${tooDear.status} body=${show(tooDear.body)}`,
+);
+check(
+  'and it moves nothing, records nothing, and leaves the sequence number alone',
+  payerAfterTooDear.right && rowsAfterTooDear === 1,
+  `sender=${payerAfterTooDear.as} rows=${rowsAfterTooDear}`,
+);
+const everything = await transfer(PAYER, PAYEE, 300, 1);
+const payerEmptied = await reads(PAYER.address, 0, 2);
+const payeeAfterAll = await reads(PAYEE, 500, 0);
+check(
+  'exactly what the sender holds is taken, and empties it',
+  everything.status === 200 && payerEmptied.right && payeeAfterAll.right,
+  `status=${everything.status} sender=${payerEmptied.as} destination=${payeeAfterAll.as}`,
+);
+const fromNothing = await transfer(PAUPER, NOWHERE, 1, 0);
+const pauperRows = (await rowsAt(PAUPER.address)) + (await rowsAt(NOWHERE));
+check(
+  'an address with no row holds nothing to send, and neither end gains a row',
+  refusedAs(fromNothing, 409, 'insufficient_balance') && pauperRows === 0,
+  `status=${fromNothing.status} body=${show(fromNothing.body)} rows=${pauperRows}`,
+);
+
+// === 15. A sequence number that is not the sender's next one. ===
+await fund(PAYER.address, 1000);
+for (const [label, sequence, amount] of [
+  ['one the sender has already used', 1, 100],
+  ['one the sender has not reached', 3, 100],
+  ['a used one, on an amount the sender could not cover either', 1, 5000],
+] as const) {
+  const stale = await transfer(PAYER, PAYEE, amount, sequence);
+  check(
+    `${label} is a 409 stale_sequence`,
+    refusedAs(stale, 409, 'stale_sequence'),
+    `status=${stale.status} body=${show(stale.body)}`,
+  );
+}
+const payerAfterStale = await reads(PAYER.address, 1000, 2);
+check('and none of those moved anything', payerAfterStale.right, `sender=${payerAfterStale.as}`);
+
+// === 16. The same signed transfer, sent twice. ===
+const once = transferOf(PAYER, PAYEE, 100, 2);
+const firstTime = await send('POST', once);
+const secondTime = await send('POST', once);
+const payerAfterReplay = await reads(PAYER.address, 900, 3);
+const payeeAfterReplay = await reads(PAYEE, 600, 0);
+check(
+  'the first is made and the second is a 409 stale_sequence',
+  firstTime.status === 200 && refusedAs(secondTime, 409, 'stale_sequence'),
+  `first=${firstTime.status} second=${secondTime.status} ${show(secondTime.body)}`,
+);
+check(
+  'and the coins moved once',
+  payerAfterReplay.right && payeeAfterReplay.right,
+  `sender=${payerAfterReplay.as} destination=${payeeAfterReplay.as}`,
+);
+
+// === 17. Two transfers signed at one sequence, sent together. ===
+const ROUNDS = 5;
+await fund(RACER.address, 1000);
+const racedOverTheWire: string[] = [];
+for (let round = 0; round < ROUNDS; round++) {
+  const pair = await Promise.all([
+    transfer(RACER, PAYEE, 50, round),
+    transfer(RACER, THIRD, 50, round),
+  ]);
+  racedOverTheWire.push(
+    pair
+      .map((answer) =>
+        answer.status === 200 ? 'moved' : `${answer.status} ${errorOf(answer.body)}`,
+      )
+      .sort()
+      .join(' + '),
+  );
+}
+check(
+  'through the endpoint, exactly one of each pair lands and the other is stale',
+  racedOverTheWire.every((outcome) => outcome === '409 stale_sequence + moved'),
+  `rounds=${show(racedOverTheWire)}`,
+);
+const racedInTheLedger: string[] = [];
+for (let round = ROUNDS; round < ROUNDS * 2; round++) {
+  const order = { transfer_from: RACER.address, transfer_amount: 50, transfer_sequence: round };
+  const pair = await Promise.all([
+    sr.rpc('wallet_transfer', { ...order, transfer_to: PAYEE }),
+    sr.rpc('wallet_transfer', { ...order, transfer_to: THIRD }),
+  ]);
+  racedInTheLedger.push(
+    pair
+      .map((answer) => String(answer.error?.code ?? answer.data))
+      .sort()
+      .join(' + '),
+  );
+}
+check(
+  'and the same when the function itself is called twice at once',
+  racedInTheLedger.every((outcome) => outcome === 'moved + stale_sequence'),
+  `rounds=${show(racedInTheLedger)}`,
+);
+const racerAfter = await reads(RACER.address, 1000 - 50 * ROUNDS * 2, ROUNDS * 2);
+check(
+  'the racing wallet paid once a round and its sequence number rose once a round',
+  racerAfter.right,
+  `racer=${racerAfter.as}`,
+);
+await fund(CROSS_A.address, 100);
+await fund(CROSS_B.address, 100);
+const crossed: number[] = [];
+for (let round = 0; round < ROUNDS; round++) {
+  const pair = await Promise.all([
+    transfer(CROSS_A, CROSS_B.address, 10, round),
+    transfer(CROSS_B, CROSS_A.address, 10, round),
+  ]);
+  crossed.push(...pair.map((answer) => answer.status));
+}
+const crossAAfter = await reads(CROSS_A.address, 100, ROUNDS);
+const crossBAfter = await reads(CROSS_B.address, 100, ROUNDS);
+check(
+  'two wallets paying each other at once both land, every round',
+  crossed.every((status) => status === 200) && crossAAfter.right && crossBAfter.right,
+  `statuses=${show(crossed)} a=${crossAAfter.as} b=${crossBAfter.as}`,
+);
+const heldAfterRaces = await heldInAll();
+check(
+  'and after all of it the addresses still hold exactly what was minted',
+  heldAfterRaces === minted,
+  `held=${heldAfterRaces} minted=${minted}`,
+);
+
+// === 18. A destination that can hold no more. ===
+await fund(BRIM, LARGEST - 100);
+const overflowing = await transfer(PAYER, BRIM, 101, 3);
+const payerAfterOverflow = await reads(PAYER.address, 900, 3);
+const brimAfterOverflow = await reads(BRIM, LARGEST - 100, 0);
+check(
+  'a credit that would pass the largest balance is a 409 destination_full',
+  refusedAs(overflowing, 409, 'destination_full'),
+  `status=${overflowing.status} body=${show(overflowing.body)}`,
+);
+check(
+  'and the sender keeps the coins and its sequence number',
+  payerAfterOverflow.right && brimAfterOverflow.right,
+  `sender=${payerAfterOverflow.as} destination=${brimAfterOverflow.as}`,
+);
+const topsUp = await transfer(PAYER, BRIM, 100, 3);
+const brimFull = await reads(BRIM, LARGEST, 0);
+check(
+  'a credit that lands exactly on the largest balance is taken',
+  topsUp.status === 200 && brimFull.right,
+  `status=${topsUp.status} destination=${brimFull.as}`,
+);
+
+// === 19. What the endpoint turns away before the ledger. ===
+const honest = transferOf(PAYER, PAYEE, 100, 4);
+const signedFields = (overrides: Readonly<Record<string, unknown>>) =>
+  signedBy(PAYER, { ...(JSON.parse(honest.payload) as object), ...overrides });
+for (const [label, envelope, status, error] of [
+  [
+    'a transfer whose amount was changed after it was signed',
+    { ...honest, payload: honest.payload.replace('"amount":100', '"amount":800') },
+    401,
+    'signature_invalid',
+  ],
+  [
+    'a transfer signed by another wallet under this one’s public key',
+    { ...signedBy(RACER, JSON.parse(honest.payload)), publicKey: honest.publicKey },
+    401,
+    'signature_invalid',
+  ],
+  [
+    'a transfer signed three minutes ago',
+    signedFields({ ts: Date.now() - 180_000 }),
+    401,
+    'timestamp_skew',
+  ],
+  [
+    'a transfer to the address it comes from',
+    signedFields({ to: PAYER.address }),
+    400,
+    'self_transfer',
+  ],
+  ['a transfer of nothing', signedFields({ amount: 0 }), 400, 'payload_invalid'],
+  ['a transfer of half a coin', signedFields({ amount: 0.5 }), 400, 'payload_invalid'],
+  ['a transfer to the mint label', signedFields({ to: 'coinbase' }), 400, 'payload_invalid'],
+  ['a signed read of a balance', signedFields({ action: 'balance' }), 400, 'payload_invalid'],
+  [
+    'a transfer nobody signed',
+    { action: 'transfer', to: PAYEE, amount: 100, sequence: 4 },
+    400,
+    'unknown_action',
+  ],
+] as const) {
+  const turnedAway = await send('POST', envelope);
+  check(
+    `${label} is a ${status} ${error}`,
+    refusedAs(turnedAway, status, error),
+    `status=${turnedAway.status} body=${show(turnedAway.body)}`,
+  );
+}
+const payerAfterRefusals = await reads(PAYER.address, 800, 4);
+check(
+  'and none of those moved anything',
+  payerAfterRefusals.right,
+  `sender=${payerAfterRefusals.as}`,
+);
+
+// === 20. The debit, the credit and the transfer row are one act. ===
+const ofNothing = await sr.rpc('wallet_transfer', {
+  transfer_from: PAYER.address,
+  transfer_to: PAYEE,
+  transfer_amount: 0,
+  transfer_sequence: 4,
+});
+const toItself = await sr.rpc('wallet_transfer', {
+  transfer_from: PAYER.address,
+  transfer_to: PAYER.address,
+  transfer_amount: 100,
+  transfer_sequence: 4,
+});
+const payerAfterUndone = await reads(PAYER.address, 800, 4);
+check(
+  'a transfer row the table refuses takes the debit and the sequence number back with it',
+  ofNothing.error?.code === '23514' && toItself.error?.code === '23514' && payerAfterUndone.right,
+  `nothing=${ofNothing.error?.code ?? show(ofNothing.data)} itself=${toItself.error?.code ?? show(toItself.data)} sender=${payerAfterUndone.as}`,
+);
+const unnumbered = await sr.rpc('wallet_transfer', {
+  transfer_from: PAYER.address,
+  transfer_to: PAYEE,
+  transfer_amount: 100,
+  transfer_sequence: null,
+});
+const payerAfterUnnumbered = await reads(PAYER.address, 800, 4);
+check(
+  'a transfer with no sequence number answers nothing and moves nothing',
+  unnumbered.error === null && unnumbered.data === null && payerAfterUnnumbered.right,
+  `error=${unnumbered.error?.message ?? 'none'} data=${show(unnumbered.data)} sender=${payerAfterUnnumbered.as}`,
+);
+const anonTransfer = await anon.rpc('wallet_transfer', {
+  transfer_from: PAYER.address,
+  transfer_to: PAYEE,
+  transfer_amount: 100,
+  transfer_sequence: 4,
+});
+const payerAfterAnon = await reads(PAYER.address, 800, 4);
+check(
+  'a client holding only the anon key cannot move coins',
+  anonTransfer.error?.code === '42501' &&
+    anonTransfer.error.message.includes('function wallet_transfer') &&
+    payerAfterAnon.right,
+  `error=${anonTransfer.error?.message ?? 'none (it moved)'} sender=${payerAfterAnon.as}`,
+);
+
+// === 21. Everything the sender did, and what it all adds up to. ===
+const payerRows = await transfersFrom(PAYER.address);
+check(
+  'the sender’s transfers are the four that were made, in order, and no other',
+  show(payerRows) ===
+    show([
+      { to_address: PAYEE, amount: 200 },
+      { to_address: PAYEE, amount: 300 },
+      { to_address: PAYEE, amount: 100 },
+      { to_address: BRIM, amount: 100 },
+    ]),
+  `rows=${show(payerRows)}`,
+);
+const heldAtTheEnd = await heldInAll();
+check(
+  'what the addresses hold adds up to what was minted, to the coin',
+  heldAtTheEnd === minted,
+  `held=${heldAtTheEnd} minted=${minted}`,
 );
 
 await cleanup();

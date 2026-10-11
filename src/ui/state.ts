@@ -186,7 +186,7 @@ import {
   resolveInnerGateway,
   type NetworkClientDeps,
 } from '../adapters/networkApi.js';
-import { readBalance } from '../adapters/walletApi.js';
+import { readBalance, sendTransfer } from '../adapters/walletApi.js';
 import type { OccupantProjection } from '../core/network/resolveOccupants.js';
 import type { HomeNetworkAssignment } from '../core/network/homeNetwork.js';
 import { lanLeaseCacheIn } from '../core/network/lanLeaseCache.js';
@@ -2029,6 +2029,9 @@ const executeLine = async (line: string): Promise<void> => {
     onChainOpenSessionIds: chainOpenSessionIds,
     // Nothing of the player's goes with it: the ledger answers anyone about any address.
     onWalletBalance: (address) => readBalance({}, address),
+    // Signed by the key in the order, which is the wallet's. The player's identity is
+    // not handed over, so it cannot sign or ride along.
+    onWalletTransfer: (order) => sendTransfer({}, order),
     onMysqlConnect: mysqlConnect,
     onMysqlStatement: mysqlStatement,
     onMysqlEnter: enterMysqlSession,

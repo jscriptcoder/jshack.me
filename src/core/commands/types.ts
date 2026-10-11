@@ -26,6 +26,7 @@ import type { SnmpSetRefusal } from '../snmp/set.js';
 import type { EffectName, Effects } from '../theme/effects.js';
 import type { ThemeId } from '../theme/themes.js';
 import type { FlagSpec } from '../shell/bindFlags.js';
+import type { TransferRefusal } from '../wallet/handleWalletTransfer.js';
 
 // ---- Identity & session (read-only snapshots in CommandEnv) ----
 
@@ -1541,10 +1542,29 @@ export type WalletBalanceResult =
   /** OUR side failing to ask, or an answer that was not one. Never a balance. */
   | { readonly ok: false; readonly error: 'network_error' };
 
+/** What the wallet hands over to move coins: the key that signs, and what it
+ *  signs. The sending address is the key's own and is named nowhere. */
+export type WalletTransferOrder = {
+  /** Hex-encoded private key of the sending wallet. Signs, and is never sent. */
+  readonly keyHex: string;
+  readonly to: string;
+  readonly amount: number;
+  /** The sending address's next sequence number, as a balance read gave it. */
+  readonly sequence: number;
+};
+
+export type WalletTransferResult =
+  | { readonly ok: true }
+  /** The ledger's own refusal, or OUR side failing to ask. After a
+   *  `network_error` the coins may have moved or not: nothing here knows. */
+  | { readonly ok: false; readonly error: TransferRefusal | 'network_error' };
+
 /** The ledger seam. The ledger is public and knows addresses, not players, so a
- *  read names an address and carries nothing that says who is asking. */
+ *  read names an address and carries nothing that says who is asking, and a
+ *  transfer is signed by the wallet's key and not the player's. */
 export type WalletApi = {
   readonly balance: (address: string) => Promise<WalletBalanceResult>;
+  readonly transfer: (order: WalletTransferOrder) => Promise<WalletTransferResult>;
 };
 
 // ---- The boundary ----

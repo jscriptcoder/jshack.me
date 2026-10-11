@@ -20,10 +20,20 @@ import { bytesToHex, hexToBytes } from '../identity/hex.js';
 import { assignHomeNetwork } from '../network/homeNetwork.js';
 import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces.js';
 import { asAbsPath, type UserType } from '../types.js';
-import type { CommandEnv, CommandResult, PatchApi, WalletBalanceResult } from './types.js';
+import type {
+  CommandEnv,
+  CommandResult,
+  PatchApi,
+  WalletBalanceResult,
+  WalletTransferOrder,
+  WalletTransferResult,
+} from './types.js';
 import type { Directory, FileNode } from '../filesystem/types.js';
 
 const NO_FLAGS = new Map<string, string | true>();
+
+const SYNOPSIS = 'wallet init | balance [address] | send <address> <amount>';
+const USAGE = `wallet: usage: ${SYNOPSIS}`;
 
 const linesOf = (result: CommandResult, kind: 'text' | 'error'): string[] =>
   result.kind === 'sync'
@@ -458,35 +468,68 @@ const joinedConnectivity = (): ConnectivityState => {
 };
 
 /** A shell that can reach the ledger, and a ledger that answers from `held` and
- *  keeps every address it was asked about. An address it does not hold reads as
- *  the real one reads an address it has never seen. */
+ *  keeps every address it was asked about and every transfer it was sent. An
+ *  address it does not hold reads as the real one reads an address it has never
+ *  seen. It moves no coins: what a transfer comes back as is `transfers`. */
 const ledgerEnv = (
   options: Parameters<typeof walletEnv>[0] & {
     readonly held?: Readonly<Record<string, number>>;
+    /** The next sequence number of each address that has sent before. */
+    readonly sequences?: Readonly<Record<string, number>>;
     /** Absent, the shell stands on a workstation that has joined a network. */
     readonly connectivity?: ConnectivityState;
     readonly essid?: string | null;
     /** What every read comes back as, in place of an answer from `held`. */
     readonly answers?: WalletBalanceResult;
+    /** What every transfer comes back as. Absent, the ledger makes it. */
+    readonly transfers?: WalletTransferResult;
   } = {},
-): { readonly env: CommandEnv; readonly asked: readonly string[] } => {
+): {
+  readonly env: CommandEnv;
+  readonly asked: readonly string[];
+  readonly sent: readonly WalletTransferOrder[];
+  /** Everything the command wrote to a box: patches asked for and log lines. */
+  readonly written: readonly string[];
+} => {
   const asked: string[] = [];
-  const { env } = walletEnv(options);
+  const sent: WalletTransferOrder[] = [];
+  const logged: string[] = [];
+  const box = walletEnv(options);
+  const logs = (line: string) => async () => {
+    logged.push(line);
+  };
   return {
     env: {
-      ...env,
-      session: { ...env.session, essid: options.essid ?? null },
+      ...box.env,
+      session: { ...box.env.session, essid: options.essid ?? null },
       network: mockNetworkViewFromConnectivity(options.connectivity ?? joinedConnectivity()),
+      log: {
+        appendAuthLog: logs('auth.log'),
+        appendKernLog: logs('kern.log'),
+        appendAccessLog: logs('access.log'),
+      },
       wallet: {
         balance: async (address) => {
           asked.push(address);
           return (
-            options.answers ?? { ok: true, balance: options.held?.[address] ?? 0, nextSequence: 0 }
+            options.answers ?? {
+              ok: true,
+              balance: options.held?.[address] ?? 0,
+              nextSequence: options.sequences?.[address] ?? 0,
+            }
           );
+        },
+        transfer: async (order) => {
+          sent.push(order);
+          return options.transfers ?? { ok: true };
         },
       },
     },
     asked,
+    sent,
+    get written() {
+      return [...box.asked, ...logged];
+    },
   };
 };
 
@@ -690,7 +733,7 @@ describe('wallet balance — what it refuses without asking the ledger', () => {
 
     const result = await wallet.execute(env, ['balance', SOMEBODY, SOMEBODY], NO_FLAGS);
 
-    expect(errorLines(result)).toEqual(['wallet: usage: wallet init | balance [address]']);
+    expect(errorLines(result)).toEqual([USAGE]);
     expect(exitCodeOf(result)).toBe(1);
     expect(asked).toEqual([]);
   });
@@ -757,12 +800,337 @@ describe('wallet balance — a ledger that does not answer', () => {
   });
 });
 
+/** A box where alice's wallet holds `keyHex`. */
+const boxWithKey = (keyHex: string): Directory =>
+  boxWithWalletDirectory({
+    'wallet.dat': buildFile(`address: ${addressOfKey(keyHex)}\nkey: ${keyHex}\n`, {
+      owner: 'alice',
+    }),
+  });
+
+const OWN = addressOfKey(SOME_KEY);
+
+const refusedWith = (message: string): CommandResult => ({
+  kind: 'sync',
+  lines: [{ kind: 'error', content: message }],
+  exitCode: 1,
+});
+
+describe('wallet send — coins leaving the wallet in place', () => {
+  it('prints what moved and where to', async () => {
+    const { env, asked, sent } = ledgerEnv({ tree: boxWithKey(SOME_KEY), held: { [OWN]: 500 } });
+
+    const result = await wallet.execute(env, ['send', SOMEBODY, '200'], NO_FLAGS);
+
+    expect(result).toEqual({
+      kind: 'sync',
+      lines: [{ kind: 'text', content: `sent 200 JSC to ${SOMEBODY}` }],
+      exitCode: 0,
+    });
+    expect(asked).toEqual([OWN]);
+    expect(sent).toEqual([{ keyHex: SOME_KEY, to: SOMEBODY, amount: 200, sequence: 0 }]);
+  });
+
+  it('names the sequence number the ledger gave for its own address', async () => {
+    const { env, sent } = ledgerEnv({
+      tree: boxWithKey(SOME_KEY),
+      held: { [OWN]: 500 },
+      sequences: { [OWN]: 7, [SOMEBODY]: 3 },
+    });
+
+    await wallet.execute(env, ['send', SOMEBODY, '200'], NO_FLAGS);
+
+    expect(sent.map((order) => order.sequence)).toEqual([7]);
+  });
+
+  it('sends a single coin, and the largest amount there is, exactly', async () => {
+    const { env, sent } = ledgerEnv({ tree: boxWithKey(SOME_KEY) });
+
+    const one = await wallet.execute(env, ['send', SOMEBODY, '1'], NO_FLAGS);
+    const all = await wallet.execute(env, ['send', SOMEBODY, '9007199254740991'], NO_FLAGS);
+
+    expect(textLines(one)).toEqual([`sent 1 JSC to ${SOMEBODY}`]);
+    expect(textLines(all)).toEqual([`sent 9007199254740991 JSC to ${SOMEBODY}`]);
+    expect(sent.map((order) => order.amount)).toEqual([1, Number.MAX_SAFE_INTEGER]);
+  });
+
+  it('signs with the key line, whatever the address line says', async () => {
+    const tree = boxWithWalletDirectory({
+      'wallet.dat': buildFile(`address: ${addressOfKey(OTHER_KEY)}\nkey: ${SOME_KEY}\n`, {
+        owner: 'alice',
+      }),
+    });
+    const { env, asked, sent } = ledgerEnv({ tree });
+
+    await wallet.execute(env, ['send', SOMEBODY, '200'], NO_FLAGS);
+
+    expect(asked).toEqual([OWN]);
+    expect(sent.map((order) => order.keyHex)).toEqual([SOME_KEY]);
+  });
+
+  it('sends from the wallet a guest shell made', async () => {
+    const made = walletEnv({ userType: 'guest', username: 'guest' });
+    await wallet.execute(made.env, ['init'], NO_FLAGS);
+    const { address, key } = walletAt(made.treeAfter(), '/home/guest/.wallet/wallet.dat');
+    const { env, asked, sent } = ledgerEnv({
+      tree: made.treeAfter(),
+      userType: 'guest',
+      username: 'guest',
+    });
+
+    const result = await wallet.execute(env, ['send', SOMEBODY, '200'], NO_FLAGS);
+
+    expect(exitCodeOf(result)).toBe(0);
+    expect(asked).toEqual([address]);
+    expect(sent.map((order) => order.keyHex)).toEqual([key]);
+  });
+
+  it('sends to an address that could be anybody’s, with no check that it is held', async () => {
+    const nobody = `jsc${'f'.repeat(40)}`;
+    const { env, asked, sent } = ledgerEnv({ tree: boxWithKey(SOME_KEY) });
+
+    const result = await wallet.execute(env, ['send', nobody, '200'], NO_FLAGS);
+
+    expect(textLines(result)).toEqual([`sent 200 JSC to ${nobody}`]);
+    expect(asked).toEqual([OWN]);
+    expect(sent.map((order) => order.to)).toEqual([nobody]);
+  });
+
+  it('leaves it to the ledger to say whether the balance covers the amount', async () => {
+    const { env, sent } = ledgerEnv({ tree: boxWithKey(SOME_KEY), held: { [OWN]: 100 } });
+
+    const result = await wallet.execute(env, ['send', SOMEBODY, '200'], NO_FLAGS);
+
+    expect(textLines(result)).toEqual([`sent 200 JSC to ${SOMEBODY}`]);
+    expect(sent).toHaveLength(1);
+  });
+
+  it('asks from a box the shell hopped to, whatever the player’s own card is doing', async () => {
+    const { env, sent } = ledgerEnv({
+      tree: boxWithKey(SOME_KEY),
+      essid: ESSID,
+      connectivity: buildColdStartConnectivity(PLAYER_KEY),
+    });
+
+    const result = await wallet.execute(env, ['send', SOMEBODY, '200'], NO_FLAGS);
+
+    expect(exitCodeOf(result)).toBe(0);
+    expect(sent).toHaveLength(1);
+  });
+
+  it('writes nothing to the box and adds a line to no log', async () => {
+    const { env, written } = ledgerEnv({ tree: boxWithKey(SOME_KEY), held: { [OWN]: 500 } });
+
+    await wallet.execute(env, ['send', SOMEBODY, '200'], NO_FLAGS);
+
+    expect(written).toEqual([]);
+  });
+});
+
+describe('wallet send — a transfer the ledger does not make', () => {
+  it('says the wallet does not hold enough, and names the wallet', async () => {
+    const { env, sent } = ledgerEnv({
+      tree: boxWithKey(SOME_KEY),
+      transfers: { ok: false, error: 'insufficient_balance' },
+    });
+
+    const result = await wallet.execute(env, ['send', SOMEBODY, '200'], NO_FLAGS);
+
+    expect(result).toEqual(refusedWith(`wallet: not enough JSC at ${OWN}`));
+    expect(sent).toHaveLength(1);
+  });
+
+  it.each([
+    ['another holder of the key sent first', 'stale_sequence'],
+    ['the destination can hold no more', 'destination_full'],
+  ] as const)('says only that the ledger refused when %s', async (_label, error) => {
+    const { env } = ledgerEnv({ tree: boxWithKey(SOME_KEY), transfers: { ok: false, error } });
+
+    const result = await wallet.execute(env, ['send', SOMEBODY, '200'], NO_FLAGS);
+
+    expect(result).toEqual(refusedWith('wallet: the ledger refused the transfer'));
+  });
+
+  it('says the ledger did not answer when the transfer got no answer', async () => {
+    const { env } = ledgerEnv({
+      tree: boxWithKey(SOME_KEY),
+      transfers: { ok: false, error: 'network_error' },
+    });
+
+    const result = await wallet.execute(env, ['send', SOMEBODY, '200'], NO_FLAGS);
+
+    expect(result).toEqual(refusedWith('wallet: the ledger did not answer'));
+  });
+
+  it('sends nothing when it could not read its sequence number', async () => {
+    const { env, asked, sent } = ledgerEnv({
+      tree: boxWithKey(SOME_KEY),
+      answers: { ok: false, error: 'network_error' },
+    });
+
+    const result = await wallet.execute(env, ['send', SOMEBODY, '200'], NO_FLAGS);
+
+    expect(result).toEqual(refusedWith('wallet: the ledger did not answer'));
+    expect(asked).toEqual([OWN]);
+    expect(sent).toEqual([]);
+  });
+});
+
+describe('wallet send — what it refuses without asking the ledger', () => {
+  it.each([
+    ['no address and no amount', ['send']],
+    ['an address and no amount', ['send', SOMEBODY]],
+    ['a third word', ['send', SOMEBODY, '200', 'JSC']],
+    ['a third word that is empty', ['send', SOMEBODY, '200', '']],
+  ])('prints the usage for %s', async (_label, args) => {
+    const { env, asked, sent } = ledgerEnv({ tree: boxWithKey(SOME_KEY) });
+
+    const result = await wallet.execute(env, args, NO_FLAGS);
+
+    expect(result).toEqual(refusedWith(USAGE));
+    expect([...asked, ...sent]).toEqual([]);
+  });
+
+  it.each([
+    ['the mint’s label', 'coinbase'],
+    ['an address in upper case', SOMEBODY.toUpperCase()],
+    ['an address one character short', SOMEBODY.slice(0, -1)],
+    ['an address one character long', `${SOMEBODY}0`],
+    ['a bare key', OTHER_KEY],
+    ['nothing at all', ''],
+  ])('takes %s for no address', async (_label, text) => {
+    const { env, asked, sent } = ledgerEnv({ tree: boxWithKey(SOME_KEY) });
+
+    const result = await wallet.execute(env, ['send', text, '200'], NO_FLAGS);
+
+    expect(result).toEqual(refusedWith(`wallet: '${text}' is not an address`));
+    expect([...asked, ...sent]).toEqual([]);
+  });
+
+  it.each([
+    ['nothing', '0'],
+    ['one past the largest the ledger holds', '9007199254740992'],
+    ['a fraction', '2.5'],
+    ['a whole number written with a fraction', '250.0'],
+    ['an exponent', '1e3'],
+    ['a plus sign', '+5'],
+    ['a negative amount', '-5'],
+    ['a leading zero', '0250'],
+    ['an amount with its unit', '250JSC'],
+    ['a word', 'all'],
+    ['an empty amount', ''],
+  ])('takes %s for no amount', async (_label, text) => {
+    const { env, asked, sent } = ledgerEnv({ tree: boxWithKey(SOME_KEY) });
+
+    const result = await wallet.execute(env, ['send', SOMEBODY, text], NO_FLAGS);
+
+    expect(result).toEqual(refusedWith(`wallet: '${text}' is not an amount`));
+    expect([...asked, ...sent]).toEqual([]);
+  });
+
+  it('names the file that is not there when no wallet is in place', async () => {
+    const { env, asked, sent } = ledgerEnv();
+
+    const result = await wallet.execute(env, ['send', SOMEBODY, '200'], NO_FLAGS);
+
+    expect(result).toEqual(refusedWith(`wallet: no wallet at ${ALICE_WALLET}`));
+    expect([...asked, ...sent]).toEqual([]);
+  });
+
+  it('finds no key in a wallet that was encrypted where it lay', async () => {
+    const tree = boxWithWalletDirectory({
+      'wallet.dat': buildFile('jA0ECQMCm1Zr3n0p+uX/0kABm9w3kq1c0de', { owner: 'alice' }),
+    });
+    const { env, asked, sent } = ledgerEnv({ tree });
+
+    const result = await wallet.execute(env, ['send', SOMEBODY, '200'], NO_FLAGS);
+
+    expect(result).toEqual(refusedWith(`wallet: no key in ${ALICE_WALLET}`));
+    expect([...asked, ...sent]).toEqual([]);
+  });
+
+  it('says so when the wallet is there and this tier may not read it', async () => {
+    const tree = boxWithWalletDirectory({
+      'wallet.dat': buildFile(`key: ${SOME_KEY}\n`, {
+        owner: 'root',
+        perms: { read: ['root'], write: ['root'], execute: [] },
+      }),
+    });
+    const { env, asked, sent } = ledgerEnv({ tree });
+
+    const result = await wallet.execute(env, ['send', SOMEBODY, '200'], NO_FLAGS);
+
+    expect(result).toEqual(refusedWith(`wallet: can't read '${ALICE_WALLET}': Permission denied`));
+    expect([...asked, ...sent]).toEqual([]);
+  });
+
+  it('refuses to send to the address of the wallet in place', async () => {
+    const { env, asked, sent } = ledgerEnv({ tree: boxWithKey(SOME_KEY), held: { [OWN]: 500 } });
+
+    const result = await wallet.execute(env, ['send', OWN, '200'], NO_FLAGS);
+
+    expect(result).toEqual(refusedWith(`wallet: can't send to this wallet's own address`));
+    expect([...asked, ...sent]).toEqual([]);
+  });
+
+  it('refuses with nowhere to ask from', async () => {
+    const { env, asked, sent } = ledgerEnv({
+      tree: boxWithKey(SOME_KEY),
+      connectivity: buildColdStartConnectivity(PLAYER_KEY),
+    });
+
+    const result = await wallet.execute(env, ['send', SOMEBODY, '200'], NO_FLAGS);
+
+    expect(result).toEqual(
+      refusedWith('wallet: network is unreachable — connect to a network first'),
+    );
+    expect([...asked, ...sent]).toEqual([]);
+  });
+});
+
+describe('wallet send — which refusal comes first', () => {
+  const offline = { connectivity: buildColdStartConnectivity(PLAYER_KEY) };
+
+  it('reports text that is not an address before an amount that is not one', async () => {
+    const { env } = ledgerEnv();
+
+    const result = await wallet.execute(env, ['send', 'coinbase', 'lots'], NO_FLAGS);
+
+    expect(errorLines(result)).toEqual([`wallet: 'coinbase' is not an address`]);
+  });
+
+  it('reports an amount that is not one before the missing wallet', async () => {
+    const { env } = ledgerEnv();
+
+    const result = await wallet.execute(env, ['send', SOMEBODY, 'lots'], NO_FLAGS);
+
+    expect(errorLines(result)).toEqual([`wallet: 'lots' is not an amount`]);
+  });
+
+  it('reports a missing wallet before the missing network', async () => {
+    const { env } = ledgerEnv(offline);
+
+    const result = await wallet.execute(env, ['send', SOMEBODY, '200'], NO_FLAGS);
+
+    expect(errorLines(result)).toEqual([`wallet: no wallet at ${ALICE_WALLET}`]);
+  });
+
+  it('reports a send to its own address before the missing network', async () => {
+    const { env } = ledgerEnv({ ...offline, tree: boxWithKey(SOME_KEY) });
+
+    const result = await wallet.execute(env, ['send', OWN, '200'], NO_FLAGS);
+
+    expect(errorLines(result)).toEqual([`wallet: can't send to this wallet's own address`]);
+  });
+});
+
 describe('wallet — anything that is not a subcommand', () => {
   it.each([
     ['no argument', []],
     ['an unknown subcommand', ['nope']],
     ['a subcommand in the wrong case', ['INIT']],
     ['another subcommand in the wrong case', ['Balance']],
+    ['a third subcommand in the wrong case', ['SEND', SOMEBODY, '200']],
   ])('prints the usage for %s and makes nothing', async (_label, args) => {
     const { env, asked } = walletEnv();
 
@@ -770,7 +1138,7 @@ describe('wallet — anything that is not a subcommand', () => {
 
     expect(result).toEqual({
       kind: 'sync',
-      lines: [{ kind: 'error', content: 'wallet: usage: wallet init | balance [address]' }],
+      lines: [{ kind: 'error', content: USAGE }],
       exitCode: 1,
     });
     expect(asked).toEqual([]);
@@ -796,8 +1164,33 @@ describe('wallet — what the manual promises', () => {
     }
   });
 
-  it('names init and balance, and nothing else, as what a wallet does', () => {
-    expect(wallet.manual?.synopsis).toBe('wallet init | balance [address]');
-    expect(wallet.manual?.arguments?.[0]?.values).toEqual(['init', 'balance']);
+  it('shows a send in its examples that a wallet holding enough can make', async () => {
+    const shown = (wallet.manual?.examples ?? [])
+      .map((example) => example.command.split(' '))
+      .filter(([, subcommand]) => subcommand === 'send');
+    expect(shown).toHaveLength(1);
+
+    for (const [, ...args] of shown) {
+      const { env, sent } = ledgerEnv({ tree: boxWithKey(SOME_KEY) });
+
+      const result = await wallet.execute(env, args, NO_FLAGS);
+
+      expect(exitCodeOf(result)).toBe(0);
+      expect(sent).toHaveLength(1);
+    }
+  });
+
+  it('names init, balance and send, and nothing else, as what a wallet does', () => {
+    expect(wallet.manual?.synopsis).toBe(SYNOPSIS);
+    expect(wallet.manual?.arguments?.[0]?.values).toEqual(['init', 'balance', 'send']);
+  });
+
+  it('says in the manual what send takes and what it costs to get wrong', () => {
+    expect(wallet.manual?.arguments?.map((argument) => argument.name)).toEqual([
+      'command',
+      'address',
+      'amount',
+    ]);
+    expect(wallet.manual?.description).toContain('"send"');
   });
 });

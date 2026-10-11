@@ -1,11 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { readBalance } from './walletApi.js';
+import * as ed from '@noble/ed25519';
+import { sha256 } from '@noble/hashes/sha2.js';
+import { readBalance, sendTransfer } from './walletApi.js';
+import { bytesToHex, hexToBytes } from '../core/identity/hex.js';
+import { handleWalletTransfer, type TransferOrder } from '../core/wallet/handleWalletTransfer.js';
 
 /**
  * walletApi — the `/api/wallet` client behind `env.wallet`.
  *
  * A balance read is unsigned: the ledger is public, and nothing the player holds
- * travels with the question.
+ * travels with the question. A transfer is signed, by the wallet's key and by
+ * nothing of the player's.
  */
 
 const ENDPOINT = 'http://test.local/api/wallet';
@@ -107,6 +112,132 @@ describe('readBalance', () => {
     const { fetchImpl } = serverThat(respond);
 
     const result = await readBalance({ endpoint: ENDPOINT, fetchImpl }, ADDRESS);
+
+    expect(result).toEqual({ ok: false, error: 'network_error' });
+  });
+});
+
+const WALLET_KEY = 'c0ffee'.repeat(11).slice(0, 64);
+
+/** The public half of a key and the address it answers to, worked out here from
+ *  the rule itself so the test does not ask the code under test for its answer. */
+const publicHalfOf = (keyHex: string): { readonly publicKey: string; readonly address: string } => {
+  const privateKey = hexToBytes(keyHex);
+  if (privateKey === null) throw new Error(`not a hex key: ${keyHex}`);
+  const publicKey = ed.getPublicKey(privateKey);
+  return {
+    publicKey: bytesToHex(publicKey),
+    address: `jsc${bytesToHex(sha256(publicKey)).slice(0, 40)}`,
+  };
+};
+
+const SEND_200 = { keyHex: WALLET_KEY, to: ADDRESS, amount: 200, sequence: 3 };
+
+describe('sendTransfer', () => {
+  it('reports a transfer the ledger made', async () => {
+    const { fetchImpl } = serverThat(() => jsonResponse(200, { ok: true }));
+
+    const result = await sendTransfer({ endpoint: ENDPOINT, fetchImpl }, SEND_200);
+
+    expect(result).toEqual({ ok: true });
+  });
+
+  it('sends a transfer the ledger takes as coming from the key’s own address', async () => {
+    const moved: TransferOrder[] = [];
+    const fetchImpl: typeof fetch = async (_input, init) => {
+      const { status, body } = await handleWalletTransfer(JSON.parse(String(init?.body)), {
+        nonceStore: async () => ({ fresh: true }),
+        transfer: async (order) => {
+          moved.push(order);
+          return { data: 'moved', error: null };
+        },
+      });
+      return jsonResponse(status, body);
+    };
+
+    const result = await sendTransfer({ endpoint: ENDPOINT, fetchImpl }, SEND_200);
+
+    expect(result).toEqual({ ok: true });
+    expect(moved).toEqual([
+      { from: publicHalfOf(WALLET_KEY).address, to: ADDRESS, amount: 200, sequence: 3 },
+    ]);
+  });
+
+  it('posts one envelope, carrying the wallet’s public key and never its private one', async () => {
+    const { fetchImpl, sent } = serverThat(() => jsonResponse(200, { ok: true }));
+
+    await sendTransfer({ endpoint: ENDPOINT, fetchImpl }, SEND_200);
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.url).toBe(ENDPOINT);
+    expect(sent[0]?.init?.method).toBe('POST');
+    expect(sent[0]?.init?.headers).toEqual({ 'Content-Type': 'application/json' });
+    const envelope = JSON.parse(String(sent[0]?.init?.body)) as Record<string, string>;
+    expect(Object.keys(envelope).sort()).toEqual(['payload', 'publicKey', 'signature']);
+    expect(envelope.publicKey).toBe(publicHalfOf(WALLET_KEY).publicKey);
+    expect(String(sent[0]?.init?.body)).not.toContain(WALLET_KEY);
+  });
+
+  it('signs the destination, the amount and the sequence number, and nothing of the player’s', async () => {
+    const { fetchImpl, sent } = serverThat(() => jsonResponse(200, { ok: true }));
+
+    await sendTransfer({ endpoint: ENDPOINT, fetchImpl }, SEND_200);
+
+    const envelope = JSON.parse(String(sent[0]?.init?.body)) as { readonly payload: string };
+    expect(JSON.parse(envelope.payload)).toEqual({
+      action: 'transfer',
+      to: ADDRESS,
+      amount: 200,
+      sequence: 3,
+      nonce: expect.stringMatching(/^[0-9a-f]{32}$/),
+      ts: expect.any(Number),
+    });
+  });
+
+  it('posts to the game’s own wallet endpoint when none is named', async () => {
+    const { fetchImpl, sent } = serverThat(() => jsonResponse(200, { ok: true }));
+
+    await sendTransfer({ fetchImpl }, SEND_200);
+
+    expect(sent[0]?.url).toBe('/api/wallet');
+  });
+
+  it.each(['stale_sequence', 'insufficient_balance', 'destination_full'] as const)(
+    'reports why the ledger left the coins where they were: %s',
+    async (refusal) => {
+      const { fetchImpl } = serverThat(() => jsonResponse(409, { error: refusal }));
+
+      const result = await sendTransfer({ endpoint: ENDPOINT, fetchImpl }, SEND_200);
+
+      expect(result).toEqual({ ok: false, error: refusal });
+    },
+  );
+
+  it.each([
+    ['a transfer the server would not read', () => jsonResponse(400, { error: 'payload_invalid' })],
+    [
+      'a signature the server did not accept',
+      () => jsonResponse(401, { error: 'signature_invalid' }),
+    ],
+    ['a server error', () => jsonResponse(500, { error: 'transfer_failed' })],
+    ['an error status that says the coins moved', () => jsonResponse(500, { ok: true })],
+    ['a refusal with no reason', () => jsonResponse(409, {})],
+    ['a refusal in upper case', () => jsonResponse(409, { error: 'STALE_SEQUENCE' })],
+    ['an ok status with a refusal in it', () => jsonResponse(200, { error: 'stale_sequence' })],
+    ['an ok status that does not say the coins moved', () => jsonResponse(200, {})],
+    ['an ok status that says they did not', () => jsonResponse(200, { ok: false })],
+    ['a body that is not JSON', () => new Response('<html>502</html>', { status: 200 })],
+    ['an answer that is not an object', () => jsonResponse(200, null)],
+    [
+      'a request that never completes',
+      () => {
+        throw new TypeError('Failed to fetch');
+      },
+    ],
+  ])('reports %s as a ledger that did not answer', async (_label, respond) => {
+    const { fetchImpl } = serverThat(respond);
+
+    const result = await sendTransfer({ endpoint: ENDPOINT, fetchImpl }, SEND_200);
 
     expect(result).toEqual({ ok: false, error: 'network_error' });
   });
