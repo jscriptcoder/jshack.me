@@ -283,10 +283,11 @@ export const mockExploitApi = (overrides: Partial<ExploitApi> = {}): ExploitApi 
 });
 
 /** The ledger seam. Load-bearing: its answer IS the balance, so an unstubbed read
- *  must be loud rather than report an address as holding nothing, and an
- *  unstubbed transfer rather than report coins as moved. */
+ *  must be loud rather than report an address as holding nothing or as having
+ *  done nothing, and an unstubbed transfer rather than report coins as moved. */
 export const mockWalletApi = (overrides: Partial<WalletApi> = {}): WalletApi => ({
   balance: NOT_IMPLEMENTED('wallet.balance'),
+  history: NOT_IMPLEMENTED('wallet.history'),
   transfer: NOT_IMPLEMENTED('wallet.transfer'),
   ...overrides,
 });

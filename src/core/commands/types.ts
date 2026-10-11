@@ -26,6 +26,7 @@ import type { SnmpSetRefusal } from '../snmp/set.js';
 import type { EffectName, Effects } from '../theme/effects.js';
 import type { ThemeId } from '../theme/themes.js';
 import type { FlagSpec } from '../shell/bindFlags.js';
+import type { TransferRecord } from '../wallet/handleWalletHistory.js';
 import type { TransferRefusal } from '../wallet/handleWalletTransfer.js';
 
 // ---- Identity & session (read-only snapshots in CommandEnv) ----
@@ -1559,11 +1560,20 @@ export type WalletTransferResult =
    *  `network_error` the coins may have moved or not: nothing here knows. */
   | { readonly ok: false; readonly error: TransferRefusal | 'network_error' };
 
+/** What one address has sent and received, newest first. The ledger hands over
+ *  only the latest few and never says whether there were more. An address it has
+ *  never seen has an empty list, not an error. */
+export type WalletHistoryResult =
+  | { readonly ok: true; readonly transfers: readonly TransferRecord[] }
+  /** OUR side failing to ask, or an answer that was not one. Never part of a list. */
+  | { readonly ok: false; readonly error: 'network_error' };
+
 /** The ledger seam. The ledger is public and knows addresses, not players, so a
  *  read names an address and carries nothing that says who is asking, and a
  *  transfer is signed by the wallet's key and not the player's. */
 export type WalletApi = {
   readonly balance: (address: string) => Promise<WalletBalanceResult>;
+  readonly history: (address: string) => Promise<WalletHistoryResult>;
   readonly transfer: (order: WalletTransferOrder) => Promise<WalletTransferResult>;
 };
 
