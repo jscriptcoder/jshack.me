@@ -1,8 +1,8 @@
 # Plan: crypto wallet
 
-**Status**: Grilled, reviewed for gaps, and sliced. Decisions confirmed by the owner 2026-10-11;
-seven slices planned, none started. Nothing in the repo covered money before this file. Where
-another doc disagrees with it, this file wins.
+**Status**: Grilled, reviewed for gaps, and sliced. Decisions confirmed by the owner 2026-10-11.
+Slice 1 merged at v0.357.0 (PR #653); slice 2 is next. Nothing in the repo covered money before
+this file. Where another doc disagrees with it, this file wins.
 
 ## Goal
 
@@ -141,9 +141,11 @@ Gaps found by reading this plan against the code, each answered by the owner.
 - **The wallet needs a network, except `init`.** `balance`, `history`, `send` and `sweep`
   refuse on a box with no connection, in the wording `dig` and `whois` use:
   `wallet: network is unreachable — connect to a network first`. `init` makes a key with no
-  network. In a shell on another box the check reads the player's own connection, as every
-  command reading `env.network` from a hop does (`docs/project-status.md`, D2). Rejected: a
-  wallet that reaches the ledger with no connection.
+  network. The check is the one `dig`, `whois` and `apt` make (`network/vantage.ts`): on the
+  player's own workstation it is their WiFi card, and in a shell on another box it is that
+  box's network, whatever the player's own card is doing. Corrected 2026-10-11 when slice 2's
+  criteria were confirmed; the first wording said a hop reads the player's own connection,
+  which the code does not do. Rejected: a wallet that reaches the ledger with no connection.
 - **`coinbase` is a label, not an address.** It is the word a history line prints for a mint.
   `wallet history coinbase` and `wallet balance coinbase` are refused like any text that is not
   address-shaped, and nothing lists addresses. A player learns an address by reading a key file
@@ -292,6 +294,25 @@ format) → `env.patches` writes `~/.wallet/wallet.dat`. Client only; no server.
 line is derived from its key line.
 **Wire-check**: `N/A`, no `api/` change.
 
+**Merged 2026-10-11, PR #653.** As built, beyond the criteria above:
+
+- **Wordings.** `wallet: a wallet already exists at <path>`;
+  `wallet: can't create '<path>': <reason>` when the home is missing or not writable, `.wallet`
+  is a file, or the box turns a write down; `wallet: usage: wallet init`. The usage line names
+  only what works, so each later slice extends it, along with the manual's synopsis and its
+  first argument's `values`, which is what tab completion offers.
+- **"Exists" is anything at the path**, a file with no key in it included, and it is asked of
+  the machine (`env.fs.reload()`), so a wallet made in another terminal is not replaced.
+- **Reach is stamped, not inherited.** `wallet.dat` is `[root, <tier>]` for read and write and
+  executable by nobody; `.wallet` is `[root, <tier>]` for read, write and enter. `init` makes
+  the directory, then narrows it, then writes the key, and stops at the first step the box
+  refuses. A `.wallet` already there is kept, narrowed and not made again.
+- **`help` files it under Network.** The registry guard that sorts Network commands records
+  `wallet` as box-local: it talks to the ledger, which is no machine.
+- **Code**: `core/commands/wallet.ts`, and `core/wallet/walletKey.ts` for the key, the address
+  rule and the file format. Slices 2 to 6 need two things it does not have yet: a check that
+  text is address-shaped, and reading a key back out of a file.
+
 ### Slice 2: anyone can read a balance (v0.358.0)
 
 **Value**: a player asks what an address holds and the ledger answers, for their own wallet or
@@ -300,19 +321,35 @@ anybody's.
 `core/wallet/handleWalletBalance` → `wallet_balances`. The walking skeleton of the server half.
 **Acceptance criteria**:
 
-- `wallet balance` with a wallet in place prints `<own address>  0 JSC`.
-- `wallet balance <address>` prints that address and what it holds, with no key file needed.
+Confirmed by the owner 2026-10-11, with the wordings.
+
+- `wallet balance <address>` prints one line, `<address>  250 JSC`, and exits 0, with no key
+  file needed.
+- `wallet balance` with no argument derives the address from the key line of
+  `~/.wallet/wallet.dat` and prints the same line. The file's address line is never read.
 - An address the ledger has never seen reads `0 JSC`.
-- `wallet balance` with no wallet in place and no argument is refused, naming the missing file.
-- `wallet balance coinbase`, and any other text that is not address-shaped, is refused before
-  any request is made.
-- With no network the command prints
-  `wallet: network is unreachable — connect to a network first` and makes no request.
-- A failed request prints a wallet error and exits non-zero; it never prints a balance.
-- `man wallet` documents `balance`.
+- Refused before any request is made: no wallet in place (`wallet: no wallet at <path>`); a
+  file with no valid key line (`wallet: no key in <path>`); a file the caller's tier cannot
+  read (`wallet: can't read '<path>': Permission denied`); text that is not address-shaped,
+  `coinbase` and upper case included (`wallet: '<text>' is not an address`); and more than one
+  argument (the usage line).
+- With nowhere to send from the command prints
+  `wallet: network is unreachable — connect to a network first` and makes no request. A bad
+  address or a missing wallet is reported first.
+- A failed request prints `wallet: the ledger did not answer` and exits non-zero; it never
+  prints a balance.
+- The usage line is `wallet: usage: wallet init | balance [address]`; `man wallet` documents
+  `balance` and tab completion offers it.
+- `POST /api/wallet` with `{ action: 'balance', address }`, unsigned, answers
+  `{ balance, nextSequence }`. An unseen address answers zero for both and writes no row. A
+  malformed address or an unknown action is a 400, anything but POST a 405, and a failed read
+  a 500 with no balance in it.
+- A balance is held between 0 and 9007199254740991, so it reaches the browser as an exact
+  number. A later mint or transfer that would pass the ceiling is refused.
 
 **First failing test**: `wallet balance <address>` prints the balance the ledger returns for it.
-**Migration**: `wallet_balances`.
+**Migration**: `wallet_balances(address, balance, next_sequence)`, the address column checking
+the address shape, row security on with no policies.
 **Wire-check**: `scripts/testWallet.ts` — an unseen address reads 0 with sequence 0; a malformed
 address is a 400.
 
