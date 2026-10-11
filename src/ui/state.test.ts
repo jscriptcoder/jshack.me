@@ -3927,4 +3927,103 @@ describe('a wallet at the terminal asks the ledger', () => {
     expect(printed).toContain(`${ADDRESS}  250 JSC`);
     expect(askedOfTheLedger).toEqual([{ action: 'balance', address: ADDRESS }]);
   });
+
+  it('signs a send with the wallet’s key, and with nothing of the player’s', async () => {
+    vi.resetModules();
+    const store = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => store.set(key, value),
+      removeItem: (key: string) => store.delete(key),
+    };
+    storage.setItem(CONNECTED_ESSID_KEY, ESSID);
+    lanLeaseCacheIn(storage).remember(ESSID, `${LAN.subnet}.77`);
+    vi.stubGlobal('localStorage', storage);
+
+    const installed = {
+      path: '/usr/bin/wallet',
+      content: binaryStub('wallet'),
+      owner: 'root',
+      permissions: {
+        read: ['root', 'user', 'guest'],
+        write: ['root'],
+        execute: ['root', 'user', 'guest'],
+      },
+    };
+    type Envelope = { readonly payload: string; readonly publicKey: string };
+    const balanceReads: unknown[] = [];
+    const transfers: Envelope[] = [];
+    const playerKeys = new Set<string>();
+    // What the terminal wrote to the box, handed back on the next read of its
+    // journal as the server would: the wallet `init` makes has to still be there
+    // when `send` looks for it.
+    const landed: Record<string, unknown>[] = [];
+    const json = (body: unknown) => ({ ok: true, status: 200, json: async () => body });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: { body?: string }) => {
+        const body = JSON.parse(init?.body ?? '{}') as Partial<Envelope>;
+        if (url === '/api/wallet') {
+          if (body.payload === undefined) {
+            balanceReads.push(body);
+            return json({ balance: 500, nextSequence: 4 });
+          }
+          transfers.push(body as Envelope);
+          return json({ ok: true });
+        }
+        if (body.publicKey !== undefined) playerKeys.add(body.publicKey);
+        const fields = JSON.parse(body.payload ?? '{}') as Record<string, unknown>;
+        if (fields.action === 'upsertPatch') landed.push(fields);
+        return fields.action === 'listPatches'
+          ? json({ patches: [installed, ...landed] })
+          : json({ patches: [], sessions: [] });
+      }),
+    );
+    const state = await import('./state.js');
+    const { handleWalletTransfer } = await import('../core/wallet/handleWalletTransfer.js');
+    state.startGame({ machineName: 'box', username: 'tester', rootPassword: 'pw' });
+    const printedBy = async (command: string): Promise<string[]> => {
+      const before = state.scrollback().length;
+      state.setInput(command);
+      await state.runInput();
+      return state
+        .scrollback()
+        .slice(before)
+        .map((line) => line.content);
+    };
+    // The journal that carries the installed binary lands after the boot returns.
+    await vi.waitFor(async () => expect(await printedBy('ls /usr/bin')).toContain('wallet'));
+    const made = await printedBy('wallet init');
+    const own = made.find((line) => line.startsWith('address: '))?.slice('address: '.length);
+
+    const printed = await printedBy(`wallet send ${ADDRESS} 200`);
+
+    expect(printed).toContain(`sent 200 JSC to ${ADDRESS}`);
+    expect(balanceReads).toEqual([{ action: 'balance', address: own }]);
+    expect(transfers).toHaveLength(1);
+    // The ledger's own handler is the judge of who signed: it takes the transfer
+    // as coming from the address `init` printed, at the sequence the read gave.
+    const moved: unknown[] = [];
+    const answered = await handleWalletTransfer(transfers[0], {
+      nonceStore: async () => ({ fresh: true }),
+      transfer: async (order) => {
+        moved.push(order);
+        return { data: 'moved', error: null };
+      },
+    });
+    expect(answered.status).toBe(200);
+    expect(moved).toEqual([{ from: own, to: ADDRESS, amount: 200, sequence: 4 }]);
+    // Every other request the terminal made carried the player's key. This one
+    // must not, or the ledger would learn which player spends from which address.
+    expect(playerKeys.size).toBeGreaterThan(0);
+    expect(playerKeys.has(transfers[0]?.publicKey ?? '')).toBe(false);
+    expect(Object.keys(JSON.parse(transfers[0]?.payload ?? '{}') as object).sort()).toEqual([
+      'action',
+      'amount',
+      'nonce',
+      'sequence',
+      'to',
+      'ts',
+    ]);
+  });
 });

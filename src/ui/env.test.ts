@@ -38,6 +38,7 @@ const seedEnv = (
     readonly onChildCommand?: (name: string | null) => void;
     readonly onExploitElevateLocal?: ExploitApi['elevateLocal'];
     readonly onWalletBalance?: WalletApi['balance'];
+    readonly onWalletTransfer?: WalletApi['transfer'];
   } = {},
 ) =>
   buildCommandEnv({
@@ -139,6 +140,31 @@ describe('the ledger seam', () => {
     // A read that answered on its own would print coins no ledger ever held, and
     // "0 JSC" is exactly what a real answer looks like.
     expect(() => seedEnv().wallet.balance(address)).toThrow('wallet.balance is not wired');
+  });
+
+  const order = { keyHex: 'c0ffee'.repeat(11).slice(0, 64), to: address, amount: 200, sequence: 4 };
+
+  it('routes onWalletTransfer through env.wallet.transfer', async () => {
+    const seen: unknown[] = [];
+    const env = seedEnv(
+      'guest',
+      {},
+      {
+        onWalletTransfer: async (received) => {
+          seen.push(received);
+          return { ok: false, error: 'stale_sequence' };
+        },
+      },
+    );
+
+    const result = await env.wallet.transfer(order);
+
+    expect(seen).toEqual([order]);
+    expect(result).toEqual({ ok: false, error: 'stale_sequence' });
+  });
+
+  it('is loud when left unwired, refusing to say coins moved', () => {
+    expect(() => seedEnv().wallet.transfer(order)).toThrow('wallet.transfer is not wired');
   });
 });
 

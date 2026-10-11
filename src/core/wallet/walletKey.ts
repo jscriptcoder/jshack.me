@@ -9,6 +9,7 @@
 import { sha256 } from '@noble/hashes/sha2.js';
 import { generateIdentity, publicKeyOf } from '../identity/identity.js';
 import { bytesToHex, hexToBytes } from '../identity/hex.js';
+import type { Signer } from '../signedRequest/sign.js';
 
 /** How many hex characters of the public key's hash an address keeps. The key
  *  itself is 64, and two of those do not fit on one history line. */
@@ -31,11 +32,29 @@ export type WalletKey = {
 
 export const isAddress = (text: string): boolean => ADDRESS.test(text);
 
+const addressOfPublicKeyBytes = (publicKey: Uint8Array): string =>
+  `jsc${bytesToHex(sha256(publicKey)).slice(0, ADDRESS_HASH_LENGTH)}`;
+
+/** The address a public key answers to. It is worked out from the key's bytes,
+ *  so the same key written in upper case is the same address. Every caller hands
+ *  this 64 hex characters (an envelope's public key, already checked for shape),
+ *  so hexToBytes never returns null here. */
+export const addressOfPublicKey = (publicKeyHex: string): string =>
+  addressOfPublicKeyBytes(hexToBytes(publicKeyHex)!);
+
 // Every caller hands this 64-char hex (a made key, or one KEY_LINE matched), so
 // hexToBytes never returns null here.
 const walletKeyOf = (keyHex: string): WalletKey => ({
-  address: `jsc${bytesToHex(sha256(publicKeyOf(hexToBytes(keyHex)!))).slice(0, ADDRESS_HASH_LENGTH)}`,
+  address: addressOfPublicKeyBytes(publicKeyOf(hexToBytes(keyHex)!)),
   keyHex,
+});
+
+/** Both halves of a wallet's key, as a signed request wants its signer. Every
+ *  caller hands this a key `readWalletFile` matched, so hexToBytes never returns
+ *  null here. */
+export const signerOf = (keyHex: string): Signer => ({
+  publicKeyHex: bytesToHex(publicKeyOf(hexToBytes(keyHex)!)),
+  privateKeyHex: keyHex,
 });
 
 /** A new key pair has exactly the shape an identity does, so it is made the same
