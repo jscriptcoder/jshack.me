@@ -142,11 +142,26 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   box it can build holds. `scripts/testOccupantSweep.ts` carries the eleven checks. Not played
   in the browser yet. One neighbour found on the way is the next item.
 
-- **`gobuster http://<a player's machine name>` answers `Could not resolve host`. By reading,
-  not reproduced.** `curl` and `lynx` turn a fellow occupant's name into their address before
-  they route on it (`addressForTarget`); `gobuster` resolves only the names a network
-  generates, through `reachWebHost`. So a neighbour's box can be fetched by name and swept
-  only by address. Found 2026-10-11.
+- **`gobuster http://<a player's machine name>` answered `Could not resolve host` — RESOLVED
+  2026-10-11 (v0.356.0).** `curl` and `lynx` turn a fellow occupant's name into their address
+  before they route on it (`addressForTarget`); `gobuster` resolved only the names a network
+  generates, through `reachWebHost`, so a neighbour's box could be fetched by name and swept
+  only by address. `gobuster` now takes the same step, on the network the shell stands on and
+  as the box it runs on. An institution's domain resolves with it, so
+  `gobuster http://ridgemont.edu` sweeps the address the domain names. The header keeps what
+  was typed. An address, and a name the network generates, still cost no occupant round
+  trip. No server change. Not played in the browser yet. One neighbour found on the way is
+  the next item.
+
+- **A neighbour who names their box `localhost` takes your loopback traffic. Shown in a unit
+  probe, not played.** `addressForTarget` asks who is on the network for any target with a
+  letter in it, `localhost` included, and a machine name may be `localhost`
+  (`validateMachineName` allows it). `curl`, `lynx` and now `gobuster` resolve the name before
+  `reachWebHost` maps loopback, so beside such a neighbour `curl localhost` fetches their box.
+  `ssh`, `scp`, `ftp` and `nc` check `LOOPBACK_NAMES` first and are not affected; `nmap`,
+  `ping` and `msfconsole` at home are worth reading. Every `curl localhost` also pays an
+  occupant round trip it does not need. One guard in `addressForTarget` would cover them
+  all. Found 2026-10-11.
 
 - **A shell on a player's box whose owner has left the network: `curl localhost` there would
   leave no line. By reading, not reproduced.** The box is found by the lease its owner holds on
