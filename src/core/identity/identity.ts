@@ -78,6 +78,10 @@ export const getOrCreateIdentity = (storage: IdentityStorage): Identity => {
   return fresh;
 };
 
+/** The public half of a private key: the one fact a holder of the private key can
+ *  always work out again, so nothing that keeps a key needs to keep both. */
+export const publicKeyOf = (privateKey: Uint8Array): Uint8Array => ed.getPublicKey(privateKey);
+
 // Low-level Ed25519 sign/verify over raw bytes — the single wrapping point for
 // @noble. Higher layers (signedRequest) convert hex ↔ bytes at the boundary.
 export const sign = (privateKey: Uint8Array, message: Uint8Array): Uint8Array =>

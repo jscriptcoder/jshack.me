@@ -6,6 +6,7 @@ import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
 import {
   mockCommandEnv,
   mockFsViewFromTree,
+  mockNetworkViewFromConnectivity,
   mockSession,
 } from '../../test/factories/commandEnv.js';
 import { applyPatches, type Patch } from '../filesystem/applyPatches.js';
@@ -16,8 +17,10 @@ import {
 } from '../filesystem/defaultPermissions.js';
 import { GUEST_HOME_DIR, HOME_DIR, ROOT_DIR } from '../generation/baseFs.js';
 import { bytesToHex, hexToBytes } from '../identity/hex.js';
+import { assignHomeNetwork } from '../network/homeNetwork.js';
+import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces.js';
 import { asAbsPath, type UserType } from '../types.js';
-import type { CommandEnv, CommandResult, PatchApi } from './types.js';
+import type { CommandEnv, CommandResult, PatchApi, WalletBalanceResult } from './types.js';
 import type { Directory, FileNode } from '../filesystem/types.js';
 
 const NO_FLAGS = new Map<string, string | true>();
@@ -437,11 +440,329 @@ describe('wallet init — what it refuses', () => {
   });
 });
 
+const PLAYER_KEY = 'a'.repeat(64);
+const ESSID = 'BEAN-THERE-WIFI';
+
+/** A workstation whose WiFi card has joined a network and holds an address on it. */
+const joinedConnectivity = (): ConnectivityState => {
+  const cold = buildColdStartConnectivity(PLAYER_KEY);
+  const wlan0 = cold.interfaces.get('wlan0');
+  if (wlan0 === undefined || wlan0.kind !== 'wireless') throw new Error('no wlan0 in cold start');
+  const { localIp } = assignHomeNetwork(PLAYER_KEY, ESSID);
+  const joined = {
+    ...wlan0,
+    association: { essid: ESSID, bssid: 'AA:BB:CC:DD:EE:FF' },
+    ipv4: localIp,
+  };
+  return { interfaces: new Map(cold.interfaces).set('wlan0', joined) };
+};
+
+/** A shell that can reach the ledger, and a ledger that answers from `held` and
+ *  keeps every address it was asked about. An address it does not hold reads as
+ *  the real one reads an address it has never seen. */
+const ledgerEnv = (
+  options: Parameters<typeof walletEnv>[0] & {
+    readonly held?: Readonly<Record<string, number>>;
+    /** Absent, the shell stands on a workstation that has joined a network. */
+    readonly connectivity?: ConnectivityState;
+    readonly essid?: string | null;
+    /** What every read comes back as, in place of an answer from `held`. */
+    readonly answers?: WalletBalanceResult;
+  } = {},
+): { readonly env: CommandEnv; readonly asked: readonly string[] } => {
+  const asked: string[] = [];
+  const { env } = walletEnv(options);
+  return {
+    env: {
+      ...env,
+      session: { ...env.session, essid: options.essid ?? null },
+      network: mockNetworkViewFromConnectivity(options.connectivity ?? joinedConnectivity()),
+      wallet: {
+        balance: async (address) => {
+          asked.push(address);
+          return (
+            options.answers ?? { ok: true, balance: options.held?.[address] ?? 0, nextSequence: 0 }
+          );
+        },
+      },
+    },
+    asked,
+  };
+};
+
+const SOMEBODY = `jsc${'0123456789abcdef'.repeat(3).slice(0, 40)}`;
+
+describe('wallet balance — what an address holds', () => {
+  it('prints an address and what the ledger holds at it', async () => {
+    const { env, asked } = ledgerEnv({ held: { [SOMEBODY]: 250 } });
+
+    const result = await wallet.execute(env, ['balance', SOMEBODY], NO_FLAGS);
+
+    expect(result).toEqual({
+      kind: 'sync',
+      lines: [{ kind: 'text', content: `${SOMEBODY}  250 JSC` }],
+      exitCode: 0,
+    });
+    expect(asked).toEqual([SOMEBODY]);
+  });
+
+  it('reads an address the ledger has never seen as holding nothing', async () => {
+    const { env } = ledgerEnv();
+
+    const result = await wallet.execute(env, ['balance', SOMEBODY], NO_FLAGS);
+
+    expect(textLines(result)).toEqual([`${SOMEBODY}  0 JSC`]);
+    expect(exitCodeOf(result)).toBe(0);
+  });
+
+  it('prints the largest balance the ledger holds as plain digits', async () => {
+    const { env } = ledgerEnv({ held: { [SOMEBODY]: Number.MAX_SAFE_INTEGER } });
+
+    const result = await wallet.execute(env, ['balance', SOMEBODY], NO_FLAGS);
+
+    expect(textLines(result)).toEqual([`${SOMEBODY}  9007199254740991 JSC`]);
+  });
+
+  it('asks from a box the shell hopped to, whatever the player’s own card is doing', async () => {
+    const { env, asked } = ledgerEnv({
+      held: { [SOMEBODY]: 7 },
+      essid: ESSID,
+      connectivity: buildColdStartConnectivity(PLAYER_KEY),
+    });
+
+    const result = await wallet.execute(env, ['balance', SOMEBODY], NO_FLAGS);
+
+    expect(textLines(result)).toEqual([`${SOMEBODY}  7 JSC`]);
+    expect(asked).toEqual([SOMEBODY]);
+  });
+});
+
+const SOME_KEY = 'c0ffee'.repeat(11).slice(0, 64);
+const OTHER_KEY = '5ca1ab1e'.repeat(8);
+
+describe('wallet balance — the wallet in place', () => {
+  it.each([
+    ['a user shell', 'user', 'alice', ALICE_WALLET],
+    ['a root shell', 'root', 'root', '/root/.wallet/wallet.dat'],
+    ['a guest shell', 'guest', 'guest', '/home/guest/.wallet/wallet.dat'],
+  ] as const)(
+    'reads the address of the wallet %s made, with no address named',
+    async (_label, userType, username, path) => {
+      const made = walletEnv({ userType, username });
+      await wallet.execute(made.env, ['init'], NO_FLAGS);
+      const { address } = walletAt(made.treeAfter(), path);
+      const { env, asked } = ledgerEnv({
+        tree: made.treeAfter(),
+        userType,
+        username,
+        held: { [address]: 500 },
+      });
+
+      const result = await wallet.execute(env, ['balance'], NO_FLAGS);
+
+      expect(result).toEqual({
+        kind: 'sync',
+        lines: [{ kind: 'text', content: `${address}  500 JSC` }],
+        exitCode: 0,
+      });
+      expect(asked).toEqual([address]);
+    },
+  );
+
+  it('answers for the key line, and never for what the address line says', async () => {
+    const tree = boxWithWalletDirectory({
+      'wallet.dat': buildFile(`address: ${addressOfKey(OTHER_KEY)}\nkey: ${SOME_KEY}\n`, {
+        owner: 'alice',
+      }),
+    });
+    const { env, asked } = ledgerEnv({ tree });
+
+    const result = await wallet.execute(env, ['balance'], NO_FLAGS);
+
+    expect(textLines(result)).toEqual([`${addressOfKey(SOME_KEY)}  0 JSC`]);
+    expect(asked).toEqual([addressOfKey(SOME_KEY)]);
+  });
+
+  it('finds the key line when it is the only line in the file', async () => {
+    const tree = boxWithWalletDirectory({
+      'wallet.dat': buildFile(`key: ${SOME_KEY}\n`, { owner: 'alice' }),
+    });
+    const { env, asked } = ledgerEnv({ tree });
+
+    await wallet.execute(env, ['balance'], NO_FLAGS);
+
+    expect(asked).toEqual([addressOfKey(SOME_KEY)]);
+  });
+});
+
+describe('wallet balance — what it refuses without asking the ledger', () => {
+  it('names the file that is not there when no wallet is in place', async () => {
+    const { env, asked } = ledgerEnv();
+
+    const result = await wallet.execute(env, ['balance'], NO_FLAGS);
+
+    expect(result).toEqual({
+      kind: 'sync',
+      lines: [{ kind: 'error', content: `wallet: no wallet at ${ALICE_WALLET}` }],
+      exitCode: 1,
+    });
+    expect(asked).toEqual([]);
+  });
+
+  it.each([
+    ['an empty file', ''],
+    ['an address line and no key line', `address: ${SOMEBODY}\n`],
+    ['a key one character short', `key: ${SOME_KEY.slice(1)}\n`],
+    ['a key one character long', `key: ${SOME_KEY}0\n`],
+    ['a key in upper case', `key: ${SOME_KEY.toUpperCase()}\n`],
+    ['a key with text before its label', `my key: ${SOME_KEY}\n`],
+    ['a key that is not hex', `key: ${'z'.repeat(64)}\n`],
+    ['the same file after gpg -c', 'jA0ECQMCm1Zr3n0p+uX/0kABm9w3kq1c0de'],
+  ])('finds no key in %s', async (_label, content) => {
+    const tree = boxWithWalletDirectory({ 'wallet.dat': buildFile(content, { owner: 'alice' }) });
+    const { env, asked } = ledgerEnv({ tree });
+
+    const result = await wallet.execute(env, ['balance'], NO_FLAGS);
+
+    expect(result).toEqual({
+      kind: 'sync',
+      lines: [{ kind: 'error', content: `wallet: no key in ${ALICE_WALLET}` }],
+      exitCode: 1,
+    });
+    expect(asked).toEqual([]);
+  });
+
+  it('finds no key in a wallet.dat that is a directory', async () => {
+    const tree = boxWithWalletDirectory({ 'wallet.dat': buildDirectory({}, { owner: 'alice' }) });
+    const { env, asked } = ledgerEnv({ tree });
+
+    const result = await wallet.execute(env, ['balance'], NO_FLAGS);
+
+    expect(errorLines(result)).toEqual([`wallet: no key in ${ALICE_WALLET}`]);
+    expect(asked).toEqual([]);
+  });
+
+  it('says so when the wallet is there and this tier may not read it', async () => {
+    const tree = boxWithWalletDirectory({
+      'wallet.dat': buildFile(`key: ${SOME_KEY}\n`, {
+        owner: 'root',
+        perms: { read: ['root'], write: ['root'], execute: [] },
+      }),
+    });
+    const { env, asked } = ledgerEnv({ tree });
+
+    const result = await wallet.execute(env, ['balance'], NO_FLAGS);
+
+    expect(result).toEqual({
+      kind: 'sync',
+      lines: [
+        { kind: 'error', content: `wallet: can't read '${ALICE_WALLET}': Permission denied` },
+      ],
+      exitCode: 1,
+    });
+    expect(asked).toEqual([]);
+  });
+
+  it.each([
+    ['the mint’s label', 'coinbase'],
+    ['an address in upper case', SOMEBODY.toUpperCase()],
+    ['an address one character short', SOMEBODY.slice(0, -1)],
+    ['an address one character long', `${SOMEBODY}0`],
+    ['an address with a character that is not hex', `${SOMEBODY.slice(0, -1)}g`],
+    ['an address with text before it', `x${SOMEBODY}`],
+    ['a bare key', SOME_KEY],
+    ['nothing at all', ''],
+  ])('takes %s for no address', async (_label, text) => {
+    const { env, asked } = ledgerEnv();
+
+    const result = await wallet.execute(env, ['balance', text], NO_FLAGS);
+
+    expect(result).toEqual({
+      kind: 'sync',
+      lines: [{ kind: 'error', content: `wallet: '${text}' is not an address` }],
+      exitCode: 1,
+    });
+    expect(asked).toEqual([]);
+  });
+
+  it('prints the usage for more than one address', async () => {
+    const { env, asked } = ledgerEnv();
+
+    const result = await wallet.execute(env, ['balance', SOMEBODY, SOMEBODY], NO_FLAGS);
+
+    expect(errorLines(result)).toEqual(['wallet: usage: wallet init | balance [address]']);
+    expect(exitCodeOf(result)).toBe(1);
+    expect(asked).toEqual([]);
+  });
+});
+
+describe('wallet balance — with nowhere to ask from', () => {
+  const offline = { connectivity: buildColdStartConnectivity(PLAYER_KEY) };
+  const UNREACHABLE = 'wallet: network is unreachable — connect to a network first';
+
+  it('refuses an address on a workstation that has joined no network', async () => {
+    const { env, asked } = ledgerEnv(offline);
+
+    const result = await wallet.execute(env, ['balance', SOMEBODY], NO_FLAGS);
+
+    expect(result).toEqual({
+      kind: 'sync',
+      lines: [{ kind: 'error', content: UNREACHABLE }],
+      exitCode: 1,
+    });
+    expect(asked).toEqual([]);
+  });
+
+  it('refuses the wallet in place the same way', async () => {
+    const tree = boxWithWalletDirectory({
+      'wallet.dat': buildFile(`key: ${SOME_KEY}\n`, { owner: 'alice' }),
+    });
+    const { env, asked } = ledgerEnv({ ...offline, tree });
+
+    const result = await wallet.execute(env, ['balance'], NO_FLAGS);
+
+    expect(errorLines(result)).toEqual([UNREACHABLE]);
+    expect(asked).toEqual([]);
+  });
+
+  it('reports text that is not an address before the missing network', async () => {
+    const { env } = ledgerEnv(offline);
+
+    const result = await wallet.execute(env, ['balance', 'coinbase'], NO_FLAGS);
+
+    expect(errorLines(result)).toEqual([`wallet: 'coinbase' is not an address`]);
+  });
+
+  it('reports a missing wallet before the missing network', async () => {
+    const { env } = ledgerEnv(offline);
+
+    const result = await wallet.execute(env, ['balance'], NO_FLAGS);
+
+    expect(errorLines(result)).toEqual([`wallet: no wallet at ${ALICE_WALLET}`]);
+  });
+});
+
+describe('wallet balance — a ledger that does not answer', () => {
+  it('says so, and prints no balance', async () => {
+    const { env, asked } = ledgerEnv({ answers: { ok: false, error: 'network_error' } });
+
+    const result = await wallet.execute(env, ['balance', SOMEBODY], NO_FLAGS);
+
+    expect(result).toEqual({
+      kind: 'sync',
+      lines: [{ kind: 'error', content: 'wallet: the ledger did not answer' }],
+      exitCode: 1,
+    });
+    expect(asked).toEqual([SOMEBODY]);
+  });
+});
+
 describe('wallet — anything that is not a subcommand', () => {
   it.each([
     ['no argument', []],
     ['an unknown subcommand', ['nope']],
     ['a subcommand in the wrong case', ['INIT']],
+    ['another subcommand in the wrong case', ['Balance']],
   ])('prints the usage for %s and makes nothing', async (_label, args) => {
     const { env, asked } = walletEnv();
 
@@ -449,7 +770,7 @@ describe('wallet — anything that is not a subcommand', () => {
 
     expect(result).toEqual({
       kind: 'sync',
-      lines: [{ kind: 'error', content: 'wallet: usage: wallet init' }],
+      lines: [{ kind: 'error', content: 'wallet: usage: wallet init | balance [address]' }],
       exitCode: 1,
     });
     expect(asked).toEqual([]);
@@ -460,8 +781,23 @@ describe('wallet — what the manual promises', () => {
   // The manual's first argument is what tab completion offers after `wallet `,
   // and its synopsis is what the usage line repeats. A subcommand named in
   // either before it works would be a promise the command cannot keep.
-  it('names init, and only init, as the thing a wallet does', () => {
-    expect(wallet.manual?.synopsis).toBe('wallet init');
-    expect(wallet.manual?.arguments?.[0]?.values).toEqual(['init']);
+  it('shows an address in its examples that the wallet takes for one', async () => {
+    const shown = (wallet.manual?.examples ?? [])
+      .map((example) => example.command.split(' '))
+      .filter(([, subcommand, address]) => subcommand === 'balance' && address !== undefined);
+    expect(shown).toHaveLength(1);
+
+    for (const [, ...args] of shown) {
+      const { env } = ledgerEnv();
+
+      const result = await wallet.execute(env, args, NO_FLAGS);
+
+      expect(exitCodeOf(result)).toBe(0);
+    }
+  });
+
+  it('names init and balance, and nothing else, as what a wallet does', () => {
+    expect(wallet.manual?.synopsis).toBe('wallet init | balance [address]');
+    expect(wallet.manual?.arguments?.[0]?.values).toEqual(['init', 'balance']);
   });
 });

@@ -3857,3 +3857,74 @@ describe('a door logged into the player’s own box', () => {
     ]);
   });
 });
+
+/**
+ * The wallet's reads go to the ledger, and the ledger is not one of the endpoints the
+ * terminal already signs requests to. A wallet typed at the real terminal has to reach
+ * it, and has to reach it with nothing of the player's in the request.
+ */
+describe('a wallet at the terminal asks the ledger', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const ESSID = 'ferro-cafe';
+  const LAN = generateHomeLan(ESSID);
+  const ADDRESS = `jsc${'0123456789abcdef'.repeat(3).slice(0, 40)}`;
+
+  it('sends the address typed to /api/wallet, unsigned, and prints what comes back', async () => {
+    vi.resetModules();
+    const store = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => store.set(key, value),
+      removeItem: (key: string) => store.delete(key),
+    };
+    storage.setItem(CONNECTED_ESSID_KEY, ESSID);
+    lanLeaseCacheIn(storage).remember(ESSID, `${LAN.subnet}.77`);
+    vi.stubGlobal('localStorage', storage);
+
+    const installed = {
+      path: '/usr/bin/wallet',
+      content: binaryStub('wallet'),
+      owner: 'root',
+      permissions: {
+        read: ['root', 'user', 'guest'],
+        write: ['root'],
+        execute: ['root', 'user', 'guest'],
+      },
+    };
+    const askedOfTheLedger: unknown[] = [];
+    const json = (body: unknown) => ({ ok: true, status: 200, json: async () => body });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: { body?: string }) => {
+        const body = JSON.parse(init?.body ?? '{}') as { payload?: string };
+        if (url === '/api/wallet') {
+          askedOfTheLedger.push(body);
+          return json({ balance: 250, nextSequence: 4 });
+        }
+        const fields = JSON.parse(body.payload ?? '{}') as Record<string, unknown>;
+        return fields.action === 'listPatches'
+          ? json({ patches: [installed] })
+          : json({ patches: [], sessions: [] });
+      }),
+    );
+    const state = await import('./state.js');
+    state.startGame({ machineName: 'box', username: 'tester', rootPassword: 'pw' });
+    const printedBy = async (command: string): Promise<string[]> => {
+      const before = state.scrollback().length;
+      state.setInput(command);
+      await state.runInput();
+      return state
+        .scrollback()
+        .slice(before)
+        .map((line) => line.content);
+    };
+    // The journal that carries the installed binary lands after the boot returns.
+    await vi.waitFor(async () => expect(await printedBy('ls /usr/bin')).toContain('wallet'));
+
+    const printed = await printedBy(`wallet balance ${ADDRESS}`);
+
+    expect(printed).toContain(`${ADDRESS}  250 JSC`);
+    expect(askedOfTheLedger).toEqual([{ action: 'balance', address: ADDRESS }]);
+  });
+});

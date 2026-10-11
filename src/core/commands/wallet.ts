@@ -4,6 +4,9 @@
  * The key is the wallet: the ledger knows addresses and nothing about players,
  * so whoever holds the file's text spends the coins at its address. That makes
  * the file something to hide, and something a visitor with the tier can copy.
+ *
+ * What an address holds is the ledger's to say, and it says it to anyone: a
+ * balance is read by address, with no key and nothing of the player's sent.
  */
 
 import {
@@ -13,11 +16,22 @@ import {
   type CommandResult,
   type PatchResult,
 } from './types.js';
+import { vantageOf } from '../network/vantage.js';
 import { homeDirectory } from '../sessions/homeDirectory.js';
 import { asAbsPath, type AbsPath, type UserType } from '../types.js';
-import { formatWalletFile, generateWalletKey } from '../wallet/walletKey.js';
+import {
+  formatWalletFile,
+  generateWalletKey,
+  isAddress,
+  readWalletFile,
+} from '../wallet/walletKey.js';
 
-const USAGE = 'wallet: usage: wallet init';
+const SYNOPSIS = 'wallet init | balance [address]';
+const USAGE = `wallet: usage: ${SYNOPSIS}`;
+
+/** The ledger is out on the internet, so asking it takes a network to ask from:
+ *  the one the shell's box stands on. Making a key asks nobody. */
+const UNREACHABLE = 'wallet: network is unreachable — connect to a network first';
 
 const refusal = (message: string): CommandResult => ({
   kind: 'sync',
@@ -48,10 +62,17 @@ const obstacleTo = (
   return fs.canWrite(walletPath).allowed ? null : 'Permission denied';
 };
 
-const init = async (env: CommandEnv): Promise<CommandResult> => {
-  const home = homeDirectory(env.session);
+/** Where the wallet of the account running the command lives. */
+const placeOf = (
+  session: CommandEnv['session'],
+): { readonly home: AbsPath; readonly walletDirectory: AbsPath; readonly walletPath: AbsPath } => {
+  const home = homeDirectory(session);
   const walletDirectory = asAbsPath(`${home}/.wallet`);
-  const walletPath = asAbsPath(`${walletDirectory}/wallet.dat`);
+  return { home, walletDirectory, walletPath: asAbsPath(`${walletDirectory}/wallet.dat`) };
+};
+
+const init = async (env: CommandEnv): Promise<CommandResult> => {
+  const { home, walletDirectory, walletPath } = placeOf(env.session);
   const cannotCreate = (reason: string): CommandResult =>
     refusal(`wallet: can't create '${walletPath}': ${reason}`);
 
@@ -106,8 +127,52 @@ const init = async (env: CommandEnv): Promise<CommandResult> => {
   };
 };
 
-const execute = async (env: CommandEnv, args: readonly string[]): Promise<CommandResult> =>
-  args[0] === 'init' ? init(env) : refusal(USAGE);
+type Asked = { readonly address: string } | { readonly refused: string };
+
+/** The address of the wallet in place, read off its key, or why there is none. */
+const addressInPlace = (env: CommandEnv): Asked => {
+  const { walletPath } = placeOf(env.session);
+  const stored = env.fs.read(walletPath);
+  if (!stored.ok) {
+    if (stored.error === 'not_found') return { refused: `no wallet at ${walletPath}` };
+    if (stored.error === 'permission_denied') {
+      return { refused: `can't read '${walletPath}': Permission denied` };
+    }
+    return { refused: `no key in ${walletPath}` };
+  }
+  const key = readWalletFile(stored.content);
+  return key === null ? { refused: `no key in ${walletPath}` } : { address: key.address };
+};
+
+const balance = async (env: CommandEnv, named: readonly string[]): Promise<CommandResult> => {
+  if (named.length > 1) return refusal(USAGE);
+  const [text] = named;
+  const asked: Asked =
+    text === undefined
+      ? addressInPlace(env)
+      : isAddress(text)
+        ? { address: text }
+        : { refused: `'${text}' is not an address` };
+  // What is wrong with the question comes before what is wrong with the network:
+  // joining one would not have made either of these answerable.
+  if ('refused' in asked) return refusal(`wallet: ${asked.refused}`);
+  if (vantageOf(env.session, env.network) === null) return refusal(UNREACHABLE);
+
+  const held = await env.wallet.balance(asked.address);
+  if (!held.ok) return refusal('wallet: the ledger did not answer');
+  return {
+    kind: 'sync',
+    lines: [{ kind: 'text', content: `${asked.address}  ${held.balance} JSC` }],
+    exitCode: 0,
+  };
+};
+
+const execute = async (env: CommandEnv, args: readonly string[]): Promise<CommandResult> => {
+  const [subcommand, ...rest] = args;
+  if (subcommand === 'init') return init(env);
+  if (subcommand === 'balance') return balance(env, rest);
+  return refusal(USAGE);
+};
 
 export const wallet: Command = {
   name: 'wallet',
@@ -116,15 +181,21 @@ export const wallet: Command = {
   tier: 'guest',
   availability: { kind: 'installed-package', packageName: 'wallet' },
   manual: {
-    synopsis: 'wallet init',
+    synopsis: SYNOPSIS,
     description:
-      'Keep JSC, the coin of this world. "init" makes a new wallet: a key, and the address that key answers to. It writes both to .wallet/wallet.dat in the home directory of the account running it, as two lines marked "address:" and "key:", then prints the address and the path of the file. The address is what you give to whoever is paying you. The key is the wallet - the coins at an address belong to whoever holds its key and nothing else is asked, so the file is the money. It opens for the account that made it and for root. Each account on a box has a wallet of its own, and "init" refuses when one is already in place: it never replaces a key. Making a wallet needs no network.',
+      'Keep JSC, the coin of this world. "init" makes a new wallet: a key, and the address that key answers to. It writes both to .wallet/wallet.dat in the home directory of the account running it, as two lines marked "address:" and "key:", then prints the address and the path of the file. The address is what you give to whoever is paying you. The key is the wallet - the coins at an address belong to whoever holds its key and nothing else is asked, so the file is the money. It opens for the account that made it and for root. Each account on a box has a wallet of its own, and "init" refuses when one is already in place: it never replaces a key. Making a wallet needs no network. "balance" prints an address and the JSC held at it. The ledger is public, so it answers for any address and asks for no key; with no address it reads the key in the wallet in place and answers for that one. An address nothing was ever sent to holds 0 JSC, and so does a mistyped one. Asking the ledger needs a network.',
     arguments: [
       {
         name: 'command',
-        description: '"init", to make a new wallet for this account',
+        description:
+          '"init", to make a new wallet for this account, or "balance", to see what an address holds',
         required: true,
-        values: ['init'],
+        values: ['init', 'balance'],
+      },
+      {
+        name: 'address',
+        description: 'For "balance": the address to ask about (default: the wallet in place)',
+        required: false,
       },
     ],
     examples: [
@@ -135,6 +206,14 @@ export const wallet: Command = {
       {
         command: 'cat /home/alice/.wallet/wallet.dat',
         description: 'Read the address and the key back off the file',
+      },
+      {
+        command: 'wallet balance',
+        description: 'See what the wallet in place holds',
+      },
+      {
+        command: 'wallet balance jsc3f9a1c07b2d84e5f6a7b8c9d0e1f2a3b4c5d6e7f',
+        description: 'See what any address holds, with no key needed',
       },
     ],
   },
