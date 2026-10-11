@@ -1,8 +1,8 @@
 # Plan: crypto wallet
 
 **Status**: Grilled, reviewed for gaps, and sliced. Decisions confirmed by the owner 2026-10-11.
-Slices 1 to 4 merged (v0.357.0, PR #653; v0.358.0, PR #654; v0.359.0, PR #655; v0.360.0,
-PR #656); slice 5 is next. Nothing in the repo covered money before this file. Where another doc disagrees with it, this file wins.
+Slices 1 to 5 merged (v0.357.0, PR #653; v0.358.0, PR #654; v0.359.0, PR #655; v0.360.0,
+PR #656; v0.361.0, PR #657); slice 6 is next. Nothing in the repo covered money before this file. Where another doc disagrees with it, this file wins.
 
 ## Goal
 
@@ -556,21 +556,70 @@ moves to a new key without swapping files.
 signed by that file's key, to the wallet in place. Client only (choice 6).
 **Acceptance criteria**:
 
-- `wallet sweep loot.dat` moves everything at that file's address into the wallet in place and
-  prints what moved.
-- It is refused, and nothing moves, when no wallet is in place; when the file is missing,
-  unreadable at the caller's tier, or holds no valid key line (a `.gpg` file among them); and
-  when the file's key is the key of the wallet in place.
-- A key file whose address holds nothing prints that there is nothing to sweep, sends no
-  transfer and exits zero.
-- A key file whose address line names a different address than its key derives is swept by its
-  key; the address line is ignored.
-- With no network the command refuses as `balance` does.
-- `man wallet` documents `sweep`.
+Confirmed by the owner 2026-10-11, with the wordings.
+
+- `wallet sweep loot.dat`, where the file's address holds 500, sends one transfer of 500 to the
+  wallet in place, signed by the file's key, prints `swept 500 JSC from <file's address>` and
+  exits 0. The line names the source and not the destination, which is always the player's own
+  wallet. Rejected: naming both addresses.
+- The path is resolved against the current directory and read at the caller's tier, as `gpg`
+  reads its file. The address comes from the key line; an address line that says something
+  else is ignored.
+- The command writes nothing to the box, leaves the key file where it is, and no log gains a
+  line. Coins that arrive after the balance is read stay behind, and a second sweep takes them.
+- Refused before any request, in this order: anything but one argument (the usage line); a
+  missing, keyless or unreadable wallet in place (the three wordings `balance` and `send`
+  use); a key file that is missing, unreadable at this tier or a directory
+  (`wallet: can't read '<as typed>': No such file or directory`, `Permission denied`,
+  `Is a directory`); a file with no valid key line, a `.gpg` file among them
+  (`wallet: no key in <as typed>`); a file whose key is the wallet in place's key
+  (`wallet: can't sweep this wallet's own key`); no network (the wording `balance` uses).
+- The own-key check compares keys and not paths, so a copy of the player's own `wallet.dat`
+  kept elsewhere is refused too.
+- An address holding nothing prints `nothing to sweep at <file's address>`, sends no transfer
+  and exits 0.
+- **Every refusal by the ledger prints `wallet: the ledger refused the transfer`**, a short
+  balance included. A sweep sends what it just read, so a short balance can only mean another
+  holder of the key moved first, which is the same event as a stale sequence. Rejected: the
+  line `send` gives a short balance.
+- A failed balance read or a failed transfer request prints `wallet: the ledger did not
+  answer`. Every refusal exits non-zero.
+- The usage line is
+  `wallet: usage: wallet init | balance [address] | send <address> <amount> | sweep <keyfile>`;
+  `man wallet` documents `sweep` with the example `wallet sweep loot.dat`; tab completion
+  offers `sweep`, and the key file argument completes as a path.
 
 **First failing test**: sweeping a key file whose address holds 500 transfers 500 to the wallet
 in place.
 **Wire-check**: `N/A`, no `api/` change; slice 4's checks cover the transfer it sends.
+
+**Merged 2026-10-11, PR #657.** No migration. Nothing has been minted or sent on either cloud
+project. As built, beyond the criteria above:
+
+- **All of it is in `core/commands/wallet.ts`**: `sweep`, and `keyInFile`, which reads a key
+  file at a path the player names and words its failures by that path as typed. `keyInPlace`
+  still reads only `~/.wallet/wallet.dat`.
+- **The files are read from what the terminal last pulled**, as `balance` and `send` read the
+  wallet in place. Only `init` asks the machine again.
+- **One helper prints a one-line answer** (`said`) for `balance`, `send` and `sweep`, and the
+  ledger-refused wording is one constant. `history` prints many lines and needs neither.
+- **The manual's arguments are `command`, `address`, `amount`, `keyfile`.** Tab completion
+  reads them by position and only `command` carries keywords, which a test now pins; every
+  later position is left to path completion. `history [address]` needs no new argument, only
+  a wider description of `address` and one more keyword.
+- **The usage line lists the subcommands in the order they were built**, not decision 9's
+  order. Slice 6 decides where `history` goes in it.
+- **An empty path** (`wallet sweep ''`) names the current directory and reads `Is a
+  directory`. Not special-cased.
+- **No test at the real terminal.** Slice 4's proved new wiring and sweep adds none; the
+  command tests cover it, and the close-out run sweeps through the browser.
+- **For the close-out run**: what B's second copy prints depends on what B copied. The
+  encrypted file prints `wallet: no key in <file>` and exits non-zero; an old plaintext copy of
+  the swept key prints `nothing to sweep at <address>` and exits 0.
+- **Tests**: `wallet.test.ts` is at 152; the full run, alone, passes 285 files and 8715 tests.
+- **Mutation**: 253 killed, 25 survived over `wallet.ts`, no timeouts. All 25 are the
+  command's static metadata (name, tier, availability, manual prose, `required` flags, example
+  text); three are new with this slice. None is in `sweep` or `keyInFile`.
 
 ### Slice 6: anyone can read a history (v0.362.0)
 
