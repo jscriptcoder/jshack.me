@@ -1,8 +1,8 @@
 # Plan: crypto wallet
 
 **Status**: Grilled, reviewed for gaps, and sliced. Decisions confirmed by the owner 2026-10-11.
-Slice 1 merged at v0.357.0 (PR #653); slice 2 is next. Nothing in the repo covered money before
-this file. Where another doc disagrees with it, this file wins.
+Slices 1 and 2 merged (v0.357.0, PR #653; v0.358.0, PR #654); slice 3 is next. Nothing in the
+repo covered money before this file. Where another doc disagrees with it, this file wins.
 
 ## Goal
 
@@ -352,6 +352,33 @@ Confirmed by the owner 2026-10-11, with the wordings.
 the address shape, row security on with no policies.
 **Wire-check**: `scripts/testWallet.ts` — an unseen address reads 0 with sequence 0; a malformed
 address is a 400.
+
+**Merged 2026-10-11, PR #654.** The migration is on jshack-dev and jshack-prod. As built, beyond
+the criteria above:
+
+- **A `wallet.dat` that is a directory reads as `no key in <path>`**, like a file with no key
+  line.
+- **A key line is `key: ` at the start of a line and 64 lower-case hex characters to its end**,
+  wherever it sits in the file. Upper case, a short key and text before the label are no key.
+- **The endpoint's errors**: `unknown_action` for anything but `{ action: 'balance' }`,
+  `invalid_address`, and `balance_lookup_failed` (500) for a failed read or a row whose counts
+  are not exact non-negative whole numbers. Later slices route their own actions in
+  `api/wallet.ts` ahead of the balance read.
+- **To the command, every failure to get a balance is one answer**, `network_error`: a status
+  that is not ok is never read for a number.
+- **The table carries its own rules.** The address shape, a balance from 0 to 9007199254740991
+  and a sequence number in the same range are CHECK constraints, so `wallet_mint` and
+  `wallet_transfer` get a `23514` rather than a rounded balance when a credit would pass the
+  ceiling. Each has to turn that into its own refusal.
+- **Code**: `env.wallet` (`WalletApi` in `commands/types.ts`), `adapters/walletApi.ts`,
+  `core/wallet/handleWalletBalance.ts`, and `core/wallet/exactCount.ts` for the bounds both
+  sides of the wire share. `walletKey.ts` now has `isAddress` and `readWalletFile`, the two
+  things slice 1 left open, and `identity.ts` has `publicKeyOf`. `sweep` still needs its own
+  reading of a key file at a path the player names.
+- **The wire-check goes further than planned**: a held row read back, the largest balance digit
+  for digit, the table's refusals, and the anon key reading nothing. Slices 3 to 6 extend it.
+- **`npm run build`'s wall-clock budgets were unreliable on the development machine that day**,
+  on `main` as well as the branch; the Vercel build passed them.
 
 ### Slice 3: the operator mints coins (v0.359.0)
 
