@@ -1,8 +1,8 @@
 # Plan: crypto wallet
 
 **Status**: Grilled, reviewed for gaps, and sliced. Decisions confirmed by the owner 2026-10-11.
-Slices 1 to 3 merged (v0.357.0, PR #653; v0.358.0, PR #654; v0.359.0, PR #655); slice 4 is
-next. Nothing in the repo covered money before this file. Where another doc disagrees with it, this file wins.
+Slices 1 to 4 merged (v0.357.0, PR #653; v0.358.0, PR #654; v0.359.0, PR #655; v0.360.0,
+PR #656); slice 5 is next. Nothing in the repo covered money before this file. Where another doc disagrees with it, this file wins.
 
 ## Goal
 
@@ -453,25 +453,100 @@ shape, amount, not to yourself) → `wallet_transfer` (balance covers it, sequen
 rows written).
 **Acceptance criteria**:
 
-- A send of 200 from an address holding 500 leaves 300 there and 200 more at the destination,
-  and prints what moved and to where.
-- An amount above the balance is refused and nothing moves.
-- An amount that is not a positive whole number of choice 7, a destination that is not
-  address-shaped, and a send to the wallet's own address are each refused before any request.
-- A send with no wallet in place, or with a key line that is not a valid key, is refused.
-- A send to a well-formed address nobody holds succeeds.
-- The same signed transfer sent twice moves the coins once.
-- Two transfers signed with one key at the same sequence: one lands, the other is refused.
-- A transfer whose signature does not match its public key is refused by the server.
-- With no network the command refuses as `balance` does.
-- No log on any box gains a line.
-- `man wallet` documents `send`.
+Confirmed by the owner 2026-10-11, with the wordings.
+
+- `wallet send <address> <amount>` from a wallet holding 500 moves 200, prints
+  `sent 200 JSC to <address>` and exits 0. The sender then reads 300 and the destination 200
+  more. A send to a well-formed address nobody holds succeeds.
+- Refused before any request, in this order: anything but two arguments (the usage line); a
+  destination that is not address-shaped (`wallet: '<text>' is not an address`); an amount
+  outside choice 7 (`wallet: '<text>' is not an amount`); a missing, keyless or unreadable
+  wallet (the three wordings `balance` uses); the wallet's own address
+  (`wallet: can't send to this wallet's own address`); no network (the wording `balance`
+  uses).
+- The command reads the balance for the sequence number, then sends one transfer signed by the
+  wallet key. Nothing of the player's identity goes with it.
+- **The ledger decides whether the balance covers the amount; the command does not check
+  first.** A short balance prints `wallet: not enough JSC at <address>`, naming the sender, and
+  nothing moves. Rejected: a client check that could also print what the wallet holds.
+- A stale sequence (another holder of the key sent first) or a destination at the ceiling
+  prints `wallet: the ledger refused the transfer`. A failed balance read, a failed transfer
+  request or an unreadable answer prints `wallet: the ledger did not answer`. Every refusal
+  exits non-zero.
+- No log on any box gains a line, and the command writes nothing to the box.
+- The usage line is `wallet: usage: wallet init | balance [address] | send <address> <amount>`;
+  `man wallet` documents `send` and tab completion offers it.
+- `POST /api/wallet` takes a signed envelope whose payload is
+  `{ action: 'transfer', to, amount, sequence }`. The sender is the address of the envelope's
+  public key and is never named in the payload. Success is 200 `{ ok: true }`; the unsigned
+  balance read works as before.
+- Its refusals, with nothing written: 400 `payload_invalid` (a `to` that is not
+  address-shaped, an `amount` that is not a whole number from 1 to the ceiling, a `sequence`
+  that is not a whole number from 0), 400 `self_transfer`, 401 `signature_invalid`, 401
+  `timestamp_skew`, 409 `stale_sequence`, 409 `insufficient_balance`, 409 `destination_full`,
+  500 `transfer_failed`.
+- The sequence is checked before the balance, so a replayed transfer always answers
+  `stale_sequence`.
+- `wallet_transfer` debits, credits and records the transfer row together or not at all. A
+  transfer raises the sender's sequence by exactly one and leaves the destination's alone; a
+  refused one leaves the sender's alone. A destination the ledger has never seen is created at
+  sequence 0.
+- The same signed transfer sent twice moves the coins once. Of two transfers at one sequence
+  sent together, exactly one lands.
+- Only the service role can call `wallet_transfer`.
+- The sum of all balances equals the sum minted throughout the wire-check.
 
 **First failing test**: `handleWalletTransfer` moves the amount when the envelope is signed by
 the sending address's key.
 **Migration**: `wallet_transfer`.
 **Wire-check**: the send, the short balance, the replay, and two concurrent transfers at one
 sequence of which exactly one lands; the sum of all balances equals the sum minted throughout.
+
+**Merged 2026-10-11, PR #656.** The migration is on jshack-dev and jshack-prod. Nothing has been
+minted or sent on either. As built, beyond the criteria above:
+
+- **`wallet_transfer(transfer_from, transfer_to, transfer_amount, transfer_sequence)` answers a
+  word**: `moved`, or one of the three refusals. Anything else, or a database error, is the
+  handler's 500.
+- **It locks both balance rows before it reads either, lower address first.** Two transfers at
+  one sequence queue on the sender's row, and two wallets paying each other at once take their
+  locks in one order instead of deadlocking. The wire-check runs both, five rounds each.
+- **It is `STRICT`**: a missing argument answers NULL and nothing runs.
+- **It does not check the amount or the self-send**, as `wallet_mint` does not check the
+  amount. The transfer row's CHECKs refuse both, and that failure takes the debit, the credit
+  and the sequence number back with it.
+- **An address with no row holds nothing at sequence 0.** A send from it is
+  `insufficient_balance` and makes no row at either end.
+- **`api/wallet.ts` routes on the body**: a string `payload` is a transfer, anything else is
+  the balance read. An unsigned `{ action: 'transfer' }` is therefore `unknown_action`. The
+  history slice adds a second unsigned action, which belongs on the read side of that fork.
+- **No nonce is kept**, as on the other endpoints. The sequence number is the replay guard,
+  and the two-minute timestamp window still applies.
+- **Code**: `core/wallet/handleWalletTransfer.ts`; `sendTransfer` in `adapters/walletApi.ts`;
+  `env.wallet.transfer({ keyHex, to, amount, sequence })`, which signs in the adapter;
+  `core/wallet/amount.ts` (`readAmount`), lifted out of `mintOrder.ts`; `addressOfPublicKey`
+  and `signerOf` in `walletKey.ts`. `signRequest` takes any key pair (`Signer`), not only a
+  player identity.
+- **To the command a transfer has five outcomes**: made, the three refusals, and
+  `network_error` for everything else, a 400 or a 401 included. After a `network_error` the
+  coins may have moved or not, and the command does not say which.
+- **What `sweep` can reuse**: `env.wallet.transfer` takes whatever key it is handed, so a
+  sweep is a balance read and one call with the file's key. `keyInPlace` in
+  `commands/wallet.ts` reads only `~/.wallet/wallet.dat`; sweep still needs its own reading of
+  a key file at a path the player names. A sweep of an address holding nothing must stop before
+  the transfer: an amount of 0 is refused by the server as `payload_invalid`.
+- **A test at the real terminal** (`ui/state.test.ts`) runs `wallet init` then `wallet send`
+  and hands the posted envelope to the ledger's handler: it is taken as coming from the address
+  `init` printed, and its public key is not the player's.
+- **The wire-check is at 78 checks.** Its cleanup deletes transfers by sender as well as by
+  destination. The transfer checks use their own addresses, funded only by `wallet_mint`, so
+  what they hold is compared with what was minted, as a `bigint`.
+- **Mutation**: 329 killed, 22 survived over the six wallet files. One was an equivalent
+  mutant on a line since simplified away. The other 21 are the command's static metadata
+  (name, tier, availability, manual prose), none in `send`'s logic.
+- **A full test run under load fails on timeouts.** One run that overlapped other work took
+  over ten minutes and failed 5 heavy world-generation and reboot tests; alone it takes about
+  three minutes and passes.
 
 ### Slice 5: a player sweeps a key file (v0.361.0)
 
