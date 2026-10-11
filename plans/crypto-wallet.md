@@ -1,8 +1,8 @@
 # Plan: crypto wallet
 
-**Status**: Grilled, then reviewed for gaps. Decisions confirmed by the owner 2026-10-11; slices
-not yet planned. Nothing in the repo covered money before this file. Where another doc disagrees
-with it, this file wins.
+**Status**: Grilled, reviewed for gaps, and sliced. Decisions confirmed by the owner 2026-10-11;
+seven slices planned, none started. Nothing in the repo covered money before this file. Where
+another doc disagrees with it, this file wins.
 
 ## Goal
 
@@ -186,9 +186,11 @@ merge on their unit tests and the wire-check; this one run covers them together.
 ## Server shape
 
 - `wallet_balances(address, balance, next_sequence)` and
-  `wallet_transfers(from_address, to_address, amount, created_at)`, with the function of
-  decision 16 as the only writer of both.
-- A new `api/wallet.ts` endpoint for send, balance and history.
+  `wallet_transfers(from_address, to_address, amount, created_at)`. Two functions are the only
+  writers of both: `wallet_mint` credits an address from nowhere, and `wallet_transfer` is the
+  function of decision 16. Each arrives with the slice that first calls it.
+- A new `api/wallet.ts` endpoint for send, balance and history: a thin Supabase adapter over
+  handlers in `core/wallet/`, the shape `api/network.ts` has.
 - `scripts/mintCoins.ts` credits through the service role.
 
 ## Out of scope
@@ -200,16 +202,222 @@ Each goes to `docs/backlog.md`.
 - **Mission payouts.** Missions call the mint when they exist.
 - **Generated wallets as loot**, as its own world-content story.
 
-## Left to the slice plan
+## Design choices made in the slice plan (2026-10-11)
 
-- The address's shape and length, and how it is derived from the public key.
-- What the signed transfer message contains, and how a sweep reads the sequence number.
-- Whether balance and history reads sit inside the signed-envelope convention the other
-  endpoints use, given decision 17.
-- The line format of `balance` and `history`, and the clock a history line's time is shown in.
-- Which written forms of an amount are accepted (digits only is the starting point) and the
-  largest amount, given that the client handles it as a JavaScript number.
-- How `scripts/mintCoins.ts` names the database it writes to, and that running it twice mints
-  twice.
-- The wire-check script and the slice order.
-- An as-built doc under `docs/` at close-out, when this file is retired.
+What the grill left to planning, settled here. Each is the planner's proposal, approved with the
+plan rather than grilled; change any of them before the slice that builds it starts.
+
+1. **An address is `jsc` followed by the first 40 hex characters of `sha256(public key)`**: 43
+   characters, lower case, matching `^jsc[0-9a-f]{40}$`. That pattern is the whole of
+   "address-shaped" (decision 7). The public key itself is 64 characters, and two of those do
+   not fit one history line.
+2. **`wallet.dat` is exactly two lines**, `address: <address>` then `key: <64 hex>`. Every
+   command derives the address from the key line and never reads the address line.
+3. **A transfer is the signed envelope the game already uses, signed by the wallet key.**
+   `core/signedRequest` verifies `{ payload, publicKey, signature }` for any Ed25519 key, so the
+   server needs no new cryptography: it verifies the envelope, derives the sending address from
+   `publicKey`, and reads `{ action: 'transfer', to, amount, sequence }` from the payload. The
+   player's identity key signs nothing here.
+4. **Reads carry no signature at all.** `balance` and `history` are plain requests naming an
+   address, unlike the signed actions on the other endpoints. A public ledger has nobody to
+   authenticate, and a signature would hand the server the player key decision 17 keeps out.
+5. **The sequence number is the replay guard.** The endpoints' nonce store is a no-op, so
+   without it a captured transfer could be sent again inside the two-minute window. A balance
+   read returns `{ balance, nextSequence }`; a transfer names the sequence it read, and the
+   function refuses any other.
+6. **`sweep` is a `send` of everything, signed by the key in the file.** It reads that
+   address's balance and sequence, then transfers the whole balance to the wallet in place. No
+   server code of its own. If more coins arrive between the read and the transfer they stay
+   behind, and a second sweep takes them.
+7. **An amount is digits only, no leading zero, at most 9007199254740991**
+   (`Number.MAX_SAFE_INTEGER`). `250.0`, `1e3`, `+5`, `0250` and `250 JSC` are refused. The
+   database column is a `bigint`.
+8. **Times are UTC, from the row's `created_at`**, the real clock the game's logs use.
+9. **Proposed output**, each confirmed with its slice's acceptance criteria:
+   - `init`: `address: <address>` then `wallet: <path>`.
+   - `balance`: one line, `<address>  250 JSC`.
+   - `history`: one line per transfer, `2026-10-11 14:02  +500 JSC  from coinbase` or
+     `2026-10-11 14:09  -500 JSC  to <address>`.
+10. **`scripts/mintCoins.ts <address> <amount>`** takes `SUPABASE_URL` and
+    `SUPABASE_SERVICE_ROLE_KEY` from the environment as `restoreSite.ts` does, prints the host
+    it is about to write to, and exits 2 on a malformed address or amount before touching
+    anything. Running it twice mints twice.
+11. **One wire-check script, `scripts/testWallet.ts`**, grown by each slice that touches `api/`.
+12. **The wallet joins the two tool tables every installed tool is in.** `libraryDeps.ts` gets
+    `wallet: ['libssl', 'libcrypt']`, and `cve/localExploit.ts` gets `wallet: ['file_read']`: a
+    wallet's own flaw turned against its owner leaks a file. Installing the wallet therefore
+    widens a box's local attack surface, as every tool does, and gives a second way to a key
+    file beside rooting the box. **Owner-confirmed 2026-10-11**; rejected: no pool at all, and
+    file read plus file write.
+
+## Slices
+
+Each is one PR against `main`, cut after the one before it merges, and each bumps the version.
+No stack: nothing here is worth holding two branches open for. Every slice changes behaviour, so
+each runs RED-GREEN-REFACTOR (`tdd`, `testing`, and `refactoring` after green), with its
+acceptance criteria confirmed by the owner before any code. Mutation testing runs once per slice
+when it is otherwise ready for its PR, scoped to the files the slice changed; the SQL has no
+mutants to run, and its evidence is the wire-check.
+
+Gates for every slice: `npm run typecheck`, `npm run lint`, `npm run test:run`. A slice that
+touches `api/` or `supabase/` also needs `scripts/testWallet.ts` passing against `vercel dev` and
+local supabase, and its migration pushed to `jshack-dev` and `jshack-prod` **before** its PR
+merges, since a merge deploys code that expects the schema.
+
+### Slice 1: a player makes a wallet (v0.357.0)
+
+**Value**: a player on any box installs `wallet`, runs `wallet init`, and holds a key file that
+`cat` shows and a visitor with the tier can copy.
+**Path**: `apt install wallet` → `commands/wallet.ts` → `core/wallet/` (key, address, file
+format) → `env.patches` writes `~/.wallet/wallet.dat`. Client only; no server.
+**Acceptance criteria**:
+
+- `apt install wallet` puts a world-executable `wallet` on the box; before it, the shell gives
+  the usual install hint.
+- `wallet init` in a user shell writes `/home/<username>/.wallet/wallet.dat`, readable and
+  writable by that account and root only, in a `.wallet` directory with the same reach. In a
+  root shell the path is `/root/.wallet/wallet.dat`; in a guest shell,
+  `/home/guest/.wallet/wallet.dat`.
+- The file is the two lines of choice 2, and the address on its first line is the one derived
+  from the key on its second.
+- `init` prints the address and the path and nothing else, and works with no network.
+- A second `wallet init` prints that a wallet already exists, exits non-zero and leaves the
+  file as it was.
+- Two `init`s on two boxes produce different keys.
+- Bare `wallet`, and an unknown subcommand, print the usage and exit non-zero.
+- `man wallet` documents `init`.
+- The tool tables hold the two rows of choice 12.
+
+**First failing test**: `wallet init` on a box with no wallet writes a `wallet.dat` whose address
+line is derived from its key line.
+**Wire-check**: `N/A`, no `api/` change.
+
+### Slice 2: anyone can read a balance (v0.358.0)
+
+**Value**: a player asks what an address holds and the ledger answers, for their own wallet or
+anybody's.
+**Path**: `wallet balance [address]` → `env.wallet.balance` → `POST /api/wallet` →
+`core/wallet/handleWalletBalance` → `wallet_balances`. The walking skeleton of the server half.
+**Acceptance criteria**:
+
+- `wallet balance` with a wallet in place prints `<own address>  0 JSC`.
+- `wallet balance <address>` prints that address and what it holds, with no key file needed.
+- An address the ledger has never seen reads `0 JSC`.
+- `wallet balance` with no wallet in place and no argument is refused, naming the missing file.
+- `wallet balance coinbase`, and any other text that is not address-shaped, is refused before
+  any request is made.
+- With no network the command prints
+  `wallet: network is unreachable — connect to a network first` and makes no request.
+- A failed request prints a wallet error and exits non-zero; it never prints a balance.
+- `man wallet` documents `balance`.
+
+**First failing test**: `wallet balance <address>` prints the balance the ledger returns for it.
+**Migration**: `wallet_balances`.
+**Wire-check**: `scripts/testWallet.ts` — an unseen address reads 0 with sequence 0; a malformed
+address is a 400.
+
+### Slice 3: the operator mints coins (v0.359.0)
+
+**Value**: the operator credits an address, and the player holding it sees the coins.
+**Path**: `scripts/mintCoins.ts` → `wallet_mint` → `wallet_balances` and `wallet_transfers`;
+observed through slice 2's `wallet balance`.
+**Acceptance criteria**:
+
+- `mintCoins.ts <address> 500` raises that address's balance by 500 and records one transfer
+  with no sender.
+- Minting to an address the ledger has never seen creates it.
+- A malformed address, an amount that is not a positive whole number, or missing environment
+  exits 2 and writes nothing.
+- The script prints the database host before it writes.
+- A mint does not change the address's sequence number.
+
+**First failing test**: the argument check, as a pure function in `core/wallet/` the script
+calls: a malformed address or amount is refused.
+**Migration**: `wallet_transfers`, `wallet_mint`.
+**Wire-check**: mint 500, read 500; mint again, read 1000; the two transfer rows exist with a
+null sender.
+
+### Slice 4: a player sends coins (v0.360.0)
+
+**Value**: whoever holds a key moves its coins to another address. With this slice a stolen key
+is already spendable, by putting it in place of your own.
+**Path**: `wallet send <address> <amount>` → balance read for the sequence → envelope signed by
+the wallet key → `POST /api/wallet` → `core/wallet/handleWalletTransfer` (signature, address
+shape, amount, not to yourself) → `wallet_transfer` (balance covers it, sequence matches, both
+rows written).
+**Acceptance criteria**:
+
+- A send of 200 from an address holding 500 leaves 300 there and 200 more at the destination,
+  and prints what moved and to where.
+- An amount above the balance is refused and nothing moves.
+- An amount that is not a positive whole number of choice 7, a destination that is not
+  address-shaped, and a send to the wallet's own address are each refused before any request.
+- A send with no wallet in place, or with a key line that is not a valid key, is refused.
+- A send to a well-formed address nobody holds succeeds.
+- The same signed transfer sent twice moves the coins once.
+- Two transfers signed with one key at the same sequence: one lands, the other is refused.
+- A transfer whose signature does not match its public key is refused by the server.
+- With no network the command refuses as `balance` does.
+- No log on any box gains a line.
+- `man wallet` documents `send`.
+
+**First failing test**: `handleWalletTransfer` moves the amount when the envelope is signed by
+the sending address's key.
+**Migration**: `wallet_transfer`.
+**Wire-check**: the send, the short balance, the replay, and two concurrent transfers at one
+sequence of which exactly one lands; the sum of all balances equals the sum minted throughout.
+
+### Slice 5: a player sweeps a key file (v0.361.0)
+
+**Value**: a thief empties a copied key into their own wallet with one command, and an owner
+moves to a new key without swapping files.
+**Path**: `wallet sweep <keyfile>` → read the file at the caller's tier → slice 4's transfer,
+signed by that file's key, to the wallet in place. Client only (choice 6).
+**Acceptance criteria**:
+
+- `wallet sweep loot.dat` moves everything at that file's address into the wallet in place and
+  prints what moved.
+- It is refused, and nothing moves, when no wallet is in place; when the file is missing,
+  unreadable at the caller's tier, or holds no valid key line (a `.gpg` file among them); and
+  when the file's key is the key of the wallet in place.
+- A key file whose address holds nothing prints that there is nothing to sweep, sends no
+  transfer and exits zero.
+- A key file whose address line names a different address than its key derives is swept by its
+  key; the address line is ignored.
+- With no network the command refuses as `balance` does.
+- `man wallet` documents `sweep`.
+
+**First failing test**: sweeping a key file whose address holds 500 transfers 500 to the wallet
+in place.
+**Wire-check**: `N/A`, no `api/` change; slice 4's checks cover the transfer it sends.
+
+### Slice 6: anyone can read a history (v0.362.0)
+
+**Value**: a victim sees where their coins went, and anyone can see what an address has done.
+**Path**: `wallet history [address]` → `env.wallet.history` → `POST /api/wallet` →
+`core/wallet/handleWalletHistory` → `wallet_transfers`.
+**Acceptance criteria**:
+
+- `wallet history` lists the own address's transfers, newest first, one line each in the format
+  of choice 9: incoming with `+` and its sender, outgoing with `-` and its destination.
+- A mint shows as `from coinbase`.
+- An address with more than 20 transfers shows the latest 20 and no sign that there are more.
+- An address with none prints nothing and exits zero.
+- `wallet history <address>` works with no key file; `wallet history coinbase` and other
+  malformed text are refused before any request.
+- With no network the command refuses as `balance` does.
+- `man wallet` documents `history`, completing the page.
+
+**First failing test**: `wallet history <address>` prints one line per transfer the ledger
+returns, newest first.
+**Migration**: indexes on `wallet_transfers` by sender and by destination, each with
+`created_at`.
+**Wire-check**: 21 transfers on one address return 20, newest first; a mint row has a null
+sender; a malformed address is a 400.
+
+### Slice 7: close-out
+
+Not a code slice. The two-player browser run of "Done when" (`e2e` skill), with anything it
+finds fixed as its own slice first. Then an as-built `docs/wallet-architecture.md`, the
+`docs/project-status.md` entry, the `docs/backlog.md` entry trimmed to what is still deferred,
+and this file deleted.
