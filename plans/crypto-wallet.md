@@ -1,8 +1,8 @@
 # Plan: crypto wallet
 
 **Status**: Grilled, reviewed for gaps, and sliced. Decisions confirmed by the owner 2026-10-11.
-Slices 1 to 5 merged (v0.357.0, PR #653; v0.358.0, PR #654; v0.359.0, PR #655; v0.360.0,
-PR #656; v0.361.0, PR #657); slice 6 is next. Nothing in the repo covered money before this file. Where another doc disagrees with it, this file wins.
+Slices 1 to 6 merged (v0.357.0, PR #653; v0.358.0, PR #654; v0.359.0, PR #655; v0.360.0,
+PR #656; v0.361.0, PR #657; v0.362.0, PR #658); slice 7, the close-out, is next. Nothing in the repo covered money before this file. Where another doc disagrees with it, this file wins.
 
 ## Goal
 
@@ -628,22 +628,90 @@ project. As built, beyond the criteria above:
 `core/wallet/handleWalletHistory` → `wallet_transfers`.
 **Acceptance criteria**:
 
-- `wallet history` lists the own address's transfers, newest first, one line each in the format
-  of choice 9: incoming with `+` and its sender, outgoing with `-` and its destination.
-- A mint shows as `from coinbase`.
+Confirmed by the owner 2026-10-11, with the wordings.
+
+- `wallet history <address>` prints one line per transfer the ledger holds for that address,
+  newest first, and exits 0, with no key file needed. `wallet history` with no argument reads
+  the key in `~/.wallet/wallet.dat` and answers for its address, as `balance` does.
+- The three line shapes, with the time in UTC to the minute and two spaces between columns:
+  `2026-10-11 14:02  +500 JSC  from coinbase` (a mint),
+  `2026-10-11 14:05  +200 JSC  from <address>` (incoming) and
+  `2026-10-11 14:09  -500 JSC  to <address>` (outgoing).
+- Columns are not padded, so amounts of different widths do not line up. Rejected: padding the
+  amount column.
 - An address with more than 20 transfers shows the latest 20 and no sign that there are more.
-- An address with none prints nothing and exits zero.
-- `wallet history <address>` works with no key file; `wallet history coinbase` and other
-  malformed text are refused before any request.
-- With no network the command refuses as `balance` does.
-- `man wallet` documents `history`, completing the page.
+  An address with none prints nothing and exits 0.
+- The command writes nothing to the box, and no log gains a line.
+- Refused before any request, in this order: more than one argument (the usage line); text
+  that is not address-shaped, `coinbase` and upper case included
+  (`wallet: '<text>' is not an address`); a missing, keyless or unreadable wallet in place (the
+  three wordings `balance` uses); no network (the wording `balance` uses).
+- A failed request or an unreadable answer prints `wallet: the ledger did not answer` and exits
+  non-zero. It never prints part of a list.
+- **The usage line takes decision 9's order**, now that all five subcommands exist:
+  `wallet: usage: wallet init | balance [address] | history [address] | send <address> <amount> | sweep <keyfile>`.
+  Rejected: the order they were built in, with `history` last.
+- `man wallet` documents `history` with the examples `wallet history` and
+  `wallet history <address>`, and tab completion offers `history`.
+- `POST /api/wallet` with `{ action: 'history', address }`, unsigned, answers 200
+  `{ transfers: [{ from, to, amount, at }] }`: at most 20, newest first, `at` a UTC timestamp.
+  A mint has `from: null`; the word `coinbase` is the command's and not the ledger's.
+- An address the ledger has never seen answers an empty list and writes no row. A history
+  holds only transfers the address sent or received.
+- A malformed address is 400 `invalid_address`. A failed read, or a row that is not a
+  well-formed transfer, is 500 `history_lookup_failed` with no list in it.
+- The balance read and the signed transfer answer as before, and only the service role reads
+  `wallet_transfers`.
 
 **First failing test**: `wallet history <address>` prints one line per transfer the ledger
 returns, newest first.
-**Migration**: indexes on `wallet_transfers` by sender and by destination, each with
-`created_at`.
+**Migration**: two indexes on `wallet_transfers`, by sender and by destination, each with `id`.
+The first plan said `created_at`; the history sorts by `id`, because two transfers can share an
+instant.
 **Wire-check**: 21 transfers on one address return 20, newest first; a mint row has a null
 sender; a malformed address is a 400.
+
+**Merged 2026-10-11, PR #658.** The migration is on jshack-dev and jshack-prod. Nothing has been
+minted or sent on either. As built, beyond the criteria above:
+
+- **Code**: `core/wallet/handleWalletHistory.ts`, which also holds `transferRecordSchema`, the
+  one shape of a transfer both sides of the wire parse; `readHistory` in
+  `adapters/walletApi.ts`; `env.wallet.history`; `history` and `historyLine` in
+  `commands/wallet.ts`.
+- **`balance` and `history` share one reading of which address a question is about**
+  (`addressAsked`), so they cannot differ in what they refuse or in what order. The two
+  unsigned reads share one request in the adapter (`ask`) for the same reason: a status that
+  is not ok is never read for an answer.
+- **`api/wallet.ts` forks three ways**: a string `payload` is a transfer, `action: 'history'`
+  is a history, and anything else goes to the balance handler, which answers `unknown_action`.
+  The history handler reads only the address and does not check the action itself.
+- **The handler names the limit and the endpoint's query applies it.** The query takes rows
+  where the address is the sender or the destination, newest `id` first.
+- **`at` is `2026-10-11T14:02:33.123Z`**: ISO 8601, UTC, milliseconds. The command takes the
+  day and the minute straight off the text. The adapter takes a time in any other clock for
+  no answer, and the handler refuses a row whose `created_at` carries no offset.
+- **A list is whole or it is not an answer.** One row that is not a transfer is the handler's
+  500, and one malformed transfer makes the adapter report a ledger that did not answer: a
+  history with a hole in it would read as a history without the transfer.
+- **A line's direction is `to === address`.** The table's CHECK forbids a transfer to its own
+  sender, so every row an address sees is one or the other.
+- **The manual says that only the latest 20 transfers are shown.** The command's output still
+  gives no sign of older ones.
+- **A test at the real terminal** (`ui/state.test.ts`) types `wallet history <address>` and has
+  the ledger's own handler answer over rows as the table holds them: the request is unsigned,
+  and the two lines print newest first.
+- **For the close-out run**: after B's sweep, A's history reads `-500 JSC  to <B's address>`
+  above `+500 JSC  from coinbase`. Times are UTC, so they will not match the browser's clock.
+- **Tests**: `wallet.test.ts` is at 181, `handleWalletHistory.test.ts` at 37 and
+  `walletApi.test.ts` at 65; the full run, alone, passes 286 files and 8811 tests.
+- **"Alone" includes the local API server.** A full run made while `vercel dev` was still up
+  after the wire-check timed out one world-generation test (`relations.test.ts`, 34.6 s
+  against 30 s) that passes alone in 6 s. Stop the server before the full run.
+- **The wire-check is at 89 checks.** The 11 new ones read histories off the addresses the
+  transfer checks already filled, plus one address minted to 21 times and one never seen.
+- **Mutation**: 381 killed, 27 survived over `wallet.ts`, `handleWalletHistory.ts` and
+  `walletApi.ts`, no timeouts. All 27 are the command's static metadata; two are new with this
+  slice, the descriptions of the two history examples. The handler and the adapter have none.
 
 ### Slice 7: close-out
 
