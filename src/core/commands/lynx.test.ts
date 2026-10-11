@@ -3,6 +3,8 @@ import { lynx } from './lynx.js';
 import type {
   AccessLogFetch,
   CommandResult,
+  OccupantFetchParams,
+  OccupantFetchResult,
   PublicFetchParams,
   PublicFetchResult,
 } from './types.js';
@@ -20,7 +22,12 @@ import type { Directory } from '../filesystem/types.js';
 import { buildWorkstationBaseFs } from '../generation/workstationFs.js';
 import { formatPidfileContent } from '../services/pidfile.js';
 import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
-import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces.js';
+import {
+  buildColdStartConnectivity,
+  type ConnectivityState,
+  type Ipv4,
+} from '../network/interfaces.js';
+import { lanAddressFor } from '../network/lanAddress.js';
 import { assignHomeNetwork } from '../network/homeNetwork.js';
 import { machineIdForLanHost } from '../generation/lanHostIdentity.js';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
@@ -599,5 +606,73 @@ describe('lynx from a hop', () => {
 
     const onHop = opened(await lynx.execute(hopEnv, [target], new Map()));
     expect(onHop.content).toBe(atHome.content);
+  });
+});
+
+describe('lynx at a fellow occupant of the network', () => {
+  /** An address on the subnet that neither a generated host nor the player holds. */
+  const neighbourIp = ((): Ipv4 => {
+    const taken = new Set<string>([
+      ...generateHomeLan(ESSID).hosts.map((host) => host.ip),
+      assignHomeNetwork(PUBKEY, ESSID).localIp,
+    ]);
+    const free = Array.from({ length: 253 }, (_unused, index) =>
+      lanAddressFor(ESSID, index + 2),
+    ).find((ip) => !taken.has(ip));
+    if (free === undefined) throw new Error('expected a free address on the subnet');
+    return free;
+  })();
+
+  const withNeighbour = (answer: OccupantFetchResult) => {
+    const asked: OccupantFetchParams[] = [];
+    const env = mockCommandEnv({
+      identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
+      network: mockNetworkViewFromConnectivity(onlineConnectivity(ESSID)),
+      remote: {
+        ...mockRemoteApi(),
+        fetchOccupant: async (params) => {
+          asked.push(params);
+          return answer;
+        },
+      },
+    });
+    return { env, asked };
+  };
+
+  it('opens the browser on the page their box serves at its LAN address', async () => {
+    const { env, asked } = withNeighbour({
+      ok: true,
+      content: '<h1>nebuchadnezzar</h1>',
+      server: 'nginx',
+    });
+
+    const result = await lynx.execute(env, [`http://${neighbourIp}/crew.html`], new Map());
+
+    expect(opened(result)).toEqual({
+      url: `http://${neighbourIp}/crew.html`,
+      content: '<h1>nebuchadnezzar</h1>',
+    });
+    expect(asked).toEqual([
+      {
+        essid: ESSID,
+        target: neighbourIp,
+        port: HTTP_DEFAULT_PORT,
+        path: '/crew.html',
+        callerMachineId: mockSession().machineId,
+      },
+    ]);
+  });
+
+  it('refuses in the terminal when their box serves no web there', async () => {
+    const { env } = withNeighbour({ ok: false, error: 'connection_refused' });
+
+    const { text, exitCode } = reported(
+      await lynx.execute(env, [`http://${neighbourIp}/`], new Map()),
+    );
+
+    expect(exitCode).toBe(1);
+    expect(text).toBe(
+      `lynx: (7) Failed to connect to ${neighbourIp} port ${HTTP_DEFAULT_PORT}: Connection refused`,
+    );
   });
 });

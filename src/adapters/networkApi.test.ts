@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import {
+  fetchOccupantPage,
   fetchPublicPage,
   joinHomeNetwork,
   leaveHomeNetwork,
@@ -812,5 +813,92 @@ describe('fetchPublicPage', () => {
     );
 
     expect(await fetchPublicPage(deps, PARAMS)).toEqual({ ok: false, error: 'network_error' });
+  });
+});
+
+describe('fetchOccupantPage', () => {
+  const PARAMS = {
+    essid: ESSID,
+    target: '192.168.7.42',
+    port: 8080,
+    path: '/status.html',
+    callerMachineId: asMachineId(HOP_BOX),
+  };
+
+  it('signs a resolveOccupantFetch request, naming the network and the box it ran from, and returns the page', async () => {
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse(200, { ok: true, content: '<h1>hi</h1>', server: 'apache2' }),
+    );
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await fetchOccupantPage(deps, PARAMS)).toEqual({
+      ok: true,
+      content: '<h1>hi</h1>',
+      server: 'apache2',
+    });
+    const verified = await verifyPayload(sentEnvelope(fetchSpy));
+    if (!verified.ok) throw new Error('expected verified envelope');
+    expect(verified.payload).toMatchObject({
+      action: 'resolveOccupantFetch',
+      essid: ESSID,
+      target: PARAMS.target,
+      port: PARAMS.port,
+      path: PARAMS.path,
+      caller_machine_id: HOP_BOX,
+    });
+  });
+
+  it('passes an empty page through as a page, not as a failure', async () => {
+    const deps = makeDeps(
+      vi.fn(async () =>
+        jsonResponse(200, { ok: true, content: '', server: 'nginx' }),
+      ) as unknown as typeof fetch,
+    );
+
+    expect(await fetchOccupantPage(deps, PARAMS)).toEqual({
+      ok: true,
+      content: '',
+      server: 'nginx',
+    });
+  });
+
+  it.each(['host_unreachable', 'connection_refused', 'not_found'] as const)(
+    'reports %s as the box’s own answer',
+    async (error) => {
+      const deps = makeDeps(
+        vi.fn(async () => jsonResponse(404, { error })) as unknown as typeof fetch,
+      );
+
+      expect(await fetchOccupantPage(deps, PARAMS)).toEqual({ ok: false, error });
+    },
+  );
+
+  it.each([
+    ['a server error', 500, { error: 'occupants_lookup_failed' }],
+    ['a refusal at the LAN boundary', 403, { error: 'wrong_network' }],
+  ])('blames our own side, not the box, for %s', async (_case, status, body) => {
+    const deps = makeDeps(vi.fn(async () => jsonResponse(status, body)) as unknown as typeof fetch);
+
+    expect(await fetchOccupantPage(deps, PARAMS)).toEqual({ ok: false, error: 'network_error' });
+  });
+
+  it.each([
+    ['says it is not ok', { ok: false, content: '<h1>hi</h1>', server: 'nginx' }],
+    ['carries no text', { ok: true, content: 7, server: 'nginx' }],
+    ['names no server', { ok: true, content: '<h1>hi</h1>' }],
+  ])('treats a 200 that %s as a reply it cannot read', async (_case, body) => {
+    const deps = makeDeps(vi.fn(async () => jsonResponse(200, body)) as unknown as typeof fetch);
+
+    expect(await fetchOccupantPage(deps, PARAMS)).toEqual({ ok: false, error: 'network_error' });
+  });
+
+  it('treats a thrown fetch (offline) as our own failure to ask', async () => {
+    const deps = makeDeps(
+      vi.fn(async () => {
+        throw new Error('offline');
+      }) as unknown as typeof fetch,
+    );
+
+    expect(await fetchOccupantPage(deps, PARAMS)).toEqual({ ok: false, error: 'network_error' });
   });
 });

@@ -84,13 +84,14 @@ const execute: Command['execute'] = async (env, args) => {
         callerMachineId: env.session.machineId,
         fetchPublic: (params) => env.remote.fetchPublic(params),
       })
-    : fetchWebPage({
+    : await fetchWebPage({
         root: env.fs.root(),
         program: 'lynx',
         url,
         vantage,
         callerMachineId: env.session.machineId,
         appendAccessLog: (fetched) => env.log.appendAccessLog(fetched),
+        fetchOccupant: (params) => env.remote.fetchOccupant(params),
       });
   if (page.kind === 'unreachable') {
     return page.failure;

@@ -23,6 +23,7 @@ import {
   type WebTargetDeps,
 } from '../src/core/network/resolveHttpFetch.js';
 import { handleResolveHttpSweep } from '../src/core/network/resolveHttpSweep.js';
+import { handleResolveOccupantFetch } from '../src/core/network/resolveOccupantFetch.js';
 import type {
   ActiveSessionQuery,
   FindActiveSessionResult,
@@ -448,6 +449,31 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       findPublicIpByEssid: derivedPublicIpByEssid,
       findActiveSession: findActiveSessionVia({ supabase, label: 'http-sweep' }),
       listPathPatches: listPathPatchesVia({ supabase, label: 'http-sweep' }),
+    });
+    res.status(status).json(body);
+    return;
+  }
+
+  if (actionOf(req.body) === 'resolveOccupantFetch') {
+    // Same-LAN web FETCH of a fellow occupant's box. Every other host on a LAN is the
+    // client's to read; a player's box is rebuilt from THEIR identity and THEIR journal,
+    // so its pages are served from here, as its ports already are for a scan. No session
+    // and no credential, like every web fetch: standing on the network is the gate, and
+    // the caller is placed on it by the server. The line lands in the OWNER's access log.
+    const { findPatches, listOccupantsByEssid, listLeasesByEssid } = webTargetDepsVia({
+      supabase,
+      label: 'occupant-fetch',
+    });
+    const { status, body } = await handleResolveOccupantFetch(req.body, {
+      nonceStore: noopNonceStore,
+      now: () => Date.now(),
+      findPatches,
+      listOccupantsByEssid,
+      listLeasesByEssid,
+      ...accessLogWriterVia({ supabase, label: 'occupant-fetch' }),
+      findActiveSession: findActiveSessionVia({ supabase, label: 'occupant-fetch active-session' }),
+      findHomeVantage: findHomeVantageVia({ supabase, label: 'occupant-fetch vantage' }),
+      findWorkstationLease: findWorkstationLeaseVia({ supabase, label: 'occupant-fetch vantage' }),
     });
     res.status(status).json(body);
     return;

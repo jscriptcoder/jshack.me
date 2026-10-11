@@ -161,8 +161,9 @@ type FetchTarget = {
 };
 
 /** The player's workstation at `address` on this LAN, when it is the caller's OWN or the
- *  one their shell STANDS ON — the two a fetch is ever served from, since nothing on the
- *  LAN serves a player's pages to a shell that is neither theirs nor on their box. Found
+ *  one their shell STANDS ON — the two a client ever serves from a tree it holds, and so
+ *  the two this trace is asked about. A fetch of any other player's box is served by the
+ *  server, which records that visit itself (`resolveOccupantFetch`). Found
  *  by the lease its owner holds, and filed under that owner's key: their box keeps one
  *  log however many visitors leave a line in it. Every read here is load-bearing — a
  *  failure means we cannot tell whose box this is, and guessing would land the line on a

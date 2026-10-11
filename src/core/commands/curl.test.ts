@@ -3,7 +3,10 @@ import { curl } from './curl.js';
 import { runCommandLine } from '../shell/runLine.js';
 import type {
   AccessLogFetch,
+  CommandEnv,
   CommandResult,
+  OccupantFetchParams,
+  OccupantFetchResult,
   PublicFetchParams,
   PublicFetchResult,
 } from './types.js';
@@ -14,6 +17,7 @@ import {
   mockNetworkView,
   mockNetworkViewFromConnectivity,
   mockRemoteApi,
+  mockScanApi,
   mockSession,
 } from '../../test/factories/commandEnv.js';
 import { applyPatches, type Patch } from '../filesystem/applyPatches.js';
@@ -26,7 +30,12 @@ import {
   programPidfilePath,
 } from '../services/pidfile.js';
 import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
-import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces.js';
+import {
+  buildColdStartConnectivity,
+  type ConnectivityState,
+  type Ipv4,
+} from '../network/interfaces.js';
+import { lanAddressFor } from '../network/lanAddress.js';
 import { assignHomeNetwork } from '../network/homeNetwork.js';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
 import { buildRemoteHostFs } from '../generation/remoteHostFs.js';
@@ -1206,5 +1215,166 @@ describe('curl from a hop', () => {
       paths: ['/index.html'],
       callerMachineId: machineIdForLanHost(hop, ESSID),
     });
+  });
+});
+
+describe('curl at a fellow occupant of the network', () => {
+  // Another player's box holds an address on the WiFi, but it is built from their
+  // journal: nothing this side can generate answers there, so the server is asked.
+  const THEIR_PAGE = '<h1>welcome to nebuchadnezzar</h1>';
+  const THEIR_WORKSTATION = 'workstation-c3d4e5f6';
+  /** An address on the subnet that neither a generated host nor the player holds. */
+  const neighbourIp = ((): Ipv4 => {
+    const taken = new Set<string>([
+      ...generateHomeLan(ESSID).hosts.map((host) => host.ip),
+      assignHomeNetwork(PUBKEY, ESSID).localIp,
+    ]);
+    const free = Array.from({ length: 253 }, (_unused, index) =>
+      lanAddressFor(ESSID, index + 2),
+    ).find((ip) => !taken.has(ip));
+    if (free === undefined) throw new Error('expected a free address on the subnet');
+    return free;
+  })();
+
+  const served = (server = 'nginx'): OccupantFetchResult => ({
+    ok: true,
+    content: THEIR_PAGE,
+    server,
+  });
+
+  /** An environment whose network holds one fellow occupant, answering `answer`, with
+   *  everything the client asked the server and reported to the access-log seam. */
+  const withNeighbour = (answer: OccupantFetchResult, over: Partial<CommandEnv> = {}) => {
+    const asked: OccupantFetchParams[] = [];
+    const reported: AccessLogFetch[] = [];
+    const env = mockCommandEnv({
+      identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
+      network: mockNetworkViewFromConnectivity(onlineConnectivity(ESSID)),
+      remote: {
+        ...mockRemoteApi(),
+        fetchOccupant: async (params) => {
+          asked.push(params);
+          return answer;
+        },
+      },
+      scan: mockScanApi({
+        resolveOccupants: async () => [
+          {
+            workstation_machine_id: THEIR_WORKSTATION,
+            localIp: neighbourIp,
+            machineName: 'nebuchadnezzar',
+          },
+        ],
+      }),
+      log: {
+        appendAuthLog: async () => undefined,
+        appendKernLog: async () => undefined,
+        appendAccessLog: async (fetched) => {
+          reported.push(fetched);
+        },
+      },
+      ...over,
+    });
+    return { env, asked, reported };
+  };
+
+  it('prints the page their box serves at its LAN address', async () => {
+    const { env, asked } = withNeighbour(served());
+
+    const { text, exitCode } = await drain(
+      await curl.execute(env, [`http://${neighbourIp}:8080/status.html`], new Map()),
+    );
+
+    expect(exitCode).toBe(0);
+    expect(text).toBe(THEIR_PAGE);
+    expect(asked).toEqual([
+      {
+        essid: ESSID,
+        target: neighbourIp,
+        port: 8080,
+        path: '/status.html',
+        callerMachineId: mockSession().machineId,
+      },
+    ]);
+  });
+
+  it('reaches their box by the name it goes by on the network', async () => {
+    const { env, asked } = withNeighbour(served());
+
+    const { text } = await drain(await curl.execute(env, ['http://nebuchadnezzar/'], new Map()));
+
+    expect(text).toBe(THEIR_PAGE);
+    expect(asked.map((request) => request.target)).toEqual([neighbourIp]);
+  });
+
+  it('names the program their box serves with in the Server header under -i', async () => {
+    const { env } = withNeighbour(served('apache2'));
+
+    const { text } = await drain(
+      await curl.execute(env, [`http://${neighbourIp}`], new Map([['-i', true]])),
+    );
+
+    expect(text.split('\n')).toContain('Server: Apache');
+  });
+
+  it('reports nothing to its own access-log seam, since the server records the visit', async () => {
+    const { env, reported } = withNeighbour(served());
+
+    await drain(await curl.execute(env, [`http://${neighbourIp}`], new Map()));
+
+    expect(reported).toEqual([]);
+  });
+
+  it('is refused by their box when it serves no web on that port', async () => {
+    const { env } = withNeighbour({ ok: false, error: 'connection_refused' });
+
+    const { text, exitCode, kinds } = await drain(
+      await curl.execute(env, [`http://${neighbourIp}`], new Map()),
+    );
+
+    expect(exitCode).toBe(1);
+    expect(text).toBe(
+      `curl: (7) Failed to connect to ${neighbourIp} port ${HTTP_DEFAULT_PORT}: Connection refused`,
+    );
+    expect(kinds).toEqual(['error']);
+  });
+
+  it('reports a 404 for a path their box does not publish', async () => {
+    const { env } = withNeighbour({ ok: false, error: 'not_found' });
+
+    const { text, exitCode } = await drain(
+      await curl.execute(env, [`http://${neighbourIp}/secret.html`], new Map()),
+    );
+
+    expect(exitCode).toBe(1);
+    expect(text).toBe('curl: (22) The requested URL returned error: 404');
+  });
+
+  it('asks from the box the shell stands on, with the home card offline', async () => {
+    // A shell on the neighbour's own workstation: a box the network does not generate,
+    // standing at an address this side cannot recover. Its own address is still its own.
+    const { env, asked } = withNeighbour(served(), {
+      network: mockNetworkView(),
+      session: mockSession({
+        id: 'curl-hop-2',
+        machineId: asMachineId(THEIR_WORKSTATION),
+        essid: ESSID,
+        userType: 'guest',
+        kind: 'ssh',
+      }),
+    });
+
+    const { text } = await drain(await curl.execute(env, [`http://${neighbourIp}/`], new Map()));
+
+    expect(text).toBe(THEIR_PAGE);
+    expect(asked).toEqual([
+      {
+        essid: ESSID,
+        target: neighbourIp,
+        port: HTTP_DEFAULT_PORT,
+        path: '/',
+        callerMachineId: THEIR_WORKSTATION,
+      },
+    ]);
   });
 });

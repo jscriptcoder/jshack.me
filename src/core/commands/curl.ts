@@ -11,15 +11,17 @@
  * host and check something is listening on the port — `reachWebHost`, the step every
  * web tool shares — then ask for the file.
  *
- * Two kinds of target, split by the address itself. An address on the player's own LAN
- * resolves locally — including their own, which reads their live filesystem rather than a
- * generated one (see `reachWebHost`). A PUBLIC address is another player's, and resolves
- * through the server (see `fetchAcrossNetwork`): their journal lives server-side, so
- * their page cannot be rebuilt from this client's world.
+ * Two kinds of target, split by the address itself. An address on the network the shell
+ * stands on resolves locally when a box the network generates holds it — or the shell's
+ * own box, which reads its live filesystem rather than a generated one (see
+ * `reachWebHost`). A PUBLIC address resolves through the server (see
+ * `fetchPageAcrossNetwork`), and so does a fellow occupant's address on this network:
+ * a player's journal lives server-side, so their page cannot be rebuilt from this
+ * client's world.
  *
- * The local path reads the file itself; the cross-network path asks for it and is handed
- * content. What the two share is the response: both hand the same `responseLines` the
- * same string, so a page looks the same however far away it was.
+ * The local path reads the file itself; the others ask for it and are handed content.
+ * What they share is the response: all hand the same `responseLines` the same string, so
+ * a page looks the same however far away it was.
  */
 
 import type { Command, CommandResult, TerminalLine } from './types.js';
@@ -128,13 +130,14 @@ const execute: Command['execute'] = async (env, args, flags) => {
         callerMachineId: env.session.machineId,
         fetchPublic: (params) => env.remote.fetchPublic(params),
       })
-    : fetchWebPage({
+    : await fetchWebPage({
         root: env.fs.root(),
         program: 'curl',
         url,
         vantage,
         callerMachineId: env.session.machineId,
         appendAccessLog: (fetched) => env.log.appendAccessLog(fetched),
+        fetchOccupant: (params) => env.remote.fetchOccupant(params),
       });
   if (page.kind === 'unreachable') {
     return page.failure;

@@ -52,10 +52,16 @@ export type ReachedHost = {
  *  to print to can still read what went wrong. */
 export type ErrorResult = Extract<CommandResult, { readonly kind: 'sync' }>;
 
-/** Either the host answered, or here is the line the caller returns instead. */
+/** Either the host answered, or here is the line the caller returns instead. `unresolved`
+ *  is an address no box this side can build holds — which may still be another
+ *  player's — while `refused` is a box that is there and serves no web on that port. */
 export type Reach =
   | { readonly ok: true; readonly host: ReachedHost }
-  | { readonly ok: false; readonly failure: ErrorResult };
+  | {
+      readonly ok: false;
+      readonly reason: 'unresolved' | 'refused';
+      readonly failure: ErrorResult;
+    };
 
 const error = (message: string): ErrorResult => ({
   kind: 'sync',
@@ -171,7 +177,11 @@ export const reachWebHost = ({
   const address = isLoopback ? LOOPBACK_IPV4 : (resolveLanName(essid, url.host)?.ip ?? url.host);
   const located = locateHost({ root, vantage, isLoopback, address });
   if (located === null) {
-    return { ok: false, failure: error(`${program}: (6) Could not resolve host: ${url.host}`) };
+    return {
+      ok: false,
+      reason: 'unresolved',
+      failure: error(`${program}: (6) Could not resolve host: ${url.host}`),
+    };
   }
 
   // The port AS THE SHELL REACHES IT decides whether anything answers — a switch's ACL
@@ -182,6 +192,7 @@ export const reachWebHost = ({
   if (server === undefined) {
     return {
       ok: false,
+      reason: 'refused',
       failure: connectError({
         program,
         host: url.host,

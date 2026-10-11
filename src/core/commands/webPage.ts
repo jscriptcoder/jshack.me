@@ -8,11 +8,15 @@
  * answered hears about it — so all three go through here, and none gets to skip the
  * trace by taking a shorter route to the same file.
  *
- * Two ways to reach a page, split by the address itself: one on the player's own LAN
- * that reads a tree here, and one at another player's public IP that asks the server.
- * They are separate functions rather than one with a branch, because only the caller
- * knows which of the two it is allowed to do — and they return the SAME three
- * outcomes, so nothing downstream has to care how far away the page was.
+ * Two ways to reach a page, split by the address itself: one on the network the shell
+ * stands on, and one at a public IP that asks the server. They are separate functions
+ * rather than one with a branch, because only the caller knows which of the two it is
+ * allowed to do — and they return the SAME three outcomes, so nothing downstream has to
+ * care how far away the page was.
+ *
+ * On the network the shell stands on, a box the network generates is read here. An
+ * address none of them holds may be a fellow occupant's, whose box is built from a
+ * journal only the server has, so that one is asked of the server too.
  *
  * Three outcomes rather than two, because a reader treats them differently and the
  * target's log agrees with the split. A page and a 404 both mean the box ANSWERED:
@@ -31,7 +35,7 @@ import type { Vantage } from '../network/vantage.js';
 import type { ParsedUrl } from '../network/http.js';
 import { createFsView } from '../filesystem/fsView.js';
 import { resolveWebPath } from '../network/http.js';
-import { connectError, reachWebHost, type ErrorResult } from './webHost.js';
+import { connectError, reachWebHost, type ErrorResult, type Reach } from './webHost.js';
 
 export type PageResult =
   /** The box answered with a page — logged. `server` is the program that answered. */
@@ -58,16 +62,68 @@ const recordVisit = ({
   }
 };
 
+/**
+ * The page at an address no box this side can build holds — a fellow occupant's, if
+ * anybody's. The server says whose box it is, serves the page off their journal and
+ * records the visit there itself, so nothing is logged from here.
+ *
+ * An address the server finds nobody at stays what it was before anybody was asked:
+ * unresolved. So does one it could not be asked about, since an outage of ours says
+ * nothing about the address.
+ */
+const fetchFromOccupant = async ({
+  unresolved,
+  program,
+  url,
+  essid,
+  callerMachineId,
+  fetchOccupant,
+}: {
+  readonly unresolved: Extract<Reach, { readonly ok: false }>;
+  readonly program: string;
+  readonly url: ParsedUrl;
+  readonly essid: string;
+  readonly callerMachineId: MachineId;
+  readonly fetchOccupant: RemoteApi['fetchOccupant'];
+}): Promise<PageResult> => {
+  const fetched = await fetchOccupant({
+    essid,
+    target: url.host,
+    port: url.port,
+    path: url.path,
+    callerMachineId,
+  });
+  if (fetched.ok) {
+    return { kind: 'page', content: fetched.content, server: fetched.server };
+  }
+  if (fetched.error === 'not_found') {
+    return { kind: 'not_found' };
+  }
+  if (fetched.error === 'connection_refused') {
+    return {
+      kind: 'unreachable',
+      failure: connectError({
+        program,
+        host: url.host,
+        port: url.port,
+        reason: 'Connection refused',
+      }),
+    };
+  }
+  return { kind: 'unreachable', failure: unresolved.failure };
+};
+
 /** The page `url` names on the network the shell stands on, and the trace reading it
  *  leaves. The vantage decides what is reachable and where from; `callerMachineId` is
  *  the box it ran on, which the server places the caller by. */
-export const fetchWebPage = ({
+export const fetchWebPage = async ({
   root,
   program,
   url,
   vantage,
   callerMachineId,
   appendAccessLog,
+  fetchOccupant,
 }: {
   readonly root: Directory;
   readonly program: string;
@@ -75,10 +131,20 @@ export const fetchWebPage = ({
   readonly vantage: Vantage;
   readonly callerMachineId: MachineId;
   readonly appendAccessLog: (fetched: AccessLogFetch) => Promise<void>;
-}): PageResult => {
+  readonly fetchOccupant: RemoteApi['fetchOccupant'];
+}): Promise<PageResult> => {
   const reached = reachWebHost({ root, program, url, vantage });
   if (!reached.ok) {
-    return { kind: 'unreachable', failure: reached.failure };
+    return reached.reason === 'unresolved'
+      ? fetchFromOccupant({
+          unresolved: reached,
+          program,
+          url,
+          essid: vantage.essid,
+          callerMachineId,
+          fetchOccupant,
+        })
+      : { kind: 'unreachable', failure: reached.failure };
   }
   const { fs, essid, address, server } = reached.host;
 

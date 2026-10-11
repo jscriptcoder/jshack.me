@@ -698,11 +698,15 @@ agreed order:
    generates. ✅ The browser run over v0.350.0 to v0.352.0 (#646–#648) passed 2026-10-10: a root
    write in a shell on a deep box, `curl localhost` on a deep box, and `curl localhost` in a
    shell on another player's box, each followed by a `cat` of the file it changed. It found
-   one thing, in `backlog.md` and not decided: `curl <a player's LAN address>` answers
-   `Could not resolve host`, even in a shell on that box. **Pick up here (2026-10-10):** the
-   next fix in line is the last gap in the same fetch trace: `curl <its own address>` on a deep
-   box behind a switch that denies the web port (`backlog.md`, not reproduced, so it starts
-   with a wire-check in `scripts/testLanFetchLog.ts`).
+   one thing: `curl <a player's LAN address>` answered `Could not resolve host`, even in a
+   shell on that box. ✅ Decided a gap and closed at v0.354.0: `curl` and `lynx` reach a
+   fellow occupant's web server at its LAN address, served from the owner's journal by
+   `resolveOccupantFetch` and logged in the owner's `access.log`
+   (`scripts/testOccupantFetch.ts`, 11/11; not played in the browser yet). **Pick up here
+   (2026-10-11):** `gobuster` at a player's LAN address is the neighbour it left
+   (`backlog.md`). Still open there, each found by reading and none reproduced: a deep box's
+   own address behind a switch that denies the web port, a data door over `localhost`, a
+   shell on a box whose owner left, and a line break in a trace's free-text fields.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan
