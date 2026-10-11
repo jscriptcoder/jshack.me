@@ -4,6 +4,13 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
 the project stands is in [`project-status.md`](./project-status.md); the working rules and
 invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
 
+- **Crypto wallet deferred.** The wallet epic (grilled 2026-10-11, `plans/crypto-wallet.md` while
+  in flight) ships the `wallet` command, a public ledger of JSC keyed by address, and an operator
+  mint. Four things were left out on purpose: **recognition**, the other half of a mission
+  reward, to be designed with missions; **anything to spend JSC on**; **mission payouts**, which
+  will call the mint; and **generated wallets as loot**, a world-content story that would reopen
+  the rule that generated boxes hold no loot.
+
 - **CLOSED (2026-10-07) — three wire-checks that failed for fixture reasons.**
   `testCrossPlayerConnectionTrace` already read the gateway's trace under `ap:<essid>` (fixed in
   #601; this entry outlived it). `testMysqlDeep` now cleans its gateway and deep box at teardown as
