@@ -301,6 +301,10 @@ export type RemoteApi = {
    *  the credential-free door, so there is no session to carry. Load-bearing: the
    *  target's journal lives server-side, so its page cannot be computed locally. */
   readonly fetchPublic: (params: PublicFetchParams) => Promise<PublicFetchResult>;
+  /** Fetch one file over HTTP from a FELLOW OCCUPANT's box, at the address it holds on
+   *  the network the shell stands on. Load-bearing for the same reason: a player's box
+   *  is built from their journal, so its page cannot be computed locally. */
+  readonly fetchOccupant: (params: OccupantFetchParams) => Promise<OccupantFetchResult>;
   readonly sweepPublic: (params: PublicSweepParams) => Promise<PublicSweepResult>;
   // More methods added as commands need them. The spike doesn't exercise this.
 };
@@ -331,6 +335,30 @@ export type PublicFetchResult =
   /** `server` is the program that answered (`nginx`, `apache2`), for `curl -i`. */
   | { readonly ok: true; readonly content: string; readonly server: string }
   | { readonly ok: false; readonly error: 'host_unreachable' | 'not_found' | 'network_error' };
+
+/** What a web tool hands the fellow-occupant fetch: an address on the network the shell
+ *  stands on that no generated box holds, so only the server can say whose it is.
+ *  `path` is the URL path AS WRITTEN, exactly as for a fetch across networks. */
+export type OccupantFetchParams = {
+  readonly essid: string;
+  readonly target: string;
+  readonly port: number;
+  readonly path: string;
+  /** The box the fetch ran from. The server places the caller there, refuses a network
+   *  they do not stand on, and derives the address the visit is logged from. */
+  readonly callerMachineId: MachineId;
+};
+
+/** Three answers from the LAN, kept apart because a scan from the same place already
+ *  tells them apart: `host_unreachable` is an address nothing answers at,
+ *  `connection_refused` is a box that is there and serves no web on that port, and
+ *  `not_found` is the reached server's 404. `network_error` is OUR side failing to ask. */
+export type OccupantFetchResult =
+  | { readonly ok: true; readonly content: string; readonly server: string }
+  | {
+      readonly ok: false;
+      readonly error: 'host_unreachable' | 'connection_refused' | 'not_found' | 'network_error';
+    };
 
 /** What a path sweep hands the cross-network seam. It names no words: the server
  *  reads the path list off `callerMachineId`'s journal, the way a credential sweep

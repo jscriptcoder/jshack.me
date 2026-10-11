@@ -35,6 +35,8 @@ import type {
   PublicAuthResult,
   PatchResult,
   ScpReadResult,
+  OccupantFetchParams,
+  OccupantFetchResult,
   PublicFetchParams,
   PublicFetchResult,
   PublicSweepParams,
@@ -167,6 +169,7 @@ import {
   type SessionsClientDeps,
 } from '../adapters/sessionsApi.js';
 import {
+  fetchOccupantPage,
   fetchPublicPage,
   sweepPublicPaths,
   joinHomeNetwork,
@@ -1079,6 +1082,14 @@ const fetchPublicPageFn = (params: PublicFetchParams): Promise<PublicFetchResult
     ? Promise.resolve({ ok: false, error: 'network_error' })
     : fetchPublicPage(networkClientDeps, params);
 
+/** Fetch a page from a fellow occupant's box on the network the shell stands on (backs
+ *  `env.remote.fetchOccupant`). Before `startGame` wires the network client there is
+ *  nobody to ask, which is our failure and says nothing about the address. */
+const fetchOccupantPageFn = (params: OccupantFetchParams): Promise<OccupantFetchResult> =>
+  networkClientDeps === undefined
+    ? Promise.resolve({ ok: false, error: 'network_error' })
+    : fetchOccupantPage(networkClientDeps, params);
+
 /** Sweep a path list against a machine behind another player's public IP (backs
  *  `env.remote.sweepPublic`). Same degradation as the fetch: with no network client
  *  there is nobody to ask, so the failure is ours rather than the target's. */
@@ -1584,13 +1595,14 @@ export const followLink = async (url: string): Promise<FollowOutcome> => {
         callerMachineId: session.machineId,
         fetchPublic: fetchPublicPageFn,
       })
-    : fetchWebPage({
+    : await fetchWebPage({
         root: activeRoot(),
         program: 'lynx',
         url: target,
         vantage,
         callerMachineId: session.machineId,
         appendAccessLog: (fetched) => log.appendAccessLog(fetched),
+        fetchOccupant: fetchOccupantPageFn,
       });
   if (page.kind === 'unreachable') {
     return { ok: false, alert: page.failure.lines.map((line) => line.content).join(' ') };
@@ -2026,6 +2038,7 @@ const executeLine = async (line: string): Promise<void> => {
     onScanResolveOccupant: resolveOccupantFn,
     onScanResolveOccupiedEssids: resolveOccupiedEssidsFn,
     onHttpFetchPublic: fetchPublicPageFn,
+    onHttpFetchOccupant: fetchOccupantPageFn,
     onHttpSweepPublic: sweepPublicPathsFn,
     onHomeNetworkJoin: joinHomeNetworkFn,
     onHomeNetworkLeave: leaveHomeNetworkFn,

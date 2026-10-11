@@ -109,14 +109,31 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   the owner had run a command of their own; a defender gets no live tail). The journal holds one row, under the
   owner's key. The address half is not reachable in play; see the next item.
 
-- **`curl <a player's LAN address>` answers `Could not resolve host`, from the LAN and from a
-  shell on that box.** Found in the browser 2026-10-10. A player's workstation is on no
-  generated LAN, and a shell on one stands there with its address unknown (`vantageOf`), so
-  `locateHost` (`core/commands/webHost.ts`) finds no box at the address. From another box on
-  the WiFi that matches the rule that nothing on the LAN serves a player's workstation. In a
-  shell ON the box it differs from every other box, where `curl <its own address>` serves the
-  box's own tree. The trace already accepts the address there (v0.352.0), so only the client
-  refuses. Not decided whether this is a gap or the rule.
+- **`curl <a player's LAN address>` answered `Could not resolve host`, from the LAN and from a
+  shell on that box — RESOLVED 2026-10-11 (v0.354.0).** Found in the browser 2026-10-10 and
+  decided a gap 2026-10-11: a web server a scan shows open answers a fetch from anywhere that
+  can reach it, a player's workstation included. A scan of a neighbour on the WiFi showed
+  their web port open and `curl` and `lynx` both said no such host existed, because a player's
+  workstation is on no generated LAN and `locateHost` (`core/commands/webHost.ts`) finds no
+  box at the address. The page is in the owner's journal, so the fetch is a server action,
+  `resolveOccupantFetch` on `/api/network`, drawn on the gate the scan of a neighbour already
+  draws (`resolveOccupantScan`): the caller stands on the network, the address is a lease
+  whose holder is on the WiFi, the box boots, and the port is one it answers to the network
+  with a web server behind it. A port the owner filtered refuses; a shell on the box itself
+  reaches its own address past its own filter. The line lands in the owner's `access.log`,
+  under the owner's key, from the address the server places the caller at. The client asks
+  only for an address no box it can build holds (`fetchWebPage`, which `curl` now goes
+  through as `lynx` and a followed link do), so a fetch of a generated box costs no round
+  trip. An address nobody holds still answers `Could not resolve host`.
+  `scripts/testOccupantFetch.ts` carries the eleven checks. Not played in the browser yet. One
+  neighbour found on the way is the next item.
+
+- **`gobuster http://<a player's LAN address>` still answers `Could not resolve host`. By
+  reading, not reproduced.** The sweep reaches a box through `reachWebHost` alone and has no
+  server path for a fellow occupant: `resolveHttpSweep` finds a box by public address. A
+  neighbour's pages can be fetched one at a time and not swept. The fix is the sweep's twin of
+  `resolveOccupantFetch`, the path list read off the caller's box as the public sweep reads
+  it. Found 2026-10-11.
 
 - **A shell on a player's box whose owner has left the network: `curl localhost` there would
   leave no line. By reading, not reproduced.** The box is found by the lease its owner holds on

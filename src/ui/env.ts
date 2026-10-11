@@ -278,6 +278,10 @@ export type BuildCommandEnvArgs = {
    *  setups; the UI always passes the real one. Load-bearing: absent it, a `curl` at a
    *  public IP hits the loud stub rather than quietly reporting a dark target. */
   readonly onHttpFetchPublic?: RemoteApi['fetchPublic'];
+  /** The fellow-occupant page-fetch seam — backs `env.remote.fetchOccupant`. Additive
+   *  like the occupant list: absent, nobody else is on the WiFi and an address no
+   *  generated box holds stays unresolved. */
+  readonly onHttpFetchOccupant?: RemoteApi['fetchOccupant'];
   readonly onHttpSweepPublic?: RemoteApi['sweepPublic'];
   /** The home-network join seam — backs `env.homeNetwork.join`. The UI wires it to
    *  the `joinHomeNetwork` adapter, which registers the network server-side and carries
@@ -381,6 +385,8 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
   remote: {
     listPatches: notWired('remote.listPatches'),
     fetchPublic: args.onHttpFetchPublic ?? notWired('remote.fetchPublic'),
+    fetchOccupant:
+      args.onHttpFetchOccupant ?? (async () => ({ ok: false, error: 'host_unreachable' })),
     sweepPublic: args.onHttpSweepPublic ?? notWired('remote.sweepPublic'),
   },
   log: args.log,

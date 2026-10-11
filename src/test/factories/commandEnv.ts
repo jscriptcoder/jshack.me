@@ -112,6 +112,9 @@ export const mockRemoteApi = (): RemoteApi => ({
   // Load-bearing (its result IS the fetched page), so it throws until a test stubs the
   // resolution — an own-LAN fetch must never reach it.
   fetchPublic: NOT_IMPLEMENTED('remote.fetchPublic'),
+  // Additive read: defaults to nobody else on the WiFi, so an address no generated box
+  // holds stays unresolved; a fellow-occupant test overrides it to serve their page.
+  fetchOccupant: async () => ({ ok: false, error: 'host_unreachable' }),
   // Load-bearing for the same reason: the far side's answer IS the sweep, so an
   // own-LAN sweep reaching here is a bug a test must see rather than absorb.
   sweepPublic: NOT_IMPLEMENTED('remote.sweepPublic'),

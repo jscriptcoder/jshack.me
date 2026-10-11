@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { fetchWebPage } from './webPage.js';
-import type { AccessLogFetch } from './types.js';
+import type { AccessLogFetch, OccupantFetchParams, OccupantFetchResult } from './types.js';
 import { applyPatches, type Patch } from '../filesystem/applyPatches.js';
 import type { Directory } from '../filesystem/types.js';
 import { buildWorkstationBaseFs } from '../generation/workstationFs.js';
@@ -100,11 +100,19 @@ const unoccupiedIp = (): string => {
   return free;
 };
 
-const fetchFrom = (tree: Directory, rawUrl: string) => {
+/** Nobody else on the WiFi: what the server answers about an address no occupant holds. */
+const NOBODY_THERE: OccupantFetchResult = { ok: false, error: 'host_unreachable' };
+
+const fetchFrom = async (
+  tree: Directory,
+  rawUrl: string,
+  occupantAnswer: OccupantFetchResult = NOBODY_THERE,
+) => {
   const url = parseHttpUrl(rawUrl);
   if (url === null) throw new Error(`test asked for an unparseable url: ${rawUrl}`);
   const logged: AccessLogFetch[] = [];
-  const result = fetchWebPage({
+  const asked: OccupantFetchParams[] = [];
+  const result = await fetchWebPage({
     root: tree,
     program: 'lynx',
     url,
@@ -113,35 +121,39 @@ const fetchFrom = (tree: Directory, rawUrl: string) => {
     appendAccessLog: async (fetched) => {
       logged.push(fetched);
     },
+    fetchOccupant: async (params) => {
+      asked.push(params);
+      return occupantAnswer;
+    },
   });
-  return { result, logged };
+  return { result, logged, asked };
 };
 
 describe('fetching one page', () => {
-  it('hands back what the box publishes at that path', () => {
+  it('hands back what the box publishes at that path', async () => {
     const tree = ownBox(WEB_SERVER_RUNNING, published('index.html', '<h1>mine</h1>'));
 
-    expect(fetchFrom(tree, `http://${OWN_IP}/index.html`).result).toEqual({
+    expect((await fetchFrom(tree, `http://${OWN_IP}/index.html`)).result).toEqual({
       kind: 'page',
       content: '<h1>mine</h1>',
       server: 'nginx',
     });
   });
 
-  it('serves a directory its index, so a bare address is a page', () => {
+  it('serves a directory its index, so a bare address is a page', async () => {
     const tree = ownBox(WEB_SERVER_RUNNING, published('index.html', '<h1>mine</h1>'));
 
-    expect(fetchFrom(tree, `http://${OWN_IP}/`).result).toEqual({
+    expect((await fetchFrom(tree, `http://${OWN_IP}/`)).result).toEqual({
       kind: 'page',
       content: '<h1>mine</h1>',
       server: 'nginx',
     });
   });
 
-  it('records exactly one line on the box that answered, naming what was asked for', () => {
+  it('records exactly one line on the box that answered, naming what was asked for', async () => {
     const tree = ownBox(WEB_SERVER_RUNNING, published('notes.html', '<h1>notes</h1>'));
 
-    const { logged } = fetchFrom(tree, `http://${OWN_IP}/notes.html`);
+    const { logged } = await fetchFrom(tree, `http://${OWN_IP}/notes.html`);
 
     expect(logged).toEqual([
       {
@@ -156,43 +168,43 @@ describe('fetching one page', () => {
 
   // A 404 is an answer. The box was reached, it looked, and it said no — which is
   // exactly the kind of line a defender reading their log wants to see.
-  it('reports a path the box does not publish as not found, and logs the miss anyway', () => {
+  it('reports a path the box does not publish as not found, and logs the miss anyway', async () => {
     const tree = ownBox(WEB_SERVER_RUNNING, published('index.html', '<h1>mine</h1>'));
 
-    const { result, logged } = fetchFrom(tree, `http://${OWN_IP}/nothing-here.html`);
+    const { result, logged } = await fetchFrom(tree, `http://${OWN_IP}/nothing-here.html`);
 
     expect(result).toEqual({ kind: 'not_found' });
     expect(logged.map((line) => line.paths)).toEqual([['/nothing-here.html']]);
   });
 
-  it('refuses a path that climbs out of what the server publishes, and calls it not found', () => {
+  it('refuses a path that climbs out of what the server publishes, and calls it not found', async () => {
     const tree = ownBox(WEB_SERVER_RUNNING, published('index.html', '<h1>mine</h1>'));
 
     // Naming the file rather than the traversal: /etc/passwd is real and readable on
     // every box, so what stops this is the document root and nothing else.
-    expect(fetchFrom(tree, `http://${OWN_IP}/../../../etc/passwd`).result).toEqual({
+    expect((await fetchFrom(tree, `http://${OWN_IP}/../../../etc/passwd`)).result).toEqual({
       kind: 'not_found',
     });
   });
 
-  it('leaves no trace on a host that never answered', () => {
-    const { result, logged } = fetchFrom(ownBox(), `http://${unoccupiedIp()}/index.html`);
+  it('leaves no trace on a host that never answered', async () => {
+    const { result, logged } = await fetchFrom(ownBox(), `http://${unoccupiedIp()}/index.html`);
 
     expect(result.kind).toBe('unreachable');
     expect(logged).toEqual([]);
   });
 
-  it('leaves no trace on a box that is there but serves no web', () => {
+  it('leaves no trace on a box that is there but serves no web', async () => {
     // The player's own box, online but running nothing: reached as an address,
     // refused as a web server.
-    const { result, logged } = fetchFrom(ownBox(), `http://${OWN_IP}/index.html`);
+    const { result, logged } = await fetchFrom(ownBox(), `http://${OWN_IP}/index.html`);
 
     expect(result.kind).toBe('unreachable');
     expect(logged).toEqual([]);
   });
 
-  it('names the program in the failure, since every web tool shares this fetch', () => {
-    const { result } = fetchFrom(ownBox(), `http://${unoccupiedIp()}/index.html`);
+  it('names the program in the failure, since every web tool shares this fetch', async () => {
+    const { result } = await fetchFrom(ownBox(), `http://${unoccupiedIp()}/index.html`);
 
     if (result.kind !== 'unreachable') throw new Error('expected an unreachable host');
     expect(result.failure.lines.map((line) => line.content).join('\n')).toContain(
@@ -200,10 +212,10 @@ describe('fetching one page', () => {
     );
   });
 
-  it('reads a generated host on the LAN the same way it reads the player own box', () => {
+  it('reads a generated host on the LAN the same way it reads the player own box', async () => {
     const { host, port } = webHostOnLan();
 
-    const { result, logged } = fetchFrom(ownBox(), `http://${host.ip}:${port}/index.html`);
+    const { result, logged } = await fetchFrom(ownBox(), `http://${host.ip}:${port}/index.html`);
 
     expect(result.kind).toBe('page');
     expect(logged.map((line) => line.target)).toEqual([host.ip]);
@@ -211,25 +223,117 @@ describe('fetching one page', () => {
 });
 
 describe('fetching a page by the name the network gives a host', () => {
-  it('reaches a LAN host by its .lan name, and the box logs the address it was leased', () => {
+  it('reaches a LAN host by its .lan name, and the box logs the address it was leased', async () => {
     // An intranet page links its neighbours by name, so a followed link written that
     // way must land on the same box `curl` reaches by that name.
     const { host, port } = webHostOnLan();
-    const byName = fetchFrom(ownBox(), `http://${host.hostname}.${lanZoneName(ESSID)}:${port}/`);
-    const byAddress = fetchFrom(ownBox(), `http://${host.ip}:${port}/`);
+    const byName = await fetchFrom(ownBox(), `http://${host.hostname}.${lanZoneName(ESSID)}:${port}/`);
+    const byAddress = await fetchFrom(ownBox(), `http://${host.ip}:${port}/`);
 
     expect(byName.result).toEqual(byAddress.result);
     expect(byName.result.kind).toBe('page');
     expect(byName.logged.map((line) => line.target)).toEqual([host.ip]);
   });
 
-  it('cannot resolve a name the network does not hold, and says the name as typed', () => {
-    const { result, logged } = fetchFrom(ownBox(), `http://nobody-here.${lanZoneName(ESSID)}/`);
+  it('cannot resolve a name the network does not hold, and says the name as typed', async () => {
+    const { result, logged } = await fetchFrom(ownBox(), `http://nobody-here.${lanZoneName(ESSID)}/`);
 
     if (result.kind !== 'unreachable') throw new Error('expected an unreachable host');
     expect(result.failure.lines.map((line) => line.content)).toEqual([
       `lynx: (6) Could not resolve host: nobody-here.${lanZoneName(ESSID)}`,
     ]);
     expect(logged).toEqual([]);
+  });
+});
+
+describe('fetching a page off a fellow occupant of the network', () => {
+  // A player's box is on no generated LAN: it is built from their journal, which only
+  // the server holds. So an address nothing here answers to is asked of the server.
+  const THEIR_PAGE = '<h1>welcome to nebuchadnezzar</h1>';
+  const served: OccupantFetchResult = { ok: true, content: THEIR_PAGE, server: 'apache2' };
+
+  it('hands back the page their box serves at an address no generated box holds', async () => {
+    const neighbour = unoccupiedIp();
+
+    const { result, asked } = await fetchFrom(
+      ownBox(),
+      `http://${neighbour}:8080/status.html`,
+      served,
+    );
+
+    expect(result).toEqual({ kind: 'page', content: THEIR_PAGE, server: 'apache2' });
+    expect(asked).toEqual([
+      {
+        essid: ESSID,
+        target: neighbour,
+        port: 8080,
+        path: '/status.html',
+        callerMachineId: CALLER,
+      },
+    ]);
+  });
+
+  it('leaves the line to the server, which records the visit on the box it served from', async () => {
+    const { logged } = await fetchFrom(ownBox(), `http://${unoccupiedIp()}/`, served);
+
+    expect(logged).toEqual([]);
+  });
+
+  it('reports a path their box does not publish as not found', async () => {
+    const { result } = await fetchFrom(ownBox(), `http://${unoccupiedIp()}/nothing.html`, {
+      ok: false,
+      error: 'not_found',
+    });
+
+    expect(result).toEqual({ kind: 'not_found' });
+  });
+
+  it('is refused by a box that is there and serves no web on that port', async () => {
+    const neighbour = unoccupiedIp();
+
+    const { result } = await fetchFrom(ownBox(), `http://${neighbour}:8080/`, {
+      ok: false,
+      error: 'connection_refused',
+    });
+
+    if (result.kind !== 'unreachable') throw new Error('expected an unreachable host');
+    expect(result.failure.lines.map((line) => line.content)).toEqual([
+      `lynx: (7) Failed to connect to ${neighbour} port 8080: Connection refused`,
+    ]);
+  });
+
+  it.each(['host_unreachable', 'network_error'] as const)(
+    'cannot resolve the address when the server answers %s',
+    async (error) => {
+      const neighbour = unoccupiedIp();
+
+      const { result } = await fetchFrom(ownBox(), `http://${neighbour}/`, { ok: false, error });
+
+      if (result.kind !== 'unreachable') throw new Error('expected an unreachable host');
+      expect(result.failure.lines.map((line) => line.content)).toEqual([
+        `lynx: (6) Could not resolve host: ${neighbour}`,
+      ]);
+    },
+  );
+
+  it('never asks the server about a box it reads for itself', async () => {
+    const { host, port } = webHostOnLan();
+    const tree = ownBox(WEB_SERVER_RUNNING, published('index.html', '<h1>mine</h1>'));
+
+    const generated = await fetchFrom(tree, `http://${host.ip}:${port}/`, served);
+    const own = await fetchFrom(tree, `http://${OWN_IP}/`, served);
+
+    expect(generated.asked).toEqual([]);
+    expect(own.asked).toEqual([]);
+    expect(own.result).toEqual({ kind: 'page', content: '<h1>mine</h1>', server: 'nginx' });
+  });
+
+  it('takes a refusal by a box it reads for itself as final, and asks nobody', async () => {
+    // The player's own box, running no web server: it is there, so the address is not
+    // somebody else's to answer for.
+    const { result, asked } = await fetchFrom(ownBox(), `http://${OWN_IP}/`, served);
+
+    expect(result.kind).toBe('unreachable');
+    expect(asked).toEqual([]);
   });
 });

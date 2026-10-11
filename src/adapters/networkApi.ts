@@ -28,6 +28,8 @@ import type { GameConfig } from '../core/gameConfig/gameConfig.js';
 import type { Directory } from '../core/filesystem/types.js';
 import type {
   Identity,
+  OccupantFetchParams,
+  OccupantFetchResult,
   PublicFetchParams,
   PublicFetchResult,
   PublicSweepOutcome,
@@ -233,6 +235,56 @@ export const fetchPublicPage = async (
     };
     // A 200 we cannot read is not a page. Reporting it as an empty one would print a
     // blank response as though the target had served it.
+    if (
+      resolved.ok !== true ||
+      typeof resolved.content !== 'string' ||
+      typeof resolved.server !== 'string'
+    ) {
+      return { ok: false, error: 'network_error' };
+    }
+    return { ok: true, content: resolved.content, server: resolved.server };
+  } catch {
+    return { ok: false, error: 'network_error' };
+  }
+};
+
+/** The refusals a fellow occupant's box gives for itself. Anything else that is not a
+ *  page is our own side failing to ask. */
+const OCCUPANT_FETCH_REFUSALS = ['host_unreachable', 'connection_refused', 'not_found'] as const;
+
+/**
+ * Fetch one page from a fellow occupant's box on the network the shell stands on (backs
+ * `env.remote.fetchOccupant`).
+ *
+ * The box's own three answers pass through as they are. Everything else — a 500, a
+ * refusal at the LAN boundary, a malformed body, a thrown request — is `network_error`:
+ * reporting it as a refusal would blame the neighbour for our own outage.
+ */
+export const fetchOccupantPage = async (
+  deps: NetworkClientDeps,
+  params: OccupantFetchParams,
+): Promise<OccupantFetchResult> => {
+  try {
+    const response = await post(deps, 'resolveOccupantFetch', {
+      essid: params.essid,
+      target: params.target,
+      port: params.port,
+      path: params.path,
+      caller_machine_id: params.callerMachineId,
+    });
+    const body: unknown = await response.json();
+    if (!response.ok) {
+      const failed = body as { readonly error?: string };
+      const refusal = OCCUPANT_FETCH_REFUSALS.find((error) => error === failed.error);
+      return { ok: false, error: refusal ?? 'network_error' };
+    }
+    const resolved = body as {
+      readonly ok?: boolean;
+      readonly content?: string;
+      readonly server?: string;
+    };
+    // A 200 we cannot read is not a page. Reporting it as an empty one would print a
+    // blank response as though the neighbour had served it.
     if (
       resolved.ok !== true ||
       typeof resolved.content !== 'string' ||

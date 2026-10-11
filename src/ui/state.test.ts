@@ -27,7 +27,11 @@ import { binaryStub } from '../core/generation/binaries.js';
 import { md5 } from '../core/generation/md5.js';
 import { serializeTree } from '../core/filesystem/treeCodec.js';
 import { buildDirectory, buildFile } from '../test/factories/filesystem.js';
-import type { ModeChange, PublicFetchResult } from '../core/commands/types.js';
+import type {
+  ModeChange,
+  OccupantFetchResult,
+  PublicFetchResult,
+} from '../core/commands/types.js';
 
 /** The buffer of whichever full-screen app is open. `author` is a screen with no
  *  content of its own, so reading `.content` straight off the open overlay stopped
@@ -2505,6 +2509,9 @@ describe('full-screen apps a command opens', () => {
     /** What another player's public IP answers when this one asks it for a page,
      *  given the signed request as sent. Absent means nothing out there answers. */
     readonly across?: (request: string) => PublicFetchResult;
+    /** What a fellow occupant's box answers when this one asks the server for a page
+     *  off it. Absent means nobody else is on the WiFi. */
+    readonly neighbour?: (request: string) => OccupantFetchResult;
   }) => {
     vi.resetModules();
     const store = new Map<string, string>([[CONNECTED_ESSID_KEY, ESSID]]);
@@ -2529,6 +2536,15 @@ describe('full-screen apps a command opens', () => {
           return answered.ok
             ? { ok: true, status: 200, json: async () => ({ ok: true, content: answered.content, server: answered.server }) }
             : { ok: false, status: 502, json: async () => ({ error: answered.error }) };
+        }
+        if ((init?.body ?? '').includes('resolveOccupantFetch')) {
+          const answered = options?.neighbour?.(init?.body ?? '') ?? {
+            ok: false as const,
+            error: 'host_unreachable' as const,
+          };
+          return answered.ok
+            ? { ok: true, status: 200, json: async () => ({ ok: true, content: answered.content, server: answered.server }) }
+            : { ok: false, status: 404, json: async () => ({ error: answered.error }) };
         }
         return {
           ok: true,
@@ -2673,6 +2689,50 @@ describe('full-screen apps a command opens', () => {
 
     expect(outcome).toMatchObject({ ok: false });
     expect(state.overlayMode()).toBeNull();
+  });
+
+  /** A fellow occupant's page. Nothing on this player's own box is named like it, so
+   *  reading these words proves the server was asked for it. */
+  const NEIGHBOUR_PAGE = '<h1>zion mainframe</h1>';
+
+  it('opens the browser on a page off a fellow occupant of the WiFi', async () => {
+    const neighbour = unleasedIp();
+    const state = await startBrowsingGame({
+      neighbour: () => ({ ok: true, content: NEIGHBOUR_PAGE, server: 'nginx' }),
+    });
+
+    state.setInput(`lynx http://${neighbour}/`);
+    await state.runInput();
+
+    expect(state.overlayMode()).toMatchObject({
+      kind: 'lynx',
+      url: `http://${neighbour}/`,
+      content: NEIGHBOUR_PAGE,
+    });
+  });
+
+  it('follows a link to a fellow occupant of the WiFi, asking the server for their page', async () => {
+    const neighbour = unleasedIp();
+    const asked: string[] = [];
+    const state = await startBrowsingGame({
+      published: OWN_SITE,
+      neighbour: (request) => {
+        asked.push(request);
+        return { ok: true, content: NEIGHBOUR_PAGE, server: 'nginx' };
+      },
+    });
+    state.setInput('lynx http://localhost/');
+    await state.runInput();
+
+    const outcome = await state.followLink(`http://${neighbour}/crew.html`);
+
+    expect(outcome).toEqual({ ok: true });
+    expect(asked).toHaveLength(1);
+    expect(asked[0]).toContain('/crew.html');
+    expect(state.overlayMode()).toMatchObject({
+      url: `http://${neighbour}/crew.html`,
+      content: NEIGHBOUR_PAGE,
+    });
   });
 
   const THEIR_PUBLIC_IP = '87.0.113.7';
