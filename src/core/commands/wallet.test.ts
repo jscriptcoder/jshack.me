@@ -32,7 +32,7 @@ import type { Directory, FileNode } from '../filesystem/types.js';
 
 const NO_FLAGS = new Map<string, string | true>();
 
-const SYNOPSIS = 'wallet init | balance [address] | send <address> <amount>';
+const SYNOPSIS = 'wallet init | balance [address] | send <address> <amount> | sweep <keyfile>';
 const USAGE = `wallet: usage: ${SYNOPSIS}`;
 
 const linesOf = (result: CommandResult, kind: 'text' | 'error'): string[] =>
@@ -70,6 +70,8 @@ const walletEnv = (
     readonly tree?: Directory;
     readonly userType?: UserType;
     readonly username?: string;
+    /** Where the shell stands. Absent, the root of the box. */
+    readonly cwd?: string;
     /** The tree the machine answers with when the command re-reads it. Absent,
      *  a reload hands back the same tree: a box nobody else is writing. */
     readonly reloadTo?: Directory;
@@ -132,7 +134,7 @@ const walletEnv = (
   const env = mockCommandEnv({
     fs: mockFsViewFromTree(tree, {
       userType,
-      cwd: asAbsPath('/'),
+      cwd: asAbsPath(options.cwd ?? '/'),
       ...(reloaded === undefined ? {} : { onReload: async () => reloaded }),
     }),
     session: mockSession({ username, userType }),
@@ -1124,6 +1126,381 @@ describe('wallet send — which refusal comes first', () => {
   });
 });
 
+const keyFile = (keyHex: string): string => `address: ${addressOfKey(keyHex)}
+key: ${keyHex}
+`;
+
+/** A box where alice's home holds `entries`, what she brought back from
+ *  somebody else's box, beside her wallet. Absent, the wallet in place holds
+ *  SOME_KEY; `null` is a home with no wallet in it. */
+const boxWithLoot = (
+  entries: Readonly<Record<string, FileNode>>,
+  inPlace: FileNode | null = buildFile(keyFile(SOME_KEY), { owner: 'alice' }),
+): Directory =>
+  buildDirectory({
+    home: buildDirectory({
+      alice: buildDirectory(
+        {
+          ...(inPlace === null
+            ? {}
+            : { '.wallet': buildDirectory({ 'wallet.dat': inPlace }, { owner: 'alice' }) }),
+          ...entries,
+        },
+        { owner: 'alice', perms: HOME_DIR },
+      ),
+    }),
+  });
+
+const LOOT_FILE = '/home/alice/loot.dat';
+const LOOT = addressOfKey(OTHER_KEY);
+
+/** Alice's box with a copy of OTHER_KEY's wallet lying in her home. */
+const boxWithCopiedKey = (): Directory =>
+  boxWithLoot({ 'loot.dat': buildFile(keyFile(OTHER_KEY), { owner: 'alice' }) });
+
+describe('wallet sweep — a key file emptied into the wallet in place', () => {
+  it('moves everything at the file’s address, signed by the file’s key', async () => {
+    const { env, asked, sent } = ledgerEnv({ tree: boxWithCopiedKey(), held: { [LOOT]: 500 } });
+
+    const result = await wallet.execute(env, ['sweep', LOOT_FILE], NO_FLAGS);
+
+    expect(result).toEqual({
+      kind: 'sync',
+      lines: [{ kind: 'text', content: `swept 500 JSC from ${LOOT}` }],
+      exitCode: 0,
+    });
+    expect(asked).toEqual([LOOT]);
+    expect(sent).toEqual([{ keyHex: OTHER_KEY, to: OWN, amount: 500, sequence: 0 }]);
+  });
+
+  it('names the sequence number the ledger gave for the file’s address', async () => {
+    const { env, sent } = ledgerEnv({
+      tree: boxWithCopiedKey(),
+      held: { [LOOT]: 500 },
+      sequences: { [LOOT]: 7, [OWN]: 3 },
+    });
+
+    await wallet.execute(env, ['sweep', LOOT_FILE], NO_FLAGS);
+
+    expect(sent.map((order) => order.sequence)).toEqual([7]);
+  });
+
+  it.each([
+    ['a single coin', 1],
+    ['the largest amount there is', Number.MAX_SAFE_INTEGER],
+  ])('moves %s, exactly', async (_label, amount) => {
+    const { env, sent } = ledgerEnv({ tree: boxWithCopiedKey(), held: { [LOOT]: amount } });
+
+    const result = await wallet.execute(env, ['sweep', LOOT_FILE], NO_FLAGS);
+
+    expect(textLines(result)).toEqual([`swept ${amount} JSC from ${LOOT}`]);
+    expect(sent.map((order) => order.amount)).toEqual([amount]);
+  });
+
+  it('finds the file from where the shell stands', async () => {
+    const { env, sent } = ledgerEnv({
+      tree: boxWithCopiedKey(),
+      cwd: '/home/alice',
+      held: { [LOOT]: 500 },
+    });
+
+    const result = await wallet.execute(env, ['sweep', 'loot.dat'], NO_FLAGS);
+
+    expect(exitCodeOf(result)).toBe(0);
+    expect(sent.map((order) => order.keyHex)).toEqual([OTHER_KEY]);
+  });
+
+  it('sweeps the key line, whatever the address line says', async () => {
+    const tree = boxWithLoot({
+      'loot.dat': buildFile(`address: ${SOMEBODY}\nkey: ${OTHER_KEY}\n`, { owner: 'alice' }),
+    });
+    const { env, asked, sent } = ledgerEnv({ tree, held: { [LOOT]: 500, [SOMEBODY]: 900 } });
+
+    const result = await wallet.execute(env, ['sweep', LOOT_FILE], NO_FLAGS);
+
+    expect(textLines(result)).toEqual([`swept 500 JSC from ${LOOT}`]);
+    expect(asked).toEqual([LOOT]);
+    expect(sent.map((order) => order.keyHex)).toEqual([OTHER_KEY]);
+  });
+
+  it('reads a file only root may read into root’s own wallet', async () => {
+    const tree = buildDirectory({
+      root: buildDirectory(
+        {
+          '.wallet': buildDirectory(
+            { 'wallet.dat': buildFile(keyFile(SOME_KEY), { owner: 'root' }) },
+            { owner: 'root' },
+          ),
+          'loot.dat': buildFile(keyFile(OTHER_KEY), {
+            owner: 'root',
+            perms: { read: ['root'], write: ['root'], execute: [] },
+          }),
+        },
+        { owner: 'root', perms: ROOT_DIR },
+      ),
+    });
+    const { env, sent } = ledgerEnv({
+      tree,
+      userType: 'root',
+      username: 'root',
+      held: { [LOOT]: 500 },
+    });
+
+    const result = await wallet.execute(env, ['sweep', '/root/loot.dat'], NO_FLAGS);
+
+    expect(exitCodeOf(result)).toBe(0);
+    expect(sent).toEqual([{ keyHex: OTHER_KEY, to: OWN, amount: 500, sequence: 0 }]);
+  });
+
+  it('asks from a box the shell hopped to, whatever the player’s own card is doing', async () => {
+    const { env, sent } = ledgerEnv({
+      tree: boxWithCopiedKey(),
+      held: { [LOOT]: 500 },
+      essid: ESSID,
+      connectivity: buildColdStartConnectivity(PLAYER_KEY),
+    });
+
+    const result = await wallet.execute(env, ['sweep', LOOT_FILE], NO_FLAGS);
+
+    expect(exitCodeOf(result)).toBe(0);
+    expect(sent).toHaveLength(1);
+  });
+
+  it('writes nothing to the box, the key file included, and adds a line to no log', async () => {
+    const { env, written } = ledgerEnv({ tree: boxWithCopiedKey(), held: { [LOOT]: 500 } });
+
+    await wallet.execute(env, ['sweep', LOOT_FILE], NO_FLAGS);
+
+    expect(written).toEqual([]);
+  });
+});
+
+describe('wallet sweep — a key with nothing behind it', () => {
+  it('says there is nothing to sweep, sends no transfer and fails nothing', async () => {
+    const { env, asked, sent } = ledgerEnv({ tree: boxWithCopiedKey(), held: { [OWN]: 900 } });
+
+    const result = await wallet.execute(env, ['sweep', LOOT_FILE], NO_FLAGS);
+
+    expect(result).toEqual({
+      kind: 'sync',
+      lines: [{ kind: 'text', content: `nothing to sweep at ${LOOT}` }],
+      exitCode: 0,
+    });
+    expect(asked).toEqual([LOOT]);
+    expect(sent).toEqual([]);
+  });
+});
+
+describe('wallet sweep — a transfer the ledger does not make', () => {
+  it.each([
+    ['another holder of the key moved first', 'stale_sequence'],
+    ['the coins were gone by the time it arrived', 'insufficient_balance'],
+    ['the wallet in place can hold no more', 'destination_full'],
+  ] as const)('says only that the ledger refused when %s', async (_label, error) => {
+    const { env, sent } = ledgerEnv({
+      tree: boxWithCopiedKey(),
+      held: { [LOOT]: 500 },
+      transfers: { ok: false, error },
+    });
+
+    const result = await wallet.execute(env, ['sweep', LOOT_FILE], NO_FLAGS);
+
+    expect(result).toEqual(refusedWith('wallet: the ledger refused the transfer'));
+    expect(sent).toHaveLength(1);
+  });
+
+  it('says the ledger did not answer when the transfer got no answer', async () => {
+    const { env } = ledgerEnv({
+      tree: boxWithCopiedKey(),
+      held: { [LOOT]: 500 },
+      transfers: { ok: false, error: 'network_error' },
+    });
+
+    const result = await wallet.execute(env, ['sweep', LOOT_FILE], NO_FLAGS);
+
+    expect(result).toEqual(refusedWith('wallet: the ledger did not answer'));
+  });
+
+  it('sends nothing when it could not read what the file’s address holds', async () => {
+    const { env, asked, sent } = ledgerEnv({
+      tree: boxWithCopiedKey(),
+      answers: { ok: false, error: 'network_error' },
+    });
+
+    const result = await wallet.execute(env, ['sweep', LOOT_FILE], NO_FLAGS);
+
+    expect(result).toEqual(refusedWith('wallet: the ledger did not answer'));
+    expect(asked).toEqual([LOOT]);
+    expect(sent).toEqual([]);
+  });
+});
+
+describe('wallet sweep — what it refuses without asking the ledger', () => {
+  it.each([
+    ['no key file', ['sweep']],
+    ['a second word', ['sweep', LOOT_FILE, 'all']],
+    ['a second word that is empty', ['sweep', LOOT_FILE, '']],
+  ])('prints the usage for %s', async (_label, args) => {
+    const { env, asked, sent } = ledgerEnv({ tree: boxWithCopiedKey(), held: { [LOOT]: 500 } });
+
+    const result = await wallet.execute(env, args, NO_FLAGS);
+
+    expect(result).toEqual(refusedWith(USAGE));
+    expect([...asked, ...sent]).toEqual([]);
+  });
+
+  it.each([
+    ['no wallet is in place', null, `wallet: no wallet at ${ALICE_WALLET}`],
+    [
+      'the wallet in place was encrypted where it lay',
+      buildFile('jA0ECQMCm1Zr3n0p+uX/0kABm9w3kq1c0de', { owner: 'alice' }),
+      `wallet: no key in ${ALICE_WALLET}`,
+    ],
+    [
+      'this tier may not read the wallet in place',
+      buildFile(keyFile(SOME_KEY), {
+        owner: 'root',
+        perms: { read: ['root'], write: ['root'], execute: [] },
+      }),
+      `wallet: can't read '${ALICE_WALLET}': Permission denied`,
+    ],
+  ])('has nowhere to put the coins when %s', async (_label, inPlace, message) => {
+    const tree = boxWithLoot(
+      { 'loot.dat': buildFile(keyFile(OTHER_KEY), { owner: 'alice' }) },
+      inPlace,
+    );
+    const { env, asked, sent } = ledgerEnv({ tree, held: { [LOOT]: 500 } });
+
+    const result = await wallet.execute(env, ['sweep', LOOT_FILE], NO_FLAGS);
+
+    expect(result).toEqual(refusedWith(message));
+    expect([...asked, ...sent]).toEqual([]);
+  });
+
+  it.each([
+    ['its whole path', '/', '/home/alice/nope.dat'],
+    ['its name alone', '/home/alice', 'nope.dat'],
+    ['a path that climbs', '/home/alice/.wallet', '../nope.dat'],
+  ])('names a file that is not there as it was typed: %s', async (_label, cwd, typed) => {
+    const { env, asked, sent } = ledgerEnv({ tree: boxWithCopiedKey(), cwd });
+
+    const result = await wallet.execute(env, ['sweep', typed], NO_FLAGS);
+
+    expect(result).toEqual(refusedWith(`wallet: can't read '${typed}': No such file or directory`));
+    expect([...asked, ...sent]).toEqual([]);
+  });
+
+  it('says so when the file is there and this tier may not read it', async () => {
+    const tree = boxWithLoot({
+      'loot.dat': buildFile(keyFile(OTHER_KEY), {
+        owner: 'root',
+        perms: { read: ['root'], write: ['root'], execute: [] },
+      }),
+    });
+    const { env, asked, sent } = ledgerEnv({ tree, held: { [LOOT]: 500 } });
+
+    const result = await wallet.execute(env, ['sweep', LOOT_FILE], NO_FLAGS);
+
+    expect(result).toEqual(refusedWith(`wallet: can't read '${LOOT_FILE}': Permission denied`));
+    expect([...asked, ...sent]).toEqual([]);
+  });
+
+  it('says so when what was named is a directory', async () => {
+    const { env, asked, sent } = ledgerEnv({ tree: boxWithCopiedKey(), cwd: '/home/alice' });
+
+    const result = await wallet.execute(env, ['sweep', '.wallet'], NO_FLAGS);
+
+    expect(result).toEqual(refusedWith(`wallet: can't read '.wallet': Is a directory`));
+    expect([...asked, ...sent]).toEqual([]);
+  });
+
+  it.each([
+    ['an empty file', ''],
+    ['an address line and no key line', `address: ${LOOT}\n`],
+    ['a key one character short', `key: ${OTHER_KEY.slice(1)}\n`],
+    ['a key in upper case', `key: ${OTHER_KEY.toUpperCase()}\n`],
+    ['a key file after gpg -c', 'jA0ECQMCm1Zr3n0p+uX/0kABm9w3kq1c0de'],
+  ])('finds no key in %s, and names the file as it was typed', async (_label, content) => {
+    const tree = boxWithLoot({ 'loot.dat.gpg': buildFile(content, { owner: 'alice' }) });
+    const { env, asked, sent } = ledgerEnv({ tree, cwd: '/home/alice', held: { [LOOT]: 500 } });
+
+    const result = await wallet.execute(env, ['sweep', 'loot.dat.gpg'], NO_FLAGS);
+
+    expect(result).toEqual(refusedWith('wallet: no key in loot.dat.gpg'));
+    expect([...asked, ...sent]).toEqual([]);
+  });
+
+  it.each([
+    ['the wallet in place itself', ALICE_WALLET],
+    ['a copy of it kept somewhere else', '/home/alice/spare.dat'],
+    ['a copy whose address line was edited', '/home/alice/edited.dat'],
+  ])('refuses to sweep its own key: %s', async (_label, path) => {
+    const tree = boxWithLoot({
+      'spare.dat': buildFile(keyFile(SOME_KEY), { owner: 'alice' }),
+      'edited.dat': buildFile(`address: ${LOOT}\nkey: ${SOME_KEY}\n`, { owner: 'alice' }),
+    });
+    const { env, asked, sent } = ledgerEnv({ tree, held: { [OWN]: 500, [LOOT]: 500 } });
+
+    const result = await wallet.execute(env, ['sweep', path], NO_FLAGS);
+
+    expect(result).toEqual(refusedWith(`wallet: can't sweep this wallet's own key`));
+    expect([...asked, ...sent]).toEqual([]);
+  });
+
+  it('refuses with nowhere to ask from', async () => {
+    const { env, asked, sent } = ledgerEnv({
+      tree: boxWithCopiedKey(),
+      held: { [LOOT]: 500 },
+      connectivity: buildColdStartConnectivity(PLAYER_KEY),
+    });
+
+    const result = await wallet.execute(env, ['sweep', LOOT_FILE], NO_FLAGS);
+
+    expect(result).toEqual(
+      refusedWith('wallet: network is unreachable — connect to a network first'),
+    );
+    expect([...asked, ...sent]).toEqual([]);
+  });
+});
+
+describe('wallet sweep — which refusal comes first', () => {
+  const offline = { connectivity: buildColdStartConnectivity(PLAYER_KEY) };
+
+  it('reports a key file that was not named before the missing wallet', async () => {
+    const { env } = ledgerEnv();
+
+    const result = await wallet.execute(env, ['sweep'], NO_FLAGS);
+
+    expect(errorLines(result)).toEqual([USAGE]);
+  });
+
+  it('reports a missing wallet before a key file that is not there', async () => {
+    const { env } = ledgerEnv();
+
+    const result = await wallet.execute(env, ['sweep', LOOT_FILE], NO_FLAGS);
+
+    expect(errorLines(result)).toEqual([`wallet: no wallet at ${ALICE_WALLET}`]);
+  });
+
+  it('reports a key file that is not there before the missing network', async () => {
+    const { env } = ledgerEnv({ ...offline, tree: boxWithKey(SOME_KEY) });
+
+    const result = await wallet.execute(env, ['sweep', LOOT_FILE], NO_FLAGS);
+
+    expect(errorLines(result)).toEqual([
+      `wallet: can't read '${LOOT_FILE}': No such file or directory`,
+    ]);
+  });
+
+  it('reports a sweep of its own key before the missing network', async () => {
+    const { env } = ledgerEnv({ ...offline, tree: boxWithKey(SOME_KEY) });
+
+    const result = await wallet.execute(env, ['sweep', ALICE_WALLET], NO_FLAGS);
+
+    expect(errorLines(result)).toEqual([`wallet: can't sweep this wallet's own key`]);
+  });
+});
+
 describe('wallet — anything that is not a subcommand', () => {
   it.each([
     ['no argument', []],
@@ -1131,6 +1508,7 @@ describe('wallet — anything that is not a subcommand', () => {
     ['a subcommand in the wrong case', ['INIT']],
     ['another subcommand in the wrong case', ['Balance']],
     ['a third subcommand in the wrong case', ['SEND', SOMEBODY, '200']],
+    ['a fourth subcommand in the wrong case', ['Sweep', LOOT_FILE]],
   ])('prints the usage for %s and makes nothing', async (_label, args) => {
     const { env, asked } = walletEnv();
 
@@ -1180,17 +1558,50 @@ describe('wallet — what the manual promises', () => {
     }
   });
 
-  it('names init, balance and send, and nothing else, as what a wallet does', () => {
-    expect(wallet.manual?.synopsis).toBe(SYNOPSIS);
-    expect(wallet.manual?.arguments?.[0]?.values).toEqual(['init', 'balance', 'send']);
+  it('shows a sweep in its examples that a shell beside the key file can make', async () => {
+    const shown = (wallet.manual?.examples ?? [])
+      .map((example) => example.command.split(' '))
+      .filter(([, subcommand]) => subcommand === 'sweep');
+    expect(shown).toEqual([['wallet', 'sweep', 'loot.dat']]);
+
+    for (const [, ...args] of shown) {
+      const { env, sent } = ledgerEnv({
+        tree: boxWithCopiedKey(),
+        cwd: '/home/alice',
+        held: { [LOOT]: 500 },
+      });
+
+      const result = await wallet.execute(env, args, NO_FLAGS);
+
+      expect(exitCodeOf(result)).toBe(0);
+      expect(sent).toHaveLength(1);
+    }
   });
 
-  it('says in the manual what send takes and what it costs to get wrong', () => {
-    expect(wallet.manual?.arguments?.map((argument) => argument.name)).toEqual([
-      'command',
+  it('names init, balance, send and sweep, and nothing else, as what a wallet does', () => {
+    expect(wallet.manual?.synopsis).toBe(SYNOPSIS);
+    expect(wallet.manual?.arguments?.[0]?.values).toEqual(['init', 'balance', 'send', 'sweep']);
+  });
+
+  // Only a subcommand is a keyword. Where an address, an amount or a key file
+  // is typed, tab completion is left to offer paths.
+  it('offers no keywords after the subcommand', () => {
+    const afterTheSubcommand = (wallet.manual?.arguments ?? []).slice(1);
+
+    expect(afterTheSubcommand.map((argument) => argument.name)).toEqual([
       'address',
       'amount',
+      'keyfile',
     ]);
+    expect(afterTheSubcommand.map((argument) => argument.values)).toEqual([
+      undefined,
+      undefined,
+      undefined,
+    ]);
+  });
+
+  it('says in the manual what send and sweep do', () => {
     expect(wallet.manual?.description).toContain('"send"');
+    expect(wallet.manual?.description).toContain('"sweep"');
   });
 });
