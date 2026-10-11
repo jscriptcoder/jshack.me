@@ -1,8 +1,8 @@
 # Plan: crypto wallet
 
 **Status**: Grilled, reviewed for gaps, and sliced. Decisions confirmed by the owner 2026-10-11.
-Slices 1 and 2 merged (v0.357.0, PR #653; v0.358.0, PR #654); slice 3 is next. Nothing in the
-repo covered money before this file. Where another doc disagrees with it, this file wins.
+Slices 1 to 3 merged (v0.357.0, PR #653; v0.358.0, PR #654; v0.359.0, PR #655); slice 4 is
+next. Nothing in the repo covered money before this file. Where another doc disagrees with it, this file wins.
 
 ## Goal
 
@@ -387,19 +387,61 @@ the criteria above:
 observed through slice 2's `wallet balance`.
 **Acceptance criteria**:
 
+Confirmed by the owner 2026-10-11, with the wordings.
+
 - `mintCoins.ts <address> 500` raises that address's balance by 500 and records one transfer
-  with no sender.
-- Minting to an address the ledger has never seen creates it.
-- A malformed address, an amount that is not a positive whole number, or missing environment
-  exits 2 and writes nothing.
-- The script prints the database host before it writes.
-- A mint does not change the address's sequence number.
+  of 500 to it with no sender. Running it twice mints twice.
+- Minting to an address the ledger has never seen creates it, with sequence 0.
+- A mint never changes an address's sequence number.
+- It prints `Minting 500 JSC to <address> on <host>` before it writes and the address's new
+  balance after, as the line `wallet balance` prints: `<address>  1000 JSC`.
+- Exit 2 with `Usage: mintCoins.ts <address> <amount>` on stderr, nothing written: text that is
+  not address-shaped; an amount that is not digits only, with no leading zero, from 1 to
+  9007199254740991; too few or too many arguments.
+- Exit 2 on missing `SUPABASE_URL` or `SUPABASE_SERVICE_ROLE_KEY`, checked after the
+  arguments.
+- A mint that would take an address past 9007199254740991 prints
+  `mint refused: <address> would hold more than 9007199254740991 JSC`, exits 1, and leaves the
+  balance and the transfers as they were. Any other database failure exits 1 with its message.
+- No confirmation prompt anywhere. The host line is the only guard.
+- `wallet_transfers` refuses an amount below 1 or past the ceiling, a sender or destination
+  that is not address-shaped, and a sender equal to the destination.
+- `wallet_mint` credits the balance and writes the transfer row together or not at all.
+- Only the service role can mint. The anon key can neither call `wallet_mint` nor read
+  `wallet_transfers`.
 
 **First failing test**: the argument check, as a pure function in `core/wallet/` the script
 calls: a malformed address or amount is refused.
 **Migration**: `wallet_transfers`, `wallet_mint`.
 **Wire-check**: mint 500, read 500; mint again, read 1000; the two transfer rows exist with a
 null sender.
+
+**Merged 2026-10-11, PR #655.** The migration is on jshack-dev and jshack-prod. Nothing has been
+minted on either. As built, beyond the criteria above:
+
+- **`wallet_mint(mint_to, mint_amount)` answers the new balance, or NULL when the credit would
+  not fit**, having written nothing. The script reads NULL as the refusal. `wallet_transfer`
+  has the same ceiling to meet at its destination and needs its own way to say so.
+- **The function does not check the amount.** An amount below 1 is refused by the transfer
+  row's CHECK (`23514`), and that failure takes the credit back with it. The wire-check calls
+  the function directly with 0 and with -5 to show it.
+- **EXECUTE is revoked from `PUBLIC`, `anon` and `authenticated` and granted to `service_role`.**
+  Supabase's default privileges name the two roles, so revoking from `PUBLIC` alone leaves the
+  function open. `wallet_transfer` needs the same three lines. A wire-check of it has to read
+  the error message (`permission denied for function ...`): row security answers the same code,
+  `42501`.
+- **`wallet_transfers` has an `id` identity column**, which orders two transfers made in the
+  same instant. `created_at` is the transaction's start. The history slice sorts by `id`.
+- **The amount rule lives inside `core/wallet/mintOrder.ts`** (`readMintOrder`), not on its
+  own. `wallet send` takes the same rule, so slice 4 lifts it out when it becomes the second
+  caller.
+- **Missions will mint by calling `wallet_mint` from the server**, not by running the script.
+  The script is the argument check, the host line and one `rpc` call.
+- **The wire-check runs the real script as a child process**, as `testRestoreSite.ts` runs the
+  restore, and is at 40 checks: the ceiling from both sides (501 refused, 500 landing exactly
+  on it), a mint to an address at sequence 3, bad arguments, a withheld service key, and the
+  table's refusals. Its cleanup deletes transfers by destination; slice 4's transfers need
+  deleting by sender as well.
 
 ### Slice 4: a player sends coins (v0.360.0)
 
