@@ -26,6 +26,12 @@ files only `root` may read, a wallet key written on that box included. That cont
 `listPatches` to the owner alone; it moves `su` on them to the server, so it is an epic, not a
 patch.
 
+[Chapter 14](./14-tier-read-audit.md) lists every client reader and server response that reaches
+past a session's tier, with a verdict on each. It found two more defects of the same family: a
+local exploit on a generated machine runs in the browser above the session's tier, and `su` on
+another player's workstation checks the password the box was generated with instead of the one it
+holds now. Neither has been measured yet.
+
 ## Open design questions
 
 | Question                                                                                                                                                                                                              | Where                                                |
