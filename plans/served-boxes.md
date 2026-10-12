@@ -1,8 +1,8 @@
 # Plan: every box that isn't yours is served
 
 **Status**: Grilled and sliced. Decisions confirmed by the owner 2026-10-12. Slice 1 shipped at
-v0.369.0, slice 2, the audit, is done, slice 3 shipped at v0.370.0, slice 4 at v0.371.0 and
-slice 6 at v0.372.0; slice 5 is next. Where
+v0.369.0, slice 2, the audit, is done, slice 3 shipped at v0.370.0, slice 4 at v0.371.0, slice 6
+at v0.372.0 and the server half of slice 5 at v0.373.0; its client half is next. Where
 another doc disagrees with this file, this file wins until the close-out moves its content into
 `docs/`.
 
@@ -371,9 +371,81 @@ without a root-only file somebody wrote there.
 **Wire-check**: `testJournalRefusedToVisitors` (check 7 becomes a refusal, plus a root-only file
 on a generated machine served to `root` and pruned for `guest`); `testFtpRemoteRead`,
 `testFtpPut` and `testFtpTransferTrace` read back through the served tree.
-**Size**: plan it as server half then client half if one PR is too much to review. The server
-half is safe to merge alone, since nothing calls it for a generated machine until the client
-half lands.
+**Size**: two PRs (owner, 2026-10-12): the server half, then the client half together with the
+owner-only journal and the wire-checks that read a journal back as a visitor.
+
+**Measured** (2026-10-12, a throwaway probe against the live local stack, since deleted). A
+`guest` and a `root` session on each box of one network, and a root-only file the `root` one
+wrote there.
+
+| Box | `guest`, row open: journal | `guest`, row open: served tree | `guest`, after a reboot ended the row |
+| --- | --- | --- | --- |
+| LAN machine, inner router, switch, deep gateway, deep host | 200, with the root-only file's content | 404 `host_unreachable`, for `root` too | journal 403 `no_session`, tree 404 |
+| Access point's gateway | 403 `permission_denied` | 200, file pruned, present for `root` | journal 403 `no_session`, tree 404 |
+
+A row opened on another network got 403 and 404 on every box, and no row at all got 403
+`no_session` and 404. Two things follow in the browser, by reading. An evicted visitor's next
+line gets an empty journal or no tree, and on a box that had never rebooted the missing marker
+reads the same as the one they arrived with, so they keep typing into a shell with no row behind
+it. And a generated machine on another network, reached through a forward, is already asked of
+the server, which answered 404, so that shell or `ftp>` prompt showed an empty tree.
+
+**Criteria** (owner, 2026-10-12). Every box that is not your own workstation is read as the tree
+the server serves, at the tier on your session row, and only a workstation's owner is handed
+journal rows.
+
+Server:
+
+- A session on any of the five kinds of generated machine is served the box as its journal leaves
+  it, at its tier plus the externally-observable list.
+- The box is found from the network on the caller's own row. A row opened on another network, or
+  no row ever, stays 404 `host_unreachable`.
+- A caller with no open row on a generated machine or the gateway, but an ended one, is served
+  the externally-observable list only, which carries the boot marker. An open row always wins
+  over a newer ended one.
+- `listPatches` answers only the owner of a workstation. Everybody else gets one answer, 403
+  `permission_denied`, with no session lookup. This drops the slice 1 criterion that a caller
+  with no session still gets `no_session`.
+- No wire field is added.
+
+Client:
+
+- The shell, an `ftp` session and an `scp` transfer on any machine that is not the player's read
+  the served tree. The browser stops rebuilding that box and stops asking for its journal.
+- `env.fs.reload()` there re-pulls the served tree, and a failed pull leaves the tree as it was.
+- A visitor evicted by a reboot of a generated machine or the gateway is told on their next line.
+- The player's own workstation is unchanged.
+
+What the player will notice on a generated machine, as on a player's box today: a file above
+their tier reads `No such file or directory` where it read `Permission denied`, and the tree is
+empty until the server answers after a hop.
+
+**Server half, as built** (v0.373.0) ✅: `handleResolveCrossPlayerFs` finds a workstation through
+occupancy as before, and any other box from the network on the caller's row
+(`networkBaseFsForMachineId`), which now covers generated machines as well as the gateway. With no
+open row it asks one more lookup, `findLastSessionEssid`, for the network on the caller's newest
+row on the machine, and serves the list view from it. The `workstation | router` union in the
+handler is gone: both arms come down to a base tree that `materializeMachineFs` replays the
+journal over. Nothing changed on the client, so on a generated machine of its own network the
+browser still rebuilds the box. Two things work at once: a generated machine on another network
+is no longer an empty tree, and a shell a reboot threw off the access point's gateway is served
+the marker (the second by reading the client; not played).
+
+Wire-check: `scripts/testNetworkBoxServed.ts` 24/24, on the gateway and the five kinds of
+generated machine: a `guest` pruned, `root` served the file, another network's row and no row
+refused, and the marker a real reboot wrote served to the row it ended. The fifteen other scripts
+that read a served tree pass unchanged. Mutation: 80 of 81 killed, no timeouts. The survivor is
+equivalent: it drops the check that the row names a network at all, and a network named nothing
+makes no machine, so the answer is the same 404.
+
+**Client half**: next. `activeRoot`, `ftpRoot`, `scpTargetTree`, `refreshServedRoot`,
+`reloadActiveRoot` and `hasNoJournalHere` in `ui/state.ts`, and `isCrossPlayerHop` in
+`ui/activeRoot.ts`, ask whether the machine is the player's own workstation and nothing else.
+`handleListPatches` answers the owner only. `testJournalRefusedToVisitors` (check 7 becomes a
+refusal, check 9 changes its error), `testFtpRemoteRead`, `testFtpPut` and `testFtpTransferTrace`
+read back through the served tree, and the other scripts that call `listPatches` as a visitor
+(`testSharedJournal`, `testUpsertPatch`, `testCrossPlayerWrite`, `testRedisConnect`,
+`testSnmpWalk`) are checked one by one.
 
 ### Slice 6: a local exploit on a box that isn't yours is answered by the server ✅
 

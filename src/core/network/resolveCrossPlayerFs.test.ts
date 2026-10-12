@@ -11,6 +11,12 @@ import type { Directory, FileNode } from '../filesystem/types.js';
 import { signRequest } from '../signedRequest/sign.js';
 import { generateIdentity } from '../identity/identity.js';
 import { computeApGatewayId } from '../identity/router.js';
+import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
+import { generateDeepLayer } from '../generation/generateDeepLayer.js';
+import { hostMachineId } from '../generation/remoteHostId.js';
+import { chainLinks, isInnerGateway, machineIdForLanHost } from '../generation/lanTopology.js';
+import { networkBaseFsForMachineId } from '../generation/lanHostIdentity.js';
+import { BOOT_ID_OWNER, BOOT_ID_PATH, BOOT_ID_PERMISSIONS, readBootId } from '../boot/bootId.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 /**
@@ -32,7 +38,6 @@ const freshStore: NonceStore = async () => ({ fresh: true });
 const MACHINE_ID = 'skylab-deadbeef';
 const OWNER_KEY = 'a'.repeat(64);
 const REGISTERED: OccupantWorkstation = {
-  kind: 'workstation',
   owner_key: OWNER_KEY,
   workstation_username: 'alice',
   workstation_root_hash: '5f4dcc3b5aa765d61d8327deb882cf99',
@@ -72,12 +77,14 @@ const OWNER_PATCHES: readonly OwnerPatchRow[] = [
 type OccupantResult = { data: OccupantWorkstation | null; error: unknown };
 type SessionResult = { data: ActiveSession | null; error: unknown };
 type PatchesResult = { data: readonly OwnerPatchRow[] | null; error: unknown };
+type LastEssidResult = { data: string | null; error: unknown };
 
 const makeDeps = (
   over: {
     occupant?: () => Promise<OccupantResult>;
     session?: () => Promise<SessionResult>;
     patches?: () => Promise<PatchesResult>;
+    lastEssid?: () => Promise<LastEssidResult>;
   } = {},
 ) => {
   // Whose box this is — and, by saying it is on a WiFi at all, whether it is reachable.
@@ -90,16 +97,21 @@ const makeDeps = (
   const findPatches = vi.fn<(query: { machine_id: string }) => Promise<PatchesResult>>(
     over.patches ?? (async () => ({ data: OWNER_PATCHES, error: null })),
   );
+  const findLastSessionEssid = vi.fn<
+    (query: { player_key: string; machine_id: string }) => Promise<LastEssidResult>
+  >(over.lastEssid ?? (async () => ({ data: null, error: null })));
   const deps: ResolveCrossPlayerFsDeps = {
     nonceStore: freshStore,
     findOccupantWorkstationByMachineId,
     findActiveSession,
+    findLastSessionEssid,
     findPatches,
   };
   return {
     deps,
     findOccupantWorkstationByMachineId,
     findActiveSession,
+    findLastSessionEssid,
     findPatches,
   };
 };
@@ -569,5 +581,218 @@ describe('handleResolveCrossPlayerFs', () => {
 
     expect(result.status).toBe(400);
     expect(findOccupantWorkstationByMachineId).not.toHaveBeenCalled();
+  });
+});
+
+const requireGenerated = <Value>(value: Value | undefined, what: string): Value => {
+  if (value === undefined) throw new Error(`expected ${ROUTER_ESSID} to generate ${what}`);
+  return value;
+};
+
+const lanMachineId = (what: string, pick: (host: LanHost) => boolean): string =>
+  machineIdForLanHost(
+    requireGenerated(generateHomeLan(ROUTER_ESSID).hosts.find(pick), what),
+    ROUTER_ESSID,
+  );
+
+const LAN_MACHINE = lanMachineId('a machine', (host) => host.kind === 'machine');
+const INNER_ROUTER = lanMachineId(
+  'an inner router',
+  (host) => host.kind === 'router' && isInnerGateway(host),
+);
+const SWITCH = lanMachineId('a switch', (host) => host.kind === 'switch');
+const DEEP_GATEWAY = requireGenerated(
+  chainLinks(ROUTER_ESSID).find((link) => link.parentMachineId !== null),
+  'a gateway down the chain',
+).machineId;
+const DEEP_HOST = hostMachineId(
+  generateDeepLayer(ROUTER_ESSID, { machineId: INNER_ROUTER, kind: 'router' }).host,
+  ROUTER_ESSID,
+);
+
+/** Every kind of box a network makes besides its own gateway: a machine and both kinds of
+ *  inner gateway on its LAN, a gateway further down the chain, and the machine behind one. */
+const GENERATED = [
+  ['a LAN machine', LAN_MACHINE],
+  ['an inner router', INNER_ROUTER],
+  ['a switch', SWITCH],
+  ['a gateway down the chain', DEEP_GATEWAY],
+  ['a machine behind a gateway', DEEP_HOST],
+] as const;
+
+const ROOT_ONLY = { read: ['root'], write: ['root'], execute: [] } as const;
+
+/** What somebody left on the box: a file anyone may read, one only root may, and the
+ *  marker a reboot leaves. None of the three is in any generated tree. */
+const NETWORK_BOX_PATCHES: readonly OwnerPatchRow[] = [
+  ownerRow({ path: '/srv/loot.txt', content: 'LEFT_IN_THE_OPEN', permissions: worldReadable }),
+  ownerRow({ path: '/srv/keys.txt', content: 'ROOT_KEYS', permissions: ROOT_ONLY }),
+  ownerRow({
+    path: BOOT_ID_PATH,
+    content: 'boot-7\n',
+    owner: BOOT_ID_OWNER,
+    permissions: BOOT_ID_PERMISSIONS,
+  }),
+];
+
+/** A box nobody owns, so occupancy has no row for it, with the caller's row saying which
+ *  network it was opened on. */
+const onNetworkBox = (over: Parameters<typeof makeDeps>[0] = {}) =>
+  makeDeps({
+    occupant: async () => ({ data: null, error: null }),
+    session: async () => ({ data: { userType: 'guest', essid: ROUTER_ESSID }, error: null }),
+    patches: async () => ({ data: NETWORK_BOX_PATCHES, error: null }),
+    ...over,
+  });
+
+const passwdOf = (tree: Directory): string | null => {
+  const passwd = get(tree, 'etc', 'passwd');
+  return passwd?.kind === 'file' ? passwd.content : null;
+};
+
+describe('handleResolveCrossPlayerFs on a machine the network generates', () => {
+  it.each(GENERATED)(
+    'serves a guest session on %s what it may read there, without a root-only file',
+    async (_kind, machineId) => {
+      const id = generateIdentity();
+      const { deps, findPatches } = onNetworkBox();
+
+      const result = await handleResolveCrossPlayerFs(envelope(id, machineId), deps);
+      const tree = treeOf(result);
+      const loot = get(tree, 'srv', 'loot.txt');
+
+      expect(result.status).toBe(200);
+      expect(loot?.kind === 'file' ? loot.content : null).toBe('LEFT_IN_THE_OPEN');
+      expect(get(tree, 'srv', 'keys.txt')).toBeUndefined();
+      expect(get(tree, 'etc', 'passwd')).toBeUndefined();
+      expect(JSON.stringify(result.body)).not.toContain('ROOT_KEYS');
+      expect(findPatches).toHaveBeenCalledWith({ machine_id: machineId });
+    },
+  );
+
+  it.each(GENERATED)(
+    'serves a root session on %s that very box, as its journal leaves it',
+    async (_kind, machineId) => {
+      const id = generateIdentity();
+      const { deps } = onNetworkBox({
+        session: async () => ({ data: { userType: 'root', essid: ROUTER_ESSID }, error: null }),
+      });
+      const generated = requireGenerated(
+        networkBaseFsForMachineId(ROUTER_ESSID, machineId) ?? undefined,
+        machineId,
+      );
+
+      const result = await handleResolveCrossPlayerFs(envelope(id, machineId), deps);
+      const tree = treeOf(result);
+      const keys = get(tree, 'srv', 'keys.txt');
+
+      expect(result.status).toBe(200);
+      // The accounts are seeded per machine, so this is that box and no other.
+      expect(passwdOf(tree)).not.toBeNull();
+      expect(passwdOf(tree)).toBe(passwdOf(generated));
+      expect(keys?.kind === 'file' ? keys.content : null).toBe('ROOT_KEYS');
+    },
+  );
+
+  it('reports the box unreachable to a session opened on another network', async () => {
+    const id = generateIdentity();
+    const { deps, findPatches } = onNetworkBox({
+      session: async () => ({ data: { userType: 'root', essid: 'SOME-OTHER-WIFI' }, error: null }),
+    });
+
+    const result = await handleResolveCrossPlayerFs(envelope(id, LAN_MACHINE), deps);
+
+    expect(result).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+    expect(findPatches).not.toHaveBeenCalled();
+  });
+
+  it('reports the box unreachable to a caller who never held a row on it', async () => {
+    const id = generateIdentity();
+    const { deps, findLastSessionEssid } = onNetworkBox({
+      session: async () => ({ data: null, error: null }),
+    });
+
+    const result = await handleResolveCrossPlayerFs(envelope(id, LAN_MACHINE), deps);
+
+    expect(result).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+    expect(findLastSessionEssid).toHaveBeenCalledWith({
+      player_key: id.publicKeyHex,
+      machine_id: LAN_MACHINE,
+    });
+  });
+
+  it('reads the network off the open row and looks for no ended one', async () => {
+    const id = generateIdentity();
+    const { deps, findLastSessionEssid } = onNetworkBox({
+      // An ended row on the right network must not rescue an open one that names none.
+      session: async () => ({ data: { userType: 'guest', essid: null }, error: null }),
+      lastEssid: async () => ({ data: ROUTER_ESSID, error: null }),
+    });
+
+    const result = await handleResolveCrossPlayerFs(envelope(id, LAN_MACHINE), deps);
+
+    expect(result).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+    expect(findLastSessionEssid).not.toHaveBeenCalled();
+  });
+});
+
+describe('handleResolveCrossPlayerFs for a caller whose session on the box has ended', () => {
+  const ended = (over: Parameters<typeof makeDeps>[0] = {}) =>
+    onNetworkBox({
+      session: async () => ({ data: null, error: null }),
+      lastEssid: async () => ({ data: ROUTER_ESSID, error: null }),
+      ...over,
+    });
+
+  it.each([...GENERATED, ['the access point gateway', AP_GATEWAY_ID] as const])(
+    'serves %s as the externally-observable list alone, carrying the boot marker',
+    async (_kind, machineId) => {
+      const id = generateIdentity();
+      const { deps } = ended();
+
+      const result = await handleResolveCrossPlayerFs(envelope(id, machineId), deps);
+      const tree = treeOf(result);
+
+      expect(result.status).toBe(200);
+      // A reboot is what ends a session nobody closed, and this is how its holder learns.
+      expect(readBootId(tree)).toBe('boot-7');
+      // A file every tier may read is still not served: the row behind it is closed.
+      expect(get(tree, 'srv')).toBeUndefined();
+      expect(get(tree, 'bin')).toBeUndefined();
+      expect(get(tree, 'etc', 'passwd')).toBeUndefined();
+      expect(JSON.stringify(result.body)).not.toContain('ROOT_KEYS');
+    },
+  );
+
+  it('reports the box unreachable when the ended row was opened on another network', async () => {
+    const id = generateIdentity();
+    const { deps } = ended({ lastEssid: async () => ({ data: 'SOME-OTHER-WIFI', error: null }) });
+
+    const result = await handleResolveCrossPlayerFs(envelope(id, LAN_MACHINE), deps);
+
+    expect(result).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+  });
+
+  it('reports a server error when the ended row cannot be looked up', async () => {
+    const id = generateIdentity();
+    const { deps } = ended({
+      lastEssid: async () => ({ data: ROUTER_ESSID, error: new Error('db down') }),
+    });
+
+    const result = await handleResolveCrossPlayerFs(envelope(id, LAN_MACHINE), deps);
+
+    expect(result).toEqual({ status: 500, body: { error: 'session_lookup_failed' } });
+  });
+
+  it('looks for no ended row on a workstation, which occupancy already found', async () => {
+    const id = generateIdentity();
+    const { deps, findLastSessionEssid } = makeDeps({
+      session: async () => ({ data: null, error: null }),
+    });
+
+    const result = await handleResolveCrossPlayerFs(envelope(id), deps);
+
+    expect(result.status).toBe(200);
+    expect(findLastSessionEssid).not.toHaveBeenCalled();
   });
 });

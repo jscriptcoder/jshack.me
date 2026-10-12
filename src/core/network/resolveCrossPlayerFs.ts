@@ -1,72 +1,57 @@
 /**
- * handleResolveCrossPlayerFs — the cross-player READ (Story 2, slices 2c+2d).
+ * handleResolveCrossPlayerFs — the read of any box that is not the caller's own to rebuild.
  *
- * One identity (the caller) fetches ANOTHER identity's (A's) workstation filesystem.
- * Where `resolvePublicScan` reads only A's open ports (the `/var/run` allowlist),
- * this serves A's readable tree. D1 forces it server-side: the caller has neither
- * A's seed nor A's patch rows, so the server is the only party that can materialize
- * A's box.
+ * The server is the only party that can build such a box as it is: another player's
+ * workstation needs that player's persisted identity, and every box needs the journal,
+ * whose rows are raw and go to nobody but an owner. So the tree is built here, pruned to
+ * what the caller may read, and only then sent. A path the caller may not read is dropped
+ * before the response leaves, because the wire is the threat surface.
  *
- * Flow: verify the envelope → reverse-look-up the OCCUPANCY table by
- * `workstation_machine_id` (the caller holds A's id from the 2b login) for A's identity
- * → rebuild A's baseline from it (shared generator, decision D6) + replay A's OWN patch
- * rows (scoped to `owner_key`, never the caller's per-viewer rows) → prune to the
- * caller's TIER → ship the serialized tree. Occupancy is the reachability test: it means
- * "this machine is on that WiFi", so a box whose owner ran `nmcli disconnect` resolves to
- * nothing and this fails closed. The tier is SERVER-derived, never a client claim:
- *   - tier 1 (owner): caller's verified pubkey == owner_key → the FULL tree
- *     (ownership trumps any session; the session table is not consulted);
- *   - tier 2 (active session): pruned by the shared read walker at the session tier,
- *     together with everything tier 3 is shown, so a session never shows less than none;
- *   - tier 3 (no session): pruned to the externally-observable allowlist only.
+ * Which box it is:
+ *   - a player's workstation, found by `workstation_machine_id` in the occupancy table.
+ *     Occupancy means "this machine is on that WiFi", so a box whose owner ran
+ *     `nmcli disconnect` resolves to nothing and the read fails closed;
+ *   - otherwise a box the network makes (its own gateway, or a machine it generates),
+ *     found from the network on the caller's own session row. Nothing owns such a box,
+ *     and the only way to hold a row on one is to have got in.
  *
- * The pruned tree is what crosses the wire: a path the tier may not read is dropped
- * BEFORE the response leaves (`project_read_path_privacy_gap` — the wire is the
- * threat surface), so neither A's passwd hashes nor any non-observable file can leak.
+ * What the caller is served is derived on the server, never claimed:
+ *   - the owner of a workstation: the full tree. The session table is not consulted;
+ *   - an open session: everything its tier may read, together with the
+ *     externally-observable list, so a session never shows less than none;
+ *   - no open session: the externally-observable list only. On a box the network makes
+ *     this takes a row the caller once held there, which is what tells a shell whose
+ *     session a reboot closed that the box went down under it.
+ *
+ * The journal is replayed whole, every writer's rows in the order the server stamped them.
  */
 
 import { z } from 'zod';
 import { verifySignedRequest } from '../signedRequest/verify.js';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
-import { materializeWorkstationFs, type OwnerPatchRow } from './materializeWorkstationFs.js';
-import { materializeApGatewayFs } from './materializeRouterFs.js';
-import { computeApGatewayId } from '../identity/router.js';
+import { materializeMachineFs, type OwnerPatchRow } from './materializeMachineFs.js';
+import {
+  buildOccupantWorkstationFs,
+  type FindOccupantWorkstationByMachineId,
+} from '../patches/remoteWritePermission.js';
+import { networkBaseFsForMachineId } from '../generation/lanHostIdentity.js';
 import { filterTreeForSession, filterTreeToAllowlist } from '../patches/readFilter.js';
 import { serializeTree } from '../filesystem/treeCodec.js';
+import type { Directory } from '../filesystem/types.js';
 import type { UserType } from '../types.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 
-export type { OwnerPatchRow } from './materializeWorkstationFs.js';
+export type { OwnerPatchRow } from './materializeMachineFs.js';
+export type { OccupantWorkstation } from '../patches/remoteWritePermission.js';
 
-/** The occupancy fields needed to reconstruct the owner's WORKSTATION (decision D2):
- *  whose box it is (guest-password + world seed) and the player-chosen identity the
- *  FS generator stamps into `/etc/passwd`. */
-export type OccupantWorkstation = {
-  readonly kind: 'workstation';
-  readonly owner_key: string;
-  readonly workstation_username: string;
-  readonly workstation_root_hash: string;
-};
-
-/** The fields needed to reconstruct the access point's GATEWAY. Its base is seeded
- *  from the ESSID ALONE (admin password + sshd presence derive from it), because the
- *  gateway belongs to the AP and not to any occupant, so this carries only that. */
-export type ApGateway = {
-  readonly kind: 'router';
-  readonly essid: string;
-};
-
-/** A machine another player can reach — an occupant's workstation OR an AP gateway.
- *  The caller (B) holds only a `machine_id` from the login and can't know which it
- *  is, so the handler discriminates and materializes the matching base. */
-export type ReachableMachine = OccupantWorkstation | ApGateway;
-
-/** The caller's active session on the target — the SERVER-authoritative tier the read
- *  filter runs at, plus the ESSID the target was generated for. The ESSID is what
- *  identifies an AP GATEWAY: a gateway has no occupancy row (nobody owns it), and the
- *  only way to hold a session on one is to have logged into it, so the session itself
- *  records which access point it belongs to. `null` on rows that predate the column. */
+/** The caller's open session on the target: the tier the read filter runs at, and the
+ *  network the session was opened on. That network is what finds a box nobody owns, since
+ *  occupancy has no row for one. `null` on a row that carries none. */
 export type ActiveSession = { readonly userType: UserType; readonly essid: string | null };
+
+type SessionQuery = { readonly player_key: string; readonly machine_id: string };
+
+type Lookup<Value> = { readonly data: Value | null; readonly error: unknown };
 
 export type ResolveCrossPlayerFsDeps = {
   readonly nonceStore: NonceStore;
@@ -74,21 +59,20 @@ export type ResolveCrossPlayerFsDeps = {
    *  Occupancy means "this machine is on that WiFi", which is exactly what makes a box
    *  reachable: a player who ran `nmcli disconnect` has taken their machine off the
    *  network and must resolve to nothing here, so the read fails closed. Only ever a
-   *  WORKSTATION — an AP gateway has no occupant and is resolved from the session. */
-  readonly findOccupantWorkstationByMachineId: (
-    machineId: string,
-  ) => Promise<{ readonly data: OccupantWorkstation | null; readonly error: unknown }>;
-  readonly findActiveSession: (query: {
-    readonly player_key: string;
-    readonly machine_id: string;
-  }) => Promise<{ readonly data: ActiveSession | null; readonly error: unknown }>;
+   *  workstation. A box the network makes has no occupant and is found from the session. */
+  readonly findOccupantWorkstationByMachineId: FindOccupantWorkstationByMachineId;
+  readonly findActiveSession: (query: SessionQuery) => Promise<Lookup<ActiveSession>>;
+  /** The network on the caller's newest row on the machine, open or ended. Asked only of a
+   *  box nobody owns once no row is open, because that row is the one thing left that says
+   *  which network the box is on. */
+  readonly findLastSessionEssid: (query: SessionQuery) => Promise<Lookup<string>>;
   /** The machine's patch rows on the target. Scoped to `machine_id` only — after
    *  the shared-journal flip the machine OWNS its journal (the workstation id
    *  already encodes the owner), so this serves the real box including every
    *  writer's rows, never the caller's separate per-viewer rows. */
   readonly findPatches: (query: {
     readonly machine_id: string;
-  }) => Promise<{ readonly data: readonly OwnerPatchRow[] | null; readonly error: unknown }>;
+  }) => Promise<Lookup<readonly OwnerPatchRow[]>>;
 };
 
 export type HandlerResponse = {
@@ -96,11 +80,25 @@ export type HandlerResponse = {
   readonly body: Record<string, unknown>;
 };
 
-/** The AP gateway of the ESSID a session was opened on, when that is what the claimed
- *  machine is. `computeApGatewayId` is total and injective enough for this: a machine
- *  id that does not equal the ESSID's own gateway id is simply not that gateway. */
-const apGatewayFor = (machineId: string, essid: string | null): ApGateway | null =>
-  essid !== null && computeApGatewayId(essid) === machineId ? { kind: 'router', essid } : null;
+/** The tree, as generated, of a box the caller's own rows say its network makes: that
+ *  network's gateway or a machine it generates. The network is never taken from the
+ *  request, and an id it does not make resolves to nothing, so no box on another network
+ *  can be reached by naming it.
+ *
+ *  An open row is the whole answer. With none, the caller's newest ended row still says
+ *  where the box is. */
+const networkBoxBaseFs = async (
+  deps: ResolveCrossPlayerFsDeps,
+  caller: SessionQuery,
+  activeSession: ActiveSession | null,
+): Promise<Lookup<Directory>> => {
+  const network =
+    activeSession === null
+      ? await deps.findLastSessionEssid(caller)
+      : { data: activeSession.essid, error: null };
+  if (network.error || network.data === null) return { data: null, error: network.error };
+  return { data: networkBaseFsForMachineId(network.data, caller.machine_id), error: null };
+};
 
 // Loose so the envelope fields pass through; the refine keeps the codebase-wide
 // posture that a client never claims identity (the caller is the verified pubkey).
@@ -122,6 +120,7 @@ export const handleResolveCrossPlayerFs = async (
     return { status: STATUS_BY_VERIFY_REASON[verified.reason], body: { error: verified.reason } };
   }
   const { publicKey, payload } = verified;
+  const caller = { player_key: publicKey, machine_id: payload.machine_id };
 
   const occupant = await deps.findOccupantWorkstationByMachineId(payload.machine_id);
   if (occupant.error) {
@@ -129,27 +128,24 @@ export const handleResolveCrossPlayerFs = async (
   }
 
   // Tier 1 — the owner reads its own box in full; ownership trumps any session tier,
-  // so we never consult the session table for the owner. The AP gateway has NO owner
-  // (it belongs to the access point, not to an occupant), so every caller on it —
-  // including occupants of its own ESSID — falls through to the session tiers.
+  // so we never consult the session table for the owner. A box the network makes has no
+  // owner, so every caller on it falls through to the session tiers.
   const isOwner = occupant.data !== null && publicKey === occupant.data.owner_key;
 
-  const session = isOwner
-    ? null
-    : await deps.findActiveSession({ player_key: publicKey, machine_id: payload.machine_id });
+  const session = isOwner ? null : await deps.findActiveSession(caller);
   if (session !== null && session.error) {
     return { status: 500, body: { error: 'session_lookup_failed' } };
   }
+  const activeSession = session?.data ?? null;
 
-  // An occupant's workstation, else the AP gateway the caller's own session says this
-  // is. A gateway has no occupancy row (it belongs to the access point, not to a
-  // player), and the only way to hold a session on one is to have logged in, so the
-  // session is what identifies it. The gateway id is a pure function of the ESSID, so
-  // a machine_id that is not that ESSID's gateway resolves to nothing and cannot be
-  // forged into one.
-  const machine: ReachableMachine | null =
-    occupant.data ?? apGatewayFor(payload.machine_id, session?.data?.essid ?? null);
-  if (machine === null) {
+  const base: Lookup<Directory> =
+    occupant.data === null
+      ? await networkBoxBaseFs(deps, caller, activeSession)
+      : { data: buildOccupantWorkstationFs(occupant.data), error: null };
+  if (base.error) {
+    return { status: 500, body: { error: 'session_lookup_failed' } };
+  }
+  if (base.data === null) {
     return { status: 404, body: { error: 'host_unreachable' } };
   }
 
@@ -160,15 +156,9 @@ export const handleResolveCrossPlayerFs = async (
     return { status: 500, body: { error: 'patches_lookup_failed' } };
   }
 
-  // Materialize the matching base for the registered machine: a router is rebuilt
-  // from the owner key alone; a workstation from its persisted identity (Story 5.2).
-  const tree =
-    machine.kind === 'router'
-      ? materializeApGatewayFs(machine, patches.data)
-      : materializeWorkstationFs(machine, patches.data);
+  const tree = materializeMachineFs(base.data, patches.data);
   // Tier dispatch: owner → full tree; active session → walker at the session tier plus
   // the externally-observable allowlist; no session → that allowlist only.
-  const activeSession = session?.data ?? null;
   const filtered = isOwner
     ? tree
     : activeSession === null

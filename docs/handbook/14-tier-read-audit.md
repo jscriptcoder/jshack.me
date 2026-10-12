@@ -17,7 +17,9 @@ A player reads a machine that is not their own workstation in one of two ways.
 - **Served.** The server builds the box, prunes the tree to the session's tier and sends it
   (`resolveCrossPlayerFs`). Today that is another player's workstation and the access point's
   gateway. Since v0.371.0 the tree also carries every file on the externally-observable list,
-  each with its own permissions.
+  each with its own permissions. Since v0.373.0 the server builds every machine a network
+  generates the same way, from the network on the caller's own session row. The browser does not
+  ask it yet for a machine it can rebuild.
 - **Rebuilt.** The browser generates the box from the ESSID and replays the raw journal over it.
   Today that is every machine a network generates. The journal still carries rows above the
   session's tier; that is the open half of the security gap in
@@ -145,8 +147,10 @@ traced.
 | `packages/aptPackages.ts:240, 268`                                                                  | Root's hash in `/etc/passwd`, to seed a database or store being installed. Installing is root's. | fine    |
 
 ² Once a session ends on a generated machine the browser has no tree to read the marker from: the
-refused journal comes back empty. Serving the no-session view from the caller's ended row is part
-of the slice that serves generated machines.
+refused journal comes back empty. Since v0.373.0 the server serves the externally-observable list,
+which carries the marker, to a caller whose row on a box the network makes has ended. A shell on
+the access point's gateway reads it. A shell on a generated machine will once the browser reads
+the served tree there.
 
 ### The reach of a deep layer
 
@@ -215,17 +219,17 @@ caller gets can still tell them a file or an account exists.
 
 ### `POST /api/network`
 
-| Action                                                                 | Body on success                                              | What it is read from                                                                                  | Verdict |
-| ---------------------------------------------------------------------- | ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- | ------- |
-| `registerNetwork`                                                      | `local_ip`                                                   | The caller's own lease.                                                                               | fine    |
-| `unregisterOccupant`                                                   | `ok`                                                         |                                                                                                       | fine    |
-| `resolveOccupants`                                                     | Each fellow occupant's machine id, LAN address, machine name | Occupancy and leases. Only for a caller standing on that LAN.                                         | fine    |
-| `resolveOccupiedEssids`                                                | `essids`                                                     | Occupancy.                                                                                            | fine    |
-| `resolveCrossPlayerFs`                                                 | `tree`                                                       | The whole box. Full for its owner, tier view plus the list for a session, the list for anyone else.   | fine    |
-| `resolvePublicScan`                                                    | `found`, `ports`                                             | Pidfiles, the manifest, `rules.v4`.                                                                   | list    |
-| `resolveInnerGatewayScan`, `resolveSameLanScan`, `resolveOccupantScan` | `found`, `ports`                                             | The same three. Only for a caller standing on that network.                                           | list    |
-| `resolveHttpFetch`, `resolveOccupantFetch`                             | `content`, `server`                                          | One file under `/var/www`, read as the web server. A search on findit is built from what sites serve. | list    |
-| `resolveHttpSweep`, `resolveOccupantSweep`                             | `dirlistFound`, and a path, status and size for each word    | `/var/www` on the target; the word list from the journal of the box the caller stands on.             | list ⁴  |
+| Action                                                                 | Body on success                                              | What it is read from                                                                                                                                                                 | Verdict |
+| ---------------------------------------------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------- |
+| `registerNetwork`                                                      | `local_ip`                                                   | The caller's own lease.                                                                                                                                                              | fine    |
+| `unregisterOccupant`                                                   | `ok`                                                         |                                                                                                                                                                                      | fine    |
+| `resolveOccupants`                                                     | Each fellow occupant's machine id, LAN address, machine name | Occupancy and leases. Only for a caller standing on that LAN.                                                                                                                        | fine    |
+| `resolveOccupiedEssids`                                                | `essids`                                                     | Occupancy.                                                                                                                                                                           | fine    |
+| `resolveCrossPlayerFs`                                                 | `tree`                                                       | The whole box. Full for its owner, tier view plus the list for a session, the list for anyone else on a workstation and for a caller whose row on a box the network makes has ended. | fine    |
+| `resolvePublicScan`                                                    | `found`, `ports`                                             | Pidfiles, the manifest, `rules.v4`.                                                                                                                                                  | list    |
+| `resolveInnerGatewayScan`, `resolveSameLanScan`, `resolveOccupantScan` | `found`, `ports`                                             | The same three. Only for a caller standing on that network.                                                                                                                          | list    |
+| `resolveHttpFetch`, `resolveOccupantFetch`                             | `content`, `server`                                          | One file under `/var/www`, read as the web server. A search on findit is built from what sites serve.                                                                                | list    |
+| `resolveHttpSweep`, `resolveOccupantSweep`                             | `dirlistFound`, and a path, status and size for each word    | `/var/www` on the target; the word list from the journal of the box the caller stands on.                                                                                            | list ⁴  |
 
 ### `POST /api/patches`
 
@@ -273,8 +277,8 @@ The ledger is public by design and holds no file content. The two reads verify n
 
 ## What was not checked
 
-- Nothing was run for the audit itself. Defect 3 has since been measured on the live stack and
-  fixed. Defect 4 is still read from the code and must be measured the same way before it is fixed.
+- Nothing was run for the audit itself. Defects 1, 3 and 4 have since been measured on the live
+  stack, and 3 and 4 are fixed.
 - Error codes as a channel (see above).
 - What a write that claims `is_new` does to a file the writer could not see.
 - Anything on the player's own workstation, which stays local.
