@@ -33,12 +33,16 @@ import type { Directory } from '../filesystem/types.js';
 import {
   mockCommandEnv,
   mockFsViewFromTree,
+  mockIdentity,
   mockPatchApi,
   mockSession,
 } from '../../test/factories/commandEnv.js';
 import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
 import { formatListenerContent } from '../services/pidfile.js';
-import { asAbsPath, asMachineId } from '../types.js';
+import { computeWorkstationId } from '../identity/workstation.js';
+import { generateHomeLan } from '../generation/generateHomeLan.js';
+import { resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
+import { asAbsPath, asMachineId, asPlayerKeyHex } from '../types.js';
 
 /** A `user`-tier session in /home/alice with two files she owns (and can read). */
 const aliceEnv = () =>
@@ -1713,5 +1717,87 @@ describe('a chain broken beneath the box the player is standing on', () => {
 
     expect(contentOf(result.lines)).toContain('hello world');
     expect(askServer).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The one box that can leave the network under a shell is another player's: its
+   * owner disconnects, the server ends every visitor's row, and the box is not there
+   * to carry a marker. So a shell standing on one asks the server, however shallow.
+   */
+  describe('one hop deep', () => {
+    const ESSID = 'BEAN-THERE-WIFI';
+    const OWN_KEY = asPlayerKeyHex('a'.repeat(64));
+    const THEIR_BOX = asMachineId(computeWorkstationId('skylab', 'b'.repeat(64)));
+    const LAN = generateHomeLan(ESSID);
+    const generatedId = (kind: 'machine' | 'router') =>
+      asMachineId(
+        resolveLanHostIdentity(LAN.hosts.find((host) => host.kind === kind)!, ESSID).machineId,
+      );
+
+    /** A terminal one hop above the player's own login, standing on `over`'s box. */
+    const oneHopOnto = (
+      over: Parameters<typeof mockSession>[0],
+      openSessionIds: () => Promise<ReadonlySet<string> | null>,
+    ) => {
+      const popSession = vi.fn();
+      const askServer = vi.fn(openSessionIds);
+      const env = mockCommandEnv({
+        identity: mockIdentity({ publicKeyHex: OWN_KEY }),
+        session: mockSession({ id: 'hop-a', kind: 'ssh', essid: ESSID, ...over }),
+        hopChain: [base],
+        popSession,
+        chain: { openSessionIds: askServer },
+        fs: mockFsViewFromTree(NOTES, { userType: 'root', cwd: asAbsPath('/home/alice') }),
+      });
+      return { env, popSession, askServer };
+    };
+
+    it("closes a shell on another player's box the server no longer holds open", async () => {
+      const { env, popSession } = oneHopOnto({ machineId: THEIR_BOX }, async () => new Set());
+
+      const result = expectSync(await runCommandLine(env, 'cat notes.txt', commands));
+
+      expect(result.lines).toEqual([errorLine('Connection to skylab closed by remote host.')]);
+      expect(result.exitCode).toBe(1);
+      expect(popSession).toHaveBeenCalledTimes(1);
+    });
+
+    it("runs the line on another player's box while the server holds the shell open", async () => {
+      const { env, popSession } = oneHopOnto(
+        { machineId: THEIR_BOX },
+        async () => new Set(['hop-a']),
+      );
+
+      const result = expectSync(await runCommandLine(env, 'cat notes.txt', commands));
+
+      expect(contentOf(result.lines)).toContain('hello world');
+      expect(popSession).not.toHaveBeenCalled();
+    });
+
+    // Neither can leave its network, and a reboot of either leaves a marker.
+    it.each([
+      ['a box the network generates', generatedId('machine')],
+      ["the access point's gateway", generatedId('router')],
+    ])('asks nothing on %s', async (_box, machineId) => {
+      const { env, askServer } = oneHopOnto({ machineId }, async () => new Set());
+
+      const result = expectSync(await runCommandLine(env, 'cat notes.txt', commands));
+
+      expect(contentOf(result.lines)).toContain('hello world');
+      expect(askServer).not.toHaveBeenCalled();
+    });
+
+    // A command on the player's own box costs no request, elevated or not.
+    it("asks nothing in a root shell on the player's own box", async () => {
+      const { env, askServer } = oneHopOnto(
+        { kind: 'su', essid: null, machineId: asMachineId(computeWorkstationId('rig', OWN_KEY)) },
+        async () => new Set(),
+      );
+
+      const result = expectSync(await runCommandLine(env, 'cat notes.txt', commands));
+
+      expect(contentOf(result.lines)).toContain('hello world');
+      expect(askServer).not.toHaveBeenCalled();
+    });
   });
 });

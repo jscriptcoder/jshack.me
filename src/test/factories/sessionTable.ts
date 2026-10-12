@@ -65,6 +65,23 @@ export const sessionTable = (rows: readonly SessionRow[]) => {
       error: null,
     }),
 
+    endVisitorSessions: async (params: {
+      machine_id: string;
+      owner_key: string;
+      reason: EndReason;
+    }) => ({
+      data: close(
+        rows.filter(
+          (row) =>
+            isOpen(row) &&
+            row.machine_id === params.machine_id &&
+            row.player_key !== params.owner_key,
+        ),
+        params.reason,
+      ).map((row): EndedSession => ({ session_id: row.session_id, player_key: row.player_key })),
+      error: null,
+    }),
+
     endSessionsAbove: async (params: EndSessionsAboveParams) => ({
       data: close(
         rows.filter(

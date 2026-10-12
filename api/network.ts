@@ -10,7 +10,11 @@ import {
   handleResolveOccupiedEssids,
   type OccupiedEssidRow,
 } from '../src/core/network/resolveOccupiedEssids.js';
-import { handleUnregisterOccupant } from '../src/core/network/unregisterOccupant.js';
+import {
+  handleUnregisterOccupant,
+  type EndVisitorSessionsParams,
+} from '../src/core/network/unregisterOccupant.js';
+import type { EndedSession, EndSessionsAboveParams } from '../src/core/sessions/upstreamLost.js';
 import {
   handleResolvePublicScan,
   type NatOccupantRow,
@@ -761,22 +765,59 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   if (actionOf(req.body) === 'unregisterOccupant') {
-    // Disconnect cleanup (Story 7): remove the caller's occupancy row. Scoped to
-    // (essid, owner_key) where owner_key is server-derived from the verified pubkey
-    // — a caller can only delete its OWN row, never another occupant's. Deleting a
-    // non-existent row is not an error (idempotent disconnect).
+    // Disconnect: remove the caller's occupancy row. Scoped to (essid, owner_key) where
+    // owner_key is server-derived from the verified pubkey — a caller can only delete
+    // its OWN row, never another occupant's. The removed row comes back because it
+    // names the box that just left; a repeat disconnect removes nothing and answers
+    // null, which is not an error.
     const deleteOccupant = async ({ essid, owner_key }: { essid: string; owner_key: string }) => {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('home_network_occupants')
         .delete()
         .eq('essid', essid)
-        .eq('owner_key', owner_key);
-      if (error) console.error('[network] occupant delete error:', error);
-      return { error };
+        .eq('owner_key', owner_key)
+        .select('workstation_machine_id')
+        .maybeSingle();
+      logFailure('occupant delete', error);
+      return { data: data as { workstation_machine_id: string } | null, error };
+    };
+    // Machine-scoped, minus the owner: every other player's open row on the box closes,
+    // including ones no screen is showing. The owner's own rows there are their login
+    // on their own machine, which leaving a WiFi does not end.
+    const endVisitorSessions = async ({
+      machine_id,
+      owner_key,
+      reason,
+    }: EndVisitorSessionsParams) => {
+      const { data, error } = await supabase
+        .from('sessions')
+        .update({ ended_at: new Date().toISOString(), end_reason: reason })
+        .eq('machine_id', machine_id)
+        .neq('player_key', owner_key)
+        .is('ended_at', null)
+        .select('session_id, player_key');
+      logFailure('disconnect visitor sessions', error);
+      return { data: data as readonly EndedSession[] | null, error };
+    };
+    // One rung of a chain standing on a closed row: this player's open rows whose
+    // parent is one of `parent_ids`, answering with the ids it closed.
+    const endSessionsAbove = async ({ player_key, parent_ids, reason }: EndSessionsAboveParams) => {
+      const { data, error } = await supabase
+        .from('sessions')
+        .update({ ended_at: new Date().toISOString(), end_reason: reason })
+        .eq('player_key', player_key)
+        .in('parent_session_id', [...parent_ids])
+        .is('ended_at', null)
+        .select('session_id');
+      logFailure('disconnect cascade', error);
+      const rows = data as readonly { session_id: string }[] | null;
+      return { data: rows?.map((row) => row.session_id) ?? null, error };
     };
     const { status, body } = await handleUnregisterOccupant(req.body, {
       nonceStore: noopNonceStore,
       deleteOccupant,
+      endVisitorSessions,
+      endSessionsAbove,
     });
     res.status(status).json(body);
     return;

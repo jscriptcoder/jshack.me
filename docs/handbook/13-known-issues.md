@@ -12,15 +12,17 @@ entry when you fix or decide it.** Deliberately deferred features live in the ba
 | **`WORLD_EPOCH` tripwire fails from 2027-01-08 UTC** | `src/core/cve/worldClock.test.ts` fails once the development epoch (2026-07-12) is `RUNWAY_DAYS` (180) days old. The test is intentional: it forces a decision. It was postponed once, on 2026-09-27, from 90 to 180 days. | Decide: re-stamp the epoch for launch, or postpone again by raising `RUNWAY_DAYS` (the world is untouched). Re-stamping re-dates all generated history and every vulnerability, and moves date-pinned tests. Delete the test at launch. |
 | **Generation timing headroom may be thin**           | One run measured 1.61–1.83 ms per box against the 2 ms budget (docs say 0.86–1.67). The machine may have been loaded.                                                                                                      | Measure with a clean `npm run build`, three times, before the next content change.                                                                                                                                                      |
 
-## Possible security gap (unverified)
+## Security gap (seen on the live stack 2026-10-12, not yet fixed)
 
-**`listPatches` may expose rows the tier filter prunes.** `handleListPatches` checks only L1 (any
+**`listPatches` exposes rows the tier filter prunes.** `handleListPatches` checks only L1 (any
 active session on the machine) and returns every writer's raw rows. The client calls it on a
-cross-player hop (`acquireTree` → `refetchPatches`, and after every write). So a guest-tier visitor's
-browser likely receives journal rows for files the owner created under `/root`, even though the
-served tree from `resolveCrossPlayerFs` prunes them. That contradicts the rule "prune before the
-response leaves the server". Prove it with a wire-check first; the fix is to filter `listPatches` by
-tier for non-owners, or to skip the raw journal read on cross-player hops.
+cross-player hop (`acquireTree` → `refetchPatches`, and after every write). A probe against
+`vercel dev` logged in as `guest` on another player's workstation and read the content of a
+root-only `/root/secret.txt` off the `listPatches` answer, though the served tree from
+`resolveCrossPlayerFs` prunes that file. That contradicts the rule "prune before the response
+leaves the server", and the wallet key is a journal row like any other. The probe was thrown away;
+the fix needs a wire-check of its own, and is to filter `listPatches` by tier for non-owners, or to
+skip the raw journal read on cross-player hops.
 
 ## Open design questions
 

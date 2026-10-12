@@ -748,10 +748,19 @@ agreed order:
    one `hydra` run). No defect in the four. Two things seen on the way are in
    `backlog.md`: `ping` gets no reply on loopback, and the ftp banner names a fixed
    release.
-   **Pick up here (2026-10-12):** the items still open in `backlog.md`, all found by
+   ✅ And at v0.368.0 a box that leaves its network drops every connection to it:
+   `nmcli disconnect` closes every other player's session on the box and every session
+   opened from it, and the visitor's next line says the connection closed. Probed on the
+   live stack first: the session row had outlived the box's place on the WiFi, so a
+   visitor still acted on that network from it, logged as `unknown`
+   (`scripts/testDisconnectedUnreachable.ts` 13/13). Not played in the browser yet.
+   **Pick up here (2026-10-12):** first the one the probe proved, in `backlog.md`:
+   `listPatches` hands a `guest` session the box's whole journal, root-only files and
+   the wallet key's row included. Then the items still open there, all found by
    reading: a deep box's own address behind a switch that denies the web port, a data
-   door over `localhost`, a shell on a box whose owner left, and a field that spoofs
-   the columns after it within its own line.
+   door over `localhost`, a field that spoofs the columns after it within its own line,
+   a leaver's own sessions across the network, and a box joined to two networks at
+   once.
 9. ✅ **Crypto wallet epic (v0.356.0–v0.362.0, PRs #653–#658, 2026-10-11/12).** Slotted ahead of
    the rest of the sandbox-hardening list: the `wallet` command, a public JSC ledger keyed by
    address, and the operator mint. Seven slices, each TDD + wire-check + migration to dev then

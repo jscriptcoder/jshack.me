@@ -242,11 +242,47 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   browser 2026-10-12 (v0.366.0): 44 requests against the owner's box, from the WiFi and from
   a shell on it, left exactly 44 lines in her `access.log`.
 
-- **A shell on a player's box whose owner has left the network: `curl localhost` there would
-  leave no line. By reading, not reproduced.** The box is found by the lease its owner holds on
-  the network the session stands on; with no lease there is no address and nothing is logged,
-  while the client still serves the page. Whether such a shell survives the owner leaving is
-  not checked either. Found 2026-10-10.
+- **A visitor's shell on a player's box outlived the box's place on the network — RESOLVED
+  2026-10-12 (v0.368.0).** Recorded 2026-10-10, by reading, as `curl localhost` in that shell
+  leaving no line. Probed on the live stack first, and the recorded half was already gone:
+  since v0.363.0 loopback there asks the server, which answers `host_unreachable` once the
+  owner has left, so nothing is served. The open half was the defect. Nothing ended the
+  visitor's session row, so the server went on placing them on that WiFi, at no address: from
+  the shell on the departed box a fetch of a third occupant answered 200 and that occupant's
+  `access.log` recorded it from `unknown`, as every door would. After `nmcli disconnect` and
+  `nmcli connect <another network>` the shell read and wrote the box again, in ordinary play,
+  with its tools still acting on the first WiFi. Decided with the owner the same day: leaving
+  ends them. `handleUnregisterOccupant` now closes every other player's open row on the box
+  (`network_left`) and every session opened from it (`upstream_lost`), as a reboot does; the
+  owner's own rows on their box stay open, and a returning box does not bring the old sessions
+  back. The visitor's next line prints `Connection to <box> closed by remote host.`: one hop
+  deep on another player's workstation the shell now asks which of its sessions are open,
+  which costs that shell one request a line. `scripts/testDisconnectedUnreachable.ts` carries
+  the checks (13/13). Not played in the browser yet. Three things found on the way are the
+  next three items.
+
+- **`listPatches` hands a `guest` session the box's whole journal. Seen on the live stack
+  2026-10-12, not fixed.** The same probe logged in as `guest` on another player's
+  workstation and read a root-only `/root/secret.txt` off the `listPatches` answer, which is
+  gated on holding any session and filtered by no tier. The served tree
+  (`resolveCrossPlayerFs`) prunes that file; the raw rows do not. The wallet key is a journal
+  row like any other, so a guest password would be enough to take it (not probed on
+  `wallet.dat` itself). Handbook chapter 13 has carried it as unverified since v0.278.0. The
+  fix is its own slice with its own wire-check: filter by tier for anyone but the owner, or
+  stop reading the raw journal on another player's box.
+
+- **A player who leaves a WiFi keeps the sessions they opened across it. By reading, not
+  reproduced.** The disconnect closes other players' rows on the leaver's box and nothing of
+  the leaver's own: a shell they hold on a neighbour's box, or on a box the network
+  generates, stays open on the server after their own machine is off the network. The game
+  client stops every network command while disconnected; a request signed outside it is not
+  stopped. Found 2026-10-12.
+
+- **`nmcli connect <another network>` without a disconnect leaves the box on both. By
+  reading.** The join writes a second occupancy row and removes none, so the box stays
+  reachable on the first WiFi and its visitors' sessions stay open, while the player's own
+  tools act from the second. Handbook chapter 13 lists the stale `updated_at` half of this.
+  Found 2026-10-12.
 
 - **`curl <its own address>` on a deep box behind a switch that denies the web port is served
   but not traced. By reading, not reproduced.** The client serves the standing box's own tree

@@ -71,7 +71,8 @@ These are the item-#5 acceptance criteria that only a real two-player journey sh
 5. Bricking the gateway takes the **public IP dark** while the **ESSID stays joinable**
    and occupants still reach each other.
 6. A reconnecting occupant **returns to the same address**.
-7. `nmcli disconnect` makes a box **unreachable** — and only that.
+7. `nmcli disconnect` makes a box **unreachable**. (Since v0.368.0 it also closes every
+   session another player held on the box; the run recorded here predates that.)
 
 ---
 
@@ -412,9 +413,10 @@ this document:
 
 **Proves:** being on a WiFi is what makes a machine reachable — not whether a player is
 playing, and not anything that outlives the disconnect.
-**Trap:** B's *session* on A (if one is open from Act 2) is not what is being tested. The
-credential stays valid; what disappears is A's machine. If a stale session masks the
-result, open a fresh one.
+**Trap:** B's *session* on A (if one is open from Act 2) is not what is being tested.
+Since v0.368.0 the disconnect closes it: B's next line in that shell prints
+`Connection to <A's box> closed by remote host.`, and B logs in again after step 4. The
+password is unchanged; what disappeared was A's machine.
 
 ---
 
