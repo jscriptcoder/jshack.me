@@ -43,7 +43,8 @@ The verdicts:
 ## Result
 
 - **Client:** 85 calls to `stat` or `root()` in 39 files. 65 are fine, 9 depend on the
-  externally-observable list, and 11 belong to two defects. One of the 65 is `su`, which read
+  externally-observable list, and 11 belonged to two defects, both fixed since: a local exploit
+  (v0.372.0) and `chmod` (v0.375.0). One of the 65 is `su`, which read
   `/etc/passwd` on a generated machine until v0.370.0 moved it to the server. The places `ui/state.ts` and `webHost.ts` hand a whole tree on to a helper are listed
   beside the reader they feed.
 - **Server:** 44 response bodies over four endpoints (`network` 13, `patches` 10, `sessions` 18,
@@ -62,12 +63,14 @@ The verdicts:
 | 3   | `suElevate` checks the password against the workstation as it was generated, not as it is. A password an exploit reset is accepted by `ssh` and refused by `su`. It also resolves only a player's workstation, so `su` on the access point's gateway answers `host_unreachable`.                                                     | `sessions/authElevateSession.ts`                                     | Fixed in v0.370.0, measured first.                        |
 | 4   | A local exploit (`msfconsole --local`) on a generated machine runs in the browser: it reads the tree at the tier the exploit grants, which is above the session's, and the shell it lands is never recorded on the server. On the access point's gateway the request goes to the server, which resolves only a player's workstation. | `commands/msfconsole.ts` (10 sites), `exploitLocalElevate`           | Fixed in v0.372.0: the server answers `--local`.          |
 | 5   | A scan, a login or a transfer aimed at the layer behind a switch reads the switch's `acl.conf` off the shell's own tree. The file is root-only, so a lower-tier shell on a served switch would treat every port as allowed.                                                                                                          | 7 sites, see [the reach of a deep layer](#the-reach-of-a-deep-layer) | Fixed in v0.371.0: a session is served the list.          |
-| 6   | `chmod` maps the `u` in a mode to the owner's tier by reading `/etc/passwd`. A `guest` session on a served box has no such file, so every owner reads as `guest`.                                                                                                                                                                    | `commands/chmod.ts:153`                                              | New slice. A mode naming `u` is refused without the file. |
+| 6   | `chmod` maps the `u` in a mode to the owner's tier by reading `/etc/passwd`. A `guest` session on a served box has no such file, so every owner reads as `guest`.                                                                                                                                                                    | `commands/chmod.ts:161`                                              | Fixed in v0.375.0: `u` is refused without the file.       |
 | 7   | `suElevate` never asked whether the caller held a session on the machine, so the root password alone gave a `root` row on a workstation, with every door shut. Found while defect 3 was measured.                                                                                                                                    | `sessions/authElevateSession.ts`                                     | Fixed in v0.370.0: no session, no `su`.                   |
 
 Defects 1, 2 and 5 were known before the audit. 3, 4 and 6 are what it found, with 6 already
 suspected. 7 is not a read past a tier; it turned up on the live stack while 3 was being measured,
-in the same handler. 1, 2, 3, 4, 5 and 7 are fixed, which leaves 6.
+in the same handler. All seven are fixed. The last was 6 (v0.375.0): `chmod` asks for
+`/etc/passwd` through the session's own reader, on every box including the player's own, and
+refuses a mode naming `u` when the read fails.
 
 ## The files machinery reads
 
@@ -188,8 +191,8 @@ box is served as generated to a reader on its LAN, and as changed to a reader ac
 | Site                                                                        | Reads                                                                                                                                                                             | Verdict  |
 | --------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
 | `commands/su.ts:69`                                                         | `/etc/passwd`, on the player's own workstation only. Elsewhere `su` asks the server (v0.370.0).                                                                                   | fine     |
-| `commands/chmod.ts:140`                                                     | The node being changed, after which `canWrite` is asked.                                                                                                                          | fine     |
-| `commands/chmod.ts:153`                                                     | `/etc/passwd`, for the tier of the node's owner.                                                                                                                                  | defect 6 |
+| `commands/chmod.ts:142`                                                     | The node being changed, after which `canWrite` is asked.                                                                                                                          | fine     |
+| `commands/chmod.ts:169`                                                     | `/etc/passwd`, for the tier of the node's owner, once the session's own read of the file has succeeded. A mode naming `u` is refused otherwise (v0.375.0).                        | fine     |
 | `commands/msfconsole.ts:649, 679, 707, 790, 803, 855, 857, 862, 1002, 1026` | The whole tree at the tier a local exploit grants, `/etc/passwd`, and the package manifest, on the player's own workstation only. Elsewhere `--local` asks the server (v0.372.0). | fine     |
 | `commands/msfconsole.ts:994`                                                | The tree held for the box the shell stands on, handed to the script a local fire runs before it is sent. Pruned wherever the box is served.                                       | fine     |
 | `commands/ownBoxLogin.ts:50`                                                | `/etc/passwd` of the player's own box, for a login over `localhost`. Home only.                                                                                                   | fine     |
