@@ -220,12 +220,13 @@ bricking are Story 4 (they use the obtained root password).
 `core/network/resolveCrossPlayerFs.ts` serves A's filesystem to B. B has neither A's seed nor
 A's rows, so the **server** is the only party that can materialize A's box: occupancy
 reverse-lookup → rebuild A's baseline from the owner's identity → replay A's machine-scoped
-journal (chronologically) → **prune to the caller's tier** → serialize and ship. Since Story 5.2
-the reverse-lookup is **discriminated** (`RegistryMachine = workstation | router`, matching both
-id columns), so a `router_machine_id` materializes the **router** base (`materializeRouterFs`)
-and a `workstation_machine_id` the workstation base (`materializeWorkstationFs`) — one handler,
-one tier filter, the right base. (This is how B `cat`s/`nano`s A's `/etc/iptables/rules.v4` after
-`ssh root`ing into A's router.) The tier is server-derived, never a client claim:
+journal (chronologically) → **prune to the caller's tier** → serialize and ship. A box nobody
+owns has no occupancy row, so the handler finds it from the network on the caller's own session
+row (`networkBaseFsForMachineId`): that network's gateway, and since v0.373.0 any machine it
+generates (a LAN machine, an inner router, a switch, a gateway down the chain, the machine behind
+one). The network is never taken from the request, so a box on another network cannot be reached
+by naming it. One handler, one tier filter, the right base. The tier is server-derived, never a
+client claim:
 
 - **Tier 1 — owner** (verified pubkey == `owner_key`): the FULL tree; the session table is
   not even consulted.

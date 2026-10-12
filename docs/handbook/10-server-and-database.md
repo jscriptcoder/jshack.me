@@ -87,7 +87,7 @@ false}})`, per request. The service role bypasses row-level security.
 | `resolvePublicScan`         | `nmap` a public IP; writes a `kern.log` trace on the target gateway.                                    | SIG + REACH      |
 | `resolveHttpFetch`          | `curl`/`lynx` a public web server (and findit.io search); writes `access.log`.                          | SIG + REACH      |
 | `resolveHttpSweep`          | `gobuster` against a public server; the path list is read from the caller's box.                        | SIG + L1 + REACH |
-| `resolveCrossPlayerFs`      | Another player's (or the access point's) tree, pruned to your tier.                                     | SIG, tiered      |
+| `resolveCrossPlayerFs`      | The tree of a box that is not yours to rebuild, pruned to what you may read there.                      | SIG, tiered      |
 
 ### `POST /api/patches`
 

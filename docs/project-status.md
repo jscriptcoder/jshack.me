@@ -788,11 +788,23 @@ agreed order:
    under the key that owns that box's logs. A shell with no terminal is handed a limited
    one from a hole that grants a full one, on the server as in the browser
    (`scripts/testCrossPlayerLocalExploit.ts` 13/13). Not played in the browser yet.
+   ✅ And at v0.373.0 the server serves every machine a network generates. Probed on the
+   live stack first, on five kinds of generated machine: a `guest` session was handed a
+   root-only file through the journal and was refused a served tree altogether
+   (`host_unreachable`), `root` included. So a shell or an `ftp>` prompt on a generated
+   machine of another network, which the browser already asked the server for, showed an
+   empty tree. `resolveCrossPlayerFs` now finds the box from the network on the caller's
+   own session row and prunes it to the session's tier. A caller whose row there has ended
+   is served the externally-observable list, which carries the boot marker, so a shell a
+   reboot threw off the access point's gateway is told on its next line
+   (`scripts/testNetworkBoxServed.ts` 24/24). This is the server half of slice 5; the
+   browser still rebuilds a generated machine on its own network from the journal.
    **Pick up here (2026-10-12):** the served-boxes epic (`plans/served-boxes.md`), which
    closes the same leak on the machines a network generates. Its audit of every client
    reader and server response is done ([handbook 14](./handbook/14-tier-read-audit.md)): 85
-   client sites and 44 responses, seven defects, five of them fixed. Slice 5, generated
-   machines served by the server, is next. After the epic, the items still open in
+   client sites and 44 responses, seven defects, five of them fixed. The client half of
+   slice 5 is next: the browser reads the served tree on every machine that is not the
+   player's own, and `listPatches` answers only an owner. After the epic, the items still open in
    `backlog.md`, all found by reading: a deep box's own address behind a switch that denies the web port, a data
    door over `localhost`, a field that spoofs the columns after it within its own line,
    a leaver's own sessions across the network, and a box joined to two networks at

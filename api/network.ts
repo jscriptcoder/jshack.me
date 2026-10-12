@@ -568,14 +568,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   if (actionOf(req.body) === 'resolveCrossPlayerFs') {
-    // Cross-player READ: the caller (B) holds an active session on ANOTHER identity's
-    // (A's) machine and fetches A's filtered FS. Whose box it is comes from occupancy —
+    // The read of a box the caller cannot rebuild: the server builds it, prunes it to what
+    // the caller may read and sends the tree. Whose workstation it is comes from occupancy,
     // which doubles as the reachability test, since a row there means "this machine is
     // on that WiFi". One player on N APs has N rows with the SAME workstation_machine_id
     // (identity-derived) + identical identity fields, so `.limit(1)` picks any. The
-    // selected columns are exactly OccupantWorkstation. An AP GATEWAY has no occupancy
-    // row at all — it belongs to the access point, not to a player — so the handler
-    // identifies it from the caller's own session instead.
+    // selected columns are exactly OccupantWorkstation. A box the network makes (its
+    // gateway, a machine it generates) has no occupancy row at all, so the handler finds
+    // it from the network on the caller's own session row instead.
     const findOccupantWorkstationByMachineId = async (machineId: string) => {
       const { data, error } = await supabase
         .from('home_network_occupants')
@@ -584,22 +584,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         .limit(1)
         .maybeSingle();
       if (error) console.error('[network] occupant reverse-lookup error:', error);
-      const occupant = data as {
-        owner_key: string;
-        workstation_username: string;
-        workstation_root_hash: string;
-      } | null;
-      return {
-        data:
-          occupant === null ? null : ({ kind: 'workstation', ...occupant } as OccupantWorkstation),
-        error,
-      };
+      return { data: data as OccupantWorkstation | null, error };
     };
     // The caller's active (un-ended) session on the target — the SERVER source of the
     // read tier, scoped to the verified player_key the handler supplies. The row's
-    // `essid` comes along because it is what identifies an AP GATEWAY: a gateway has no
-    // occupancy row, and holding a session on one means you logged into it, so the
-    // session records which access point it is. Null on rows predating the column.
+    // `essid` comes along because it is what finds a box the network makes: such a box
+    // has no occupancy row, and holding a session on one means you got in, so the
+    // session records which network it is on. Null on rows predating the column.
     const findActiveSession = async ({
       player_key,
       machine_id,
@@ -629,10 +620,32 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         error,
       };
     };
+    // The network on the caller's newest row on the target, open or ended. The handler
+    // asks only when no row is open on a box the network makes: a session a reboot closed
+    // still says where its box was, which is what lets the shell left behind read the
+    // boot marker and learn it was thrown off.
+    const findLastSessionEssid = async ({
+      player_key,
+      machine_id,
+    }: {
+      player_key: string;
+      machine_id: string;
+    }) => {
+      const { data, error } = await supabase
+        .from('sessions')
+        .select('essid')
+        .eq('player_key', player_key)
+        .eq('machine_id', machine_id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) console.error('[network] last-session lookup error:', error);
+      return { data: (data as { essid: string | null } | null)?.essid ?? null, error };
+    };
     // The machine's patch rows on the target (the shared journal — every writer's
     // rows, scoped to machine_id), with the SERVER updated_at + writer_key so the
     // handler replays them chronologically over the regenerated baseline to
-    // materialize A's real box.
+    // materialize the real box.
     const findPatches = async ({ machine_id }: { machine_id: string }) => {
       const { data, error } = await supabase
         .from('patches')
@@ -647,6 +660,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       nonceStore: noopNonceStore,
       findOccupantWorkstationByMachineId,
       findActiveSession,
+      findLastSessionEssid,
       findPatches,
     });
     res.status(status).json(body);

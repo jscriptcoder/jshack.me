@@ -24,7 +24,9 @@ rebuilt in the browser from the ESSID plus that raw journal, so a `guest` sessio
 files only `root` may read, a wallet key written on that box included. That contradicts the rule
 "prune before the response leaves the server". The fix is to serve those boxes too and leave
 `listPatches` to the owner alone; it moves `su` on them to the server, so it is an epic, not a
-patch.
+patch. The server half is in (v0.373.0): `resolveCrossPlayerFs` serves a generated machine pruned
+to the session's tier, and `scripts/testNetworkBoxServed.ts` holds that. The browser still
+rebuilds those boxes from the journal, so the rows still leave until it stops asking for them.
 
 [Chapter 14](./14-tier-read-audit.md) lists every client reader and server response that reaches
 past a session's tier, with a verdict on each. It found two more defects of the same family: a
@@ -121,7 +123,6 @@ The code is correct in every case below; the text needs updating.
 | `src/adapters/patchApi.ts`                                           | `machineId` is "the player's own workstation"; `is_new` decides delete-versus-tombstone (removal is always a tombstone)                                                                             |
 | `src/core/patches/appendMachineLog.ts`                               | `writerKey` is "the acting player" (usually the owner or network key)                                                                                                                               |
 | `src/core/patches/recordFtpTransfer.ts`, `recordPackageDowngrade.ts` | refer to `resolveProvenance` (it is `resolveTraceProvenance`)                                                                                                                                       |
-| `src/core/network/resolveCrossPlayerFs.ts`                           | replay "scoped to `owner_key`" (machine-scoped, every writer)                                                                                                                                       |
 | `src/ui/sessionRehydrate.ts`                                         | groups `nc` with parallel sessions (it pushes a hop)                                                                                                                                                |
 | `src/adapters/crossTabSync.ts`                                       | implies same-workstation hints (the sender broadcasts any active machine)                                                                                                                           |
 | `src/adapters/networkApi.ts`                                         | two stacked doc comments above `resolveSameLan`                                                                                                                                                     |
