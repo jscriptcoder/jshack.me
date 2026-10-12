@@ -734,6 +734,46 @@ describe('curl against the player own address', () => {
     ]);
   });
 
+  it('serves the box’s own page at localhost beside a neighbour who named their box localhost', async () => {
+    // A machine name may be anything. Loopback stays the box the shell stands on, and
+    // nobody is asked who is here to find that out.
+    const lookups: string[] = [];
+    const asked: OccupantFetchParams[] = [];
+    const env = mockCommandEnv({
+      identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
+      network: mockNetworkViewFromConnectivity(onlineConnectivity(ESSID)),
+      fs: mockFsViewFromTree(ownBox(WEB_SERVER_RUNNING, publishedPage('<h1>mine</h1>')), {
+        userType: 'user',
+        cwd: () => asAbsPath('/'),
+      }),
+      scan: mockScanApi({
+        resolveOccupants: async (essid) => {
+          lookups.push(essid);
+          return [
+            {
+              workstation_machine_id: 'workstation-c3d4e5f6',
+              localIp: lanAddressFor(ESSID, 250),
+              machineName: 'localhost',
+            },
+          ];
+        },
+      }),
+      remote: {
+        ...mockRemoteApi(),
+        fetchOccupant: async (params) => {
+          asked.push(params);
+          return { ok: true, content: '<h1>theirs</h1>', server: 'nginx' };
+        },
+      },
+    });
+
+    const { text } = await drain(await curl.execute(env, ['http://localhost'], new Map()));
+
+    expect(text).toBe('<h1>mine</h1>');
+    expect(asked).toEqual([]);
+    expect(lookups).toEqual([]);
+  });
+
   it('serves the SAME live tree over loopback that the LAN address serves', async () => {
     // Not a second route to a regenerated box: a page edited with `nano` has to be
     // what loopback returns, or the two names would disagree about one machine.
