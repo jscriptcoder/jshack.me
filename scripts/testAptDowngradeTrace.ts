@@ -419,6 +419,21 @@ check(
   both === null ? '(no dpkg.log row)' : `${both.content.trimEnd().split('\n').length} line(s)`,
 );
 
+// === 8b. A name cannot carry a line of its own ======================================
+// The package name is the visitor's own words, written into the owner's evidence. A line
+// break in it must not end the line and start another the visitor wrote whole.
+const FORGED = '2026-08-14 13:50:00 downgrade nginx 1.2 1.1 Client "10.0.0.5"';
+const forging = await downgrade({ package_name: `${PACKAGE}\n${FORGED}` });
+const forgedRow = await logRow(A_WS);
+const forgedLines = forgedRow === null ? [] : forgedRow.content.trimEnd().split('\n');
+check(
+  '13b. a name carrying a line break stays on its one line, adding none of its own',
+  forging.status === 200 &&
+    forgedLines.length === 3 &&
+    (forgedLines.at(-1) ?? '').includes(`downgrade ${PACKAGE}\\n${FORGED} ${FROM_VERSION}`),
+  `status ${forging.status}; ${forgedLines.length} line(s); ${forgedLines.at(-1) ?? '(no line)'}`,
+);
+
 // === 9. The grant dies with the session ===========================================
 await sr.from('sessions').delete().eq('player_key', attacker.publicKeyHex);
 const afterQuit = await downgrade();

@@ -33,7 +33,7 @@ import { formatLoginLines, type SweepLog } from '../services/serviceCatalog.js';
 import { LOOPBACK_IPV4 } from '../network/interfaces.js';
 import { derivePid } from '../logging/syslog.js';
 import {
-  appendMachineLog,
+  appendMachineLogLines,
   type MachineLogReadQuery,
   type MachineLogReadResult,
 } from '../patches/appendMachineLog.js';
@@ -146,7 +146,7 @@ const logSameLanAuth = async (
     pid: derivePid(stamp),
   });
   try {
-    await appendMachineLog(
+    await appendMachineLogLines(
       { readLog: deps.readAuthLog, upsertPatch: deps.upsertPatch },
       {
         writerKey: target.ownerKey,

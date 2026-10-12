@@ -322,6 +322,10 @@ shipped attack loop into an attacker/defender loop.
   `(machine_id, path, writer_key)`, append `${line}\n`, upsert `node_type:'file'`. A failed READ bails
   without writing (never clobbers). **Best-effort throughout**: a logging read/write failure never
   breaks — or fabricates — the underlying scan / auth (each handler wraps the call in try/catch).
+  **A line is held to one line here**: most of it is what the caller sent (a path, an account, a
+  package name), so a line break inside it is written out as `\n` / `\r` rather than left to start a
+  line the caller wrote whole. A trace of several lines goes through `appendMachineLogLines` with
+  its lines apart, never already joined.
 - **Source IP is server-derived, never the client `source_ip`.** Forging / framing another network is
   impossible by construction; a client-supplied `source_ip` is ignored. It is the attacker's
   **operating-machine** IP — the box their shell stands on. The original cross-player handlers mapped

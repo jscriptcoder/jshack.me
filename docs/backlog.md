@@ -62,13 +62,22 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   `scripts/testOwnBoxLogin.ts` carries the five checks. Not played in the browser yet. One
   neighbour found on the way is the next item.
 
-- **A trace's free-text fields can carry a line of their own, on another player's box. By
-  reading, not reproduced.** `recordFtpTransfer` takes `path` as any non-empty string and
-  `recordPackageDowngrade` takes the package name and both versions the same way, and each is
-  written into the line as sent. A request signed outside the game, by a caller holding a
-  session on the box, could put a line break in one and append whole lines to the owner's
-  `vsftpd.log` or `dpkg.log`, under the owner's key. The own-box shapes refuse it: an address
-  must be one, and the own-box transfer's path may not break the line. Found 2026-10-10.
+- **A trace's free-text fields could carry a line of their own, on another player's box —
+  RESOLVED 2026-10-12 (v0.366.0).** Found by reading on 2026-10-10 as two handlers:
+  `recordFtpTransfer` took `path` as any non-empty string and `recordPackageDowngrade` took
+  the package name and both versions the same way. Proved first on the live stack, and wider
+  than recorded: every trace writes what the caller sent, and a fetch `path` reaches another
+  player's `access.log` with no session at all (`scripts/testOccupantFetch.ts` added two
+  lines for one request). The fix is at the one place every trace lands,
+  `appendMachineLog`: a line break inside a line is written out as `\n` or `\r`, so the line
+  stays one line and the attempt is itself on record. Traces of several lines (a login's
+  arrival and attempt, a sweep, a hydra run) now hand their lines over apart through
+  `appendMachineLogLines` rather than joined, so the only breaks written are the ones between
+  them. The two own-box appenders (`appendAuthLog`, `appendKernLog`) write a player's own log
+  and are unchanged. Checks 13b in `testFtpCrossPlayer.ts` and `testAptDowngradeTrace.ts`, and
+  8b in `testOccupantFetch.ts`. Not played in the browser yet. Still open, by reading: a field
+  can spoof the columns that follow it WITHIN its own line (a path ending `", 0 bytes`), though
+  the columns the server stamped are still there to contradict it.
 
 - **The data doors resolved `localhost` to the gateway on a deep hop — RESOLVED 2026-10-10
   (v0.349.0).** Proved first on the live stack (`scripts/testHopDataDoors.ts`): `redis-cli

@@ -164,7 +164,7 @@ const lineFor = (
         hostname: payload.hostname,
         time,
         pid,
-      }),
+      }).join('\n'),
     };
   }
   if (payload.kind === 'ftpTransfer') {

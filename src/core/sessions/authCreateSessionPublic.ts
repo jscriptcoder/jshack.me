@@ -43,7 +43,7 @@ import {
   type FindPublicIpByEssid,
 } from '../logging/crossPlayerSourceIp.js';
 import {
-  appendMachineLog,
+  appendMachineLogLines,
   type MachineLogReadQuery,
   type MachineLogReadResult,
 } from '../patches/appendMachineLog.js';
@@ -135,11 +135,12 @@ const logCrossPlayerAuth = async (
   };
   // A daemon that records arrivals separately writes both in one append: they are one
   // event to the box, and two appends would be two read-modify-writes racing.
-  const line = [attempt.sweepLog.formatArrival?.(record), attempt.sweepLog.formatAttempt(record)]
-    .filter((entry) => entry !== undefined)
-    .join('\n');
+  const lines = [
+    attempt.sweepLog.formatArrival?.(record),
+    attempt.sweepLog.formatAttempt(record),
+  ].filter((entry) => entry !== undefined);
   try {
-    await appendMachineLog(
+    await appendMachineLogLines(
       { readLog: deps.readAuthLog, upsertPatch: deps.upsertPatch },
       {
         writerKey,
@@ -148,7 +149,7 @@ const logCrossPlayerAuth = async (
         owner: attempt.sweepLog.owner,
         permissions: attempt.sweepLog.permissions,
       },
-      line,
+      lines,
     );
   } catch {
     // best-effort: the auth result stands regardless of a logging failure.

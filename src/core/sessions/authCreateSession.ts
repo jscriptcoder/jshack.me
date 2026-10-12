@@ -43,7 +43,7 @@ import type { Directory } from '../filesystem/types.js';
 import { derivePid } from '../logging/syslog.js';
 import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
 import {
-  appendMachineLog,
+  appendMachineLogLines,
   type MachineLogReadQuery,
   type MachineLogReadResult,
 } from '../patches/appendMachineLog.js';
@@ -184,9 +184,9 @@ const logLoginAttempt = async (
     time: asGameTime(stamp),
     pid: derivePid(stamp),
   };
-  const line = formatLoginLines(attempt.sweepLog, record);
+  const lines = formatLoginLines(attempt.sweepLog, record);
   try {
-    await appendMachineLog(
+    await appendMachineLogLines(
       { readLog: deps.readAuthLog, upsertPatch: deps.upsertPatch },
       {
         writerKey: apGatewayLogWriterKey(attempt.essid),
@@ -195,7 +195,7 @@ const logLoginAttempt = async (
         owner: attempt.sweepLog.owner,
         permissions: attempt.sweepLog.permissions,
       },
-      line,
+      lines,
     );
   } catch {
     // best-effort: the auth result stands regardless of a logging failure.

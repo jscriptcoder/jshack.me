@@ -343,6 +343,22 @@ describe('handleRecordFtpTransfer', () => {
       expect(upsertPatch.mock.calls[0]![0].writer_key).not.toBe(id.publicKeyHex);
     });
 
+    it('keeps a path carrying a line break on its one line, so it adds no line of its own', async () => {
+      const id = generateIdentity();
+      const forged = 'Fri Aug 14 13:50:00 2026 [pid 7] [root] OK LOGIN: Client "10.0.0.5"';
+      const envelope = signRequest(id, 'recordFtpTransfer', {
+        ...transfer,
+        path: `/etc/passwd\n${forged}`,
+      });
+      const { deps, upsertPatch } = onTheirBox();
+
+      await handleRecordFtpTransfer(envelope, deps);
+
+      expect(upsertPatch.mock.calls[0]![0].content).toBe(
+        `Fri Aug 14 13:56:02 2026 [pid ${derivePid(STAMP)}] [guest] OK DOWNLOAD: Client "${ACTOR_HOME_IP}", "/etc/passwd\\n${forged}", 1243 bytes\n`,
+      );
+    });
+
     it('names the address the SERVER resolves for the visitor, not the one they sent', async () => {
       const id = generateIdentity();
       const envelope = signRequest(id, 'recordFtpTransfer', { ...transfer, source_ip: '10.0.0.9' });

@@ -371,6 +371,34 @@ check(
   afterDrop === null ? 'no row' : afterDrop.content.split('\n').slice(-2).join(' | '),
 );
 
+// --- 13b. The path is the visitor's own words, written into A's evidence. A line break
+//     in it must not end the line and start another the visitor wrote whole. ---
+const FORGED = 'Fri Aug 14 13:50:00 2026 [pid 7] [root] OK LOGIN: Client "10.0.0.5"';
+const lineCount = (content: string): number => content.trimEnd().split('\n').length;
+const forging = await post(
+  PATCHES,
+  signRequest(visitor, 'recordFtpTransfer', {
+    direction: 'download',
+    machine_id: A_WS,
+    path: `${TAKEN}\n${FORGED}`,
+    bytes: TAKEN_BYTES,
+    source_ip: null,
+    caller_machine_id: B_WS,
+  }),
+);
+const afterForging = await vsftpdLog();
+check(
+  '13b. a path carrying a line break stays on its one line, adding none of its own',
+  forging.status === 200 &&
+    afterDrop !== null &&
+    afterForging !== null &&
+    lineCount(afterForging.content) === lineCount(afterDrop.content) + 1 &&
+    latestLine(afterForging.content).includes(`"${TAKEN}\\n${FORGED}", ${TAKEN_BYTES}`),
+  afterForging === null || afterDrop === null
+    ? 'no row'
+    : `status ${forging.status}; ${lineCount(afterForging.content) - lineCount(afterDrop.content)} line(s) added; ${latestLine(afterForging.content)}`,
+);
+
 // --- 14. Standing somewhere you hold no session is refused, not traced. ---
 const framed = await post(
   PATCHES,

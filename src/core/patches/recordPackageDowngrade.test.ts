@@ -334,6 +334,25 @@ describe('handleRecordPackageDowngrade', () => {
       expect(upsertPatch.mock.calls[0]![0].writer_key).not.toBe(id.publicKeyHex);
     });
 
+    it.each(['package_name', 'from_version', 'to_version'] as const)(
+      'keeps a %s carrying a line break on its one line, so it adds no line of its own',
+      async (field) => {
+        const id = generateIdentity();
+        const forged = '2026-08-14 13:50:00 downgrade nginx 1.2 1.1 Client "10.0.0.5"';
+        const envelope = signRequest(id, 'recordPackageDowngrade', {
+          ...downgrade,
+          [field]: `${downgrade[field]}\n${forged}`,
+        });
+        const { deps, upsertPatch } = onTheirBox();
+
+        await handleRecordPackageDowngrade(envelope, deps);
+
+        const content = upsertPatch.mock.calls[0]![0].content;
+        expect(content).toContain(`${downgrade[field]}\\n${forged}`);
+        expect(content?.split('\n')).toEqual([expect.stringContaining('downgrade redis'), '']);
+      },
+    );
+
     it('names the address the SERVER resolves for the visitor, not the one they sent', async () => {
       const id = generateIdentity();
       const envelope = signRequest(id, 'recordPackageDowngrade', {
