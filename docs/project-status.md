@@ -761,8 +761,10 @@ agreed order:
    client asks for no journal there (`scripts/testJournalRefusedToVisitors.ts` 11/11).
    Not played in the browser yet.
    **Pick up here (2026-10-12):** the served-boxes epic (`plans/served-boxes.md`), which
-   closes the same leak on the machines a network generates: slice 2, the audit of every
-   client reader and server response, is next. After it, the items still open in
+   closes the same leak on the machines a network generates. Its audit of every client
+   reader and server response is done ([handbook 14](./handbook/14-tier-read-audit.md)): 85
+   client sites and 44 responses, six defects, three of them new. Slice 3, `su` answered by
+   the server on every box that is not the player's, is next. After the epic, the items still open in
    `backlog.md`, all found by reading: a deep box's own address behind a switch that denies the web port, a data
    door over `localhost`, a field that spoofs the columns after it within its own line,
    a leaver's own sessions across the network, and a box joined to two networks at

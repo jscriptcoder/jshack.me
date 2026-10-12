@@ -33,6 +33,7 @@ v0.278.0 (2026-09-27). When the handbook and the code disagree, the code is righ
 | [11. Testing and quality](./11-testing-and-quality.md)                     | Writing any test, running mutation testing, or preparing a pull request.                                       |
 | [12. Build, deploy and operate](./12-build-deploy-operate.md)              | Deploying, rolling back, changing the cloud schema, or debugging "works locally, not in production".           |
 | [13. Known issues](./13-known-issues.md)                                   | Planning maintenance work. Risks, open questions, doc and comment drift.                                       |
+| [14. What reaches past a session's tier](./14-tier-read-audit.md)          | Changing how a machine's files are read, or adding a server response. The audit of both.                       |
 | [Glossary](./glossary.md)                                                  | Meeting an unfamiliar term.                                                                                    |
 
 ## I want to…

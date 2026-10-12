@@ -1,8 +1,8 @@
 # Plan: every box that isn't yours is served
 
 **Status**: Grilled and sliced. Decisions confirmed by the owner 2026-10-12. Slice 1 shipped at
-v0.369.0; slice 2 is next. Where another doc disagrees with this file, this file
-wins until the close-out moves its content into `docs/`.
+v0.369.0 and slice 2, the audit, is done; slice 3 is next. Where another doc disagrees with this
+file, this file wins until the close-out moves its content into `docs/`.
 
 ## Goal
 
@@ -71,10 +71,11 @@ Measured or read in the code on this date. Anything marked "by reading" was not 
 - **The generators ship in the client bundle.** `nmap`, `ssh` and the scans rebuild machines the
   player holds no session on, so any client can compute a generated machine's seeded content
   from the ESSID.
-- **The server has 39 actions over four endpoints** (`network` 12, `patches` 9, `sessions` 17,
-  `wallet` 1). Besides `listPatches`, the responses found carrying file content are the served
-  tree, the web fetches, and what an exploit reveals at the tier it grants. Not every response
-  body has been read.
+- **The server has 44 actions over four endpoints** (`network` 13, `patches` 10, `sessions` 18,
+  `wallet` 3). The first count of 39 left out each endpoint's fallthrough action and two of the
+  wallet's requests. Besides `listPatches`, the responses carrying file content are the served
+  tree, the web fetches, and what an exploit reveals at the tier it grants. Every body has now
+  been read (slice 2).
 
 ## Decisions (owner-confirmed 2026-10-12)
 
@@ -157,8 +158,10 @@ Forced by the above; none of these was a separate choice.
 
 One PR per slice, each cut from `main` after the one before it merges. A behaviour-changing
 slice starts from a failing test; its acceptance criteria are confirmed with the owner before
-any code. Slices 3 and 4 must merge before slice 5: once generated machines are served, `su`
-has to be on the server already, and the switch scan needs the externally-observable list.
+any code. **Order: 3, 4, 6, then 5, then 7, then the close-out.** Slices 3, 4 and 6 must merge
+before slice 5: once generated machines are served, `su` and a local exploit have to be on the
+server already, and the reach of a deep layer needs the externally-observable list. The numbers
+are kept as first written, so 6 runs before 5.
 
 Reading note for whoever does the audit and the `su` work: read the session, exploit and scan
 code directly, and give any helper agent only a narrow fact to check.
@@ -196,7 +199,18 @@ two client guards and the question they ask killed by hand (four mutants) agains
 `ui/state.test.ts`. The backlog and handbook entries now describe what is left, which is the
 generated machines.
 
-### Slice 2: the audit (docs only)
+### Slice 2: the audit (docs only) ✅
+
+**As built**: `docs/handbook/14-tier-read-audit.md`. 85 client call sites in 39 files and 44
+response bodies, each with a verdict. Done by reading; nothing was run. Six defects: three were
+known (`listPatches` on generated machines, slice 5; `su` in the browser, slice 3; the switch's
+`acl.conf`, slice 4, which turned out to be seven call sites and not `nmap` alone) and three are
+new (`suElevate` reads the workstation as generated and cannot resolve the access point's
+gateway, folded into slice 3; a local exploit on a generated machine runs in the browser, slice
+6; `chmod` and the owner's tier, slice 7). The server side is otherwise clean: no other body
+carries a file above the caller's tier. Found on the way and not scheduled: a LAN web fetch reads
+the seeded tree and never the journal, so a page changed on a generated box is stale to a reader
+on its LAN.
 
 **Value**: the owner can see every place a response or a client reader reaches past a session's
 tier, and which of them are defects.
@@ -223,6 +237,17 @@ so their writes are judged at it and the shell survives a refresh.
 caller's session row → a session row at the new tier.
 **Measure first**: confirm on the live stack that a local `su` on a generated machine leaves no
 row and that a root-only write after it is refused. The plan records this by reading only.
+**Added by the audit, both by reading and both to measure first**:
+
+- `suElevate` builds the workstation from its identity and replays no journal, so it checks the
+  password the box was generated with. `ssh` reads the replayed `/etc/passwd`. After an exploit
+  resets a password, `ssh` should accept the new one and `su` refuse it.
+- `suElevate` resolves only a player's workstation, and the client sends `su` on the access
+  point's gateway to the server, so `su` there should answer `host_unreachable`.
+
+Both go away if the handler resolves the machine from the caller's session row and reads the box
+as it is, which is what a generated machine needs anyway. `enforceRemoteWriteL2` already resolves
+all three kinds of box that way (`resolveTargetBaseFs`).
 **First failing test**: a caller holding a `guest` session on a generated machine elevates to
 `root` with the box's password and gets a row at `root`.
 **Wire-check**: the script that covers `suElevate` today, extended to a generated machine.
@@ -231,6 +256,9 @@ row and that a root-only write after it is refused. The plan records this by rea
 
 **Value**: a lower-tier shell on a router or switch is served the files its own machinery reads,
 so a scan from it shows what the box really filters.
+**Covers** (from the audit): the seven call sites that read `acl.conf` off the shell's tree
+(`nmap`, `ssh`, `scp`, `ftp`, `nc`, `ping` and the web tools' `webHost.ts`), and a web fetch of
+`localhost` by a shell whose tier cannot read a page somebody narrowed.
 **Path**: `resolveCrossPlayerFs`, the active-session branch: the tier's view together with the
 externally-observable view of the same tree.
 **First failing test**: a `guest` session on a gateway is served `rules.v4`, with the file's own
@@ -256,9 +284,52 @@ on a generated machine served to `root` and pruned for `guest`); `testFtpRemoteR
 half is safe to merge alone, since nothing calls it for a generated machine until the client
 half lands.
 
-### Slice 6 onward: one fix per audit defect
+### Slice 6: a local exploit on a box that isn't yours is answered by the server
 
-Planned when slice 2 lists them.
+Runs before slice 5.
+
+**Value**: a player who fires `msfconsole --local` on a generated machine or on the access
+point's gateway gets the effect from the server, at the tier the vulnerability grants, and a
+shell it lands is a session row.
+**Why**: today the client runs the whole thing on a generated machine. It reads the tree at the
+granted tier, which is above the session's (ten call sites in `commands/msfconsole.ts`), and that
+only works because the browser holds the raw journal. On a pruned tree a read effect would find
+nothing. On the access point's gateway the client already asks the server, and
+`exploitLocalElevate` resolves only a player's workstation.
+**Path**: `msfconsole --local` → `exploitLocalElevate` on `api/sessions`, resolving the machine
+from the network on the caller's session row → the effect at the granted tier, traces under the
+box's own writer key.
+**Measure first**: on the live stack, a local exploit that lands a shell on a generated machine
+leaves no session row, and one fired on the access point's gateway answers `host_unreachable`.
+Both by reading.
+**First failing test**: a caller holding a `guest` session on a generated machine fires a local
+exploit that grants a shell and gets a session row at the granted tier.
+**Wire-check**: the script that covers `exploitLocalElevate` today, extended to a generated
+machine and to the access point's gateway.
+
+### Slice 7: `chmod` and the owner's tier
+
+**Value**: `chmod u+w` on a box that is not the player's changes the tier it names.
+**Why**: `chmod` reads `/etc/passwd` to turn the `u` in a mode into the tier of the node's
+owner. Only `root` and `user` can read that file, so a `guest` session on a served box has none
+and every owner reads as `guest`.
+**Rule** (owner, 2026-10-12): when the session's tier cannot read `/etc/passwd`, a mode that
+names `u` is refused. `g`, `o`, `a` and a mode with no who work as they do today, so a `guest`
+still names tiers with the other letters. No new server action. Rejected: the server applying
+the mode (a new action for one letter), and leaving it documented. A rule built on "the session
+owns the file" does not hold, since an exploit shell can carry the name `root` at `guest` tier.
+**To settle with the slice's criteria**: whether the refusal follows the tier everywhere (a
+`guest` on the player's own workstation too, one rule) or only where the tree has no such file.
+The first is the single rule; the second keeps today's behaviour at home.
+**Path**: `chmod` → the read of `/etc/passwd` for the owner's tier, client only. An owner with no
+account row on a box whose file the tier can read stays an other, as today.
+**First failing test**: a `guest` session on a served box runs `chmod u+w` on a file it may
+write and is refused, and `chmod o+w` on the same file goes through.
+**Wire-check**: none, nothing under `api/` changes.
+
+### Further slices
+
+None. The audit found no other defect.
 
 ### Last slice: close-out
 
