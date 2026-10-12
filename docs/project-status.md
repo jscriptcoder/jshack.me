@@ -732,14 +732,21 @@ agreed order:
    is logged from `127.0.0.1` in the owner's log (`scripts/testOccupantFetch.ts` 13/13,
    `scripts/testOccupantSweep.ts` 12/12). ✅ And at v0.364.0 a neighbour who names their
    box `localhost` no longer takes loopback traffic: the name step hands a loopback name
-   back as typed (client only). Neither is played in the browser yet. ✅ And at v0.365.0
+   back as typed (client only). ✅ And at v0.365.0
    the arm of `recordLanFetch` that traced a shell on another player's workstation,
    which no client reached after v0.363.0, is gone (`scripts/testLanFetchLog.ts`).
    ✅ And at v0.366.0 no trace can be made to carry a line of its own: a line break in
    anything the caller sent is written out as text by `appendMachineLog`, where every
    trace lands. Proved live first, on a fetch path that needs no session
    (`scripts/testOccupantFetch.ts` 14/14, `testFtpCrossPlayer.ts` 19/19,
-   `testAptDowngradeTrace.ts` 17/17). Not played in the browser yet.
+   `testAptDowngradeTrace.ts` 17/17). ✅ All four were played in the browser on
+   2026-10-12 (v0.366.0), two players on BUY-N-LARGE, the owner's box named `localhost`:
+   the visitor's own `localhost` stayed their own, a guest shell on the owner's box
+   fetched and swept `localhost` and got what the box serves, and the owner's logs hold
+   one line per request, login, transfer and sweep attempt (44 in `access.log`, 79 from
+   one `hydra` run). No defect in the four. Two things seen on the way are in
+   `backlog.md`: `ping` gets no reply on loopback, and the ftp banner names a fixed
+   release.
    **Pick up here (2026-10-12):** the items still open in `backlog.md`, all found by
    reading: a deep box's own address behind a switch that denies the web port, a data
    door over `localhost`, a shell on a box whose owner left, and a field that spoofs

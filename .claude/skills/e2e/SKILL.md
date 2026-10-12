@@ -444,6 +444,35 @@ until it showed (34 scans), `nmap -sV <A>` listed A's three born services, `hydr
 | `ssh: connect to host … Network error` partway through a long run | The `npm run vercel:dev` background task hit the harness's default 30-minute limit and was killed. Start it with the maximum background `timeout` (7200000) for any two-player run; a restart reloads every open page, which reboots both players and drops what was typed |
 | Catching the boot screen's lines | They are gone once the terminal takes over. Poll `get text body` every second for `Reached target Multi-User` and grep `Started` in the same call |
 
+### Two players on one network, without waiting for the injector
+
+Verified 2026-10-12 (v0.366.0): A and B met on BUY-N-LARGE after 7 and 5 scans, no luck
+involved. A scan's base draw is `generateWifi({ seedPubkeyHex, scanIndex })`, fixed per player
+and per scan, and the first `airodump-ng` is scan 1. Mint both players, read each key
+(`JSON.parse(localStorage.getItem('jshack.identity')).publicKeyHex`), and compute offline the
+network both will be shown soonest:
+
+```ts
+import { generateWifi } from './src/core/generation/generateWifi.js';
+const firstSeen = (key: string) => {
+  const seen = new Map<string, { index: number; password: string }>();
+  for (let scanIndex = 1; scanIndex <= 60; scanIndex++)
+    for (const network of generateWifi({ seedPubkeyHex: key, scanIndex }))
+      if (network.crackable && !seen.has(network.essid))
+        seen.set(network.essid, { index: scanIndex, password: network.password ?? '' });
+  return seen;
+};
+// keep the ESSIDs both maps hold, sort by alice.index + bob.index, take the first
+```
+
+| Trap | What actually works |
+|---|---|
+| `nmcli connect <ESSID>` → `network "<ESSID>" not found` after scanning past it | `nmcli` reads the LATEST scan only. Each player runs `airodump-ng` exactly the number of times the script gave, then connects |
+| An ESSID like `r0/t0/n72` in the output | That is a drawn network's key, not its name (§3, "a box on a deep layer"). Take a row whose ESSID reads as a name, or map it with `essidOf(key)` |
+| The owner's `cat /var/log/access.log` is EMPTY after a visitor's requests | A command on your own box asks the server nothing, so lines another player caused show only after the owner's next action that writes (a `curl localhost` did it). Check the row first: `select content from patches where machine_id = '<name>-<id>' and path = '/var/log/access.log'` |
+| A guest's `ls /etc` on a player's box prints nothing, and ftp `get` answers `550` | The tree a guest is served is pruned to its tier. `/var/log/*` is what a guest can read and `get` there |
+| The prompt wait (§2) returns `prompt` and the tail shows no output | A command that answers in under a second can land AFTER the wait saw the old prompt quiet. Sleep 3 s and read the tail again before calling it empty |
+
 ### Two terminals of ONE player (`xterm`)
 
 Verified 2026-10-07 (v0.324.0) checking that a WiFi change in one tab reaches the other.

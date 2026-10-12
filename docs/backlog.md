@@ -75,7 +75,12 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   `appendMachineLogLines` rather than joined, so the only breaks written are the ones between
   them. The two own-box appenders (`appendAuthLog`, `appendKernLog`) write a player's own log
   and are unchanged. Checks 13b in `testFtpCrossPlayer.ts` and `testAptDowngradeTrace.ts`, and
-  8b in `testOccupantFetch.ts`. Not played in the browser yet. Still open, by reading: a field
+  8b in `testOccupantFetch.ts`. ✅ Played in the browser 2026-10-12: the traces of several
+  lines still land a line each on another player's box (a 40-path sweep, an ftp arrival and
+  login, a 79-attempt `hydra` run), and an ftp `get` is itemised on its one line. The game
+  never sends a line break, so the escape itself is the wire-checks' to prove. The run also
+  showed the ftp client greets with `220 (vsFTPd 3.0.3)` whatever release the box runs (it had
+  4.1.2); the banner is a constant in `core/commands/ftp.ts`. Still open, by reading: a field
   can spoof the columns that follow it WITHIN its own line (a path ending `", 0 bytes`), though
   the columns the server stamped are still there to contradict it.
 
@@ -189,8 +194,18 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   box; `nmap`, `ping` and `msfconsole` at home took the same step. `addressForTarget` now
   hands a loopback name back as typed and asks nobody, which covers every command that
   calls it and saves each `curl localhost` an occupant round trip. The neighbour's box
-  still answers to its full name, `localhost.<zone>.lan`. Client only. Not played in the
-  browser.
+  still answers to its full name, `localhost.<zone>.lan`. Client only. ✅ Played in the
+  browser 2026-10-12 (v0.366.0): with a neighbour named `localhost` on BUY-N-LARGE, `curl
+  localhost` and `gobuster http://localhost` answered from the player's own box, and `curl
+  localhost.buy-n-large.lan` fetched the neighbour's page. One thing the run showed is the
+  next item.
+
+- **`ping localhost` and `ping 127.0.0.1` get no reply on your own box. Seen in the browser
+  2026-10-12, not a regression.** Both answer `4 packets transmitted, 0 received`, while the
+  box's own LAN address replies. `ping` has no loopback step: it takes the shared name step
+  and then looks for a neighbour at that address. Before v0.364.0 a neighbour named
+  `localhost` would have answered instead. Whether `ping` should answer on loopback is the
+  owner's call; no other command depends on it.
 
 - **In a visitor's shell on a player's box, `localhost` served less than the box does —
   RESOLVED 2026-10-12 (v0.363.0).** Seen in the browser 2026-10-11. The owner had published
@@ -209,7 +224,10 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   `127.0.0.1` in the owner's log. The owner at home, and a shell on a box the network
   generates, still read the tree they hold. `scripts/testOccupantFetch.ts` (13/13) and
   `scripts/testOccupantSweep.ts` (12/12) carry the loopback checks, with the page readable
-  by root alone and the shell a guest's. Not played in the browser yet. One thing it left
+  by root alone and the shell a guest's. ✅ Played in the browser 2026-10-12 (v0.366.0): from
+  a guest shell on the owner's box, `curl localhost` and `curl localhost/status` served the
+  pages she published as root, `gobuster http://localhost` found 2 of 40, and her
+  `access.log` holds those 42 requests from `127.0.0.1`, one line each. One thing it left
   behind is the next item.
 
 - **`recordLanFetch` answered for a shell on another player's workstation, and no client
@@ -220,7 +238,9 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   v0.352.0, was reached only by a request signed outside the game, where it wrote a
   second line for a visit the serving action had already recorded. It is gone: the trace
   takes a player's workstation only when it is the caller's own. Checks 10 and 11 of
-  `scripts/testLanFetchLog.ts` now hold that such a request leaves no line.
+  `scripts/testLanFetchLog.ts` now hold that such a request leaves no line. ✅ Played in the
+  browser 2026-10-12 (v0.366.0): 44 requests against the owner's box, from the WiFi and from
+  a shell on it, left exactly 44 lines in her `access.log`.
 
 - **A shell on a player's box whose owner has left the network: `curl localhost` there would
   leave no line. By reading, not reproduced.** The box is found by the lease its owner holds on
