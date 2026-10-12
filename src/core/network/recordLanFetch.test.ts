@@ -1166,56 +1166,24 @@ describe('handleRecordLanFetch — a caller in a shell on another player’s wor
   const fromOwnerBox = (visitor: ReturnType<typeof generateIdentity>, target: string) =>
     envelope(visitor, { target, port: 80, paths: ['/'] }, { caller_machine_id: OWNER_WS });
 
-  it('records a loopback fetch on that workstation as a local visit, in its owner’s log', async () => {
-    const owner = generateIdentity();
-    const visitor = generateIdentity();
-    const { deps, upsertPatch } = shellOnOwnerBox(owner);
-
-    await handleRecordLanFetch(await fromOwnerBox(visitor, '127.0.0.1'), deps);
-
-    const row = writtenLog(upsertPatch);
-    expect(row.machine_id).toBe(OWNER_WS);
-    expect(row.writer_key).toBe(owner.publicKeyHex);
-    expect(row.content).toMatch(/^127\.0\.0\.1 - - \[/);
-  });
-
-  it('records a fetch of that workstation by its own LAN address, as coming from that address', async () => {
-    const owner = generateIdentity();
-    const visitor = generateIdentity();
-    const { deps, upsertPatch } = shellOnOwnerBox(owner);
-
-    await handleRecordLanFetch(await fromOwnerBox(visitor, OWNER_IP), deps);
-
-    const served = materializeWorkstationFs(resident(owner, OWNER_WS, OWNER_OCTET).occupant, [
-      nginxUp(owner),
-    ]);
-    const page = createFsView(served, { userType: 'root' }).read(resolveWebPath('/')!);
-    const row = writtenLog(upsertPatch);
-    expect(row.machine_id).toBe(OWNER_WS);
-    expect(row.writer_key).toBe(owner.publicKeyHex);
-    expect(row.content).toBe(
-      `${formatAccessLogLine({
-        time: asGameTime(FIXED_NOW),
-        sourceIp: OWNER_IP,
-        path: '/',
-        status: 200,
-        size: page.ok ? page.content.length : -1,
-      })}\n`,
-    );
-  });
-
-  it('lands on the workstation the shell stands on when the visitor lives on the network too', async () => {
+  // The server serves that box to the shell, by loopback and by its address both, and
+  // records the visit as it does. A trace reported from there would be a second line for
+  // one request. The visitor lives on the network too, so a line filed on the wrong
+  // workstation would be written rather than quietly dropped.
+  it.each([
+    ['loopback', '127.0.0.1'],
+    ['its own LAN address', OWNER_IP],
+  ])('leaves no line for a fetch of that workstation by %s', async (_named, target) => {
     const owner = generateIdentity();
     const visitor = generateIdentity();
     const { deps, upsertPatch } = shellOnOwnerBox(owner, [
       resident(visitor, 'the-visitors-own-workstation', VISITOR_OCTET),
     ]);
 
-    await handleRecordLanFetch(await fromOwnerBox(visitor, '127.0.0.1'), deps);
+    const result = await handleRecordLanFetch(await fromOwnerBox(visitor, target), deps);
 
-    const row = writtenLog(upsertPatch);
-    expect(row.machine_id).toBe(OWNER_WS);
-    expect(row.writer_key).toBe(owner.publicKeyHex);
+    expect(result).toEqual({ status: 200, body: { ok: true } });
+    expect(upsertPatch).not.toHaveBeenCalled();
   });
 
   it('leaves no line on a third player’s workstation, which the shell does not stand on', async () => {

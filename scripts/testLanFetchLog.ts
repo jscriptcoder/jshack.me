@@ -22,9 +22,9 @@
 //   - `curl localhost` in a shell on a box on a DEEP layer lands on that box, as a local
 //     visit, and a switch in front of the layer denying the web port does not stop it:
 //     the request never leaves the box to cross the switch.
-//   - `curl localhost`, or the box's own LAN address, in a shell on ANOTHER player's
-//     workstation lands on that workstation, in its owner's log — the visitor writes no
-//     row of their own there.
+//   - A trace reported from a shell on ANOTHER player's workstation, by loopback or by
+//     the box's own LAN address, leaves no line: the server serves that box and records
+//     the visit itself (`testOccupantFetch.ts`, `testOccupantSweep.ts`).
 //
 // Usage (with v2 supabase + vercel dev running on 3100):
 //   npx dotenv -e .env.development.local -- npx tsx scripts/testLanFetchLog.ts
@@ -385,9 +385,11 @@ try {
   await cleanDeep();
 }
 
-// === 10. `curl localhost` in a shell on ANOTHER player's workstation lands on that box. ===
-// The visitor lives nowhere; what puts them on the network is the shell they hold on the
-// player's workstation, seeded as their `ssh` login would leave it.
+// === 10. A trace from a shell on ANOTHER player's workstation leaves no line there. ===
+// The server serves that box to the shell and records the visit as it does, so this
+// action is never the one asked. The visitor lives nowhere; what puts them on the network
+// is the shell they hold on the player's workstation, seeded as their `ssh` login would
+// leave it.
 const visitor = generateIdentity();
 const VISITOR_SHELL = 'fetch-log-visitor-shell';
 await sr.from('sessions').delete().eq('session_id', VISITOR_SHELL);
@@ -417,10 +419,8 @@ try {
   const r10 = await post(PATCHES, await fetchedByVisitor('127.0.0.1'));
   const own10 = await readAccessLog(WS, player.publicKeyHex);
   check(
-    '`curl localhost` in a shell on another player’s workstation records a local visit there, in the owner’s log',
-    r10.status === 200 &&
-      lineCount(own10) === before10 + 1 &&
-      lastLine(own10).startsWith('127.0.0.1 - - ['),
+    'a loopback trace from a shell on another player’s workstation leaves no line in the owner’s log',
+    r10.status === 200 && lineCount(own10) === before10,
     `status=${r10.status} before=${before10} after=${lineCount(own10)} line=${lastLine(own10)}`,
   );
 
@@ -428,14 +428,12 @@ try {
   const r11 = await post(PATCHES, await fetchedByVisitor(PLAYER_LAN));
   const own11 = await readAccessLog(WS, player.publicKeyHex);
   check(
-    'fetching that workstation by its own LAN address from the shell on it records there too',
-    r11.status === 200 &&
-      lineCount(own11) === before10 + 2 &&
-      lastLine(own11).startsWith(`${PLAYER_LAN} - - [`),
+    'a trace of that workstation by its own LAN address from the shell on it leaves no line either',
+    r11.status === 200 && lineCount(own11) === before10,
     `status=${r11.status} after=${lineCount(own11)} line=${lastLine(own11)}`,
   );
   check(
-    'the visitor’s fetches wrote no row of their own on that box',
+    'the visitor’s requests wrote no row of their own on that box',
     (await readAccessLog(WS, visitor.publicKeyHex)) === '',
     `visitorRow=${JSON.stringify(await readAccessLog(WS, visitor.publicKeyHex))}`,
   );
