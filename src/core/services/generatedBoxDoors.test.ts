@@ -38,8 +38,8 @@ import { readOpenPorts, readRunningProcesses } from './pidfile.js';
  *
  * So these tests stand where the player stands. The tree is regenerated from the
  * ESSID, the commands are the real ones, and each step's patch is REPLAYED onto
- * the tree the next step reads — which is exactly what `resolveActiveRoot` does
- * for a session on a remote box. Nothing here writes a pidfile or a binary by
+ * the tree the next step reads — which is exactly what the server does when it
+ * serves the box to a session standing on it. Nothing here writes a pidfile or a binary by
  * hand; if the generator stopped planting one, these tests stop passing.
  */
 

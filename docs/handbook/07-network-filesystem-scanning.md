@@ -154,10 +154,10 @@ base tree (generated from ESSID / public key / position)
   → consumers: readOpenPorts, readRulesV4, createFsView, the read filter…
 ```
 
-The client does this for machines it can derive itself (`resolveActiveRoot` in
-`src/ui/activeRoot.ts`). Another player's workstation is different: its base is derived from their
-identity, and what you may see depends on your session there, so the **server** materializes it and
-sends a pruned tree (`resolveCrossPlayerFs`):
+The client does this for one machine, your own workstation (`activeRoot` in `src/ui/state.ts`).
+Every other box is different: what you may see of it depends on your session there, and its
+journal holds every writer's rows at any permission, so the **server** materializes it and sends
+a pruned tree (`resolveCrossPlayerFs`):
 
 | Caller                         | What they receive                                                                                                        |
 | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------ |

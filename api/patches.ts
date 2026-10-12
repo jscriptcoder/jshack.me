@@ -38,15 +38,15 @@ import type { UserType } from '../src/core/types.js';
 //
 // Three signed actions share this endpoint, routed on the (unverified) payload
 // `action` — each handler re-verifies the envelope itself, so routing on the
-// raw action is safe. All three share the L1 gate (`authorizeMachineAccess` via
+// raw action is safe. The two writes share the L1 gate (`authorizeMachineAccess` via
 // `findActiveSession`): the caller's OWN workstation (suffix match) OR an active
 // ssh session on the target machine; else 403 no_session.
 //   - upsertPatch: L1-gated write (server-stamped writer_key) + L2 on remote
 //     writes (tier-based perms, regenerated host FS via `listMachinePatches`)
-//   - listPatches: L1-gated read of the shared journal (reload-durability, and
-//     the read-back of a remote ssh write) — machine-scoped and raw, so a visitor
-//     gets it only for a machine their session's network generates; another
-//     player's workstation and the AP gateway are read through the served tree
+//   - listPatches: the read of the shared journal (reload-durability), for the
+//     owner of a workstation alone. The rows are machine-scoped and raw, so every
+//     other box is read through the served tree and a caller asking for its rows
+//     gets 403 permission_denied whatever session they hold
 //   - removePatch: L1-gated delete + L2 (unlinking needs write perm) — clears the
 //     caller's row + descendants, then tombstones the path (tombstone-always)
 //
@@ -273,7 +273,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     };
     const { status, body } = await handleListPatches(req.body, {
       nonceStore: noopNonceStore,
-      findActiveSession,
       listPatches,
     });
     res.status(status).json(body);

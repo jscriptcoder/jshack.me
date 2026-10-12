@@ -1,21 +1,18 @@
 import { describe, expect, it, vi } from 'vitest';
 import { handleListPatches, type ListPatchesDeps, type PersistedPatchRow } from './listPatches.js';
-import type { ActiveSessionQuery, FindActiveSessionResult } from './authorizeMachineAccess.js';
 import { signRequest } from '../signedRequest/sign.js';
 import { generateIdentity } from '../identity/identity.js';
 import { computeWorkstationId } from '../identity/workstation.js';
 import { computeApGatewayId } from '../identity/router.js';
 import { generateHomeLan } from '../generation/generateHomeLan.js';
 import { hostMachineId } from '../generation/remoteHostId.js';
-import type { UserType } from '../types.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 const freshStore: NonceStore = async () => ({ fresh: true });
 
 const ESSID = 'BEAN-THERE-WIFI';
 
-/** A machine the network generates: the one kind of box a visitor's client rebuilds for
- *  itself, and so the one kind whose journal it has to be handed. */
+/** A machine the network generates, which no player owns. */
 const generatedHostOn = (essid: string): string => {
   const host = generateHomeLan(essid)
     .hosts.filter((candidate) => candidate.kind === 'machine')
@@ -23,13 +20,6 @@ const generatedHostOn = (essid: string): string => {
   if (host === undefined) throw new Error('no machine host on LAN');
   return hostMachineId(host, essid);
 };
-
-const sessionOn =
-  (essid: string, userType: UserType = 'guest') =>
-  async (): Promise<FindActiveSessionResult> => ({
-    data: { username: 'someone', userType, essid },
-    error: null,
-  });
 
 const sampleRow = (over: Partial<PersistedPatchRow> = {}): PersistedPatchRow => ({
   writer_key: 'a'.repeat(64),
@@ -49,13 +39,8 @@ const makeDeps = (over: Partial<ListPatchesDeps> = {}) => {
     data: [sampleRow()],
     error: null,
   }));
-  // Default: no active session on the queried machine; foreign-machine reads
-  // override to simulate an ssh hop being present.
-  const findActiveSession = vi.fn<(query: ActiveSessionQuery) => Promise<FindActiveSessionResult>>(
-    async () => ({ data: null, error: null }),
-  );
-  const deps: ListPatchesDeps = { nonceStore: freshStore, listPatches, findActiveSession, ...over };
-  return { deps, listPatches, findActiveSession };
+  const deps: ListPatchesDeps = { nonceStore: freshStore, listPatches, ...over };
+  return { deps, listPatches };
 };
 
 describe('handleListPatches', () => {
@@ -128,94 +113,20 @@ describe('handleListPatches', () => {
     expect(result).toEqual({ status: 200, body: { ok: true, patches: [] } });
   });
 
-  it('rejects a read for a foreign machine when the caller has no active session there (403 no_session)', async () => {
-    const id = generateIdentity();
+  it.each([
+    ['another player’s workstation', computeWorkstationId('skylab', 'c'.repeat(64))],
+    ['the access point’s own gateway', computeApGatewayId(ESSID)],
+    ['a machine the network generates', generatedHostOn(ESSID)],
+  ])('refuses the journal of %s to a caller who does not own it', async (_box, machine) => {
+    const visitor = generateIdentity();
     const { deps, listPatches } = makeDeps();
-    const envelope = signRequest(id, 'listPatches', {
-      machine_id: 'darkstar-12345678',
-    });
+    const envelope = signRequest(visitor, 'listPatches', { machine_id: machine });
 
     const result = await handleListPatches(envelope, deps);
 
-    expect(result).toEqual({ status: 403, body: { error: 'no_session' } });
-    expect(listPatches).not.toHaveBeenCalled();
-  });
-
-  it('returns the journal of a machine the session’s network generates', async () => {
-    const id = generateIdentity();
-    const generated = generatedHostOn(ESSID);
-    const rows = [
-      sampleRow({ writer_key: id.publicKeyHex, machine_id: generated, path: '/tmp/pwned' }),
-    ];
-    const { deps } = makeDeps({
-      listPatches: async () => ({ data: rows, error: null }),
-      findActiveSession: sessionOn(ESSID),
-    });
-    const envelope = signRequest(id, 'listPatches', { machine_id: generated });
-
-    const result = await handleListPatches(envelope, deps);
-
-    expect(result).toEqual({ status: 200, body: { ok: true, patches: rows } });
-  });
-
-  it('refuses the journal of another player’s workstation to a visitor holding a session on it', async () => {
-    const visitor = generateIdentity();
-    const workstation = computeWorkstationId('skylab', generateIdentity().publicKeyHex);
-    const { deps, listPatches } = makeDeps({ findActiveSession: sessionOn(ESSID, 'root') });
-    const envelope = signRequest(visitor, 'listPatches', { machine_id: workstation });
-
-    const result = await handleListPatches(envelope, deps);
-
+    // The rows are raw, so they go to the one caller entitled to all of them. Everybody
+    // else reads the box as the tree the server prunes, and gets one answer here.
     expect(result).toEqual({ status: 403, body: { error: 'permission_denied' } });
-    expect(listPatches).not.toHaveBeenCalled();
-  });
-
-  it('refuses the journal of the access point’s own gateway, which belongs to no player', async () => {
-    const visitor = generateIdentity();
-    const { deps, listPatches } = makeDeps({ findActiveSession: sessionOn(ESSID, 'root') });
-    const envelope = signRequest(visitor, 'listPatches', {
-      machine_id: computeApGatewayId(ESSID),
-    });
-
-    const result = await handleListPatches(envelope, deps);
-
-    expect(result).toEqual({ status: 403, body: { error: 'permission_denied' } });
-    expect(listPatches).not.toHaveBeenCalled();
-  });
-
-  it('refuses a generated machine of a network other than the one the session was opened on', async () => {
-    const visitor = generateIdentity();
-    const { deps, listPatches } = makeDeps({ findActiveSession: sessionOn('SOME-OTHER-WIFI') });
-    const envelope = signRequest(visitor, 'listPatches', { machine_id: generatedHostOn(ESSID) });
-
-    const result = await handleListPatches(envelope, deps);
-
-    expect(result).toEqual({ status: 403, body: { error: 'permission_denied' } });
-    expect(listPatches).not.toHaveBeenCalled();
-  });
-
-  it('does not consult the sessions table for an own-workstation read (L1 bypass)', async () => {
-    const id = generateIdentity();
-    const machine = computeWorkstationId('skylab', id.publicKeyHex);
-    const { deps, findActiveSession } = makeDeps();
-    const envelope = signRequest(id, 'listPatches', { machine_id: machine });
-
-    const result = await handleListPatches(envelope, deps);
-
-    expect(result.status).toBe(200);
-    expect(findActiveSession).not.toHaveBeenCalled();
-  });
-
-  it('returns 500 when the active-session lookup fails (not a false 403)', async () => {
-    const id = generateIdentity();
-    const { deps, listPatches } = makeDeps({
-      findActiveSession: async () => ({ data: null, error: { message: 'db down' } }),
-    });
-    const envelope = signRequest(id, 'listPatches', { machine_id: 'darkstar-12345678' });
-
-    const result = await handleListPatches(envelope, deps);
-
-    expect(result).toEqual({ status: 500, body: { error: 'session_lookup_failed' } });
     expect(listPatches).not.toHaveBeenCalled();
   });
 

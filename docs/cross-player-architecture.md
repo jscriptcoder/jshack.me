@@ -245,17 +245,11 @@ stringifies to `{}` without it).
 
 ## 6. Client integration
 
-- The terminal renders a cross-player hop from the **server-served tree** (`servedRoot` in
-  `ui/state.ts`), not the local journal — B can't rebuild A's box locally. Own-box / local-LAN
-  hops use the local journal; `refreshServedRoot()` re-pulls after a write so B sees its own
-  change, and clears to null (never B's own files) off a cross-player hop.
-- **The own router renders from the local journal, not a served tree (Story 5.1.3a):**
-  `resolveActiveRoot`/`baseFsFor` (`ui/activeRoot.ts`) has an own-router branch — when the active
-  session is on `computeRouterId(ownKey)` it picks `buildRouterBaseFs(ownKey)` and replays the
-  router journal locally — and `isCrossPlayerWorkstation` excludes the own router (`isOwnRouter`),
-  so it is NOT misread as a cross-player hop (which would fetch a tier-filtered served tree). A
-  `nano rules.v4` edit therefore reflects immediately off the journal A wrote (`rebindPatchClient`
-  points the patch client's `machineId` at the router).
+- The terminal renders every hop from the **server-served tree** (`servedRoot` in
+  `ui/state.ts`), not a local journal: another player's box, an access point's gateway and,
+  since v0.374.0, every machine a network generates. Only the player's own workstation is
+  rebuilt locally and uses the local journal. `refreshServedRoot()` re-pulls after a write so B
+  sees its own change, and clears to null (never B's own files) on the own box.
 - **The command pipeline is serial** (`runInput` → `commandChain` in `ui/state.ts`): one
   command runs at a time; a second submit queues behind the first and runs only after it
   fully completes, including its async server refresh. Do **not** reintroduce concurrent

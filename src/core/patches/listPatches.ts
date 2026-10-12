@@ -1,19 +1,16 @@
 /**
  * handleListPatches — the pure listPatches endpoint logic (no Vercel, no
- * Supabase). Serves a machine's patch journal to a client that replays it over a
- * base filesystem it built itself, on boot and after writes (reload-durability).
+ * Supabase). Serves a workstation's patch journal to its owner, who replays it over
+ * the base filesystem their own client builds, on boot and after writes
+ * (reload-durability).
  *
- * L1-gated, same as the write path: the caller may read a machine's journal
- * when it is their OWN workstation (suffix match) OR they hold an active
- * session there — otherwise 403 `no_session`.
- *
- * A session is not enough on its own. The rows are raw: nothing prunes them to a
- * tier, so they go only to a client that has to rebuild the box — the owner, and a
- * visitor on a machine their session's network generates. Another player's
- * workstation and the access point's own gateway are served as a tree pruned to the
- * session's tier (`resolveCrossPlayerFs`), and a visitor asking for their journal is
- * refused with 403 `permission_denied`: it would hand them every file that pruning
- * removes.
+ * The owner and nobody else. The rows are raw: every writer's, at any permission, with
+ * nothing pruning them to a tier. So they go to the one caller entitled to all of them,
+ * which is the player whose workstation it is (server-side suffix match on the verified
+ * key). Every other box is read as the tree `resolveCrossPlayerFs` builds and prunes,
+ * and a caller asking for the rows behind one gets a single answer, 403
+ * `permission_denied`, whatever session they hold there. No session is looked up,
+ * because none would change it.
  *
  * The query is scoped to the MACHINE (the shared journal), not to a writer, so
  * every writer's rows on that machine come back; the handler sorts them into
@@ -23,8 +20,7 @@
 import { z } from 'zod';
 import { verifySignedRequest } from '../signedRequest/verify.js';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
-import { authorizeMachineAccess, type FindActiveSession } from './authorizeMachineAccess.js';
-import { generatedBaseFsForMachineId } from '../generation/lanHostIdentity.js';
+import { isOwnWorkstation } from '../identity/workstation.js';
 import { orderPatchesForReplay } from './orderPatchesForReplay.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 import type { PatchRow } from './upsertPatch.js';
@@ -41,7 +37,6 @@ export type ListPatchesQuery = {
 
 export type ListPatchesDeps = {
   readonly nonceStore: NonceStore;
-  readonly findActiveSession: FindActiveSession;
   readonly listPatches: (
     query: ListPatchesQuery,
   ) => Promise<{ readonly data: readonly PersistedPatchRow[] | null; readonly error: unknown }>;
@@ -69,20 +64,7 @@ export const handleListPatches = async (
   }
 
   const { publicKey, payload } = verified;
-  const access = await authorizeMachineAccess(
-    publicKey,
-    payload.machine_id,
-    deps.findActiveSession,
-  );
-  if (!access.ok) {
-    return { status: access.status, body: { error: access.error } };
-  }
-  // The network is the one the session was opened on, read off its row: a caller
-  // naming the network themselves could claim whichever one generates the id.
-  if (
-    access.session !== null &&
-    generatedBaseFsForMachineId(access.session.essid, payload.machine_id) === null
-  ) {
+  if (!isOwnWorkstation(payload.machine_id, publicKey)) {
     return { status: 403, body: { error: 'permission_denied' } };
   }
 

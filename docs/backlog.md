@@ -261,8 +261,9 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   the checks (13/13). Not played in the browser yet. Three things found on the way are the
   next three items.
 
-- **`listPatches` handed a `guest` session the box's whole journal — CLOSED on served boxes
-  2026-10-12 (v0.369.0), still open on generated machines.** The same probe logged in as
+- **`listPatches` handed a `guest` session the box's whole journal — CLOSED 2026-10-12
+  (v0.369.0 on a player's workstation and the gateway, v0.374.0 on generated machines).**
+  The same probe logged in as
   `guest` on another player's workstation and read a root-only `/root/secret.txt` off the
   `listPatches` answer, which was gated on holding any session and filtered by no tier. The
   served tree (`resolveCrossPlayerFs`) prunes that file; the raw rows did not. The wallet key
@@ -275,11 +276,12 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   journal on such a box, since it never replayed one there.
   `scripts/testJournalRefusedToVisitors.ts` carries the checks (11/11; 5 of them fail against
   the handler before the change, one being the root-only file's text in the answer). Not
-  played in the browser yet. **What is left:** a machine the network generates
-  (a LAN host, an inner gateway, a switch, a deep box) is still rebuilt by the client from
-  the ESSID plus its raw journal, so a `guest` there still receives every row written on it,
-  a wallet key included. Closing that means the server serves those boxes as it serves a
-  workstation, which is the served-boxes epic in flight.
+  played in the browser yet. A machine the network generates (a LAN host, an inner gateway, a
+  switch, a deep box) was still rebuilt by the client from the ESSID plus its raw journal, so
+  a `guest` there received every row written on it. Since v0.374.0 the server serves those
+  boxes as it serves a workstation, the client reads the served tree on every machine that is
+  not the player's own, and `listPatches` answers only the owner of a workstation
+  (`scripts/testNetworkBoxServed.ts` 24/24, `scripts/testJournalRefusedToVisitors.ts` 12/12).
 
 - **A player who leaves a WiFi keeps the sessions they opened across it. By reading, not
   reproduced.** The disconnect closes other players' rows on the leaver's box and nothing of

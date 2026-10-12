@@ -18,7 +18,7 @@
  * line through `runCommandLine`, and mirrors the resulting lines back.
  */
 
-import { createSignal, untrack } from 'solid-js';
+import { createSignal } from 'solid-js';
 import {
   asAbsPath,
   asEpochMs,
@@ -97,8 +97,7 @@ import { canBoot, type BootReport } from '../core/boot/bootFiles.js';
 import { runFirstBoot } from '../core/boot/firstBoot.js';
 import { readBootId } from '../core/boot/bootId.js';
 import { readRunningProcesses } from '../core/services/pidfile.js';
-import { isCrossPlayerHop, needsFreshTree, resolveActiveRoot } from './activeRoot.js';
-import { isCrossPlayerWorkstation } from '../core/network/crossPlayerHop.js';
+import { needsFreshTree } from './activeRoot.js';
 import { createFsView } from '../core/filesystem/fsView.js';
 import { resolveAbsPath } from '../core/filesystem/path.js';
 import {
@@ -257,20 +256,21 @@ export const effectShown = (name: EffectName): boolean =>
 const [input, setInput] = createSignal('');
 const [cwd, setCwd] = createSignal<AbsPath>(asAbsPath('/'));
 const [patches, setPatches] = createSignal<readonly Patch[]>([]);
-// The SERVER-served filesystem of ANOTHER player's box, fetched for a cross-player
-// ssh hop (Story 2): B can't regenerate A's box (D1), so its tree comes from the
-// server already pruned to B's tier. Tagged with the machine it belongs to so
-// `activeRoot` only serves it for the matching active session; null on the own box.
+// The SERVER-served filesystem of a box that is not the player's own workstation:
+// another player's, an access point's gateway, a machine a network generates. The
+// journal behind such a box is every writer's rows at any permission, so its tree
+// comes from the server already pruned to the session's tier. Tagged with the machine
+// it belongs to so `activeRoot` only serves it for the matching active session; null
+// on the own box.
 const [servedRoot, setServedRoot] = createSignal<{
   readonly machineId: string;
   readonly tree: Directory;
 } | null>(null);
 
-// Placeholder root for a cross-player hop whose served tree is still in flight — an
-// empty, world-traversable directory. Showing this (rather than falling through to
-// `resolveActiveRoot`, which would pick OUR own box) guarantees a cross-player hop
-// never flashes the attacker's own filesystem.
-const CROSS_PLAYER_LOADING_ROOT: Directory = {
+// Placeholder root for a hop whose served tree is still in flight — an empty,
+// world-traversable directory. Showing this, and never the player's OWN box, guarantees
+// a hop does not flash the filesystem of the machine it left.
+const SERVED_LOADING_ROOT: Directory = {
   kind: 'directory',
   owner: 'root',
   perms: { read: ['root', 'user', 'guest'], write: ['root'], execute: ['root', 'user', 'guest'] },
@@ -530,10 +530,6 @@ const wireless = (): WirelessInterface | null => {
   return wlan0 !== undefined && wlan0.kind === 'wireless' ? wlan0 : null;
 };
 
-/** The ESSID of the currently-associated wlan0, or null when not on a network.
- *  Lets the FS dispatch regenerate the LAN a remote ssh session lives on. */
-const currentEssid = (): string | null => wireless()?.association?.essid ?? null;
-
 /** The player's own workstation id — the base (bottom) session's machine, stable
  *  across `su`/`ssh` hops. The FS dispatch compares the active session against it
  *  to decide own-tree vs remote-tree. */
@@ -544,27 +540,29 @@ const ownWorkstationId = (): string => {
   return base.machineId;
 };
 
-/** The filesystem tree the ACTIVE session operates on: own workstation, or the
- *  generated tree of the remote host an ssh hop landed on — in both cases with
- *  the active machine's journal (`patches()`, which follows the active session)
- *  replayed over the base, so own AND remote writes are visible. */
+/** Whether `machineId` is read as a tree the server builds and prunes to the tier the
+ *  session holds: every machine but the player's own workstation. The one box this
+ *  client rebuilds is the one whose journal it is entitled to, and that is its own.
+ *  A served box has no journal here: the rows behind it are raw, the server refuses
+ *  them to everybody but an owner, and nothing on this side would replay them. */
+const isServedBox = (machineId: string): boolean =>
+  !isOwnWorkstation(machineId, requireIdentity().publicKeyHex);
+
+/** The player's own workstation with `journal` replayed over it. */
+const ownRoot = (journal: readonly Patch[]): Directory =>
+  applyPatches(seedFs(requireConfig(), requireIdentity()), journal);
+
+/** The filesystem tree the ACTIVE session operates on: the player's own workstation,
+ *  rebuilt here with its journal (`patches()`) replayed, or the tree the server
+ *  served for the box a hop landed on. Until that tree arrives a hop shows an empty
+ *  root, never the player's own box. */
 const activeRoot = (): Directory => {
   const session = requireSession();
+  if (!isServedBox(session.machineId)) return ownRoot(patches());
   const served = servedRoot();
-  if (served !== null && served.machineId === session.machineId) return served.tree;
-  // A cross-player hop is SERVER-served; until its tree arrives show an empty root,
-  // never our own box (which is what `resolveActiveRoot` would otherwise fall to).
-  if (isCrossPlayerHop(session, currentEssid(), requireIdentity().publicKeyHex)) {
-    return CROSS_PLAYER_LOADING_ROOT;
-  }
-  return resolveActiveRoot({
-    session,
-    ownWorkstationId: ownWorkstationId(),
-    publicKeyHex: requireIdentity().publicKeyHex,
-    essid: currentEssid(),
-    ownBaseFs: seedFs(requireConfig(), requireIdentity()),
-    patches: patches(),
-  });
+  return served !== null && served.machineId === session.machineId
+    ? served.tree
+    : SERVED_LOADING_ROOT;
 };
 
 /**
@@ -601,59 +599,19 @@ const observeBootId = (session: Session): Session => {
   return stamped;
 };
 
-/** Whether `machineId` is a box this client cannot rebuild, and so reads as a tree the
- *  server materialized and pruned to the tier the session holds. Such a box has no
- *  journal here: the rows behind it are raw, the server refuses them to a visitor, and
- *  nothing on this side would replay them.
+/** The tree an ftp session addresses: the TARGET's, in the state it is actually in
+ *  rather than the state it was generated in. Held apart from `activeRoot` on purpose
+ *  — the shell and the ftp session are two machines at once, and one `root()` could
+ *  only ever be one of them.
  *
- *  Untracked because it is asked before a request goes out — from a write that has
- *  just landed, or another tab's hint — and never from a scope that should re-run
- *  when the network changes. */
-const hasNoJournalHere = (machineId: string): boolean =>
-  untrack(() =>
-    isCrossPlayerWorkstation({
-      machineId,
-      publicKeyHex: requireIdentity().publicKeyHex,
-      essid: currentEssid(),
-    }),
-  );
-
-/** Whether the box an ftp session is held on is another player's — the machine-level
- *  question `scpTargetTree` asks for the same reason, and deliberately NOT
- *  `isCrossPlayerHop`: that one also asks whether the session lands you in a SHELL,
- *  which an ftp session does not. It addresses a second machine from the prompt of the
- *  first, so the kind that opened it says nothing about which tree it reads. */
-const isCrossPlayerFtpTarget = (session: Session): boolean =>
-  isCrossPlayerWorkstation({
-    machineId: session.machineId,
-    publicKeyHex: requireIdentity().publicKeyHex,
-    essid: currentEssid(),
-  });
-
-/** The tree an ftp session addresses: the TARGET's, with the TARGET's journal
- *  replayed over it, so the box shows the state it is actually in rather than the
- *  state it was generated in. Held apart from `activeRoot` on purpose — the shell
- *  and the ftp session are two machines at once, and one `root()` could only ever
- *  be one of them.
- *
- *  Another player's box cannot be rebuilt here — we hold neither their seed nor their
- *  rows — so the server materializes it and this shows an EMPTY listing until it
- *  lands. Falling through to `resolveActiveRoot` instead would answer with the
- *  intruder's OWN base, which is a listing of the wrong box that looks like a listing
- *  of the right one. */
-const ftpRoot = (session: Session): Directory => {
-  const served = ftpServedRoot();
-  if (served !== null) return served;
-  if (isCrossPlayerFtpTarget(session)) return CROSS_PLAYER_LOADING_ROOT;
-  return resolveActiveRoot({
-    session,
-    ownWorkstationId: ownWorkstationId(),
-    publicKeyHex: requireIdentity().publicKeyHex,
-    essid: currentEssid(),
-    ownBaseFs: seedFs(requireConfig(), requireIdentity()),
-    patches: ftpPatches(),
-  });
-};
+ *  A door on the player's own box is rebuilt here with its journal replayed. Any other
+ *  target is materialized by the server, and this shows an EMPTY listing until that
+ *  lands. Answering with the player's OWN base instead would be a listing of the wrong
+ *  box that looks like a listing of the right one. */
+const ftpRoot = (session: Session): Directory =>
+  isServedBox(session.machineId)
+    ? (ftpServedRoot() ?? SERVED_LOADING_ROOT)
+    : ownRoot(ftpPatches());
 
 /** The address the player is reaching the remote box FROM — their own leased LAN
  *  address. Null off-network, which the server renders as `unknown` rather than
@@ -809,8 +767,7 @@ const rebootEvict = async (machineId: MachineId): Promise<RebootEvictResult> => 
   const result = await rebootServerMachine(sessionsClientDeps, machineId);
   if (result.ok) {
     const active = activeSession();
-    await (active !== undefined &&
-    isCrossPlayerHop(active, currentEssid(), requireIdentity().publicKeyHex)
+    await (active !== undefined && isServedBox(active.machineId)
       ? refreshServedRoot()
       : refetchPatches());
   }
@@ -1033,36 +990,23 @@ const writeToScpTarget = async (
  *  transfer looks once and is gone, so there is no signal, nothing to refetch, and
  *  nothing for a later write to invalidate.
  *
- *  A machine THIS box can generate — an NPC on the player's LAN, their own deep
- *  layer — is rebuilt here and its journal replayed over it, the same composition the
- *  ftp session's tree is built from. Another player's box cannot be: we hold neither
- *  their seed nor their rows, so the server materializes it and prunes it to the tier
- *  the credential bought before it crosses the wire. Getting that split wrong has one
- *  specific failure — the local resolver falls back to OUR OWN base — so a stranger's
- *  box that the server will not serve reads as unreachable rather than as ours. */
+ *  The player's own box is rebuilt here and its journal replayed over it, the same
+ *  composition the ftp session's tree is built from. Any other box is materialized by
+ *  the server and pruned to the tier the credential bought before it crosses the wire.
+ *  A box the server will not serve reads as unreachable rather than as ours. */
 const scpTargetTree = async (session: Session): Promise<Directory | null> => {
   const deps = networkClientDeps;
-  if (isCrossPlayerWorkstation({
-    machineId: session.machineId,
-    publicKeyHex: requireIdentity().publicKeyHex,
-    essid: currentEssid(),
-  })) {
+  if (isServedBox(session.machineId)) {
     return deps === undefined ? null : await resolveCrossPlayerFs(deps, session.machineId);
   }
-  const journal = await fetchOwnPatches({
-    identity: requireIdentity(),
-    machineId: session.machineId,
-    owner: session.username,
-    tier: session.userType,
-  });
-  return resolveActiveRoot({
-    session,
-    ownWorkstationId: ownWorkstationId(),
-    publicKeyHex: requireIdentity().publicKeyHex,
-    essid: currentEssid(),
-    ownBaseFs: seedFs(requireConfig(), requireIdentity()),
-    patches: journal,
-  });
+  return ownRoot(
+    await fetchOwnPatches({
+      identity: requireIdentity(),
+      machineId: session.machineId,
+      owner: session.username,
+      tier: session.userType,
+    }),
+  );
 };
 
 /** Read one file off the machine a transfer opened a session on (backs
@@ -1298,22 +1242,34 @@ export const connectedWireless = (): ConnectedWlan0 | null =>
  *  write back over the real file. */
 const refetchPatches = async (): Promise<void> => {
   const deps = patchClientDeps;
-  if (deps === undefined || hasNoJournalHere(deps.machineId)) return;
+  if (deps === undefined || isServedBox(deps.machineId)) return;
   const journal = await fetchOwnPatches(deps);
   if (patchClientDeps?.machineId !== deps.machineId) return;
   setPatches(journal);
 };
 
-/** Backs `env.fs.reload`: pull this machine's journal and hand back the tree it makes.
+/** Backs `env.fs.reload`: read this machine again and hand back the tree it is now. The
+ *  player's own box re-pulls its journal; any other box re-pulls the tree the server
+ *  serves.
  *
- *  The sibling above is fire-and-forget and takes `[]` for a failed read, which is
- *  right when nothing is about to be composed from the answer. This one is called by a
- *  daemon that IS about to write a whole file back, so a read that did not happen must
- *  leave the tree exactly as it was: treating an unreachable server as a box with no
- *  edits would hand that writer an empty datadir to overwrite the real one with. */
+ *  The siblings either side are fire-and-forget and take an empty answer for a failed
+ *  read, which is right when nothing is about to be composed from it. This one is
+ *  called by a writer that IS about to write a whole file back, so a read that did not
+ *  happen must leave the tree exactly as it was: treating an unreachable server as a
+ *  box with no edits would hand that writer an empty file to overwrite the real one
+ *  with. */
 const reloadActiveRoot = async (): Promise<Directory> => {
   const deps = patchClientDeps;
-  if (deps === undefined || hasNoJournalHere(deps.machineId)) return activeRoot();
+  if (deps === undefined) return activeRoot();
+  if (isServedBox(deps.machineId)) {
+    const tree =
+      networkClientDeps === undefined
+        ? null
+        : await resolveCrossPlayerFs(networkClientDeps, deps.machineId);
+    // Tagged with the machine it was read from, so it can only ever be shown there.
+    if (tree !== null) setServedRoot({ machineId: deps.machineId, tree });
+    return activeRoot();
+  }
   const result = await readOwnPatches(deps);
   if (result.ok && patchClientDeps?.machineId === deps.machineId) setPatches(result.patches);
   return activeRoot();
@@ -1335,8 +1291,8 @@ const refetchFtpPatches = async (session: Session): Promise<void> => {
   setFtpPatches(journal);
 };
 
-/** Pull the TARGET's server-materialized tree for an ftp session on another player's
- *  box, pruned to the tier the credential bought. A failure clears it, so the prompt
+/** Pull the TARGET's server-materialized tree for an ftp session on a box that is not
+ *  the player's own, pruned to the tier the credential bought. A failure clears it, so the prompt
  *  keeps showing an empty listing rather than the intruder's own files. Late answers
  *  are dropped on the same rule the journal uses. */
 const refreshFtpServedRoot = async (session: Session): Promise<void> => {
@@ -1348,12 +1304,12 @@ const refreshFtpServedRoot = async (session: Session): Promise<void> => {
 };
 
 /** Re-read the box an ftp session is held on, from whichever source its tree is built
- *  from: another player's box is SERVED whole, and anything this client can generate is
- *  rebuilt locally with its journal replayed. Branched rather than doubled — pulling
- *  both would pay a round trip for an answer that is thrown away, and refreshing only
- *  the other one leaves the prompt looking at a tree the box no longer has. */
+ *  from: the player's own box is rebuilt locally with its journal replayed, and any
+ *  other is SERVED whole. Branched rather than doubled — pulling both would pay a round
+ *  trip for an answer that is thrown away, and refreshing only the other one leaves the
+ *  prompt looking at a tree the box no longer has. */
 const refreshFtpTree = async (session: Session): Promise<void> =>
-  isCrossPlayerFtpTarget(session)
+  isServedBox(session.machineId)
     ? await refreshFtpServedRoot(session)
     : await refetchFtpPatches(session);
 
@@ -1376,7 +1332,7 @@ const rehydrateSessions = async (seed: Session): Promise<void> => {
   setReturnCwdStack(rebuilt.returnCwdStack);
   setCwd(rebuilt.activeCwd);
   // The rebuilt stack may land on a remote ssh hop — re-point the patch client at
-  // it so the remote host's journal (and writable tree) come back on refresh.
+  // it so the remote host's tree, and writes aimed at it, come back on refresh.
   rebindPatchClient();
 };
 
@@ -1390,10 +1346,10 @@ const wrapWithRefetch = (inner: PatchApi): PatchApi => {
       const result = await method(...args);
       if (result.ok) {
         await refetchPatches();
-        // A cross-player hop renders from the SERVER-served tree, not the local
-        // journal, so re-pull it after a successful write or the writer wouldn't see
-        // its own change until a hop/reload. Self-guards: a no-op clear (no network)
-        // on the own box / a local-LAN hop where the journal already drives the view.
+        // A hop renders from the SERVER-served tree, not a local journal, so re-pull
+        // it after a successful write or the writer wouldn't see its own change until
+        // the next line. Self-guards: a no-op clear (no network) on the own box,
+        // where the journal already drives the view.
         await refreshServedRoot();
         // Tell other tabs to re-pull — only after our own journal reflects the
         // server-persisted write, so a receiver's refetch sees the new truth.
@@ -1417,9 +1373,9 @@ const wrapWithRefetch = (inner: PatchApi): PatchApi => {
 /** Re-point the patch client at the ACTIVE session's machine, so writes/reads
  *  target wherever the player currently stands (own box, or a remote ssh host),
  *  and stamp new nodes with the active session's owner + tier. When the active
- *  MACHINE changes (an ssh hop, or the `exit` back), swap the journal: clear it
- *  and re-pull the new machine's patches so `patches()` — and thus `activeRoot`
- *  — reflects the host you're on. A same-machine change (`su` flips the tier but
+ *  MACHINE changes (an ssh hop, or the `exit` back), swap the tree: clear the
+ *  journal and pull whatever the new machine is read from, so `activeRoot` reflects
+ *  the host you're on. A same-machine change on the own box (`su` flips the tier but
  *  not the machine) keeps the journal in place, so it costs no refetch/flicker. */
 const rebindPatchClient = (): void => {
   if (identity === undefined) return;
@@ -1438,20 +1394,19 @@ const rebindPatchClient = (): void => {
 };
 
 /**
- * Pull whatever tree the now-active session reads from — the machine's journal, the
- * server-served copy of another player's box, or both — and only then record the
- * boot id it was carrying when the player walked in.
+ * Pull whatever tree the now-active session reads from — the own box's journal, or
+ * the server-served copy of any other box — and only then record the boot id it was
+ * carrying when the player walked in.
  *
- * The two fetches stay concurrent because they answer different readers and a hop
- * should not pay for them twice; the stamp waits for both because either one can be
- * the tree `activeRoot` ends up returning, and a marker read before its source has
- * landed reads as an absence.
+ * Each fetch guards itself, so only the one that applies to this machine goes out;
+ * the stamp waits for both because a marker read before its source has landed reads
+ * as an absence.
  */
 const acquireTree = async (entered: Session, machineChanged: boolean): Promise<void> => {
   await Promise.all([
     machineChanged ? refetchPatches() : Promise.resolve(),
-    // Fetch (or clear) the cross-player served tree for whatever machine we now stand
-    // on — a no-op fetch for the own box / a local-LAN hop (self-guarded).
+    // Fetch (or clear) the served tree for whatever machine we now stand on — a
+    // no-op fetch for the own box (self-guarded).
     refreshServedRoot(),
   ]);
   const standing = activeSession();
@@ -1461,12 +1416,12 @@ const acquireTree = async (entered: Session, machineChanged: boolean): Promise<v
   if (standing !== undefined && standing.id === entered.id) observeBootId(standing);
 };
 
-/** Fetch — or clear — the SERVER-served filesystem for the active session. For a
- *  cross-player ssh hop, B can't rebuild A's box locally, so the server returns it
- *  pre-filtered to B's tier (D1); for the own box or a local-LAN hop there's nothing
- *  to serve, so it clears to null. Fire-and-forget from `rebindPatchClient`; any
- *  failure clears to null and `activeRoot` shows an empty root, never B's own files.
- *  A late result is dropped if the player has since hopped to another machine. */
+/** Fetch — or clear — the SERVER-served filesystem for the active session. On any box
+ *  that is not the player's own the server returns the tree pre-filtered to the
+ *  session's tier; on the own box there is nothing to serve, so it clears to null.
+ *  Fire-and-forget from `rebindPatchClient`; any failure clears to null and
+ *  `activeRoot` shows an empty root, never the player's own files. A late result is
+ *  dropped if the player has since hopped to another machine. */
 const refreshServedRoot = async (): Promise<void> => {
   const active = activeSession();
   const deps = networkClientDeps;
@@ -1475,7 +1430,7 @@ const refreshServedRoot = async (): Promise<void> => {
     active === undefined ||
     deps === undefined ||
     id === undefined ||
-    !isCrossPlayerHop(active, currentEssid(), id.publicKeyHex)
+    !isServedBox(active.machineId)
   ) {
     setServedRoot(null);
     return;
@@ -1969,11 +1924,11 @@ const executeLine = async (line: string): Promise<void> => {
   // intruder who types nothing learns nothing.
   //
   // Re-pull whatever this box's tree is actually built from, which is not the same
-  // answer everywhere: a door on the player's own LAN rebuilds locally and reads
-  // the journal, while one across the network reads a SERVED tree the server
-  // materialized. Refreshing only the journal would leave an off-LAN intruder
-  // asking a stale copy whether their own door is still open, and being told yes
-  // for as long as they cared to keep typing.
+  // answer everywhere: a door on the player's own box rebuilds locally and reads
+  // the journal, while one on any other box reads a SERVED tree the server
+  // materialized. Refreshing only the journal would leave an intruder asking a
+  // stale copy whether their own door is still open, and being told yes for as long
+  // as they cared to keep typing.
   //
   // A reboot widened WHICH sessions have to ask. It ends every row on a box in one
   // stroke, including ones no screen is showing, so the marker it leaves behind is
@@ -1982,9 +1937,7 @@ const executeLine = async (line: string): Promise<void> => {
   // that rule; your own box still asks nothing, which is the claim that has always
   // been priced rather than described.
   if (needsFreshTree(currentSession, ownWorkstationId())) {
-    await (isCrossPlayerHop(currentSession, currentEssid(), requireIdentity().publicKeyHex)
-      ? refreshServedRoot()
-      : refetchPatches());
+    await (isServedBox(currentSession.machineId) ? refreshServedRoot() : refetchPatches());
   }
 
   // Now that the tree is the box's current one, record what it says the boot is —

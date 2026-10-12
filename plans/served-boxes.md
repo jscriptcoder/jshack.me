@@ -2,7 +2,7 @@
 
 **Status**: Grilled and sliced. Decisions confirmed by the owner 2026-10-12. Slice 1 shipped at
 v0.369.0, slice 2, the audit, is done, slice 3 shipped at v0.370.0, slice 4 at v0.371.0, slice 6
-at v0.372.0 and the server half of slice 5 at v0.373.0; its client half is next. Where
+at v0.372.0 and slice 5 at v0.373.0 (server) and v0.374.0 (client); slice 7 is next. Where
 another doc disagrees with this file, this file wins until the close-out moves its content into
 `docs/`.
 
@@ -356,7 +356,7 @@ externally-observable view of the same tree.
 root-only permissions intact.
 **Wire-check**: the cross-player read script, with a lower-tier session on a gateway.
 
-### Slice 5: generated machines are served, and only the owner reads a journal
+### Slice 5: generated machines are served, and only the owner reads a journal ✅
 
 **Value**: a player on a generated machine receives nothing its tier cannot read.
 **Path**: server, `resolveCrossPlayerFs` builds a generated machine from the network on the
@@ -438,14 +438,41 @@ that read a served tree pass unchanged. Mutation: 80 of 81 killed, no timeouts. 
 equivalent: it drops the check that the row names a network at all, and a network named nothing
 makes no machine, so the answer is the same 404.
 
-**Client half**: next. `activeRoot`, `ftpRoot`, `scpTargetTree`, `refreshServedRoot`,
-`reloadActiveRoot` and `hasNoJournalHere` in `ui/state.ts`, and `isCrossPlayerHop` in
-`ui/activeRoot.ts`, ask whether the machine is the player's own workstation and nothing else.
-`handleListPatches` answers the owner only. `testJournalRefusedToVisitors` (check 7 becomes a
-refusal, check 9 changes its error), `testFtpRemoteRead`, `testFtpPut` and `testFtpTransferTrace`
-read back through the served tree, and the other scripts that call `listPatches` as a visitor
-(`testSharedJournal`, `testUpsertPatch`, `testCrossPlayerWrite`, `testRedisConnect`,
-`testSnmpWalk`) are checked one by one.
+**Client half, as built** (v0.374.0) ✅: `ui/state.ts` asks one question wherever it chooses a
+tree, `isServedBox`: is this machine anything but the player's own workstation. `activeRoot`,
+`ftpRoot`, `scpTargetTree`, `refreshServedRoot`, `refetchPatches`, the reboot's re-read and the
+re-read before each line all turn on it. The own workstation is rebuilt from its journal and
+every other box is the tree the server served, or an empty root until it lands. The browser no
+longer rebuilds a generated machine it stands on: `resolveActiveRoot` and `isCrossPlayerHop` are
+gone from `ui/activeRoot.ts`, which keeps only `needsFreshTree`, and the network the WiFi card is
+on is no longer consulted. A session's kind is not either, so nothing but the machine decides.
+`isCrossPlayerWorkstation` stays for the one question it still answers, in `shell/runLine.ts`.
+`env.fs.reload()` re-pulls the served tree on a served box, and a pull that fails leaves the tree
+in hand. `handleListPatches` answers the owner of a workstation and gives everybody else 403
+`permission_denied` with no session lookup.
+
+Wire-checks: `testJournalRefusedToVisitors` 12/12 (a session on a generated machine is refused
+its journal and reads the box as a served tree; no session gets the same refusal),
+`testFtpRemoteRead` 8/8, `testFtpPut` 12/12 and `testFtpTransferTrace` 13/13 read the box back
+through the served tree, `testUpsertPatch` 12/12 with the new refusal. `testSharedJournal`,
+`testCrossPlayerWrite`, `testRedisConnect` and `testSnmpWalk` read only an owner's journal and
+pass unchanged.
+
+Mutation: 99 of 117 killed on the changed lines of `ui/state.ts`, `ui/activeRoot.ts` and
+`listPatches.ts`, no timeouts. Of the 18 survivors, 11 remove a guard for a client that
+`startGame` has not wired yet, which no running game reaches; 2 remove the check that the
+machine did not change during a re-read made inside a line, which a serialized line cannot do;
+and 2 change which re-read follows a reboot on a served box, which the next line repeats anyway.
+Three are left open, all on decisions this slice did not change: a late served tree for a box
+already left (2), and the journal re-read after a reboot of the player's own box (1). The first
+pass found five worth acting on: four new tests (a hop whose tree is in flight completes
+nothing from the box it left; an `scp` off the own box; an append on the own box, read and
+unreadable) and one guard removed from `reloadActiveRoot`, since the tree is tagged with its
+machine already.
+
+One test outside the slice times out in a full run on this machine at the moment
+(`generation/relations.test.ts`, "keeps no shortcut to a client on any other box of the office":
+12 s alone, over the 30 s limit under the whole suite). It does the same on `main`.
 
 ### Slice 6: a local exploit on a box that isn't yours is answered by the server ✅
 

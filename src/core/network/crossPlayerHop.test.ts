@@ -8,13 +8,10 @@ import { computeWorkstationId } from '../identity/workstation.js';
 import { computeApGatewayId } from '../identity/router.js';
 
 /**
- * `isCrossPlayerWorkstation` is the machine-level "am I standing on ANOTHER
- * player's registered box?" check — the shared core of `ui/activeRoot`'s
- * `isCrossPlayerHop` (which adds the shell-kind requirement for served-tree
- * dispatch) AND `su`'s routing decision (which doesn't care about the kind, only
- * the machine). A box is cross-player when it is neither your own workstation nor
- * a host on the LAN you're connected to — the only way to be there is a public-IP
- * login into another identity's box.
+ * `isCrossPlayerWorkstation` is the machine-level "am I standing on ANOTHER player's
+ * box?" check: neither your own workstation nor a machine the network you name
+ * generates. The shell asks it to learn whether the box under a visitor is one its owner
+ * can take off the network.
  */
 
 const PUBKEY = 'a'.repeat(64);

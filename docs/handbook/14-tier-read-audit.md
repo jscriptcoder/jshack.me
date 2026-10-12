@@ -12,18 +12,17 @@ pull request. The audit is finished when no row says defect.
 
 ## How to read the tables
 
-A player reads a machine that is not their own workstation in one of two ways.
+A machine is read in one of two ways.
 
 - **Served.** The server builds the box, prunes the tree to the session's tier and sends it
-  (`resolveCrossPlayerFs`). Today that is another player's workstation and the access point's
-  gateway. Since v0.371.0 the tree also carries every file on the externally-observable list,
-  each with its own permissions. Since v0.373.0 the server builds every machine a network
-  generates the same way, from the network on the caller's own session row. The browser does not
-  ask it yet for a machine it can rebuild.
-- **Rebuilt.** The browser generates the box from the ESSID and replays the raw journal over it.
-  Today that is every machine a network generates. The journal still carries rows above the
-  session's tier; that is the open half of the security gap in
-  [chapter 13](./13-known-issues.md), and it closes when those machines are served too.
+  (`resolveCrossPlayerFs`). Since v0.374.0 that is every box that is not the player's own
+  workstation: another player's, an access point's gateway, and every machine a network
+  generates. The tree also carries every file on the externally-observable list, each with its own
+  permissions (v0.371.0).
+- **Rebuilt.** The browser generates the box and replays the raw journal over it. Since v0.374.0
+  that is the player's own workstation and nothing else, and `listPatches` hands the journal to
+  nobody but its owner. Until then every machine a network generates was rebuilt too, from a
+  journal that carried rows above the session's tier.
 
 Two calls on the client skip the permission check on purpose. `fs.stat(path)` returns the node at
 a path whoever asks, and `fs.root()` returns the whole tree (`core/filesystem/fsView.ts`).
@@ -49,8 +48,8 @@ The verdicts:
   beside the reader they feed.
 - **Server:** 44 response bodies over four endpoints (`network` 13, `patches` 10, `sessions` 18,
   `wallet` 3). Earlier counts of 39 left out each endpoint's fallthrough action and two of the
-  wallet's three requests. One body carries files above the caller's tier (`listPatches`, already
-  known). One handler read the wrong file (`suElevate`, fixed in v0.370.0). The rest are fine.
+  wallet's three requests. One body carried files above the caller's tier (`listPatches`, closed in
+  v0.374.0). One handler read the wrong file (`suElevate`, fixed in v0.370.0). The rest are fine.
 - The browser holds no database client. The four endpoints are the whole surface, and every table
   has row-level security on with no policy.
 
@@ -58,7 +57,7 @@ The verdicts:
 
 | #   | Defect                                                                                                                                                                                                                                                                                                                               | Where                                                                | Fix                                                       |
 | --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------- | --------------------------------------------------------- |
-| 1   | A visitor on a generated machine receives its raw journal.                                                                                                                                                                                                                                                                           | `listPatches`                                                        | Planned: generated machines are served.                   |
+| 1   | A visitor on a generated machine receives its raw journal.                                                                                                                                                                                                                                                                           | `listPatches`                                                        | Fixed in v0.374.0: those machines are served.             |
 | 2   | `su` on a generated machine reads `/etc/passwd` in the browser, and the new tier is never recorded on the server.                                                                                                                                                                                                                    | `commands/su.ts:69`                                                  | Fixed in v0.370.0: the server answers `su`.               |
 | 3   | `suElevate` checks the password against the workstation as it was generated, not as it is. A password an exploit reset is accepted by `ssh` and refused by `su`. It also resolves only a player's workstation, so `su` on the access point's gateway answers `host_unreachable`.                                                     | `sessions/authElevateSession.ts`                                     | Fixed in v0.370.0, measured first.                        |
 | 4   | A local exploit (`msfconsole --local`) on a generated machine runs in the browser: it reads the tree at the tier the exploit grants, which is above the session's, and the shell it lands is never recorded on the server. On the access point's gateway the request goes to the server, which resolves only a player's workstation. | `commands/msfconsole.ts` (10 sites), `exploitLocalElevate`           | Fixed in v0.372.0: the server answers `--local`.          |
@@ -68,7 +67,7 @@ The verdicts:
 
 Defects 1, 2 and 5 were known before the audit. 3, 4 and 6 are what it found, with 6 already
 suspected. 7 is not a read past a tier; it turned up on the live stack while 3 was being measured,
-in the same handler. 2, 3, 4, 5 and 7 are fixed.
+in the same handler. 1, 2, 3, 4, 5 and 7 are fixed, which leaves 6.
 
 ## The files machinery reads
 
@@ -117,10 +116,10 @@ These ask whether a path exists and what kind of node it is. None of them prints
 | `ui/state.ts:1868`                               | Whether a tab-completion candidate is a directory.                                      | fine ¹  |
 
 ¹ `stat` does not check that the directories above a path can be entered. On a whole tree (the
-player's own box, and a rebuilt machine today) the wording of a refusal therefore tells a player
-that a path exists inside a directory they cannot open, and `ls -l` prints its owner, permissions
-and size. A served tree has no such node, so this ends for every box that is not the player's
-when generated machines are served. Writes are safe either way: the server judges each one against
+player's own box) the wording of a refusal therefore tells a player that a path exists inside a
+directory they cannot open, and `ls -l` prints its owner, permissions and size. A served tree has
+no such node, so since v0.374.0 this happens on no box that is not the player's: a path above the
+tier reads `No such file or directory`. Writes are safe either way: the server judges each one against
 the real tree (`enforceRemoteWriteL2`), so a write composed without seeing a node is still refused
 where it should be. What a write that wrongly claims `is_new` does to an existing row was not
 traced.
@@ -146,11 +145,11 @@ traced.
 | `commands/daemon.ts:211`                                                                            | `snmpd.conf`, for a read-write community to take in on start. Starting a daemon is root's.       | fine    |
 | `packages/aptPackages.ts:240, 268`                                                                  | Root's hash in `/etc/passwd`, to seed a database or store being installed. Installing is root's. | fine    |
 
-² Once a session ends on a generated machine the browser has no tree to read the marker from: the
-refused journal comes back empty. Since v0.373.0 the server serves the externally-observable list,
-which carries the marker, to a caller whose row on a box the network makes has ended. A shell on
-the access point's gateway reads it. A shell on a generated machine will once the browser reads
-the served tree there.
+² Once a session ends, the server serves its holder the externally-observable list, which carries
+the marker, from the network on the row that ended (v0.373.0). Since v0.374.0 a shell on a
+generated machine reads the served tree, so it learns of a reboot as a shell on a player's
+workstation does. Before that the refused journal came back empty, and on a box that had never
+rebooted a missing marker read the same as the one the shell arrived with.
 
 ### The reach of a deep layer
 
@@ -161,11 +160,11 @@ All seven call `resolveDeepScanHosts(essid, fronting, env.fs.root())`, which rea
 | -------------------------------------------------------------------------------------------------------------- | ------- |
 | `commands/nmap.ts:315`, `ssh.ts:441`, `scp.ts:530`, `ftp.ts:352`, `nc.ts:134`, `ping.ts:104`, `webHost.ts:142` | list    |
 
-A switch is still a rebuilt machine, so the browser holds its whole tree. Since v0.371.0 a session
-holder is served the externally-observable list as well as its tier's view (`filterTreeForSession`),
-so these keep reading `acl.conf` once switches are served. Measured on the live stack first: a
-`guest` or `user` session on the access point's gateway was not served `rules.v4`, and neither was
-served a page narrowed to `root` that a caller with no session was.
+A switch is served since v0.374.0. A session holder is served the externally-observable list as
+well as its tier's view (`filterTreeForSession`, v0.371.0), so these still find `acl.conf` there at
+any tier. Measured on the live stack first: a `guest` or `user` session on the access point's
+gateway was not served `rules.v4`, and neither was served a page narrowed to `root` that a caller
+with no session was.
 
 ### Web pages
 
@@ -207,9 +206,9 @@ box is served as generated to a reader on its LAN, and as changed to a reader ac
 ### Where the tree comes from
 
 `ui/state.ts:1546, 1857, 2009` build the shell's view from `activeRoot()` at the session's tier,
-which is the ordinary checked path. `activeRoot`, `ftpRoot`, `scpTargetTree` and
-`refreshServedRoot` choose between the served and the rebuilt source; they change when generated
-machines are served.
+which is the ordinary checked path. `activeRoot`, `ftpRoot`, `scpTargetTree`, `refreshServedRoot`
+and `reloadActiveRoot` choose between the served and the rebuilt source. Since v0.374.0 they all
+ask one question, whether the machine is the player's own workstation (`isServedBox`).
 
 ## Server responses
 
@@ -233,12 +232,12 @@ caller gets can still tell them a file or an account exists.
 
 ### `POST /api/patches`
 
-| Action                                                                                                                  | Body on success | What it is read from                                            | Verdict                                                                              |
-| ----------------------------------------------------------------------------------------------------------------------- | --------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| `listPatches`                                                                                                           | `patches`       | Every row of the machine's journal, any writer, any permission. | defect 1 for a visitor on a generated machine; fine for the owner; refused elsewhere |
-| `upsertPatch`, `removePatch`                                                                                            | `ok`            |                                                                 | fine                                                                                 |
-| `appendAuthLog`, `appendKernLog`, `recordFtpTransfer`, `recordPackageDowngrade`, `recordZoneTransfer`, `recordLanFetch` | `ok`            |                                                                 | fine                                                                                 |
-| `nmapScan`                                                                                                              | `hostsLogged`   | A count of the boxes that logged the scan.                      | fine                                                                                 |
+| Action                                                                                                                  | Body on success | What it is read from                                            | Verdict                                                                 |
+| ----------------------------------------------------------------------------------------------------------------------- | --------------- | --------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `listPatches`                                                                                                           | `patches`       | Every row of the machine's journal, any writer, any permission. | fine: the owner of a workstation alone, anybody else refused (v0.374.0) |
+| `upsertPatch`, `removePatch`                                                                                            | `ok`            |                                                                 | fine                                                                    |
+| `appendAuthLog`, `appendKernLog`, `recordFtpTransfer`, `recordPackageDowngrade`, `recordZoneTransfer`, `recordLanFetch` | `ok`            |                                                                 | fine                                                                    |
+| `nmapScan`                                                                                                              | `hostsLogged`   | A count of the boxes that logged the scan.                      | fine                                                                    |
 
 ### `POST /api/sessions`
 
@@ -278,7 +277,7 @@ The ledger is public by design and holds no file content. The two reads verify n
 ## What was not checked
 
 - Nothing was run for the audit itself. Defects 1, 3 and 4 have since been measured on the live
-  stack, and 3 and 4 are fixed.
+  stack and fixed.
 - Error codes as a channel (see above).
 - What a write that claims `is_new` does to a file the writer could not see.
 - Anything on the player's own workstation, which stays local.

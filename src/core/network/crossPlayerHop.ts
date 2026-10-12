@@ -3,21 +3,19 @@
  * box?" check. A machine is cross-player when it is neither the caller's OWN
  * workstation (identity-derived suffix match) nor any machine the NETWORK generates
  * — a home-LAN host, an inner gateway/switch, a deep chain door, or a deep NPC
- * behind one (`generatedBaseFsForMachineId` rebuilds its tree). Recognizing the deep
- * chain here is what stops a generated gateway/deep box from being misread as
- * foreign and served an empty tree instead of its real journal-replayed filesystem.
+ * behind one (`generatedBaseFsForMachineId` knows them all).
  *
  * A generated box is shared, not owned: every occupant of the ESSID reaches the same
- * one. What this check separates is generated-world boxes (rebuilt locally from the
- * seed, then replayed) from another player's WORKSTATION (fetched server-side) — the
- * only machine on the network that genuinely belongs to somebody.
+ * one. What this check separates is those boxes from another player's WORKSTATION, the
+ * only machine on a network that genuinely belongs to somebody, and so the only one its
+ * owner can take off the network under a visitor. The shell asks it for that reason
+ * (`shell/runLine.ts`).
  *
- * The AP gateway at `.1` is deliberately NOT exempt: it belongs to the access point
- * and is shared by every occupant, so it resolves through the server like any other
- * contested box. That is what makes one occupant's writes to it visible to the rest.
+ * It does not decide where a tree is read from. Every box that is not the caller's own
+ * workstation is read as the tree the server serves, whoever made it.
  *
- * `ui/activeRoot`'s `isCrossPlayerHop` adds the shell-kind requirement (a served tree is
- * fetched for a session that lands you in a shell — `ssh`, `su`, `nc`), then this.
+ * The AP gateway at `.1` is not a machine the generator's LAN walk makes, so it answers
+ * true here; a caller that means players' boxes alone rules it out by its id.
  */
 
 import { isOwnWorkstation } from '../identity/workstation.js';

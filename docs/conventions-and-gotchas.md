@@ -1723,17 +1723,17 @@ state costs you more than one wrong attempt.
   exists for it and must survive any future reshaping of the table.
   See `cross-player-architecture.md`.
 - **L1 asks whether you hold a session, never which KIND.** `authorizeMachineAccess` looks up
-  any active `(player_key, machine_id)` row, so an `ftp` session opens the same journal an
-  `ssh` hop does — proven live by `scripts/testFtpRemoteRead.ts`, since every unit test fakes
-  `findActiveSession`. This is deliberate (a door is not an authorization dimension), and it
-  is what every later parallel session — `nc`, `mysql`, `redis` — will inherit for free. The
-  consequence to keep in view: **on a machine the network generates the remote READ is
-  L1-only**, so the tier filter on what a session can see there is CLIENT-side (`createFsView`
-  + the shared walker), and the raw rows have already left the server. Since v0.369.0 a
-  session is not enough on a box the server serves: `handleListPatches` refuses a visitor the
-  journal of another player's workstation or the access point's gateway (403
-  `permission_denied`), reading the network off the session row. Wire-check
-  `scripts/testJournalRefusedToVisitors.ts`.
+  any active `(player_key, machine_id)` row, and so does the served read, so an `ftp` session
+  is served the same box an `ssh` hop is — proven live by `scripts/testFtpRemoteRead.ts`,
+  since every unit test fakes `findActiveSession`. This is deliberate (a door is not an
+  authorization dimension), and it is what every later parallel session — `nc`, `mysql`,
+  `redis` — will inherit for free. **A session never buys the raw rows.** Until v0.374.0 the
+  remote read of a machine the network generates was L1-only: the tier filter there was
+  CLIENT-side (`createFsView` + the shared walker) and the rows had already left the server.
+  Now `handleListPatches` answers the owner of a workstation and nobody else (403
+  `permission_denied`), and every other box is read as the tree `resolveCrossPlayerFs`
+  prunes. Wire-checks `scripts/testJournalRefusedToVisitors.ts` and
+  `scripts/testNetworkBoxServed.ts`.
 - **A PARALLEL session needs its own journal, and the answer must be checked on arrival.**
   The shell's `patches()` follows the shell; an ftp session addresses a second machine at the
   same time, so it carries `ftpPatches` beside it. The fetch is fire-and-forget, which makes
@@ -2019,17 +2019,18 @@ state costs you more than one wrong attempt.
   dropped the exemption, so all three doors are refused by the same `!listening` — `scp` and `ssh`
   ask the same daemon the same question, which is what made the shared lookup right in the first
   place.
-- **A remote read must decide LOCAL-or-SERVER before it resolves, because the local resolver
-  fails by handing back YOUR OWN box.** `resolveActiveRoot` falls back to `ownBaseFs` when the
-  ESSID cannot generate the target (`activeRoot.ts:45`) — correct for a machine this client
-  can build (an NPC on the player's LAN, their own deep layer) and silently wrong for another
-  player's workstation, where it does not error but returns the CALLER's file tree under the
-  target's name. So every remote read asks `isCrossPlayerWorkstation` first and sends a
-  stranger's box to `resolveCrossPlayerFs` (server-materialized, tier-pruned before it crosses
-  the wire), the same call an ssh hop's `refreshServedRoot` makes; `scpTargetTree`
-  (`state.ts:590`) is that split. A door that reads a remote box and skips the check has a bug
-  no type can catch and no unit test with a stubbed resolver can see — it took a live
-  wire-check to prove, which is why it is written here rather than in a comment.
+- **A remote read must decide LOCAL-or-SERVER before it resolves, and the answer is one
+  question: is the machine the player's own workstation.** Until v0.374.0 a local resolver
+  (`resolveActiveRoot`) rebuilt any machine the connected ESSID could generate and fell back to
+  the player's OWN base for one it could not, which did not error on another player's
+  workstation but returned the CALLER's file tree under the target's name. The resolver is
+  gone. `isServedBox` in `ui/state.ts` sends every box that is not the player's own to
+  `resolveCrossPlayerFs` (server-materialized, tier-pruned before it crosses the wire), for the
+  shell (`refreshServedRoot`), an ftp session (`ftpRoot`) and a transfer (`scpTargetTree`)
+  alike, and a tree that has not arrived is an EMPTY root, never the player's own. A door that
+  reads a remote box some other way has a bug no type can catch and no unit test with a
+  stubbed resolver can see — it took a live wire-check to prove, which is why it is written
+  here rather than in a comment.
 - **`is_new` on a patch is INERT — do not adopt it for symmetry, and do not believe
   `ftpShell.ts`'s comment about it.** Checked exhaustively when `scp` had to decide whether to
   send one: `applyPatches` and `materializeMachineFs` never read it; `removePatch` deletes the
@@ -2168,11 +2169,11 @@ state costs you more than one wrong attempt.
   It widened from "a backdoor" to this at v0.232.0, when the boot-id gate needed the marker a
   reboot leaves to actually reach a shell already standing on the box. Two things generalize:
 
-  - **The SOURCE and the TRIGGER are two questions.** `isCrossPlayerHop` answers where the fresh
-    tree comes from (served vs journal); `needsFreshTree` answers whether to go and get one.
-    Collapsing them looks natural and is wrong in both directions: an own-LAN hop needs a journal
-    re-pull and is not a cross-player hop, and a sub-shell line (`ftp>`, `mysql>`, `redis>`) never
-    reaches `runCommandLine` at all.
+  - **The SOURCE and the TRIGGER are two questions.** `isServedBox` answers where the fresh tree
+    comes from (served for every box but the player's own workstation, whose journal is replayed
+    locally); `needsFreshTree` answers whether to go and get one. They are close and not the
+    same: a backdoor on the player's OWN box is re-read before each line and is not served, and
+    a sub-shell line (`ftp>`, `mysql>`, `redis>`) never reaches `runCommandLine` at all.
   - **An eviction that must land on the ACTOR's own screen cannot wait for the next line.**
     `reboot` re-reads the box once on a successful evict, as part of the act the player ran, so a
     Ctrl-C mid-animation resolves on their next line even on their own box — which is never

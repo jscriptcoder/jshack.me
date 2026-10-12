@@ -1,10 +1,10 @@
 // Wire-payload smoke for who is handed a machine's raw journal.
 //
 // The journal rows are raw: nothing prunes them to a tier. So `listPatches` hands them
-// only to a client that has to rebuild the box for itself — the owner, and a visitor on
-// a machine their session's network generates. Another player's workstation and the
-// access point's own gateway are served as a tree pruned to the session's tier, and a
-// visitor asking for the rows behind one is refused.
+// to one caller only, the owner of the workstation they belong to, whose own client
+// rebuilds that box. Every other box (another player's workstation, the access point's
+// gateway, a machine the network generates) is served as a tree pruned to the session's
+// tier, and anybody asking for the rows behind one gets a single refusal.
 //
 // Net-new under test (the locally-untypechecked api/ runtime):
 //   - A `guest` session on another player's workstation gets 403 `permission_denied`
@@ -17,10 +17,11 @@
 //     pruned for `guest` and present for `root`.
 //   - The owner's own read is untouched and still carries the row.
 //   - The access point's gateway is refused the same way, to a session held on it.
-//   - A generated machine still answers a visitor whose session was opened on the
-//     network that generates it, and refuses one whose session names another network —
-//     the network is read off the session row, never taken from the caller.
-//   - No session at all is still 403 `no_session`, a different answer from the refusal.
+//   - So is a generated machine, to a session opened on the network that generates it.
+//     A root-only file somebody wrote there leaves in no answer to a `guest`: not the
+//     journal's, and not the served tree's.
+//   - A session opened on another network, and no session at all, get the same refusal.
+//     There is one answer for everybody who is not the owner.
 //
 // Drives the REAL migrated schema + glue end to end against a running `vercel dev`
 // + local supabase; seeds the occupancy row and the session rows via service_role.
@@ -264,7 +265,8 @@ check(
   `status=${l6.status} error=${errorOf(l6.body) ?? '-'}`,
 );
 
-// 7. A generated machine is rebuilt by the visitor's own client, so its journal answers.
+// 7. A generated machine is nobody's, so its journal answers nobody. The visitor can
+//    still write where their tier allows, and reads the box as the served tree.
 const w7 = await post(
   PATCHES,
   signRequest(bob, 'upsertPatch', {
@@ -277,17 +279,42 @@ const w7 = await post(
     node_type: 'file',
   }),
 );
+const planted = await sr.from('patches').insert({
+  machine_id: GENERATED,
+  path: SECRET_PATH,
+  content: SECRET,
+  owner: 'root',
+  permissions: ROOT_FILE,
+  node_type: 'file',
+  writer_key: alice.publicKeyHex,
+});
 const l7 = await readJournal(bob, GENERATED);
 check(
-  'a visitor on a machine their network generates still reads its journal',
+  'a visitor on a machine their network generates is refused its journal',
   w7.status === 200 &&
-    l7.status === 200 &&
-    patchesOf(l7.body)?.some((row) => row.path === MARK) === true,
-  `write=${w7.status} read=${l7.status} rows=${patchesOf(l7.body)?.length ?? 'none'}`,
+    planted.error === null &&
+    l7.status === 403 &&
+    errorOf(l7.body) === 'permission_denied' &&
+    patchesOf(l7.body) === undefined &&
+    !l7.raw.includes(SECRET),
+  `write=${w7.status} read=${l7.status} error=${errorOf(l7.body) ?? '-'} canary=${
+    l7.raw.includes(SECRET) ? 'LEAKED' : 'absent'
+  }`,
+);
+const t7 = await readServedTree(bob, GENERATED);
+const mark7 = t7.tree ? get(t7.tree, 'tmp', 'visitor-mark') : undefined;
+check(
+  'and reads that machine as a served tree, with their own file and without the root-only one',
+  t7.status === 200 &&
+    mark7?.kind === 'file' &&
+    t7.tree !== null &&
+    get(t7.tree, 'root', 'secret.txt') === undefined,
+  `status=${t7.status} mark=${mark7?.kind ?? 'absent'} secret=${
+    t7.tree && get(t7.tree, 'root', 'secret.txt') ? 'PRESENT' : 'absent'
+  }`,
 );
 
-// 8. The network is the one on the session row: a session opened elsewhere does not
-//    turn that machine into one its holder's client rebuilds.
+// 8. A session opened on another network changes nothing.
 const l8 = await readJournal(carol, GENERATED);
 check(
   'a session opened on another network is refused that machine’s journal',
@@ -295,11 +322,11 @@ check(
   `status=${l8.status} error=${errorOf(l8.body) ?? '-'}`,
 );
 
-// 9. No session at all stays a different answer.
+// 9. Neither does holding no session: one answer for everybody who is not the owner.
 const l9 = await readJournal(dave, A_MACHINE);
 check(
-  'no session at all is still 403 no_session',
-  l9.status === 403 && errorOf(l9.body) === 'no_session',
+  'no session at all gets the same refusal',
+  l9.status === 403 && errorOf(l9.body) === 'permission_denied',
   `status=${l9.status} error=${errorOf(l9.body) ?? '-'}`,
 );
 
