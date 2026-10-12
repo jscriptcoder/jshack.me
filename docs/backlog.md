@@ -172,15 +172,16 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   a name nobody holds stayed unresolved as typed, and `gobuster http://ridgemont.edu` found
   seven paths. Two neighbours found on the way are the next two items.
 
-- **A neighbour who names their box `localhost` takes your loopback traffic. Shown in a unit
-  probe, not played.** `addressForTarget` asks who is on the network for any target with a
-  letter in it, `localhost` included, and a machine name may be `localhost`
-  (`validateMachineName` allows it). `curl`, `lynx` and now `gobuster` resolve the name before
-  `reachWebHost` maps loopback, so beside such a neighbour `curl localhost` fetches their box.
-  `ssh`, `scp`, `ftp` and `nc` check `LOOPBACK_NAMES` first and are not affected; `nmap`,
-  `ping` and `msfconsole` at home are worth reading. Every `curl localhost` also pays an
-  occupant round trip it does not need. One guard in `addressForTarget` would cover them
-  all. Found 2026-10-11.
+- **A neighbour who named their box `localhost` took your loopback traffic — RESOLVED
+  2026-10-12 (v0.364.0).** `addressForTarget` asked who was on the network for any target
+  with a letter in it, `localhost` included, and a machine name may be `localhost`
+  (`validateMachineName` allows it). `curl`, `lynx` and `gobuster` resolved the name before
+  `reachWebHost` mapped loopback, so beside such a neighbour `curl localhost` fetched their
+  box; `nmap`, `ping` and `msfconsole` at home took the same step. `addressForTarget` now
+  hands a loopback name back as typed and asks nobody, which covers every command that
+  calls it and saves each `curl localhost` an occupant round trip. The neighbour's box
+  still answers to its full name, `localhost.<zone>.lan`. Client only. Not played in the
+  browser.
 
 - **In a visitor's shell on a player's box, `localhost` served less than the box does —
   RESOLVED 2026-10-12 (v0.363.0).** Seen in the browser 2026-10-11. The owner had published

@@ -23,7 +23,7 @@
 import { generateHomeLan } from '../generation/generateHomeLan.js';
 import { siteAddress } from '../generation/publisher.js';
 import { essidOf } from '../generation/world.js';
-import type { Ipv4 } from './interfaces.js';
+import { LOOPBACK_NAMES, type Ipv4 } from './interfaces.js';
 import type { OccupantProjection } from './resolveOccupants.js';
 
 /** A name that resolved: what it is fully called, and where it is. */
@@ -136,6 +136,10 @@ const couldBeName = (target: string): boolean => /[a-z]/i.test(target);
  * says `No route to host` and `curl` still says what `curl` says. One resolution
  * step in front of every command that takes an address, and not one new error
  * message among them.
+ *
+ * A name a box calls ITSELF is never looked up. A player may name their machine
+ * `localhost`, and resolving it here would hand them every neighbour's loopback
+ * traffic; it would also cost each `curl localhost` a round trip to learn nothing.
  */
 export const addressForTarget = async ({
   essid,
@@ -146,7 +150,7 @@ export const addressForTarget = async ({
   readonly target: string;
   readonly resolveOccupants: (essid: string) => Promise<readonly OccupantProjection[]>;
 }): Promise<string> => {
-  if (!couldBeName(target)) return target;
+  if (!couldBeName(target) || LOOPBACK_NAMES.includes(target)) return target;
   const resolved = await resolveName({ essid, name: target, resolveOccupants });
   return resolved === null ? target : resolved.ip;
 };

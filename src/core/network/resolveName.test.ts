@@ -115,6 +115,42 @@ describe('turning what the player typed into an address', () => {
   });
 });
 
+describe('the name a box calls itself', () => {
+  // A player may name their machine anything, `localhost` included. Loopback is the
+  // box the shell stands on, and nobody on the network gets to answer for it.
+  const neighbourCalledLocalhost = () =>
+    vi.fn(async () => [
+      {
+        workstation_machine_id: 'workstation-c3d4e5f6',
+        localIp: `${generateHomeLan(ESSID).subnet}.77`,
+        machineName: 'localhost',
+      },
+    ]);
+
+  it('leaves localhost as typed beside a neighbour who took the name, and asks nobody', async () => {
+    const resolveOccupants = neighbourCalledLocalhost();
+
+    const resolved = await addressForTarget({
+      essid: ESSID,
+      target: 'localhost',
+      resolveOccupants,
+    });
+
+    expect(resolved).toBe('localhost');
+    expect(resolveOccupants).not.toHaveBeenCalled();
+  });
+
+  it('still reaches that neighbour by the full name their box has on the network', async () => {
+    const resolved = await addressForTarget({
+      essid: ESSID,
+      target: `localhost.${lanZoneName(ESSID)}`,
+      resolveOccupants: neighbourCalledLocalhost(),
+    });
+
+    expect(resolved).toBe(`${generateHomeLan(ESSID).subnet}.77`);
+  });
+});
+
 describe('resolving an institution by its domain', () => {
   /** A home network that publishes nothing, so a domain it answers is not its own. */
   const HOME_ESSID = 'APT-3B-WIFI';
