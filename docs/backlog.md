@@ -203,14 +203,15 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   by root alone and the shell a guest's. Not played in the browser yet. One thing it left
   behind is the next item.
 
-- **`recordLanFetch` still answers for a shell on another player's workstation, and no
-  client asks it to.** Since v0.363.0 a fetch or sweep of the box a visitor's shell stands
-  on is served and logged by `resolveOccupantFetch` and `resolveOccupantSweep`, by loopback
-  and by address both. The arm of `workstationTarget` (`core/network/recordLanFetch.ts`)
-  that takes "the one their shell stands on", added at v0.352.0, is now reached only by a
-  request signed outside the game, from a caller who holds a session on the box. Removing
-  it takes its tests and checks 10 and 11 of `scripts/testLanFetchLog.ts` with it. Found
-  2026-10-12.
+- **`recordLanFetch` answered for a shell on another player's workstation, and no client
+  asked it to — RESOLVED 2026-10-12 (v0.365.0).** Since v0.363.0 a fetch or sweep of the
+  box a visitor's shell stands on is served and logged by `resolveOccupantFetch` and
+  `resolveOccupantSweep`, by loopback and by address both. The arm of `workstationTarget`
+  (`core/network/recordLanFetch.ts`) that took "the one their shell stands on", added at
+  v0.352.0, was reached only by a request signed outside the game, where it wrote a
+  second line for a visit the serving action had already recorded. It is gone: the trace
+  takes a player's workstation only when it is the caller's own. Checks 10 and 11 of
+  `scripts/testLanFetchLog.ts` now hold that such a request leaves no line.
 
 - **A shell on a player's box whose owner has left the network: `curl localhost` there would
   leave no line. By reading, not reproduced.** The box is found by the lease its owner holds on

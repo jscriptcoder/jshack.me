@@ -30,17 +30,18 @@
  *     `resolveDeepScanHosts` a scan and an ssh login use (a switch fronting the layer
  *     drops the ports its live ACL denies, read off its journal; a router filters
  *     nothing, so its journal is never read);
- *   - a PLAYER's workstation, when the address is the lease its owner holds and the box
- *     is the caller's own or the one their shell stands on — read from its live journal,
- *     because a fresh box serves nothing and an edited page is what a fetch returns;
+ *   - the caller's OWN workstation, when the address is the lease they hold — read from
+ *     its live journal, because a fresh box serves nothing and an edited page is what a
+ *     fetch returns;
  *   - otherwise a generated NPC sibling on the LAN.
  * The loopback address names the box the shell stands ON, and the visit is recorded as
  * local. In a shell on a box the network generates that is the box the caller named and
  * holds a session on, wherever it sits, so nothing is looked up by address and no gateway
  * in front of it is asked: the request never leaves the box. A player's workstation is
- * the one box the network does not generate, and is found by the lease it holds —
- * whoever's it is, so a visitor in a shell on another player's box leaves their line in
- * that player's log.
+ * the one box the network does not generate, and the caller's own is found by the lease
+ * they hold. Another player's workstation is never traced here, even from a shell on it:
+ * the server serves that box (`resolveOccupantFetch`, `resolveOccupantSweep`) and
+ * records the visit as it does.
  *
  * The client names no time, status or size — for any line, however many it asks for.
  * The server reads the resolved tree and works those out itself, so a crafted request
@@ -48,10 +49,9 @@
  * cannot dress its misses up as hits.
  *
  * The writer key follows the box, not the fetcher. A player's workstation keeps its
- * OWNER's key, whoever fetched it. A generated or deep NPC host has no owner, and every
- * visitor fetches from the identical box, so it takes the network's own key: one log
- * that every visit accretes into, rather than a row per fetcher where the newest erases
- * the rest.
+ * OWNER's key. A generated or deep NPC host has no owner, and every visitor fetches
+ * from the identical box, so it takes the network's own key: one log that every visit
+ * accretes into, rather than a row per fetcher where the newest erases the rest.
  */
 
 import { z } from 'zod';
@@ -92,10 +92,9 @@ import type { PatchRow } from '../patches/upsertPatch.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 /** The occupancy fields an own-LAN fetch trace needs: whose row it is and which box (to
- *  spot a fetch of the caller's own workstation, or of the one their shell stands on)
- *  and the identity fields that rebuild that box so the server can read what it
- *  actually served. No machine NAME — unlike a syslog line, an access-log line carries
- *  no hostname. */
+ *  spot a fetch of the caller's own workstation) and the identity fields that rebuild
+ *  that box so the server can read what it actually served. No machine NAME — unlike a
+ *  syslog line, an access-log line carries no hostname. */
 export type FetchOccupant = {
   readonly owner_key: string;
   readonly workstation_machine_id: string;
@@ -160,19 +159,18 @@ type FetchTarget = {
   readonly sourceIp: string;
 };
 
-/** The player's workstation at `address` on this LAN, when it is the caller's OWN or the
- *  one their shell STANDS ON — the two a client ever serves from a tree it holds, and so
- *  the two this trace is asked about. A fetch of any other player's box is served by the
- *  server, which records that visit itself (`resolveOccupantFetch`). Found
- *  by the lease its owner holds, and filed under that owner's key: their box keeps one
- *  log however many visitors leave a line in it. Every read here is load-bearing — a
- *  failure means we cannot tell whose box this is, and guessing would land the line on a
- *  generated host that shares the octet. Null falls through to the generated-host path,
- *  which finds nothing for an address only a player holds. */
+/** The caller's OWN workstation, when it is the box at `address` on this LAN — the one
+ *  player's box a client serves from a tree it holds, and so the one this trace is asked
+ *  about. A fetch of any other player's box is served by the server, which records that
+ *  visit itself (`resolveOccupantFetch`), a shell on that box included. Found by the
+ *  lease its owner holds, and filed under that owner's key. Every read here is
+ *  load-bearing — a failure means we cannot tell whose box this is, and guessing would
+ *  land the line on a generated host that shares the octet. Null falls through to the
+ *  generated-host path, which finds nothing for an address only a player holds. */
 const workstationTarget = async (
   deps: RecordLanFetchDeps,
   essid: string,
-  standing: { readonly callerKey: string; readonly callerMachineId: string | undefined },
+  callerKey: string,
   address: string,
   sourceIp: string,
 ): Promise<FetchTarget | null> => {
@@ -184,11 +182,7 @@ const workstationTarget = async (
   const occupants = await deps.listOccupantsByEssid(essid);
   if (occupants.error) return null;
   const holder = (occupants.data ?? []).find((row) => row.owner_key === lease.owner_key);
-  if (holder === undefined) return null;
-  const servesTheCaller =
-    holder.owner_key === standing.callerKey ||
-    holder.workstation_machine_id === standing.callerMachineId;
-  if (!servesTheCaller) return null;
+  if (holder === undefined || holder.owner_key !== callerKey) return null;
 
   const patches = await deps.findPatches({ machine_id: holder.workstation_machine_id });
   if (patches.error) return null;
@@ -291,8 +285,8 @@ const addressedTarget = async (
   vantageSourceIp: string | null,
 ): Promise<FetchTarget | HandlerResponse | null> => {
   // Loopback that reaches here stands on a player's workstation, which is found at the
-  // lease it holds. A box the server cannot place at an address has none to resolve
-  // loopback to, so nothing is logged.
+  // lease it holds, and traced when it is the caller's own. A box the server cannot place
+  // at an address has none to resolve loopback to, so nothing is logged.
   const address = request.target === LOOPBACK_IPV4 ? vantageSourceIp : request.target;
   if (address === null) return null;
   const sourceIp = vantageSourceIp ?? 'unknown';
@@ -303,13 +297,8 @@ const addressedTarget = async (
       : await deepLayerTarget(deps, request.essid, request.callerMachineId, address);
   if (deep !== null) return deep;
   return (
-    (await workstationTarget(
-      deps,
-      request.essid,
-      { callerKey, callerMachineId: request.callerMachineId },
-      address,
-      sourceIp,
-    )) ?? generatedHostTarget(request.essid, address, sourceIp)
+    (await workstationTarget(deps, request.essid, callerKey, address, sourceIp)) ??
+    generatedHostTarget(request.essid, address, sourceIp)
   );
 };
 
