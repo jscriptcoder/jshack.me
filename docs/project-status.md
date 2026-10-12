@@ -160,8 +160,9 @@ Shipped so far (each milestone is in git history + its as-built doc/plan):
   three-player browser verification in `e2e-shared-network-verification.md` §6.
 
 - **Crypto wallet epic ✅ COMPLETE (v0.362.0).** A player holds money: the `wallet` command
-  (`init | balance | history | send | sweep`), a public ledger of **JSC** keyed by address, and
-  the operator's `scripts/mintCoins.ts`. **The key is the money** — a random Ed25519 key in
+  (`init | balance | history | send`; a fifth, `sweep`, was removed at v0.367.0 as a looting
+  convenience that `balance` + `send` already cover), a public ledger of **JSC** keyed by
+  address, and the operator's `scripts/mintCoins.ts`. **The key is the money** — a random Ed25519 key in
   `~/.wallet/wallet.dat`, so a wallet is something to hide and something another player takes by
   rooting your box. Reads are public and unsigned; a transfer is signed by the *wallet* key, never
   the player's identity, and the ledger stores no player. Server: `wallet_balances` +
