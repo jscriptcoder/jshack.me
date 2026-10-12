@@ -219,8 +219,9 @@ Limits a maintainer must know:
 - Replay protection is only the 120-second timestamp window; the nonce store is a deliberate no-op.
 - Your **own** box has no server-side permission checks: anyone with your key can write any path on it.
 - The spoiler pools are obfuscated, not secret: the key ships in the bundle.
-- `listPatches` returns a machine's raw journal to anyone with any session on it, which may expose
-  rows the tier filter would prune. This is unverified; see [known issues](./13-known-issues.md).
+- `listPatches` returns a machine's raw journal to anyone with any session on it, which exposes
+  rows the tier filter would prune. Seen on the live stack and not yet fixed; see
+  [known issues](./13-known-issues.md).
 - The design deliberately stops at "enough to launch" (the conventions doc calls this "ship-first on
   multiplayer security").
 

@@ -1697,6 +1697,18 @@ state costs you more than one wrong attempt.
   permanent. `home_network_occupants` is therefore the source of truth for reachability —
   its rows mean "on this WiFi", not "currently at the keyboard", and no identity or
   reachability lookup may gate on player presence.
+- **A box that leaves its network drops every connection to it** (v0.368.0).
+  `handleUnregisterOccupant` deletes the occupancy row and then closes every OTHER player's
+  open session row on the box (`network_left`), with every session opened from it
+  (`upstream_lost`), as a reboot does. The owner's own rows on their box stay open. The
+  reason is the session row, not the read: a row that outlived the box's place on the WiFi
+  kept placing its holder on that network at no address, so every door they knocked on from
+  it recorded `unknown`, and the shell followed the box onto whatever WiFi it joined next.
+  The visitor's shell learns it from the rows: one hop deep on another player's
+  workstation, each line first asks which of its sessions are open (`lostLegs` in
+  `core/shell/runLine.ts`), because a box that is gone carries no marker to read. A
+  generated box and an access point's gateway cannot leave, so a shell on one still asks
+  nothing one hop deep. Wire-check `scripts/testDisconnectedUnreachable.ts`.
 - **`home_network_occupants` is the single source for "whose machine is this, and is it
   reachable".** Every cross-player by-`machine_id` resolver reads it and nothing else — there
   is no registry to consult first and no fallback to arbitrate. Its row means "this machine is

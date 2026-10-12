@@ -243,7 +243,8 @@ the `ed25519:` prefix.
 3. The client sets `wlan0` to associated with the leased IP and caches the lease in `localStorage`.
    If the server is unreachable later, a cached lease lets the client come back online; a network
    never joined cannot be joined offline, because the client never invents an address.
-4. `nmcli disconnect` deletes the player's occupancy row (fire-and-forget). The lease and the journal
+4. `nmcli disconnect` deletes the player's occupancy row (fire-and-forget) and closes every session
+   another player holds on the box, with the sessions opened from it. The lease and the journal
    stay. Closing the tab does not disconnect.
 
 Being disconnected means two things. On the client, `connectedWlan0()` returns `null` and every
