@@ -24,6 +24,7 @@ import {
   type UserType,
 } from '../types.js';
 import { computeWorkstationId } from '../identity/workstation.js';
+import { computeApGatewayId } from '../identity/router.js';
 import { WORLD_EPOCH } from '../cve/worldClock.js';
 import { localExploitOutcome } from '../cve/localExploit.js';
 import { packageTimeline } from '../cve/packageTimeline.js';
@@ -1659,16 +1660,16 @@ const localBoxEnv = (opts: {
   readonly gameDay: number;
   readonly passwd?: string;
   readonly soPresent?: boolean;
-  /** The box the tool runs from. A foreign workstation id reads as another player's box,
-   *  where `--local` must not run client-side. Defaults to the player's own. */
+  /** The box the tool runs from. Only the player's own, the default, rolls the outcome
+   *  here: on any other box `--local` is the server's to answer. */
   readonly machineId?: MachineId;
   /** The kind of shell the player is standing in. A PTY-less one (`nc`, `exploit_limited`)
    *  can only pass its lack of a terminal onward. Defaults to a TTY shell. */
   readonly sessionKind?: SessionKind;
   /** The network of the box the tool runs on — null, the default, for the player's own. */
   readonly essid?: string | null;
-  /** A box with no wireless association. `--local` is local, so it must still fire — the
-   *  network only decides whether the box is another player's, which own-box short-circuits. */
+  /** A box with no wireless association. `--local` on the player's own box asks nothing
+   *  of the network, so it must still fire. */
   readonly offline?: boolean;
   /** Extra top-level entries merged into the box's tree — a source file a write effect reads
    *  its bytes from, or a script a `script_exec` effect runs. */
@@ -1784,15 +1785,17 @@ const localFlags = new Map<string, string | true>([['--local', true]]);
  *  earlier), so it is neither B's own id nor a box the generator rolls for the ESSID. */
 const FOREIGN_MACHINE_ID = asMachineId(computeWorkstationId('bob', 'f'.repeat(64)));
 
-/** A cross-player `--local` reach: B stands on A's foreign box, and the client cannot read
- *  A's server-side state, so the fire routes to `env.exploit.elevateLocal` and RENDERS what
- *  the server answers rather than rolling the outcome itself. `elevateLocal` is captured so
- *  a test can see the box, command and tool path that crossed the wire. */
+/** A `--local` reach on a box that is not the player's own: the fire routes to
+ *  `env.exploit.elevateLocal` and RENDERS what the server answers rather than rolling the
+ *  outcome itself. `elevateLocal` is captured so a test can see the box, command and tool
+ *  path that crossed the wire. */
 const crossPlayerLocalEnv = (opts: {
   readonly result?: ExploitRunResult;
   readonly argv0?: string;
   readonly fs?: FsView;
   readonly sessionKind?: SessionKind;
+  /** The box the shell stands on. Defaults to another player's workstation. */
+  readonly machineId?: MachineId;
 } = {}) => {
   const elevateLocal = vi.fn<(params: ExploitLocalElevateParams) => Promise<ExploitRunResult>>(
     async () => opts.result ?? { ...GRANTED_FULL, machineId: FOREIGN_MACHINE_ID },
@@ -1802,7 +1805,7 @@ const crossPlayerLocalEnv = (opts: {
   const env = mockCommandEnv({
     identity: { publicKeyHex: asPlayerKeyHex(OWNER_KEY), privateKeyHex: 'b'.repeat(64) },
     session: mockSession({
-      machineId: FOREIGN_MACHINE_ID,
+      machineId: opts.machineId ?? FOREIGN_MACHINE_ID,
       username: 'guest',
       userType: 'guest',
       kind: opts.sessionKind ?? 'ssh',
@@ -2789,6 +2792,68 @@ describe('msfconsole --local', () => {
     expect(sent).not.toHaveProperty('arg');
     expect(sent).not.toHaveProperty('content');
     expect(sent).not.toHaveProperty('writes');
+  });
+
+  it.each([
+    ['a machine the network generates', asMachineId(TARGET_MACHINE_ID)],
+    ['the gateway of the access point', asMachineId(computeApGatewayId(ESSID))],
+  ])('asks the server on %s, whatever the tree held here says', async (_label, machineId) => {
+    // The tree this browser holds carries a live hole that would land a root shell. The
+    // server answers a miss, and the miss is what the player is told: only the server
+    // decides, and it leaves the traces, so nothing is rolled or recorded from here.
+    const release = rootShellReleaseFor('su', 'libpam');
+    const { env: standing, pushed, writes, logs } = localBoxEnv({
+      library: 'libpam',
+      version: release.version,
+      gameDay: release.publishedAt,
+      machineId,
+      essid: ESSID,
+    });
+    const elevateLocal = vi.fn<(params: ExploitLocalElevateParams) => Promise<ExploitRunResult>>(
+      async () => ({ ok: false, error: 'not_vulnerable' }),
+    );
+    const env = { ...standing, exploit: mockExploitApi({ elevateLocal }) };
+
+    const { text, exitCode } = await drain(await msfconsole.execute(env, ['su'], localFlags));
+
+    expect(elevateLocal).toHaveBeenCalledTimes(1);
+    expect(elevateLocal.mock.calls[0]![0]).toMatchObject({ machineId, command: 'su' });
+    expect(exitCode).toBe(1);
+    expect(text).toContain('no known vulnerability on su');
+    expect(pushed).toEqual([]);
+    expect(writes).toEqual([]);
+    expect(logs).toEqual({ kern: [], auth: [] });
+  });
+
+  it('stands the player in the shell the server grants on a machine the network generates', async () => {
+    const { env, pushed, cwds } = crossPlayerLocalEnv({
+      machineId: asMachineId(TARGET_MACHINE_ID),
+      result: {
+        ok: true,
+        cve: 'CVE-2026-0184',
+        severity: 'critical',
+        username: 'root',
+        userType: 'root',
+        kind: 'exploit_limited',
+        machineId: TARGET_MACHINE_ID,
+        essid: ESSID,
+      },
+    });
+
+    const { text, exitCode } = await drain(await msfconsole.execute(env, ['su'], localFlags));
+
+    expect(exitCode).toBe(0);
+    expect(text).toContain('[+] Got shell as root@rig');
+    expect(pushed).toEqual([
+      expect.objectContaining({
+        machineId: TARGET_MACHINE_ID,
+        username: 'root',
+        userType: 'root',
+        kind: 'exploit_limited',
+        essid: ESSID,
+      }),
+    ]);
+    expect(cwds).toEqual(['/root']);
   });
 
   it('names the tool by the path B carried it to', async () => {

@@ -23,7 +23,7 @@
  */
 
 import { asAbsPath, asMachineId, type UserType } from '../types.js';
-import { connectedWlan0, LOOPBACK_IPV4, LOOPBACK_NAMES } from '../network/interfaces.js';
+import { LOOPBACK_IPV4, LOOPBACK_NAMES } from '../network/interfaces.js';
 import { vantageOf } from '../network/vantage.js';
 import { dir } from '../generation/baseFs.js';
 import { defaultDirectoryPermissions, defaultFilePermissions } from '../filesystem/defaultPermissions.js';
@@ -36,7 +36,7 @@ import type { Directory } from '../filesystem/types.js';
 import { generateHomeLan } from '../generation/generateHomeLan.js';
 import { resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
 import { addressForTarget } from '../network/resolveName.js';
-import { isCrossPlayerWorkstation } from '../network/crossPlayerHop.js';
+import { isOwnWorkstation } from '../identity/workstation.js';
 import { homeDirectory } from '../sessions/homeDirectory.js';
 import { resolveAbsPath } from '../filesystem/path.js';
 import { gameDayAt } from '../cve/worldClock.js';
@@ -282,9 +282,9 @@ type BlindPayload = {
 
 /** Read the LOCAL half of a `local:remote` token off this box, and run a BARE token blind
  *  against `scriptBaseFs`, before either fire knows which effect the CVE carries. Both the
- *  network fire and the cross-player local fire must do this the same way — the bytes and
- *  any script writes are the whole of what a write or a script effect can send, because the
- *  server regenerates the target and has no view of this filesystem.
+ *  network fire and the local fire the server answers must do this the same way — the bytes
+ *  and any script writes are the whole of what a write or a script effect can send, because
+ *  the server regenerates the target and has no view of this filesystem.
  *
  *  A local half this shell cannot read is the player's OWN typo, refused here rather than
  *  fired: nothing reached the box, so it is owed no line, and the player learns it without
@@ -330,8 +330,8 @@ const prepareBlindPayload = async (
 };
 
 /** What the shared exploit renderer needs beyond the result itself — the few facts that
- *  differ between a network fire and a cross-player local one. `host` names the box for a
- *  shell or a script ("@host", "on host"); `missLabel` names the target in the miss line;
+ *  differ between a network fire and a local one the server answers. `host` names the box
+ *  for a shell or a script ("@host", "on host"); `missLabel` names the target in the miss line;
  *  `refusal` words a connect-level bounce (a network fire names host and port, a local one
  *  has neither); `arg`/`scriptError`/`localError` are what this side knew that the server
  *  could not; `sessionId` is the id a minted shell carries. */
@@ -347,8 +347,9 @@ type ExploitRenderContext = {
 
 /** Render a fired CVE's answer — the shared tail of both exploit fires. The seam has
  *  already returned; this streams the vulnerability line, every effect's outcome, and a
- *  shell's hop. A network service and another player's box reach it by different doors and
- *  read the same `ExploitRunResult`, so they render one shape and can never drift. */
+ *  shell's hop. A network service and the box under the player's own shell reach it by
+ *  different doors and read the same `ExploitRunResult`, so they render one shape and can
+ *  never drift. */
 async function* renderExploitResult(
   env: CommandEnv,
   result: ExploitRunResult,
@@ -923,14 +924,14 @@ const invocationPath = (env: CommandEnv): string => {
     : (resolveBinaryPath(env, token) ?? resolveAbsPath(env.fs.cwd(), token));
 };
 
-/** A cross-player `--local`: B holds a session on A's box but cannot read A's server-side
- *  state, so the fire routes to the server and RENDERS what it answers — the same effect
- *  union the network fire renders — rather than rolling the outcome here. The client sends
- *  the box, the command, the path B ran the tool from, and the blind payload; the server
- *  recomputes the CVE from A's own manifest, applies the effect at the tier it grants, and
- *  writes A's traces under A's own key. No password: B's open session is the
+/** A `--local` on a box that is not the player's own: the fire goes to the server and this
+ *  RENDERS what it answers (the same effect union the network fire renders) rather than
+ *  rolling the outcome here. The client sends the box, the command, the path the tool was
+ *  run from, and the blind payload; the server recomputes the CVE from the box's own
+ *  manifest, applies the effect at the tier it grants, and writes the traces under the key
+ *  that owns that box's logs. No password: the player's open session there is the
  *  authorization, resolved server-side from the verified key. */
-async function* fireLocalCrossPlayer(
+async function* fireLocalThroughServer(
   env: CommandEnv,
   command: string,
   commandPath: string,
@@ -971,7 +972,8 @@ async function* fireLocalCrossPlayer(
 /**
  * `msfconsole --local <command>`: fire the CVE a library the command links carries, on
  * the box the player is standing on. Everything is read from the box's OWN manifest and
- * the world clock, so what `apt list -u` forecasts and what `--local` lands agree.
+ * the world clock, so what `apt list -u` forecasts and what `--local` lands agree. On the
+ * player's own workstation that reading happens here; on any other box it is the server's.
  */
 const executeLocal = async (
   env: CommandEnv,
@@ -980,26 +982,19 @@ const executeLocal = async (
 ): Promise<CommandResult> => {
   if (command === undefined) return errorResult(USAGE_LOCAL);
 
-  // Another player's workstation is server-side state this side cannot regenerate — B holds
-  // a session on it but cannot read its journal or roll its manifest. So the fire CROSSES to
-  // the server, which rebuilds A's box, recomputes the CVE, applies the effect at the tier it
-  // grants, and writes A's traces under A's own key; the client only renders the answer. The
-  // local half of a write and any script writes are read on THIS side first — B's box is what
-  // the server has no view of — and travel with the fire, exactly as the network path sends
-  // them to a regenerated target.
-  const wlan0 = connectedWlan0(env.network);
-  const essid = wlan0 === null ? null : wlan0.association.essid;
-  if (
-    isCrossPlayerWorkstation({
-      machineId: env.session.machineId,
-      publicKeyHex: env.identity.publicKeyHex,
-      essid,
-    })
-  ) {
+  // Only the player's own workstation is theirs to judge. On every other box the fire
+  // CROSSES to the server, which rebuilds the box as it is, recomputes the CVE, applies the
+  // effect at the tier it grants, and writes the traces under the key that owns that box's
+  // logs; the client only renders the answer. A browser cannot work the effect out itself:
+  // a read hole reads above the tier of the shell that fired it, which is more of the box
+  // than that shell may be handed. The local half of a write and any script writes are read
+  // on THIS side first and travel with the fire, exactly as the network path sends them to
+  // a target.
+  if (!isOwnWorkstation(env.session.machineId, env.identity.publicKeyHex)) {
     const prepared = await prepareBlindPayload(env, env.fs.root(), path);
     if (!prepared.ok) return errorResult(prepared.message);
     return streamedResult(
-      fireLocalCrossPlayer(env, command, invocationPath(env), path, prepared.payload),
+      fireLocalThroughServer(env, command, invocationPath(env), path, prepared.payload),
     );
   }
 
@@ -1107,9 +1102,10 @@ const execute: Command['execute'] = async (env, args, flags) => {
       : resolveLanHostIdentity(host, essid).baseFs;
 
   // A `local:remote` token's local half, and a bare token's blind script, both read off
-  // THIS box before the effect is known — the same preparation the cross-player local fire
-  // makes, against the target's regenerated tree here and the box under the caller there. A
-  // local half this shell cannot read is the player's own typo, refused before firing.
+  // THIS box before the effect is known — the same preparation the local fire the server
+  // answers makes, against the target's regenerated tree here and the box under the caller
+  // there. A local half this shell cannot read is the player's own typo, refused before
+  // firing.
   const prepared = await prepareBlindPayload(env, baseFs, rawArg);
   if (!prepared.ok) return errorResult(prepared.message);
 

@@ -12,7 +12,10 @@ import {
   handleExploitCreateSession,
   type ExploitSessionRow,
 } from '../src/core/sessions/exploitCreateSession.js';
-import { handleExploitLocalElevate } from '../src/core/sessions/exploitLocalElevate.js';
+import {
+  handleExploitLocalElevate,
+  type FiringShell,
+} from '../src/core/sessions/exploitLocalElevate.js';
 import {
   derivedNetworkByPublicIp,
   type NatOccupantRow,
@@ -34,9 +37,9 @@ import { handleSnmpWalk } from '../src/core/sessions/snmpWalk.js';
 import type { OwnerPatchRow } from '../src/core/network/materializeWorkstationFs.js';
 import {
   handleAuthElevateSession,
-  type OccupantWorkstation,
   type SuSessionRow,
 } from '../src/core/sessions/authElevateSession.js';
+import type { OccupantWorkstation } from '../src/core/sessions/stoodOnBox.js';
 import {
   handleListSessions,
   type ListSessionsQuery,
@@ -61,7 +64,6 @@ import {
 import type {
   ActiveSessionQuery,
   FindActiveSessionResult,
-  StandingSession,
 } from '../src/core/patches/authorizeMachineAccess.js';
 import type { UserType } from '../src/core/types.js';
 import type {
@@ -337,16 +339,17 @@ const listLeasesByEssidVia =
  *  bypasses this inside the handler, anything else needs a live ssh session there. Same
  *  query the patch endpoints use, so a sweep and a write from one shell agree about where
  *  the player is; it also reads back the address the row's login came from, which a
- *  reboot names. */
+ *  reboot names, and the kind of shell the row is, which says whether a local exploit
+ *  fired from it has a terminal to hand on. */
 const findActiveSessionVia =
   ({ supabase, label }: QuerySpec) =>
   async ({
     player_key,
     machine_id,
-  }: ActiveSessionQuery): Promise<FindActiveSessionResult<StandingSession>> => {
+  }: ActiveSessionQuery): Promise<FindActiveSessionResult<FiringShell>> => {
     const { data, error } = await supabase
       .from('sessions')
-      .select('credentials, essid, source_ip')
+      .select('credentials, essid, source_ip, kind')
       .eq('player_key', player_key)
       .eq('machine_id', machine_id)
       .is('ended_at', null)
@@ -359,6 +362,7 @@ const findActiveSessionVia =
       credentials: { username: string; userType: UserType };
       essid: string;
       source_ip: string | null;
+      kind: FiringShell['kind'];
     };
     return {
       data: {
@@ -366,6 +370,7 @@ const findActiveSessionVia =
         userType: row.credentials.userType,
         essid: row.essid,
         sourceIp: row.source_ip,
+        kind: row.kind,
       },
       error,
     };
@@ -593,15 +598,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   if (actionOf(req.body) === 'exploitLocalElevate') {
-    // Cross-PLAYER `msfconsole --local`: B, standing on A's box, fires a library CVE on it
-    // with NO password. Occupancy resolves A — its identity AND its reachability — while the
-    // caller's OWN open session on that machine is the whole authorization (never a
-    // credential). The handler regenerates A's real box (so A's `apt upgrade` history and any
-    // tool B carried in both count), confirms the tool B ran is really there, recomputes the
-    // winning library CVE from A's own manifest, applies the effect at the tier it grants,
-    // and writes A's traces under A's own key. The shape of the occupant lookup mirrors
-    // `suElevate` — one player on N APs has N rows with the same workstation id, so
-    // `.limit(1)` picks any.
+    // `msfconsole --local` on a box that is not the caller's own: a library CVE fired on
+    // the box they already stand on, with NO password. The caller's OWN open session on that
+    // machine is the whole authorization (never a credential), and the network on its row
+    // says which machine it is: that network's gateway, a machine it generates, or another
+    // player's workstation, found through occupancy, which is also its reachability. The
+    // handler rebuilds the box as it is (so every `apt upgrade` run there and any tool the
+    // caller carried in both count), confirms the tool is really there, recomputes the
+    // winning library CVE from the box's own manifest, applies the effect at the tier it
+    // grants, and writes the traces under the key that owns that box's logs. The shape of
+    // the occupant lookup mirrors `suElevate`: one player on N APs has N rows with the same
+    // workstation id, so `.limit(1)` picks any, and none of them names the network.
     const findOccupantWorkstationByMachineId = async (machineId: string) => {
       const { data, error } = await supabase
         .from('home_network_occupants')

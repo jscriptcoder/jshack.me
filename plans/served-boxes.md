@@ -1,8 +1,8 @@
 # Plan: every box that isn't yours is served
 
 **Status**: Grilled and sliced. Decisions confirmed by the owner 2026-10-12. Slice 1 shipped at
-v0.369.0, slice 2, the audit, is done, slice 3 shipped at v0.370.0 and slice 4 at v0.371.0;
-slice 6 is next. Where
+v0.369.0, slice 2, the audit, is done, slice 3 shipped at v0.370.0, slice 4 at v0.371.0 and
+slice 6 at v0.372.0; slice 5 is next. Where
 another doc disagrees with this file, this file wins until the close-out moves its content into
 `docs/`.
 
@@ -375,9 +375,69 @@ on a generated machine served to `root` and pruned for `guest`); `testFtpRemoteR
 half is safe to merge alone, since nothing calls it for a generated machine until the client
 half lands.
 
-### Slice 6: a local exploit on a box that isn't yours is answered by the server
+### Slice 6: a local exploit on a box that isn't yours is answered by the server ✅
 
-Runs before slice 5.
+Ran before slice 5.
+
+**As built** (v0.372.0): `handleExploitLocalElevate` looks up the caller's own session first and
+finds the box from the network on that row. `resolveStoodOnBox` moved out of the `su` handler into
+`core/sessions/stoodOnBox.ts`, and both handlers call it. The box is rebuilt as it is
+(`materializeMachineFs` over the base tree), the traces carry its own hostname and file under its
+own log key (the owner's on a workstation, `apGatewayLogWriterKey` elsewhere), and the new row
+carries the firing shell's network, where it used to carry whichever occupancy row the lookup
+returned. On the client, `msfconsole --local` asks the server on every machine that is not the
+player's own workstation (`isOwnWorkstation`), so the ten reads above the session's tier in
+`commands/msfconsole.ts` now run at home only. No wire field was added.
+
+The terminal rule is one rule now (owner, 2026-10-12). A hole that grants a full shell hands on
+the terminal the firing shell already has, so from a shell with none (`nc`, a limited exploit)
+the tier rises and the shell stays limited. The server used to hand over whatever the hole
+granted; it now reads the kind off the firing shell's own row. `hasTty` moved to
+`core/sessions/hasTty.ts` so the server and the shell answer from one list, and the session
+query on `api/sessions` returns the row's kind. Another player's workstation tightened to match.
+
+Wire-check: `testCrossPlayerLocalExploit` 13/13, extended to a generated machine, the gateway
+and a shell with no terminal. Thirteen other scripts that go through the same session query pass
+unchanged. `testExploitOwnLan` could not stage its fixture on game day 92 and was not run.
+Mutation: 187 of 192 killed on the changed code, no timeouts. The five survivors are equivalent
+and sit on lines the slice did not change: three change the tier of a view that is only asked to
+`stat`, which no tier affects; one drops packages that are not libraries from a map only
+libraries are looked up in; one swaps an empty list for a library name that can never load.
+
+**Measured** (2026-10-12, a throwaway probe against the live local stack, since deleted). A
+`guest` session on the access point's gateway, a LAN machine, an inner router, a switch and a
+deep gateway of one network, each with a live root hole and the tool carried in.
+
+| What was asked | Answer on all five |
+| --- | --- |
+| `exploitLocalElevate` | 404 `host_unreachable` |
+| The shell trace and the miss trace the browser sends | 403 `no_session` |
+| The writes behind a reset, a backdoor and a root-path write | 403 `permission_denied` |
+| Open session rows afterwards | only the `guest` login |
+
+So on the gateway, where the browser already asked the server, `--local` always answered
+`No route to host`. On a generated machine the browser ran it alone: read and list worked, off
+the raw tree above the session's tier; a landed shell existed only in the browser; and neither a
+shell nor a miss left a log line. All five boxes hold the full manifest, the libraries and a
+`root` account, and none holds `msfconsole`, so the player carries the tool in as on a player's
+box.
+
+**Criteria** (owner, 2026-10-12). `msfconsole --local` on any box that is not your own
+workstation is answered by the server, on the box your own session row stands on:
+
+- A `guest` session on a generated machine fires a hole that grants a shell and gets a session
+  row at the granted tier, on the firing shell's network, with its login address carried on.
+- The same on the access point's gateway.
+- Every other effect acts at the granted tier on the box as it is.
+- A landed shell leaves the session-opened line in the box's `auth.log` and a miss that crashes a
+  library leaves the segfault line in its `kern.log`, both under the box's own writer key with
+  its own hostname.
+- Refusals stay uniform: no open session, no runnable tool at the path named, or a bricked box
+  answers `host_unreachable`; no live hole answers `not_vulnerable`.
+- No new wire field.
+- The player's own workstation is unchanged.
+- Another player's workstation is unchanged, except the new row takes the firing shell's network,
+  and the terminal rule above.
 
 **Value**: a player who fires `msfconsole --local` on a generated machine or on the access
 point's gateway gets the effect from the server, at the tier the vulnerability grants, and a
