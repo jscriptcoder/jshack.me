@@ -13,7 +13,7 @@
  */
 
 import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
-import { appendMachineLog } from '../patches/appendMachineLog.js';
+import { appendMachineLogLines } from '../patches/appendMachineLog.js';
 import { derivePid } from '../logging/syslog.js';
 import { readAclConf } from '../network/switchAcl.js';
 import { readRwCommunityHash } from '../snmp/rwCommunity.js';
@@ -91,7 +91,7 @@ export const appendSnmpdLog = async (
 ): Promise<void> => {
   const { sweepLog } = SERVICE_CATALOG.snmp;
   try {
-    await appendMachineLog(
+    await appendMachineLogLines(
       { readLog: deps.readSnmpdLog, upsertPatch: deps.upsertPatch },
       {
         writerKey: target.writerKey,
@@ -100,7 +100,7 @@ export const appendSnmpdLog = async (
         owner: sweepLog.owner,
         permissions: sweepLog.permissions,
       },
-      lines.join('\n'),
+      lines,
     );
   } catch {
     // best-effort: the answer stands regardless of a logging failure.

@@ -13,7 +13,8 @@
  * today; nmap/ftp/nc/mysqld/redis next) records the login/scan it just handled,
  * so the write is the system's, not a player-tier action. Every such server
  * action reuses THIS function; only the formatter (the line) and the target
- * (which machine + which log path) differ.
+ * (which machine + which log path) differ. That also makes it the one place a line
+ * is held to being ONE line, whichever caller-sent field it was built from.
  *
  * Fire-and-forget by design: system logging must never break the action it
  * records, so it returns nothing and surfaces no error. A FAILED read bails
@@ -56,10 +57,21 @@ export type MachineLogTarget = {
   readonly permissions: FilePermissions;
 };
 
-export const appendMachineLog = async (
+/** A line break inside the line, spelled out the way a daemon writes one it was sent.
+ *  Most of a line is the caller's own words — a path, an account, a package name — and a
+ *  break left standing would end the line early and start another the caller wrote
+ *  whole, timestamp and address included, in a log somebody else reads as evidence.
+ *  Written rather than refused, because the attempt is itself something to record. */
+const onOneLine = (line: string): string => line.replace(/\r/g, '\\r').replace(/\n/g, '\\n');
+
+/** Land several lines in ONE append: they are one event to the box, and an append each
+ *  would be a read-modify-write each, racing over the same file. The lines arrive apart
+ *  rather than already joined, so the only breaks in what is written are the ones
+ *  between them. */
+export const appendMachineLogLines = async (
   deps: AppendMachineLogDeps,
   target: MachineLogTarget,
-  line: string,
+  lines: readonly string[],
 ): Promise<void> => {
   const existing = await deps.readLog({ machine_id: target.machineId, path: target.path });
   if (existing.error) return;
@@ -69,9 +81,15 @@ export const appendMachineLog = async (
     writer_key: target.writerKey,
     machine_id: target.machineId,
     path: target.path,
-    content: `${current}${line}\n`,
+    content: `${current}${lines.map(onOneLine).join('\n')}\n`,
     owner: target.owner,
     permissions: target.permissions,
     node_type: 'file',
   });
 };
+
+export const appendMachineLog = (
+  deps: AppendMachineLogDeps,
+  target: MachineLogTarget,
+  line: string,
+): Promise<void> => appendMachineLogLines(deps, target, [line]);

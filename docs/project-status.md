@@ -735,17 +735,22 @@ agreed order:
    back as typed (client only). Neither is played in the browser yet. ✅ And at v0.365.0
    the arm of `recordLanFetch` that traced a shell on another player's workstation,
    which no client reached after v0.363.0, is gone (`scripts/testLanFetchLog.ts`).
+   ✅ And at v0.366.0 no trace can be made to carry a line of its own: a line break in
+   anything the caller sent is written out as text by `appendMachineLog`, where every
+   trace lands. Proved live first, on a fetch path that needs no session
+   (`scripts/testOccupantFetch.ts` 14/14, `testFtpCrossPlayer.ts` 19/19,
+   `testAptDowngradeTrace.ts` 17/17). Not played in the browser yet.
    **Pick up here (2026-10-12):** the items still open in `backlog.md`, all found by
    reading: a deep box's own address behind a switch that denies the web port, a data
-   door over `localhost`, a shell on a box whose owner left, and a line break in a
-   trace's free-text fields.
+   door over `localhost`, a shell on a box whose owner left, and a field that spoofs
+   the columns after it within its own line.
 9. ✅ **Crypto wallet epic (v0.356.0–v0.362.0, PRs #653–#658, 2026-10-11/12).** Slotted ahead of
    the rest of the sandbox-hardening list: the `wallet` command, a public JSC ledger keyed by
    address, and the operator mint. Seven slices, each TDD + wire-check + migration to dev then
    prod. Two-player browser close-out ran the theft loop (mint → root the box → read the key →
    sweep → gpg the replacement) with no defects. As built:
    [`wallet-architecture.md`](./wallet-architecture.md). **Pick up here (2026-10-12):** back to the
-   sandbox-hardening leftovers in item 8's list above (three closed since, v0.363.0 to v0.365.0)
+   sandbox-hardening leftovers in item 8's list above (four closed since, v0.363.0 to v0.366.0)
    and the defender-side item 6, still the agreed work until the owner reopens missions.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   appendMachineLog,
+  appendMachineLogLines,
   type AppendMachineLogDeps,
   type MachineLogTarget,
 } from './appendMachineLog.js';
@@ -126,6 +127,47 @@ describe('appendMachineLog', () => {
     await appendMachineLog(deps, target(), NEW_LINE);
 
     expect(upsertPatch.mock.calls[0]![0].content).toBe(`${NEW_LINE}\n`);
+  });
+
+  // Most of a line is what the caller sent: a path, an account, a package name. A break
+  // inside one would end the line early and start another that the caller wrote whole.
+  it.each([
+    ['a line feed', 'GET /a\nGET /b', 'GET /a\\nGET /b'],
+    ['a carriage return', 'GET /a\rGET /b', 'GET /a\\rGET /b'],
+    ['every break of several', 'GET /a\r\nGET /b\nGET /c\rGET /d', 'GET /a\\r\\nGET /b\\nGET /c\\rGET /d'],
+  ])('writes %s inside the line as text, so it stays one line', async (_, line, written) => {
+    const earlier = row();
+    const { deps, upsertPatch } = makeDeps([earlier]);
+
+    await appendMachineLog(deps, target(), line);
+
+    expect(upsertPatch.mock.calls[0]![0].content).toBe(`${earlier.content}${written}\n`);
+  });
+
+  describe('several lines at once', () => {
+    const ARRIVAL = 'Oct  4 11:00:00 gw vsftpd[2]: CONNECT: Client "193.4.5.6"';
+
+    it('lands them in one write, each on its own line after what was there', async () => {
+      const earlier = row();
+      const { deps, upsertPatch } = makeDeps([earlier]);
+
+      await appendMachineLogLines(deps, target(), [ARRIVAL, NEW_LINE]);
+
+      expect(upsertPatch).toHaveBeenCalledTimes(1);
+      expect(upsertPatch.mock.calls[0]![0].content).toBe(
+        `${earlier.content}${ARRIVAL}\n${NEW_LINE}\n`,
+      );
+    });
+
+    it('keeps a break inside any one of them from adding a line between the others', async () => {
+      const { deps, upsertPatch } = makeDeps([]);
+
+      await appendMachineLogLines(deps, target(), [ARRIVAL, 'GET /a\nGET /b', NEW_LINE]);
+
+      expect(upsertPatch.mock.calls[0]![0].content).toBe(
+        `${ARRIVAL}\nGET /a\\nGET /b\n${NEW_LINE}\n`,
+      );
+    });
   });
 
   it('writes nothing when the read fails, rather than clobbering the log', async () => {

@@ -80,7 +80,7 @@ import {
   formatAccessLogLine,
 } from '../logging/accessLog.js';
 import {
-  appendMachineLog,
+  appendMachineLogLines,
   type MachineLogReadQuery,
   type MachineLogReadResult,
 } from '../patches/appendMachineLog.js';
@@ -378,7 +378,7 @@ export const handleRecordLanFetch = async (
   try {
     // ONE append for the whole run, the way the hydra sweep lands on `auth.log`: a
     // per-line write would re-read and re-upsert the entire log for every path tried.
-    await appendMachineLog(
+    await appendMachineLogLines(
       { readLog: deps.readLog, upsertPatch: deps.upsertPatch },
       {
         writerKey: resolved.writerKey,
@@ -387,7 +387,7 @@ export const handleRecordLanFetch = async (
         owner: ACCESS_LOG_OWNER,
         permissions: ACCESS_LOG_PERMISSIONS,
       },
-      lines.join('\n'),
+      lines,
     );
   } catch {
     // best-effort: the fetch already happened, and a logging failure must not surface.

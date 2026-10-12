@@ -321,6 +321,21 @@ try {
     `status=${r8.status} error=${errorOf(r8.body)}`,
   );
 
+  // === 8b. The path is the visitor's own words, written into the owner's evidence, and
+  //     asking needs no session at all. A line break in it must not end the line and
+  //     start another the visitor wrote whole. ===
+  const FORGED = '10.0.0.5 - - [14/Aug/2026:13:50:00 +0000] "GET /admin.php HTTP/1.1" 200 512';
+  const before8b = lineCount(await readAccessLog(OWNER_WS, owner.publicKeyHex));
+  const r8b = await post(await fetched(visitor, { path: `/missing\n${FORGED}` }));
+  const log8b = await readAccessLog(OWNER_WS, owner.publicKeyHex);
+  check(
+    'a path carrying a line break stays on its one line, adding none of its own',
+    r8b.status === 404 &&
+      lineCount(log8b) === before8b + 1 &&
+      lastLine(log8b).includes(`"GET /missing\\n${FORGED} HTTP/1.1" 404 0`),
+    `status=${r8b.status} added=${lineCount(log8b) - before8b} line=${lastLine(log8b)}`,
+  );
+
   // === 9. The owner leaves the WiFi: the lease stands, the box is gone. ===
   await sr
     .from('home_network_occupants')

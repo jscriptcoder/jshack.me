@@ -46,7 +46,7 @@ import {
   type FindPublicIpByEssid,
 } from '../logging/crossPlayerSourceIp.js';
 import {
-  appendMachineLog,
+  appendMachineLogLines,
   type MachineLogReadQuery,
   type MachineLogReadResult,
 } from '../patches/appendMachineLog.js';
@@ -109,7 +109,7 @@ export const recordSweep = async (
     formatAccessLogLine({ time, sourceIp, path: probed.path, status: probed.status, size: probed.size }),
   );
   try {
-    await appendMachineLog(
+    await appendMachineLogLines(
       { readLog: deps.readLog, upsertPatch: deps.upsertPatch },
       {
         // The log is the OWNER's, never the requester's — a stranger who could write
@@ -121,7 +121,7 @@ export const recordSweep = async (
         owner: ACCESS_LOG_OWNER,
         permissions: ACCESS_LOG_PERMISSIONS,
       },
-      lines.join('\n'),
+      lines,
     );
   } catch {
     // best-effort: the sweep's findings stand regardless of a logging failure.

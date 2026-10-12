@@ -50,7 +50,7 @@ import { WORDLIST_PATH } from '../wordlist/defaultWordlist.js';
 import { serviceByName } from '../services/serviceCatalog.js';
 import { sweepAccounts, wordlistOn } from '../wordlist/passwordSweep.js';
 import {
-  appendMachineLog,
+  appendMachineLogLines,
   type MachineLogReadQuery,
   type MachineLogReadResult,
 } from '../patches/appendMachineLog.js';
@@ -193,7 +193,7 @@ export const handleHydraCrack = async (
   // exist leaves the box's log exactly as it found it.
   if (trace.length > 0) {
     try {
-      await appendMachineLog(
+      await appendMachineLogLines(
         { readLog: deps.readAuthLog, upsertPatch: deps.upsertPatch },
         {
           // The box's own writer key, resolved by the reach: the TARGET owner's on a
@@ -206,7 +206,7 @@ export const handleHydraCrack = async (
           owner: spec.sweepLog.owner,
           permissions: spec.sweepLog.permissions,
         },
-        trace.join('\n'),
+        trace,
       );
     } catch {
       // best-effort: the sweep's result stands regardless of a logging failure.
