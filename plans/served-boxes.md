@@ -2,7 +2,8 @@
 
 **Status**: Grilled and sliced. Decisions confirmed by the owner 2026-10-12. Slice 1 shipped at
 v0.369.0, slice 2, the audit, is done, slice 3 shipped at v0.370.0, slice 4 at v0.371.0, slice 6
-at v0.372.0 and slice 5 at v0.373.0 (server) and v0.374.0 (client); slice 7 is next. Where
+at v0.372.0, slice 5 at v0.373.0 (server) and v0.374.0 (client) and slice 7 at v0.375.0; only
+the close-out is left. Where
 another doc disagrees with this file, this file wins until the close-out moves its content into
 `docs/`.
 
@@ -557,7 +558,52 @@ exploit that grants a shell and gets a session row at the granted tier.
 **Wire-check**: the script that covers `exploitLocalElevate` today, extended to a generated
 machine and to the access point's gateway.
 
-### Slice 7: `chmod` and the owner's tier
+### Slice 7: `chmod` and the owner's tier ✅
+
+**As built** (v0.375.0): when the mode names `u`, `chmod` reads `/etc/passwd` through the
+session's own reader (`fs.read`) before it looks the owner up, and refuses with exit 1 when the
+read fails. The refusal carries the reader's answer in the words `cat` uses
+(`READ_ERROR_REASON`, now exported from `commands/contentHelpers.ts`):
+`chmod: cannot resolve 'u' for '<path as typed>': /etc/passwd: No such file or directory` on a
+served box, `Permission denied` where the file is in the tree and closed to the tier. It comes
+after the missing-path and the no-write refusals and before anything is written, for a file or a
+directory. The manual page states the rule. Client only, no wire field, no wire-check.
+
+Mutation: 12 of 12 killed on the changed lines of `commands/chmod.ts`, no timeouts.
+
+Full suite: 8883 tests in 286 files pass; `npm run typecheck` and `npm run lint` clean. One older test had to change: a directory test resolved `u` on a tree with no `/etc/passwd`, which passed only because root is never removed; its tree now holds the file.
+
+**Measured** (2026-10-13, a throwaway probe over a generated machine, since deleted). Accounts
+`root`, `proxy` (user) and `guest`, a `mysql`-owned file beside theirs, every file open for
+write to all three tiers, then `chmod u-w` on each.
+
+| File owner | `guest`, whole tree | `guest`, served tree | `user`, served tree |
+| --- | --- | --- | --- |
+| `root` | no change | removes `guest` | no change |
+| `proxy` | removes `user` | removes `guest` | removes `user` |
+| `guest` | removes `guest` | removes `guest` | removes `guest` |
+| `mysql`, no account | removes `guest` | removes `guest` | removes `guest` |
+
+So on a served tree at the guest tier `u` meant `o` on every file. Over the whole tree the
+answer was right and came out of a file the session cannot read (`cat /etc/passwd` answers
+`Permission denied` to it). The whole tree stood in for the player's own workstation; no `guest`
+session was played at home.
+
+**Criteria** (owner, 2026-10-13):
+
+- When the session cannot read `/etc/passwd`, a mode that names `u` is refused with exit 1 and
+  nothing is written, for a file or a directory.
+- `g`, `o`, `a` and a mode with no who work as before for that same session.
+- A who that mixes `u` with other letters (`ug+w`, `au-w`) is refused whole.
+- A session that can read the file behaves as before, an owner with no account still counting
+  as an other.
+- The earlier refusals keep their order: a missing path, then no write permission, then this.
+- The manual page states the rule.
+- **The open point, settled:** the refusal follows the tier everywhere, the player's own
+  workstation included. Taken literally that also refuses `u` on a box whose `/etc/passwd` is
+  deleted, closed to the user tier, or replaced by a directory, to `root` as well. Each of those
+  used to read every owner as `guest`.
+- **The message** carries the reader's own answer, as above, and is not one fixed line.
 
 **Value**: `chmod u+w` on a box that is not the player's changes the tier it names.
 **Why**: `chmod` reads `/etc/passwd` to turn the `u` in a mode into the tier of the node's

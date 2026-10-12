@@ -4,6 +4,7 @@ import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
 import { mockCommandEnv, mockFsViewFromTree, mockSession } from '../../test/factories/commandEnv.js';
 import { applyPatches, type Patch } from '../filesystem/applyPatches.js';
 import { createFsView } from '../filesystem/fsView.js';
+import { filterTreeForSession } from '../patches/readFilter.js';
 import { asAbsPath, type UserType } from '../types.js';
 import type { CommandEnv, PatchApi, TerminalLine } from './types.js';
 import type { Directory, FilePermissions } from '../filesystem/types.js';
@@ -344,6 +345,239 @@ describe('chmod — u is the tier of the account that owns the node', () => {
     await chmod.execute(env, ['u+r', '/home/alice/notes.txt'], NO_FLAGS);
 
     expect(permsAfter(tree, writeFn, '/home/alice/notes.txt')?.read).toContain('user');
+  });
+});
+
+const OPEN_TO_ALL: FilePermissions = {
+  read: ['root', 'user', 'guest'],
+  write: ['root', 'user', 'guest'],
+  execute: ['root', 'user', 'guest'],
+};
+
+/** A box that keeps its accounts the way every generated box does: in an
+ *  `/etc/passwd` the guest tier cannot open. Under `/tmp`, a file and a
+ *  directory of alice's that every tier may write — so a session at any tier
+ *  gets as far as the question of who `u` is — and one file only root may write. */
+const boxWithAccounts = (): Directory =>
+  buildDirectory({
+    etc: buildDirectory({
+      passwd: buildFile(
+        'root:x:0:0:root:/root:/bin/bash\n' +
+          'alice:x:1000:1000::/home/alice:/bin/bash\n' +
+          'guest:x:1001:1001::/home/guest:/bin/sh\n',
+        { owner: 'root', perms: { read: ['root', 'user'], write: ['root'], execute: [] } },
+      ),
+    }),
+    tmp: buildDirectory(
+      {
+        'shared.txt': buildFile('left for whoever comes by\n', {
+          owner: 'alice',
+          perms: OPEN_TO_ALL,
+        }),
+        drop: buildDirectory({}, { owner: 'alice', perms: OPEN_TO_ALL }),
+        'sealed.txt': buildFile('look, do not touch\n', {
+          owner: 'alice',
+          perms: { ...OPEN_TO_ALL, write: ['root'] },
+        }),
+      },
+      { perms: OPEN_TO_ALL },
+    ),
+  });
+
+/** The same box as the server hands it to a session at `userType`: whatever
+ *  that tier cannot read is not in the tree at all. */
+const servedTo = (userType: UserType): Directory =>
+  filterTreeForSession(boxWithAccounts(), userType);
+
+const refusedWith = (message: string) => ({
+  kind: 'sync',
+  lines: [{ kind: 'error', content: message }],
+  exitCode: 1,
+});
+
+describe('chmod — u needs a session that can read /etc/passwd', () => {
+  it('refuses u to a guest session on a served box, and changes nothing', async () => {
+    const tree = servedTo('guest');
+    const { env, writeFn } = chmodEnv({ tree, userType: 'guest', username: 'guest' });
+
+    // The served tree does not carry the file at all, which is why no owner on
+    // it can be told from any other.
+    expect(readAs(tree, 'guest', '/etc/passwd')).toEqual({ ok: false, error: 'not_found' });
+
+    const result = await chmod.execute(env, ['u-w', '/tmp/shared.txt'], NO_FLAGS);
+
+    expect(result).toEqual(
+      refusedWith(
+        "chmod: cannot resolve 'u' for '/tmp/shared.txt': /etc/passwd: No such file or directory",
+      ),
+    );
+    expect(writeFn).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['o-w', ['root', 'user']],
+    ['g-w', ['root', 'guest']],
+    ['a-w', ['root']],
+    ['-w', ['root']],
+  ] as const)('still lets that session name tiers with %s', async (modeArg, writers) => {
+    const tree = servedTo('guest');
+    const { env, writeFn } = chmodEnv({ tree, userType: 'guest', username: 'guest' });
+
+    const result = await chmod.execute(env, [modeArg, '/tmp/shared.txt'], NO_FLAGS);
+
+    expect(result).toEqual({ kind: 'sync', lines: [], exitCode: 0 });
+    expect(permsAfter(tree, writeFn, '/tmp/shared.txt')?.write).toEqual(writers);
+  });
+
+  it('refuses a guest session on a box that holds the file, in the words cat has for it there', async () => {
+    const tree = boxWithAccounts();
+    const { env, writeFn } = chmodEnv({ tree, userType: 'guest', username: 'guest' });
+
+    const result = await chmod.execute(env, ['u-w', '/tmp/shared.txt'], NO_FLAGS);
+
+    expect(result).toEqual(
+      refusedWith(
+        "chmod: cannot resolve 'u' for '/tmp/shared.txt': /etc/passwd: Permission denied",
+      ),
+    );
+    expect(writeFn).not.toHaveBeenCalled();
+  });
+
+  it.each(['ug-w', 'gu-w', 'uo-w', 'au-w'])(
+    'refuses %s whole rather than applying the letters it could',
+    async (modeArg) => {
+      const { env, writeFn } = chmodEnv({
+        tree: servedTo('guest'),
+        userType: 'guest',
+        username: 'guest',
+      });
+
+      const result = await chmod.execute(env, [modeArg, '/tmp/shared.txt'], NO_FLAGS);
+
+      expect(result).toEqual(
+        refusedWith(
+          "chmod: cannot resolve 'u' for '/tmp/shared.txt': /etc/passwd: No such file or directory",
+        ),
+      );
+      expect(writeFn).not.toHaveBeenCalled();
+    },
+  );
+
+  it('refuses u on a directory the same way', async () => {
+    const { env, writeFn, setDirPermsFn } = chmodEnv({
+      tree: servedTo('guest'),
+      userType: 'guest',
+      username: 'guest',
+    });
+
+    const result = await chmod.execute(env, ['u-w', '/tmp/drop'], NO_FLAGS);
+
+    expect(result).toEqual(
+      refusedWith(
+        "chmod: cannot resolve 'u' for '/tmp/drop': /etc/passwd: No such file or directory",
+      ),
+    );
+    expect(setDirPermsFn).not.toHaveBeenCalled();
+    expect(writeFn).not.toHaveBeenCalled();
+  });
+
+  it('names the path as the player typed it', async () => {
+    const { env } = chmodEnv({
+      tree: servedTo('guest'),
+      userType: 'guest',
+      username: 'guest',
+      cwd: '/tmp',
+    });
+
+    const result = await chmod.execute(env, ['u+x', 'shared.txt'], NO_FLAGS);
+
+    expect(result).toEqual(
+      refusedWith(
+        "chmod: cannot resolve 'u' for 'shared.txt': /etc/passwd: No such file or directory",
+      ),
+    );
+  });
+
+  it('reports a path that is not there before it asks who owns it', async () => {
+    const { env } = chmodEnv({ tree: servedTo('guest'), userType: 'guest', username: 'guest' });
+
+    const result = await chmod.execute(env, ['u-w', '/tmp/nothing-here'], NO_FLAGS);
+
+    expect(result).toEqual(
+      refusedWith("chmod: cannot access '/tmp/nothing-here': No such file or directory"),
+    );
+  });
+
+  it('reports a node the session may not write before it asks who owns it', async () => {
+    const { env } = chmodEnv({ tree: servedTo('guest'), userType: 'guest', username: 'guest' });
+
+    const result = await chmod.execute(env, ['u-w', '/tmp/sealed.txt'], NO_FLAGS);
+
+    expect(result).toEqual(
+      refusedWith("chmod: changing permissions of '/tmp/sealed.txt': Operation not permitted"),
+    );
+  });
+
+  it('resolves u as it always did for a user session on a served box', async () => {
+    const tree = servedTo('user');
+    const { env, writeFn } = chmodEnv({ tree, userType: 'user', username: 'alice' });
+
+    const result = await chmod.execute(env, ['u-w', '/tmp/shared.txt'], NO_FLAGS);
+
+    expect(result).toEqual({ kind: 'sync', lines: [], exitCode: 0 });
+    expect(permsAfter(tree, writeFn, '/tmp/shared.txt')?.write).toEqual(['root', 'guest']);
+  });
+
+  it('refuses the user tier too once the file is closed to it', async () => {
+    const tree = applyPatches(boxWithAccounts(), [
+      {
+        path: '/etc/passwd',
+        content: 'root:x:0:0:root:/root:/bin/bash\nalice:x:1000:1000::/home/alice:/bin/bash\n',
+        owner: 'root',
+        permissions: { read: ['root'], write: ['root'], execute: [] },
+      },
+    ]);
+    const { env, writeFn } = chmodEnv({ tree, userType: 'user', username: 'alice' });
+
+    const result = await chmod.execute(env, ['u-w', '/tmp/shared.txt'], NO_FLAGS);
+
+    expect(result).toEqual(
+      refusedWith(
+        "chmod: cannot resolve 'u' for '/tmp/shared.txt': /etc/passwd: Permission denied",
+      ),
+    );
+    expect(writeFn).not.toHaveBeenCalled();
+  });
+
+  it('refuses root as well on a box whose passwd is gone', async () => {
+    // No file, no accounts: there is nothing on the box that says which tier
+    // alice holds, and reading every owner as an other would be a guess.
+    const tree = boxWithAnOpenFile();
+    const { env, writeFn } = chmodEnv({ tree, userType: 'root', username: 'root' });
+
+    const result = await chmod.execute(env, ['u-w', '/home/alice/notes.txt'], NO_FLAGS);
+
+    expect(result).toEqual(
+      refusedWith(
+        "chmod: cannot resolve 'u' for '/home/alice/notes.txt': /etc/passwd: No such file or directory",
+      ),
+    );
+    expect(writeFn).not.toHaveBeenCalled();
+  });
+
+  it('refuses on a box where a directory sits where the passwd was', async () => {
+    const tree = buildDirectory({
+      etc: buildDirectory({ passwd: buildDirectory({}) }),
+      tmp: buildDirectory({ 'shared.txt': buildFile('x\n', { perms: OPEN_TO_ALL }) }),
+    });
+    const { env, writeFn } = chmodEnv({ tree, userType: 'root', username: 'root' });
+
+    const result = await chmod.execute(env, ['u-w', '/tmp/shared.txt'], NO_FLAGS);
+
+    expect(result).toEqual(
+      refusedWith("chmod: cannot resolve 'u' for '/tmp/shared.txt': /etc/passwd: Is a directory"),
+    );
+    expect(writeFn).not.toHaveBeenCalled();
   });
 });
 
@@ -753,6 +987,7 @@ describe('chmod — it composes against the machine, not against its own memory'
  *  what makes `chmod o+x /root` a change a guest-tier session can feel. */
 const boxWithALockedRoom = (): Directory =>
   buildDirectory({
+    etc: buildDirectory({ passwd: buildFile('root:x:0:0:root:/root:/bin/bash\n') }),
     root: buildDirectory(
       { 'notes.private': buildFile('the plan\n', { owner: 'root' }) },
       { owner: 'root', perms: { read: ['root'], write: ['root'], execute: ['root'] } },

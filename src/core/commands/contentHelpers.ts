@@ -21,7 +21,8 @@ export const splitContentLines = (content: string): readonly string[] => {
 
 type FsReadError = Extract<FsReadResult, { readonly ok: false }>['error'];
 
-const READ_ERROR_REASON: Readonly<Record<FsReadError, string>> = {
+/** Why a read was refused, in the words every command that reads a file reports it. */
+export const READ_ERROR_REASON: Readonly<Record<FsReadError, string>> = {
   not_found: 'No such file or directory',
   is_directory: 'Is a directory',
   permission_denied: 'Permission denied',

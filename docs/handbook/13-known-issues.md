@@ -35,8 +35,10 @@ holds now. The second is fixed (v0.370.0): `su` is answered by the server on eve
 the player's own. The first is fixed too (v0.372.0): `msfconsole --local` is answered by the
 server everywhere but the player's own workstation. A session holder is also served the
 externally-observable list (v0.371.0), which the scans behind a switch needed before switches could
-be served. One defect of the audit is still open: `chmod` reads `/etc/passwd` to learn the tier of
-a file's owner, and a `guest` session on a served box has no such file.
+be served. The last defect of the audit is fixed as well (v0.375.0): `chmod` read `/etc/passwd`
+to learn the tier of a file's owner, and a `guest` session on a served box has no such file, so
+`u` meant the guest tier on every file there. A mode naming `u` is now refused to any session
+that cannot read the file, on the player's own workstation too.
 
 ## Open design questions
 

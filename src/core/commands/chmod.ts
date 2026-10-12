@@ -15,7 +15,8 @@ import type { UserType } from '../types.js';
 import type { FilePermissions } from '../filesystem/types.js';
 import type { Command, CommandEnv, CommandResult } from './types.js';
 import { resolveAbsPath } from '../filesystem/path.js';
-import { accountIn } from '../sessions/passwdAccount.js';
+import { accountIn, PASSWD_PATH } from '../sessions/passwdAccount.js';
+import { READ_ERROR_REASON } from './contentHelpers.js';
 
 const ALL_TIERS: readonly UserType[] = ['root', 'user', 'guest'];
 
@@ -61,7 +62,8 @@ const parseMode = (mode: string): Mode | null => {
  *  use — so `u` says something different on a root-owned file than on the box
  *  user's, and an owner holding no account row here (a service account like
  *  `mysql`, which owns files on every generated box and is nobody on any of
- *  them) is an other like any outsider. */
+ *  them) is an other like any outsider. The caller has already established that
+ *  the session can read that file whenever the who-string holds a `u`. */
 const tiersNamed = (whoChars: string, ownerTier: UserType): readonly UserType[] =>
   whoChars === ''
     ? ALL_TIERS
@@ -150,6 +152,20 @@ const execute = async (
     return refusal(`chmod: changing permissions of '${pathArg}': Operation not permitted`);
   }
 
+  // `u` is answered out of `/etc/passwd`, so it is asked through the session's own
+  // reader, which is the one `cat` would use. A tier that cannot open the file has
+  // nothing to tell one owner from another with, and on a box the server serves the
+  // file is not in the tree at all: resolving `u` there turned it into `o` on every
+  // node. The other letters name a tier outright and never get this far.
+  if (mode.whoChars.includes('u')) {
+    const passwd = fs.read(PASSWD_PATH);
+    if (!passwd.ok) {
+      return refusal(
+        `chmod: cannot resolve 'u' for '${pathArg}': ${PASSWD_PATH}: ${READ_ERROR_REASON[passwd.error]}`,
+      );
+    }
+  }
+
   const ownerTier = accountIn(fs.root(), node.owner)?.userType ?? 'guest';
   const permissions = applyMode(node.perms, mode, tiersNamed(mode.whoChars, ownerTier));
 
@@ -198,7 +214,7 @@ export const chmod: Command = {
   manual: {
     synopsis: 'chmod <mode> <path>',
     description:
-      'Change what a file or directory permits, tier by tier. The mode is symbolic - [ugoa][+-][rwx] - because permissions here are allowlists over the three tiers rather than nine bits, so there is no octal form. The who letters line up with the three groups ls -l prints: u is the tier of the account that OWNS the node (an owner with no account on this box counts as an other), g is the user tier, o is the guest tier, and a - or no letter at all - is all three. A removal never takes the root tier away, since root passes every check regardless and the listing would only be telling you otherwise. Changing permissions needs write permission on the node, and a file you cannot read is refused: the change is written as the file plus its new permissions, so it cannot be composed blind. There is no -R; loop over the paths in a node script instead.',
+      'Change what a file or directory permits, tier by tier. The mode is symbolic - [ugoa][+-][rwx] - because permissions here are allowlists over the three tiers rather than nine bits, so there is no octal form. The who letters line up with the three groups ls -l prints: u is the tier of the account that OWNS the node (an owner with no account on this box counts as an other), g is the user tier, o is the guest tier, and a - or no letter at all - is all three. The owner is looked up in /etc/passwd, so a mode that names u, alone or beside another letter, is refused to a session that cannot read that file; g, o and a still work there. A removal never takes the root tier away, since root passes every check regardless and the listing would only be telling you otherwise. Changing permissions needs write permission on the node, and a file you cannot read is refused: the change is written as the file plus its new permissions, so it cannot be composed blind. There is no -R; loop over the paths in a node script instead.',
     arguments: [
       {
         name: 'mode',
