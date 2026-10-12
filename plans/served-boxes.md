@@ -1,7 +1,7 @@
 # Plan: every box that isn't yours is served
 
-**Status**: Grilled and sliced. Decisions confirmed by the owner 2026-10-12. Slice 1 is built
-and waiting on its PR; slice 2 is next. Where another doc disagrees with this file, this file
+**Status**: Grilled and sliced. Decisions confirmed by the owner 2026-10-12. Slice 1 shipped at
+v0.369.0; slice 2 is next. Where another doc disagrees with this file, this file
 wins until the close-out moves its content into `docs/`.
 
 ## Goal
@@ -163,7 +163,7 @@ has to be on the server already, and the switch scan needs the externally-observ
 Reading note for whoever does the audit and the `su` work: read the session, exploit and scan
 code directly, and give any helper agent only a narrow fact to check.
 
-### Slice 1: a visitor is refused the journal of a box the server serves (v0.369.0)
+### Slice 1: a visitor is refused the journal of a box the server serves (v0.369.0) ✅
 
 **Value**: a player holding a session on another player's workstation, or on the access point's
 gateway, can no longer read files above their tier off the journal.
@@ -189,9 +189,12 @@ gateway, can no longer read files above their tier off the journal.
 the change it fails 5 of them, one of which is the root-only file's text arriving in the answer.
 `testLogWipeSticks` and `testHopChain` read a gateway's `auth.log` back through the journal as
 a visitor, so they read the served tree instead.
-**Left for the PR**: the version bump, and the backlog and handbook entries that describe the
-leak (`docs/backlog.md`, `docs/handbook/13-known-issues.md`, `docs/handbook/01-architecture.md`,
-the `listPatches.ts` row in the handbook's stale-comment table).
+**As built**: the other scripts that call `listPatches` pass unchanged (`testUpsertPatch` 12/12,
+`testSharedJournal` 4/4, `testCrossPlayerWrite` 15/15, `testFtpRemoteRead` 7/7, `testFtpPut`
+12/12, `testFtpTransferTrace` 13/13). Mutation: the handler 40/40 killed with no timeouts; the
+two client guards and the question they ask killed by hand (four mutants) against
+`ui/state.test.ts`. The backlog and handbook entries now describe what is left, which is the
+generated machines.
 
 ### Slice 2: the audit (docs only)
 

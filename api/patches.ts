@@ -44,12 +44,11 @@ import type { UserType } from '../src/core/types.js';
 //   - upsertPatch: L1-gated write (server-stamped writer_key) + L2 on remote
 //     writes (tier-based perms, regenerated host FS via `listMachinePatches`)
 //   - listPatches: L1-gated read of the shared journal (reload-durability, and
-//     the read-back of a remote ssh write) — machine-scoped, L1-only, no L2
+//     the read-back of a remote ssh write) — machine-scoped and raw, so a visitor
+//     gets it only for a machine their session's network generates; another
+//     player's workstation and the AP gateway are read through the served tree
 //   - removePatch: L1-gated delete + L2 (unlinking needs write perm) — clears the
 //     caller's row + descendants, then tombstones the path (tombstone-always)
-//
-// The cross-player three-tier READ filter is still a later plan; remote reads
-// remain L1-only (any active-session tier may read).
 //
 // Replay protection uses a noop nonce store locally (Upstash wiring lands when
 // cross-player flows need it). Acceptable for local dev — same posture as

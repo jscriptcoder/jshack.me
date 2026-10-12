@@ -12,17 +12,19 @@ entry when you fix or decide it.** Deliberately deferred features live in the ba
 | **`WORLD_EPOCH` tripwire fails from 2027-01-08 UTC** | `src/core/cve/worldClock.test.ts` fails once the development epoch (2026-07-12) is `RUNWAY_DAYS` (180) days old. The test is intentional: it forces a decision. It was postponed once, on 2026-09-27, from 90 to 180 days. | Decide: re-stamp the epoch for launch, or postpone again by raising `RUNWAY_DAYS` (the world is untouched). Re-stamping re-dates all generated history and every vulnerability, and moves date-pinned tests. Delete the test at launch. |
 | **Generation timing headroom may be thin**           | One run measured 1.61–1.83 ms per box against the 2 ms budget (docs say 0.86–1.67). The machine may have been loaded.                                                                                                      | Measure with a clean `npm run build`, three times, before the next content change.                                                                                                                                                      |
 
-## Security gap (seen on the live stack 2026-10-12, not yet fixed)
+## Security gap (half closed at v0.369.0, 2026-10-12)
 
-**`listPatches` exposes rows the tier filter prunes.** `handleListPatches` checks only L1 (any
-active session on the machine) and returns every writer's raw rows. The client calls it on a
-cross-player hop (`acquireTree` → `refetchPatches`, and after every write). A probe against
-`vercel dev` logged in as `guest` on another player's workstation and read the content of a
-root-only `/root/secret.txt` off the `listPatches` answer, though the served tree from
-`resolveCrossPlayerFs` prunes that file. That contradicts the rule "prune before the response
-leaves the server", and the wallet key is a journal row like any other. The probe was thrown away;
-the fix needs a wire-check of its own, and is to filter `listPatches` by tier for non-owners, or to
-skip the raw journal read on cross-player hops.
+**`listPatches` hands a visitor on a generated machine rows above their tier.** The rows are raw:
+every writer's, at any permission. Since v0.369.0 `handleListPatches` refuses them (403
+`permission_denied`) to a visitor on any machine their session's network does not generate, which
+covers another player's workstation and the access point's gateway; both are read through the tree
+`resolveCrossPlayerFs` prunes, and `scripts/testJournalRefusedToVisitors.ts` holds the refusal. A
+machine the network does generate (a LAN host, an inner gateway, a switch, a deep box) is still
+rebuilt in the browser from the ESSID plus that raw journal, so a `guest` session there receives
+files only `root` may read, a wallet key written on that box included. That contradicts the rule
+"prune before the response leaves the server". The fix is to serve those boxes too and leave
+`listPatches` to the owner alone; it moves `su` on them to the server, so it is an epic, not a
+patch.
 
 ## Open design questions
 
@@ -102,12 +104,11 @@ The code is correct in every case below; the text needs updating.
 | `src/core/generation/routerFs.ts`, `gatewayHostname.ts`              | `router-admin-`/`router-host-` namespaces seeded from an owner key (`ap-gw-*`, ESSID)                                                                                                               |
 | `src/core/generation/pools/essidCatalog.ts`                          | appending keeps scans stable (any length change re-rolls which networks a scan offers)                                                                                                              |
 | `src/core/generation/remoteHostId.ts`                                | `hostForMachineId` is exported and tested but unused in production                                                                                                                                  |
-| `api/patches.ts` header                                              | "three signed actions"; the read filter "is still a later plan" (11 actions; it shipped)                                                                                                            |
+| `api/patches.ts` header                                              | "three signed actions" (11 actions)                                                                                                                                                                 |
 | `api/sessions.ts`                                                    | "the ten actions" (20)                                                                                                                                                                              |
 | `api/network.ts`                                                     | "Nothing reads these leases yet"; story and decision tags in comments                                                                                                                               |
 | `api/*.ts`, `core/signedRequest/nonceStore.ts`                       | the no-op nonce store is "local" and a real store "lands later" (no-op is the production decision)                                                                                                  |
 | `src/adapters/patchApi.ts`                                           | `machineId` is "the player's own workstation"; `is_new` decides delete-versus-tombstone (removal is always a tombstone)                                                                             |
-| `src/core/patches/listPatches.ts`                                    | serves "the OWN workstation's" journal (any machine passing L1)                                                                                                                                     |
 | `src/core/patches/appendMachineLog.ts`                               | `writerKey` is "the acting player" (usually the owner or network key)                                                                                                                               |
 | `src/core/patches/recordFtpTransfer.ts`, `recordPackageDowngrade.ts` | refer to `resolveProvenance` (it is `resolveTraceProvenance`)                                                                                                                                       |
 | `src/core/network/resolveCrossPlayerFs.ts`                           | replay "scoped to `owner_key`" (machine-scoped, every writer)                                                                                                                                       |

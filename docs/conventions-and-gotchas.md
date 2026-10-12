@@ -1727,9 +1727,13 @@ state costs you more than one wrong attempt.
   `ssh` hop does — proven live by `scripts/testFtpRemoteRead.ts`, since every unit test fakes
   `findActiveSession`. This is deliberate (a door is not an authorization dimension), and it
   is what every later parallel session — `nc`, `mysql`, `redis` — will inherit for free. The
-  consequence to keep in view: **the remote READ is L1-only**, so the tier filter on what a
-  session can see is CLIENT-side (`createFsView` + the shared walker), exactly as it is for an
-  `ssh` hop. A server-side read filter is a separate, still-deferred plan.
+  consequence to keep in view: **on a machine the network generates the remote READ is
+  L1-only**, so the tier filter on what a session can see there is CLIENT-side (`createFsView`
+  + the shared walker), and the raw rows have already left the server. Since v0.369.0 a
+  session is not enough on a box the server serves: `handleListPatches` refuses a visitor the
+  journal of another player's workstation or the access point's gateway (403
+  `permission_denied`), reading the network off the session row. Wire-check
+  `scripts/testJournalRefusedToVisitors.ts`.
 - **A PARALLEL session needs its own journal, and the answer must be checked on arrival.**
   The shell's `patches()` follows the shell; an ftp session addresses a second machine at the
   same time, so it carries `ftpPatches` beside it. The fetch is fire-and-forget, which makes

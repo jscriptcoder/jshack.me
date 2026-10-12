@@ -3069,6 +3069,7 @@ describe('a backdoor on a box across the network', () => {
     let listening = true;
     let bootId: string | null = startingBootId;
     const actions: string[] = [];
+    const journalsAsked: string[] = [];
     const json = (body: unknown) => ({ ok: true, status: 200, json: async () => body });
     vi.stubGlobal(
       'fetch',
@@ -3090,6 +3091,7 @@ describe('a backdoor on a box across the network', () => {
           return json({ ok: true, tree: serializeTree(theirTree(listening, bootId)) });
         }
         if (fields.action !== 'listPatches') return json({});
+        journalsAsked.push(String(fields.machine_id));
         if (fields.machine_id === THEIR_BOX) {
           return json({ patches: theirJournal(listening, bootId) });
         }
@@ -3112,6 +3114,7 @@ describe('a backdoor on a box across the network', () => {
     return {
       state,
       actions,
+      journalsAsked,
       killTheListener: () => {
         listening = false;
       },
@@ -3163,6 +3166,22 @@ describe('a backdoor on a box across the network', () => {
     await typeLine(state, 'ls');
 
     expect(actions.slice(spentHome)).toEqual([]);
+  });
+
+  it('asks nobody for the journal of a box it is served whole', async () => {
+    // The tree the server hands over is pruned to the tier the door gave; the rows
+    // behind it are not, and nothing here replays them. Asking would be a request per
+    // hop and per line spent on an answer that is thrown away — and the one request
+    // that could carry what the pruning removed.
+    const { state, actions, journalsAsked } = await enterTheBackdoor();
+
+    await typeLine(state, 'ls /var/run');
+    await typeLine(state, 'touch /tmp/mark');
+    // An append re-reads the machine before it composes the file it writes back.
+    await typeLine(state, 'echo line >> /tmp/log');
+
+    expect(actions.filter((action) => action === 'upsertPatch')).toHaveLength(2);
+    expect(journalsAsked).not.toContain(THEIR_BOX);
   });
 
   /**
