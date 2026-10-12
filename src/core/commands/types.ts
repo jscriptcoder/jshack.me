@@ -846,28 +846,26 @@ export type SshApi = {
   readonly authenticateInnerGateway: (params: InnerGatewayAuthParams) => Promise<PublicAuthResult>;
 };
 
-/** What `su` hands to `env.su.elevate` to escalate a session it ALREADY holds on a
- *  registered FOREIGN workstation (Story 4): the server resolves the box by its
- *  `machineId`, rebuilds the owner's tree, validates the typed password against its
- *  real `/etc/passwd`, and inserts a root-tier `kind:'su'` session — so B's later
- *  writes authorize at root (L2 reads the active session row's tier). Unlike ssh
- *  there's no host to resolve: B is already on the box. */
+/** What `su` hands to `env.su.elevate` to switch user on a box that is not the
+ *  player's own, in a shell they ALREADY hold there: the server finds the box from
+ *  that shell's session row, validates the typed password against its real
+ *  `/etc/passwd`, and inserts a `kind:'su'` session at the account's tier — so the
+ *  player's later writes are judged at it (the server reads the active session
+ *  row's tier). Unlike ssh there's no host to resolve: the player is already on the
+ *  box. Nor is there an account to name as the one switching: the row has it. */
 export type SuElevateParams = {
   readonly sessionId: string;
-  /** The machine B is currently on (the foreign workstation's real id). */
+  /** The machine the player is currently on. */
   readonly machineId: string;
   readonly username: string;
   readonly password: string;
-  /** B's current user on the box (e.g. `guest`) — the `by <from>` in the target's
-   *  su auth.log trace (Story 6.3). Not an identity claim (the verified pubkey is the
-   *  actor); it only names which local account ran `su`. */
-  readonly fromUser: string;
   readonly parentSessionId: string | null;
   readonly sourceIp: string | null;
 };
 
-/** The cross-player `su`-elevation seam — backed by the signed `suElevate` endpoint.
- *  On success the userType is SERVER-derived from the foreign box's `/etc/passwd`
+/** The `su` seam for a box that is not the player's own — backed by the signed
+ *  `suElevate` endpoint. On success the userType is SERVER-derived from the box's
+ *  `/etc/passwd`
  *  (never a client claim); errors mirror `RemoteAuthResult`. The UI wires it to the
  *  `authElevateServerSession` adapter; `core/` stays adapter-free. */
 export type SuApi = {

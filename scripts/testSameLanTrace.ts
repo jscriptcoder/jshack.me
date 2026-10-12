@@ -188,7 +188,6 @@ const s4 = await post(
     machine_id: A_WS,
     username: 'root',
     password: A_ROOT_PW,
-    from_user: 'guest',
   }),
 );
 const log4 = await readAuthLog(A_WS, alice.publicKeyHex);

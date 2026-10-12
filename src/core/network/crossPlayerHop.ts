@@ -16,14 +16,8 @@
  * and is shared by every occupant, so it resolves through the server like any other
  * contested box. That is what makes one occupant's writes to it visible to the rest.
  *
- * This is the shared core of two callers that must agree:
- *   - `ui/activeRoot`'s `isCrossPlayerHop` adds the shell-kind requirement (a served
- *     tree is fetched for a session that lands you in a shell — `ssh`, `su`, `nc`),
- *     then this.
- *   - `su`'s routing: it doesn't care about the current session's kind, only
- *     whether the box it runs on is foreign (→ server-authoritative elevation) or
- *     own/NPC (→ local passwd read). Keeping the definition in one place stops the
- *     two from drifting.
+ * `ui/activeRoot`'s `isCrossPlayerHop` adds the shell-kind requirement (a served tree is
+ * fetched for a session that lands you in a shell — `ssh`, `su`, `nc`), then this.
  */
 
 import { isOwnWorkstation } from '../identity/workstation.js';

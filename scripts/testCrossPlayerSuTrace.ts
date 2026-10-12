@@ -9,11 +9,12 @@
 //     writer_key, naming A's workstation machine name.
 //   - A wrong password → `FAILED su for root by guest` line still lands (su logs both
 //     outcomes); 401.
-//   - su lines carry the `by <from>` user from the payload (no source IP).
+//   - su lines carry the `by <from>` user off the caller's session row, never one the
+//     request names (no source IP).
 //   - Keystone: a SECOND attacker (C), switching from a different local user, accretes
 //     its own line into the SAME owner-keyed row instead of collapsing it under the
 //     last-write-wins fold.
-//   - host_unreachable (unregistered machine id) writes nothing.
+//   - A caller with no session on the box is refused and writes nothing.
 //
 // Usage (with v2 supabase + vercel dev running):
 //   npx dotenv -e .env.development.local -- npx tsx scripts/testCrossPlayerSuTrace.ts
@@ -94,7 +95,9 @@ const occupantRow = {
   workstation_root_hash: md5(A_ROOT_PW),
 };
 
-// Clean slate, then seed A's occupancy row (as A's join would). su needs no forward or
+// Clean slate, then seed A's occupancy row (as A's join would) and the shell each
+// attacker's login would have left on A's box: `su` is typed into a shell, and the
+// account the line names is the one that shell's row holds. su needs no forward or
 // pidfile — it targets A's workstation directly by machine_id.
 await sr.from('home_network_occupants').delete().eq('essid', A_ESSID);
 await sr.from('patches').delete().eq('machine_id', A_WS);
@@ -102,6 +105,27 @@ for (const id of [bob, carol]) {
   await sr.from('sessions').delete().eq('player_key', id.publicKeyHex);
 }
 await sr.from('home_network_occupants').insert([occupantRow]);
+const shellOn = (
+  attacker: ReturnType<typeof generateIdentity>,
+  account: { readonly username: string; readonly userType: 'user' | 'guest' },
+) => ({
+  session_id: `su-trace-ssh-${attacker.publicKeyHex.slice(0, 12)}`,
+  player_key: attacker.publicKeyHex,
+  machine_id: A_WS,
+  credentials: account,
+  kind: 'ssh',
+  essid: A_ESSID,
+});
+const seeded = await sr
+  .from('sessions')
+  .insert([
+    shellOn(bob, { username: 'guest', userType: 'guest' }),
+    shellOn(carol, { username: 'visitor', userType: 'user' }),
+  ]);
+if (seeded.error) {
+  console.error('could not seed sessions:', seeded.error);
+  process.exit(1);
+}
 
 const suElevate = (
   attacker: ReturnType<typeof generateIdentity>,
@@ -112,39 +136,42 @@ const suElevate = (
     ...fields,
   });
 
-// === 1. B su root (correct pw, from guest) → 200 + Successful line on A's WS auth.log. ===
+// === 1. Wrong root pw → 401, but the rejected attempt still lands a FAILED line. ===
+// First, while B's shell is still the guest one: once B is root, no password is asked for.
 const s1 = await post(
   SESSIONS,
   suElevate(bob, {
     session_id: 'su-b-1',
     username: 'root',
-    password: A_ROOT_PW,
-    from_user: 'guest',
+    password: 'not-the-root-pw',
   }),
 );
 const log1 = await readAuthLog(A_WS, alice.publicKeyHex);
-check('B su root on A’s workstation elevates (correct pw)', s1.status === 200, `status=${s1.status}`);
 check(
-  'A’s WORKSTATION auth.log records "Successful su for root by guest", naming the workstation',
-  log1.includes('Successful su for root by guest') && log1.includes(`${A_WS_NAME} su[`),
-  `line=${lastLine(log1)}`,
+  'a wrong password is 401 yet records "FAILED su for root by guest", naming the workstation',
+  s1.status === 401 &&
+    log1.includes('FAILED su for root by guest') &&
+    log1.includes(`${A_WS_NAME} su[`),
+  `status=${s1.status} line=${lastLine(log1)}`,
 );
 
-// === 2. Wrong root pw → 401, but the rejected attempt still lands a FAILED line. ===
+// === 2. B su root (correct pw, from guest) → 200 + Successful line on A's WS auth.log. ===
 const s2 = await post(
   SESSIONS,
   suElevate(bob, {
     session_id: 'su-b-2',
     username: 'root',
-    password: 'not-the-root-pw',
-    from_user: 'guest',
+    password: A_ROOT_PW,
+    // Ignored: the line names the account on B's session row, not one B claims.
+    from_user: 'somebody-else',
   }),
 );
 const log2 = await readAuthLog(A_WS, alice.publicKeyHex);
+check('B su root on A’s workstation elevates (correct pw)', s2.status === 200, `status=${s2.status}`);
 check(
-  'a wrong password is 401 yet records "FAILED su for root by guest"',
-  s2.status === 401 && log2.includes('FAILED su for root by guest'),
-  `status=${s2.status} line=${lastLine(log2)}`,
+  'A’s WORKSTATION auth.log records "Successful su for root by guest", whatever account the request names',
+  log2.includes('Successful su for root by guest') && !log2.includes('somebody-else'),
+  `line=${lastLine(log2)}`,
 );
 
 // === 3. Keystone: a SECOND attacker (C), switching from a DIFFERENT local user, ===
@@ -155,7 +182,6 @@ const s3 = await post(
     session_id: 'su-c-1',
     username: 'root',
     password: A_ROOT_PW,
-    from_user: 'visitor',
   }),
 );
 const log3 = await readAuthLog(A_WS, alice.publicKeyHex);
@@ -167,22 +193,21 @@ check(
   `lines=${log3.trim().split('\n').length}`,
 );
 
-// === 4. host_unreachable (unregistered machine id) writes nothing. ===
+// === 4. A caller with no shell on the box is refused and writes nothing. ===
+const dave = generateIdentity();
 const before = await readAuthLog(A_WS, alice.publicKeyHex);
 const s4 = await post(
   SESSIONS,
-  signRequest(bob, 'suElevate', {
-    session_id: 'su-b-x-1',
-    machine_id: 'workstation-does-not-exist',
+  suElevate(dave, {
+    session_id: 'su-d-1',
     username: 'root',
     password: A_ROOT_PW,
-    from_user: 'guest',
   }),
 );
 const after = await readAuthLog(A_WS, alice.publicKeyHex);
 check(
-  'su against an unregistered machine id is 404 host_unreachable and writes no trace',
-  s4.status === 404 && before === after,
+  'su by a caller with no session on the box is 403 no_session and writes no trace',
+  s4.status === 403 && before === after,
   `status=${s4.status} logUnchanged=${before === after}`,
 );
 

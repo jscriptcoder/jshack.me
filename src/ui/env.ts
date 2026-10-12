@@ -231,10 +231,11 @@ export type BuildCommandEnvArgs = {
    *  Optional here: only a cross-player `msfconsole --local` calls it, so own-box/test setups
    *  leave it unwired (a foreign-box `--local` without it surfaces the missing wiring). */
   readonly onExploitElevateLocal?: ExploitApi['elevateLocal'];
-  /** The cross-player `su`-elevation seam — backs `env.su.elevate`. The UI wires it
-   *  to the `authElevateServerSession` adapter (signed `suElevate` round-trip).
-   *  Optional here: only a cross-player hop's `su` calls it, so own-box/test setups
-   *  leave it unwired (a foreign-box `su` without it surfaces the missing wiring). */
+  /** The `su` seam for a box that is not the player's own — backs `env.su.elevate`.
+   *  The UI wires it to the `authElevateServerSession` adapter (signed `suElevate`
+   *  round-trip). Optional here: only a `su` typed off the own box calls it, so
+   *  own-box/test setups leave it unwired (a `su` elsewhere without it surfaces the
+   *  missing wiring). */
   readonly onSuElevate?: SuApi['elevate'];
 
   /** Backs `env.reboot.evict` — the signed act that ends the machine's sessions. */

@@ -549,12 +549,13 @@ export const authCreateServerSessionInnerGateway = async (
   }
 };
 
-/** Elevate a session B ALREADY holds on a registered FOREIGN workstation to root
- *  (Story 4): the server resolves the box by its `machine_id`, rebuilds the owner's
- *  tree, validates the password against its `/etc/passwd`, and on success persists a
- *  root-tier `kind:'su'` row and returns the server-derived userType. 401 → bad
- *  password/unknown user; 404 → the machine isn't registered. A 200 missing a valid
- *  userType is treated as malformed, never a successful elevation. */
+/** Switch user in a shell the player ALREADY holds on a box that is not their own:
+ *  the server finds the box from that shell's session row, validates the password
+ *  against its `/etc/passwd`, and on success persists a `kind:'su'` row and returns
+ *  the server-derived userType. 401 → bad password/unknown user; 404 → the box is on
+ *  no network. Every other refusal, a caller with no shell there included, reads as a
+ *  network error. A 200 missing a valid userType is treated as malformed, never a
+ *  successful elevation. */
 export const authElevateServerSession = async (
   deps: SessionsClientDeps,
   params: SuElevateParams,
@@ -565,7 +566,6 @@ export const authElevateServerSession = async (
       machine_id: params.machineId,
       username: params.username,
       password: params.password,
-      from_user: params.fromUser,
       parent_session_id: params.parentSessionId,
       source_ip: params.sourceIp,
     });

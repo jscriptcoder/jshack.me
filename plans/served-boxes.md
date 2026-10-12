@@ -1,8 +1,9 @@
 # Plan: every box that isn't yours is served
 
 **Status**: Grilled and sliced. Decisions confirmed by the owner 2026-10-12. Slice 1 shipped at
-v0.369.0 and slice 2, the audit, is done; slice 3 is next. Where another doc disagrees with this
-file, this file wins until the close-out moves its content into `docs/`.
+v0.369.0, slice 2, the audit, is done, and slice 3 shipped at v0.370.0; slice 4 is next. Where
+another doc disagrees with this file, this file wins until the close-out moves its content into
+`docs/`.
 
 ## Goal
 
@@ -228,26 +229,69 @@ defect has a slice in this file. A defect that needs a rule goes to the owner as
 first.
 **No code, no version bump.**
 
-### Slice 3: `su` on a generated machine is answered by the server
+### Slice 3: `su` on a generated machine is answered by the server ✅
+
+**As built** (v0.370.0): `handleAuthElevateSession` starts from the caller's own live session
+row on the machine. No row is 403 `no_session`. The network on the row locates the box:
+`networkBaseFsForMachineId` (new, in `core/generation/lanHostIdentity.ts`, and now what
+`enforceRemoteWriteL2` uses too) answers for the access point's gateway and every machine the
+network generates; anything else is a workstation found through occupancy. The journal is
+replayed over that base (`materializeMachineFs`) before the password is checked. A row already
+`root` is asked for none. The trace names the account on the row, under the owner's key on a
+workstation and the network's key (`apGatewayLogWriterKey`) elsewhere. The new row carries the
+session's network, where it used to carry whichever occupancy row the lookup returned. On the
+client, `su` asks the server on every machine that is not the player's own workstation
+(`isOwnWorkstation`), prompts only when the shell is not `root`, and no longer sends who is
+switching. `resolveStoodOnBox` in the handler returns the base tree, hostname and log key of the
+box a session stands on; slice 6 needs the same three for `exploitLocalElevate` and should move
+it out to share it. Wire-checks: `testCrossPlayerSuElevate` 14/14, `testCrossPlayerSuTrace` 5/5,
+`testSameLanTrace` 6/6. Mutation: 199 of 201 killed on the changed code, no timeouts, both
+survivors equivalent.
 
 **Value**: a player who switches user on a generated machine holds that tier on the server too,
 so their writes are judged at it and the shell survives a refresh.
 **Path**: `su` → `env.su.elevate` → `suElevate` on `api/sessions` →
 `core/sessions/authElevateSession`, resolving a generated machine from the network on the
 caller's session row → a session row at the new tier.
-**Measure first**: confirm on the live stack that a local `su` on a generated machine leaves no
-row and that a root-only write after it is refused. The plan records this by reading only.
-**Added by the audit, both by reading and both to measure first**:
+**Measured** (2026-10-12, a throwaway probe against the live local stack, since deleted):
 
-- `suElevate` builds the workstation from its identity and replays no journal, so it checks the
-  password the box was generated with. `ssh` reads the replayed `/etc/passwd`. After an exploit
-  resets a password, `ssh` should accept the new one and `su` refuse it.
-- `suElevate` resolves only a player's workstation, and the client sends `su` on the access
-  point's gateway to the server, so `su` there should answer `host_unreachable`.
+| Box | Request | Answer |
+| --- | --- | --- |
+| Generated machine, `guest` session held | `suElevate` | 404 `host_unreachable` |
+| Generated machine, `guest` session held | the `appendAuthLog` line the client sends after its local `su` | 403 `no_session`, so the switch leaves no trace |
+| Generated machine, after the local `su` | a root-only write | 403 `permission_denied`, no `su` row |
+| Access point's gateway, `guest` session held | `suElevate` | 404 `host_unreachable` |
+| Workstation whose root password the journal changed | `ssh root`, new password | 200 |
+| Same | `ssh root`, generated password | 401 |
+| Same | `suElevate`, new password | 401 |
+| Same | `suElevate`, generated password | 200, a `root` row |
+| Workstation, caller holds **no session** on it | `suElevate`, the password the handler accepts | 200, a `root` row |
+| Same, straight after | a root-only write | 200 |
 
-Both go away if the handler resolves the machine from the caller's session row and reads the box
-as it is, which is what a generated machine needs anyway. `enforceRemoteWriteL2` already resolves
-all three kinds of box that way (`resolveTargetBaseFs`).
+The first eight rows confirm what the plan and the audit read. The last two are new: `suElevate`
+never asks whether the caller is on the box, so the root password alone is a root row there, with
+sshd down, the port filtered or the box bricked, and with no login line in `auth.log`.
+
+All of it goes away if the handler starts from the caller's own session row on the machine,
+resolves the box from the network on that row, and reads the box as it is. `enforceRemoteWriteL2`
+already resolves all three kinds of box that way (`resolveTargetBaseFs`).
+**Criteria** (owner, 2026-10-12). On any box that is not the player's own workstation:
+
+- A session that gives the right password gets a `su` row at the account's tier, on a generated
+  machine and on the access point's gateway as on a workstation, and a write after it is judged
+  at that tier.
+- The password is checked against the `/etc/passwd` the journal leaves.
+- A caller with no live session on the machine is refused `no_session` and gets no row.
+- A session already `root` switches to any account without a password, on every box. This is
+  new on a player's workstation, where root can now become the owner's user.
+- An account with no password still cannot be switched to by a caller who is not `root`.
+- Every attempt writes a `su` line to the box's `auth.log`, and the user it names as the one
+  switching comes from the caller's session row.
+- A wrong password and an unknown user both read `su: Authentication failure`. A generated
+  machine loses `su: user X does not exist`.
+- `su` no longer reads `/etc/passwd` in the browser there. The player's own workstation is
+  unchanged.
+
 **First failing test**: a caller holding a `guest` session on a generated machine elevates to
 `root` with the box's password and gets a row at `root`.
 **Wire-check**: the script that covers `suElevate` today, extended to a generated machine.

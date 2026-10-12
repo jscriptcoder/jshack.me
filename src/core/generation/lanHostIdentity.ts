@@ -28,7 +28,7 @@
  */
 
 import type { Directory } from '../filesystem/types.js';
-import { computeDeepGatewayId } from '../identity/router.js';
+import { computeApGatewayId, computeDeepGatewayId } from '../identity/router.js';
 import {
   buildApGatewayBaseFs,
   buildDeepGatewayBaseFs,
@@ -212,3 +212,14 @@ export const generatedBaseFsForMachineId = (
   lanBaseFsForMachineId(essid, machineId) ??
   chainGatewayBaseFsForMachineId(essid, machineId) ??
   deepHostBaseFsForMachineId(essid, machineId);
+
+/** The seeded base FS of any box that belongs to the NETWORK rather than to a player: the
+ *  access point's own gateway, or a machine the network generates. The gateway gets its
+ *  own arm because the LAN walker deliberately skips `.1` — it belongs to the access point
+ *  rather than sitting on its LAN as a host. Its id is a pure function of the ESSID, so a
+ *  gateway on any OTHER network cannot be reached by claiming its id here. Null means the
+ *  id is another player's workstation, which only occupancy can identify. */
+export const networkBaseFsForMachineId = (essid: string, machineId: string): Directory | null =>
+  computeApGatewayId(essid) === machineId
+    ? buildApGatewayBaseFs(essid)
+    : generatedBaseFsForMachineId(essid, machineId);

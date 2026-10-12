@@ -40,14 +40,14 @@ The verdicts:
 
 ## Result
 
-- **Client:** 85 calls to `stat` or `root()` in 39 files. 64 are fine, 9 depend on the
-  externally-observable list, 1 is already scheduled to move to the server, and 11 belong to two
-  defects. The places `ui/state.ts` and `webHost.ts` hand a whole tree on to a helper are listed
+- **Client:** 85 calls to `stat` or `root()` in 39 files. 65 are fine, 9 depend on the
+  externally-observable list, and 11 belong to two defects. One of the 65 is `su`, which read
+  `/etc/passwd` on a generated machine until v0.370.0 moved it to the server. The places `ui/state.ts` and `webHost.ts` hand a whole tree on to a helper are listed
   beside the reader they feed.
 - **Server:** 44 response bodies over four endpoints (`network` 13, `patches` 10, `sessions` 18,
   `wallet` 3). Earlier counts of 39 left out each endpoint's fallthrough action and two of the
   wallet's three requests. One body carries files above the caller's tier (`listPatches`, already
-  known). One handler reads the wrong file (`suElevate`). The rest are fine.
+  known). One handler read the wrong file (`suElevate`, fixed in v0.370.0). The rest are fine.
 - The browser holds no database client. The four endpoints are the whole surface, and every table
   has row-level security on with no policy.
 
@@ -56,14 +56,16 @@ The verdicts:
 | #   | Defect                                                                                                                                                                                                                                                                                                                               | Where                                                                | Fix                                                        |
 | --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------- | ---------------------------------------------------------- |
 | 1   | A visitor on a generated machine receives its raw journal.                                                                                                                                                                                                                                                                           | `listPatches`                                                        | Planned: generated machines are served.                    |
-| 2   | `su` on a generated machine reads `/etc/passwd` in the browser, and the new tier is never recorded on the server.                                                                                                                                                                                                                    | `commands/su.ts:69`                                                  | Planned: `su` answered by the server.                      |
-| 3   | `suElevate` checks the password against the workstation as it was generated, not as it is. A password an exploit reset is accepted by `ssh` and refused by `su`. It also resolves only a player's workstation, so `su` on the access point's gateway answers `host_unreachable`.                                                     | `sessions/authElevateSession.ts`                                     | Folded into the `su` slice. Measure first.                 |
+| 2   | `su` on a generated machine reads `/etc/passwd` in the browser, and the new tier is never recorded on the server.                                                                                                                                                                                                                    | `commands/su.ts:69`                                                  | Fixed in v0.370.0: the server answers `su`.                |
+| 3   | `suElevate` checks the password against the workstation as it was generated, not as it is. A password an exploit reset is accepted by `ssh` and refused by `su`. It also resolves only a player's workstation, so `su` on the access point's gateway answers `host_unreachable`.                                                     | `sessions/authElevateSession.ts`                                     | Fixed in v0.370.0, measured first.                         |
 | 4   | A local exploit (`msfconsole --local`) on a generated machine runs in the browser: it reads the tree at the tier the exploit grants, which is above the session's, and the shell it lands is never recorded on the server. On the access point's gateway the request goes to the server, which resolves only a player's workstation. | `commands/msfconsole.ts` (10 sites), `exploitLocalElevate`           | New slice. Must ship before generated machines are served. |
 | 5   | A scan, a login or a transfer aimed at the layer behind a switch reads the switch's `acl.conf` off the shell's own tree. The file is root-only, so a lower-tier shell on a served switch would treat every port as allowed.                                                                                                          | 7 sites, see [the reach of a deep layer](#the-reach-of-a-deep-layer) | Planned: the session holder is served the list.            |
 | 6   | `chmod` maps the `u` in a mode to the owner's tier by reading `/etc/passwd`. A `guest` session on a served box has no such file, so every owner reads as `guest`.                                                                                                                                                                    | `commands/chmod.ts:153`                                              | New slice. A mode naming `u` is refused without the file.  |
+| 7   | `suElevate` never asked whether the caller held a session on the machine, so the root password alone gave a `root` row on a workstation, with every door shut. Found while defect 3 was measured.                                                                                                                                    | `sessions/authElevateSession.ts`                                     | Fixed in v0.370.0: no session, no `su`.                    |
 
 Defects 1, 2 and 5 were known before the audit. 3, 4 and 6 are what it found, with 6 already
-suspected.
+suspected. 7 is not a read past a tier; it turned up on the live stack while 3 was being measured,
+in the same handler. 2, 3 and 7 are fixed.
 
 ## The files machinery reads
 
@@ -175,14 +177,14 @@ box is served as generated to a reader on its LAN, and as changed to a reader ac
 
 ### Accounts
 
-| Site                                                                        | Reads                                                                                                                     | Verdict           |
-| --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | ----------------- |
-| `commands/su.ts:69`                                                         | `/etc/passwd`, on a generated machine. Another player's workstation already goes to the server.                           | server (defect 2) |
-| `commands/chmod.ts:140`                                                     | The node being changed, after which `canWrite` is asked.                                                                  | fine              |
-| `commands/chmod.ts:153`                                                     | `/etc/passwd`, for the tier of the node's owner.                                                                          | defect 6          |
-| `commands/msfconsole.ts:648, 678, 706, 789, 802, 854, 856, 861, 1007, 1031` | The whole tree at the tier a local exploit grants, `/etc/passwd`, and the package manifest.                               | defect 4          |
-| `commands/msfconsole.ts:999`                                                | The tree held for another player's workstation, handed to the script a local fire runs before it is sent. Already pruned. | fine              |
-| `commands/ownBoxLogin.ts:50`                                                | `/etc/passwd` of the player's own box, for a login over `localhost`. Home only.                                           | fine              |
+| Site                                                                        | Reads                                                                                                                     | Verdict  |
+| --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | -------- |
+| `commands/su.ts:69`                                                         | `/etc/passwd`, on the player's own workstation only. Elsewhere `su` asks the server (v0.370.0).                           | fine     |
+| `commands/chmod.ts:140`                                                     | The node being changed, after which `canWrite` is asked.                                                                  | fine     |
+| `commands/chmod.ts:153`                                                     | `/etc/passwd`, for the tier of the node's owner.                                                                          | defect 6 |
+| `commands/msfconsole.ts:648, 678, 706, 789, 802, 854, 856, 861, 1007, 1031` | The whole tree at the tier a local exploit grants, `/etc/passwd`, and the package manifest.                               | defect 4 |
+| `commands/msfconsole.ts:999`                                                | The tree held for another player's workstation, handed to the script a local fire runs before it is sent. Already pruned. | fine     |
+| `commands/ownBoxLogin.ts:50`                                                | `/etc/passwd` of the player's own box, for a login over `localhost`. Home only.                                           | fine     |
 
 ### The player's own workstation only
 
@@ -236,7 +238,7 @@ caller gets can still tell them a file or an account exists.
 | `createSession`, `endSession`, `rebootMachine`                                                              | `ok`                                                                                                                                                                                   |                                                                                                                      | fine     |
 | `listSessions`                                                                                              | The caller's own open rows                                                                                                                                                             | `sessions`, by the caller's key.                                                                                     | fine     |
 | `authCreateSession`, `authCreateSessionSameLan`, `authCreateSessionPublic`, `authCreateSessionInnerGateway` | `userType`, and where needed `username`, `machine_id`, `essid`                                                                                                                         | `/etc/passwd` on the box as it is, behind the password.                                                              | server   |
-| `suElevate`                                                                                                 | `userType`                                                                                                                                                                             | `/etc/passwd` of the workstation **as generated**, behind the password.                                              | defect 3 |
+| `suElevate`                                                                                                 | `userType`                                                                                                                                                                             | `/etc/passwd` of the box as its journal leaves it (v0.370.0).                                                        | fine     |
 | `hydraCrack`                                                                                                | `port`, `cracked`, `wordlistFound`                                                                                                                                                     | `/etc/passwd` or a service's secret. Only accounts whose password is in the word list on the caller's box come back. | server ⁴ |
 | `mysqlConnect`, `redisConnect`                                                                              | `hostname`                                                                                                                                                                             | The database or store file, behind its credential. A refused `mysqlConnect` also names the address the box saw.      | server   |
 | `mysqlStatement`, `redisStatement`                                                                          | `output`, `failed`                                                                                                                                                                     | The same file. Rendered text only; `mysql` renders at the tier of the database account that logged in.               | server   |
@@ -264,8 +266,8 @@ The ledger is public by design and holds no file content. The two reads verify n
 
 ## What was not checked
 
-- Nothing was run. Defects 3 and 4 in particular are read from the code and must be measured on
-  the live stack before they are fixed.
+- Nothing was run for the audit itself. Defect 3 has since been measured on the live stack and
+  fixed. Defect 4 is still read from the code and must be measured the same way before it is fixed.
 - Error codes as a channel (see above).
 - What a write that claims `is_new` does to a file the writer could not see.
 - Anything on the player's own workstation, which stays local.

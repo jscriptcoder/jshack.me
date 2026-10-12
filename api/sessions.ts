@@ -988,18 +988,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   if (actionOf(req.body) === 'suElevate') {
-    // Cross-PLAYER su-to-root: B (already ssh'd into A) escalates. Resolve A's
-    // registered workstation by the machine_id B is standing on, then the handler
-    // rebuilds A's box from the persisted identity and validates the typed password
-    // before the insert runs (a root-tier `kind:'su'` row that makes B's later writes
-    // authorize at root). A resolved attempt leaves a su auth.log trace on A's shared
-    // workstation record, under the OWNER's writer_key.
+    // `su` on a box that is not the caller's own. The handler starts from the caller's
+    // live session on the machine: without one there is nothing to switch from, and the
+    // network on it says which box this is — that network's gateway, a machine it
+    // generates, or else another player's workstation. It reads the box as its journal
+    // leaves it and validates the typed password before the insert runs (a `kind:'su'`
+    // row that moves the tier the caller's later writes are judged at). A resolved
+    // attempt leaves a su trace on the box's auth.log, under the key that owns its logs.
     //
-    // Whose box B is standing on comes from occupancy — which carries the identity fields
-    // su needs AND says the machine is still on a WiFi, so a `su` into a box whose owner
-    // has disconnected resolves to nothing rather than elevating on an unreachable
-    // machine. One player on N APs has N rows with the SAME workstation_machine_id, so
-    // `.limit(1)` picks any.
+    // A workstation comes from occupancy — which carries the identity fields su needs AND
+    // says the machine is still on a WiFi, so a `su` on a box whose owner has disconnected
+    // resolves to nothing rather than elevating on an unreachable machine. One player on N
+    // APs has N rows with the SAME workstation_machine_id, so `.limit(1)` picks any; the
+    // network the new row carries is the session's, not this row's.
     const findOccupantWorkstationByMachineId = async (machineId: string) => {
       const { data, error } = await supabase
         .from('home_network_occupants')
@@ -1017,6 +1018,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       now: () => Date.now(),
       findOccupantWorkstationByMachineId,
       findActiveSession: findActiveSessionVia({ supabase, label: 'su-elevate active-session' }),
+      findPatches: findPatchesVia({ supabase, label: 'su-elevate journal lookup' }),
       insertSession: insertSessionVia({ supabase, label: 'su-elevate insert' }),
       readAuthLog: listPathPatchesVia({ supabase, label: 'su auth-log read' }),
       upsertPatch: upsertPatchVia({ supabase, label: 'su auth-log upsert' }),

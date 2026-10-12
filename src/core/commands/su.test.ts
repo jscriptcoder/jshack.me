@@ -9,6 +9,8 @@ import {
   mockSession,
 } from '../../test/factories/commandEnv.js';
 import { computeWorkstationId } from '../identity/workstation.js';
+import { generateHomeLan } from '../generation/generateHomeLan.js';
+import { machineIdForLanHost } from '../generation/lanHostIdentity.js';
 import type { WirelessInterface } from '../network/interfaces.js';
 import {
   asAbsPath,
@@ -42,7 +44,8 @@ import { su } from './su.js';
 
 const NO_FLAGS = new Map<string, string | true>();
 const PUBKEY = asPlayerKeyHex('a'.repeat(64));
-const MACHINE = asMachineId('rig-deadbeef');
+// The player's own workstation: the one box `su` answers for without the server.
+const MACHINE = asMachineId(computeWorkstationId('rig', PUBKEY));
 
 type PromptCall = { readonly message: string; readonly masked: boolean };
 
@@ -354,6 +357,8 @@ describe('su', () => {
         readonly elevateResult?: RemoteAuthResult;
         readonly machineId?: MachineId;
         readonly cancel?: boolean;
+        /** The tier of the shell `su` is typed into. Defaults to guest. */
+        readonly callerType?: UserType;
       } = {},
     ) => {
       const pushed: Session[] = [];
@@ -368,8 +373,8 @@ describe('su', () => {
           id: 'ssh-guest-seed',
           machineId: opts.machineId ?? FOREIGN_MACHINE,
           playerKey: PUBKEY,
-          username: 'guest',
-          userType: 'guest',
+          username: opts.callerType === 'root' ? 'root' : 'guest',
+          userType: opts.callerType ?? 'guest',
           kind: 'ssh',
           essid: 'SKYLAB-HOME',
         }),
@@ -410,16 +415,17 @@ describe('su', () => {
       expect(promptCalls).toHaveLength(1);
       expect(promptCalls[0].masked).toBe(true);
       expect(promptCalls[0].message.toLowerCase()).toContain('password');
-      expect(elevateCalls).toHaveLength(1);
-      expect(elevateCalls[0]).toMatchObject({
-        sessionId: 'su-root-123',
-        machineId: FOREIGN_MACHINE,
-        username: 'root',
-        password: 'matrix1999',
-        parentSessionId: 'ssh-guest-seed',
-        // B's current ws user — carried so A's auth.log reads "by guest" (Story 6.3).
-        fromUser: 'guest',
-      });
+      // Nothing about who is switching: the server reads that off the session row.
+      expect(elevateCalls).toEqual([
+        {
+          sessionId: 'su-root-123',
+          machineId: FOREIGN_MACHINE,
+          username: 'root',
+          password: 'matrix1999',
+          parentSessionId: 'ssh-guest-seed',
+          sourceIp: null,
+        },
+      ]);
       expect(pushed).toHaveLength(1);
       expect(pushed[0]).toMatchObject({
         id: 'su-root-123',
@@ -437,6 +443,66 @@ describe('su', () => {
       // that its joined text is blank), so an injected line can't slip through.
       expect(text).toBe('');
       expect(lineCount).toBe(0);
+    });
+
+    it('asks the server on a machine the network generates, as on a workstation', async () => {
+      const generated = asMachineId(
+        machineIdForLanHost(
+          generateHomeLan(ESSID).hosts.find((host) => host.kind === 'machine')!,
+          ESSID,
+        ),
+      );
+      const { env, pushed, promptCalls, elevateCalls } = crossPlayerEnv({
+        typed: 'the-box-root-pw',
+        machineId: generated,
+      });
+
+      const { exitCode, text } = syncResult(await su.execute(env, ['root'], NO_FLAGS));
+
+      expect(promptCalls).toHaveLength(1);
+      expect(elevateCalls).toMatchObject([
+        { machineId: generated, username: 'root', password: 'the-box-root-pw' },
+      ]);
+      expect(pushed).toMatchObject([{ machineId: generated, username: 'root', userType: 'root' }]);
+      expect({ exitCode, text }).toEqual({ exitCode: 0, text: '' });
+    });
+
+    it('asks the server whatever the wireless interface says, since the box is still not ours', async () => {
+      const { env, elevateCalls } = crossPlayerEnv({ typed: 'matrix1999' });
+      const unassociated = {
+        ...env,
+        network: mockNetworkView({ interfaces: () => [onlineWlan0(null)] }),
+      };
+
+      await su.execute(unassociated, ['root'], NO_FLAGS);
+
+      expect(elevateCalls).toHaveLength(1);
+    });
+
+    it('does not ask a root shell for a password, and lets the server see that it is root', async () => {
+      const { env, pushed, promptCalls, elevateCalls } = crossPlayerEnv({
+        callerType: 'root',
+        elevateResult: { ok: true, userType: 'user' },
+      });
+
+      const { exitCode } = syncResult(await su.execute(env, ['neo'], NO_FLAGS));
+
+      expect(promptCalls).toEqual([]);
+      expect(elevateCalls).toMatchObject([{ username: 'neo', password: '' }]);
+      expect(pushed).toMatchObject([{ username: 'neo', userType: 'user' }]);
+      expect(exitCode).toBe(0);
+    });
+
+    it('reads a root shell’s refusal as an authentication failure too', async () => {
+      const { env, pushed } = crossPlayerEnv({
+        callerType: 'root',
+        elevateResult: { ok: false, error: 'invalid_credentials' },
+      });
+
+      const { exitCode, text } = syncResult(await su.execute(env, ['ghost'], NO_FLAGS));
+
+      expect({ exitCode, text }).toEqual({ exitCode: 1, text: 'su: Authentication failure' });
+      expect(pushed).toEqual([]);
     });
 
     it('uses the SERVER-derived userType for the pushed session (not assumed root)', async () => {
