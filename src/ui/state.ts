@@ -504,7 +504,7 @@ const pushSession = (next: Session): void => {
   // Persist the pushed session so it survives a refresh. Fire-and-forget alongside
   // the optimistic stack update — the adapter swallows errors, so a network hiccup
   // never breaks the switch. ONLY own-workstation sessions are created here: a
-  // foreign-machine session (an `ssh` hop, or a cross-player `su` elevation) is
+  // session on any other machine (an `ssh` hop, or a `su` typed there) is
   // already created server-side by its OWN auth round-trip (authCreateSession /
   // suElevate), which MUST validate the credential before the row exists — creating
   // it again here would just 403 against the own-workstation gate. The base login
@@ -784,7 +784,7 @@ const sshAuthenticateInnerGateway = (params: InnerGatewayAuthParams): Promise<Pu
     ? Promise.resolve({ ok: false, error: 'network_error' })
     : authCreateServerSessionInnerGateway(sessionsClientDeps, params);
 
-/** Elevate a session on another player's box to root server-side (backs
+/** Switch user server-side on a box that is not the player's own (backs
  *  `env.su.elevate`). Degrades to a network error before `startGame` wires the
  *  sessions client. */
 const suElevate = (params: SuElevateParams): Promise<RemoteAuthResult> =>

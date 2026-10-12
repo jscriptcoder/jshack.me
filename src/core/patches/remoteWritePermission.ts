@@ -7,8 +7,8 @@
  * server REGENERATES it and asks the SHARED `createFsView`/walker the exact same
  * `canWrite` question the own-box client asks (one walker, no drift). The base FS
  * is resolved two ways:
- *   1. a box the session's own network generates, at any depth
- *      (`generatedBaseFsForMachineId`) — an ssh hop to a generated machine, pure;
+ *   1. a box the session's own network makes, its own gateway included
+ *      (`networkBaseFsForMachineId`) — an ssh hop to a generated machine, pure;
  *   2. a FOREIGN player workstation, rebuilt from the OWNER's identity held in
  *      `home_network_occupants` (decision D6) — a cross-player write to another
  *      player's box. The own-LAN resolvers miss (it's not on the caller's LAN), so we
@@ -21,10 +21,8 @@
 
 import { applyPatches, type Patch } from '../filesystem/applyPatches.js';
 import { createFsView } from '../filesystem/fsView.js';
-import { generatedBaseFsForMachineId } from '../generation/lanHostIdentity.js';
+import { networkBaseFsForMachineId } from '../generation/lanHostIdentity.js';
 import { buildWorkstationBaseFsFromIdentity } from '../generation/workstationFs.js';
-import { buildApGatewayBaseFs } from '../generation/routerFs.js';
-import { computeApGatewayId } from '../identity/router.js';
 import { asAbsPath } from '../types.js';
 import type { Directory } from '../filesystem/types.js';
 import type { ActiveSession } from './authorizeMachineAccess.js';
@@ -91,23 +89,15 @@ const resolveTargetBaseFs = async (args: {
   readonly session: SessionTier;
   readonly findOccupantWorkstationByMachineId: FindOccupantWorkstationByMachineId;
 }): Promise<ResolvedBase> => {
-  // The AP gateway at `.1`. The LAN walker deliberately skips that octet — the gateway
-  // belongs to the access point rather than sitting on its LAN as a host — so it gets
-  // its own arm. Standing on it means holding a session opened against it, and that
-  // session records the ESSID, which is the whole seed its tree needs. The id is a pure
-  // function of the ESSID, so a gateway on any OTHER network cannot be reached by
-  // claiming its id here.
-  if (computeApGatewayId(args.session.essid) === args.machineId) {
-    return { fs: buildApGatewayBaseFs(args.session.essid), error: null };
-  }
-  // Every other box the session's network generates, down the whole chain: a LAN host, a
+  // A box the session's own network makes: the access point's gateway, a LAN host, a
   // gateway at any depth, and the machine on each layer a gateway fronts. One resolver for
   // all of them, the same one the read side builds a generated box from, so a box a shell
-  // can stand on and read is a box it can write at its tier. Naming them kind by kind here
-  // left the deep machines out, and a root shell on one could write nothing.
-  const generatedFs = generatedBaseFsForMachineId(args.session.essid, args.machineId);
-  if (generatedFs !== null) {
-    return { fs: generatedFs, error: null };
+  // can stand on and read is a box it can write at its tier. Standing on one means holding
+  // a session opened on its network, and that session records the ESSID, which is the
+  // whole seed its tree needs.
+  const networkFs = networkBaseFsForMachineId(args.session.essid, args.machineId);
+  if (networkFs !== null) {
+    return { fs: networkFs, error: null };
   }
   // Not a machine the session's own network generates, so it is another player's
   // workstation. Occupancy is both the identity source and the reachability test: it

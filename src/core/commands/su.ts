@@ -1,23 +1,30 @@
 /**
  * su — switch user. Targets any account in `/etc/passwd` (defaulting to `root`
- * when no username is given, like real `su`). It reads the target's row,
- * derives the tier, and on success pushes a session for that user onto the hop
- * chain + moves to their home dir. `exit` pops back.
+ * when no username is given, like real `su`). On success it pushes a session for
+ * that user onto the hop chain + moves to their home dir. `exit` pops back.
  *
- * `su` reads `/etc/passwd` at ROOT privilege — `env.fs.stat` resolves the raw
- * node, bypassing the CALLER's read perms — modelling a real setuid-root `su`
- * (which reads the password DB as root regardless of who invoked it). That is
- * what lets a guest, who cannot normally read passwd, still switch to another
- * account.
+ * Who answers depends on whose box it is:
+ *
+ * On the player's OWN workstation the command answers itself. It reads
+ * `/etc/passwd` at ROOT privilege — `env.fs.stat` resolves the raw node, bypassing
+ * the CALLER's read perms — modelling a real setuid-root `su` (which reads the
+ * password DB as root regardless of who invoked it). That is what lets a guest,
+ * who cannot normally read passwd, still switch to another account.
+ *
+ * On any other box the server answers (see `elevateThroughServer`): the file is not
+ * the browser's to read there, and only a session row the server wrote moves the
+ * tier the player's writes are judged at.
  *
  * Whether a password is required follows real `su`:
  *   - the caller is already root ⇒ no password (root may become anyone);
- *   - the target account has an empty hash ⇒ password-less, no prompt;
+ *   - the target account has an empty hash ⇒ password-less, no prompt (own box
+ *     only: elsewhere the server refuses such an account to anyone but root);
  *   - otherwise prompt (masked) via `env.prompt` — the GENERAL interactive-input
  *     primitive ssh/scp/ftp/mysql/redis reuse — and compare md5(typed) against
  *     the stored hash.
  * A wrong password is a single `Authentication failure` (never leaking which
- * check failed); an unknown username is `su: user <name> does not exist`.
+ * check failed); an unknown username is `su: user <name> does not exist` on the
+ * own box, and the same `Authentication failure` anywhere else.
  *
  * Tier derivation (uid 0 ⇒ root, the literal `guest` account ⇒ guest, everyone
  * else ⇒ user) mirrors how the workstation generator assigns tiers.
@@ -26,7 +33,7 @@
 import { asAbsPath, type AbsPath, type UserType } from '../types.js';
 import { md5 } from '../generation/md5.js';
 import { userTypeFromPasswdFields } from '../generation/passwdTier.js';
-import { isCrossPlayerWorkstation } from '../network/crossPlayerHop.js';
+import { isOwnWorkstation } from '../identity/workstation.js';
 import type { Command, CommandEnv, CommandResult, Session } from './types.js';
 import { homeDirectory } from '../sessions/homeDirectory.js';
 
@@ -51,15 +58,6 @@ type TargetUser = {
   readonly passwordHash: string;
   readonly userType: UserType;
   readonly home: AbsPath;
-};
-
-/** The ESSID of the currently-associated `wlan0`, or null when not on a network —
- *  one input to the own/NPC vs cross-player-workstation routing decision. */
-const currentEssid = (env: CommandEnv): string | null => {
-  const wlan0 = env.network.interfaces().find((iface) => iface.name === 'wlan0');
-  return wlan0 !== undefined && wlan0.kind === 'wireless' && wlan0.association !== null
-    ? wlan0.association.essid
-    : null;
 };
 
 /** Read `/etc/passwd` at ROOT privilege via `stat` (which resolves the raw node,
@@ -122,24 +120,33 @@ const sessionFor = (env: CommandEnv, target: TargetUser): Session => ({
 });
 
 /**
- * Cross-player `su`: B is standing on ANOTHER player's registered workstation (a
- * public-IP ssh hop). The local passwd path can't work here — the real
- * `/etc/passwd` isn't in the pruned served `env.fs`, AND a client-only switch
- * wouldn't authorize writes (the patch L2 reads the SERVER session row's tier, so
- * B would stay guest). So prompt, then let the server validate the typed password
- * against the owner's real passwd and persist the `kind:'su'` row; push the local
- * session ONLY on success, deriving the home from the server-returned tier. Any
- * rejection collapses to one `Authentication failure` (no leak of which check
- * failed). The server stamps the `su` auth.log trace on the foreign box (Story 6.3),
- * carrying `fromUser` so A's log reads "by <B's current user>"; the client never
- * writes that log itself.
+ * `su` on a box that is not the player's own: another player's workstation, the
+ * access point's gateway, a machine the network generates. The local passwd path
+ * can't work here — the box's `/etc/passwd` is not the browser's to read, AND a
+ * client-only switch wouldn't authorize writes (the server judges a write at the
+ * tier of the SERVER session row, so the player would stay where they were). So the
+ * server validates the typed password against the box's real passwd and persists
+ * the `kind:'su'` row; the local session is pushed ONLY on success, with the home
+ * derived from the server-returned tier. Any rejection collapses to one
+ * `Authentication failure` (no leak of which check failed). The server stamps the
+ * `su` trace on the box's auth.log, naming the account off the session row; the
+ * client never writes that log itself.
+ *
+ * A root shell is not asked for a password. Whether it IS root is the server's
+ * reading of the session row, not this one's: the empty password it is sent opens
+ * nothing for a shell that only claims to be.
  */
-const elevateCrossPlayer = async (env: CommandEnv, targetName: string): Promise<CommandResult> => {
-  let typed: string;
-  try {
-    typed = await env.prompt({ message: 'Password: ', masked: true });
-  } catch {
-    return { kind: 'sync', lines: [], exitCode: 130 };
+const elevateThroughServer = async (
+  env: CommandEnv,
+  targetName: string,
+): Promise<CommandResult> => {
+  let typed = '';
+  if (env.session.userType !== 'root') {
+    try {
+      typed = await env.prompt({ message: 'Password: ', masked: true });
+    } catch {
+      return { kind: 'sync', lines: [], exitCode: 130 };
+    }
   }
 
   const sessionId = `su-${targetName}-${env.now()}`;
@@ -148,7 +155,6 @@ const elevateCrossPlayer = async (env: CommandEnv, targetName: string): Promise<
     machineId: env.session.machineId,
     username: targetName,
     password: typed,
-    fromUser: env.session.username,
     parentSessionId: env.session.id,
     sourceIp: null,
   });
@@ -171,16 +177,10 @@ const elevateCrossPlayer = async (env: CommandEnv, targetName: string): Promise<
 const execute: Command['execute'] = async (env, args) => {
   const targetName = args[0] ?? DEFAULT_TARGET;
 
-  // On another player's registered box, switch user is server-authoritative (see
-  // `elevateCrossPlayer`). Own box + NPC LAN hops read the local passwd as before.
-  if (
-    isCrossPlayerWorkstation({
-      machineId: env.session.machineId,
-      publicKeyHex: env.identity.publicKeyHex,
-      essid: currentEssid(env),
-    })
-  ) {
-    return elevateCrossPlayer(env, targetName);
+  // Only the player's own workstation is theirs to judge. Everywhere else the
+  // switch is the server's (see `elevateThroughServer`).
+  if (!isOwnWorkstation(env.session.machineId, env.identity.publicKeyHex)) {
+    return elevateThroughServer(env, targetName);
   }
 
   const target = targetFrom(readPasswd(env), targetName);
