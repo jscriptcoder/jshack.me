@@ -22,7 +22,8 @@ import type { NonceStore } from '../signedRequest/nonceStore.js';
  * a forbidden path must never appear in the response. Three tiers:
  *   - tier 1 (owner): caller's pubkey == owner_key -> the FULL tree (ownership
  *     trumps any session; the session table is not even consulted);
- *   - tier 2 (active session): pruned by the permission walker at the session tier;
+ *   - tier 2 (active session): pruned by the permission walker at the session tier,
+ *     together with everything tier 3 is shown;
  *   - tier 3 (no session): only the externally-observable allowlist (pidfiles,
  *     /var/www, NAT rules, ...) — everything else default-denies.
  */
@@ -169,6 +170,61 @@ describe('handleResolveCrossPlayerFs', () => {
     const passwd = get(tree, 'etc', 'passwd');
     expect(passwd?.kind).toBe('file');
     expect(passwd?.kind === 'file' ? passwd.content : '').not.toContain('guest');
+  });
+
+  it.each(['guest', 'user'] as const)(
+    'serves a %s session on the AP gateway its rules.v4, still readable by root alone',
+    async (userType) => {
+      const id = generateIdentity();
+      // What a caller with no session is already shown of this box. Holding a session
+      // must never show less, and the gateway's own NAT table is root's to read.
+      const { deps } = makeDeps({
+        occupant: async () => ({ data: null, error: null }),
+        session: async () => ({ data: { userType, essid: ROUTER_ESSID }, error: null }),
+        patches: async () => ({ data: [], error: null }),
+      });
+
+      const result = await handleResolveCrossPlayerFs(envelope(id, AP_GATEWAY_ID), deps);
+      const rules = get(treeOf(result), 'etc', 'iptables', 'rules.v4');
+
+      expect(result.status).toBe(200);
+      expect(rules?.kind).toBe('file');
+      expect(rules?.perms.read).toEqual(['root']);
+    },
+  );
+
+  it('serves a guest session a web page somebody narrowed to root, and nothing else it cannot read', async () => {
+    const id = generateIdentity();
+    const rootOnly = { read: ['root'], write: ['root'], execute: [] } as const;
+    const { deps } = makeDeps({
+      patches: async () => ({
+        data: [
+          ...OWNER_PATCHES,
+          ownerRow({
+            path: '/var/www/html/staff.html',
+            content: 'STAFF_ONLY',
+            permissions: rootOnly,
+          }),
+          ownerRow({ path: '/srv/keys.txt', content: 'ROOT_KEYS', permissions: rootOnly }),
+        ],
+        error: null,
+      }),
+    });
+
+    const result = await handleResolveCrossPlayerFs(envelope(id), deps);
+    const tree = treeOf(result);
+    const page = get(tree, 'var', 'www', 'html', 'staff.html');
+
+    // A page is what the web server hands anybody who asks from outside.
+    expect(page?.kind === 'file' ? page.content : null).toBe('STAFF_ONLY');
+    expect(page?.perms.read).toEqual(['root']);
+    // What the tier reads is still there beside it...
+    expect(get(tree, 'srv', 'loot.txt')?.kind).toBe('file');
+    // ...and a root-only file nobody outside could see stays on the server.
+    expect(get(tree, 'srv', 'keys.txt')).toBeUndefined();
+    expect(get(tree, 'srv', 'secret.txt')).toBeUndefined();
+    expect(get(tree, 'etc', 'passwd')).toBeUndefined();
+    expect(JSON.stringify(result.body)).not.toContain('ROOT_KEYS');
   });
 
   it('prunes paths the guest tier cannot read — no passwd hashes, no /root, no user-only files', async () => {

@@ -35,11 +35,10 @@ export const VAR_RUN = '/var/run';
 /**
  * A pidfile's permissions: world-readable, root-written, never executed.
  *
- * World-readable is load-bearing rather than incidental. A cross-player hop is
- * server-served, and the server prunes the box it hands back to what the
- * visitor's tier may read — so a root-only pidfile is dropped in transit and
- * `ps` reports a bare header on a box that is plainly serving. What a machine is
- * RUNNING is public; changing it is root's, which the write tier keeps.
+ * What a machine is RUNNING is public: a scan from outside reveals it. So the
+ * server hands every pidfile to a visitor whatever its permissions say, and `ps`
+ * lists the service either way. World-readable is what lets that visitor read the
+ * file itself. Changing it is root's, which the write tier keeps.
  *
  * Shared by every producer — the daemons, and all three world generators — for
  * the same reason the FORMAT is: a pidfile the world planted and one an owner

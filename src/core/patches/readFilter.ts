@@ -14,8 +14,9 @@
  * (the walker short-circuits), so a root caller gets the tree back unchanged.
  *
  * Tier 1 (owner → unfiltered) bypasses this module entirely (the handler returns
- * the materialized tree as-is). Tier 2 is the active-session walker tier below.
- * Tier 3 (no session → externally-observable allowlist) is `filterTreeToAllowlist`.
+ * the materialized tree as-is). Tier 2 (active session) is `filterTreeForSession`: the
+ * walker tier below together with tier 3. Tier 3 (no session → externally-observable
+ * allowlist) is `filterTreeToAllowlist`.
  */
 
 import { BOOT_ID_PATH } from '../boot/bootId.js';
@@ -137,3 +138,45 @@ const allowlistDir = (directory: Directory, prefix: string): Directory => {
  *  Default-deny: anything off the allowlist is dropped before the response leaves.
  *  Pure: the input tree is never mutated. */
 export const filterTreeToAllowlist = (tree: Directory): Directory => allowlistDir(tree, '');
+
+const subdirectoryOf = (view: Directory | undefined, name: string): Directory | undefined => {
+  const node = view?.entries.get(name);
+  return node?.kind === 'directory' ? node : undefined;
+};
+
+/** `whole` cut down to the entries either pruned view of it kept, in the order the box
+ *  holds them and each with its own permissions. */
+const keptByEither = (
+  whole: Directory,
+  tierView: Directory | undefined,
+  observable: Directory | undefined,
+): Directory => {
+  const entries = new Map<string, FileNode>(
+    [...whole.entries]
+      .filter(
+        ([name]) => tierView?.entries.has(name) === true || observable?.entries.has(name) === true,
+      )
+      .map(([name, node]) => [
+        name,
+        node.kind === 'directory'
+          ? keptByEither(node, subdirectoryOf(tierView, name), subdirectoryOf(observable, name))
+          : node,
+      ]),
+  );
+  return { ...whole, entries };
+};
+
+/**
+ * Prune `tree` for a caller holding a session at `userType`: everything that tier may
+ * read, together with the externally-observable allowlist. Holding a session never
+ * shows less than holding none. A router's NAT table and a switch's access list are
+ * root's to read and are also what a scan from outside reveals, and the machinery a
+ * lower-tier shell runs on that box (a scan of the layer behind it, a fetch of its own
+ * web server) reads them off this tree.
+ *
+ * Nothing leaves here that a caller with no session is not already served. A listed
+ * file keeps its own permissions, so the shell still refuses to print one its tier
+ * cannot read. Built from the two filters above so it cannot drift from either.
+ */
+export const filterTreeForSession = (tree: Directory, userType: UserType): Directory =>
+  keptByEither(tree, filterTreeForRead(tree, userType), filterTreeToAllowlist(tree));

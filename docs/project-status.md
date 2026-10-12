@@ -769,11 +769,20 @@ agreed order:
    the handler starts from the caller's own session row, and a shell already `root`
    switches without a password (`scripts/testCrossPlayerSuElevate.ts` 14/14). Not played
    in the browser yet.
+   ✅ And at v0.371.0 a session holder is served the externally-observable list as well as
+   what its tier reads, so a session never shows less than none. Probed on the live stack
+   first: a `guest` or `user` session on the access point's gateway was not served
+   `rules.v4`, and neither was served a page narrowed to `root` that a caller with no
+   session got. Each listed file arrives with its own permissions, so the shell still
+   refuses to print it. A pidfile narrowed to `root` now reaches a visitor too, so `ps`
+   lists that service (`scripts/testCrossPlayerRead.ts` 11/11,
+   `scripts/testPidfileVisibility.ts` 4/4). Not played in the browser yet.
    **Pick up here (2026-10-12):** the served-boxes epic (`plans/served-boxes.md`), which
    closes the same leak on the machines a network generates. Its audit of every client
    reader and server response is done ([handbook 14](./handbook/14-tier-read-audit.md)): 85
-   client sites and 44 responses, seven defects, three of them fixed. Slice 4, a session
-   holder served the externally-observable list as well, is next. After the epic, the items still open in
+   client sites and 44 responses, seven defects, four of them fixed. Slice 6, a local
+   exploit answered by the server on every box that is not the player's, is next (it runs
+   before slice 5). After the epic, the items still open in
    `backlog.md`, all found by reading: a deep box's own address behind a switch that denies the web port, a data
    door over `localhost`, a field that spoofs the columns after it within its own line,
    a leaver's own sessions across the network, and a box joined to two networks at

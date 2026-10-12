@@ -1,17 +1,19 @@
 import { describe, expect, it } from 'vitest';
-import type { Directory, FileNode } from '../filesystem/types.js';
+import type { Directory, FileNode, FilePermissions } from '../filesystem/types.js';
 import {
   dir,
   file,
   HOME_DIR,
   PASSWD_FILE,
   ROOT_DIR,
+  ROOT_FILE,
   TMP_DIR,
   TRAVERSABLE_DIR,
 } from '../generation/baseFs.js';
 import {
   EXTERNALLY_OBSERVABLE_ALLOWLIST,
   filterTreeForRead,
+  filterTreeForSession,
   filterTreeToAllowlist,
 } from './readFilter.js';
 import { serializeTree } from '../filesystem/treeCodec.js';
@@ -503,5 +505,165 @@ describe('filterTreeToAllowlist', () => {
     filterTreeToAllowlist(tree);
 
     expect(get(tree, 'etc', 'passwd')?.kind).toBe('file');
+  });
+});
+
+/**
+ * `filterTreeForSession` is what a caller holding a session is served: everything
+ * the session's tier reads, together with the externally-observable allowlist. A
+ * caller with no session is already shown the allowlist, so a session that showed
+ * less would leave the machinery a lower-tier shell runs (a scan of the layer behind
+ * a switch, a fetch of the box's own web server) reading a file that is not there.
+ */
+describe('filterTreeForSession', () => {
+  /** A box with one file of every kind that matters here: read by every tier, read
+   *  by `user` but not `guest`, on the list but root's, and neither. */
+  const box = (): Directory =>
+    dir(
+      {
+        etc: dir(
+          {
+            hostname: worldFile('edge'),
+            iptables: dir({ 'rules.v4': file('forward 80 to 10.0.0.5:80', ROOT_FILE) }, ROOT_DIR),
+            passwd: file('root:hash', PASSWD_FILE),
+          },
+          TRAVERSABLE_DIR,
+        ),
+        root: dir({ 'notes.txt': worldFile('ROOT_NOTES') }, ROOT_DIR),
+        var: dir({ run: dir({ 'sshd.pid': worldFile('4131') }, TRAVERSABLE_DIR) }, TRAVERSABLE_DIR),
+      },
+      TRAVERSABLE_DIR,
+    );
+
+  it('serves a listed file the tier cannot read, beside everything the tier can', () => {
+    const served = filterTreeForSession(box(), 'guest');
+
+    const rules = get(served, 'etc', 'iptables', 'rules.v4');
+    expect(rules?.kind === 'file' ? rules.content : null).toBe('forward 80 to 10.0.0.5:80');
+    expect(get(served, 'etc', 'hostname')?.kind).toBe('file');
+    expect(get(served, 'var', 'run', 'sshd.pid')?.kind).toBe('file');
+  });
+
+  it('keeps a listed file’s own permissions, and those of the directory it sits in', () => {
+    const served = filterTreeForSession(box(), 'guest');
+
+    // The shell reads permissions off the node it is handed. Served as readable, a
+    // lower tier could print the gateway's forwards.
+    expect(get(served, 'etc', 'iptables', 'rules.v4')?.perms).toEqual(ROOT_FILE);
+    expect(get(served, 'etc', 'iptables')?.perms).toEqual(ROOT_DIR);
+  });
+
+  it('adds nothing that is neither readable by the tier nor on the list', () => {
+    const served = filterTreeForSession(box(), 'guest');
+
+    expect(get(served, 'etc', 'passwd')).toBeUndefined();
+    expect(get(served, 'root')).toBeUndefined();
+    expect(JSON.stringify(serializeTree(served))).not.toContain('ROOT_NOTES');
+    expect(JSON.stringify(serializeTree(served))).not.toContain('root:hash');
+  });
+
+  it('serves only the listed files of a directory the tier cannot enter', () => {
+    // Somebody shut the web root to everybody but root. The server still hands its
+    // pages to anyone who asks from outside. A backup beside the web root is on no
+    // list, so it stays where it is.
+    const tree = dir(
+      {
+        var: dir(
+          {
+            www: dir({ html: dir({ 'index.html': worldFile('<h1>hi</h1>') }, ROOT_DIR) }, ROOT_DIR),
+            backups: dir({ 'site.tar': worldFile('BACKUP') }, ROOT_DIR),
+          },
+          TRAVERSABLE_DIR,
+        ),
+      },
+      TRAVERSABLE_DIR,
+    );
+
+    const served = filterTreeForSession(tree, 'guest');
+
+    expect(get(served, 'var', 'www', 'html', 'index.html')?.kind).toBe('file');
+    expect(get(served, 'var', 'www')?.perms).toEqual(ROOT_DIR);
+    expect(get(served, 'var', 'backups')).toBeUndefined();
+  });
+
+  it('does not open a directory the tier may pass through but not list', () => {
+    // A world-readable file under a directory the tier can traverse and cannot read
+    // is beneath the tier's view. Being on no list either, it is not served.
+    const passThrough: FilePermissions = {
+      read: ['root'],
+      write: ['root'],
+      execute: ['root', 'user', 'guest'],
+    };
+    const tree = dir(
+      {
+        srv: dir({ 'drop.txt': worldFile('DROP') }, passThrough),
+        var: dir({ run: dir({ 'sshd.pid': worldFile('4131') }, passThrough) }, TRAVERSABLE_DIR),
+      },
+      TRAVERSABLE_DIR,
+    );
+
+    const served = filterTreeForSession(tree, 'guest');
+
+    expect(get(served, 'srv')).toBeUndefined();
+    // The same kind of directory holding a listed file is served for that file.
+    expect(get(served, 'var', 'run', 'sshd.pid')?.kind).toBe('file');
+  });
+
+  it('keeps an empty directory the tier can read', () => {
+    const tree = dir({ tmp: dir({}, TMP_DIR) }, TRAVERSABLE_DIR);
+
+    expect(get(filterTreeForSession(tree, 'guest'), 'tmp')?.kind).toBe('directory');
+  });
+
+  it('keeps every entry in the place the box holds it', () => {
+    // `find` and `grep -r` walk entries in the order the tree holds them, so a file
+    // moved to the end of its directory would read differently from the same box
+    // seen whole.
+    const served = filterTreeForSession(box(), 'guest');
+
+    expect([...served.entries.keys()]).toEqual(['etc', 'var']);
+    const etc = get(served, 'etc');
+    expect(etc?.kind === 'directory' ? [...etc.entries.keys()] : null).toEqual([
+      'hostname',
+      'iptables',
+    ]);
+  });
+
+  it('serves a user session what a user reads, plus the list', () => {
+    const served = filterTreeForSession(box(), 'user');
+
+    expect(get(served, 'etc', 'passwd')?.kind).toBe('file');
+    expect(get(served, 'etc', 'iptables', 'rules.v4')?.kind).toBe('file');
+    expect(get(served, 'root')).toBeUndefined();
+  });
+
+  it('hands root the whole tree back', () => {
+    const tree = box();
+
+    expect(filterTreeForSession(tree, 'root')).toEqual(tree);
+  });
+
+  it('never shows a session less than a caller with none, on a generated gateway', () => {
+    // Against a GENERATED device: a hand-built tree can agree with the filter while
+    // the box that ships disagrees with both.
+    const gateway = buildApGatewayBaseFs('SESSION-VIEW-NET');
+
+    const served = filterTreeForSession(gateway, 'guest');
+
+    expect(serializeTree(filterTreeToAllowlist(served))).toEqual(
+      serializeTree(filterTreeToAllowlist(gateway)),
+    );
+    expect(serializeTree(filterTreeForRead(served, 'guest'))).toEqual(
+      serializeTree(filterTreeForRead(gateway, 'guest')),
+    );
+  });
+
+  it('does not mutate the input tree', () => {
+    const tree = box();
+
+    filterTreeForSession(tree, 'guest');
+
+    expect(get(tree, 'etc', 'passwd')?.kind).toBe('file');
+    expect(get(tree, 'root', 'notes.txt')?.kind).toBe('file');
   });
 });

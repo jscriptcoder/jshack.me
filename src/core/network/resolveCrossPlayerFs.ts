@@ -16,7 +16,8 @@
  * nothing and this fails closed. The tier is SERVER-derived, never a client claim:
  *   - tier 1 (owner): caller's verified pubkey == owner_key → the FULL tree
  *     (ownership trumps any session; the session table is not consulted);
- *   - tier 2 (active session): pruned by the shared read walker at the session tier;
+ *   - tier 2 (active session): pruned by the shared read walker at the session tier,
+ *     together with everything tier 3 is shown, so a session never shows less than none;
  *   - tier 3 (no session): pruned to the externally-observable allowlist only.
  *
  * The pruned tree is what crosses the wire: a path the tier may not read is dropped
@@ -30,7 +31,7 @@ import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
 import { materializeWorkstationFs, type OwnerPatchRow } from './materializeWorkstationFs.js';
 import { materializeApGatewayFs } from './materializeRouterFs.js';
 import { computeApGatewayId } from '../identity/router.js';
-import { filterTreeForRead, filterTreeToAllowlist } from '../patches/readFilter.js';
+import { filterTreeForSession, filterTreeToAllowlist } from '../patches/readFilter.js';
 import { serializeTree } from '../filesystem/treeCodec.js';
 import type { UserType } from '../types.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
@@ -165,13 +166,13 @@ export const handleResolveCrossPlayerFs = async (
     machine.kind === 'router'
       ? materializeApGatewayFs(machine, patches.data)
       : materializeWorkstationFs(machine, patches.data);
-  // Tier dispatch: owner → full tree; active session → walker at the session tier;
-  // no session → externally-observable allowlist only.
+  // Tier dispatch: owner → full tree; active session → walker at the session tier plus
+  // the externally-observable allowlist; no session → that allowlist only.
   const activeSession = session?.data ?? null;
   const filtered = isOwner
     ? tree
     : activeSession === null
       ? filterTreeToAllowlist(tree)
-      : filterTreeForRead(tree, activeSession.userType);
+      : filterTreeForSession(tree, activeSession.userType);
   return { status: 200, body: { ok: true, tree: serializeTree(filtered) } };
 };
