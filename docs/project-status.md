@@ -797,14 +797,22 @@ agreed order:
    own session row and prunes it to the session's tier. A caller whose row there has ended
    is served the externally-observable list, which carries the boot marker, so a shell a
    reboot threw off the access point's gateway is told on its next line
-   (`scripts/testNetworkBoxServed.ts` 24/24). This is the server half of slice 5; the
-   browser still rebuilds a generated machine on its own network from the journal.
-   **Pick up here (2026-10-12):** the served-boxes epic (`plans/served-boxes.md`), which
-   closes the same leak on the machines a network generates. Its audit of every client
-   reader and server response is done ([handbook 14](./handbook/14-tier-read-audit.md)): 85
-   client sites and 44 responses, seven defects, five of them fixed. The client half of
-   slice 5 is next: the browser reads the served tree on every machine that is not the
-   player's own, and `listPatches` answers only an owner. After the epic, the items still open in
+   (`scripts/testNetworkBoxServed.ts` 24/24). This was the server half of slice 5.
+   ✅ And at v0.374.0 the browser reads every box that is not the player's own workstation
+   as the tree the server serves, and `listPatches` answers nobody but the owner of a
+   workstation (403 `permission_denied` for everybody else). The browser no longer
+   rebuilds a generated machine it stands on, so a `guest` there is handed nothing its
+   tier cannot read that was written after the machine was generated, a wallet key
+   included. A file above the tier now reads `No such file or directory` there, the tree
+   is empty until the server answers after a hop, and a visitor a reboot threw off a
+   generated machine is told on the next line
+   (`scripts/testJournalRefusedToVisitors.ts` 12/12, and the three ftp scripts read the
+   box back through the served tree). Not played in the browser yet.
+   **Pick up here (2026-10-12):** the served-boxes epic (`plans/served-boxes.md`). Its
+   audit of every client reader and server response is done
+   ([handbook 14](./handbook/14-tier-read-audit.md)): 85 client sites and 44 responses,
+   seven defects, six of them fixed. Slice 7 is next and last before the close-out:
+   `chmod` and the tier of a file's owner on a served box. After the epic, the items still open in
    `backlog.md`, all found by reading: a deep box's own address behind a switch that denies the web port, a data
    door over `localhost`, a field that spoofs the columns after it within its own line,
    a leaver's own sessions across the network, and a box joined to two networks at

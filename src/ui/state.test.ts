@@ -729,19 +729,24 @@ describe('resolveBootCheck', () => {
 });
 
 /**
- * The patch journal is per-machine, and the player moves between machines while a
- * fetch for one of them is still in flight — a reload lands straight back on an ssh
- * hop, and every hop swaps the journal under whatever was already asked for. The
- * journal the player SEES must belong to the machine they are standing on, whatever
- * order the answers come back in.
+ * A tree belongs to one machine, and the player moves between machines while a fetch
+ * for one of them is still in flight — a reload lands straight back on an ssh hop, and
+ * every hop swaps the tree under whatever was already asked for. What the player SEES
+ * must belong to the machine they are standing on, whatever order the answers come
+ * back in.
  *
  * Getting this wrong is worse than a confusing `ls`: `nano` saves the whole buffer,
  * so an editor opened over another machine's tree writes back a file stripped of
  * every row the real one holds — silently wiping a shared box's config. Reproduced
  * live on a shared gateway before the guard existed
  * (`docs/e2e-shared-network-verification.md`).
+ *
+ * The hop here is a machine of the player's OWN network, which the browser could
+ * rebuild from the ESSID. It does not: the journal that would have to be replayed over
+ * it is every writer's rows at any permission, so the box is read as the tree the
+ * server builds and prunes, exactly as a box on another network is.
  */
-describe('patch journal across a machine change', () => {
+describe('the tree of a machine across a machine change', () => {
   afterEach(() => vi.unstubAllGlobals());
 
   const ESSID = 'ferro-cafe';
@@ -752,6 +757,8 @@ describe('patch journal across a machine change', () => {
 
   const OWN_BOX_FILE = 'note-on-my-own-box';
   const REMOTE_FILE = 'shared-config';
+  /** A row of the hop's journal that the server pruned out of the tree it served. */
+  const ABOVE_THE_TIER = 'roots-own-notes';
 
   /** Let every answer already in flight land: a macrotask turn runs only once the
    *  microtask queue — where the fetch/decode/apply chain lives — has drained. */
@@ -802,6 +809,15 @@ describe('patch journal across a machine change', () => {
       markOwnJournalAnswered = resolve;
     });
 
+    const journalsAsked: string[] = [];
+    const written: Record<string, unknown>[] = [];
+    // The hop as the server holds it. `afterNextServe` runs once the next tree has been
+    // handed over, which is how a test changes the box in the middle of a line.
+    const hop: {
+      journal: readonly Patch[];
+      unreachable: boolean;
+      afterNextServe: (() => void) | null;
+    } = { journal: [patchRow(REMOTE_FILE)], unreachable: false, afterNextServe: null };
     const json = (body: unknown) => ({ ok: true, status: 200, json: async () => body });
     vi.stubGlobal(
       'fetch',
@@ -811,9 +827,22 @@ describe('patch journal across a machine change', () => {
           unknown
         >;
         if (fields.action === 'listSessions') return json({ sessions: [hopSessionRow] });
+        if (fields.action === 'resolveCrossPlayerFs') {
+          if (hop.unreachable) return { ok: false, status: 500, json: async () => ({}) };
+          const served = applyPatches(buildRemoteHostFs(ESSID, REMOTE_HOST), hop.journal);
+          const changeTheBox = hop.afterNextServe;
+          hop.afterNextServe = null;
+          changeTheBox?.();
+          return json({ ok: true, tree: serializeTree(served) });
+        }
+        if (fields.action === 'upsertPatch') {
+          written.push(fields);
+          return json({ ok: true });
+        }
         if (fields.action !== 'listPatches') return json({});
+        journalsAsked.push(String(fields.machine_id));
         if (fields.machine_id === REMOTE_MACHINE_ID) {
-          return json({ patches: [patchRow(REMOTE_FILE)] });
+          return json({ patches: [patchRow(REMOTE_FILE), patchRow(ABOVE_THE_TIER)] });
         }
         await ownJournalGate;
         markOwnJournalAnswered();
@@ -830,7 +859,26 @@ describe('patch journal across a machine change', () => {
       await ownJournalAnswered;
       await settle();
     };
-    return { state, releaseOwnJournal };
+    return { state, releaseOwnJournal, journalsAsked, written, hop };
+  };
+
+  /** A log on the hop that anybody may add a line to. */
+  const sharedLog = (content: string): Patch => ({
+    path: '/tmp/log',
+    content,
+    owner: 'root',
+    permissions: {
+      read: ['root', 'user', 'guest'],
+      write: ['root', 'user', 'guest'],
+      execute: [],
+    },
+  });
+
+  const standOnTheHop = async () => {
+    const started = await startOnRehydratedHop({ ownJournalHeld: false });
+    await vi.waitFor(() => expect(started.state.promptHost()).toBe(REMOTE_HOST.hostname));
+    await started.releaseOwnJournal();
+    return started;
   };
 
   /** What `ls /tmp` shows the player right now, on whichever box they stand. */
@@ -843,12 +891,86 @@ describe('patch journal across a machine change', () => {
       .join('\n');
   };
 
-  it('shows the hopped machine’s journal once the reload lands on the hop', async () => {
+  it('shows the hopped machine as the server serves it once the reload lands on the hop', async () => {
     const { state, releaseOwnJournal } = await startOnRehydratedHop({ ownJournalHeld: false });
     await vi.waitFor(() => expect(state.promptHost()).toBe(REMOTE_HOST.hostname));
     await releaseOwnJournal();
 
-    expect(await listTmp(state)).toContain(REMOTE_FILE);
+    const listing = await listTmp(state);
+
+    expect(listing).toContain(REMOTE_FILE);
+    expect(listing).not.toContain(ABOVE_THE_TIER);
+  });
+
+  it('asks nobody for the journal of a machine on the player own network', async () => {
+    const { state, releaseOwnJournal, journalsAsked } = await startOnRehydratedHop({
+      ownJournalHeld: false,
+    });
+    await vi.waitFor(() => expect(state.promptHost()).toBe(REMOTE_HOST.hostname));
+    await releaseOwnJournal();
+
+    await listTmp(state);
+    state.setInput('touch /tmp/mark');
+    await state.runInput();
+    // An append re-reads the machine before it composes the file it writes back.
+    state.setInput('echo line >> /tmp/log');
+    await state.runInput();
+
+    expect(journalsAsked).not.toContain(REMOTE_MACHINE_ID);
+  });
+
+  it('composes an append on the hop as it is now, not as it was when the line began', async () => {
+    const { state, written, hop } = await standOnTheHop();
+    hop.journal = [sharedLog('one\n')];
+    // Somebody else adds a line after this shell read the box for the line it is running.
+    hop.afterNextServe = () => {
+      hop.journal = [sharedLog('one\ntwo\n')];
+    };
+
+    state.setInput('echo three >> /tmp/log');
+    await state.runInput();
+
+    expect(written).toEqual([
+      expect.objectContaining({ path: '/tmp/log', content: 'one\ntwo\nthree' }),
+    ]);
+  });
+
+  it('composes an append on the tree in hand when the hop cannot be read again', async () => {
+    const { state, written, hop } = await standOnTheHop();
+    hop.journal = [sharedLog('one\n')];
+    hop.afterNextServe = () => {
+      hop.unreachable = true;
+    };
+
+    state.setInput('echo two >> /tmp/log');
+    await state.runInput();
+
+    // A read that did not happen is not an empty box: composing on nothing would
+    // write the file back holding only the new line.
+    expect(written).toEqual([
+      expect.objectContaining({ path: '/tmp/log', content: 'one\ntwo' }),
+    ]);
+  });
+
+  it('tells a visitor on the hop that it went down, on the line after a reboot', async () => {
+    const { state, hop } = await standOnTheHop();
+    await listTmp(state);
+
+    // The reboot closed the row, so the server now serves what anybody outside can
+    // observe of the box, and the marker the reboot left is part of that.
+    hop.journal = [
+      {
+        path: BOOT_ID_PATH as string,
+        content: 'boot-41c\n',
+        owner: BOOT_ID_OWNER,
+        permissions: BOOT_ID_PERMISSIONS,
+      },
+    ];
+
+    expect(await listTmp(state)).toContain(
+      `Connection to ${REMOTE_HOST.hostname} closed by remote host.`,
+    );
+    expect(state.promptHost()).toBe('box');
   });
 
   it('ignores a journal answer for the machine the player has already left', async () => {
@@ -968,6 +1090,97 @@ describe('a chain broken beneath the hop the player stands on', () => {
 
     expect(await typeLine(state, 'ls')).not.toContain('closed by remote host');
     expect(state.promptHost()).toBe(SECOND_HOST.hostname);
+  });
+});
+
+/**
+ * Every hop reads a served tree, so stepping from one box to another leaves a moment in
+ * which the tree in hand belongs to the box just left. A line waits for the new one before
+ * it runs. What is read BETWEEN lines does not: tab completion, and the editor's save,
+ * which writes a whole file back. Neither may be answered from the other machine's tree.
+ */
+describe('a hop whose tree has not arrived yet', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const ESSID = 'ferro-cafe';
+  const LAN = generateHomeLan(ESSID);
+  const [LOWER_HOST, UPPER_HOST] = LAN.hosts.filter((host) => host.kind === 'machine');
+  if (LOWER_HOST === undefined || UPPER_HOST === undefined) {
+    throw new Error(`two ordinary hosts expected on ${ESSID}`);
+  }
+  const LOWER_BOX = machineIdForLanHost(LOWER_HOST, ESSID);
+  const UPPER_BOX = machineIdForLanHost(UPPER_HOST, ESSID);
+
+  const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
+
+  const hopRow = (sessionId: string, parentId: string, machineId: string, at: string) => ({
+    session_id: sessionId,
+    machine_id: machineId,
+    credentials: { username: 'root', userType: 'root' },
+    parent_session_id: parentId,
+    source_ip: null,
+    kind: 'ssh',
+    created_at: at,
+    essid: ESSID,
+  });
+
+  it('completes nothing from the box above while the tree of the box below is in flight', async () => {
+    vi.resetModules();
+    const store = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => store.set(key, value),
+      removeItem: (key: string) => store.delete(key),
+    };
+    storage.setItem(CONNECTED_ESSID_KEY, ESSID);
+    lanLeaseCacheIn(storage).remember(ESSID, `${LAN.subnet}.77`);
+    vi.stubGlobal('localStorage', storage);
+
+    const chain = [
+      hopRow('hop-lower', 'seed-session', LOWER_BOX, '2026-01-01T00:00:00.000Z'),
+      hopRow('hop-upper', 'hop-lower', UPPER_BOX, '2026-01-01T00:01:00.000Z'),
+    ];
+    // Something only the upper box holds, so a completion naming it read the wrong tree.
+    const upperOnly: Patch = { path: '/tmp/upper-only.txt', content: 'x', owner: 'root' };
+    let holdTheLowerBox = false;
+    const json = (body: unknown) => ({ ok: true, status: 200, json: async () => body });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: { body?: string }) => {
+        const fields = JSON.parse(JSON.parse(init?.body ?? '{}').payload) as Record<
+          string,
+          unknown
+        >;
+        if (fields.action === 'listSessions') return json({ sessions: chain });
+        if (fields.action !== 'resolveCrossPlayerFs') return json({ patches: [] });
+        if (fields.machine_id === LOWER_BOX) {
+          // Never answered: the test ends with this tree still on its way.
+          if (holdTheLowerBox) return new Promise(() => undefined);
+          return json({ ok: true, tree: serializeTree(buildRemoteHostFs(ESSID, LOWER_HOST)) });
+        }
+        const upper = applyPatches(buildRemoteHostFs(ESSID, UPPER_HOST), [upperOnly]);
+        return json({ ok: true, tree: serializeTree(upper) });
+      }),
+    );
+
+    const state = await import('./state.js');
+    state.startGame({ machineName: 'box', username: 'tester', rootPassword: 'pw' });
+    await vi.waitFor(() => expect(state.promptHost()).toBe(UPPER_HOST.hostname));
+    await settle();
+    // The completion works at all, or its silence below would prove nothing.
+    state.setInput('cat /tmp/upper');
+    state.tabComplete('cat /tmp/upper'.length);
+    expect(state.input()).toContain('/tmp/upper-only.txt');
+
+    holdTheLowerBox = true;
+    state.setInput('exit');
+    await state.runInput();
+    expect(state.promptHost()).toBe(LOWER_HOST.hostname);
+
+    state.setInput('cat /tmp/upper');
+    state.tabComplete('cat /tmp/upper'.length);
+
+    expect(state.input()).toBe('cat /tmp/upper');
   });
 });
 
@@ -1218,7 +1431,7 @@ describe('the ftp sub-shell', () => {
       host.kind === 'machine' &&
       readOpenPorts(buildRemoteHostFs(ESSID, host)).some((open) => open.service === 'ftp'),
   );
-  // Two doors, because one target can never show that a journal landed on the
+  // Two doors, because one target can never show that a tree landed on the
   // WRONG box — only a second one can.
   const [FTP_HOST, OTHER_FTP_HOST] = FTP_HOSTS;
   if (FTP_HOST === undefined || OTHER_FTP_HOST === undefined) {
@@ -1235,7 +1448,7 @@ describe('the ftp sub-shell', () => {
 
   /** A file that exists only on the named box, so a listing holding it names the
    *  machine it came from. */
-  const dropFile = (name: string) => [
+  const dropFile = (name: string): readonly Patch[] => [
     {
       path: `/etc/${name}`,
       content: 'left behind\n',
@@ -1244,13 +1457,14 @@ describe('the ftp sub-shell', () => {
     },
   ];
 
-  type RemoteJournal = (machineId: string) => Promise<readonly Record<string, unknown>[]>;
+  type RemoteJournal = (machineId: string) => Promise<readonly Patch[]>;
 
   const journalPerTarget: RemoteJournal = async (machineId) =>
     machineId === FTP_MACHINE_ID ? dropFile('remote-drop.txt') : dropFile('other-drop.txt');
 
-  /** Boot online with the ftp client already installed. `remoteJournal` answers a
-   *  journal read for either TARGET; the player's own box always gets the client. */
+  /** Boot online with the ftp client already installed. `remoteJournal` is what either
+   *  TARGET holds beyond what it was generated with, which the server replays into the
+   *  tree it serves; the player's own box always gets the client. */
   const bootOnline = async (remoteJournal: RemoteJournal = journalPerTarget) => {
     vi.resetModules();
     const store = new Map<string, string>();
@@ -1264,7 +1478,7 @@ describe('the ftp sub-shell', () => {
     vi.stubGlobal('localStorage', storage);
 
     const sent: Record<string, unknown>[] = [];
-    const landedOnTarget = new Map<string, Record<string, unknown>[]>();
+    const landedOnTarget = new Map<string, Patch[]>();
     vi.stubGlobal(
       'fetch',
       vi.fn(async (_url: string, init?: { body?: string }) => {
@@ -1295,23 +1509,42 @@ describe('the ftp sub-shell', () => {
             json: async () => ({ ok: true, userType: 'guest', machine_id: FTP_MACHINE_ID, essid: ESSID }),
           };
         }
-        // A write aimed at a TARGET is kept, the way the server keeps it: a journal
-        // read after it must answer with it, or nothing here could tell a client that
+        // A write aimed at a TARGET is kept, the way the server keeps it: a read
+        // after it must answer with it, or nothing here could tell a client that
         // re-pulls from one that reports a transfer and shows the box unchanged.
         if (fields.action === 'upsertPatch' && TARGET_IDS.has(String(fields.machine_id))) {
           const machineId = String(fields.machine_id);
-          landedOnTarget.set(machineId, [...(landedOnTarget.get(machineId) ?? []), fields]);
+          landedOnTarget.set(machineId, [
+            ...(landedOnTarget.get(machineId) ?? []),
+            {
+              path: String(fields.path),
+              content: String(fields.content),
+              owner: 'guest',
+              permissions: defaultFilePermissions('guest'),
+            },
+          ]);
           return { ok: true, status: 200, json: async () => ({ ok: true }) };
         }
-        // A TARGET's journal is a different machine's, so a listing proving it came
-        // back cannot have been computed from the box the player is standing on.
-        if (TARGET_IDS.has(String(fields.machine_id))) {
+        // A TARGET is served by the only party that may read its journal: the seeded
+        // box with that journal replayed over it. It is a different machine's tree, so
+        // a listing proving it came back cannot have been computed from the box the
+        // player is standing on.
+        if (
+          fields.action === 'resolveCrossPlayerFs' &&
+          TARGET_IDS.has(String(fields.machine_id))
+        ) {
           const machineId = String(fields.machine_id);
-          const patches = [
+          const journal = [
             ...(await remoteJournal(machineId)),
             ...(landedOnTarget.get(machineId) ?? []),
           ];
-          return { ok: true, status: 200, json: async () => ({ patches }) };
+          const host = machineId === FTP_MACHINE_ID ? FTP_HOST : OTHER_FTP_HOST;
+          const tree = serializeTree(applyPatches(buildRemoteHostFs(ESSID, host), journal));
+          return { ok: true, status: 200, json: async () => ({ ok: true, tree }) };
+        }
+        // The rows behind a TARGET go to nobody: neither box is anybody's own.
+        if (fields.action === 'listPatches' && TARGET_IDS.has(String(fields.machine_id))) {
+          return { ok: false, status: 403, json: async () => ({ error: 'permission_denied' }) };
         }
         // The ftp CLIENT is apt-gated, so the box has to already carry it — the
         // player would have run `apt install ftp` before ever reaching this door.
@@ -1451,17 +1684,16 @@ describe('the ftp sub-shell', () => {
       .map((line) => line.content)
       .slice(remoteEtc.length);
 
-    // The drop file lives ONLY in the target's journal, so a listing holding it
-    // was fetched from the target — not computed from the box the player is on.
+    // The drop file lives ONLY on the target, so a listing holding it was fetched
+    // from the target — not computed from the box the player is on.
     expect(remoteEtc).toContain('remote-drop.txt');
     expect(originEtc).not.toContain('remote-drop.txt');
   });
 
-  it('reads a box on your own LAN without asking the server again', async () => {
-    // A host this client can generate is rebuilt here, so a listing costs nothing. Only
-    // a box that cannot be rebuilt is worth a round trip — and a change that sent EVERY
-    // ftp read to the server would alter no output at all, which is why this prices the
-    // line instead of reading it.
+  it('lists the tree the login was served without asking the server again', async () => {
+    // The tree arrives once, at the login, and again after a write that landed. A
+    // change that sent EVERY ftp read to the server would alter no output at all, which
+    // is why this prices the line instead of reading it.
     const { state, sent } = await loginOverFtp();
 
     const spentBefore = sent.length;
@@ -1627,15 +1859,15 @@ describe('the ftp sub-shell', () => {
     state.setInput('ls /tmp');
     await state.runInput();
 
-    // The TARGET's journal is re-pulled after a landed write, not the shell's — the
-    // two machines keep separate journals, and a `put` changes the far one. Without
-    // the re-pull the player is told the bytes went and shown a box that never
-    // received them.
+    // The TARGET's tree is re-pulled after a landed write, not the shell's — the
+    // two machines are read apart, and a `put` changes the far one. Without the
+    // re-pull the player is told the bytes went and shown a box that never received
+    // them.
     expect(lastLine(state)).toContain('dropped.html');
   });
 
   it('never lets a slow answer for a box already left land on the box now open', async () => {
-    // The first target's journal is held mid-flight while the player quits and opens
+    // The first target's tree is held mid-flight while the player quits and opens
     // a second door. When it finally answers it belongs to nobody — and it must not
     // be shown as the second box's contents, which is a stranger's files under
     // another stranger's name.
@@ -1667,7 +1899,7 @@ describe('the ftp sub-shell', () => {
     expect(listing).not.toContain('remote-drop.txt');
   });
 
-  it('takes a journal arriving after the player has gone as nothing to do', async () => {
+  it('takes a tree arriving after the player has gone as nothing to do', async () => {
     // Same held answer, but nobody has opened another door when it lands: there is
     // no session to compare it against. Quietly dropping it is the whole job — the
     // fetch is fire-and-forget, so anything thrown here surfaces as an unhandled
@@ -1700,17 +1932,14 @@ describe('the ftp sub-shell', () => {
 
 /**
  * The same door, on a box that is NOT on the player's own LAN. `ftpRoot` decides which
- * filesystem the `ftp>` prompt reads, and off-LAN there is nothing local to rebuild the
- * target from — so that tree has to come from the server, exactly as an off-LAN shell's
- * does. Getting it wrong has one failure and it is not cosmetic: the local resolver falls
- * back to the intruder's OWN base, so `ls` lists the box they are standing on while `get`
- * hands back their own bytes and the target's log records a file as having left.
+ * filesystem the `ftp>` prompt reads, and the tree of any box that is not the player's
+ * own comes from the server, exactly as a shell's does. Getting it wrong has one failure
+ * and it is not cosmetic: answering with the intruder's OWN base makes `ls` list the box
+ * they are standing on while `get` hands back their own bytes and the target's log
+ * records a file as having left.
  *
- * The sub-shell suite above cannot see this. Its targets are generated on the essid the
- * player is CONNECTED to and merely reached at a public address — foreign address, local
- * machine — so the local resolver succeeds and the fallback never fires. Here the box
- * belongs to another network entirely, which is the only arrangement that asks the
- * question.
+ * Here the box belongs to another network entirely, so nothing about it could be
+ * computed from the network the player is connected to.
  */
 describe('an ftp session on a box across the network', () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -1733,9 +1962,8 @@ describe('an ftp session on a box across the network', () => {
   if (THEIR_HOST === undefined) throw new Error(`no ftp-serving host generated on ${THEIR_ESSID}`);
   const THEIR_BOX = machineIdForLanHost(THEIR_HOST, THEIR_ESSID);
 
-  /** A door on the player's OWN LAN — a box this client rebuilds locally, so nothing
-   *  about it is served. What it is for: giving a late answer about the foreign box
-   *  somewhere wrong to land. */
+  /** A door on the player's OWN LAN, served like any other. What it is for: giving a
+   *  late answer about the foreign box somewhere wrong to land. */
   const HOME_HOST = LAN.hosts.find(
     (host) =>
       host.kind === 'machine' &&
@@ -1811,10 +2039,14 @@ describe('an ftp session on a box across the network', () => {
         }
         // The stranger's box, materialized by the only party that can: seeded base with
         // the journal replayed over it, which is what the endpoint actually returns.
+        // The door at home answers at once, with its own box.
+        if (fields.action === 'resolveCrossPlayerFs' && fields.machine_id !== THEIR_BOX) {
+          return json({ ok: true, tree: serializeTree(buildRemoteHostFs(ESSID, HOME_HOST)) });
+        }
         if (fields.action === 'resolveCrossPlayerFs') {
           // A tree that never lands is what the player sees for the first moment of
-          // every cross-player login, so it is a state the prompt has to have an answer
-          // for — not an error case.
+          // every login, so it is a state the prompt has to have an answer for — not
+          // an error case.
           if (holdTheTree) {
             return new Promise((resolve) => {
               held.push((body) => resolve(json(body)));
@@ -2863,11 +3095,10 @@ describe('full-screen apps a command opens', () => {
 /**
  * A backdoor is the one door that can be taken away while somebody is standing in
  * it: netcat is a single process that both listens and serves, so killing it takes
- * the socket with it. The intruder, though, is a client holding the journal it
+ * the socket with it. The intruder, though, is a client holding the tree it
  * fetched when it walked in, and the kill lands on a machine it is not watching.
- * Unless the next line they type re-reads the target's journal first, the box they
- * see stays the box as it was when they arrived, and the eviction is real only in
- * a unit test.
+ * Unless the next line they type re-reads the target first, the box they see stays
+ * the box as it was when they arrived, and the eviction is real only in a unit test.
  */
 describe('a listener killed while an intruder is standing inside it', () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -2880,7 +3111,7 @@ describe('a listener killed while an intruder is standing inside it', () => {
   const PORT = 4444;
   const CLOSED = 'nc: connection closed by foreign host';
 
-  const listenerPatch = {
+  const listenerPatch: Patch = {
     path: `/var/run/nc-${PORT}.pid`,
     content: formatListenerContent({ port: PORT, user: 'mallory', userType: 'root' }),
     owner: 'root',
@@ -2899,10 +3130,11 @@ describe('a listener killed while an intruder is standing inside it', () => {
   };
 
   /** Boot already associated with the LAN, then walk in through the backdoor —
-   *  the real client path: the gate opens the door, the hop swaps the journal to
-   *  the target's, and the player is left standing on it. `killTheListener` is the
-   *  defender's `kill` seen from here: the pidfile leaves the target's journal,
-   *  which is the only place this client could ever learn it from. */
+   *  the real client path: the gate opens the door, the hop swaps the tree to the
+   *  target's, and the player is left standing on it. `killTheListener` is the
+   *  defender's `kill` seen from here: the pidfile leaves the target's journal, and so
+   *  the tree the server builds from it, which is the only place this client could
+   *  ever learn it from. */
   const enterTheBackdoor = async () => {
     vi.resetModules();
     const store = new Map<string, string>();
@@ -2915,7 +3147,7 @@ describe('a listener killed while an intruder is standing inside it', () => {
     lanLeaseCacheIn(storage).remember(ESSID, `${LAN.subnet}.77`);
     vi.stubGlobal('localStorage', storage);
 
-    let targetJournal: readonly unknown[] = [listenerPatch];
+    let targetJournal: readonly Patch[] = [listenerPatch];
     const json = (body: unknown) => ({ ok: true, status: 200, json: async () => body });
     vi.stubGlobal(
       'fetch',
@@ -2930,8 +3162,15 @@ describe('a listener killed while an intruder is standing inside it', () => {
         if (fields.action === 'authCreateSession') {
           return json({ ok: true, username: 'mallory', userType: 'root' });
         }
+        if (fields.action === 'resolveCrossPlayerFs') {
+          const served = applyPatches(buildRemoteHostFs(ESSID, TARGET), targetJournal);
+          return json({ ok: true, tree: serializeTree(served) });
+        }
         if (fields.action !== 'listPatches') return json({});
-        if (fields.machine_id === TARGET_MACHINE_ID) return json({ patches: targetJournal });
+        // The rows behind the target go to nobody: the box is not anybody's own.
+        if (fields.machine_id === TARGET_MACHINE_ID) {
+          return { ok: false, status: 403, json: async () => ({ error: 'permission_denied' }) };
+        }
         // netcat is the tool an intruder brings with them, so the player's own box
         // only has it because they ran `apt install netcat` first.
         return json({ patches: [ownNetcat] });
@@ -3706,6 +3945,7 @@ describe('a door logged into the player’s own box', () => {
 
     const sent: Record<string, unknown>[] = [];
     const landed: Record<string, unknown>[] = [];
+    let journalUnreadable = false;
     vi.stubGlobal(
       'fetch',
       vi.fn(async (_url: string, init?: { body?: string }) => {
@@ -3718,6 +3958,7 @@ describe('a door logged into the player’s own box', () => {
           return { ok: true, status: 200, json: async () => ({ sessions: [] }) };
         }
         if (fields.action === 'listPatches') {
+          if (journalUnreadable) return { ok: false, status: 500, json: async () => ({}) };
           const patches = [...ownJournal, ...landed];
           return { ok: true, status: 200, json: async () => ({ patches }) };
         }
@@ -3737,7 +3978,17 @@ describe('a door logged into the player’s own box', () => {
       await state.runInput();
       expect(state.scrollback().some((line) => line.content.includes('vsftpd.pid'))).toBe(true);
     });
-    return { state, sent };
+    return {
+      state,
+      sent,
+      /** A write this terminal did not make and was never told about: another tab's. */
+      writtenElsewhere: (row: Record<string, unknown>) => {
+        landed.push(row);
+      },
+      loseTheJournal: () => {
+        journalUnreadable = true;
+      },
+    };
   };
 
   /** Run a line, answering each prompt it asks in turn. */
@@ -3817,6 +4068,57 @@ describe('a door logged into the player’s own box', () => {
     await state.runInput();
 
     expect(state.scrollback().at(-1)?.content).toBe('remember the milk');
+  });
+
+  it('takes a file off the own box over scp from its own journal, asking for no served tree', async () => {
+    const { state, sent } = await bootAtHome();
+    state.setInput('echo remember the milk > /tmp/notes.txt');
+    await state.runInput();
+
+    await typeAnswering(state, 'scp root@localhost:/tmp/notes.txt /tmp/taken.txt', ['pw']);
+
+    expect(writesTo(sent, '/tmp/taken.txt')).toEqual([
+      expect.objectContaining({ content: 'remember the milk' }),
+    ]);
+    expect(sent.map((payload) => payload.action)).not.toContain('resolveCrossPlayerFs');
+  });
+
+  it('composes an append on the own box from its journal as it is now', async () => {
+    const { state, sent, writtenElsewhere } = await bootAtHome();
+    state.setInput('echo one > /tmp/log');
+    await state.runInput();
+    // The own box is never re-read before a line, so only the append's own re-read
+    // can learn of this.
+    writtenElsewhere({
+      path: '/tmp/log',
+      content: 'one\ntwo',
+      owner: 'tester',
+      permissions: defaultFilePermissions('user'),
+    });
+
+    state.setInput('echo three >> /tmp/log');
+    await state.runInput();
+
+    expect(writesTo(sent, '/tmp/log').at(-1)).toEqual(
+      expect.objectContaining({ content: 'one\ntwo\nthree' }),
+    );
+    expect(sent.map((payload) => payload.action)).not.toContain('resolveCrossPlayerFs');
+  });
+
+  it('composes an append on the own box as it stands when its journal cannot be read', async () => {
+    const { state, sent, loseTheJournal } = await bootAtHome();
+    state.setInput('echo one > /tmp/log');
+    await state.runInput();
+    loseTheJournal();
+
+    state.setInput('echo two >> /tmp/log');
+    await state.runInput();
+
+    // A read that did not happen is not a box with no edits: composing on the seeded
+    // tree would write the file back holding only the new line.
+    expect(writesTo(sent, '/tmp/log').at(-1)).toEqual(
+      expect.objectContaining({ content: 'one\ntwo' }),
+    );
   });
 
   it('shows the shell a file an ftp put left on the box it stands on', async () => {

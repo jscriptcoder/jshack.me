@@ -94,7 +94,7 @@ false}})`, per request. The service role bypasses row-level security.
 | Action                           | Purpose                                                                     | Auth               |
 | -------------------------------- | --------------------------------------------------------------------------- | ------------------ |
 | `upsertPatch` (default)          | Write a file or directory (optional `base_hash` conflict check → `409`).    | SIG + L1 + L2      |
-| `listPatches`                    | A machine's raw journal: your own, or one your session's network generates. | SIG + L1           |
+| `listPatches`                    | Your own workstation's raw journal. Anybody else: `403 permission_denied`.  | SIG + OWN          |
 | `removePatch`                    | Delete: remove your own rows at and under the path, then write a tombstone. | SIG + L1 + L2      |
 | `appendAuthLog`, `appendKernLog` | Append to your own box's `auth.log`, `vsftpd.log` or `kern.log`.            | SIG + OWN          |
 | `recordFtpTransfer`              | Trace an FTP transfer in `vsftpd.log`.                                      | SIG + L1 (session) |

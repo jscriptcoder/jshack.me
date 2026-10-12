@@ -1,22 +1,26 @@
 // Wire-check for the REMOTE half of the `ftp>` prompt: an `ftp`-kind session is what
-// lets the player read the target box's journal, and it is the ONLY thing that does.
-// Drives the REAL /api/sessions + /api/patches endpoints against a running
-// `vercel dev` + supabase.
+// lets the player read the target box, and it is the ONLY thing that does. The read is
+// the tree the server serves, pruned to the tier the credential bought. The rows behind
+// it go to nobody but an owner, and no player owns a generated box.
+// Drives the REAL /api/sessions + /api/network + /api/patches endpoints against a
+// running `vercel dev` + supabase.
 //
 // Net-new under test (the locally-untypechecked api/ runtime):
-//   - `listPatches` on a box the caller holds nothing on is 403 `no_session` — the
-//     baseline the door has to change.
-//   - An `ftp` row authorizes that same read. The L1 gate looks for an ACTIVE session
+//   - The served tree of a box the caller holds nothing on is 404 `host_unreachable` —
+//     the baseline the door has to change.
+//   - An `ftp` row authorizes that same read. The lookup asks for an OPEN session
 //     and never asks which kind, which is the ftp door's central claim (the door adds no
 //     authorization dimension) — but every unit test fakes `findActiveSession`, so
 //     only a live row against the live query can show that `kind:'ftp'` counts.
-//   - What comes back is the box's REAL state: the journal holds the `vsftpd.log`
+//   - What comes back is the box's REAL state: the tree holds the `vsftpd.log`
 //     line the server itself wrote when the player arrived. A client cannot compute
 //     that from the generated world, so a listing containing it was genuinely read
 //     off the target.
-//   - The grant is per-BOX: the same session does not open a second machine's journal.
-//   - The grant DIES with the session: after `endSession` the read is 403 again, so a
-//     player who quits stops being able to read the box they left.
+//   - The same row is refused the raw journal (403 `permission_denied`).
+//   - The grant is per-BOX: the same session does not open a second machine's tree.
+//   - The grant DIES with the session: after `endSession` the caller is served what
+//     anybody outside can observe of the box and no more, so a player who quits stops
+//     being able to read the box they left.
 //
 // Usage (with v2 supabase + vercel dev running on 3100):
 //   npx dotenv -e .env.development.local -- npx tsx scripts/testFtpRemoteRead.ts
@@ -35,9 +39,12 @@ import { accountsIn } from '../src/core/sessions/passwdAccount.js';
 import { md5 } from '../src/core/generation/md5.js';
 import { leaveNetwork, standOnNetwork } from './standVantage.js';
 import { VSFTPD_LOG_PATH } from '../src/core/logging/vsftpdLog.js';
+import { deserializeTree, type SerializedDirectory } from '../src/core/filesystem/treeCodec.js';
+import type { Directory, FileNode } from '../src/core/filesystem/types.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const PATCHES = process.env.PATCHES_ENDPOINT ?? 'http://localhost:3100/api/patches';
+const NETWORK = process.env.NETWORK_ENDPOINT ?? 'http://localhost:3100/api/network';
 const url = process.env.SUPABASE_URL;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -109,15 +116,35 @@ const account = credential(target);
 const readJournal = (machineId: string) =>
   post(PATCHES, signRequest(player, 'listPatches', { machine_id: machineId }));
 
-const pathsIn = (body: unknown): readonly string[] =>
-  ((body as { patches?: readonly { path: string }[] } | null)?.patches ?? []).map(
-    (row) => row.path,
+/** The box as the server serves it to the player, or null when it serves nothing. */
+const readServedTree = async (machineId: string) => {
+  const response = await post(
+    NETWORK,
+    signRequest(player, 'resolveCrossPlayerFs', { machine_id: machineId }),
   );
+  const tree =
+    response.status === 200
+      ? deserializeTree((response.body as { tree: SerializedDirectory }).tree)
+      : null;
+  return { ...response, tree };
+};
 
-const logLineIn = (body: unknown): string =>
-  (
-    (body as { patches?: readonly { path: string; content: string | null }[] } | null)?.patches ?? []
-  ).find((row) => row.path === VSFTPD_LOG_PATH)?.content ?? '';
+const get = (tree: Directory, ...segments: readonly string[]): FileNode | undefined => {
+  let node: FileNode | undefined = tree;
+  for (const segment of segments) {
+    if (node === undefined || node.kind !== 'directory') return undefined;
+    node = node.entries.get(segment);
+  }
+  return node;
+};
+
+/** A path's segments, so a tree can be walked to it. */
+const segmentsOf = (path: string): readonly string[] => path.split('/').filter(Boolean);
+
+const logLineIn = (tree: Directory | null): string => {
+  const log = tree === null ? undefined : get(tree, ...segmentsOf(VSFTPD_LOG_PATH));
+  return log?.kind === 'file' ? log.content : '';
+};
 
 const clear = async () => {
   await leaveNetwork(sr, ESSID);
@@ -131,11 +158,11 @@ const main = async (): Promise<void> => {
   // Seat the player on the lab network so the server can place their login.
   await standOnNetwork(sr, ESSID, player, 50);
 
-  // --- the baseline: no session, no journal ---
-  const before = await readJournal(targetMachine);
+  // --- the baseline: no session, no box ---
+  const before = await readServedTree(targetMachine);
   check(
-    'a box the player holds nothing on refuses its journal',
-    before.status === 403,
+    'a box the player holds nothing on is not served to them',
+    before.status === 404,
     `status ${before.status} ${JSON.stringify(before.body)}`,
   );
 
@@ -159,22 +186,29 @@ const main = async (): Promise<void> => {
     `status ${login.status} ${JSON.stringify(login.body)}`,
   );
 
-  const opened = await readJournal(targetMachine);
+  const opened = await readServedTree(targetMachine);
   check(
-    'and the ftp row alone authorizes the journal read — the gate never asks which door',
+    'and the ftp row alone authorizes the read — the lookup never asks which door',
     opened.status === 200,
     `status ${opened.status}`,
   );
   check(
     'what comes back is the box as it stands, including the log of the arrival itself',
-    pathsIn(opened.body).includes(VSFTPD_LOG_PATH) && logLineIn(opened.body).includes('OK LOGIN'),
-    `paths: ${JSON.stringify(pathsIn(opened.body))}`,
+    logLineIn(opened.tree).includes('OK LOGIN'),
+    `log: ${JSON.stringify(logLineIn(opened.tree))}`,
   );
 
-  const other = await readJournal(bystanderMachine);
+  const rows = await readJournal(targetMachine);
+  check(
+    'the rows behind that tree are refused to the same session',
+    rows.status === 403 && (rows.body as { error?: string } | null)?.error === 'permission_denied',
+    `status ${rows.status} ${JSON.stringify(rows.body)}`,
+  );
+
+  const other = await readServedTree(bystanderMachine);
   check(
     'the grant is for the box it was bought on, not for the network',
-    other.status === 403,
+    other.status === 404,
     `status ${other.status} on ${bystander.ip}`,
   );
 
@@ -182,11 +216,14 @@ const main = async (): Promise<void> => {
   const ended = await post(SESSIONS, signRequest(player, 'endSession', { session_id: 'ftp-read-1' }));
   check('the session ends', ended.status === 200, `status ${ended.status}`);
 
-  const after = await readJournal(targetMachine);
+  const after = await readServedTree(targetMachine);
   check(
-    'a quit player can no longer read the box they left',
-    after.status === 403,
-    `status ${after.status} ${JSON.stringify(after.body)}`,
+    'a quit player is served what anybody outside can observe, and not the log or a home',
+    after.tree !== null &&
+      logLineIn(after.tree) === '' &&
+      get(after.tree, 'home') === undefined &&
+      get(after.tree, 'bin') === undefined,
+    `status ${after.status} log=${JSON.stringify(logLineIn(after.tree))}`,
   );
 
   await clear();

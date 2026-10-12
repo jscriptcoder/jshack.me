@@ -8,8 +8,8 @@
 //     and writes nothing. Without this anyone could author lines in any stranger's
 //     evidence, inventing thefts on boxes they never reached.
 //   - An `ftp` row authorizes it, and the line lands on the TARGET's log — read back
-//     through `listPatches`, so the check reads what the box holds rather than what
-//     the handler returned.
+//     off the tree the server serves that session, so the check reads what the box
+//     holds rather than what the handler returned.
 //   - BOTH verbs reach that log from one action: `OK DOWNLOAD` for what left, `OK
 //     UPLOAD` for what arrived. A direction the daemon has no verb for is refused
 //     rather than rendered into a stranger's evidence.
@@ -37,9 +37,12 @@ import { accountsIn } from '../src/core/sessions/passwdAccount.js';
 import { md5 } from '../src/core/generation/md5.js';
 import { leaveNetwork, standOnNetwork } from './standVantage.js';
 import { VSFTPD_LOG_PATH } from '../src/core/logging/vsftpdLog.js';
+import { deserializeTree, type SerializedDirectory } from '../src/core/filesystem/treeCodec.js';
+import type { Directory, FileNode } from '../src/core/filesystem/types.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const PATCHES = process.env.PATCHES_ENDPOINT ?? 'http://localhost:3100/api/patches';
+const NETWORK = process.env.NETWORK_ENDPOINT ?? 'http://localhost:3100/api/network';
 const url = process.env.SUPABASE_URL;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -125,13 +128,29 @@ const recordTransfer = (over: Record<string, unknown> = {}) =>
     }),
   );
 
-/** The target's `vsftpd.log` as the box itself holds it — read back through the
- *  journal rather than trusted from the handler's own answer. */
+const get = (tree: Directory, ...segments: readonly string[]): FileNode | undefined => {
+  let node: FileNode | undefined = tree;
+  for (const segment of segments) {
+    if (node === undefined || node.kind !== 'directory') return undefined;
+    node = node.entries.get(segment);
+  }
+  return node;
+};
+
+/** A path's segments, so a tree can be walked to it. */
+const segmentsOf = (path: string): readonly string[] => path.split('/').filter(Boolean);
+
+/** The target's `vsftpd.log` as the box itself holds it — read back off the tree the
+ *  server serves the session rather than trusted from the handler's own answer. */
 const readVsftpdLog = async (): Promise<string> => {
-  const { body } = await post(PATCHES, signRequest(player, 'listPatches', { machine_id: targetMachine }));
-  const rows =
-    (body as { patches?: readonly { path: string; content: string | null }[] } | null)?.patches ?? [];
-  return rows.find((row) => row.path === VSFTPD_LOG_PATH)?.content ?? '';
+  const response = await post(
+    NETWORK,
+    signRequest(player, 'resolveCrossPlayerFs', { machine_id: targetMachine }),
+  );
+  if (response.status !== 200) return '';
+  const tree = deserializeTree((response.body as { tree: SerializedDirectory }).tree);
+  const log = get(tree, ...segmentsOf(VSFTPD_LOG_PATH));
+  return log?.kind === 'file' ? log.content : '';
 };
 
 const rowCount = async (): Promise<number> => {

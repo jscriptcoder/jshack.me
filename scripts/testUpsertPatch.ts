@@ -176,8 +176,8 @@ const r8 = await post(
   signRequest(id, 'listPatches', { machine_id: computeWorkstationId('victim', 'c'.repeat(64)) }),
 );
 check(
-  'listPatches non-own machine → 403 no_session',
-  r8.status === 403 && errorOf(r8.body) === 'no_session',
+  'listPatches non-own machine → 403 permission_denied',
+  r8.status === 403 && errorOf(r8.body) === 'permission_denied',
   `status=${r8.status} error=${errorOf(r8.body)}`,
 );
 

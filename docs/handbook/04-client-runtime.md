@@ -294,19 +294,22 @@ pops it. The type is in `core/commands/types.ts`:
   workstation (remote sessions were already created by their own login round-trip), then calls
   `rebindPatchClient()`.
 - `rebindPatchClient` re-points the patch client at the active machine, owner and tier. If the
-  machine changed, it clears `patches` and re-pulls the journal, and fetches a served tree if the
-  machine belongs to another player.
+  machine changed, it clears `patches`, then re-pulls the journal when the machine is your own
+  workstation and fetches a served tree when it is any other.
 - `popSession` restores the cwd, ends the server row (fire-and-forget), and rebinds.
 
 `activeRoot()` decides the tree the shell sees:
 
-1. a served tree, if one is tagged for the active machine (another player's box, materialized by the
-   server);
-2. otherwise, if the active machine is another player's box, an **empty placeholder** until the
-   served tree arrives. The UI never shows your own tree while you are standing on someone else's
-   machine;
-3. otherwise `resolveActiveRoot(...)`: regenerate the right base tree (your workstation, a machine on
-   your LAN, a gateway, and so on) and replay the active journal over it.
+1. on your own workstation, the tree regenerated from your key and config with your journal
+   replayed over it;
+2. on any other machine (another player's box, an access point's gateway, a machine a network
+   generates), the served tree tagged for it, materialized and pruned by the server;
+3. on such a machine before that tree arrives, an **empty placeholder**. The UI never shows your
+   own tree while you are standing on another machine.
+
+One question decides it, `isServedBox`: is the machine anything but your own workstation. The
+browser stopped rebuilding generated machines at v0.374.0, because the journal it replayed over
+them carried every writer's rows at any permission.
 
 ### Reloads and rehydration
 

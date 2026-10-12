@@ -12,21 +12,20 @@ entry when you fix or decide it.** Deliberately deferred features live in the ba
 | **`WORLD_EPOCH` tripwire fails from 2027-01-08 UTC** | `src/core/cve/worldClock.test.ts` fails once the development epoch (2026-07-12) is `RUNWAY_DAYS` (180) days old. The test is intentional: it forces a decision. It was postponed once, on 2026-09-27, from 90 to 180 days. | Decide: re-stamp the epoch for launch, or postpone again by raising `RUNWAY_DAYS` (the world is untouched). Re-stamping re-dates all generated history and every vulnerability, and moves date-pinned tests. Delete the test at launch. |
 | **Generation timing headroom may be thin**           | One run measured 1.61–1.83 ms per box against the 2 ms budget (docs say 0.86–1.67). The machine may have been loaded.                                                                                                      | Measure with a clean `npm run build`, three times, before the next content change.                                                                                                                                                      |
 
-## Security gap (half closed at v0.369.0, 2026-10-12)
+## Security gap (closed at v0.374.0, 2026-10-12)
 
-**`listPatches` hands a visitor on a generated machine rows above their tier.** The rows are raw:
-every writer's, at any permission. Since v0.369.0 `handleListPatches` refuses them (403
-`permission_denied`) to a visitor on any machine their session's network does not generate, which
-covers another player's workstation and the access point's gateway; both are read through the tree
-`resolveCrossPlayerFs` prunes, and `scripts/testJournalRefusedToVisitors.ts` holds the refusal. A
-machine the network does generate (a LAN host, an inner gateway, a switch, a deep box) is still
-rebuilt in the browser from the ESSID plus that raw journal, so a `guest` session there receives
-files only `root` may read, a wallet key written on that box included. That contradicts the rule
-"prune before the response leaves the server". The fix is to serve those boxes too and leave
-`listPatches` to the owner alone; it moves `su` on them to the server, so it is an epic, not a
-patch. The server half is in (v0.373.0): `resolveCrossPlayerFs` serves a generated machine pruned
-to the session's tier, and `scripts/testNetworkBoxServed.ts` holds that. The browser still
-rebuilds those boxes from the journal, so the rows still leave until it stops asking for them.
+**`listPatches` handed a session holder rows above their tier.** The rows are raw: every writer's,
+at any permission, a wallet key included. It closed in three steps. At v0.369.0 a visitor was
+refused them on another player's workstation and on the access point's gateway. At v0.373.0 the
+server learned to serve every machine a network generates, pruned to the session's tier. At
+v0.374.0 the browser reads that served tree on every machine that is not the player's own
+workstation, and `handleListPatches` answers nobody but the owner of a workstation (403
+`permission_denied` for everybody else, with no session lookup).
+`scripts/testJournalRefusedToVisitors.ts` and `scripts/testNetworkBoxServed.ts` hold it.
+
+What is left is a limit, not a gap: the content a network was generated with is computable by any
+client from the ESSID, because the generators ship in the bundle. Only what was written to a
+machine afterwards is hidden.
 
 [Chapter 14](./14-tier-read-audit.md) lists every client reader and server response that reaches
 past a session's tier, with a verdict on each. It found two more defects of the same family: a
@@ -35,8 +34,9 @@ another player's workstation checked the password the box was generated with ins
 holds now. The second is fixed (v0.370.0): `su` is answered by the server on every box that is not
 the player's own. The first is fixed too (v0.372.0): `msfconsole --local` is answered by the
 server everywhere but the player's own workstation. A session holder is also served the
-externally-observable list now (v0.371.0), which the scans behind a switch need before switches can
-be served.
+externally-observable list (v0.371.0), which the scans behind a switch needed before switches could
+be served. One defect of the audit is still open: `chmod` reads `/etc/passwd` to learn the tier of
+a file's owner, and a `guest` session on a served box has no such file.
 
 ## Open design questions
 

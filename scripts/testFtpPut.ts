@@ -17,8 +17,10 @@
 //   - The TIER decides, not the protocol: the same destination refuses a `guest`
 //     credential and accepts a `root` one, both over ftp. Two credentials, one path —
 //     a single-credential check could not tell "the tier decided" from "ftp is denied".
-//   - What the box holds afterwards is read back through `listPatches`, so the check
-//     reads the machine's own state rather than trusting the handler's answer.
+//   - What the box holds afterwards is read back off its journal, so the check reads
+//     the machine's own state rather than trusting the handler's answer. And the
+//     session that left a file reads it back off the tree the server serves it, which
+//     is the only way a player reads a box that is not their own.
 //   - The grant dies with the session: after `endSession` the write is refused again.
 //
 // Usage (with v2 supabase + vercel dev running on 3100):
@@ -38,9 +40,12 @@ import { accountsIn } from '../src/core/sessions/passwdAccount.js';
 import { md5 } from '../src/core/generation/md5.js';
 import { leaveNetwork, standOnNetwork } from './standVantage.js';
 import type { UserType } from '../src/core/types.js';
+import { deserializeTree, type SerializedDirectory } from '../src/core/filesystem/treeCodec.js';
+import type { Directory, FileNode } from '../src/core/filesystem/types.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const PATCHES = process.env.PATCHES_ENDPOINT ?? 'http://localhost:3100/api/patches';
+const NETWORK = process.env.NETWORK_ENDPOINT ?? 'http://localhost:3100/api/network';
 const url = process.env.SUPABASE_URL;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -150,17 +155,40 @@ const put = (path: string, owner: string) =>
     }),
   );
 
-/** What the box itself holds at `path` — read back through the journal rather than
- *  trusted from the handler's answer. */
+/** What the box itself holds at `path` — read off its journal rather than trusted from
+ *  the handler's answer. The rows go to no player on a box nobody owns, so this asks as
+ *  the operator. */
 const contentAt = async (path: string): Promise<string | null> => {
-  const { body } = await post(
-    PATCHES,
-    signRequest(player, 'listPatches', { machine_id: targetMachine }),
+  const { data } = await sr
+    .from('patches')
+    .select('content')
+    .eq('machine_id', targetMachine)
+    .eq('path', path);
+  return (data as readonly { content: string | null }[] | null)?.[0]?.content ?? null;
+};
+
+const get = (tree: Directory, ...segments: readonly string[]): FileNode | undefined => {
+  let node: FileNode | undefined = tree;
+  for (const segment of segments) {
+    if (node === undefined || node.kind !== 'directory') return undefined;
+    node = node.entries.get(segment);
+  }
+  return node;
+};
+
+/** A path's segments, so a tree can be walked to it. */
+const segmentsOf = (path: string): readonly string[] => path.split('/').filter(Boolean);
+
+/** What the player is served at `path` on the box, at the tier their session holds. */
+const servedAt = async (path: string): Promise<string | null> => {
+  const response = await post(
+    NETWORK,
+    signRequest(player, 'resolveCrossPlayerFs', { machine_id: targetMachine }),
   );
-  const rows =
-    (body as { patches?: readonly { path: string; content: string | null }[] } | null)?.patches ??
-    [];
-  return rows.find((row) => row.path === path)?.content ?? null;
+  if (response.status !== 200) return null;
+  const tree = deserializeTree((response.body as { tree: SerializedDirectory }).tree);
+  const node = get(tree, ...segmentsOf(path));
+  return node?.kind === 'file' ? node.content : null;
 };
 
 const clear = async () => {
@@ -202,9 +230,9 @@ const main = async (): Promise<void> => {
     `status ${landed.status} ${JSON.stringify(landed.body)}`,
   );
   check(
-    'and the box itself holds the file afterwards',
-    (await contentAt(OPEN)) === PAYLOAD,
-    `${OPEN}: ${JSON.stringify(await contentAt(OPEN))}`,
+    'and the box itself holds the file afterwards, which the session reads back',
+    (await contentAt(OPEN)) === PAYLOAD && (await servedAt(OPEN)) === PAYLOAD,
+    `${OPEN}: held ${JSON.stringify(await contentAt(OPEN))}, served ${JSON.stringify(await servedAt(OPEN))}`,
   );
 
   // --- the tier decides, not the protocol ---
@@ -238,9 +266,9 @@ const main = async (): Promise<void> => {
   // The pair is the point: one path, two credentials, two answers. Either half alone
   // would be satisfied by an endpoint that always refuses, or always allows.
   check(
-    'and the box holds what the root session left',
-    (await contentAt(SEALED)) === PAYLOAD,
-    `${SEALED}: ${JSON.stringify(await contentAt(SEALED))}`,
+    'and the box holds what the root session left, which that session reads back',
+    (await contentAt(SEALED)) === PAYLOAD && (await servedAt(SEALED)) === PAYLOAD,
+    `${SEALED}: held ${JSON.stringify(await contentAt(SEALED))}, served ${JSON.stringify(await servedAt(SEALED))}`,
   );
 
   // --- and the grant dies when the player quits ---

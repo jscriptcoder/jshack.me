@@ -189,13 +189,17 @@ so two saves from the same base within one request's time can both pass.
   both check that the active machine has not changed while they were in flight; otherwise `nano`
   could save a foreign tree over a real file.
 
-### Three kinds of tree
+### Two kinds of tree
 
-| Machine                                                   | How the browser gets its tree                                                          |
-| --------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| Your own workstation                                      | Regenerate locally from your key and config, then replay your journal (`listPatches`). |
-| A generated machine (LAN machine, gateway, deep box)      | Regenerate locally from the ESSID, then replay that machine's journal.                 |
-| Another player's workstation, or the access-point gateway | Ask the server (`resolveCrossPlayerFs`), which rebuilds it and prunes it to your tier. |
+| Machine                                                                                                 | How the browser gets its tree                                                                                         |
+| ------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Your own workstation                                                                                    | Regenerate locally from your key and config, then replay your journal (`listPatches`, which answers its owner alone). |
+| Any other machine: another player's workstation, an access-point gateway, a machine a network generates | Ask the server (`resolveCrossPlayerFs`), which rebuilds it and prunes it to your tier.                                |
+
+A generated machine was rebuilt in the browser until v0.374.0, from the ESSID and that machine's
+raw journal. The journal carried every writer's rows at any permission, so it now goes to nobody
+but an owner. What a network was generated with is still computable by any client from the ESSID;
+what was written to a machine afterwards is not.
 
 The server prunes by tier: the owner gets everything, and anyone with no session gets only what the
 network could observe (pidfiles, the boot id, firewall and SNMP config, the web root, the package
