@@ -238,6 +238,33 @@ client claim:
   NAT rules — `filterTreeToAllowlist` / `EXTERNALLY_OBSERVABLE_ALLOWLIST`); everything else
   default-denies.
 
+On a box nobody owns, a caller whose session has ended holds no open row to read the network
+from, so the handler reads it off their most recent row there, ended or not
+(`findLastSessionEssid`), and serves tier 3. That view carries the boot marker, which is how a
+shell a reboot threw off a machine learns it on its next line. Nothing is claimed by the client
+and no wire field carries the network.
+
+Three things are left as they are. The tree is pulled whole before every line, with no
+conditional fetch. A player holding several sessions on one machine is served at the tier of the
+newest open row, as the write check already judges them. And the player's own workstation stays
+local: its journal, its `su`, its database doors.
+
+Why one served path (owner, 2026-10-12). Until v0.374.0 a machine a network generates was
+rebuilt in the browser from the ESSID and its raw journal. Keeping that path and filtering the
+journal rows by tier was rejected: two read paths would stay, the filter would need invented
+rules for a tombstone and for a row another writer superseded, and machinery above the tier
+would read the stale seeded file where it should read nothing, so `su` would accept an old
+password. Tier 2 includes the externally-observable list for a like reason: the scans behind a
+switch need `acl.conf`, and a server-side answer for each such reader was rejected in favour of
+serving a list a caller with no session was already given.
+
+**The limit of the filter.** It hides what was written to a machine after the machine was
+generated: players' files, wallet keys, changed passwords, logs. What a network was generated
+with is computable by any client from the ESSID, because the generators ship in the bundle
+(`nmap`, the `ssh` preflight and the scans rebuild machines the player holds no session on).
+Hiding that means moving world generation to the server, which is a separate and much larger
+piece of work (`backlog.md`).
+
 Pruning happens **before** the response leaves — a path the tier may not read never crosses
 the wire, so passwd hashes and non-observable files can't leak. The tree crosses as a
 JSON-safe codec (`core/filesystem/treeCodec.ts` `serializeTree`/`deserializeTree`; a `Map`
@@ -288,7 +315,9 @@ escalate on A's box and permanently brick it.
   is the public face — so bricking the router alone takes the whole public IP dark: `resolvePublicScan`
   → host-down / no ports (even with lingering `/var/run` pidfiles); `authCreateSessionPublic` →
   `404 host_unreachable` before the password is checked, no session inserted. (Cross-player `su`,
-  `authElevateSession`, still rebuilds the **workstation** B stands on via `materializeWorkstationFs`.)
+  `authElevateSession`, rebuilds whichever box the caller's own session row stands on, a
+  generated machine or a gateway as well as a workstation: `resolveStoodOnBox`, then
+  `materializeMachineFs`.)
   A dead box can't be scanned or logged into no matter the credentials.
 - **The dark-gate is role-based, at the workstation level too (Story 5.3):**
   `dark-gate(addr) = canBoot(machineServing(addr))`. The shared `bootableOccupantFs`

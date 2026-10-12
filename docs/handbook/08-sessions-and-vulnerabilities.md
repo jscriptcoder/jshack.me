@@ -31,7 +31,7 @@ leaves no log line at all.)
 | `sessions/authCreateSessionSameLan.ts`                          | Login to a fellow player's workstation on the same WiFi.                                                                          |
 | `sessions/authCreateSessionPublic.ts`                           | Login through a public IP: the access-point gateway, or a player's box behind a forward.                                          |
 | `sessions/authCreateSessionInnerGateway.ts`                     | Login to a hidden deep-layer machine through an inner gateway's forward.                                                          |
-| `sessions/authElevateSession.ts`                                | Cross-player `su` to root on another player's box.                                                                                |
+| `sessions/authElevateSession.ts`                                | `su` on any box that is not your own: a workstation, a gateway or a generated machine.                                            |
 | `sessions/createSession.ts`, `endSession.ts`, `listSessions.ts` | Persist, end and list the caller's own session rows.                                                                              |
 | `sessions/rebootMachine.ts`                                     | `reboot`: ends **every** session on a machine and writes a new boot id.                                                           |
 | `sessions/passwdAccount.ts`                                     | `accountIn`: read one account's hash and tier from a rebuilt `/etc/passwd`. The one credential reader.                            |
@@ -72,19 +72,20 @@ The client's `sessionStack` (chapter 4) has the base login at index 0 (never sto
 and pushes one session per hop. The prompt, the working directory, the filesystem tree and the
 patch client all follow the **top** session.
 
-| Kind              | Created by                                                                          | Is it a hop on the stack?                        | Survives a reload?         |
-| ----------------- | ----------------------------------------------------------------------------------- | ------------------------------------------------ | -------------------------- |
-| `su`              | `su` on your own box (`createSession`), or cross-player `su` (`authElevateSession`) | Yes                                              | Yes                        |
-| `ssh`             | `ssh` through any of the four login handlers                                        | Yes                                              | Yes                        |
-| `exploit`         | A remote or local exploit that granted a full shell                                 | Yes                                              | Yes                        |
-| `exploit_limited` | An exploit that granted a shell without a terminal                                  | Yes                                              | No (closed as `abandoned`) |
-| `nc`              | Connecting to a listener planted on a box                                           | Yes                                              | No (closed as `abandoned`) |
-| `ftp`, `scp`      | File-transfer logins                                                                | No (a parallel sub-shell or a one-shot transfer) | No                         |
-| `mysql`, redis    | Database and store connections                                                      | No, and **no server row**                        | No                         |
+| Kind              | Created by                                                                         | Is it a hop on the stack?                        | Survives a reload?         |
+| ----------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------ | -------------------------- |
+| `su`              | `su` on your own box (`createSession`), or on any other box (`authElevateSession`) | Yes                                              | Yes                        |
+| `ssh`             | `ssh` through any of the four login handlers                                       | Yes                                              | Yes                        |
+| `exploit`         | A remote or local exploit that granted a full shell                                | Yes                                              | Yes                        |
+| `exploit_limited` | An exploit that granted a shell without a terminal                                 | Yes                                              | No (closed as `abandoned`) |
+| `nc`              | Connecting to a listener planted on a box                                          | Yes                                              | No (closed as `abandoned`) |
+| `ftp`, `scp`      | File-transfer logins                                                               | No (a parallel sub-shell or a one-shot transfer) | No                         |
+| `mysql`, redis    | Database and store connections                                                     | No, and **no server row**                        | No                         |
 
 ### Why some doors create no session row
 
-A session row is an authorization: it lets its holder list and write the machine's journal. The
+A session row is an authorization: it lets its holder read the machine, as a tree the server
+prunes to the row's tier, and write its journal. The
 database, key-value store, SNMP and `hydra` doors deliberately create **no** row. Instead, every
 statement re-establishes reachability and re-checks the credential. This means a daemon stopped
 mid-session drops the player on their next statement, and reaching a database port never grants

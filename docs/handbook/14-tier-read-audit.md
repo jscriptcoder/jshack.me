@@ -6,9 +6,9 @@ each client call site, and the body of each server response. Read against the co
 nothing in it was run unless a row says so.
 
 The rule it checks is the one in [chapter 9](./09-persistence-and-multiplayer.md): **nothing a
-session's tier cannot read leaves the server for that player.** The fixes for the rows marked as
-defects are scheduled in `plans/served-boxes.md`. When a fix ships, change its row here in the same
-pull request. The audit is finished when no row says defect.
+session's tier cannot read leaves the server for that player.** Every row marked as a defect has
+been fixed since (v0.370.0 to v0.375.0), so no row says defect any more. A reader added later gets
+a row here in the pull request that adds it.
 
 ## How to read the tables
 

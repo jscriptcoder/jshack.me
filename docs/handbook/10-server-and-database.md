@@ -24,7 +24,7 @@ where they are unit- and mutation-tested and shared with the client. Only the SQ
 | `src/core/signedRequest/`                    | Envelope schema, signing, verification, status mapping (chapter 9).                                                                          |
 | `src/core/patches/authorizeMachineAccess.ts` | The L1 gate.                                                                                                                                 |
 | `src/core/patches/remoteWritePermission.ts`  | The L2 gate.                                                                                                                                 |
-| `src/core/patches/readFilter.ts`             | The three-tier read filter.                                                                                                                  |
+| `src/core/patches/readFilter.ts`             | The three-tier read filter. It hides what was written to a machine; seeded content is computable by any client (chapter 9).                  |
 | `supabase/migrations/*.sql`                  | The schema, as 12 forward-only migrations.                                                                                                   |
 | `supabase/config.toml`                       | Local stack configuration (project `jshack-me`, non-default ports).                                                                          |
 | `vercel.json`                                | `regions: ["fra1"]` (plus the `$schema` key) and nothing else.                                                                               |

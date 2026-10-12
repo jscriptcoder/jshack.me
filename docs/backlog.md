@@ -258,30 +258,9 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   back. The visitor's next line prints `Connection to <box> closed by remote host.`: one hop
   deep on another player's workstation the shell now asks which of its sessions are open,
   which costs that shell one request a line. `scripts/testDisconnectedUnreachable.ts` carries
-  the checks (13/13). Not played in the browser yet. Three things found on the way are the
-  next three items.
-
-- **`listPatches` handed a `guest` session the box's whole journal — CLOSED 2026-10-12
-  (v0.369.0 on a player's workstation and the gateway, v0.374.0 on generated machines).**
-  The same probe logged in as
-  `guest` on another player's workstation and read a root-only `/root/secret.txt` off the
-  `listPatches` answer, which was gated on holding any session and filtered by no tier. The
-  served tree (`resolveCrossPlayerFs`) prunes that file; the raw rows did not. The wallet key
-  is a journal row like any other, so a guest password was enough to take it (not probed on
-  `wallet.dat` itself). Handbook chapter 13 had carried it as unverified since v0.278.0.
-  Now a visitor is refused the journal (403 `permission_denied`) of any machine their
-  session's network does not generate: another player's workstation, the access point's
-  gateway, and a generated machine asked for under a session opened on a different network.
-  The network is read off the session row, never off the request. The client asks for no
-  journal on such a box, since it never replayed one there.
-  `scripts/testJournalRefusedToVisitors.ts` carries the checks (11/11; 5 of them fail against
-  the handler before the change, one being the root-only file's text in the answer). Not
-  played in the browser yet. A machine the network generates (a LAN host, an inner gateway, a
-  switch, a deep box) was still rebuilt by the client from the ESSID plus its raw journal, so
-  a `guest` there received every row written on it. Since v0.374.0 the server serves those
-  boxes as it serves a workstation, the client reads the served tree on every machine that is
-  not the player's own, and `listPatches` answers only the owner of a workstation
-  (`scripts/testNetworkBoxServed.ts` 24/24, `scripts/testJournalRefusedToVisitors.ts` 12/12).
+  the checks (13/13). Not played in the browser yet. Three things were found on the way. One,
+  the raw journal `listPatches` handed a session holder, closed at v0.374.0 (handbook chapter
+  13). The other two are the next two items.
 
 - **A player who leaves a WiFi keeps the sessions they opened across it. By reading, not
   reproduced.** The disconnect closes other players' rows on the leaver's box and nothing of
@@ -295,6 +274,54 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   reachable on the first WiFi and its visitors' sessions stay open, while the player's own
   tools act from the second. Handbook chapter 13 lists the stale `updated_at` half of this.
   Found 2026-10-12.
+
+- **What a network was generated with is computable by any client. The accepted limit of the
+  served-boxes work (owner, 2026-10-12).** The generators ship in the bundle, since `nmap`, the
+  `ssh` preflight and the scans rebuild machines the player holds no session on. So the files a
+  machine was generated with, its seeded password hashes included, can be computed from the
+  ESSID without logging in. The server hides everything written to a machine afterwards:
+  players' files, wallet keys, changed passwords, logs. Closing it means generating the world on
+  the server alone, which rewrites every local resolver: several times the work that stopped
+  here.
+
+- **A served tree is pulled whole before every line. Left as it is (2026-10-12).** A shell on
+  any box that is not the player's own asks the server for the tree before each command, with
+  no conditional fetch. Measured over 50 generated hosts on 5 networks: 20 to 102 KB raw
+  (median 36), 2.5 to 19 KB gzipped (median 5.7), 1 to 4 ms to build and serialise. A
+  conditional or cached fetch is the fix if it shows in play.
+
+- **Several sessions on one machine: the newest open row sets the tier. Left as it is
+  (2026-10-12).** A player who holds a `root` shell on a box and then opens a `guest` one there
+  is served, and has their writes judged, at `guest` in both until the newer one closes. The
+  write check already worked this way and the served tree follows it.
+
+- **A LAN web fetch of a generated machine never reads its journal. By reading.** `curl` or
+  `lynx` at a generated box on the caller's own LAN is answered from the tree the box was
+  generated with. A page somebody changed there is served as generated to a reader on its LAN
+  and as changed to a reader across the internet (`resolveHttpFetch` replays the journal). A
+  stale read, not a tier matter. Found by the tier-read audit, 2026-10-12 (handbook chapter 14).
+
+- **An exploit fired from a script leaves a session row nobody stands on. By reading, not
+  reproduced.** A script cannot be put in a shell, so `msfconsole` reports
+  `Full shell available` and pushes no session (`env.scripted`). Where the server answers the
+  fire, which since v0.372.0 includes `--local` on every box that is not the player's own, it
+  has already inserted the row, and nothing closes it short of a reboot or the player leaving
+  the network. By the rule two items up that row would also set the tier the player's other
+  shell there is served at; not checked. Seen 2026-10-12 while the local exploit moved to the
+  server.
+
+- **Three guards in `ui/state.ts` have no test that fails without them (mutation, v0.374.0).**
+  Two drop a served tree that arrives for a box the player has already left
+  (`refreshServedRoot`), and one is the journal re-read after a reboot of the player's own box
+  (`rebootEvict`). The change that found them touched neither decision.
+
+- **A shell below `root` on a switch has not been played.** Gateways and switches carry only a
+  `root` account, so a lower tier there comes from an exploit, and on 2026-10-13 every hole
+  live on the switch and the two routers of the network played (CITY-PARK-WIFI) granted a
+  limited effect and no shell. That a lower-tier shell on a switch
+  still has its scans filtered by `acl.conf` rests on the unit tests and on the wire-checks of
+  v0.371.0 that a session holder is served the file (`testCrossPlayerRead`,
+  `testPidfileVisibility`). Play it when a shell-granting hole is live there, or stage one.
 
 - **`curl <its own address>` on a deep box behind a switch that denies the web port is served
   but not traced. By reading, not reproduced.** The client serves the standing box's own tree
@@ -357,7 +384,9 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   shortcut to a client on any other box of the office" takes ~20s alone against the 30s
   `testTimeout` and exceeds it when the whole suite runs, on `main` as of 2026-10-08 (seen twice
   in a row, unrelated to the change at hand). Either make the test cheaper (it walks the world)
-  or give it its own timeout with the reason beside it; do not raise the global one.
+  or give it its own timeout with the reason beside it; do not raise the global one. Seen again
+  on 2026-10-12 (12 s alone, over 30 s in the full run, the same on `main`); it passed in the
+  full run of 2026-10-13.
 
 - **CLOSED v0.326.0 (#619) — `grep -c` answered `grep: unrecognized option: -c`.** Parity rather
   than a missing capability (`grep … | wc -l` worked since v0.278.0), but the game planted

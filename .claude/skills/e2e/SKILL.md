@@ -322,6 +322,35 @@ gameDayAt(now))` from `core/cve/localExploit.ts`. On 2026-10-10: `msfconsole --l
 To tell a kept mode from a reset one, give the target a mode that is nobody's default first:
 `chmod o+r <file>` shows as `-rwxrw-r--` in `ls -l`, against the user default `-rwxrw----`.
 
+### Then: two tiers on one generated machine, and a local hole there
+
+Verified 2026-10-13 (v0.375.0) on CITY-PARK-WIFI, `vault-43`. A generated machine is served
+like a player's box, so two players at two tiers on it show what the read filter prunes.
+
+```
+A: ssh <user>@<host>          →  echo secret > /tmp/note.txt     (-rwxrw----, user tier)
+B: ssh guest@<host>           →  ls /tmp shows nothing; cat answers No such file or directory
+B: su <user>                  →  the file opens; a `su` row appears in `sessions`
+B: scp /usr/bin/msfconsole guest@<host>:/tmp/msfconsole    (from B's own box, after apt install metasploit)
+B: /tmp/msfconsole --local kill   →  [+] Full shell as root@<host>, an `exploit` row
+B: reboot                     →  A's next line: Connection to <host> closed by remote host.
+```
+
+Pick the machine offline: every account's password matches `/etc/passwd`'s md5 against
+`ALL_GENERATED_PASSWORDS` (§6), and `localExploitOutcome(command, parseDpkgVersions(
+readDpkgStatus(fs)), gameDayAt(now))` says what each command's hole grants there today. On
+2026-10-13 each of the twelve machines checked, on six networks, fell to `kill`, `su`,
+`systemctl` and `reboot` at root.
+
+| Trap | What actually works |
+|---|---|
+| `nmcli connect <ESSID> <password>` after computing the password offline | It works with no `aircrack-ng` run. The network only has to be in the latest scan |
+| `which msfconsole` → `bash: which: command not found` | `ls -l /usr/bin/msfconsole`. A generated machine holds no `msfconsole`, so it is carried in by `scp` and run by its path |
+| `nmap <deep ip>` from a shell on a switch → `command not found` | A gateway holds no `nmap`. To see `acl.conf` bite, `ssh guest@<deep ip>` before and after `echo deny 22 >> /etc/switch/acl.conf`: the second answers `Connection refused` |
+| Looking for a shell below `root` on a switch | Gateways and switches carry only `root`, and on 2026-10-13 every hole live on CITY-PARK-WIFI's switch and two routers granted a limited effect. Check `exploitOutcome`/`firmwareExploitOutcome` for the day before planning on one |
+| `chmod u-x <file>` at `guest` | Refused since v0.375.0: `cannot resolve 'u' ... /etc/passwd: No such file or directory` on a served box, `Permission denied` on the player's own. `o`, `g` and `a` go through |
+| A file two players appended to has two rows in `patches` | One row per writer (`writer_key`); the tree is the journal replayed, so `cat` shows one file |
+
 ### Then: an NPC phone or tablet
 
 An `android-`, `iphone-` or `tablet-` keeps a device's storage in its person's home instead of

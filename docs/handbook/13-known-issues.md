@@ -27,6 +27,10 @@ What is left is a limit, not a gap: the content a network was generated with is 
 client from the ESSID, because the generators ship in the bundle. Only what was written to a
 machine afterwards is hidden.
 
+Played in the browser on 2026-10-13 (v0.375.0), two players on one generated machine, with no
+defect: a `guest` saw nothing of a `user`-tier file another player wrote there, in the shell, over
+`ftp` or by name.
+
 [Chapter 14](./14-tier-read-audit.md) lists every client reader and server response that reaches
 past a session's tier, with a verdict on each. It found two more defects of the same family: a
 local exploit on a generated machine runs in the browser above the session's tier, and `su` on

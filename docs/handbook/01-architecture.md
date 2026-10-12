@@ -222,6 +222,8 @@ Limits a maintainer must know:
 - `listPatches` returns a machine's raw journal, with nothing pruned to a tier, so it answers
   only the owner of a workstation. Every other box is read as a tree the server prunes
   (`resolveCrossPlayerFs`).
+- The read filter hides what was written to a machine, not what it was generated with: the
+  generators ship in the bundle, so a network's seeded files are computable from its ESSID.
 - The design deliberately stops at "enough to launch" (the conventions doc calls this "ship-first on
   multiplayer security").
 

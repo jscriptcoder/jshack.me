@@ -812,15 +812,33 @@ agreed order:
    `/etc/passwd`, on every box including the player's own. The file is where the owner's
    tier comes from, and a `guest` on a served box has none, so `u` had meant the guest
    tier on every file there. `g`, `o`, `a` and a mode with no who are unchanged.
-   **Pick up here (2026-10-13):** the served-boxes epic (`plans/served-boxes.md`). Its
-   audit of every client reader and server response is done
-   ([handbook 14](./handbook/14-tier-read-audit.md)): 85 client sites and 44 responses,
-   seven defects, all fixed. Only the close-out is left: the docs describe one served
-   path, one browser run covers every slice, and the plan file is deleted. After the epic, the items still open in
-   `backlog.md`, all found by reading: a deep box's own address behind a switch that denies the web port, a data
-   door over `localhost`, a field that spoofs the columns after it within its own line,
-   a leaver's own sessions across the network, and a box joined to two networks at
-   once.
+   ✅ **The served-boxes work is closed (v0.369.0 to v0.375.0, PRs #665 to #672,
+   2026-10-12/13).** Every box that is not the player's own workstation is read as a tree
+   the server builds and prunes to the session's tier, and a raw journal goes to nobody
+   but the owner of a workstation. The audit of every client reader and server response
+   ([handbook 14](./handbook/14-tier-read-audit.md)) lists 85 client sites and 44
+   responses; its seven defects are all fixed. The plan file is deleted; the read path is
+   in [`cross-player-architecture.md`](./cross-player-architecture.md) section 5.
+   ✅ All of it was played in the browser on 2026-10-13 (v0.375.0), two players on
+   CITY-PARK-WIFI, one at `user` and one at `guest` on the same generated machine. The
+   `guest` saw nothing of the `user`-tier file the other wrote (not in `ls`, not by name,
+   not over `ftp`), and `/etc/passwd` read `No such file or directory`. Appends from both
+   landed in order in one file. `chmod u-w` was refused there with
+   `/etc/passwd: No such file or directory`, and at `guest` on the player's own box with
+   `Permission denied`, while `o+x` went through in both places. `su` to the `user`
+   account opened the file and left a `su` row. A local exploit, the tool carried in by
+   `scp`, landed a `root` row and shell from the `guest` one. A reboot from that shell
+   told the other player on their next line, and so did a reboot of the access point's
+   gateway. From the switch, a login to the machine behind it was refused once its port
+   was denied in `acl.conf`. No defect. One case could not be staged: a shell below
+   `root` on a switch (`backlog.md`).
+   **Pick up here (2026-10-13):** the items still open in `backlog.md`. Found by reading:
+   a deep box's own address behind a switch that denies the web port, a data door over
+   `localhost`, a field that spoofs the columns after it within its own line, a leaver's
+   own sessions across the network, a box joined to two networks at once, a LAN web
+   fetch that never reads the journal, and the session row a scripted exploit leaves
+   behind. Left as they are: the whole tree pulled before every line, and the newest
+   open row setting the tier.
 9. ✅ **Crypto wallet epic (v0.356.0–v0.362.0, PRs #653–#658, 2026-10-11/12).** Slotted ahead of
    the rest of the sandbox-hardening list: the `wallet` command, a public JSC ledger keyed by
    address, and the operator mint. Seven slices, each TDD + wire-check + migration to dev then

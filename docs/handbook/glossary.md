@@ -79,7 +79,7 @@ here refers to a real network or system.
 | **Timestamp window / skew**   | The server accepts a request only if its `ts` is within 120 seconds of the server clock.                                                                     |
 | **L1**                        | The server check that the caller owns the machine or holds an active session on it.                                                                          |
 | **L2**                        | The server check, for remote writes, that the session's tier may write the path.                                                                             |
-| **Read filter (three tiers)** | Owner sees everything; a session holder sees their tier's view; anyone else sees only what the network could observe.                                        |
+| **Read filter (three tiers)** | Owner sees everything; a session holder sees their tier's view plus what the network could observe; anyone else sees only the latter.                        |
 | **Trace**                     | A log line an action leaves on the target machine, written by the server.                                                                                    |
 | **Source IP**                 | The address a trace records for the actor: derived on the server for visitors from another network or on the same WiFi; stated by the client on its own LAN. |
 | **No oracle**                 | The rule that dark states (absent, bricked, stopped, filtered, wrong secret) answer alike.                                                                   |
