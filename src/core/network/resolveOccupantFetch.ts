@@ -38,6 +38,7 @@ import { bootableOccupantFs } from './natHosts.js';
 import { portsOpenToNetwork } from './portsOpenToNetwork.js';
 import { webProgramOn } from './webServing.js';
 import { resolveWebPath } from './http.js';
+import { LOOPBACK_IPV4 } from './interfaces.js';
 import { readOpenPorts } from '../services/pidfile.js';
 import { createFsView } from '../filesystem/fsView.js';
 import {
@@ -159,8 +160,13 @@ export const resolveOccupantWebTarget = async (
     return { status: 500, body: { error: 'leases_lookup_failed' } };
   }
   const addresses = lanAddressesByOwner(request.essid, leases.data ?? []);
-  const occupant = (occupants.data ?? []).find(
-    (row) => addresses.get(row.owner_key) === request.target,
+  // Loopback names the box the caller's shell stands ON, found by the machine it is: a
+  // visitor there holds no address to name it by. Any other target is a lease.
+  const loopback = request.target === LOOPBACK_IPV4;
+  const occupant = (occupants.data ?? []).find((row) =>
+    loopback
+      ? row.workstation_machine_id === caller.machineId
+      : addresses.get(row.owner_key) === request.target,
   );
   if (occupant === undefined) return UNREACHABLE;
 
@@ -184,7 +190,8 @@ export const resolveOccupantWebTarget = async (
     server,
     machineId: occupant.workstation_machine_id,
     logWriterKey: occupant.owner_key,
-    sourceIp: vantage.sourceIp ?? 'unknown',
+    // A loopback request never left the box, so it is recorded as a local visit.
+    sourceIp: loopback ? LOOPBACK_IPV4 : (vantage.sourceIp ?? 'unknown'),
   };
 };
 

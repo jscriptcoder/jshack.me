@@ -9,6 +9,7 @@ import { signRequest } from '../signedRequest/sign.js';
 import { generateIdentity } from '../identity/identity.js';
 import { generateHomeLan } from '../generation/generateHomeLan.js';
 import { lanAddressFor, type LanLeaseRow } from './lanAddress.js';
+import { LOOPBACK_IPV4 } from './interfaces.js';
 import type { OwnerPatchRow } from './materializeWorkstationFs.js';
 import { defaultFilePermissions } from '../filesystem/defaultPermissions.js';
 import {
@@ -508,6 +509,68 @@ describe('a caller in a shell on the box they fetch', () => {
       (await handleResolveOccupantFetch(await envelope({ caller_machine_id: ALICE_WS }), deps))
         .status,
     ).toBe(200);
+  });
+
+  // `localhost` typed in that shell. The box is the one the shell stands on, found by
+  // what it is: a visitor holds no address to name it by.
+  it('is served the box’s own page over loopback, logged as a local visit', async () => {
+    const { deps, upsertPatch } = shellOnAliceBox();
+
+    expect(
+      await handleResolveOccupantFetch(
+        await envelope({ target: LOOPBACK_IPV4, caller_machine_id: ALICE_WS }),
+        deps,
+      ),
+    ).toEqual({ status: 200, body: { ok: true, content: ALICE_PAGE, server: 'nginx' } });
+    expect(upsertPatch).toHaveBeenCalledTimes(1);
+    expect(upsertPatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        writer_key: ALICE.publicKeyHex,
+        machine_id: ALICE_WS,
+        content: `${accessLine({ sourceIp: LOOPBACK_IPV4, size: ALICE_PAGE.length })}\n`,
+      }),
+    );
+  });
+
+  it('is served over loopback a port the owner closed to the network', async () => {
+    const { deps } = shellOnAliceBox({
+      aliceJournal: aliceServing(filtering(HTTP_DEFAULT_PORT)),
+    });
+
+    expect(
+      (
+        await handleResolveOccupantFetch(
+          await envelope({ target: LOOPBACK_IPV4, caller_machine_id: ALICE_WS }),
+          deps,
+        )
+      ).status,
+    ).toBe(200);
+  });
+
+  it('is refused over loopback when the box runs no web server', async () => {
+    const { deps, upsertPatch } = shellOnAliceBox({ aliceJournal: [sshdUp] });
+
+    expect(
+      await handleResolveOccupantFetch(
+        await envelope({ target: LOOPBACK_IPV4, caller_machine_id: ALICE_WS }),
+        deps,
+      ),
+    ).toEqual(REFUSED);
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+});
+
+describe('loopback from a caller who stands on no neighbour’s box', () => {
+  it('names nobody’s box, so nothing answers and nothing is logged', async () => {
+    // Bob at home, where his own client serves `localhost` off his own tree. Loopback
+    // must never fall through to whoever else is on the WiFi.
+    const { deps, findPatches, upsertPatch } = makeDeps();
+
+    expect(
+      await handleResolveOccupantFetch(await envelope({ target: LOOPBACK_IPV4 }), deps),
+    ).toEqual(UNREACHABLE);
+    expect(findPatches).not.toHaveBeenCalled();
+    expect(upsertPatch).not.toHaveBeenCalled();
   });
 });
 

@@ -16,7 +16,8 @@
  *
  * On the network the shell stands on, a box the network generates is read here. An
  * address none of them holds may be a fellow occupant's, whose box is built from a
- * journal only the server has, so that one is asked of the server too.
+ * journal only the server has, so that one is asked of the server too. So is loopback
+ * in a shell on a fellow occupant's box, which is the same box by its other name.
  *
  * Three outcomes rather than two, because a reader treats them differently and the
  * target's log agrees with the split. A page and a 404 both mean the box ANSWERED:
@@ -65,7 +66,9 @@ const recordVisit = ({
 /**
  * The page at an address no box this side can build holds — a fellow occupant's, if
  * anybody's. The server says whose box it is, serves the page off their journal and
- * records the visit there itself, so nothing is logged from here.
+ * records the visit there itself, so nothing is logged from here. It is asked about the
+ * RESOLVED address: `localhost` names no machine to it, and the loopback address names
+ * the box the shell stands on.
  *
  * An address the server finds nobody at stays what it was before anybody was asked:
  * unresolved. So does one it could not be asked about, since an outage of ours says
@@ -88,7 +91,7 @@ const fetchFromOccupant = async ({
 }): Promise<PageResult> => {
   const fetched = await fetchOccupant({
     essid,
-    target: url.host,
+    target: unresolved.address,
     port: url.port,
     path: url.path,
     callerMachineId,

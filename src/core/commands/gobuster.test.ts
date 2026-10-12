@@ -1110,6 +1110,56 @@ describe('gobuster at a fellow occupant of the network', () => {
     expect(asked.map((request) => request.target)).toEqual([neighbourIp]);
   });
 
+  it.each(['localhost', '127.0.0.1'])(
+    'has the server sweep %s in a shell on their box, which answers as the box does',
+    async (loopback) => {
+      // The tree a visitor's client holds of that box is pruned to what their login may
+      // read, so a sweep of it would miss every page the web server serves. Here it holds
+      // a web server and a list, and would find one path of its own.
+      const { drained, asked, reported } = await sweepNeighbour(
+        swept(
+          { path: '/index.html', status: 200, size: 42 },
+          { path: '/admin', status: 200, size: 7 },
+        ),
+        `http://${loopback}`,
+        {
+          network: mockNetworkView(),
+          session: mockSession({
+            id: 'gob-hop-4',
+            machineId: asMachineId(THEIR_WORKSTATION),
+            essid: ESSID,
+            userType: 'guest',
+            kind: 'ssh',
+          }),
+          fs: mockFsViewFromTree(ownBox(WEB_SERVER_RUNNING, installedList('index.html'))),
+        },
+      );
+
+      expect(drained.text.split('\n')).toEqual([
+        'Gobuster dir mode',
+        `[+] Url:       http://${loopback}`,
+        '[+] Wordlist:  /usr/share/wordlists/dirlist.txt',
+        '[+] Words:     2',
+        '',
+        '/index.html          (Status: 200) [Size: 42]',
+        '/admin               (Status: 200) [Size: 7]',
+        '',
+        'Finished. 2/2 paths found.',
+      ]);
+      // Loopback goes over as the loopback address, and the server finds the box by the
+      // shell that asked. It records the run there itself.
+      expect(asked).toEqual([
+        {
+          essid: ESSID,
+          target: '127.0.0.1',
+          port: HTTP_DEFAULT_PORT,
+          callerMachineId: THEIR_WORKSTATION,
+        },
+      ]);
+      expect(reported).toEqual([]);
+    },
+  );
+
   it('never asks the server about a box the network generates, served or refusing', async () => {
     const { host, port } = webHostOnLan();
 

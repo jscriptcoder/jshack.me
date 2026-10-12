@@ -60,6 +60,9 @@ export type Reach =
   | {
       readonly ok: false;
       readonly reason: 'unresolved' | 'refused';
+      /** The RESOLVED address, as on a reached host: what a caller asks the server about
+       *  when the box may be another player's. */
+      readonly address: string;
       readonly failure: ErrorResult;
     };
 
@@ -103,6 +106,11 @@ type LocatedHost = {
  * host, or a host on a deep layer the shell reaches — the same tree `nmap` and every
  * other door read, so a web tool never finds a server a scan showed closed, nor misses
  * one it showed open.
+ *
+ * One box a shell stands on is NOT this side's to read: another player's workstation.
+ * The tree held for it is pruned to what the login may read as files, which is not what
+ * its web server serves, so it is no box this side holds and the server answers for it.
+ * It is the box whose address the vantage cannot recover.
  */
 const locateHost = ({
   root,
@@ -115,8 +123,8 @@ const locateHost = ({
   readonly isLoopback: boolean;
   readonly address: string;
 }): LocatedHost | null => {
-  if (isLoopback || (vantage.address !== null && address === vantage.address)) {
-    return { fs: root, ports: readOpenPorts(root) };
+  if (isLoopback || address === vantage.address) {
+    return vantage.address === null ? null : { fs: root, ports: readOpenPorts(root) };
   }
   // Every network the shell reaches, nearest first: the LAN it stands on, then any deep
   // layer behind a gateway it reaches. A gateway's ACL already shapes a layer's ports,
@@ -180,6 +188,7 @@ export const reachWebHost = ({
     return {
       ok: false,
       reason: 'unresolved',
+      address,
       failure: error(`${program}: (6) Could not resolve host: ${url.host}`),
     };
   }
@@ -193,6 +202,7 @@ export const reachWebHost = ({
     return {
       ok: false,
       reason: 'refused',
+      address,
       failure: connectError({
         program,
         host: url.host,

@@ -12,6 +12,8 @@
 //   - A 404 is answered as one and recorded as readily as a 200.
 //   - A web port the owner closed to the network refuses, and leaves no line; a visitor
 //     in a shell ON that box is still served its own address, logged from that address.
+//   - That shell is served the same page over loopback, logged as a local visit; loopback
+//     from a caller at home names nobody's box.
 //   - An address nobody leases, and one whose holder has left the WiFi, answer nothing.
 //   - A caller on no network, or naming one they do not stand on, is refused.
 //
@@ -29,6 +31,7 @@ import { generateHomeLan } from '../src/core/generation/generateHomeLan.js';
 import { formatPidfileContent } from '../src/core/services/pidfile.js';
 import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
 import { RULES_V4_PATH } from '../src/core/network/iptablesRules.js';
+import { LOOPBACK_IPV4 } from '../src/core/network/interfaces.js';
 import { md5 } from '../src/core/generation/md5.js';
 
 const NETWORK = process.env.NETWORK_ENDPOINT ?? 'http://localhost:3100/api/network';
@@ -259,6 +262,31 @@ try {
       lineCount(log5) === 3 &&
       lastLine(log5).startsWith(`${OWNER_LAN} - - [`),
     `status=${r5.status} lines=${lineCount(log5)} line=${lastLine(log5)}`,
+  );
+
+  // === 5b. The same shell over loopback: the same page, recorded as a local visit. ===
+  const r5b = await post(
+    await fetched(visitor, { target: LOOPBACK_IPV4, caller_machine_id: OWNER_WS }),
+  );
+  const log5b = await readAccessLog(OWNER_WS, owner.publicKeyHex);
+  check(
+    'a shell on the box is served the page the box publishes over loopback, logged as local',
+    r5b.status === 200 &&
+      (r5b.body as { content?: string } | null)?.content === OWNER_PAGE &&
+      lineCount(log5b) === 4 &&
+      lastLine(log5b).startsWith(`${LOOPBACK_IPV4} - - [`) &&
+      (await readAccessLog(OWNER_WS, visitor.publicKeyHex)) === '',
+    `status=${r5b.status} lines=${lineCount(log5b)} line=${lastLine(log5b)}`,
+  );
+
+  // === 5c. Loopback from a caller at home names nobody's box. ===
+  const r5c = await post(await fetched(visitor, { target: LOOPBACK_IPV4 }));
+  check(
+    'loopback from a caller at home reaches no neighbour, and leaves no line',
+    r5c.status === 404 &&
+      errorOf(r5c.body) === 'host_unreachable' &&
+      lineCount(await readAccessLog(OWNER_WS, owner.publicKeyHex)) === 4,
+    `status=${r5c.status} error=${errorOf(r5c.body)}`,
   );
   await sr.from('sessions').delete().eq('session_id', VISITOR_SHELL);
   await sr.from('patches').delete().eq('machine_id', OWNER_WS).eq('path', RULES_V4_PATH);

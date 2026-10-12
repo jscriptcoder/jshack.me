@@ -240,13 +240,14 @@ const execute: Command['execute'] = async (env, args) => {
   if (!reached.ok) {
     // An address no box this side can build holds is a fellow occupant's, if anybody's.
     // The server says whose it is, sweeps it with the list on the box named here and
-    // records the run there itself, so nothing is logged from this side.
+    // records the run there itself, so nothing is logged from this side. It is asked about
+    // the resolved address, so loopback in a shell on a fellow occupant's box reaches it.
     if (reached.reason !== 'unresolved') {
       return reached.failure;
     }
     const swept = await env.remote.sweepOccupant({
       essid: vantage.essid,
-      target: url.host,
+      target: reached.address,
       port: url.port,
       callerMachineId: env.session.machineId,
     });
