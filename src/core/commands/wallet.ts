@@ -14,10 +14,8 @@
  * Sending is the one thing the key is for. A transfer is signed by the key in
  * the file and by nothing else, so it says which address is spending and never
  * which player, and it touches no machine: no box gains a log line for it.
- *
- * A key that is not the wallet's own is good for one thing: sweeping. That
- * sends everything at the key's address to the wallet in place, so the coins
- * behind a copied key, or an old one, end up behind a key held here.
+ * The key in place is the only one it reads: a key lying anywhere else is
+ * spent by putting it there.
  */
 
 import {
@@ -25,10 +23,8 @@ import {
   type Command,
   type CommandEnv,
   type CommandResult,
-  type FsReadResult,
   type PatchResult,
 } from './types.js';
-import { resolveAbsPath } from '../filesystem/path.js';
 import { vantageOf } from '../network/vantage.js';
 import { homeDirectory } from '../sessions/homeDirectory.js';
 import { asAbsPath, type AbsPath, type UserType } from '../types.js';
@@ -42,8 +38,7 @@ import {
   type WalletKey,
 } from '../wallet/walletKey.js';
 
-const SYNOPSIS =
-  'wallet init | balance [address] | history [address] | send <address> <amount> | sweep <keyfile>';
+const SYNOPSIS = 'wallet init | balance [address] | history [address] | send <address> <amount>';
 const USAGE = `wallet: usage: ${SYNOPSIS}`;
 
 /** The ledger is out on the internet, so asking it takes a network to ask from:
@@ -264,62 +259,12 @@ const send = async (env: CommandEnv, named: readonly string[]): Promise<CommandR
   return refusal(TURNED_DOWN);
 };
 
-const READ_FAILURE: Readonly<Record<Extract<FsReadResult, { ok: false }>['error'], string>> = {
-  not_found: 'No such file or directory',
-  is_directory: 'Is a directory',
-  permission_denied: 'Permission denied',
-};
-
-/** The key in the file the player named, or why it gives none. The file is named
- *  as it was typed, never as it resolved: a relative argument answered with an
- *  absolute path reads as an answer about a different file. */
-const keyInFile = (env: CommandEnv, pathArg: string): WalletKey | Refused => {
-  const stored = env.fs.read(resolveAbsPath(env.fs.cwd(), pathArg));
-  if (!stored.ok) return { refused: `can't read '${pathArg}': ${READ_FAILURE[stored.error]}` };
-  return readWalletFile(stored.content) ?? { refused: `no key in ${pathArg}` };
-};
-
-const sweep = async (env: CommandEnv, named: readonly string[]): Promise<CommandResult> => {
-  if (named.length !== 1) return refusal(USAGE);
-  const [pathArg] = named;
-  // Where the coins are going is settled before the file is opened: a sweep
-  // with nowhere to put them has no use for the key in it.
-  const into = keyInPlace(env);
-  if ('refused' in into) return refusal(`wallet: ${into.refused}`);
-  const from = keyInFile(env, pathArg);
-  if ('refused' in from) return refusal(`wallet: ${from.refused}`);
-  // Judged by the key and not by the path, so a copy of the wallet in place is
-  // refused wherever it lies.
-  if (from.keyHex === into.keyHex) return refusal(`wallet: can't sweep this wallet's own key`);
-  if (vantageOf(env.session, env.network) === null) return refusal(UNREACHABLE);
-
-  const held = await env.wallet.balance(from.address);
-  if (!held.ok) return refusal(NO_ANSWER);
-  // The ledger takes no transfer of nothing, and an empty key is no failure:
-  // it is what a thief who came second finds.
-  if (held.balance === 0) return said(`nothing to sweep at ${from.address}`);
-
-  // Whatever arrives at the address after this read stays behind, for a second
-  // sweep to take.
-  const made = await env.wallet.transfer({
-    keyHex: from.keyHex,
-    to: into.address,
-    amount: held.balance,
-    sequence: held.nextSequence,
-  });
-  if (made.ok) return said(`swept ${held.balance} JSC from ${from.address}`);
-  // What was read a moment ago covered the amount, so a short balance now is
-  // the same news as a stale sequence number: somebody else moved first.
-  return refusal(made.error === 'network_error' ? NO_ANSWER : TURNED_DOWN);
-};
-
 const execute = async (env: CommandEnv, args: readonly string[]): Promise<CommandResult> => {
   const [subcommand, ...rest] = args;
   if (subcommand === 'init') return init(env);
   if (subcommand === 'balance') return balance(env, rest);
   if (subcommand === 'history') return history(env, rest);
   if (subcommand === 'send') return send(env, rest);
-  if (subcommand === 'sweep') return sweep(env, rest);
   return refusal(USAGE);
 };
 
@@ -332,14 +277,14 @@ export const wallet: Command = {
   manual: {
     synopsis: SYNOPSIS,
     description:
-      'Keep JSC, the coin of this world. "init" makes a new wallet: a key, and the address that key answers to. It writes both to .wallet/wallet.dat in the home directory of the account running it, as two lines marked "address:" and "key:", then prints the address and the path of the file. The address is what you give to whoever is paying you. The key is the wallet - the coins at an address belong to whoever holds its key and nothing else is asked, so the file is the money. It opens for the account that made it and for root. Each account on a box has a wallet of its own, and "init" refuses when one is already in place: it never replaces a key. Making a wallet needs no network. "balance" prints an address and the JSC held at it. The ledger is public, so it answers for any address and asks for no key; with no address it reads the key in the wallet in place and answers for that one. An address nothing was ever sent to holds 0 JSC, and so does a mistyped one. Asking the ledger needs a network. "history" prints what an address has sent and received, newest first, one transfer to a line: when the ledger recorded it, in UTC, then the JSC that came in or went out, then the address at the other end. Coins that were minted read as coming from coinbase, which is a word and not an address. It shows the latest 20 transfers and no more. Like "balance" it answers for any address and asks for no key, and with no address it answers for the wallet in place. An address that has done nothing prints nothing. "send" moves JSC from the wallet in place to an address. The transfer is signed by the key in the file and by nothing else, so whoever holds a copy of the key can send, from any box. The amount is a whole number of coins written in digits. Nothing checks that anybody holds the address the coins go to, and nothing brings a transfer back. A wallet cannot send more than it holds, or to its own address. Sending needs a network. "sweep" empties a key file into the wallet in place. It reads the key in the file named and sends everything at that key\'s address to this wallet, in one transfer signed by that key. The file is left where it is, and what it says on its address line is ignored. It is how the coins behind one key come to be behind another: a key copied off somebody else\'s box, or an old one of your own, moved aside before "init" made a new one. A wallet must be in place to receive them, and a wallet cannot sweep its own key. Coins that reach the address afterwards stay there until it is swept again. Sweeping needs a network.',
+      'Keep JSC, the coin of this world. "init" makes a new wallet: a key, and the address that key answers to. It writes both to .wallet/wallet.dat in the home directory of the account running it, as two lines marked "address:" and "key:", then prints the address and the path of the file. The address is what you give to whoever is paying you. The key is the wallet - the coins at an address belong to whoever holds its key and nothing else is asked, so the file is the money. It opens for the account that made it and for root. Each account on a box has a wallet of its own, and "init" refuses when one is already in place: it never replaces a key. Making a wallet needs no network. "balance" prints an address and the JSC held at it. The ledger is public, so it answers for any address and asks for no key; with no address it reads the key in the wallet in place and answers for that one. An address nothing was ever sent to holds 0 JSC, and so does a mistyped one. Asking the ledger needs a network. "history" prints what an address has sent and received, newest first, one transfer to a line: when the ledger recorded it, in UTC, then the JSC that came in or went out, then the address at the other end. Coins that were minted read as coming from coinbase, which is a word and not an address. It shows the latest 20 transfers and no more. Like "balance" it answers for any address and asks for no key, and with no address it answers for the wallet in place. An address that has done nothing prints nothing. "send" moves JSC from the wallet in place to an address. The transfer is signed by the key in the file and by nothing else, so whoever holds a copy of the key can send, from any box. The amount is a whole number of coins written in digits. Nothing checks that anybody holds the address the coins go to, and nothing brings a transfer back. A wallet cannot send more than it holds, or to its own address. Sending needs a network.',
     arguments: [
       {
         name: 'command',
         description:
-          '"init", to make a new wallet for this account, "balance", to see what an address holds, "history", to see what it has sent and received, "send", to move JSC to an address, or "sweep", to empty a key file into the wallet in place',
+          '"init", to make a new wallet for this account, "balance", to see what an address holds, "history", to see what it has sent and received, or "send", to move JSC to an address',
         required: true,
-        values: ['init', 'balance', 'history', 'send', 'sweep'],
+        values: ['init', 'balance', 'history', 'send'],
       },
       {
         name: 'address',
@@ -350,11 +295,6 @@ export const wallet: Command = {
       {
         name: 'amount',
         description: 'For "send": how many JSC to move, as a whole number',
-        required: false,
-      },
-      {
-        name: 'keyfile',
-        description: 'For "sweep": the file holding the key whose JSC go to the wallet in place',
         required: false,
       },
     ],
@@ -386,10 +326,6 @@ export const wallet: Command = {
       {
         command: 'wallet send jsc3f9a1c07b2d84e5f6a7b8c9d0e1f2a3b4c5d6e7f 200',
         description: 'Move 200 JSC from the wallet in place to that address',
-      },
-      {
-        command: 'wallet sweep loot.dat',
-        description: 'Move everything behind the key in loot.dat to the wallet in place',
       },
     ],
   },

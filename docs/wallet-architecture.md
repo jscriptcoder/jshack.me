@@ -6,6 +6,10 @@ epic, complete at **v0.362.0**. The grill record and slice plan were retired on 
 what the epic deliberately left out is in `backlog.md` under "Crypto wallet deferred". When
 this doc and the code disagree, the code wins — fix the doc.
 
+The epic shipped a fifth subcommand, `sweep <keyfile>`, which emptied a named key file into
+the wallet in place. It was removed at **v0.367.0**: it did nothing `balance` and `send`
+could not, and it read as a tool made for looting. Coins now leave an address by one route.
+
 ## The one idea the design turns on
 
 **The key is the money.** A wallet is a random Ed25519 key in a file on a box; the ledger
@@ -80,13 +84,13 @@ handlers, forking three ways:
 No nonce is kept (the endpoints' nonce store is a no-op here); the sequence number is the
 whole replay guard.
 
-## 2. The client: one command, five subcommands
+## 2. The client: one command, four subcommands
 
 `src/core/commands/wallet.ts`, world-executable like `gpg` — every tier can run it, each
 against the wallet in its own home.
 
 ```
-wallet init | balance [address] | history [address] | send <address> <amount> | sweep <keyfile>
+wallet init | balance [address] | history [address] | send <address> <amount>
 ```
 
 - **`init`** makes a fresh random Ed25519 key, writes `~/.wallet/wallet.dat`, prints
@@ -101,16 +105,17 @@ wallet init | balance [address] | history [address] | send <address> <amount> | 
 - **`send <address> <amount>`** signs a transfer with the wallet key and posts it. Refuses an
   over-balance amount, a non-positive-whole amount, non-address text, and a send to its own
   address.
-- **`sweep <keyfile>`** is a `send` of *everything* from the given key file's address into
-  the wallet in place (destination on disk before any coin moves). Serves the thief
-  (`wallet sweep loot.dat`) and the owner rotating keys. On an empty source it prints
-  `nothing to sweep at <address>` and sends nothing. Refuses: no wallet in place; a key file
-  missing, unreadable at the caller's tier, or holding no valid key (an encrypted or damaged
-  file); or a key file that is the wallet in place.
+
+**The key in place is the only key the command spends.** `send` reads
+`~/.wallet/wallet.dat` in the home of the account running it and no other file, so a key
+anywhere else — one copied off another player's box, or an old one moved aside — is spent
+by putting it in place under an account that holds no wallet, then `balance` and `send`. On
+the box it was found on that is the owner's own account: root may `su` to it with no
+password.
 
 Everything except `init` refuses on a box with no network, in `dig`/`whois`'s wording.
-`send` and `sweep` write **no log line on any box** (decision 14) — the evidence of a theft
-is the break-in's own trace plus the destination address in the public history.
+`send` writes **no log line on any box** (decision 14) — the evidence of a theft is the
+break-in's own trace plus the destination address in the public history.
 
 **Key and address** (`src/core/wallet/walletKey.ts`): an address is `jsc` + the first 40 hex
 of `sha256(publicKey)` (`^jsc[0-9a-f]{40}$` — the whole of "address-shaped", no checksum, no
@@ -150,7 +155,9 @@ a second route to a key file, beside rooting the box.
   key. `scripts/restoreSite.ts` deletes a box's journal, so a key hidden on a site the
   operator restores is gone with it.
 - **Two holders of one key race**; the first transfer to land wins and nothing detects a
-  copy. The remedy is the player's: `wallet init` and `wallet sweep`.
+  copy. The remedy is the player's: a new wallet and a `send` of everything to its address.
+  `init` refuses while a wallet is in place, so the new one is made under another account or
+  on another box — or the old key is moved aside and back, where one wrong `mv` loses it.
 - **Not tied to identity.** A player who starts over with a new identity keeps their coins if
   they kept the key text.
 - **The operator is not blind.** A key file is a journal row like any other, carrying its
@@ -172,4 +179,5 @@ a second route to a key file, beside rooting the box.
   read `~/.wallet/wallet.dat` and swept it; A's balance read `0 JSC` and A's history showed
   `-500 JSC  to <B>` above `+500 JSC  from coinbase` (UTC, newest first); A re-`init`ed and
   `gpg -c`'d the new key, leaving only `wallet.dat.gpg`, and B's stale copy swept nothing
-  (`nothing to sweep at <A's old address>`). No defects found.
+  (`nothing to sweep at <A's old address>`). No defects found. That run used `wallet sweep`,
+  since removed; the same theft is now `su <A's account>`, `wallet balance`, `wallet send`.
