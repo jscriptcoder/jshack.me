@@ -18,7 +18,7 @@
  * line through `runCommandLine`, and mirrors the resulting lines back.
  */
 
-import { createSignal } from 'solid-js';
+import { createSignal, untrack } from 'solid-js';
 import {
   asAbsPath,
   asEpochMs,
@@ -600,6 +600,23 @@ const observeBootId = (session: Session): Session => {
   );
   return stamped;
 };
+
+/** Whether `machineId` is a box this client cannot rebuild, and so reads as a tree the
+ *  server materialized and pruned to the tier the session holds. Such a box has no
+ *  journal here: the rows behind it are raw, the server refuses them to a visitor, and
+ *  nothing on this side would replay them.
+ *
+ *  Untracked because it is asked before a request goes out — from a write that has
+ *  just landed, or another tab's hint — and never from a scope that should re-run
+ *  when the network changes. */
+const hasNoJournalHere = (machineId: string): boolean =>
+  untrack(() =>
+    isCrossPlayerWorkstation({
+      machineId,
+      publicKeyHex: requireIdentity().publicKeyHex,
+      essid: currentEssid(),
+    }),
+  );
 
 /** Whether the box an ftp session is held on is another player's — the machine-level
  *  question `scpTargetTree` asks for the same reason, and deliberately NOT
@@ -1281,7 +1298,7 @@ export const connectedWireless = (): ConnectedWlan0 | null =>
  *  write back over the real file. */
 const refetchPatches = async (): Promise<void> => {
   const deps = patchClientDeps;
-  if (deps === undefined) return;
+  if (deps === undefined || hasNoJournalHere(deps.machineId)) return;
   const journal = await fetchOwnPatches(deps);
   if (patchClientDeps?.machineId !== deps.machineId) return;
   setPatches(journal);
@@ -1296,7 +1313,7 @@ const refetchPatches = async (): Promise<void> => {
  *  edits would hand that writer an empty datadir to overwrite the real one with. */
 const reloadActiveRoot = async (): Promise<Directory> => {
   const deps = patchClientDeps;
-  if (deps === undefined) return activeRoot();
+  if (deps === undefined || hasNoJournalHere(deps.machineId)) return activeRoot();
   const result = await readOwnPatches(deps);
   if (result.ok && patchClientDeps?.machineId === deps.machineId) setPatches(result.patches);
   return activeRoot();

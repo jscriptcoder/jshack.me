@@ -261,15 +261,25 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   the checks (13/13). Not played in the browser yet. Three things found on the way are the
   next three items.
 
-- **`listPatches` hands a `guest` session the box's whole journal. Seen on the live stack
-  2026-10-12, not fixed.** The same probe logged in as `guest` on another player's
-  workstation and read a root-only `/root/secret.txt` off the `listPatches` answer, which is
-  gated on holding any session and filtered by no tier. The served tree
-  (`resolveCrossPlayerFs`) prunes that file; the raw rows do not. The wallet key is a journal
-  row like any other, so a guest password would be enough to take it (not probed on
-  `wallet.dat` itself). Handbook chapter 13 has carried it as unverified since v0.278.0. The
-  fix is its own slice with its own wire-check: filter by tier for anyone but the owner, or
-  stop reading the raw journal on another player's box.
+- **`listPatches` handed a `guest` session the box's whole journal — CLOSED on served boxes
+  2026-10-12 (v0.369.0), still open on generated machines.** The same probe logged in as
+  `guest` on another player's workstation and read a root-only `/root/secret.txt` off the
+  `listPatches` answer, which was gated on holding any session and filtered by no tier. The
+  served tree (`resolveCrossPlayerFs`) prunes that file; the raw rows did not. The wallet key
+  is a journal row like any other, so a guest password was enough to take it (not probed on
+  `wallet.dat` itself). Handbook chapter 13 had carried it as unverified since v0.278.0.
+  Now a visitor is refused the journal (403 `permission_denied`) of any machine their
+  session's network does not generate: another player's workstation, the access point's
+  gateway, and a generated machine asked for under a session opened on a different network.
+  The network is read off the session row, never off the request. The client asks for no
+  journal on such a box, since it never replayed one there.
+  `scripts/testJournalRefusedToVisitors.ts` carries the checks (11/11; 5 of them fail against
+  the handler before the change, one being the root-only file's text in the answer). Not
+  played in the browser yet. **What is left:** a machine the network generates
+  (a LAN host, an inner gateway, a switch, a deep box) is still rebuilt by the client from
+  the ESSID plus its raw journal, so a `guest` there still receives every row written on it,
+  a wallet key included. Closing that means the server serves those boxes as it serves a
+  workstation, which is the served-boxes epic in flight.
 
 - **A player who leaves a WiFi keeps the sessions they opened across it. By reading, not
   reproduced.** The disconnect closes other players' rows on the leaver's box and nothing of

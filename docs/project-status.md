@@ -754,10 +754,16 @@ agreed order:
    live stack first: the session row had outlived the box's place on the WiFi, so a
    visitor still acted on that network from it, logged as `unknown`
    (`scripts/testDisconnectedUnreachable.ts` 13/13). Not played in the browser yet.
-   **Pick up here (2026-10-12):** first the one the probe proved, in `backlog.md`:
-   `listPatches` hands a `guest` session the box's whole journal, root-only files and
-   the wallet key's row included. Then the items still open there, all found by
-   reading: a deep box's own address behind a switch that denies the web port, a data
+   ✅ And at v0.369.0 a visitor is refused the raw journal of a box the server serves:
+   `listPatches` had handed a `guest` session on another player's workstation every row
+   on it, root-only files and the wallet key's row included. Now it answers 403
+   `permission_denied` for any machine the session's network does not generate, and the
+   client asks for no journal there (`scripts/testJournalRefusedToVisitors.ts` 11/11).
+   Not played in the browser yet.
+   **Pick up here (2026-10-12):** the served-boxes epic (`plans/served-boxes.md`), which
+   closes the same leak on the machines a network generates: slice 2, the audit of every
+   client reader and server response, is next. After it, the items still open in
+   `backlog.md`, all found by reading: a deep box's own address behind a switch that denies the web port, a data
    door over `localhost`, a field that spoofs the columns after it within its own line,
    a leaver's own sessions across the network, and a box joined to two networks at
    once.

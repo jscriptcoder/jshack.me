@@ -4,9 +4,32 @@ import type { ActiveSessionQuery, FindActiveSessionResult } from './authorizeMac
 import { signRequest } from '../signedRequest/sign.js';
 import { generateIdentity } from '../identity/identity.js';
 import { computeWorkstationId } from '../identity/workstation.js';
+import { computeApGatewayId } from '../identity/router.js';
+import { generateHomeLan } from '../generation/generateHomeLan.js';
+import { hostMachineId } from '../generation/remoteHostId.js';
+import type { UserType } from '../types.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 const freshStore: NonceStore = async () => ({ fresh: true });
+
+const ESSID = 'BEAN-THERE-WIFI';
+
+/** A machine the network generates: the one kind of box a visitor's client rebuilds for
+ *  itself, and so the one kind whose journal it has to be handed. */
+const generatedHostOn = (essid: string): string => {
+  const host = generateHomeLan(essid)
+    .hosts.filter((candidate) => candidate.kind === 'machine')
+    .at(-1);
+  if (host === undefined) throw new Error('no machine host on LAN');
+  return hostMachineId(host, essid);
+};
+
+const sessionOn =
+  (essid: string, userType: UserType = 'guest') =>
+  async (): Promise<FindActiveSessionResult> => ({
+    data: { username: 'someone', userType, essid },
+    error: null,
+  });
 
 const sampleRow = (over: Partial<PersistedPatchRow> = {}): PersistedPatchRow => ({
   writer_key: 'a'.repeat(64),
@@ -118,24 +141,57 @@ describe('handleListPatches', () => {
     expect(listPatches).not.toHaveBeenCalled();
   });
 
-  it('returns a foreign machine’s patches when an active ssh session exists there', async () => {
+  it('returns the journal of a machine the session’s network generates', async () => {
     const id = generateIdentity();
-    const foreign = 'darkstar-12345678';
+    const generated = generatedHostOn(ESSID);
     const rows = [
-      sampleRow({ writer_key: id.publicKeyHex, machine_id: foreign, path: '/tmp/pwned' }),
+      sampleRow({ writer_key: id.publicKeyHex, machine_id: generated, path: '/tmp/pwned' }),
     ];
     const { deps } = makeDeps({
       listPatches: async () => ({ data: rows, error: null }),
-      findActiveSession: async () => ({
-        data: { username: 'root', userType: 'root', essid: 'VANDELAY' },
-        error: null,
-      }),
+      findActiveSession: sessionOn(ESSID),
     });
-    const envelope = signRequest(id, 'listPatches', { machine_id: foreign });
+    const envelope = signRequest(id, 'listPatches', { machine_id: generated });
 
     const result = await handleListPatches(envelope, deps);
 
     expect(result).toEqual({ status: 200, body: { ok: true, patches: rows } });
+  });
+
+  it('refuses the journal of another player’s workstation to a visitor holding a session on it', async () => {
+    const visitor = generateIdentity();
+    const workstation = computeWorkstationId('skylab', generateIdentity().publicKeyHex);
+    const { deps, listPatches } = makeDeps({ findActiveSession: sessionOn(ESSID, 'root') });
+    const envelope = signRequest(visitor, 'listPatches', { machine_id: workstation });
+
+    const result = await handleListPatches(envelope, deps);
+
+    expect(result).toEqual({ status: 403, body: { error: 'permission_denied' } });
+    expect(listPatches).not.toHaveBeenCalled();
+  });
+
+  it('refuses the journal of the access point’s own gateway, which belongs to no player', async () => {
+    const visitor = generateIdentity();
+    const { deps, listPatches } = makeDeps({ findActiveSession: sessionOn(ESSID, 'root') });
+    const envelope = signRequest(visitor, 'listPatches', {
+      machine_id: computeApGatewayId(ESSID),
+    });
+
+    const result = await handleListPatches(envelope, deps);
+
+    expect(result).toEqual({ status: 403, body: { error: 'permission_denied' } });
+    expect(listPatches).not.toHaveBeenCalled();
+  });
+
+  it('refuses a generated machine of a network other than the one the session was opened on', async () => {
+    const visitor = generateIdentity();
+    const { deps, listPatches } = makeDeps({ findActiveSession: sessionOn('SOME-OTHER-WIFI') });
+    const envelope = signRequest(visitor, 'listPatches', { machine_id: generatedHostOn(ESSID) });
+
+    const result = await handleListPatches(envelope, deps);
+
+    expect(result).toEqual({ status: 403, body: { error: 'permission_denied' } });
+    expect(listPatches).not.toHaveBeenCalled();
   });
 
   it('does not consult the sessions table for an own-workstation read (L1 bypass)', async () => {

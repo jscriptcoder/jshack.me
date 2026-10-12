@@ -156,7 +156,6 @@ sequenceDiagram
     else unchanged
         P->>DB: upsert row (writer_key = B)
         P-->>B: 200 ok
-        B->>P: listPatches (refetch the journal)
         B->>N: resolveCrossPlayerFs (refetch the served tree)
     end
     Note over DB: Nothing is pushed to A. A sees the change on their next refetch.

@@ -13,8 +13,9 @@
 //      A wipe that sticks shows ONLY C's line; a resurrection shows B's line again.
 //   4–5. The same with `rm` (a removePatch tombstone) instead of a truncate.
 //
-// "What a reader sees" is the row `orderPatchesForReplay` puts last among every writer's
-// rows for the path, as the client fold does — read through the real `listPatches`.
+// "What a reader sees" is the file in the tree the server serves a session holder on the
+// gateway — the only way a visitor reads that box, since its raw journal is refused to
+// them. The rows behind it are read with the service role, for the detail line only.
 //
 // Usage (with v2 supabase + vercel dev running):
 //   npx dotenv -e .env.development.local -- npx tsx scripts/testLogWipeSticks.ts
@@ -29,10 +30,14 @@ import { computeApGatewayId } from '../src/core/identity/router.js';
 import { md5 } from '../src/core/generation/md5.js';
 import { seedApGatewayAdminPw } from '../src/core/generation/routerFs.js';
 import { orderPatchesForReplay } from '../src/core/patches/orderPatchesForReplay.js';
+import { deserializeTree, type SerializedDirectory } from '../src/core/filesystem/treeCodec.js';
+import { createFsView } from '../src/core/filesystem/fsView.js';
+import { asAbsPath } from '../src/core/types.js';
 import { publicAddressOf } from './publicAddressOf.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const PATCHES = process.env.PATCHES_ENDPOINT ?? 'http://localhost:3100/api/patches';
+const NETWORK = process.env.NETWORK_ENDPOINT ?? 'http://localhost:3100/api/network';
 const url = process.env.SUPABASE_URL;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -123,23 +128,32 @@ const login = (actor: ReturnType<typeof generateIdentity>, sessionId: string, pa
   );
 
 type ListedRow = {
-  readonly path: string;
   readonly content: string | null;
   readonly updated_at: string;
   readonly writer_key: string;
 };
 
-/** The auth.log a reader holding a session materializes: every writer's row for the
- *  path, replayed in order, the last one winning. `null` = absent (a tombstone). */
+/** The auth.log a reader holding a session on the gateway is served, with every
+ *  writer's row for the path beside it in replay order. `null` = absent (a tombstone). */
 const readerView = async (): Promise<{ content: string | null; writers: string }> => {
-  const listed = await post(PATCHES, signRequest(bob, 'listPatches', { machine_id: GATEWAY }));
-  const rows = ((listed.body as { patches?: ListedRow[] } | null)?.patches ?? []).filter(
-    (row) => row.path === AUTH_LOG,
+  const served = await post(
+    NETWORK,
+    signRequest(bob, 'resolveCrossPlayerFs', { machine_id: GATEWAY }),
   );
-  const ordered = orderPatchesForReplay(rows);
-  const last = ordered.at(-1);
+  const node =
+    served.status === 200
+      ? createFsView(deserializeTree((served.body as { tree: SerializedDirectory }).tree), {
+          userType: 'root',
+        }).stat(asAbsPath(AUTH_LOG))
+      : null;
+  const stored = await sr
+    .from('patches')
+    .select('content, updated_at, writer_key')
+    .eq('machine_id', GATEWAY)
+    .eq('path', AUTH_LOG);
+  const ordered = orderPatchesForReplay((stored.data ?? []) as readonly ListedRow[]);
   return {
-    content: last === undefined ? null : last.content,
+    content: node !== null && node.kind === 'file' ? node.content : null,
     writers: ordered
       .map(
         (row) =>

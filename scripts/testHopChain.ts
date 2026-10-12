@@ -27,12 +27,15 @@ import { computeWorkstationId } from '../src/core/identity/workstation.js';
 import { computeApGatewayId } from '../src/core/identity/router.js';
 import { seedApGatewayAdminPw } from '../src/core/generation/routerFs.js';
 import { networkAt } from '../src/core/generation/world.js';
-import { orderPatchesForReplay } from '../src/core/patches/orderPatchesForReplay.js';
+import { deserializeTree, type SerializedDirectory } from '../src/core/filesystem/treeCodec.js';
+import { createFsView } from '../src/core/filesystem/fsView.js';
+import { asAbsPath } from '../src/core/types.js';
 import { publicAddressOf } from './publicAddressOf.js';
 import { standOnNetwork } from './standVantage.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const PATCHES = process.env.PATCHES_ENDPOINT ?? 'http://localhost:3100/api/patches';
+const NETWORK = process.env.NETWORK_ENDPOINT ?? 'http://localhost:3100/api/network';
 const url = process.env.SUPABASE_URL;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -119,21 +122,20 @@ const login = (
     }),
   );
 
-type ListedRow = {
-  readonly path: string;
-  readonly content: string | null;
-  readonly updated_at: string;
-  readonly writer_key: string;
-};
-
-/** The auth.log a defender holding a shell on the box reads: every writer's row for the
- *  path, replayed in order, the last one winning. `null` = absent. */
+/** The auth.log a defender holding a shell on the box reads: the file in the tree the
+ *  server serves them, which is the only way a visitor reads a gateway — its raw journal
+ *  is refused to them. `null` = absent. */
 const readAuthLog = async (machineId: string): Promise<string | null> => {
-  const listed = await post(PATCHES, signRequest(bob, 'listPatches', { machine_id: machineId }));
-  const rows = ((listed.body as { patches?: ListedRow[] } | null)?.patches ?? []).filter(
-    (row) => row.path === AUTH_LOG,
+  const served = await post(
+    NETWORK,
+    signRequest(bob, 'resolveCrossPlayerFs', { machine_id: machineId }),
   );
-  return orderPatchesForReplay(rows).at(-1)?.content ?? null;
+  if (served.status !== 200) return null;
+  const node = createFsView(
+    deserializeTree((served.body as { tree: SerializedDirectory }).tree),
+    { userType: 'root' },
+  ).stat(asAbsPath(AUTH_LOG));
+  return node !== null && node.kind === 'file' ? node.content : null;
 };
 
 /** The address the last accepted root login on a box came from, as a defender reads it. */
